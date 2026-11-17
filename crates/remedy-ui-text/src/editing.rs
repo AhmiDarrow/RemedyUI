@@ -662,4 +662,17 @@ impl SecretEditor {
     pub fn select_all(&mut self) {
         self.sel = TextSelection { anchor: 0, focus: self.secret.len() };
     }
+
+    /// Sets the selection (byte indices, snapped down to character boundaries).
+    pub fn set_selection(&mut self, anchor: usize, focus: usize) {
+        let s = self.secret.expose();
+        let snap = |i: usize| {
+            let mut i = i.min(s.len());
+            while !s.is_char_boundary(i) {
+                i -= 1;
+            }
+            i
+        };
+        self.sel = TextSelection { anchor: snap(anchor), focus: snap(focus) };
+    }
 }

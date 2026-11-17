@@ -29,6 +29,8 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-secure", 3),
     // The host model: the platform-neutral contract bridges implement.
     ("remedy-ui-host", 3),
+    // The view layer: elements, the frame pipeline and input routing, over L0-L3.
+    ("remedy-ui-view", 4),
     ("remedy-ui-render-gpu", 4),
     ("remedy-ui-render-cpu", 4),
     // The desktop bridges share one winit core.

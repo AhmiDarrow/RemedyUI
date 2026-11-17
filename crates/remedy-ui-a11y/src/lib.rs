@@ -28,6 +28,9 @@ use std::collections::{BTreeSet, HashMap};
 use accesskit::{Node, NodeId, Rect as AkRect, TreeId, TreeInfo, TreeUpdate};
 use remedy_ui_core::Rect;
 
+/// AccessKit's tree update, which platform adapters consume.
+pub use accesskit::TreeUpdate as AccessKitUpdate;
+
 /// What an element is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
@@ -47,6 +50,8 @@ pub enum Role {
     Slider,
     /// A text input.
     TextInput,
+    /// A text input with several lines.
+    MultilineTextInput,
     /// A password input: its text is never exposed.
     PasswordInput,
     /// A link.
@@ -486,6 +491,7 @@ fn role(r: Role) -> accesskit::Role {
         Role::Radio => R::RadioButton,
         Role::Slider => R::Slider,
         Role::TextInput => R::TextInput,
+        Role::MultilineTextInput => R::MultilineTextInput,
         Role::PasswordInput => R::PasswordInput,
         Role::Link => R::Link,
         Role::List => R::List,

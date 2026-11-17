@@ -175,6 +175,9 @@ pub struct KeyEvent {
     pub repeat: bool,
     /// True while an input method is composing; shortcuts do not fire then.
     pub composing: bool,
+    /// The text the key typed with the current layout and modifiers (case, dead keys,
+    /// AltGr), when it typed any. Text fields insert this, not the key.
+    pub text: Option<String>,
 }
 
 /// A scroll from a wheel or touchpad.

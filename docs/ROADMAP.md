@@ -106,6 +106,8 @@ Open in M3:
 
 ## M5. First app: SecretSticky
 
+**Status:** in progress. `remedy-ui-view` is built (an L4 crate, so every widget pack builds on the same public API apps use): elements with theme-styled widget names, variants and states; reactive bindings that mark only the work a change needs; text and editable fields (single-line, multi-line, secret) with undo, clipboard requests and input-method composition; per-element paint chunks re-recorded only when dirty; layers assembled with scroll containers on the compositor and paint order kept around them; hover, press, click, focus and Tab routing; hit testing that follows scroll offsets; semantics for AccessKit with secrets never exposed. `KeyEvent` gained the typed text (case, layout, AltGr).
+
 **Crates:** `widgets-core`, `widgets-forms`, `themes`, `secure` (idle lock, sensitive clipboard, capture protection), `services-desktop` (tray, single instance, dialogs), `services-update`, `devtools` v1 (inspector, previews), and `cargo-remedy` (`new`, `run`, `package` for Windows).
 
 **Done when:**
