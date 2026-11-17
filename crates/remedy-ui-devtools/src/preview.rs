@@ -1,0 +1,386 @@
+//! Previews: a piece of UI rendered in every variation asked for (themes, locales, sizes,
+//! text scales), shown side by side, and checked against golden images.
+
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::sync::Arc;
+use std::time::Duration;
+
+use remedy_ui_compositor::Compositor;
+use remedy_ui_core::{Color, Size};
+use remedy_ui_input::ScrollPhysics;
+use remedy_ui_layout::Direction;
+use remedy_ui_render_cpu::CpuCompositor;
+use remedy_ui_style::Theme;
+use remedy_ui_text::FontCollection;
+use remedy_ui_view::{El, Ui};
+use remedy_ui_widgets_core as w;
+
+/// Builds the UI under preview into a [`Ui`] (theme, locale and fonts are already set).
+pub type PreviewBuilder = Rc<dyn Fn(&Ui) -> El>;
+
+/// A named piece of UI and the variations to show it in.
+#[derive(Clone)]
+pub struct Preview {
+    /// Its name (also the golden-image file name).
+    pub name: String,
+    build: PreviewBuilder,
+    /// Palette ids from the theme pack (`forest`, …).
+    pub themes: Vec<String>,
+    /// BCP 47 locales; right-to-left ones lay out mirrored.
+    pub locales: Vec<String>,
+    /// Window sizes in logical pixels.
+    pub sizes: Vec<(f32, f32)>,
+    /// Text scales (1.0 is the theme's own).
+    pub text_scales: Vec<f32>,
+    /// Device pixels per logical pixel.
+    pub scale: f32,
+}
+
+impl std::fmt::Debug for Preview {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Preview({})", self.name)
+    }
+}
+
+/// One rendering of a preview.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Variation {
+    /// Palette id.
+    pub theme: String,
+    /// Locale.
+    pub locale: String,
+    /// Window size.
+    pub size: (f32, f32),
+    /// Text scale.
+    pub text_scale: f32,
+}
+
+impl Variation {
+    /// A file-name-safe tag: `forest-en-US-400x600-1.0`.
+    pub fn tag(&self) -> String {
+        format!(
+            "{}-{}-{}x{}-{:.1}",
+            self.theme, self.locale, self.size.0 as u32, self.size.1 as u32, self.text_scale
+        )
+    }
+
+    /// A caption: `forest · en-US · 400×600 · 1.0×`.
+    pub fn caption(&self) -> String {
+        format!(
+            "{} · {} · {}×{} · {:.1}×",
+            self.theme, self.locale, self.size.0 as u32, self.size.1 as u32, self.text_scale
+        )
+    }
+}
+
+impl Preview {
+    /// A preview of what `build` makes, in the first palette, en-US, 400×300, at 1×.
+    pub fn new(name: impl Into<String>, build: impl Fn(&Ui) -> El + 'static) -> Self {
+        let first =
+            remedy_ui_themes::PALETTES.first().map_or_else(|| "forest".to_owned(), |p| p.id.to_owned());
+        Preview {
+            name: name.into(),
+            build: Rc::new(build),
+            themes: vec![first],
+            locales: vec!["en-US".into()],
+            sizes: vec![(400.0, 300.0)],
+            text_scales: vec![1.0],
+            scale: 1.0,
+        }
+    }
+
+    /// Shows it in these palettes.
+    pub fn themes(mut self, ids: &[&str]) -> Self {
+        self.themes = ids.iter().map(|s| (*s).to_owned()).collect();
+        self
+    }
+
+    /// Shows it in these locales.
+    pub fn locales(mut self, tags: &[&str]) -> Self {
+        self.locales = tags.iter().map(|s| (*s).to_owned()).collect();
+        self
+    }
+
+    /// Shows it at these window sizes.
+    pub fn sizes(mut self, sizes: &[(f32, f32)]) -> Self {
+        self.sizes = sizes.to_vec();
+        self
+    }
+
+    /// Shows it at these text scales.
+    pub fn text_scales(mut self, scales: &[f32]) -> Self {
+        self.text_scales = scales.to_vec();
+        self
+    }
+
+    /// Every combination of its themes, locales, sizes and text scales.
+    pub fn variations(&self) -> Vec<Variation> {
+        let mut out = Vec::new();
+        for theme in &self.themes {
+            for locale in &self.locales {
+                for size in &self.sizes {
+                    for text_scale in &self.text_scales {
+                        out.push(Variation {
+                            theme: theme.clone(),
+                            locale: locale.clone(),
+                            size: *size,
+                            text_scale: *text_scale,
+                        });
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Renders one variation with the CPU renderer (deterministic pixels).
+    pub fn render(&self, v: &Variation) -> Snapshot {
+        let theme = theme_for(v);
+        let fonts = bundled_fonts();
+        let ui = Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), fonts);
+        ui.set_locale(v.locale.clone());
+        ui.set_reduced_motion(true);
+        let content = (self.build)(&ui);
+        let root = ui.root();
+        if is_rtl(&v.locale) {
+            let _ = root.clone().layout(|l| l.direction = Direction::Rtl);
+        }
+        let _ = root.child(content);
+        let scale = self.scale.max(0.25);
+        let (lw, lh) = v.size;
+        let (pw, ph) = ((lw * scale).round().max(1.0) as u32, (lh * scale).round().max(1.0) as u32);
+        let mut comp = Compositor::new(pw, ph, scale, ScrollPhysics::CLAMPED);
+        comp.set_reduced_motion(true);
+        let mut cpu = CpuCompositor::new();
+        let mut pixels = vec![0u8; (pw * ph * 4) as usize];
+        // A few frames: layout settles, bindings that react to bounds run.
+        for n in 0..3u64 {
+            let f = ui.frame(Size::new(lw, lh), scale);
+            if let Some(l) = f.layers {
+                comp.commit(l);
+            }
+            let _ = ui.take_requests();
+            let plan = comp.frame(Duration::from_millis(16 * (n + 1)));
+            if let Ok(fr) = cpu.present(&plan, pw, ph, theme.colors.bg) {
+                pixels = fr.pixels;
+            }
+        }
+        Snapshot { width: pw, height: ph, rgba: pixels }
+    }
+}
+
+fn bundled_fonts() -> FontCollection {
+    #[cfg(feature = "system-fonts")]
+    let mut f = FontCollection::with_system_fonts();
+    #[cfg(not(feature = "system-fonts"))]
+    let mut f = FontCollection::new();
+    for face in remedy_ui_fonts::all() {
+        let _ = f.add_static(face.data);
+    }
+    f
+}
+
+fn theme_for(v: &Variation) -> Theme {
+    let mut t = remedy_ui_themes::palette(&v.theme).map_or_else(Theme::dark_forest, remedy_ui_themes::theme);
+    let s = v.text_scale.clamp(0.5, 4.0);
+    t.type_scale.small *= s;
+    t.type_scale.body *= s;
+    t.type_scale.title *= s;
+    t
+}
+
+/// True for locales written right to left.
+pub fn is_rtl(locale: &str) -> bool {
+    remedy_ui_text::is_rtl_locale(locale)
+}
+
+/// Rendered pixels: premultiplied RGBA8, row by row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Snapshot {
+    /// Width in pixels.
+    pub width: u32,
+    /// Height in pixels.
+    pub height: u32,
+    /// Premultiplied RGBA8.
+    pub rgba: Vec<u8>,
+}
+
+impl Snapshot {
+    /// The pixel at `(x, y)`, premultiplied.
+    pub fn pixel(&self, x: u32, y: u32) -> Option<[u8; 4]> {
+        let i = ((y * self.width + x) * 4) as usize;
+        self.rgba.get(i..i + 4)?.try_into().ok()
+    }
+
+    /// As an image element source.
+    pub fn image(&self) -> remedy_ui_paint::Image {
+        // FNV-1a over the pixels: the same pixels share a cache entry.
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for b in &self.rgba {
+            h = (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3);
+        }
+        remedy_ui_paint::Image {
+            id: h,
+            width: self.width,
+            height: self.height,
+            pixels: Arc::from(self.rgba.as_slice()),
+        }
+    }
+
+    /// Encodes as PNG (straight alpha, as PNG stores it).
+    pub fn to_png(&self) -> Result<Vec<u8>, String> {
+        let mut straight = self.rgba.clone();
+        for p in straight.chunks_mut(4) {
+            if let [r, g, b, a] = p
+                && *a != 0
+                && *a != 255
+            {
+                for c in [r, g, b] {
+                    *c = ((u32::from(*c) * 255 + u32::from(*a) / 2) / u32::from(*a)).min(255) as u8;
+                }
+            }
+        }
+        let mut out = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut out, self.width, self.height);
+            enc.set_color(png::ColorType::Rgba);
+            enc.set_depth(png::BitDepth::Eight);
+            let mut w = enc.write_header().map_err(|e| e.to_string())?;
+            w.write_image_data(&straight).map_err(|e| e.to_string())?;
+        }
+        Ok(out)
+    }
+
+    /// Decodes a PNG written by [`Snapshot::to_png`].
+    pub fn from_png(bytes: &[u8]) -> Result<Snapshot, String> {
+        let dec = png::Decoder::new(std::io::Cursor::new(bytes));
+        let mut r = dec.read_info().map_err(|e| e.to_string())?;
+        let size = r.output_buffer_size().ok_or("image too large")?;
+        let mut buf = vec![0u8; size];
+        let info = r.next_frame(&mut buf).map_err(|e| e.to_string())?;
+        if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+            return Err("not 8-bit RGBA".into());
+        }
+        buf.truncate(info.buffer_size());
+        for p in buf.chunks_mut(4) {
+            if let [r, g, b, a] = p {
+                for c in [r, g, b] {
+                    *c = ((u32::from(*c) * u32::from(*a) + 127) / 255) as u8;
+                }
+            }
+        }
+        Ok(Snapshot { width: info.width, height: info.height, rgba: buf })
+    }
+
+    /// How many pixels differ by more than `tolerance` in any channel (all of them when the
+    /// sizes differ).
+    pub fn diff(&self, other: &Snapshot, tolerance: u8) -> usize {
+        if (self.width, self.height) != (other.width, other.height) {
+            return (self.width * self.height).max(other.width * other.height) as usize;
+        }
+        self.rgba
+            .chunks(4)
+            .zip(other.rgba.chunks(4))
+            .filter(|(a, b)| a.iter().zip(b.iter()).any(|(x, y)| x.abs_diff(*y) > tolerance))
+            .count()
+    }
+}
+
+/// Why a golden-image check failed.
+#[derive(Debug, PartialEq, Eq)]
+pub enum GoldenError {
+    /// There was no golden image; one was written for review.
+    Missing(PathBuf),
+    /// The rendering differs from the golden image; the new one was written beside it.
+    Differs {
+        /// The golden image.
+        golden: PathBuf,
+        /// The rendering, written as `<name>.actual.png`.
+        actual: PathBuf,
+        /// Pixels that differ.
+        pixels: usize,
+    },
+    /// Reading or writing failed.
+    Io(String),
+}
+
+impl std::fmt::Display for GoldenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GoldenError::Missing(p) => write!(f, "no golden image; wrote {} for review", p.display()),
+            GoldenError::Differs { golden, actual, pixels } => {
+                write!(f, "{pixels} pixels differ from {} (see {})", golden.display(), actual.display())
+            }
+            GoldenError::Io(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+/// Pixel channels may differ by this much (antialiasing across platforms' float math).
+pub const GOLDEN_TOLERANCE: u8 = 8;
+
+/// Checks every variation of `preview` against `dir/<name>-<variation>.png`. A missing
+/// image is written and reported; with `REMEDY_UPDATE_GOLDEN=1` every image is rewritten
+/// and the check passes.
+pub fn check_golden(preview: &Preview, dir: &Path) -> Result<(), GoldenError> {
+    let update = std::env::var_os("REMEDY_UPDATE_GOLDEN").is_some_and(|v| v == "1");
+    std::fs::create_dir_all(dir).map_err(|e| GoldenError::Io(e.to_string()))?;
+    let safe: String =
+        preview.name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect();
+    for v in preview.variations() {
+        let shot = preview.render(&v);
+        let path = dir.join(format!("{safe}-{}.png", v.tag()));
+        let write = |p: &Path, s: &Snapshot| -> Result<(), GoldenError> {
+            let bytes = s.to_png().map_err(GoldenError::Io)?;
+            std::fs::write(p, bytes).map_err(|e| GoldenError::Io(e.to_string()))
+        };
+        if update {
+            write(&path, &shot)?;
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&path) else {
+            write(&path, &shot)?;
+            return Err(GoldenError::Missing(path));
+        };
+        let golden = Snapshot::from_png(&bytes).map_err(GoldenError::Io)?;
+        let pixels = shot.diff(&golden, GOLDEN_TOLERANCE);
+        if pixels > 0 {
+            let actual = path.with_extension("actual.png");
+            write(&actual, &shot)?;
+            return Err(GoldenError::Differs { golden: path, actual, pixels });
+        }
+    }
+    Ok(())
+}
+
+/// Every preview's variations side by side, each captioned.
+#[track_caller]
+pub fn gallery(ui: &Ui, previews: &[Preview]) -> El {
+    let unit = ui.theme().spacing.unit;
+    let mut col = w::column(ui).gap(unit * 6.0).padding(remedy_ui_core::Insets::all(unit * 4.0)).fill_width();
+    for p in previews {
+        let mut row = w::wrap(ui).gap(unit * 4.0);
+        for v in p.variations() {
+            let shot = p.render(&v);
+            let caption = v.caption();
+            row = row.child(
+                w::column(ui)
+                    .gap(unit)
+                    .child(
+                        w::image(ui, shot.image(), format!("{} preview, {caption}", p.name))
+                            .width(v.size.0)
+                            .height(v.size.1),
+                    )
+                    .child(w::label(ui, caption, "muted")),
+            );
+        }
+        col = col.child(w::section(ui, &p.name).child(row));
+    }
+    w::scroll(ui).grow(1.0).fill_width().child(col)
+}
+
+/// The background a variation draws on (its theme's).
+pub fn background(v: &Variation) -> Color {
+    theme_for(v).colors.bg
+}

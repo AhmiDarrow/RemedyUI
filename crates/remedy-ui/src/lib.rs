@@ -30,6 +30,8 @@ pub use runner::{
 };
 
 pub use remedy_ui_core as core;
+#[cfg(feature = "devtools")]
+pub use remedy_ui_devtools as devtools;
 pub use remedy_ui_host as host;
 pub use remedy_ui_input as input;
 pub use remedy_ui_layout as layout;
@@ -80,4 +82,23 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
         drop(runner);
         Err(RunError("no bridge for this platform yet".into()))
     }
+}
+
+/// Opens a window showing every preview's variations side by side (devtools).
+#[cfg(feature = "devtools")]
+pub fn show_previews(previews: Vec<remedy_ui_devtools::Preview>) -> Result<(), RunError> {
+    let (theme, _) = remedy_ui_devtools::tool_style();
+    let config = AppConfig::new("RemedyUI previews").theme(theme, remedy_ui_themes_sheet);
+    run(config, move |app| {
+        app.open(WindowSpec::new("Previews").size(1100.0, 800.0), move |ui, _| {
+            let (theme, sheet) = remedy_ui_devtools::tool_style();
+            ui.set_theme(theme, sheet);
+            ui.root().child(remedy_ui_devtools::gallery(ui, &previews));
+        });
+    })
+}
+
+#[cfg(feature = "devtools")]
+fn remedy_ui_themes_sheet(_: &remedy_ui_style::Theme) -> remedy_ui_style::StyleSheet {
+    remedy_ui_devtools::tool_style().1
 }

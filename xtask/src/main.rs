@@ -93,6 +93,12 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-media-anim", "remedy-ui-media-image"),
     // The update banner is a widget.
     ("remedy-ui-services-update", "remedy-ui-widgets-core"),
+    // The inspector and preview gallery are built from widgets, and previews render with
+    // the theme pack's palettes and the bundled fonts.
+    ("remedy-ui-devtools", "remedy-ui-widgets-core"),
+    ("remedy-ui-devtools", "remedy-ui-widgets-forms"),
+    ("remedy-ui-devtools", "remedy-ui-themes"),
+    ("remedy-ui-devtools", "remedy-ui-fonts"),
     // The compositor holds display lists and runs motion curves on its own thread.
     ("remedy-ui-compositor", "remedy-ui-paint"),
     ("remedy-ui-compositor", "remedy-ui-motion"),

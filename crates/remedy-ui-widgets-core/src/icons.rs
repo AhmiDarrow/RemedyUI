@@ -280,6 +280,7 @@ pub(crate) fn draw(icon: Icon, cx: &mut PaintCx<'_>) {
 }
 
 /// An icon `size` logical pixels square, decorative (its parent names it).
+#[track_caller]
 pub fn icon(ui: &Ui, icon: Icon, size: f32) -> El {
     ui.el("icon")
         .width(size)
@@ -290,11 +291,13 @@ pub fn icon(ui: &Ui, icon: Icon, size: f32) -> El {
 }
 
 /// An image (premultiplied RGBA), fitted into the element and described by `alt`.
+#[track_caller]
 pub fn image(ui: &Ui, image: remedy_ui_paint::Image, alt: impl Into<String>) -> El {
     ui.el("image").image(image).semantics(Semantics::new(Role::Image).label(alt.into()))
 }
 
 /// A round badge with initials on a color: a person or an item without a picture.
+#[track_caller]
 pub fn avatar(ui: &Ui, name: &str, size: f32, color: remedy_ui_core::Color) -> El {
     let initials: String = name
         .split_whitespace()
@@ -329,6 +332,7 @@ pub fn avatar(ui: &Ui, name: &str, size: f32, color: remedy_ui_core::Color) -> E
 
 /// A drawing surface: `paint` records into the element's display list each time it is
 /// repainted ([`El::repaint`]).
+#[track_caller]
 pub fn canvas(ui: &Ui, paint: impl Fn(&mut PaintCx<'_>) + 'static) -> El {
     ui.el("canvas").paint(paint)
 }

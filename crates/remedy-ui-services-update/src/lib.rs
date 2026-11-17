@@ -316,6 +316,7 @@ pub enum UpdateState {
 
 /// A strip that shows an update's state, with Install (when one is available) and Restart
 /// (when it is ready) buttons. It is empty while idle.
+#[track_caller]
 pub fn update_banner(
     ui: &remedy_ui_view::Ui,
     state: remedy_ui_reactive::Signal<UpdateState>,

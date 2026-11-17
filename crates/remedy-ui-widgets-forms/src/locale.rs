@@ -211,7 +211,10 @@ pub struct CalendarSymbols {
     pub weekdays: [String; 7],
     /// True when times are written with AM/PM.
     pub twelve_hour: bool,
+    /// The locale's AM and PM markers, when it writes 12-hour times.
+    pub day_periods: Option<(String, String)>,
     month_year: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YM>>>,
+    time: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::T>>>,
     full_date: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YMD>>>,
 }
 
@@ -249,14 +252,30 @@ impl CalendarSymbols {
             (Some(f), Some(d)) => f.format(d).to_string(),
             _ => english.get(i).copied().unwrap_or_default().to_owned(),
         });
-        let twelve_hour =
-            FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new((&loc).into(), fieldsets::T::hm())
-                .ok()
-                .and_then(|f| {
-                    let t = icu_datetime::input::Time::try_new(13, 0, 0, 0).ok()?;
-                    Some(!f.format(&t).to_string().contains("13"))
+        let time = FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new((&loc).into(), fieldsets::T::hm())
+            .ok()
+            .map(Rc::new);
+        let fmt = |h: u8| -> Option<String> {
+            let t = icu_datetime::input::Time::try_new(h, 0, 0, 0).ok()?;
+            Some(time.as_ref()?.format(&t).to_string())
+        };
+        let digits = NumberSymbols::for_locale(tag).digits;
+        // What is left of a formatted hour once digits and separators go: the day period.
+        let marker = |s: &str| -> String {
+            s.chars()
+                .filter(|c| {
+                    !c.is_ascii_digit()
+                        && !digits.contains(c)
+                        && !matches!(c, ':' | '.' | '\u{200E}' | '\u{200F}' | '\u{061C}')
                 })
-                .unwrap_or(false);
+                .collect::<String>()
+                .trim()
+                .to_owned()
+        };
+        let one = fmt(1).unwrap_or_default();
+        let thirteen = fmt(13).unwrap_or_default();
+        let twelve_hour = !marker(&one).is_empty() && marker(&one) != marker(&thirteen);
+        let day_periods = twelve_hour.then(|| (marker(&one), marker(&thirteen)));
         let month_year =
             FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new((&loc).into(), fieldsets::YM::long())
                 .ok()
@@ -265,7 +284,7 @@ impl CalendarSymbols {
             FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new((&loc).into(), fieldsets::YMD::long())
                 .ok()
                 .map(Rc::new);
-        CalendarSymbols { first_weekday, weekdays, twelve_hour, month_year, full_date }
+        CalendarSymbols { first_weekday, weekdays, twelve_hour, day_periods, month_year, time, full_date }
     }
 
     /// "November 2026" for a month.
@@ -284,6 +303,34 @@ impl CalendarSymbols {
             (Some(f), Some(d)) => f.format(&d).to_string(),
             _ => date.to_string(),
         }
+    }
+
+    /// A time as the locale writes it (`14:30`, `2:30 PM`, or with Arabic digits and the
+    /// Arabic day period).
+    pub fn format_time(&self, t: crate::date::Time) -> String {
+        let it = icu_datetime::input::Time::try_new(t.hour, t.minute, 0, 0).ok();
+        match (&self.time, it) {
+            (Some(f), Some(it)) => f.format(&it).to_string(),
+            _ => t.format(self.twelve_hour),
+        }
+    }
+
+    /// Reads a time typed the locale's way, or as `13:05` / `1:05 pm`.
+    pub fn parse_time(&self, s: &str, numbers: &NumberSymbols) -> Option<crate::date::Time> {
+        let mut t: String = s
+            .chars()
+            .filter(|c| !matches!(c, '\u{200E}' | '\u{200F}' | '\u{061C}'))
+            .map(|c| numbers.digits.iter().position(|d| *d == c).map_or(c, |d| char::from(b'0' + d as u8)))
+            .collect();
+        if let Some((am, pm)) = &self.day_periods {
+            // The marker may come before the time (Korean) or after it.
+            if !pm.is_empty() && t.contains(pm.as_str()) {
+                t = format!("{} pm", t.replace(pm.as_str(), "").trim());
+            } else if !am.is_empty() && t.contains(am.as_str()) {
+                t = format!("{} am", t.replace(am.as_str(), "").trim());
+            }
+        }
+        crate::date::Time::parse(&t)
     }
 
     /// The short name of a weekday.

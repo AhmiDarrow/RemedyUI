@@ -80,6 +80,7 @@ fn hex(c: Color) -> String {
 /// hex field and a preview. With `against`, it shows the contrast ratio of the color on that
 /// background and its WCAG grade. Every part works from the keyboard: arrows move by 1%
 /// (Shift: 10%), and hue by 1° (Shift: 10°).
+#[track_caller]
 pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, against: Option<Color>) -> El {
     let label = label.into();
     let unit = ui.theme().spacing.unit;

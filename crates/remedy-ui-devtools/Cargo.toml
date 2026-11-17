@@ -1,0 +1,34 @@
+[package]
+name = "remedy-ui-devtools"
+description = "RemedyUI devtools: the element inspector with an accessibility check and live theme editing, and previews rendered in variations, shown side by side and used as golden-image tests."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+png = { version = "=0.18.1" }
+remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "0.1.0" }
+remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "0.1.0" }
+remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
+remedy-ui-layout = { path = "../remedy-ui-layout", version = "0.1.0" }
+remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
+remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
+remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "0.1.0" }
+remedy-ui-style = { path = "../remedy-ui-style", version = "0.1.0" }
+remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
+remedy-ui-themes = { path = "../remedy-ui-themes", version = "0.1.0" }
+remedy-ui-view = { path = "../remedy-ui-view", version = "0.1.0" }
+remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "0.1.0" }
+remedy-ui-widgets-forms = { path = "../remedy-ui-widgets-forms", version = "0.1.0" }
+
+[features]
+## Previews fall back to the system's fonts for scripts the bundled fonts lack.
+system-fonts = ["remedy-ui-text/system-fonts"]
+
+[lints]
+workspace = true

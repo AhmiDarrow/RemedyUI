@@ -7,21 +7,25 @@ use remedy_ui_reactive::Signal;
 use remedy_ui_view::{El, Ui};
 
 /// Children in a column.
+#[track_caller]
 pub fn column(ui: &Ui) -> El {
     ui.el("column").column()
 }
 
 /// Children in a row.
+#[track_caller]
 pub fn row(ui: &Ui) -> El {
     ui.el("row").row()
 }
 
 /// Children in rows that wrap onto the next line.
+#[track_caller]
 pub fn wrap(ui: &Ui) -> El {
     ui.el("wrap").row().layout(|l| l.wrap = true)
 }
 
 /// Children on top of each other, each filling the stack (later ones above).
+#[track_caller]
 pub fn stack(ui: &Ui, children: impl IntoIterator<Item = El>) -> El {
     let s = ui.el("stack").layout(|l| l.position = Position::Relative);
     children.into_iter().fold(s, |s, c| {
@@ -33,11 +37,13 @@ pub fn stack(ui: &Ui, children: impl IntoIterator<Item = El>) -> El {
 }
 
 /// Takes the free space in a row or column.
+#[track_caller]
 pub fn spacer(ui: &Ui) -> El {
     ui.el("spacer").grow(1.0)
 }
 
 /// A thin line between groups: horizontal in a column, vertical in a row (`vertical`).
+#[track_caller]
 pub fn divider(ui: &Ui, vertical: bool) -> El {
     let stroke = ui.theme().stroke;
     ui.el("divider").layout(move |l| {
@@ -53,11 +59,13 @@ pub fn divider(ui: &Ui, vertical: bool) -> El {
 }
 
 /// A raised surface holding related content.
+#[track_caller]
 pub fn card(ui: &Ui) -> El {
     ui.el("card").column()
 }
 
 /// A titled group: the heading names the group for assistive technology.
+#[track_caller]
 pub fn section(ui: &Ui, title: &str) -> El {
     let gap = ui.theme().spacing.unit * 2.0;
     ui.el("section")
@@ -68,6 +76,7 @@ pub fn section(ui: &Ui, title: &str) -> El {
 }
 
 /// A vertically scrolling column; scrolling runs on the compositor.
+#[track_caller]
 pub fn scroll(ui: &Ui) -> El {
     ui.el("scroll").scroll().column().layout(|l| {
         l.grow = 1.0;
@@ -77,6 +86,7 @@ pub fn scroll(ui: &Ui) -> El {
 
 /// Two panes with a draggable divider. `fraction` (0..1) is the first pane's share of the
 /// split's width (`Axis::Row`) or height (`Axis::Column`); dragging and arrow keys move it.
+#[track_caller]
 pub fn split(ui: &Ui, axis: Axis, first: El, second: El, fraction: Signal<f32>) -> El {
     let container = ui.el("split").layout(move |l| {
         l.display = Display::Flex;

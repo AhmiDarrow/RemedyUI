@@ -267,9 +267,25 @@ pub fn month_grid(month: Date, first: Weekday) -> [Date; 42] {
     std::array::from_fn(|i| begin.add_days(i as i64))
 }
 
+/// A chevron button pointing back or forward in reading order: mirrored in right-to-left
+/// locales, where "next" is to the left.
+fn step_button(ui: &Ui, forward: bool, label: &str, on_press: impl Fn() + 'static) -> El {
+    let b = w::icon_button(ui, Icon::ChevronRight, label, on_press);
+    let (b2, u) = (b.clone(), ui.clone());
+    b.bind(move || {
+        let rtl = remedy_ui_text::is_rtl_locale(&u.locale());
+        let glyph = if forward != rtl { Icon::ChevronRight } else { Icon::ChevronLeft };
+        untrack(|| {
+            b2.clear();
+            let _ = b2.clone().child(w::icon(&u, glyph, u.theme().type_scale.body + 3.0));
+        });
+    })
+}
+
 /// A month calendar for choosing a day. Arrow keys move by day and week, Page Up and Page
 /// Down by month (with Shift, by year), Home and End to the week's ends, Enter or Space
 /// chooses. Days outside `min..=max` cannot be chosen.
+#[track_caller]
 pub fn calendar(
     ui: &Ui,
     label: impl Into<String>,
@@ -298,13 +314,9 @@ pub fn calendar(
         .fill_width()
         .align(Align::Center)
         .gap(unit)
-        .child(w::icon_button(ui, Icon::ChevronLeft, "Previous month", move || {
-            cursor.update(|c| *c = c.add_months(-1))
-        }))
+        .child(step_button(ui, false, "Previous month", move || cursor.update(|c| *c = c.add_months(-1))))
         .child(title)
-        .child(w::icon_button(ui, Icon::ChevronRight, "Next month", move || {
-            cursor.update(|c| *c = c.add_months(1))
-        }));
+        .child(step_button(ui, true, "Next month", move || cursor.update(|c| *c = c.add_months(1))));
 
     let grid = ui.el("calendar").column().gap(unit / 2.0).fill_width().focusable(true);
     let g2 = grid.clone();
@@ -417,6 +429,7 @@ pub fn calendar(
 
 /// A date field: shows the chosen date as the locale writes it and opens a [`calendar`] in a
 /// popover. The date can also be typed as `YYYY-MM-DD`.
+#[track_caller]
 pub fn date_picker(
     ui: &Ui,
     label: impl Into<String>,
@@ -461,6 +474,7 @@ pub fn date_picker(
 
 /// A time field: type `13:05` or `1:05 PM`; Up and Down step by `step_minutes` (with Shift,
 /// by an hour). Written in the locale's 12- or 24-hour style.
+#[track_caller]
 pub fn time_picker(ui: &Ui, label: impl Into<String>, value: Signal<Time>, step_minutes: u8) -> El {
     let label = label.into();
     let step = i32::from(step_minutes.max(1));
@@ -470,20 +484,25 @@ pub fn time_picker(ui: &Ui, label: impl Into<String>, value: Signal<Time>, step_
     let show = {
         let f = field.clone();
         move || {
-            let twelve = CalendarSymbols::for_locale(&u2.locale()).twelve_hour;
+            let sym = CalendarSymbols::for_locale(&untrack(|| u2.locale()));
             if let Ok(t) = value.get_untracked() {
-                f.set_value(&t.format(twelve));
+                f.set_value(&sym.format_time(t));
             }
             invalid.set_if_changed(false);
         }
     };
-    let f2 = field.clone();
-    let field = field.on_change(move || match Time::parse(&f2.value()) {
-        Some(t) => {
-            value.set_if_changed(t);
-            invalid.set_if_changed(false);
+    let (f2, u5) = (field.clone(), ui.clone());
+    let field = field.on_change(move || {
+        let tag = untrack(|| u5.locale());
+        let parsed =
+            CalendarSymbols::for_locale(&tag).parse_time(&f2.value(), &NumberSymbols::for_locale(&tag));
+        match parsed {
+            Some(t) => {
+                value.set_if_changed(t);
+                invalid.set_if_changed(false);
+            }
+            None => invalid.set_if_changed(true),
         }
-        None => invalid.set_if_changed(true),
     });
     let s2 = show.clone();
     let field = field.on_submit(s2);
@@ -514,15 +533,16 @@ pub fn time_picker(ui: &Ui, label: impl Into<String>, value: Signal<Time>, step_
     .bind(move || {
         let t = value.get();
         let bad = invalid.get();
-        let twelve = CalendarSymbols::for_locale(&u3.locale()).twelve_hour;
+        let sym = CalendarSymbols::for_locale(&u3.locale());
+        let shown = sym.format_time(t);
         if !e2.is_focused() {
-            untrack(|| field.set_value(&t.format(twelve)));
+            untrack(|| field.set_value(&shown));
         }
         e2.state(remedy_ui_style::States::INVALID, bad);
         let _ = e2.clone().semantics(
             Semantics::new(Role::TimeInput)
                 .label(label.clone())
-                .value(t.format(twelve))
+                .value(shown)
                 .invalid(bad)
                 .action(Action::Increment)
                 .action(Action::Decrement)

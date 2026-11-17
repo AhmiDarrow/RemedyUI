@@ -15,6 +15,7 @@ fn is_modifier(k: &Key) -> bool {
 /// is not a modifier, with the modifiers held. Escape leaves it unchanged, Backspace or
 /// Delete with no modifiers clears it. Shortcuts show the platform's way (`Ctrl+Shift+K`,
 /// `⇧⌘K`).
+#[track_caller]
 pub fn key_capture(ui: &Ui, label: impl Into<String>, value: Signal<Option<Chord>>) -> El {
     let label = label.into();
     let recording = Signal::new(false);

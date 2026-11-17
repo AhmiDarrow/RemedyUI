@@ -72,6 +72,12 @@ impl Ui {
 
     /// Routes pointer input. Returns true when an element took it.
     pub fn pointer(&self, e: &PointerEvent) -> bool {
+        let tap = self.0.borrow().interceptor.clone();
+        if let Some(tap) = tap
+            && tap(e)
+        {
+            return true;
+        }
         let tree = self.tree();
         let hit = tree.hit_test(e.position);
         // Hover follows the pointer; a press keeps its element hovered until release.

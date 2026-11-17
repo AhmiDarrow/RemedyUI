@@ -9,13 +9,18 @@ repository.workspace = true
 authors.workspace = true
 
 [features]
-default = ["gpu"]
+default = ["gpu", "system-fonts"]
 ## Draw with the GPU renderer, falling back to the CPU renderer when no GPU works.
 gpu = ["dep:remedy-ui-render-gpu"]
 ## Dictionary line breaking for Thai, Lao, Khmer and Burmese (adds several MB of data).
 complex-scripts = ["remedy-ui-text/complex-scripts"]
+## The inspector (F12 in any window, `Window::open_inspector`) and preview gallery.
+devtools = ["dep:remedy-ui-devtools"]
+## Font fallback reaches the system's fonts (Arabic, CJK, emoji and every script the
+## bundled fonts lack).
+system-fonts = ["remedy-ui-text/system-fonts", "remedy-ui-devtools?/system-fonts"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts"]
 
 [dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
@@ -27,6 +32,7 @@ remedy-ui-layout = { path = "../remedy-ui-layout", version = "0.1.0" }
 remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
 remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "0.1.0" }
 remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "0.1.0", optional = true }
+remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "0.1.0", optional = true }
 remedy-ui-secure = { path = "../remedy-ui-secure", version = "0.1.0" }
 remedy-ui-style = { path = "../remedy-ui-style", version = "0.1.0" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }

@@ -65,6 +65,7 @@ fn problem(text: &str, sym: &NumberSymbols, o: &NumberOptions) -> Result<Decimal
 /// signal only ever holds valid, rounded numbers. Up and Down step (Shift: ×10), Page Up and
 /// Page Down step ×10, and leaving the field or pressing Enter writes the value the
 /// locale's way (`1,234.5` in en, `1.234,5` in de).
+#[track_caller]
 pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, options: NumberOptions) -> El {
     let label = label.into();
     let unit = ui.theme().spacing.unit;

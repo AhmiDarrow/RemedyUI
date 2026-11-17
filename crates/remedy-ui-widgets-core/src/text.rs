@@ -4,17 +4,20 @@ use remedy_ui_a11y::{Action, Role, Semantics};
 use remedy_ui_view::{El, Ui};
 
 /// Body text (wraps to its width).
+#[track_caller]
 pub fn text(ui: &Ui, s: impl Into<String>) -> El {
     ui.el("label").text(remedy_ui_view::RichText::plain(s.into()))
 }
 
 /// Text in a variant of the label style: `muted`, `small`, `error`, `strong` or `code`
 /// (monospace, in a box).
+#[track_caller]
 pub fn label(ui: &Ui, s: impl Into<String>, variant: &'static str) -> El {
     text(ui, s).variant(variant)
 }
 
 /// A heading, level 1 to 3.
+#[track_caller]
 pub fn heading(ui: &Ui, level: u8, s: impl Into<String>) -> El {
     let s = s.into();
     let variant = match level {
@@ -28,6 +31,7 @@ pub fn heading(ui: &Ui, level: u8, s: impl Into<String>) -> El {
 }
 
 /// Text that does something when activated (opens a page, shows details).
+#[track_caller]
 pub fn link(ui: &Ui, s: impl Into<String>, on_activate: impl Fn() + 'static) -> El {
     let s = s.into();
     let accent = ui.theme().colors.accent;

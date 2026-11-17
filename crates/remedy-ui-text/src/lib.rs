@@ -28,6 +28,15 @@ mod rich;
 mod safety;
 mod style;
 
+/// True for locales written right to left (Arabic, Hebrew, Persian, Urdu, …).
+pub fn is_rtl_locale(locale: &str) -> bool {
+    let lang = locale.split(['-', '_']).next().unwrap_or("").to_ascii_lowercase();
+    matches!(
+        lang.as_str(),
+        "ar" | "he" | "iw" | "fa" | "ur" | "ps" | "sd" | "ug" | "yi" | "dv" | "ckb" | "syr"
+    )
+}
+
 pub use atlas::{AtlasEntry, AtlasStats, GlyphAtlas, GlyphKey, PAGE_SIZE, Page, PageRect};
 pub use editing::{Composition, SecretEditor, SecretString, TextEditor, TextSelection, UNDO_PAUSE_MS};
 pub use engine::{

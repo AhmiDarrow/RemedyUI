@@ -19,7 +19,7 @@ mod events;
 mod field;
 mod frame;
 
-pub use element::{El, PaintCx, Ui};
+pub use element::{El, ElementInfo, PaintCx, PointerInterceptor, Ui};
 pub use events::{Click, PointerInput};
 pub use field::{FieldKind, TextField};
 pub use frame::Frame;

@@ -167,6 +167,7 @@ fn menu_at(ui: &Ui, p: Point, items: Vec<MenuItem>) -> El {
 
 /// Opens a menu below `anchor`. Returns the menu's layer; it closes itself when an entry is
 /// chosen, on a press outside, and on Escape.
+#[track_caller]
 pub fn menu(ui: &Ui, anchor: &El, items: Vec<MenuItem>) -> El {
     let b = anchor.bounds().unwrap_or(Rect::ZERO);
     menu_at(ui, Point::new(b.min.x, b.max.y + 4.0), items)
@@ -174,6 +175,7 @@ pub fn menu(ui: &Ui, anchor: &El, items: Vec<MenuItem>) -> El {
 
 /// Opens a menu at the pointer on a secondary press (right click) on `target`, or with the
 /// Menu key or Shift+F10 while it has focus.
+#[track_caller]
 pub fn context_menu(target: &El, items: impl Fn() -> Vec<MenuItem> + 'static) -> El {
     let ui = target.ui().clone();
     let items = Rc::new(items);
@@ -200,6 +202,7 @@ pub fn context_menu(target: &El, items: impl Fn() -> Vec<MenuItem> + 'static) ->
 }
 
 /// Shows `content` below `anchor` until a press outside or Escape.
+#[track_caller]
 pub fn popover(ui: &Ui, anchor: &El, content: El) -> El {
     let b = anchor.bounds().unwrap_or(Rect::ZERO);
     let card = at(ui.el("menu").column(), Point::new(b.min.x, b.max.y + 4.0)).child(content);
@@ -238,6 +241,7 @@ impl Modal {
 }
 
 /// Opens `content` as a modal over the window. `escape_closes` lets Escape close it.
+#[track_caller]
 pub fn modal(ui: &Ui, title: impl Into<String>, content: El, escape_closes: bool) -> Modal {
     let restore = ui.tree().focused().map(|f| ui.element(f));
     let body = ui
@@ -296,6 +300,7 @@ impl DialogButton {
 
 /// A modal dialog: a title, a message, and buttons in a row (the first is the default).
 /// Each button closes the dialog and then runs its action.
+#[track_caller]
 pub fn dialog(
     ui: &Ui,
     title: impl Into<String>,
@@ -332,6 +337,7 @@ pub fn dialog(
 /// A prompt asking the user to allow or deny something (a permission, an agent action). It
 /// shows above anything the app can draw, keeps focus, and its buttons stay disabled for a
 /// moment after it appears so a press aimed at what was there before cannot land on them.
+#[track_caller]
 pub fn trusted_prompt(
     ui: &Ui,
     title: impl Into<String>,
@@ -388,6 +394,7 @@ pub fn trusted_prompt(
 /// Covers the window with `content` (an unlock form): takes all input, hides everything
 /// below it from the frame and from assistive technology. Remove the returned layer to
 /// unlock.
+#[track_caller]
 pub fn lock_screen(ui: &Ui, content: El) -> El {
     let root = ui.root();
     let _ = root.clone().hidden(true);
