@@ -1,0 +1,211 @@
+//! Apps driven through the host contract on the headless bridge.
+
+use std::cell::Cell;
+use std::rc::Rc;
+use std::time::Duration;
+
+use remedy_ui::host::{Host, HostEvent, ResizeEdge, WindowId};
+use remedy_ui::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase};
+use remedy_ui::layout::Length;
+use remedy_ui::reactive::Signal;
+use remedy_ui::style::{States, StylePatch, StyleSheet};
+use remedy_ui::{App, AppConfig, FieldKind, GeometryStore, Runner, WindowSpec};
+use remedy_ui_bridge_headless::HeadlessHost;
+use remedy_ui_core::{Color, Point, Size};
+
+const RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
+
+fn config() -> AppConfig {
+    AppConfig::new("RemedyUI runner test").cpu_only().theme(remedy_ui::style::Theme::dark_forest(), |_| {
+        let mut s = StyleSheet::new();
+        s.rule("button", None, States::NONE, StylePatch { background: Some(RED), ..StylePatch::default() });
+        s
+    })
+}
+
+fn press(x: f32, y: f32, phase: PointerPhase) -> PointerEvent {
+    PointerEvent {
+        id: 0,
+        kind: PointerKind::Mouse,
+        phase,
+        position: Point::new(x, y),
+        buttons: if phase == PointerPhase::Down { Buttons::PRIMARY } else { Buttons::default() },
+        pressure: 0.5,
+        time: Duration::ZERO,
+        coalesced: Vec::new(),
+    }
+}
+
+fn px(host: &HeadlessHost, id: WindowId, x: usize, y: usize) -> [u8; 4] {
+    let Some(w) = host.window(id) else { return [0; 4] };
+    let width = w.size().0 as usize;
+    let i = (y * width + x) * 4;
+    let s = w.surface();
+    [
+        s.get(i).copied().unwrap_or(0),
+        s.get(i + 1).copied().unwrap_or(0),
+        s.get(i + 2).copied().unwrap_or(0),
+        s.get(i + 3).copied().unwrap_or(0),
+    ]
+}
+
+fn first(host: &HeadlessHost) -> WindowId {
+    host.window_ids().first().copied().unwrap_or(WindowId(0))
+}
+
+#[test]
+fn a_window_renders_and_clicks_repaint_it() {
+    let count = Signal::new(0u32);
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Counter").size(200.0, 100.0), move |ui, _| {
+            let label = ui.el("label").text_dyn(move || format!("Clicked {}", count.get()));
+            let button = ui
+                .el("button")
+                .layout(|l| {
+                    l.width = Length::Px(60.0);
+                    l.height = Length::Px(30.0);
+                })
+                .on_click(move || count.update(|c| *c += 1));
+            ui.root().child(button).child(label);
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    assert_eq!(host.window(id).map(|w| w.options().title.clone()), Some("Counter".into()));
+    assert_eq!(px(&host, id, 10, 10), [255, 0, 0, 255], "the button is on screen");
+    let presents = host.window(id).map_or(0, |w| w.presents());
+    host.run_frames(&mut runner, 2);
+    assert_eq!(host.window(id).map(|w| w.presents()), Some(presents), "idle frames present nothing");
+    host.send(HostEvent::Pointer(id, press(10.0, 10.0, PointerPhase::Down)));
+    host.send(HostEvent::Pointer(id, press(10.0, 10.0, PointerPhase::Up)));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(count.get(), 1);
+    assert!(host.window(id).is_some_and(|w| w.presents() > presents), "the label change was presented");
+}
+
+#[test]
+fn hide_on_close_windows_survive_and_the_last_real_close_quits() {
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), |app: &App| {
+        app.open(WindowSpec::new("Manager").hide_on_close(), |_, _| {});
+        app.open(WindowSpec::new("Note"), |_, _| {});
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let ids = host.window_ids();
+    let [manager, note] = ids.as_slice() else { unreachable!("two windows") };
+    let (manager, note) = (*manager, *note);
+    host.send(HostEvent::CloseRequested(manager));
+    host.run_frames(&mut runner, 1);
+    assert!(host.window(manager).is_some_and(|w| !w.options().visible), "hidden, not closed");
+    assert_eq!(runner.app().windows().len(), 2);
+    host.send(HostEvent::CloseRequested(note));
+    host.run_frames(&mut runner, 1);
+    assert!(host.window(note).is_none());
+    assert!(!host.exited(), "the hidden manager still counts as open");
+    let manager_window = runner.app().windows().into_iter().next();
+    if let Some(w) = manager_window {
+        w.close();
+    }
+    host.run_frames(&mut runner, 1);
+    assert!(host.exited(), "the last window closed: quit");
+}
+
+#[test]
+fn keep_running_tray_apps_outlive_their_windows_and_timers_fire() {
+    let fired = Rc::new(Cell::new(false));
+    let f2 = fired.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.keep_running(true);
+        let w = app.open(WindowSpec::new("Only"), |_, _| {});
+        let app2 = app.clone();
+        app.after(Duration::from_millis(100), move || {
+            f2.set(true);
+            w.close();
+            let _ = &app2;
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    assert!(!fired.get());
+    host.run_frames(&mut runner, 10);
+    assert!(fired.get());
+    assert!(host.window_ids().is_empty());
+    assert!(!host.exited(), "a tray app keeps running with no windows");
+}
+
+#[test]
+fn window_geometry_persists_across_runs() {
+    let dir = std::env::temp_dir().join(format!("remedy-ui-geometry-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let file = dir.join("windows.txt");
+    let spec = || WindowSpec::new("Note").size(300.0, 200.0).persist_geometry("note 7");
+    {
+        let mut runner =
+            Runner::with_geometry(config(), GeometryStore::open(file.clone()), move |app: &App| {
+                app.open(spec(), |_, _| {});
+            });
+        let mut host = HeadlessHost::new();
+        host.run_frames(&mut runner, 1);
+        let id = first(&host);
+        let _ = host.set_position(id, Point::new(40.0, 50.0));
+        host.user_resize(id, Size::new(345.0, 280.0));
+        host.run_frames(&mut runner, 40);
+        assert_eq!(runner.geometry().get("note 7"), Some((Point::new(40.0, 50.0), Size::new(345.0, 280.0))));
+    }
+    assert!(file.exists(), "saved after moves settle");
+    let mut runner = Runner::with_geometry(config(), GeometryStore::open(file), move |app: &App| {
+        app.open(spec(), |_, _| {});
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let id = first(&host);
+    assert_eq!(
+        host.window(id).map(|w| (w.options().position, w.options().size)),
+        Some((Some(Point::new(40.0, 50.0)), Size::new(345.0, 280.0)))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn fields_paste_from_the_host_clipboard_and_window_commands_reach_the_host() {
+    let field_value = Rc::new(std::cell::RefCell::new(String::new()));
+    let fv = field_value.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Fields").frameless(), move |ui, window| {
+            let field = ui.text_field("text_input", FieldKind::Single);
+            let f2 = field.clone();
+            let field = field.on_change(move || *fv.borrow_mut() = f2.value());
+            ui.root().child(field.el().layout(|l| l.width = Length::Px(150.0)));
+            field.el().focus();
+            window.set_always_on_top(true);
+            window.set_title("Renamed");
+            window.begin_resize(ResizeEdge::BottomRight);
+            window.app().copy("from the app", true);
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let id = first(&host);
+    assert_eq!(host.clipboard(), Some(("from the app", true)));
+    assert!(host.window(id).is_some_and(|w| w.options().always_on_top
+        && w.options().title == "Renamed"
+        && !w.options().decorated));
+    assert_eq!(host.take_interactions(), vec![(id, Some(ResizeEdge::BottomRight))]);
+    assert!(
+        host.window(id).is_some_and(|w| w.text_input().is_some()),
+        "the focused field opened a text session"
+    );
+    let ctrl_v = KeyEvent {
+        key: Key::Character("v".into()),
+        physical: "KeyV".into(),
+        modifiers: Modifiers { ctrl: true, ..Modifiers::NONE },
+        pressed: true,
+        repeat: false,
+        composing: false,
+        text: None,
+    };
+    host.send(HostEvent::Key(id, ctrl_v));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*field_value.borrow(), "from the app");
+}

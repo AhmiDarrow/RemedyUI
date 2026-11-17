@@ -240,10 +240,10 @@ impl Ui {
 
     /// The scroll offset the compositor reports for a scroll container, so hit testing
     /// matches what is shown.
-    pub fn set_scroll_offset(&self, el: &El, offset: Vec2) {
+    pub fn set_scroll_offset(&self, el: ElementId, offset: Vec2) {
         let mut i = self.0.borrow_mut();
-        if i.scroll_offsets.get(&el.id) != Some(&offset) {
-            i.scroll_offsets.insert(el.id, offset);
+        if i.scroll_offsets.get(&el) != Some(&offset) {
+            i.scroll_offsets.insert(el, offset);
             i.frame.bounds_stale = true;
         }
     }
@@ -258,6 +258,11 @@ impl Ui {
     /// The next accessibility update, when connected and something changed.
     pub fn take_accessibility_update(&self) -> Option<remedy_ui_a11y::AccessKitUpdate> {
         self.0.borrow_mut().a11y.take_update()
+    }
+
+    /// Asks for a frame (the next frame redraws only what changed).
+    pub fn request_frame(&self) {
+        self.request(Request::Frame);
     }
 
     pub(crate) fn request(&self, r: Request) {

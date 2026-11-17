@@ -14,7 +14,11 @@ use vello_gpu::{ImageSource, Scene, TextureId, TextureRegion};
 use crate::renderer::size16;
 use crate::{GpuContext, GpuError, GpuRenderer, LadderOptions};
 
-struct Tile {
+/// A window's rastered tiles. Each window keeps its own: layer ids are per window.
+#[derive(Default)]
+pub(crate) struct TileSet(pub(crate) HashMap<(LayerId, TileKey), Tile>);
+
+pub(crate) struct Tile {
     texture: wgpu::Texture,
     id: TextureId,
 }
@@ -23,14 +27,14 @@ struct Tile {
 pub struct GpuCompositor {
     renderer: GpuRenderer,
     ladder: LadderOptions,
-    tiles: HashMap<(LayerId, TileKey), Tile>,
+    tiles: TileSet,
     next_id: u64,
     generation: u64,
 }
 
 impl std::fmt::Debug for GpuCompositor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "GpuCompositor({} tiles, {:?})", self.tiles.len(), self.renderer)
+        write!(f, "GpuCompositor({} tiles, {:?})", self.tiles.0.len(), self.renderer)
     }
 }
 
@@ -45,7 +49,7 @@ fn krect(r: remedy_ui_core::Rect) -> kurbo::Rect {
 impl GpuCompositor {
     /// A compositor on `renderer`. `ladder` is how a replacement device is found after a loss.
     pub fn new(renderer: GpuRenderer, ladder: LadderOptions) -> Self {
-        GpuCompositor { renderer, ladder, tiles: HashMap::new(), next_id: 1, generation: 0 }
+        GpuCompositor { renderer, ladder, tiles: TileSet::default(), next_id: 1, generation: 0 }
     }
 
     /// The renderer.
@@ -60,7 +64,7 @@ impl GpuCompositor {
 
     /// Tiles held.
     pub fn tile_count(&self) -> usize {
-        self.tiles.len()
+        self.tiles.0.len()
     }
 
     /// True when the device is gone and [`recover`](Self::recover) must run before drawing.
@@ -75,9 +79,20 @@ impl GpuCompositor {
         let ctx = GpuContext::new(&self.ladder)?;
         let store = self.renderer_store();
         self.renderer = GpuRenderer::new(ctx, store);
-        self.tiles.clear();
-        self.generation += 1;
+        self.recover_device()?;
         compositor.invalidate_tiles();
+        Ok(())
+    }
+
+    /// Rebuilds the device after a loss. Every window's compositor must then forget its
+    /// tiles ([`Compositor::invalidate_tiles`]); window surfaces rebuild themselves on their
+    /// next present.
+    pub fn recover_device(&mut self) -> Result<(), GpuError> {
+        let ctx = GpuContext::new(&self.ladder)?;
+        let store = self.renderer_store();
+        self.renderer = GpuRenderer::new(ctx, store);
+        self.tiles.0.clear();
+        self.generation += 1;
         Ok(())
     }
 
@@ -92,7 +107,10 @@ impl GpuCompositor {
         target: &wgpu::Texture,
         background: Color,
     ) -> Result<(), GpuError> {
-        let (scene, bindings) = self.prepare(plan, target.width(), target.height())?;
+        let mut tiles = std::mem::take(&mut self.tiles);
+        let prepared = self.prepare(&mut tiles, plan, target.width(), target.height());
+        self.tiles = tiles;
+        let (scene, bindings) = prepared?;
         self.renderer.submit(&scene, background, target, &bindings)
     }
 
@@ -100,6 +118,7 @@ impl GpuCompositor {
     /// `width` × `height` frame.
     pub(crate) fn prepare(
         &mut self,
+        tiles: &mut TileSet,
         plan: &FramePlan,
         width: u32,
         height: u32,
@@ -108,14 +127,14 @@ impl GpuCompositor {
             return Err(GpuError::Lost);
         }
         for key in &plan.released {
-            self.tiles.remove(key);
+            tiles.0.remove(key);
         }
         for req in &plan.raster {
             let texture = self.renderer.create_target(req.width, req.height)?;
             self.renderer.draw(&req.content, req.raster_transform(), Color::TRANSPARENT, &texture)?;
             let id = TextureId(self.next_id);
             self.next_id += 1;
-            self.tiles.insert((req.layer, req.key), Tile { texture, id });
+            tiles.0.insert((req.layer, req.key), Tile { texture, id });
         }
 
         let (w, h) = size16(width, height)?;
@@ -130,7 +149,7 @@ impl GpuCompositor {
                 CompositeOp::PopClip | CompositeOp::PopOpacity => scene.pop_layer(),
                 CompositeOp::PushOpacity(o) => scene.push_opacity_layer(*o),
                 CompositeOp::Tile { layer, key, transform, rect, raster_scale } => {
-                    let Some(tile) = self.tiles.get(&(*layer, *key)) else { continue };
+                    let Some(tile) = tiles.0.get(&(*layer, *key)) else { continue };
                     bindings
                         .insert(tile.id, tile.texture.create_view(&wgpu::TextureViewDescriptor::default()));
                     let [a, b, c, d, e, f] = transform.0;

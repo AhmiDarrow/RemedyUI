@@ -2456,6 +2456,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "remedy-ui"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-bridge-headless",
+ "remedy-ui-bridge-linux",
+ "remedy-ui-bridge-macos",
+ "remedy-ui-bridge-windows",
+ "remedy-ui-bridge-winit",
+ "remedy-ui-compositor",
+ "remedy-ui-core",
+ "remedy-ui-fonts",
+ "remedy-ui-host",
+ "remedy-ui-input",
+ "remedy-ui-layout",
+ "remedy-ui-reactive",
+ "remedy-ui-render-cpu",
+ "remedy-ui-render-gpu",
+ "remedy-ui-style",
+ "remedy-ui-text",
+ "remedy-ui-tree",
+ "remedy-ui-view",
+]
+
+[[package]]
 name = "remedy-ui-a11y"
 version = "0.1.0"
 dependencies = [

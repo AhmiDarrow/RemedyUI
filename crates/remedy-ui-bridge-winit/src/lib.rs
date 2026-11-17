@@ -16,8 +16,8 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{
-    App, Host, HostEvent, ImeEvent, Pixels, SystemSettings, TextInputState, TimerId, Unsupported, Waker,
-    WindowHandles, WindowId, WindowOptions,
+    App, Host, HostEvent, ImeEvent, Pixels, ResizeEdge, SystemSettings, TextInputState, TimerId, Unsupported,
+    Waker, WindowHandles, WindowId, WindowOptions,
 };
 use remedy_ui_input::{
     Buttons, KeyEvent, Modifiers, Platform, PointerEvent, PointerKind, PointerPhase, WheelEvent,
@@ -228,6 +228,59 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
     fn set_visible(&mut self, window: WindowId, visible: bool) {
         if let Some(w) = self.win(window) {
             w.window.set_visible(visible);
+        }
+    }
+
+    fn window_position(&self, window: WindowId) -> Option<Point> {
+        let w = self.win(window)?;
+        let p = w.window.outer_position().ok()?;
+        let l: LogicalPosition<f64> = p.to_logical(w.window.scale_factor());
+        Some(Point::new(l.x as f32, l.y as f32))
+    }
+
+    fn set_position(&mut self, window: WindowId, position: Point) -> Result<(), Unsupported> {
+        if let Some(w) = self.win(window) {
+            w.window.set_outer_position(LogicalPosition::new(f64::from(position.x), f64::from(position.y)));
+        }
+        Ok(())
+    }
+
+    fn focus_window(&mut self, window: WindowId) {
+        if let Some(w) = self.win(window) {
+            w.window.focus_window();
+        }
+    }
+
+    fn set_minimized(&mut self, window: WindowId, minimized: bool) {
+        if let Some(w) = self.win(window) {
+            w.window.set_minimized(minimized);
+        }
+    }
+
+    fn begin_move(&mut self, window: WindowId) -> Result<(), Unsupported> {
+        match self.win(window) {
+            Some(w) => w.window.drag_window().map_err(|e| Unsupported::new("window moves", e.to_string())),
+            None => Ok(()),
+        }
+    }
+
+    fn begin_resize(&mut self, window: WindowId, edge: ResizeEdge) -> Result<(), Unsupported> {
+        use winit::window::ResizeDirection as D;
+        let d = match edge {
+            ResizeEdge::Top => D::North,
+            ResizeEdge::Bottom => D::South,
+            ResizeEdge::Left => D::West,
+            ResizeEdge::Right => D::East,
+            ResizeEdge::TopLeft => D::NorthWest,
+            ResizeEdge::TopRight => D::NorthEast,
+            ResizeEdge::BottomLeft => D::SouthWest,
+            ResizeEdge::BottomRight => D::SouthEast,
+        };
+        match self.win(window) {
+            Some(w) => {
+                w.window.drag_resize_window(d).map_err(|e| Unsupported::new("window resizes", e.to_string()))
+            }
+            None => Ok(()),
         }
     }
 
@@ -506,6 +559,10 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                 self.deliver(el, e);
             }
             WindowEvent::CloseRequested => self.deliver(el, HostEvent::CloseRequested(id)),
+            WindowEvent::Moved(p) => {
+                let l: LogicalPosition<f64> = p.to_logical(scale);
+                self.deliver(el, HostEvent::Moved(id, Point::new(l.x as f32, l.y as f32)));
+            }
             WindowEvent::Destroyed => {}
             WindowEvent::Focused(f) => self.deliver(el, HostEvent::Focused(id, f)),
             WindowEvent::Occluded(o) => self.deliver(el, HostEvent::Occluded(id, o)),

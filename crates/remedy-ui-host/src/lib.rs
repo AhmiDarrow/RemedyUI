@@ -18,6 +18,27 @@ use remedy_ui_input::{KeyEvent, Platform, PointerEvent, WheelEvent};
 
 pub use raw_window_handle;
 
+/// The edge or corner a resize drags.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ResizeEdge {
+    /// Top edge.
+    Top,
+    /// Bottom edge.
+    Bottom,
+    /// Left edge.
+    Left,
+    /// Right edge.
+    Right,
+    /// Top-left corner.
+    TopLeft,
+    /// Top-right corner.
+    TopRight,
+    /// Bottom-left corner.
+    BottomLeft,
+    /// Bottom-right corner.
+    BottomRight,
+}
+
 /// A window's identity for the life of the host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct WindowId(pub u64);
@@ -207,6 +228,8 @@ pub enum HostEvent {
     },
     /// The user asked to close a window. The app decides.
     CloseRequested(WindowId),
+    /// A window moved; its top-left is now at this desktop position (logical pixels).
+    Moved(WindowId, Point),
     /// A window is gone.
     Destroyed(WindowId),
     /// Keyboard focus came or went.
@@ -283,6 +306,20 @@ pub trait Host {
     fn set_size(&mut self, window: WindowId, size: Size) -> Result<(), Unsupported>;
     /// Shows or hides.
     fn set_visible(&mut self, window: WindowId, visible: bool);
+    /// The window's top-left on the desktop in logical pixels, where the platform reports it
+    /// (Wayland does not).
+    fn window_position(&self, window: WindowId) -> Option<Point>;
+    /// Moves the window's top-left to a desktop position in logical pixels.
+    fn set_position(&mut self, window: WindowId, position: Point) -> Result<(), Unsupported>;
+    /// Brings the window to the front and gives it keyboard focus.
+    fn focus_window(&mut self, window: WindowId);
+    /// Minimizes or restores.
+    fn set_minimized(&mut self, window: WindowId, minimized: bool);
+    /// Starts a user move of the window, as dragging a title bar does (call on a pointer
+    /// press in custom chrome).
+    fn begin_move(&mut self, window: WindowId) -> Result<(), Unsupported>;
+    /// Starts a user resize from `edge`, as dragging a window border does.
+    fn begin_resize(&mut self, window: WindowId, edge: ResizeEdge) -> Result<(), Unsupported>;
     /// Keeps above other windows, or not.
     fn set_always_on_top(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported>;
     /// Keeps the window out of screenshots and screen sharing, or not.
