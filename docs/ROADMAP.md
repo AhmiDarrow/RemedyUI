@@ -34,10 +34,12 @@ Nothing is merged as a placeholder: a crate enters the workspace with its first 
 - glyph rasterization: skrifa hinting at the pixel size, an exact-area coverage rasterizer, grayscale and LCD with the FreeType filter
 - the glyph atlas: shelf-packed pages that grow on demand, upload regions, page eviction under pressure
 
+- the editing core: a rope buffer, grapheme-safe deletion and movement, Unicode word motion, selection, undo and redo grouped by word and pause, IME composition (preedit, commit, cancel)
+- secrets: `SecretString`, which zeroes memory on growth, removal and drop and never prints, and `SecretEditor` with no undo
+
 Still to do:
 
-- the editing core and secret buffer
-- IME scripts
+- per-platform IME protocols, which arrive with each bridge (TSF in M4)
 - the Arabic shaping reference test, which needs an OFL Arabic fixture font (the Remedy families have no Arabic)
 
 **Crates:** `text` and `fonts` (the Remedy families, for tests and apps).

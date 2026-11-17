@@ -21,12 +21,14 @@
 //! ```
 
 mod atlas;
+mod editing;
 mod engine;
 mod raster;
 mod rich;
 mod style;
 
 pub use atlas::{AtlasEntry, AtlasStats, GlyphAtlas, GlyphKey, PAGE_SIZE, Page, PageRect};
+pub use editing::{Composition, SecretEditor, SecretString, TextEditor, TextSelection, UNDO_PAUSE_MS};
 pub use engine::{
     Affinity, FontCollection, FontError, GlyphRunInfo, LineInfo, Paragraph, ParagraphOptions,
     PositionedGlyph, RunFont, TextEngine, TextPosition,
