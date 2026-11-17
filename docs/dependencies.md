@@ -36,6 +36,7 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | Syntax colors | `syntect` (with `fancy-regex`) | 5.3.0 | `doc-code` | Pure-Rust highlighting, with no C regex engine |
 | Diagnostics | `tracing` | 0.1.44 | every crate | Structured spans and events; Perfetto export in `devtools` |
 | Errors | `thiserror` | 2.0.21 | every crate | Typed errors without hand-written boilerplate |
+| Derive macros | `syn` 2, `quote`, `proc-macro2` | 2.0.119, 1.0.47, 1.0.107 | `macros` (build time only) | `#[derive(Store)]`; syn 2 rather than the new 3.0 until 3.x has settled |
 | Platform APIs | `windows`, `objc2`, `ndk`, `jni` | pinned per bridge | bridges | OS calls, in the bridges' `os` modules only |
 
 Development tools that are not linked into apps: `cargo-fuzz`, `cargo-deny`, `cargo-audit`, `cargo-vet`.
