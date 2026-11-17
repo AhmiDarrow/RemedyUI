@@ -23,6 +23,7 @@ pub use element::{El, PaintCx, Ui};
 pub use events::{Click, PointerInput};
 pub use field::{FieldKind, TextField};
 pub use frame::Frame;
+pub use remedy_ui_a11y::Action as A11yAction;
 pub use remedy_ui_text::{RichText, StylePatch as TextPatch};
 pub use remedy_ui_tree::ElementId;
 

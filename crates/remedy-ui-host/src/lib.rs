@@ -16,7 +16,19 @@ use std::time::Duration;
 use remedy_ui_core::{Color, Point, Rect, Size};
 use remedy_ui_input::{KeyEvent, Platform, PointerEvent, WheelEvent};
 
+pub use accesskit;
 pub use raw_window_handle;
+
+/// A screen reader or other assistive technology talking to a window.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AccessibilityEvent {
+    /// It connected and wants the whole tree; send it with [`Host::update_accessibility`].
+    Requested,
+    /// It asks an element to do something (click, focus, increment, …).
+    Action(accesskit::ActionRequest),
+    /// It went away; stop sending updates.
+    Deactivated,
+}
 
 /// An app's icon in the system tray (notification area, menu bar extras, status notifier).
 #[derive(Clone, Debug, PartialEq)]
@@ -325,6 +337,8 @@ pub enum HostEvent {
     Wake,
     /// The tray icon was used.
     Tray(TrayEvent),
+    /// Assistive technology on a window.
+    Accessibility(WindowId, AccessibilityEvent),
     /// The app was launched again while running (single instance); these are the new
     /// launch's arguments.
     SecondInstance(Vec<String>),
@@ -415,6 +429,8 @@ pub trait Host {
     fn set_clipboard_text(&mut self, text: &str, sensitive: bool) -> Result<(), Unsupported>;
     /// Empties the clipboard (a copied secret's time is up).
     fn clear_clipboard(&mut self) -> Result<(), Unsupported>;
+    /// Sends a window's accessibility tree, or what changed in it, to assistive technology.
+    fn update_accessibility(&mut self, window: WindowId, update: accesskit::TreeUpdate);
     /// Shows, updates (`Some`) or removes (`None`) the app's tray icon.
     fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported>;
     /// Runs a native open or save dialog, modal to `window`. The chosen paths; empty when

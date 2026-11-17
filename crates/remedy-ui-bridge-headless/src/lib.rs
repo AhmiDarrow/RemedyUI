@@ -93,6 +93,7 @@ pub struct HeadlessHost {
     focused: Option<WindowId>,
     interactions: Vec<(WindowId, Option<ResizeEdge>)>,
     tray: Option<TrayIcon>,
+    a11y: BTreeMap<WindowId, Vec<remedy_ui_host::accesskit::TreeUpdate>>,
     dialogs: Vec<FileDialog>,
     dialog_answers: VecDeque<Vec<std::path::PathBuf>>,
 }
@@ -123,6 +124,7 @@ impl HeadlessHost {
             focused: None,
             interactions: Vec::new(),
             tray: None,
+            a11y: BTreeMap::new(),
             dialogs: Vec::new(),
             dialog_answers: VecDeque::new(),
         }
@@ -218,6 +220,11 @@ impl HeadlessHost {
     /// User moves (`None`) and resizes (`Some(edge)`) the app started, oldest first.
     pub fn take_interactions(&mut self) -> Vec<(WindowId, Option<ResizeEdge>)> {
         std::mem::take(&mut self.interactions)
+    }
+
+    /// Accessibility updates a window sent, oldest first (drained).
+    pub fn take_accessibility(&mut self, window: WindowId) -> Vec<remedy_ui_host::accesskit::TreeUpdate> {
+        self.a11y.remove(&window).unwrap_or_default()
     }
 
     /// The tray icon the app shows, if any.
@@ -477,6 +484,10 @@ impl Host for HeadlessHost {
     fn clear_clipboard(&mut self) -> Result<(), Unsupported> {
         self.clipboard = None;
         Ok(())
+    }
+
+    fn update_accessibility(&mut self, window: WindowId, update: remedy_ui_host::accesskit::TreeUpdate) {
+        self.a11y.entry(window).or_default().push(update);
     }
 
     fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported> {

@@ -310,3 +310,43 @@ fn tray_dialogs_and_second_launches_reach_the_app() {
     host.run_frames(&mut runner, 1);
     assert!(host.tray().is_none());
 }
+
+#[test]
+fn screen_readers_get_the_tree_and_can_click_and_focus() {
+    use remedy_ui::host::AccessibilityEvent;
+    use remedy_ui::host::accesskit::{Action, ActionRequest, NodeId, TreeId};
+    let count = Signal::new(0u32);
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("A11y"), move |ui, _| {
+            let b = ui
+                .el("button")
+                .text(remedy_ui::view::RichText::plain("Add note"))
+                .on_click(move || count.update(|c| *c += 1));
+            ui.root().child(b);
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let id = first(&host);
+    assert!(host.take_accessibility(id).is_empty(), "nothing is sent until a reader connects");
+    host.send(HostEvent::Accessibility(id, AccessibilityEvent::Requested));
+    host.run_frames(&mut runner, 2);
+    let updates = host.take_accessibility(id);
+    let tree = format!("{updates:?}");
+    assert!(tree.contains("Add note") && tree.contains("Click") && tree.contains("Focus"), "{tree}");
+    // The node that carries the Click action is the button.
+    let button = updates
+        .iter()
+        .flat_map(|u| u.nodes.iter())
+        .find(|(_, n)| n.supports_action(Action::Click))
+        .map(|(nid, _)| *nid);
+    let Some(NodeId(target)) = button else { unreachable!("a clickable node: {tree}") };
+    let request =
+        |action| ActionRequest { action, target_tree: TreeId::ROOT, target_node: NodeId(target), data: None };
+    host.send(HostEvent::Accessibility(id, AccessibilityEvent::Action(request(Action::Click))));
+    host.send(HostEvent::Accessibility(id, AccessibilityEvent::Action(request(Action::Focus))));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(count.get(), 1, "the reader's click pressed the button");
+    let after = format!("{:?}", host.take_accessibility(id));
+    assert!(after.contains(&format!("focus: #{target}")), "focus moved to it: {after}");
+}

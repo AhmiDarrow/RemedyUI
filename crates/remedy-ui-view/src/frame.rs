@@ -461,6 +461,9 @@ fn sync_semantics(i: &mut Inner, _rects: &HashMap<ElementId, Rect>) {
         if d.click.is_some() && d.semantics.is_none() {
             s = s.action(remedy_ui_a11y::Action::Click);
         }
+        if i.tree.is_focusable(id) {
+            s = s.action(remedy_ui_a11y::Action::Focus);
+        }
         i.a11y.set(root_key(id), s.bounds(bounds));
         let child_keys: Vec<u64> = kids.iter().map(|k| root_key(*k)).collect();
         i.a11y.set_children(root_key(id), &child_keys);

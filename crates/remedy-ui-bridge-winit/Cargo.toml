@@ -12,6 +12,7 @@ authors.workspace = true
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
 remedy-ui-host = { path = "../remedy-ui-host", version = "0.1.0" }
 remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
+accesskit_winit = { version = "=0.34.2" }
 softbuffer = { version = "=0.4.8" }
 # No `wayland-csd-adwaita`: on Wayland RemedyUI draws its own client-side chrome, and that
 # feature pulls an unmaintained font parser.
