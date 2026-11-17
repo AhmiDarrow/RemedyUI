@@ -91,6 +91,8 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-widgets-music", "remedy-ui-viz"),
     ("remedy-ui-doc-rich", "remedy-ui-doc-code"),
     ("remedy-ui-media-anim", "remedy-ui-media-image"),
+    // The update banner is a widget.
+    ("remedy-ui-services-update", "remedy-ui-widgets-core"),
     // The compositor holds display lists and runs motion curves on its own thread.
     ("remedy-ui-compositor", "remedy-ui-paint"),
     ("remedy-ui-compositor", "remedy-ui-motion"),
