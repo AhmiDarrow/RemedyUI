@@ -2508,6 +2508,8 @@ dependencies = [
  "remedy-ui-core",
  "remedy-ui-host",
  "remedy-ui-input",
+ "windows",
+ "windows-core",
  "windows-sys 0.61.2",
 ]
 

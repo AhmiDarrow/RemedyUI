@@ -9,7 +9,7 @@ use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
 use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
 use remedy_ui_bridge_winit::{UserEvent, run_on};
 use remedy_ui_core::{Rect, Size};
-use remedy_ui_host::{App, Host, HostEvent, Pixels, SystemSettings, WindowId, WindowOptions};
+use remedy_ui_host::{App, Host, HostEvent, Pixels, SystemSettings, TextInputState, WindowId, WindowOptions};
 
 #[derive(Default)]
 struct Probe {
@@ -21,6 +21,7 @@ struct Probe {
     clipboard: Option<(Option<String>, Option<String>)>,
     capture: Option<Result<(), String>>,
     handles: bool,
+    text_input: bool,
     destroyed: bool,
     deadline_hit: bool,
 }
@@ -82,6 +83,18 @@ impl App for Probe {
                 self.clipboard = Some((wrote.ok().map(|()| "written".to_owned()), read));
                 self.capture = Some(host.set_capture_protected(window, true).map_err(|e| e.to_string()));
                 self.handles = host.window_handles(window).is_ok();
+                // A text session through TSF, a password field (no input method), then none.
+                let field = TextInputState {
+                    surrounding: "Hello".into(),
+                    selection: 5..5,
+                    caret: Rect::new(40.0, 4.0, 41.0, 22.0),
+                    private: false,
+                    multiline: false,
+                };
+                host.set_text_input(window, Some(field.clone()));
+                host.set_text_input(window, Some(TextInputState { private: true, ..field }));
+                host.set_text_input(window, None);
+                self.text_input = true;
                 host.close_window(window);
             }
             HostEvent::Destroyed(_) => {
@@ -100,7 +113,7 @@ fn a_real_window_runs_the_whole_host_contract() {
         Err(e) => unreachable!("an event loop: {e}"),
     };
     let mut probe = Probe::default();
-    let result = run_on(event_loop, &mut probe, WindowsHooks);
+    let result = run_on(event_loop, &mut probe, WindowsHooks::default());
     assert!(result.is_ok(), "{result:?}");
     assert!(!probe.deadline_hit, "the scenario finished in time");
     let s = probe.settings.unwrap_or_default();
@@ -115,5 +128,6 @@ fn a_real_window_runs_the_whole_host_contract() {
     );
     assert_eq!(probe.capture, Some(Ok(())));
     assert!(probe.handles, "native handles for GPU surfaces");
+    assert!(probe.text_input, "text sessions open and close through TSF");
     assert!(probe.destroyed);
 }

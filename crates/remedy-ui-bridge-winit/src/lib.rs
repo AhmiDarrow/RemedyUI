@@ -46,6 +46,20 @@ pub trait PlatformHooks: 'static {
     fn window_created(&mut self, window: &Window) {
         let _ = window;
     }
+    /// Called before a window closes, to release platform state tied to it.
+    fn window_closed(&mut self, window: &Window) {
+        let _ = window;
+    }
+    /// Takes over a text-input session with the platform's own text services (TSF on
+    /// Windows). Returns false to let winit's input-method support handle it.
+    fn set_text_input(&mut self, window: &Window, state: Option<&TextInputState>) -> bool {
+        let _ = (window, state);
+        false
+    }
+    /// Input-method events the platform's text services produced since the last call.
+    fn take_ime_events(&mut self) -> Vec<(winit::window::WindowId, ImeEvent)> {
+        Vec::new()
+    }
 }
 
 /// Why the event loop could not run.
@@ -182,6 +196,9 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
 
     fn close_window(&mut self, window: WindowId) {
         if let Some(wid) = self.state.ids.remove(&window) {
+            if let Some((_, w)) = self.state.windows.get(&wid) {
+                self.hooks.window_closed(&w.window);
+            }
             self.state.windows.remove(&wid);
             self.state.pending.push_back(HostEvent::Destroyed(window));
         }
@@ -319,7 +336,13 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
     }
 
     fn set_text_input(&mut self, window: WindowId, state: Option<TextInputState>) {
-        let Some(w) = self.win(window) else { return };
+        let Some(wid) = self.state.ids.get(&window).copied() else { return };
+        let Some((_, w)) = self.state.windows.get(&wid) else { return };
+        if self.hooks.set_text_input(&w.window, state.as_ref()) {
+            // The platform's text services own the session; winit's must stay out of it.
+            w.window.set_ime_allowed(false);
+            return;
+        }
         match state {
             Some(s) => {
                 w.window.set_ime_allowed(true);
@@ -384,10 +407,26 @@ impl<A: App, H: PlatformHooks> Runner<A, H> {
             let mut ctx = Ctx { el, state: &mut self.state, hooks: &mut self.hooks };
             self.app.event(&mut ctx, e);
             queue.extend(self.state.pending.drain(..));
+            queue.extend(self.platform_ime());
             if self.state.exit {
                 break;
             }
         }
+    }
+
+    /// Input-method events from the platform's text services, for open windows.
+    fn platform_ime(&mut self) -> Vec<HostEvent> {
+        let mut out = Vec::new();
+        for (wid, e) in self.hooks.take_ime_events() {
+            let Some((id, w)) = self.state.windows.get_mut(&wid) else { continue };
+            match &e {
+                ImeEvent::Preedit { text, .. } => w.composing = !text.is_empty(),
+                ImeEvent::Commit(_) | ImeEvent::Disabled => w.composing = false,
+                _ => {}
+            }
+            out.push(HostEvent::Ime(*id, e));
+        }
+        out
     }
 
     fn fire_timers(&mut self, el: &ActiveEventLoop) {
@@ -577,6 +616,10 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
     }
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        // Text services act inside message dispatch; hand their events over now.
+        for e in self.platform_ime() {
+            self.deliver(el, e);
+        }
         self.fire_timers(el);
         let next = self.state.timers.values().min().copied();
         el.set_control_flow(match next {
