@@ -286,3 +286,72 @@ fn trim_memory_frees_tiles_outside_the_prefetch_area() {
     assert!(freed.contains(&0) && freed.contains(&1), "the top rows are released: {freed:?}");
     assert!(freed.iter().all(|r| *r < 18), "rows near the new offset stay");
 }
+
+struct Recorder(std::sync::mpsc::Sender<f32>);
+
+impl Presenter for Recorder {
+    fn present(&mut self, plan: &FramePlan) {
+        let y = plan.ops.iter().find_map(|o| match o {
+            CompositeOp::Tile { layer: LayerId(2), transform, .. } => Some(transform.0[5]),
+            _ => None,
+        });
+        let _ = self.0.send(y.unwrap_or(f32::NAN));
+    }
+}
+
+#[test]
+fn scrolling_keeps_the_display_rate_while_the_ui_thread_is_stalled() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let comp = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    let thread = match CompositorThread::spawn(comp, Recorder(tx)) {
+        Ok(t) => t,
+        Err(e) => unreachable!("{e}"),
+    };
+    thread.commit(page(100_000.0));
+    thread.vsync(ms(0));
+    assert!(thread.wait_report(Duration::from_secs(5)).is_some_and(|r| r.presented));
+
+    // The UI thread stalls (a slow handler) until the test releases it, after every frame.
+    let (release, stalled) = std::sync::mpsc::channel::<()>();
+    let ui = std::thread::spawn(move || stalled.recv().is_ok());
+    thread.fling(LayerId(1), Vec2::new(0.0, 4000.0));
+    let mut presented = 0;
+    for i in 1..=30u64 {
+        thread.vsync(ms(i * 16));
+        let r = thread.wait_report(Duration::from_secs(5));
+        assert!(r.is_some(), "every vsync is answered");
+        presented += usize::from(r.is_some_and(|r| r.presented));
+    }
+    assert!(!ui.is_finished(), "the UI thread was stalled the whole time");
+    let _ = release.send(());
+    assert_eq!(presented, 30, "a new frame on every refresh");
+    let offsets: Vec<f32> = rx.try_iter().collect();
+    assert!(
+        offsets.windows(2).all(|w| matches!(w, [a, b] if b < a)),
+        "content moves on every frame: {offsets:?}"
+    );
+    assert!(ui.join().is_ok_and(|released| released));
+}
+
+#[test]
+fn an_unchanged_frame_presents_nothing() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let thread =
+        match CompositorThread::spawn(Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED), Recorder(tx)) {
+            Ok(t) => t,
+            Err(e) => unreachable!("{e}"),
+        };
+    thread.commit(page(1000.0));
+    thread.vsync(ms(0));
+    thread.vsync(ms(16));
+    thread.vsync(ms(32));
+    let reports: Vec<FrameReport> =
+        (0..3).filter_map(|_| thread.wait_report(Duration::from_secs(5))).collect();
+    assert_eq!(reports.iter().map(|r| r.presented).collect::<Vec<_>>(), vec![true, false, false]);
+    assert_eq!(rx.try_iter().count(), 1, "the presenter ran once");
+    // A commit of the same unchanged tree still presents nothing.
+    thread.commit(page(1000.0));
+    thread.vsync(ms(48));
+    assert!(thread.wait_report(Duration::from_secs(5)).is_some_and(|r| !r.presented));
+    assert!(thread.stop().is_some());
+}
