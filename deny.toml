@@ -20,6 +20,8 @@ allow = [
     "Zlib",
     "Unicode-3.0",
     "MPL-2.0",
+    # The bundled Remedy fonts (remedy-ui-fonts).
+    "OFL-1.1",
 ]
 confidence-threshold = 0.8
 # The list is the policy; not every license on it is in use yet.

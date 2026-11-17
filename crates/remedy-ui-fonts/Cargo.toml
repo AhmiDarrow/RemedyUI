@@ -1,0 +1,25 @@
+[package]
+name = "remedy-ui-fonts"
+description = "The Remedy font families for RemedyUI apps (Remedy Sans UI, Remedy Sans, AhmiPrint, AhmiPixel), one feature per family."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "(MIT OR Apache-2.0) AND OFL-1.1"
+repository.workspace = true
+authors.workspace = true
+include = ["src/**", "fonts/**", "Cargo.toml", "README.md"]
+
+[features]
+default = ["remedy-sans-ui"]
+remedy-sans-ui = []
+remedy-sans = []
+ahmi-print = []
+ahmi-pixel = []
+
+[dependencies]
+
+[dev-dependencies]
+read-fonts = { version = "=0.47.0", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true
