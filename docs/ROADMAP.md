@@ -6,6 +6,8 @@ Nothing is merged as a placeholder: a crate enters the workspace with its first 
 
 ## M1. Foundations
 
+**Status:** built, except `cargo vet`. The crates, their tests and the local checks pass, with 10 of 10 repeat runs green. `cargo vet` is not set up yet: installing the tool failed on the build machine with an access-denied error. GitHub Actions cannot run on this private repository until the account's Actions billing is sorted, so the same checks run locally before each merge.
+
 **Crates:** `core`, `reactive`, `tree`, and the first cut of `test` (the headless runner with a fake clock and scripted input).
 
 **Contents:**

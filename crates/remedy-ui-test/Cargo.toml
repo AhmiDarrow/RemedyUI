@@ -1,0 +1,17 @@
+[package]
+name = "remedy-ui-test"
+description = "RemedyUI headless test harness: a fake clock with timers, posted work, frame steps that report each phase's work, and scripted events and focus."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
+remedy-ui-tree = { path = "../remedy-ui-tree", version = "0.1.0" }
+
+[lints]
+workspace = true

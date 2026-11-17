@@ -2,7 +2,17 @@
 
 RemedyUI is the UI engine for every Remedy app, written in Rust. That covers chat (FreeSpeak), documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform). Its aims, in order: stable, secure, fast as the hardware allows, light, intuitive for the people using it, and a pleasure to build with.
 
-**Status: design.** The requirements, design, app map and roadmap are written. Engine code comes next, milestone by milestone. A crate is added to the workspace only when it has real code and tests.
+**Status: M1 (foundations) built.** These crates exist, with real code and tests:
+
+- `remedy-ui-core`: geometry, scale and snapping, colors, generational arena
+- `remedy-ui-reactive`: glitch-free signals, memos, effects, scopes, `Waker`, `SignalVec`, stores
+- `remedy-ui-macros`: `#[derive(Store)]`
+- `remedy-ui-tree`: elements, dirty flags and boundaries, events, hit testing, focus, error boundaries
+- `remedy-ui-test`: the headless harness
+
+Next is M2 (text). A crate is added to the workspace only when it has real code and tests.
+
+Checks: `cargo xtask check` (layer graph and unsafe boundary) and `cargo deny check`, alongside fmt, clippy, tests and docs.
 
 ## In short
 
