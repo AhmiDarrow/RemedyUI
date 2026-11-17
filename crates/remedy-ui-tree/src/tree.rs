@@ -637,6 +637,11 @@ impl Tree {
 
     // ---------- focus ----------
 
+    /// The nearest focus scope containing `id` (itself included), or the root.
+    pub fn focus_scope(&self, id: ElementId) -> ElementId {
+        self.0.borrow().focus_scope_of(id)
+    }
+
     /// Whether the element can take keyboard focus.
     pub fn set_focusable(&self, id: ElementId, on: bool) -> Result<(), TreeError> {
         self.edit(id, |n| n.focusable = on)?;

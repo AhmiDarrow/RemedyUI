@@ -312,3 +312,62 @@ fn semantics_describe_the_window_without_exposing_secrets() {
     assert!(dump.contains("Name") && dump.contains("Click") && dump.contains("PasswordInput"), "{dump}");
     assert!(!dump.contains("\"z\""), "no secret text in the tree");
 }
+
+#[test]
+fn overlays_draw_above_content_trap_focus_and_timers_fire() {
+    let ui = ui();
+    let clicks = Rc::new(Cell::new(0));
+    ui.root().child(button(&ui, clicks.clone()));
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    // A dialog over the button, with its own button, keeps Tab inside itself.
+    let inner = Rc::new(Cell::new(0));
+    let dialog = ui.overlay(
+        ui.el("dialog")
+            .style(StylePatch { background: Some(BLUE), ..StylePatch::default() })
+            .layout(|l| {
+                l.position = remedy_ui_layout::Position::Absolute;
+                l.inset = Insets::ZERO;
+            })
+            .focus_scope()
+            .child(button(&ui, inner.clone()).layout(|l| l.margin = Insets::all(50.0))),
+    );
+    s.frame();
+    assert!(dialog.focus_first(), "opening a modal focuses its first control");
+    assert_eq!(s.px(10, 10), [0, 0, 255, 255], "the overlay covers the content");
+    ui.pointer(&pointer(PointerPhase::Down, 10.0, 10.0, true));
+    ui.pointer(&pointer(PointerPhase::Up, 10.0, 10.0, false));
+    assert_eq!(clicks.get(), 0, "content under an overlay cannot be clicked");
+    assert!(ui.tree().focused().is_some(), "clicking the modal's background keeps focus in it");
+    for _ in 0..3 {
+        ui.key(&key(Key::Enter, None, Modifiers::NONE));
+        ui.key(&key(Key::Tab, None, Modifiers::NONE));
+    }
+    assert_eq!((clicks.get(), inner.get()), (0, 3), "Tab stays in the dialog");
+    // Keys reach handlers on focused ancestors.
+    let escaped = Rc::new(Cell::new(false));
+    let e2 = escaped.clone();
+    let d2 = dialog.clone();
+    let _ = dialog.on_key(move |e| {
+        if e.key == Key::Escape {
+            e2.set(true);
+            d2.remove();
+            return true;
+        }
+        false
+    });
+    assert!(ui.key(&key(Key::Escape, None, Modifiers::NONE)));
+    assert!(escaped.get());
+    s.frame();
+    assert_eq!(s.px(10, 10), [255, 0, 0, 255], "the dialog is gone");
+    // Timers go out as requests and run when the runner fires them.
+    let fired = Rc::new(Cell::new(false));
+    let f2 = fired.clone();
+    let id = ui.after(Duration::from_millis(30), move || f2.set(true));
+    assert!(ui.take_requests().contains(&Request::Timer { id, delay: Duration::from_millis(30) }));
+    ui.fire_timer(id);
+    assert!(fired.get());
+    let gone = ui.after(Duration::from_millis(30), || {});
+    ui.cancel_timer(gone);
+    assert!(ui.take_requests().contains(&Request::CancelTimer(gone)));
+}

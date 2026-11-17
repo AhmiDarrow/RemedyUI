@@ -100,6 +100,10 @@ pub(crate) struct Inner {
     pub(crate) field_session: Option<ElementId>,
     pub(crate) focus_shown: Option<ElementId>,
     pub(crate) platform: remedy_ui_input::Platform,
+    pub(crate) content: ElementId,
+    pub(crate) overlays: ElementId,
+    pub(crate) timers: HashMap<u64, Box<dyn FnOnce()>>,
+    pub(crate) next_timer: u64,
 }
 
 /// One window's UI. Cloning gives another handle to the same UI.
@@ -141,6 +145,7 @@ pub(crate) fn defaults(theme: &Theme) -> StylePatch {
         text_size: Some(theme.type_scale.body),
         weight: Some(400.0),
         opacity: Some(1.0),
+        mono: Some(false),
     }
 }
 
@@ -160,7 +165,7 @@ impl Ui {
         let mut els = HashMap::new();
         els.insert(root, ElData::new("window", root_style(), node, resolved));
         tree.mark(root, Dirty::STYLE | Dirty::LAYOUT | Dirty::PAINT);
-        Ui(Rc::new(RefCell::new(Inner {
+        let ui = Ui(Rc::new(RefCell::new(Inner {
             tree,
             layout,
             els,
@@ -181,12 +186,75 @@ impl Ui {
             field_session: None,
             focus_shown: None,
             platform: remedy_ui_input::Platform::Standard,
-        })))
+            content: root,
+            overlays: root,
+            timers: HashMap::new(),
+            next_timer: 0,
+        })));
+        // The window holds the app's content, then a click-through layer for overlays
+        // (dialogs, menus, toasts) that always draws above it.
+        let content = ui.el("content").layout(|l| {
+            l.grow = 1.0;
+            l.width = remedy_ui_layout::Length::Percent(1.0);
+            l.display = remedy_ui_layout::Display::Flex;
+            l.axis = remedy_ui_layout::Axis::Column;
+        });
+        let overlays = ui.el("overlays").layout(|l| {
+            l.position = remedy_ui_layout::Position::Absolute;
+            l.inset = Insets::ZERO;
+            l.width = remedy_ui_layout::Length::Percent(1.0);
+            l.height = remedy_ui_layout::Length::Percent(1.0);
+        });
+        let _ = ui.tree().set_hit_mode(overlays.id, HitMode::PassThrough);
+        let window = El { ui: ui.clone(), id: root };
+        let _ = window.child(content.clone()).child(overlays.clone());
+        {
+            let mut i = ui.0.borrow_mut();
+            i.content = content.id;
+            i.overlays = overlays.id;
+        }
+        ui
     }
 
-    /// The window's root element (a column filling the window).
+    /// Shows `el` above the window's content until it is removed. Positions inside are
+    /// absolute in window coordinates when the element asks for it.
+    pub fn overlay(&self, el: El) -> El {
+        let host = self.0.borrow().overlays;
+        let _ = El { ui: self.clone(), id: host }.child(el.clone());
+        el
+    }
+
+    /// Runs `f` once after `delay`. Returns an id for [`Ui::cancel_timer`].
+    pub fn after(&self, delay: std::time::Duration, f: impl FnOnce() + 'static) -> u64 {
+        let id = {
+            let mut i = self.0.borrow_mut();
+            i.next_timer += 1;
+            let id = i.next_timer;
+            i.timers.insert(id, Box::new(f));
+            id
+        };
+        self.request(Request::Timer { id, delay });
+        id
+    }
+
+    /// Cancels a timer that has not fired.
+    pub fn cancel_timer(&self, id: u64) {
+        if self.0.borrow_mut().timers.remove(&id).is_some() {
+            self.request(Request::CancelTimer(id));
+        }
+    }
+
+    /// Runs a due timer (the runner calls this).
+    pub fn fire_timer(&self, id: u64) {
+        let f = self.0.borrow_mut().timers.remove(&id);
+        if let Some(f) = f {
+            f();
+        }
+    }
+
+    /// The window's content element (a column filling the window, below overlays).
     pub fn root(&self) -> El {
-        let id = self.0.borrow().tree.root();
+        let id = self.0.borrow().content;
         El { ui: self.clone(), id }
     }
 
@@ -446,6 +514,106 @@ impl El {
         self.layout(|l| {
             l.display = remedy_ui_layout::Display::Flex;
             l.axis = remedy_ui_layout::Axis::Column;
+        })
+    }
+
+    /// Space between children.
+    pub fn gap(self, gap: f32) -> Self {
+        self.layout(|l| l.gap = (gap, gap))
+    }
+
+    /// Fixed width in logical pixels.
+    pub fn width(self, w: f32) -> Self {
+        self.layout(|l| l.width = remedy_ui_layout::Length::Px(w))
+    }
+
+    /// Fixed height in logical pixels.
+    pub fn height(self, h: f32) -> Self {
+        self.layout(|l| l.height = remedy_ui_layout::Length::Px(h))
+    }
+
+    /// Takes a share of the free space along the parent's axis.
+    pub fn grow(self, g: f32) -> Self {
+        self.layout(|l| l.grow = g)
+    }
+
+    /// Fills the parent's width.
+    pub fn fill_width(self) -> Self {
+        self.layout(|l| l.width = remedy_ui_layout::Length::Percent(1.0))
+    }
+
+    /// How children sit across the axis.
+    pub fn align(self, a: remedy_ui_layout::Align) -> Self {
+        self.layout(|l| l.align_items = a)
+    }
+
+    /// How children spread along the axis.
+    pub fn justify(self, j: remedy_ui_layout::Justify) -> Self {
+        self.layout(|l| l.justify = j)
+    }
+
+    /// Calls `f` for key presses while the element or something inside it has focus; `f`
+    /// returns true when it handled the key.
+    pub fn on_key(self, f: impl Fn(&remedy_ui_input::KeyEvent) -> bool + 'static) -> Self {
+        let _ = self.ui.tree().on::<remedy_ui_input::KeyEvent>(self.id, Phase::Bubble, move |cx, e| {
+            if f(e) {
+                cx.set_handled();
+                cx.stop_propagation();
+            }
+        });
+        self
+    }
+
+    /// Calls `f` with pointer input on the element (window logical pixels).
+    pub fn on_pointer(self, f: impl Fn(&remedy_ui_input::PointerEvent) -> bool + 'static) -> Self {
+        let _ = self.ui.tree().on::<remedy_ui_input::PointerEvent>(self.id, Phase::Bubble, move |cx, e| {
+            if f(e) {
+                cx.set_handled();
+                cx.stop_propagation();
+            }
+        });
+        self
+    }
+
+    /// Moves focus to the first focusable element inside this one (a dialog opening).
+    /// Returns false when there is none.
+    pub fn focus_first(&self) -> bool {
+        let tree = self.ui.tree();
+        let first = tree.descendants(self.id).into_iter().find(|d| tree.is_focusable(*d));
+        match first {
+            Some(f) => {
+                El { ui: self.ui.clone(), id: f }.focus();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Keeps Tab focus inside the element (modals, menus).
+    pub fn focus_scope(self) -> Self {
+        let _ = self.ui.tree().set_focus_scope(self.id, true);
+        self
+    }
+
+    /// Draws `image` scaled into the element's content box, keeping its aspect ratio.
+    pub fn image(self, image: remedy_ui_paint::Image) -> Self {
+        let (w, h) = (image.width.max(1) as f32, image.height.max(1) as f32);
+        self.layout(|l| {
+            if l.aspect_ratio.is_none() {
+                l.aspect_ratio = Some(w / h);
+            }
+        })
+        .paint(move |cx| {
+            let s = (cx.size.width / w).min(cx.size.height / h);
+            let (dw, dh) = (w * s, h * s);
+            let x = (cx.size.width - dw) / 2.0;
+            let y = (cx.size.height - dh) / 2.0;
+            cx.list.push(remedy_ui_paint::Item::Image {
+                image: image.clone(),
+                rect: remedy_ui_core::Rect::new(x, y, x + dw, y + dh),
+                radii: remedy_ui_core::CornerRadii::ZERO,
+                sampling: remedy_ui_paint::Sampling::Linear,
+            });
         })
     }
 

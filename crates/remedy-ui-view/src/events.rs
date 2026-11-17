@@ -98,7 +98,13 @@ impl Ui {
                         self.0.borrow_mut().focus_visible = false;
                         focus_changed(self);
                     }
-                    None if tree.focused().is_some() => {
+                    // A click on empty space blurs, except inside the scope holding focus (a
+                    // modal keeps focus while you click its background).
+                    None if tree.focused().is_some_and(|f| {
+                        let scope = tree.focus_scope(f);
+                        scope == tree.root() || !chain.contains(&scope)
+                    }) =>
+                    {
                         tree.blur();
                         focus_changed(self);
                     }
@@ -190,6 +196,16 @@ impl Ui {
         }
         match &e.key {
             Key::Tab => {
+                // With nothing focused, Tab starts in the topmost modal: what is under it is
+                // out of reach.
+                if focused.is_none() {
+                    let overlays = self.0.borrow().overlays;
+                    let top = tree.children(overlays).into_iter().rev().find(|o| tree.focus_scope(*o) == *o);
+                    if let Some(top) = top {
+                        self.0.borrow_mut().focus_visible = true;
+                        return crate::El { ui: self.clone(), id: top }.focus_first();
+                    }
+                }
                 let moved = if e.modifiers.shift { tree.focus_previous() } else { tree.focus_next() };
                 self.0.borrow_mut().focus_visible = true;
                 focus_changed(self);
