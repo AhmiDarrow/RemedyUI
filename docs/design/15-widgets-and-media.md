@@ -24,15 +24,15 @@ Every widget is built only from public engine APIs: the same ones an app uses fo
 | `widgets-data` | `table` (sort, resize, reorder, freeze columns, virtual rows, inline edit), `tree_view` (lazy children, drag to move), `property_grid` | SecretFolder, Hearth, RemedyOS Files and Monitor |
 | `widgets-forms` | `number_input` (units, precision, locale-aware), `color_picker` (with contrast readout), `key_capture`, `date_picker` / `time_picker`, `form` (validation, dirty tracking, submit state) | Craft Calc (lye math needs exact decimal input), settings everywhere |
 | `doc-rich` | `markdown` (headings, lists, quotes, tables, code blocks), `rich_editor`, `find_bar` | FreeSpeak, GuitarRemedy and Craft Calc wikis, RemedyAI |
-| `doc-code` | `code_view` and `code_editor`: line numbers, syntax colors (tree-sitter grammars per language, each its own feature), folding, diff view, multiple cursors | RemedyAI, RemedyOS Editor |
+| `doc-code` | `code_view` and `code_editor`: line numbers, syntax colors (`syntect` with its pure-Rust regex engine, one syntax per feature), folding, diff view, multiple cursors | RemedyAI, RemedyOS Editor |
 | `doc-pages` | `page_view`: paged documents with tiled deep zoom (1%–6400%), rotation, single and two-page spreads, thumbnails, text selection over positioned runs, an annotation layer that stays exact under rotation and zoom. The app supplies pages through a trait; parsing (MuPDF, an EPUB engine) stays in the app | RemedyPDF |
 | `widgets-term` | `terminal`: VT and xterm emulation, scrollback on a virtual list, selection, links, IME, true color. The PTY stays in the app | RemedyAI, RemedyOS Terminal |
 | `media-image` | Image decoding per format feature (`png`, `jpeg`, `webp`, `avif`, `gif`, `ico`) | Most apps |
 | `media-anim` | `animated_image` (GIF, WebP, APNG), `vector_animation` (Lottie-class) | FreeSpeak, onboarding screens |
 | `media-svg` | SVG icons and illustrations; icon sets as SVG | Most apps |
 | `media-video` | `video_surface` (NV12, I420, RGBA; zero-copy GPU import), `external_texture` | FreeSpeak screen share, Portal, Quickcast |
-| `media-playback` | `player`: a transport bar (play, pause, seek with buffered ranges, volume, speed), subtitles track rendering (WebVTT, SRT, ASS basics) and next-up. Decoding goes through platform decoders behind a trait (Media Foundation, AVFoundation, MediaCodec, GStreamer); an app can plug in its own | Portal, Quickcast |
-| `viz` | `meter`, `pitch_graph`, `waveform`, `spectrum`, `needle_gauge`, `sparkline`, `line_chart`, `bar_chart`, `timeline`; streaming ring-buffer inputs ([09](09-performance-and-resources.md)) | VoiceRemedy, GuitarRemedy tuner, RemedyAI usage dashboard, RemedyOS Monitor |
+| `media-playback` | `player`: a transport bar (play, pause, seek with buffered ranges, volume, speed), subtitles track rendering (WebVTT, SRT, ASS basics) and next-up. Decoding goes through the bridges' `MediaHost` (Media Foundation, AVFoundation, MediaCodec, the system's GStreamer on Linux, which is loaded from the OS and never bundled); an app can plug in its own | Portal, Quickcast |
+| `viz` | `meter`, `pitch_graph`, `waveform`, `spectrum`, `needle_gauge`, `sparkline`, `line_chart`, `bar_chart`, `timeline`; retained primitives drawn by the compositor from streaming ring buffers ([09](09-performance-and-resources.md)) | FreeSpeak voice ring, VoiceRemedy, GuitarRemedy tuner, RemedyAI usage dashboard, RemedyOS Monitor |
 | `widgets-music` | `fretboard`, `tab_staff`, `chord_diagram`, `note_staff` (on `canvas` + `viz`) | GuitarRemedy, VoiceRemedy |
 | `widgets-extra` | `qr_code` (generate), `rating`, `carousel`, `stepper_flow` (setup wizards), `color_swatch_grid` | Portal and RemedyAI pairing, onboarding |
 | `embed-webview` | `web_view` ([10](10-platform-bridges.md)) | RemedyAI browser slide |
@@ -60,6 +60,7 @@ Every SecretSticky note is an ordinary `Window` with `frameless()`, `always_on_t
 - **Decoding** runs on the worker pool, or in the isolated helper ([08](08-security-and-privacy.md)), at the size each image is shown. The same source shown at two sizes decodes twice, at both sizes, and shares the parsed headers.
 - **Caching.** Decoded images are cached by (source hash, decoded size). They are uploaded to the GPU when first drawn, and the CPU copy is released after upload unless the CPU renderer or a snapshot needs it. Caches size from the device and shrink under pressure ([09](09-performance-and-resources.md)).
 - **Animated images.** All views of the same source share one decoder. Frames are decoded ahead by a small window and kept in an atlas. Each view has its own clock. Off-screen, unfocused (by app setting) and reduced-motion views do not advance.
+- **Images on device loss** decode again from their source handle ([04](04-rendering.md)).
 - **Video** frames come from any thread through a triple buffer. Each new frame wakes the compositor, not the UI thread, and is composited in the next vsync. Zero-copy import is used where the platform decoder gives GPU textures.
 - **SVG** is parsed once into a path tree. It is drawn as paths, or rasterized into the atlas at icon sizes.
 - **Placeholders.** Every media element has loading, error and empty states. A failed decode shows the error state and logs the reason, and never takes down the frame.

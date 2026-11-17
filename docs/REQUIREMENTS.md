@@ -175,7 +175,7 @@ The design that meets these is [DESIGN.md](DESIGN.md). The order of work is in [
 | Memory | Every cache sizes itself from the device and shrinks under OS memory pressure; no fixed caps; a large chat stays proportional to what is on screen |
 | Robustness | No panic reaches a frame; a lost GPU recovers; the app starts on any machine through a CPU renderer |
 | Safety | No unsafe code outside an audited GPU and platform boundary; untrusted bytes parsed by fuzzed, memory-safe code off the UI thread, bounded by what can be shown rather than by fixed numbers |
-| Supply chain | Every dependency passes FreeSpeak's `cargo deny`; no async runtime required; no C libraries beyond the OS's own |
+| Supply chain | Every dependency passes FreeSpeak's `cargo deny`; no async runtime required; no bundled C libraries (the OS's own frameworks, such as system GStreamer, may be loaded) |
 | API | Stable public API with semantic versioning from 1.0; dependencies hidden behind RemedyUI's own types so they can be swapped |
 | Modularity | An app links only the packs it uses; unused packs add no code and no dependencies, and linked packs start only when first used |
 
@@ -220,7 +220,7 @@ From the survey of every Remedy app ([APPS.md](APPS.md)). Each line names the ap
 | Exact decimal input and live recalculation for safety-critical numbers | Alex's Craft Calc |
 | QR codes for pairing | Portal, RemedyAI |
 | Signed auto-update from GitHub releases | GuitarRemedy, SecretFolder, SecretSticky, RemedyPDF, RemedyAI, Hearth |
-| One theme set across all apps, including the colour-blind palettes | All, from RemedyAI's `themes.ts`, mirrored in Portal and Hearth |
+| One theme set across all apps, including the colour-blind palettes | All, from RemedyAI's `themes.ts`, mirrored in Portal and Hearth and copied into FreeSpeak's skins |
 | Android and tablets from the same code, with large touch targets | GuitarRemedy, VoiceRemedy, Craft Calc, RemedyPDF, RemedyAI, Quickcast |
 | A web target for apps that also live in a browser (PWAs, phone UIs) | GuitarRemedy, Craft Calc, Quickcast, Portal |
 | A native bridge for RemedyOS: its surfaces, input, theme wire, services and a semantics wire | RemedyOS apps |

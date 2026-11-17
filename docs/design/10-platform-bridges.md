@@ -16,6 +16,9 @@ A bridge implements a small set of traits:
 | `DragHost` | Start drags with typed payloads and a preview; receive drops |
 | `DialogHost` | Open, save and folder dialogs; message boxes; print |
 | `ServiceHost` (optional, per feature) | Tray, notifications, badges, jump lists, single instance, URL activation, autostart, global shortcuts where the platform permits |
+| `MediaHost` (optional) | Platform video decoders for `media-playback` (Media Foundation, AVFoundation, MediaCodec, the system GStreamer on Linux) |
+| `SandboxHost` (optional) | Starting the sandboxed decoder helper for `media-isolated` |
+| `WebViewHost` (optional) | The platform web view for `embed-webview` |
 | `A11yHost` | AccessKit adapter for the platform |
 
 A trait method that a platform cannot honor returns `Unsupported` with a reason. It is never faked. The engine adapts: a frameless window falls back to a native frame, and a missing tray hides tray-only actions in the UI.

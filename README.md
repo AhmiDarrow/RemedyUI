@@ -24,7 +24,7 @@ RemedyUI is the UI engine for every Remedy app, written in Rust. That covers cha
 | [docs/DESIGN.md](docs/DESIGN.md) | The overview: principles, engine shape, crates, stability, and the index of deep dives |
 | [docs/design/](docs/design/) | Sixteen deep dives, from threads and state to text, rendering, security, accessibility, developer experience and the design language |
 | [docs/APPS.md](docs/APPS.md) | Every Remedy app mapped to the packs and bridges it needs, and the order the apps move over |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones M1 to M9, each with a tested definition of done and an app moved onto the engine |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones M1 to M10, each with a tested definition of done, and from M5 an app moved onto the engine |
 | [docs/dependencies.md](docs/dependencies.md) | The third-party crates, pinned versions, and the rules for adding one |
 
 ## License

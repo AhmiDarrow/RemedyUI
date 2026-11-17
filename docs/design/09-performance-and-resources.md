@@ -15,7 +15,7 @@
 | Raster | Only damaged tiles |
 | Present | Only damaged regions sent to the OS |
 
-**No allocation in a steady frame.** Per-frame data lives in bump arenas that are reset each frame. Retained data reuses its storage. A benchmark asserts zero heap allocations for an idle frame, a hover frame and a scroll frame of the reference scenes.
+**No allocation proportional to the screen.** Per-frame data lives in bump arenas that are reset each frame, and retained data reuses its storage. An idle frame and a compositor-only scroll frame allocate nothing. A frame that commits allocates only for the chunks and layers that changed, from pooled buffers. Benchmarks assert both.
 
 ## Sizing without fixed caps
 
@@ -24,10 +24,10 @@ The engine never uses a fixed number where the right size depends on the machine
 - **Caches size themselves from the device.** Glyph atlases, shaped-run caches, image caches, layer caches and tile pools start small and grow with use. Each has a target share of the machine's memory: a fraction of physical RAM for CPU caches, and of the adapter's reported budget for GPU caches. The app can change the share.
 - **Memory pressure shrinks them.** The bridges forward the OS signals (`onTrimMemory` on Android, low-memory notifications on Windows, `DISPATCH_SOURCE_TYPE_MEMORYPRESSURE` on macOS, PSI on Linux, the kernel pressure wire on RemedyOS) as a pressure level. Caches evict least-recently-used entries until they are under the level's target. Off-screen tiles go first, then layer caches, then glyphs and images not drawn recently.
 - **Tables grow.** Element arenas, signal arenas, atlas pages and instance buffers grow by doubling and shrink when mostly empty. Nothing has a hard maximum count.
-- **Workers** match the core count, and are created and parked on demand.
+- **Workers**: one per core beyond the UI thread, created and parked on demand ([01](01-threads-and-frames.md)).
 - **Decode bounds** come from what can be shown ([08](08-security-and-privacy.md)). They are not a byte limit.
 
-The only fixed numbers are true constants of the design: tile size, atlas page size, and the clip depth folded into a shader. Each is documented with why it is that value.
+There are no fixed capacity limits. The fixed numbers that remain are tuning constants of the design (tile size, atlas page size, the clip depth folded into a shader, gesture time windows, the size above which text draws as paths). Each is documented in the code with why it is that value, and none limits how much an app can show.
 
 ## Start-up
 
@@ -40,8 +40,8 @@ The only fixed numbers are true constants of the design: tile size, atlas page s
 
 Some apps draw at the display's rate all the time: tuners, pitch graphs and meters (GuitarRemedy, VoiceRemedy), video, live transfer progress. For these:
 
-- **Streaming data.** `viz` primitives take a ring buffer the app writes from any thread (the audio callback, a decoder). The compositor reads the newest data at each frame. The UI thread is not involved per frame.
-- **The canvas is a layer.** It redraws only itself, with no layout. Its paint closure runs per frame only while its data is changing.
+- **Streaming data.** `viz` primitives are retained, built-in drawing (lines, bars, needles, fills) that the compositor draws straight from a ring buffer the app writes from any thread (the audio callback, a decoder). The compositor reads the newest data at each frame, and the UI thread is not involved per frame.
+- **App canvases** are different: their paint closures are app code, so they run on the UI thread, on their own layer, with no layout, and only in frames where the data they read changed. Display-rate visuals should be built from `viz` primitives.
 - **Frame-synced, not polled.** A `viz` element requests frames only while its source reports new data, and stops when the microphone stops or the window hides (VoiceRemedy's "stop the mic when hidden" becomes automatic).
 
 ## Large content
@@ -54,7 +54,7 @@ Some apps draw at the display's rate all the time: tuners, pitch graphs and mete
 ## Measuring
 
 - **Benchmarks in CI.** Reference scenes run on the CPU renderer, and on GPU runners where available, at fixed sizes. The scenes are:
-  - a chat with 10,000 messages (FreeSpeak, RemedyAI)
+  - a chat with 100,000 messages (FreeSpeak, RemedyAI)
   - a 300-page PDF at three zoom levels (RemedyPDF)
   - an explorer with 50,000 files (SecretFolder)
   - a 60 Hz pitch graph and tuner (VoiceRemedy)

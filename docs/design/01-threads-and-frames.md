@@ -7,8 +7,8 @@ Top engines keep two promises at once. Scrolling and animation stay smooth even 
 | Thread | Owns | Never does |
 |---|---|---|
 | **UI thread** (one per app) | App code, signals, effects, the element tree, style, layout, paint recording, semantics | GPU calls, blocking I/O, waiting on the compositor |
-| **Compositor thread** (one per app) | The committed layer tree, the GPU device, rasterization, compositing, presenting. It also runs scrolling and compositor animations | App code, layout, text shaping |
-| **Worker pool** (cores − 2, at least 1) | Text shaping and measuring for rows coming into view, glyph rasterization, image and GIF decoding, path flattening, CPU raster tiles | Touch the element tree |
+| **Compositor thread** (one per app, started when the first window needs scrolling, animation or video on it) | The committed layer tree, the GPU device, rasterization, compositing, presenting. It also runs scrolling and compositor animations | App code, layout, text shaping |
+| **Worker pool** (one worker per core beyond the UI thread, at least one; created as work arrives and parked when idle) | Text shaping and measuring for rows coming into view, glyph rasterization, image and GIF decoding, path flattening, CPU raster tiles, and layout of detached subtrees (inputs copied out of the tree, results copied back by the UI thread) | Touch the live element tree |
 | **Platform thread** (where the OS demands it) | The OS event loop on macOS, and Android's main thread when that is not the UI thread | Anything slow |
 
 The UI thread and the compositor thread meet at one place: the **commit**.
@@ -22,7 +22,7 @@ compositor thread:  ┌───────────────────
                     └→ apply scroll/animation deltas → raster dirty tiles → composite → present
 ```
 
-1. **Begin frame.** The compositor sends a begin-frame signal on vsync, carrying the predicted presentation time. Only the UI thread's own requests or the compositor's need for a commit cause one.
+1. **Begin frame.** The compositor sends a begin-frame signal on vsync, carrying the predicted presentation time. Only the UI thread's own requests or the compositor's need for a commit cause one. A window that has not needed the compositor yet gets its begin-frame straight from the bridge's vsync source, and draws on the UI thread until it does.
 2. **Input.** Events queued since the last frame are coalesced: pointer moves merge, but their history is kept for ink and prediction. They are then dispatched.
 3. **Effects, style, layout, paint, semantics**, as described in the overview. Each step touches only dirty elements.
 4. **Commit.** The UI thread builds a new snapshot of the layer tree. Unchanged paint chunks, layers and atlas references are shared with the previous snapshot through `Arc`, so a commit costs as much as the change, not the screen. The snapshot is handed over through a single-slot mailbox. A newer commit replaces an older one that the compositor has not yet taken.
@@ -34,7 +34,7 @@ The UI thread does not wait for the compositor. If a commit is still being drawn
 
 These are the properties the compositor can change on its own, without the UI thread:
 
-- **Scroll offset** of any scroll container that has its own layer. This includes momentum, overscroll and scrollbar fades. The UI thread learns the new offset at its next frame and updates virtual-list rows from it. A scroll handler marked `passive` (the default) cannot block the scroll, the same rule as Chromium's passive listeners. Only a non-passive handler forces scroll input through the UI thread.
+- **Scroll offset** of any scroll container that has its own layer. This includes momentum, overscroll and scrollbar fades. The UI thread learns the new offset at its next frame and updates virtual-list rows from it. Handlers are passive by default and cannot block the scroll, the same rule as Chromium's passive listeners. Only a handler that declares `prevents_scroll()` forces scroll input through the UI thread.
 - **Transform, opacity and clip-rect animations** on layered elements: transitions, springs, keyframes. The UI thread sends an animation description (curve, duration or spring parameters, start time), not per-frame values, the way Core Animation does. Interrupting or retargeting one is a new description that starts from the presented value and velocity.
 - **Video surfaces and external textures**: a new frame from the producer thread is composited directly, with no UI thread work.
 - **Animated images** on their own layers advance frames on the compositor.
@@ -55,13 +55,13 @@ Tests, the headless runner and platforms without threads run the UI and composit
 
 ## Threads and the app
 
-App code runs only on the UI thread. Signals are `!Send` handles, so they cannot leak to other threads. Other threads hold a `Waker`, which is `Send + Sync + Clone`, and post closures with it:
+App code runs only on the UI thread. A signal handle is a plain id, so it can be captured by a closure that is sent to another thread, but its value can only be read or written on the UI thread that owns it: anywhere else the access fails with a clear error. Other threads hold a `Waker`, which is `Send + Sync + Clone`, and post closures with it. The closure runs on the UI thread, where the signals it captured work:
 
 ```rust
 let waker = cx.waker();
 std::thread::spawn(move || {
     for msg in network.incoming() {
-        waker.post(move |cx| room.messages.push(msg)); // runs on the UI thread, batched into the next frame
+        waker.post(move || room.messages.push(msg)); // runs on the UI thread, batched into the next frame
     }
 });
 ```

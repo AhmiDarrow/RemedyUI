@@ -45,8 +45,7 @@ Layers larger than the viewport (a long scrolled page, a zoomed PDF page) are sp
 The GPU renderer runs on wgpu: D3D12, Vulkan, Metal, and GL 3.3 / GLES 3.0.
 
 - **A fixed, small set of pipelines** (uber-shaders): solid and SDF shapes, gradients, glyphs (grayscale, LCD, color), images (RGBA, YUV), paths (`vello_gpu` strips), blur, composite.
-  - They are created at start-up from a **persistent pipeline cache** on disk. Nothing compiles mid-interaction.
-  - A first run warms the cache during the first idle moment.
+  - The whole fixed set is created at start-up, from a **persistent pipeline cache** on disk. On the very first run, or after a driver update invalidates the cache, the set is compiled once before the first frame; that cost is measured in the start-up benchmarks. Nothing compiles after start-up.
 - **Batching.** Primitives are written into instance buffers and drawn in as few calls as the draw order allows.
   - Opaque items are drawn front to back with a depth test, so hidden pixels are never shaded.
   - Translucent items are drawn back to front, and neighbours that do not overlap are merged into one batch.
@@ -57,7 +56,7 @@ The GPU renderer runs on wgpu: D3D12, Vulkan, Metal, and GL 3.3 / GLES 3.0.
   - Packing uses shelf allocation per size class. Atlases grow by adding pages as needed, with no fixed count.
   - Entries not used for a number of frames are evicted when memory pressure asks for it.
   - Uploads go through a staging ring buffer, batched per frame.
-- **Images** larger than an atlas slot get their own textures, and mipmaps when they are drawn scaled down. Each is decoded at the size it is shown, not at its source size (see [09](09-performance-and-resources.md)).
+- **Images** larger than an atlas slot get their own textures, and mipmaps when they are drawn scaled down. Each is decoded at the size it is shown, not at its source size (see [09](09-performance-and-resources.md)). Every image keeps a handle to its source, so a texture lost with the device is decoded again rather than kept twice in memory.
 - **Video** planes are uploaded as they come (R8 + RG8 for NV12, three R8 planes for I420) and converted to RGB in the shader with the stream's matrix and range. Where the platform decoder gives a GPU texture (D3D11/12, VA-API dma-buf, Android `HardwareBuffer`, IOSurface), it is imported directly with no copy.
 - **Blending** happens in sRGB space by default, the way browsers and design tools do, so colors match designers' mock-ups. Text uses gamma and contrast curves matched to each platform's native text. Wide-gamut and HDR windows switch to an extended-linear surface. Colors are tagged with their color space, so this changes no app code.
 
@@ -69,12 +68,12 @@ The CPU renderer draws the same display list and layer tree:
 - RemedyUI's compositor handles glyphs (including LCD), images, YUV conversion and layers.
 - Presenting is a pixel blit through the bridge (softbuffer class), with damage rects.
 
-It is used where no GPU backend starts, under GL 3.3, and on machines where WARP or llvmpipe misbehave. It is also used for headless tests and for rendering to images, with the same output as the GPU path within a tested tolerance.
+It is used where no GPU backend passes its self-test: no driver, OpenGL older than 3.3 (or GLES older than 3.0, which the GPU renderer accepts as its lowest backend), or WARP and llvmpipe setups that fail the test. It is also used for headless tests and for rendering to images, with the same output as the GPU path within a tested tolerance.
 
 ## Choosing, recovering and degrading
 
 1. **Start-up.** The bridge proposes backends for the platform. Each is tried with a self-test frame that checks the rendered pixels, not just that creation succeeded. The first that passes is used, and the choice is remembered per GPU and driver version.
-2. **Device loss.** The renderer re-creates the device and rebuilds textures from the atlases' CPU-side copies and the retained layer tree, then redraws the full frame. Apps are not involved.
+2. **Device loss.** The renderer re-creates the device, rebuilds atlases from their CPU-side copies, decodes large images again from their source handles, and redraws the full frame from the retained layer tree. Apps are not involved.
 3. **Repeated loss or a hang.** A watchdog on present demotes to the next backend for the session and reports it to the app (`RendererInfo` signal).
 4. **Pressure.** Under GPU memory pressure, off-screen tiles go first, then cached layers, then atlas pages not used recently. Under heavier pressure, the renderer draws layers straight to the frame instead of caching them, until the pressure passes.
 

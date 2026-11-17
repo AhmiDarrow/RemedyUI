@@ -4,7 +4,7 @@ The aim is layout that web and Flutter developers both find familiar, that is co
 
 ## One protocol, several algorithms
 
-Every element takes part in one layout protocol:
+Every element takes part in one layout protocol. It is the layout half of the `Element` trait, shown on its own here:
 
 ```rust
 trait Layout {
@@ -13,7 +13,9 @@ trait Layout {
     /// Place children inside the final size.
     fn arrange(&self, cx: &mut ArrangeCx, size: Size);
     /// Optional: intrinsic sizes and the first baseline, for alignment and grids.
-    fn intrinsic(&self, cx: &mut MeasureCx, axis: Axis, other: Option<f32>) -> Intrinsic { .. }
+    fn intrinsic(&self, cx: &mut MeasureCx, axis: Axis, other: Option<f32>) -> Intrinsic {
+        cx.intrinsic_from_measure(self, axis, other)
+    }
 }
 ```
 
@@ -28,7 +30,7 @@ trait Layout {
 | `virtual_list`, `virtual_grid` | RemedyUI | See below |
 | `split`, `dock` | RemedyUI | Resizable panes with min and max sizes, collapse, and tear-off to a window |
 | `anchored` | RemedyUI | Overlays placed against an element or point, with flip and shift to stay on screen |
-| Custom | App | Implement `Layout`; it gets the same caching and boundaries |
+| Custom | App | Implement the `Element` trait's layout methods; it gets the same caching and boundaries |
 
 Taffy is used through RemedyUI's own `Style` types, never exposed, so the layout engine can change without breaking apps.
 
@@ -46,7 +48,7 @@ All layout properties are logical: `start` and `end`, `inline` and `block`, neve
 
 - **Caches.** Each element caches its last `measure` result, keyed by its constraints and content version. Layout re-runs an element only when it is `LAYOUT`-dirty or its constraints changed.
 - **Relayout boundaries** stop dirtiness from climbing: fixed size, tight constraints, or a scroll axis (see [02](02-state-and-elements.md)).
-- **Parallel layout.** Sibling subtrees that are relayout boundaries can lay out in parallel on the worker pool when there is enough work, as Servo's layout does. This happens at a window resize, a theme change or first build. Small updates stay on the UI thread, where they are cheaper.
+- **Parallel layout.** Sibling subtrees that are relayout boundaries can lay out in parallel on the worker pool when there is enough work, as Servo's layout does. The UI thread copies each subtree's layout inputs into a detached snapshot, workers lay the snapshots out, and the UI thread writes the results back. Workers never touch the live tree. This happens at a window resize, a theme change or first build. Small updates stay on the UI thread, where they are cheaper.
 - **Same frame.** Layout always completes before paint in the same frame. Nothing is measured one frame late.
 
 ## Virtualization

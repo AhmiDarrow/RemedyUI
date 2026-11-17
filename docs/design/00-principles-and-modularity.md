@@ -7,7 +7,7 @@ RemedyUI is the one UI engine for every Remedy app. That covers chat (FreeSpeak)
 These are in priority order. When two pull against each other, the higher one wins.
 
 1. **Stable.** It runs the same way every time. No panic reaches a frame, no hang reaches the user, and it starts on any machine. Judge by repeat runs, not one pass.
-2. **Secure and private.** No unsafe code outside an audited boundary. Untrusted bytes are parsed by memory-safe code off the UI thread. The engine never phones home, logs content, or needs an account or a network.
+2. **Secure and private.** No unsafe code outside an audited boundary. Untrusted bytes are parsed by memory-safe code off the UI thread. The engine never phones home, logs content, or needs an account or a network. The one pack that uses the network, `services-update`, is opt-in, talks only to the feed the app names, and sends nothing that identifies the user.
 3. **Fast as the hardware allows.** Work is proportional to change. Nothing runs when nothing changes, and input reaches the screen within a frame.
 4. **Efficient and light.** An app pays only for what it uses, in binary size, memory and CPU (see Modularity).
 5. **Intuitive for people.** Good behavior is the default: platform conventions, accessibility, undo, feedback, motion that explains. An app built quickly on RemedyUI should already feel right ([13-design-language.md](13-design-language.md)).
@@ -18,7 +18,7 @@ Rules that come from the Remedy tenets:
 
 - **Remedy's own design.** RemedyUI has its own model of windows, input, text, rendering and semantics. Windows, macOS, Linux, Android, the web and RemedyOS are **bridges** that translate that model to each platform. No platform's shape leaks into the core, and the RemedyOS native bridge is a first-class target, not an afterthought ([10-platform-bridges.md](10-platform-bridges.md)).
 - **Code fluid.** Users can change the apps they use. Themes, layouts, shortcuts, toolbars and text are data the user can edit, safely, through the engine's customization layer ([07-styling-and-customization.md](07-styling-and-customization.md)). Nothing visual is a sealed constant when it could be a token.
-- **No fixed caps.** The engine sizes itself from need and from the hardware: caches from device memory and pressure signals, tables that grow, atlases that add pages. The only bounds kept are ones that protect correctness or safety, such as overflow checks and decode bounds derived from what can actually be shown. Those are sized from the hardware and the content, not guessed ([09-performance-and-resources.md](09-performance-and-resources.md)).
+- **No fixed caps.** The engine has no fixed capacity limits: caches size from device memory and pressure signals, tables grow, atlases add pages. The only bounds kept are ones that protect correctness or safety, such as overflow checks and decode bounds derived from what can actually be shown, and those are sized from the hardware and the content. Tuning constants (a gesture's time window, a hinting threshold) are not caps; each is documented in the code with its reason ([09-performance-and-resources.md](09-performance-and-resources.md)).
 - **No stubs.** Every API either works fully or does not exist on that platform, with a clear `Unsupported` error and a documented reason. Nothing returns success without doing the work.
 - **Local first, undoable.** Nothing in the engine needs the cloud. User-facing changes the engine manages (edits, customizations, settings it persists) go through one undo history.
 - **Operable by people and by agents.** The semantics tree and the command table that serve screen readers also let an AI agent (the RemedyOS mind, or an assistant inside an app) read and operate the UI. This works only through the same permissions and consent the user grants, and every agent action is visible and undoable ([11-accessibility-and-automation.md](11-accessibility-and-automation.md)).
@@ -27,18 +27,30 @@ Rules that come from the Remedy tenets:
 
 ### Layers
 
-Crates form a strict layered graph. A crate may depend only on crates in lower layers, never sideways into another feature pack and never upward. CI checks the graph.
+Crates form a strict layered graph. A crate may depend only on crates in lower layers, plus the few sideways edges listed below, and never upward. CI checks the graph against this list.
 
 ```
-L6  app-facing:   remedy-ui (facade, feature flags)          remedy-ui-cli (tooling, not linked into apps)
-L5  feature packs: widgets-* · media-* · doc-* · viz-* · services-* · devtools
+L6  app-facing:   remedy-ui (facade, feature flags) · remedy-ui-rui (markup compiler and runtime) · remedy-ui-test
+                  cargo-remedy (CLI, not linked into apps)
+L5  feature packs: widgets-* · media-* · doc-* · viz · embed-* · services-* · themes · fonts · devtools
 L4  host:          render-gpu · render-cpu · bridge-windows · bridge-macos · bridge-wayland · bridge-x11
                    bridge-android · bridge-web · bridge-remedyos · bridge-headless
-L3  frame:         paint · motion · a11y · compositor
+L3  frame:         paint (display list, image and icon sources) · motion · a11y · compositor · secure
 L2  engine:        tree · style · layout · text · input
 L1  state:         reactive
-L0  base:          core (geometry, color, ids, units, errors; no dependencies)
+L0  base:          core (geometry, color, ids, units; no dependencies)
 ```
+
+The allowed sideways edges inside L5:
+
+- every `widgets-*` pack, `doc-*` pack, `viz` and `embed-*` pack may depend on `widgets-core`
+- `widgets-music` may depend on `viz`
+- `doc-rich` may depend on `doc-code`, behind its `code-blocks` feature, for colored code blocks
+- `media-anim` may depend on `media-image`
+
+Image and icon *sources* are a trait in `paint`, so `widgets-core` can show images without knowing any decoder; `media-image` and `media-svg` register decoders for them.
+
+**Unsafe code** lives only in the bridges and `render-gpu`. Each of those crates denies `unsafe_code` at its root and allows it only on its `os` (or `ffi`) module; every other crate forbids it outright, and CI checks that no other module carries the allow. Packs that need the operating system (playback decoders, the decoder sandbox, the web view, tray and notifications) call bridge traits, so they stay free of unsafe code.
 
 - **Abstractions.** Widgets (L5) never name a renderer or a bridge. They talk to `paint`, `input` and `a11y` abstractions. The app chooses hosts by feature flag, and `remedy-ui` wires them together.
 - **Core stays small.** L0 to L3 are the engine every app needs: a few small, heavily tested crates with almost no third-party dependencies beyond taffy, the text stack and AccessKit.
@@ -48,7 +60,7 @@ L0  base:          core (geometry, color, ids, units, errors; no dependencies)
 
 | Pack | Contents | Typical users |
 |---|---|---|
-| `widgets-core` | Containers, text, buttons, toggles, sliders, selects, inputs, `secret_input`, scroll, virtual list, tooltip, menu, modal, progress, image, icon, canvas | Every app |
+| `widgets-core` | Containers, text, buttons, toggles, sliders, selects, inputs, `secret_input`, scroll, virtual list, tooltip, menu, modal, progress, image and icon (over `paint`'s source trait), canvas | Every app |
 | `widgets-nav` | Tabs, nav rail, nav stack, breadcrumbs, customizable toolbar, command palette, sheets, drawers, custom title bar | Multi-screen apps |
 | `widgets-data` | Table, tree view, property grid, selection, sort and filter helpers | SecretFolder, Hearth, RemedyOS Files and Monitor |
 | `widgets-forms` | Number input, color picker, key capture, date and time pickers, form validation | Craft Calc, settings everywhere |
@@ -61,14 +73,16 @@ L0  base:          core (geometry, color, ids, units, errors; no dependencies)
 | `media-image` | Decode pool and cache; formats per sub-feature (`png`, `jpeg`, `webp`, `avif`, `gif`, `ico`) | Most apps |
 | `media-anim` | Animated GIF, WebP and APNG; vector animation | FreeSpeak, onboarding |
 | `media-svg` | SVG icons and illustrations | Most apps |
-| `media-video` | Video surfaces (YUV, RGBA, zero-copy import), external textures | FreeSpeak, Portal, Quickcast |
+| `media-video` | Video surfaces (YUV, RGBA, zero-copy import), external textures | FreeSpeak, Portal |
 | `media-playback` | Player transport, subtitles, platform decoders behind a trait | Portal, Quickcast |
 | `media-isolated` | Decoding in a sandboxed helper process | FreeSpeak, Hearth, RemedyPDF |
-| `viz` | Meters, pitch graph, waveform, spectrum, gauge, sparkline, charts, timeline; streaming inputs | VoiceRemedy, GuitarRemedy, RemedyAI, RemedyOS Monitor |
+| `viz` | Meters, pitch graph, waveform, spectrum, gauge, sparkline, charts, timeline; retained primitives the compositor draws straight from streaming ring buffers | FreeSpeak voice ring, VoiceRemedy, GuitarRemedy, RemedyAI, RemedyOS Monitor |
 | `embed-webview` | Platform web view as an element | RemedyAI |
 | `embed-gpu` | The app's own wgpu rendering as an element | TheOven |
 | `services-desktop` | Tray, notifications, badges, jump lists, file dialogs, single instance, URL activation, autostart, power; each its own sub-feature | Desktop apps |
-| `services-update` | Signed updates from GitHub releases or a feed | Most shipped apps |
+| `services-update` | Signed updates from GitHub releases or a feed the app names; opt-in, the only networked pack | Most shipped apps |
+| `themes` | The shared Remedy theme set | Every Remedy app |
+| `fonts` | The Remedy font families, one feature per family | Every Remedy app |
 | `services-spell` | Platform spell checker bridge | Editors, chat |
 | `services-i18n` | Message formatting with plurals, locale formatting; locale data per locale at run time | Localized apps |
 | `devtools` | Inspector, performance overlay, hot reload, previews; debug builds by default | Development |
@@ -91,8 +105,8 @@ remedy-ui = { version = "1", features = ["full"] }                              
 
 Compiling a pack in does not make it cost anything until it is used:
 
-- **Subsystems start lazily.** The spell checker connects on the first editor focus. Locale data loads when that locale is chosen. The path pipeline compiles its GPU shaders the first time a path draws, from the on-disk pipeline cache when there is one. Decoder workers spawn on the first decode.
-- **Fonts** are memory-mapped and parsed on first use, per face.
+- **Subsystems start lazily.** The spell checker connects on the first editor focus. Locale data loads when that locale is chosen. Decoder workers spawn on the first decode. (GPU pipelines are the exception: the fixed set is built at start-up so nothing compiles mid-session; see [04](04-rendering.md).)
+- **Fonts** are parsed on first use, per face.
 - **Accessibility** builds its tree only when an assistive technology or agent connects. It then stays incremental.
 - **The compositor thread** is not started for a window that never animates or scrolls. A small utility window renders on the UI thread until it first needs one.
 - **Workers** are created as work arrives and park when idle. The pool's size comes from the machine's cores.

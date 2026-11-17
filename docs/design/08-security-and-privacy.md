@@ -14,7 +14,7 @@ The Remedy apps hold encrypted vaults (SecretFolder, SecretSticky), private conv
 
 ## Memory safety
 
-- `#![forbid(unsafe_code)]` in every crate except the GPU boundary (`render-gpu`, inside its `ffi` module) and the bridges (inside each one's `os` module). Those modules are reviewed per change, run under Miri where the platform allows, and wrap OS calls in safe types with documented invariants.
+- `#![forbid(unsafe_code)]` in every crate except `render-gpu` and the bridges. Those deny `unsafe_code` at the crate root and allow it only on one module (`ffi` in `render-gpu`, `os` in each bridge). The modules are reviewed per change, run under Miri where the platform allows, and wrap OS calls in safe types with documented invariants. Packs that need the operating system go through bridge traits.
 - **The frame path** denies `unwrap`, `expect`, panicking indexing and unchecked arithmetic, enforced by Clippy in CI. Overflow checks stay on in release.
 - **App code** runs inside `catch_unwind` at every callback boundary, with error boundaries in the tree ([02](02-state-and-elements.md)).
 
@@ -23,7 +23,7 @@ The Remedy apps hold encrypted vaults (SecretFolder, SecretSticky), private conv
 - **Parsers.** Everything from outside is parsed by pure-Rust, fuzzed parsers: images, animations, SVG, fonts, theme files, `.rui` overrides, rich-text paste.
 - **Off the UI thread.** Parsing runs on the worker pool, never in a frame.
 - **Bounds from need, not fixed caps.**
-  - An image is decoded only up to the largest size it can be shown at: its element's size × the window's scale, or the display's size for a full-screen viewer. A 30,000 × 30,000 image shown as a 40 dp avatar decodes to 40 dp, using the decoder's scaled decode, with no full-size buffer.
+  - An image is decoded only up to the largest size it can be shown at: its element's size × the window's scale, or the display's size for a full-screen viewer. A 30,000 × 30,000 image shown as a 40 dp avatar decodes to 40 dp: JPEG through scaled decoding, row-by-row formats (PNG, WebP lossless) by downsampling rows as they stream, so there is no full-size buffer. Formats that need the whole image at once (interlaced PNG, some TIFF layouts) are decoded at full size only if the machine's free memory allows it; otherwise they show their error state.
   - Animations decode frames as they are needed, at the shown size, not all up front.
   - Text is laid out as it becomes visible.
   - Work that cannot finish while still useful is cancelled when its element leaves the screen.
@@ -33,7 +33,7 @@ The Remedy apps hold encrypted vaults (SecretFolder, SecretSticky), private conv
 
 ## Secrets on screen
 
-A small `secure` module in core, used by SecretFolder, SecretSticky, Hearth's passphrase and FreeSpeak's safety numbers:
+The `secure` crate (L3) and the zeroizing secret buffer in `text`, used by SecretFolder, SecretSticky, Hearth's passphrase and FreeSpeak's safety numbers:
 
 - **`secret_input`.** Masked text with optional reveal.
   - Its storage zeroes on change and drop, and keeps one contiguous buffer to avoid copies.
@@ -54,13 +54,13 @@ A small `secure` module in core, used by SecretFolder, SecretSticky, Hearth's pa
 
 ## Privacy by construction
 
-- **No telemetry.** The engine sends nothing over the network, ever. Crash and error hooks give data to the app, which decides.
+- **No telemetry.** The engine sends nothing over the network. The single networked pack, `services-update`, is opt-in, contacts only the feed the app configures, and sends no identifier beyond what an HTTPS request carries. Crash and error hooks give data to the app, which decides.
 - **Logs** hold element paths, timings and error kinds, never text content, input or clipboard data. Debug content logging is a separate opt-in that cannot be on in release.
 - **Microphone, camera and screen capture** are not engine features. When an app uses them through its own code, the engine provides the standard indicator component and the platform's permission prompt bridge, so users always see when capture is live.
 
 ## Supply chain and process
 
-- **Dependencies.** Every third-party crate is justified in `docs/dependencies.md`, pinned exactly, licensed MIT, Apache-2.0 or compatible, and checked by `cargo deny` (licenses, advisories, bans, sources), `cargo audit` and `cargo vet` in CI. Features are minimal per dependency.
+- **Dependencies.** Every third-party crate is justified in `docs/dependencies.md`, pinned exactly, under one of the licenses listed there, and checked by `cargo deny` (licenses, advisories, bans, sources), `cargo audit` and `cargo vet` in CI. Features are minimal per dependency.
 - **Fuzzing.** Fuzz targets (cargo-fuzz) run in CI on a schedule, with the corpus committed: rich-text building, the editor, `.rui` and theme parsing, image and font paths, the display list, and the layout of random trees.
 - **Reproducible release builds**, with signed tags.
 - **Security issues** are reported privately and fixed under an advisory before disclosure. Their regression tests become part of the suite.
