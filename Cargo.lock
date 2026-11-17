@@ -490,6 +490,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-motion"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-core",
+]
+
+[[package]]
 name = "remedy-ui-reactive"
 version = "0.1.0"
 dependencies = [
