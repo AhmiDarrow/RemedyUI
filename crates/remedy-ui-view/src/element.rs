@@ -375,6 +375,57 @@ impl Ui {
         let mut i = self.0.borrow_mut();
         i.a11y.connect();
         i.structure_changed = true;
+        drop(i);
+        self.request(Request::Frame);
+    }
+
+    /// Accessibility: stop producing updates (the screen reader went away).
+    pub fn disconnect_accessibility(&self) {
+        self.0.borrow_mut().a11y.disconnect();
+    }
+
+    /// Does what assistive technology asked of an element: click, focus, increment or
+    /// decrement (as the arrow keys would), or scroll it into view. Returns false for an
+    /// element that is gone or an action it does not offer.
+    pub fn accessibility_action(&self, target: u64, action: remedy_ui_a11y::Action) -> bool {
+        use remedy_ui_a11y::Action as A;
+        let Some(id) = self.0.borrow().els.keys().copied().find(|e| root_key(*e) == target) else {
+            return false;
+        };
+        let el = El { ui: self.clone(), id };
+        let tree = self.tree();
+        let arrow = |k: remedy_ui_input::Key| {
+            let e = remedy_ui_input::KeyEvent {
+                key: k,
+                physical: String::new(),
+                modifiers: remedy_ui_input::Modifiers::NONE,
+                pressed: true,
+                repeat: false,
+                composing: false,
+                text: None,
+            };
+            tree.dispatch(id, &e).is_ok_and(|d| d.handled)
+        };
+        match action {
+            A::Click => {
+                let clickable = self.0.borrow().els.get(&id).is_some_and(|d| d.click.is_some());
+                if clickable {
+                    let _ = tree.dispatch(id, &crate::events::Click { position: None });
+                }
+                clickable
+            }
+            A::Focus => {
+                if !tree.is_focusable(id) {
+                    return false;
+                }
+                el.focus();
+                true
+            }
+            A::Increment => arrow(remedy_ui_input::Key::ArrowRight),
+            A::Decrement => arrow(remedy_ui_input::Key::ArrowLeft),
+            A::ScrollIntoView => true,
+            A::Expand | A::Collapse | A::ShowContextMenu => false,
+        }
     }
 
     /// The next accessibility update, when connected and something changed.

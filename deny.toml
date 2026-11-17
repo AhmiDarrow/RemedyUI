@@ -19,6 +19,15 @@ targets = [
 version = 2
 db-path = "~/.cargo/advisory-dbs"
 yanked = "deny"
+# AccessKit's Linux adapter (accesskit_unix 0.24, through atspi 0.29) is still on the zbus 5
+# line, whose name/variant crates are marked unmaintained since zbus 6 merged them. These are
+# maintenance notices, not vulnerabilities; RemedyUI's own D-Bus code uses zbus 6. Remove
+# these exceptions when AccessKit moves to zbus 6.
+ignore = [
+    { id = "RUSTSEC-2026-0370", reason = "zvariant 5 via accesskit_unix; maintenance notice only" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names 4 via accesskit_unix; maintenance notice only" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 5 via accesskit_unix; maintenance notice only" },
+]
 
 [licenses]
 version = 2

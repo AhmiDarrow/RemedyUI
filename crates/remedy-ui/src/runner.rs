@@ -9,8 +9,8 @@ use std::time::Duration;
 use remedy_ui_compositor::{Compositor, LayerId};
 use remedy_ui_core::{Color, Point, Size, Vec2};
 use remedy_ui_host::{
-    FileDialog, Host, HostEvent, Pixels, ResizeEdge, SystemSettings, TimerId, TrayEvent, TrayIcon, WindowId,
-    WindowOptions,
+    AccessibilityEvent, FileDialog, Host, HostEvent, Pixels, ResizeEdge, SystemSettings, TimerId, TrayEvent,
+    TrayIcon, WindowId, WindowOptions,
 };
 use remedy_ui_input::ScrollPhysics;
 use remedy_ui_render_cpu::CpuCompositor;
@@ -736,6 +736,9 @@ impl Runner {
         let Some(w) = self.wins.get_mut(&key) else { return };
         let (pw, ph, s) = w.size;
         let f = w.ui.frame(Size::new(pw as f32 / s, ph as f32 / s), s);
+        if let Some(update) = w.ui.take_accessibility_update() {
+            host.update_accessibility(w.host, update);
+        }
         let Some(comp) = w.comp.as_mut() else { return };
         if let Some(l) = f.layers {
             comp.commit(l);
@@ -811,6 +814,23 @@ impl Runner {
             host.request_frame(w.host);
         }
     }
+}
+
+/// AccessKit's action as the engine's, for the actions elements offer.
+fn action(a: remedy_ui_host::accesskit::Action) -> Option<remedy_ui_view::A11yAction> {
+    use remedy_ui_host::accesskit::Action as K;
+    use remedy_ui_view::A11yAction as A;
+    Some(match a {
+        K::Click => A::Click,
+        K::Focus => A::Focus,
+        K::Increment => A::Increment,
+        K::Decrement => A::Decrement,
+        K::Expand => A::Expand,
+        K::Collapse => A::Collapse,
+        K::ShowContextMenu => A::ShowContextMenu,
+        K::ScrollIntoView => A::ScrollIntoView,
+        _ => return None,
+    })
 }
 
 #[cfg(feature = "gpu")]
@@ -1008,6 +1028,20 @@ impl remedy_ui_host::App for Runner {
                     && let Some(w) = self.wins.get(&key)
                 {
                     w.ui.fire_timer(vid);
+                }
+            }
+            HostEvent::Accessibility(window, ev) => {
+                if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
+                    match ev {
+                        AccessibilityEvent::Requested => w.ui.connect_accessibility(),
+                        AccessibilityEvent::Deactivated => w.ui.disconnect_accessibility(),
+                        AccessibilityEvent::Action(r) => {
+                            if let Some(a) = action(r.action) {
+                                w.ui.accessibility_action(r.target_node.0, a);
+                            }
+                        }
+                    }
+                    host.request_frame(window);
                 }
             }
             HostEvent::Tray(e) => {

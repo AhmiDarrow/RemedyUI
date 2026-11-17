@@ -16,8 +16,8 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{
-    App, FileDialog, Host, HostEvent, ImeEvent, Pixels, ResizeEdge, SystemSettings, TextInputState, TimerId,
-    TrayIcon, Unsupported, Waker, WindowHandles, WindowId, WindowOptions,
+    AccessibilityEvent, App, FileDialog, Host, HostEvent, ImeEvent, Pixels, ResizeEdge, SystemSettings,
+    TextInputState, TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowId, WindowOptions,
 };
 use remedy_ui_input::{
     Buttons, KeyEvent, Modifiers, Platform, PointerEvent, PointerKind, PointerPhase, WheelEvent,
@@ -98,12 +98,21 @@ impl std::error::Error for RunError {}
 pub enum UserEvent {
     /// A [`Waker`] was called.
     Wake,
+    /// The accessibility adapter of a window reported.
+    Accessibility(accesskit_winit::Event),
+}
+
+impl From<accesskit_winit::Event> for UserEvent {
+    fn from(e: accesskit_winit::Event) -> Self {
+        UserEvent::Accessibility(e)
+    }
 }
 
 type SoftSurface = softbuffer::Surface<Arc<Window>, Arc<Window>>;
 
 struct Win {
     window: Arc<Window>,
+    a11y: Option<accesskit_winit::Adapter>,
     surface: Option<SoftSurface>,
     cursor: Point,
     buttons: Buttons,
@@ -180,6 +189,13 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         let window =
             Arc::new(self.el.create_window(attrs).map_err(|e| Unsupported::new("windows", e.to_string()))?);
         self.hooks.window_created(&window);
+        // The accessibility adapter must exist before the window is first shown.
+        let a11y = self
+            .state
+            .proxy
+            .lock()
+            .ok()
+            .map(|p| accesskit_winit::Adapter::with_event_loop_proxy(self.el, &window, p.clone()));
         if options.capture_protected {
             self.hooks.set_capture_protected(&window, true)?;
         }
@@ -197,6 +213,7 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
                 id,
                 Win {
                     window,
+                    a11y,
                     surface: None,
                     cursor: Point::ZERO,
                     buttons: Buttons::default(),
@@ -448,6 +465,15 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         self.hooks.set_tray(tray)
     }
 
+    fn update_accessibility(&mut self, window: WindowId, update: remedy_ui_host::accesskit::TreeUpdate) {
+        let Some(wid) = self.state.ids.get(&window).copied() else { return };
+        if let Some((_, w)) = self.state.windows.get_mut(&wid)
+            && let Some(a) = w.a11y.as_mut()
+        {
+            a.update_if_active(|| update);
+        }
+    }
+
     fn file_dialog(
         &mut self,
         window: Option<WindowId>,
@@ -566,12 +592,25 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
     fn user_event(&mut self, el: &ActiveEventLoop, event: UserEvent) {
         match event {
             UserEvent::Wake => self.deliver(el, HostEvent::Wake),
+            UserEvent::Accessibility(e) => {
+                let Some((id, _)) = self.state.windows.get(&e.window_id) else { return };
+                let id = *id;
+                let ev = match e.window_event {
+                    accesskit_winit::WindowEvent::InitialTreeRequested => AccessibilityEvent::Requested,
+                    accesskit_winit::WindowEvent::ActionRequested(r) => AccessibilityEvent::Action(r),
+                    accesskit_winit::WindowEvent::AccessibilityDeactivated => AccessibilityEvent::Deactivated,
+                };
+                self.deliver(el, HostEvent::Accessibility(id, ev));
+            }
         }
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, wid: winit::window::WindowId, event: WindowEvent) {
         let Some((id, w)) = self.state.windows.get_mut(&wid) else { return };
         let id = *id;
+        if let Some(a) = w.a11y.as_mut() {
+            a.process_event(&w.window, &event);
+        }
         let scale = w.window.scale_factor();
         let now = self.state.start.elapsed();
         match event {
