@@ -18,6 +18,70 @@ use remedy_ui_input::{KeyEvent, Platform, PointerEvent, WheelEvent};
 
 pub use raw_window_handle;
 
+/// An app's icon in the system tray (notification area, menu bar extras, status notifier).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrayIcon {
+    /// What hovering shows.
+    pub tooltip: String,
+    /// The icon: premultiplied RGBA8, square (the platform scales it).
+    pub icon: TrayImage,
+    /// The menu, top to bottom.
+    pub menu: Vec<TrayItem>,
+}
+
+/// Tray icon pixels.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrayImage {
+    /// Width and height in pixels.
+    pub size: u32,
+    /// Premultiplied RGBA8, row by row.
+    pub rgba: Vec<u8>,
+}
+
+/// One tray menu entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TrayItem {
+    /// A command; its id comes back in [`TrayEvent::Menu`].
+    Item {
+        /// The app's id for it.
+        id: u32,
+        /// What it says.
+        label: String,
+        /// Whether it can be chosen.
+        enabled: bool,
+    },
+    /// A separator line.
+    Separator,
+}
+
+/// What the user did with the tray icon.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrayEvent {
+    /// The icon was activated (clicked, or the platform's primary action).
+    Activate,
+    /// A menu entry was chosen.
+    Menu(u32),
+}
+
+/// A native open or save dialog.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FileDialog {
+    /// Title.
+    pub title: String,
+    /// Save rather than open.
+    pub save: bool,
+    /// Choose folders rather than files.
+    pub folders: bool,
+    /// Allow choosing several.
+    pub multiple: bool,
+    /// Start here.
+    pub directory: Option<std::path::PathBuf>,
+    /// Suggested file name (save).
+    pub file_name: Option<String>,
+    /// Filters: a name and the extensions it allows (without dots).
+    pub filters: Vec<(String, Vec<String>)>,
+}
+
 /// The edge or corner a resize drags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ResizeEdge {
@@ -259,6 +323,11 @@ pub enum HostEvent {
     Timer(TimerId),
     /// Another thread called the [`Waker`].
     Wake,
+    /// The tray icon was used.
+    Tray(TrayEvent),
+    /// The app was launched again while running (single instance); these are the new
+    /// launch's arguments.
+    SecondInstance(Vec<String>),
 }
 
 /// Premultiplied RGBA8 pixels to present.
@@ -346,6 +415,15 @@ pub trait Host {
     fn set_clipboard_text(&mut self, text: &str, sensitive: bool) -> Result<(), Unsupported>;
     /// Empties the clipboard (a copied secret's time is up).
     fn clear_clipboard(&mut self) -> Result<(), Unsupported>;
+    /// Shows, updates (`Some`) or removes (`None`) the app's tray icon.
+    fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported>;
+    /// Runs a native open or save dialog, modal to `window`. The chosen paths; empty when
+    /// cancelled.
+    fn file_dialog(
+        &mut self,
+        window: Option<WindowId>,
+        dialog: &FileDialog,
+    ) -> Result<Vec<std::path::PathBuf>, Unsupported>;
     /// A one-shot timer at host time `at`.
     fn set_timer(&mut self, at: Duration) -> TimerId;
     /// Cancels a timer that has not fired.

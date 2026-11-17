@@ -1,0 +1,398 @@
+//! Desktop services on Linux over D-Bus: the tray (StatusNotifierItem with a dbusmenu menu)
+//! and file dialogs (the XDG desktop portal's FileChooser).
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+use remedy_ui_host::{FileDialog, TrayEvent, TrayIcon, TrayItem, Unsupported, Waker};
+use zbus::object_server::SignalEmitter;
+use zbus::{OwnedVariant, Type, Variant, interface};
+
+#[derive(Default)]
+struct Shared {
+    tray: Option<TrayIcon>,
+    revision: u32,
+    events: Vec<TrayEvent>,
+    waker: Option<Waker>,
+}
+
+type State = Arc<Mutex<Shared>>;
+
+fn lock(s: &State) -> std::sync::MutexGuard<'_, Shared> {
+    s.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn push(s: &State, e: TrayEvent) {
+    let waker = {
+        let mut g = lock(s);
+        g.events.push(e);
+        g.waker.clone()
+    };
+    if let Some(w) = waker {
+        w();
+    }
+}
+
+/// StatusNotifierItem pixmaps: width, height, ARGB32 in network byte order.
+type Pixmaps = Vec<(i32, i32, Vec<u8>)>;
+
+/// The `ToolTip` property: icon name, icon pixmaps, title, description.
+type ToolTip = (String, Pixmaps, String, String);
+
+/// ARGB32 in network byte order, as StatusNotifierItem pixmaps are.
+fn pixmap(t: &TrayIcon) -> Pixmaps {
+    let s = i32::try_from(t.icon.size).unwrap_or(0);
+    let data = t
+        .icon
+        .rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|&[r, g, b, a]| {
+            let un = |c: u8| {
+                if a == 0 {
+                    0
+                } else {
+                    ((u16::from(c) * 255 + u16::from(a) / 2) / u16::from(a)).min(255) as u8
+                }
+            };
+            [a, un(r), un(g), un(b)]
+        })
+        .collect();
+    vec![(s, s, data)]
+}
+
+struct Item(State);
+
+#[interface(interface = "org.kde.StatusNotifierItem")]
+impl Item {
+    #[zbus(property)]
+    fn category(&self) -> &str {
+        "ApplicationStatus"
+    }
+    #[zbus(property)]
+    fn id(&self) -> String {
+        lock(&self.0).tray.as_ref().map(|t| t.tooltip.clone()).unwrap_or_default()
+    }
+    #[zbus(property)]
+    fn title(&self) -> String {
+        self.id()
+    }
+    #[zbus(property)]
+    fn status(&self) -> &str {
+        "Active"
+    }
+    #[zbus(property)]
+    fn icon_name(&self) -> &str {
+        ""
+    }
+    #[zbus(property)]
+    fn icon_pixmap(&self) -> Pixmaps {
+        lock(&self.0).tray.as_ref().map(pixmap).unwrap_or_default()
+    }
+    #[zbus(property)]
+    fn tool_tip(&self) -> ToolTip {
+        let g = lock(&self.0);
+        let tip = g.tray.as_ref().map(|t| t.tooltip.clone()).unwrap_or_default();
+        (String::new(), Vec::new(), tip, String::new())
+    }
+    #[zbus(property)]
+    fn item_is_menu(&self) -> bool {
+        false
+    }
+    #[zbus(property)]
+    fn menu(&self) -> zbus::OwnedObjectPath {
+        zbus::OwnedObjectPath::try_from("/MenuBar").unwrap_or_else(|_| zbus::OwnedObjectPath::default())
+    }
+    fn activate(&self, _x: i32, _y: i32) {
+        push(&self.0, TrayEvent::Activate);
+    }
+    fn secondary_activate(&self, _x: i32, _y: i32) {
+        push(&self.0, TrayEvent::Activate);
+    }
+    fn context_menu(&self, _x: i32, _y: i32) {
+        // Hosts show the dbusmenu themselves.
+    }
+    fn scroll(&self, _delta: i32, _orientation: &str) {}
+    #[zbus(signal)]
+    async fn new_icon(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+    #[zbus(signal)]
+    async fn new_tool_tip(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+}
+
+/// One dbusmenu node: id, properties, children (each a variant of the same shape).
+#[derive(Clone, Debug, serde::Serialize, Type, Variant)]
+struct Node {
+    id: i32,
+    props: HashMap<String, OwnedVariant>,
+    children: Vec<OwnedVariant>,
+}
+
+fn props(item: Option<&TrayItem>) -> HashMap<String, OwnedVariant> {
+    let mut m = HashMap::new();
+    let mut put = |k: &str, v: Variant<'static>| {
+        if let Ok(v) = OwnedVariant::try_from(v) {
+            m.insert(k.to_owned(), v);
+        }
+    };
+    match item {
+        None => put("children-display", Variant::from("submenu")),
+        Some(TrayItem::Separator) => put("type", Variant::from("separator")),
+        Some(TrayItem::Item { label, enabled, .. }) => {
+            put("label", Variant::from(label.clone()));
+            put("enabled", Variant::from(*enabled));
+            put("visible", Variant::from(true));
+        }
+    }
+    m
+}
+
+/// Menu entry `n` (0-based) has dbusmenu id `n + 1`; 0 is the root.
+fn layout(items: &[TrayItem]) -> Node {
+    let children = items
+        .iter()
+        .enumerate()
+        .filter_map(|(n, it)| {
+            let id = i32::try_from(n + 1).ok()?;
+            OwnedVariant::try_from(Variant::from(Node { id, props: props(Some(it)), children: Vec::new() }))
+                .ok()
+        })
+        .collect();
+    Node { id: 0, props: props(None), children }
+}
+
+struct Menu(State);
+
+#[interface(interface = "com.canonical.dbusmenu")]
+impl Menu {
+    #[zbus(property)]
+    fn version(&self) -> u32 {
+        3
+    }
+    #[zbus(property)]
+    fn text_direction(&self) -> &str {
+        "ltr"
+    }
+    #[zbus(property)]
+    fn status(&self) -> &str {
+        "normal"
+    }
+    #[zbus(property)]
+    fn icon_theme_path(&self) -> Vec<String> {
+        Vec::new()
+    }
+    fn get_layout(&self, _parent: i32, _depth: i32, _names: Vec<String>) -> (u32, Node) {
+        let g = lock(&self.0);
+        let items = g.tray.as_ref().map(|t| t.menu.clone()).unwrap_or_default();
+        (g.revision, layout(&items))
+    }
+    fn get_group_properties(
+        &self,
+        ids: Vec<i32>,
+        _names: Vec<String>,
+    ) -> Vec<(i32, HashMap<String, OwnedVariant>)> {
+        let g = lock(&self.0);
+        let items = g.tray.as_ref().map(|t| t.menu.clone()).unwrap_or_default();
+        ids.into_iter()
+            .map(|id| {
+                let item = usize::try_from(id).ok().and_then(|i| i.checked_sub(1)).and_then(|i| items.get(i));
+                (id, props(item))
+            })
+            .collect()
+    }
+    fn get_property(&self, id: i32, name: &str) -> zbus::fdo::Result<OwnedVariant> {
+        let mut all = self.get_group_properties(vec![id], Vec::new());
+        all.pop()
+            .and_then(|(_, mut p)| p.remove(name))
+            .ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("no property {name} on {id}")))
+    }
+    fn event(&self, id: i32, event_id: &str, _data: OwnedVariant, _timestamp: u32) {
+        if event_id != "clicked" {
+            return;
+        }
+        let entry = {
+            let g = lock(&self.0);
+            let items = g.tray.as_ref().map(|t| t.menu.clone()).unwrap_or_default();
+            usize::try_from(id).ok().and_then(|i| i.checked_sub(1)).and_then(|i| items.get(i).cloned())
+        };
+        if let Some(TrayItem::Item { id, enabled: true, .. }) = entry {
+            push(&self.0, TrayEvent::Menu(id));
+        }
+    }
+    fn event_group(&self, events: Vec<(i32, String, OwnedVariant, u32)>) -> Vec<i32> {
+        for (id, ev, data, ts) in events {
+            self.event(id, &ev, data, ts);
+        }
+        Vec::new()
+    }
+    fn about_to_show(&self, _id: i32) -> bool {
+        false
+    }
+    fn about_to_show_group(&self, _ids: Vec<i32>) -> (Vec<i32>, Vec<i32>) {
+        (Vec::new(), Vec::new())
+    }
+    #[zbus(signal)]
+    async fn layout_updated(emitter: &SignalEmitter<'_>, revision: u32, parent: i32) -> zbus::Result<()>;
+}
+
+/// The tray and its D-Bus connection.
+#[derive(Default)]
+pub(crate) struct Tray {
+    state: State,
+    conn: Option<zbus::Connection>,
+}
+
+impl Tray {
+    pub(crate) fn set_waker(&mut self, waker: Waker) {
+        lock(&self.state).waker = Some(waker);
+    }
+
+    pub(crate) fn take_events(&mut self) -> Vec<TrayEvent> {
+        std::mem::take(&mut lock(&self.state).events)
+    }
+
+    pub(crate) fn set(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
+        let err = |e: zbus::Error| Unsupported::new("the tray", e.to_string());
+        let Some(t) = tray else {
+            lock(&self.state).tray = None;
+            // Dropping the connection releases our bus name; hosts remove the item.
+            self.conn = None;
+            return Ok(());
+        };
+        {
+            let mut g = lock(&self.state);
+            g.tray = Some(t.clone());
+            g.revision = g.revision.wrapping_add(1);
+        }
+        if let Some(conn) = &self.conn {
+            let revision = lock(&self.state).revision;
+            return zbus::block_on(async {
+                let item = conn.object_server().interface::<_, Item>("/StatusNotifierItem").await?;
+                Item::new_icon(item.signal_emitter()).await?;
+                Item::new_tool_tip(item.signal_emitter()).await?;
+                let menu = conn.object_server().interface::<_, Menu>("/MenuBar").await?;
+                Menu::layout_updated(menu.signal_emitter(), revision, 0).await
+            })
+            .map_err(err);
+        }
+        let name = format!("org.kde.StatusNotifierItem-{}-1", std::process::id());
+        let state = self.state.clone();
+        let conn = zbus::block_on(async {
+            let conn = zbus::conn::Builder::session()
+                .name(name.as_str())
+                .serve_at("/StatusNotifierItem", Item(state.clone()))
+                .serve_at("/MenuBar", Menu(state))
+                .build()
+                .await?;
+            conn.call_method(
+                Some("org.kde.StatusNotifierWatcher"),
+                "/StatusNotifierWatcher",
+                Some("org.kde.StatusNotifierWatcher"),
+                "RegisterStatusNotifierItem",
+                &(name.as_str(),),
+            )
+            .await?;
+            Ok::<_, zbus::Error>(conn)
+        })
+        .map_err(|e| Unsupported::new("the tray", format!("the desktop has no StatusNotifier host: {e}")))?;
+        self.conn = Some(conn);
+        Ok(())
+    }
+}
+
+/// `file://` URIs from the portal to paths (percent-decoding, local files only).
+fn uri_to_path(uri: &str) -> Option<PathBuf> {
+    let rest = uri.strip_prefix("file://")?;
+    let bytes = rest.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while let Some(&b) = bytes.get(i) {
+        if b == b'%'
+            && let Some(h) = bytes
+                .get(i + 1..i + 3)
+                .and_then(|h| std::str::from_utf8(h).ok())
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+        {
+            out.push(h);
+            i += 3;
+            continue;
+        }
+        out.push(b);
+        i += 1;
+    }
+    use std::os::unix::ffi::OsStringExt;
+    Some(PathBuf::from(std::ffi::OsString::from_vec(out)))
+}
+
+/// Runs the portal's open or save dialog and waits for the answer.
+pub(crate) fn file_dialog(parent: &str, d: &FileDialog) -> Result<Vec<PathBuf>, Unsupported> {
+    use std::pin::Pin;
+    let err =
+        |e: zbus::Error| Unsupported::new("file dialogs", format!("the desktop portal did not answer: {e}"));
+    zbus::block_on(async {
+        let conn = zbus::Connection::session().await?;
+        let token = format!("remedyui{}", std::process::id());
+        let sender =
+            conn.unique_name().map(|n| n.trim_start_matches(':').replace('.', "_")).unwrap_or_default();
+        let handle = format!("/org/freedesktop/portal/desktop/request/{sender}/{token}");
+        // Subscribe before asking, so the answer cannot be missed.
+        let request = zbus::Proxy::new(
+            &conn,
+            "org.freedesktop.portal.Desktop",
+            handle.as_str(),
+            "org.freedesktop.portal.Request",
+        )
+        .await?;
+        let mut responses = request.receive_signal("Response").await?;
+        let mut opts: HashMap<&str, Variant<'_>> = HashMap::new();
+        opts.insert("handle_token", Variant::from(token.as_str()));
+        opts.insert("modal", Variant::from(true));
+        if d.multiple {
+            opts.insert("multiple", Variant::from(true));
+        }
+        if d.folders {
+            opts.insert("directory", Variant::from(true));
+        }
+        let filters: Vec<(String, Vec<(u32, String)>)> = d
+            .filters
+            .iter()
+            .map(|(name, exts)| (name.clone(), exts.iter().map(|e| (0u32, format!("*.{e}"))).collect()))
+            .collect();
+        if !filters.is_empty() {
+            opts.insert("filters", Variant::from(filters));
+        }
+        let folder = d.directory.as_ref().map(|p| {
+            use std::os::unix::ffi::OsStrExt;
+            let mut b = p.as_os_str().as_bytes().to_vec();
+            b.push(0);
+            b
+        });
+        if let Some(f) = &folder {
+            opts.insert("current_folder", Variant::from(f.as_slice()));
+        }
+        if let (true, Some(name)) = (d.save, &d.file_name) {
+            opts.insert("current_name", Variant::from(name.as_str()));
+        }
+        let chooser = zbus::Proxy::new(
+            &conn,
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.FileChooser",
+        )
+        .await?;
+        let method = if d.save { "SaveFile" } else { "OpenFile" };
+        let _: zbus::OwnedObjectPath = chooser.call(method, &(parent, d.title.as_str(), opts)).await?;
+        let msg =
+            std::future::poll_fn(|cx| futures_core::Stream::poll_next(Pin::new(&mut responses), cx)).await;
+        let Some(msg) = msg else { return Ok(Vec::new()) };
+        let (code, results): (u32, HashMap<String, OwnedVariant>) = msg.body().deserialize()?;
+        if code != 0 {
+            return Ok(Vec::new()); // cancelled
+        }
+        let uris: Vec<String> =
+            results.get("uris").and_then(|v| Vec::<String>::try_from(v.clone()).ok()).unwrap_or_default();
+        Ok(uris.iter().filter_map(|u| uri_to_path(u)).collect())
+    })
+    .map_err(err)
+}

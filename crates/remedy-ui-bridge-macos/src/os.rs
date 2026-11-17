@@ -1,5 +1,7 @@
 //! AppKit calls: the only unsafe code in the macOS bridge.
 
+pub(crate) mod tray;
+
 use std::time::Duration;
 
 use objc2::MainThreadMarker;

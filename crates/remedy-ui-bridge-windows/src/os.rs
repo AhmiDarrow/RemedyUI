@@ -1,6 +1,8 @@
 //! Win32 calls: the only unsafe code in the Windows bridge. Every function here is a small,
 //! safe wrapper that checks each result.
 
+pub(crate) mod instance;
+pub(crate) mod tray;
 pub(crate) mod tsf;
 
 use std::ffi::c_void;
@@ -25,7 +27,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SystemParametersInfoW, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
 };
 
-fn wide(s: &str) -> Vec<u16> {
+pub(crate) fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 

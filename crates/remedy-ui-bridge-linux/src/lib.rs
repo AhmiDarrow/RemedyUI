@@ -14,14 +14,18 @@
 //! crate is empty.
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod services;
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod linux {
     use std::time::Duration;
 
     use arboard::SetExtLinux;
+    use remedy_ui_bridge_winit::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use remedy_ui_bridge_winit::winit::window::Window;
     use remedy_ui_bridge_winit::{PlatformHooks, RunError};
     use remedy_ui_core::Color;
-    use remedy_ui_host::{App, SystemSettings, Unsupported};
+    use remedy_ui_host::{App, FileDialog, HostEvent, SystemSettings, TrayIcon, Unsupported, Waker};
     use remedy_ui_input::Platform;
     use zbus::{OwnedVariant, Variant as Value};
 
@@ -31,6 +35,7 @@ mod linux {
         // The clipboard owner must outlive what it copied: on Wayland and X11 the copying
         // process serves the data to whoever pastes.
         clipboard: Option<arboard::Clipboard>,
+        tray: crate::services::Tray,
     }
 
     impl std::fmt::Debug for LinuxHooks {
@@ -224,6 +229,36 @@ mod linux {
             let set = self.clipboard()?.set();
             let set = if sensitive { set.exclude_from_history() } else { set };
             set.text(text.to_owned()).map_err(|e| Unsupported::new("the clipboard", e.to_string()))
+        }
+
+        fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
+            self.tray.set(tray)
+        }
+
+        fn set_waker(&mut self, waker: Waker) {
+            self.tray.set_waker(waker);
+        }
+
+        fn take_events(&mut self) -> Vec<HostEvent> {
+            self.tray.take_events().into_iter().map(HostEvent::Tray).collect()
+        }
+
+        fn file_dialog(
+            &mut self,
+            window: Option<&Window>,
+            dialog: &FileDialog,
+        ) -> Result<Vec<std::path::PathBuf>, Unsupported> {
+            // The portal makes the dialog modal to an X11 parent; Wayland parents need an
+            // exported handle (xdg-foreign), which winit does not provide, so they get none.
+            let parent = window
+                .and_then(|w| w.window_handle().ok())
+                .and_then(|h| match h.as_raw() {
+                    RawWindowHandle::Xlib(x) => Some(format!("x11:{:x}", x.window)),
+                    RawWindowHandle::Xcb(x) => Some(format!("x11:{:x}", x.window.get())),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            crate::services::file_dialog(&parent, dialog)
         }
 
         fn clear_clipboard(&mut self) -> Result<(), Unsupported> {

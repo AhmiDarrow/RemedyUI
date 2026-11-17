@@ -267,3 +267,46 @@ fn privacy_cover_hides_content_while_unfocused() {
     host.run_frames(&mut runner, 1);
     assert_eq!(px(&host, id, 10, 10), [255, 0, 0, 255], "shown again");
 }
+
+#[test]
+fn tray_dialogs_and_second_launches_reach_the_app() {
+    use remedy_ui::host::{FileDialog, TrayEvent, TrayIcon, TrayImage, TrayItem};
+    let events = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let launches = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let picked = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let (e2, l2, p2) = (events.clone(), launches.clone(), picked.clone());
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.keep_running(true);
+        app.set_tray(Some(TrayIcon {
+            tooltip: "SecretSticky".into(),
+            icon: TrayImage { size: 2, rgba: vec![255; 16] },
+            menu: vec![
+                TrayItem::Item { id: 7, label: "New note".into(), enabled: true },
+                TrayItem::Separator,
+            ],
+        }));
+        app.on_tray(move |e| e2.borrow_mut().push(e));
+        app.on_second_instance(move |a| l2.borrow_mut().push(a));
+        let p3 = p2.clone();
+        app.file_dialog(
+            None,
+            FileDialog { title: "Export".into(), save: true, ..FileDialog::default() },
+            move |p| *p3.borrow_mut() = p,
+        );
+    });
+    let mut host = HeadlessHost::new();
+    host.answer_dialog(vec![std::path::PathBuf::from("notes.txt")]);
+    host.run_frames(&mut runner, 1);
+    assert_eq!(host.tray().map(|t| t.tooltip.as_str()), Some("SecretSticky"));
+    assert_eq!(host.dialogs().first().map(|d| (d.title.as_str(), d.save)), Some(("Export", true)));
+    assert_eq!(*picked.borrow(), vec![std::path::PathBuf::from("notes.txt")]);
+    host.send(HostEvent::Tray(TrayEvent::Menu(7)));
+    host.send(HostEvent::Tray(TrayEvent::Activate));
+    host.send(HostEvent::SecondInstance(vec!["--show".into()]));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*events.borrow(), vec![TrayEvent::Menu(7), TrayEvent::Activate]);
+    assert_eq!(*launches.borrow(), vec![vec!["--show".to_owned()]]);
+    runner.app().set_tray(None);
+    host.run_frames(&mut runner, 1);
+    assert!(host.tray().is_none());
+}

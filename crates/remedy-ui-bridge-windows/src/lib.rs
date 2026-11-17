@@ -20,7 +20,9 @@ mod hooks {
     use remedy_ui_bridge_winit::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use remedy_ui_bridge_winit::winit::window::{Window, WindowId};
     use remedy_ui_bridge_winit::{PlatformHooks, RunError};
-    use remedy_ui_host::{App, ImeEvent, SystemSettings, TextInputState, Unsupported};
+    use remedy_ui_host::{
+        App, FileDialog, HostEvent, ImeEvent, SystemSettings, TextInputState, TrayIcon, Unsupported,
+    };
     use remedy_ui_input::Platform;
 
     use crate::os;
@@ -101,6 +103,44 @@ mod hooks {
             os::clear_clipboard()
         }
 
+        fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
+            os::tray::set(tray)
+        }
+
+        fn take_events(&mut self) -> Vec<HostEvent> {
+            os::tray::take_events().into_iter().map(HostEvent::Tray).collect()
+        }
+
+        fn file_dialog(
+            &mut self,
+            window: Option<&Window>,
+            dialog: &FileDialog,
+        ) -> Result<Vec<std::path::PathBuf>, Unsupported> {
+            let mut d = rfd::FileDialog::new();
+            if !dialog.title.is_empty() {
+                d = d.set_title(&dialog.title);
+            }
+            if let Some(dir) = &dialog.directory {
+                d = d.set_directory(dir);
+            }
+            if let Some(name) = &dialog.file_name {
+                d = d.set_file_name(name);
+            }
+            for (name, exts) in &dialog.filters {
+                d = d.add_filter(name, exts);
+            }
+            if let Some(w) = window {
+                d = d.set_parent(w);
+            }
+            Ok(match (dialog.save, dialog.folders, dialog.multiple) {
+                (true, _, _) => d.save_file().into_iter().collect(),
+                (false, true, true) => d.pick_folders().unwrap_or_default(),
+                (false, true, false) => d.pick_folder().into_iter().collect(),
+                (false, false, true) => d.pick_files().unwrap_or_default(),
+                (false, false, false) => d.pick_file().into_iter().collect(),
+            })
+        }
+
         fn set_capture_protected(&mut self, window: &Window, on: bool) -> Result<(), Unsupported> {
             let handle =
                 window.window_handle().map_err(|e| Unsupported::new("capture protection", e.to_string()))?;
@@ -145,6 +185,17 @@ mod hooks {
         }
     }
 
+    /// Claims the single instance of `app_id` in this user session. `true`: this is the first
+    /// instance, and `on_launch` gets each later launch's arguments (on a background thread).
+    /// `false`: another instance runs and has been handed `args`; this one should exit.
+    pub fn claim_single_instance(
+        app_id: &str,
+        args: &[String],
+        on_launch: impl Fn(Vec<String>) + Send + 'static,
+    ) -> Result<bool, Unsupported> {
+        os::instance::claim(app_id, args, on_launch)
+    }
+
     /// Runs `app` on the main thread's event loop until it exits.
     pub fn run(app: impl App) -> Result<(), RunError> {
         remedy_ui_bridge_winit::run(app, WindowsHooks::default())
@@ -152,4 +203,4 @@ mod hooks {
 }
 
 #[cfg(windows)]
-pub use hooks::{WindowsHooks, run};
+pub use hooks::{WindowsHooks, claim_single_instance, run};
