@@ -3,9 +3,10 @@
 //! - **Layers.** Every `remedy-ui-*` crate has a layer (docs/design/00-principles-and-modularity.md).
 //!   A crate may depend on crates in lower layers, plus the sideways edges listed in
 //!   [`SIDEWAYS`]. Anything else, and any crate missing from [`LAYERS`], fails the check.
-//! - **Unsafe code.** Every crate inherits the workspace lints (`unsafe_code = "forbid"`).
-//!   Only the crates in [`UNSAFE_BOUNDARY`] may contain `allow(unsafe_code)`, and only on a
-//!   module named `os` or `ffi`.
+//! - **Unsafe code.** Every crate inherits the workspace lints (`unsafe_code = "deny"`; deny
+//!   rather than forbid, because forbid cannot be lifted even where it must be). Only the
+//!   crates in [`UNSAFE_BOUNDARY`] may contain `allow(unsafe_code)`, and only on a module named
+//!   `os` or `ffi`; this check is what holds that line.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -88,6 +89,8 @@ const SIDEWAYS: &[(&str, &str)] = &[
     // The compositor holds display lists and runs motion curves on its own thread.
     ("remedy-ui-compositor", "remedy-ui-paint"),
     ("remedy-ui-compositor", "remedy-ui-motion"),
+    // The GPU renderer shares the CPU renderer's painter, and falls back to it.
+    ("remedy-ui-render-gpu", "remedy-ui-render-cpu"),
 ];
 
 /// Crates that may hold unsafe code, each in one `os` or `ffi` module.

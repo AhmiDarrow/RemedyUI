@@ -346,6 +346,14 @@ impl Compositor {
             || self.overrides.values().any(|o| !o.settled(now))
     }
 
+    /// Forgets every rastered tile without releasing it (the renderer lost them, as with a
+    /// lost GPU device): the next frame rasters what it shows again and redraws everything.
+    pub fn invalidate_tiles(&mut self) {
+        self.grids.clear();
+        self.released.clear();
+        self.full_damage = true;
+    }
+
     /// Frees every tile outside the latest frame's prefetch area (for memory pressure). The
     /// next plan lists them in `released`.
     pub fn trim_memory(&mut self) {

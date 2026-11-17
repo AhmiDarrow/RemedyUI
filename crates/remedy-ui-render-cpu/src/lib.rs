@@ -11,8 +11,10 @@
 //! right-to-left before they paint.
 
 mod composite;
+mod surface;
 
 pub use composite::CpuCompositor;
+pub use surface::{ImageKey, Surface};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -26,7 +28,7 @@ use remedy_ui_text::{Antialias, GlyphRasterizer, Hinting, size_64, subpixel_bin}
 use vello_cpu::color::{AlphaColor, Srgb};
 use vello_cpu::kurbo::{self, BezPath, Shape};
 use vello_cpu::peniko::{self, ColorStop, Extend, ImageQuality, ImageSampler};
-use vello_cpu::{ImageSource, Pixmap, RenderContext, Resources};
+use vello_cpu::{Pixmap, RenderContext, Resources};
 
 /// A rendered frame: premultiplied RGBA8 pixels.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,28 +79,37 @@ struct GlyphKey {
 }
 
 struct CachedGlyph {
+    id: u64,
     image: Arc<Pixmap>,
     left: i32,
     top: i32,
 }
 
-/// The CPU renderer. Keep one per window: it caches glyph and image pixmaps between frames.
-pub struct CpuRenderer {
+/// Draws display lists onto any [`Surface`], caching glyph coverage and image pixmaps between
+/// frames. Both renderers use it, so they draw the same pixels.
+pub struct Painter {
     raster: GlyphRasterizer,
     glyphs: HashMap<GlyphKey, Option<CachedGlyph>>,
     images: HashMap<u64, Arc<Pixmap>>,
+    next_glyph: u64,
 }
 
-impl std::fmt::Debug for CpuRenderer {
+impl std::fmt::Debug for Painter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CpuRenderer({} glyphs, {} images cached)", self.glyphs.len(), self.images.len())
+        write!(f, "Painter({} glyphs, {} images cached)", self.glyphs.len(), self.images.len())
     }
 }
 
-impl Default for CpuRenderer {
+impl Default for Painter {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// The CPU renderer. Keep one per window: its painter caches glyphs and images between frames.
+#[derive(Debug, Default)]
+pub struct CpuRenderer {
+    painter: Painter,
 }
 
 fn color(c: Color) -> AlphaColor<Srgb> {
@@ -123,6 +134,11 @@ fn krect(r: Rect) -> kurbo::Rect {
 
 fn kpoint(p: Point) -> kurbo::Point {
     kurbo::Point::new(f64::from(p.x), f64::from(p.y))
+}
+
+/// A rounded rectangle as a path, corners fitted to the size (`top_start` is top-left).
+pub fn rounded_path(rect: Rect, radii: CornerRadii) -> BezPath {
+    rounded(rect, radii)
 }
 
 fn rounded(rect: Rect, radii: CornerRadii) -> BezPath {
@@ -157,7 +173,7 @@ fn stops(s: &[remedy_ui_paint::Stop]) -> Vec<ColorStop> {
     s.iter().map(|st| ColorStop::from((st.offset, color(st.color)))).collect()
 }
 
-fn set_brush(ctx: &mut RenderContext, brush: &Brush) {
+fn set_brush<S: Surface>(ctx: &mut S, brush: &Brush) {
     match brush {
         Brush::Solid(c) => ctx.set_paint(color(*c)),
         Brush::Linear { start, end, stops: s } => ctx.set_paint(peniko::Gradient {
@@ -222,14 +238,12 @@ fn size16(width: u32, height: u32) -> Result<(u16, u16), RenderError> {
 impl CpuRenderer {
     /// A renderer with empty caches.
     pub fn new() -> Self {
-        CpuRenderer { raster: GlyphRasterizer::new(), glyphs: HashMap::new(), images: HashMap::new() }
+        Self::default()
     }
 
     /// Drops cached glyphs and images (for memory pressure).
     pub fn clear_caches(&mut self) {
-        self.glyphs.clear();
-        self.images.clear();
-        self.raster.clear();
+        self.painter.clear_caches();
     }
 
     /// Renders `list` at `scale` device pixels per logical pixel onto `background`.
@@ -270,16 +284,45 @@ impl CpuRenderer {
         let mut ctx = RenderContext::new(w, h);
         ctx.set_paint(color(background));
         ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, f64::from(w), f64::from(h)));
+        self.painter.draw(&mut ctx, list, base);
+        ctx.flush();
+        let mut target = Pixmap::new(w, h);
+        let mut resources = Resources::new();
+        ctx.render(&mut target, &mut resources);
+        Ok(target)
+    }
+}
+
+impl Painter {
+    /// A painter with empty caches.
+    pub fn new() -> Self {
+        Painter {
+            raster: GlyphRasterizer::new(),
+            glyphs: HashMap::new(),
+            images: HashMap::new(),
+            next_glyph: 0,
+        }
+    }
+
+    /// Drops cached glyphs and images (for memory pressure).
+    pub fn clear_caches(&mut self) {
+        self.glyphs.clear();
+        self.images.clear();
+        self.raster.clear();
+    }
+
+    /// Draws `list` onto `s` through `base` (list space to device pixels).
+    pub fn draw<S: Surface>(&mut self, s: &mut S, list: &DisplayList, base: Affine) {
         let scale = base.scale_factor();
         let mut transforms = vec![base];
         for item in list.items() {
             let t = transforms.last().copied().unwrap_or(base);
-            ctx.set_transform(kaffine(t));
-            ctx.reset_paint_transform();
+            s.set_transform(kaffine(t));
+            s.reset_paint_transform();
             match item {
                 Item::FillRect { rect, radii, brush } => {
-                    set_brush(&mut ctx, brush);
-                    ctx.fill_path(&rounded(*rect, *radii));
+                    set_brush(s, brush);
+                    s.fill_path(&rounded(*rect, *radii));
                 }
                 Item::Border { rect, radii, width, color: c } => {
                     let inner = rect.deflate(remedy_ui_core::Insets::all(*width));
@@ -292,10 +335,10 @@ impl CpuRenderer {
                     };
                     let mut p = rounded(*rect, *radii);
                     p.extend(rounded(inner, inner_r));
-                    ctx.set_fill_rule(peniko::Fill::EvenOdd);
-                    ctx.set_paint(color(*c));
-                    ctx.fill_path(&p);
-                    ctx.set_fill_rule(peniko::Fill::NonZero);
+                    s.set_fill_rule(peniko::Fill::EvenOdd);
+                    s.set_paint(color(*c));
+                    s.fill_path(&p);
+                    s.set_fill_rule(peniko::Fill::NonZero);
                 }
                 Item::Shadow { rect, radii, offset, blur, spread, color: c } => {
                     let r = rect.translate(*offset);
@@ -308,37 +351,37 @@ impl CpuRenderer {
                     let radius = radii.fit(rect.size());
                     let radius =
                         radius.top_start.max(radius.top_end).max(radius.bottom_end).max(radius.bottom_start);
-                    ctx.set_paint(color(*c));
-                    ctx.fill_blurred_rounded_rect(
+                    s.set_paint(color(*c));
+                    s.fill_blurred_rounded_rect(
                         &krect(grown),
                         radius + spread.max(0.0),
                         (blur / 2.0).max(0.0),
                     );
                 }
                 Item::FillPath { path, brush, even_odd } => {
-                    set_brush(&mut ctx, brush);
-                    ctx.set_fill_rule(if *even_odd { peniko::Fill::EvenOdd } else { peniko::Fill::NonZero });
-                    ctx.fill_path(&bezpath(path));
-                    ctx.set_fill_rule(peniko::Fill::NonZero);
+                    set_brush(s, brush);
+                    s.set_fill_rule(if *even_odd { peniko::Fill::EvenOdd } else { peniko::Fill::NonZero });
+                    s.fill_path(&bezpath(path));
+                    s.set_fill_rule(peniko::Fill::NonZero);
                 }
                 Item::StrokePath { path, stroke, brush } => {
-                    set_brush(&mut ctx, brush);
-                    ctx.set_stroke(kstroke(stroke));
-                    ctx.stroke_path(&bezpath(path));
+                    set_brush(s, brush);
+                    s.set_stroke(kstroke(stroke));
+                    s.stroke_path(&bezpath(path));
                 }
-                Item::Glyphs(run) => self.glyph_run(&mut ctx, run, t, scale),
+                Item::Glyphs(run) => self.glyph_run(s, run, t, scale),
                 Item::Image { image, rect, radii, sampling } => {
-                    self.image(&mut ctx, image, *rect, *radii, *sampling)
+                    self.image(s, image, *rect, *radii, *sampling)
                 }
-                Item::PushClip { rect, radii } => ctx.push_clip_layer(&rounded(*rect, *radii)),
-                Item::PopClip | Item::PopLayer => ctx.pop_layer(),
+                Item::PushClip { rect, radii } => s.push_clip_layer(&rounded(*rect, *radii)),
+                Item::PopClip | Item::PopLayer => s.pop_layer(),
                 Item::PushLayer { opacity, blend } => {
                     let mode = match blend {
                         Blend::Normal => peniko::BlendMode::default(),
                         Blend::Multiply => peniko::BlendMode::from(peniko::Mix::Multiply),
                         Blend::Screen => peniko::BlendMode::from(peniko::Mix::Screen),
                     };
-                    ctx.push_layer(None, Some(mode), Some(*opacity), None, None);
+                    s.push_group(mode, *opacity);
                 }
                 Item::PushTransform(a) => transforms.push(a.then(t)),
                 Item::PopTransform => {
@@ -348,16 +391,13 @@ impl CpuRenderer {
                 }
             }
         }
-        ctx.flush();
-        let mut target = Pixmap::new(w, h);
-        let mut resources = Resources::new();
-        ctx.render(&mut target, &mut resources);
-        Ok(target)
+        s.set_transform(kurbo::Affine::IDENTITY);
+        s.reset_paint_transform();
     }
 
-    fn image(
+    fn image<S: Surface>(
         &mut self,
-        ctx: &mut RenderContext,
+        ctx: &mut S,
         image: &Image,
         rect: Rect,
         radii: CornerRadii,
@@ -374,8 +414,10 @@ impl CpuRenderer {
         };
         let sx = f64::from(rect.width()) / f64::from(image.width.max(1));
         let sy = f64::from(rect.height()) / f64::from(image.height.max(1));
+        let linear = sampling == Sampling::Linear;
+        let Some(source) = ctx.image_source(ImageKey::Image(image.id), &pix, linear) else { return };
         ctx.set_paint(vello_cpu::Image {
-            image: ImageSource::Pixmap(pix),
+            image: source,
             sampler: ImageSampler {
                 quality: match sampling {
                     Sampling::Linear => ImageQuality::Medium,
@@ -391,7 +433,7 @@ impl CpuRenderer {
         ctx.fill_path(&rounded(rect, radii));
     }
 
-    fn glyph_run(&mut self, ctx: &mut RenderContext, run: &GlyphRun, t: Affine, scale: f32) {
+    fn glyph_run<S: Surface>(&mut self, ctx: &mut S, run: &GlyphRun, t: Affine, scale: f32) {
         // LCD coverage needs per-channel blending; this renderer draws grayscale coverage
         // for every run (the documented fallback; the GPU renderer draws LCD).
         let [a, b, c, d, _, _] = t.0;
@@ -414,9 +456,12 @@ impl CpuRenderer {
             };
             if !self.glyphs.contains_key(&key) {
                 let img = self.raster.rasterize(&run.font, *id, px_size, bin, hinting, Antialias::Grayscale);
+                let id = self.next_glyph;
+                self.next_glyph += 1;
                 let cached = img.and_then(|g| {
                     let rgba: Vec<u8> = g.data.iter().flat_map(|&v| [v, v, v, v]).collect();
                     pixmap_from(g.width, g.height, rgba).map(|p| CachedGlyph {
+                        id,
                         image: Arc::new(p),
                         left: g.left,
                         top: g.top,
@@ -428,8 +473,9 @@ impl CpuRenderer {
             let x = (dev.x.floor() as i32 + g.left) as f64;
             let y = (dev.y.round() as i32 - g.top) as f64;
             let (gw, gh) = (f64::from(g.image.width()), f64::from(g.image.height()));
+            let Some(source) = ctx.image_source(ImageKey::Glyph(g.id), &g.image, false) else { continue };
             ctx.set_paint(vello_cpu::Image {
-                image: ImageSource::Pixmap(g.image.clone()),
+                image: source,
                 sampler: ImageSampler { quality: ImageQuality::Low, ..Default::default() },
             });
             ctx.set_paint_transform(kurbo::Affine::translate((x, y)));
