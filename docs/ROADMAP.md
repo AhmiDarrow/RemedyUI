@@ -66,6 +66,8 @@ Open:
 
 ## M3. Layout, style, input and semantics
 
+**Status:** in progress. `remedy-ui-layout` is built: flex, grid and block through taffy behind RemedyUI's own styles; a viewport root, so an auto-width root fills the window like a page body; inherited direction with logical insets mirrored for right to left; measured leaves; absolute and pixel-snapped rects; and the virtual list (estimates, Fenwick offsets, anchoring through inserts, removals and re-measures, stick-to-end, jump to any row).
+
 **Crates:** `layout` (taffy behind RemedyUI types, pixel snapping, virtualization with anchoring), `style` (tokens, derived tokens, states, contrast helpers), `input` (event model, hit testing, gesture arena, scroll physics, focus, commands), `a11y` (semantics tree and incremental AccessKit updates), and `motion` (frame clock, transitions, springs). All of it is tested headless.
 
 **Done when:**
