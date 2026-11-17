@@ -1,0 +1,14 @@
+[package]
+name = "remedy-ui-core"
+description = "RemedyUI base types: geometry, units and pixel snapping, colors, generational ids and arenas."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
