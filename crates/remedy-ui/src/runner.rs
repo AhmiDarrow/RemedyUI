@@ -458,6 +458,7 @@ impl Runner {
                     (self.config.fonts)(),
                 );
                 ui.set_platform(self.settings.platform);
+                ui.set_reduced_motion(self.settings.reduced_motion);
                 self.app.0.borrow_mut().uis.insert(key, ui.clone());
                 self.by_host.insert(id, key);
                 self.wins.insert(
@@ -698,6 +699,7 @@ impl remedy_ui_host::App for Runner {
             HostEvent::Settings(s) => {
                 for w in self.wins.values() {
                     w.ui.set_platform(s.platform);
+                    w.ui.set_reduced_motion(s.reduced_motion);
                 }
                 for w in self.wins.values_mut() {
                     if let Some(c) = w.comp.as_mut() {

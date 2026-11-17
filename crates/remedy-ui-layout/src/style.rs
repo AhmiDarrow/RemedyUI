@@ -162,6 +162,7 @@ pub struct LayoutStyle {
     pub position: Position,
     /// Offsets for absolute positioning (logical).
     pub inset: Insets,
+    // (A side set to [`AUTO`] is decided by the box's size and its other sides.)
     /// Column tracks (grid).
     pub columns: Vec<Track>,
     /// Row tracks (grid).
@@ -270,13 +271,15 @@ fn rect_lp(i: Insets) -> taffy::Rect<taffy::LengthPercentage> {
 }
 
 fn rect_lpa(i: Insets) -> taffy::Rect<taffy::LengthPercentageAuto> {
-    taffy::Rect {
-        left: taffy::LengthPercentageAuto::length(i.start),
-        right: taffy::LengthPercentageAuto::length(i.end),
-        top: taffy::LengthPercentageAuto::length(i.top),
-        bottom: taffy::LengthPercentageAuto::length(i.bottom),
-    }
+    let side = |v: f32| {
+        if v.is_nan() { taffy::LengthPercentageAuto::auto() } else { taffy::LengthPercentageAuto::length(v) }
+    };
+    taffy::Rect { left: side(i.start), right: side(i.end), top: side(i.top), bottom: side(i.bottom) }
 }
+
+/// An inset side left to the layout ([`LayoutStyle::inset`]): an absolute box pinned by its
+/// other sides, sized by its content.
+pub const AUTO: f32 = f32::NAN;
 
 /// `s` as a taffy style, with `rtl` the node's resolved direction.
 pub(crate) fn to_taffy(s: &LayoutStyle, rtl: bool) -> taffy::Style {

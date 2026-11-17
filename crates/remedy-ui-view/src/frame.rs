@@ -86,7 +86,7 @@ fn record(
         field.borrow_mut().paint(&mut list, content, s, theme, engine, focused);
     }
     if let Some(painter) = &d.painter {
-        painter(&mut PaintCx { list: &mut list, size, style: s, theme });
+        painter(&mut PaintCx { list: &mut list, size, style: s, theme, states: d.states });
     }
     list
 }
@@ -207,7 +207,7 @@ impl Walk<'_> {
         let Some(rect) = self.rects.get(&id).copied() else { return };
         let at = Point::new(origin.x + rect.min.x, origin.y + rect.min.y);
         let opacity = d.resolved.opacity;
-        if opacity <= 0.0 {
+        if opacity <= 0.0 || d.hidden {
             return;
         }
         b.push(Item::PushTransform(Affine::translate(at.to_vec2())));
@@ -441,8 +441,10 @@ fn sync_semantics(i: &mut Inner, _rects: &HashMap<ElementId, Rect>) {
     let root = i.tree.root();
     let mut stack = vec![root];
     while let Some(id) = stack.pop() {
-        let kids = i.tree.children(id);
+        let mut kids = i.tree.children(id);
         let Some(d) = i.els.get(&id) else { continue };
+        // Hidden content leaves the accessibility tree entirely.
+        kids.retain(|k| i.els.get(k).is_none_or(|kd| !kd.hidden));
         let bounds = i.tree.bounds(id).unwrap_or(Rect::ZERO);
         let mut s = match &d.semantics {
             Some(s) => s.clone(),

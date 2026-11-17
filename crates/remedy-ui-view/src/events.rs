@@ -48,7 +48,13 @@ impl Ui {
             }
         };
         if changed {
-            self.mark(id, Dirty::STYLE | Dirty::SEMANTICS);
+            self.mark(id, Dirty::STYLE | Dirty::PAINT | Dirty::SEMANTICS);
+            if s == States::HOVER {
+                let cb = self.0.borrow().els.get(&id).and_then(|d| d.hover.clone());
+                if let Some(cb) = cb {
+                    cb(on);
+                }
+            }
         }
     }
 

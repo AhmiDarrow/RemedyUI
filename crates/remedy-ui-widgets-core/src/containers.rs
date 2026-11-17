@@ -1,0 +1,143 @@
+//! Containers.
+
+use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::Insets;
+use remedy_ui_layout::{Axis, Display, Length, Position};
+use remedy_ui_reactive::Signal;
+use remedy_ui_view::{El, Ui};
+
+/// Children in a column.
+pub fn column(ui: &Ui) -> El {
+    ui.el("column").column()
+}
+
+/// Children in a row.
+pub fn row(ui: &Ui) -> El {
+    ui.el("row").row()
+}
+
+/// Children in rows that wrap onto the next line.
+pub fn wrap(ui: &Ui) -> El {
+    ui.el("wrap").row().layout(|l| l.wrap = true)
+}
+
+/// Children on top of each other, each filling the stack (later ones above).
+pub fn stack(ui: &Ui, children: impl IntoIterator<Item = El>) -> El {
+    let s = ui.el("stack").layout(|l| l.position = Position::Relative);
+    children.into_iter().fold(s, |s, c| {
+        s.child(c.layout(|l| {
+            l.position = Position::Absolute;
+            l.inset = Insets::ZERO;
+        }))
+    })
+}
+
+/// Takes the free space in a row or column.
+pub fn spacer(ui: &Ui) -> El {
+    ui.el("spacer").grow(1.0)
+}
+
+/// A thin line between groups: horizontal in a column, vertical in a row (`vertical`).
+pub fn divider(ui: &Ui, vertical: bool) -> El {
+    let stroke = ui.theme().stroke;
+    ui.el("divider").layout(move |l| {
+        if vertical {
+            l.width = Length::Px(stroke);
+            l.align_self = Some(remedy_ui_layout::Align::Stretch);
+        } else {
+            l.height = Length::Px(stroke);
+            l.width = Length::Percent(1.0);
+        }
+        l.shrink = 0.0;
+    })
+}
+
+/// A raised surface holding related content.
+pub fn card(ui: &Ui) -> El {
+    ui.el("card").column()
+}
+
+/// A titled group: the heading names the group for assistive technology.
+pub fn section(ui: &Ui, title: &str) -> El {
+    let gap = ui.theme().spacing.unit * 2.0;
+    ui.el("section")
+        .column()
+        .gap(gap)
+        .semantics(Semantics::new(Role::Group).label(title))
+        .child(crate::heading(ui, 3, title))
+}
+
+/// A vertically scrolling column; scrolling runs on the compositor.
+pub fn scroll(ui: &Ui) -> El {
+    ui.el("scroll").scroll().column().layout(|l| {
+        l.grow = 1.0;
+        l.min_height = Length::Px(0.0);
+    })
+}
+
+/// Two panes with a draggable divider. `fraction` (0..1) is the first pane's share of the
+/// split's width (`Axis::Row`) or height (`Axis::Column`); dragging and arrow keys move it.
+pub fn split(ui: &Ui, axis: Axis, first: El, second: El, fraction: Signal<f32>) -> El {
+    let container = ui.el("split").layout(move |l| {
+        l.display = Display::Flex;
+        l.axis = axis;
+        l.grow = 1.0;
+    });
+    let horizontal = axis == Axis::Row;
+    let a = first.clone().layout(|l| l.shrink = 1.0);
+    let b = second.layout(|l| {
+        l.grow = 1.0;
+        l.basis = Length::Px(0.0);
+    });
+    let a_bind = a.clone();
+    let a = a.bind(move || {
+        let f = fraction.get().clamp(0.05, 0.95);
+        let _ = a_bind.clone().layout(|l| {
+            l.basis = Length::Percent(f);
+            l.grow = 0.0;
+        });
+    });
+    let c2 = container.clone();
+    let handle = ui
+        .el("split_handle")
+        .layout(move |l| {
+            if horizontal {
+                l.width = Length::Px(6.0);
+            } else {
+                l.height = Length::Px(6.0);
+            }
+            l.shrink = 0.0;
+        })
+        .focusable(true)
+        .semantics(Semantics::new(Role::Slider).label("Resize panes").numeric(
+            f64::from(fraction.get_untracked().unwrap_or(0.5)),
+            0.0,
+            1.0,
+        ))
+        .on_pointer(move |e| {
+            if e.buttons.contains(remedy_ui_input::Buttons::PRIMARY)
+                && e.phase == remedy_ui_input::PointerPhase::Move
+            {
+                if let Some(b) = c2.bounds() {
+                    let f = if horizontal {
+                        (e.position.x - b.min.x) / b.width()
+                    } else {
+                        (e.position.y - b.min.y) / b.height()
+                    };
+                    fraction.set(f.clamp(0.05, 0.95));
+                }
+                return true;
+            }
+            false
+        })
+        .on_key(move |e| {
+            let step = match e.key {
+                remedy_ui_input::Key::ArrowLeft | remedy_ui_input::Key::ArrowUp => -0.02,
+                remedy_ui_input::Key::ArrowRight | remedy_ui_input::Key::ArrowDown => 0.02,
+                _ => return false,
+            };
+            fraction.update(|f| *f = (*f + step).clamp(0.05, 0.95));
+            true
+        });
+    container.child(a).child(handle).child(b)
+}

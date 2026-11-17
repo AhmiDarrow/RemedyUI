@@ -25,6 +25,6 @@ mod style;
 mod tree;
 mod virtual_list;
 
-pub use style::{Align, Axis, Direction, Display, Justify, LayoutStyle, Length, Position, Track};
+pub use style::{AUTO, Align, Axis, Direction, Display, Justify, LayoutStyle, Length, Position, Track};
 pub use tree::{Available, LayoutError, LayoutNode, LayoutTree, MeasureInput};
 pub use virtual_list::{JumpAlign, VirtualList};

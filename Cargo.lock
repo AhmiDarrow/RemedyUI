@@ -2722,6 +2722,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-widgets-core"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-a11y",
+ "remedy-ui-compositor",
+ "remedy-ui-core",
+ "remedy-ui-fonts",
+ "remedy-ui-input",
+ "remedy-ui-layout",
+ "remedy-ui-paint",
+ "remedy-ui-reactive",
+ "remedy-ui-render-cpu",
+ "remedy-ui-style",
+ "remedy-ui-text",
+ "remedy-ui-themes",
+ "remedy-ui-view",
+]
+
+[[package]]
 name = "renderdoc-sys"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
