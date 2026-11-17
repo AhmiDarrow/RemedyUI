@@ -35,8 +35,7 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-bridge-winit", 4),
     ("remedy-ui-bridge-windows", 4),
     ("remedy-ui-bridge-macos", 4),
-    ("remedy-ui-bridge-wayland", 4),
-    ("remedy-ui-bridge-x11", 4),
+    ("remedy-ui-bridge-linux", 4),
     ("remedy-ui-bridge-android", 4),
     ("remedy-ui-bridge-web", 4),
     ("remedy-ui-bridge-remedyos", 4),
@@ -97,8 +96,7 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-render-gpu", "remedy-ui-render-cpu"),
     ("remedy-ui-bridge-windows", "remedy-ui-bridge-winit"),
     ("remedy-ui-bridge-macos", "remedy-ui-bridge-winit"),
-    ("remedy-ui-bridge-wayland", "remedy-ui-bridge-winit"),
-    ("remedy-ui-bridge-x11", "remedy-ui-bridge-winit"),
+    ("remedy-ui-bridge-linux", "remedy-ui-bridge-winit"),
 ];
 
 /// Crates that may hold unsafe code, each in one `os` or `ffi` module.
@@ -106,8 +104,7 @@ const UNSAFE_BOUNDARY: &[&str] = &[
     "remedy-ui-render-gpu",
     "remedy-ui-bridge-windows",
     "remedy-ui-bridge-macos",
-    "remedy-ui-bridge-wayland",
-    "remedy-ui-bridge-x11",
+    "remedy-ui-bridge-linux",
     "remedy-ui-bridge-android",
     "remedy-ui-bridge-web",
     "remedy-ui-bridge-remedyos",

@@ -1,6 +1,19 @@
 # Supply-chain rules (docs/dependencies.md). Run: cargo deny check
 [graph]
 all-features = true
+# The platforms RemedyUI ships on: dependencies are judged as they are built there, so a
+# crate's code for a platform we never build it on (such as a Linux-only crate's Windows
+# backend) is not counted.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "aarch64-linux-android",
+    "x86_64-linux-android",
+]
 
 [advisories]
 version = 2
@@ -20,6 +33,8 @@ allow = [
     "Zlib",
     "Unicode-3.0",
     "MPL-2.0",
+    # Boost: permissive, no attribution needed in binaries (arboard's Windows backend).
+    "BSL-1.0",
     # The bundled Remedy fonts (remedy-ui-fonts).
     "OFL-1.1",
 ]

@@ -1,0 +1,22 @@
+[package]
+name = "remedy-ui-bridge-macos"
+description = "RemedyUI macOS bridge: the shared winit core plus AppKit for the pasteboard, window sharing protection and system settings."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+# The bridge is empty on other platforms, so everything it uses is platform-specific.
+[target.'cfg(target_os = "macos")'.dependencies]
+remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-host = { path = "../remedy-ui-host", version = "0.1.0" }
+remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
+objc2 = { version = "=0.6.5" }
+objc2-app-kit = { version = "=0.3.2" }
+objc2-foundation = { version = "=0.3.2" }
+
+[lints]
+workspace = true

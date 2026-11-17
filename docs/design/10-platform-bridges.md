@@ -29,15 +29,14 @@ A trait method that a platform cannot honor returns `Unsupported` with a reason.
 |---|---|---|---|---|
 | `bridge-windows` | winit, plus Win32 for chrome (`WM_NCHITTEST`, snap layouts), DirectComposition, backdrops | D3D12/Vulkan via wgpu on a DComp flip swapchain; GDI blit for CPU | TSF (own module) | Tray via `Shell_NotifyIcon`, toasts, jump lists, `SetWindowDisplayAffinity` |
 | `bridge-macos` | winit, plus AppKit for chrome, vibrancy and menus | Metal (`CAMetalLayer`); CPU blit via `CALayer` contents | `NSTextInputClient` | Global menu bar from the command table |
-| `bridge-wayland` | winit (Wayland) | Vulkan/GLES; `wl_shm` for CPU | `text-input-v3` | Fractional scale, xdg-decoration with client-side decorations, portal for dialogs |
-| `bridge-x11` | winit (X11) | Vulkan/GL; MIT-SHM for CPU | IBus/Fcitx via XIM | |
+| `bridge-linux` | winit, Wayland or X11 chosen at run time | Vulkan/GLES; `wl_shm` or X11 shared memory for CPU | `text-input-v3` on Wayland, IBus/Fcitx via XIM on X11 | One crate for both display servers, since winit picks one per session. Fractional scale, client-side decorations drawn by RemedyUI, XDG portal for settings and dialogs, no capture protection (no display server offers it) |
 | `bridge-android` | NativeActivity / GameActivity | Vulkan/GLES; `ANativeWindow` buffers for CPU | `InputConnection` | Insets, back navigation, lifecycle, `FLAG_SECURE`, trim-memory |
 | `bridge-remedyos` | RemedyOS surface and input wires | Shared framebuffer surface for the CPU renderer now; native GPU queue when the RemedyOS GPU backend exists | RemedyOS text-input wire | See below |
 | `bridge-web` (later) | DOM canvas and events | WebGPU / WebGL2 via wgpu; 2D canvas for CPU | Hidden `contenteditable` for IME | For PWAs (GuitarRemedy, Craft Calc today ship as PWAs) |
 | `bridge-ios` (later) | UIKit | Metal | `UITextInput` | |
 | `bridge-headless` | None | CPU renderer into memory | Scripted | Tests, previews, server-side rendering of images |
 
-winit is used where it serves, for cross-platform windows and events. Each bridge adds its own module where winit stops short: TSF, DirectComposition, custom chrome, AppKit menus, Android insets. Moving to winit 0.31 or later, or replacing it on one platform, is a change inside that bridge only.
+winit is used where it serves, for cross-platform windows and events. The desktop bridges share one implementation of the host contract over winit, `bridge-winit`; each adds only its platform's hooks (clipboard, capture protection, system settings, and modules such as TSF). Each bridge adds its own module where winit stops short: TSF, DirectComposition, custom chrome, AppKit menus, Android insets. Moving to winit 0.31 or later, or replacing it on one platform, is a change inside that bridge only.
 
 ## RemedyOS
 
