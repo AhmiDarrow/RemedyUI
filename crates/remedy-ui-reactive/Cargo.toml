@@ -1,0 +1,15 @@
+[package]
+name = "remedy-ui-reactive"
+description = "RemedyUI reactive state: glitch-free signals, memos, effects, scopes, batching, a cross-thread waker and reactive vectors."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+
+[lints]
+workspace = true
