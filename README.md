@@ -2,7 +2,7 @@
 
 RemedyUI is the UI engine for every Remedy app, written in Rust. That covers chat (FreeSpeak), documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform). Its aims, in order: stable, secure, fast as the hardware allows, light, intuitive for the people using it, and a pleasure to build with.
 
-**Status:** M1 (foundations), M2 (text) and M3 (layout, style, input, semantics, motion) are built. These crates exist, with real code and tests:
+**Status:** M1 (foundations), M2 (text), M3 (layout, style, input, semantics, motion) and M4 (rendering, the compositor and the platform bridges) are built. These crates exist, with real code and tests:
 
 - `remedy-ui-core`: geometry, scale and snapping, colors, generational arena
 - `remedy-ui-reactive`: glitch-free signals, memos, effects, scopes, `Waker`, `SignalVec`, stores
@@ -18,7 +18,16 @@ RemedyUI is the UI engine for every Remedy app, written in Rust. That covers cha
 - `remedy-ui-a11y`: semantics to incremental AccessKit updates, merging, protected fields, live regions
 - `remedy-ui-motion`: easing, tweens, closed-form springs with interruption, the frame clock
 
-Next is M4 (rendering, the compositor and the Windows bridge). A crate is added to the workspace only when it has real code and tests.
+- `remedy-ui-paint`: display lists of shapes, paths, gradients, glyph runs, images, clips, layers and shadows
+- `remedy-ui-render-cpu`: the CPU renderer over vello_cpu with RemedyUI's own glyphs, including LCD text; the reference for golden images
+- `remedy-ui-render-gpu`: the wgpu renderer over vello_gpu with the same painter, a backend ladder, a pipeline cache, window surfaces and device-loss recovery
+- `remedy-ui-compositor`: layer trees, tiles, damage, compositor-side scrolling and animation, and the compositor thread
+- `remedy-ui-host`: the platform-neutral host model every bridge implements
+- `remedy-ui-bridge-headless`: the host in memory, for tests, previews and servers
+- `remedy-ui-bridge-winit`: the shared desktop core for the Windows, macOS and Linux bridges
+- `remedy-ui-bridge-windows`, `remedy-ui-bridge-macos`, `remedy-ui-bridge-linux`: clipboard, capture protection, system settings, and TSF on Windows
+
+Next is M5, the first app (SecretSticky): core widgets, forms, themes, secure inputs and desktop services. A crate is added to the workspace only when it has real code and tests.
 
 Checks: `cargo xtask check` (layer graph and unsafe boundary) and `cargo deny check`, alongside fmt, clippy, tests and docs.
 
@@ -30,9 +39,9 @@ Checks: `cargo xtask check` (layer graph and unsafe boundary) and `cargo deny ch
 - **Real text.** Full shaping and bidi, variable and color fonts, hinting with grayscale and LCD, rich paragraphs, selection across elements, rich editing, each platform's real IME, spell checking.
 - **Two renderers, one display list.** A wgpu UI renderer with precompiled pipelines, and a fast CPU renderer as the floor. It recovers from a lost GPU and presents only what changed.
 - **Code fluid.** Users can restyle, rebind and rearrange the apps they use: themes, shortcuts and toolbars, and `.rui` layouts where an app allows it. One theme set is shared by every Remedy app.
-- **Every platform as a bridge.** Windows, macOS, Linux (Wayland and X11), Android, RemedyOS, and later the web and iOS.
+- **Every platform as a bridge.** Windows, macOS and Linux (Wayland and X11) today over one shared core, then Android, RemedyOS, and later the web and iOS.
 - **Accessible, and operable by agents with consent.** One semantics tree serves screen readers, tests and AI agents.
-- **Safe.** `#![forbid(unsafe_code)]` outside one audited boundary. Untrusted content is parsed by fuzzed, memory-safe code off the UI thread, optionally in a sandboxed helper. Secret inputs never leak, and there is no telemetry.
+- **Safe.** No unsafe code outside the `os`/`ffi` modules of the bridges and the GPU renderer, checked in CI. Untrusted content is parsed by fuzzed, memory-safe code off the UI thread, optionally in a sandboxed helper. Secret inputs never leak, and there is no telemetry.
 
 ## Documents
 

@@ -1,6 +1,8 @@
 //! Win32 calls: the only unsafe code in the Windows bridge. Every function here is a small,
 //! safe wrapper that checks each result.
 
+pub(crate) mod tsf;
+
 use std::ffi::c_void;
 use std::time::Duration;
 

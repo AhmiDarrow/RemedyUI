@@ -268,3 +268,31 @@ fn lcd_text_matches_between_gpu_and_cpu() {
     );
     assert_eq!(differing(&cpu, &gpu, 8), 0, "LCD text matches on the GPU");
 }
+
+#[test]
+fn no_pipeline_or_shader_is_created_after_start_up() {
+    let mut r = gpu();
+    let count = |r: &GpuRenderer| {
+        let c = r.context().device.get_internal_counters();
+        (c.hal.render_pipelines.read(), c.hal.compute_pipelines.read(), c.hal.shader_modules.read())
+    };
+    let at_start = count(&r);
+    // Every kind of content, at several sizes and scales, including LCD text and layers.
+    for (i, scale) in [1.0, 1.5, 2.0, 1.0, 3.0].iter().enumerate() {
+        let w = 120 + 40 * i as u32;
+        let f = r.render(&scene(), w, w, *scale, Color::WHITE);
+        assert!(f.is_ok());
+    }
+    let comp_plan = {
+        let mut c = Compositor::new(260, 300, 1.0, ScrollPhysics::CLAMPED);
+        c.commit(page());
+        c.frame(Duration::from_millis(0))
+    };
+    let ctx = r.context().clone();
+    let mut g = GpuCompositor::new(r, LadderOptions::default());
+    assert!(g.present_to_frame(&comp_plan, 260, 300, Color::WHITE).is_ok());
+    let c = ctx.device.get_internal_counters();
+    let after = (c.hal.render_pipelines.read(), c.hal.compute_pipelines.read(), c.hal.shader_modules.read());
+    assert!(at_start.0 > 0, "counters are live: {at_start:?}");
+    assert_eq!(after, at_start, "(render pipelines, compute pipelines, shader modules)");
+}

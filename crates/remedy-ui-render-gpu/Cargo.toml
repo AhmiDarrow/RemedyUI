@@ -18,6 +18,8 @@ vello_gpu = { version = "=0.4.0" }
 wgpu = { version = "=30.0.2" }
 
 [dev-dependencies]
+# Resource counters prove no pipeline or shader is created after start-up (tests only).
+wgpu = { version = "=30.0.2", features = ["counters"] }
 remedy-ui-bridge-windows = { path = "../remedy-ui-bridge-windows", version = "0.1.0" }
 remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "0.1.0" }
 remedy-ui-host = { path = "../remedy-ui-host", version = "0.1.0" }

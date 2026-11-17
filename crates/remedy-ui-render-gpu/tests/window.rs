@@ -130,7 +130,7 @@ fn gpu_frames_reach_a_real_window_through_resize_and_device_loss() {
         Err(e) => unreachable!("an event loop: {e}"),
     };
     let mut probe = Probe::default();
-    let result = run_on(event_loop, &mut probe, WindowsHooks);
+    let result = run_on(event_loop, &mut probe, WindowsHooks::default());
     assert!(result.is_ok(), "{result:?}");
     assert!(!probe.deadline_hit, "finished in time; errors: {:?}", probe.errors);
     assert!(probe.errors.is_empty(), "{:?}", probe.errors);
