@@ -11,7 +11,7 @@ repository = "https://github.com/AhmiDarrow/RemedyUI"
 authors = ["Ahmi Darrow"]
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 missing_docs = "deny"
 rust_2018_idioms = { level = "deny", priority = -1 }
 
