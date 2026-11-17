@@ -44,10 +44,14 @@ pub(crate) struct Field {
     editor: Editor,
     style: TextStyle,
     placeholder: String,
+    /// The pseudo-locale placeholders are shown in, if one is active.
+    pseudo: Option<remedy_ui_text::Pseudo>,
     label: Option<String>,
     /// A secret shown in the clear (the user pressed reveal).
     reveal: bool,
     scale: f32,
+    /// The field lays out right to left: its text starts at the right edge.
+    pub(crate) rtl: bool,
     /// The paragraph shown, its width and where its top-left sat in the element.
     shown: Option<(f32, Rc<Paragraph>, Point)>,
     on_change: Option<Rc<dyn Fn()>>,
@@ -58,6 +62,11 @@ pub(crate) struct Field {
 impl Field {
     pub(crate) fn invalidate(&mut self) {
         self.shown = None;
+    }
+
+    pub(crate) fn set_pseudo(&mut self, pseudo: Option<remedy_ui_text::Pseudo>) {
+        self.pseudo = pseudo;
+        self.invalidate();
     }
 
     pub(crate) fn set_style(&mut self, style: TextStyle) {
@@ -119,7 +128,12 @@ impl Field {
         }
         let (text, _) = self.display();
         let wrap = (self.kind == FieldKind::Multi).then_some(width);
-        let options = ParagraphOptions { max_width: wrap, scale: self.scale, ..ParagraphOptions::default() };
+        let options = ParagraphOptions {
+            max_width: wrap,
+            scale: self.scale,
+            container: crate::element::container(self.rtl),
+            ..ParagraphOptions::default()
+        };
         let shown = if text.is_empty() { " ".to_owned() } else { text };
         let p = Rc::new(engine.layout(&RichText::plain(shown), &self.style, options));
         self.shown = Some((width, p.clone(), Point::ZERO));
@@ -136,10 +150,10 @@ impl Field {
         focused: bool,
     ) {
         let p = self.paragraph(engine, content.width().max(1.0));
+        let o = Point::new(content.min.x + p.x_offset(content.width()), content.min.y);
         if let Some(shown) = self.shown.as_mut() {
-            shown.2 = content.min;
+            shown.2 = o;
         }
-        let o = content.min;
         let tokens = theme.derive();
         let (text, comp) = self.display();
         if focused {
@@ -150,12 +164,22 @@ impl Field {
         if text.is_empty() {
             if !self.placeholder.is_empty() {
                 let style = TextStyle { color: tokens.muted, ..self.style.clone() };
+                let plain = RichText::plain(self.placeholder.clone());
                 let ph = engine.layout(
-                    &RichText::plain(self.placeholder.clone()),
+                    &self.pseudo.map_or(plain.clone(), |p| p.apply(&plain)),
                     &style,
-                    ParagraphOptions { scale: self.scale, ..ParagraphOptions::default() },
+                    ParagraphOptions {
+                        scale: self.scale,
+                        container: crate::element::container(self.rtl),
+                        ..ParagraphOptions::default()
+                    },
                 );
-                frame::glyphs(list, &ph, o, tokens.muted);
+                frame::glyphs(
+                    list,
+                    &ph,
+                    Point::new(content.min.x + ph.x_offset(content.width()), content.min.y),
+                    tokens.muted,
+                );
             }
         } else {
             frame::glyphs(list, &p, o, s.foreground);
@@ -435,9 +459,11 @@ impl Ui {
             },
             style: TextStyle::default(),
             placeholder: String::new(),
+            pseudo: self.0.borrow().pseudo,
             label: None,
             reveal: false,
             scale,
+            rtl: false,
             shown: None,
             on_change: None,
             on_submit: None,

@@ -19,6 +19,33 @@ use remedy_ui_input::{KeyEvent, Platform, PointerEvent, WheelEvent};
 pub use accesskit;
 pub use raw_window_handle;
 
+/// The wall clock and the local time zone at one instant.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct LocalTime {
+    /// Seconds since 1970-01-01T00:00:00Z.
+    pub unix_seconds: i64,
+    /// Seconds east of UTC at that instant (daylight saving included). 0 where the platform
+    /// cannot say.
+    pub utc_offset: i32,
+}
+
+impl LocalTime {
+    /// Seconds since 1970-01-01T00:00:00 on the local wall clock.
+    pub fn local_seconds(self) -> i64 {
+        self.unix_seconds + i64::from(self.utc_offset)
+    }
+
+    /// Days since 1970-01-01 on the local calendar.
+    pub fn local_days(self) -> i64 {
+        self.local_seconds().div_euclid(86_400)
+    }
+
+    /// Seconds until the next local midnight (at least 1).
+    pub fn until_midnight(self) -> u64 {
+        (86_400 - self.local_seconds().rem_euclid(86_400)).max(1) as u64
+    }
+}
+
 /// A screen reader or other assistive technology talking to a window.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AccessibilityEvent {
@@ -375,6 +402,8 @@ pub trait Host {
     fn platform(&self) -> Platform;
     /// The host clock (monotonic, the clock frame times use).
     fn now(&self) -> Duration;
+    /// The wall clock and the local UTC offset now (for dates and times people read).
+    fn local_time(&self) -> LocalTime;
     /// Current system settings.
     fn settings(&self) -> SystemSettings;
     /// Opens a window. A [`HostEvent::Resized`] follows with its real size and scale.
@@ -459,5 +488,24 @@ pub trait App {
 impl<T: App + ?Sized> App for &mut T {
     fn event(&mut self, host: &mut dyn Host, event: HostEvent) {
         (**self).event(host, event);
+    }
+}
+
+#[cfg(test)]
+mod local_time_tests {
+    use super::LocalTime;
+
+    #[test]
+    fn local_days_and_midnight_follow_the_offset() {
+        // 2026-11-17T23:30:00Z.
+        let t = LocalTime { unix_seconds: 1_794_958_200, utc_offset: 0 };
+        assert_eq!(t.until_midnight(), 1800);
+        let east = LocalTime { utc_offset: 3600, ..t };
+        assert_eq!(east.local_days(), t.local_days() + 1, "already tomorrow in UTC+1");
+        assert_eq!(east.until_midnight(), 86_400 - 1800);
+        let west = LocalTime { utc_offset: -5 * 3600, ..t };
+        assert_eq!(west.local_days(), t.local_days());
+        let before_1970 = LocalTime { unix_seconds: -1, utc_offset: 0 };
+        assert_eq!(before_1970.local_days(), -1);
     }
 }

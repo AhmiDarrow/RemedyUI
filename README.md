@@ -2,7 +2,7 @@
 
 RemedyUI is the UI engine for every Remedy app, written in Rust. That covers chat (FreeSpeak), documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform). Its aims, in order: stable, secure, fast as the hardware allows, light, intuitive for the people using it, and a pleasure to build with.
 
-**Status:** M1 (foundations), M2 (text), M3 (layout, style, input, semantics, motion) and M4 (rendering, the compositor and the platform bridges) are built, and M5 is under way. These crates exist, with real code and tests:
+**Status:** M1 (foundations), M2 (text), M3 (layout, style, input, semantics, motion), M4 (rendering, the compositor and the platform bridges) and M5 (the first app, SecretSticky) are built. These crates exist, with real code and tests:
 
 - `remedy-ui-core`: geometry, scale and snapping, colors, generational arena
 - `remedy-ui-reactive`: glitch-free signals, memos, effects, scopes, `Waker`, `SignalVec`, stores
@@ -27,7 +27,7 @@ RemedyUI is the UI engine for every Remedy app, written in Rust. That covers cha
 - `remedy-ui-bridge-winit`: the shared desktop core for the Windows, macOS and Linux bridges
 - `remedy-ui-bridge-windows`, `remedy-ui-bridge-macos`, `remedy-ui-bridge-linux`: clipboard, capture protection, system settings, the tray, file dialogs, single instance, screen readers, and TSF on Windows
 
-M5 (the first app, SecretSticky) is under way. Built so far:
+M5 added:
 
 - `remedy-ui-view`: elements, the frame pipeline, input routing, editable fields, semantics
 - `remedy-ui`: the facade and runner (`run`, `App`, `Window`); windows start on the CPU renderer and move to the GPU when they need it
@@ -37,6 +37,7 @@ M5 (the first app, SecretSticky) is under way. Built so far:
 - `remedy-ui-devtools`: the inspector (F12) with an accessibility check and live theme colors, and previews in many variations that double as golden-image tests
 - `remedy-ui-secure`: idle lock and secret copies that clear themselves
 - `remedy-ui-services-update`: signed updates from GitHub releases or a feed
+- `cargo-remedy`: `cargo remedy new` (basic, tray and multi-window templates), `run` (devtools, `--watch`) and `package` (Windows installer, portable zip, signing, update signatures)
 
 SecretSticky runs on RemedyUI (its repository's `remedyui` branch). A crate is added to the workspace only when it has real code and tests.
 

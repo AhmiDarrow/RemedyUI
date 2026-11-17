@@ -20,7 +20,8 @@ pub fn key_capture(ui: &Ui, label: impl Into<String>, value: Signal<Option<Chord
     let label = label.into();
     let recording = Signal::new(false);
     let el = ui.el("text_input").focusable(true).fill_width();
-    let text = w::label(ui, "", "");
+    // Key names are the platform's, not the app's strings.
+    let text = w::label(ui, "", "").data_text();
     let el = el.child(text.clone());
     let (u2, e2, e3, l2) = (ui.clone(), el.clone(), el.clone(), label.clone());
     el.on_focus_change(move |f| recording.set(f))

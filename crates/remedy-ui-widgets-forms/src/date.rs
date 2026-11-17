@@ -153,13 +153,10 @@ impl Date {
         Date { day: 1, ..self }
     }
 
-    /// Today in UTC, from the system clock.
-    pub fn today_utc() -> Date {
-        let secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        Date::from_days_since_epoch(secs.div_euclid(86_400))
+    /// Today on the user's local calendar (the host's wall clock and time zone, tracked:
+    /// what reads it follows the date across midnight).
+    pub fn today(ui: &Ui) -> Date {
+        Date::from_days_since_epoch(ui.local_time().local_days())
     }
 
     /// Reads `YYYY-MM-DD`.
@@ -295,10 +292,11 @@ pub fn calendar(
 ) -> El {
     let label = label.into();
     let unit = ui.theme().spacing.unit;
-    let cursor = Signal::new(value.get_untracked().unwrap_or_else(|_| Date::today_utc()));
+    let cursor = Signal::new(value.get_untracked().unwrap_or_else(|_| untrack(|| Date::today(ui))));
     let allowed = move |d: Date| min.is_none_or(|m| d >= m) && max.is_none_or(|m| d <= m);
 
-    let title = w::label(ui, "", "strong").grow(1.0);
+    // Month names, weekdays and dates come formatted from the locale's data: data text.
+    let title = w::label(ui, "", "strong").grow(1.0).data_text();
     let t2 = title.clone();
     let u2 = ui.clone();
     let title = title.bind(move || {
@@ -327,6 +325,7 @@ pub fn calendar(
         .bind(move || {
             let c = cursor.get();
             let chosen = value.get();
+            let today = Date::today(&u3);
             let sym = CalendarSymbols::for_locale(&u3.locale());
             let num = NumberSymbols::for_locale(&u3.locale());
             untrack(|| {
@@ -335,7 +334,7 @@ pub fn calendar(
                 let mut head = w::row(&u3).fill_width();
                 for i in 0..7 {
                     let name = sym.weekday(sym.first_weekday.plus(i)).to_owned();
-                    head = head.child(w::label(&u3, name, "muted").grow(1.0).style(StylePatch {
+                    head = head.child(w::label(&u3, name, "muted").data_text().grow(1.0).style(StylePatch {
                         text_size: Some(u3.theme().type_scale.small),
                         ..StylePatch::default()
                     }));
@@ -362,11 +361,32 @@ pub fn calendar(
                             .padding(Insets::symmetric(unit, 0.0))
                             .justify(Justify::Center)
                             .align(Align::Center)
-                            .child(w::label(&u3, text, if d.month == c.month { "" } else { "muted" }))
+                            .child(
+                                w::label(&u3, text, if d.month == c.month { "" } else { "muted" })
+                                    // Today is bold, with a line under it.
+                                    .style(if d == today {
+                                        StylePatch { weight: Some(700.0), ..StylePatch::default() }
+                                    } else {
+                                        StylePatch::default()
+                                    }),
+                            )
+                            .child(if d == today {
+                                u3.el("today_mark").width(14.0).height(2.0).style(StylePatch {
+                                    background: Some(u3.theme().colors.accent),
+                                    radius: Some(1.0),
+                                    ..StylePatch::default()
+                                })
+                            } else {
+                                u3.el("spacer").height(2.0)
+                            })
                             .disabled(!ok)
                             .semantics(
                                 Semantics::new(Role::GridCell)
-                                    .label(sym.long_date(d))
+                                    .label(if d == today {
+                                        format!("{}, today", sym.long_date(d))
+                                    } else {
+                                        sym.long_date(d)
+                                    })
                                     .selected(d == chosen)
                                     .disabled(!ok)
                                     .action(Action::Click),
@@ -456,7 +476,7 @@ pub fn date_picker(
     })
     .child(w::icon(ui, Icon::ChevronDown, ui.theme().type_scale.small + 2.0));
     *anchor.borrow_mut() = Some(button.clone());
-    let text = button.child_elements().into_iter().next();
+    let text = button.child_elements().into_iter().next().map(El::data_text);
     let u3 = ui.clone();
     let b2 = button.clone();
     let l3 = label.clone();

@@ -181,6 +181,24 @@ impl Runtime {
         self.nodes.borrow().get(id).map(|n| n.created_at)
     }
 
+    /// What `id` read last time it ran (or tracked), with where each was created.
+    pub(crate) fn sources(&self, id: NodeId) -> Vec<crate::Source> {
+        let nodes = self.nodes.borrow();
+        let Some(n) = nodes.get(id) else { return Vec::new() };
+        n.sources
+            .iter()
+            .filter_map(|s| {
+                let src = nodes.get(*s)?;
+                let kind = match src.kind {
+                    Kind::Signal(_) => crate::SourceKind::Signal,
+                    Kind::Memo { .. } => crate::SourceKind::Memo,
+                    _ => return None,
+                };
+                Some(crate::Source { kind, created_at: src.created_at })
+            })
+            .collect()
+    }
+
     /// Disposes `id`, everything it owns, and runs their clean-ups (children first, then each
     /// node's own clean-ups in reverse order of registration).
     pub(crate) fn dispose(&self, id: NodeId) {

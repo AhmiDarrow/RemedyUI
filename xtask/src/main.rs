@@ -72,6 +72,8 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui", 6),
     ("remedy-ui-rui", 6),
     ("remedy-ui-test", 6),
+    // Tools: build on everything, nothing builds on them.
+    ("cargo-remedy", 7),
 ];
 
 /// Allowed dependencies inside one layer: (crate, dependency).

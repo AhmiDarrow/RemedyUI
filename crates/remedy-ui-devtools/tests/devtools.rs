@@ -244,7 +244,7 @@ fn shots() {
             ))
     })
     .sizes(&[(420.0, 1100.0)])
-    .locales(&["en-US", "de-DE", "ar-EG"]);
+    .locales(&["en-US", "de-DE", "ar-EG", "en-XA", "ar-XB"]);
     for v in forms.variations() {
         let s = forms.render(&v);
         let _ = std::fs::write(dir.join(format!("forms-{}.png", v.locale)), s.to_png().unwrap_or_default());
@@ -267,4 +267,153 @@ fn shots() {
     .sizes(&[(480.0, 900.0)]);
     let s = insp.render(&v0(&insp));
     let _ = std::fs::write(dir.join("inspector.png"), s.to_png().unwrap_or_default());
+}
+
+#[test]
+fn start_aligned_text_follows_the_layout_direction() {
+    let p =
+        Preview::new("label", |ui| w::column(ui).fill_width().child(w::label(ui, "Start", "").fill_width()))
+            .sizes(&[(300.0, 40.0)])
+            .locales(&["en-US", "ar-EG"]);
+    let ink = |s: &Snapshot, x0: u32, x1: u32| {
+        let bg = s.pixel(299, 39).unwrap_or_default();
+        (x0..x1).any(|x| {
+            (0..40)
+                .any(|y| s.pixel(x, y).is_some_and(|px| px.iter().zip(bg).any(|(a, b)| a.abs_diff(b) > 60)))
+        })
+    };
+    let vs = p.variations();
+    let (Some(ltr), Some(rtl)) = (vs.first(), vs.get(1)) else { unreachable!() };
+    let (l, r) = (p.render(ltr), p.render(rtl));
+    assert!(ink(&l, 0, 100) && !ink(&l, 200, 300), "left to right: text at the left");
+    assert!(ink(&r, 200, 300) && !ink(&r, 0, 100), "right to left: text at the right");
+}
+
+#[test]
+fn wrapped_text_and_fields_stay_inside_their_boxes_right_to_left() {
+    // Ink columns of a snapshot: (leftmost, rightmost) x that differs from the background.
+    let extent = |s: &Snapshot, y0: u32, y1: u32| {
+        let bg = s.pixel(s.width - 1, s.height - 1).unwrap_or_default();
+        let mut cols = (0..s.width).filter(|x| {
+            (y0..y1)
+                .any(|y| s.pixel(*x, y).is_some_and(|px| px.iter().zip(bg).any(|(a, b)| a.abs_diff(b) > 60)))
+        });
+        let first = cols.next();
+        (first, cols.next_back().or(first))
+    };
+    let long = "The quick brown fox jumps over the lazy dog while the boxing wizards jump quickly";
+    let p = Preview::new("wrapped", move |ui| {
+        w::column(ui).fill_width().child(w::label(ui, long, "").fill_width())
+    })
+    .sizes(&[(240.0, 120.0)])
+    .locales(&["ar-EG"]);
+    let s = p.render(&v0(&p));
+    if let Some(d) = std::env::var_os("REMEDY_SHOTS") {
+        let _ =
+            std::fs::write(std::path::Path::new(&d).join("rtl-wrapped.png"), s.to_png().unwrap_or_default());
+    }
+    let (l, r) = extent(&s, 0, 120);
+    assert!(
+        r.is_some_and(|r| r <= 239) && r.is_some_and(|r| r >= 225),
+        "lines end at the right edge: {l:?}..{r:?}"
+    );
+    assert!(l.is_some_and(|l| l < 60), "wrapped lines fill the width: {l:?}");
+    let fields = Preview::new("fields", |ui| {
+        let one = w::text_input(ui, "Name");
+        one.set_value("Ada");
+        let many = w::text_area(ui, "Notes");
+        many.set_value("Short");
+        w::column(ui)
+            .fill_width()
+            .gap(10.0)
+            .child(one.el().fill_width())
+            .child(many.el().fill_width().height(60.0))
+    })
+    .sizes(&[(300.0, 120.0)])
+    .locales(&["ar-EG"]);
+    let s = fields.render(&v0(&fields));
+    // Text sits in the right half of both fields (borders aside: look inside them).
+    let (l1, _) = extent(&Snapshot { rgba: s.rgba.clone(), ..s.clone() }, 8, 28);
+    assert!(l1.is_some_and(|x| x > 150), "single-line field text at the right: {l1:?}");
+    let (l2, _) = extent(&s, 50, 70);
+    assert!(l2.is_some_and(|x| x > 150), "multi-line field text at the right: {l2:?}");
+}
+
+#[test]
+fn every_widget_passes_the_accessibility_check() {
+    use remedy_ui_reactive::Signal;
+    use remedy_ui_widgets_forms as f;
+    let ui = ui();
+    let d = |s: &str| f::Decimal::parse(s).unwrap_or_default();
+    let date = f::Date::new(2026, 11, 17).unwrap_or(f::Date { year: 2026, month: 11, day: 17 });
+    let col = w::column(&ui)
+        .gap(8.0)
+        .child(w::button(&ui, "Save", || {}))
+        .child(w::icon_button(&ui, w::Icon::Close, "Close", || {}))
+        .child(w::toggle_button(&ui, "Bold", Signal::new(false)))
+        .child(w::menu_button(&ui, "More", vec![w::MenuItem::new("Copy", || {})]))
+        .child(w::check(&ui, "Remember me", Signal::new(true)))
+        .child(w::switch(&ui, "Dark mode", Signal::new(false)))
+        .child(w::radio_group(&ui, "Size", &["Small", "Large"], Signal::new(0)))
+        .child(w::segmented(&ui, "View", &["List", "Grid"], Signal::new(0)))
+        .child(w::select(&ui, "Theme", vec!["Forest".into(), "Light".into()], Signal::new(0)))
+        .child(w::chip(&ui, "Unread", Signal::new(false)))
+        .child(w::slider(&ui, "Volume", Signal::new(0.5), 0.0, 1.0, 0.1))
+        .child(w::stepper(&ui, "Copies", Signal::new(1.0), 1.0, 9.0, 1.0))
+        .child(w::text_input(&ui, "Name").el())
+        .child(w::text_area(&ui, "Notes").el())
+        .child(w::search(&ui, "Search", |_| {}))
+        .child(w::secret_input(&ui, "Password").el())
+        .child(w::link(&ui, "Help", || {}))
+        .child(f::number_input(
+            &ui,
+            "Grams",
+            Signal::new(d("12.5")),
+            f::NumberOptions::range(d("0"), d("100"), d("0.5"), 1),
+        ))
+        .child(f::time_picker(&ui, "At", Signal::new(f::Time::default()), 15))
+        .child(f::key_capture(&ui, "Shortcut", Signal::new(None)))
+        .child(f::date_picker(&ui, "Due", Signal::new(date), None, None))
+        .child(f::calendar(&ui, "Calendar", Signal::new(date), None, None))
+        .child(f::color_picker(
+            &ui,
+            "Accent",
+            Signal::new(Color::from_hex("#3d8b5f").unwrap_or(Color::BLACK)),
+            Some(Color::WHITE),
+        ));
+    ui.root().child(w::scroll(&ui).grow(1.0).child(col));
+    let _ = ui.frame(Size::new(480.0, 2400.0), 1.0);
+    let _ = ui.take_requests();
+    let found: Vec<String> = audit(&ui)
+        .iter()
+        .map(|p| {
+            format!(
+                "{} [{}]",
+                p.message(),
+                ui.element(p.element).info().map(|i| describe(&i)).unwrap_or_default()
+            )
+        })
+        .collect();
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+#[test]
+fn the_audit_finds_pointer_only_and_invisible_focus() {
+    let ui = ui();
+    let grip = ui.el("box").width(30.0).height(30.0).on_pointer(|_| true);
+    let excused = ui
+        .el("box")
+        .width(30.0)
+        .height(30.0)
+        .on_pointer(|_| true)
+        .keyboard_alternative("The window menu's Size command");
+    let ghost = ui.el("box").width(0.0).height(0.0).focusable(true);
+    ui.root().child(w::column(&ui).child(grip.clone()).child(excused.clone()).child(ghost.clone()));
+    frame(&ui);
+    let found = audit(&ui);
+    let kinds =
+        |id| found.iter().filter(move |p| p.element == id).map(|p| p.kind.clone()).collect::<Vec<_>>();
+    assert_eq!(kinds(grip.id()), vec![ProblemKind::PointerOnly]);
+    assert!(kinds(excused.id()).is_empty(), "{found:?}");
+    assert_eq!(kinds(ghost.id()), vec![ProblemKind::InvisibleFocus]);
 }

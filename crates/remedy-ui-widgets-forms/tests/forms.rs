@@ -336,3 +336,20 @@ fn times_are_written_and_read_the_locale_s_way() {
     let ar = CalendarSymbols::for_locale("ar-EG").format_time(t);
     assert!(ar.contains('٢') && ar.contains('٣'), "Arabic digits: {ar}");
 }
+
+#[test]
+fn the_calendar_marks_today_on_the_local_calendar() {
+    let t = T::new("en-US");
+    t.ui.connect_accessibility();
+    // 2026-11-17 22:30 UTC is already the 18th at UTC+3.
+    t.ui.set_local_time(remedy_ui_host::LocalTime { unix_seconds: 1_794_954_600, utc_offset: 3 * 3600 });
+    assert_eq!(Date::today(&t.ui).to_string(), "2026-11-18");
+    let v = Signal::new(Date::new(2026, 11, 2).unwrap_or(Date { year: 2026, month: 11, day: 2 }));
+    t.ui.root().child(calendar(&t.ui, "Due", v, None, None));
+    t.frame();
+    let tree = t.tree();
+    assert!(
+        tree.contains("November 18, 2026, today") && !tree.contains("November 17, 2026, today"),
+        "{tree}"
+    );
+}

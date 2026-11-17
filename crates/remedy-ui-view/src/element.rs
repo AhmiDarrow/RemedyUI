@@ -35,26 +35,53 @@ pub struct PaintCx<'a> {
 pub(crate) type Painter = Rc<dyn Fn(&mut PaintCx<'_>)>;
 
 /// A text element's content and its last layout.
+/// What a cached paragraph was laid out for: wrap width bits and right-to-left.
+type ParagraphKey = (Option<u32>, bool);
+
 pub(crate) struct TextSlot {
     pub(crate) text: RichText,
     pub(crate) style: TextStyle,
     pub(crate) wrap: bool,
     pub(crate) scale: f32,
+    /// The element lays out right to left: start-aligned text goes to the right edge.
+    pub(crate) rtl: bool,
+    /// The pseudo-locale the text is shown in, if one is active.
+    pub(crate) pseudo: Option<remedy_ui_text::Pseudo>,
+    /// The text is data (a date, a name, what someone wrote): pseudo-locales leave it.
+    pub(crate) data: bool,
     /// The paragraph at the last wrap width asked for.
-    pub(crate) cache: Option<(Option<u32>, Rc<Paragraph>)>,
+    pub(crate) cache: Option<(ParagraphKey, Rc<Paragraph>)>,
+}
+
+/// The paragraph container direction for an element's layout direction.
+pub(crate) fn container(rtl: bool) -> remedy_ui_text::Direction {
+    if rtl { remedy_ui_text::Direction::Rtl } else { remedy_ui_text::Direction::Ltr }
 }
 
 impl TextSlot {
     pub(crate) fn paragraph(&mut self, engine: &mut TextEngine, max_width: Option<f32>) -> Rc<Paragraph> {
         let max_width = if self.wrap { max_width } else { None };
-        let key = max_width.map(f32::to_bits);
+        let key = (max_width.map(f32::to_bits), self.rtl);
         if let Some((k, p)) = &self.cache
             && *k == key
         {
             return p.clone();
         }
-        let options = ParagraphOptions { max_width, scale: self.scale, ..ParagraphOptions::default() };
-        let p = Rc::new(engine.layout(&self.text, &self.style, options));
+        let options = ParagraphOptions {
+            max_width,
+            scale: self.scale,
+            container: container(self.rtl),
+            ..ParagraphOptions::default()
+        };
+        let shown;
+        let text = match self.pseudo.filter(|_| !self.data) {
+            Some(p) => {
+                shown = p.apply(&self.text);
+                &shown
+            }
+            None => &self.text,
+        };
+        let p = Rc::new(engine.layout(text, &self.style, options));
         self.cache = Some((key, p.clone()));
         p
     }
@@ -82,7 +109,7 @@ pub struct ElementInfo {
     pub bounds: Option<remedy_ui_core::Rect>,
     /// Its text, if it shows text.
     pub text: Option<String>,
-    /// What it tells assistive technology, if set.
+    /// What it tells assistive technology (as the accessibility tree gets it).
     pub semantics: Option<Semantics>,
     /// Where in the source it was built.
     pub created_at: Option<&'static std::panic::Location<'static>>,
@@ -94,8 +121,14 @@ pub struct ElementInfo {
     pub painter: bool,
     /// Is an editable text field.
     pub field: bool,
+    /// Has a pointer handler of its own.
+    pub pointer: bool,
+    /// How keyboard users do what its pointer handling does, when it is not focusable.
+    pub keyboard_alternative: Option<String>,
     /// Reactive bindings it owns.
     pub bindings: usize,
+    /// The signals and memos its bindings and painter read (each once, in first-seen order).
+    pub reads: Vec<remedy_ui_reactive::Source>,
     /// Hidden.
     pub hidden: bool,
 }
@@ -119,6 +152,12 @@ pub(crate) struct ElData {
     pub(crate) click: Option<Rc<dyn Fn()>>,
     pub(crate) hover: Option<Rc<dyn Fn(bool)>>,
     pub(crate) focus: Option<Rc<dyn Fn(bool)>>,
+    /// Has a pointer handler of its own (`on_pointer`).
+    pub(crate) pointer: bool,
+    /// Its text is data, not a translatable string ([`El::data_text`]).
+    pub(crate) data_text: bool,
+    /// How keyboard users do what this element's pointer handling does.
+    pub(crate) keyboard_alternative: Option<String>,
     pub(crate) hidden: bool,
     pub(crate) removed: Vec<Box<dyn FnOnce()>>,
     pub(crate) on_scroll: Option<Rc<dyn Fn(Vec2)>>,
@@ -128,6 +167,13 @@ pub(crate) struct ElData {
     pub(crate) effects: Vec<Effect>,
     /// Where the element was built (the first caller outside `#[track_caller]` builders).
     pub(crate) created_at: Option<&'static std::panic::Location<'static>>,
+}
+
+impl Inner {
+    /// True for the content, overlay and trusted layer roots.
+    pub(crate) fn layer_root(&self, id: ElementId) -> bool {
+        id == self.content || id == self.overlays || id == self.trusted
+    }
 }
 
 pub(crate) struct Inner {
@@ -152,6 +198,8 @@ pub(crate) struct Inner {
     pub(crate) focus_shown: Option<ElementId>,
     pub(crate) platform: remedy_ui_input::Platform,
     pub(crate) locale: remedy_ui_reactive::Signal<String>,
+    pub(crate) pseudo: Option<remedy_ui_text::Pseudo>,
+    pub(crate) local_time: remedy_ui_reactive::Signal<remedy_ui_host::LocalTime>,
     pub(crate) content: ElementId,
     pub(crate) overlays: ElementId,
     pub(crate) interceptor: Option<PointerInterceptor>,
@@ -242,6 +290,8 @@ impl Ui {
             focus_shown: None,
             platform: remedy_ui_input::Platform::Standard,
             locale: remedy_ui_reactive::Signal::new(String::from("en-US")),
+            pseudo: None,
+            local_time: remedy_ui_reactive::Signal::new(remedy_ui_host::LocalTime::default()),
             content: root,
             overlays: root,
             interceptor: None,
@@ -307,10 +357,65 @@ impl Ui {
         l.get()
     }
 
+    /// The wall clock and local UTC offset (tracked). The runner keeps it current: every
+    /// frame and at each local midnight, so date displays roll over on their own.
+    pub fn local_time(&self) -> remedy_ui_host::LocalTime {
+        let t = self.0.borrow().local_time;
+        t.get()
+    }
+
+    /// Sets the wall clock and offset (the runner does; tests may).
+    pub fn set_local_time(&self, t: remedy_ui_host::LocalTime) {
+        let s = self.0.borrow().local_time;
+        // Readers care about the day, the minute at most: change only then.
+        let same = s
+            .get_untracked()
+            .is_ok_and(|o| o.utc_offset == t.utc_offset && o.local_seconds() / 60 == t.local_seconds() / 60);
+        if !same {
+            s.set(t);
+        }
+    }
+
     /// Sets the locale.
+    /// The pseudo-locales `en-XA` and `ar-XB` rewrite the app's own text (labels, headings,
+    /// placeholders; never what people type) to check layouts before translations exist.
     pub fn set_locale(&self, locale: impl Into<String>) {
+        let locale = locale.into();
+        let pseudo = remedy_ui_text::Pseudo::for_locale(&locale);
+        let changed = {
+            let mut i = self.0.borrow_mut();
+            let changed = i.pseudo != pseudo;
+            i.pseudo = pseudo;
+            changed
+        };
+        if changed {
+            let ids: Vec<ElementId> = {
+                let i = self.0.borrow();
+                i.els
+                    .iter()
+                    .filter_map(|(id, d)| {
+                        if let Some(t) = &d.text {
+                            let mut t = t.borrow_mut();
+                            t.pseudo = pseudo;
+                            t.cache = None;
+                        }
+                        if let Some(f) = &d.field {
+                            f.borrow_mut().set_pseudo(pseudo);
+                        }
+                        (d.text.is_some() || d.field.is_some()).then_some(*id)
+                    })
+                    .collect()
+            };
+            for id in ids {
+                let node = self.0.borrow().els.get(&id).map(|d| d.node);
+                if let Some(n) = node {
+                    let _ = self.0.borrow_mut().layout.mark_dirty(n);
+                }
+                self.mark(id, Dirty::LAYOUT | Dirty::PAINT);
+            }
+        }
         let l = self.0.borrow().locale;
-        l.set_if_changed(locale.into());
+        l.set_if_changed(locale);
     }
 
     /// The platform's conventions for shortcuts and modifiers.
@@ -535,6 +640,16 @@ impl Ui {
         i.requests.push(r);
     }
 
+    /// Marks `id` and everything under it for restyling (it moved under a new parent).
+    pub(crate) fn restyle_subtree(&self, id: ElementId) {
+        let i = self.0.borrow();
+        let mut stack = vec![id];
+        while let Some(e) = stack.pop() {
+            i.tree.mark(e, Dirty::STYLE);
+            stack.extend(i.tree.children(e));
+        }
+    }
+
     pub(crate) fn mark(&self, id: ElementId, flags: Dirty) {
         let i = self.0.borrow();
         i.tree.mark(id, flags);
@@ -572,6 +687,9 @@ impl ElData {
             click: None,
             hover: None,
             focus: None,
+            pointer: false,
+            data_text: false,
+            keyboard_alternative: None,
             hidden: false,
             removed: Vec::new(),
             on_scroll: None,
@@ -625,6 +743,7 @@ impl El {
             i.structure_changed = true;
         }
         self.ui.mark(self.id, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
+        self.ui.restyle_subtree(child.id);
         self
     }
 
@@ -650,6 +769,7 @@ impl El {
             i.structure_changed = true;
         }
         self.ui.mark(self.id, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
+        self.ui.restyle_subtree(child.id);
     }
 
     /// The element's children, in order.
@@ -837,6 +957,9 @@ impl El {
 
     /// Calls `f` with pointer input on the element (window logical pixels).
     pub fn on_pointer(self, f: impl Fn(&remedy_ui_input::PointerEvent) -> bool + 'static) -> Self {
+        if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
+            d.pointer = true;
+        }
         let _ = self.ui.tree().on::<remedy_ui_input::PointerEvent>(self.id, Phase::Bubble, move |cx, e| {
             if f(e) {
                 cx.set_handled();
@@ -858,6 +981,17 @@ impl El {
             }
             None => false,
         }
+    }
+
+    /// Says how keyboard users reach what this element's pointer handling does, for an
+    /// element that is deliberately not focusable (a window-resize grip: the system's window
+    /// menu). The accessibility check accepts pointer-only elements that say this.
+    pub fn keyboard_alternative(self, how: impl Into<String>) -> Self {
+        let how = how.into();
+        if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
+            d.keyboard_alternative = Some(how);
+        }
+        self
     }
 
     /// Calls `f(true)` when the element gains keyboard focus and `f(false)` when it loses it.
@@ -951,6 +1085,8 @@ impl El {
     pub fn text(self, text: impl Into<RichText>) -> Self {
         let text = text.into();
         let engine_scale = self.ui.0.borrow().scale;
+        let pseudo = self.ui.0.borrow().pseudo;
+        let data_text = self.ui.0.borrow().els.get(&self.id).is_some_and(|d| d.data_text);
         let slot = {
             let i = self.ui.0.borrow();
             i.els.get(&self.id).and_then(|d| d.text.clone())
@@ -967,6 +1103,9 @@ impl El {
                     style: TextStyle::default(),
                     wrap: true,
                     scale: engine_scale,
+                    rtl: false,
+                    pseudo,
+                    data: data_text,
                     cache: None,
                 }));
                 self.make_measured(slot.clone());
@@ -991,6 +1130,22 @@ impl El {
             let t = f();
             let _ = me.clone().text(RichText::plain(t));
         })
+    }
+
+    /// Marks the element's text as data (a date or number the locale formatted, a name, a
+    /// file name, what someone wrote) rather than a string the app translates. Pseudo-locales
+    /// (`en-XA`, `ar-XB`) rewrite only translatable strings, so they leave it as it is.
+    pub fn data_text(self) -> Self {
+        if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
+            d.data_text = true;
+        }
+        if let Some(s) = self.ui.0.borrow().els.get(&self.id).and_then(|d| d.text.clone()) {
+            let mut s = s.borrow_mut();
+            s.data = true;
+            s.cache = None;
+        }
+        self.edit(Dirty::LAYOUT | Dirty::PAINT, |_| {});
+        self
     }
 
     /// Keeps the text on one line instead of wrapping.
@@ -1106,13 +1261,29 @@ impl El {
             local: d.local.clone(),
             bounds: tree.bounds(self.id),
             text: d.text.as_ref().map(|t| t.borrow().text.as_str().to_owned()),
-            semantics: d.semantics.clone(),
+            semantics: Some(crate::frame::composed_semantics(
+                d,
+                i.layer_root(self.id),
+                tree.is_focusable(self.id),
+            )),
             created_at: d.created_at,
             focusable: tree.is_focusable(self.id),
             clickable: d.click.is_some(),
             painter: d.painter.is_some(),
             field: d.field.is_some(),
+            pointer: d.pointer,
+            keyboard_alternative: d.keyboard_alternative.clone(),
             bindings: d.effects.len(),
+            reads: {
+                let mut all: Vec<remedy_ui_reactive::Source> = Vec::new();
+                let from_effects = d.effects.iter().flat_map(Effect::sources);
+                for s in from_effects.chain(d.paint_watch.iter().flat_map(Reaction::sources)) {
+                    if !all.contains(&s) {
+                        all.push(s);
+                    }
+                }
+                all
+            },
             hidden: d.hidden,
         })
     }

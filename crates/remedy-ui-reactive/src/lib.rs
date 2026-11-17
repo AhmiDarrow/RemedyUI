@@ -37,7 +37,8 @@ mod waker;
 
 pub use error::ReactiveError;
 pub use signal::{
-    Effect, Memo, Reaction, Scope, Signal, Stats, batch, on_cleanup, runtime_id, stats, untrack,
+    Effect, Memo, Reaction, Scope, Signal, Source, SourceKind, Stats, batch, on_cleanup, runtime_id, stats,
+    untrack,
 };
 pub use store::{Field, Segment, Store, StoreError};
 pub use vec::{OutOfRange, SignalVec, VecDiff, VecReader};

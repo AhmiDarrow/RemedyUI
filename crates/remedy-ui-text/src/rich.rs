@@ -109,6 +109,11 @@ impl RichText {
         self.objects.push((at, object));
     }
 
+    /// Replaces the inline objects (each at a U+FFFC already in the text).
+    pub(crate) fn set_objects(&mut self, objects: Vec<(usize, InlineObject)>) {
+        self.objects = objects;
+    }
+
     /// The text, with U+FFFC where objects are.
     pub fn as_str(&self) -> &str {
         &self.text

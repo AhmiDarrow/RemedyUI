@@ -127,6 +127,10 @@ pub struct ParagraphOptions {
     pub align: Align,
     /// Paragraph direction.
     pub direction: Direction,
+    /// The direction of the UI around the paragraph. When set, `Start` and `End` align to
+    /// its edges (the start of a right-to-left window is its right edge) whatever the
+    /// paragraph's own direction; `Auto` aligns to the paragraph's direction.
+    pub container: Direction,
     /// Device pixels per logical pixel. Metrics are rounded for this scale when `snap` is on.
     pub scale: f32,
     /// Round line metrics to whole device pixels, so hinted text sits on the pixel grid.
@@ -139,6 +143,7 @@ impl Default for ParagraphOptions {
             max_width: None,
             align: Align::Start,
             direction: Direction::Auto,
+            container: Direction::Auto,
             scale: 1.0,
             snap: true,
         }
@@ -186,15 +191,18 @@ impl TextEngine {
             });
         }
         let mut layout = b.build(content);
-        layout.break_all_lines(options.max_width);
-        let alignment = match options.align {
-            Align::Start => Alignment::Start,
-            Align::End => Alignment::End,
-            Align::Center => Alignment::Center,
-            Align::Justify => Alignment::Justify,
+        let alignment = match (options.align, options.container) {
+            (Align::Start, Direction::Ltr) | (Align::End, Direction::Rtl) => Alignment::Left,
+            (Align::Start, Direction::Rtl) | (Align::End, Direction::Ltr) => Alignment::Right,
+            (Align::Start, Direction::Auto) => Alignment::Start,
+            (Align::End, Direction::Auto) => Alignment::End,
+            (Align::Center, _) => Alignment::Center,
+            (Align::Justify, _) => Alignment::Justify,
         };
+        // Parley aligns while it breaks lines: set the alignment first.
         layout.set_alignment(alignment, AlignmentOptions::default());
-        Paragraph { layout, run_styles, align: alignment }
+        layout.break_all_lines(options.max_width);
+        Paragraph { layout, run_styles, align: alignment, wrap: options.max_width }
     }
 }
 
@@ -303,6 +311,8 @@ pub struct LineInfo {
     pub bottom: f32,
     /// Width of the line's content.
     pub width: f32,
+    /// Where the line's content starts, from the paragraph's left edge (its alignment).
+    pub left: f32,
 }
 
 /// A positioned glyph.
@@ -371,6 +381,8 @@ pub struct Paragraph {
     layout: Layout<u32>,
     run_styles: Vec<RunStyle>,
     align: Alignment,
+    /// The wrap width lines were aligned within (`None`: aligned within the longest line).
+    wrap: Option<f32>,
 }
 
 impl std::fmt::Debug for Paragraph {
@@ -400,8 +412,28 @@ fn bbox(b: parley::BoundingBox) -> Rect {
 impl Paragraph {
     /// Lays the paragraph out again at a new width, without shaping again.
     pub fn rewrap(&mut self, max_width: Option<f32>) {
-        self.layout.break_all_lines(max_width);
         self.layout.set_alignment(self.align, AlignmentOptions::default());
+        self.layout.break_all_lines(max_width);
+        self.wrap = max_width;
+    }
+
+    /// Where to draw the paragraph inside a box `box_width` wide so it sits as aligned.
+    /// Wrapped paragraphs are already aligned within their wrap width (0); one laid out
+    /// without one is only as wide as its longest line, so it moves to the box's right edge
+    /// or center as its alignment says.
+    pub fn x_offset(&self, box_width: f32) -> f32 {
+        if self.wrap.is_some_and(f32::is_finite) {
+            return 0.0;
+        }
+        let free = (box_width - self.width()).max(0.0);
+        let rtl = self.layout.is_rtl();
+        match self.align {
+            Alignment::Right => free,
+            Alignment::Center => free / 2.0,
+            Alignment::Start | Alignment::Justify if rtl => free,
+            Alignment::End if !rtl => free,
+            _ => 0.0,
+        }
     }
 
     /// Width of the widest line.
@@ -436,6 +468,7 @@ impl Paragraph {
                     top: m.block_min_coord,
                     bottom: m.block_max_coord,
                     width: m.advance,
+                    left: m.offset,
                 }
             })
             .collect()

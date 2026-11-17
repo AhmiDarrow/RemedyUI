@@ -464,11 +464,34 @@ fn f12_opens_one_inspector_per_window_and_closing_it_detaches() {
     host.run_frames(&mut runner, 3);
     assert_eq!(host.window_ids().len(), 2, "the inspector opened");
     let inspector = host.window_ids().into_iter().find(|w| *w != app_win).unwrap_or(app_win);
-    assert!(host.window(inspector).is_some_and(|w| w.options().title == "RemedyUI Inspector"));
+    assert!(host.window(inspector).is_some_and(|w| w.options().title == "Inspector · App"));
     host.send(HostEvent::Key(app_win, f12));
     host.run_frames(&mut runner, 2);
     assert_eq!(host.window_ids().len(), 2, "a second F12 does not open another");
     host.send(HostEvent::CloseRequested(inspector));
     host.run_frames(&mut runner, 2);
     assert_eq!(host.window_ids(), vec![app_win]);
+}
+
+#[test]
+fn windows_know_the_local_date_and_roll_over_at_midnight() {
+    use remedy_ui::host::LocalTime;
+    let seen = Signal::new(None::<LocalTime>);
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Clock").size(100.0, 100.0), move |ui, _| {
+            let u = ui.clone();
+            ui.root().child(ui.el("label").bind(move || seen.set(Some(u.local_time()))));
+        });
+    });
+    let mut host = HeadlessHost::new();
+    // 2026-11-17 23:59:00 at UTC+1.
+    host.set_local_time(1_794_956_340, 3600);
+    host.run_frames(&mut runner, 2);
+    let day = |t: Option<LocalTime>| t.map(|t| t.local_days());
+    let first = day(seen.get());
+    assert_eq!(seen.get().map(|t| t.utc_offset), Some(3600));
+    // Idle for two minutes: the midnight timer moves the date on with no input.
+    host.advance(Duration::from_secs(120));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(day(seen.get()), first.map(|d| d + 1), "the next local day");
 }

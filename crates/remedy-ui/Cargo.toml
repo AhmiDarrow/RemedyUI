@@ -9,7 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [features]
-default = ["gpu", "system-fonts"]
+default = ["gpu", "system-fonts", "widgets", "forms"]
 ## Draw with the GPU renderer, falling back to the CPU renderer when no GPU works.
 gpu = ["dep:remedy-ui-render-gpu"]
 ## Dictionary line breaking for Thai, Lao, Khmer and Burmese (adds several MB of data).
@@ -19,8 +19,17 @@ devtools = ["dep:remedy-ui-devtools"]
 ## Font fallback reaches the system's fonts (Arabic, CJK, emoji and every script the
 ## bundled fonts lack).
 system-fonts = ["remedy-ui-text/system-fonts", "remedy-ui-devtools?/system-fonts"]
+## The core widgets and the Remedy themes (`remedy_ui::widgets`, `remedy_ui::themes`); apps
+## start styled with the first Remedy palette.
+widgets = ["dep:remedy-ui-widgets-core", "dep:remedy-ui-themes"]
+## Form widgets (`remedy_ui::forms`): exact numbers, colors, shortcuts, dates, times, forms.
+forms = ["widgets", "dep:remedy-ui-widgets-forms"]
+## Signed updates from GitHub releases or a feed (`remedy_ui::update`).
+update = ["widgets", "dep:remedy-ui-services-update"]
+## The in-memory host for tests (`remedy_ui::headless`).
+headless = ["dep:remedy-ui-bridge-headless"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "update", "headless"]
 
 [dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
@@ -33,6 +42,11 @@ remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
 remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "0.1.0" }
 remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "0.1.0", optional = true }
 remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "0.1.0", optional = true }
+remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "0.1.0", optional = true }
+remedy-ui-widgets-forms = { path = "../remedy-ui-widgets-forms", version = "0.1.0", optional = true }
+remedy-ui-themes = { path = "../remedy-ui-themes", version = "0.1.0", optional = true }
+remedy-ui-services-update = { path = "../remedy-ui-services-update", version = "0.1.0", optional = true }
+remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "0.1.0", optional = true }
 remedy-ui-secure = { path = "../remedy-ui-secure", version = "0.1.0" }
 remedy-ui-style = { path = "../remedy-ui-style", version = "0.1.0" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
