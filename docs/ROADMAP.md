@@ -26,7 +26,7 @@ Nothing is merged as a placeholder: a crate enters the workspace with its first 
 
 ## M2. Text
 
-**Status:** in progress. Done so far:
+**Status:** built, with the open items listed below. Done:
 
 - `remedy-ui-fonts`
 - `remedy-ui-text` layout: fonts and fallback, rich spans, inline objects, wrapping and rewrapping, alignment, bidi runs, hit testing, carets, selection rects, words, visual movement
@@ -37,9 +37,15 @@ Nothing is merged as a placeholder: a crate enters the workspace with its first 
 - the editing core: a rope buffer, grapheme-safe deletion and movement, Unicode word motion, selection, undo and redo grouped by word and pause, IME composition (preedit, commit, cancel)
 - secrets: `SecretString`, which zeroes memory on growth, removal and drop and never prints, and `SecretEditor` with no undo
 
-Still to do:
+- deceptive text: invisible bidi and zero-width controls revealed (Trojan Source), UTS #39 confusable skeletons for look-alike names
+- measured: 50,000 combining marks on one letter lay out in about 11 ms and a 1 MB single paragraph in about 150 ms (release build), both linear
 
-- per-platform IME protocols, which arrive with each bridge (TSF in M4)
+Open:
+
+- Per-platform IME protocols. These arrive with each bridge (TSF in M4).
+- The Arabic and CJK reference-shape test. It needs OFL fixture fonts for those scripts, since the Remedy families have none.
+- The FreeType comparison of hinted glyphs. FreeType is C and not in the build, so the current check is crispness: hinted stems and crossbars land on whole pixels where unhinted ones do not.
+- Laziness inside one huge paragraph. This comes with `doc-rich`, where documents lay out line by line.
 - the Arabic shaping reference test, which needs an OFL Arabic fixture font (the Remedy families have no Arabic)
 
 **Crates:** `text` and `fonts` (the Remedy families, for tests and apps).

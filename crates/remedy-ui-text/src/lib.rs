@@ -25,6 +25,7 @@ mod editing;
 mod engine;
 mod raster;
 mod rich;
+mod safety;
 mod style;
 
 pub use atlas::{AtlasEntry, AtlasStats, GlyphAtlas, GlyphKey, PAGE_SIZE, Page, PageRect};
@@ -35,4 +36,5 @@ pub use engine::{
 };
 pub use raster::{Antialias, GlyphImage, GlyphRasterizer, Hinting, SUBPIXEL_BINS, subpixel_bin};
 pub use rich::{InlineObject, OBJECT_REPLACEMENT, RichText, Span};
+pub use safety::{Reveal, has_hidden_controls, looks_like, reveal_controls, skeleton};
 pub use style::{Align, Direction, Feature, LineHeight, StylePatch, TextStyle};
