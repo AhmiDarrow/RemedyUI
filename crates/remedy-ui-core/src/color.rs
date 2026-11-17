@@ -149,6 +149,18 @@ impl Color {
         )
     }
 
+    /// The color in Oklab: lightness, a (green to red), b (blue to yellow), and alpha.
+    pub fn to_oklab(self) -> [f32; 4] {
+        let [l, a, b] = oklab(self);
+        [l, a, b, self.a]
+    }
+
+    /// A color from Oklab lightness, a, b and alpha.
+    pub fn from_oklab(l: f32, a: f32, b: f32, alpha: f32) -> Color {
+        let [r, g, bl] = oklab_to_linear(l, a, b);
+        Color::from_linear(r, g, bl, alpha)
+    }
+
     /// The color part way from `self` to `other` in Oklab, with alpha mixed linearly:
     /// `t = 0` gives `self`, `t = 1` gives `other`. Used for color transitions.
     pub fn mix_oklab(self, other: Color, t: f32) -> Color {
