@@ -18,8 +18,9 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | Font fallback, system fonts | `fontique` | 0.13.0 | `text` | Fallback chains and system font lists; Android coverage checked when `text` lands |
 | Segmentation, bidi, CLDR data | ICU4X (`icu_segmenter` and others) | 2.4.0 | `text`, `services-i18n` | Unicode-correct segmentation; locale data loaded per locale (Unicode-3.0 license) |
 | Text storage for editing | `ropey` | 1.6.1 | `text` | Rope for large documents |
+| Grapheme and word boundaries | `icu_segmenter` | 2.3.0 (the version parley uses) | `text` | Editing never splits a user-perceived character |
 | Hyphenation | `hyphenation` | 0.8.4 | `text` (feature) | Knuth–Liang dictionaries per language, each a feature |
-| Look-alike detection | `unicode-security` | 0.1.3 | `text` | UTS #39 skeletons for confusable names |
+| Look-alike detection | `unicode-security` | 0.1.3 | `text` | UTS #39 skeletons for confusable names (`skeleton`, `looks_like`) |
 | Secret buffers | `zeroize` | 1.9.1 | `text`, `secure` | Zeroing that the compiler cannot optimize away |
 | Layout algorithms | `taffy` | 0.15.1 | `layout` | CSS flexbox, grid and block, faithful to the specs |
 | GPU | `wgpu` | 30.0.2 | `render-gpu` | D3D12, Vulkan, Metal, GL 3.3 / GLES 3.0 |

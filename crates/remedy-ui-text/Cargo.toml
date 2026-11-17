@@ -17,6 +17,8 @@ skrifa = { version = "=0.49.0", default-features = false, features = ["std", "au
 icu_segmenter = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 ropey = { version = "=1.6.1", default-features = false, features = ["simd"] }
 zeroize = { version = "=1.9.1", default-features = false, features = ["std"] }
+# UTS #39 confusable skeletons for look-alike names.
+unicode-security = { version = "=0.1.3", default-features = false }
 
 [features]
 # Let font fallback reach the fonts installed on the system (emoji, CJK) as a last resort.
