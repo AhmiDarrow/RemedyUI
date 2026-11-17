@@ -45,7 +45,7 @@ fn segment_id(owner: LayerId, n: u64) -> LayerId {
 
 pub(crate) fn text_style_for(d: &ElData, theme: &remedy_ui_style::Theme) -> remedy_ui_text::TextStyle {
     remedy_ui_text::TextStyle {
-        families: theme.font_families.clone(),
+        families: if d.resolved.mono { theme.mono_families.clone() } else { theme.font_families.clone() },
         size: d.resolved.text_size,
         weight: d.resolved.weight,
         color: d.resolved.foreground,
@@ -292,8 +292,10 @@ impl Ui {
             let Some(d) = i.els.get_mut(&id) else { continue };
             let text_changed = resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight
+                || resolved.mono != d.resolved.mono
                 || resolved.foreground != d.resolved.foreground;
             let layout_changed = resolved.padding != d.resolved.padding
+                || resolved.mono != d.resolved.mono
                 || resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight
                 || resolved.border_width != d.resolved.border_width;

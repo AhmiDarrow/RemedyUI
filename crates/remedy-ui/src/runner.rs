@@ -370,6 +370,8 @@ pub struct Runner {
     wins: HashMap<u64, Win>,
     by_host: HashMap<WindowId, u64>,
     timers: HashMap<TimerId, Box<dyn FnOnce()>>,
+    /// Host timers standing for view timers: (window, view timer id).
+    view_timers: HashMap<TimerId, (u64, u64)>,
     geometry: GeometryStore,
     save_timer: Option<TimerId>,
     settings: SystemSettings,
@@ -405,6 +407,7 @@ impl Runner {
             wins: HashMap::new(),
             by_host: HashMap::new(),
             timers: HashMap::new(),
+            view_timers: HashMap::new(),
             geometry,
             save_timer: None,
             settings: SystemSettings::default(),
@@ -552,6 +555,17 @@ impl Runner {
                     if let Ok(Some(t)) = host.clipboard_text() {
                         ui.paste(&t);
                         host.request_frame(h);
+                    }
+                }
+                Request::Timer { id, delay } => {
+                    let t = host.set_timer(host.now() + delay);
+                    self.view_timers.insert(t, (key, id));
+                }
+                Request::CancelTimer(id) => {
+                    let found = self.view_timers.iter().find(|(_, v)| **v == (key, id)).map(|(t, _)| *t);
+                    if let Some(t) = found {
+                        host.cancel_timer(t);
+                        self.view_timers.remove(&t);
                     }
                 }
             }
@@ -787,6 +801,10 @@ impl remedy_ui_host::App for Runner {
                     let _ = self.geometry.save();
                 } else if let Some(f) = self.timers.remove(&id) {
                     f();
+                } else if let Some((key, vid)) = self.view_timers.remove(&id)
+                    && let Some(w) = self.wins.get(&key)
+                {
+                    w.ui.fire_timer(vid);
                 }
             }
             HostEvent::MemoryPressure(_) => {

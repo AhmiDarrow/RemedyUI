@@ -28,6 +28,8 @@ pub struct StylePatch {
     pub weight: Option<f32>,
     /// Opacity, 0 to 1.
     pub opacity: Option<f32>,
+    /// Text in the theme's monospace families (codes, keys, numbers that must line up).
+    pub mono: Option<bool>,
 }
 
 impl StylePatch {
@@ -43,6 +45,7 @@ impl StylePatch {
             text_size: other.text_size.or(self.text_size),
             weight: other.weight.or(self.weight),
             opacity: other.opacity.or(self.opacity),
+            mono: other.mono.or(self.mono),
         }
     }
 }
@@ -68,6 +71,8 @@ pub struct ResolvedStyle {
     pub weight: f32,
     /// Opacity.
     pub opacity: f32,
+    /// Monospace text.
+    pub mono: bool,
 }
 
 impl ResolvedStyle {
@@ -82,6 +87,7 @@ impl ResolvedStyle {
             text_size: p.text_size.unwrap_or(14.0),
             weight: p.weight.unwrap_or(400.0),
             opacity: p.opacity.unwrap_or(1.0),
+            mono: p.mono.unwrap_or(false),
         }
     }
 }
@@ -186,6 +192,7 @@ impl StyleSheet {
             text_size: Some(themed.text_size),
             weight: Some(themed.weight),
             opacity: Some(themed.opacity),
+            mono: Some(themed.mono),
         };
         ResolvedStyle::from_patch(&base.merge(local))
     }

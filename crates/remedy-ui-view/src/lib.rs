@@ -42,4 +42,13 @@ pub enum Request {
     Paste,
     /// Draw a frame.
     Frame,
+    /// Call [`Ui::fire_timer`] with `id` after `delay`.
+    Timer {
+        /// The view's timer id.
+        id: u64,
+        /// How long from now.
+        delay: std::time::Duration,
+    },
+    /// Forget a timer that has not fired.
+    CancelTimer(u64),
 }

@@ -2687,6 +2687,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-themes"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-core",
+ "remedy-ui-style",
+]
+
+[[package]]
 name = "remedy-ui-tree"
 version = "0.1.0"
 dependencies = [
