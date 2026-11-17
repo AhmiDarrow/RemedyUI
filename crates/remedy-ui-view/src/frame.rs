@@ -1,0 +1,468 @@
+//! The frame pipeline: style, layout, bounds, paint chunks, layers and semantics, each
+//! redone only for what changed.
+
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::Arc;
+
+use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_compositor::{Layer, LayerId, LayerTree};
+use remedy_ui_core::{Color, CornerRadii, Insets, Point, Rect, Size, Vec2};
+use remedy_ui_paint::{Affine, Brush, DisplayList, GlyphRun, Item};
+use remedy_ui_style::{States, StyleKey};
+use remedy_ui_text::{Antialias, Hinting, Paragraph};
+use remedy_ui_tree::{Dirty, ElementId};
+
+use crate::element::{ElData, Inner, PaintCx, Ui, defaults, root_key};
+
+/// What one frame produced.
+#[derive(Clone, Debug, Default)]
+pub struct Frame {
+    /// The layers to commit; `None` when nothing visible changed.
+    pub layers: Option<LayerTree>,
+    /// Scroll containers by layer, for routing scroll offsets back with
+    /// [`Ui::set_scroll_offset`].
+    pub scrollers: Vec<(LayerId, ElementId)>,
+}
+
+#[derive(Default)]
+pub(crate) struct FrameState {
+    lists: HashMap<LayerId, (Arc<DisplayList>, u64)>,
+    pub(crate) bounds_stale: bool,
+    scrollers: Vec<(LayerId, ElementId)>,
+}
+
+/// The layer id of a scroll container's viewport and of its content.
+pub(crate) fn scroll_ids(id: ElementId) -> (LayerId, LayerId) {
+    let k = root_key(id);
+    (LayerId(k.wrapping_mul(4).wrapping_add(1)), LayerId(k.wrapping_mul(4).wrapping_add(2)))
+}
+
+/// A paint segment after a child layer: keeps paint order around scroll containers.
+fn segment_id(owner: LayerId, n: u64) -> LayerId {
+    LayerId((owner.0.wrapping_mul(1_000_003) ^ n.wrapping_mul(0x9E37_79B9)) | (1 << 63))
+}
+
+pub(crate) fn text_style_for(d: &ElData, theme: &remedy_ui_style::Theme) -> remedy_ui_text::TextStyle {
+    remedy_ui_text::TextStyle {
+        families: theme.font_families.clone(),
+        size: d.resolved.text_size,
+        weight: d.resolved.weight,
+        color: d.resolved.foreground,
+        ..remedy_ui_text::TextStyle::default()
+    }
+}
+
+fn record(
+    d: &ElData,
+    size: Size,
+    theme: &remedy_ui_style::Theme,
+    engine: &mut remedy_ui_text::TextEngine,
+    focused: bool,
+) -> DisplayList {
+    let mut list = DisplayList::new();
+    let s = &d.resolved;
+    let rect = Rect::from_origin_size(Point::ZERO, size);
+    let radii = CornerRadii::all(s.radius);
+    if s.background.a > 0.0 {
+        list.fill_rounded(rect, radii, Brush::Solid(s.background));
+    }
+    if s.border_width > 0.0 && s.border.a > 0.0 {
+        list.border(rect, radii, s.border_width, s.border);
+    }
+    let bw = s.border_width;
+    let content = rect.deflate(Insets {
+        top: s.padding.top + bw,
+        end: s.padding.end + bw,
+        bottom: s.padding.bottom + bw,
+        start: s.padding.start + bw,
+    });
+    if let Some(slot) = &d.text {
+        let mut slot = slot.borrow_mut();
+        let p = slot.paragraph(engine, Some(content.width().max(0.0)));
+        glyphs(&mut list, &p, content.min, s.foreground);
+    }
+    if let Some(field) = &d.field {
+        field.borrow_mut().paint(&mut list, content, s, theme, engine, focused);
+    }
+    if let Some(painter) = &d.painter {
+        painter(&mut PaintCx { list: &mut list, size, style: s, theme });
+    }
+    list
+}
+
+/// Adds a paragraph's glyph runs at `origin`. Run colors come from the paragraph's spans;
+/// `default` is the element's text color.
+pub(crate) fn glyphs(list: &mut DisplayList, p: &Paragraph, origin: Point, default: Color) {
+    for run in p.glyph_runs() {
+        let color = if run.color == Color::BLACK { default } else { run.color };
+        list.push(Item::Glyphs(GlyphRun {
+            font: run.font,
+            size: run.size,
+            color,
+            glyphs: run.glyphs.iter().map(|g| (g.id, Point::new(origin.x + g.x, origin.y + g.y))).collect(),
+            hinting: Hinting::Full,
+            antialias: Antialias::Grayscale,
+        }));
+    }
+}
+
+struct Builder {
+    id: LayerId,
+    bounds: Rect,
+    scroll: Option<Size>,
+    list: DisplayList,
+    /// Push items open in `list`, re-opened when a segment starts.
+    open: Vec<Item>,
+    children: Vec<Layer>,
+    segments: u64,
+}
+
+impl Builder {
+    fn new(id: LayerId, bounds: Rect) -> Self {
+        Builder {
+            id,
+            bounds,
+            scroll: None,
+            list: DisplayList::new(),
+            open: Vec::new(),
+            children: Vec::new(),
+            segments: 0,
+        }
+    }
+
+    fn push(&mut self, item: Item) {
+        self.open.push(item.clone());
+        self.list.push(item);
+    }
+
+    fn pop(&mut self, item: Item) {
+        self.open.pop();
+        self.list.push(item);
+    }
+
+    /// Closes the current segment so a child layer can go above it, and opens the next.
+    fn split(&mut self, state: &mut FrameState) {
+        for item in self.open.iter().rev() {
+            self.list.push(match item {
+                Item::PushClip { .. } => Item::PopClip,
+                Item::PushLayer { .. } => Item::PopLayer,
+                _ => Item::PopTransform,
+            });
+        }
+        let list = std::mem::take(&mut self.list);
+        let seg = segment_id(self.id, self.segments);
+        self.segments += 1;
+        let local = Rect::from_origin_size(Point::ZERO, self.bounds.size());
+        if !list.is_empty() {
+            self.children.push(finish(state, seg, local, list));
+        }
+        for item in self.open.clone() {
+            self.list.push(item);
+        }
+    }
+
+    fn finish_into(mut self, state: &mut FrameState) -> Layer {
+        for item in self.open.iter().rev() {
+            self.list.push(match item {
+                Item::PushClip { .. } => Item::PopClip,
+                Item::PushLayer { .. } => Item::PopLayer,
+                _ => Item::PopTransform,
+            });
+        }
+        self.open.clear();
+        let mut layer = finish(state, self.id, self.bounds, self.list);
+        layer.children = self.children.into_iter().map(Arc::new).collect();
+        if let Some(c) = self.scroll {
+            layer = layer.scrolling(c);
+        }
+        layer
+    }
+}
+
+/// A layer whose version moves only when its list changed since the last frame.
+fn finish(state: &mut FrameState, id: LayerId, bounds: Rect, list: DisplayList) -> Layer {
+    let (content, version) = match state.lists.get(&id) {
+        Some((old, v)) if **old == list => (old.clone(), *v),
+        Some((_, v)) => (Arc::new(list), v + 1),
+        None => (Arc::new(list), 0),
+    };
+    state.lists.insert(id, (content.clone(), version));
+    let mut layer = Layer::new(id, bounds, DisplayList::new());
+    layer.content = content;
+    layer.content_version = version;
+    layer
+}
+
+struct Walk<'a> {
+    inner: &'a Inner,
+    state: &'a mut FrameState,
+    rects: &'a HashMap<ElementId, Rect>,
+}
+
+impl Walk<'_> {
+    /// Paints `id` (at `rect`, relative to `b`'s origin) and its subtree into `b`.
+    fn element(&mut self, b: &mut Builder, id: ElementId, origin: Point) {
+        let Some(d) = self.inner.els.get(&id) else { return };
+        let Some(rect) = self.rects.get(&id).copied() else { return };
+        let at = Point::new(origin.x + rect.min.x, origin.y + rect.min.y);
+        let opacity = d.resolved.opacity;
+        if opacity <= 0.0 {
+            return;
+        }
+        b.push(Item::PushTransform(Affine::translate(at.to_vec2())));
+        if opacity < 1.0 {
+            b.push(Item::PushLayer { opacity, blend: remedy_ui_paint::Blend::Normal });
+        }
+        if let Some((_, chunk)) = &d.chunk {
+            b.list.extend(chunk);
+        }
+        let kids = self.inner.tree.children(id);
+        let local = Rect::from_origin_size(Point::ZERO, rect.size());
+        if d.scroll {
+            // The viewport becomes a scroll layer; its content scrolls on the compositor.
+            b.split(self.state);
+            let (viewport, content_id) = scroll_ids(id);
+            let content = kids.iter().filter_map(|k| self.rects.get(k)).fold(local, |u, r| u.union(*r));
+            let content_size = Size::new(rect.width(), content.max.y.max(rect.height()));
+            let mut vb = Builder::new(viewport, Rect::from_origin_size(at, rect.size()));
+            vb.scroll = Some(content_size);
+            let mut cb = Builder::new(content_id, Rect::from_origin_size(Point::ZERO, content_size));
+            for k in kids {
+                self.element(&mut cb, k, Point::ZERO);
+            }
+            vb.children.push(cb.finish_into(self.state));
+            let layer = vb.finish_into(self.state);
+            b.children.push(layer);
+            self.state.scrollers.push((viewport, id));
+        } else {
+            if d.clip {
+                b.push(Item::PushClip { rect: local, radii: CornerRadii::all(d.resolved.radius) });
+            }
+            for k in kids {
+                self.element(b, k, Point::ZERO);
+            }
+            if d.clip {
+                b.pop(Item::PopClip);
+            }
+        }
+        if opacity < 1.0 {
+            b.pop(Item::PopLayer);
+        }
+        b.pop(Item::PopTransform);
+    }
+}
+
+impl Ui {
+    /// Runs the pipeline for a window of `size` logical pixels at `scale` device pixels per
+    /// logical pixel.
+    pub fn frame(&self, size: Size, scale: f32) -> Frame {
+        let mut guard = self.0.borrow_mut();
+        let i = &mut *guard;
+        let root = i.tree.root();
+        if i.size != size || i.scale != scale {
+            if i.scale != scale {
+                for d in i.els.values() {
+                    if let Some(t) = &d.text {
+                        let mut t = t.borrow_mut();
+                        t.scale = scale;
+                        t.cache = None;
+                    }
+                    if let Some(f) = &d.field {
+                        f.borrow_mut().invalidate();
+                    }
+                }
+                let ids: Vec<ElementId> = i.els.keys().copied().collect();
+                for id in ids {
+                    i.tree.mark(id, Dirty::LAYOUT | Dirty::PAINT);
+                }
+            }
+            i.size = size;
+            i.scale = scale;
+            i.tree.mark(root, Dirty::LAYOUT);
+        }
+
+        // Style.
+        let theme = i.theme.clone();
+        let base = defaults(&theme);
+        for id in i.tree.take_dirty(Dirty::STYLE) {
+            let Some(d) = i.els.get(&id) else { continue };
+            let key = StyleKey { widget: d.widget, variant: d.variant, states: d.states };
+            let resolved = i.sheet.resolve(&key, &base, &d.local);
+            let Some(d) = i.els.get_mut(&id) else { continue };
+            let text_changed = resolved.text_size != d.resolved.text_size
+                || resolved.weight != d.resolved.weight
+                || resolved.foreground != d.resolved.foreground;
+            let layout_changed = resolved.padding != d.resolved.padding
+                || resolved.text_size != d.resolved.text_size
+                || resolved.weight != d.resolved.weight
+                || resolved.border_width != d.resolved.border_width;
+            let changed = resolved != d.resolved;
+            d.resolved = resolved;
+            if text_changed {
+                let style = text_style_for(d, &theme);
+                if let Some(t) = &d.text {
+                    let mut t = t.borrow_mut();
+                    t.style = style.clone();
+                    t.cache = None;
+                }
+                if let Some(f) = &d.field {
+                    f.borrow_mut().set_style(style);
+                }
+            }
+            let node = d.node;
+            if layout_changed {
+                let _ = i.layout.mark_dirty(node);
+                i.tree.mark(id, Dirty::LAYOUT);
+            }
+            if changed {
+                i.tree.mark(id, Dirty::PAINT);
+            }
+        }
+
+        // Layout.
+        let layout_dirty = i.tree.take_dirty(Dirty::LAYOUT | Dirty::CHILD_LAYOUT);
+        if !layout_dirty.is_empty() {
+            for id in &layout_dirty {
+                let Some(d) = i.els.get(id) else { continue };
+                let mut style = d.layout.clone();
+                // Content in a scroll container keeps its size and scrolls, never shrinks.
+                if i.tree.parent(*id).and_then(|p| i.els.get(&p)).is_some_and(|p| p.scroll) {
+                    style.shrink = 0.0;
+                }
+                let pad = d.resolved.padding;
+                let bw = d.resolved.border_width;
+                style.padding = Insets {
+                    top: pad.top + bw,
+                    end: pad.end + bw,
+                    bottom: pad.bottom + bw,
+                    start: pad.start + bw,
+                };
+                let node = d.node;
+                let _ = i.layout.set_style(node, &style);
+                let _ = i.layout.mark_dirty(node);
+            }
+            if let Some(rn) = i.els.get(&root).map(|d| d.node) {
+                let _ = i.layout.compute(rn, Some(size.width), Some(size.height));
+            }
+            i.frame.bounds_stale = true;
+        }
+
+        // Bounds: window coordinates for hit testing, local rects for painting.
+        let mut rects = HashMap::new();
+        let mut stack = vec![(root, Point::ZERO, Vec2::ZERO)];
+        while let Some((id, parent_at, scroll)) = stack.pop() {
+            let Some(d) = i.els.get(&id) else { continue };
+            let mut r = i.layout.rect(d.node).unwrap_or(Rect::ZERO);
+            if id == root {
+                r = Rect::from_origin_size(Point::ZERO, size);
+            }
+            rects.insert(id, r);
+            let abs = Point::new(parent_at.x + r.min.x - scroll.x, parent_at.y + r.min.y - scroll.y);
+            if i.frame.bounds_stale {
+                let _ = i.tree.set_bounds(id, Rect::from_origin_size(abs, r.size()));
+            }
+            let child_scroll =
+                if d.scroll { i.scroll_offsets.get(&id).copied().unwrap_or(Vec2::ZERO) } else { Vec2::ZERO };
+            for k in i.tree.children(id).into_iter().rev() {
+                stack.push((k, abs, child_scroll));
+            }
+        }
+        let moved = i.frame.bounds_stale;
+        i.frame.bounds_stale = false;
+
+        // Paint chunks: re-record what is dirty or changed size.
+        let mut repaint = i.tree.take_dirty(Dirty::PAINT | Dirty::CHILD_PAINT);
+        let mut painted = false;
+        let focused = i.tree.focused();
+        let engine = i.engine.clone();
+        let mut engine = engine.borrow_mut();
+        repaint.retain(|id| i.tree.dirty(*id).is_empty() || true);
+        repaint.extend(
+            i.els
+                .iter()
+                .filter(|(id, d)| {
+                    let sz = rects.get(id).map(|r| r.size()).unwrap_or(Size::ZERO);
+                    d.chunk.as_ref().is_none_or(|(s, _)| *s != sz)
+                })
+                .map(|(id, _)| *id),
+        );
+        repaint.sort_unstable_by_key(|id| root_key(*id));
+        repaint.dedup();
+        for id in repaint {
+            let sz = rects.get(&id).map(|r| r.size()).unwrap_or(Size::ZERO);
+            let Some(d) = i.els.get(&id) else { continue };
+            let chunk = record(d, sz, &theme, &mut engine, focused == Some(id));
+            if let Some(d) = i.els.get_mut(&id) {
+                d.chunk = Some((sz, Rc::new(chunk)));
+            }
+            painted = true;
+        }
+        drop(engine);
+
+        // Layers.
+        let layers = (painted || moved).then(|| {
+            let mut state = std::mem::take(&mut i.frame);
+            state.scrollers.clear();
+            let mut b = Builder::new(LayerId(0), Rect::from_origin_size(Point::ZERO, size));
+            let mut walk = Walk { inner: i, state: &mut state, rects: &rects };
+            walk.element(&mut b, root, Point::ZERO);
+            let layer = b.finish_into(&mut state);
+            let live: std::collections::HashSet<LayerId> = collect_ids(&layer);
+            state.lists.retain(|k, _| live.contains(k));
+            i.frame = state;
+            LayerTree { roots: vec![Arc::new(layer)] }
+        });
+
+        // Semantics.
+        let sem_dirty = !i.tree.take_dirty(Dirty::SEMANTICS).is_empty();
+        if sem_dirty || i.structure_changed || moved {
+            i.structure_changed = false;
+            sync_semantics(i, &rects);
+        }
+        let scrollers = i.frame.scrollers.clone();
+        Frame { layers, scrollers }
+    }
+}
+
+fn collect_ids(l: &Layer) -> std::collections::HashSet<LayerId> {
+    let mut out = std::collections::HashSet::new();
+    let mut stack = vec![l];
+    while let Some(l) = stack.pop() {
+        out.insert(l.id);
+        stack.extend(l.children.iter().map(|c| &**c));
+    }
+    out
+}
+
+fn sync_semantics(i: &mut Inner, _rects: &HashMap<ElementId, Rect>) {
+    let root = i.tree.root();
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        let kids = i.tree.children(id);
+        let Some(d) = i.els.get(&id) else { continue };
+        let bounds = i.tree.bounds(id).unwrap_or(Rect::ZERO);
+        let mut s = match &d.semantics {
+            Some(s) => s.clone(),
+            None if id == root => Semantics::new(Role::Window),
+            None => match (&d.text, &d.field) {
+                (Some(t), _) => Semantics::new(Role::Label).label(t.borrow().text.as_str()),
+                (None, Some(f)) => f.borrow().semantics(),
+                _ => Semantics::new(Role::Group),
+            },
+        };
+        if d.states.contains(States::DISABLED) {
+            s = s.disabled(true);
+        }
+        if d.click.is_some() && d.semantics.is_none() {
+            s = s.action(remedy_ui_a11y::Action::Click);
+        }
+        i.a11y.set(root_key(id), s.bounds(bounds));
+        let child_keys: Vec<u64> = kids.iter().map(|k| root_key(*k)).collect();
+        i.a11y.set_children(root_key(id), &child_keys);
+        stack.extend(kids);
+    }
+    if let Some(f) = i.tree.focused() {
+        i.a11y.set_focus(root_key(f));
+    }
+}

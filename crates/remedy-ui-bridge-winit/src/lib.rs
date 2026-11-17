@@ -589,6 +589,11 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                     pressed: event.state == ElementState::Pressed,
                     repeat: event.repeat,
                     composing: w.composing,
+                    text: event
+                        .text
+                        .as_ref()
+                        .map(|t| t.to_string())
+                        .filter(|t| !t.chars().all(char::is_control)),
                 };
                 self.deliver(el, HostEvent::Key(id, e));
             }

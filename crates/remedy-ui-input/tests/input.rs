@@ -106,7 +106,15 @@ fn bouncing_overscroll_resists_and_springs_back() {
 }
 
 fn key(k: Key, m: Modifiers) -> KeyEvent {
-    KeyEvent { key: k, physical: String::new(), modifiers: m, pressed: true, repeat: false, composing: false }
+    KeyEvent {
+        key: k,
+        physical: String::new(),
+        modifiers: m,
+        pressed: true,
+        repeat: false,
+        composing: false,
+        text: None,
+    }
 }
 
 #[test]

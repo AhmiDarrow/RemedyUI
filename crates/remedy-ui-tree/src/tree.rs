@@ -648,6 +648,12 @@ impl Tree {
 
     /// An explicit tab order. Elements with an order come first, lowest first; the rest
     /// follow in tree order.
+    /// Whether the element can take keyboard focus.
+    pub fn is_focusable(&self, id: ElementId) -> bool {
+        self.0.borrow().nodes.get(id).is_some_and(|n| n.focusable)
+    }
+
+    /// Sets the element's position in the tab order (lower first; `None` follows the tree).
     pub fn set_focus_order(&self, id: ElementId, order: Option<i32>) -> Result<(), TreeError> {
         self.edit(id, |n| n.focus_order = order)
     }

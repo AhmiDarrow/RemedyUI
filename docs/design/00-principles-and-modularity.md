@@ -33,7 +33,7 @@ Crates form a strict layered graph. A crate may depend only on crates in lower l
 L6  app-facing:   remedy-ui (facade, feature flags) · remedy-ui-rui (markup compiler and runtime) · remedy-ui-test
                   cargo-remedy (CLI, not linked into apps)
 L5  feature packs: widgets-* · media-* · doc-* · viz · embed-* · services-* · themes · fonts · devtools
-L4  host:          render-gpu · render-cpu · bridge-winit (shared desktop core) · bridge-windows · bridge-macos · bridge-linux
+L4  host:          view (elements, the frame pipeline, input routing) · render-gpu · render-cpu · bridge-winit (shared desktop core) · bridge-windows · bridge-macos · bridge-linux
                    bridge-android · bridge-web · bridge-remedyos · bridge-headless
 L3  frame:         paint (display list, image and icon sources) · motion · a11y · compositor · secure
                    host (the platform-neutral host model every bridge implements)
