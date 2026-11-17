@@ -2,7 +2,7 @@
 
 RemedyUI is measured against what modern UI engines provide. The benchmarks are Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick and the web platform. It is not measured against what egui happens to do: egui's limits are the reason RemedyUI exists, and they are listed only as things never to repeat (§13).
 
-FreeSpeak is the first app and the proving ground. A requirement marked **FS** is one FreeSpeak uses today or needs next. Unmarked ones are part of the bar any full engine has to clear.
+RemedyUI is for every Remedy app, not one. A requirement marked **FS** is one FreeSpeak, the first large app, uses today or needs next. §14 lists what the other Remedy apps add, from a survey of all of them ([APPS.md](APPS.md)). Unmarked requirements are part of the bar any full engine has to clear.
 
 The design that meets these is [DESIGN.md](DESIGN.md). The order of work is in [ROADMAP.md](ROADMAP.md).
 
@@ -172,11 +172,12 @@ The design that meets these is [DESIGN.md](DESIGN.md). The order of work is in [
 | Latency | Input to photon within one frame |
 | Frame cost | Proportional to what changed; ≤ 2 ms CPU for a full chat scroll frame on a 2020 mid-range laptop |
 | Start | ≤ 150 ms to first frame on the GPU path |
-| Memory | Budgets on every cache; a large chat stays bounded |
+| Memory | Every cache sizes itself from the device and shrinks under OS memory pressure; no fixed caps; a large chat stays proportional to what is on screen |
 | Robustness | No panic reaches a frame; a lost GPU recovers; the app starts on any machine through a CPU renderer |
-| Safety | No unsafe code outside an audited GPU and platform boundary; untrusted bytes parsed by fuzzed, memory-safe code with limits, off the UI thread |
+| Safety | No unsafe code outside an audited GPU and platform boundary; untrusted bytes parsed by fuzzed, memory-safe code off the UI thread, bounded by what can be shown rather than by fixed numbers |
 | Supply chain | Every dependency passes FreeSpeak's `cargo deny`; no async runtime required; no C libraries beyond the OS's own |
 | API | Stable public API with semantic versioning from 1.0; dependencies hidden behind RemedyUI's own types so they can be swapped |
+| Modularity | An app links only the packs it uses; unused packs add no code and no dependencies, and linked packs start only when first used |
 
 ## 13. egui's failures, never to repeat
 
@@ -198,3 +199,28 @@ These are what FreeSpeak works around today (`crates/freespeak-cli/src/gui/`, ab
 | GIFs as one texture per frame | 48-entry cache cleared wholesale | Shared frame atlases with budgets |
 | Video re-uploaded as RGBA and polled at 8 ms | ~120 Hz repaint polling | YUV surfaces that wake the loop when a frame arrives |
 | Global style plus a global `RwLock` palette | Custom widgets read globals | Tokens provided through context, as signals |
+
+## 14. What the other Remedy apps add
+
+From the survey of every Remedy app ([APPS.md](APPS.md)). Each line names the apps that need it.
+
+| Requirement | Apps |
+|---|---|
+| Many small frameless windows, always on top per window, geometry persisted per window | SecretSticky |
+| Secret input that never leaks (zeroized, hidden from accessibility, logs and IME), idle lock fed only by real input, clipboard auto-clear, capture protection | SecretFolder, SecretSticky, Hearth, FreeSpeak |
+| Explorer: file tree, table with sort and resize, breadcrumbs, previews, drag in from and out to the OS | SecretFolder, Hearth, RemedyOS Files |
+| Paged documents: deep zoom from 1%, smooth pan, rotation, two-page spreads, annotation that stays exact under rotation, page tiles cached and rendered off the UI thread | RemedyPDF |
+| Live audio visuals at display rate fed from an audio thread: pitch graphs, tuner needles, meters, waveforms; automatic stop when hidden | VoiceRemedy, GuitarRemedy, FreeSpeak voice ring |
+| Music notation widgets: fretboard, tab staff, note staff, chord diagrams | GuitarRemedy, VoiceRemedy |
+| Media transport with buffered ranges, subtitles and next-up, over platform decoders | Portal, Quickcast |
+| Terminal emulator element | RemedyAI desktop, RemedyOS |
+| Code editor with syntax colors and diffs | RemedyAI desktop, RemedyOS Editor |
+| Embedded web view with an explicit message channel | RemedyAI desktop |
+| The app's own 3D rendering embedded as an element | TheOven |
+| Exact decimal input and live recalculation for safety-critical numbers | Alex's Craft Calc |
+| QR codes for pairing | Portal, RemedyAI |
+| Signed auto-update from GitHub releases | GuitarRemedy, SecretFolder, SecretSticky, RemedyPDF, RemedyAI, Hearth |
+| One theme set across all apps, including the colour-blind palettes | All, from RemedyAI's `themes.ts`, mirrored in Portal and Hearth |
+| Android and tablets from the same code, with large touch targets | GuitarRemedy, VoiceRemedy, Craft Calc, RemedyPDF, RemedyAI, Quickcast |
+| A web target for apps that also live in a browser (PWAs, phone UIs) | GuitarRemedy, Craft Calc, Quickcast, Portal |
+| A native bridge for RemedyOS: its surfaces, input, theme wire, services and a semantics wire | RemedyOS apps |
