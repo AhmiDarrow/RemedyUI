@@ -1,0 +1,21 @@
+[package]
+name = "remedy-ui-render-cpu"
+description = "RemedyUI CPU renderer: draws display lists to pixels with vello_cpu plus RemedyUI glyph compositing; the reference renderer for golden images."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
+remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
+vello_cpu = { version = "=0.4.0" }
+
+[dev-dependencies]
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "0.1.0", features = ["remedy-sans-ui"] }
+
+[lints]
+workspace = true
