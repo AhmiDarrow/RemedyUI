@@ -42,6 +42,8 @@ pub trait Surface {
     fn stroke_path(&mut self, path: &BezPath);
     /// Fills a Gaussian-blurred rounded rectangle with the current solid paint.
     fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
+    /// Sets how following shapes blend with what is below (never a destructive mode).
+    fn set_blend_mode(&mut self, mode: BlendMode);
     /// Starts a layer clipped to `path`.
     fn push_clip_layer(&mut self, path: &BezPath);
     /// Starts a layer blended with `blend` at `opacity`.
@@ -86,6 +88,9 @@ impl Surface for RenderContext {
     }
     fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
         RenderContext::fill_blurred_rounded_rect(self, rect, radius, std_dev);
+    }
+    fn set_blend_mode(&mut self, mode: BlendMode) {
+        RenderContext::set_blend_mode(self, mode);
     }
     fn push_clip_layer(&mut self, path: &BezPath) {
         RenderContext::push_clip_layer(self, path);

@@ -197,8 +197,9 @@ pub struct GlyphRun {
     pub glyphs: Vec<(u32, Point)>,
     /// Grid fitting.
     pub hinting: Hinting,
-    /// Grayscale or LCD coverage. Renderers fall back to grayscale over transforms,
-    /// transparent layers and images.
+    /// Grayscale or LCD coverage. LCD is for text over opaque content, as on every platform;
+    /// renderers fall back to grayscale under rotation or skew and inside opacity or blend
+    /// groups.
     pub antialias: Antialias,
 }
 
