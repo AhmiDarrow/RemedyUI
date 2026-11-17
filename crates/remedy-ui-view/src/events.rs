@@ -70,10 +70,6 @@ impl Ui {
             .is_some_and(|d| d.click.is_some() && !d.states.contains(States::DISABLED))
     }
 
-    fn platform(&self) -> Platform {
-        self.0.borrow().platform
-    }
-
     /// Routes pointer input. Returns true when an element took it.
     pub fn pointer(&self, e: &PointerEvent) -> bool {
         let tree = self.tree();
@@ -273,6 +269,9 @@ impl Ui {
 }
 
 /// Updates focus states and the input-method session after focus moved.
+/// An element's focus-change callback.
+type FocusCallback = Rc<dyn Fn(bool)>;
+
 pub(crate) fn focus_changed(ui: &Ui) {
     let tree = ui.tree();
     let now = tree.focused();
@@ -280,13 +279,18 @@ pub(crate) fn focus_changed(ui: &Ui) {
         let i = ui.0.borrow();
         (i.focus_shown, i.focus_visible)
     };
+    let mut told: Vec<(FocusCallback, bool)> = Vec::new();
     if before != now {
         if let Some(b) = before {
             ui.set_state(b, States::FOCUS, false);
             ui.set_state(b, States::FOCUS_VISIBLE, false);
             ui.mark(b, Dirty::PAINT);
+            told.extend(ui.0.borrow().els.get(&b).and_then(|d| d.focus.clone()).map(|f| (f, false)));
         }
         ui.0.borrow_mut().focus_shown = now;
+        if let Some(n) = now {
+            told.extend(ui.0.borrow().els.get(&n).and_then(|d| d.focus.clone()).map(|f| (f, true)));
+        }
     }
     if let Some(n) = now {
         ui.set_state(n, States::FOCUS, true);
@@ -306,5 +310,8 @@ pub(crate) fn focus_changed(ui: &Ui) {
             ui.request(Request::TextInput(None));
         }
         None => {}
+    }
+    for (f, focused) in told {
+        f(focused);
     }
 }

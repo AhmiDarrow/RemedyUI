@@ -78,6 +78,7 @@ pub(crate) struct ElData {
     pub(crate) clip: bool,
     pub(crate) click: Option<Rc<dyn Fn()>>,
     pub(crate) hover: Option<Rc<dyn Fn(bool)>>,
+    pub(crate) focus: Option<Rc<dyn Fn(bool)>>,
     pub(crate) hidden: bool,
     pub(crate) removed: Vec<Box<dyn FnOnce()>>,
     pub(crate) on_scroll: Option<Rc<dyn Fn(Vec2)>>,
@@ -108,6 +109,7 @@ pub(crate) struct Inner {
     pub(crate) field_session: Option<ElementId>,
     pub(crate) focus_shown: Option<ElementId>,
     pub(crate) platform: remedy_ui_input::Platform,
+    pub(crate) locale: remedy_ui_reactive::Signal<String>,
     pub(crate) content: ElementId,
     pub(crate) overlays: ElementId,
     pub(crate) trusted: ElementId,
@@ -196,6 +198,7 @@ impl Ui {
             field_session: None,
             focus_shown: None,
             platform: remedy_ui_input::Platform::Standard,
+            locale: remedy_ui_reactive::Signal::new(String::from("en-US")),
             content: root,
             overlays: root,
             trusted: root,
@@ -251,6 +254,24 @@ impl Ui {
         let host = self.0.borrow().trusted;
         let _ = El { ui: self.clone(), id: host }.child(el.clone());
         el
+    }
+
+    /// The user's locale (BCP 47, such as `de-DE`), tracked: widgets that format numbers or
+    /// dates re-render when it changes. The runner sets it from the system.
+    pub fn locale(&self) -> String {
+        let l = self.0.borrow().locale;
+        l.get()
+    }
+
+    /// Sets the locale.
+    pub fn set_locale(&self, locale: impl Into<String>) {
+        let l = self.0.borrow().locale;
+        l.set_if_changed(locale.into());
+    }
+
+    /// The platform's conventions for shortcuts and modifiers.
+    pub fn platform(&self) -> remedy_ui_input::Platform {
+        self.0.borrow().platform
     }
 
     /// Follows the system's reduced-motion setting (the runner sets it).
@@ -423,8 +444,8 @@ impl Ui {
                 el.focus();
                 true
             }
-            A::Increment => arrow(remedy_ui_input::Key::ArrowRight),
-            A::Decrement => arrow(remedy_ui_input::Key::ArrowLeft),
+            A::Increment => arrow(remedy_ui_input::Key::ArrowUp),
+            A::Decrement => arrow(remedy_ui_input::Key::ArrowDown),
             A::ScrollIntoView => true,
             A::Expand | A::Collapse | A::ShowContextMenu => false,
         }
@@ -484,6 +505,7 @@ impl ElData {
             clip: false,
             click: None,
             hover: None,
+            focus: None,
             hidden: false,
             removed: Vec::new(),
             on_scroll: None,
@@ -771,6 +793,15 @@ impl El {
         }
     }
 
+    /// Calls `f(true)` when the element gains keyboard focus and `f(false)` when it loses it.
+    pub fn on_focus_change(self, f: impl Fn(bool) + 'static) -> Self {
+        let f: Rc<dyn Fn(bool)> = Rc::new(f);
+        if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
+            d.focus = Some(f);
+        }
+        self
+    }
+
     /// Calls `f(true)` when the pointer comes over the element and `f(false)` when it leaves.
     pub fn on_hover(self, f: impl Fn(bool) + 'static) -> Self {
         let f: Rc<dyn Fn(bool)> = Rc::new(f);
@@ -992,6 +1023,15 @@ impl El {
         let tree = self.ui.tree();
         let _ = tree.focus(self.id);
         crate::events::focus_changed(&self.ui);
+    }
+
+    /// Takes keyboard focus away if the element has it.
+    pub fn blur(&self) {
+        let tree = self.ui.tree();
+        if tree.focused() == Some(self.id) {
+            tree.blur();
+            crate::events::focus_changed(&self.ui);
+        }
     }
 
     /// Describes the element to assistive technology.

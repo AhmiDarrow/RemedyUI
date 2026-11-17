@@ -82,6 +82,20 @@ pub enum Role {
     Progress,
     /// Plain text.
     Label,
+    /// A number field stepped with arrows.
+    SpinButton,
+    /// A color chooser.
+    ColorWell,
+    /// A date chooser.
+    DateInput,
+    /// A time chooser.
+    TimeInput,
+    /// A grid of cells (a month calendar).
+    Grid,
+    /// One cell in a grid.
+    GridCell,
+    /// A form: fields submitted together.
+    Form,
 }
 
 /// Something an assistive technology or agent can ask an element to do.
@@ -128,6 +142,7 @@ pub struct Semantics {
     checked: Option<bool>,
     selected: Option<bool>,
     expanded: Option<bool>,
+    invalid: bool,
     disabled: bool,
     read_only: bool,
     hidden: bool,
@@ -150,6 +165,7 @@ impl Semantics {
             checked: None,
             selected: None,
             expanded: None,
+            invalid: false,
             disabled: false,
             read_only: false,
             hidden: false,
@@ -200,6 +216,12 @@ impl Semantics {
     /// Expanded or collapsed.
     pub fn expanded(mut self, on: bool) -> Self {
         self.expanded = Some(on);
+        self
+    }
+
+    /// The value is not acceptable (a form field failing validation).
+    pub fn invalid(mut self, on: bool) -> Self {
+        self.invalid = on;
         self
     }
 
@@ -400,6 +422,9 @@ impl A11yTree {
         if let Some(e) = s.expanded {
             n.set_expanded(e);
         }
+        if s.invalid {
+            n.set_invalid(accesskit::Invalid::True);
+        }
         if s.disabled {
             n.set_disabled();
         }
@@ -507,6 +532,13 @@ fn role(r: Role) -> accesskit::Role {
         Role::Image => R::Image,
         Role::Progress => R::ProgressIndicator,
         Role::Label => R::Label,
+        Role::SpinButton => R::SpinButton,
+        Role::ColorWell => R::ColorWell,
+        Role::DateInput => R::DateInput,
+        Role::TimeInput => R::TimeInput,
+        Role::Grid => R::Grid,
+        Role::GridCell => R::GridCell,
+        Role::Form => R::Form,
     }
 }
 
