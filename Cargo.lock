@@ -472,6 +472,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-input"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-core",
+]
+
+[[package]]
 name = "remedy-ui-layout"
 version = "0.1.0"
 dependencies = [
