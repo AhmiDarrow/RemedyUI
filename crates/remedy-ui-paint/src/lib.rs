@@ -84,6 +84,24 @@ impl Affine {
         Rect::new(x0, y0, x1, y1)
     }
 
+    /// The transform that undoes this one, or `None` when it collapses space (zero scale).
+    pub fn inverse(&self) -> Option<Affine> {
+        let [a, b, c, d, e, f] = self.0;
+        let det = a * d - b * c;
+        if det == 0.0 || !det.is_finite() {
+            return None;
+        }
+        let inv = 1.0 / det;
+        let (ia, ib, ic, id) = (d * inv, -b * inv, -c * inv, a * inv);
+        Some(Affine([ia, ib, ic, id, -(ia * e + ic * f), -(ib * e + id * f)]))
+    }
+
+    /// How much the transform scales lengths: the mean of its axis scales.
+    pub fn scale_factor(&self) -> f32 {
+        let [a, b, c, d, _, _] = self.0;
+        ((a * a + b * b).sqrt() + (c * c + d * d).sqrt()) / 2.0
+    }
+
     /// True when the transform only moves.
     pub fn is_translation(&self) -> bool {
         let [a, b, c, d, _, _] = self.0;

@@ -668,6 +668,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-compositor"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-core",
+ "remedy-ui-input",
+ "remedy-ui-motion",
+ "remedy-ui-paint",
+]
+
+[[package]]
 name = "remedy-ui-core"
 version = "0.1.0"
 
@@ -729,8 +739,10 @@ dependencies = [
 name = "remedy-ui-render-cpu"
 version = "0.1.0"
 dependencies = [
+ "remedy-ui-compositor",
  "remedy-ui-core",
  "remedy-ui-fonts",
+ "remedy-ui-input",
  "remedy-ui-paint",
  "remedy-ui-text",
  "vello_cpu",

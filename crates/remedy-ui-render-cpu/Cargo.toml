@@ -9,12 +9,14 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
 remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
 vello_cpu = { version = "=0.4.0" }
 
 [dev-dependencies]
+remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "0.1.0", features = ["remedy-sans-ui"] }
 
 [lints]

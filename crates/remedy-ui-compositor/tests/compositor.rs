@@ -1,0 +1,288 @@
+//! Commits, tiles, damage, compositor-side scrolling and animation.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use remedy_ui_compositor::*;
+use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size, Vec2};
+use remedy_ui_input::ScrollPhysics;
+use remedy_ui_motion::{Easing, Motion};
+use remedy_ui_paint::{Brush, DisplayList};
+
+fn ms(v: u64) -> Duration {
+    Duration::from_millis(v)
+}
+
+fn solid(w: f32, h: f32) -> DisplayList {
+    let mut l = DisplayList::new();
+    l.fill_rect(Rect::new(0.0, 0.0, w, h), Brush::Solid(Color::BLACK));
+    l
+}
+
+fn page(content_h: f32) -> LayerTree {
+    let content = Layer::new(LayerId(2), Rect::new(0.0, 0.0, 400.0, content_h), solid(400.0, content_h));
+    let scroller = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 400.0, 300.0), DisplayList::new())
+        .scrolling(Size::new(400.0, content_h))
+        .with_child(content);
+    LayerTree::new(vec![scroller])
+}
+
+fn tiles(plan: &FramePlan) -> Vec<(LayerId, TileKey)> {
+    plan.ops
+        .iter()
+        .filter_map(|o| match o {
+            CompositeOp::Tile { layer, key, .. } => Some((*layer, *key)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn mailbox_keeps_only_the_newest_commit() {
+    let m = Mailbox::new();
+    assert!(!m.post(1));
+    assert!(m.post(2), "the untaken commit is replaced");
+    assert!(m.is_pending());
+    assert_eq!(m.take(), Some(2));
+    assert_eq!(m.take(), None);
+    let shared = Arc::new(Mailbox::new());
+    let s2 = shared.clone();
+    let t = std::thread::spawn(move || s2.post(LayerTree::default()));
+    assert!(t.join().is_ok());
+    assert!(shared.take().is_some(), "commits cross threads");
+}
+
+#[test]
+fn damage_merges_overlaps_and_keeps_far_rects_apart() {
+    let mut d = Damage::new();
+    d.add(Rect::new(0.0, 0.0, 10.0, 10.0));
+    d.add(Rect::new(5.0, 5.0, 15.0, 15.0));
+    assert_eq!(d.rects(), &[Rect::new(0.0, 0.0, 15.0, 15.0)]);
+    d.add(Rect::new(500.0, 500.0, 510.0, 510.0));
+    assert_eq!(d.rects().len(), 2, "far apart rects stay separate");
+    d.add(Rect::new(0.2, 100.5, 3.7, 101.0));
+    assert!(d.rects().contains(&Rect::new(0.0, 100.0, 4.0, 101.0)), "snapped out to whole pixels");
+    d.clip_to(Rect::new(0.0, 0.0, 100.0, 120.0));
+    assert_eq!(d.rects().len(), 2, "the far rect is clipped away");
+}
+
+#[test]
+fn first_frame_is_fully_damaged_and_an_idle_frame_has_none() {
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(page(1000.0));
+    let p = c.frame(ms(0));
+    assert_eq!(p.damage.rects(), &[Rect::new(0.0, 0.0, 400.0, 300.0)]);
+    assert!(!p.raster.is_empty());
+    assert!(!p.animating);
+    let p = c.frame(ms(16));
+    assert!(p.damage.is_empty(), "nothing changed");
+    assert!(p.raster.is_empty(), "nothing re-rasters");
+}
+
+#[test]
+fn only_visible_and_prefetch_tiles_raster() {
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(page(10_000.0));
+    let p = c.frame(ms(0));
+    let rows: Vec<i32> = p.raster.iter().filter(|r| r.layer == LayerId(2)).map(|r| r.key.row).collect();
+    assert!(rows.contains(&0) && rows.contains(&1), "visible rows: 300px tall over 256px tiles");
+    assert!(rows.contains(&2), "one prefetch row");
+    assert!(!rows.contains(&3), "nothing far away");
+    let first_prefetch = p.raster.iter().position(|r| !r.visible);
+    let last_visible = p.raster.iter().rposition(|r| r.visible);
+    assert!(first_prefetch > last_visible, "visible tiles come first");
+    let shown = tiles(&p);
+    assert!(shown.iter().all(|(_, k)| k.row <= 1), "only visible tiles composite");
+}
+
+#[test]
+fn scrolling_moves_tiles_without_rerastering_and_damages_the_viewport() {
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(page(10_000.0));
+    let _ = c.frame(ms(0));
+    assert!(c.scroll_by(LayerId(1), Vec2::new(0.0, 100.0)));
+    let p = c.frame(ms(16));
+    assert!(p.raster.iter().all(|r| r.key.row >= 3), "rows 0-2 were rastered already: {:?}", p.raster);
+    assert!(!p.damage.is_empty());
+    let moved = p.ops.iter().find_map(|o| match o {
+        CompositeOp::Tile { layer: LayerId(2), key: TileKey { row: 1, .. }, transform, .. } => {
+            Some(transform.0[5])
+        }
+        _ => None,
+    });
+    assert_eq!(moved, Some(-100.0), "content moved up by the scroll");
+    assert_eq!(c.scroll_offset(LayerId(1)), Some(Vec2::new(0.0, 100.0)));
+}
+
+#[test]
+fn scroll_offsets_clamp_and_survive_commits() {
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(page(1000.0));
+    c.scroll_by(LayerId(1), Vec2::new(0.0, 5000.0));
+    assert_eq!(c.scroll_offset(LayerId(1)), Some(Vec2::new(0.0, 700.0)), "clamped to content minus viewport");
+    c.commit(page(1000.0));
+    assert_eq!(c.scroll_offset(LayerId(1)), Some(Vec2::new(0.0, 700.0)), "kept across commits");
+    c.commit(page(500.0));
+    assert_eq!(c.scroll_offset(LayerId(1)), Some(Vec2::new(0.0, 200.0)), "clamped when content shrinks");
+    c.commit(LayerTree::default());
+    assert_eq!(c.scroll_offset(LayerId(1)), None, "dropped with the layer");
+}
+
+#[test]
+fn flings_animate_then_settle() {
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(page(100_000.0));
+    let _ = c.frame(ms(0));
+    c.fling(LayerId(1), Vec2::new(0.0, 3000.0));
+    assert!(c.is_animating(ms(0)));
+    let mut t = 0;
+    let mut last = 0.0;
+    while c.frame(ms(t)).animating {
+        let y = c.scroll_offset(LayerId(1)).map_or(0.0, |v| v.y);
+        assert!(y >= last, "a fling moves one way");
+        last = y;
+        t += 16;
+        assert!(t < 20_000, "the fling must stop");
+    }
+    assert!(last > 500.0, "it travelled: {last}");
+    assert!(!c.is_animating(ms(t)));
+}
+
+#[test]
+fn wheel_routes_to_the_innermost_scroller_then_outward() {
+    let inner_content = Layer::new(LayerId(4), Rect::new(0.0, 0.0, 200.0, 400.0), solid(200.0, 400.0));
+    let inner = Layer::new(LayerId(3), Rect::new(0.0, 50.0, 200.0, 150.0), DisplayList::new())
+        .scrolling(Size::new(200.0, 400.0))
+        .with_child(inner_content);
+    let content =
+        Layer::new(LayerId(2), Rect::new(0.0, 0.0, 400.0, 1000.0), solid(400.0, 1000.0)).with_child(inner);
+    let outer = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 400.0, 300.0), DisplayList::new())
+        .scrolling(Size::new(400.0, 1000.0))
+        .with_child(content);
+    let mut c = Compositor::new(1000, 700, 2.0, ScrollPhysics::CLAMPED);
+    c.commit(LayerTree::new(vec![outer]));
+    let _ = c.frame(ms(0));
+    let at = Point::new(100.0, 200.0); // device pixels inside the inner scroller (50..150 logical)
+    assert_eq!(c.scroll_at(at, Vec2::new(0.0, 200.0)), Some(LayerId(3)));
+    assert_eq!(c.scroll_offset(LayerId(3)), Some(Vec2::new(0.0, 100.0)), "device delta divided by scale");
+    assert_eq!(c.scroll_at(at, Vec2::new(0.0, 1000.0)), Some(LayerId(3)));
+    assert_eq!(c.scroll_offset(LayerId(3)), Some(Vec2::new(0.0, 300.0)), "the inner one reaches its end");
+    assert_eq!(c.scroll_at(at, Vec2::new(0.0, 100.0)), Some(LayerId(1)), "an exhausted inner hands outward");
+    assert_eq!(c.scroll_at(Point::new(900.0, 650.0), Vec2::new(0.0, 10.0)), None, "outside every scroller");
+}
+
+#[test]
+fn content_changes_damage_only_their_layer() {
+    let a = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 50.0, 50.0), solid(50.0, 50.0));
+    let b = Layer::new(LayerId(2), Rect::new(200.0, 200.0, 250.0, 250.0), solid(50.0, 50.0));
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(LayerTree::new(vec![a.clone(), b.clone()]));
+    let _ = c.frame(ms(0));
+    let mut b2 = b;
+    b2.content_version = 1;
+    c.commit(LayerTree::new(vec![a, b2]));
+    let p = c.frame(ms(16));
+    assert_eq!(p.damage.rects(), &[Rect::new(200.0, 200.0, 250.0, 250.0)]);
+    assert_eq!(p.raster.len(), 1, "only the changed layer re-rasters");
+    assert_eq!(p.raster.first().map(|r| r.layer), Some(LayerId(2)));
+}
+
+#[test]
+fn removed_layers_damage_and_release_their_tiles() {
+    let a = Layer::new(LayerId(1), Rect::new(10.0, 10.0, 60.0, 60.0), solid(50.0, 50.0));
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(LayerTree::new(vec![a]));
+    let _ = c.frame(ms(0));
+    c.commit(LayerTree::default());
+    let p = c.frame(ms(16));
+    assert_eq!(p.damage.rects(), &[Rect::new(10.0, 10.0, 60.0, 60.0)]);
+    assert_eq!(p.released, vec![(LayerId(1), TileKey { col: 0, row: 0 })]);
+}
+
+#[test]
+fn compositor_animations_run_without_commits() {
+    let a = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 100.0, 100.0), solid(100.0, 100.0));
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(LayerTree::new(vec![a]));
+    let _ = c.frame(ms(0));
+    let tween = Motion::Tween { duration: ms(100), easing: Easing::Linear };
+    c.animate_offset(LayerId(1), Vec2::new(100.0, 0.0), tween, ms(0));
+    c.animate_opacity(LayerId(1), 0.5, tween, ms(0));
+    let mid = c.frame(ms(50));
+    assert!(mid.animating);
+    assert!(mid.raster.is_empty(), "moving and fading re-rasters nothing");
+    let x = mid.ops.iter().find_map(|o| match o {
+        CompositeOp::Tile { transform, .. } => Some(transform.0[4]),
+        _ => None,
+    });
+    assert_eq!(x, Some(50.0));
+    assert!(mid.ops.iter().any(|o| matches!(o, CompositeOp::PushOpacity(v) if (*v - 0.75).abs() < 1e-4)));
+    assert_eq!(mid.damage.bounds(), Some(Rect::new(0.0, 0.0, 150.0, 100.0)), "old and new positions");
+    let end = c.frame(ms(200));
+    assert!(!end.animating);
+    assert!(!c.is_animating(ms(200)));
+}
+
+#[test]
+fn reduced_motion_jumps_animations_to_their_end() {
+    let a = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 100.0, 100.0), solid(100.0, 100.0));
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.set_reduced_motion(true);
+    c.commit(LayerTree::new(vec![a]));
+    c.animate_offset(
+        LayerId(1),
+        Vec2::new(100.0, 0.0),
+        Motion::Tween { duration: ms(500), easing: Easing::Linear },
+        ms(0),
+    );
+    let p = c.frame(ms(1));
+    assert!(!p.animating);
+}
+
+#[test]
+fn clips_wrap_children_and_hide_offscreen_layers() {
+    let child = Layer::new(LayerId(2), Rect::new(0.0, 0.0, 300.0, 300.0), solid(300.0, 300.0));
+    let clipper = Layer::new(LayerId(1), Rect::new(10.0, 10.0, 110.0, 110.0), DisplayList::new())
+        .clipped(CornerRadii::all(8.0))
+        .with_child(child);
+    let away = Layer::new(LayerId(3), Rect::new(5000.0, 0.0, 5100.0, 100.0), solid(100.0, 100.0));
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(LayerTree::new(vec![clipper, away]));
+    let p = c.frame(ms(0));
+    assert!(
+        matches!(p.ops.first(), Some(CompositeOp::PushClip { radii, .. }) if *radii == CornerRadii::all(8.0))
+    );
+    assert!(matches!(p.ops.last(), Some(CompositeOp::PopClip)));
+    assert!(p.raster.iter().all(|r| r.layer != LayerId(3)), "off-screen layers raster nothing");
+    let child_tiles: Vec<_> = p.raster.iter().filter(|r| r.layer == LayerId(2)).collect();
+    assert_eq!(child_tiles.len(), 1, "only the visible tile: a fixed clip does not prefetch");
+}
+
+#[test]
+fn high_dpi_uses_larger_tiles_and_scale_changes_reraster() {
+    let a = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 100.0, 100.0), solid(100.0, 100.0));
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(LayerTree::new(vec![a]));
+    let p = c.frame(ms(0));
+    assert_eq!(p.raster.first().map(|r| (r.width, r.height, r.raster_scale)), Some((100, 100, 1.0)));
+    c.resize(800, 600, 2.0);
+    let p = c.frame(ms(16));
+    assert_eq!(p.raster.first().map(|r| (r.width, r.raster_scale)), Some((200, 2.0)));
+    assert_eq!(p.released, vec![(LayerId(1), TileKey { col: 0, row: 0 })], "old-scale tiles are freed");
+    assert_eq!(p.damage.rects(), &[Rect::new(0.0, 0.0, 800.0, 600.0)]);
+    assert_eq!(tile_pixels(2.0), 512);
+}
+
+#[test]
+fn trim_memory_frees_tiles_outside_the_prefetch_area() {
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(page(10_000.0));
+    let _ = c.frame(ms(0));
+    c.set_scroll_offset(LayerId(1), Vec2::new(0.0, 5000.0));
+    let _ = c.frame(ms(16));
+    c.trim_memory();
+    let p = c.frame(ms(32));
+    let freed: Vec<i32> = p.released.iter().map(|(_, k)| k.row).collect();
+    assert!(freed.contains(&0) && freed.contains(&1), "the top rows are released: {freed:?}");
+    assert!(freed.iter().all(|r| *r < 18), "rows near the new offset stay");
+}
