@@ -31,7 +31,7 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | Accessibility | `accesskit` + adapters | 0.25.2 (core types in `a11y`; adapters per bridge) | `a11y` | UI Automation, NSAccessibility, AT-SPI, Android |
 | Clipboard | `arboard` | 3.7.0 | desktop bridges | Text and images; sensitive-item handling added in the bridge |
 | File dialogs | `rfd` | 0.18.0 | `bridge-windows`, `bridge-macos` | Native dialogs. On Linux, dialogs go through the XDG portal with RemedyUI's own client over blocking `zbus`, because `rfd`'s portal backend needs an async runtime |
-| D-Bus (Linux) | `zbus` (blocking API) | pinned with `bridge-wayland` | Linux bridges | Portal, notifications, StatusNotifierItem, AT-SPI |
+| D-Bus (Linux) | `zbus` (blocking API) | 5.19.0 | `bridge-linux` | Portal, notifications, StatusNotifierItem, AT-SPI |
 | Images | `image` / `zune-image` | 0.25.10 / 0.5.0 | `media-image` | Chosen per format in its milestone, after a RustSec review and fuzzing |
 | SVG | `usvg` | pinned with `media-svg` | `media-svg` | SVG to a path tree |
 | Syntax colors | `syntect` (with `fancy-regex`) | 5.3.0 | `doc-code` | Pure-Rust highlighting, with no C regex engine |

@@ -1,6 +1,6 @@
 //! RemedyUI's Windows bridge.
 //!
-//! The shared winit core ([`remedy_ui_bridge_winit`]) provides windows, input, frames, input
+//! The shared winit core (`remedy-ui-bridge-winit`) provides windows, input, frames, input
 //! methods, CPU presents and GPU surface handles; this crate adds what Windows does beyond it:
 //! the Win32 clipboard (sensitive copies kept out of clipboard history and cloud sync),
 //! capture protection (`SetWindowDisplayAffinity`), and system settings read from Windows
