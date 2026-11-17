@@ -322,3 +322,9 @@ pub trait App {
     /// Handles one event. `host` is how the app acts on the platform.
     fn event(&mut self, host: &mut dyn Host, event: HostEvent);
 }
+
+impl<T: App + ?Sized> App for &mut T {
+    fn event(&mut self, host: &mut dyn Host, event: HostEvent) {
+        (**self).event(host, event);
+    }
+}

@@ -1,0 +1,21 @@
+[package]
+name = "remedy-ui-bridge-winit"
+description = "RemedyUI's shared desktop bridge core over winit: windows, events, frames, CPU blits with damage and GPU surface handles for the Windows, macOS, Wayland and X11 bridges."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-host = { path = "../remedy-ui-host", version = "0.1.0" }
+remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
+softbuffer = { version = "=0.4.8" }
+# No `wayland-csd-adwaita`: on Wayland RemedyUI draws its own client-side chrome, and that
+# feature pulls an unmaintained font parser.
+winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
+
+[lints]
+workspace = true
