@@ -28,7 +28,7 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | Shader validation | `naga` | wgpu's | `render-gpu` | Validates app-supplied WGSL effects |
 | CPU present | `softbuffer` | 0.4.8 | `render-cpu` | Pixel blit on every desktop |
 | Windows and events | `winit` | 0.30.13 (0.31 when stable) | desktop and Android bridges | Each bridge adds its own modules where winit stops short |
-| Accessibility | `accesskit` + adapters | 0.25.2 | `a11y` (adapters per bridge) | UI Automation, NSAccessibility, AT-SPI, Android |
+| Accessibility | `accesskit` + adapters | 0.25.2 (core types in `a11y`; adapters per bridge) | `a11y` | UI Automation, NSAccessibility, AT-SPI, Android |
 | Clipboard | `arboard` | 3.7.0 | desktop bridges | Text and images; sensitive-item handling added in the bridge |
 | File dialogs | `rfd` | 0.18.0 | `bridge-windows`, `bridge-macos` | Native dialogs. On Linux, dialogs go through the XDG portal with RemedyUI's own client over blocking `zbus`, because `rfd`'s portal backend needs an async runtime |
 | D-Bus (Linux) | `zbus` (blocking API) | pinned with `bridge-wayland` | Linux bridges | Portal, notifications, StatusNotifierItem, AT-SPI |

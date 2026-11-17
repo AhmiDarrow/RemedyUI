@@ -1,0 +1,16 @@
+[package]
+name = "remedy-ui-a11y"
+description = "RemedyUI accessibility: element semantics turned into incremental AccessKit tree updates, with merging, live regions and protected content."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+accesskit = { version = "=0.25.2", default-features = false }
+
+[lints]
+workspace = true
