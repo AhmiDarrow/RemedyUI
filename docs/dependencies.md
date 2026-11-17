@@ -13,8 +13,8 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | Area | Crate | Version | Pack | Why this one |
 |---|---|---|---|---|
 | Rich text layout, editing helpers | `parley` | 0.13.0 | `text` | Bidi, line breaking, inline objects, carets. Pre-1.0 with breaking releases: pinned and wrapped |
-| Shaping | `harfrust` | 0.16.0 | `text` | Pure-Rust HarfBuzz port |
-| Fonts, hinting, color glyphs | `skrifa`, `read-fonts` | 0.50.0, 0.47.0 | `text` | TrueType, CFF and auto hinting with grayscale and LCD targets; COLRv0/v1, CBDT and sbix; fuzzed on OSS-Fuzz; ships in Chrome |
+| Shaping | `harfrust` | 0.15.0 (through parley 0.13; 0.16.0 is the latest) | `text` | Pure-Rust HarfBuzz port |
+| Fonts, hinting, color glyphs | `skrifa`, `read-fonts` | 0.49.0 and its read-fonts (through parley 0.13; 0.50.0 is the latest) | `text` | TrueType, CFF and auto hinting with grayscale and LCD targets; COLRv0/v1, CBDT and sbix; fuzzed on OSS-Fuzz; ships in Chrome |
 | Font fallback, system fonts | `fontique` | 0.13.0 | `text` | Fallback chains and system font lists; Android coverage checked when `text` lands |
 | Segmentation, bidi, CLDR data | ICU4X (`icu_segmenter` and others) | 2.4.0 | `text`, `services-i18n` | Unicode-correct segmentation; locale data loaded per locale (Unicode-3.0 license) |
 | Text storage for editing | `ropey` | 1.6.1 | `text` | Rope for large documents |

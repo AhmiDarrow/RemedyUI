@@ -26,6 +26,18 @@ Nothing is merged as a placeholder: a crate enters the workspace with its first 
 
 ## M2. Text
 
+**Status:** in progress. Done so far:
+
+- `remedy-ui-fonts`
+- `remedy-ui-text` layout: fonts and fallback, rich spans, inline objects, wrapping and rewrapping, alignment, bidi runs, hit testing, carets, selection rects, words, visual movement
+
+Still to do:
+
+- glyph rasterization with hinting and the atlas
+- the editing core and secret buffer
+- IME scripts
+- the Arabic shaping reference test, which needs an OFL Arabic fixture font (the Remedy families have no Arabic)
+
 **Crates:** `text` and `fonts` (the Remedy families, for tests and apps).
 
 **Contents:**
