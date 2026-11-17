@@ -1512,6 +1512,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-bridge-headless"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-compositor",
+ "remedy-ui-core",
+ "remedy-ui-host",
+ "remedy-ui-input",
+ "remedy-ui-paint",
+ "remedy-ui-render-cpu",
+]
+
+[[package]]
 name = "remedy-ui-compositor"
 version = "0.1.0"
 dependencies = [
@@ -1530,6 +1542,15 @@ name = "remedy-ui-fonts"
 version = "0.1.0"
 dependencies = [
  "read-fonts 0.47.0",
+]
+
+[[package]]
+name = "remedy-ui-host"
+version = "0.1.0"
+dependencies = [
+ "raw-window-handle",
+ "remedy-ui-core",
+ "remedy-ui-input",
 ]
 
 [[package]]

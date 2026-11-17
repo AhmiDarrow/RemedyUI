@@ -36,6 +36,7 @@ L5  feature packs: widgets-* · media-* · doc-* · viz · embed-* · services-*
 L4  host:          render-gpu · render-cpu · bridge-windows · bridge-macos · bridge-wayland · bridge-x11
                    bridge-android · bridge-web · bridge-remedyos · bridge-headless
 L3  frame:         paint (display list, image and icon sources) · motion · a11y · compositor · secure
+                   host (the platform-neutral host model every bridge implements)
 L2  engine:        tree · style · layout · text · input
 L1  state:         reactive
 L0  base:          core (geometry, color, ids, units; no dependencies)

@@ -27,6 +27,8 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-a11y", 3),
     ("remedy-ui-compositor", 3),
     ("remedy-ui-secure", 3),
+    // The host model: the platform-neutral contract bridges implement.
+    ("remedy-ui-host", 3),
     ("remedy-ui-render-gpu", 4),
     ("remedy-ui-render-cpu", 4),
     ("remedy-ui-bridge-windows", 4),

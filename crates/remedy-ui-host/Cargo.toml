@@ -1,0 +1,17 @@
+[package]
+name = "remedy-ui-host"
+description = "RemedyUI's host model: the platform-neutral contract every bridge (Windows, macOS, Linux, Android, RemedyOS, web, iOS, headless) implements."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+raw-window-handle = { version = "=0.6.2" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
+
+[lints]
+workspace = true
