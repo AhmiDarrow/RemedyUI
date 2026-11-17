@@ -59,7 +59,7 @@ fn a_slow_window_moves_from_the_cpu_to_the_gpu() {
                             let y = ((i * 91) as f32 + phase) % cx.size.height;
                             let c = remedy_ui::core::Color::new((i % 7) as f32 / 7.0, 0.5, 0.8, 0.5);
                             cx.list.fill_rounded(
-                                Rect::new(x, y, 40.0, 24.0),
+                                Rect::new(x, y, x + 40.0, y + 24.0),
                                 CornerRadii::all(8.0),
                                 remedy_ui_paint::Brush::Solid(c),
                             );

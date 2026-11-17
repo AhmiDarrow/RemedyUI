@@ -2,7 +2,7 @@
 
 RemedyUI is the UI engine for every Remedy app, written in Rust. That covers chat (FreeSpeak), documents, notes, audio and music tools, file and secret managers, calculators, media apps, and the RemedyOS desktop. It is built to the standard of the leading UI engines (Flutter, SwiftUI, Jetpack Compose, WinUI 3, Qt Quick, the web platform). Its aims, in order: stable, secure, fast as the hardware allows, light, intuitive for the people using it, and a pleasure to build with.
 
-**Status:** M1 (foundations), M2 (text), M3 (layout, style, input, semantics, motion) and M4 (rendering, the compositor and the platform bridges) are built. These crates exist, with real code and tests:
+**Status:** M1 (foundations), M2 (text), M3 (layout, style, input, semantics, motion) and M4 (rendering, the compositor and the platform bridges) are built, and M5 is under way. These crates exist, with real code and tests:
 
 - `remedy-ui-core`: geometry, scale and snapping, colors, generational arena
 - `remedy-ui-reactive`: glitch-free signals, memos, effects, scopes, `Waker`, `SignalVec`, stores
@@ -25,9 +25,19 @@ RemedyUI is the UI engine for every Remedy app, written in Rust. That covers cha
 - `remedy-ui-host`: the platform-neutral host model every bridge implements
 - `remedy-ui-bridge-headless`: the host in memory, for tests, previews and servers
 - `remedy-ui-bridge-winit`: the shared desktop core for the Windows, macOS and Linux bridges
-- `remedy-ui-bridge-windows`, `remedy-ui-bridge-macos`, `remedy-ui-bridge-linux`: clipboard, capture protection, system settings, and TSF on Windows
+- `remedy-ui-bridge-windows`, `remedy-ui-bridge-macos`, `remedy-ui-bridge-linux`: clipboard, capture protection, system settings, the tray, file dialogs, single instance, screen readers, and TSF on Windows
 
-Next is M5, the first app (SecretSticky): core widgets, forms, themes, secure inputs and desktop services. A crate is added to the workspace only when it has real code and tests.
+M5 (the first app, SecretSticky) is under way. Built so far:
+
+- `remedy-ui-view`: elements, the frame pipeline, input routing, editable fields, semantics
+- `remedy-ui`: the facade and runner (`run`, `App`, `Window`); windows start on the CPU renderer and move to the GPU when they need it
+- `remedy-ui-themes`: the twelve Remedy palettes, light/dark from the system, high contrast, the widget style sheet
+- `remedy-ui-widgets-core`: containers, lists, text, buttons, choices, values, inputs, feedback, overlays, icons and images
+- `remedy-ui-widgets-forms`: exact-decimal number input, color picker with contrast readout, key capture, calendar, date and time pickers, forms with validation and submit state, all in the user's locale
+- `remedy-ui-secure`: idle lock and secret copies that clear themselves
+- `remedy-ui-services-update`: signed updates from GitHub releases or a feed
+
+SecretSticky runs on RemedyUI (its repository's `remedyui` branch). A crate is added to the workspace only when it has real code and tests.
 
 Checks: `cargo xtask check` (layer graph and unsafe boundary) and `cargo deny check`, alongside fmt, clippy, tests and docs.
 

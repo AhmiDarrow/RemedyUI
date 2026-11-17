@@ -35,6 +35,10 @@ pub enum Icon {
     ChevronDown,
     /// A rightward chevron.
     ChevronRight,
+    /// A leftward chevron.
+    ChevronLeft,
+    /// An upward chevron.
+    ChevronUp,
     /// Three lines.
     Menu,
     /// A magnifying glass.
@@ -161,6 +165,12 @@ fn strokes(icon: Icon) -> Path {
         }
         Icon::ChevronRight => {
             s.move_to(p(9.0, 6.0)).line_to(p(15.0, 12.0)).line_to(p(9.0, 18.0));
+        }
+        Icon::ChevronLeft => {
+            s.move_to(p(15.0, 6.0)).line_to(p(9.0, 12.0)).line_to(p(15.0, 18.0));
+        }
+        Icon::ChevronUp => {
+            s.move_to(p(6.0, 15.0)).line_to(p(12.0, 9.0)).line_to(p(18.0, 15.0));
         }
         Icon::Menu => {
             for y in [6.0, 12.0, 18.0] {

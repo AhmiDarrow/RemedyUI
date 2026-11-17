@@ -1,0 +1,293 @@
+//! What a locale needs for numbers, dates and times, read from ICU's data once per locale.
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
+use icu_calendar::Gregorian;
+use icu_calendar::types::Weekday as IcuWeekday;
+use icu_datetime::FixedCalendarDateTimeFormatter;
+use icu_datetime::fieldsets;
+use icu_decimal::DecimalFormatter;
+use icu_decimal::input::Decimal as IcuDecimal;
+use icu_locale_core::Locale;
+
+use crate::date::{Date, Weekday};
+use crate::decimal::{Decimal, DecimalError};
+
+/// How a locale writes numbers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NumberSymbols {
+    /// The decimal separator (`.` in en, `,` in de).
+    pub decimal: char,
+    /// The grouping separator (`,` in en, `.` in de, a narrow space in fr), if any.
+    pub group: Option<char>,
+    /// Digits in the primary group (3), and in the groups before it (3, or 2 in en-IN).
+    pub grouping: (usize, usize),
+    /// The minus sign.
+    pub minus: char,
+    /// The locale's digits, zero to nine.
+    pub digits: [char; 10],
+}
+
+impl Default for NumberSymbols {
+    fn default() -> Self {
+        NumberSymbols {
+            decimal: '.',
+            group: Some(','),
+            grouping: (3, 3),
+            minus: '-',
+            digits: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+        }
+    }
+}
+
+fn locale(tag: &str) -> Locale {
+    tag.parse().unwrap_or(Locale::UNKNOWN)
+}
+
+impl NumberSymbols {
+    /// The symbols for a BCP 47 locale. Unknown locales get the root locale's.
+    pub fn for_locale(tag: &str) -> NumberSymbols {
+        thread_local!(static CACHE: RefCell<HashMap<String, NumberSymbols>> = RefCell::new(HashMap::new()));
+        if let Some(s) = CACHE.with(|c| c.borrow().get(tag).cloned()) {
+            return s;
+        }
+        let s = Self::read(tag).unwrap_or_default();
+        CACHE.with(|c| c.borrow_mut().insert(tag.to_owned(), s.clone()));
+        s
+    }
+
+    /// Reads them by formatting known numbers with ICU and looking at the result.
+    fn read(tag: &str) -> Option<NumberSymbols> {
+        let f = DecimalFormatter::try_new(locale(tag).into(), Default::default()).ok()?;
+        // 1234567890 shows the digits in order and where groups split.
+        let whole: Vec<char> = f.format(&IcuDecimal::from(1_234_567_890i64)).to_string().chars().collect();
+        let mut digits = ['0'; 10];
+        let mut found = 0usize;
+        let mut group = None;
+        let mut sizes = Vec::new();
+        let mut run = 0usize;
+        for c in &whole {
+            if found < 10 && (c.is_numeric() || c.is_ascii_digit()) {
+                // 1,2,…,9 then 0.
+                let slot = (found + 1) % 10;
+                if let Some(d) = digits.get_mut(slot) {
+                    *d = *c;
+                }
+                found += 1;
+                run += 1;
+            } else if !c.is_control() && !matches!(c, '\u{200E}' | '\u{200F}' | '\u{061C}') {
+                group.get_or_insert(*c);
+                sizes.push(run);
+                run = 0;
+            }
+        }
+        sizes.push(run);
+        if found != 10 {
+            return None;
+        }
+        let primary = sizes.last().copied().filter(|n| *n > 0).unwrap_or(3);
+        let secondary =
+            sizes.iter().rev().nth(1).copied().filter(|n| *n > 0 && sizes.len() > 2).unwrap_or(primary);
+        // -1.5 shows the minus sign and the decimal separator.
+        let mut minus_half = IcuDecimal::from(-15i64);
+        minus_half.multiply_pow10(-1);
+        let half = f.format(&minus_half).to_string();
+        let mut minus = '-';
+        let mut decimal = '.';
+        for c in half.chars() {
+            if c == digits[1] || c == digits[5] || matches!(c, '\u{200E}' | '\u{200F}' | '\u{061C}') {
+                continue;
+            }
+            if half.find(c) < half.find(digits[1]) {
+                minus = c;
+            } else {
+                decimal = c;
+            }
+        }
+        Some(NumberSymbols { decimal, group, grouping: (primary, secondary), minus, digits })
+    }
+
+    /// Writes `v` with exactly `places` fraction digits (rounded), grouped.
+    pub fn format(&self, v: Decimal, places: u8) -> String {
+        let (neg, int, frac) = v.digits(places);
+        let mut out = String::new();
+        if neg && (int.bytes().any(|b| b != b'0') || frac.bytes().any(|b| b != b'0')) {
+            out.push(self.minus);
+        }
+        let n = int.len();
+        for (i, c) in int.chars().enumerate() {
+            let left = n - i;
+            out.push(self.digit(c));
+            if let Some(g) = self.group
+                && left > 1
+            {
+                let after = left - 1;
+                let (p, s) = self.grouping;
+                // Separators sit after the primary group, then after every secondary group.
+                let at_boundary = after == p || (after > p && s > 0 && (after - p) % s == 0);
+                if at_boundary {
+                    out.push(g);
+                }
+            }
+        }
+        if !frac.is_empty() {
+            out.push(self.decimal);
+            out.extend(frac.chars().map(|c| self.digit(c)));
+        }
+        out
+    }
+
+    fn digit(&self, ascii: char) -> char {
+        ascii.to_digit(10).and_then(|d| self.digits.get(d as usize).copied()).unwrap_or(ascii)
+    }
+
+    /// Reads what a person typed: the locale's digits or ASCII ones, its decimal separator,
+    /// and group separators where groups belong. A lone `.` or `,` that cannot be a group
+    /// separator is read as the decimal point, so either convention works.
+    pub fn parse(&self, text: &str) -> Result<Decimal, DecimalError> {
+        let spaces = |c: char| matches!(c, ' ' | '\u{00A0}' | '\u{202F}' | '\u{2009}');
+        let mut plain = String::new();
+        let chars: Vec<char> =
+            text.trim().chars().filter(|c| !matches!(c, '\u{200E}' | '\u{200F}' | '\u{061C}')).collect();
+        if chars.is_empty() {
+            return Err(DecimalError::Empty);
+        }
+        let group_is_space = self.group.is_some_and(spaces);
+        let decimals = chars.iter().filter(|c| **c == self.decimal).count();
+        for (i, c) in chars.iter().enumerate() {
+            let c = *c;
+            if let Some(d) = self.digits.iter().position(|d| *d == c) {
+                plain.push(char::from(b'0' + d as u8));
+            } else if c.is_ascii_digit() {
+                plain.push(c);
+            } else if c == self.minus || c == '-' || c == '\u{2212}' {
+                if !plain.is_empty() {
+                    return Err(DecimalError::Invalid);
+                }
+                plain.push('-');
+            } else if c == '+' && plain.is_empty() {
+            } else if c == self.decimal {
+                plain.push('.');
+            } else if Some(c) == self.group || (group_is_space && spaces(c)) {
+                // A group separator must be followed by a whole group of digits.
+                let run = chars
+                    .iter()
+                    .skip(i + 1)
+                    .take_while(|d| d.is_ascii_digit() || self.digits.contains(d))
+                    .count();
+                let next = chars.get(i + 1 + run).copied();
+                let group_ok = run == self.grouping.0 || run == self.grouping.1;
+                let ends_ok = next.is_none() || next == Some(self.decimal) || next == self.group;
+                if group_ok && ends_ok {
+                    continue;
+                }
+                // Typed the other convention ("1.5" in de): one separator, no decimal.
+                if decimals == 0 && matches!(c, '.' | ',') && chars.iter().filter(|x| **x == c).count() == 1 {
+                    plain.push('.');
+                } else {
+                    return Err(DecimalError::Invalid);
+                }
+            } else if matches!(c, '.' | ',')
+                && decimals == 0
+                && chars.iter().filter(|x| **x == c).count() == 1
+            {
+                plain.push('.');
+            } else {
+                return Err(DecimalError::Invalid);
+            }
+        }
+        Decimal::parse(&plain)
+    }
+}
+
+/// How a locale writes dates and times.
+#[derive(Clone, Debug)]
+pub struct CalendarSymbols {
+    /// The first day of the week.
+    pub first_weekday: Weekday,
+    /// Short weekday names, Monday first.
+    pub weekdays: [String; 7],
+    /// True when times are written with AM/PM.
+    pub twelve_hour: bool,
+    month_year: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YM>>>,
+    full_date: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YMD>>>,
+}
+
+impl CalendarSymbols {
+    /// The symbols for a BCP 47 locale.
+    pub fn for_locale(tag: &str) -> CalendarSymbols {
+        thread_local!(static CACHE: RefCell<HashMap<String, CalendarSymbols>> = RefCell::new(HashMap::new()));
+        if let Some(s) = CACHE.with(|c| c.borrow().get(tag).cloned()) {
+            return s;
+        }
+        let s = Self::read(tag);
+        CACHE.with(|c| c.borrow_mut().insert(tag.to_owned(), s.clone()));
+        s
+    }
+
+    fn read(tag: &str) -> CalendarSymbols {
+        let loc = locale(tag);
+        let first_weekday = icu_calendar::week::WeekInformation::try_new((&loc).into())
+            .map(|w| Weekday::from_icu(w.first_weekday))
+            .unwrap_or(Weekday::Monday);
+        let names =
+            FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new((&loc).into(), fieldsets::E::short())
+                .ok();
+        let all = [
+            IcuWeekday::Monday,
+            IcuWeekday::Tuesday,
+            IcuWeekday::Wednesday,
+            IcuWeekday::Thursday,
+            IcuWeekday::Friday,
+            IcuWeekday::Saturday,
+            IcuWeekday::Sunday,
+        ];
+        let english = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        let weekdays: [String; 7] = std::array::from_fn(|i| match (&names, all.get(i)) {
+            (Some(f), Some(d)) => f.format(d).to_string(),
+            _ => english.get(i).copied().unwrap_or_default().to_owned(),
+        });
+        let twelve_hour =
+            FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new((&loc).into(), fieldsets::T::hm())
+                .ok()
+                .and_then(|f| {
+                    let t = icu_datetime::input::Time::try_new(13, 0, 0, 0).ok()?;
+                    Some(!f.format(&t).to_string().contains("13"))
+                })
+                .unwrap_or(false);
+        let month_year =
+            FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new((&loc).into(), fieldsets::YM::long())
+                .ok()
+                .map(Rc::new);
+        let full_date =
+            FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new((&loc).into(), fieldsets::YMD::long())
+                .ok()
+                .map(Rc::new);
+        CalendarSymbols { first_weekday, weekdays, twelve_hour, month_year, full_date }
+    }
+
+    /// "November 2026" for a month.
+    pub fn month_year(&self, year: i32, month: u8) -> String {
+        let d = icu_calendar::Date::try_new_gregorian(year, month, 1).ok();
+        match (&self.month_year, d) {
+            (Some(f), Some(d)) => f.format(&d).to_string(),
+            _ => format!("{year}-{month:02}"),
+        }
+    }
+
+    /// "November 17, 2026" for a date.
+    pub fn long_date(&self, date: Date) -> String {
+        let d = icu_calendar::Date::try_new_gregorian(date.year, date.month, date.day).ok();
+        match (&self.full_date, d) {
+            (Some(f), Some(d)) => f.format(&d).to_string(),
+            _ => date.to_string(),
+        }
+    }
+
+    /// The short name of a weekday.
+    pub fn weekday(&self, d: Weekday) -> &str {
+        self.weekdays.get(d.index_from_monday()).map_or("", String::as_str)
+    }
+}
