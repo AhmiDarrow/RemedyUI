@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use remedy_ui_compositor::{Compositor, LayerId};
@@ -178,6 +179,10 @@ impl WindowSpec {
 }
 
 type Build = Box<dyn FnOnce(&Ui, &Window)>;
+/// A background job's result, typed back by its [`Job`].
+type JobResult = Box<dyn std::any::Any + Send>;
+/// What runs on the UI thread with a background job's result.
+type Job = Box<dyn FnOnce(JobResult)>;
 type Setup = Box<dyn FnOnce(&App)>;
 
 enum Cmd {
@@ -214,6 +219,9 @@ struct Shared {
     waker: Option<remedy_ui_host::Waker>,
     in_event: bool,
     on_tray: Option<Rc<dyn Fn(TrayEvent)>>,
+    next_job: u64,
+    jobs: HashMap<u64, Job>,
+    done: Arc<Mutex<Vec<(u64, JobResult)>>>,
     on_launch: Option<Rc<dyn Fn(Vec<String>)>>,
 }
 
@@ -293,6 +301,52 @@ impl App {
     /// Changes the idle timeout, keeping the callback.
     pub fn set_idle_timeout(&self, timeout: Option<Duration>) {
         self.push(Cmd::Idle(timeout, None));
+    }
+
+    /// Runs `work` on a background thread (slow work: key derivation, downloads, file
+    /// reads), then `done` with its result back on the UI thread.
+    pub fn background<T: Send + 'static>(
+        &self,
+        work: impl FnOnce() -> T + Send + 'static,
+        done: impl FnOnce(T) + 'static,
+    ) {
+        let (id, results, waker) = {
+            let mut s = self.0.borrow_mut();
+            s.next_job += 1;
+            let id = s.next_job;
+            s.jobs.insert(
+                id,
+                Box::new(move |any: JobResult| {
+                    if let Ok(v) = any.downcast::<T>() {
+                        done(*v);
+                    }
+                }),
+            );
+            (id, s.done.clone(), s.waker.clone())
+        };
+        let spawned = std::thread::Builder::new().name("remedy-ui background".into()).spawn(move || {
+            let out: JobResult = Box::new(work());
+            results.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((id, out));
+            if let Some(w) = waker {
+                w();
+            }
+        });
+        if spawned.is_err() {
+            self.0.borrow_mut().jobs.remove(&id);
+        }
+    }
+
+    fn finish_background(&self) {
+        let finished = {
+            let s = self.0.borrow();
+            std::mem::take(&mut *s.done.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+        };
+        for (id, value) in finished {
+            let job = self.0.borrow_mut().jobs.remove(&id);
+            if let Some(job) = job {
+                job(value);
+            }
+        }
     }
 
     /// Quits.
@@ -855,6 +909,8 @@ impl remedy_ui_host::App for Runner {
                 inbox.waker = Some(host.waker());
             }
         }
+        // Background work that finished.
+        self.app.finish_background();
         // Launches handed over by later instances.
         let launches = std::mem::take(
             &mut self.inbox.lock().unwrap_or_else(std::sync::PoisonError::into_inner).launches,

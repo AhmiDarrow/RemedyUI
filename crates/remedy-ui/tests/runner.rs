@@ -350,3 +350,29 @@ fn screen_readers_get_the_tree_and_can_click_and_focus() {
     let after = format!("{:?}", host.take_accessibility(id));
     assert!(after.contains(&format!("focus: #{target}")), "focus moved to it: {after}");
 }
+
+#[test]
+fn background_work_returns_to_the_ui_thread() {
+    let result = Rc::new(std::cell::RefCell::new(None));
+    let r2 = result.clone();
+    let ui_thread = std::thread::current().id();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.keep_running(true);
+        app.background(
+            || (std::thread::current().id(), (1..=10u64).product::<u64>()),
+            move |(worker, v)| {
+                assert_ne!(worker, std::thread::current().id(), "the work ran elsewhere");
+                *r2.borrow_mut() = Some((std::thread::current().id(), v));
+            },
+        );
+    });
+    let mut host = HeadlessHost::new();
+    for _ in 0..200 {
+        host.run_frames(&mut runner, 1);
+        if result.borrow().is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(*result.borrow(), Some((ui_thread, 3_628_800)), "done ran on the UI thread with the result");
+}
