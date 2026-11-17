@@ -31,9 +31,11 @@ Nothing is merged as a placeholder: a crate enters the workspace with its first 
 - `remedy-ui-fonts`
 - `remedy-ui-text` layout: fonts and fallback, rich spans, inline objects, wrapping and rewrapping, alignment, bidi runs, hit testing, carets, selection rects, words, visual movement
 
+- glyph rasterization: skrifa hinting at the pixel size, an exact-area coverage rasterizer, grayscale and LCD with the FreeType filter
+- the glyph atlas: shelf-packed pages that grow on demand, upload regions, page eviction under pressure
+
 Still to do:
 
-- glyph rasterization with hinting and the atlas
 - the editing core and secret buffer
 - IME scripts
 - the Arabic shaping reference test, which needs an OFL Arabic fixture font (the Remedy families have no Arabic)
