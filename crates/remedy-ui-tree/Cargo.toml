@@ -1,0 +1,16 @@
+[package]
+name = "remedy-ui-tree"
+description = "RemedyUI element tree: elements, dirty flags and boundaries, event dispatch, hit testing, focus and error boundaries."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
+
+[lints]
+workspace = true

@@ -12,3 +12,11 @@ version = "0.1.0"
 dependencies = [
  "remedy-ui-core",
 ]
+
+[[package]]
+name = "remedy-ui-tree"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-core",
+ "remedy-ui-reactive",
+]
