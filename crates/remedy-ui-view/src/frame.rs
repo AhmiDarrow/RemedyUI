@@ -55,6 +55,7 @@ pub(crate) fn text_style_for(d: &ElData, theme: &remedy_ui_style::Theme) -> reme
 
 fn record(
     d: &ElData,
+    rtl: bool,
     size: Size,
     theme: &remedy_ui_style::Theme,
     engine: &mut remedy_ui_text::TextEngine,
@@ -79,10 +80,18 @@ fn record(
     });
     if let Some(slot) = &d.text {
         let mut slot = slot.borrow_mut();
+        slot.rtl = rtl;
         let p = slot.paragraph(engine, Some(content.width().max(0.0)));
-        glyphs(&mut list, &p, content.min, s.foreground);
+        let x = content.min.x + p.x_offset(content.width());
+        glyphs(&mut list, &p, Point::new(x, content.min.y), s.foreground);
     }
     if let Some(field) = &d.field {
+        let mut f = field.borrow_mut();
+        if f.rtl != rtl {
+            f.rtl = rtl;
+            f.invalidate();
+        }
+        drop(f);
         field.borrow_mut().paint(&mut list, content, s, theme, engine, focused);
     }
     if let Some(painter) = &d.painter {
@@ -97,6 +106,30 @@ fn record(
 
 /// Adds a paragraph's glyph runs at `origin`. Run colors come from the paragraph's spans;
 /// `default` is the element's text color.
+/// What an element tells assistive technology: its own semantics, or what its text or field
+/// implies, plus disabled, click and focus from its state.
+pub(crate) fn composed_semantics(d: &ElData, is_root: bool, focusable: bool) -> Semantics {
+    let mut s = match &d.semantics {
+        Some(s) => s.clone(),
+        None if is_root => Semantics::new(Role::Window),
+        None => match (&d.text, &d.field) {
+            (Some(t), _) => Semantics::new(Role::Label).label(t.borrow().text.as_str()),
+            (None, Some(f)) => f.borrow().semantics(),
+            _ => Semantics::new(Role::Group),
+        },
+    };
+    if d.states.contains(States::DISABLED) {
+        s = s.disabled(true);
+    }
+    if d.click.is_some() && d.semantics.is_none() {
+        s = s.action(remedy_ui_a11y::Action::Click);
+    }
+    if focusable {
+        s = s.action(remedy_ui_a11y::Action::Focus);
+    }
+    s
+}
+
 pub(crate) fn glyphs(list: &mut DisplayList, p: &Paragraph, origin: Point, default: Color) {
     for run in p.glyph_runs() {
         let color = if run.color == Color::BLACK { default } else { run.color };
@@ -289,11 +322,35 @@ impl Ui {
         // Style.
         let theme = i.theme.clone();
         let base = defaults(&theme);
+        // Parents before children: text properties inherit, so a child resolves against its
+        // parent's new style, and a parent whose inherited values changed restyles its
+        // children.
+        let depth = |tree: &remedy_ui_tree::Tree, id: ElementId| {
+            let (mut n, mut cur) = (0usize, tree.parent(id));
+            while let Some(p) = cur {
+                n += 1;
+                cur = tree.parent(p);
+            }
+            n
+        };
+        let mut queue: std::collections::BTreeMap<(usize, u64), ElementId> =
+            std::collections::BTreeMap::new();
         for id in i.tree.take_dirty(Dirty::STYLE) {
+            queue.insert((depth(&i.tree, id), root_key(id)), id);
+        }
+        while let Some(((level, _), id)) = queue.pop_first() {
             let Some(d) = i.els.get(&id) else { continue };
             let key = StyleKey { widget: d.widget, variant: d.variant, states: d.states };
-            let resolved = i.sheet.resolve(&key, &base, &d.local);
+            let inherited = match i.tree.parent(id).and_then(|p| i.els.get(&p)) {
+                Some(parent) => parent.resolved.inherited_by_children(&base),
+                None => base.clone(),
+            };
+            let resolved = i.sheet.resolve(&key, &inherited, &d.local);
             let Some(d) = i.els.get_mut(&id) else { continue };
+            let passes_on = resolved.foreground != d.resolved.foreground
+                || resolved.text_size != d.resolved.text_size
+                || resolved.weight != d.resolved.weight
+                || resolved.mono != d.resolved.mono;
             let text_changed = resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight
                 || resolved.mono != d.resolved.mono
@@ -323,6 +380,11 @@ impl Ui {
             }
             if changed {
                 i.tree.mark(id, Dirty::PAINT);
+            }
+            if passes_on {
+                for c in i.tree.children(id) {
+                    queue.insert((level + 1, root_key(c)), c);
+                }
             }
         }
 
@@ -398,7 +460,8 @@ impl Ui {
         for id in repaint {
             let sz = rects.get(&id).map(|r| r.size()).unwrap_or(Size::ZERO);
             let Some(d) = i.els.get(&id) else { continue };
-            let chunk = record(d, sz, &theme, &mut engine, focused == Some(id));
+            let rtl = i.layout.is_rtl(d.node);
+            let chunk = record(d, rtl, sz, &theme, &mut engine, focused == Some(id));
             if let Some(d) = i.els.get_mut(&id) {
                 d.chunk = Some((sz, Rc::new(chunk)));
             }
@@ -450,24 +513,7 @@ fn sync_semantics(i: &mut Inner, _rects: &HashMap<ElementId, Rect>) {
         // Hidden content leaves the accessibility tree entirely.
         kids.retain(|k| i.els.get(k).is_none_or(|kd| !kd.hidden));
         let bounds = i.tree.bounds(id).unwrap_or(Rect::ZERO);
-        let mut s = match &d.semantics {
-            Some(s) => s.clone(),
-            None if id == root => Semantics::new(Role::Window),
-            None => match (&d.text, &d.field) {
-                (Some(t), _) => Semantics::new(Role::Label).label(t.borrow().text.as_str()),
-                (None, Some(f)) => f.borrow().semantics(),
-                _ => Semantics::new(Role::Group),
-            },
-        };
-        if d.states.contains(States::DISABLED) {
-            s = s.disabled(true);
-        }
-        if d.click.is_some() && d.semantics.is_none() {
-            s = s.action(remedy_ui_a11y::Action::Click);
-        }
-        if i.tree.is_focusable(id) {
-            s = s.action(remedy_ui_a11y::Action::Focus);
-        }
+        let s = composed_semantics(d, id == root, i.tree.is_focusable(id));
         i.a11y.set(root_key(id), s.bounds(bounds));
         let child_keys: Vec<u64> = kids.iter().map(|k| root_key(*k)).collect();
         i.a11y.set_children(root_key(id), &child_keys);

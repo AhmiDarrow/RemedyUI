@@ -28,6 +28,11 @@ pub enum ProblemKind {
         /// The ratio needed (4.5, or 3 for large text).
         needed: f32,
     },
+    /// Pointer handling with no keyboard way to do the same (WCAG 2.1.1): not focusable and
+    /// no [`El::keyboard_alternative`](remedy_ui_view::El::keyboard_alternative).
+    PointerOnly,
+    /// Focusable but with no size: keyboard focus lands on nothing visible.
+    InvisibleFocus,
     /// A control smaller than 24×24 (WCAG 2.2 target size).
     SmallTarget {
         /// Its size.
@@ -54,6 +59,10 @@ impl Problem {
         let at = self.at.map(|l| format!(" ({}:{})", l.file(), l.line())).unwrap_or_default();
         match &self.kind {
             ProblemKind::Unnamed => format!("Control with no accessible name{at}"),
+            ProblemKind::PointerOnly => {
+                format!("Works only with a pointer: make it focusable or name its keyboard alternative{at}")
+            }
+            ProblemKind::InvisibleFocus => format!("Takes keyboard focus but has no size{at}"),
             ProblemKind::LowContrast { ratio, needed } => {
                 format!("Text contrast {ratio:.1}:1, needs {needed:.1}:1{at}")
             }
@@ -96,6 +105,18 @@ fn text_in(el: &El) -> Option<String> {
     None
 }
 
+/// False when the element or an ancestor is hidden.
+fn shown_chain(el: &El) -> bool {
+    let mut cur = el.parent();
+    while let Some(e) = cur {
+        if e.info().is_some_and(|i| i.hidden) {
+            return false;
+        }
+        cur = e.parent();
+    }
+    true
+}
+
 fn backdrop(el: &El, theme_bg: Color) -> Color {
     let mut cur = Some(el.clone());
     while let Some(e) = cur {
@@ -116,10 +137,19 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
     let mut out = Vec::new();
     for (_, el) in walk(ui) {
         let Some(i) = el.info() else { continue };
-        let shown = !i.hidden && i.bounds.is_some_and(|b| b.width() > 0.0 && b.height() > 0.0);
+        let sized = i.bounds.is_some_and(|b| b.width() > 0.0 && b.height() > 0.0);
         let hidden_sem = i.semantics.as_ref().is_some_and(Semantics::is_hidden);
-        if !shown || hidden_sem || i.states.contains(States::DISABLED) {
+        if i.hidden || hidden_sem || i.states.contains(States::DISABLED) || !shown_chain(&el) {
             continue;
+        }
+        if !sized {
+            if i.focusable && i.bounds.is_some() {
+                out.push(Problem { element: i.id, kind: ProblemKind::InvisibleFocus, at: i.created_at });
+            }
+            continue;
+        }
+        if i.pointer && !i.focusable && i.keyboard_alternative.is_none() {
+            out.push(Problem { element: i.id, kind: ProblemKind::PointerOnly, at: i.created_at });
         }
         let interactive = i.clickable
             || (i.focusable
@@ -379,7 +409,7 @@ fn line(ui: &Ui, k: &str, v: String) -> El {
         .gap(unit * 2.0)
         .fill_width()
         .child(w::label(ui, k.to_owned(), "muted").width(110.0))
-        .child(w::label(ui, v, "").grow(1.0))
+        .child(w::label(ui, v, "").data_text().grow(1.0))
 }
 
 fn details(ui: &Ui, i: &ElementInfo) -> El {
@@ -445,6 +475,14 @@ fn details(ui: &Ui, i: &ElementInfo) -> El {
             .join(", "),
         ),
         ("Bindings", i.bindings.to_string()),
+        (
+            "Reads",
+            if i.reads.is_empty() {
+                "nothing reactive".to_owned()
+            } else {
+                i.reads.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n")
+            },
+        ),
     ];
     for (k, v) in rows {
         col = col.child(line(ui, k, v));
@@ -529,7 +567,11 @@ pub fn inspector_panel(ui: &Ui, insp: &Inspector) -> El {
                         start: unit + depth as f32 * unit * 3.0,
                         end: unit,
                     })
-                    .child(w::label(&u3, describe(&info), if info.hidden { "muted" } else { "" }).nowrap())
+                    .child(
+                        w::label(&u3, describe(&info), if info.hidden { "muted" } else { "" })
+                            .data_text()
+                            .nowrap(),
+                    )
                     .on_click(move || i5.select(Some(id)))
                     .semantics(
                         Semantics::new(Role::ListItem).label(describe(&info)).selected(sel == Some(id)),

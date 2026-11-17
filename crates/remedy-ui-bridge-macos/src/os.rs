@@ -96,3 +96,11 @@ pub(crate) fn settings() -> Settings {
         double_click: Duration::from_secs_f64(NSEvent::doubleClickInterval().max(0.0)),
     }
 }
+
+/// Seconds east of UTC at `unix_seconds` in the user's time zone (NSTimeZone, with that
+/// date's daylight-saving rule).
+pub(crate) fn utc_offset(unix_seconds: i64) -> Option<i32> {
+    let date = objc2_foundation::NSDate::dateWithTimeIntervalSince1970(unix_seconds as f64);
+    let zone = objc2_foundation::NSTimeZone::localTimeZone();
+    i32::try_from(zone.secondsFromGMTForDate(&date)).ok()
+}

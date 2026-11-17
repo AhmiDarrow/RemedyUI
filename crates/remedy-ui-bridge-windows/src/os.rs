@@ -242,3 +242,40 @@ pub(crate) fn settings() -> Settings {
         caret_blink,
     }
 }
+
+/// Seconds east of UTC at `unix_seconds` in the user's time zone, with that instant's
+/// daylight-saving rule (Windows' dynamic time zone data, so historical rules apply).
+pub(crate) fn utc_offset(unix_seconds: i64) -> Option<i32> {
+    use windows_sys::Win32::Foundation::{FILETIME, SYSTEMTIME};
+    use windows_sys::Win32::System::Time::{
+        DYNAMIC_TIME_ZONE_INFORMATION, FileTimeToSystemTime, GetDynamicTimeZoneInformation,
+        SystemTimeToFileTime, SystemTimeToTzSpecificLocalTimeEx,
+    };
+    // 100 ns ticks since 1601-01-01.
+    const EPOCH_DIFF: i64 = 11_644_473_600;
+    let ticks = u64::try_from(unix_seconds.checked_add(EPOCH_DIFF)?.checked_mul(10_000_000)?).ok()?;
+    let ft = FILETIME { dwLowDateTime: ticks as u32, dwHighDateTime: (ticks >> 32) as u32 };
+    // SAFETY: plain out-parameters, all initialized before use, with the sizes Windows expects.
+    unsafe {
+        let mut zone: DYNAMIC_TIME_ZONE_INFORMATION = std::mem::zeroed();
+        if GetDynamicTimeZoneInformation(&mut zone) == u32::MAX {
+            return None;
+        }
+        let mut utc: SYSTEMTIME = std::mem::zeroed();
+        if FileTimeToSystemTime(&ft, &mut utc) == 0 {
+            return None;
+        }
+        let mut local: SYSTEMTIME = std::mem::zeroed();
+        if SystemTimeToTzSpecificLocalTimeEx(&zone, &utc, &mut local) == 0 {
+            return None;
+        }
+        let mut lft: FILETIME = std::mem::zeroed();
+        if SystemTimeToFileTime(&local, &mut lft) == 0 {
+            return None;
+        }
+        let local_ticks = (u64::from(lft.dwHighDateTime) << 32) | u64::from(lft.dwLowDateTime);
+        // SYSTEMTIME keeps milliseconds; the difference is whole seconds of offset.
+        let diff = (local_ticks as i64 - ticks as i64) / 10_000_000;
+        i32::try_from(diff).ok()
+    }
+}

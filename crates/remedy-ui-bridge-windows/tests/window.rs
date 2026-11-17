@@ -145,3 +145,19 @@ fn a_real_window_runs_the_whole_host_contract() {
     assert_eq!(probe.tray, Some(Ok(())), "a tray icon was added and removed");
     assert!(probe.destroyed);
 }
+
+#[test]
+fn the_utc_offset_comes_from_the_windows_time_zone() {
+    use remedy_ui_bridge_winit::PlatformHooks;
+    let hooks = remedy_ui_bridge_windows::WindowsHooks::default();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let Some(offset) = hooks.utc_offset(now) else { unreachable!("Windows knows its time zone") };
+    assert!(offset.abs() <= 14 * 3600 && offset % 900 == 0, "{offset}");
+    // Over a year the offset changes at most by the daylight-saving hour.
+    let year: Vec<i32> = (0..12).filter_map(|m| hooks.utc_offset(now + m * 30 * 86_400)).collect();
+    let (lo, hi) = (year.iter().min().copied().unwrap_or(0), year.iter().max().copied().unwrap_or(0));
+    assert!(hi - lo <= 3600, "{year:?}");
+}

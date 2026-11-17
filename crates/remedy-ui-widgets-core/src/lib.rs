@@ -21,6 +21,19 @@
 //!   [`trusted_prompt`], [`lock_screen`]
 //! - Media: [`icon`], [`image`], [`avatar`], [`canvas`]
 
+/// The smallest size, in logical pixels, of anything a pointer can press (WCAG 2.2, 2.5.8
+/// target size): interactive widgets are at least this tall, and icon buttons this wide.
+pub const MIN_TARGET: f32 = 24.0;
+
+/// Keeps `el` at least [`MIN_TARGET`] tall.
+pub(crate) fn min_target(el: El) -> El {
+    el.layout(|l| {
+        l.min_height = remedy_ui_layout::Length::Px(MIN_TARGET);
+    })
+}
+
+use remedy_ui_view::El;
+
 mod actions;
 mod choices;
 mod containers;

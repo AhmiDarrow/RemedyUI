@@ -13,7 +13,14 @@ use crate::overlays::{MenuItem, menu};
 
 fn labeled(ui: &Ui, control: El, text: &str) -> El {
     let gap = ui.theme().spacing.unit * 2.0;
-    ui.el("choice").row().align(Align::Center).gap(gap).child(control).child(crate::text(ui, text.to_owned()))
+    crate::min_target(
+        ui.el("choice")
+            .row()
+            .align(Align::Center)
+            .gap(gap)
+            .child(control)
+            .child(crate::text(ui, text.to_owned())),
+    )
 }
 
 /// A check box with a label. Pressing it (or Space) flips `value`.
@@ -223,9 +230,9 @@ pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected:
 #[track_caller]
 pub fn chip(ui: &Ui, text: impl Into<String>, selected: Signal<bool>) -> El {
     let text = text.into();
-    let c = ui
-        .el("chip")
+    let c = crate::min_target(ui.el("chip"))
         .row()
+        .align(Align::Center)
         .child(ui.el("chip_label").text(remedy_ui_view::RichText::plain(text.clone())).nowrap())
         .on_click(move || selected.update(|v| *v = !*v));
     let c2 = c.clone();

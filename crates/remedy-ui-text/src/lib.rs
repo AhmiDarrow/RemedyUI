@@ -23,6 +23,7 @@
 mod atlas;
 mod editing;
 mod engine;
+mod pseudo;
 mod raster;
 mod rich;
 mod safety;
@@ -43,6 +44,7 @@ pub use engine::{
     Affinity, FontCollection, FontError, GlyphRunInfo, LineInfo, Paragraph, ParagraphOptions,
     PositionedGlyph, RunFont, TextEngine, TextPosition,
 };
+pub use pseudo::Pseudo;
 pub use raster::{Antialias, GlyphImage, GlyphRasterizer, Hinting, SUBPIXEL_BINS, size_64, subpixel_bin};
 pub use rich::{InlineObject, OBJECT_REPLACEMENT, RichText, Span};
 pub use safety::{Reveal, has_hidden_controls, looks_like, reveal_controls, skeleton};

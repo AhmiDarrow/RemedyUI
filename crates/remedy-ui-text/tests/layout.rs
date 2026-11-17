@@ -195,3 +195,47 @@ fn thai_breaks_inside_words_only_with_the_complex_scripts_feature() {
     p.rewrap(Some(w / 4.0));
     assert!(p.lines().len() >= 3, "{} lines", p.lines().len());
 }
+
+#[test]
+fn paragraphs_say_where_they_sit_in_a_wider_box() {
+    let mut e = engine();
+    let o =
+        |align, container, max_width| ParagraphOptions { align, container, max_width, ..Default::default() };
+    let short = RichText::plain("Hi");
+    let p = e.layout(&short, &TextStyle::default(), o(Align::Start, Direction::Ltr, None));
+    assert_eq!(p.x_offset(200.0), 0.0, "start of a left-to-right box");
+    let w = p.width();
+    let p = e.layout(&short, &TextStyle::default(), o(Align::Start, Direction::Rtl, None));
+    assert!((p.x_offset(200.0) - (200.0 - w)).abs() < 0.5, "start of a right-to-left box is its right edge");
+    let p = e.layout(&short, &TextStyle::default(), o(Align::Center, Direction::Ltr, None));
+    assert!((p.x_offset(200.0) - (200.0 - w) / 2.0).abs() < 0.5);
+    let p = e.layout(&short, &TextStyle::default(), o(Align::End, Direction::Ltr, None));
+    assert!((p.x_offset(200.0) - (200.0 - w)).abs() < 0.5);
+    // Wrapped paragraphs were aligned within their wrap width already.
+    let p = e.layout(
+        &RichText::plain(PANGRAM),
+        &TextStyle::default(),
+        o(Align::Start, Direction::Rtl, Some(150.0)),
+    );
+    assert_eq!(p.x_offset(150.0), 0.0);
+    assert!(p.lines().len() > 2);
+    // Auto container: start follows the paragraph's own direction (Hebrew starts at the right).
+    let p = e.layout(&RichText::plain("שלום"), &TextStyle::default(), o(Align::Start, Direction::Auto, None));
+    assert!(p.x_offset(200.0) > 100.0, "{}", p.x_offset(200.0));
+}
+
+#[test]
+fn wrapped_lines_take_their_alignment() {
+    let mut e = engine();
+    let mut lefts = |align| {
+        let o = ParagraphOptions { align, max_width: Some(160.0), ..Default::default() };
+        let p = e.layout(&RichText::plain(PANGRAM), &TextStyle::default(), o);
+        p.lines().iter().map(|l| l.left).collect::<Vec<f32>>()
+    };
+    let start = lefts(Align::Start);
+    assert!(start.iter().all(|x| x.abs() < 0.5), "{start:?}");
+    let center = lefts(Align::Center);
+    assert!(center.iter().any(|x| *x > 2.0), "centered lines move in: {center:?}");
+    let end = lefts(Align::End);
+    assert!(end.iter().zip(&center).all(|(e, c)| e >= c), "end is further right than center: {end:?}");
+}

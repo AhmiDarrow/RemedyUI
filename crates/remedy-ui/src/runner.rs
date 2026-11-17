@@ -50,13 +50,21 @@ impl std::fmt::Debug for AppConfig {
 }
 
 impl AppConfig {
-    /// An app named `name` with the Dark Forest theme, an empty style sheet, the bundled
-    /// Remedy fonts, and [`RendererChoice::Auto`].
+    /// An app named `name` with the bundled Remedy fonts and [`RendererChoice::Auto`],
+    /// styled by the first Remedy palette and the widget sheet (feature `widgets`), or the
+    /// Dark Forest theme with an empty sheet without it.
     pub fn new(name: impl Into<String>) -> Self {
+        #[cfg(feature = "widgets")]
+        let (theme, sheet): (Theme, SheetBuilder) = (
+            remedy_ui_themes::PALETTES.first().map_or_else(Theme::dark_forest, remedy_ui_themes::theme),
+            Rc::new(remedy_ui_themes::sheet),
+        );
+        #[cfg(not(feature = "widgets"))]
+        let (theme, sheet): (Theme, SheetBuilder) = (Theme::dark_forest(), Rc::new(|_| StyleSheet::new()));
         AppConfig {
             name: name.into(),
-            theme: Theme::dark_forest(),
-            sheet: Rc::new(|_| StyleSheet::new()),
+            theme,
+            sheet,
             fonts: Rc::new(|| {
                 #[cfg(feature = "system-fonts")]
                 let mut f = FontCollection::with_system_fonts();
@@ -299,6 +307,7 @@ struct Shared {
     on_launch: Option<Rc<dyn Fn(Vec<String>)>>,
     on_activity: Option<Rc<dyn Fn()>>,
     renderers: HashMap<u64, RendererKind>,
+    titles: HashMap<u64, String>,
     on_geometry: HashMap<u64, Rc<dyn Fn(Point, Size)>>,
     on_closed: HashMap<u64, Vec<Box<dyn FnOnce()>>>,
 }
@@ -349,6 +358,7 @@ impl App {
         };
         let visible = spec.options.visible;
         self.0.borrow_mut().visible.insert(key, visible);
+        self.0.borrow_mut().titles.insert(key, spec.options.title.clone());
         self.push(Cmd::Open(key, spec, Box::new(build)));
         Window { key, app: self.clone() }
     }
@@ -532,7 +542,14 @@ impl Window {
 
     /// Changes the title.
     pub fn set_title(&self, title: impl Into<String>) {
-        self.app.push(Cmd::Title(self.key, title.into()));
+        let title = title.into();
+        self.app.0.borrow_mut().titles.insert(self.key, title.clone());
+        self.app.push(Cmd::Title(self.key, title));
+    }
+
+    /// The window's title (empty once it closed).
+    pub fn title(&self) -> String {
+        self.app.0.borrow().titles.get(&self.key).cloned().unwrap_or_default()
     }
 
     /// Starts a user move (from custom chrome, on a pointer press).
@@ -578,7 +595,11 @@ impl Window {
         let sheet = self.app.0.borrow().sheet.clone()?;
         let insp = remedy_ui_devtools::Inspector::attach(&target, move |t| sheet(t));
         let i2 = insp.clone();
-        let win = self.app.open(WindowSpec::new("RemedyUI Inspector").size(480.0, 760.0), move |ui, _| {
+        let title = match self.title() {
+            t if t.is_empty() => "Inspector".to_owned(),
+            t => format!("Inspector · {t}"),
+        };
+        let win = self.app.open(WindowSpec::new(title).size(480.0, 760.0), move |ui, _| {
             let (theme, sheet) = remedy_ui_devtools::tool_style();
             ui.set_theme(theme, sheet);
             ui.root().child(remedy_ui_devtools::inspector_panel(ui, &i2));
@@ -637,6 +658,8 @@ pub struct Runner {
     idle: Option<(remedy_ui_secure::IdleTimer, Rc<dyn Fn()>)>,
     activity_reported: Option<Duration>,
     idle_timer: Option<TimerId>,
+    /// Fires at the next local midnight, so dates roll over in idle windows.
+    midnight_timer: Option<TimerId>,
     secret: Option<(remedy_ui_secure::SensitiveCopy, TimerId)>,
     inbox: crate::instance::SharedInbox,
     #[cfg(feature = "gpu")]
@@ -679,6 +702,7 @@ impl Runner {
             idle: None,
             activity_reported: None,
             idle_timer: None,
+            midnight_timer: None,
             secret: None,
             inbox: Default::default(),
             #[cfg(feature = "gpu")]
@@ -741,6 +765,7 @@ impl Runner {
                 );
                 ui.set_platform(self.settings.platform);
                 ui.set_locale(self.settings.locale.clone());
+                ui.set_local_time(host.local_time());
                 ui.set_reduced_motion(self.settings.reduced_motion);
                 self.app.0.borrow_mut().uis.insert(key, ui.clone());
                 self.by_host.insert(id, key);
@@ -937,6 +962,14 @@ impl Runner {
 
     fn frame(&mut self, host: &mut dyn Host, key: u64, at: Duration) {
         let bg = self.config.theme.colors.bg;
+        let local = host.local_time();
+        if let Some(w) = self.wins.get(&key) {
+            w.ui.set_local_time(local);
+        }
+        if self.midnight_timer.is_none() {
+            self.midnight_timer =
+                Some(host.set_timer(host.now() + Duration::from_secs(local.until_midnight())));
+        }
         #[cfg(feature = "gpu")]
         let renderer = self.config.renderer;
         let Some(w) = self.wins.get_mut(&key) else { return };
@@ -1239,6 +1272,7 @@ impl remedy_ui_host::App for Runner {
                         s.visible.remove(&key);
                         s.on_geometry.remove(&key);
                         s.renderers.remove(&key);
+                        s.titles.remove(&key);
                         s.on_closed.remove(&key).unwrap_or_default()
                     };
                     for f in closed {
@@ -1258,6 +1292,15 @@ impl remedy_ui_host::App for Runner {
                 if self.save_timer == Some(id) {
                     self.save_timer = None;
                     let _ = self.geometry.save();
+                } else if self.midnight_timer == Some(id) {
+                    // A new day: every window's dates move on, and the next midnight is set.
+                    let local = host.local_time();
+                    for w in self.wins.values() {
+                        w.ui.set_local_time(local);
+                        host.request_frame(w.host);
+                    }
+                    self.midnight_timer =
+                        Some(host.set_timer(host.now() + Duration::from_secs(local.until_midnight())));
                 } else if self.idle_timer == Some(id) {
                     self.idle_timer = None;
                     let now = host.now();

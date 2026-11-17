@@ -399,3 +399,55 @@ fn painters_repaint_when_the_signals_they_read_change() {
     let _ = ui.frame(size, 1.0);
     assert_eq!(runs.get(), 2, "the read signal repainted it");
 }
+
+#[test]
+fn elements_report_the_signals_their_bindings_and_painters_read() {
+    let ui = ui();
+    let name = Signal::new(String::from("Ada"));
+    let tint = Signal::new(Color::BLACK);
+    let unread = Signal::new(0u32);
+    let el = ui.el("label").text_dyn(move || name.get()).paint(move |_| {
+        let _ = tint.get();
+    });
+    let _ = unread;
+    ui.root().child(el.clone());
+    let _ = ui.frame(Size::new(100.0, 100.0), 1.0);
+    let reads = el.info().map(|i| i.reads).unwrap_or_default();
+    assert_eq!(reads.len(), 2, "{reads:?}");
+    assert!(reads.iter().all(|s| s.created_at.file().ends_with("view.rs")), "{reads:?}");
+    assert!(reads.iter().all(|s| s.kind == remedy_ui_reactive::SourceKind::Signal));
+    assert!(reads.iter().all(|s| s.to_string().starts_with("signal at ")));
+}
+
+#[test]
+fn pseudo_locales_lengthen_app_text_but_not_typed_text() {
+    let ui = ui();
+    let label = ui.el("label").text(remedy_ui_view::RichText::plain("Save changes")).nowrap();
+    let field = ui.text_field("text_input", FieldKind::Single);
+    field.set_value("typed by a person");
+    ui.root().child(ui.el("box").row().child(label.clone())).child(field.el());
+    let size = Size::new(600.0, 200.0);
+    let _ = ui.frame(size, 1.0);
+    let plain = label.bounds().map(|b| b.width()).unwrap_or(0.0);
+    ui.set_locale("en-XA");
+    let _ = ui.frame(size, 1.0);
+    let long = label.bounds().map(|b| b.width()).unwrap_or(0.0);
+    assert!(long > plain * 1.3, "{plain} -> {long}");
+    assert_eq!(field.value(), "typed by a person", "what people type is never rewritten");
+    ui.set_locale("en-US");
+    let _ = ui.frame(size, 1.0);
+    let back = label.bounds().map(|b| b.width()).unwrap_or(0.0);
+    assert!((back - plain).abs() < 0.5, "{plain} vs {back}");
+}
+
+#[test]
+fn data_text_is_left_alone_by_pseudo_locales() {
+    let ui = ui();
+    let name = ui.el("label").text(remedy_ui_view::RichText::plain("Ada Lovelace")).nowrap().data_text();
+    let app = ui.el("label").text(remedy_ui_view::RichText::plain("Ada Lovelace")).nowrap();
+    ui.root().child(ui.el("box").row().child(name.clone())).child(ui.el("box").row().child(app.clone()));
+    ui.set_locale("en-XA");
+    let _ = ui.frame(Size::new(600.0, 200.0), 1.0);
+    let w = |e: &remedy_ui_view::El| e.bounds().map(|b| b.width()).unwrap_or(0.0);
+    assert!(w(&app) > w(&name) * 1.3, "{} vs {}", w(&app), w(&name));
+}

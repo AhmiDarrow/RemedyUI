@@ -117,9 +117,24 @@ struct Rule {
 pub struct StyleSheet {
     rules: Vec<Rule>,
     version: u64,
-    cache: HashMap<StyleKey, ResolvedStyle>,
+    cache: HashMap<StyleKey, StylePatch>,
     hits: u64,
     misses: u64,
+}
+
+impl ResolvedStyle {
+    /// The defaults for a child of an element styled `self`: text properties (color, size,
+    /// weight, monospace) are inherited, as in CSS; box properties (background, border,
+    /// radius, padding, opacity) start fresh from `base`.
+    pub fn inherited_by_children(&self, base: &StylePatch) -> StylePatch {
+        StylePatch {
+            foreground: Some(self.foreground),
+            text_size: Some(self.text_size),
+            weight: Some(self.weight),
+            mono: Some(self.mono),
+            ..base.clone()
+        }
+    }
 }
 
 impl StyleSheet {
@@ -153,13 +168,15 @@ impl StyleSheet {
         self.version
     }
 
-    /// The style for `key`, starting from `defaults` (the widget's own) and ending with
-    /// `local` (properties set on the element).
+    /// The style for `key`, starting from `defaults` (what the element inherits and the
+    /// engine's defaults), then the sheet's rules for the key, then `local` (properties set on
+    /// the element). The rules' combined patch is cached per key, so elements with different
+    /// inherited values share it.
     pub fn resolve(&mut self, key: &StyleKey, defaults: &StylePatch, local: &StylePatch) -> ResolvedStyle {
-        let themed = match self.cache.get(key) {
-            Some(r) => {
+        let rules = match self.cache.get(key) {
+            Some(p) => {
                 self.hits += 1;
-                r.clone()
+                p.clone()
             }
             None => {
                 self.misses += 1;
@@ -173,28 +190,12 @@ impl StyleSheet {
                 // Fewer required states first, so more specific rules apply last; stable sort
                 // keeps declaration order among equals.
                 matching.sort_by_key(|r| r.states.bits().count_ones() + u32::from(r.variant.is_some()));
-                let patch = matching.iter().fold(defaults.clone(), |acc, r| acc.merge(&r.patch));
-                let resolved = ResolvedStyle::from_patch(&patch);
-                self.cache.insert(key.clone(), resolved.clone());
-                resolved
+                let patch = matching.iter().fold(StylePatch::default(), |acc, r| acc.merge(&r.patch));
+                self.cache.insert(key.clone(), patch.clone());
+                patch
             }
         };
-        if *local == StylePatch::default() {
-            return themed;
-        }
-        let base = StylePatch {
-            background: Some(themed.background),
-            foreground: Some(themed.foreground),
-            border: Some(themed.border),
-            border_width: Some(themed.border_width),
-            radius: Some(themed.radius),
-            padding: Some(themed.padding),
-            text_size: Some(themed.text_size),
-            weight: Some(themed.weight),
-            opacity: Some(themed.opacity),
-            mono: Some(themed.mono),
-        };
-        ResolvedStyle::from_patch(&base.merge(local))
+        ResolvedStyle::from_patch(&defaults.merge(&rules).merge(local))
     }
 
     /// (cache hits, cache misses), for tests and the performance overlay.

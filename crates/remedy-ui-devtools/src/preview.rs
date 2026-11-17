@@ -320,14 +320,15 @@ impl std::fmt::Display for GoldenError {
 /// Pixel channels may differ by this much (antialiasing across platforms' float math).
 pub const GOLDEN_TOLERANCE: u8 = 8;
 
-/// Checks every variation of `preview` against `dir/<name>-<variation>.png`. A missing
-/// image is written and reported; with `REMEDY_UPDATE_GOLDEN=1` every image is rewritten
+/// Checks every variation of `preview` against `dir/<name>-<variation>.png`. Missing
+/// images are written and reported (all of them in one run); with `REMEDY_UPDATE_GOLDEN=1` every image is rewritten
 /// and the check passes.
 pub fn check_golden(preview: &Preview, dir: &Path) -> Result<(), GoldenError> {
     let update = std::env::var_os("REMEDY_UPDATE_GOLDEN").is_some_and(|v| v == "1");
     std::fs::create_dir_all(dir).map_err(|e| GoldenError::Io(e.to_string()))?;
     let safe: String =
         preview.name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect();
+    let mut first: Option<GoldenError> = None;
     for v in preview.variations() {
         let shot = preview.render(&v);
         let path = dir.join(format!("{safe}-{}.png", v.tag()));
@@ -339,19 +340,26 @@ pub fn check_golden(preview: &Preview, dir: &Path) -> Result<(), GoldenError> {
             write(&path, &shot)?;
             continue;
         }
+        // Every variation is checked, so one run writes every missing image and every
+        // differing rendering; the first failure is reported.
         let Ok(bytes) = std::fs::read(&path) else {
             write(&path, &shot)?;
-            return Err(GoldenError::Missing(path));
+            first.get_or_insert(GoldenError::Missing(path));
+            continue;
         };
         let golden = Snapshot::from_png(&bytes).map_err(GoldenError::Io)?;
         let pixels = shot.diff(&golden, GOLDEN_TOLERANCE);
         if pixels > 0 {
             let actual = path.with_extension("actual.png");
             write(&actual, &shot)?;
-            return Err(GoldenError::Differs { golden: path, actual, pixels });
+            let differs = GoldenError::Differs { golden: path, actual, pixels };
+            // A difference matters more than a missing image.
+            if !matches!(first, Some(GoldenError::Differs { .. })) {
+                first = Some(differs);
+            }
         }
     }
-    Ok(())
+    first.map_or(Ok(()), Err)
 }
 
 /// Every preview's variations side by side, each captioned.

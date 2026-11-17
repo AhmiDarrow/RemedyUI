@@ -333,6 +333,11 @@ impl Effect {
         Effect { rt, id }
     }
 
+    /// The signals and memos it read the last time it ran.
+    pub fn sources(&self) -> Vec<Source> {
+        on_rt(self.rt, |rt| Ok(rt.sources(self.id))).unwrap_or_default()
+    }
+
     /// True while the effect exists.
     pub fn is_alive(&self) -> bool {
         on_rt(self.rt, |rt| Ok(rt.exists(self.id))).unwrap_or(false)
@@ -371,6 +376,11 @@ impl Reaction {
         on_rt(self.rt, |rt| Ok(rt.track_reaction(self.id, f)))
     }
 
+    /// The signals and memos it read the last time it tracked.
+    pub fn sources(&self) -> Vec<Source> {
+        on_rt(self.rt, |rt| Ok(rt.sources(self.id))).unwrap_or_default()
+    }
+
     /// True while the reaction exists.
     pub fn is_alive(&self) -> bool {
         on_rt(self.rt, |rt| Ok(rt.exists(self.id))).unwrap_or(false)
@@ -382,6 +392,34 @@ impl Reaction {
             rt.dispose(self.id);
             Ok(())
         });
+    }
+}
+
+/// What a source is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SourceKind {
+    /// A [`Signal`].
+    Signal,
+    /// A [`Memo`].
+    Memo,
+}
+
+/// A signal or memo something read: for inspectors that show why work re-ran.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Source {
+    /// Signal or memo.
+    pub kind: SourceKind,
+    /// Where it was created.
+    pub created_at: &'static Location<'static>,
+}
+
+impl std::fmt::Display for Source {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let k = match self.kind {
+            SourceKind::Signal => "signal",
+            SourceKind::Memo => "memo",
+        };
+        write!(f, "{k} at {}:{}", self.created_at.file(), self.created_at.line())
     }
 }
 

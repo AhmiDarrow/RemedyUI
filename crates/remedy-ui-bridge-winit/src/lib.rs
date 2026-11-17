@@ -36,6 +36,9 @@ pub trait PlatformHooks: 'static {
     fn platform(&self) -> Platform;
     /// System settings, read from the OS.
     fn settings(&mut self) -> SystemSettings;
+    /// Seconds east of UTC at `unix_seconds` in the user's time zone, or `None` when the
+    /// platform cannot say (the host then uses UTC).
+    fn utc_offset(&self, unix_seconds: i64) -> Option<i32>;
     /// The clipboard's text.
     fn clipboard_text(&mut self) -> Result<Option<String>, Unsupported>;
     /// Writes text to the clipboard; `sensitive` keeps it out of history and sync.
@@ -165,6 +168,17 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
     fn settings(&self) -> SystemSettings {
         // Read from the platform at start and again on every change notification.
         self.state.settings.clone()
+    }
+
+    fn local_time(&self) -> remedy_ui_host::LocalTime {
+        let unix_seconds = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            Ok(d) => d.as_secs() as i64,
+            Err(e) => -(e.duration().as_secs() as i64),
+        };
+        remedy_ui_host::LocalTime {
+            unix_seconds,
+            utc_offset: self.hooks.utc_offset(unix_seconds).unwrap_or(0),
+        }
     }
 
     fn create_window(&mut self, options: &WindowOptions) -> Result<WindowId, Unsupported> {

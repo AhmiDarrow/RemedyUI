@@ -14,6 +14,10 @@
 //! crate is empty.
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+#[allow(unsafe_code)]
+mod os;
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod services;
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
@@ -241,6 +245,10 @@ mod linux {
 
         fn take_events(&mut self) -> Vec<HostEvent> {
             self.tray.take_events().into_iter().map(HostEvent::Tray).collect()
+        }
+
+        fn utc_offset(&self, unix_seconds: i64) -> Option<i32> {
+            crate::os::utc_offset(unix_seconds)
         }
 
         fn file_dialog(

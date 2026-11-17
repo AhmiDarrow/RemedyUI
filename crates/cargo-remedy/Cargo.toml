@@ -1,0 +1,23 @@
+[package]
+name = "cargo-remedy"
+description = "The RemedyUI command: `cargo remedy new` creates an app from a template, `cargo remedy run` runs it with devtools (and rebuilds on change with --watch), `cargo remedy package` builds signed Windows installers and portable zips."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "cargo-remedy"
+path = "src/main.rs"
+
+[dependencies]
+minisign = "=0.10.0"
+png = "=0.18.1"
+serde_json = "=1.0.154"
+toml = "=1.2.1"
+zip = { version = "=9.6.1", default-features = false, features = ["deflate"] }
+
+[lints]
+workspace = true

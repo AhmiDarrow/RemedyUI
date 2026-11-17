@@ -230,6 +230,11 @@ impl LayoutTree {
             .map_err(err)
     }
 
+    /// True when the node lays out right to left (its own or inherited direction).
+    pub fn is_rtl(&self, node: LayoutNode) -> bool {
+        self.styles.get(&node.0).is_some_and(|(_, rtl)| *rtl)
+    }
+
     /// The node's box relative to its parent's top-left, in logical pixels.
     pub fn rect(&self, node: LayoutNode) -> Option<Rect> {
         let l = self.taffy.layout(node.0).ok()?;

@@ -69,7 +69,8 @@ pub fn sheet(t: &Theme) -> StyleSheet {
     );
 
     // Text.
-    rule("label", None, States::NONE, StylePatch { foreground: Some(d.text), ..Default::default() });
+    // Plain labels and headings inherit their text color (white on a primary button, the
+    // window's text color elsewhere); variants that mean something set their own.
     rule(
         "label",
         Some("muted"),
@@ -102,34 +103,19 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         "heading",
         Some("1"),
         States::NONE,
-        StylePatch {
-            foreground: Some(d.text),
-            text_size: Some(t.type_scale.title + 6.0),
-            weight: Some(700.0),
-            ..Default::default()
-        },
+        StylePatch { text_size: Some(t.type_scale.title + 6.0), weight: Some(700.0), ..Default::default() },
     );
     rule(
         "heading",
         Some("2"),
         States::NONE,
-        StylePatch {
-            foreground: Some(d.text),
-            text_size: Some(t.type_scale.title),
-            weight: Some(650.0),
-            ..Default::default()
-        },
+        StylePatch { text_size: Some(t.type_scale.title), weight: Some(650.0), ..Default::default() },
     );
     rule(
         "heading",
         Some("3"),
         States::NONE,
-        StylePatch {
-            foreground: Some(d.text),
-            text_size: Some(t.type_scale.body + 2.0),
-            weight: Some(600.0),
-            ..Default::default()
-        },
+        StylePatch { text_size: Some(t.type_scale.body + 2.0), weight: Some(600.0), ..Default::default() },
     );
 
     // Buttons.
