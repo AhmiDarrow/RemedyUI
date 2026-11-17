@@ -36,10 +36,10 @@ text + spans ─▶ itemize ─▶ shape ─▶ break lines ─▶ position ─�
 ## Fonts
 
 - **The family registry.** A family is a list of faces (weights, widths, styles, variable axes) plus a fallback chain. Apps register their own families from bytes or files. The Remedy families come as a crate (`remedy-ui-fonts`), each family a feature, so an app that never uses AhmiPixel does not carry it.
-- **System fonts are opt-in** per family as a last fallback: the platform's emoji font, or CJK fonts the app does not bundle. They are looked up through the bridge (DirectWrite, Core Text, fontconfig, Android `FontMatcher`).
+- **System fonts are opt-in** per family as a last fallback: the platform's emoji font, or CJK fonts the app does not bundle. They are found by `fontique`, inside the text crate, which reads each platform's font list; on RemedyOS the bridge supplies the font list.
 - **Variable fonts.** Optical size follows the pixel size automatically. Weight and width are continuous, so an animation between weights is smooth.
 - **Color fonts.** COLRv1 is painted with RemedyUI's own gradients and clips. COLRv0, CBDT and sbix are drawn into the color atlas.
-- **Loading.** Fonts are memory-mapped and parsed per face on first use. A font from an untrusted source (a theme, a user file, a message attachment) is parsed by `read-fonts` only, which is fuzzed and bounds-checked. A face that fails to parse is skipped in fallback, with a log line, never a crash.
+- **Loading.** Bundled fonts are static bytes in the binary; user and system fonts are read into memory when first used. Each face is parsed on first use. A font from an untrusted source (a theme, a user file, a message attachment) is parsed by `read-fonts` only, which is fuzzed and bounds-checked. A face that fails to parse is skipped in fallback, with a log line, never a crash.
 
 ## Sharp text
 
@@ -78,7 +78,7 @@ text + spans ─▶ itemize ─▶ shape ─▶ break lines ─▶ position ─�
   - In every case, preedit text is drawn inline with the platform's underline styles.
 - **Rich editing.** `RichEditor` edits `RichText`. It handles span toggles (bold and the rest), links, lists, quotes, code, and inline objects as atomic characters. Formats plug in through a serializer trait: Markdown for FreeSpeak, an app's own format for notes. Paste is sanitized: HTML comes in as allowed spans only and never as markup that runs.
 - **Spell checking** (`services-spell`) underlines misspellings using the platform checker and offers suggestions and "add to dictionary" in the context menu. It checks only text the user typed, never passwords, and only on the device.
-- **Password fields** are masked, with optional reveal. Their buffers are zeroed on change and drop, never exposed as text to accessibility or automation, never copied by the engine, and excluded from undo history and IME learning where the platform allows (`IS_PRIVATE`, `kTISPropertyInputSourceIsASCIICapable`-class hints).
+- **Password fields** are masked, with optional reveal. Their buffers are zeroed on change and drop, never exposed as text to accessibility or automation, never copied by the engine, and excluded from undo history and IME learning where the platform allows: Windows `InputScope` password scope, Android `IME_FLAG_NO_PERSONALIZED_LEARNING` with a password input type, macOS secure event input.
 
 ## Robustness and attacks through text
 

@@ -20,7 +20,7 @@ bridge event ─▶ coalesce (keep history) ─▶ hit test ─▶ capture phase
   - It respects transforms, clips, rounded corners and `hit_region`s from canvases.
   - Elements can be marked `pointer_events(None)` (click-through) or `Bounds` (the whole box, ignoring transparent pixels).
 - **Pointer capture.** A press captures the pointer to its target until release, so drags work outside the element and outside the window where the platform allows.
-- **Passive by default.** Handlers do not block scrolling unless they are declared `prevents_scroll`. Scroll input can therefore go straight to the compositor (see [01](01-threads-and-frames.md)).
+- **Passive by default.** Handlers do not block scrolling unless they declare `prevents_scroll()`. Scroll input can therefore go straight to the compositor (see [01](01-threads-and-frames.md)).
 
 ## Gestures
 

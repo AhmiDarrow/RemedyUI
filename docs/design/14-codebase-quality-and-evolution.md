@@ -15,7 +15,7 @@ RemedyUI is meant to carry every Remedy app for years. The codebase has to stay 
 |---|---|
 | Formatting | `rustfmt` with the repo config; CI rejects unformatted code |
 | Lints | `clippy` with `-D warnings`, plus `unwrap_used`, `expect_used`, `indexing_slicing`, `panic` and `arithmetic_side_effects` denied in engine crates outside tests; `missing_docs` denied in public crates |
-| Unsafe | Forbidden outside the GPU and bridge `os`/`ffi` modules; every `unsafe` block has a `// SAFETY:` comment; changes to those modules need a second review |
+| Unsafe | `forbid` in every crate except the bridges and `render-gpu`, which `deny` it at the root and `allow` it only on their `os`/`ffi` module (CI checks no other allow exists); every `unsafe` block has a `// SAFETY:` comment; changes to those modules need a second review |
 | Errors | `thiserror`-style typed errors per crate; no `Box<dyn Error>` in public APIs; errors say what failed and with what input (never content), and how to fix it when known |
 | Logging | `tracing` with structured fields; no text content, input or clipboard data ([08](08-security-and-privacy.md)) |
 | Names | Full words (`layout`, not `lyt`); one name per concept across crates (it is "element" everywhere, never "node" in one crate and "widget" in another, except where `Widget` means a built-in component) |

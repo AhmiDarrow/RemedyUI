@@ -1,121 +1,138 @@
 # RemedyUI roadmap
 
-Each milestone ends with something real running and tested, and from M4 on, with a Remedy app moved onto the engine. Apps go smallest first, so each one proves a new part of the engine before the large ones depend on it ([APPS.md](APPS.md)).
+Each milestone ends with something real running and tested. From M5 on, each also ends with a Remedy app moved onto the engine. Apps go smallest first, so each one proves a new part of the engine before the large ones depend on it. Every pack an app needs lands in that app's milestone or earlier. This file is the source of truth for milestone numbers; [APPS.md](APPS.md) refers to it.
 
-Nothing is merged as a placeholder. A crate enters the workspace with its first real code and tests. Every milestone is judged by repeat runs of its scenario suites, its benchmarks against their targets, and its fuzzers.
+Nothing is merged as a placeholder: a crate enters the workspace with its first real code and tests. Each milestone is judged by repeat runs of its scenario suites, its benchmarks against their targets, and its fuzzers.
 
 ## M1. Foundations
 
-- `core`, `reactive`, `tree`, and the first cut of `test` (the headless runner with a fake clock and scripted input)
-- Glitch-free signals, memos, effects, stores, `SignalVec`, the `Waker`, scopes and disposal
-- Element arena, dirty flags, event dispatch, focus, error boundaries
-- Workspace rules in CI: layer graph check, lints, `cargo deny` / `audit` / `vet`, formatting, docs
+**Crates:** `core`, `reactive`, `tree`, and the first cut of `test` (the headless runner with a fake clock and scripted input).
+
+**Contents:**
+- glitch-free signals, memos, effects, scopes and disposal
+- stores and `SignalVec`
+- the `Waker`
+- the element arena, dirty flags, event dispatch, focus and error boundaries
+- workspace rules in CI: lints, formatting, docs, `cargo deny`, `audit` and `vet`, and the layer-graph check
 
 **Done when:**
-- Dirty counters prove that only dependents of a changed signal update.
-- An idle runtime has zero wakeups.
-- Posts from other threads are batched into one frame.
-- A panicking handler is contained by its boundary.
-- The CI rules reject an upward dependency.
+- dirty counters prove that only the dependents of a changed signal update
+- an idle runtime does no work
+- posts from other threads are batched into one frame
+- a panicking handler is contained by its boundary
+- the CI rules reject an upward dependency
 
 ## M2. Text
 
-- `text`: font registry and fallback, itemize, shape, break, position; hinting and LCD rasterization; atlases; rich paragraphs with inline objects; selection; the editing core with undo; `secret_input` storage rules
-- Windows TSF as the first real IME (headless IME scripts for the rest)
+**Crates:** `text` and `fonts` (the Remedy families, for tests and apps).
+
+**Contents:**
+- itemize, shape, break and position
+- hinting and LCD rasterization, and the atlases' CPU side
+- rich paragraphs with inline objects
+- selection, and the editing core with undo and the zeroizing secret buffer
+- IME through the headless runner's IME scripts
 
 **Done when:**
-- Mixed Latin, Arabic, Hebrew and CJK paragraphs lay out to match reference shapes.
-- Hinted Remedy Sans UI glyphs match FreeType within tolerance.
-- Selection spans paragraphs.
-- Zalgo and bidi-spoofing cases stay within frame time and show visibly.
-- A secret buffer is verified zeroed after drop.
+- Latin, Arabic, Hebrew and CJK paragraphs lay out to match reference shapes
+- hinted Remedy Sans UI glyphs match FreeType within tolerance
+- selection spans paragraphs
+- Zalgo and bidi-spoofing cases stay within frame time and render visibly
+- a secret buffer is verified zeroed after drop
 
-## M3. Rendering and the compositor
+## M3. Layout, style, input and semantics
 
-- `paint`, `compositor`, `render-gpu`, `render-cpu`; `bridge-windows` and `bridge-headless`
-- Paint chunks, layerization, tiles, commit, compositor-side scrolling and animation, damage-only presenting
-- Pipeline cache, backend self-test and ladder, device-loss recovery
+**Crates:** `layout` (taffy behind RemedyUI types, pixel snapping, virtualization with anchoring), `style` (tokens, derived tokens, states, contrast helpers), `input` (event model, hit testing, gesture arena, scroll physics, focus, commands), `a11y` (semantics tree and incremental AccessKit updates), and `motion` (frame clock, transitions, springs). All of it is tested headless.
 
 **Done when:**
-- Golden images match between the GPU and CPU renderers.
-- A forced device loss recovers with no app code.
-- Scrolling stays at the display's rate while the UI thread is artificially stalled.
-- An unchanged frame presents nothing.
-- No shader compiles after start-up in a recorded session.
+- layout snapshots match references
+- a virtual list keeps its anchor through inserts above it
+- the gesture arena resolves nested pans
+- the semantics tree passes AccessKit's schema checks for test scenes
 
-## M4. A first real app: SecretSticky
+## M4. Rendering, the compositor and Windows
 
-- `layout` (with virtualization), `style`, `input` (gestures, focus, commands), `motion` (frame clock, transitions, springs)
-- `widgets-core`, `widgets-forms`
-- `remedy-ui-themes` (the shared Remedy theme set), `remedy-ui-fonts`
-- `services-desktop` (tray, single instance, dialogs)
-- The `secure` module: idle lock, sensitive clipboard, capture protection
-- `cargo remedy new/run`, previews, inspector v1
+**Crates:** `paint`, `compositor`, `render-gpu`, `render-cpu`, `bridge-windows` (with TSF), `bridge-headless`.
 
-**Done when:**
-- SecretSticky runs on RemedyUI on Windows with all its features: many frameless always-on-top notes with persisted geometry, a tray-hidden manager, the unlock screen, idle lock and clipboard clear.
-- It is at or under the `app` footprint targets and passes the accessibility checks.
-
-## M5. Data apps: SecretFolder and Hearth
-
-- `widgets-nav`, `widgets-data`, `media-image`, `media-svg`
-- OS drag and drop in and out, enter/exit and list transitions
-- `bridge-macos`, `bridge-wayland`, `bridge-x11`
+**Contents:**
+- paint chunks, layers, tiles and the commit
+- compositor-side scrolling and animation
+- damage-only presenting
+- the start-up pipeline set, the backend ladder and device-loss recovery
 
 **Done when:**
-- SecretFolder and Hearth run on RemedyUI with their full feature sets.
-- The 50,000-file explorer scene meets its frame budget.
-- Both apps also build and run on macOS and Linux with no app changes.
+- golden images match between the GPU and CPU renderers
+- a forced device loss recovers with no app code
+- scrolling keeps the display's rate while the UI thread is artificially stalled
+- an unchanged frame presents nothing
+- no shader compiles after start-up in a recorded session
 
-## M6. FreeSpeak
+## M5. First app: SecretSticky
 
-- Chat-grade virtual lists with anchoring and sticky headers
-- `doc-rich` (Markdown, `RichEditor`, find)
-- `media-anim`, `media-video`, `media-isolated`
-- `services-spell`, `services-i18n`
+**Crates:** `widgets-core`, `widgets-forms`, `themes`, `secure` (idle lock, sensitive clipboard, capture protection), `services-desktop` (tray, single instance, dialogs), `services-update`, `devtools` v1 (inspector, previews), and `cargo-remedy` (`new`, `run`, `package` for Windows).
+
+**Done when:**
+- SecretSticky runs on RemedyUI on Windows with all its features: many frameless always-on-top notes with persisted geometry, a manager hidden to the tray, the unlock screen, idle lock, clipboard clear and auto-update
+- it is within the `app` footprint targets and passes the accessibility checks
+
+## M6. Data apps: SecretFolder and Hearth
+
+**Crates:** `widgets-nav`, `widgets-data`, `media-image`, `media-svg`, `services-i18n`, plus OS drag and drop in and out. Also `bridge-macos`, `bridge-wayland` and `bridge-x11`.
+
+**Done when:**
+- SecretFolder and Hearth run on RemedyUI with their full feature sets
+- the 50,000-file explorer scene meets its frame budget
+- both apps also run on macOS and Linux with no app changes
+
+## M7. FreeSpeak
+
+**Contents:**
+- chat-grade lists (sticky headers, selection across rows)
+- `doc-rich`, `media-anim`, `media-video`, `media-isolated`, `viz` (voice ring meters), `services-spell`
 - `bridge-android`
-- Multi-window with moving subtrees
-- Accessibility complete on all bridges so far
-- The FreeSpeak skin mapping
+- multi-window with moving subtrees
+- the FreeSpeak skin mapping
 
 **Done when:**
-- All of FreeSpeak runs on RemedyUI on Windows, Linux, macOS and Android, meeting the budgets in [design/09](design/09-performance-and-resources.md).
-- The share pop-out is a real window.
-- Screen readers operate every screen.
-- eframe, egui and the `epaint`, `egui_glow` and `ttf-parser` forks are deleted from FreeSpeak.
+- all of FreeSpeak runs on RemedyUI on Windows, Linux, macOS and Android, meeting the budgets in [design/09](design/09-performance-and-resources.md)
+- the share pop-out is a real window
+- screen readers operate every screen
+- eframe, egui and the `epaint`, `egui_glow` and `ttf-parser` forks are deleted from FreeSpeak
 
-## M7. Breadth: documents, music, media and the web
+## M8. Breadth: documents, music, media and the web
 
-- `doc-pages`, `viz`, `widgets-music`, `widgets-extra`, `media-playback`, `services-update`
-- `bridge-web`
+**Crates:** `doc-pages`, `widgets-music`, `widgets-extra`, `media-playback`, `bridge-web`.
 
 **Done when:**
-- RemedyPDF, GuitarRemedy, VoiceRemedy, Alex's Craft Calc, Quickcast and Portal run on RemedyUI on their target platforms, including Android and the web where they ship there today.
-- A 300-page PDF zooms from 1% to 6400% within budget.
-- The 60 Hz pitch graph runs with no UI-thread work per frame.
+- RemedyPDF, GuitarRemedy, VoiceRemedy, Alex's Craft Calc, Quickcast and Portal run on RemedyUI on their target platforms, including Android and the web where they ship there today
+- a 300-page PDF zooms from 1% to 6400% within budget
+- the 60 Hz pitch graph runs with no UI-thread work per frame
 
-## M8. Power tools and RemedyOS
+## M9. Power tools and RemedyOS
 
+**Contents:**
 - `doc-code`, `widgets-term`, `embed-webview`, `embed-gpu`
 - `bridge-remedyos`
-- The agent automation protocol with consent
+- the agent automation protocol with consent
 - `.rui` user overrides and the code-fluid customization editors
-- Devtools complete: signal graph, Perfetto traces, remote devtools
+- devtools complete: signal graph, Perfetto traces, remote devtools
 
 **Done when:**
-- The RemedyAI desktop runs on RemedyUI.
-- A RemedyOS-native app (Files or Monitor) runs on RemedyOS through the RemedyOS bridge, with the desktop's theme and semantics wires.
-- TheOven's 3D preview embeds.
-- An agent operates a FreeSpeak settings screen through commands, under consent, with every action undoable.
+- the RemedyAI desktop runs on RemedyUI
+- a RemedyOS-native app (Files or Monitor) runs on RemedyOS through the RemedyOS bridge, with the desktop's theme and semantics wires
+- TheOven's 3D preview embeds
+- an agent operates a FreeSpeak settings screen through commands, under consent, with every action undoable
 
-## M9. 1.0
+## M10. 1.0
 
-- API review across all the apps above, then freeze
-- Editions and the deprecation policy in force
-- Documentation, guides, porting guides and recipes complete
-- Every reference scene's budget held in CI on every supported platform
-- `bridge-ios` begins after 1.0, when an app needs it
+**Contents:**
+- API review across all the apps above, then a freeze
+- editions and the deprecation policy in force
+- documentation, guides, porting guides and recipes complete
+- every reference scene's budget held in CI on every supported platform
+
+`bridge-ios` begins after 1.0, when an app needs it.
 
 **Done when:**
-- The apps have run on the frozen API for one release cycle with no breaking change.
-- The 1.0 crates are published.
+- the apps have run on the frozen API for one release cycle with no breaking change
+- the 1.0 crates are published

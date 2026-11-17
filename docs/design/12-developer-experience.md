@@ -16,7 +16,7 @@ An engine is only as good as the apps people manage to build on it. RemedyUI sho
 
 ```rust
 fn unlock_screen(vault: Vault) -> impl Element {
-    let password = SecretSignal::new();
+    let password = Signal::new(SecretString::new());
     let error = Signal::new(None::<String>);
     column().gap(Space::S3).align(Center).max_width(360.0)
         .child(text(t("Unlock vault")).style(TextStyle::Title))

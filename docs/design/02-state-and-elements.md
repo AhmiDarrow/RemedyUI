@@ -17,8 +17,8 @@ Nodes are **signals** (sources), **memos** (derived values), and **effects** (si
   - A memo whose new value equals its old one (`PartialEq`) stops the wave.
   - No effect ever sees half-updated state, and no memo runs twice in one flush.
 - **Batching.** All changes in one event handler, post or animation step form one transaction, and effects run once at its end, in topological order.
-- **Storage.** Each window has one runtime arena (a slot map). A `Signal<T>` is a `Copy` handle of a 32-bit index and a 32-bit generation.
-  - Reading a disposed handle returns the last value and logs once; it never panics.
+- **Storage.** Each UI thread has one reactive runtime: a generational arena. Windows are owner scopes inside it, so a subtree can move between windows without its signals moving. A `Signal<T>` is a `Copy` handle of a runtime id, a 32-bit index and a 32-bit generation. It is `Send`, but its value is reachable only on its own UI thread.
+  - A disposed signal's value is gone, and the engine does not invent one. `try_get` returns `None`. `get` treats it as the bug it is: it panics with where the signal was created, and the nearest error boundary contains it.
   - Dependency lists are small inline vectors, sized for the common case of 1–4 sources.
 - **Ownership.** Every node has an owner: the component scope that created it. Unmounting a scope disposes its nodes, effects and child scopes, and runs clean-ups. Nothing leaks across mounts, and nothing has to be freed by hand.
 - **Untracked reads, peeks and manual triggers** are available for the rare cases that need them.
@@ -68,7 +68,7 @@ Components are functions that run once to build elements and bindings. The **ele
 - **Slots and children.** Components take children and named slots (a `header`, a `trailing` icon) as element builders.
 - **Error boundaries.** `catch_errors(fallback, child)`. A panic or returned error inside the child subtree, whether in building, a handler, an effect or a canvas closure, unmounts that subtree and shows the fallback. The error and the element path go to the app's error hook. The rest of the window carries on.
 - **Suspense.** `suspense(placeholder, child)` shows the placeholder while any resource read inside the child is still loading, such as an image, a search result or a message page. It switches without a flash: there is a minimum time before showing the placeholder, and a minimum time to keep it shown.
-- **Resources.** `Resource::new(source_signal, |key| async_or_threaded_fetch)` runs off the UI thread through a pluggable executor. The default is the worker pool; `tokio` or `smol` plug in through a feature. It cancels on key change or unmount, and exposes `loading`, `ready` and `error` as signals.
+- **Resources.** `Resource::new(source_signal, |key| fetch(key))` runs the fetch off the UI thread through the `Executor` trait. The default executor is the worker pool. An app with its own async runtime implements `Executor` for it; RemedyUI itself depends on no async runtime. A resource cancels on key change or unmount, and exposes `loading`, `ready` and `error` as signals.
 - **Navigation.** `nav_stack` keeps each screen's scope alive while it is on the stack, so state and scroll position survive going back. It handles the Android back button and Escape, and plays shared-element transitions.
 - **Persistence.** A signal can be marked `persist("key")`. The app's storage backend saves it on change, debounced, and restores it on mount: window size, split positions, scroll anchors, drafts.
 
