@@ -10,6 +10,10 @@
 //! Corner radii in display lists are physical (`top_start` is top-left): widgets resolve
 //! right-to-left before they paint.
 
+mod composite;
+
+pub use composite::CpuCompositor;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -206,6 +210,15 @@ fn pixmap_from(width: u32, height: u32, rgba: Vec<u8>) -> Option<Pixmap> {
     Some(p)
 }
 
+fn size16(width: u32, height: u32) -> Result<(u16, u16), RenderError> {
+    let w = u16::try_from(width).map_err(|_| RenderError::BadSize)?;
+    let h = u16::try_from(height).map_err(|_| RenderError::BadSize)?;
+    if w == 0 || h == 0 {
+        return Err(RenderError::BadSize);
+    }
+    Ok((w, h))
+}
+
 impl CpuRenderer {
     /// A renderer with empty caches.
     pub fn new() -> Self {
@@ -228,17 +241,36 @@ impl CpuRenderer {
         scale: f32,
         background: Color,
     ) -> Result<Frame, RenderError> {
-        let (w, h) = (
-            u16::try_from(width).map_err(|_| RenderError::BadSize)?,
-            u16::try_from(height).map_err(|_| RenderError::BadSize)?,
-        );
-        if w == 0 || h == 0 {
-            return Err(RenderError::BadSize);
-        }
+        self.render_with(list, width, height, Affine::scale(scale, scale), background)
+    }
+
+    /// Renders `list` through `base` (list space to device pixels) onto `background`, which
+    /// may be transparent (for tiles and snapshots).
+    pub fn render_with(
+        &mut self,
+        list: &DisplayList,
+        width: u32,
+        height: u32,
+        base: Affine,
+        background: Color,
+    ) -> Result<Frame, RenderError> {
+        let target = self.render_pixmap(list, width, height, base, background)?;
+        Ok(Frame { width, height, pixels: target.data_as_u8_slice().to_vec() })
+    }
+
+    fn render_pixmap(
+        &mut self,
+        list: &DisplayList,
+        width: u32,
+        height: u32,
+        base: Affine,
+        background: Color,
+    ) -> Result<Pixmap, RenderError> {
+        let (w, h) = size16(width, height)?;
         let mut ctx = RenderContext::new(w, h);
         ctx.set_paint(color(background));
         ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, f64::from(w), f64::from(h)));
-        let base = Affine::scale(scale, scale);
+        let scale = base.scale_factor();
         let mut transforms = vec![base];
         for item in list.items() {
             let t = transforms.last().copied().unwrap_or(base);
@@ -320,7 +352,7 @@ impl CpuRenderer {
         let mut target = Pixmap::new(w, h);
         let mut resources = Resources::new();
         ctx.render(&mut target, &mut resources);
-        Ok(Frame { width, height, pixels: target.data_as_u8_slice().to_vec() })
+        Ok(target)
     }
 
     fn image(
