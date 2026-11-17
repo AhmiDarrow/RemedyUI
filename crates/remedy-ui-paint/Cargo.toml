@@ -1,0 +1,16 @@
+[package]
+name = "remedy-ui-paint"
+description = "RemedyUI display lists: shapes, paths, gradients, glyph runs, images, clips, layers and shadows as plain data for any renderer."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
+
+[lints]
+workspace = true
