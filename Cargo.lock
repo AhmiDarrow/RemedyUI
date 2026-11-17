@@ -504,6 +504,7 @@ dependencies = [
  "parley",
  "remedy-ui-core",
  "remedy-ui-fonts",
+ "skrifa",
 ]
 
 [[package]]

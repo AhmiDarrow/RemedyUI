@@ -20,13 +20,17 @@
 //! # Ok::<(), FontError>(())
 //! ```
 
+mod atlas;
 mod engine;
+mod raster;
 mod rich;
 mod style;
 
+pub use atlas::{AtlasEntry, AtlasStats, GlyphAtlas, GlyphKey, PAGE_SIZE, Page, PageRect};
 pub use engine::{
     Affinity, FontCollection, FontError, GlyphRunInfo, LineInfo, Paragraph, ParagraphOptions,
     PositionedGlyph, RunFont, TextEngine, TextPosition,
 };
+pub use raster::{Antialias, GlyphImage, GlyphRasterizer, Hinting, SUBPIXEL_BINS, subpixel_bin};
 pub use rich::{InlineObject, OBJECT_REPLACEMENT, RichText, Span};
 pub use style::{Align, Direction, Feature, LineHeight, StylePatch, TextStyle};

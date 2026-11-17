@@ -11,6 +11,8 @@ authors.workspace = true
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
 parley = { version = "=0.13.0", default-features = false, features = ["std", "complex-scripts"] }
+# The same skrifa parley uses, for outlines and hinting.
+skrifa = { version = "=0.49.0", default-features = false, features = ["std", "autohint_shaping"] }
 
 [features]
 # Let font fallback reach the fonts installed on the system (emoji, CJK) as a last resort.
