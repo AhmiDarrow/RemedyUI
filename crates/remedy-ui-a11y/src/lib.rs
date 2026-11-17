@@ -177,6 +177,36 @@ impl Semantics {
         }
     }
 
+    /// The role.
+    pub fn role(&self) -> Role {
+        self.role
+    }
+
+    /// The accessible name, if set.
+    pub fn name(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
+    /// The value text, if set.
+    pub fn value_text(&self) -> Option<&str> {
+        self.value.as_deref()
+    }
+
+    /// The actions offered.
+    pub fn actions(&self) -> &[Action] {
+        &self.actions
+    }
+
+    /// True when hidden from assistive technology.
+    pub fn is_hidden(&self) -> bool {
+        self.hidden
+    }
+
+    /// True when marked invalid.
+    pub fn is_invalid(&self) -> bool {
+        self.invalid
+    }
+
     /// The accessible name.
     pub fn label(mut self, s: impl Into<String>) -> Self {
         self.label = Some(s.into());

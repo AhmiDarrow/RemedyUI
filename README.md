@@ -34,6 +34,7 @@ M5 (the first app, SecretSticky) is under way. Built so far:
 - `remedy-ui-themes`: the twelve Remedy palettes, light/dark from the system, high contrast, the widget style sheet
 - `remedy-ui-widgets-core`: containers, lists, text, buttons, choices, values, inputs, feedback, overlays, icons and images
 - `remedy-ui-widgets-forms`: exact-decimal number input, color picker with contrast readout, key capture, calendar, date and time pickers, forms with validation and submit state, all in the user's locale
+- `remedy-ui-devtools`: the inspector (F12) with an accessibility check and live theme colors, and previews in many variations that double as golden-image tests
 - `remedy-ui-secure`: idle lock and secret copies that clear themselves
 - `remedy-ui-services-update`: signed updates from GitHub releases or a feed
 

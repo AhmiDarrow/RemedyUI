@@ -42,6 +42,7 @@ fn animate(el: &El, phase: Signal<f32>) {
 
 /// A progress bar: `Some(fraction)` (0..1) when the amount is known, `None` for
 /// indeterminate work.
+#[track_caller]
 pub fn progress(ui: &Ui, label: impl Into<String>, value: Signal<Option<f32>>) -> El {
     let label = label.into();
     let h = ui.theme().spacing.unit * 1.5;
@@ -81,6 +82,7 @@ pub fn progress(ui: &Ui, label: impl Into<String>, value: Signal<Option<f32>>) -
 }
 
 /// A spinning ring for work of unknown length (still under reduced motion).
+#[track_caller]
 pub fn spinner(ui: &Ui, label: impl Into<String>) -> El {
     let size = ui.theme().type_scale.body + 6.0;
     let phase = Signal::new(0.0f32);
@@ -117,6 +119,7 @@ pub fn spinner(ui: &Ui, label: impl Into<String>) -> El {
 }
 
 /// A status light: on (the theme's ok color) or off.
+#[track_caller]
 pub fn lamp(ui: &Ui, label: impl Into<String>, on: Signal<bool>) -> El {
     let label = label.into();
     let size = ui.theme().spacing.unit * 2.5;
@@ -142,12 +145,14 @@ pub fn lamp(ui: &Ui, label: impl Into<String>, on: Signal<bool>) -> El {
 }
 
 /// A small count or tag.
+#[track_caller]
 pub fn badge(ui: &Ui, text: impl Into<String>) -> El {
     ui.el("badge").text(remedy_ui_view::RichText::plain(text.into())).nowrap()
 }
 
 /// A short message at the bottom of the window that goes away by itself after `duration`
 /// (or when clicked). Screen readers announce it.
+#[track_caller]
 pub fn toast(ui: &Ui, message: impl Into<String>, duration: Duration) -> El {
     let message = message.into();
     let u = ui.theme().spacing.unit;
@@ -181,6 +186,7 @@ pub fn toast(ui: &Ui, message: impl Into<String>, duration: Duration) -> El {
 }
 
 /// What an empty list or a first run shows: a title and a hint.
+#[track_caller]
 pub fn empty_state(ui: &Ui, title: impl Into<String>, hint: impl Into<String>) -> El {
     let gap = ui.theme().spacing.unit * 2.0;
     ui.el("empty_state")
@@ -192,6 +198,7 @@ pub fn empty_state(ui: &Ui, title: impl Into<String>, hint: impl Into<String>) -
 }
 
 /// A placeholder block shown while content loads.
+#[track_caller]
 pub fn skeleton(ui: &Ui, width: f32, height: f32) -> El {
     let fill = ui.theme().derive().hover;
     let r = ui.theme().radii.small;

@@ -17,6 +17,7 @@ fn labeled(ui: &Ui, control: El, text: &str) -> El {
 }
 
 /// A check box with a label. Pressing it (or Space) flips `value`.
+#[track_caller]
 pub fn check(ui: &Ui, text: impl Into<String>, value: Signal<bool>) -> El {
     let text = text.into();
     let box_size = ui.theme().type_scale.body + 3.0;
@@ -53,6 +54,7 @@ pub fn check(ui: &Ui, text: impl Into<String>, value: Signal<bool>) -> El {
 }
 
 /// An on/off switch with a label.
+#[track_caller]
 pub fn switch(ui: &Ui, text: impl Into<String>, value: Signal<bool>) -> El {
     let text = text.into();
     let h = ui.theme().type_scale.body + 5.0;
@@ -78,6 +80,7 @@ pub fn switch(ui: &Ui, text: impl Into<String>, value: Signal<bool>) -> El {
 }
 
 /// One choice of several, as radio buttons in a column. Arrow keys move the choice.
+#[track_caller]
 pub fn radio_group(ui: &Ui, label: impl Into<String>, options: &[&str], selected: Signal<usize>) -> El {
     let label = label.into();
     let n = options.len();
@@ -133,6 +136,7 @@ fn arrows(e: &remedy_ui_input::KeyEvent, selected: Signal<usize>, n: usize) -> b
 }
 
 /// Mutually exclusive options side by side (a few short choices, like time presets).
+#[track_caller]
 pub fn segmented(ui: &Ui, label: impl Into<String>, options: &[&str], selected: Signal<usize>) -> El {
     let label = label.into();
     let n = options.len();
@@ -163,6 +167,7 @@ pub fn segmented(ui: &Ui, label: impl Into<String>, options: &[&str], selected: 
 
 /// A drop-down choice: shows the chosen option; pressing opens the list. Typing a letter
 /// jumps to the next option starting with it; arrows step through the options.
+#[track_caller]
 pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected: Signal<usize>) -> El {
     let label = label.into();
     let n = options.len();
@@ -215,6 +220,7 @@ pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected:
 }
 
 /// A small selectable tag.
+#[track_caller]
 pub fn chip(ui: &Ui, text: impl Into<String>, selected: Signal<bool>) -> El {
     let text = text.into();
     let c = ui

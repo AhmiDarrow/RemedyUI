@@ -15,6 +15,7 @@ fn centered(el: El) -> El {
 
 /// A button with a text label. Style it with `.variant("primary" | "quiet" | "danger" |
 /// "danger_solid")`; disable it with `.disabled(true)` or `.disabled_dyn(..)`.
+#[track_caller]
 pub fn button(ui: &Ui, label: impl Into<String>, on_press: impl Fn() + 'static) -> El {
     let label = label.into();
     let gap = ui.theme().spacing.unit * 1.5;
@@ -32,6 +33,7 @@ pub fn button(ui: &Ui, label: impl Into<String>, on_press: impl Fn() + 'static) 
 
 /// A button showing only an icon. The label is required: it is what assistive technology
 /// reads and what the tooltip shows.
+#[track_caller]
 pub fn icon_button(ui: &Ui, glyph: Icon, label: impl Into<String>, on_press: impl Fn() + 'static) -> El {
     let label = label.into();
     let size = ui.theme().type_scale.body + 3.0;
@@ -44,6 +46,7 @@ pub fn icon_button(ui: &Ui, glyph: Icon, label: impl Into<String>, on_press: imp
 }
 
 /// A button that stays pressed: shows `on` and flips it when pressed.
+#[track_caller]
 pub fn toggle_button(ui: &Ui, label: impl Into<String>, on: Signal<bool>) -> El {
     let label = label.into();
     let b = button(ui, label.clone(), move || on.update(|v| *v = !*v));
@@ -59,6 +62,7 @@ pub fn toggle_button(ui: &Ui, label: impl Into<String>, on: Signal<bool>) -> El 
 }
 
 /// A button that opens a menu of `items` below itself.
+#[track_caller]
 pub fn menu_button(ui: &Ui, label: impl Into<String>, items: Vec<MenuItem>) -> El {
     let label = label.into();
     let ui2 = ui.clone();

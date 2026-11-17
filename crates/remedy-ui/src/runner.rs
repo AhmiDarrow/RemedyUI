@@ -58,6 +58,9 @@ impl AppConfig {
             theme: Theme::dark_forest(),
             sheet: Rc::new(|_| StyleSheet::new()),
             fonts: Rc::new(|| {
+                #[cfg(feature = "system-fonts")]
+                let mut f = FontCollection::with_system_fonts();
+                #[cfg(not(feature = "system-fonts"))]
                 let mut f = FontCollection::new();
                 for face in remedy_ui_fonts::all() {
                     let _ = f.add_static(face.data);
@@ -268,9 +271,18 @@ enum Cmd {
     Quit,
 }
 
+/// Builds a style sheet for a theme.
+type SheetBuilder = Rc<dyn Fn(&Theme) -> StyleSheet>;
+
 #[derive(Default)]
 struct Shared {
     cmds: VecDeque<Cmd>,
+    /// The app's style sheet builder (the inspector restyles edited themes with it).
+    #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
+    sheet: Option<SheetBuilder>,
+    /// Open inspector windows by the window they inspect.
+    #[cfg(feature = "devtools")]
+    inspectors: HashMap<u64, Window>,
     next: u64,
     keep_running: bool,
     name: String,
@@ -554,6 +566,32 @@ impl Window {
         self.app.0.borrow().renderers.get(&self.key).copied()
     }
 
+    /// Opens the devtools inspector for this window (F12 does the same), or focuses it.
+    #[cfg(feature = "devtools")]
+    pub fn open_inspector(&self) -> Option<Window> {
+        let existing = self.app.0.borrow().inspectors.get(&self.key).cloned();
+        if let Some(w) = existing.filter(Window::is_open) {
+            w.focus();
+            return Some(w);
+        }
+        let target = self.ui()?;
+        let sheet = self.app.0.borrow().sheet.clone()?;
+        let insp = remedy_ui_devtools::Inspector::attach(&target, move |t| sheet(t));
+        let i2 = insp.clone();
+        let win = self.app.open(WindowSpec::new("RemedyUI Inspector").size(480.0, 760.0), move |ui, _| {
+            let (theme, sheet) = remedy_ui_devtools::tool_style();
+            ui.set_theme(theme, sheet);
+            ui.root().child(remedy_ui_devtools::inspector_panel(ui, &i2));
+        });
+        let (app, key) = (self.app.clone(), self.key);
+        win.on_closed(move || {
+            insp.detach();
+            app.0.borrow_mut().inspectors.remove(&key);
+        });
+        self.app.0.borrow_mut().inspectors.insert(self.key, win.clone());
+        Some(win)
+    }
+
     /// Keeps the window out of screenshots and screen sharing, or not.
     pub fn set_capture_protected(&self, on: bool) {
         self.app.push(Cmd::Capture(self.key, on));
@@ -625,7 +663,8 @@ impl Runner {
         geometry: GeometryStore,
         setup: impl FnOnce(&App) + 'static,
     ) -> Self {
-        let shared = Shared { name: config.name.clone(), ..Shared::default() };
+        let shared =
+            Shared { name: config.name.clone(), sheet: Some(config.sheet.clone()), ..Shared::default() };
         Runner {
             app: App(Rc::new(RefCell::new(shared))),
             config,
@@ -1132,7 +1171,19 @@ impl remedy_ui_host::App for Runner {
             }
             HostEvent::Key(window, e) => {
                 self.activity(host);
-                if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
+                // F12 opens the inspector (devtools) instead of reaching the app.
+                #[cfg(feature = "devtools")]
+                let inspector = e.pressed
+                    && e.key == remedy_ui_input::Key::F(12)
+                    && e.modifiers == remedy_ui_input::Modifiers::NONE;
+                #[cfg(not(feature = "devtools"))]
+                let inspector = false;
+                if inspector {
+                    #[cfg(feature = "devtools")]
+                    if let Some(&key) = self.by_host.get(&window) {
+                        let _ = Window { key, app: self.app.clone() }.open_inspector();
+                    }
+                } else if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
                     w.ui.key(&e);
                 }
             }

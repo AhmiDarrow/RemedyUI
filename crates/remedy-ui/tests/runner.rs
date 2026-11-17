@@ -439,3 +439,36 @@ fn activity_is_reported_at_most_once_a_second() {
     host.run_frames(&mut runner, 1);
     assert_eq!(n.get(), 2);
 }
+
+#[cfg(feature = "devtools")]
+#[test]
+fn f12_opens_one_inspector_per_window_and_closing_it_detaches() {
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("App").size(300.0, 200.0), |ui, _| {
+            ui.root().child(ui.el("button").text(remedy_ui::view::RichText::plain("Hi")).on_click(|| {}));
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let app_win = first(&host);
+    let f12 = KeyEvent {
+        key: Key::F(12),
+        physical: "F12".into(),
+        modifiers: Modifiers::NONE,
+        pressed: true,
+        repeat: false,
+        composing: false,
+        text: None,
+    };
+    host.send(HostEvent::Key(app_win, f12.clone()));
+    host.run_frames(&mut runner, 3);
+    assert_eq!(host.window_ids().len(), 2, "the inspector opened");
+    let inspector = host.window_ids().into_iter().find(|w| *w != app_win).unwrap_or(app_win);
+    assert!(host.window(inspector).is_some_and(|w| w.options().title == "RemedyUI Inspector"));
+    host.send(HostEvent::Key(app_win, f12));
+    host.run_frames(&mut runner, 2);
+    assert_eq!(host.window_ids().len(), 2, "a second F12 does not open another");
+    host.send(HostEvent::CloseRequested(inspector));
+    host.run_frames(&mut runner, 2);
+    assert_eq!(host.window_ids(), vec![app_win]);
+}

@@ -131,6 +131,7 @@ fn ui_row(content: El) -> El {
 /// A vertically scrolling list that builds only the rows near the viewport, for any number
 /// of items. Rows may be any height: `estimate` places rows not yet measured, and each row's
 /// real height replaces its estimate once shown, keeping the scroll position anchored.
+#[track_caller]
 pub fn virtual_list<T: Clone + 'static>(
     ui: &Ui,
     label: impl Into<String>,

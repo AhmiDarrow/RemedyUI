@@ -15,6 +15,7 @@ fn snap(v: f64, min: f64, max: f64, step: f64) -> f64 {
 
 /// A horizontal slider over `min..=max` in steps of `step` (0 for continuous). Drag it, or
 /// use arrows (one step), Page Up/Down (a tenth) and Home/End.
+#[track_caller]
 pub fn slider(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, max: f64, step: f64) -> El {
     let label = label.into();
     let h = ui.theme().spacing.control_height;
@@ -93,6 +94,7 @@ pub fn slider(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, m
 }
 
 /// A number with − and + buttons, in steps of `step` within `min..=max`.
+#[track_caller]
 pub fn stepper(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, max: f64, step: f64) -> El {
     let label = label.into();
     let gap = ui.theme().spacing.unit;

@@ -60,6 +60,46 @@ impl TextSlot {
     }
 }
 
+/// A tool that sees pointer input first ([`Ui::set_pointer_interceptor`]).
+pub type PointerInterceptor = Rc<dyn Fn(&remedy_ui_input::PointerEvent) -> bool>;
+
+/// A snapshot of an element for inspectors and tests ([`El::info`]).
+#[derive(Clone, Debug)]
+pub struct ElementInfo {
+    /// Its id.
+    pub id: ElementId,
+    /// The widget name the style sheet styles it by.
+    pub widget: &'static str,
+    /// Its variant (empty for none).
+    pub variant: &'static str,
+    /// Hover, focus, pressed, disabled, …
+    pub states: States,
+    /// The style it is drawn with.
+    pub style: ResolvedStyle,
+    /// Its own style overrides.
+    pub local: StylePatch,
+    /// Its box in window logical pixels (after the last frame).
+    pub bounds: Option<remedy_ui_core::Rect>,
+    /// Its text, if it shows text.
+    pub text: Option<String>,
+    /// What it tells assistive technology, if set.
+    pub semantics: Option<Semantics>,
+    /// Where in the source it was built.
+    pub created_at: Option<&'static std::panic::Location<'static>>,
+    /// Takes keyboard focus.
+    pub focusable: bool,
+    /// Has a click handler.
+    pub clickable: bool,
+    /// Has a custom painter.
+    pub painter: bool,
+    /// Is an editable text field.
+    pub field: bool,
+    /// Reactive bindings it owns.
+    pub bindings: usize,
+    /// Hidden.
+    pub hidden: bool,
+}
+
 pub(crate) struct ElData {
     pub(crate) widget: &'static str,
     pub(crate) variant: &'static str,
@@ -86,6 +126,8 @@ pub(crate) struct ElData {
     pub(crate) chunk: Option<(Size, Rc<DisplayList>)>,
     /// Bindings owned by this element, disposed with it.
     pub(crate) effects: Vec<Effect>,
+    /// Where the element was built (the first caller outside `#[track_caller]` builders).
+    pub(crate) created_at: Option<&'static std::panic::Location<'static>>,
 }
 
 pub(crate) struct Inner {
@@ -112,6 +154,7 @@ pub(crate) struct Inner {
     pub(crate) locale: remedy_ui_reactive::Signal<String>,
     pub(crate) content: ElementId,
     pub(crate) overlays: ElementId,
+    pub(crate) interceptor: Option<PointerInterceptor>,
     pub(crate) trusted: ElementId,
     pub(crate) reduced_motion: bool,
     pub(crate) timers: HashMap<u64, Box<dyn FnOnce()>>,
@@ -201,6 +244,7 @@ impl Ui {
             locale: remedy_ui_reactive::Signal::new(String::from("en-US")),
             content: root,
             overlays: root,
+            interceptor: None,
             trusted: root,
             reduced_motion: false,
             timers: HashMap::new(),
@@ -319,7 +363,9 @@ impl Ui {
     }
 
     /// A new element styled as `widget`. It shows once added to a parent.
+    #[track_caller]
     pub fn el(&self, widget: &'static str) -> El {
+        let at = std::panic::Location::caller();
         let mut i = self.0.borrow_mut();
         let id = i.tree.create(widget);
         let style = LayoutStyle::default();
@@ -330,9 +376,29 @@ impl Ui {
             &base,
             &StylePatch::default(),
         );
-        i.els.insert(id, ElData::new(widget, style, node, resolved));
+        let mut data = ElData::new(widget, style, node, resolved);
+        data.created_at = Some(at);
+        i.els.insert(id, data);
         i.tree.mark(id, Dirty::STYLE | Dirty::LAYOUT | Dirty::PAINT);
         El { ui: self.clone(), id }
+    }
+
+    /// The topmost element under `p` (window logical pixels), as input would find it.
+    pub fn element_at(&self, p: remedy_ui_core::Point) -> Option<El> {
+        let hit = self.tree().hit_test(p)?;
+        Some(El { ui: self.clone(), id: hit })
+    }
+
+    /// The window's three layer roots: content, overlays, and the trusted layer.
+    pub fn layers(&self) -> [El; 3] {
+        let i = self.0.borrow();
+        [i.content, i.overlays, i.trusted].map(|id| El { ui: self.clone(), id })
+    }
+
+    /// Sees pointer input before any element: `f` returning true consumes the event. For
+    /// tools such as the inspector's element picker; `None` removes it.
+    pub fn set_pointer_interceptor(&self, f: Option<PointerInterceptor>) {
+        self.0.borrow_mut().interceptor = f;
     }
 
     /// A handle to an existing element.
@@ -511,6 +577,7 @@ impl ElData {
             on_scroll: None,
             chunk: None,
             effects: Vec::new(),
+            created_at: None,
         }
     }
 }
@@ -1023,6 +1090,37 @@ impl El {
         let tree = self.ui.tree();
         let _ = tree.focus(self.id);
         crate::events::focus_changed(&self.ui);
+    }
+
+    /// Everything the element is, for inspectors and tests.
+    pub fn info(&self) -> Option<ElementInfo> {
+        let tree = self.ui.tree();
+        let i = self.ui.0.borrow();
+        let d = i.els.get(&self.id)?;
+        Some(ElementInfo {
+            id: self.id,
+            widget: d.widget,
+            variant: d.variant,
+            states: d.states,
+            style: d.resolved.clone(),
+            local: d.local.clone(),
+            bounds: tree.bounds(self.id),
+            text: d.text.as_ref().map(|t| t.borrow().text.as_str().to_owned()),
+            semantics: d.semantics.clone(),
+            created_at: d.created_at,
+            focusable: tree.is_focusable(self.id),
+            clickable: d.click.is_some(),
+            painter: d.painter.is_some(),
+            field: d.field.is_some(),
+            bindings: d.effects.len(),
+            hidden: d.hidden,
+        })
+    }
+
+    /// The parent element, if any.
+    pub fn parent(&self) -> Option<El> {
+        let p = self.ui.tree().parent(self.id)?;
+        Some(El { ui: self.ui.clone(), id: p })
     }
 
     /// Takes keyboard focus away if the element has it.

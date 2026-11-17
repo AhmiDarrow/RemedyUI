@@ -217,6 +217,7 @@ impl Form {
 
 /// A labeled form field: the label, the control, and the field's error under it once it
 /// should be shown. The control is marked invalid while it is.
+#[track_caller]
 pub fn form_field(ui: &Ui, field: &FormField, control: El) -> El {
     let unit = ui.theme().spacing.unit;
     let f = field.clone();
@@ -243,12 +244,14 @@ pub fn form_field(ui: &Ui, field: &FormField, control: El) -> El {
 }
 
 /// The form's container: groups its fields for assistive technology.
+#[track_caller]
 pub fn form_view(ui: &Ui, label: impl Into<String>) -> El {
     let unit = ui.theme().spacing.unit;
     w::column(ui).gap(unit * 3.0).fill_width().semantics(Semantics::new(Role::Form).label(label))
 }
 
 /// A submit button: says "Saving…" while the save runs and ignores presses meanwhile.
+#[track_caller]
 pub fn submit_button(
     ui: &Ui,
     form: &Form,
@@ -280,6 +283,7 @@ pub fn submit_button(
 }
 
 /// A line that announces the form's state: what to fix, that it saved, or why it failed.
+#[track_caller]
 pub fn form_status(ui: &Ui, form: &Form) -> El {
     let f = form.clone();
     let l = w::label(ui, "", "muted");

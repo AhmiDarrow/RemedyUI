@@ -11,6 +11,8 @@ authors.workspace = true
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
 parley = { version = "=0.13.0", default-features = false, features = ["std"] }
+# Only to load fontconfig at run time (with `system-fonts`).
+fontique = { version = "=0.13.0", default-features = false, optional = true }
 # The same skrifa parley uses, for outlines and hinting.
 skrifa = { version = "=0.49.0", default-features = false, features = ["std", "autohint_shaping"] }
 # Grapheme and word boundaries for editing; the same ICU4X parley uses.
@@ -22,7 +24,8 @@ unicode-security = { version = "=0.1.3", default-features = false }
 
 [features]
 # Let font fallback reach the fonts installed on the system (emoji, CJK) as a last resort.
-system-fonts = ["parley/system"]
+# fontconfig is loaded at run time on Linux, so builds need no fontconfig development files.
+system-fonts = ["parley/system", "dep:fontique", "fontique/fontconfig-dlopen"]
 # Dictionary line breaking inside words for Thai, Lao, Khmer and Burmese (several MB of
 # ICU data). Without it those scripts break at spaces and punctuation; every other script,
 # Chinese and Japanese included, breaks correctly either way.

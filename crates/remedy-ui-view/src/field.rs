@@ -423,6 +423,7 @@ impl std::fmt::Debug for TextField {
 
 impl Ui {
     /// A text field element of `kind`, styled as `widget`.
+    #[track_caller]
     pub fn text_field(&self, widget: &'static str, kind: FieldKind) -> TextField {
         let el = self.el(widget).focusable(true);
         let scale = self.0.borrow().scale;

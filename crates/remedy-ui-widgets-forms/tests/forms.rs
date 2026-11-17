@@ -321,3 +321,18 @@ fn forms_validate_track_changes_and_submit() {
     form.reset();
     assert_eq!((grams.get(), name.get()), (d("100"), "Rose".to_owned()));
 }
+
+#[test]
+fn times_are_written_and_read_the_locale_s_way() {
+    let t = Time::new(14, 30).unwrap_or_default();
+    for tag in ["en-US", "de-DE", "ar-EG", "ko-KR", "hi-IN"] {
+        let cal = CalendarSymbols::for_locale(tag);
+        let num = NumberSymbols::for_locale(tag);
+        let shown = cal.format_time(t);
+        assert_eq!(cal.parse_time(&shown, &num), Some(t), "{tag}: {shown}");
+        assert_eq!(cal.parse_time("14:30", &num), Some(t), "{tag}: plain 24-hour always works");
+    }
+    assert_eq!(CalendarSymbols::for_locale("de-DE").format_time(t), "14:30");
+    let ar = CalendarSymbols::for_locale("ar-EG").format_time(t);
+    assert!(ar.contains('٢') && ar.contains('٣'), "Arabic digits: {ar}");
+}
