@@ -31,6 +31,8 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-host", 3),
     ("remedy-ui-render-gpu", 4),
     ("remedy-ui-render-cpu", 4),
+    // The desktop bridges share one winit core.
+    ("remedy-ui-bridge-winit", 4),
     ("remedy-ui-bridge-windows", 4),
     ("remedy-ui-bridge-macos", 4),
     ("remedy-ui-bridge-wayland", 4),
@@ -93,6 +95,10 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-compositor", "remedy-ui-motion"),
     // The GPU renderer shares the CPU renderer's painter, and falls back to it.
     ("remedy-ui-render-gpu", "remedy-ui-render-cpu"),
+    ("remedy-ui-bridge-windows", "remedy-ui-bridge-winit"),
+    ("remedy-ui-bridge-macos", "remedy-ui-bridge-winit"),
+    ("remedy-ui-bridge-wayland", "remedy-ui-bridge-winit"),
+    ("remedy-ui-bridge-x11", "remedy-ui-bridge-winit"),
 ];
 
 /// Crates that may hold unsafe code, each in one `os` or `ffi` module.
