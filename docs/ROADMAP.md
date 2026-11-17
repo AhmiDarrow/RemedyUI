@@ -87,6 +87,8 @@ Open in M3:
 
 ## M4. Rendering, the compositor and Windows
 
+**Status:** in progress. `remedy-ui-paint` is built: display lists of rounded rects, borders, shadows, paths and strokes, gradients, glyph runs, images, clips, layers and transforms, with conservative bounds. `remedy-ui-render-cpu` is built: it draws display lists through vello_cpu at any device scale, with glyphs rasterized by RemedyUI's own hinted rasterizer, cached per size and subpixel bin, and composited in order so clips and layers apply. Open: the CPU path draws grayscale text where a run asks for LCD.
+
 **Crates:** `paint`, `compositor`, `render-gpu`, `render-cpu`, `bridge-windows` (with TSF), `bridge-headless`.
 
 **Contents:**
