@@ -1,0 +1,15 @@
+[package]
+name = "remedy-ui-secure"
+description = "RemedyUI's secrets-on-screen logic: an idle signal fed only by real input, and sensitive copies that clear themselves only while the clipboard still holds them."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+zeroize = { version = "=1.9.1", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

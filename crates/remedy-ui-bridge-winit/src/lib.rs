@@ -40,6 +40,8 @@ pub trait PlatformHooks: 'static {
     fn clipboard_text(&mut self) -> Result<Option<String>, Unsupported>;
     /// Writes text to the clipboard; `sensitive` keeps it out of history and sync.
     fn set_clipboard_text(&mut self, text: &str, sensitive: bool) -> Result<(), Unsupported>;
+    /// Empties the clipboard.
+    fn clear_clipboard(&mut self) -> Result<(), Unsupported>;
     /// Keeps a window out of screenshots and screen sharing.
     fn set_capture_protected(&mut self, window: &Window, on: bool) -> Result<(), Unsupported>;
     /// Called once per new window, before it is shown, for platform setup.
@@ -419,6 +421,10 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
 
     fn set_clipboard_text(&mut self, text: &str, sensitive: bool) -> Result<(), Unsupported> {
         self.hooks.set_clipboard_text(text, sensitive)
+    }
+
+    fn clear_clipboard(&mut self) -> Result<(), Unsupported> {
+        self.hooks.clear_clipboard()
     }
 
     fn set_timer(&mut self, at: Duration) -> TimerId {

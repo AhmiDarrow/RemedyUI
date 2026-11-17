@@ -58,6 +58,11 @@ mod hooks {
             os::set_clipboard_text(text, sensitive)
         }
 
+        fn clear_clipboard(&mut self) -> Result<(), Unsupported> {
+            os::clear_clipboard();
+            Ok(())
+        }
+
         fn set_capture_protected(&mut self, window: &Window, on: bool) -> Result<(), Unsupported> {
             let handle =
                 window.window_handle().map_err(|e| Unsupported::new("capture protection", e.to_string()))?;

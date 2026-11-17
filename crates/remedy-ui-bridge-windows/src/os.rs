@@ -138,6 +138,16 @@ pub(crate) fn set_clipboard_text(text: &str, sensitive: bool) -> Result<(), Unsu
     Ok(())
 }
 
+/// Empties the clipboard.
+pub(crate) fn clear_clipboard() -> Result<(), Unsupported> {
+    let _open = Open::new()?;
+    // SAFETY: the clipboard is open.
+    if unsafe { EmptyClipboard() } == 0 {
+        return Err(last_error("the clipboard"));
+    }
+    Ok(())
+}
+
 /// Excludes a window from screenshots, recording and screen sharing (Windows 10 2004+), or
 /// includes it again.
 pub(crate) fn set_capture_protected(hwnd: isize, on: bool) -> Result<(), Unsupported> {

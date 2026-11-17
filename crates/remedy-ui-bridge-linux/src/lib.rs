@@ -226,6 +226,10 @@ mod linux {
             set.text(text.to_owned()).map_err(|e| Unsupported::new("the clipboard", e.to_string()))
         }
 
+        fn clear_clipboard(&mut self) -> Result<(), Unsupported> {
+            self.clipboard()?.clear().map_err(|e| Unsupported::new("the clipboard", e.to_string()))
+        }
+
         fn set_capture_protected(&mut self, _window: &Window, _on: bool) -> Result<(), Unsupported> {
             Err(Unsupported::new(
                 "capture protection",

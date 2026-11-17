@@ -423,3 +423,35 @@ fn inputs_and_feedback_describe_themselves() {
         t.frame.as_ref().map_or(0, |f| f.pixels.as_chunks::<4>().0.iter().filter(|p| **p != bg).count());
     assert!(ink > 500, "the widgets drew: {ink} pixels");
 }
+
+#[test]
+fn reveal_shows_a_secret_without_exposing_it() {
+    let mut t = T::new();
+    t.ui.connect_accessibility();
+    let pw = w::secret_input(&t.ui, "Master password");
+    let eye = w::reveal_toggle(&t.ui, &pw);
+    t.ui.root().child(w::row(&t.ui).child(pw.el()).child(eye.clone()));
+    t.frame();
+    pw.el().focus();
+    for c in ["s", "3", "c"] {
+        t.ui.key(&KeyEvent {
+            key: Key::Character(c.into()),
+            physical: String::new(),
+            modifiers: Modifiers::NONE,
+            pressed: true,
+            repeat: false,
+            composing: false,
+            text: Some(c.into()),
+        });
+    }
+    t.frame();
+    let masked_width = pw.el().bounds().map(|b| b.width());
+    t.click(&eye);
+    assert!(pw.is_revealed());
+    assert_eq!(pw.value(), "", "revealed is still not a plain value");
+    let s = t.semantics();
+    assert!(!s.contains("s3c"), "nor in the accessibility tree");
+    t.click(&eye);
+    assert!(!pw.is_revealed());
+    assert_eq!(pw.el().bounds().map(|b| b.width()), masked_width);
+}
