@@ -9,7 +9,10 @@ use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
 use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
 use remedy_ui_bridge_winit::{UserEvent, run_on};
 use remedy_ui_core::{Rect, Size};
-use remedy_ui_host::{App, Host, HostEvent, Pixels, SystemSettings, TextInputState, WindowId, WindowOptions};
+use remedy_ui_host::{
+    App, Host, HostEvent, Pixels, SystemSettings, TextInputState, TrayIcon, TrayImage, TrayItem, WindowId,
+    WindowOptions,
+};
 
 #[derive(Default)]
 struct Probe {
@@ -22,6 +25,7 @@ struct Probe {
     capture: Option<Result<(), String>>,
     handles: bool,
     text_input: bool,
+    tray: Option<Result<(), String>>,
     destroyed: bool,
     deadline_hit: bool,
 }
@@ -95,6 +99,15 @@ impl App for Probe {
                 host.set_text_input(window, Some(TextInputState { private: true, ..field }));
                 host.set_text_input(window, None);
                 self.text_input = true;
+                // A real notification-area icon, then gone again.
+                let tray = TrayIcon {
+                    tooltip: "RemedyUI test".into(),
+                    icon: TrayImage { size: 16, rgba: [40u8, 120, 70, 255].repeat(256) },
+                    menu: vec![TrayItem::Item { id: 1, label: "Quit".into(), enabled: true }],
+                };
+                self.tray = Some(
+                    host.set_tray(Some(&tray)).and_then(|()| host.set_tray(None)).map_err(|e| e.to_string()),
+                );
                 host.close_window(window);
             }
             HostEvent::Destroyed(_) => {
@@ -129,5 +142,6 @@ fn a_real_window_runs_the_whole_host_contract() {
     assert_eq!(probe.capture, Some(Ok(())));
     assert!(probe.handles, "native handles for GPU surfaces");
     assert!(probe.text_input, "text sessions open and close through TSF");
+    assert_eq!(probe.tray, Some(Ok(())), "a tray icon was added and removed");
     assert!(probe.destroyed);
 }

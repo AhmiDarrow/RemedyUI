@@ -17,7 +17,7 @@ mod hooks {
     use remedy_ui_bridge_winit::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use remedy_ui_bridge_winit::winit::window::Window;
     use remedy_ui_bridge_winit::{PlatformHooks, RunError};
-    use remedy_ui_host::{App, SystemSettings, Unsupported};
+    use remedy_ui_host::{App, FileDialog, HostEvent, SystemSettings, TrayIcon, Unsupported, Waker};
     use remedy_ui_input::Platform;
 
     use crate::os;
@@ -56,6 +56,48 @@ mod hooks {
 
         fn set_clipboard_text(&mut self, text: &str, sensitive: bool) -> Result<(), Unsupported> {
             os::set_clipboard_text(text, sensitive)
+        }
+
+        fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
+            os::tray::set(tray)
+        }
+
+        fn set_waker(&mut self, waker: Waker) {
+            os::tray::set_waker(waker);
+        }
+
+        fn take_events(&mut self) -> Vec<HostEvent> {
+            os::tray::take_events().into_iter().map(HostEvent::Tray).collect()
+        }
+
+        fn file_dialog(
+            &mut self,
+            window: Option<&Window>,
+            dialog: &FileDialog,
+        ) -> Result<Vec<std::path::PathBuf>, Unsupported> {
+            let mut d = rfd::FileDialog::new();
+            if !dialog.title.is_empty() {
+                d = d.set_title(&dialog.title);
+            }
+            if let Some(dir) = &dialog.directory {
+                d = d.set_directory(dir);
+            }
+            if let Some(name) = &dialog.file_name {
+                d = d.set_file_name(name);
+            }
+            for (name, exts) in &dialog.filters {
+                d = d.add_filter(name, exts);
+            }
+            if let Some(w) = window {
+                d = d.set_parent(w);
+            }
+            Ok(match (dialog.save, dialog.folders, dialog.multiple) {
+                (true, _, _) => d.save_file().into_iter().collect(),
+                (false, true, true) => d.pick_folders().unwrap_or_default(),
+                (false, true, false) => d.pick_folder().into_iter().collect(),
+                (false, false, true) => d.pick_files().unwrap_or_default(),
+                (false, false, false) => d.pick_file().into_iter().collect(),
+            })
         }
 
         fn clear_clipboard(&mut self) -> Result<(), Unsupported> {

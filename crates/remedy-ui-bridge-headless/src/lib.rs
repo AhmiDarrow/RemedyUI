@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{
-    App, Host, HostEvent, ImeEvent, Pixels, ResizeEdge, SystemSettings, TextInputState, TimerId, Unsupported,
-    Waker, WindowHandles, WindowId, WindowOptions,
+    App, FileDialog, Host, HostEvent, ImeEvent, Pixels, ResizeEdge, SystemSettings, TextInputState, TimerId,
+    TrayIcon, Unsupported, Waker, WindowHandles, WindowId, WindowOptions,
 };
 use remedy_ui_input::{Platform, WheelEvent};
 
@@ -92,6 +92,9 @@ pub struct HeadlessHost {
     exited: bool,
     focused: Option<WindowId>,
     interactions: Vec<(WindowId, Option<ResizeEdge>)>,
+    tray: Option<TrayIcon>,
+    dialogs: Vec<FileDialog>,
+    dialog_answers: VecDeque<Vec<std::path::PathBuf>>,
 }
 
 impl Default for HeadlessHost {
@@ -119,6 +122,9 @@ impl HeadlessHost {
             exited: false,
             focused: None,
             interactions: Vec::new(),
+            tray: None,
+            dialogs: Vec::new(),
+            dialog_answers: VecDeque::new(),
         }
     }
 
@@ -212,6 +218,21 @@ impl HeadlessHost {
     /// User moves (`None`) and resizes (`Some(edge)`) the app started, oldest first.
     pub fn take_interactions(&mut self) -> Vec<(WindowId, Option<ResizeEdge>)> {
         std::mem::take(&mut self.interactions)
+    }
+
+    /// The tray icon the app shows, if any.
+    pub fn tray(&self) -> Option<&TrayIcon> {
+        self.tray.as_ref()
+    }
+
+    /// Queues what the user picks in the next file dialog (empty: cancel).
+    pub fn answer_dialog(&mut self, paths: Vec<std::path::PathBuf>) {
+        self.dialog_answers.push_back(paths);
+    }
+
+    /// The file dialogs the app opened, oldest first.
+    pub fn dialogs(&self) -> &[FileDialog] {
+        &self.dialogs
     }
 
     /// True once the app called [`Host::exit`].
@@ -456,6 +477,21 @@ impl Host for HeadlessHost {
     fn clear_clipboard(&mut self) -> Result<(), Unsupported> {
         self.clipboard = None;
         Ok(())
+    }
+
+    fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
+        self.tray = tray.cloned();
+        Ok(())
+    }
+
+    fn file_dialog(
+        &mut self,
+        _window: Option<WindowId>,
+        dialog: &FileDialog,
+    ) -> Result<Vec<std::path::PathBuf>, Unsupported> {
+        self.dialogs.push(dialog.clone());
+        // With no scripted answer, the user cancels.
+        Ok(self.dialog_answers.pop_front().unwrap_or_default())
     }
 
     fn set_timer(&mut self, at: Duration) -> TimerId {

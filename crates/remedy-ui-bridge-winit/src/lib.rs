@@ -16,8 +16,8 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{
-    App, Host, HostEvent, ImeEvent, Pixels, ResizeEdge, SystemSettings, TextInputState, TimerId, Unsupported,
-    Waker, WindowHandles, WindowId, WindowOptions,
+    App, FileDialog, Host, HostEvent, ImeEvent, Pixels, ResizeEdge, SystemSettings, TextInputState, TimerId,
+    TrayIcon, Unsupported, Waker, WindowHandles, WindowId, WindowOptions,
 };
 use remedy_ui_input::{
     Buttons, KeyEvent, Modifiers, Platform, PointerEvent, PointerKind, PointerPhase, WheelEvent,
@@ -57,6 +57,23 @@ pub trait PlatformHooks: 'static {
     fn set_text_input(&mut self, window: &Window, state: Option<&TextInputState>) -> bool {
         let _ = (window, state);
         false
+    }
+    /// Shows, updates or removes the tray icon.
+    fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported>;
+    /// Runs a native file dialog, modal to `window`.
+    fn file_dialog(
+        &mut self,
+        window: Option<&Window>,
+        dialog: &FileDialog,
+    ) -> Result<Vec<std::path::PathBuf>, Unsupported>;
+    /// Receives a handle that wakes the event loop, for platform services that report from
+    /// other threads (a D-Bus tray).
+    fn set_waker(&mut self, waker: Waker) {
+        let _ = waker;
+    }
+    /// App-wide events the platform produced since the last call (tray use).
+    fn take_events(&mut self) -> Vec<HostEvent> {
+        Vec::new()
     }
     /// Input-method events the platform's text services produced since the last call.
     fn take_ime_events(&mut self) -> Vec<(winit::window::WindowId, ImeEvent)> {
@@ -427,6 +444,19 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         self.hooks.clear_clipboard()
     }
 
+    fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
+        self.hooks.set_tray(tray)
+    }
+
+    fn file_dialog(
+        &mut self,
+        window: Option<WindowId>,
+        dialog: &FileDialog,
+    ) -> Result<Vec<std::path::PathBuf>, Unsupported> {
+        let w = window.and_then(|id| self.win(id)).map(|w| w.window.clone());
+        self.hooks.file_dialog(w.as_deref(), dialog)
+    }
+
     fn set_timer(&mut self, at: Duration) -> TimerId {
         let id = TimerId(self.state.next_timer);
         self.state.next_timer += 1;
@@ -684,8 +714,11 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
     }
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
-        // Text services act inside message dispatch; hand their events over now.
+        // Text services and the tray act inside message dispatch; hand their events over now.
         for e in self.platform_ime() {
+            self.deliver(el, e);
+        }
+        for e in self.hooks.take_events() {
             self.deliver(el, e);
         }
         self.fire_timers(el);
@@ -719,6 +752,13 @@ pub fn run_on<A: App, H: PlatformHooks>(
         settings,
         exit: false,
     };
+    let mut hooks = hooks;
+    let wake_proxy = state.proxy.clone();
+    hooks.set_waker(Arc::new(move || {
+        if let Ok(p) = wake_proxy.lock() {
+            let _ = p.send_event(UserEvent::Wake);
+        }
+    }));
     let mut runner = Runner { app, hooks, state };
     event_loop.run_app(&mut runner).map_err(|e| RunError(e.to_string()))
 }

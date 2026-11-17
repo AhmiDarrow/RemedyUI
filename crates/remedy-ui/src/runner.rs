@@ -8,7 +8,10 @@ use std::time::Duration;
 
 use remedy_ui_compositor::{Compositor, LayerId};
 use remedy_ui_core::{Color, Point, Size, Vec2};
-use remedy_ui_host::{Host, HostEvent, Pixels, ResizeEdge, SystemSettings, TimerId, WindowId, WindowOptions};
+use remedy_ui_host::{
+    FileDialog, Host, HostEvent, Pixels, ResizeEdge, SystemSettings, TimerId, TrayEvent, TrayIcon, WindowId,
+    WindowOptions,
+};
 use remedy_ui_input::ScrollPhysics;
 use remedy_ui_render_cpu::CpuCompositor;
 use remedy_ui_style::{StyleSheet, Theme};
@@ -34,6 +37,9 @@ pub struct AppConfig {
     pub fonts: Rc<dyn Fn() -> FontCollection>,
     /// Try the GPU renderer first (with the `gpu` feature).
     pub gpu: bool,
+    /// One instance per user session: a second launch hands its arguments to the first
+    /// ([`App::on_second_instance`]) and exits.
+    pub single_instance: bool,
 }
 
 impl std::fmt::Debug for AppConfig {
@@ -58,6 +64,7 @@ impl AppConfig {
                 f
             }),
             gpu: true,
+            single_instance: false,
         }
     }
 
@@ -65,6 +72,12 @@ impl AppConfig {
     pub fn theme(mut self, theme: Theme, sheet: impl Fn(&Theme) -> StyleSheet + 'static) -> Self {
         self.theme = theme;
         self.sheet = Rc::new(sheet);
+        self
+    }
+
+    /// Runs as a single instance.
+    pub fn single_instance(mut self) -> Self {
+        self.single_instance = true;
         self
     }
 
@@ -183,6 +196,8 @@ enum Cmd {
     CopySecret(String, Duration),
     Idle(Option<Duration>, Option<Rc<dyn Fn()>>),
     Forget(String),
+    Tray(Option<TrayIcon>),
+    Dialog(Option<u64>, FileDialog, Box<dyn FnOnce(Vec<std::path::PathBuf>)>),
     Quit,
 }
 
@@ -198,6 +213,8 @@ struct Shared {
     /// Wakes the host's loop for requests made between events.
     waker: Option<remedy_ui_host::Waker>,
     in_event: bool,
+    on_tray: Option<Rc<dyn Fn(TrayEvent)>>,
+    on_launch: Option<Rc<dyn Fn(Vec<String>)>>,
 }
 
 /// The app, as its code sees it. Requests take effect right after the current event.
@@ -286,6 +303,33 @@ impl App {
     /// Keeps the app running when its last window closes (tray apps).
     pub fn keep_running(&self, on: bool) {
         self.0.borrow_mut().keep_running = on;
+    }
+
+    /// Shows (or updates) the tray icon; `None` removes it.
+    pub fn set_tray(&self, tray: Option<TrayIcon>) {
+        self.push(Cmd::Tray(tray));
+    }
+
+    /// Called when the tray icon is used.
+    pub fn on_tray(&self, f: impl Fn(TrayEvent) + 'static) {
+        self.0.borrow_mut().on_tray = Some(Rc::new(f));
+    }
+
+    /// Called when the app is launched again while running (with
+    /// [`AppConfig::single_instance`]), with that launch's arguments.
+    pub fn on_second_instance(&self, f: impl Fn(Vec<String>) + 'static) {
+        self.0.borrow_mut().on_launch = Some(Rc::new(f));
+    }
+
+    /// Runs a native open or save dialog (modal to `window`), then `done` with the chosen
+    /// paths (empty when cancelled).
+    pub fn file_dialog(
+        &self,
+        window: Option<&Window>,
+        dialog: FileDialog,
+        done: impl FnOnce(Vec<std::path::PathBuf>) + 'static,
+    ) {
+        self.push(Cmd::Dialog(window.map(|w| w.key), dialog, Box::new(done)));
     }
 
     /// Forgets saved geometry for `key`.
@@ -409,6 +453,7 @@ pub struct Runner {
     idle: Option<(remedy_ui_secure::IdleTimer, Rc<dyn Fn()>)>,
     idle_timer: Option<TimerId>,
     secret: Option<(remedy_ui_secure::SensitiveCopy, TimerId)>,
+    inbox: crate::instance::SharedInbox,
     #[cfg(feature = "gpu")]
     gpu: Option<Option<remedy_ui_render_gpu::GpuCompositor>>,
 }
@@ -448,8 +493,21 @@ impl Runner {
             idle: None,
             idle_timer: None,
             secret: None,
+            inbox: Default::default(),
             #[cfg(feature = "gpu")]
             gpu: None,
+        }
+    }
+
+    pub(crate) fn with_inbox(mut self, inbox: crate::instance::SharedInbox) -> Self {
+        self.inbox = inbox;
+        self
+    }
+
+    fn launched(&mut self, args: Vec<String>) {
+        let cb = self.app.0.borrow().on_launch.clone();
+        if let Some(cb) = cb {
+            cb(args);
         }
     }
 
@@ -587,6 +645,14 @@ impl Runner {
                     (None, None) => {}
                 }
                 self.schedule_idle(host);
+            }
+            Cmd::Tray(t) => {
+                let _ = host.set_tray(t.as_ref());
+            }
+            Cmd::Dialog(key, dialog, done) => {
+                let w = key.and_then(|k| self.host_of(k));
+                let chosen = host.file_dialog(w, &dialog).unwrap_or_default();
+                done(chosen);
             }
             Cmd::Forget(key) => {
                 self.geometry.remove(&key);
@@ -763,6 +829,19 @@ impl remedy_ui_host::App for Runner {
                 s.waker = Some(host.waker());
             }
         }
+        {
+            let mut inbox = self.inbox.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if inbox.waker.is_none() {
+                inbox.waker = Some(host.waker());
+            }
+        }
+        // Launches handed over by later instances.
+        let launches = std::mem::take(
+            &mut self.inbox.lock().unwrap_or_else(std::sync::PoisonError::into_inner).launches,
+        );
+        for args in launches {
+            self.launched(args);
+        }
         match event {
             HostEvent::Resumed => {
                 if let Some(setup) = self.setup.take() {
@@ -931,6 +1010,13 @@ impl remedy_ui_host::App for Runner {
                     w.ui.fire_timer(vid);
                 }
             }
+            HostEvent::Tray(e) => {
+                let cb = self.app.0.borrow().on_tray.clone();
+                if let Some(cb) = cb {
+                    cb(e);
+                }
+            }
+            HostEvent::SecondInstance(args) => self.launched(args),
             HostEvent::MemoryPressure(_) => {
                 for w in self.wins.values_mut() {
                     if let Some(c) = w.comp.as_mut() {

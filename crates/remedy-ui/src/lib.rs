@@ -20,6 +20,7 @@
 //! keeps running with no windows when it says so (tray apps).
 
 mod geometry;
+mod instance;
 mod runner;
 
 pub use geometry::GeometryStore;
@@ -50,7 +51,15 @@ impl std::error::Error for RunError {}
 /// Runs the app on this platform's bridge until it quits. `setup` runs once the platform is
 /// ready, to open the first windows.
 pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), RunError> {
-    let runner = Runner::new(config, setup);
+    let inbox = instance::SharedInbox::default();
+    if config.single_instance {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        if !instance::claim(&config.name, &args, inbox.clone()).map_err(RunError)? {
+            // Another instance runs and has our arguments.
+            return Ok(());
+        }
+    }
+    let runner = Runner::new(config, setup).with_inbox(inbox);
     #[cfg(windows)]
     {
         remedy_ui_bridge_windows::run(runner).map_err(|e| RunError(e.to_string()))

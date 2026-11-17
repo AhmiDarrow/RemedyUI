@@ -15,7 +15,9 @@ remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
 remedy-ui-host = { path = "../remedy-ui-host", version = "0.1.0" }
 remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
 arboard = { version = "=3.7.0", default-features = false, features = ["wayland-data-control"] }
-zbus = { version = "=6.3.0", default-features = false, features = ["default-rt", "proxy"] }
+zbus = { version = "=6.3.0", default-features = false, features = ["default-rt", "proxy", "service"] }
+futures-core = { version = "=0.3.34" }
+serde = { version = "=1.0.229", features = ["derive"] }
 
 [lints]
 workspace = true
