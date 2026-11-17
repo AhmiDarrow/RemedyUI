@@ -86,7 +86,11 @@ fn record(
         field.borrow_mut().paint(&mut list, content, s, theme, engine, focused);
     }
     if let Some(painter) = &d.painter {
-        painter(&mut PaintCx { list: &mut list, size, style: s, theme, states: d.states });
+        let mut cx = PaintCx { list: &mut list, size, style: s, theme, states: d.states };
+        let tracked = d.paint_watch.as_ref().is_some_and(|w| w.track(|| painter(&mut cx)).is_ok());
+        if !tracked {
+            painter(&mut cx);
+        }
     }
     list
 }

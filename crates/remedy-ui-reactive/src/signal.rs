@@ -347,6 +347,44 @@ impl Effect {
     }
 }
 
+/// Watches what a closure reads without re-running it: [`Reaction::track`] runs the closure
+/// and records its reads, and a later change to any of them calls `on_change` (once per
+/// change, until the next `track`). For work that can only run at a certain time, such as
+/// painting during a frame: `on_change` schedules it, and the scheduled run tracks again.
+#[derive(Clone, Copy, Debug)]
+pub struct Reaction {
+    rt: u32,
+    id: NodeId,
+}
+
+impl Reaction {
+    /// A reaction calling `on_change` when what it tracked changes.
+    #[track_caller]
+    pub fn new(on_change: impl Fn() + 'static) -> Self {
+        let (rt, id) = create(Kind::Reaction(Rc::new(on_change)));
+        Reaction { rt, id }
+    }
+
+    /// Runs `f`, tracking what it reads in place of what was tracked before. Fails (without
+    /// running `f`) only when the thread's runtime is gone.
+    pub fn track<R>(&self, f: impl FnOnce() -> R) -> Result<R, ReactiveError> {
+        on_rt(self.rt, |rt| Ok(rt.track_reaction(self.id, f)))
+    }
+
+    /// True while the reaction exists.
+    pub fn is_alive(&self) -> bool {
+        on_rt(self.rt, |rt| Ok(rt.exists(self.id))).unwrap_or(false)
+    }
+
+    /// Stops watching.
+    pub fn dispose(self) {
+        let _ = on_rt(self.rt, |rt| {
+            rt.dispose(self.id);
+            Ok(())
+        });
+    }
+}
+
 /// An owner for signals, memos, effects and clean-ups. Disposing a scope disposes all of
 /// them. Components, windows and list rows are scopes.
 #[derive(Clone, Copy, Debug)]

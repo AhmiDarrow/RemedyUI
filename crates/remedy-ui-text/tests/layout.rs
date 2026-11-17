@@ -173,3 +173,25 @@ fn spans_are_clamped_to_character_boundaries() {
     let p = e.layout(&t, &TextStyle::default(), opts(None));
     assert!(p.width() > 0.0);
 }
+
+#[test]
+fn thai_breaks_inside_words_only_with_the_complex_scripts_feature() {
+    // "Thai is a beautiful language" written, as Thai is, without spaces between words.
+    let thai = "ภาษาไทยเป็นภาษาที่สวยงามมากภาษาไทยเป็นภาษาที่สวยงามมาก";
+    let mut e = engine();
+    let mut p = e.layout(&RichText::plain(thai), &TextStyle::default(), opts(None));
+    let one_line = p.width();
+    p.rewrap(Some(one_line / 4.0));
+    let lines = p.lines().len();
+    if cfg!(feature = "complex-scripts") {
+        assert!(lines >= 3, "dictionary breaks: {lines} lines");
+    } else {
+        assert_eq!(lines, 1, "without dictionaries there is no break opportunity");
+    }
+    // Chinese breaks between ideographs either way.
+    let zh = "汉字之间可以换行汉字之间可以换行汉字之间可以换行";
+    let mut p = e.layout(&RichText::plain(zh), &TextStyle::default(), opts(None));
+    let w = p.width();
+    p.rewrap(Some(w / 4.0));
+    assert!(p.lines().len() >= 3, "{} lines", p.lines().len());
+}

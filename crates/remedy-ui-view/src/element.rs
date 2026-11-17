@@ -8,7 +8,7 @@ use remedy_ui_a11y::{A11yTree, Semantics};
 use remedy_ui_core::{Color, Insets, Size, Vec2};
 use remedy_ui_layout::{Available, LayoutNode, LayoutStyle, LayoutTree, MeasureInput};
 use remedy_ui_paint::DisplayList;
-use remedy_ui_reactive::Effect;
+use remedy_ui_reactive::{Effect, Reaction};
 use remedy_ui_style::{ResolvedStyle, States, StyleKey, StylePatch, StyleSheet, Theme};
 use remedy_ui_text::{FontCollection, Paragraph, ParagraphOptions, RichText, TextEngine, TextStyle};
 use remedy_ui_tree::{Dirty, ElementId, HitMode, Phase, Tree};
@@ -71,6 +71,8 @@ pub(crate) struct ElData {
     pub(crate) text: Option<Rc<RefCell<TextSlot>>>,
     pub(crate) field: Option<Rc<RefCell<Field>>>,
     pub(crate) painter: Option<Painter>,
+    /// Watches the signals the painter read, to repaint when they change.
+    pub(crate) paint_watch: Option<Reaction>,
     pub(crate) semantics: Option<Semantics>,
     pub(crate) scroll: bool,
     pub(crate) clip: bool,
@@ -476,6 +478,7 @@ impl ElData {
             text: None,
             field: None,
             painter: None,
+            paint_watch: None,
             semantics: None,
             scroll: false,
             clip: false,
@@ -587,6 +590,9 @@ impl El {
                 if let Some(d) = i.els.remove(id) {
                     let _ = i.layout.remove(d.node);
                     effects.extend(d.effects);
+                    if let Some(w) = d.paint_watch {
+                        w.dispose();
+                    }
                     removed.extend(d.removed);
                 }
                 i.scroll_offsets.remove(id);
@@ -703,6 +709,39 @@ impl El {
                 cx.set_handled();
                 cx.stop_propagation();
             }
+        });
+        self
+    }
+
+    /// Makes the element a drag handle for its window (custom title bars): a primary press on
+    /// it, or on anything inside it that is not itself interactive, calls `start` (which
+    /// begins the platform's window move).
+    pub fn drag_region(self, start: impl Fn() + 'static) -> Self {
+        let ui = self.ui.clone();
+        let _ = self.ui.tree().on::<remedy_ui_input::PointerEvent>(self.id, Phase::Bubble, move |cx, e| {
+            if e.phase != remedy_ui_input::PointerPhase::Down
+                || !e.buttons.contains(remedy_ui_input::Buttons::PRIMARY)
+            {
+                return;
+            }
+            let tree = ui.tree();
+            let interactive = |id: ElementId| {
+                tree.is_focusable(id)
+                    || ui.0.borrow().els.get(&id).is_some_and(|d| d.click.is_some() || d.field.is_some())
+            };
+            // Anything between the press and the handle that takes input keeps the press.
+            let mut cur = Some(cx.target());
+            while let Some(id) = cur {
+                if id == cx.current() {
+                    break;
+                }
+                if interactive(id) {
+                    return;
+                }
+                cur = tree.parent(id);
+            }
+            start();
+            cx.set_handled();
         });
         self
     }
@@ -897,10 +936,25 @@ impl El {
         }
     }
 
-    /// Draws with `f` after the element's background and border.
+    /// Draws with `f` after the element's background and border. Signals `f` reads are
+    /// watched: changing one repaints the element.
     pub fn paint(self, f: impl Fn(&mut PaintCx<'_>) + 'static) -> Self {
         let f: Painter = Rc::new(f);
-        self.edit(Dirty::PAINT, |d| d.painter = Some(f));
+        let ui = Rc::downgrade(&self.ui.0);
+        let id = self.id;
+        let watch = Reaction::new(move || {
+            if let Some(inner) = ui.upgrade() {
+                Ui(inner).mark(id, Dirty::PAINT);
+            }
+        });
+        let mut old = None;
+        self.edit(Dirty::PAINT, |d| {
+            d.painter = Some(f);
+            old = d.paint_watch.replace(watch);
+        });
+        if let Some(w) = old {
+            w.dispose();
+        }
         self
     }
 

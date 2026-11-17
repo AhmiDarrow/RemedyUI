@@ -260,3 +260,36 @@ fn a_runaway_effect_cannot_hang_the_app() {
     assert_eq!(stats().pending_effects, 0);
     assert!(n.get() > 1000, "it ran until the bound, then stopped");
 }
+
+#[test]
+fn reactions_report_changes_to_what_they_last_tracked() {
+    use remedy_ui_reactive::{Memo, Reaction};
+    let a = Signal::new(1);
+    let b = Signal::new(10);
+    let told = Rc::new(Cell::new(0));
+    let t2 = told.clone();
+    let r = Reaction::new(move || t2.set(t2.get() + 1));
+    assert_eq!(told.get(), 0, "nothing runs on creation");
+    assert_eq!(r.track(|| a.get() * 2), Ok(2));
+    b.set(11);
+    assert_eq!(told.get(), 0, "b was not read");
+    a.set(2);
+    assert_eq!(told.get(), 1);
+    // Re-tracking replaces the sources.
+    assert_eq!(r.track(|| b.get()), Ok(11));
+    a.set(3);
+    assert_eq!(told.get(), 1, "a is no longer tracked");
+    b.set(12);
+    assert_eq!(told.get(), 2);
+    // Through a memo, only a real change of its value tells.
+    let parity = Memo::new(move || a.get() % 2);
+    let _ = r.track(|| parity.get());
+    a.set(5);
+    assert_eq!(told.get(), 2, "parity stayed odd");
+    a.set(6);
+    assert_eq!(told.get(), 3);
+    r.dispose();
+    a.set(7);
+    assert_eq!(told.get(), 3, "disposed");
+    assert_eq!(r.track(|| 5), Ok(5), "a disposed reaction still runs its closure");
+}
