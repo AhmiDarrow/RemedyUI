@@ -183,36 +183,8 @@ impl GpuRenderer {
         target: &wgpu::Texture,
         bindings: &vello_gpu::TextureBindings,
     ) -> Result<(), GpuError> {
-        if self.ctx.is_lost() {
-            return Err(GpuError::Lost);
-        }
         let view = target.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self
-            .ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RemedyUI frame") });
-        let clear = vello_gpu::ClearSettings::Viewport {
-            color: vello_gpu::color::AlphaColor::new([
-                background.r,
-                background.g,
-                background.b,
-                background.a,
-            ]),
-        };
-        let mut options = vello_gpu::RenderOptions::default();
-        options.target_init = vello_gpu::TargetInit::Clear(clear);
-        self.vello
-            .render(
-                scene,
-                &mut self.resources,
-                &mut encoder,
-                vello_gpu::RenderTarget { view: &view, depth_view: None },
-                bindings,
-                options,
-            )
-            .map_err(|e| GpuError::Render(e.to_string()))?;
-        self.ctx.queue.submit([encoder.finish()]);
-        Ok(())
+        submit_scene(&self.ctx, &mut self.vello, &mut self.resources, scene, background, &view, bindings)
     }
 
     /// Renders `list` at `scale` onto `background` and reads the pixels back: snapshots,
@@ -285,4 +257,38 @@ impl GpuRenderer {
         buffer.unmap();
         Ok(Frame { width, height, pixels })
     }
+}
+
+/// Records and submits `scene` into `view` with `vello`, cleared to `background` first.
+pub(crate) fn submit_scene(
+    ctx: &GpuContext,
+    vello: &mut vello_gpu::Renderer,
+    resources: &mut vello_gpu::Resources,
+    scene: &Scene,
+    background: Color,
+    view: &wgpu::TextureView,
+    bindings: &vello_gpu::TextureBindings,
+) -> Result<(), GpuError> {
+    if ctx.is_lost() {
+        return Err(GpuError::Lost);
+    }
+    let mut encoder =
+        ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RemedyUI frame") });
+    let clear = vello_gpu::ClearSettings::Viewport {
+        color: vello_gpu::color::AlphaColor::new([background.r, background.g, background.b, background.a]),
+    };
+    let mut options = vello_gpu::RenderOptions::default();
+    options.target_init = vello_gpu::TargetInit::Clear(clear);
+    vello
+        .render(
+            scene,
+            resources,
+            &mut encoder,
+            vello_gpu::RenderTarget { view, depth_view: None },
+            bindings,
+            options,
+        )
+        .map_err(|e| GpuError::Render(e.to_string()))?;
+    ctx.queue.submit([encoder.finish()]);
+    Ok(())
 }

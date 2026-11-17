@@ -1,7 +1,7 @@
 //! Getting a GPU: the backend ladder, and noticing when the device is lost.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use crate::GpuError;
 use crate::block::block_on;
@@ -46,6 +46,7 @@ pub struct GpuContext {
     /// The rung it came from.
     pub rung: Rung,
     lost: Arc<AtomicBool>,
+    errors: Arc<Mutex<Vec<String>>>,
 }
 
 impl GpuContext {
@@ -90,7 +91,16 @@ impl GpuContext {
         let lost = Arc::new(AtomicBool::new(false));
         let flag = lost.clone();
         device.set_device_lost_callback(move |_, _| flag.store(true, Ordering::SeqCst));
-        Ok(GpuContext { instance, adapter, device, queue, rung, lost })
+        // wgpu panics on an uncaught validation error by default; an app must not crash for
+        // a GPU mistake, so errors are recorded for diagnostics instead.
+        let errors = Arc::new(Mutex::new(Vec::new()));
+        let sink = errors.clone();
+        device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
+            if let Ok(mut v) = sink.lock() {
+                v.push(e.to_string());
+            }
+        }));
+        Ok(GpuContext { instance, adapter, device, queue, rung, lost, errors })
     }
 
     /// True once the device is lost (driver reset, GPU removed, or [`force_loss`]).
@@ -106,6 +116,11 @@ impl GpuContext {
         // Destroy reports the loss through the callback on the next poll.
         let _ = self.device.poll(wgpu::PollType::Poll);
         self.lost.store(true, Ordering::SeqCst);
+    }
+
+    /// GPU validation errors recorded since the last call (an empty list in a healthy run).
+    pub fn take_errors(&self) -> Vec<String> {
+        self.errors.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default()
     }
 
     /// The adapter's name and backend, for logs and diagnostics.

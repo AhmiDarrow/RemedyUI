@@ -25,6 +25,7 @@ pub struct GpuCompositor {
     ladder: LadderOptions,
     tiles: HashMap<(LayerId, TileKey), Tile>,
     next_id: u64,
+    generation: u64,
 }
 
 impl std::fmt::Debug for GpuCompositor {
@@ -44,12 +45,17 @@ fn krect(r: remedy_ui_core::Rect) -> kurbo::Rect {
 impl GpuCompositor {
     /// A compositor on `renderer`. `ladder` is how a replacement device is found after a loss.
     pub fn new(renderer: GpuRenderer, ladder: LadderOptions) -> Self {
-        GpuCompositor { renderer, ladder, tiles: HashMap::new(), next_id: 1 }
+        GpuCompositor { renderer, ladder, tiles: HashMap::new(), next_id: 1, generation: 0 }
     }
 
     /// The renderer.
     pub fn renderer(&self) -> &GpuRenderer {
         &self.renderer
+    }
+
+    /// Bumped on every device rebuild; surfaces from an older device rebuild themselves.
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Tiles held.
@@ -70,6 +76,7 @@ impl GpuCompositor {
         let store = self.renderer_store();
         self.renderer = GpuRenderer::new(ctx, store);
         self.tiles.clear();
+        self.generation += 1;
         compositor.invalidate_tiles();
         Ok(())
     }
@@ -85,6 +92,18 @@ impl GpuCompositor {
         target: &wgpu::Texture,
         background: Color,
     ) -> Result<(), GpuError> {
+        let (scene, bindings) = self.prepare(plan, target.width(), target.height())?;
+        self.renderer.submit(&scene, background, target, &bindings)
+    }
+
+    /// Frees released tiles, rasters requested ones, and records the composite of a
+    /// `width` × `height` frame.
+    pub(crate) fn prepare(
+        &mut self,
+        plan: &FramePlan,
+        width: u32,
+        height: u32,
+    ) -> Result<(Scene, vello_gpu::TextureBindings), GpuError> {
         if self.is_lost() {
             return Err(GpuError::Lost);
         }
@@ -99,7 +118,7 @@ impl GpuCompositor {
             self.tiles.insert((req.layer, req.key), Tile { texture, id });
         }
 
-        let (w, h) = size16(target.width(), target.height())?;
+        let (w, h) = size16(width, height)?;
         let mut scene = Scene::new(w, h);
         let mut bindings = vello_gpu::TextureBindings::new();
         for op in &plan.ops {
@@ -139,7 +158,7 @@ impl GpuCompositor {
                 }
             }
         }
-        self.renderer.submit(&scene, background, target, &bindings)
+        Ok((scene, bindings))
     }
 
     /// Presents into a new texture and reads it back (tests and snapshots).

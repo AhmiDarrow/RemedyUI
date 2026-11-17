@@ -2395,9 +2395,12 @@ dependencies = [
 name = "remedy-ui-render-gpu"
 version = "0.1.0"
 dependencies = [
+ "remedy-ui-bridge-windows",
+ "remedy-ui-bridge-winit",
  "remedy-ui-compositor",
  "remedy-ui-core",
  "remedy-ui-fonts",
+ "remedy-ui-host",
  "remedy-ui-input",
  "remedy-ui-paint",
  "remedy-ui-render-cpu",

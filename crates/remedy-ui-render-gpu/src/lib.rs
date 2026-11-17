@@ -16,11 +16,13 @@ mod context;
 mod ffi;
 mod images;
 mod renderer;
+mod surface;
 
 pub use cache::PipelineCacheStore;
 pub use composite::GpuCompositor;
 pub use context::{GpuContext, LadderOptions, Rung};
 pub use renderer::{FORMAT, GpuRenderer};
+pub use surface::{GpuSurface, Presented};
 pub use wgpu;
 
 /// Why the GPU renderer could not draw.
@@ -38,6 +40,8 @@ pub enum GpuError {
     Render(String),
     /// Reading pixels back failed.
     Readback(String),
+    /// A window surface could not be made or used.
+    Surface(String),
 }
 
 impl std::fmt::Display for GpuError {
@@ -49,6 +53,7 @@ impl std::fmt::Display for GpuError {
             GpuError::BadSize => f.write_str("the target size is zero or beyond 65,535 pixels on an axis"),
             GpuError::Render(e) => write!(f, "drawing failed: {e}"),
             GpuError::Readback(e) => write!(f, "reading pixels back failed: {e}"),
+            GpuError::Surface(e) => write!(f, "the window surface failed: {e}"),
         }
     }
 }

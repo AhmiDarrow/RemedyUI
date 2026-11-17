@@ -11,12 +11,16 @@ authors.workspace = true
 [dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-host = { path = "../remedy-ui-host", version = "0.1.0" }
 remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
 remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "0.1.0" }
 vello_gpu = { version = "=0.4.0" }
 wgpu = { version = "=30.0.2" }
 
 [dev-dependencies]
+remedy-ui-bridge-windows = { path = "../remedy-ui-bridge-windows", version = "0.1.0" }
+remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "0.1.0" }
+remedy-ui-host = { path = "../remedy-ui-host", version = "0.1.0" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "0.1.0", features = ["remedy-sans-ui"] }
 remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
