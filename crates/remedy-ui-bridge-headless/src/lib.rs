@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{
-    App, Host, HostEvent, ImeEvent, Pixels, SystemSettings, TextInputState, TimerId, Unsupported, Waker,
-    WindowHandles, WindowId, WindowOptions,
+    App, Host, HostEvent, ImeEvent, Pixels, ResizeEdge, SystemSettings, TextInputState, TimerId, Unsupported,
+    Waker, WindowHandles, WindowId, WindowOptions,
 };
 use remedy_ui_input::{Platform, WheelEvent};
 
@@ -30,6 +30,7 @@ pub struct HeadlessWindow {
     presents: usize,
     last_damage: Vec<Rect>,
     text_input: Option<TextInputState>,
+    minimized: bool,
 }
 
 impl HeadlessWindow {
@@ -63,6 +64,11 @@ impl HeadlessWindow {
         self.text_input.as_ref()
     }
 
+    /// True while minimized.
+    pub fn minimized(&self) -> bool {
+        self.minimized
+    }
+
     /// True while a frame is requested and not yet delivered.
     pub fn frame_requested(&self) -> bool {
         self.frame_requested
@@ -84,6 +90,8 @@ pub struct HeadlessHost {
     clipboard: Option<(String, bool)>,
     woken: Arc<AtomicBool>,
     exited: bool,
+    focused: Option<WindowId>,
+    interactions: Vec<(WindowId, Option<ResizeEdge>)>,
 }
 
 impl Default for HeadlessHost {
@@ -109,6 +117,8 @@ impl HeadlessHost {
             clipboard: None,
             woken: Arc::new(AtomicBool::new(false)),
             exited: false,
+            focused: None,
+            interactions: Vec::new(),
         }
     }
 
@@ -192,6 +202,16 @@ impl HeadlessHost {
     /// What is on the clipboard, and whether it was marked sensitive.
     pub fn clipboard(&self) -> Option<(&str, bool)> {
         self.clipboard.as_ref().map(|(t, s)| (t.as_str(), *s))
+    }
+
+    /// The window last brought to the front with [`Host::focus_window`].
+    pub fn focused_window(&self) -> Option<WindowId> {
+        self.focused
+    }
+
+    /// User moves (`None`) and resizes (`Some(edge)`) the app started, oldest first.
+    pub fn take_interactions(&mut self) -> Vec<(WindowId, Option<ResizeEdge>)> {
+        std::mem::take(&mut self.interactions)
     }
 
     /// True once the app called [`Host::exit`].
@@ -284,6 +304,7 @@ impl Host for HeadlessHost {
             presents: 0,
             last_damage: Vec::new(),
             text_input: None,
+            minimized: false,
         };
         Self::apply_size(&mut w, options.size);
         self.queue.push_back(HostEvent::Resized {
@@ -321,6 +342,41 @@ impl Host for HeadlessHost {
         if let Some(w) = self.window_mut(window) {
             w.options.visible = visible;
         }
+    }
+
+    fn window_position(&self, window: WindowId) -> Option<Point> {
+        self.windows.get(&window).map(|w| w.options.position.unwrap_or(Point::ZERO))
+    }
+
+    fn set_position(&mut self, window: WindowId, position: Point) -> Result<(), Unsupported> {
+        if let Some(w) = self.window_mut(window) {
+            w.options.position = Some(position);
+            self.queue.push_back(HostEvent::Moved(window, position));
+        }
+        Ok(())
+    }
+
+    fn focus_window(&mut self, window: WindowId) {
+        if let Some(w) = self.window_mut(window) {
+            w.options.visible = true;
+        }
+        self.focused = Some(window);
+    }
+
+    fn set_minimized(&mut self, window: WindowId, minimized: bool) {
+        if let Some(w) = self.window_mut(window) {
+            w.minimized = minimized;
+        }
+    }
+
+    fn begin_move(&mut self, window: WindowId) -> Result<(), Unsupported> {
+        self.interactions.push((window, None));
+        Ok(())
+    }
+
+    fn begin_resize(&mut self, window: WindowId, edge: ResizeEdge) -> Result<(), Unsupported> {
+        self.interactions.push((window, Some(edge)));
+        Ok(())
     }
 
     fn set_always_on_top(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported> {

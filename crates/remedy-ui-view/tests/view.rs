@@ -284,7 +284,7 @@ fn scroll_containers_become_compositor_layers_and_hit_testing_follows_offsets() 
     // (180 - 100 = 80) brings it to 70..100.
     s.comp.scroll_by(layer, Vec2::new(0.0, 500.0));
     let offset = s.comp.scroll_offset(layer).unwrap_or(Vec2::ZERO);
-    ui.set_scroll_offset(&list, offset);
+    ui.set_scroll_offset(list.id(), offset);
     s.frame();
     assert_eq!(offset, Vec2::new(0.0, 80.0));
     assert_eq!(s.px(10, 85), [255, 0, 0, 255], "the button shows at 150 - 80");

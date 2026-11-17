@@ -34,6 +34,7 @@ pub struct GpuSurface {
     vello: vello_gpu::Renderer,
     resources: vello_gpu::Resources,
     generation: u64,
+    tiles: crate::composite::TileSet,
 }
 
 impl std::fmt::Debug for GpuSurface {
@@ -99,6 +100,7 @@ impl GpuCompositor {
             vello,
             resources,
             generation: self.generation(),
+            tiles: Default::default(),
         })
     }
 
@@ -131,6 +133,7 @@ impl GpuCompositor {
                 transparent,
             )?;
             (surface.surface, surface.config, surface.vello, surface.resources) = (Some(s), c, v, r);
+            surface.tiles.0.clear();
             surface.generation = self.generation();
         }
         let Some(swapchain) = surface.surface.as_ref() else { return Ok(Presented::Retry) };
@@ -152,7 +155,7 @@ impl GpuCompositor {
             }
         };
         let (w, h) = (frame.texture.width(), frame.texture.height());
-        let (scene, bindings) = self.prepare(plan, w, h)?;
+        let (scene, bindings) = self.prepare(&mut surface.tiles, plan, w, h)?;
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
         submit_scene(
             self.renderer().context(),
