@@ -58,6 +58,9 @@ impl Surface for GpuScene<'_> {
     fn fill_blurred_rounded_rect(&mut self, rect: &kurbo::Rect, radius: f32, std_dev: f32) {
         self.scene.fill_blurred_rounded_rect(rect, radius, std_dev);
     }
+    fn set_blend_mode(&mut self, mode: BlendMode) {
+        self.scene.set_blend_mode(mode);
+    }
     fn push_clip_layer(&mut self, path: &BezPath) {
         self.scene.push_clip_layer(path);
     }

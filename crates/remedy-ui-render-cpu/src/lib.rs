@@ -76,10 +76,14 @@ struct GlyphKey {
     size_64: u32,
     bin: u8,
     hinting: Hinting,
+    /// `Some(bgr)` for LCD coverage.
+    lcd: Option<bool>,
 }
 
 struct CachedGlyph {
     id: u64,
+    /// For LCD glyphs, the additive color pass (see `glyph_run`).
+    color_pass: Option<(u64, Arc<Pixmap>)>,
     image: Arc<Pixmap>,
     left: i32,
     top: i32,
@@ -315,6 +319,8 @@ impl Painter {
     pub fn draw<S: Surface>(&mut self, s: &mut S, list: &DisplayList, base: Affine) {
         let scale = base.scale_factor();
         let mut transforms = vec![base];
+        // Open opacity/blend groups: LCD text inside one falls back to grayscale.
+        let mut groups = 0usize;
         for item in list.items() {
             let t = transforms.last().copied().unwrap_or(base);
             s.set_transform(kaffine(t));
@@ -369,13 +375,18 @@ impl Painter {
                     s.set_stroke(kstroke(stroke));
                     s.stroke_path(&bezpath(path));
                 }
-                Item::Glyphs(run) => self.glyph_run(s, run, t, scale),
+                Item::Glyphs(run) => self.glyph_run(s, run, t, scale, groups == 0),
                 Item::Image { image, rect, radii, sampling } => {
                     self.image(s, image, *rect, *radii, *sampling)
                 }
                 Item::PushClip { rect, radii } => s.push_clip_layer(&rounded(*rect, *radii)),
-                Item::PopClip | Item::PopLayer => s.pop_layer(),
+                Item::PopClip => s.pop_layer(),
+                Item::PopLayer => {
+                    groups = groups.saturating_sub(1);
+                    s.pop_layer();
+                }
                 Item::PushLayer { opacity, blend } => {
+                    groups += 1;
                     let mode = match blend {
                         Blend::Normal => peniko::BlendMode::default(),
                         Blend::Multiply => peniko::BlendMode::from(peniko::Mix::Multiply),
@@ -433,15 +444,35 @@ impl Painter {
         ctx.fill_path(&rounded(rect, radii));
     }
 
-    fn glyph_run<S: Surface>(&mut self, ctx: &mut S, run: &GlyphRun, t: Affine, scale: f32) {
-        // LCD coverage needs per-channel blending; this renderer draws grayscale coverage
-        // for every run (the documented fallback; the GPU renderer draws LCD).
+    /// Draws a glyph run. Grayscale runs draw each glyph's coverage as an alpha mask tinted
+    /// with the run's color. LCD runs (axis-aligned, outside opacity and blend groups) blend
+    /// each color channel with its own subpixel coverage `c` (times the color's alpha `a`) in
+    /// two passes, exact over opaque pixels: a multiply pass with premultiplied
+    /// `(m - c, alpha m)` (`m` the largest channel coverage) leaves `dst * (1 - c·a)`, then an
+    /// additive pass of `(c, alpha m)` tinted by the color adds `color * c·a`. Images are valid
+    /// premultiplied data (GPU pipelines rely on it) and color only enters through tints, so
+    /// cached images do not depend on color. Like every platform's subpixel text, LCD is for
+    /// text over opaque content: over transparent pixels the result stays valid but its edges
+    /// come out slightly too opaque.
+    fn glyph_run<S: Surface>(&mut self, ctx: &mut S, run: &GlyphRun, t: Affine, scale: f32, flat: bool) {
         let [a, b, c, d, _, _] = t.0;
         let device_scale = ((a * a + b * b).sqrt() + (c * c + d * d).sqrt()) / 2.0;
         let px_size = run.size * if device_scale > 0.0 { device_scale } else { scale };
         let axis_aligned = b == 0.0 && c == 0.0;
+        let lcd = match run.antialias {
+            Antialias::Lcd { bgr } if axis_aligned && flat => Some(bgr),
+            _ => None,
+        };
         ctx.set_transform(kurbo::Affine::IDENTITY);
-        ctx.set_tint(Some(vello_cpu::Tint { color: color(run.color), mode: vello_cpu::TintMode::AlphaMask }));
+        let [r, g, bl, al] = [run.color.r, run.color.g, run.color.b, run.color.a];
+        // Tint colors are unpremultiplied: (1, 1, 1, a) scales a premultiplied image by a.
+        let alpha_tint = vello_cpu::Tint {
+            color: AlphaColor::new([1.0, 1.0, 1.0, al]),
+            mode: vello_cpu::TintMode::Multiply,
+        };
+        let color_tint =
+            vello_cpu::Tint { color: AlphaColor::new([r, g, bl, al]), mode: vello_cpu::TintMode::Multiply };
+        let mask_tint = vello_cpu::Tint { color: color(run.color), mode: vello_cpu::TintMode::AlphaMask };
         for (id, origin) in &run.glyphs {
             let dev = t.apply(*origin);
             let hinting = if axis_aligned { run.hinting } else { Hinting::None };
@@ -453,34 +484,72 @@ impl Painter {
                 size_64: size_64(px_size),
                 bin,
                 hinting,
+                lcd,
             };
             if !self.glyphs.contains_key(&key) {
-                let img = self.raster.rasterize(&run.font, *id, px_size, bin, hinting, Antialias::Grayscale);
+                let aa = lcd.map_or(Antialias::Grayscale, |bgr| Antialias::Lcd { bgr });
+                let img = self.raster.rasterize(&run.font, *id, px_size, bin, hinting, aa);
                 let id = self.next_glyph;
-                self.next_glyph += 1;
+                self.next_glyph += 2;
                 let cached = img.and_then(|g| {
-                    let rgba: Vec<u8> = g.data.iter().flat_map(|&v| [v, v, v, v]).collect();
-                    pixmap_from(g.width, g.height, rgba).map(|p| CachedGlyph {
-                        id,
-                        image: Arc::new(p),
-                        left: g.left,
-                        top: g.top,
-                    })
+                    if lcd.is_some() {
+                        let px = g.data.as_chunks::<3>().0;
+                        let multiply: Vec<u8> = px
+                            .iter()
+                            .flat_map(|&[cr, cg, cb]| {
+                                let m = cr.max(cg).max(cb);
+                                [m - cr, m - cg, m - cb, m]
+                            })
+                            .collect();
+                        let add: Vec<u8> =
+                            px.iter().flat_map(|&[cr, cg, cb]| [cr, cg, cb, cr.max(cg).max(cb)]).collect();
+                        let first = pixmap_from(g.width, g.height, multiply)?;
+                        let second = pixmap_from(g.width, g.height, add)?;
+                        Some(CachedGlyph {
+                            id,
+                            color_pass: Some((id + 1, Arc::new(second))),
+                            image: Arc::new(first),
+                            left: g.left,
+                            top: g.top,
+                        })
+                    } else {
+                        let rgba: Vec<u8> = g.data.iter().flat_map(|&v| [v, v, v, v]).collect();
+                        pixmap_from(g.width, g.height, rgba).map(|p| CachedGlyph {
+                            id,
+                            color_pass: None,
+                            image: Arc::new(p),
+                            left: g.left,
+                            top: g.top,
+                        })
+                    }
                 });
                 self.glyphs.insert(key, cached);
             }
-            let Some(Some(g)) = self.glyphs.get(&key) else { continue };
-            let x = (dev.x.floor() as i32 + g.left) as f64;
-            let y = (dev.y.round() as i32 - g.top) as f64;
-            let (gw, gh) = (f64::from(g.image.width()), f64::from(g.image.height()));
-            let Some(source) = ctx.image_source(ImageKey::Glyph(g.id), &g.image, false) else { continue };
-            ctx.set_paint(vello_cpu::Image {
-                image: source,
-                sampler: ImageSampler { quality: ImageQuality::Low, ..Default::default() },
-            });
-            ctx.set_paint_transform(kurbo::Affine::translate((x, y)));
-            ctx.fill_rect(&kurbo::Rect::new(x, y, x + gw, y + gh));
+            let Some(Some(gl)) = self.glyphs.get(&key) else { continue };
+            let x = (dev.x.floor() as i32 + gl.left) as f64;
+            let y = (dev.y.round() as i32 - gl.top) as f64;
+            let rect =
+                kurbo::Rect::new(x, y, x + f64::from(gl.image.width()), y + f64::from(gl.image.height()));
+            let sampler = ImageSampler { quality: ImageQuality::Low, ..Default::default() };
+            let draw = |ctx: &mut S, key: ImageKey, image: &Arc<Pixmap>, tint, blend| {
+                let Some(source) = ctx.image_source(key, image, false) else { return };
+                ctx.set_tint(Some(tint));
+                ctx.set_blend_mode(blend);
+                ctx.set_paint(vello_cpu::Image { image: source, sampler });
+                ctx.set_paint_transform(kurbo::Affine::translate((x, y)));
+                ctx.fill_rect(&rect);
+            };
+            match &gl.color_pass {
+                Some((add_id, add)) => {
+                    let multiply = peniko::BlendMode::new(peniko::Mix::Multiply, peniko::Compose::SrcOver);
+                    let plus = peniko::BlendMode::new(peniko::Mix::Normal, peniko::Compose::Plus);
+                    draw(ctx, ImageKey::Glyph(gl.id), &gl.image, alpha_tint, multiply);
+                    draw(ctx, ImageKey::Glyph(*add_id), add, color_tint, plus);
+                }
+                None => draw(ctx, ImageKey::Glyph(gl.id), &gl.image, mask_tint, peniko::BlendMode::default()),
+            }
         }
+        ctx.set_blend_mode(peniko::BlendMode::default());
         ctx.set_tint(None);
         ctx.reset_paint_transform();
     }

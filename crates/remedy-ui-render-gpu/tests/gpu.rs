@@ -233,3 +233,38 @@ fn the_pipeline_cache_round_trips_where_the_driver_supports_one() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn lcd_text_matches_between_gpu_and_cpu() {
+    let mut fonts = FontCollection::new();
+    for face in remedy_ui_fonts::all() {
+        let _ = fonts.add_static(face.data);
+    }
+    let mut engine = TextEngine::new(fonts);
+    let p =
+        engine.layout(&RichText::plain("Subpixel text"), &TextStyle::default(), ParagraphOptions::default());
+    let mut l = DisplayList::new();
+    l.fill_rect(Rect::new(0.0, 0.0, 160.0, 40.0), Brush::Solid(Color::rgb8(240, 236, 220)));
+    for run in p.glyph_runs() {
+        l.push(Item::Glyphs(GlyphRun {
+            font: run.font,
+            size: run.size,
+            color: Color::rgb8(20, 40, 90),
+            glyphs: run.glyphs.iter().map(|g| (g.id, Point::new(g.x + 4.0, g.y + 6.0))).collect(),
+            hinting: Hinting::Full,
+            antialias: Antialias::Lcd { bgr: false },
+        }));
+    }
+    let cpu = CpuRenderer::new().render(&l, 160, 40, 1.0, Color::WHITE);
+    let gpu = gpu().render(&l, 160, 40, 1.0, Color::WHITE);
+    let (Ok(cpu), Ok(gpu)) = (cpu, gpu) else { unreachable!("both render") };
+    assert!(
+        cpu.pixels.as_chunks::<4>().0.iter().any(|p| p[0].abs_diff(p[2]) > 30),
+        "the reference has fringes"
+    );
+    assert!(
+        cpu.pixels.as_chunks::<4>().0.iter().any(|p| p[2] > p[0].saturating_add(30)),
+        "the text color shows: blue over beige"
+    );
+    assert_eq!(differing(&cpu, &gpu, 8), 0, "LCD text matches on the GPU");
+}
