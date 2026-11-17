@@ -44,6 +44,7 @@ pub(crate) struct Field {
     editor: Editor,
     style: TextStyle,
     placeholder: String,
+    label: Option<String>,
     scale: f32,
     /// The paragraph shown, its width and where its top-left sat in the element.
     shown: Option<(f32, Rc<Paragraph>, Point)>,
@@ -169,11 +170,14 @@ impl Field {
     }
 
     pub(crate) fn semantics(&self) -> Semantics {
-        let s = Semantics::new(match self.kind {
+        let mut s = Semantics::new(match self.kind {
             FieldKind::Secret => Role::PasswordInput,
             FieldKind::Multi => Role::MultilineTextInput,
             FieldKind::Single => Role::TextInput,
         });
+        if let Some(l) = &self.label {
+            s = s.label(l.clone());
+        }
         match &self.editor {
             Editor::Plain(e) => s.value(e.text()),
             // Secrets are never exposed, not even their length.
@@ -416,6 +420,7 @@ impl Ui {
             },
             style: TextStyle::default(),
             placeholder: String::new(),
+            label: None,
             scale,
             shown: None,
             on_change: None,
@@ -519,6 +524,13 @@ impl TextField {
     pub fn placeholder(self, text: impl Into<String>) -> Self {
         self.field.borrow_mut().placeholder = text.into();
         self.el.ui.mark(self.el.id, Dirty::PAINT);
+        self
+    }
+
+    /// The name assistive technology reads for the field.
+    pub fn label(self, text: impl Into<String>) -> Self {
+        self.field.borrow_mut().label = Some(text.into());
+        self.el.ui.mark(self.el.id, Dirty::SEMANTICS);
         self
     }
 

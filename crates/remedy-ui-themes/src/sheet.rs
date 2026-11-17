@@ -263,6 +263,24 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         rule(w, None, States::INVALID, StylePatch { border: Some(danger), ..Default::default() });
         rule(w, None, States::DISABLED, disabled.clone());
     }
+    // An input inside another control that already draws the input's frame (search).
+    rule(
+        "text_input",
+        Some("bare"),
+        States::NONE,
+        StylePatch {
+            background: Some(Color::TRANSPARENT),
+            border: Some(Color::TRANSPARENT),
+            padding: Some(Insets::ZERO),
+            ..Default::default()
+        },
+    );
+    rule(
+        "text_input",
+        Some("bare"),
+        States::FOCUS,
+        StylePatch { border: Some(Color::TRANSPARENT), ..Default::default() },
+    );
     rule(
         "field",
         None,

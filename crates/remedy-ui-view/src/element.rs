@@ -28,6 +28,8 @@ pub struct PaintCx<'a> {
     pub style: &'a ResolvedStyle,
     /// The window's theme.
     pub theme: &'a Theme,
+    /// The element's states (checked, selected, hover, …).
+    pub states: States,
 }
 
 pub(crate) type Painter = Rc<dyn Fn(&mut PaintCx<'_>)>;
@@ -73,6 +75,10 @@ pub(crate) struct ElData {
     pub(crate) scroll: bool,
     pub(crate) clip: bool,
     pub(crate) click: Option<Rc<dyn Fn()>>,
+    pub(crate) hover: Option<Rc<dyn Fn(bool)>>,
+    pub(crate) hidden: bool,
+    pub(crate) removed: Vec<Box<dyn FnOnce()>>,
+    pub(crate) on_scroll: Option<Rc<dyn Fn(Vec2)>>,
     /// The last recorded paint chunk, and the size it was recorded at.
     pub(crate) chunk: Option<(Size, Rc<DisplayList>)>,
     /// Bindings owned by this element, disposed with it.
@@ -102,6 +108,8 @@ pub(crate) struct Inner {
     pub(crate) platform: remedy_ui_input::Platform,
     pub(crate) content: ElementId,
     pub(crate) overlays: ElementId,
+    pub(crate) trusted: ElementId,
+    pub(crate) reduced_motion: bool,
     pub(crate) timers: HashMap<u64, Box<dyn FnOnce()>>,
     pub(crate) next_timer: u64,
 }
@@ -188,6 +196,8 @@ impl Ui {
             platform: remedy_ui_input::Platform::Standard,
             content: root,
             overlays: root,
+            trusted: root,
+            reduced_motion: false,
             timers: HashMap::new(),
             next_timer: 0,
         })));
@@ -206,12 +216,21 @@ impl Ui {
             l.height = remedy_ui_layout::Length::Percent(1.0);
         });
         let _ = ui.tree().set_hit_mode(overlays.id, HitMode::PassThrough);
+        // Trusted prompts sit above everything the app can draw.
+        let trusted = ui.el("trusted").layout(|l| {
+            l.position = remedy_ui_layout::Position::Absolute;
+            l.inset = Insets::ZERO;
+            l.width = remedy_ui_layout::Length::Percent(1.0);
+            l.height = remedy_ui_layout::Length::Percent(1.0);
+        });
+        let _ = ui.tree().set_hit_mode(trusted.id, HitMode::PassThrough);
         let window = El { ui: ui.clone(), id: root };
-        let _ = window.child(content.clone()).child(overlays.clone());
+        let _ = window.child(content.clone()).child(overlays.clone()).child(trusted.clone());
         {
             let mut i = ui.0.borrow_mut();
             i.content = content.id;
             i.overlays = overlays.id;
+            i.trusted = trusted.id;
         }
         ui
     }
@@ -222,6 +241,24 @@ impl Ui {
         let host = self.0.borrow().overlays;
         let _ = El { ui: self.clone(), id: host }.child(el.clone());
         el
+    }
+
+    /// Shows `el` in the trusted layer: above every overlay the app draws. Only the engine's
+    /// trusted prompts belong here.
+    pub fn trusted_overlay(&self, el: El) -> El {
+        let host = self.0.borrow().trusted;
+        let _ = El { ui: self.clone(), id: host }.child(el.clone());
+        el
+    }
+
+    /// Follows the system's reduced-motion setting (the runner sets it).
+    pub fn set_reduced_motion(&self, on: bool) {
+        self.0.borrow_mut().reduced_motion = on;
+    }
+
+    /// True when motion should be reduced: animations jump to their end, spinners hold still.
+    pub fn reduced_motion(&self) -> bool {
+        self.0.borrow().reduced_motion
     }
 
     /// Runs `f` once after `delay`. Returns an id for [`Ui::cancel_timer`].
@@ -275,6 +312,11 @@ impl Ui {
         El { ui: self.clone(), id }
     }
 
+    /// A handle to an existing element.
+    pub fn element(&self, id: ElementId) -> El {
+        El { ui: self.clone(), id }
+    }
+
     /// The element tree, for events, focus and hit testing.
     pub fn tree(&self) -> Tree {
         self.0.borrow().tree.clone()
@@ -309,11 +351,23 @@ impl Ui {
     /// The scroll offset the compositor reports for a scroll container, so hit testing
     /// matches what is shown.
     pub fn set_scroll_offset(&self, el: ElementId, offset: Vec2) {
-        let mut i = self.0.borrow_mut();
-        if i.scroll_offsets.get(&el) != Some(&offset) {
+        let cb = {
+            let mut i = self.0.borrow_mut();
+            if i.scroll_offsets.get(&el) == Some(&offset) {
+                return;
+            }
             i.scroll_offsets.insert(el, offset);
             i.frame.bounds_stale = true;
+            i.els.get(&el).and_then(|d| d.on_scroll.clone())
+        };
+        if let Some(cb) = cb {
+            cb(offset);
         }
+    }
+
+    /// The scroll offset of a scroll container, as last reported.
+    pub fn scroll_offset(&self, el: ElementId) -> Vec2 {
+        self.0.borrow().scroll_offsets.get(&el).copied().unwrap_or(Vec2::ZERO)
     }
 
     /// Accessibility: start producing AccessKit updates (a screen reader connected).
@@ -375,6 +429,10 @@ impl ElData {
             scroll: false,
             clip: false,
             click: None,
+            hover: None,
+            hidden: false,
+            removed: Vec::new(),
+            on_scroll: None,
             chunk: None,
             effects: Vec::new(),
         }
@@ -427,6 +485,35 @@ impl El {
         self
     }
 
+    /// Puts `child` at `index` among this element's children, moving it there if it is
+    /// already a child (of this or another element).
+    pub fn insert_child(&self, index: usize, child: &El) {
+        {
+            let mut i = self.ui.0.borrow_mut();
+            let old_parent = i.tree.parent(child.id);
+            if old_parent.is_some() {
+                let _ = i.tree.detach(child.id);
+            }
+            let n = i.tree.children(self.id).len();
+            let _ = i.tree.insert(self.id, index.min(n), child.id);
+            // Layout children follow the tree's order.
+            for p in [Some(self.id), old_parent].into_iter().flatten() {
+                let kids: Vec<LayoutNode> =
+                    i.tree.children(p).iter().filter_map(|k| i.els.get(k).map(|d| d.node)).collect();
+                if let Some(node) = i.els.get(&p).map(|d| d.node) {
+                    let _ = i.layout.set_children(node, &kids);
+                }
+            }
+            i.structure_changed = true;
+        }
+        self.ui.mark(self.id, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
+    }
+
+    /// The element's children, in order.
+    pub fn child_elements(&self) -> Vec<El> {
+        self.ui.tree().children(self.id).into_iter().map(|id| El { ui: self.ui.clone(), id }).collect()
+    }
+
     /// Adds children in order.
     pub fn children(self, children: impl IntoIterator<Item = El>) -> Self {
         children.into_iter().fold(self, El::child)
@@ -442,12 +529,14 @@ impl El {
         };
         let parent = self.ui.0.borrow().tree.parent(self.id);
         let mut effects = Vec::new();
+        let mut removed = Vec::new();
         {
             let mut i = self.ui.0.borrow_mut();
             for id in &ids {
                 if let Some(d) = i.els.remove(id) {
                     let _ = i.layout.remove(d.node);
                     effects.extend(d.effects);
+                    removed.extend(d.removed);
                 }
                 i.scroll_offsets.remove(id);
                 i.hovered.retain(|h| h != id);
@@ -460,6 +549,9 @@ impl El {
         }
         for e in effects {
             e.dispose();
+        }
+        for f in removed {
+            f();
         }
         if let Some(p) = parent {
             self.ui.mark(p, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
@@ -589,6 +681,24 @@ impl El {
         }
     }
 
+    /// Calls `f(true)` when the pointer comes over the element and `f(false)` when it leaves.
+    pub fn on_hover(self, f: impl Fn(bool) + 'static) -> Self {
+        let f: Rc<dyn Fn(bool)> = Rc::new(f);
+        if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
+            d.hover = Some(f);
+        }
+        self
+    }
+
+    /// Calls `f` with the scroll offset whenever a scroll container scrolls.
+    pub fn on_scroll(self, f: impl Fn(Vec2) + 'static) -> Self {
+        let f: Rc<dyn Fn(Vec2)> = Rc::new(f);
+        if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
+            d.on_scroll = Some(f);
+        }
+        self
+    }
+
     /// Keeps Tab focus inside the element (modals, menus).
     pub fn focus_scope(self) -> Self {
         let _ = self.ui.tree().set_focus_scope(self.id, true);
@@ -624,7 +734,7 @@ impl El {
 
     /// Sets a state flag (selected, checked, invalid, …).
     pub fn state(&self, s: States, on: bool) {
-        self.edit(Dirty::STYLE, |d| d.states = d.states.with(s, on));
+        self.edit(Dirty::STYLE | Dirty::PAINT | Dirty::SEMANTICS, |d| d.states = d.states.with(s, on));
     }
 
     /// The element's current states.
@@ -764,6 +874,14 @@ impl El {
         self
     }
 
+    /// Runs `f` once when the element is removed.
+    pub fn on_removed(self, f: impl FnOnce() + 'static) -> Self {
+        if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
+            d.removed.push(Box::new(f));
+        }
+        self
+    }
+
     /// Moves keyboard focus here.
     pub fn focus(&self) {
         let tree = self.ui.tree();
@@ -795,6 +913,27 @@ impl El {
         });
         let _ = self.ui.tree().set_clips(self.id, true);
         self
+    }
+
+    /// Hides the element and everything inside it: not drawn, not hit, not in the
+    /// accessibility tree (content under a lock screen).
+    pub fn hidden(self, on: bool) -> Self {
+        let _ = self.ui.tree().set_hit_mode(self.id, if on { HitMode::None } else { HitMode::Normal });
+        self.edit(Dirty::PAINT | Dirty::SEMANTICS, |d| d.hidden = on);
+        self.ui.0.borrow_mut().structure_changed = true;
+        self
+    }
+
+    /// Lets clicks through the element itself to what is below; its children still take
+    /// them.
+    pub fn pass_through(self) -> Self {
+        let _ = self.ui.tree().set_hit_mode(self.id, HitMode::PassThrough);
+        self
+    }
+
+    /// Re-records the element's paint (a custom painter reads state that changed).
+    pub fn repaint(&self) {
+        self.ui.mark(self.id, Dirty::PAINT);
     }
 
     /// Clips children to the element's box.
