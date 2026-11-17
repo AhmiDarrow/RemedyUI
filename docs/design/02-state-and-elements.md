@@ -32,10 +32,10 @@ Chat state is nested: rooms hold messages, which hold reactions. One signal per 
 struct Message { id: MsgId, author: UserId, body: RichText, reactions: Vec<Reaction>, edited: bool }
 
 let room: Store<Room> = Store::new(room);
-room.messages().at(id).edited().set(true); // wakes only what read `edited` on that message
+room.messages().at(3).edited().set(true)?; // wakes readers of that field, of what contains it, of what it contains
 ```
 
-`#[derive(Store)]` generates typed field accessors. Each reads and writes through a path, and only readers of that path, or of a parent replaced whole, are notified.
+`#[derive(Store)]` (crate `remedy-ui-macros`) generates typed field accessors. Each reads and writes through a path of fields and vector positions. A write wakes readers of that path, of the paths that contain it and of the paths inside it, and never its siblings. Lists that change shape often belong in a `SignalVec`; a store's vector is for nested data edited in place.
 
 ## Reactive collections
 
