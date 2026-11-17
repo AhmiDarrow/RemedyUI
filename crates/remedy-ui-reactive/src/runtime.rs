@@ -42,8 +42,15 @@ pub(crate) type Equal = fn(&dyn Any, &dyn Any) -> bool;
 
 pub(crate) enum Kind {
     Signal(Rc<RefCell<AnyBox>>),
-    Memo { value: Rc<RefCell<Option<AnyBox>>>, compute: Compute, equal: Equal },
+    Memo {
+        value: Rc<RefCell<Option<AnyBox>>>,
+        compute: Compute,
+        equal: Equal,
+    },
     Effect(Rc<RefCell<Box<dyn FnMut()>>>),
+    /// Tracks what a closure read during [`Runtime::track_reaction`]; a change calls
+    /// `on_change` (which does not re-run the closure).
+    Reaction(Rc<dyn Fn()>),
     Scope,
 }
 
@@ -136,7 +143,7 @@ impl Runtime {
     pub(crate) fn create(&self, kind: Kind, created_at: &'static Location<'static>) -> NodeId {
         let owner = self.owner.get();
         let state = match kind {
-            Kind::Signal(_) | Kind::Scope => State::Clean,
+            Kind::Signal(_) | Kind::Scope | Kind::Reaction(_) => State::Clean,
             Kind::Memo { .. } | Kind::Effect(_) => State::Dirty,
         };
         let node = Node {
@@ -335,7 +342,7 @@ impl Runtime {
             }
             let was_clean = node.state == State::Clean;
             node.state = state;
-            if matches!(node.kind, Kind::Effect(_)) && !node.queued {
+            if matches!(node.kind, Kind::Effect(_) | Kind::Reaction(_)) && !node.queued {
                 node.queued = true;
                 self.pending.borrow_mut().push_back(id);
             }
@@ -383,8 +390,40 @@ impl Runtime {
         Ok(())
     }
 
-    /// Runs a memo's computation or an effect's closure with fresh dependencies.
+    /// Runs `f` with reaction `id` as the observer, replacing what it tracked before.
+    pub(crate) fn track_reaction<R>(&self, id: NodeId, f: impl FnOnce() -> R) -> R {
+        let old = match self.nodes.borrow_mut().get_mut(id) {
+            Some(n) => {
+                n.state = State::Clean;
+                std::mem::take(&mut n.sources)
+            }
+            None => return untracked(self, f),
+        };
+        {
+            let mut nodes = self.nodes.borrow_mut();
+            for src in old {
+                if let Some(s) = nodes.get_mut(src) {
+                    s.subscribers.retain(|&x| x != id);
+                }
+            }
+        }
+        let _w = swap(&self.observer, Some(id));
+        f()
+    }
+
+    /// Runs a memo's computation or an effect's closure with fresh dependencies, or tells a
+    /// reaction that what it tracked changed.
     fn run(&self, id: NodeId) -> Result<(), ReactiveError> {
+        let reaction = match self.nodes.borrow().get(id).map(|n| &n.kind) {
+            Some(Kind::Reaction(f)) => Some(f.clone()),
+            _ => None,
+        };
+        if let Some(on_change) = reaction {
+            // Keeps its sources: it is told again on the next change until it re-tracks.
+            let _w = swap(&self.observer, None);
+            on_change();
+            return Ok(());
+        }
         self.reset_owned(id);
         let old_sources = match self.nodes.borrow_mut().get_mut(id) {
             Some(n) => {
@@ -516,6 +555,11 @@ impl Runtime {
             runaway_effects: self.runaway_effects.get(),
         }
     }
+}
+
+fn untracked<R>(rt: &Runtime, f: impl FnOnce() -> R) -> R {
+    let _w = swap(&rt.observer, None);
+    f()
 }
 
 enum Run {

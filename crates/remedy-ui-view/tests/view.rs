@@ -371,3 +371,31 @@ fn overlays_draw_above_content_trap_focus_and_timers_fire() {
     ui.cancel_timer(gone);
     assert!(ui.take_requests().contains(&Request::CancelTimer(gone)));
 }
+
+#[test]
+fn painters_repaint_when_the_signals_they_read_change() {
+    let ui = ui();
+    let color = Signal::new(Color::BLACK);
+    let other = Signal::new(0u32);
+    let runs = Rc::new(Cell::new(0u32));
+    let r2 = runs.clone();
+    let el = ui.el("box").width(20.0).height(20.0).paint(move |cx| {
+        r2.set(r2.get() + 1);
+        let _ = color.get();
+        let _ = cx.size;
+    });
+    ui.root().child(el);
+    let size = Size::new(100.0, 100.0);
+    let _ = ui.frame(size, 1.0);
+    assert_eq!(runs.get(), 1);
+    let _ = ui.take_requests();
+    let _ = ui.frame(size, 1.0);
+    assert_eq!(runs.get(), 1, "nothing changed: the chunk is reused");
+    other.set(1);
+    let _ = ui.frame(size, 1.0);
+    assert_eq!(runs.get(), 1, "an unread signal does not repaint");
+    color.set(Color::WHITE);
+    assert!(ui.take_requests().iter().any(|r| matches!(r, Request::Frame)), "a frame was requested");
+    let _ = ui.frame(size, 1.0);
+    assert_eq!(runs.get(), 2, "the read signal repainted it");
+}

@@ -376,3 +376,66 @@ fn background_work_returns_to_the_ui_thread() {
     }
     assert_eq!(*result.borrow(), Some((ui_thread, 3_628_800)), "done ran on the UI thread with the result");
 }
+
+#[test]
+fn windows_report_geometry_and_closing_and_title_bars_drag() {
+    let seen = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let closed = Rc::new(Cell::new(0u32));
+    let (s2, c2) = (seen.clone(), closed.clone());
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let (s3, c3) = (s2.clone(), c2.clone());
+        let win = app.open(WindowSpec::new("Note").size(300.0, 200.0).frameless(), move |ui, w| {
+            let w2 = w.clone();
+            let bar = ui.el("titlebar").height(40.0).fill_width().drag_region(move || w2.begin_move());
+            let bar = bar.child(ui.el("button").width(40.0).height(40.0).on_click(|| {}));
+            ui.root().child(bar);
+        });
+        win.on_geometry(move |p, s| s3.borrow_mut().push((p, s)));
+        win.on_closed(move || c3.set(c3.get() + 1));
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    // A press on the button keeps the press; one on the bar beside it moves the window.
+    host.send(HostEvent::Pointer(id, press(20.0, 20.0, PointerPhase::Down)));
+    host.send(HostEvent::Pointer(id, press(20.0, 20.0, PointerPhase::Up)));
+    host.run_frames(&mut runner, 1);
+    assert!(host.take_interactions().is_empty(), "buttons in the bar are not drag handles");
+    host.send(HostEvent::Pointer(id, press(150.0, 20.0, PointerPhase::Down)));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(host.take_interactions(), vec![(id, None)], "the bar moves the window");
+    host.send(HostEvent::Pointer(id, press(150.0, 20.0, PointerPhase::Up)));
+    host.send(HostEvent::Pointer(id, press(150.0, 120.0, PointerPhase::Down)));
+    host.run_frames(&mut runner, 1);
+    assert!(host.take_interactions().is_empty(), "the body below the bar is not a handle");
+
+    let _ = host.set_position(id, Point::new(70.0, 80.0));
+    host.user_resize(id, Size::new(345.0, 250.0));
+    host.run_frames(&mut runner, 2);
+    assert_eq!(seen.borrow().last().copied(), Some((Point::new(70.0, 80.0), Size::new(345.0, 250.0))));
+    host.send(HostEvent::CloseRequested(id));
+    host.run_frames(&mut runner, 2);
+    assert_eq!(closed.get(), 1, "on_closed ran once");
+}
+
+#[test]
+fn activity_is_reported_at_most_once_a_second() {
+    let n = Rc::new(Cell::new(0u32));
+    let n2 = n.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.on_activity(move || n2.set(n2.get() + 1));
+        app.open(WindowSpec::new("A").size(100.0, 100.0), |_, _| {});
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let id = first(&host);
+    for _ in 0..5 {
+        host.send(HostEvent::Pointer(id, press(10.0, 10.0, PointerPhase::Move)));
+        host.run_frames(&mut runner, 1);
+    }
+    assert_eq!(n.get(), 1, "bursts are reported once");
+    host.advance(Duration::from_secs(2));
+    host.send(HostEvent::Pointer(id, press(10.0, 10.0, PointerPhase::Move)));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(n.get(), 2);
+}

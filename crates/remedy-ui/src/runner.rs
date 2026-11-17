@@ -36,8 +36,8 @@ pub struct AppConfig {
     pub sheet: Rc<dyn Fn(&Theme) -> StyleSheet>,
     /// Builds each window's fonts.
     pub fonts: Rc<dyn Fn() -> FontCollection>,
-    /// Try the GPU renderer first (with the `gpu` feature).
-    pub gpu: bool,
+    /// Which renderer windows draw with.
+    pub renderer: RendererChoice,
     /// One instance per user session: a second launch hands its arguments to the first
     /// ([`App::on_second_instance`]) and exits.
     pub single_instance: bool,
@@ -45,13 +45,13 @@ pub struct AppConfig {
 
 impl std::fmt::Debug for AppConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "AppConfig({}, theme {}, gpu {})", self.name, self.theme.name, self.gpu)
+        write!(f, "AppConfig({}, theme {}, {:?})", self.name, self.theme.name, self.renderer)
     }
 }
 
 impl AppConfig {
     /// An app named `name` with the Dark Forest theme, an empty style sheet, the bundled
-    /// Remedy fonts, and the GPU renderer.
+    /// Remedy fonts, and [`RendererChoice::Auto`].
     pub fn new(name: impl Into<String>) -> Self {
         AppConfig {
             name: name.into(),
@@ -64,7 +64,7 @@ impl AppConfig {
                 }
                 f
             }),
-            gpu: true,
+            renderer: RendererChoice::Auto,
             single_instance: false,
         }
     }
@@ -84,8 +84,70 @@ impl AppConfig {
 
     /// Draws with the CPU renderer only.
     pub fn cpu_only(mut self) -> Self {
-        self.gpu = false;
+        self.renderer = RendererChoice::Cpu;
         self
+    }
+
+    /// Starts every window on the GPU (games, canvases, video: apps that always need it).
+    pub fn gpu_first(mut self) -> Self {
+        self.renderer = RendererChoice::Gpu;
+        self
+    }
+}
+
+/// Which renderer draws an app's windows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RendererChoice {
+    /// Windows start on the CPU renderer, which costs no GPU driver memory, and move to the
+    /// GPU (with the `gpu` feature) once their frames take longer than
+    /// [`GPU_PROMOTE_FRAME_COST`] on average: large windows, heavy scenes, constant motion.
+    #[default]
+    Auto,
+    /// Every window starts on the GPU, falling back to the CPU when it fails.
+    Gpu,
+    /// The CPU renderer only.
+    Cpu,
+}
+
+/// The average CPU frame cost past which an [`RendererChoice::Auto`] window moves to the GPU.
+pub const GPU_PROMOTE_FRAME_COST: Duration = Duration::from_millis(6);
+
+/// A single CPU frame this slow moves an [`RendererChoice::Auto`] window to the GPU at once.
+pub const GPU_PROMOTE_FRAME_STALL: Duration = Duration::from_millis(50);
+
+/// The renderer drawing a window now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RendererKind {
+    /// The CPU renderer.
+    Cpu,
+    /// The GPU renderer.
+    Gpu,
+}
+
+/// Rolling cost of a window's recent CPU frames.
+#[derive(Debug, Default)]
+#[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+struct FrameCost {
+    recent: [Duration; 16],
+    filled: usize,
+    next: usize,
+}
+
+#[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+impl FrameCost {
+    /// Records a frame; true once a full window of frames averages over `limit`, or at once
+    /// for a frame so slow ([`GPU_PROMOTE_FRAME_STALL`]) that the window visibly freezes.
+    fn record(&mut self, cost: Duration, limit: Duration) -> bool {
+        if cost >= GPU_PROMOTE_FRAME_STALL {
+            return true;
+        }
+        if let Some(slot) = self.recent.get_mut(self.next) {
+            *slot = cost;
+        }
+        self.next = (self.next + 1) % self.recent.len();
+        self.filled = (self.filled + 1).min(self.recent.len());
+        self.filled == self.recent.len()
+            && self.recent.iter().sum::<Duration>() / self.recent.len() as u32 > limit
     }
 }
 
@@ -223,6 +285,10 @@ struct Shared {
     jobs: HashMap<u64, Job>,
     done: Arc<Mutex<Vec<(u64, JobResult)>>>,
     on_launch: Option<Rc<dyn Fn(Vec<String>)>>,
+    on_activity: Option<Rc<dyn Fn()>>,
+    renderers: HashMap<u64, RendererKind>,
+    on_geometry: HashMap<u64, Rc<dyn Fn(Point, Size)>>,
+    on_closed: HashMap<u64, Vec<Box<dyn FnOnce()>>>,
 }
 
 /// The app, as its code sees it. Requests take effect right after the current event.
@@ -296,6 +362,11 @@ impl App {
     /// changes never count as activity.
     pub fn idle_lock(&self, timeout: Option<Duration>, on_idle: impl Fn() + 'static) {
         self.push(Cmd::Idle(timeout, Some(Rc::new(on_idle))));
+    }
+
+    /// Calls `f` when the user uses the app (pointer, keys, text), at most once a second.
+    pub fn on_activity(&self, f: impl Fn() + 'static) {
+        self.0.borrow_mut().on_activity = Some(Rc::new(f));
     }
 
     /// Changes the idle timeout, keeping the callback.
@@ -467,6 +538,22 @@ impl Window {
         self.app.push(Cmd::Minimize(self.key, on));
     }
 
+    /// Calls `f` with the window's desktop position and content size (logical pixels) after
+    /// the user moves or resizes it.
+    pub fn on_geometry(&self, f: impl Fn(Point, Size) + 'static) {
+        self.app.0.borrow_mut().on_geometry.insert(self.key, Rc::new(f));
+    }
+
+    /// Runs `f` once when the window is gone, however it closed.
+    pub fn on_closed(&self, f: impl FnOnce() + 'static) {
+        self.app.0.borrow_mut().on_closed.entry(self.key).or_default().push(Box::new(f));
+    }
+
+    /// The renderer drawing the window now (`None` before its first frame).
+    pub fn renderer(&self) -> Option<RendererKind> {
+        self.app.0.borrow().renderers.get(&self.key).copied()
+    }
+
     /// Keeps the window out of screenshots and screen sharing, or not.
     pub fn set_capture_protected(&self, on: bool) {
         self.app.push(Cmd::Capture(self.key, on));
@@ -486,6 +573,11 @@ struct Win {
     size: (u32, u32, f32),
     spec: WindowSpec,
     present: Option<Present>,
+    /// The CPU renderer has been too slow for this window: use the GPU from now on.
+    #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+    wants_gpu: bool,
+    #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+    cost: FrameCost,
     scrollers: Vec<(LayerId, ElementId)>,
     cover: Option<remedy_ui_view::El>,
 }
@@ -505,6 +597,7 @@ pub struct Runner {
     save_timer: Option<TimerId>,
     settings: SystemSettings,
     idle: Option<(remedy_ui_secure::IdleTimer, Rc<dyn Fn()>)>,
+    activity_reported: Option<Duration>,
     idle_timer: Option<TimerId>,
     secret: Option<(remedy_ui_secure::SensitiveCopy, TimerId)>,
     inbox: crate::instance::SharedInbox,
@@ -545,6 +638,7 @@ impl Runner {
             save_timer: None,
             settings: SystemSettings::default(),
             idle: None,
+            activity_reported: None,
             idle_timer: None,
             secret: None,
             inbox: Default::default(),
@@ -619,6 +713,8 @@ impl Runner {
                         size: (1, 1, 1.0),
                         spec,
                         present: None,
+                        wants_gpu: false,
+                        cost: FrameCost::default(),
                         scrollers: Vec::new(),
                         cover: None,
                     },
@@ -761,8 +857,17 @@ impl Runner {
 
     /// Real user input: the only thing that keeps an idle lock away.
     fn activity(&mut self, host: &dyn Host) {
+        let now = host.now();
         if let Some((t, _)) = self.idle.as_mut() {
-            t.input(host.now());
+            t.input(now);
+        }
+        // At most once a second: apps mirror activity into their own clocks with it.
+        if self.activity_reported.is_none_or(|t| now.saturating_sub(t) >= Duration::from_secs(1)) {
+            self.activity_reported = Some(now);
+            let cb = self.app.0.borrow().on_activity.clone();
+            if let Some(cb) = cb {
+                cb();
+            }
         }
     }
 
@@ -775,6 +880,13 @@ impl Runner {
 
     fn remember_geometry(&mut self, host: &mut dyn Host, key: u64) {
         let Some(w) = self.wins.get(&key) else { return };
+        let cb = self.app.0.borrow().on_geometry.get(&key).cloned();
+        if let Some(cb) = cb {
+            let (pw, ph, s) = w.size;
+            let pos = host.window_position(w.host).unwrap_or(Point::ZERO);
+            cb(pos, Size::new(pw as f32 / s, ph as f32 / s));
+        }
+        let Some(w) = self.wins.get(&key) else { return };
         let Some(k) = w.spec.persist.clone() else { return };
         let (pw, ph, s) = w.size;
         let size = Size::new(pw as f32 / s, ph as f32 / s);
@@ -786,7 +898,7 @@ impl Runner {
     fn frame(&mut self, host: &mut dyn Host, key: u64, at: Duration) {
         let bg = self.config.theme.colors.bg;
         #[cfg(feature = "gpu")]
-        let gpu_wanted = self.config.gpu;
+        let renderer = self.config.renderer;
         let Some(w) = self.wins.get_mut(&key) else { return };
         let (pw, ph, s) = w.size;
         let f = w.ui.frame(Size::new(pw as f32 / s, ph as f32 / s), s);
@@ -809,6 +921,12 @@ impl Runner {
         let changed = !plan.damage.is_empty() || !plan.raster.is_empty() || !plan.released.is_empty();
         if w.present.is_none() {
             #[cfg(feature = "gpu")]
+            let gpu_wanted = match renderer {
+                RendererChoice::Gpu => true,
+                RendererChoice::Auto => w.wants_gpu,
+                RendererChoice::Cpu => false,
+            };
+            #[cfg(feature = "gpu")]
             if gpu_wanted && let Some(gpu) = self.gpu.get_or_insert_with(new_gpu).as_ref() {
                 let surface = host
                     .window_handles(w.host)
@@ -821,16 +939,40 @@ impl Runner {
             if w.present.is_none() {
                 w.present = Some(Present::Cpu(CpuCompositor::new()));
             }
+            let kind = match w.present.as_ref() {
+                #[cfg(feature = "gpu")]
+                Some(Present::Gpu(_)) => RendererKind::Gpu,
+                _ => RendererKind::Cpu,
+            };
+            self.app.0.borrow_mut().renderers.insert(key, kind);
         }
         let Some(w) = self.wins.get_mut(&key) else { return };
+        #[cfg_attr(not(feature = "gpu"), allow(unused_mut))]
         let mut again = plan.animating;
         if changed || again {
             match w.present.as_mut() {
                 Some(Present::Cpu(cpu)) => {
+                    let started = std::time::Instant::now();
                     if changed && let Ok(frame) = cpu.present(&plan, pw, ph, background) {
                         let pixels = Pixels { width: pw, height: ph, data: &frame.pixels };
                         let _ = host.present_pixels(w.host, pixels, plan.damage.rects());
                     }
+                    // Too slow on the CPU: the next frame starts this window on the GPU.
+                    #[cfg(feature = "gpu")]
+                    if changed
+                        && self.config.renderer == RendererChoice::Auto
+                        && !w.wants_gpu
+                        && w.cost.record(started.elapsed(), GPU_PROMOTE_FRAME_COST)
+                    {
+                        w.wants_gpu = true;
+                        w.present = None;
+                        if let Some(c) = w.comp.as_mut() {
+                            c.invalidate_tiles();
+                        }
+                        again = true;
+                    }
+                    #[cfg(not(feature = "gpu"))]
+                    let _ = started;
                 }
                 #[cfg(feature = "gpu")]
                 Some(Present::Gpu(surface)) => {
@@ -853,6 +995,7 @@ impl Runner {
                             Err(_) => {
                                 // The GPU failed this window: fall back to the CPU renderer.
                                 w.present = Some(Present::Cpu(CpuCompositor::new()));
+                                self.app.0.borrow_mut().renderers.insert(key, RendererKind::Cpu);
                                 if let Some(c) = w.comp.as_mut() {
                                     c.invalidate_tiles();
                                 }
@@ -1036,10 +1179,18 @@ impl remedy_ui_host::App for Runner {
             HostEvent::Destroyed(window) => {
                 if let Some(key) = self.by_host.remove(&window) {
                     self.wins.remove(&key);
-                    let mut s = self.app.0.borrow_mut();
-                    s.open.remove(&key);
-                    s.uis.remove(&key);
-                    s.visible.remove(&key);
+                    let closed = {
+                        let mut s = self.app.0.borrow_mut();
+                        s.open.remove(&key);
+                        s.uis.remove(&key);
+                        s.visible.remove(&key);
+                        s.on_geometry.remove(&key);
+                        s.renderers.remove(&key);
+                        s.on_closed.remove(&key).unwrap_or_default()
+                    };
+                    for f in closed {
+                        f();
+                    }
                 }
                 let (none_left, keep) = {
                     let s = self.app.0.borrow();
@@ -1118,5 +1269,26 @@ impl remedy_ui_host::App for Runner {
         }
         self.drain(host);
         self.app.0.borrow_mut().in_event = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_sustained_slow_average_asks_for_the_gpu() {
+        let limit = Duration::from_millis(6);
+        let mut c = FrameCost::default();
+        // One slow frame among fast ones is not enough, nor is a short burst.
+        assert!(!c.record(Duration::from_millis(40), limit));
+        assert!(FrameCost::default().record(Duration::from_millis(60), limit), "a stall moves at once");
+        for _ in 0..14 {
+            assert!(!c.record(Duration::from_millis(1), limit));
+        }
+        assert!(!c.record(Duration::from_millis(1), limit), "16 frames averaging 3.4 ms");
+        let mut slow = FrameCost::default();
+        let asked: Vec<bool> = (0..16).map(|_| slow.record(Duration::from_millis(9), limit)).collect();
+        assert_eq!(asked.iter().position(|a| *a), Some(15), "asks once 16 frames average over the limit");
     }
 }

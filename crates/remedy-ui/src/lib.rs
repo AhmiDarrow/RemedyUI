@@ -24,7 +24,10 @@ mod instance;
 mod runner;
 
 pub use geometry::GeometryStore;
-pub use runner::{App, AppConfig, Runner, Window, WindowSpec};
+pub use runner::{
+    App, AppConfig, GPU_PROMOTE_FRAME_COST, GPU_PROMOTE_FRAME_STALL, RendererChoice, RendererKind, Runner,
+    Window, WindowSpec,
+};
 
 pub use remedy_ui_core as core;
 pub use remedy_ui_host as host;

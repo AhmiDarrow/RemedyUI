@@ -12,6 +12,10 @@ authors.workspace = true
 default = ["gpu"]
 ## Draw with the GPU renderer, falling back to the CPU renderer when no GPU works.
 gpu = ["dep:remedy-ui-render-gpu"]
+## Dictionary line breaking for Thai, Lao, Khmer and Burmese (adds several MB of data).
+complex-scripts = ["remedy-ui-text/complex-scripts"]
+## Every optional part of the engine.
+full = ["gpu", "complex-scripts"]
 
 [dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
@@ -40,6 +44,7 @@ remedy-ui-bridge-linux = { path = "../remedy-ui-bridge-linux", version = "0.1.0"
 
 [dev-dependencies]
 remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "0.1.0" }
+remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
 
 [target.'cfg(windows)'.dev-dependencies]
 remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "0.1.0" }
