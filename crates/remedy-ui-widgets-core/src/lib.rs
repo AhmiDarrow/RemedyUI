@@ -13,7 +13,8 @@
 //! - Actions: [`button`], [`icon_button`], [`toggle_button`], [`menu_button`]
 //! - Choices: [`check`], [`switch`], [`radio_group`], [`segmented`], [`select`], [`chip`]
 //! - Values: [`slider`], [`stepper`]
-//! - Input: [`text_input`], [`text_area`], [`search`], [`secret_input`], [`field`]
+//! - Input: [`text_input`], [`text_area`], [`search`], [`secret_input`] with
+//!   [`reveal_toggle`], [`field`]
 //! - Feedback: [`progress`], [`spinner`], [`lamp`], [`badge`], [`toast`], [`empty_state`],
 //!   [`skeleton`]
 //! - Overlays: [`tooltip`], [`menu`], [`context_menu`], [`popover`], [`modal`], [`dialog`],
@@ -36,7 +37,7 @@ pub use choices::{check, chip, radio_group, segmented, select, switch};
 pub use containers::{card, column, divider, row, scroll, section, spacer, split, stack, wrap};
 pub use feedback::{badge, empty_state, lamp, progress, skeleton, spinner, toast};
 pub use icons::{Icon, avatar, canvas, icon, image};
-pub use inputs::{field, search, secret_input, text_area, text_input};
+pub use inputs::{field, reveal_toggle, search, secret_input, text_area, text_input};
 pub use lists::{for_each, list, virtual_list};
 pub use overlays::{
     DialogButton, MenuItem, Modal, context_menu, dialog, lock_screen, menu, modal, popover, tooltip,

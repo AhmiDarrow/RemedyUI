@@ -86,6 +86,9 @@ pub struct WindowSpec {
     pub persist: Option<String>,
     /// The color behind everything (the theme's background when `None`).
     pub background: Option<Color>,
+    /// Covers the content while the window is not focused, so the task switcher and
+    /// screen glances show nothing.
+    pub privacy_cover: bool,
 }
 
 impl WindowSpec {
@@ -96,6 +99,7 @@ impl WindowSpec {
             hide_on_close: false,
             persist: None,
             background: None,
+            privacy_cover: false,
         }
     }
 
@@ -147,6 +151,12 @@ impl WindowSpec {
         self
     }
 
+    /// Covers the content while the window is not focused.
+    pub fn privacy_cover(mut self, on: bool) -> Self {
+        self.privacy_cover = on;
+        self
+    }
+
     /// Opens hidden.
     pub fn hidden(mut self) -> Self {
         self.options.visible = false;
@@ -170,6 +180,8 @@ enum Cmd {
     Capture(u64, bool),
     Timer(Duration, Box<dyn FnOnce()>),
     Copy(String, bool),
+    CopySecret(String, Duration),
+    Idle(Option<Duration>, Option<Rc<dyn Fn()>>),
     Forget(String),
     Quit,
 }
@@ -246,6 +258,24 @@ impl App {
     /// Puts text on the clipboard; `sensitive` keeps it out of history and sync.
     pub fn copy(&self, text: impl Into<String>, sensitive: bool) {
         self.push(Cmd::Copy(text.into(), sensitive));
+    }
+
+    /// Copies a secret: kept out of clipboard history and sync, and cleared after `keep` if
+    /// the clipboard still holds it.
+    pub fn copy_secret(&self, text: impl Into<String>, keep: Duration) {
+        self.push(Cmd::CopySecret(text.into(), keep));
+    }
+
+    /// Calls `on_idle` after `timeout` with no real user input (pointer, keys, wheel, input
+    /// methods) in any window; `None` turns idle locking off. Timers and programmatic
+    /// changes never count as activity.
+    pub fn idle_lock(&self, timeout: Option<Duration>, on_idle: impl Fn() + 'static) {
+        self.push(Cmd::Idle(timeout, Some(Rc::new(on_idle))));
+    }
+
+    /// Changes the idle timeout, keeping the callback.
+    pub fn set_idle_timeout(&self, timeout: Option<Duration>) {
+        self.push(Cmd::Idle(timeout, None));
     }
 
     /// Quits.
@@ -359,6 +389,7 @@ struct Win {
     spec: WindowSpec,
     present: Option<Present>,
     scrollers: Vec<(LayerId, ElementId)>,
+    cover: Option<remedy_ui_view::El>,
 }
 
 /// Drives an app on a host. [`run`](crate::run) uses it with the platform bridge; tests use
@@ -375,6 +406,9 @@ pub struct Runner {
     geometry: GeometryStore,
     save_timer: Option<TimerId>,
     settings: SystemSettings,
+    idle: Option<(remedy_ui_secure::IdleTimer, Rc<dyn Fn()>)>,
+    idle_timer: Option<TimerId>,
+    secret: Option<(remedy_ui_secure::SensitiveCopy, TimerId)>,
     #[cfg(feature = "gpu")]
     gpu: Option<Option<remedy_ui_render_gpu::GpuCompositor>>,
 }
@@ -411,6 +445,9 @@ impl Runner {
             geometry,
             save_timer: None,
             settings: SystemSettings::default(),
+            idle: None,
+            idle_timer: None,
+            secret: None,
             #[cfg(feature = "gpu")]
             gpu: None,
         }
@@ -471,6 +508,7 @@ impl Runner {
                         spec,
                         present: None,
                         scrollers: Vec::new(),
+                        cover: None,
                     },
                 );
                 build(&ui, &Window { key, app: self.app.clone() });
@@ -531,6 +569,25 @@ impl Runner {
             Cmd::Copy(text, sensitive) => {
                 let _ = host.set_clipboard_text(&text, sensitive);
             }
+            Cmd::CopySecret(text, keep) => {
+                if host.set_clipboard_text(&text, true).is_ok() {
+                    let copy = remedy_ui_secure::SensitiveCopy::new(&text, host.now(), keep);
+                    if let Some((_, old)) = self.secret.take() {
+                        host.cancel_timer(old);
+                    }
+                    let t = host.set_timer(copy.clear_at());
+                    self.secret = Some((copy, t));
+                }
+            }
+            Cmd::Idle(timeout, cb) => {
+                let now = host.now();
+                match (&mut self.idle, cb) {
+                    (Some((timer, _)), None) => timer.set_timeout(timeout),
+                    (slot, Some(cb)) => *slot = Some((remedy_ui_secure::IdleTimer::new(timeout, now), cb)),
+                    (None, None) => {}
+                }
+                self.schedule_idle(host);
+            }
             Cmd::Forget(key) => {
                 self.geometry.remove(&key);
                 self.schedule_save(host);
@@ -570,6 +627,22 @@ impl Runner {
                     }
                 }
             }
+        }
+    }
+
+    fn schedule_idle(&mut self, host: &mut dyn Host) {
+        if let Some(t) = self.idle_timer.take() {
+            host.cancel_timer(t);
+        }
+        if let Some(d) = self.idle.as_ref().and_then(|(t, _)| t.deadline()) {
+            self.idle_timer = Some(host.set_timer(d));
+        }
+    }
+
+    /// Real user input: the only thing that keeps an idle lock away.
+    fn activity(&mut self, host: &dyn Host) {
+        if let Some((t, _)) = self.idle.as_mut() {
+            t.input(host.now());
         }
     }
 
@@ -739,11 +812,13 @@ impl remedy_ui_host::App for Runner {
                 }
             }
             HostEvent::Pointer(window, e) => {
+                self.activity(host);
                 if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
                     w.ui.pointer(&e);
                 }
             }
             HostEvent::Wheel(window, e) => {
+                self.activity(host);
                 if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k)) {
                     let s = w.size.2;
                     if let Some(c) = w.comp.as_mut() {
@@ -756,17 +831,40 @@ impl remedy_ui_host::App for Runner {
                 }
             }
             HostEvent::Key(window, e) => {
+                self.activity(host);
                 if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
                     w.ui.key(&e);
                 }
             }
             HostEvent::Ime(window, e) => {
+                self.activity(host);
                 if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
                     w.ui.ime(&e);
                 }
             }
-            HostEvent::Focused(window, true) => {
-                if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
+            HostEvent::Focused(window, focused) => {
+                if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k)) {
+                    if w.spec.privacy_cover {
+                        match (focused, w.cover.take()) {
+                            (true, Some(c)) => c.remove(),
+                            (false, None) => {
+                                let ui = w.ui.clone();
+                                let cover = ui.el("privacy_cover").layout(|l| {
+                                    l.position = remedy_ui_layout::Position::Absolute;
+                                    l.inset = remedy_ui_core::Insets::ZERO;
+                                    l.width = remedy_ui_layout::Length::Percent(1.0);
+                                    l.height = remedy_ui_layout::Length::Percent(1.0);
+                                });
+                                let bg = w.spec.background.unwrap_or(self.config.theme.colors.bg);
+                                let cover = cover.style(remedy_ui_style::StylePatch {
+                                    background: Some(bg),
+                                    ..Default::default()
+                                });
+                                w.cover = Some(ui.trusted_overlay(cover));
+                            }
+                            (_, keep) => w.cover = keep,
+                        }
+                    }
                     w.ui.request_frame();
                 }
             }
@@ -801,6 +899,30 @@ impl remedy_ui_host::App for Runner {
                 if self.save_timer == Some(id) {
                     self.save_timer = None;
                     let _ = self.geometry.save();
+                } else if self.idle_timer == Some(id) {
+                    self.idle_timer = None;
+                    let now = host.now();
+                    let fire = self
+                        .idle
+                        .as_ref()
+                        .is_some_and(|(t, _)| t.is_idle(now))
+                        .then(|| self.idle.as_ref().map(|(_, cb)| cb.clone()))
+                        .flatten();
+                    if let Some(cb) = fire {
+                        cb();
+                        // Count the lock as a fresh start, so it fires once per idle stretch.
+                        if let Some((t, _)) = self.idle.as_mut() {
+                            t.input(now);
+                        }
+                    }
+                    self.schedule_idle(host);
+                } else if self.secret.as_ref().is_some_and(|(_, t)| *t == id) {
+                    if let Some((copy, _)) = self.secret.take()
+                        && let Ok(Some(current)) = host.clipboard_text()
+                        && copy.still_there(current)
+                    {
+                        let _ = host.clear_clipboard();
+                    }
                 } else if let Some(f) = self.timers.remove(&id) {
                     f();
                 } else if let Some((key, vid)) = self.view_timers.remove(&id)

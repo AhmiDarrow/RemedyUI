@@ -453,6 +453,11 @@ impl Host for HeadlessHost {
         Ok(())
     }
 
+    fn clear_clipboard(&mut self) -> Result<(), Unsupported> {
+        self.clipboard = None;
+        Ok(())
+    }
+
     fn set_timer(&mut self, at: Duration) -> TimerId {
         let id = TimerId(self.next_timer);
         self.next_timer += 1;

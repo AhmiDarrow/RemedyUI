@@ -209,3 +209,61 @@ fn fields_paste_from_the_host_clipboard_and_window_commands_reach_the_host() {
     host.run_frames(&mut runner, 1);
     assert_eq!(*field_value.borrow(), "from the app");
 }
+
+#[test]
+fn idle_lock_waits_for_real_input_and_secret_copies_clear_only_themselves() {
+    let locked = Rc::new(Cell::new(0));
+    let l2 = locked.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Vault"), |_, _| {});
+        app.idle_lock(Some(Duration::from_secs(60)), move || l2.set(l2.get() + 1));
+        app.copy_secret("recovery-key-123", Duration::from_secs(30));
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let id = first(&host);
+    assert_eq!(host.clipboard(), Some(("recovery-key-123", true)), "copied as sensitive");
+    // Activity at 40 s pushes the lock to 100 s.
+    host.advance(Duration::from_secs(40));
+    host.send(HostEvent::Pointer(id, press(5.0, 5.0, PointerPhase::Move)));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(host.clipboard(), None, "the secret was cleared after 30 s");
+    host.advance(Duration::from_secs(30));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(locked.get(), 0, "70 s: input at 40 s keeps it unlocked");
+    host.advance(Duration::from_secs(40));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(locked.get(), 1, "110 s: locked");
+    host.advance(Duration::from_secs(10));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(locked.get(), 1, "once per idle stretch");
+    // A secret is not cleared if the user copied something else meanwhile.
+    runner.app().copy_secret("second-secret", Duration::from_secs(30));
+    host.run_frames(&mut runner, 1);
+    let _ = host.set_clipboard_text("my own text", false);
+    host.advance(Duration::from_secs(31));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(host.clipboard(), Some(("my own text", false)), "the user's copy survives");
+}
+
+#[test]
+fn privacy_cover_hides_content_while_unfocused() {
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), |app: &App| {
+        app.open(WindowSpec::new("Secrets").size(200.0, 100.0).privacy_cover(true), |ui, _| {
+            ui.root().child(ui.el("button").layout(|l| {
+                l.width = Length::Px(60.0);
+                l.height = Length::Px(30.0);
+            }));
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    assert_eq!(px(&host, id, 10, 10), [255, 0, 0, 255]);
+    host.send(HostEvent::Focused(id, false));
+    host.run_frames(&mut runner, 1);
+    assert_ne!(px(&host, id, 10, 10), [255, 0, 0, 255], "covered while unfocused");
+    host.send(HostEvent::Focused(id, true));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(px(&host, id, 10, 10), [255, 0, 0, 255], "shown again");
+}

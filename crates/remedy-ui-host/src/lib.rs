@@ -344,6 +344,8 @@ pub trait Host {
     /// Puts text on the clipboard; `sensitive` keeps it out of clipboard history and cloud
     /// sync where the platform allows.
     fn set_clipboard_text(&mut self, text: &str, sensitive: bool) -> Result<(), Unsupported>;
+    /// Empties the clipboard (a copied secret's time is up).
+    fn clear_clipboard(&mut self) -> Result<(), Unsupported>;
     /// A one-shot timer at host time `at`.
     fn set_timer(&mut self, at: Duration) -> TimerId;
     /// Cancels a timer that has not fired.

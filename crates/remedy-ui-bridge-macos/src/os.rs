@@ -38,6 +38,11 @@ pub(crate) fn set_clipboard_text(text: &str, sensitive: bool) -> Result<(), Unsu
     Ok(())
 }
 
+/// Empties the pasteboard.
+pub(crate) fn clear_clipboard() {
+    NSPasteboard::generalPasteboard().clearContents();
+}
+
 /// Keeps a window out of screenshots and screen sharing (`NSWindowSharingNone`), or not.
 pub(crate) fn set_capture_protected(
     ns_view: std::ptr::NonNull<std::ffi::c_void>,

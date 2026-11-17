@@ -45,6 +45,8 @@ pub(crate) struct Field {
     style: TextStyle,
     placeholder: String,
     label: Option<String>,
+    /// A secret shown in the clear (the user pressed reveal).
+    reveal: bool,
     scale: f32,
     /// The paragraph shown, its width and where its top-left sat in the element.
     shown: Option<(f32, Rc<Paragraph>, Point)>,
@@ -66,6 +68,7 @@ impl Field {
     fn display(&self) -> (String, Option<Range<usize>>) {
         match &self.editor {
             Editor::Plain(e) => e.display_text(),
+            Editor::Secret(e) if self.reveal => (e.secret().expose().to_owned(), None),
             Editor::Secret(e) => (MASK.to_string().repeat(e.masked_len()), None),
         }
     }
@@ -74,6 +77,10 @@ impl Field {
     fn display_selection(&self) -> Range<usize> {
         match &self.editor {
             Editor::Plain(e) => {
+                let s = e.selection();
+                s.anchor.min(s.focus)..s.anchor.max(s.focus)
+            }
+            Editor::Secret(e) if self.reveal => {
                 let s = e.selection();
                 s.anchor.min(s.focus)..s.anchor.max(s.focus)
             }
@@ -96,6 +103,7 @@ impl Field {
                     _ => e.selection().focus,
                 }
             }
+            Editor::Secret(e) if self.reveal => e.selection().focus,
             Editor::Secret(e) => {
                 let s = e.selection();
                 e.secret().expose().get(..s.focus).map_or(0, |p| p.chars().count()) * MASK.len_utf8()
@@ -221,9 +229,15 @@ impl Field {
     pub(crate) fn place(&mut self, at: Point, extend: bool) {
         let Some((_, p, o)) = &self.shown else { return };
         let pos = p.hit_test(Point::new(at.x - o.x, at.y - o.y)).index;
+        let f_reveal = self.reveal;
         match &mut self.editor {
             Editor::Plain(e) => {
                 let anchor = if extend { e.selection().anchor } else { pos };
+                e.set_selection(anchor, pos);
+            }
+            Editor::Secret(e) if f_reveal => {
+                let sel = e.selection();
+                let anchor = if extend { sel.anchor } else { pos };
                 e.set_selection(anchor, pos);
             }
             Editor::Secret(e) => {
@@ -421,6 +435,7 @@ impl Ui {
             style: TextStyle::default(),
             placeholder: String::new(),
             label: None,
+            reveal: false,
             scale,
             shown: None,
             on_change: None,
@@ -525,6 +540,21 @@ impl TextField {
         self.field.borrow_mut().placeholder = text.into();
         self.el.ui.mark(self.el.id, Dirty::PAINT);
         self
+    }
+
+    /// Shows a secret field's text in the clear (`true`) or masked. The text stays protected
+    /// from assistive technology, the clipboard and input methods either way.
+    pub fn set_reveal(&self, on: bool) {
+        let mut f = self.field.borrow_mut();
+        f.reveal = on && f.kind == FieldKind::Secret;
+        f.changed();
+        drop(f);
+        self.el.ui.mark(self.el.id, Dirty::LAYOUT | Dirty::PAINT);
+    }
+
+    /// True while a secret is shown in the clear.
+    pub fn is_revealed(&self) -> bool {
+        self.field.borrow().reveal
     }
 
     /// The name assistive technology reads for the field.

@@ -45,6 +45,26 @@ pub fn secret_input(ui: &Ui, label: impl Into<String>) -> TextField {
     ui.text_field("secret_input", FieldKind::Secret).label(label).fill()
 }
 
+/// An eye button that shows or hides a secret field's text.
+pub fn reveal_toggle(ui: &Ui, field: &TextField) -> El {
+    let f = field.clone();
+    let shown = remedy_ui_reactive::Signal::new(false);
+    let b = crate::icon_button(ui, crate::Icon::Eye, "Show password", move || shown.update(|v| *v = !*v));
+    let b2 = b.clone();
+    b.bind(move || {
+        let on = shown.get();
+        f.set_reveal(on);
+        b2.state(remedy_ui_style::States::CHECKED, on);
+        let label = if on { "Hide password" } else { "Show password" };
+        let _ = b2.clone().semantics(
+            remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Button)
+                .label(label)
+                .checked(on)
+                .action(remedy_ui_a11y::Action::Click),
+        );
+    })
+}
+
 /// A labeled form field: the label above `control`, and an optional hint or error below.
 pub fn field(ui: &Ui, label: impl Into<String>, control: El) -> El {
     let gap = ui.theme().spacing.unit;
