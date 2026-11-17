@@ -521,6 +521,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-paint"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-core",
+ "remedy-ui-text",
+]
+
+[[package]]
 name = "remedy-ui-reactive"
 version = "0.1.0"
 dependencies = [
