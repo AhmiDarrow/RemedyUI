@@ -504,6 +504,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-style"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-core",
+]
+
+[[package]]
 name = "remedy-ui-test"
 version = "0.1.0"
 dependencies = [
