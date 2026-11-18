@@ -28,7 +28,7 @@ pub use decoration::{Decoration, DecorationKind};
 pub use dnd::Drag;
 pub use element::{El, ElementInfo, PaintCx, PointerInterceptor, Ui, WeakUi};
 pub use events::{Click, PointerInput};
-pub use field::{FieldKind, TextField};
+pub use field::{CodeColors, FieldKind, TextField};
 pub use frame::Frame;
 pub use remedy_ui_a11y::Action as A11yAction;
 pub use remedy_ui_host::{DragData, DragEvent, DropEffect};

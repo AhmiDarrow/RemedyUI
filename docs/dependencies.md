@@ -42,6 +42,9 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | Derive macros | `syn` 2, `quote`, `proc-macro2` | 2.0.119, 1.0.47, 1.0.107 | `macros` (build time only) | `#[derive(Store)]`; syn 2 rather than the new 3.0 until 3.x has settled |
 | Platform APIs | `windows`, `objc2`, `ndk`, `jni` | pinned per bridge | bridges | OS calls, in the bridges' `os` modules only |
 | Raw platform calls | `windows-sys`, `libc` | 0.61.2, 0.2.191 | `bridge-windows`, `bridge-linux`, `services-update`, `media-isolated` | The decoding helper's sandbox (AppContainer, restricted token, job object; seccomp-bpf, Landlock, memfds, descriptor passing; Seatbelt), in `media-isolated`'s `os` module only |
+| Android activity | `android-activity` (through winit's `android-native-activity`) | 0.6.1 | `bridge-android` | The `NativeActivity` glue winit runs on: lifecycle, input queue, soft keyboard, the Java main thread |
+| Java calls (Android) | `jni` | 0.21.1 (the release `accesskit_android` uses) | `bridge-android` | Clipboard, links, settings, `FLAG_SECURE` and the bridge's own Java half, in the `os` module; android-activity uses 0.22 internally, so two releases are built on Android only |
+| Screen readers (Android) | `accesskit_android` (`embedded-dex`) | 0.9.1 | `bridge-android` | AccessKit's adapter injected into the native activity's view (accesskit_winit's Android adapter only reaches GameActivity) |
 
 Development tools that are not linked into apps: `cargo-fuzz`, `cargo-deny`, `cargo-audit`, `cargo-vet`.
 

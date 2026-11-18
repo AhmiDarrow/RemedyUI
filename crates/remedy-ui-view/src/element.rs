@@ -262,6 +262,9 @@ pub(crate) struct Inner {
     pub(crate) drag_pending: Option<crate::dnd::Pending>,
     pub(crate) trusted: ElementId,
     pub(crate) reduced_motion: remedy_ui_reactive::Signal<bool>,
+    /// The edges system interface covers (status and navigation bars, cutouts, the on-screen
+    /// keyboard), in logical pixels.
+    pub(crate) safe_area: remedy_ui_reactive::Signal<remedy_ui_host::SafeArea>,
     /// The window is minimized or fully covered: nothing in it is seen.
     pub(crate) occluded: bool,
     pub(crate) timers: HashMap<u64, Box<dyn FnOnce()>>,
@@ -418,6 +421,7 @@ impl Ui {
             drag_pending: None,
             trusted: root,
             reduced_motion: remedy_ui_reactive::Signal::new(false),
+            safe_area: remedy_ui_reactive::Signal::new(remedy_ui_host::SafeArea::default()),
             occluded: false,
             timers: HashMap::new(),
             next_timer: 0,
@@ -583,6 +587,43 @@ impl Ui {
     /// Tracked: what reads it in a binding runs again when the setting changes.
     pub fn reduced_motion(&self) -> bool {
         let s = self.0.borrow().reduced_motion;
+        s.get()
+    }
+
+    /// Keeps the window's content, overlays and trusted prompts inside `area`: the edges
+    /// system interface covers (the runner sets it from the host). The window's background
+    /// still runs under those edges.
+    pub fn set_safe_area(&self, area: remedy_ui_host::SafeArea) {
+        let (signal, overlays, trusted) = {
+            let i = self.0.borrow();
+            (i.safe_area, i.overlays, i.trusted)
+        };
+        if signal.get_untracked().ok() == Some(area) {
+            return;
+        }
+        let root = self.tree().root();
+        signal.set_if_changed(area);
+        // The window root adds the area to its padding when laid out (see the frame). It lays
+        // out left to right whatever the content's direction, so start is left here.
+        let insets =
+            remedy_ui_core::Insets { top: area.top, end: area.right, bottom: area.bottom, start: area.left };
+        self.mark(root, Dirty::LAYOUT);
+        for layer in [overlays, trusted] {
+            // Absolute layers are placed against the padding box, so they take the area as
+            // their insets, stretched between them.
+            let _ = El { ui: self.clone(), id: layer }.layout(|l| {
+                l.inset = insets;
+                l.width = remedy_ui_layout::Length::Auto;
+                l.height = remedy_ui_layout::Length::Auto;
+            });
+        }
+        self.request(Request::Frame);
+    }
+
+    /// The edges system interface covers, in logical pixels (zero where nothing does).
+    /// Tracked: what reads it in a binding runs again when it changes.
+    pub fn safe_area(&self) -> remedy_ui_host::SafeArea {
+        let s = self.0.borrow().safe_area;
         s.get()
     }
 
@@ -755,6 +796,22 @@ impl Ui {
         self.0.borrow_mut().a11y.disconnect();
     }
 
+    /// Sets a text field's whole text as assistive technology asks (a screen reader's "set
+    /// text"): one undoable edit, reported to the app like typing. False for an element that
+    /// is gone or not a field, and for secret fields, whose contents are only ever typed.
+    pub fn accessibility_set_value(&self, target: u64, text: &str) -> bool {
+        let Some(id) = self.0.borrow().els.keys().copied().find(|e| root_key(*e) == target) else {
+            return false;
+        };
+        let Some(field) = self.field_of(id) else { return false };
+        let now = self.0.borrow().now_ms;
+        let done = crate::field::replace_all(&mut field.borrow_mut(), text, now);
+        if done {
+            self.field_edited(id, &field, true);
+        }
+        done
+    }
+
     /// Does what assistive technology asked of an element: click, focus, increment or
     /// decrement (as the arrow keys would), or scroll it into view. Returns false for an
     /// element that is gone or an action it does not offer.
@@ -798,7 +855,8 @@ impl Ui {
                 el.scroll_into_view();
                 true
             }
-            A::Expand | A::Collapse | A::ShowContextMenu => false,
+            // Setting text needs the text: `accessibility_set_value`.
+            A::Expand | A::Collapse | A::ShowContextMenu | A::SetValue => false,
         }
     }
 

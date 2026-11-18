@@ -29,6 +29,8 @@ pub(crate) fn key(k: &WKey) -> Key {
             NamedKey::End => Key::End,
             NamedKey::PageUp => Key::PageUp,
             NamedKey::PageDown => Key::PageDown,
+            // Android's back button and gesture arrive as browser-back.
+            NamedKey::BrowserBack => Key::Back,
             other => match function_key(*other) {
                 Some(f) => Key::F(f),
                 None => Key::Named(format!("{other:?}")),
@@ -67,5 +69,17 @@ pub(crate) fn pack(p: &[u8]) -> u32 {
     match p {
         [r, g, b, _] => (u32::from(*r) << 16) | (u32::from(*g) << 8) | u32::from(*b),
         _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn back_is_the_engines_back_key() {
+        assert_eq!(key(&WKey::Named(NamedKey::BrowserBack)), Key::Back);
+        assert_eq!(key(&WKey::Named(NamedKey::Escape)), Key::Escape);
+        assert_eq!(key(&WKey::Named(NamedKey::F7)), Key::F(7));
     }
 }

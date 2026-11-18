@@ -57,6 +57,7 @@ M7 (in progress) added:
 - `remedy-ui-media-anim`: GIF, APNG and animated WebP
 - `remedy-ui-media-isolated`: images and animations decoded in a sandboxed helper process (AppContainer on Windows, seccomp-bpf and Landlock on Linux, Seatbelt on macOS), so a decoder that crashes, hangs or runs away with memory takes down only the helper
 - Rich text fields, formatted text on the clipboard, links inside text, chat lists, selection across messages, and content that pops out to its own window
+- `remedy-ui-bridge-android`: apps on Android in a native activity over the shared winit core, with the clipboard, links, capture protection, the safe area, back, the lifecycle, memory trims, system settings and screen readers; a Gradle-free APK build
 
 SecretSticky, SecretFolder and Hearth run on RemedyUI (each repository's `remedyui` branch). A crate is added to the workspace only when it has real code and tests.
 
@@ -70,7 +71,7 @@ Checks: `cargo xtask check` (layer graph and unsafe boundary) and `cargo deny ch
 - **Real text.** Full shaping and bidi, variable and color fonts, hinting with grayscale and LCD, rich paragraphs, selection across elements, rich editing, each platform's real IME, spell checking.
 - **Two renderers, one display list.** A wgpu UI renderer with precompiled pipelines, and a fast CPU renderer as the floor. It recovers from a lost GPU and presents only what changed.
 - **Code fluid.** Users can restyle, rebind and rearrange the apps they use: themes, shortcuts and toolbars, and `.rui` layouts where an app allows it. One theme set is shared by every Remedy app.
-- **Every platform as a bridge.** Windows, macOS and Linux (Wayland and X11) today over one shared core, then Android, RemedyOS, and later the web and iOS.
+- **Every platform as a bridge.** Windows, macOS, Linux (Wayland and X11) and Android today over one shared core, then RemedyOS, and later the web and iOS.
 - **Accessible, and operable by agents with consent.** One semantics tree serves screen readers, tests and AI agents.
 - **Safe.** No unsafe code outside the `os`/`ffi` modules of the bridges and the GPU renderer, checked in CI. Untrusted content is parsed by fuzzed, memory-safe code off the UI thread, optionally in a sandboxed helper. Secret inputs never leak, and there is no telemetry.
 

@@ -143,3 +143,65 @@ contexts:
     assert!(kinds.contains(&Kind::Keyword) && kinds.contains(&Kind::String), "{lines:?}");
     assert!(add_grammar("not: [a grammar").is_err());
 }
+
+#[test]
+fn highlighting_after_an_edit_colors_only_what_changed() {
+    let mut src: String = (0..2000).map(|i| format!("fn f{i}() {{ let x = {i}; }}\n")).collect();
+    let mut h = Highlighter::new("rs");
+    h.update(&src);
+    assert_eq!(h.last_work, 2001);
+    // One line changed in the middle: a handful of lines colored, the same result as from scratch.
+    src = src.replacen("let x = 1000;", "let y = 1000;", 1);
+    let incremental: Vec<LineRuns> = h.update(&src).to_vec();
+    assert!(h.last_work < 5, "{} lines colored again", h.last_work);
+    assert_eq!(incremental, highlight(&src, "rs"));
+    // Opening a block comment changes every line after it.
+    src = src.replacen("fn f10()", "/* fn f10()", 1);
+    let after: Vec<LineRuns> = h.update(&src).to_vec();
+    assert!(h.last_work > 1900);
+    assert_eq!(after, highlight(&src, "rs"));
+}
+
+#[test]
+fn the_code_editor_types_at_several_cursors_and_numbers_its_lines() {
+    use remedy_ui_input::{Key, KeyEvent, Modifiers};
+    let ui = ui();
+    let (el, field) = code_editor(
+        &ui,
+        "main.rs",
+        "let a = 1;\nlet b = 2;",
+        CodeOptions { language: "rs".into(), ..CodeOptions::default() },
+    );
+    ui.root().child(ui.el("col").column().height(400.0).fill_width().child(el.clone()));
+    frame(&ui);
+    field.el().focus();
+    let key = |k: Key, text: Option<&str>, m: Modifiers| {
+        ui.key(&KeyEvent {
+            key: k,
+            physical: String::new(),
+            modifiers: m,
+            pressed: true,
+            repeat: false,
+            composing: false,
+            text: text.map(str::to_owned),
+        });
+    };
+    let _ = field.edit_code(|e| e.set_selection(4, 4));
+    key(Key::ArrowDown, None, Modifiers { ctrl: true, alt: true, ..Modifiers::NONE });
+    key(Key::Character("z".into()), Some("z"), Modifiers::NONE);
+    assert_eq!(field.value(), "let za = 1;\nlet zb = 2;");
+    key(Key::Escape, None, Modifiers::NONE);
+    assert_eq!(field.read_code(|e| e.cursors().len()), Some(1));
+    // Enter keeps the line's indentation, and the gutter numbers follow.
+    key(Key::End, None, Modifiers::NONE);
+    key(Key::Enter, None, Modifiers::NONE);
+    frame(&ui);
+    let numbers: Vec<String> = find(&el, "code_gutter")
+        .iter()
+        .filter_map(|g| g.info().and_then(|i| i.text))
+        .map(|t| t.trim().to_owned())
+        .collect();
+    assert_eq!(numbers, ["1", "2", "3"]);
+    let audit = remedy_ui_devtools::audit(&ui);
+    assert!(audit.is_empty(), "{:#?}", audit.iter().map(|p| p.message()).collect::<Vec<_>>());
+}

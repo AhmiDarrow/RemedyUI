@@ -382,6 +382,7 @@ impl Ui {
             }
             i.size = size;
             i.scale = scale;
+            i.a11y.set_scale(scale);
             i.tree.mark(root, Dirty::LAYOUT);
         }
 
@@ -478,7 +479,16 @@ impl Ui {
                 if i.tree.parent(*id).and_then(|p| i.els.get(&p)).is_some_and(|p| p.scroll) {
                     style.shrink = 0.0;
                 }
-                let pad = d.resolved.padding;
+                let mut pad = d.resolved.padding;
+                if *id == root {
+                    // The window root keeps its content clear of system interface. It lays
+                    // out left to right whatever the content's direction: start is left.
+                    let s = i.safe_area.get_untracked().unwrap_or_default();
+                    pad.top += s.top;
+                    pad.end += s.right;
+                    pad.bottom += s.bottom;
+                    pad.start += s.left;
+                }
                 let bw = d.resolved.border_width;
                 style.padding = Insets {
                     top: pad.top + bw,

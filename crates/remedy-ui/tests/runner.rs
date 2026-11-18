@@ -900,3 +900,91 @@ fn a_covered_or_flattened_window_tells_its_elements_they_are_not_seen() {
     host.run_frames(&mut runner, 1);
     assert_eq!(seen.borrow().last(), Some(&true));
 }
+
+fn red_block_app() -> Runner {
+    Runner::with_geometry(config(), GeometryStore::in_memory(), |app: &App| {
+        app.open(WindowSpec::new("Block").size(100.0, 100.0), |ui, _| {
+            let block = ui
+                .el("block")
+                .layout(|l| {
+                    l.width = Length::Px(40.0);
+                    l.height = Length::Px(40.0);
+                })
+                .style(StylePatch { background: Some(RED), ..StylePatch::default() });
+            ui.root().child(block);
+        });
+    })
+}
+
+#[test]
+fn content_keeps_clear_of_the_safe_area() {
+    let mut runner = red_block_app();
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    assert_eq!(px(&host, id, 2, 2), [255, 0, 0, 255], "without a safe area the block starts at the corner");
+    let area = remedy_ui::host::SafeArea { top: 20.0, right: 0.0, bottom: 10.0, left: 8.0 };
+    host.send(HostEvent::SafeArea(id, area));
+    host.run_frames(&mut runner, 2);
+    assert_ne!(px(&host, id, 2, 2), [255, 0, 0, 255], "the covered corner shows only the background");
+    assert_eq!(px(&host, id, 10, 22), [255, 0, 0, 255], "the block starts inside the safe area");
+    let ui = runner.app().windows().first().and_then(|w| w.ui());
+    assert_eq!(ui.map(|u| u.safe_area()), Some(area));
+}
+
+#[test]
+fn an_unclaimed_back_leaves_the_window() {
+    let mut runner = red_block_app();
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let id = first(&host);
+    let back = |pressed| KeyEvent {
+        key: Key::Back,
+        physical: "BrowserBack".into(),
+        modifiers: Modifiers::NONE,
+        pressed,
+        repeat: false,
+        composing: false,
+        text: None,
+    };
+    host.send(HostEvent::Key(id, back(true)));
+    host.send(HostEvent::Key(id, back(false)));
+    host.run_frames(&mut runner, 1);
+    assert!(host.window(id).is_none(), "nothing took Back, so the window closed");
+}
+
+#[test]
+fn dialogs_that_answer_later_reach_the_app() {
+    let picked: Rc<std::cell::RefCell<Option<Vec<std::path::PathBuf>>>> = Rc::default();
+    let p2 = picked.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Dialogs").size(100.0, 100.0), |_, _| {});
+        app.file_dialog(None, remedy_ui::host::FileDialog::default(), move |p| *p2.borrow_mut() = Some(p));
+    });
+    let mut host = HeadlessHost::new();
+    host.dialogs_answer_later(true);
+    host.run_frames(&mut runner, 1);
+    assert_eq!(host.dialogs().len(), 1);
+    assert!(picked.borrow().is_none(), "the picker is still open");
+    let chosen = vec![std::path::PathBuf::from("/cache/documents/1/notes.txt")];
+    host.send(HostEvent::FileDialog(remedy_ui::host::DialogId(1), chosen.clone()));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*picked.borrow(), Some(chosen));
+}
+
+#[test]
+fn suspended_windows_draw_again_after_resume() {
+    let mut runner = red_block_app();
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    host.send(HostEvent::Suspended);
+    host.run_frames(&mut runner, 1);
+    let before = host.window(id).map_or(0, |w| w.presents());
+    host.run_frames(&mut runner, 2);
+    assert_eq!(host.window(id).map_or(0, |w| w.presents()), before, "nothing presents while suspended");
+    host.send(HostEvent::Resumed);
+    host.run_frames(&mut runner, 2);
+    assert!(host.window(id).map_or(0, |w| w.presents()) > before, "the window draws again");
+    assert_eq!(px(&host, id, 2, 2), [255, 0, 0, 255]);
+}

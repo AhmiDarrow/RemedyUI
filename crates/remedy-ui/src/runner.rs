@@ -99,6 +99,13 @@ impl AppConfig {
         self
     }
 
+    /// Starts every window on the CPU renderer, even where the platform would start on the
+    /// GPU (see [`RendererChoice::CpuFirst`]).
+    pub fn cpu_first(mut self) -> Self {
+        self.renderer = RendererChoice::CpuFirst;
+        self
+    }
+
     /// Starts every window on the GPU (games, canvases, video: apps that always need it).
     pub fn gpu_first(mut self) -> Self {
         self.renderer = RendererChoice::Gpu;
@@ -112,8 +119,13 @@ pub enum RendererChoice {
     /// Windows start on the CPU renderer, which costs no GPU driver memory, and move to the
     /// GPU (with the `gpu` feature) once their frames take longer than
     /// [`GPU_PROMOTE_FRAME_COST`] on average: large windows, heavy scenes, constant motion.
+    /// Where a surface keeps its first renderer (Android), windows start on the GPU instead,
+    /// since moving later needs a new surface.
     #[default]
     Auto,
+    /// As [`RendererChoice::Auto`], but windows start on the CPU everywhere; where a surface
+    /// keeps its first renderer, a window that needs the GPU moves with its next surface.
+    CpuFirst,
     /// Every window starts on the GPU, falling back to the CPU when it fails.
     Gpu,
     /// The CPU renderer only.
@@ -791,6 +803,9 @@ impl Window {
     }
 }
 
+/// What runs with a file dialog's choice.
+type DialogDone = Box<dyn FnOnce(Vec<std::path::PathBuf>)>;
+
 enum Present {
     Cpu(Box<CpuCompositor>),
     #[cfg(feature = "gpu")]
@@ -834,6 +849,10 @@ pub struct Runner {
     idle_timer: Option<TimerId>,
     /// Fires at the next local midnight, so dates roll over in idle windows.
     midnight_timer: Option<TimerId>,
+    /// Between `Suspended` and the next `Resumed`: the windows have no surfaces to draw in.
+    suspended: bool,
+    /// File dialogs the platform answers later, and what to call with the choice.
+    dialogs: HashMap<remedy_ui_host::DialogId, DialogDone>,
     secret: Option<(remedy_ui_secure::SensitiveCopy, TimerId)>,
     inbox: crate::instance::SharedInbox,
     #[cfg(feature = "gpu")]
@@ -878,6 +897,8 @@ impl Runner {
             activity_reported: None,
             idle_timer: None,
             midnight_timer: None,
+            suspended: false,
+            dialogs: HashMap::new(),
             secret: None,
             inbox: Default::default(),
             #[cfg(feature = "gpu")]
@@ -1093,8 +1114,14 @@ impl Runner {
             }
             Cmd::Dialog(key, dialog, done) => {
                 let w = key.and_then(|k| self.host_of(k));
-                let chosen = host.file_dialog(w, &dialog).unwrap_or_default();
-                done(chosen);
+                match host.file_dialog(w, &dialog) {
+                    Ok(remedy_ui_host::DialogStarted::Finished(chosen)) => done(chosen),
+                    // The platform's picker answers later, with `HostEvent::FileDialog`.
+                    Ok(remedy_ui_host::DialogStarted::Pending(id)) => {
+                        self.dialogs.insert(id, done);
+                    }
+                    Err(_) => done(Vec::new()),
+                }
             }
             Cmd::OpenUrl(url, done) => done(host.open_url(&url).map_err(|e| e.to_string())),
             Cmd::Forget(key) => {
@@ -1187,6 +1214,19 @@ impl Runner {
         }
     }
 
+    /// The user asked to leave a window (its close button, or a back action nothing took):
+    /// hide it when the app keeps it, else close it.
+    fn close_requested(&mut self, host: &mut dyn Host, window: WindowId) {
+        let Some(&key) = self.by_host.get(&window) else { return };
+        let hide = self.wins.get(&key).is_some_and(|w| w.spec.hide_on_close);
+        if hide {
+            host.set_visible(window, false);
+            self.app.0.borrow_mut().visible.insert(key, false);
+        } else {
+            host.close_window(window);
+        }
+    }
+
     fn schedule_save(&mut self, host: &mut dyn Host) {
         if let Some(t) = self.save_timer.take() {
             host.cancel_timer(t);
@@ -1239,6 +1279,9 @@ impl Runner {
     }
 
     fn frame(&mut self, host: &mut dyn Host, key: u64, at: Duration) {
+        if self.suspended {
+            return;
+        }
         let bg = self.config.theme.colors.bg;
         let local = host.local_time();
         if let Some(w) = self.wins.get(&key) {
@@ -1274,7 +1317,9 @@ impl Runner {
             #[cfg(feature = "gpu")]
             let gpu_wanted = match renderer {
                 RendererChoice::Gpu => true,
-                RendererChoice::Auto => w.wants_gpu,
+                // Where the first present fixes a surface's renderer, start on the GPU.
+                RendererChoice::Auto => w.wants_gpu || host.renderer_fixed_per_surface(),
+                RendererChoice::CpuFirst => w.wants_gpu,
                 RendererChoice::Cpu => false,
             };
             #[cfg(feature = "gpu")]
@@ -1311,7 +1356,7 @@ impl Runner {
                     // Too slow on the CPU: the next frame starts this window on the GPU.
                     #[cfg(feature = "gpu")]
                     if changed
-                        && self.config.renderer == RendererChoice::Auto
+                        && matches!(self.config.renderer, RendererChoice::Auto | RendererChoice::CpuFirst)
                         && !w.wants_gpu
                         && w.cost.record(started.elapsed(), GPU_PROMOTE_FRAME_COST)
                     {
@@ -1422,9 +1467,16 @@ impl remedy_ui_host::App for Runner {
         }
         match event {
             HostEvent::Resumed => {
+                self.suspended = false;
                 remedy_ui_view::device::set_total_memory(host.total_memory());
                 if let Some(setup) = self.setup.take() {
                     setup(&self.app);
+                } else {
+                    // Back from a suspension: the windows are seen again, on new surfaces.
+                    for w in self.wins.values() {
+                        w.ui.set_occluded(false);
+                        host.request_frame(w.host);
+                    }
                 }
             }
             HostEvent::Settings(s) => {
@@ -1548,7 +1600,12 @@ impl remedy_ui_host::App for Runner {
                         let _ = Window { key, app: self.app.clone() }.open_inspector();
                     }
                 } else if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
-                    w.ui.key(&e);
+                    let taken = w.ui.key(&e);
+                    // A back action nothing in the window took leaves the window, as the
+                    // platform's back does.
+                    if !taken && e.pressed && e.key == remedy_ui_input::Key::Back {
+                        self.close_requested(host, window);
+                    }
                 }
             }
             HostEvent::Ime(window, e) => {
@@ -1583,14 +1640,28 @@ impl remedy_ui_host::App for Runner {
                     w.ui.request_frame();
                 }
             }
-            HostEvent::CloseRequested(window) => {
-                let Some(&key) = self.by_host.get(&window) else { return };
-                let hide = self.wins.get(&key).is_some_and(|w| w.spec.hide_on_close);
-                if hide {
-                    host.set_visible(window, false);
-                    self.app.0.borrow_mut().visible.insert(key, false);
-                } else {
-                    host.close_window(window);
+            HostEvent::CloseRequested(window) => self.close_requested(host, window),
+            HostEvent::FileDialog(id, chosen) => {
+                if let Some(done) = self.dialogs.remove(&id) {
+                    done(chosen);
+                }
+            }
+            HostEvent::SafeArea(window, area) => {
+                if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
+                    w.ui.set_safe_area(area);
+                }
+            }
+            HostEvent::Suspended => {
+                // The platform takes the windows' surfaces away (Android destroys the native
+                // window when this returns): let go of every presenter now, and draw nothing
+                // until the windows come back.
+                self.suspended = true;
+                for w in self.wins.values_mut() {
+                    w.present = None;
+                    if let Some(c) = w.comp.as_mut() {
+                        c.invalidate_tiles();
+                    }
+                    w.ui.set_occluded(true);
                 }
             }
             HostEvent::Destroyed(window) => {
@@ -1676,7 +1747,11 @@ impl remedy_ui_host::App for Runner {
                         AccessibilityEvent::Requested => w.ui.connect_accessibility(),
                         AccessibilityEvent::Deactivated => w.ui.disconnect_accessibility(),
                         AccessibilityEvent::Action(r) => {
-                            if let Some(a) = action(r.action) {
+                            if r.action == remedy_ui_host::accesskit::Action::SetValue {
+                                if let Some(remedy_ui_host::accesskit::ActionData::Value(v)) = &r.data {
+                                    w.ui.accessibility_set_value(r.target_node.0, v);
+                                }
+                            } else if let Some(a) = action(r.action) {
                                 w.ui.accessibility_action(r.target_node.0, a);
                             }
                         }

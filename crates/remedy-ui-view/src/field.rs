@@ -11,7 +11,7 @@ use remedy_ui_input::{Key, KeyEvent, Modifiers, Platform};
 use remedy_ui_paint::{Brush, DisplayList};
 use remedy_ui_style::{ResolvedStyle, Theme};
 use remedy_ui_text::{
-    Block, Mark, Paragraph, ParagraphOptions, RichDoc, RichEditor, RichLook, RichText, RichView,
+    Block, CodeEditor, Mark, Paragraph, ParagraphOptions, RichDoc, RichEditor, RichLook, RichText, RichView,
     SecretEditor, SecretString, TextEditor, TextEngine, TextPosition, TextStyle,
 };
 use remedy_ui_tree::Dirty;
@@ -32,12 +32,30 @@ pub enum FieldKind {
     Secret,
     /// Rich text: several lines with formatting (bold, links, mentions, lists, quotes, code).
     Rich,
+    /// Code: several lines, never wrapped, several cursors, indentation that follows the code,
+    /// colors from [`TextField::set_code_colors`].
+    Code,
+}
+
+/// What colors code: for a text and the field's theme, colored byte ranges. It runs while
+/// the view draws, so it reads the theme it is given, not the view.
+pub type CodeColors = Rc<dyn Fn(&str, &Theme) -> Vec<(Range<usize>, remedy_ui_core::Color)>>;
+
+/// A code field's editor and what colors it.
+struct CodeState {
+    ed: CodeEditor,
+    colors: Option<CodeColors>,
+    /// The theme the field was last styled with.
+    theme: Theme,
+    /// The colored text for the editor's version, made when needed.
+    shown: std::cell::OnceCell<RichText>,
 }
 
 enum Editor {
     Plain(TextEditor),
     Secret(SecretEditor),
     Rich(Box<RichState>),
+    Code(Box<CodeState>),
 }
 
 /// A rich field's editor, the look it is drawn with, and its laid-out view (made when needed).
@@ -116,13 +134,17 @@ impl Field {
         if let Editor::Rich(r) = &mut self.editor {
             r.reset();
         }
+        if let Editor::Code(c) = &mut self.editor {
+            c.shown = std::cell::OnceCell::new();
+        }
     }
 
-    /// The editing core under a plain or rich field.
+    /// The editing core under a plain, rich or code field.
     fn core(&self) -> Option<&TextEditor> {
         match &self.editor {
             Editor::Plain(e) => Some(e),
             Editor::Rich(r) => Some(r.ed.editor()),
+            Editor::Code(c) => Some(c.ed.editor()),
             Editor::Secret(_) => None,
         }
     }
@@ -136,6 +158,9 @@ impl Field {
         self.style = style;
         if let Editor::Rich(r) = &mut self.editor {
             r.look = rich_look(theme);
+        }
+        if let Editor::Code(c) = &mut self.editor {
+            c.theme = theme.clone();
         }
         self.invalidate();
     }
@@ -182,7 +207,7 @@ impl Field {
             let v = rs.view();
             return Some(v.to_display(r.start)..v.to_display(r.end));
         }
-        if !matches!(self.editor, Editor::Plain(_)) {
+        if !matches!(self.editor, Editor::Plain(_) | Editor::Code(_)) {
             return None;
         }
         let Some((head, tail, len)) = self.composition_edges() else { return Some(r.clone()) };
@@ -205,7 +230,7 @@ impl Field {
             }
             return Some(v.to_model(i));
         }
-        if !matches!(self.editor, Editor::Plain(_)) {
+        if !matches!(self.editor, Editor::Plain(_) | Editor::Code(_)) {
             return None;
         }
         let Some((head, tail, len)) = self.composition_edges() else { return Some(i) };
@@ -221,6 +246,7 @@ impl Field {
     fn display(&self) -> (String, Option<Range<usize>>) {
         match &self.editor {
             Editor::Plain(e) => e.display_text(),
+            Editor::Code(c) => c.ed.editor().display_text(),
             Editor::Rich(r) => {
                 let v = r.view();
                 (v.text.as_str().to_owned(), v.composition.clone())
@@ -234,6 +260,22 @@ impl Field {
     fn display_rich(&self) -> RichText {
         match &self.editor {
             Editor::Rich(r) => r.view().text.clone(),
+            Editor::Code(c) => c
+                .shown
+                .get_or_init(|| {
+                    let (text, comp) = c.ed.editor().display_text();
+                    let mut rt = RichText::plain(text.clone());
+                    // While composing, the text is shown as typed; colors come back after.
+                    if let (Some(colors), None) = (&c.colors, comp) {
+                        for (r, color) in colors(&text, &c.theme) {
+                            if r.start < r.end && r.end <= text.len() {
+                                rt.add_span(r, remedy_ui_text::StylePatch::color(color));
+                            }
+                        }
+                    }
+                    rt
+                })
+                .clone(),
             _ => RichText::plain(self.display().0),
         }
     }
@@ -246,6 +288,7 @@ impl Field {
                 let v = r.view();
                 v.to_display(s.start)..v.to_display(s.end)
             }
+            Editor::Code(c) => c.ed.editor().selection().range(),
             Editor::Plain(e) => {
                 let s = e.selection();
                 s.anchor.min(s.focus)..s.anchor.max(s.focus)
@@ -285,6 +328,24 @@ impl Field {
                     _ => v.to_display(r.ed.selection().focus),
                 }
             }
+            Editor::Code(c) => {
+                let e = c.ed.editor();
+                match (e.display_text().1, e.composition()) {
+                    (Some(r), Some(k)) => r.start + k.cursor.min(r.len()),
+                    _ => e.selection().focus,
+                }
+            }
+        }
+    }
+
+    /// A code field's other cursors (the main one is drawn like any field's), with the
+    /// composition-free text they index.
+    fn extra_cursors(&self) -> Vec<remedy_ui_text::TextSelection> {
+        match &self.editor {
+            Editor::Code(c) if c.ed.editor().composition().is_none() => {
+                c.ed.cursors().into_iter().skip(1).collect()
+            }
+            _ => Vec::new(),
         }
     }
 
@@ -295,6 +356,7 @@ impl Field {
             return p.clone();
         }
         let text = self.display_rich();
+        // Code is never wrapped: lines stay as written, the field scrolls sideways.
         let wrap = matches!(self.kind, FieldKind::Multi | FieldKind::Rich).then_some(width);
         let options = ParagraphOptions {
             max_width: wrap,
@@ -327,6 +389,11 @@ impl Field {
         if focused {
             for r in p.selection_rects(self.display_selection()) {
                 list.fill_rect(r.translate(o.to_vec2()), Brush::Solid(tokens.selected));
+            }
+            for c in self.extra_cursors() {
+                for r in p.selection_rects(c.range()) {
+                    list.fill_rect(r.translate(o.to_vec2()), Brush::Solid(tokens.selected));
+                }
             }
         }
         if text.is_empty() {
@@ -383,21 +450,27 @@ impl Field {
             let at = TextPosition { index: self.caret_index().min(text.len()), ..TextPosition::default() };
             let caret = p.caret(at, 1.5);
             list.fill_rect(caret.translate(o.to_vec2()), Brush::Solid(tokens.text));
+            for c in self.extra_cursors() {
+                let at = TextPosition { index: c.focus.min(text.len()), ..TextPosition::default() };
+                list.fill_rect(p.caret(at, 1.5).translate(o.to_vec2()), Brush::Solid(tokens.text));
+            }
         }
     }
 
     pub(crate) fn semantics(&self) -> Semantics {
         let mut s = Semantics::new(match self.kind {
             FieldKind::Secret => Role::PasswordInput,
-            FieldKind::Multi | FieldKind::Rich => Role::MultilineTextInput,
+            FieldKind::Multi | FieldKind::Rich | FieldKind::Code => Role::MultilineTextInput,
             FieldKind::Single => Role::TextInput,
         });
         if let Some(l) = &self.label {
             s = s.label(l.clone());
         }
+        // Assistive technology may set a field's text (secrets are only ever typed).
         match &self.editor {
-            Editor::Plain(e) => s.value(e.text()),
-            Editor::Rich(r) => s.value(r.ed.text()),
+            Editor::Plain(e) => s.value(e.text()).action(remedy_ui_a11y::Action::SetValue),
+            Editor::Rich(r) => s.value(r.ed.text()).action(remedy_ui_a11y::Action::SetValue),
+            Editor::Code(c) => s.value(c.ed.text()).action(remedy_ui_a11y::Action::SetValue),
             // Secrets are never exposed, not even their length.
             Editor::Secret(_) => s,
         }
@@ -422,7 +495,7 @@ impl Field {
                     selection: s.anchor.min(s.focus)..s.anchor.max(s.focus),
                     caret,
                     private: false,
-                    multiline: matches!(self.kind, FieldKind::Multi | FieldKind::Rich),
+                    multiline: matches!(self.kind, FieldKind::Multi | FieldKind::Rich | FieldKind::Code),
                 }
             }
             None => TextInputState {
@@ -442,6 +515,13 @@ impl Field {
         let pos = p.hit_test(Point::new(at.x - o.x, at.y - o.y)).index;
         let f_reveal = self.reveal;
         match &mut self.editor {
+            Editor::Code(c) => {
+                let anchor = if extend { c.ed.editor().selection().anchor } else { pos };
+                if !extend {
+                    c.ed.single_cursor();
+                }
+                c.ed.set_selection(anchor, pos);
+            }
             Editor::Rich(r) => {
                 let v = r.view();
                 let task = if extend { None } else { v.task_at(pos) };
@@ -474,6 +554,15 @@ impl Field {
             }
         }
         false
+    }
+
+    /// Alt+click in a code field: another cursor at the point (element coordinates).
+    pub(crate) fn add_cursor_at(&mut self, at: Point) -> bool {
+        let Some((_, p, o)) = &self.shown else { return false };
+        let pos = p.hit_test(Point::new(at.x - o.x, at.y - o.y)).index;
+        let Editor::Code(c) = &mut self.editor else { return false };
+        c.ed.add_cursor(pos, pos);
+        true
     }
 
     fn changed(&mut self) {
@@ -574,6 +663,82 @@ pub(crate) fn key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> 
             if matches!(out, KeyOutcome::Copy(_)) && f.kind == FieldKind::Secret {
                 return handled();
             }
+            out
+        }
+        Editor::Code(c) => {
+            let ed = &mut c.ed;
+            let out = match &e.key {
+                _ if cmd && ch("a") => {
+                    ed.select_all();
+                    handled()
+                }
+                _ if cmd && ch("c") => KeyOutcome::Copy(ed.selected_text()),
+                _ if cmd && ch("x") => KeyOutcome::Copy(ed.cut(now)),
+                _ if cmd && ch("v") => KeyOutcome::Paste,
+                _ if cmd && ch("z") && !extend => KeyOutcome::Handled { changed: ed.undo() },
+                _ if cmd && (ch("y") || (ch("z") && extend)) => KeyOutcome::Handled { changed: ed.redo() },
+                // Ctrl+D: the word, then each next place it appears, as more cursors.
+                _ if cmd && ch("d") => {
+                    ed.select_next_occurrence();
+                    handled()
+                }
+                // Ctrl+Alt+Up/Down (Option+Command on Apple): a cursor on the line above or below.
+                Key::ArrowUp | Key::ArrowDown if cmd && e.modifiers.alt => {
+                    ed.add_cursor_vertically(e.key == Key::ArrowDown);
+                    handled()
+                }
+                Key::Escape if ed.cursors().len() > 1 => {
+                    ed.single_cursor();
+                    handled()
+                }
+                Key::Tab if !cmd => {
+                    ed.indent(!extend, now);
+                    edited()
+                }
+                Key::Backspace if word => {
+                    ed.move_word(false, true);
+                    ed.backspace(now);
+                    edited()
+                }
+                Key::Backspace => {
+                    ed.backspace(now);
+                    edited()
+                }
+                Key::Delete if word => {
+                    ed.move_word(true, true);
+                    ed.delete_forward(now);
+                    edited()
+                }
+                Key::Delete => {
+                    ed.delete_forward(now);
+                    edited()
+                }
+                Key::ArrowLeft | Key::ArrowRight if word => {
+                    ed.move_word(e.key == Key::ArrowRight, extend);
+                    handled()
+                }
+                Key::ArrowLeft | Key::ArrowRight => {
+                    ed.move_char(e.key == Key::ArrowRight, extend);
+                    handled()
+                }
+                Key::Home | Key::End => {
+                    ed.move_line_edge(e.key == Key::End, extend);
+                    handled()
+                }
+                Key::Enter => {
+                    ed.enter(now);
+                    edited()
+                }
+                _ if cmd || e.modifiers.alt && !e.modifiers.ctrl => KeyOutcome::Ignored,
+                _ => match &e.text {
+                    Some(t) if !t.is_empty() => {
+                        ed.insert(t, now);
+                        edited()
+                    }
+                    _ => KeyOutcome::Ignored,
+                },
+            };
+            c.shown = std::cell::OnceCell::new();
             out
         }
         Editor::Rich(r) => {
@@ -726,6 +891,30 @@ pub(crate) fn key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> 
 }
 
 pub(crate) fn ime(f: &mut Field, e: &ImeEvent, now: u64) -> bool {
+    if let Editor::Code(c) = &mut f.editor {
+        let ed = &mut c.ed;
+        match e {
+            ImeEvent::Preedit { text, cursor } => {
+                if text.is_empty() {
+                    ed.cancel_composition();
+                } else {
+                    ed.set_composition(text, cursor.as_ref().map_or(text.len(), |c| c.end));
+                }
+            }
+            ImeEvent::Commit(t) => ed.commit_composition(t, now),
+            ImeEvent::DeleteSurrounding { before, after } => {
+                let s = ed.editor().selection().focus;
+                let (a, b) = (s.saturating_sub(*before), (s + after).min(ed.text().len()));
+                if a < b {
+                    ed.set_selection(a, b);
+                    ed.backspace(now);
+                }
+            }
+            ImeEvent::Enabled | ImeEvent::Disabled => return false,
+        }
+        c.shown = std::cell::OnceCell::new();
+        return true;
+    }
     if let Editor::Rich(r) = &mut f.editor {
         let ed = &mut r.ed;
         match e {
@@ -774,7 +963,7 @@ pub(crate) fn ime(f: &mut Field, e: &ImeEvent, now: u64) -> bool {
 }
 
 pub(crate) fn paste(f: &mut Field, text: &str, now: u64) {
-    let text = if matches!(f.kind, FieldKind::Multi | FieldKind::Rich) {
+    let text = if matches!(f.kind, FieldKind::Multi | FieldKind::Rich | FieldKind::Code) {
         text.replace("\r\n", "\n").replace('\r', "\n")
     } else {
         text.replace(['\r', '\n'], " ")
@@ -786,7 +975,24 @@ pub(crate) fn paste(f: &mut Field, text: &str, now: u64) {
             r.ed.paste_text(&text, now);
             r.reset();
         }
+        Editor::Code(c) => {
+            c.ed.paste(&text, now);
+            c.shown = std::cell::OnceCell::new();
+        }
     }
+}
+
+/// Replaces the whole text as one undoable edit (assistive technology setting a field's
+/// value). Secret fields refuse: their contents are typed, never set from outside.
+pub(crate) fn replace_all(f: &mut Field, text: &str, now: u64) -> bool {
+    match &mut f.editor {
+        Editor::Plain(e) => e.select_all(),
+        Editor::Rich(r) => r.ed.select_all(),
+        Editor::Code(c) => c.ed.select_all(),
+        Editor::Secret(_) => return false,
+    }
+    paste(f, text, now);
+    true
 }
 
 /// Pastes a rich document: into a rich field with its formatting, elsewhere as its text.
@@ -833,6 +1039,12 @@ impl Ui {
                     ed: RichEditor::new(RichDoc::plain("")),
                     look,
                     view: std::cell::OnceCell::new(),
+                })),
+                FieldKind::Code => Editor::Code(Box::new(CodeState {
+                    ed: CodeEditor::new(""),
+                    colors: None,
+                    theme: self.0.borrow().theme.clone(),
+                    shown: std::cell::OnceCell::new(),
                 })),
                 _ => Editor::Plain(TextEditor::new("")),
             },
@@ -903,6 +1115,7 @@ impl TextField {
         match &self.field.borrow().editor {
             Editor::Plain(e) => e.text(),
             Editor::Rich(r) => r.ed.text(),
+            Editor::Code(c) => c.ed.text(),
             Editor::Secret(_) => String::new(),
         }
     }
@@ -912,6 +1125,7 @@ impl TextField {
         match &self.field.borrow().editor {
             Editor::Plain(e) => e.text().chars().count(),
             Editor::Rich(r) => r.ed.text().chars().count(),
+            Editor::Code(c) => c.ed.text().chars().count(),
             Editor::Secret(e) => e.masked_len(),
         }
     }
@@ -930,6 +1144,7 @@ impl TextField {
                 e.move_to_edge(true, false);
             }
             Editor::Rich(r) => r.ed.set_doc(RichDoc::plain(text)),
+            Editor::Code(c) => c.ed = CodeEditor::new(text),
             Editor::Secret(_) => {}
         }
         f.changed();
@@ -944,6 +1159,7 @@ impl TextField {
         match &mut f.editor {
             Editor::Plain(e) => e.select_all(),
             Editor::Rich(r) => r.ed.select_all(),
+            Editor::Code(c) => c.ed.select_all(),
             Editor::Secret(_) => {}
         }
         f.changed();
@@ -964,6 +1180,11 @@ impl TextField {
             Editor::Rich(r) => {
                 let mut s = SecretString::new();
                 s.insert(0, &r.ed.text());
+                s
+            }
+            Editor::Code(c) => {
+                let mut s = SecretString::new();
+                s.insert(0, &c.ed.text());
                 s
             }
         };
@@ -1050,6 +1271,12 @@ impl TextField {
                     r.ed.paste_text(text, 0);
                     r.reset();
                 }
+                Editor::Code(c) => {
+                    c.ed.single_cursor();
+                    c.ed.set_selection(range.start, range.end);
+                    c.ed.paste(text, 0);
+                    c.shown = std::cell::OnceCell::new();
+                }
                 Editor::Secret(_) => return false,
             }
         }
@@ -1110,6 +1337,43 @@ impl TextField {
         let (_, p, origin) = f.shown.clone()?;
         let at = Point::new(point.x - bounds.min.x - origin.x, point.y - bounds.min.y - origin.y);
         f.text_index(p.hit_test(at).index)
+    }
+
+    /// Sets what colors a code field's text (syntax colors); the text is colored again on
+    /// every change.
+    pub fn set_code_colors(&self, colors: CodeColors) {
+        {
+            let mut f = self.field.borrow_mut();
+            if let Editor::Code(c) = &mut f.editor {
+                c.colors = Some(colors);
+            }
+            f.invalidate();
+        }
+        self.el.ui.mark(self.el.id, Dirty::PAINT);
+    }
+
+    /// Runs `f` on a code field's editor (adding cursors, indenting from a menu), then shows
+    /// and reports the change like an edit. Returns `None` for other fields.
+    pub fn edit_code<T>(&self, f: impl FnOnce(&mut CodeEditor) -> T) -> Option<T> {
+        let (out, before) = {
+            let mut field = self.field.borrow_mut();
+            let Editor::Code(c) = &mut field.editor else { return None };
+            let before = c.ed.version();
+            let out = f(&mut c.ed);
+            c.shown = std::cell::OnceCell::new();
+            (out, before)
+        };
+        let changed = matches!(&self.field.borrow().editor, Editor::Code(c) if c.ed.version() != before);
+        self.el.ui.field_edited(self.el.id, &self.field, changed);
+        Some(out)
+    }
+
+    /// Reads a code field's editor (its cursors).
+    pub fn read_code<T>(&self, f: impl FnOnce(&CodeEditor) -> T) -> Option<T> {
+        match &self.field.borrow().editor {
+            Editor::Code(c) => Some(f(&c.ed)),
+            _ => None,
+        }
     }
 
     /// The rich document (rich fields only).

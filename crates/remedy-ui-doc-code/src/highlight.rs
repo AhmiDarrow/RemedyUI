@@ -188,6 +188,130 @@ pub fn knows(language: &str) -> bool {
     find(&s, language).is_some()
 }
 
+/// One line's runs from a parse state and scope stack, which it moves on to the next line.
+fn line_runs(
+    s: &SyntaxSet,
+    state: &mut ParseState,
+    stack: &mut ScopeStack,
+    line: &str,
+    buf: &mut String,
+) -> Vec<(Range<usize>, Kind)> {
+    buf.clear();
+    buf.push_str(line);
+    // Grammars expect the line break.
+    buf.push('\n');
+    let ops: Vec<(usize, ScopeStackOp)> = state.parse_line(buf, s).unwrap_or_default();
+    let mut runs: Vec<(Range<usize>, Kind)> = Vec::new();
+    let push = |runs: &mut Vec<(Range<usize>, Kind)>, r: Range<usize>, k: Kind| {
+        if r.start >= r.end {
+            return;
+        }
+        match runs.last_mut() {
+            Some((last, lk)) if *lk == k && last.end == r.start => last.end = r.end,
+            _ => runs.push((r, k)),
+        }
+    };
+    let mut at = 0;
+    for (pos, op) in ops {
+        let pos = pos.min(line.len());
+        push(&mut runs, at..pos, kind_of_stack(stack));
+        at = pos.max(at);
+        let _ = stack.apply(&op);
+    }
+    push(&mut runs, at..line.len(), kind_of_stack(stack));
+    runs
+}
+
+/// A line's runs.
+pub type LineRuns = Vec<(Range<usize>, Kind)>;
+
+/// Highlighting kept up to date as code is edited: a change re-colors from the first line
+/// it touched until the grammar's state is again what it was, so typing in a long file
+/// colors a few lines, not the file.
+#[derive(Clone, Debug)]
+pub struct Highlighter {
+    language: String,
+    lines: Vec<String>,
+    /// The grammar's state at the start of each line.
+    states: Vec<(ParseState, ScopeStack)>,
+    runs: Vec<LineRuns>,
+    /// Lines colored by the last update, for tests and tracing.
+    pub last_work: usize,
+}
+
+impl Highlighter {
+    /// A highlighter for code in `language`.
+    pub fn new(language: &str) -> Self {
+        Highlighter {
+            language: language.to_owned(),
+            lines: Vec::new(),
+            states: Vec::new(),
+            runs: Vec::new(),
+            last_work: 0,
+        }
+    }
+
+    /// Colors `text`, reusing what is unchanged since the last call; returns each line's runs.
+    pub fn update(&mut self, text: &str) -> &[LineRuns] {
+        let s = set().read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let new: Vec<&str> = text.split('\n').collect();
+        let Some(syntax) = find(&s, &self.language) else {
+            self.lines = new.iter().map(|l| (*l).to_owned()).collect();
+            self.runs = new
+                .iter()
+                .map(|l| if l.is_empty() { Vec::new() } else { vec![(0..l.len(), Kind::Plain)] })
+                .collect();
+            self.last_work = new.len();
+            return &self.runs;
+        };
+        // The first line that differs; everything above keeps its colors.
+        let first =
+            self.lines.iter().zip(&new).take_while(|(a, b)| a.as_str() == **b).count().min(self.states.len());
+        // How many lines at the end are unchanged: where coloring may stop early.
+        let tail = self
+            .lines
+            .iter()
+            .rev()
+            .zip(new.iter().rev())
+            .take_while(|(a, b)| a.as_str() == **b)
+            .count()
+            .min(new.len() - first)
+            .min(self.lines.len().saturating_sub(first));
+        let old_len = self.lines.len();
+        let (mut state, mut stack) = match self.states.get(first) {
+            Some((p, st)) => (p.clone(), st.clone()),
+            None => (ParseState::new(syntax), ScopeStack::new()),
+        };
+        let mut states = self.states.get(..first).map(<[_]>::to_vec).unwrap_or_default();
+        let mut runs = self.runs.get(..first).map(<[_]>::to_vec).unwrap_or_default();
+        let mut buf = String::new();
+        let mut work = 0;
+        let mut i = first;
+        while let Some(line) = new.get(i) {
+            // In the unchanged tail, once the state matches the old one there, the rest is as
+            // before.
+            if i >= new.len() - tail {
+                let old_i = i + old_len - new.len();
+                if self.states.get(old_i).is_some_and(|(p, st)| *p == state && *st == stack) {
+                    states.extend(self.states.get(old_i..).map(<[_]>::to_vec).unwrap_or_default());
+                    runs.extend(self.runs.get(old_i..).map(<[_]>::to_vec).unwrap_or_default());
+                    break;
+                }
+            }
+            states.push((state.clone(), stack.clone()));
+            runs.push(line_runs(&s, &mut state, &mut stack, line, &mut buf));
+            work += 1;
+            i += 1;
+        }
+        drop(s);
+        self.states = states;
+        self.runs = runs;
+        self.lines = new.iter().map(|l| (*l).to_owned()).collect();
+        self.last_work = work;
+        &self.runs
+    }
+}
+
 /// Each line of `text` as runs of kinds: byte ranges within the line (without its `\n`).
 /// Unknown languages (and lines a grammar fails on) come back plain.
 pub fn highlight(text: &str, language: &str) -> Vec<Vec<(Range<usize>, Kind)>> {
@@ -201,33 +325,6 @@ pub fn highlight(text: &str, language: &str) -> Vec<Vec<(Range<usize>, Kind)>> {
     };
     let mut state = ParseState::new(syntax);
     let mut stack = ScopeStack::new();
-    let mut out = Vec::with_capacity(lines.len());
-    let mut line_buf = String::new();
-    for line in lines {
-        line_buf.clear();
-        line_buf.push_str(line);
-        // Grammars expect the line break.
-        line_buf.push('\n');
-        let ops: Vec<(usize, ScopeStackOp)> = state.parse_line(&line_buf, &s).unwrap_or_default();
-        let mut runs: Vec<(Range<usize>, Kind)> = Vec::new();
-        let mut at = 0;
-        let push = |runs: &mut Vec<(Range<usize>, Kind)>, r: Range<usize>, k: Kind| {
-            if r.start >= r.end {
-                return;
-            }
-            match runs.last_mut() {
-                Some((last, lk)) if *lk == k && last.end == r.start => last.end = r.end,
-                _ => runs.push((r, k)),
-            }
-        };
-        for (pos, op) in ops {
-            let pos = pos.min(line.len());
-            push(&mut runs, at..pos, kind_of_stack(&stack));
-            at = pos.max(at);
-            let _ = stack.apply(&op);
-        }
-        push(&mut runs, at..line.len(), kind_of_stack(&stack));
-        out.push(runs);
-    }
-    out
+    let mut buf = String::new();
+    lines.into_iter().map(|line| line_runs(&s, &mut state, &mut stack, line, &mut buf)).collect()
 }

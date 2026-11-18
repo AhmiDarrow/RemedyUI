@@ -21,6 +21,7 @@
 //! ```
 
 mod atlas;
+mod code_edit;
 mod editing;
 mod engine;
 mod pseudo;
@@ -41,6 +42,7 @@ pub fn is_rtl_locale(locale: &str) -> bool {
 }
 
 pub use atlas::{AtlasEntry, AtlasStats, GlyphAtlas, GlyphKey, PAGE_SIZE, Page, PageRect};
+pub use code_edit::{CodeEditor, Indent};
 pub use editing::{
     Composition, SecretEditor, SecretString, TextChange, TextEditor, TextSelection, UNDO_PAUSE_MS,
 };

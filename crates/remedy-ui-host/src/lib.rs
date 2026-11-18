@@ -121,6 +121,21 @@ pub struct FileDialog {
     pub filters: Vec<(String, Vec<String>)>,
 }
 
+/// A file dialog's identity while it is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct DialogId(pub u64);
+
+/// Where a file dialog stands once [`Host::file_dialog`] returns.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DialogStarted {
+    /// It already closed (platforms whose dialogs run inside the call): the chosen paths,
+    /// empty when cancelled.
+    Finished(Vec<std::path::PathBuf>),
+    /// It is open; [`HostEvent::FileDialog`] reports the choice (platforms whose pickers are
+    /// separate screens, such as Android's).
+    Pending(DialogId),
+}
+
 /// The edge or corner a resize drags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ResizeEdge {
@@ -259,6 +274,31 @@ impl Default for SystemSettings {
     }
 }
 
+/// The edges of a window that system interface covers or may cover: status and navigation
+/// bars, display cutouts and the on-screen keyboard, in logical pixels. Content belongs inside
+/// them; the window's background may run under them. Zero on every side where nothing covers
+/// the window (desktop windows).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SafeArea {
+    /// Covered at the top.
+    pub top: f32,
+    /// Covered on the right.
+    pub right: f32,
+    /// Covered at the bottom.
+    pub bottom: f32,
+    /// Covered on the left.
+    pub left: f32,
+}
+
+impl SafeArea {
+    /// Device pixels to logical pixels at `scale` device pixels per logical pixel.
+    pub fn from_device(top: f32, right: f32, bottom: f32, left: f32, scale: f32) -> SafeArea {
+        let s = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+        let px = |v: f32| if v.is_finite() { v.max(0.0) / s } else { 0.0 };
+        SafeArea { top: px(top), right: px(right), bottom: px(bottom), left: px(left) }
+    }
+}
+
 /// How hard the system is asking processes to give memory back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MemoryPressure {
@@ -337,6 +377,9 @@ pub enum HostEvent {
     Destroyed(WindowId),
     /// Keyboard focus came or went.
     Focused(WindowId, bool),
+    /// The part of a window that system interface leaves clear changed (also sent once when
+    /// it is first known).
+    SafeArea(WindowId, SafeArea),
     /// A window became fully covered or minimized (true), or visible again (false).
     Occluded(WindowId, bool),
     /// Pointer input.
@@ -370,6 +413,9 @@ pub enum HostEvent {
     Drag(WindowId, DragEvent),
     /// A drag out of a window that [`Host::start_drag`] left pending ended.
     DragEnded(WindowId, DropEffect),
+    /// A file dialog [`Host::file_dialog`] left pending closed: the chosen paths, empty when
+    /// cancelled.
+    FileDialog(DialogId, Vec<std::path::PathBuf>),
     /// The app was launched again while running (single instance); these are the new
     /// launch's arguments.
     SecondInstance(Vec<String>),
@@ -509,6 +555,12 @@ pub trait Host {
     fn close_window(&mut self, window: WindowId);
     /// A window's size in device pixels and its scale.
     fn window_size(&self, window: WindowId) -> Option<(u32, u32, f32)>;
+    /// The edges of a window that system interface covers (status and navigation bars,
+    /// cutouts, the on-screen keyboard). [`HostEvent::SafeArea`] reports changes.
+    fn safe_area(&self, window: WindowId) -> SafeArea {
+        let _ = window;
+        SafeArea::default()
+    }
     /// Changes the title.
     fn set_title(&mut self, window: WindowId, title: &str);
     /// Resizes the content to `size` logical pixels.
@@ -550,6 +602,13 @@ pub trait Host {
     ) -> Result<(), Unsupported>;
     /// The window's native handles, for a GPU surface.
     fn window_handles(&self, window: WindowId) -> Result<Arc<dyn WindowHandles>, Unsupported>;
+    /// True when a window's surface keeps the renderer it was first presented with: once
+    /// CPU pixels reached it, a GPU swapchain cannot take it over until the platform gives
+    /// the window a new surface (Android). The engine then picks the renderer before a
+    /// window's first present.
+    fn renderer_fixed_per_surface(&self) -> bool {
+        false
+    }
     /// Starts, updates (`Some`) or ends (`None`) text input on a window.
     fn set_text_input(&mut self, window: WindowId, state: Option<TextInputState>);
     /// The clipboard's text.
@@ -573,13 +632,14 @@ pub trait Host {
     fn update_accessibility(&mut self, window: WindowId, update: accesskit::TreeUpdate);
     /// Shows, updates (`Some`) or removes (`None`) the app's tray icon.
     fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported>;
-    /// Runs a native open or save dialog, modal to `window`. The chosen paths; empty when
-    /// cancelled.
+    /// Runs a native open or save dialog, modal to `window`. Desktop dialogs finish inside the
+    /// call with the chosen paths (empty when cancelled); others return at once and report
+    /// the choice with [`HostEvent::FileDialog`].
     fn file_dialog(
         &mut self,
         window: Option<WindowId>,
         dialog: &FileDialog,
-    ) -> Result<Vec<std::path::PathBuf>, Unsupported>;
+    ) -> Result<DialogStarted, Unsupported>;
     /// Starts dragging `data` out of `window` to other apps (call while the pointer button
     /// that began the drag is held). Some platforms run the drag to its end inside the call;
     /// others return at once and report the end with [`HostEvent::DragEnded`].
@@ -613,6 +673,23 @@ pub trait App {
 impl<T: App + ?Sized> App for &mut T {
     fn event(&mut self, host: &mut dyn Host, event: HostEvent) {
         (**self).event(host, event);
+    }
+}
+
+#[cfg(test)]
+mod safe_area_tests {
+    use super::SafeArea;
+
+    #[test]
+    fn device_pixels_become_logical_and_never_negative() {
+        let a = SafeArea::from_device(96.0, 0.0, 144.0, -3.0, 2.0);
+        assert_eq!(a, SafeArea { top: 48.0, right: 0.0, bottom: 72.0, left: 0.0 });
+        let bad = SafeArea::from_device(f32::NAN, 10.0, 0.0, 0.0, 0.0);
+        assert_eq!(
+            bad,
+            SafeArea { top: 0.0, right: 10.0, bottom: 0.0, left: 0.0 },
+            "a bad scale counts as 1"
+        );
     }
 }
 

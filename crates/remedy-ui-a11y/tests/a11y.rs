@@ -105,3 +105,39 @@ fn live_regions_states_and_disconnecting() {
     t.set(2, Semantics::new(Role::Status).label("Reconnecting").live(Live::Polite));
     assert!(t.take_update().is_none(), "no client, no work");
 }
+
+#[test]
+fn the_root_scales_logical_bounds_to_device_pixels() {
+    let mut t = chat();
+    t.set_scale(2.5);
+    t.connect();
+    let u = t.take_update();
+    let root = u.as_ref().and_then(|u| node(u, 1)).and_then(|n| n.transform().copied());
+    assert_eq!(root, Some(accesskit::Affine::scale(2.5)));
+    // A new scale reaches a connected client as a root change only.
+    t.set_scale(3.0);
+    let u = t.take_update();
+    assert_eq!(u.as_ref().map(|u| u.nodes.len()), Some(1));
+    let root = u.as_ref().and_then(|u| node(u, 1)).and_then(|n| n.transform().copied());
+    assert_eq!(root, Some(accesskit::Affine::scale(3.0)));
+    // At scale 1 nothing is transformed.
+    let mut plain = chat();
+    plain.connect();
+    let u = plain.take_update();
+    assert_eq!(u.as_ref().and_then(|u| node(u, 1)).and_then(|n| n.transform().copied()), None);
+}
+
+#[test]
+fn static_text_carries_its_words_as_the_value_adapters_read() {
+    let mut t = A11yTree::new(1);
+    t.set(1, Semantics::new(Role::Window).label("Demo"));
+    t.set(2, Semantics::new(Role::Label).label("Taps: 2"));
+    t.set_children(1, &[2]);
+    t.connect();
+    let u = t.take_update();
+    let label = u.as_ref().and_then(|u| node(u, 2));
+    assert_eq!(label.and_then(|n| n.value()), Some("Taps: 2"));
+    assert_eq!(label.and_then(|n| n.label()), Some("Taps: 2"));
+    let window = u.as_ref().and_then(|u| node(u, 1));
+    assert_eq!(window.and_then(|n| n.value()), None, "only static text gets a value");
+}

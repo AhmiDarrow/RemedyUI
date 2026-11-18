@@ -87,6 +87,7 @@ pub fn sheet(t: &Theme) -> StyleSheet {
     rule("board_item", None, States::DRAGGING, StylePatch { opacity: Some(0.6), ..Default::default() });
     // Code: monospace text, quiet line numbers, added and removed lines tinted.
     rule("code_text", None, States::NONE, StylePatch { mono: Some(true), ..Default::default() });
+    rule("code_input", None, States::NONE, StylePatch { mono: Some(true), ..Default::default() });
     rule(
         "code_mark",
         None,
