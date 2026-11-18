@@ -6,8 +6,14 @@
 //! outward), and transform and opacity animations. Each frame it plans which tiles to raster
 //! (visible first, then a one-tile prefetch ring), the composite of those tiles with clips and
 //! opacity groups, and the damage in device pixels, so renderers raster only what changed and
-//! bridges present only what changed. See `docs/design/01-threads-and-frames.md` and
-//! `docs/design/04-rendering.md`.
+//! bridges present only what changed.
+//!
+//! **Progressive zoom.** When a layer's raster scale changes (a zoom, a move to a screen of
+//! another density), its tiles at the old scale stay and are drawn scaled in place of the new
+//! ones until those are rastered. New tiles raster visible-first, nearest the middle of the
+//! screen first, within a per-frame [`RasterBudget`] measured on the machine; content with
+//! nothing to stand in for it is never held back. See `docs/design/01-threads-and-frames.md`
+//! and `docs/design/04-rendering.md` (Tiles).
 
 mod compositor;
 mod damage;
@@ -21,4 +27,4 @@ pub use damage::Damage;
 pub use layer::{Layer, LayerId, LayerTree, ScrollFollow};
 pub use mailbox::Mailbox;
 pub use thread::{CompositorThread, FrameReport, Presenter};
-pub use tiles::{TileKey, quantize_scale, tile_pixels};
+pub use tiles::{DEFAULT_ZOOM_RASTER_TIME, RasterBudget, TileKey, quantize_scale, scale_step, tile_pixels};

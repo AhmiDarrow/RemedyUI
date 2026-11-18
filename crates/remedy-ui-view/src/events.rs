@@ -197,6 +197,40 @@ impl Ui {
         handled
     }
 
+    /// Routes a wheel or touchpad scroll to the elements under it that take scrolls
+    /// ([`El::on_wheel`](crate::El::on_wheel)), innermost first. Returns true when one used it;
+    /// otherwise the host scrolls the scroll containers under the pointer.
+    pub fn wheel(&self, e: &remedy_ui_input::WheelEvent) -> bool {
+        self.positioned(e.position, e)
+    }
+
+    /// Routes a touchpad pinch to the elements under it that zoom
+    /// ([`El::on_pinch`](crate::El::on_pinch)). Returns true when one used it.
+    pub fn pinch(&self, e: &remedy_ui_input::PinchEvent) -> bool {
+        // A pinch stays with the element it started on, as a press does.
+        let tree = self.tree();
+        let held = self.0.borrow().pinching.filter(|p| tree.contains(*p));
+        let target = match e.phase {
+            remedy_ui_input::PinchPhase::Start => tree.hit_test(e.position),
+            _ => held.or_else(|| tree.hit_test(e.position)),
+        };
+        let Some(t) = target else { return false };
+        let d = tree.dispatch(t, e).ok();
+        let handled = d.as_ref().is_some_and(|d| d.handled);
+        self.0.borrow_mut().pinching = match e.phase {
+            remedy_ui_input::PinchPhase::Start => d.and_then(|d| d.handled_by),
+            remedy_ui_input::PinchPhase::Change => held.or(Some(t)),
+            _ => None,
+        };
+        handled
+    }
+
+    fn positioned<E: 'static>(&self, at: Point, e: &E) -> bool {
+        let tree = self.tree();
+        let Some(hit) = tree.hit_test(at) else { return false };
+        tree.dispatch(hit, e).is_ok_and(|d| d.handled)
+    }
+
     fn place_caret(&self, id: ElementId, field: &Rc<RefCell<Field>>, at: Point, extend: bool) {
         let Some(b) = self.tree().bounds(id) else { return };
         let changed = field.borrow_mut().place(Point::new(at.x - b.min.x, at.y - b.min.y), extend);
@@ -297,6 +331,15 @@ impl Ui {
         }
         if !e.pressed {
             return false;
+        }
+        // Undo and redo for the window's changes, when nothing above took the keys.
+        let letter =
+            |l: &str| matches!(&e.key, remedy_ui_input::Key::Character(c) if c.eq_ignore_ascii_case(l));
+        if cmd && letter("z") && !e.modifiers.shift {
+            return self.undo_change();
+        }
+        if cmd && (letter("y") || (letter("z") && e.modifiers.shift)) {
+            return self.redo_change();
         }
         match &e.key {
             Key::Tab => {

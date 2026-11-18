@@ -20,7 +20,8 @@ mod scroll;
 
 pub use commands::{Chord, Command, CommandTable, Conflict, Scope};
 pub use events::{
-    Buttons, Key, KeyEvent, Modifiers, Platform, PointerEvent, PointerKind, PointerPhase, WheelEvent,
+    Buttons, Key, KeyEvent, Modifiers, PinchEvent, PinchPhase, Platform, PointerEvent, PointerKind,
+    PointerPhase, WheelEvent,
 };
 pub use gesture::{Claim, GestureArena, GestureKind, GestureSettings, Recognizer, VelocityTracker};
 pub use scroll::{ScrollAxis, ScrollPhysics};

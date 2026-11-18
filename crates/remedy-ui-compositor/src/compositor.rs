@@ -12,7 +12,7 @@ use remedy_ui_paint::{Affine, DisplayList};
 
 use crate::damage::Damage;
 use crate::layer::{Layer, LayerId, LayerTree};
-use crate::tiles::{TileGrid, TileKey, quantize_scale, tile_pixels};
+use crate::tiles::{Cell, LayerTiles, RasterBudget, TileKey, quantize_scale, tile_pixels};
 
 /// One step of drawing a frame from rastered tiles.
 #[derive(Clone, Debug, PartialEq)]
@@ -34,7 +34,9 @@ pub enum CompositeOp {
     /// Ends the latest group.
     PopOpacity,
     /// Draws a rastered tile: its pixels cover `rect` in the space `transform` maps to device
-    /// pixels.
+    /// pixels, and the part of it inside `area` is drawn. A tile of the current scale draws
+    /// whole (`area == rect`); a tile of an earlier scale standing in during a zoom draws
+    /// only where the missing tile would be.
     Tile {
         /// The layer.
         layer: LayerId,
@@ -46,6 +48,8 @@ pub enum CompositeOp {
         rect: Rect,
         /// Device pixels per content unit the tile was rastered at.
         raster_scale: f32,
+        /// The part of `rect` to draw (content space).
+        area: Rect,
     },
 }
 
@@ -71,6 +75,11 @@ pub struct TileRequest {
 }
 
 impl TileRequest {
+    /// The tile's size in pixels.
+    pub fn pixels(&self) -> u64 {
+        u64::from(self.width) * u64::from(self.height)
+    }
+
     /// The transform that maps content space into this tile's pixels.
     pub fn raster_transform(&self) -> Affine {
         Affine::translate(Vec2::new(-self.rect.min.x, -self.rect.min.y))
@@ -89,8 +98,12 @@ pub struct FramePlan {
     pub ops: Vec<CompositeOp>,
     /// What changed since the previous plan, in device pixels.
     pub damage: Damage,
-    /// True while scrolling or animations still move: request another frame.
+    /// True while scrolling or animations still move, or a zoom is still rastering its new
+    /// scale: request another frame.
     pub animating: bool,
+    /// Visible tiles shown by stand-ins of an earlier scale this frame, rastering in later
+    /// frames within the [`RasterBudget`].
+    pub pending: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -144,7 +157,8 @@ pub struct Compositor {
     /// Scroll containers that follow others: (follower, link).
     follows: Vec<(LayerId, crate::layer::ScrollFollow)>,
     overrides: HashMap<LayerId, Overrides>,
-    grids: HashMap<LayerId, TileGrid>,
+    grids: HashMap<LayerId, LayerTiles>,
+    budget: RasterBudget,
     drawn: HashMap<LayerId, Drawn>,
     scroll_hits: Vec<(LayerId, Rect, f32)>,
     released: Vec<(LayerId, TileKey)>,
@@ -162,6 +176,14 @@ struct Walk<'a> {
     order: usize,
     /// Inside a scroll container: content near the viewport is about to show, so prefetch.
     scrolling: bool,
+    /// Pixels this frame may raster at new scales.
+    allowance: u64,
+    /// Pixels rastered at new scales this frame.
+    spent: u64,
+    /// Device areas where a tile replaced its stand-in.
+    replaced: Damage,
+    /// Prefetch tiles at a new scale left for a later frame.
+    deferred: usize,
 }
 
 fn snap(a: Affine) -> Affine {
@@ -183,6 +205,7 @@ impl Compositor {
             follows: Vec::new(),
             overrides: HashMap::new(),
             grids: HashMap::new(),
+            budget: RasterBudget::default(),
             drawn: HashMap::new(),
             scroll_hits: Vec::new(),
             released: Vec::new(),
@@ -257,7 +280,7 @@ impl Compositor {
         self.grids.retain(|id, g| {
             let keep = alive.contains_key(id);
             if !keep {
-                released.extend(g.valid.keys().map(|k| (*id, *k)));
+                released.extend(g.all_keys().into_iter().map(|k| (*id, k)));
             }
             keep
         });
@@ -381,17 +404,41 @@ impl Compositor {
         self.full_damage = true;
     }
 
-    /// Frees every tile outside the latest frame's prefetch area (for memory pressure). The
-    /// next plan lists them in `released`.
+    /// Frees every tile outside the latest frame's prefetch area, and every tile of an
+    /// earlier scale standing in for a zoom (for memory pressure). The next plan lists them in
+    /// `released`.
     pub fn trim_memory(&mut self) {
-        for (id, g) in &mut self.grids {
+        for (id, lt) in &mut self.grids {
+            for g in lt.older.drain(..) {
+                self.released.extend(g.keys().map(|k| (*id, k)));
+            }
+            let g = &mut lt.current;
             let wanted = &g.wanted;
-            let gone: Vec<TileKey> = g.valid.keys().filter(|k| !wanted.contains(k)).copied().collect();
-            for k in gone {
-                g.valid.remove(&k);
-                self.released.push((*id, k));
+            let gone: Vec<Cell> = g.valid.keys().filter(|k| !wanted.contains(k)).copied().collect();
+            for c in gone {
+                g.valid.remove(&c);
+                self.released.push((*id, g.key(c)));
             }
         }
+    }
+
+    /// Sets the raster time a frame may spend on tiles at a new scale during a zoom, while
+    /// tiles of the old scale stand in (default
+    /// [`DEFAULT_ZOOM_RASTER_TIME`](crate::DEFAULT_ZOOM_RASTER_TIME)).
+    pub fn set_zoom_raster_time(&mut self, per_frame: Duration) {
+        self.budget.per_frame = per_frame;
+    }
+
+    /// Tells the compositor what rastering cost: `pixels` (the plan's requests) took `took`.
+    /// Whoever runs the plans reports every frame that rastered, so the zoom budget fits
+    /// this machine.
+    pub fn record_raster(&mut self, pixels: u64, took: Duration) {
+        self.budget.record(pixels, took);
+    }
+
+    /// The zoom raster budget and the cost it has measured.
+    pub fn raster_budget(&self) -> RasterBudget {
+        self.budget
     }
 
     /// Plans the frame for presentation time `now`: steps scroll physics, samples
@@ -432,13 +479,18 @@ impl Compositor {
             hits: Vec::new(),
             order: 0,
             scrolling: false,
+            allowance: self.budget.pixels(),
+            spent: 0,
+            replaced: Damage::new(),
+            deferred: 0,
         };
         let base = Affine::scale(self.scale, self.scale);
         let roots = self.tree.roots.clone();
         for root in &roots {
             self.walk(root, base, self.scale, 1.0, viewport, &mut walk);
         }
-        let Walk { drawn, hits, .. } = walk;
+        let Walk { drawn, hits, replaced, deferred, .. } = walk;
+        plan.animating |= plan.pending > 0 || deferred > 0;
 
         let mut damage = Damage::new();
         if self.full_damage {
@@ -460,6 +512,7 @@ impl Compositor {
                 }
             }
         }
+        damage.merge(&replaced);
         damage.clip_to(viewport);
         plan.damage = damage;
         plan.released = std::mem::take(&mut self.released);
@@ -541,7 +594,7 @@ impl Compositor {
                 .filter(|r| !r.is_empty());
             bounds = content_to_device.apply_rect(extent).intersect(clip).filter(|r| !r.is_empty());
             if let Some(visible) = visible {
-                self.tiles(layer, extent, visible, content_to_device, raster_scale, w);
+                self.tiles(layer, extent, visible, content_to_device, raster_scale, clip, w);
             }
         }
         w.drawn.insert(
@@ -571,6 +624,7 @@ impl Compositor {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn tiles(
         &mut self,
         layer: &Layer,
@@ -578,13 +632,12 @@ impl Compositor {
         visible: Rect,
         to_device: Affine,
         raster_scale: f32,
+        clip: Rect,
         w: &mut Walk<'_>,
     ) {
-        let grid = self.grids.entry(layer.id).or_insert_with(|| TileGrid::new(raster_scale));
-        if grid.raster_scale != raster_scale {
-            self.released.extend(grid.valid.keys().map(|k| (layer.id, *k)));
-            *grid = TileGrid::new(raster_scale);
-        }
+        let lt = self.grids.entry(layer.id).or_insert_with(|| LayerTiles::new(raster_scale));
+        lt.rescale(raster_scale);
+        let LayerTiles { current: grid, older } = lt;
         // Inside a scroll container, prefetch one tile beyond what is visible in every
         // direction; content under a fixed clip only shows what is visible now.
         let e = grid.content_edge();
@@ -595,41 +648,123 @@ impl Compositor {
             visible
         };
         let px = tile_pixels(raster_scale);
-        let shown: std::collections::HashSet<TileKey> = grid.keys_in(visible).into_iter().collect();
-        grid.wanted = grid.keys_in(prefetch).into_iter().collect();
-        let mut keys: Vec<TileKey> = grid.wanted.iter().copied().collect();
-        keys.sort();
-        for key in keys {
-            let rect = grid.tile_rect(key, extent);
+        let shown: std::collections::HashSet<Cell> = grid.cells_in(visible).into_iter().collect();
+        grid.wanted = grid.cells_in(prefetch).into_iter().collect();
+        let mut cells: Vec<Cell> = grid.wanted.iter().copied().collect();
+        // While older scales stand in, the budget goes to what is on screen, nearest the
+        // middle of it first; otherwise in grid order.
+        let zooming = !older.is_empty();
+        if zooming {
+            let mid = visible.center();
+            let far = |c: &Cell| {
+                let r = grid.tile_rect(*c, extent);
+                let (dx, dy) = (r.center().x - mid.x, r.center().y - mid.y);
+                (!shown.contains(c), (dx * dx + dy * dy).to_bits())
+            };
+            cells.sort_by_key(far);
+        } else {
+            cells.sort_by_key(|&(c, r)| (r, c));
+        }
+        // Older grids nearest the new scale stand in best.
+        let target = raster_scale.max(f32::MIN_POSITIVE).log2();
+        older.sort_by(|a, b| {
+            let da = (a.raster_scale.log2() - target).abs();
+            let db = (b.raster_scale.log2() - target).abs();
+            da.total_cmp(&db)
+        });
+        let mut used = vec![false; older.len()];
+        for cell in cells {
+            let rect = grid.tile_rect(cell, extent);
             if rect.is_empty() {
                 continue;
             }
-            let is_visible = shown.contains(&key);
-            if grid.valid.get(&key) != Some(&layer.content_version) {
+            let is_visible = shown.contains(&cell);
+            let ready = grid.valid.get(&cell) == Some(&layer.content_version);
+            if !ready {
                 let width = ((rect.width() * raster_scale).ceil() as u32).clamp(1, px);
                 let height = ((rect.height() * raster_scale).ceil() as u32).clamp(1, px);
-                w.plan.raster.push(TileRequest {
-                    layer: layer.id,
-                    key,
-                    rect,
-                    raster_scale,
-                    width,
-                    height,
-                    content: layer.content.clone(),
-                    visible: is_visible,
-                });
-                grid.valid.insert(key, layer.content_version);
+                let cost = u64::from(width) * u64::from(height);
+                let stand_in = if zooming && is_visible {
+                    older.iter().enumerate().find_map(|(i, g)| g.covering(rect, extent).map(|c| (i, c)))
+                } else {
+                    None
+                };
+                let affordable = w.spent == 0 || w.spent.saturating_add(cost) <= w.allowance;
+                let raster = match (zooming, is_visible) {
+                    // Nothing changes scale: raster as content asks.
+                    (false, _) => true,
+                    // On screen with nothing to stand in: never held back.
+                    (true, true) if stand_in.is_none() => true,
+                    (true, true) => affordable,
+                    // Prefetch at a new scale waits until what shows is done.
+                    (true, false) => w.plan.pending == 0 && affordable,
+                };
+                if raster {
+                    if zooming {
+                        w.spent = w.spent.saturating_add(cost);
+                        if is_visible {
+                            let device = to_device.apply_rect(rect).intersect(clip);
+                            device.into_iter().for_each(|d| w.replaced.add(d));
+                        }
+                    }
+                    w.plan.raster.push(TileRequest {
+                        layer: layer.id,
+                        key: grid.key(cell),
+                        rect,
+                        raster_scale,
+                        width,
+                        height,
+                        content: layer.content.clone(),
+                        visible: is_visible,
+                    });
+                    grid.valid.insert(cell, layer.content_version);
+                } else if let Some((i, covering)) = stand_in {
+                    if let Some(u) = used.get_mut(i) {
+                        *u = true;
+                    }
+                    w.plan.pending += 1;
+                    if let Some(g) = older.get(i) {
+                        for c in covering {
+                            let tile = g.tile_rect(c, extent);
+                            let Some(area) = tile.intersect(rect).filter(|a| !a.is_empty()) else { continue };
+                            w.plan.ops.push(CompositeOp::Tile {
+                                layer: layer.id,
+                                key: g.key(c),
+                                transform: to_device,
+                                rect: tile,
+                                raster_scale: g.raster_scale,
+                                area,
+                            });
+                        }
+                    }
+                    continue;
+                } else {
+                    w.deferred += 1;
+                    continue;
+                }
             }
             if is_visible {
                 w.plan.ops.push(CompositeOp::Tile {
                     layer: layer.id,
-                    key,
+                    key: grid.key(cell),
                     transform: to_device,
                     rect,
                     raster_scale,
+                    area: rect,
                 });
             }
         }
+        // Grids that stood in for nothing this frame have done their job.
+        let mut i = 0;
+        let released = &mut self.released;
+        older.retain(|g| {
+            let keep = used.get(i).copied().unwrap_or(false);
+            i += 1;
+            if !keep {
+                released.extend(g.keys().map(|k| (layer.id, k)));
+            }
+            keep
+        });
     }
 }
 

@@ -196,7 +196,7 @@ fn removed_layers_damage_and_release_their_tiles() {
     c.commit(LayerTree::default());
     let p = c.frame(ms(16));
     assert_eq!(p.damage.rects(), &[Rect::new(10.0, 10.0, 60.0, 60.0)]);
-    assert_eq!(p.released, vec![(LayerId(1), TileKey { col: 0, row: 0 })]);
+    assert_eq!(p.released, vec![(LayerId(1), TileKey { col: 0, row: 0, scale: 64 })]);
 }
 
 #[test]
@@ -268,7 +268,11 @@ fn high_dpi_uses_larger_tiles_and_scale_changes_reraster() {
     c.resize(800, 600, 2.0);
     let p = c.frame(ms(16));
     assert_eq!(p.raster.first().map(|r| (r.width, r.raster_scale)), Some((200, 2.0)));
-    assert_eq!(p.released, vec![(LayerId(1), TileKey { col: 0, row: 0 })], "old-scale tiles are freed");
+    assert_eq!(
+        p.released,
+        vec![(LayerId(1), TileKey { col: 0, row: 0, scale: 64 })],
+        "old-scale tiles are freed"
+    );
     assert_eq!(p.damage.rects(), &[Rect::new(0.0, 0.0, 800.0, 600.0)]);
     assert_eq!(tile_pixels(2.0), 512);
 }

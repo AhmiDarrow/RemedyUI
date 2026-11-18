@@ -1,0 +1,1398 @@
+//! The page view: a document's pages laid out virtually, drawn from tiles rendered off the UI
+//! thread at the zoom shown, zoomed and scrolled by pointer, touch, wheel and keyboard.
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::{Rc, Weak};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size, Vec2};
+use remedy_ui_input::{
+    Buttons, Key, KeyEvent, PinchEvent, PinchPhase, PointerEvent, PointerKind, PointerPhase, WheelEvent,
+};
+use remedy_ui_paint::{Affine, Brush, Item, Sampling};
+use remedy_ui_reactive::Signal;
+use remedy_ui_view::{ElementId, PaintCx, WeakUi};
+
+use crate::layout::{Fit, PageLayout, Rotation, Spread};
+use crate::raster::{
+    self, Done, Draw, FrameCx, PageStats, TileId, Tiles, Visible, class, level_of, scale_of,
+};
+use crate::source::{Cancel, PageSource, PageText};
+use crate::text::{self, Match, SearchStatus, TextPos, TextState};
+
+/// The smallest zoom: 1%.
+pub const MIN_ZOOM: f32 = 0.01;
+/// The largest zoom: 6400%.
+pub const MAX_ZOOM: f32 = 64.0;
+
+/// The zooms Ctrl+Plus and Ctrl+Minus step through, as other document viewers do.
+const ZOOM_STEPS: [f32; 27] = [
+    0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.17, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0,
+    3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 64.0,
+];
+
+/// How long after the last scroll or zoom change the view counts as settled: a pinch, a drag
+/// or a run of wheel notches is one gesture. Until then the compositor moves and scales the
+/// view's last picture and nothing new renders; then the view redraws at the new zoom.
+pub const SETTLE: Duration = Duration::from_millis(150);
+
+/// One wheel notch (48 logical pixels on desktop bridges) zooms by 10%.
+const WHEEL_ZOOM_PER_PIXEL: f32 = 0.001_985_6; // ln(1.1) / 48
+
+/// Arrow keys scroll by one wheel notch.
+const KEY_SCROLL: f32 = 48.0;
+
+/// Scroll bars: width, and the shortest thumb (a target a pointer can hold).
+const BAR: f32 = 8.0;
+const BAR_MIN: f32 = 24.0;
+
+/// The gap between pages and the margin around them, logical pixels, unless the app sets
+/// its own ([`PageView::set_spacing`]).
+const GAP: f32 = 8.0;
+const MARGIN: f32 = 16.0;
+
+/// A page view's share of the machine's memory for tiles: 1/64 (256 MB on a 16 GB machine).
+/// Never less than three screens of tiles (the shown scale, a stand-in scale, prefetch).
+const MEMORY_SHARE: u64 = 64;
+
+#[derive(Clone, Copy, Debug)]
+enum Gesture {
+    None,
+    Pan { last: Point },
+    Select,
+    Bar { vertical: bool, grab: f32 },
+    Pinch { distance: f32, zoom: f32, mid: Point },
+}
+
+/// While a scroll or zoom moves, the view keeps its last picture and the compositor moves
+/// and scales it (progressively re-rastering within its budget); the picture is redrawn when
+/// the movement settles, or sooner when it no longer covers the view.
+#[derive(Clone, Copy, Debug)]
+struct Frozen {
+    /// The zoom and scroll the picture shows.
+    zoom: f32,
+    scroll: Vec2,
+}
+
+struct State {
+    frozen: Option<Frozen>,
+    /// The area the latest picture covers, in the view's coordinates when it was drawn.
+    drawn: Rect,
+    layout: PageLayout,
+    spread: Spread,
+    rotation: Rotation,
+    gap: f32,
+    margin: f32,
+    zoom: f32,
+    fit: Fit,
+    scroll: Vec2,
+    viewport: Size,
+    dpr: f32,
+    tiles: Tiles,
+    text: TextState,
+    moved_at: Option<Instant>,
+    settle_timer: Option<u64>,
+    gesture: Gesture,
+    touches: HashMap<u32, Point>,
+    thumb_flight: HashMap<usize, Cancel>,
+}
+
+struct Shared {
+    viewer: u64,
+    source: Arc<dyn PageSource>,
+    sizes: Rc<Vec<Size>>,
+    st: RefCell<State>,
+    zoom: Signal<f32>,
+    fit: Signal<Fit>,
+    page: Signal<usize>,
+    page_text: Signal<String>,
+    search: Signal<SearchStatus>,
+    host: RefCell<Option<(WeakUi, ElementId)>>,
+    thumbs: RefCell<HashMap<usize, (WeakUi, ElementId)>>,
+}
+
+impl Drop for Shared {
+    fn drop(&mut self) {
+        raster::unregister(self.viewer);
+        let st = self.st.get_mut();
+        st.tiles.clear();
+        for (_, c) in st.thumb_flight.drain() {
+            c.cancel();
+        }
+        if let Some(c) = st.text.search.cancel.take() {
+            c.cancel();
+        }
+    }
+}
+
+/// A paged document on screen: its zoom, scroll, page, selection and search. Clone it to
+/// hand it to the widgets that show it ([`page_view`](crate::page_view),
+/// [`thumbnails`](crate::thumbnails)) and to the app's own controls.
+///
+/// Create it on the UI thread.
+#[derive(Clone)]
+pub struct PageView(Rc<Shared>);
+
+impl std::fmt::Debug for PageView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let st = self.0.st.borrow();
+        write!(f, "PageView({} pages, zoom {}, {:?})", st.layout.len(), st.zoom, st.tiles.stats)
+    }
+}
+
+impl PageView {
+    /// A view of `source`'s pages, fitted to the width, one page per row.
+    pub fn new(source: Arc<dyn PageSource>) -> PageView {
+        let n = source.page_count();
+        let sizes: Vec<Size> = (0..n).map(|p| source.page_size(p)).collect();
+        let layout = PageLayout::new(sizes.clone(), Spread::Single, Rotation::None, GAP, MARGIN);
+        let shared = Rc::new_cyclic(|weak: &Weak<Shared>| {
+            let w = weak.clone();
+            let viewer = raster::register(Rc::new(move |done| {
+                if let Some(s) = w.upgrade() {
+                    PageView(s).deliver(done);
+                }
+            }));
+            let w = weak.clone();
+            remedy_ui_view::device::on_memory_pressure(move |level| {
+                if let Some(s) = w.upgrade()
+                    && level != remedy_ui_view::device::MemoryPressure::Normal
+                {
+                    s.st.borrow_mut().tiles.release_unused();
+                }
+            });
+            Shared {
+                viewer,
+                source,
+                sizes: Rc::new(sizes),
+                st: RefCell::new(State {
+                    frozen: None,
+                    drawn: Rect::ZERO,
+                    layout,
+                    spread: Spread::Single,
+                    rotation: Rotation::None,
+                    gap: GAP,
+                    margin: MARGIN,
+                    zoom: 1.0,
+                    fit: Fit::Width,
+                    scroll: Vec2::ZERO,
+                    viewport: Size::ZERO,
+                    dpr: 1.0,
+                    tiles: Tiles::new(),
+                    text: TextState::default(),
+                    moved_at: None,
+                    settle_timer: None,
+                    gesture: Gesture::None,
+                    touches: HashMap::new(),
+                    thumb_flight: HashMap::new(),
+                }),
+                zoom: Signal::new(1.0),
+                fit: Signal::new(Fit::Width),
+                page: Signal::new(0),
+                page_text: Signal::new(String::new()),
+                search: Signal::new(SearchStatus::default()),
+                host: RefCell::new(None),
+                thumbs: RefCell::new(HashMap::new()),
+            }
+        });
+        PageView(shared)
+    }
+
+    /// Number of pages.
+    pub fn page_count(&self) -> usize {
+        self.0.sizes.len()
+    }
+
+    /// The zoom (logical pixels per point; 1.0 is 100%). Read it in bindings; change it
+    /// with [`set_zoom`](Self::set_zoom).
+    pub fn zoom(&self) -> Signal<f32> {
+        self.0.zoom
+    }
+
+    /// How the zoom follows the window.
+    pub fn fit(&self) -> Signal<Fit> {
+        self.0.fit
+    }
+
+    /// The page in the middle of the view, from 0.
+    pub fn current_page(&self) -> Signal<usize> {
+        self.0.page
+    }
+
+    /// Where the search is.
+    pub fn search_status(&self) -> Signal<SearchStatus> {
+        self.0.search
+    }
+
+    /// What the view's work has cost so far.
+    pub fn stats(&self) -> PageStats {
+        self.0.st.borrow().tiles.stats
+    }
+
+    /// True when the latest frame showed every visible tile at the zoom's own scale and
+    /// nothing is rendering.
+    pub fn is_sharp(&self) -> bool {
+        let st = self.0.st.borrow();
+        // Every tile on screen is counted as shown exactly, standing in, or blank.
+        st.frozen.is_none()
+            && !st.tiles.busy()
+            && st.tiles.stats.standing_in == 0
+            && st.tiles.stats.blank == 0
+    }
+
+    /// The scroll offset, logical pixels from the top-left of the content.
+    pub fn scroll_offset(&self) -> Vec2 {
+        self.0.st.borrow().scroll
+    }
+
+    /// The size of everything at the current zoom, logical pixels.
+    pub fn content_size(&self) -> Size {
+        let st = self.0.st.borrow();
+        let c = st.layout.content_size(st.eff_zoom());
+        Size::new(c.width.max(st.viewport.width), c.height)
+    }
+
+    /// Where a page shows, in the view's own logical pixels (after scrolling).
+    pub fn page_rect(&self, page: usize) -> Rect {
+        let st = self.0.st.borrow();
+        st.layout
+            .page_rect(page, st.eff_zoom(), st.viewport.width)
+            .translate(Vec2::new(-st.scroll.x, -st.scroll.y))
+    }
+
+    fn host(&self) -> Option<remedy_ui_view::El> {
+        let h = self.0.host.borrow();
+        let (ui, id) = h.as_ref()?;
+        ui.upgrade().map(|ui| ui.element(*id))
+    }
+
+    fn repaint(&self) {
+        if let Some(el) = self.host() {
+            el.repaint();
+        }
+    }
+
+    /// Sets the zoom (clamped to 1%–6400%) keeping what is at `anchor` (the view's own
+    /// logical pixels; `None`: its middle) where it is. Stops fitting.
+    pub fn set_zoom(&self, zoom: f32, anchor: Option<Point>) {
+        self.zoom_to(zoom, anchor, Fit::Free);
+    }
+
+    fn zoom_to(&self, zoom: f32, anchor: Option<Point>, fit: Fit) {
+        if !zoom.is_finite() {
+            return;
+        }
+        let zoom = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+        let gesture = fit == Fit::Free;
+        if gesture {
+            self.freeze();
+        }
+        {
+            let mut st = self.0.st.borrow_mut();
+            let anchor = anchor.unwrap_or(Point::new(st.viewport.width / 2.0, st.viewport.height / 2.0));
+            let vw = st.viewport.width;
+            let before = st.eff_zoom();
+            let at = Point::new(st.scroll.x + anchor.x, st.scroll.y + anchor.y);
+            let hit = st.layout.page_at(at, before, vw);
+            let old_level = level_of(before * st.dpr);
+            st.zoom = zoom;
+            st.fit = fit;
+            let after = st.eff_zoom();
+            if let Some((page, p)) = hit {
+                let c = st.layout.page_transform(page, after, vw).apply(p);
+                st.scroll = Vec2::new(c.x - anchor.x, c.y - anchor.y);
+            }
+            if level_of(after * st.dpr) != old_level {
+                st.moved_at = Some(Instant::now());
+            }
+            st.clamp();
+        }
+        self.settle_later();
+        self.changed();
+    }
+
+    /// Starts a moving gesture (wheel, pinch, drag, keys): the picture stays, and the
+    /// compositor moves it, until the movement settles.
+    fn freeze(&self) {
+        if self.host().is_none() {
+            return;
+        }
+        let mut st = self.0.st.borrow_mut();
+        if st.frozen.is_none() && st.drawn.width() > 0.0 {
+            st.frozen = Some(Frozen { zoom: st.zoom, scroll: st.scroll });
+        }
+    }
+
+    /// Ends a gesture: the picture is redrawn at the live zoom and scroll.
+    fn thaw(&self) {
+        let was = self.0.st.borrow_mut().frozen.take();
+        if was.is_some()
+            && let Some(el) = self.host()
+        {
+            el.set_layer_transform(Affine::IDENTITY);
+            el.repaint();
+        }
+    }
+
+    /// Repaints once the zoom settles, so the exact scale renders.
+    fn settle_later(&self) {
+        let Some(el) = self.host() else { return };
+        let ui = el.ui().clone();
+        if let Some(t) = self.0.st.borrow_mut().settle_timer.take() {
+            ui.cancel_timer(t);
+        }
+        let me = Rc::downgrade(&self.0);
+        let id = ui.after(SETTLE, move || {
+            if let Some(s) = me.upgrade() {
+                s.st.borrow_mut().settle_timer = None;
+                let v = PageView(s);
+                v.thaw();
+                v.repaint();
+            }
+        });
+        self.0.st.borrow_mut().settle_timer = Some(id);
+    }
+
+    /// Zooms in one step (Ctrl+Plus).
+    pub fn zoom_in(&self) {
+        let z = self.0.st.borrow().zoom;
+        let next = ZOOM_STEPS.iter().copied().find(|s| *s > z * 1.001).unwrap_or(MAX_ZOOM);
+        self.set_zoom(next, self.caret_anchor());
+    }
+
+    /// Zooms out one step (Ctrl+Minus).
+    pub fn zoom_out(&self) {
+        let z = self.0.st.borrow().zoom;
+        let next = ZOOM_STEPS.iter().rev().copied().find(|s| *s < z / 1.001).unwrap_or(MIN_ZOOM);
+        self.set_zoom(next, self.caret_anchor());
+    }
+
+    /// Fits the zoom to the window (and keeps fitting as it resizes).
+    pub fn set_fit(&self, fit: Fit) {
+        let z = {
+            let st = self.0.st.borrow();
+            st.layout.fit_zoom(fit, st.viewport, self.0.page.get_untracked().unwrap_or(0))
+        };
+        match z {
+            Some(z) => {
+                let top = Point::new(self.0.st.borrow().viewport.width / 2.0, 0.0);
+                self.zoom_to(z, Some(top), fit);
+            }
+            None => {
+                self.0.st.borrow_mut().fit = fit;
+                let _ = self.0.fit.try_set(fit);
+            }
+        }
+    }
+
+    /// Sets how pages sit side by side, keeping the current page in view.
+    pub fn set_spread(&self, spread: Spread) {
+        let page = self.0.page.get_untracked().unwrap_or(0);
+        {
+            let mut st = self.0.st.borrow_mut();
+            st.spread = spread;
+            st.relayout(&self.0.sizes);
+        }
+        self.refit();
+        self.go_to_page(page);
+    }
+
+    /// Turns every page, keeping the current page in view.
+    pub fn set_rotation(&self, rotation: Rotation) {
+        let page = self.0.page.get_untracked().unwrap_or(0);
+        {
+            let mut st = self.0.st.borrow_mut();
+            st.rotation = rotation;
+            st.relayout(&self.0.sizes);
+        }
+        self.refit();
+        self.go_to_page(page);
+    }
+
+    /// The rotation.
+    pub fn rotation(&self) -> Rotation {
+        self.0.st.borrow().rotation
+    }
+
+    /// The spread.
+    pub fn spread(&self) -> Spread {
+        self.0.st.borrow().spread
+    }
+
+    /// Sets the gap between pages and the margin around them, logical pixels.
+    pub fn set_spacing(&self, gap: f32, margin: f32) {
+        {
+            let mut st = self.0.st.borrow_mut();
+            st.gap = gap.max(0.0);
+            st.margin = margin.max(0.0);
+            st.relayout(&self.0.sizes);
+        }
+        self.refit();
+        self.changed();
+    }
+
+    fn refit(&self) {
+        self.thaw();
+        let fit = self.0.st.borrow().fit;
+        if fit != Fit::Free {
+            self.set_fit(fit);
+        }
+    }
+
+    /// Scrolls so `page` starts at the top of the view.
+    pub fn go_to_page(&self, page: usize) {
+        self.thaw();
+        {
+            let mut st = self.0.st.borrow_mut();
+            let page = page.min(st.layout.len().saturating_sub(1));
+            let z = st.eff_zoom();
+            let r = st.layout.page_rect(page, z, st.viewport.width);
+            let row_top = st.layout.row_top(st.layout.row_of(page), z);
+            st.scroll.y = row_top.min(r.min.y) - st.margin;
+            // Keep the page across when it is narrower than the view.
+            if r.width() <= st.viewport.width {
+                st.scroll.x = 0.0;
+            } else {
+                st.scroll.x = r.min.x - st.margin;
+            }
+            st.clamp();
+        }
+        self.changed();
+    }
+
+    /// Scrolls by `delta` logical pixels.
+    pub fn scroll_by(&self, delta: Vec2) {
+        self.freeze();
+        {
+            let mut st = self.0.st.borrow_mut();
+            st.scroll = Vec2::new(st.scroll.x + delta.x, st.scroll.y + delta.y);
+            st.clamp();
+        }
+        self.settle_later();
+        self.changed();
+    }
+
+    /// After a move: keeps signals in step and redraws.
+    fn changed(&self) {
+        let (zoom, fit, page) = {
+            let st = self.0.st.borrow();
+            let c = Point::new(st.scroll.x + st.viewport.width / 2.0, st.scroll.y + st.viewport.height / 2.0);
+            let page = st.layout.page_at(c, st.eff_zoom(), st.viewport.width).map_or(0, |(p, _)| p);
+            (st.zoom, st.fit, page)
+        };
+        let _ = self.0.zoom.try_set(zoom);
+        let _ = self.0.fit.try_set(fit);
+        if self.0.page.get_untracked().ok() != Some(page) {
+            let _ = self.0.page.try_set(page);
+            self.update_page_text();
+            self.repaint_thumbs();
+        }
+        // While frozen the compositor moves the picture, unless it no longer covers the view.
+        let moved = self.0.st.borrow().frozen_transform();
+        match moved {
+            Some(Some(t)) => {
+                if let Some(el) = self.host() {
+                    el.set_layer_transform(t);
+                }
+            }
+            Some(None) => self.thaw(),
+            None => self.repaint(),
+        }
+    }
+
+    fn update_page_text(&self) {
+        let page = self.0.page.get_untracked().unwrap_or(0);
+        let known = self.0.st.borrow().text.pages.get(&page).cloned();
+        match known {
+            Some(Some(t)) => {
+                let _ = self.0.page_text.try_set(text::whole(&t));
+            }
+            Some(None) => {
+                let _ = self.0.page_text.try_set(String::new());
+            }
+            None => {
+                let _ = self.0.page_text.try_set(String::new());
+                self.request_text(page);
+            }
+        }
+    }
+
+    fn request_text(&self, page: usize) {
+        let mut st = self.0.st.borrow_mut();
+        if st.text.pages.contains_key(&page) || !st.text.pending.insert(page) {
+            return;
+        }
+        drop(st);
+        let source = self.0.source.clone();
+        let p = Arc::new(std::sync::atomic::AtomicU64::new(raster::priority(class::TEXT, page as f32)));
+        raster::run(self.0.viewer, Cancel::new(), p, move |_| Done::Text(page, source.text(page)));
+    }
+
+    /// The caret's place in the view, when there is a selection showing; zooms by keyboard
+    /// keep it still.
+    fn caret_anchor(&self) -> Option<Point> {
+        let st = self.0.st.borrow();
+        let (_, focus) = st.text.selection?;
+        let Some(Some(t)) = st.text.pages.get(&focus.page) else { return None };
+        let run = t.runs.get(focus.run)?;
+        let r = run.char_rect(focus.offset.min(run.len().saturating_sub(1)));
+        let p = st.to_view(focus.page, r.center());
+        let inside = p.x >= 0.0 && p.y >= 0.0 && p.x <= st.viewport.width && p.y <= st.viewport.height;
+        inside.then_some(p)
+    }
+
+    // ---------- results from the workers ----------
+
+    fn deliver(&self, done: Done) {
+        match done {
+            Done::Tile(id, result) => {
+                {
+                    let mut st = self.0.st.borrow_mut();
+                    let size = self.0.sizes.get(id.page).copied().unwrap_or(Size::ZERO);
+                    let tile = st.tile_edge();
+                    st.tiles.adopt(id, result, tile, size);
+                    st.thumb_flight.remove(&id.page);
+                }
+                // A moving picture is redrawn when it settles, with what arrived meanwhile.
+                if self.0.st.borrow().frozen.is_none() {
+                    self.repaint();
+                }
+                let thumb = self.0.thumbs.borrow().get(&id.page).cloned();
+                if let Some((ui, el)) = thumb
+                    && let Some(ui) = ui.upgrade()
+                {
+                    ui.element(el).repaint();
+                }
+            }
+            Done::Text(page, t) => {
+                {
+                    let mut st = self.0.st.borrow_mut();
+                    st.text.pending.remove(&page);
+                    st.text.pages.insert(page, t.map(Arc::new));
+                }
+                if self.0.page.get_untracked().ok() == Some(page) {
+                    self.update_page_text();
+                }
+                self.repaint();
+            }
+            Done::Found(generation, page, t) => self.found(generation, page, t),
+        }
+    }
+
+    // ---------- selection ----------
+
+    /// The selected text, if any.
+    pub fn selected_text(&self) -> Option<String> {
+        let st = self.0.st.borrow();
+        let (a, b) = st.text.selection?;
+        let s = text::between(&st.text.pages, a, b);
+        (!s.is_empty()).then_some(s)
+    }
+
+    /// Selects from `anchor` to `focus`.
+    pub fn select(&self, anchor: TextPos, focus: TextPos) {
+        self.0.st.borrow_mut().text.selection = Some((anchor, focus));
+        self.repaint();
+    }
+
+    /// Selects all the text of the current page (Ctrl+A).
+    pub fn select_page(&self) {
+        let page = self.0.page.get_untracked().unwrap_or(0);
+        let range = {
+            let st = self.0.st.borrow();
+            match st.text.pages.get(&page) {
+                Some(Some(t)) if !t.runs.is_empty() => {
+                    let last = t.runs.len() - 1;
+                    let len = t.runs.get(last).map_or(0, |r| r.len());
+                    Some((TextPos { page, run: 0, offset: 0 }, TextPos { page, run: last, offset: len }))
+                }
+                _ => None,
+            }
+        };
+        if let Some((a, b)) = range {
+            self.select(a, b);
+        } else {
+            self.request_text(page);
+        }
+    }
+
+    /// Clears the selection.
+    pub fn clear_selection(&self) {
+        self.0.st.borrow_mut().text.selection = None;
+        self.repaint();
+    }
+
+    /// Copies the selection to the clipboard. Returns false with nothing selected.
+    pub fn copy(&self) -> bool {
+        let Some(text) = self.selected_text() else { return false };
+        match self.host() {
+            Some(el) => {
+                el.ui().copy_text(text);
+                true
+            }
+            None => false,
+        }
+    }
+
+    // ---------- search ----------
+
+    /// Searches every page for `query` (ignoring case), off the UI thread; hits arrive in
+    /// [`search_status`](Self::search_status) as pages are searched, and the first one is
+    /// shown. An empty query ends the search.
+    pub fn find(&self, query: &str) {
+        let generation = {
+            let mut st = self.0.st.borrow_mut();
+            if let Some(c) = st.text.search.cancel.take() {
+                c.cancel();
+            }
+            let s = &mut st.text.search;
+            s.generation += 1;
+            s.query = text::fold_query(query);
+            s.text = query.to_string();
+            s.matches.clear();
+            s.current = None;
+            s.searched = 0;
+            s.done = query.is_empty();
+            s.generation
+        };
+        self.publish_search();
+        self.repaint();
+        if query.is_empty() {
+            return;
+        }
+        let cancel = Cancel::new();
+        self.0.st.borrow_mut().text.search.cancel = Some(cancel.clone());
+        let start = self.0.page.get_untracked().unwrap_or(0);
+        self.search_page(generation, start, cancel);
+    }
+
+    /// Searches one page on a worker, from the current page on, wrapping; the next page goes
+    /// when it comes back, so a search never floods the workers and stops when cancelled.
+    fn search_page(&self, generation: u64, page: usize, cancel: Cancel) {
+        let source = self.0.source.clone();
+        let p = Arc::new(std::sync::atomic::AtomicU64::new(raster::priority(class::SEARCH, 0.0)));
+        raster::run(self.0.viewer, cancel, p, move |_| Done::Found(generation, page, source.text(page)));
+    }
+
+    fn found(&self, generation: u64, page: usize, t: Option<PageText>) {
+        let next = {
+            let mut st = self.0.st.borrow_mut();
+            if st.text.search.generation != generation {
+                return;
+            }
+            let t = t.map(Arc::new);
+            if let Some(t) = &t {
+                let hits = text::find_on_page(page, t, &st.text.search.query);
+                let s = &mut st.text.search;
+                s.matches.extend(hits);
+                s.matches.sort();
+            }
+            st.text.pages.entry(page).or_insert(t);
+            st.text.pending.remove(&page);
+            let n = st.layout.len();
+            let s = &mut st.text.search;
+            s.searched += 1;
+            s.done = s.searched >= n;
+            let first = s.current.is_none() && !s.matches.is_empty();
+            if first {
+                // The first hit at or after where the search started.
+                let from = self.0.page.get_untracked().unwrap_or(0);
+                s.current = Some(s.matches.iter().position(|m| m.page() >= from).unwrap_or(0));
+            }
+            let cancel = s.cancel.clone();
+            (first, s.done, cancel)
+        };
+        let (first, done, cancel) = next;
+        if !done && let Some(c) = cancel {
+            let n = self.page_count().max(1);
+            self.search_page(generation, (page + 1) % n, c);
+        }
+        self.publish_search();
+        if first {
+            self.show_match();
+        }
+        self.repaint();
+    }
+
+    fn publish_search(&self) {
+        let status = {
+            let st = self.0.st.borrow();
+            let s = &st.text.search;
+            SearchStatus {
+                query: s.text.clone(),
+                matches: s.matches.len(),
+                current: s.current,
+                searched: s.searched,
+                done: s.done,
+            }
+        };
+        let _ = self.0.search.try_set(status);
+    }
+
+    /// Shows the next hit (wrapping).
+    pub fn find_next(&self) {
+        self.step_match(1);
+    }
+
+    /// Shows the previous hit (wrapping).
+    pub fn find_previous(&self) {
+        self.step_match(-1);
+    }
+
+    fn step_match(&self, by: isize) {
+        {
+            let mut st = self.0.st.borrow_mut();
+            let n = st.text.search.matches.len();
+            if n == 0 {
+                return;
+            }
+            let cur = st.text.search.current.unwrap_or(0) as isize;
+            st.text.search.current = Some((cur + by).rem_euclid(n as isize) as usize);
+        }
+        self.publish_search();
+        self.show_match();
+    }
+
+    /// The hits found so far, in document order.
+    pub fn matches(&self) -> Vec<Match> {
+        self.0.st.borrow().text.search.matches.clone()
+    }
+
+    /// Scrolls the current hit into the middle of the view, selecting it.
+    fn show_match(&self) {
+        self.thaw();
+        let target = {
+            let st = self.0.st.borrow();
+            let s = &st.text.search;
+            let Some(m) = s.current.and_then(|i| s.matches.get(i)).copied() else { return };
+            let Some(Some(t)) = st.text.pages.get(&m.page()) else { return };
+            let rs = text::rects(m.page(), t, m.start, m.end);
+            let Some(r) = rs.into_iter().reduce(Rect::union) else { return };
+            (m, st.to_content(m.page(), r.center()))
+        };
+        let (m, c) = target;
+        {
+            let mut st = self.0.st.borrow_mut();
+            st.text.selection = Some((m.start, m.end));
+            st.scroll = Vec2::new(c.x - st.viewport.width / 2.0, c.y - st.viewport.height / 2.0);
+            st.clamp();
+        }
+        self.changed();
+    }
+
+    // ---------- input ----------
+
+    fn local(&self, p: Point) -> Point {
+        let at = self.host().and_then(|e| e.bounds()).map_or(Point::ZERO, |b| b.min);
+        Point::new(p.x - at.x, p.y - at.y)
+    }
+
+    pub(crate) fn wheel(&self, e: &WheelEvent) -> bool {
+        let apple = self.host().is_some_and(|el| el.ui().platform() == remedy_ui_input::Platform::Apple);
+        let zoom_key = if apple { e.modifiers.meta } else { e.modifiers.ctrl };
+        if zoom_key {
+            let z = self.0.st.borrow().zoom;
+            let factor = (-e.delta.y * WHEEL_ZOOM_PER_PIXEL).exp();
+            self.set_zoom(z * factor, Some(self.local(e.position)));
+            return true;
+        }
+        let d = if e.modifiers.shift && e.delta.x == 0.0 { Vec2::new(e.delta.y, 0.0) } else { e.delta };
+        let before = self.0.st.borrow().scroll;
+        self.scroll_by(d);
+        // A scroll that moved nothing goes on to what is around the view.
+        self.0.st.borrow().scroll != before
+    }
+
+    pub(crate) fn pinch(&self, e: &PinchEvent) -> bool {
+        if matches!(e.phase, PinchPhase::Change) && e.scale.is_finite() && e.scale > 0.0 {
+            let z = self.0.st.borrow().zoom;
+            self.set_zoom(z * e.scale, Some(self.local(e.position)));
+        }
+        true
+    }
+
+    pub(crate) fn pointer(&self, e: &PointerEvent) -> bool {
+        let p = self.local(e.position);
+        if e.kind == PointerKind::Touch {
+            return self.touch(e, p);
+        }
+        match e.phase {
+            PointerPhase::Down => {
+                let middle = e.buttons.contains(Buttons::MIDDLE);
+                if !middle && !e.buttons.contains(Buttons::PRIMARY) {
+                    return false;
+                }
+                let bar = self.0.st.borrow().bar_at(p);
+                let gesture = if let Some((vertical, grab)) = bar.filter(|_| !middle) {
+                    Gesture::Bar { vertical, grab }
+                } else if middle {
+                    Gesture::Pan { last: p }
+                } else if let Some(pos) = self.text_at(p) {
+                    let keep = e.modifiers.shift;
+                    let mut st = self.0.st.borrow_mut();
+                    let anchor = match (keep, st.text.selection) {
+                        (true, Some((a, _))) => a,
+                        _ => pos,
+                    };
+                    st.text.selection = Some((anchor, pos));
+                    Gesture::Select
+                } else {
+                    // No text under the press: the hand tool.
+                    self.0.st.borrow_mut().text.selection = None;
+                    Gesture::Pan { last: p }
+                };
+                self.0.st.borrow_mut().gesture = gesture;
+                self.repaint();
+                true
+            }
+            PointerPhase::Move => {
+                let g = self.0.st.borrow().gesture;
+                match g {
+                    Gesture::Pan { last } => {
+                        self.0.st.borrow_mut().gesture = Gesture::Pan { last: p };
+                        self.scroll_by(Vec2::new(last.x - p.x, last.y - p.y));
+                        true
+                    }
+                    Gesture::Select => {
+                        if let Some(pos) = self.text_at(p) {
+                            let mut st = self.0.st.borrow_mut();
+                            if let Some((a, _)) = st.text.selection {
+                                st.text.selection = Some((a, pos));
+                            }
+                        }
+                        self.repaint();
+                        true
+                    }
+                    Gesture::Bar { vertical, grab } => {
+                        self.0.st.borrow_mut().drag_bar(vertical, grab, p);
+                        self.changed();
+                        true
+                    }
+                    Gesture::None | Gesture::Pinch { .. } => false,
+                }
+            }
+            PointerPhase::Up | PointerPhase::Cancel => {
+                let was = std::mem::replace(&mut self.0.st.borrow_mut().gesture, Gesture::None);
+                !matches!(was, Gesture::None)
+            }
+        }
+    }
+
+    fn touch(&self, e: &PointerEvent, p: Point) -> bool {
+        let mut st = self.0.st.borrow_mut();
+        match e.phase {
+            PointerPhase::Down | PointerPhase::Move => {
+                st.touches.insert(e.id, p);
+            }
+            PointerPhase::Up | PointerPhase::Cancel => {
+                st.touches.remove(&e.id);
+            }
+        }
+        let pts: Vec<Point> = st.touches.values().copied().collect();
+        match (pts.as_slice(), st.gesture) {
+            ([a, b], Gesture::Pinch { distance, zoom, mid }) => {
+                let d = ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt();
+                let m = Point::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
+                st.gesture = Gesture::Pinch { distance, zoom, mid: m };
+                drop(st);
+                // Two fingers pan as they pinch.
+                self.scroll_by(Vec2::new(mid.x - m.x, mid.y - m.y));
+                if distance > 0.0 {
+                    self.set_zoom(zoom * d / distance, Some(m));
+                }
+            }
+            ([a, b], _) => {
+                let d = ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt();
+                let m = Point::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
+                st.gesture = Gesture::Pinch { distance: d, zoom: st.zoom, mid: m };
+            }
+            ([one], Gesture::Pan { last }) => {
+                let one = *one;
+                st.gesture = Gesture::Pan { last: one };
+                drop(st);
+                self.scroll_by(Vec2::new(last.x - one.x, last.y - one.y));
+            }
+            ([one], _) => st.gesture = Gesture::Pan { last: *one },
+            _ => st.gesture = Gesture::None,
+        }
+        true
+    }
+
+    /// The text place under a point of the view, when that page's text is known.
+    fn text_at(&self, p: Point) -> Option<TextPos> {
+        let (page, at) = {
+            let st = self.0.st.borrow();
+            let c = Point::new(p.x + st.scroll.x, p.y + st.scroll.y);
+            st.layout.page_at(c, st.eff_zoom(), st.viewport.width)?
+        };
+        let st = self.0.st.borrow();
+        match st.text.pages.get(&page) {
+            Some(Some(t)) if !t.runs.is_empty() => text::hit(page, t, at),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn key(&self, e: &KeyEvent) -> bool {
+        if !e.pressed {
+            return false;
+        }
+        let apple = self.host().is_some_and(|el| el.ui().platform() == remedy_ui_input::Platform::Apple);
+        let cmd = if apple { e.modifiers.meta } else { e.modifiers.ctrl };
+        let ch = match &e.key {
+            Key::Character(c) => Some(c.as_str()),
+            _ => None,
+        };
+        let (vw, vh) = {
+            let st = self.0.st.borrow();
+            (st.viewport.width, st.viewport.height)
+        };
+        match (&e.key, ch) {
+            (_, Some("+" | "=")) if cmd => self.zoom_in(),
+            (_, Some("-" | "_")) if cmd => self.zoom_out(),
+            (_, Some("0")) if cmd => self.set_zoom(1.0, self.caret_anchor()),
+            (_, Some("a")) if cmd => self.select_page(),
+            (_, Some("c")) if cmd => return self.copy(),
+            (Key::Escape, _) => {
+                if self.0.st.borrow().text.selection.is_none() {
+                    return false;
+                }
+                self.clear_selection();
+            }
+            (Key::ArrowDown, _) => self.scroll_by(Vec2::new(0.0, KEY_SCROLL)),
+            (Key::ArrowUp, _) => self.scroll_by(Vec2::new(0.0, -KEY_SCROLL)),
+            (Key::ArrowRight, _) => self.scroll_by(Vec2::new(KEY_SCROLL, 0.0)),
+            (Key::ArrowLeft, _) => self.scroll_by(Vec2::new(-KEY_SCROLL, 0.0)),
+            (Key::PageDown, _) => self.scroll_by(Vec2::new(0.0, vh * 0.9)),
+            (Key::PageUp, _) => self.scroll_by(Vec2::new(0.0, -vh * 0.9)),
+            (Key::Space, _) => {
+                let d = if e.modifiers.shift { -vh * 0.9 } else { vh * 0.9 };
+                self.scroll_by(Vec2::new(0.0, d));
+            }
+            (Key::Home, _) => self.go_to_page(0),
+            (Key::End, _) => self.go_to_page(self.page_count().saturating_sub(1)),
+            _ => {
+                let _ = vw;
+                return false;
+            }
+        }
+        true
+    }
+
+    pub(crate) fn resized(&self, size: Size) {
+        self.thaw();
+        {
+            let mut st = self.0.st.borrow_mut();
+            st.viewport = size;
+        }
+        let fit = self.0.st.borrow().fit;
+        if fit != Fit::Free {
+            self.set_fit(fit);
+        } else {
+            self.0.st.borrow_mut().clamp();
+            self.changed();
+        }
+    }
+
+    pub(crate) fn attach(&self, ui: WeakUi, id: ElementId) {
+        *self.0.host.borrow_mut() = Some((ui, id));
+    }
+
+    pub(crate) fn page_text(&self) -> Signal<String> {
+        self.0.page_text
+    }
+
+    // ---------- painting ----------
+
+    pub(crate) fn paint(&self, cx: &mut PaintCx<'_>) {
+        let mut st = self.0.st.borrow_mut();
+        st.viewport = cx.size;
+        st.dpr = if cx.scale > 0.0 { cx.scale } else { 1.0 };
+        st.clamp();
+        let colors = &cx.theme.colors;
+        let tokens = cx.theme.derive();
+        cx.list.fill_rect(Rect::from_origin_size(Point::ZERO, cx.size), Brush::Solid(colors.panel));
+        let (z, scroll) = st.drawn_state();
+        let dpr = st.dpr;
+        let vw = st.viewport.width;
+        let (w, h) = (cx.size.width, cx.size.height);
+        let view = Rect::from_origin_size(Point::new(scroll.x, scroll.y), cx.size);
+        // Pages around the view are drawn too (paper and preview), so a scroll or zoom the
+        // compositor moves finds them there.
+        let around = Rect::new(view.min.x - w, view.min.y - h, view.max.x + w, view.max.y + h);
+        st.drawn = Rect::new(-w, -h, 2.0 * w, 2.0 * h);
+        let mid = view.center();
+        let pages = st.layout.pages_between(around.min.y, around.max.y, z);
+        let mut visible = Vec::new();
+        let mut shown = Vec::new();
+        for page in pages {
+            let r = st.layout.page_rect(page, z, vw);
+            let near = r.intersect(view).is_none_or(|r| r.is_empty());
+            let Some(seen) = r.intersect(if near { around } else { view }).filter(|r| !r.is_empty()) else {
+                continue;
+            };
+            let t = st.page_to_view(page);
+            let Some(inv) = t.inverse() else { continue };
+            let size = self.0.sizes.get(page).copied().unwrap_or(Size::ZERO);
+            let whole = Rect::new(0.0, 0.0, size.width, size.height);
+            let local = seen.translate(Vec2::new(-scroll.x, -scroll.y));
+            let Some(region) = inv.apply_rect(local).intersect(whole).filter(|r| !r.is_empty()) else {
+                continue;
+            };
+            let c = seen.center();
+            let distance = ((c.x - mid.x).powi(2) + (c.y - mid.y).powi(2)).sqrt();
+            visible.push(Visible { page, region, distance, near });
+            shown.push((page, t, r.translate(Vec2::new(-scroll.x, -scroll.y))));
+        }
+        // Pages: a shadow and paper under the tiles.
+        for (_, _, r) in &shown {
+            cx.list.push(Item::Shadow {
+                rect: *r,
+                radii: CornerRadii::ZERO,
+                offset: Vec2::new(0.0, 1.0),
+                blur: 3.0,
+                spread: 0.0,
+                color: Color::rgba8(0, 0, 0, 60),
+            });
+            cx.list.fill_rect(*r, Brush::Solid(Color::WHITE));
+        }
+        let level = level_of(z * dpr);
+        let settled = st.frozen.is_none() && st.moved_at.is_none_or(|t| t.elapsed() >= SETTLE);
+        let budget = st.cache_budget();
+        let tile = st.tile_edge();
+        let sizes = self.0.sizes.clone();
+        let size_of = move |p: usize| sizes.get(p).copied().unwrap_or(Size::ZERO);
+        let fcx = FrameCx {
+            viewer: self.0.viewer,
+            source: &self.0.source,
+            sizes: &size_of,
+            level,
+            tile,
+            settled,
+            budget,
+        };
+        let draws = st.tiles.frame(&fcx, &visible);
+        let mut by_page: HashMap<usize, Vec<Draw>> = HashMap::new();
+        for d in draws {
+            by_page.entry(d.page).or_default().push(d);
+        }
+        for (page, t, r) in &shown {
+            cx.list.push(Item::PushTransform(*t));
+            for d in by_page.remove(page).unwrap_or_default() {
+                if let Some(c) = d.clip {
+                    cx.list.push_clip(c, CornerRadii::ZERO);
+                }
+                cx.list.push(Item::Image {
+                    image: d.image,
+                    rect: d.region,
+                    radii: CornerRadii::ZERO,
+                    sampling: Sampling::Linear,
+                });
+                if d.clip.is_some() {
+                    cx.list.pop_clip();
+                }
+            }
+            // A page the source could not draw says so with the theme's danger color.
+            if st.tiles.errors.contains_key(page) {
+                let size = self.0.sizes.get(*page).copied().unwrap_or(Size::ZERO);
+                let mut c = colors.danger;
+                c.a = 0.25;
+                cx.list.fill_rect(Rect::new(0.0, 0.0, size.width, size.height), Brush::Solid(c));
+            }
+            // Search hits, then the selection, over the page.
+            if let Some(Some(text)) = st.text.pages.get(page) {
+                let s = &st.text.search;
+                for (i, m) in s.matches.iter().enumerate().filter(|(_, m)| m.page() == *page) {
+                    let color = if Some(i) == s.current { tokens.selected } else { tokens.mark };
+                    for rect in text::rects(*page, text, m.start, m.end) {
+                        cx.list.fill_rect(rect, Brush::Solid(color));
+                    }
+                }
+                if let Some((a, b)) = st.text.selection {
+                    let mut c = colors.accent;
+                    c.a = 0.35;
+                    for rect in text::rects(*page, text, a, b) {
+                        cx.list.fill_rect(rect, Brush::Solid(c));
+                    }
+                }
+            }
+            cx.list.push(Item::PopTransform);
+            let _ = r;
+        }
+        // Text of what shows, for selection and screen readers.
+        let missing: Vec<usize> = shown
+            .iter()
+            .map(|(p, _, _)| *p)
+            .filter(|p| !st.text.pages.contains_key(p) && !st.text.pending.contains(p))
+            .collect();
+        // Scroll bars.
+        for (bar, thumb) in st.bars() {
+            let mut track = colors.muted;
+            track.a = 0.12;
+            cx.list.fill_rounded(bar, CornerRadii::all(BAR / 2.0), Brush::Solid(track));
+            let mut c = colors.muted;
+            c.a = 0.6;
+            cx.list.fill_rounded(thumb, CornerRadii::all(BAR / 2.0), Brush::Solid(c));
+        }
+        drop(st);
+        for p in missing {
+            self.request_text(p);
+        }
+    }
+
+    /// Draws page `page`'s thumbnail into a canvas: its preview, rendered once and shared
+    /// with the page view.
+    pub(crate) fn paint_thumb(&self, cx: &mut PaintCx<'_>, page: usize) {
+        let mut st = self.0.st.borrow_mut();
+        let size = self.0.sizes.get(page).copied().unwrap_or(Size::ZERO);
+        if size.is_empty() {
+            return;
+        }
+        let shown = st.rotation.apply(size);
+        let fit = (cx.size.width / shown.width).min(cx.size.height / shown.height);
+        let (w, h) = (shown.width * fit, shown.height * fit);
+        let at = Point::new((cx.size.width - w) / 2.0, (cx.size.height - h) / 2.0);
+        let r = Rect::new(at.x, at.y, at.x + w, at.y + h);
+        cx.list.fill_rect(r, Brush::Solid(Color::WHITE));
+        let level = level_of(raster::PREVIEW_PIXELS / size.width.max(size.height));
+        let id = TileId { page, level, col: 0, row: 0 };
+        let tile = st.tile_edge();
+        match st.tiles.get(&id) {
+            Some(image) => {
+                let t = st
+                    .rotation
+                    .transform(size)
+                    .then(Affine::scale(fit, fit))
+                    .then(Affine::translate(at.to_vec2()));
+                cx.list.push(Item::PushTransform(t));
+                cx.list.push(Item::Image {
+                    image,
+                    rect: Rect::new(0.0, 0.0, size.width, size.height),
+                    radii: CornerRadii::ZERO,
+                    sampling: Sampling::Linear,
+                });
+                cx.list.push(Item::PopTransform);
+            }
+            None if !st.thumb_flight.contains_key(&page) => {
+                let cancel = Cancel::new();
+                st.thumb_flight.insert(page, cancel.clone());
+                let sizes = self.0.sizes.clone();
+                let size_of = move |p: usize| sizes.get(p).copied().unwrap_or(Size::ZERO);
+                let fcx = FrameCx {
+                    viewer: self.0.viewer,
+                    source: &self.0.source,
+                    sizes: &size_of,
+                    level,
+                    tile: tile.max(raster::PREVIEW_PIXELS as u32),
+                    settled: true,
+                    budget: 0,
+                };
+                st.tiles.request_one(&fcx, id, class::THUMB, cancel);
+            }
+            None => {}
+        }
+        cx.list.border(r, CornerRadii::ZERO, 1.0, cx.theme.derive().line);
+    }
+
+    pub(crate) fn thumb_shown(&self, page: usize, ui: WeakUi, el: ElementId) {
+        self.0.thumbs.borrow_mut().insert(page, (ui, el));
+    }
+
+    pub(crate) fn thumb_gone(&self, page: usize) {
+        self.0.thumbs.borrow_mut().remove(&page);
+        if let Some(c) = self.0.st.borrow_mut().thumb_flight.remove(&page) {
+            c.cancel();
+        }
+    }
+
+    fn repaint_thumbs(&self) {
+        let all: Vec<(WeakUi, ElementId)> = self.0.thumbs.borrow().values().cloned().collect();
+        for (ui, el) in all {
+            if let Some(ui) = ui.upgrade() {
+                ui.element(el).repaint();
+            }
+        }
+    }
+
+    /// Why the source could not draw `page`, when it failed (the page shows tinted with the
+    /// theme's danger color until a render succeeds).
+    pub fn page_error(&self, page: usize) -> Option<String> {
+        self.0.st.borrow().tiles.errors.get(&page).cloned()
+    }
+
+    /// Lets go of every tile not on screen now, as memory pressure does.
+    pub fn release_memory(&self) {
+        self.0.st.borrow_mut().tiles.release_unused();
+    }
+}
+
+impl State {
+    /// The zoom drawn: the set zoom moved onto the nearest render level, so tiles land on
+    /// whole device pixels (at most 0.14% away).
+    fn eff_zoom(&self) -> f32 {
+        self.eff(self.zoom)
+    }
+
+    fn tile_edge(&self) -> u32 {
+        remedy_ui_compositor::tile_pixels(self.dpr)
+    }
+
+    fn relayout(&mut self, sizes: &[Size]) {
+        self.layout = PageLayout::new(sizes.to_vec(), self.spread, self.rotation, self.gap, self.margin);
+        self.clamp();
+    }
+
+    fn clamp(&mut self) {
+        let c = self.layout.content_size(self.eff_zoom());
+        let max_x = (c.width - self.viewport.width).max(0.0);
+        let max_y = (c.height - self.viewport.height).max(0.0);
+        let x = if self.scroll.x.is_finite() { self.scroll.x } else { 0.0 };
+        let y = if self.scroll.y.is_finite() { self.scroll.y } else { 0.0 };
+        self.scroll = Vec2::new(x.clamp(0.0, max_x), y.clamp(0.0, max_y));
+    }
+
+    /// The zoom (as drawn) and scroll of the picture: the frozen ones during a gesture.
+    fn drawn_state(&self) -> (f32, Vec2) {
+        match self.frozen {
+            Some(f) => (self.eff(f.zoom), f.scroll),
+            None => (self.eff_zoom(), self.scroll),
+        }
+    }
+
+    fn eff(&self, zoom: f32) -> f32 {
+        let dpr = if self.dpr > 0.0 { self.dpr } else { 1.0 };
+        scale_of(level_of(zoom * dpr)) / dpr
+    }
+
+    /// While frozen: the transform from the picture to where it belongs now (exact for the
+    /// page in the middle of the view), or `Some(None)` when the picture no longer covers the
+    /// view. `None` when not frozen.
+    fn frozen_transform(&self) -> Option<Option<Affine>> {
+        let f = self.frozen?;
+        let vw = self.viewport.width;
+        let (zr, zc) = (self.eff(f.zoom), self.eff_zoom());
+        let c = Point::new(self.scroll.x + vw / 2.0, self.scroll.y + self.viewport.height / 2.0);
+        let page = self.layout.page_at(c, zc, vw).map_or(0, |(p, _)| p);
+        let now = self
+            .layout
+            .page_transform(page, zc, vw)
+            .then(Affine::translate(Vec2::new(-self.scroll.x, -self.scroll.y)));
+        let then = self
+            .layout
+            .page_transform(page, zr, vw)
+            .then(Affine::translate(Vec2::new(-f.scroll.x, -f.scroll.y)));
+        let t = then.inverse().map(|inv| inv.then(now))?;
+        let covered = t.apply_rect(self.drawn);
+        let view = Rect::from_origin_size(Point::ZERO, self.viewport);
+        let covers = covered.min.x <= view.min.x + 0.5
+            && covered.min.y <= view.min.y + 0.5
+            && covered.max.x >= view.max.x - 0.5
+            && covered.max.y >= view.max.y - 0.5;
+        Some(covers.then_some(t))
+    }
+
+    /// Page points to the view's own logical pixels as drawn, snapped so tiles land on whole
+    /// device pixels.
+    fn page_to_view(&self, page: usize) -> Affine {
+        let (z, scroll) = self.drawn_state();
+        let t = self.layout.page_transform(page, z, self.viewport.width);
+        let [a, b, c, d, e, f] = t.0;
+        let snap = |v: f32| (v * self.dpr).round() / self.dpr;
+        Affine([a, b, c, d, snap(e - scroll.x), snap(f - scroll.y)])
+    }
+
+    /// A page point in the view's own logical pixels, now (not as drawn).
+    fn to_view(&self, page: usize, p: Point) -> Point {
+        let t = self.layout.page_transform(page, self.eff_zoom(), self.viewport.width);
+        let q = t.apply(p);
+        Point::new(q.x - self.scroll.x, q.y - self.scroll.y)
+    }
+
+    fn to_content(&self, page: usize, p: Point) -> Point {
+        self.layout.page_transform(page, self.eff_zoom(), self.viewport.width).apply(p)
+    }
+
+    fn cache_budget(&self) -> usize {
+        let t = self.tile_edge() as f32;
+        let w = self.viewport.width * self.dpr + 2.0 * t;
+        let h = self.viewport.height * self.dpr + 2.0 * t;
+        let screen = (w.max(t) * h.max(t) * 4.0) as u64;
+        let floor = screen.saturating_mul(3);
+        let share =
+            remedy_ui_view::device::total_memory().map_or(floor.saturating_mul(4), |m| m / MEMORY_SHARE);
+        usize::try_from(floor.max(share)).unwrap_or(usize::MAX)
+    }
+
+    /// The scroll bars that show: (track, thumb) for each.
+    fn bars(&self) -> Vec<(Rect, Rect)> {
+        let c = self.layout.content_size(self.eff_zoom());
+        let (vw, vh) = (self.viewport.width, self.viewport.height);
+        let mut out = Vec::new();
+        if c.height > vh && vh > 0.0 {
+            let track = Rect::new(vw - BAR - 2.0, 2.0, vw - 2.0, vh - 2.0);
+            let len = (track.height() * vh / c.height).max(BAR_MIN).min(track.height());
+            let y = track.min.y + (track.height() - len) * self.scroll.y / (c.height - vh);
+            out.push((track, Rect::new(track.min.x, y, track.max.x, y + len)));
+        }
+        if c.width > vw && vw > 0.0 {
+            let track = Rect::new(2.0, vh - BAR - 2.0, vw - BAR - 4.0, vh - 2.0);
+            let len = (track.width() * vw / c.width).max(BAR_MIN).min(track.width());
+            let x = track.min.x + (track.width() - len) * self.scroll.x / (c.width - vw);
+            out.push((track, Rect::new(x, track.min.y, x + len, track.max.y)));
+        }
+        out
+    }
+
+    /// The scroll bar under `p`: vertical or not, and where on the thumb it was grabbed.
+    fn bar_at(&self, p: Point) -> Option<(bool, f32)> {
+        for (track, thumb) in self.bars() {
+            if track.contains(p) {
+                let vertical = track.height() > track.width();
+                let grab = if thumb.contains(p) {
+                    if vertical { p.y - thumb.min.y } else { p.x - thumb.min.x }
+                } else if vertical {
+                    thumb.height() / 2.0
+                } else {
+                    thumb.width() / 2.0
+                };
+                return Some((vertical, grab));
+            }
+        }
+        None
+    }
+
+    fn drag_bar(&mut self, vertical: bool, grab: f32, p: Point) {
+        let c = self.layout.content_size(self.eff_zoom());
+        for (track, thumb) in self.bars() {
+            if (track.height() > track.width()) != vertical {
+                continue;
+            }
+            if vertical {
+                let room = (track.height() - thumb.height()).max(1.0);
+                let t = ((p.y - grab - track.min.y) / room).clamp(0.0, 1.0);
+                self.scroll.y = t * (c.height - self.viewport.height);
+            } else {
+                let room = (track.width() - thumb.width()).max(1.0);
+                let t = ((p.x - grab - track.min.x) / room).clamp(0.0, 1.0);
+                self.scroll.x = t * (c.width - self.viewport.width);
+            }
+        }
+        self.clamp();
+    }
+}
+
+/// The semantics of a page view.
+pub(crate) fn semantics(view: &PageView, label: &str) -> Semantics {
+    let n = view.page_count();
+    let page = view.0.page.get() + 1;
+    let zoom = (view.0.zoom.get() * 100.0).round();
+    Semantics::new(Role::Document).label(label).value(format!("Page {page} of {n}, {zoom}%"))
+}
+
+/// The paint closure for a page view.
+pub(crate) fn painter(view: &PageView) -> impl Fn(&mut PaintCx<'_>) + 'static {
+    let v = view.clone();
+    move |cx| v.paint(cx)
+}

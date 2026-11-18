@@ -195,7 +195,8 @@ impl GpuRenderer {
             videos: &mut self.videos,
             ctx: &self.ctx,
         };
-        self.painter.draw(&mut scene, list, base);
+        let area = remedy_ui_core::Rect::new(0.0, 0.0, f32::from(w), f32::from(h));
+        self.painter.draw_within(&mut scene, list, base, Some(area));
         let scene = scene.scene;
         let gone = self.painter.take_evicted();
         if !gone.is_empty() {

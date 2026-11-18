@@ -23,6 +23,8 @@ pub struct CommandInfo {
     pub chords: Vec<Chord>,
     /// Whether it can run now.
     pub enabled: bool,
+    /// It destroys something (deletes, leaves, sends): agents must ask before running it.
+    pub destructive: bool,
 }
 
 type Action = Rc<dyn Fn()>;
@@ -31,6 +33,7 @@ struct Inner {
     table: RefCell<CommandTable>,
     actions: RefCell<HashMap<String, Action>>,
     icons: RefCell<HashMap<String, Icon>>,
+    destructive: RefCell<std::collections::HashSet<String>>,
     order: RefCell<Vec<String>>,
     /// Bumped on every change: widgets showing commands follow it.
     revision: Signal<u64>,
@@ -59,6 +62,7 @@ impl Commands {
             table: RefCell::new(CommandTable::new()),
             actions: RefCell::new(HashMap::new()),
             icons: RefCell::new(HashMap::new()),
+            destructive: RefCell::new(std::collections::HashSet::new()),
             order: RefCell::new(Vec::new()),
             revision: Signal::new(0),
         }))
@@ -102,6 +106,17 @@ impl Commands {
             order.push(id.to_owned());
         }
         drop(order);
+        self.changed();
+    }
+
+    /// Marks a command destructive (it deletes, leaves or sends): agents must have the
+    /// person confirm before running it.
+    pub fn set_destructive(&self, id: &str, on: bool) {
+        if on {
+            self.0.destructive.borrow_mut().insert(id.to_owned());
+        } else {
+            self.0.destructive.borrow_mut().remove(id);
+        }
         self.changed();
     }
 
@@ -166,6 +181,7 @@ impl Commands {
             icon: self.0.icons.borrow().get(id).copied(),
             chords: t.chords(id),
             enabled: c.enabled,
+            destructive: self.0.destructive.borrow().contains(id),
         })
     }
 

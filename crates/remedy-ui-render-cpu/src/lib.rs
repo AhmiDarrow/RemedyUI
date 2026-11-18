@@ -313,7 +313,8 @@ impl CpuRenderer {
         let mut ctx = RenderContext::new(w, h);
         ctx.set_paint(color(background));
         ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, f64::from(w), f64::from(h)));
-        self.painter.draw(&mut ctx, list, base);
+        let area = Rect::new(0.0, 0.0, f32::from(w), f32::from(h));
+        self.painter.draw_within(&mut ctx, list, base, Some(area));
         ctx.flush();
         let mut target = Pixmap::new(w, h);
         let mut resources = Resources::new();
@@ -385,6 +386,18 @@ impl Painter {
 
     /// Draws `list` onto `s` through `base` (list space to device pixels).
     pub fn draw<S: Surface>(&mut self, s: &mut S, list: &DisplayList, base: Affine) {
+        self.draw_within(s, list, base, None);
+    }
+
+    /// Draws `list` onto `s` through `base`, skipping items that fall wholly outside `area`
+    /// (device pixels; the target's size). A compositor tile draws only what crosses it.
+    pub fn draw_within<S: Surface>(
+        &mut self,
+        s: &mut S,
+        list: &DisplayList,
+        base: Affine,
+        area: Option<Rect>,
+    ) {
         self.sweep_images();
         let scale = base.scale_factor();
         let mut transforms = vec![base];
@@ -392,6 +405,12 @@ impl Painter {
         let mut groups = 0usize;
         for item in list.items() {
             let t = transforms.last().copied().unwrap_or(base);
+            // Culling is conservative: transformed bounds are boxes around the item.
+            if let (Some(area), Some(b)) = (area, item.bounds())
+                && t.apply_rect(b).intersect(area).is_none_or(|r| r.is_empty())
+            {
+                continue;
+            }
             s.set_transform(kaffine(t));
             s.reset_paint_transform();
             match item {

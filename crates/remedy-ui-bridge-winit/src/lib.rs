@@ -24,7 +24,8 @@ use remedy_ui_host::{
     TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowId, WindowOptions,
 };
 use remedy_ui_input::{
-    Buttons, KeyEvent, Modifiers, Platform, PointerEvent, PointerKind, PointerPhase, WheelEvent,
+    Buttons, KeyEvent, Modifiers, PinchEvent, PinchPhase, Platform, PointerEvent, PointerKind, PointerPhase,
+    WheelEvent,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
@@ -986,8 +987,27 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                         (Vec2::new(-l.x as f32, -l.y as f32), true)
                     }
                 };
-                let e = WheelEvent { position: w.cursor, delta: d, precise, time: now };
+                let e = WheelEvent {
+                    position: w.cursor,
+                    delta: d,
+                    precise,
+                    time: now,
+                    modifiers: self.state.modifiers,
+                };
                 self.deliver(el, HostEvent::Wheel(id, e));
+            }
+            WindowEvent::PinchGesture { delta, phase, .. } => {
+                let phase = match phase {
+                    TouchPhase::Started => PinchPhase::Start,
+                    TouchPhase::Moved => PinchPhase::Change,
+                    TouchPhase::Ended => PinchPhase::End,
+                    TouchPhase::Cancelled => PinchPhase::Cancel,
+                };
+                // winit reports the magnification change (positive grows); a multiplier is
+                // what zooming composes.
+                let scale = (1.0 + delta as f32).max(f32::MIN_POSITIVE);
+                let e = PinchEvent { position: w.cursor, scale, phase, time: now };
+                self.deliver(el, HostEvent::Pinch(id, e));
             }
             WindowEvent::Touch(t) => {
                 let phase = match t.phase {

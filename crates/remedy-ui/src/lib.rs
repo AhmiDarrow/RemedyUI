@@ -33,6 +33,9 @@ pub use runner::{
     RendererKind, Runner, Window, WindowSpec,
 };
 
+/// Agents: assistants read and operate the window under the person's consent.
+#[cfg(feature = "agents")]
+pub use remedy_ui_automation as agents;
 /// The Android bridge: the app's entry point (`remedy_ui::android::main!`), the system log.
 #[cfg(target_os = "android")]
 pub use remedy_ui_bridge_android as android;
@@ -43,6 +46,8 @@ pub use remedy_ui_core as core;
 pub use remedy_ui_devtools as devtools;
 #[cfg(feature = "code")]
 pub use remedy_ui_doc_code as code;
+#[cfg(feature = "pages")]
+pub use remedy_ui_doc_pages as pages;
 #[cfg(feature = "rich")]
 pub use remedy_ui_doc_rich as rich;
 pub use remedy_ui_host as host;

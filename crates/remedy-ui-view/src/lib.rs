@@ -21,6 +21,7 @@ mod element;
 mod events;
 mod field;
 mod frame;
+mod history;
 mod links;
 mod select;
 
@@ -30,6 +31,7 @@ pub use element::{El, ElementInfo, PaintCx, PointerInterceptor, Ui, WeakUi};
 pub use events::{Click, PointerInput};
 pub use field::{CodeColors, FieldKind, TextField};
 pub use frame::Frame;
+pub use history::HistoryItem;
 pub use remedy_ui_a11y::Action as A11yAction;
 pub use remedy_ui_host::{DragData, DragEvent, DropEffect};
 pub use remedy_ui_layout::{Align, Justify};
