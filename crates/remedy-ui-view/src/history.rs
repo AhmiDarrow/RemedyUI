@@ -16,6 +16,8 @@ pub(crate) struct Entry {
     by: Option<String>,
     undo: Action,
     redo: Action,
+    /// While set, a following change with the same key folds into this one.
+    merge: Option<String>,
 }
 
 /// What a history entry says.
@@ -59,8 +61,58 @@ impl Ui {
         let mut i = self.0.borrow_mut();
         // A change made while an agent acts is the agent's, unless said otherwise.
         let by = by.or_else(|| i.history.actor.clone());
-        i.history.done.push(Entry { label: label.into(), by, undo: Rc::new(undo), redo: Rc::new(redo) });
+        i.history.done.push(Entry {
+            label: label.into(),
+            by,
+            undo: Rc::new(undo),
+            redo: Rc::new(redo),
+            merge: None,
+        });
         i.history.undone.clear();
+    }
+
+    /// Records a change that continues the latest one when both carry the same `key`: a
+    /// color dragged across its picker, a number stepped with the arrow keys, a name typed
+    /// letter by letter. The run stays one entry, labeled by its last change, whose undo goes
+    /// back to before the first and whose redo makes the last again. A different key, an
+    /// undo, another person or agent acting, or [`Ui::end_merge`] starts a new entry.
+    pub fn record_merged_change(
+        &self,
+        label: impl Into<String>,
+        by: Option<String>,
+        key: impl Into<String>,
+        undo: impl Fn() + 'static,
+        redo: impl Fn() + 'static,
+    ) {
+        let mut i = self.0.borrow_mut();
+        let by = by.or_else(|| i.history.actor.clone());
+        let key = key.into();
+        let h = &mut i.history;
+        let continues = h.undone.is_empty();
+        match h.done.last_mut() {
+            Some(top) if continues && top.merge.as_deref() == Some(key.as_str()) && top.by == by => {
+                top.label = label.into();
+                top.redo = Rc::new(redo);
+            }
+            _ => {
+                h.done.push(Entry {
+                    label: label.into(),
+                    by,
+                    undo: Rc::new(undo),
+                    redo: Rc::new(redo),
+                    merge: Some(key),
+                });
+                h.undone.clear();
+            }
+        }
+    }
+
+    /// Ends the run [`Ui::record_merged_change`] is folding into: the next change, whatever
+    /// its key, is a new entry (a picker closed, a field lost focus).
+    pub fn end_merge(&self) {
+        if let Some(top) = self.0.borrow_mut().history.done.last_mut() {
+            top.merge = None;
+        }
     }
 
     /// Runs `f` as `agent`: changes recorded while it runs are the agent's.
@@ -90,7 +142,9 @@ impl Ui {
     /// Takes back the latest change. False when there is none.
     pub fn undo_change(&self) -> bool {
         let entry = self.0.borrow_mut().history.done.pop();
-        let Some(e) = entry else { return false };
+        let Some(mut e) = entry else { return false };
+        // Once taken back, a run is closed: changes after a redo start their own entry.
+        e.merge = None;
         (e.undo)();
         self.0.borrow_mut().history.undone.push(e);
         true

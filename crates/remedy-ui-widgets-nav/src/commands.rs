@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use remedy_ui_input::{Chord, Command, CommandTable, Conflict, Scope};
+use remedy_ui_input::{Chord, Clash, Command, CommandTable, Conflict, Scope};
 use remedy_ui_reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core::Icon;
@@ -157,17 +157,66 @@ impl Commands {
         }
     }
 
-    /// The user binds a command to new shortcuts; a clash in the same scope is refused.
+    /// The app binds a command to new shortcuts (restored from its own settings, or a mode),
+    /// beneath the person's own bindings; a clash in the same scope is refused.
     pub fn rebind(&self, id: &str, chords: Vec<Chord>) -> Result<(), Conflict> {
         let r = self.0.table.borrow_mut().rebind(id, chords);
         self.changed();
         r
     }
 
-    /// Restores a command's default shortcuts.
+    /// Takes the app's binding of a command away (its built-in shortcuts again, unless the
+    /// person bound it).
     pub fn reset(&self, id: &str) {
         self.0.table.borrow_mut().reset(id);
         self.changed();
+    }
+
+    /// A command's default shortcuts (tracked).
+    pub fn default_chords(&self, id: &str) -> Vec<Chord> {
+        self.0.revision.get();
+        self.0.table.borrow().default_chords(id)
+    }
+
+    /// The shortcuts beneath the person's own: the app's binding, else the built-in ones
+    /// (tracked). What resetting the person's binding goes back to.
+    pub fn base_chords(&self, id: &str) -> Vec<Chord> {
+        self.0.revision.get();
+        self.0.table.borrow().base_chords(id)
+    }
+
+    /// The shortcuts the person bound a command to, or `None` while it has the app's
+    /// (tracked).
+    pub fn user_chords(&self, id: &str) -> Option<Vec<Chord>> {
+        self.0.revision.get();
+        self.0.table.borrow().user_chords(id).map(<[Chord]>::to_vec)
+    }
+
+    /// Every binding of the person's by command id, including commands not registered yet (tracked).
+    pub fn bindings(&self) -> HashMap<String, Vec<Chord>> {
+        self.0.revision.get();
+        self.0.table.borrow().user_bindings().clone()
+    }
+
+    /// Replaces every user binding at once (a saved set, or one where a command takes a
+    /// shortcut from another), without refusing clashes: check [`Commands::clashes`] after.
+    /// Bindings for commands not registered yet apply when they are.
+    pub fn set_bindings(&self, bindings: HashMap<String, Vec<Chord>>) {
+        self.0.table.borrow_mut().set_user_bindings(bindings);
+        self.changed();
+    }
+
+    /// What binding `id` to `chords` would clash with, without changing anything: each
+    /// shortcut other commands in its scope answer to, and those commands.
+    pub fn conflicts(&self, id: &str, chords: &[Chord]) -> Vec<Clash> {
+        self.0.revision.get();
+        self.0.table.borrow().conflicts(id, chords)
+    }
+
+    /// Every shortcut two or more commands in one scope answer to now (tracked).
+    pub fn clashes(&self) -> Vec<Clash> {
+        self.0.revision.get();
+        self.0.table.borrow().clashes()
     }
 
     /// One command (tracked).

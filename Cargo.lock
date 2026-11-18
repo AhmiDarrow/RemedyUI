@@ -3606,6 +3606,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "remedy-ui"
 version = "0.1.0"
 dependencies = [
+ "remedy-ui",
  "remedy-ui-automation",
  "remedy-ui-bridge-android",
  "remedy-ui-bridge-headless",
@@ -3615,6 +3616,7 @@ dependencies = [
  "remedy-ui-bridge-winit",
  "remedy-ui-compositor",
  "remedy-ui-core",
+ "remedy-ui-customize",
  "remedy-ui-devtools",
  "remedy-ui-doc-code",
  "remedy-ui-doc-pages",
@@ -3783,6 +3785,31 @@ dependencies = [
 [[package]]
 name = "remedy-ui-core"
 version = "0.1.0"
+
+[[package]]
+name = "remedy-ui-customize"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-a11y",
+ "remedy-ui-core",
+ "remedy-ui-doc-code",
+ "remedy-ui-fonts",
+ "remedy-ui-host",
+ "remedy-ui-input",
+ "remedy-ui-layout",
+ "remedy-ui-media-image",
+ "remedy-ui-reactive",
+ "remedy-ui-rui",
+ "remedy-ui-services-i18n",
+ "remedy-ui-style",
+ "remedy-ui-text",
+ "remedy-ui-themes",
+ "remedy-ui-view",
+ "remedy-ui-widgets-core",
+ "remedy-ui-widgets-forms",
+ "remedy-ui-widgets-nav",
+ "serde_json",
+]
 
 [[package]]
 name = "remedy-ui-devtools"

@@ -128,6 +128,23 @@ pub struct Theme {
     pub density: Density,
     /// Hairline and border width.
     pub stroke: f32,
+    /// Files the theme brings: a background image and its own fonts.
+    pub assets: ThemeAssets,
+}
+
+/// Files a theme brings with it. They are references, not loaded data: a path (relative to
+/// the folder of the theme file), or the bytes inline as a `data:` URI. Whoever applies the
+/// theme loads them through the media and font safety paths: images are decoded only at the
+/// size shown (in the sandboxed decoder where the app uses it), fonts are checked by the
+/// font engine before use, and a theme from someone else carries none unless the person
+/// allows it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ThemeAssets {
+    /// An image drawn behind each window's content, covering it.
+    pub background: Option<String>,
+    /// Font files by the family name the theme's font tokens use for them: a font token
+    /// naming `Ocean` uses the faces in the file given for `Ocean`.
+    pub fonts: BTreeMap<String, String>,
 }
 
 /// Tokens computed from a theme once per change, not per widget.
@@ -199,6 +216,7 @@ impl Theme {
             },
             density: Density::Comfortable,
             stroke: 1.0,
+            assets: ThemeAssets::default(),
         }
     }
 

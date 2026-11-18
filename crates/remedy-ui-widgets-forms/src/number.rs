@@ -160,6 +160,8 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
                 .invalid(bad.is_some())
                 .action(Action::Increment)
                 .action(Action::Decrement)
+                // Assistive technology can type a number in, as people can.
+                .action(Action::SetValue)
                 .action(Action::Focus);
             if let Some(b) = bad {
                 s = s.description(b);

@@ -19,6 +19,8 @@
 //! asked. Window geometry can persist under a key, timers run app code later, and the app
 //! keeps running with no windows when it says so (tray apps).
 
+#[cfg(feature = "customize")]
+mod customizations;
 mod geometry;
 mod instance;
 #[cfg(feature = "widgets")]
@@ -42,6 +44,9 @@ pub use remedy_ui_bridge_android as android;
 #[cfg(feature = "headless")]
 pub use remedy_ui_bridge_headless as headless;
 pub use remedy_ui_core as core;
+/// What people change about the app: theme, shortcuts, toolbars and menus, and text.
+#[cfg(feature = "customize")]
+pub use remedy_ui_customize as customize;
 #[cfg(feature = "devtools")]
 pub use remedy_ui_devtools as devtools;
 #[cfg(feature = "code")]

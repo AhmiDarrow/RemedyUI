@@ -5,7 +5,7 @@
 //! editing: point the folder at the app's own `ui` sources and edits show as they are saved.
 
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::time::{Duration, SystemTime};
 
 use remedy_ui_core::Insets;
@@ -87,11 +87,15 @@ impl Layouts {
             host,
             error: std::cell::RefCell::new(None),
             seen: std::cell::Cell::new(None),
+            listeners: std::cell::RefCell::new(Vec::new()),
         }));
         layout.reload();
         layout
     }
 }
+
+/// Told after a layout loads.
+type Listener = Rc<dyn Fn(&Layout)>;
 
 struct Inner {
     ui: Ui,
@@ -103,6 +107,25 @@ struct Inner {
     error: std::cell::RefCell<Option<RuiError>>,
     /// The file's modification time when last loaded.
     seen: std::cell::Cell<Option<SystemTime>>,
+    /// Told after every load (a save, a reset, an undo, a change on disk).
+    listeners: std::cell::RefCell<Vec<Listener>>,
+}
+
+/// A handle to a [`Layout`] that does not keep it (or its window) alive.
+#[derive(Clone)]
+pub struct WeakLayout(Weak<Inner>);
+
+impl std::fmt::Debug for WeakLayout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WeakLayout")
+    }
+}
+
+impl WeakLayout {
+    /// The layout, while it exists.
+    pub fn upgrade(&self) -> Option<Layout> {
+        self.0.upgrade().map(Layout)
+    }
 }
 
 /// A screen built from a layout. Cheap to clone.
@@ -123,6 +146,37 @@ impl Layout {
     /// The screen's element.
     pub fn el(&self) -> El {
         self.0.host.clone()
+    }
+
+    /// The screen's file name.
+    pub fn file(&self) -> &str {
+        &self.0.file
+    }
+
+    /// Where the person's version of the screen lives.
+    pub fn path(&self) -> PathBuf {
+        self.0.layouts.path(&self.0.file)
+    }
+
+    /// What the app exposes to the screen.
+    pub fn scope(&self) -> &Scope {
+        &self.0.scope
+    }
+
+    /// The layouts it belongs to.
+    pub fn layouts(&self) -> &Layouts {
+        &self.0.layouts
+    }
+
+    /// A handle that does not keep the layout alive.
+    pub fn downgrade(&self) -> WeakLayout {
+        WeakLayout(Rc::downgrade(&self.0))
+    }
+
+    /// Calls `f` after every load of the screen (a save, a reset, an undo or redo, a change
+    /// on disk): for a settings page listing what did not load.
+    pub fn on_load(&self, f: impl Fn(&Layout) + 'static) {
+        self.0.listeners.borrow_mut().push(Rc::new(f));
     }
 
     /// Why the person's version did not load, if it did not.
@@ -157,6 +211,10 @@ impl Layout {
         }
         let _ = i.host.clone().child(content.grow(1.0));
         *i.error.borrow_mut() = error;
+        let listeners = i.listeners.borrow().clone();
+        for f in listeners {
+            f(self);
+        }
     }
 
     fn notice(&self, e: &RuiError) -> El {
@@ -229,12 +287,7 @@ impl Layout {
     fn write(&self, source: Option<&str>) -> std::io::Result<()> {
         let path = self.0.layouts.path(&self.0.file);
         match source {
-            Some(s) => {
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                std::fs::write(&path, s)?;
-            }
+            Some(s) => write_atomic(&path, s.as_bytes())?,
             None => match std::fs::remove_file(&path) {
                 Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
                 _ => {}
@@ -260,4 +313,25 @@ impl Layout {
             me.watch();
         });
     }
+}
+
+/// Writes `bytes` to `path` through a temporary file in the same folder and a rename, so a
+/// crash or a full disk never leaves half a layout behind.
+fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+    let written = (|| {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&tmp, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }

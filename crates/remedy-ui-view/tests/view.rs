@@ -1186,3 +1186,84 @@ fn painters_write_text_and_know_the_layout_direction() {
     assert!(screen.frame());
     assert!(el.is_rtl());
 }
+
+#[test]
+fn merged_changes_fold_into_one_entry_until_the_run_ends() {
+    let ui = ui();
+    let value = Rc::new(Cell::new(0));
+    let set = |label: &str, key: &str, from: i32, to: i32| {
+        let (u, r) = (value.clone(), value.clone());
+        value.set(to);
+        ui.record_merged_change(label, None, key, move || u.set(from), move || r.set(to));
+    };
+    // A drag: three changes to one color, one entry.
+    set("Change accent", "accent", 0, 1);
+    set("Change accent", "accent", 1, 2);
+    set("Change accent", "accent", 2, 3);
+    assert_eq!(ui.history().len(), 1);
+    // Another key starts its own entry.
+    set("Change body size", "body", 3, 4);
+    assert_eq!(ui.history().len(), 2);
+    assert!(ui.undo_change());
+    assert_eq!(value.get(), 3);
+    assert!(ui.undo_change());
+    assert_eq!(value.get(), 0, "one undo goes back to before the whole drag");
+    assert!(ui.redo_change());
+    assert_eq!(value.get(), 3, "and redo makes its last change again");
+    // A run that was undone and redone is closed.
+    set("Change accent", "accent", 3, 5);
+    assert_eq!(ui.history().len(), 2);
+    // So is one ended explicitly.
+    ui.end_merge();
+    set("Change accent", "accent", 5, 6);
+    assert_eq!(ui.history().len(), 3);
+    // Plain changes never fold.
+    let (u, r) = (value.clone(), value.clone());
+    ui.record_change("Reset", None, move || u.set(6), move || r.set(0));
+    set("Change accent", "accent", 0, 7);
+    assert_eq!(ui.history().len(), 5);
+    // An agent's change does not fold into the person's.
+    let (u, r) = (value.clone(), value.clone());
+    ui.acting_as("assistant", || {
+        ui.record_merged_change("Change accent", None, "accent", move || u.set(7), move || r.set(8))
+    });
+    assert_eq!(ui.history().len(), 6);
+}
+
+#[test]
+fn fonts_added_later_and_new_families_reshape_every_text() {
+    let mut sheet = StyleSheet::new();
+    sheet.rule(
+        "window",
+        None,
+        States::NONE,
+        StylePatch { background: Some(Color::WHITE), ..StylePatch::default() },
+    );
+    let ui = Ui::new(Theme::dark_forest(), sheet, FontCollection::new());
+    let label = ui.el("label").text(remedy_ui_view::RichText::plain("Save changes")).nowrap();
+    ui.root().child(ui.el("box").row().child(label.clone()));
+    let size = Size::new(600.0, 200.0);
+    let _ = ui.frame(size, 1.0);
+    let width = |e: &remedy_ui_view::El| e.bounds().map(|b| b.width()).unwrap_or(0.0);
+    let without = width(&label);
+    assert!(ui.font_families().is_empty());
+    let face = remedy_ui_fonts::all().into_iter().next().unwrap_or_else(|| unreachable!("a bundled font"));
+    let names = ui.add_font(face.data.to_vec()).unwrap_or_else(|e| unreachable!("a font: {e}"));
+    assert!(names.iter().any(|n| n == face.family));
+    assert!(ui.font_families().iter().any(|n| n == face.family));
+    let _ = ui.frame(size, 1.0);
+    let with = width(&label);
+    assert!(with > without, "the text was shaped again with the new font: {without} -> {with}");
+    assert!(ui.add_font(b"not a font".to_vec()).is_err());
+
+    // A theme naming other families shapes everything again too.
+    let mut t = Theme::dark_forest();
+    t.font_families = vec![face.family.to_owned()];
+    ui.set_theme(t.clone(), StyleSheet::new());
+    let _ = ui.frame(size, 1.0);
+    let named = width(&label);
+    t.font_families = vec!["A family nobody has".to_owned()];
+    ui.set_theme(t, StyleSheet::new());
+    let _ = ui.frame(size, 1.0);
+    assert!(named > 0.0 && width(&label) < named, "shaped again: a family nobody has draws nothing here");
+}

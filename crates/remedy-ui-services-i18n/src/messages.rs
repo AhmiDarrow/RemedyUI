@@ -102,6 +102,8 @@ struct Inner {
     sources: RefCell<Vec<Source>>,
     /// Parsed resources per locale, in source order.
     resources: RefCell<HashMap<String, Vec<Rc<FluentResource>>>>,
+    /// The folder each resource was read from (`None`: compiled in), parallel to `resources`.
+    origins: RefCell<HashMap<String, Vec<Option<PathBuf>>>>,
     /// One bundle per requested locale tag: its fallback chain, built on first use.
     bundles: RefCell<HashMap<String, Rc<Vec<Bundle>>>>,
     problems: RefCell<Vec<Problem>>,
@@ -133,6 +135,7 @@ impl Messages {
             default: default_locale.to_owned(),
             sources: RefCell::new(Vec::new()),
             resources: RefCell::new(HashMap::new()),
+            origins: RefCell::new(HashMap::new()),
             bundles: RefCell::new(HashMap::new()),
             problems: RefCell::new(Vec::new()),
             revision: Signal::new(0),
@@ -159,29 +162,34 @@ impl Messages {
     /// Re-reads every source (after files changed), and re-formats every message shown.
     pub fn reload(&self) {
         let mut resources: HashMap<String, Vec<Rc<FluentResource>>> = HashMap::new();
+        let mut origins: HashMap<String, Vec<Option<PathBuf>>> = HashMap::new();
         let mut problems = Vec::new();
-        let mut add = |locale: &str, text: String, origin: &str, problems: &mut Vec<Problem>| {
-            let res = match FluentResource::try_new(text) {
-                Ok(r) => r,
-                Err((r, errs)) => {
-                    for e in errs {
-                        problems
-                            .push(Problem::Syntax { source: origin.to_owned(), detail: format!("{e:?}") });
+        let mut add =
+            |locale: &str, text: String, origin: &str, folder: Option<&Path>, problems: &mut Vec<Problem>| {
+                let res = match FluentResource::try_new(text) {
+                    Ok(r) => r,
+                    Err((r, errs)) => {
+                        for e in errs {
+                            problems.push(Problem::Syntax {
+                                source: origin.to_owned(),
+                                detail: format!("{e:?}"),
+                            });
+                        }
+                        r
                     }
-                    r
-                }
+                };
+                resources.entry(canonical(locale)).or_default().push(Rc::new(res));
+                origins.entry(canonical(locale)).or_default().push(folder.map(Path::to_path_buf));
             };
-            resources.entry(canonical(locale)).or_default().push(Rc::new(res));
-        };
         for src in self.0.sources.borrow().iter() {
             match src {
                 Source::Embedded { locale, text } => {
-                    add(locale, (*text).to_owned(), &format!("embedded {locale}"), &mut problems)
+                    add(locale, (*text).to_owned(), &format!("embedded {locale}"), None, &mut problems)
                 }
                 Source::Folder(dir) => {
                     for (locale, path) in ftl_files(dir, &mut problems) {
                         match std::fs::read_to_string(&path) {
-                            Ok(t) => add(&locale, t, &path.display().to_string(), &mut problems),
+                            Ok(t) => add(&locale, t, &path.display().to_string(), Some(dir), &mut problems),
                             Err(e) => problems.push(Problem::Io {
                                 path: path.display().to_string(),
                                 detail: e.to_string(),
@@ -192,6 +200,7 @@ impl Messages {
             }
         }
         *self.0.resources.borrow_mut() = resources;
+        *self.0.origins.borrow_mut() = origins;
         self.0.bundles.borrow_mut().clear();
         self.0
             .problems
@@ -273,6 +282,43 @@ impl Messages {
 
     /// The bundles to try for a requested locale: the best matches among the available ones,
     /// then the default.
+    /// Every message as `locale` shows it, with its value and attributes as Fluent text: the
+    /// best matching locales first, then the default, and within a locale later sources over
+    /// earlier ones. Sources read from the folder `without` are left out (what the app's own
+    /// messages say, beneath a person's overrides). Tracked.
+    pub fn entries(&self, locale: &str, without: Option<&Path>) -> Vec<crate::ftl::MessageEntry> {
+        self.0.revision.get();
+        let resources = self.0.resources.borrow();
+        let origins = self.0.origins.borrow();
+        let mut ordered: Vec<Rc<FluentResource>> = Vec::new();
+        for lang in self.negotiated(locale) {
+            let (Some(list), Some(from)) = (resources.get(&lang), origins.get(&lang)) else { continue };
+            for (r, o) in list.iter().zip(from).rev() {
+                if without.is_none() || o.as_deref() != without {
+                    ordered.push(r.clone());
+                }
+            }
+        }
+        crate::ftl::merged(ordered.iter().map(|r| &**r))
+    }
+
+    /// The available locales that serve `requested`, best first, then the default.
+    fn negotiated(&self, requested: &str) -> Vec<String> {
+        let resources = self.0.resources.borrow();
+        let available: Vec<LanguageIdentifier> = resources.keys().filter_map(|k| k.parse().ok()).collect();
+        let default: Option<LanguageIdentifier> = self.0.default.parse().ok();
+        let want: Vec<LanguageIdentifier> = requested.parse().ok().into_iter().collect();
+        fluent_langneg::negotiate_languages(
+            &want,
+            &available,
+            default.as_ref(),
+            fluent_langneg::NegotiationStrategy::Filtering,
+        )
+        .into_iter()
+        .map(|l| l.to_string())
+        .collect()
+    }
+
     fn chain(&self, requested: &str) -> Rc<Vec<Bundle>> {
         if let Some(c) = self.0.bundles.borrow().get(requested) {
             return c.clone();

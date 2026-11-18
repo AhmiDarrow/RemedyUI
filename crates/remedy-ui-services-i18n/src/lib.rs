@@ -14,11 +14,13 @@
 mod calendar;
 mod catalog;
 mod decimal;
+mod ftl;
 mod locale;
 mod messages;
 
 pub use calendar::{Date, Time, Weekday, days_in_month, is_leap, month_grid};
-pub use catalog::{Catalog, fill};
+pub use catalog::{Catalog, OverrideProblem, canonical as canonical_locale, fill};
 pub use decimal::{Decimal, DecimalError, MAX_SCALE};
+pub use ftl::{FtlError, MessageEntry, entry_source, read_entries, remove_entry, set_entry};
 pub use locale::{CalendarSymbols, NumberSymbols};
 pub use messages::{Arg, Messages, Problem};
