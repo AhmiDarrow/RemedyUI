@@ -218,6 +218,8 @@ pub(crate) struct Inner {
     pub(crate) focus_shown: Option<ElementId>,
     pub(crate) platform: remedy_ui_input::Platform,
     pub(crate) locale: remedy_ui_reactive::Signal<String>,
+    /// The window's size in logical pixels, set as each frame starts.
+    pub(crate) window_size: remedy_ui_reactive::Signal<Size>,
     pub(crate) pseudo: Option<remedy_ui_text::Pseudo>,
     /// The system's double-click time.
     pub(crate) double_click: std::time::Duration,
@@ -313,6 +315,7 @@ impl Ui {
             focus_shown: None,
             platform: remedy_ui_input::Platform::Standard,
             locale: remedy_ui_reactive::Signal::new(String::from("en-US")),
+            window_size: remedy_ui_reactive::Signal::new(Size::ZERO),
             pseudo: None,
             double_click: std::time::Duration::from_millis(500),
             last_press: None,
@@ -389,6 +392,13 @@ impl Ui {
     pub fn locale(&self) -> String {
         let l = self.0.borrow().locale;
         l.get()
+    }
+
+    /// The window's size in logical pixels (tracked): overlays that must stay inside the
+    /// window place themselves again when it changes. Zero before the first frame.
+    pub fn window_size(&self) -> Size {
+        let s = self.0.borrow().window_size;
+        s.get()
     }
 
     /// The wall clock and local UTC offset (tracked). The runner keeps it current: every

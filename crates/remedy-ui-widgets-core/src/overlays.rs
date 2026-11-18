@@ -12,6 +12,8 @@ use remedy_ui_view::{El, Ui};
 
 /// How long the pointer rests on an element before its tooltip shows.
 const TOOLTIP_DELAY: Duration = Duration::from_millis(600);
+/// The widest a tooltip grows before its text wraps.
+const TOOLTIP_WIDTH: f32 = 360.0;
 /// How long a trusted prompt's buttons stay disabled after it appears (against
 /// click-jacking: a click aimed at what was there before cannot land on them).
 const TRUSTED_DELAY: Duration = Duration::from_millis(700);
@@ -46,16 +48,42 @@ pub fn fit_near(anchor: Rect, size: remedy_ui_core::Size, gap: f32, window: reme
 /// before it shows, so it never flashes where it does not fit, and placed again if its size
 /// changes.
 pub fn place_near(ui: &Ui, el: El, anchor: Rect, gap: f32) -> El {
+    place_near_within(ui, el, anchor, gap, f32::INFINITY)
+}
+
+/// [`place_near`], no wider than `max_width` (and never wider than the window): text in it
+/// wraps rather than running past the edge.
+pub fn place_near_within(ui: &Ui, el: El, anchor: Rect, gap: f32, max_width: f32) -> El {
     let el = place_at(el, Point::new(anchor.min.x, anchor.max.y + gap))
         .style(remedy_ui_style::StylePatch { opacity: Some(0.0), ..Default::default() });
-    let (ui2, e2) = (ui.clone(), el.clone());
+    // Its own size once measured; placed again when it or the window changes size.
+    let measured: Rc<std::cell::Cell<Option<remedy_ui_core::Size>>> = Rc::default();
+    let fit = {
+        let (e2, measured) = (el.clone(), measured.clone());
+        Rc::new(move |window: remedy_ui_core::Size| {
+            let Some(size) = measured.get() else { return };
+            if window.width <= 0.0 || window.height <= 0.0 {
+                return;
+            }
+            let p = fit_near(anchor, size, gap, window);
+            let widest = max_width.min(window.width - EDGE * 2.0).max(0.0);
+            let _ = e2
+                .clone()
+                .layout(move |l| {
+                    l.inset = Insets { top: p.y, start: p.x, end: AUTO, bottom: AUTO };
+                    l.max_width = Length::Px(widest);
+                })
+                .style(remedy_ui_style::StylePatch { opacity: Some(1.0), ..Default::default() });
+        })
+    };
+    let (ui2, f2, ui3, f3) = (ui.clone(), fit.clone(), ui.clone(), fit);
     el.on_resize(move |size| {
-        let window = ui2.root().bounds().map_or(size, Rect::size);
-        let p = fit_near(anchor, size, gap, window);
-        let _ = e2
-            .clone()
-            .layout(move |l| l.inset = Insets { top: p.y, start: p.x, end: AUTO, bottom: AUTO })
-            .style(remedy_ui_style::StylePatch { opacity: Some(1.0), ..Default::default() });
+        measured.set(Some(size));
+        f2(remedy_ui_reactive::untrack(|| ui2.window_size()));
+    })
+    .bind(move || {
+        let window = ui3.window_size();
+        remedy_ui_reactive::untrack(|| f3(window));
     })
 }
 
@@ -75,6 +103,16 @@ pub fn tooltip(target: &El, text: impl Into<String>) {
     let ui = target.ui().clone();
     let shown: Rc<RefCell<Option<El>>> = Rc::default();
     let pending: Rc<RefCell<Option<u64>>> = Rc::default();
+    // The tooltip goes with its target (a window rebuilt for another language, a closed panel).
+    let (shown2, pending2, ui0) = (shown.clone(), pending.clone(), ui.clone());
+    let _ = target.clone().on_removed(move || {
+        if let Some(id) = pending2.borrow_mut().take() {
+            ui0.cancel_timer(id);
+        }
+        if let Some(tip) = shown2.borrow_mut().take() {
+            tip.remove();
+        }
+    });
     let t = target.clone();
     let _ = target.clone().on_hover(move |inside| {
         if let Some(id) = pending.borrow_mut().take() {
@@ -87,9 +125,9 @@ pub fn tooltip(target: &El, text: impl Into<String>) {
             let (ui2, t2, text, shown) = (ui.clone(), t.clone(), text.clone(), shown.clone());
             let id = ui.after(TOOLTIP_DELAY, move || {
                 let Some(b) = t2.bounds() else { return };
-                let tip =
-                    ui2.el("tooltip").text(remedy_ui_view::RichText::plain(text)).nowrap().pass_through();
-                let tip = ui2.overlay(place_near(&ui2, tip, b, 4.0));
+                // Long tips wrap: at most a readable width, never past the window.
+                let tip = ui2.el("tooltip").text(remedy_ui_view::RichText::plain(text)).pass_through();
+                let tip = ui2.overlay(place_near_within(&ui2, tip, b, 4.0, TOOLTIP_WIDTH));
                 *shown.borrow_mut() = Some(tip);
             });
             *pending.borrow_mut() = Some(id);
@@ -145,6 +183,8 @@ fn dismissable(ui: &Ui, content: El) -> El {
             }
             false
         })
+        // A press outside closes it; from the keyboard, Escape does (focus stays inside).
+        .keyboard_alternative("Escape closes it")
         .child(content);
     ui.overlay(layer)
 }
