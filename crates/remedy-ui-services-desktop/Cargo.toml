@@ -1,0 +1,16 @@
+[package]
+name = "remedy-ui-services-desktop"
+description = "RemedyUI desktop services: starting with the user's session (Startup-folder shortcut, LaunchAgent, XDG autostart), showing files in the file manager, and the user's usual folders."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.62.2", features = ["Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_Foundation"] }
+windows-core = { version = "=0.62.2" }
+
+[lints]
+workspace = true

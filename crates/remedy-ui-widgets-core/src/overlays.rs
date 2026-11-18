@@ -199,6 +199,8 @@ pub fn context_menu(target: &El, items: impl Fn() -> Vec<MenuItem> + 'static) ->
             }
             false
         })
+        // The same menu opens from the keyboard wherever focus is inside the target.
+        .keyboard_alternative("Shift+F10 or the Menu key opens the same menu")
 }
 
 /// Shows `content` below `anchor` until a press outside or Escape.

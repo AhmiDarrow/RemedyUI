@@ -391,6 +391,80 @@ fn background_work_returns_to_the_ui_thread() {
 }
 
 #[test]
+fn completions_from_any_thread_reach_the_ui_thread_even_when_started_inside_effects() {
+    let got: Rc<std::cell::RefCell<Vec<String>>> = Rc::default();
+    let g2 = got.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.keep_running(true);
+        let trigger = remedy_ui::reactive::Signal::new(0);
+        let (a, g3) = (app.clone(), g2.clone());
+        // Started inside an effect that runs again right away: nothing it started is lost.
+        let _ = remedy_ui::reactive::Effect::new(move || {
+            let n = trigger.get();
+            if n > 1 {
+                return;
+            }
+            let (a2, g4) = (a.clone(), g3.clone());
+            let c = a.completion(move |v: String| {
+                g4.borrow_mut().push(v);
+                // A second request started from the first one's result.
+                let g5 = g4.clone();
+                let c2 = a2.completion(move |v: String| g5.borrow_mut().push(v));
+                std::thread::spawn(move || c2.complete(format!("nested {n}")));
+            });
+            std::thread::spawn(move || c.complete(format!("first {n}")));
+            remedy_ui::reactive::untrack(|| trigger.set(n + 1));
+        });
+        // Dropped unfinished: the callback is forgotten, never called.
+        let g6 = g2.clone();
+        drop(app.completion(move |v: String| g6.borrow_mut().push(v)));
+    });
+    let mut host = HeadlessHost::new();
+    for _ in 0..400 {
+        host.run_frames(&mut runner, 1);
+        if got.borrow().len() >= 4 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    host.run_frames(&mut runner, 3);
+    let mut v = got.borrow().clone();
+    v.sort();
+    assert_eq!(v, ["first 0", "first 1", "nested 0", "nested 1"]);
+}
+
+#[test]
+fn an_app_language_outlasts_the_system_s_until_it_is_cleared() {
+    let ui_slot: Rc<std::cell::RefCell<Option<remedy_ui::Ui>>> = Rc::default();
+    let u2 = ui_slot.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let u3 = u2.clone();
+        app.open(WindowSpec::new("Words").size(100.0, 60.0), move |ui, _| {
+            *u3.borrow_mut() = Some(ui.clone());
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let locale = |slot: &Rc<std::cell::RefCell<Option<remedy_ui::Ui>>>| {
+        slot.borrow().as_ref().map(remedy_ui::Ui::locale)
+    };
+    let mut s = remedy_ui::host::SystemSettings { locale: "de-DE".into(), ..Default::default() };
+    host.send(HostEvent::Settings(s.clone()));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(locale(&ui_slot).as_deref(), Some("de-DE"));
+    runner.app().set_locale(Some("ja".into()));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(locale(&ui_slot).as_deref(), Some("ja"));
+    s.locale = "fr-FR".into();
+    host.send(HostEvent::Settings(s));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(locale(&ui_slot).as_deref(), Some("ja"), "the app's choice stays");
+    runner.app().set_locale(None);
+    host.run_frames(&mut runner, 1);
+    assert_eq!(locale(&ui_slot).as_deref(), Some("fr-FR"), "back to the system's");
+}
+
+#[test]
 fn windows_report_geometry_and_closing_and_title_bars_drag() {
     let seen = Rc::new(std::cell::RefCell::new(Vec::new()));
     let closed = Rc::new(Cell::new(0u32));
@@ -654,7 +728,8 @@ fn links_open_through_the_host_and_only_web_and_mail_links() {
 fn work_posted_from_other_threads_reaches_the_app() {
     let got = Signal::new(0u32);
     let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |_app: &App| {
-        let waker = remedy_ui::reactive::waker().unwrap_or_else(|e| unreachable!("a waker on the UI thread: {e}"));
+        let waker =
+            remedy_ui::reactive::waker().unwrap_or_else(|e| unreachable!("a waker on the UI thread: {e}"));
         std::thread::spawn(move || {
             let _ = waker.post(move || got.set(42));
         });
@@ -668,4 +743,40 @@ fn work_posted_from_other_threads_reaches_the_app() {
         std::thread::sleep(Duration::from_millis(5));
     }
     assert_eq!(got.get_untracked().ok(), Some(42), "the post ran without the app calling anything");
+}
+
+#[test]
+fn themes_change_live_and_apps_hear_the_system_appearance() {
+    type Seen = Rc<std::cell::RefCell<Vec<(Option<bool>, bool)>>>;
+    let seen: Seen = Rc::default();
+    let ui_slot: Rc<std::cell::RefCell<Option<remedy_ui::Ui>>> = Rc::default();
+    let (s2, u2) = (seen.clone(), ui_slot.clone());
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let s3 = s2.clone();
+        app.on_appearance(move |dark, hc| s3.borrow_mut().push((dark, hc)));
+        let u3 = u2.clone();
+        app.open(WindowSpec::new("Themes").size(100.0, 60.0), move |ui, _| {
+            *u3.borrow_mut() = Some(ui.clone());
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let mut s = remedy_ui::host::SystemSettings { dark: Some(false), ..Default::default() };
+    host.send(HostEvent::Settings(s.clone()));
+    host.run_frames(&mut runner, 1);
+    s.dark = Some(true);
+    s.high_contrast = true;
+    host.send(HostEvent::Settings(s.clone()));
+    host.send(HostEvent::Settings(s));
+    host.run_frames(&mut runner, 1);
+    let got = seen.borrow().clone();
+    assert_eq!(got.last(), Some(&(Some(true), true)));
+    assert!(got.contains(&(Some(false), false)));
+    assert_eq!(got.iter().filter(|x| **x == (Some(true), true)).count(), 1, "only changes are told");
+    assert_eq!(runner.app().appearance(), Some((Some(true), true)), "and it can be read back");
+    let mut light = remedy_ui::style::Theme::dark_forest();
+    light.name = "Test light".into();
+    runner.app().set_theme(light);
+    host.run_frames(&mut runner, 1);
+    assert_eq!(ui_slot.borrow().as_ref().map(|u| u.theme().name.clone()), Some("Test light".to_owned()));
 }

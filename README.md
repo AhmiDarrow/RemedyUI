@@ -39,7 +39,16 @@ M5 added:
 - `remedy-ui-services-update`: signed updates from GitHub releases or a feed
 - `cargo-remedy`: `cargo remedy new` (basic, tray and multi-window templates), `run` (devtools, `--watch`) and `package` (Windows installer, portable zip, signing, update signatures)
 
-SecretSticky runs on RemedyUI (its repository's `remedyui` branch). A crate is added to the workspace only when it has real code and tests.
+M6 (in progress) added:
+
+- `remedy-ui-widgets-nav`: commands and shortcuts, tabs, nav rail, breadcrumbs, a navigation stack, user-arranged toolbars, the command palette, drawers, sheets and a custom title bar
+- `remedy-ui-widgets-data`: tables, icon grids, trees and property grids, virtual at any size, with selection, editing and drag and drop
+- `remedy-ui-media-image` and `remedy-ui-media-svg`: images decoded off the UI thread at the size shown, color managed; SVG at exactly the size shown, and tinted icons
+- `remedy-ui-services-i18n`: Fluent messages, source-keyed JSON catalogs, locale data and exact decimals
+- `remedy-ui-services-desktop`: starting with the session, showing files in the file manager, the user's known folders
+- Drag and drop within the app, out to other apps and in from them
+
+SecretSticky, SecretFolder and Hearth run on RemedyUI (each repository's `remedyui` branch). A crate is added to the workspace only when it has real code and tests.
 
 Checks: `cargo xtask check` (layer graph and unsafe boundary) and `cargo deny check`, alongside fmt, clippy, tests and docs.
 

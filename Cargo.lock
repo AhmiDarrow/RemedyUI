@@ -3689,6 +3689,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-services-desktop"
+version = "0.1.0"
+dependencies = [
+ "windows",
+ "windows-core",
+]
+
+[[package]]
 name = "remedy-ui-services-i18n"
 version = "0.1.0"
 dependencies = [
@@ -3706,6 +3714,7 @@ dependencies = [
  "remedy-ui-style",
  "remedy-ui-text",
  "remedy-ui-view",
+ "serde_json",
  "unic-langid",
 ]
 
@@ -3729,6 +3738,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "ureq",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

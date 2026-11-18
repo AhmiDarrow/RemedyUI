@@ -700,3 +700,36 @@ fn what_follows_a_scroll_container_paints_above_what_came_before_it() {
     assert_eq!(s.px(10, 50), [255, 0, 0, 255], "the button after the scroll container shows");
     assert_eq!(s.px(150, 100), [0, 0, 255, 255]);
 }
+
+#[test]
+fn hover_hints_hear_drags_come_and_go_even_when_refused() {
+    use remedy_ui_host::{DragData, DragEvent, DropEffect};
+    let ui = ui();
+    let heard: Rc<std::cell::RefCell<Vec<Option<usize>>>> = Rc::default();
+    let h2 = heard.clone();
+    // A read-only folder: it takes nothing, but says why while something is over it.
+    let target = ui
+        .el("box")
+        .width(200.0)
+        .height(80.0)
+        .on_drop(|_, _| DropEffect::None, |_, _, _| {})
+        .on_drag_hover(move |d| h2.borrow_mut().push(d.map(|d| d.data.files.len())))
+        .child(ui.el("box").width(50.0).height(20.0));
+    ui.root().child(ui.el("col").column().child(ui.el("box").width(200.0).height(30.0)).child(target));
+    let _ = ui.frame(Size::new(200.0, 120.0), 1.0);
+    let data = DragData::files(vec!["D:/a.png".into(), "D:/b.png".into()]);
+    assert_eq!(
+        ui.drag_event(&DragEvent::Enter { position: Some(Point::new(10.0, 10.0)), data }),
+        DropEffect::None
+    );
+    assert!(heard.borrow().is_empty(), "not over it yet");
+    let _ = ui.drag_event(&DragEvent::Over { position: Point::new(20.0, 40.0) });
+    // Over its child: still over it, nothing new.
+    let _ = ui.drag_event(&DragEvent::Over { position: Point::new(30.0, 45.0) });
+    assert_eq!(*heard.borrow(), vec![Some(2)]);
+    let _ = ui.drag_event(&DragEvent::Over { position: Point::new(20.0, 5.0) });
+    assert_eq!(*heard.borrow(), vec![Some(2), None], "left it");
+    let _ = ui.drag_event(&DragEvent::Over { position: Point::new(20.0, 60.0) });
+    let _ = ui.drag_event(&DragEvent::Leave);
+    assert_eq!(*heard.borrow(), vec![Some(2), None, Some(2), None], "the drag going away ends the hint");
+}

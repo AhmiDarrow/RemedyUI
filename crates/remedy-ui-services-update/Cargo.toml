@@ -22,6 +22,9 @@ remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
 remedy-ui-view = { path = "../remedy-ui-view", version = "0.1.0" }
 remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "0.1.0" }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_WinTrust", "Win32_Security_Cryptography"] }
+
 [dev-dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
 minisign = { version = "=0.10.0" }

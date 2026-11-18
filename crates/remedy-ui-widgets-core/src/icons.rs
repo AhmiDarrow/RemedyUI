@@ -1,7 +1,7 @@
 //! Icons (vector, drawn as strokes on a 24-unit grid), images, avatars and canvases.
 
 use remedy_ui_a11y::{Role, Semantics};
-use remedy_ui_core::{CornerRadii, Point, Rect};
+use remedy_ui_core::Point;
 use remedy_ui_paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_view::{El, PaintCx, Ui};
 
@@ -63,6 +63,26 @@ pub enum Icon {
     External,
     /// A circular arrow.
     Refresh,
+    /// A folder.
+    Folder,
+    /// A page with a folded corner (a file).
+    File,
+    /// An arrow down onto a tray.
+    Download,
+    /// An arrow up out of a tray.
+    Upload,
+    /// A paper plane (send a message).
+    Send,
+    /// An arrow pointing left (back).
+    ArrowLeft,
+    /// An arrow pointing right (forward).
+    ArrowRight,
+    /// An arrow pointing up (up a level).
+    ArrowUp,
+    /// Two people (a group of PCs or people).
+    Users,
+    /// A screen on a stand (a computer).
+    Monitor,
 }
 
 fn p(x: f32, y: f32) -> Point {
@@ -251,6 +271,72 @@ fn strokes(icon: Icon) -> Path {
             arc(&mut s, p(12.0, 12.0), 8.0, -PI * 0.4, PI * 1.5);
             s.move_to(p(18.0, 3.5)).line_to(p(18.5, 8.5)).line_to(p(13.5, 8.0));
         }
+        Icon::Folder => {
+            s.move_to(p(3.0, 6.0))
+                .line_to(p(9.0, 6.0))
+                .line_to(p(11.0, 8.5))
+                .line_to(p(21.0, 8.5))
+                .line_to(p(21.0, 19.0))
+                .line_to(p(3.0, 19.0))
+                .close();
+        }
+        Icon::File => {
+            s.move_to(p(6.0, 3.0))
+                .line_to(p(14.0, 3.0))
+                .line_to(p(19.0, 8.0))
+                .line_to(p(19.0, 21.0))
+                .line_to(p(6.0, 21.0))
+                .close();
+            s.move_to(p(14.0, 3.0)).line_to(p(14.0, 8.0)).line_to(p(19.0, 8.0));
+        }
+        Icon::Download | Icon::Upload => {
+            s.move_to(p(4.0, 15.0)).line_to(p(4.0, 20.0)).line_to(p(20.0, 20.0)).line_to(p(20.0, 15.0));
+            s.move_to(p(12.0, 4.0)).line_to(p(12.0, 15.0));
+            if icon == Icon::Download {
+                s.move_to(p(7.5, 10.5)).line_to(p(12.0, 15.0)).line_to(p(16.5, 10.5));
+            } else {
+                s.move_to(p(7.5, 8.5)).line_to(p(12.0, 4.0)).line_to(p(16.5, 8.5));
+            }
+        }
+        Icon::Send => {
+            s.move_to(p(3.0, 11.0))
+                .line_to(p(21.0, 3.0))
+                .line_to(p(13.0, 21.0))
+                .line_to(p(11.0, 13.0))
+                .close();
+            s.move_to(p(11.0, 13.0)).line_to(p(21.0, 3.0));
+        }
+        Icon::ArrowLeft => {
+            s.move_to(p(19.0, 12.0))
+                .line_to(p(5.0, 12.0))
+                .move_to(p(11.0, 6.0))
+                .line_to(p(5.0, 12.0))
+                .line_to(p(11.0, 18.0));
+        }
+        Icon::ArrowRight => {
+            s.move_to(p(5.0, 12.0))
+                .line_to(p(19.0, 12.0))
+                .move_to(p(13.0, 6.0))
+                .line_to(p(19.0, 12.0))
+                .line_to(p(13.0, 18.0));
+        }
+        Icon::ArrowUp => {
+            s.move_to(p(12.0, 19.0))
+                .line_to(p(12.0, 5.0))
+                .move_to(p(6.0, 11.0))
+                .line_to(p(12.0, 5.0))
+                .line_to(p(18.0, 11.0));
+        }
+        Icon::Users => {
+            circle(&mut s, p(9.0, 8.0), 3.5);
+            arc(&mut s, p(9.0, 20.0), 6.0, PI, 2.0 * PI);
+            arc(&mut s, p(16.0, 8.0), 3.0, -PI * 0.5, PI * 0.5);
+            arc(&mut s, p(16.5, 20.0), 5.0, -PI * 0.5, 0.0);
+        }
+        Icon::Monitor => {
+            rect(&mut s, 3.0, 4.0, 21.0, 16.0);
+            s.move_to(p(12.0, 16.0)).line_to(p(12.0, 20.0)).move_to(p(8.0, 20.0)).line_to(p(16.0, 20.0));
+        }
     }
     s
 }
@@ -327,12 +413,12 @@ pub fn avatar(ui: &Ui, name: &str, size: f32, color: remedy_ui_core::Color) -> E
         .row()
         .align(remedy_ui_layout::Align::Center)
         .justify(remedy_ui_layout::Justify::Center)
-        .paint(move |cx| {
-            cx.list.fill_rounded(
-                Rect::new(0.0, 0.0, cx.size.width, cx.size.height),
-                CornerRadii::all(cx.size.width / 2.0),
-                Brush::Solid(color),
-            );
+        // The circle is the element's own background, so contrast checks see what the
+        // initials sit on.
+        .style(remedy_ui_style::StylePatch {
+            background: Some(color),
+            radius: Some(size / 2.0),
+            ..Default::default()
         })
         .child(ui.el("avatar_initials").text(remedy_ui_view::RichText::plain(initials)).nowrap().style(
             remedy_ui_style::StylePatch {
@@ -350,4 +436,62 @@ pub fn avatar(ui: &Ui, name: &str, size: f32, color: remedy_ui_core::Color) -> E
 #[track_caller]
 pub fn canvas(ui: &Ui, paint: impl Fn(&mut PaintCx<'_>) + 'static) -> El {
     ui.el("canvas").paint(paint)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Icon, strokes};
+
+    const ALL: [Icon; 34] = [
+        Icon::Plus,
+        Icon::Minus,
+        Icon::Maximize,
+        Icon::Restore,
+        Icon::Close,
+        Icon::Check,
+        Icon::Lock,
+        Icon::Unlock,
+        Icon::Pin,
+        Icon::Trash,
+        Icon::Copy,
+        Icon::Eye,
+        Icon::EyeOff,
+        Icon::ChevronDown,
+        Icon::ChevronRight,
+        Icon::ChevronLeft,
+        Icon::ChevronUp,
+        Icon::Menu,
+        Icon::Search,
+        Icon::Info,
+        Icon::Alert,
+        Icon::Clock,
+        Icon::Key,
+        Icon::Settings,
+        Icon::Note,
+        Icon::External,
+        Icon::Refresh,
+        Icon::Folder,
+        Icon::File,
+        Icon::Download,
+        Icon::Upload,
+        Icon::Send,
+        Icon::ArrowLeft,
+        Icon::ArrowRight,
+    ];
+
+    #[test]
+    fn every_icon_draws_inside_its_grid() {
+        for icon in ALL.into_iter().chain([Icon::ArrowUp, Icon::Users, Icon::Monitor]) {
+            let path = strokes(icon);
+            assert!(path.elements().len() > 1, "{icon:?} draws nothing");
+            for el in path.elements() {
+                if let remedy_ui_paint::PathEl::MoveTo(q) | remedy_ui_paint::PathEl::LineTo(q) = *el {
+                    assert!(
+                        (0.0..=24.0).contains(&q.x) && (0.0..=24.0).contains(&q.y),
+                        "{icon:?} leaves the grid at {q:?}"
+                    );
+                }
+            }
+        }
+    }
 }

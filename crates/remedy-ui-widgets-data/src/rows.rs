@@ -51,6 +51,11 @@ impl Rows {
         }
     }
 
+    /// Changes the row height (rows are rebuilt by the next `set_count` with `rebuild`).
+    pub(crate) fn set_row_height(&mut self, h: f32) {
+        self.row_height = h.max(1.0);
+    }
+
     /// The row index at a content y.
     pub(crate) fn index_at(&self, y: f32) -> usize {
         (y.max(0.0) / self.row_height) as usize

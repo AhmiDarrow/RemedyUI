@@ -125,6 +125,10 @@ const UNSAFE_BOUNDARY: &[&str] = &[
     "remedy-ui-bridge-web",
     "remedy-ui-bridge-remedyos",
     "remedy-ui-bridge-ios",
+    // Reads Authenticode signatures (WinVerifyTrust, CryptQueryObject) to verify updates.
+    "remedy-ui-services-update",
+    // Writes Windows shortcuts (IShellLink) for start-with-the-session entries.
+    "remedy-ui-services-desktop",
 ];
 
 fn layer(name: &str) -> Option<u8> {
