@@ -10,6 +10,7 @@ use vello_gpu::peniko::{BlendMode, Fill};
 use vello_gpu::{ImageSource, PaintType, Pixmap, Scene, Tint};
 
 use crate::images::GpuImages;
+use crate::video::GpuVideos;
 
 use crate::{GpuContext, GpuError, PipelineCacheStore};
 
@@ -21,6 +22,7 @@ pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 pub(crate) struct GpuScene<'a> {
     pub(crate) scene: Scene,
     images: &'a mut GpuImages,
+    videos: &'a mut GpuVideos,
     ctx: &'a GpuContext,
 }
 
@@ -73,6 +75,18 @@ impl Surface for GpuScene<'_> {
     fn image_source(&mut self, key: ImageKey, pixmap: &Arc<Pixmap>, filtered: bool) -> Option<ImageSource> {
         self.images.source(&self.ctx.device, &self.ctx.queue, key, pixmap, filtered)
     }
+    fn video_source(&mut self, frame: &remedy_ui_paint::VideoFrame) -> Option<ImageSource> {
+        let images = &mut *self.images;
+        let shown =
+            self.videos.texture(&self.ctx.device, &self.ctx.queue, frame, &mut || images.fresh_id())?;
+        if let Some(old) = shown.replaced {
+            images.unbind(&[old]);
+        }
+        if let Some(view) = shown.new_view {
+            images.bind_external(shown.id, view);
+        }
+        Some(ImageSource::external_texture(shown.id, vello_gpu::TextureRegion::Full, true))
+    }
 }
 
 pub(crate) fn size16(width: u32, height: u32) -> Result<(u16, u16), GpuError> {
@@ -92,6 +106,7 @@ pub struct GpuRenderer {
     pub(crate) resources: vello_gpu::Resources,
     pub(crate) painter: Painter,
     images: GpuImages,
+    videos: GpuVideos,
     pipeline_cache: Option<wgpu::PipelineCache>,
     store: Option<PipelineCacheStore>,
 }
@@ -114,7 +129,8 @@ impl GpuRenderer {
         let config = vello_gpu::RenderTargetConfig { format: FORMAT, width: 1, height: 1 };
         let (vello, resources) = vello_gpu::Renderer::new_with(&ctx.device, &ctx.queue, &config, settings);
         let images = GpuImages::new(&ctx.device);
-        GpuRenderer { ctx, vello, resources, painter: Painter::new(), images, pipeline_cache, store }
+        let videos = GpuVideos::new(&ctx.device, pipeline_cache.as_ref());
+        GpuRenderer { ctx, vello, resources, painter: Painter::new(), images, videos, pipeline_cache, store }
     }
 
     pub(crate) fn store_ref(&self) -> Option<&PipelineCacheStore> {
@@ -123,7 +139,7 @@ impl GpuRenderer {
 
     /// Bytes of GPU memory held by uploaded glyphs and images.
     pub fn image_bytes(&self) -> u64 {
-        self.images.bytes()
+        self.images.bytes() + self.videos.bytes()
     }
 
     /// The device this renderer draws with.
@@ -142,6 +158,7 @@ impl GpuRenderer {
     /// Drops glyph and image caches (memory pressure).
     pub fn clear_caches(&mut self) {
         self.painter.clear_caches();
+        let _ = self.videos.clear();
         self.images.clear();
         self.vello.reset_and_shrink(&mut self.resources);
     }
@@ -172,12 +189,22 @@ impl GpuRenderer {
         target: &wgpu::Texture,
     ) -> Result<(), GpuError> {
         let (w, h) = size16(target.width(), target.height())?;
-        let mut scene = GpuScene { scene: Scene::new(w, h), images: &mut self.images, ctx: &self.ctx };
+        let mut scene = GpuScene {
+            scene: Scene::new(w, h),
+            images: &mut self.images,
+            videos: &mut self.videos,
+            ctx: &self.ctx,
+        };
         self.painter.draw(&mut scene, list, base);
         let scene = scene.scene;
         let gone = self.painter.take_evicted();
         if !gone.is_empty() {
             self.images.evict(&gone);
+        }
+        let streams = self.painter.take_evicted_videos();
+        if !streams.is_empty() {
+            let ids = self.videos.evict(&streams);
+            self.images.unbind(&ids);
         }
         let bindings = self.images.bindings.clone();
         self.submit(&scene, background, target, &bindings)

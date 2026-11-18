@@ -132,7 +132,27 @@ impl GpuImages {
         }
     }
 
-    fn fresh_id(&mut self) -> TextureId {
+    /// Binds a texture made elsewhere (a video stream's picture) under `id`.
+    pub(crate) fn bind_external(&mut self, id: TextureId, view: wgpu::TextureView) {
+        self.bind(id, view);
+    }
+
+    /// Unbinds textures made elsewhere.
+    pub(crate) fn unbind(&mut self, ids: &[TextureId]) {
+        if ids.is_empty() {
+            return;
+        }
+        for id in ids {
+            self.views.remove(id);
+        }
+        let mut b = vello_gpu::TextureBindings::new();
+        for (id, view) in &self.views {
+            b.insert(*id, view.clone());
+        }
+        self.bindings = b;
+    }
+
+    pub(crate) fn fresh_id(&mut self) -> TextureId {
         let id = TextureId(self.next_id);
         self.next_id += 1;
         id

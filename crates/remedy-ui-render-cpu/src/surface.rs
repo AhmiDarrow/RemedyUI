@@ -14,6 +14,8 @@ pub enum ImageKey {
     Image(u64),
     /// A rasterized glyph, by the painter's id for it.
     Glyph(u64),
+    /// A video frame converted on the CPU: its stream and the frame's id.
+    Video(u64, u64),
 }
 
 /// A vello-style drawing surface. `vello_cpu`'s `RenderContext` is one; the GPU renderer's
@@ -53,6 +55,13 @@ pub trait Surface {
     /// A paint source for premultiplied `pixmap`, `filtered` when it will be sampled
     /// bilinearly. `None` when the surface cannot hold it (it is then skipped).
     fn image_source(&mut self, key: ImageKey, pixmap: &Arc<Pixmap>, filtered: bool) -> Option<ImageSource>;
+    /// A paint source for a video frame when the surface converts frames itself (the GPU
+    /// renderer, on the GPU), sized `frame.width` × `frame.height`. `None` lets the painter
+    /// convert it on the CPU and hand it over as an image.
+    fn video_source(&mut self, frame: &remedy_ui_paint::VideoFrame) -> Option<ImageSource> {
+        let _ = frame;
+        None
+    }
 }
 
 impl Surface for RenderContext {

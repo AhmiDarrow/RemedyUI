@@ -38,6 +38,8 @@ image = ["dep:remedy-ui-media-image"]
 svg = ["image", "dep:remedy-ui-media-svg"]
 ## Animated images (`remedy_ui::anim`): GIF, APNG and animated WebP, played while seen.
 anim = ["image", "dep:remedy-ui-media-anim"]
+## Video surfaces (`remedy_ui::video`): frames from any thread, converted on the GPU.
+video = ["dep:remedy-ui-media-video"]
 ## Rich documents (`remedy_ui::rich`): Markdown, the rich text editor, the find bar.
 rich = ["widgets", "dep:remedy-ui-doc-rich"]
 ## Spell checking (`remedy_ui::spell`): the platform's checker or Hunspell dictionaries.
@@ -51,7 +53,7 @@ update = ["widgets", "dep:remedy-ui-services-update"]
 ## The in-memory host for tests (`remedy_ui::headless`).
 headless = ["dep:remedy-ui-bridge-headless"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "rich", "spell", "board", "i18n", "update", "headless"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "rich", "spell", "board", "i18n", "update", "headless"]
 
 [dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
@@ -71,6 +73,7 @@ remedy-ui-widgets-data = { path = "../remedy-ui-widgets-data", version = "0.1.0"
 remedy-ui-viz = { path = "../remedy-ui-viz", version = "0.1.0", optional = true }
 remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "0.1.0", optional = true }
 remedy-ui-media-svg = { path = "../remedy-ui-media-svg", version = "0.1.0", optional = true }
+remedy-ui-media-video = { path = "../remedy-ui-media-video", version = "0.1.0", optional = true }
 remedy-ui-media-anim = { path = "../remedy-ui-media-anim", version = "0.1.0", optional = true }
 remedy-ui-doc-rich = { path = "../remedy-ui-doc-rich", version = "0.1.0", optional = true }
 remedy-ui-services-spell = { path = "../remedy-ui-services-spell", version = "0.1.0", optional = true }

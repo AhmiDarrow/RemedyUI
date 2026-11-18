@@ -18,8 +18,10 @@
 //! ```
 
 mod path;
+mod video;
 
 pub use path::{Path, PathEl, Stroke, StrokeCap, StrokeJoin};
+pub use video::{Coefficients, PixelFormat, Plane, VideoFrame, YuvMatrix};
 
 use std::sync::Arc;
 
@@ -294,6 +296,15 @@ pub enum Item {
         /// Sampling.
         sampling: Sampling,
     },
+    /// A video frame placed into `rect`, converted to the screen's colors by the renderer.
+    Video {
+        /// The frame.
+        frame: VideoFrame,
+        /// Where it goes.
+        rect: Rect,
+        /// Rounded corners.
+        radii: CornerRadii,
+    },
     /// Starts clipping to a rounded rectangle.
     PushClip {
         /// The clip.
@@ -394,9 +405,10 @@ impl DisplayList {
         for item in &self.items {
             let t = transforms.last().copied().unwrap_or(Affine::IDENTITY);
             let r = match item {
-                Item::FillRect { rect, .. } | Item::Border { rect, .. } | Item::Image { rect, .. } => {
-                    Some(*rect)
-                }
+                Item::FillRect { rect, .. }
+                | Item::Border { rect, .. }
+                | Item::Image { rect, .. }
+                | Item::Video { rect, .. } => Some(*rect),
                 Item::Shadow { rect, offset, blur, spread, .. } => {
                     let grow = blur * 1.5 + spread;
                     Some(

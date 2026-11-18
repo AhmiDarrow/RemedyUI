@@ -85,6 +85,13 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         StylePatch { background: Some(d.selected), ..Default::default() },
     );
     rule("board_item", None, States::DRAGGING, StylePatch { opacity: Some(0.6), ..Default::default() });
+    // Video: bars where a picture's shape differs from its place are black, as on every screen.
+    rule(
+        "video_surface",
+        None,
+        States::NONE,
+        StylePatch { background: Some(Color::BLACK), ..Default::default() },
+    );
     // Documents: quotes get a bar, code a box, tables lines between cells.
     rule("md_quote_bar", None, States::NONE, StylePatch { background: Some(line), ..Default::default() });
     rule("md_quote_body", None, States::NONE, StylePatch { foreground: Some(d.muted), ..Default::default() });

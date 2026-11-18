@@ -338,3 +338,105 @@ fn uploads_of_images_the_app_drops_are_freed() {
     let _ = g.render(&list, 80, 40, 1.0, Color::WHITE);
     assert_eq!(g.image_bytes(), with_both - 300 * 200 * 4, "no new page: the empty one is reused");
 }
+
+/// A 64 × 48 frame: a horizontal ramp of luma with four colored quarters of chroma.
+fn video_frame(stream: u64, id: u64, format: remedy_ui_paint::PixelFormat) -> remedy_ui_paint::VideoFrame {
+    use remedy_ui_paint::{PixelFormat, VideoFrame, YuvMatrix};
+    let (w, h) = (64u32, 48u32);
+    let (cw, ch) = (w / 2, h / 2);
+    let mut data: Vec<u8> = (0..h).flat_map(|_| (0..w).map(|x| (16 + x * 3) as u8)).collect();
+    let chroma = |x: u32, y: u32| -> (u8, u8) {
+        match (x < cw / 2, y < ch / 2) {
+            (true, true) => (90, 240),
+            (false, true) => (54, 34),
+            (true, false) => (240, 110),
+            (false, false) => (128, 128),
+        }
+    };
+    match format {
+        PixelFormat::Nv12 => {
+            for y in 0..ch {
+                for x in 0..cw {
+                    let (u, v) = chroma(x, y);
+                    data.extend([u, v]);
+                }
+            }
+        }
+        PixelFormat::I420 => {
+            for plane in 0..2 {
+                for y in 0..ch {
+                    for x in 0..cw {
+                        let (u, v) = chroma(x, y);
+                        data.push(if plane == 0 { u } else { v });
+                    }
+                }
+            }
+        }
+        PixelFormat::Rgba => {
+            data = (0..w * h).flat_map(|i| [(i % 256) as u8, 40, 200, 255]).collect();
+        }
+    }
+    let mut f = VideoFrame::packed(stream, id, w, h, format, data.into());
+    f.matrix = YuvMatrix::Bt709;
+    f
+}
+
+#[test]
+fn video_frames_convert_on_the_gpu_like_the_reference() {
+    use remedy_ui_paint::PixelFormat;
+    let mut g = gpu();
+    let mut c = CpuRenderer::new();
+    for (stream, format) in [(1, PixelFormat::Nv12), (2, PixelFormat::I420), (3, PixelFormat::Rgba)] {
+        let frame = video_frame(stream, 1, format);
+        let mut list = DisplayList::new();
+        // Drawn at its own size, so every pixel is one sample of the frame.
+        list.push(Item::Video {
+            frame: frame.clone(),
+            rect: Rect::new(0.0, 0.0, 64.0, 48.0),
+            radii: CornerRadii::ZERO,
+        });
+        let (Ok(cpu), Ok(gpu)) =
+            (c.render(&list, 64, 48, 1.0, Color::WHITE), g.render(&list, 64, 48, 1.0, Color::WHITE))
+        else {
+            unreachable!("both render")
+        };
+        let reference = frame.to_rgba().unwrap_or_default();
+        let as_frame = Frame { width: 64, height: 48, pixels: reference };
+        assert_eq!(differing(&cpu, &as_frame, 2), 0, "{format:?}: the CPU renderer shows the conversion");
+        assert_eq!(differing(&gpu, &as_frame, 2), 0, "{format:?}: the GPU converts to the same colors");
+    }
+}
+
+#[test]
+fn a_streams_texture_is_reused_per_frame_and_freed_with_its_frames() {
+    use remedy_ui_paint::PixelFormat;
+    let mut g = gpu();
+    let before = g.image_bytes();
+    let draw = |g: &mut GpuRenderer, f: &remedy_ui_paint::VideoFrame| {
+        let mut list = DisplayList::new();
+        list.push(Item::Video {
+            frame: f.clone(),
+            rect: Rect::new(0.0, 0.0, 64.0, 48.0),
+            radii: CornerRadii::ZERO,
+        });
+        g.render(&list, 64, 48, 1.0, Color::BLACK)
+    };
+    let f1 = video_frame(7, 1, PixelFormat::Nv12);
+    let first = draw(&mut g, &f1);
+    let held = g.image_bytes();
+    assert!(held > before);
+    // Next frame of the same stream: the same textures, new colors.
+    let mut f2 = video_frame(7, 2, PixelFormat::Nv12);
+    if let Some(y) = std::sync::Arc::get_mut(&mut f2.data) {
+        y.iter_mut().take(64 * 48).for_each(|b| *b = 235);
+    }
+    let second = draw(&mut g, &f2);
+    assert_eq!(g.image_bytes(), held, "no new textures for a new frame");
+    let (Ok(a), Ok(b)) = (first, second) else { unreachable!("both draw") };
+    assert!(differing(&a, &b, 8) > 0, "the new frame shows");
+    // When the stream's frames are gone, so are its textures.
+    drop(f1);
+    drop(f2);
+    let _ = g.render(&DisplayList::new(), 64, 48, 1.0, Color::BLACK);
+    assert_eq!(g.image_bytes(), before);
+}
