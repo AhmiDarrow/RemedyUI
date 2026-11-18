@@ -336,26 +336,7 @@ impl PageView {
         if gesture {
             self.freeze();
         }
-        {
-            let mut st = self.0.st.borrow_mut();
-            let anchor = anchor.unwrap_or(Point::new(st.viewport.width / 2.0, st.viewport.height / 2.0));
-            let vw = st.viewport.width;
-            let before = st.eff_zoom();
-            let at = Point::new(st.scroll.x + anchor.x, st.scroll.y + anchor.y);
-            let hit = st.layout.page_at(at, before, vw);
-            let old_level = level_of(before * st.dpr);
-            st.zoom = zoom;
-            st.fit = fit;
-            let after = st.eff_zoom();
-            if let Some((page, p)) = hit {
-                let c = st.layout.page_transform(page, after, vw).apply(p);
-                st.scroll = Vec2::new(c.x - anchor.x, c.y - anchor.y);
-            }
-            if level_of(after * st.dpr) != old_level {
-                st.moved_at = Some(Instant::now());
-            }
-            st.clamp();
-        }
+        self.0.st.borrow_mut().apply_zoom(zoom, anchor, fit);
         self.settle_later();
         self.changed();
     }
@@ -1610,8 +1591,20 @@ impl PageView {
 
     pub(crate) fn paint(&self, cx: &mut PaintCx<'_>) {
         let mut st = self.0.st.borrow_mut();
+        let resized = st.viewport != cx.size;
         st.viewport = cx.size;
         st.dpr = if cx.scale > 0.0 { cx.scale } else { 1.0 };
+        // A view that learns its size in this frame fits before it chooses tiles: tiles asked
+        // for at the zoom it is about to leave would be wasted work (the resize callback, which
+        // publishes the fitted zoom, runs only after the frame).
+        let fit = st.fit;
+        if resized && fit != Fit::Free {
+            let page = self.0.page.get_untracked().unwrap_or(0);
+            if let Some(z) = st.layout.fit_zoom(fit, st.viewport, page).filter(|z| z.is_finite()) {
+                let top = Point::new(st.viewport.width / 2.0, 0.0);
+                st.apply_zoom(z.clamp(MIN_ZOOM, MAX_ZOOM), Some(top), fit);
+            }
+        }
         st.clamp();
         let colors = &cx.theme.colors;
         let tokens = cx.theme.derive();
@@ -1892,6 +1885,28 @@ impl State {
 
     fn tile_edge(&self) -> u32 {
         remedy_ui_compositor::tile_pixels(self.dpr)
+    }
+
+    /// Sets the zoom keeping what is at `anchor` (the view's own logical pixels; `None`: its
+    /// middle) where it is, and how the zoom follows the view.
+    fn apply_zoom(&mut self, zoom: f32, anchor: Option<Point>, fit: Fit) {
+        let anchor = anchor.unwrap_or(Point::new(self.viewport.width / 2.0, self.viewport.height / 2.0));
+        let vw = self.viewport.width;
+        let before = self.eff_zoom();
+        let at = Point::new(self.scroll.x + anchor.x, self.scroll.y + anchor.y);
+        let hit = self.layout.page_at(at, before, vw);
+        let old_level = level_of(before * self.dpr);
+        self.zoom = zoom;
+        self.fit = fit;
+        let after = self.eff_zoom();
+        if let Some((page, p)) = hit {
+            let c = self.layout.page_transform(page, after, vw).apply(p);
+            self.scroll = Vec2::new(c.x - anchor.x, c.y - anchor.y);
+        }
+        if level_of(after * self.dpr) != old_level {
+            self.moved_at = Some(Instant::now());
+        }
+        self.clamp();
     }
 
     fn relayout(&mut self, sizes: &[Size]) {
