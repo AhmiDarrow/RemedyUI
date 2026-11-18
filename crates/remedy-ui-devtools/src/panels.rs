@@ -1,5 +1,5 @@
 //! The inspector panel's pages beyond the element inspector: signals, accessibility,
-//! performance and remote devtools.
+//! performance, remote devtools and caught failures.
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -18,7 +18,7 @@ use crate::remote::{
 };
 
 /// The panel's pages, in order.
-pub const TABS: [&str; 5] = ["Inspect", "Signals", "Accessibility", "Performance", "Remote"];
+pub const TABS: [&str; 6] = ["Inspect", "Signals", "Accessibility", "Performance", "Remote", "Failures"];
 
 /// How long a remote request may take before the panel reports the app as unreachable.
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -72,6 +72,7 @@ pub(crate) fn pages(ui: &Ui, insp: &Inspector) -> El {
                 2 => Some(accessibility_page(&u2, &i2)),
                 3 => Some(performance_page(&u2, &i2)),
                 4 => Some(remote_page(&u2, &i2)),
+                5 => Some(failures_page(&u2, &i2)),
                 _ => None,
             };
             if let Some(p) = page {
@@ -273,6 +274,62 @@ fn accessibility_page(ui: &Ui, insp: &Inspector) -> El {
         .child(w::section(ui, "Out of a screen reader's reach").child(lost))
 }
 
+/// What the window's error boundaries caught: each failure's message, what was running,
+/// the failing element's path and where it was made in the source, newest first, with a
+/// retry for boundaries still showing their fallback, and a way to clear the list.
+fn failures_page(ui: &Ui, insp: &Inspector) -> El {
+    let unit = ui.theme().spacing.unit;
+    let target = insp.0.target.clone();
+    let list = w::column(ui).gap(unit * 2.0).fill_width();
+    let (l2, u2, tg) = (list.clone(), ui.clone(), target.clone());
+    let list = list.bind(move || {
+        let failures = tg.failures();
+        // Whether each boundary still shows its fallback (read here, so a retry refreshes).
+        let failed: Vec<bool> =
+            failures.iter().map(|f| f.boundary.is_some_and(|b| tg.is_failed(b))).collect();
+        untrack(|| {
+            l2.clear();
+            let mut col = l2.clone();
+            if failures.is_empty() {
+                col = col.child(note(&u2, "Nothing has failed in this window."));
+            }
+            for (f, still) in failures.iter().zip(failed).rev() {
+                let phase = f.phase.describe();
+                let at = f
+                    .location
+                    .map_or_else(|| "unknown source".to_owned(), |l| format!("{}:{}", l.file(), l.line()));
+                let mut card = w::column(&u2)
+                    .gap(unit)
+                    .fill_width()
+                    .child(warning(&u2, format!("⚠ {}", f.message)))
+                    .child(note(&u2, format!("Failed {phase} at {}", f.element_path)))
+                    .child(note(&u2, format!("Built at {at}")));
+                card = match f.boundary {
+                    Some(b) if still => {
+                        let tg2 = tg.clone();
+                        card.child(w::button(&u2, "Retry", move || {
+                            let _ = tg2.retry_failure(b);
+                        }))
+                    }
+                    Some(_) => card.child(note(&u2, "Its boundary has built its content again.")),
+                    None => {
+                        card.child(note(&u2, "No error boundary was above it; it was logged and contained."))
+                    }
+                };
+                col = col.child(card);
+            }
+            let _ = col;
+        });
+    });
+    let tg3 = target.clone();
+    w::column(ui)
+        .gap(unit * 4.0)
+        .fill_width()
+        .child(note(ui, "Failures this window's error boundaries caught, newest first."))
+        .child(w::button(ui, "Clear failures", move || tg3.clear_failures()))
+        .child(w::section(ui, "Failures").child(list))
+}
+
 fn performance_page(ui: &Ui, insp: &Inspector) -> El {
     let unit = ui.theme().spacing.unit;
     let rec = match &insp.0.recorder {
@@ -357,7 +414,7 @@ fn performance_page(ui: &Ui, insp: &Inspector) -> El {
             }));
         }
     });
-    let shown = note(ui, "").text_dyn(move || status.get());
+    let shown = note(ui, "").text(move || status.get());
     w::column(ui)
         .gap(unit * 4.0)
         .fill_width()
@@ -549,7 +606,7 @@ fn remote_page(ui: &Ui, insp: &Inspector) -> El {
         }
         s3.fetch(reqs);
     });
-    let status = note(ui, "").text_dyn({
+    let status = note(ui, "").text({
         let s = st.status;
         move || s.get()
     });

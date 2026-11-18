@@ -487,7 +487,7 @@ impl Terminal {
         let _ = scroller.on_scroll(move |o| t.scrolled(o.y));
         let announce = self.0.announce;
         let _ = announcer
-            .semantics_dyn(move || Semantics::new(Role::Status).live(Live::Polite).label(announce.get()));
+            .semantics(move || Semantics::new(Role::Status).live(Live::Polite).label(announce.get()));
         let (t1, t2, t3, t4, t5, t6) =
             (self.clone(), self.clone(), self.clone(), self.clone(), self.clone(), self.clone());
         let caret = move || t5.caret_rect();
@@ -498,7 +498,7 @@ impl Terminal {
             .on_wheel(move |e| t3.wheel(e))
             .on_focus_change(move |f| t4.focus(f))
             .on_text_input(caret, move |i| t6.text_input(i))
-            .semantics_dyn(move || {
+            .semantics(move || {
                 let name = title.with(|t| if t.is_empty() { label.clone() } else { format!("{label}: {t}") });
                 Semantics::new(Role::MultilineTextInput).label(name).value(screen.get())
             });
@@ -591,7 +591,7 @@ impl Terminal {
         self.to_bottom();
     }
 
-    /// The selected text, wrapped lines joined and trailing blanks left out.
+    /// The selected text, wrapped lines joined, trailing blanks and trailing blank rows left out.
     pub fn selected_text(&self) -> Option<String> {
         let sel = self.0.st.borrow().sel?;
         let ((sk, sc), (ek, ec)) = self.sel_bounds(sel);
@@ -607,6 +607,8 @@ impl Terminal {
                 out.push('\n');
             }
         }
+        // Blank rows at the end of the selection are no text.
+        out.truncate(out.trim_end_matches('\n').len());
         (!out.is_empty()).then_some(out)
     }
 
@@ -775,7 +777,7 @@ impl Terminal {
                 title: std::mem::take(&mut s.out.title).then(|| s.title.clone()),
                 replies: std::mem::take(&mut s.out.replies),
                 bells: std::mem::take(&mut s.out.bells),
-                clipboard: s.out.clipboard.take(),
+                clipboard: std::mem::take(&mut s.out.clipboard).into(),
                 colors: std::mem::take(&mut s.out.colors).then(|| {
                     let mut v: Vec<(u16, (u8, u8, u8))> = s.overrides.iter().map(|(k, c)| (*k, *c)).collect();
                     v.sort_unstable();
@@ -879,7 +881,7 @@ impl Terminal {
                 b();
             }
         }
-        if let Some(text) = taken.clipboard {
+        for text in taken.clipboard {
             let consent = self.0.cb.borrow().clipboard.clone();
             if consent.is_some_and(|f| f(&text)) {
                 ui.copy_text(text);
@@ -1795,7 +1797,7 @@ struct Taken {
     title: Option<String>,
     replies: Vec<u8>,
     bells: u32,
-    clipboard: Option<String>,
+    clipboard: Vec<String>,
     colors: Option<ColorChanges>,
     cwd: Option<Option<String>>,
     columns: bool,

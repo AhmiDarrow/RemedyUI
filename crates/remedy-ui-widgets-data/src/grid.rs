@@ -259,7 +259,7 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                 e2.state(States::FOCUS_VISIBLE, cursor);
             });
             let (sel4, k9) = (sel.clone(), key(item));
-            el.semantics_dyn(move || {
+            el.semantics(move || {
                 Semantics::new(Role::ListItem)
                     .set_position(i + 1, total)
                     .selected(sel4.contains(&k9))
@@ -545,7 +545,7 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .on_key(on_key)
         .child(body)
         .child(watcher)
-        .semantics_dyn(move || {
+        .semantics(move || {
             Semantics::new(Role::List)
                 .label(label.clone())
                 .description(format!("{} items", n_items.with(Vec::len)))

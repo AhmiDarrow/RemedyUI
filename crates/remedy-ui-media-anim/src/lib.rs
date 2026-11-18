@@ -168,7 +168,7 @@ fn play_button(ui: &Ui, alt: &str, play: Signal<bool>) -> El {
         })
         .child(glyph)
         .on_click(move || play.update(|p| *p = !*p))
-        .semantics_dyn(move || {
+        .semantics(move || {
             let verb = if play.get() { "Pause animation" } else { "Play animation" };
             let label = if name.is_empty() { verb.to_owned() } else { format!("{verb}: {name}") };
             Semantics::new(Role::Button).label(label).action(Action::Click)

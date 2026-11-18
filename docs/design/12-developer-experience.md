@@ -8,23 +8,26 @@ An engine is only as good as the apps people manage to build on it. RemedyUI sho
 - **One obvious way.**
   - A widget is a lowercase function: `button`, `text`, `row`.
   - A property is a builder method named after what it is: `.padding()`, `.enabled()`, `.on_click()`.
-  - Every property accepts a constant, a signal or a closure (`impl IntoProp<T>`), so making something reactive never means changing its shape.
-- **Names read like the UI.** It is `show(cond, || ...)`, not `ConditionalRenderNode`. Events are `on_<event>`, and commands are verbs.
-- **Typed tokens.** `Space::S3`, `Radius::R2`, `TextStyle::Body`, `Color::Accent`. Autocomplete shows the design system, and typos fail to compile.
+  - Every property accepts a constant, a signal or a closure (`impl IntoProp<T>`), so making something reactive never means changing its shape. `.text(name)`, `.text(name_signal)` and `.text(move || format!(...))` are the same call; setting a property again replaces its binding. The core widgets' labels and texts take the same. (`text_dyn` stays, deprecated, for apps written before.)
+- **Names read like the UI.** It is `show(ui, cond, || ...)`, not `ConditionalRenderNode`. Events are `on_<event>`, and commands are verbs.
+- **Typed tokens.** `Space::S3`, `Radius::R2`, `TextRole::Body`, `ColorRole::Accent`. Autocomplete shows the design system, and typos fail to compile. (The text and color tokens are `TextRole` and `ColorRole` because `TextStyle` and `Color` already name the text engine's style and the color value.)
 - **No hidden globals.** Everything flows through context, so tests and previews can supply their own theme, locale, clock and services.
 - **Errors at compile time where possible.** Required properties are part of the constructor. Invalid combinations are separate types: a `slider` cannot take a `placeholder`.
 
 ```rust
-fn unlock_screen(vault: Vault) -> impl Element {
-    let password = Signal::new(SecretString::new());
+fn unlock_screen(ui: &Ui, vault: Vault) -> El {
     let error = Signal::new(None::<String>);
-    column().gap(Space::S3).align(Center).max_width(360.0)
-        .child(text(t("Unlock vault")).style(TextStyle::Title))
-        .child(secret_input(password).label(t("Master password")).autofocus())
-        .child(show(move || error.get().is_some(), move || text(error.get().unwrap_or_default()).color(Color::Danger)))
-        .child(button(t("Unlock")).variant(Variant::Primary).on_click(move || {
-            if let Err(e) = vault.unlock(password.take()) { error.set(Some(e.to_string())) }
+    let password = secret_input(ui, t("Master password"));
+    let ui2 = ui.clone();
+    column(ui).gap(Space::S3).align(Align::Center)
+        .child(text(ui, t("Unlock vault")).style(Style::new().text(TextRole::Title)))
+        .child(password.el())
+        .child(show(ui, move || error.get().is_some(), move || {
+            text(&ui2, move || error.get().unwrap_or_default()).style(Style::new().foreground(ColorRole::Danger))
         }))
+        .child(button(ui, t("Unlock"), move || {
+            if let Err(e) = vault.unlock(password.take_secret()) { error.set(Some(e.to_string())) }
+        }).variant("primary"))
 }
 ```
 
@@ -39,8 +42,10 @@ fn unlock_screen(vault: Vault) -> impl Element {
 
 ```rust
 #[preview(theme = "forest", size = (400, 600), locales = ["en", "ar"])]
-fn unlock_screen_preview() -> impl Element { unlock_screen(Vault::fake_locked()) }
+fn unlock_screen_preview(ui: &Ui) -> El { unlock_screen(ui, Vault::fake_locked()) }
 ```
+
+- **How previews register.** `#[preview]` keeps the function and adds a constant beside it (`UNLOCK_SCREEN_PREVIEW`, a `PreviewSpec`) and, under `cfg(test)`, its golden-image test. `#[previews]` on a module holding preview functions adds `all()`, the list the gallery shows (`show_previews(previews::all())`). Registration across a whole program would need linker sections, which every crate's `unsafe_code` lint forbids (and which some targets lack), so a module lists its own previews instead.
 
 - **Where previews show.** Previews render in the devtools window, and in IDEs through a small language-server extension. They update on save.
 - **Variations.** A preview can list themes, locales (including an RTL and a pseudo-localized long-text locale), text scales and window sizes, and shows all variations side by side.
@@ -57,7 +62,7 @@ fn unlock_screen_preview() -> impl Element { unlock_screen(Vault::fake_locked())
 ## Diagnostics
 
 - **Misuse is caught early, with the fix.** Reading a signal outside a tracking scope where it would never update; a list without keys; an unbounded size inside a scroll view; a button with no accessible name. In debug builds each gives a clear message with the source location and the suggested change.
-- **Panics are contained, with context.** A panicking handler shows the element path, the command or event, and the source location in the log and the inspector. The rest of the app keeps running.
+- **Panics are contained, with context.** A panicking handler, binding, effect or painter shows the element path, what was running, and the source location in the log and the inspector (`Ui::failures`). The rest of the app keeps running.
 - **Release builds stay quiet**, logging each problem once, with no content (see [08](08-security-and-privacy.md)).
 
 ## Testing

@@ -184,7 +184,7 @@ pub fn stepper_flow(
                         go(i);
                     }
                 })
-                .semantics_dyn({
+                .semantics({
                     let steps3 = steps.clone();
                     move || {
                         let cur = at();

@@ -15,6 +15,7 @@ categories.workspace = true
 png = { version = "=0.18.1" }
 remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "0.1.0" }
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
+remedy-ui-macros = { path = "../remedy-ui-macros", version = "0.1.0" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "0.1.0" }
 remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }

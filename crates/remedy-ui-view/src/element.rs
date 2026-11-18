@@ -16,6 +16,7 @@ use remedy_ui_tree::{Dirty, ElementId, HitMode, Phase, Tree};
 use crate::Request;
 use crate::events::Click;
 use crate::field::Field;
+use crate::prop::{IntoProp, Prop};
 
 /// What a custom painter gets: the list to record into (local coordinates, origin at the
 /// element's top-left), the element's size, its resolved style and the theme.
@@ -36,6 +37,13 @@ pub struct PaintCx<'a> {
     pub(crate) next_frame: bool,
     /// The element lays out right to left (mirror what is directional).
     pub rtl: bool,
+    /// The frame's time: the predicted presentation time of the frame being drawn, on the
+    /// window's frame clock ([`Ui::frame_time`]). A painter that animates samples it and calls
+    /// [`PaintCx::request_next_frame`] while it moves, so it needs no timer.
+    pub time: std::time::Duration,
+    /// The window asks for reduced motion: a painter that animates draws a still frame
+    /// (and does not ask for the next one).
+    pub reduced_motion: bool,
     /// The window's text engine, for painters that place glyphs themselves.
     pub(crate) engine: &'a mut TextEngine,
 }
@@ -150,6 +158,14 @@ pub(crate) fn container(rtl: bool) -> remedy_ui_text::Direction {
 }
 
 impl TextSlot {
+    /// The text as shown: pseudo-localized when a pseudo-locale is on and it is not data.
+    pub(crate) fn shown(&self) -> RichText {
+        match self.pseudo.filter(|_| !self.data) {
+            Some(p) => p.apply(&self.text),
+            None => self.text.clone(),
+        }
+    }
+
     pub(crate) fn paragraph(&mut self, engine: &mut TextEngine, max_width: Option<f32>) -> Rc<Paragraph> {
         let max_width = if self.wrap { max_width } else { None };
         let key = (max_width.map(f32::to_bits), self.rtl);
@@ -361,6 +377,25 @@ pub(crate) struct ElData {
     pub(crate) chunk: Option<(Size, Rc<DisplayList>)>,
     /// Bindings owned by this element, disposed with it.
     pub(crate) effects: Vec<Effect>,
+    /// Bindings of properties set by name ([`crate::IntoProp`]): setting the property again
+    /// replaces its binding.
+    pub(crate) prop_bindings: Vec<(&'static str, Effect)>,
+    /// Its own style as given, tokens and all: constants merged in order, then the bound
+    /// layer. `local` is this resolved under the theme.
+    pub(crate) style_src: remedy_ui_style::Style,
+    pub(crate) style_bound: Option<remedy_ui_style::Style>,
+    /// Layout lengths given as tokens, resolved again when the theme changes.
+    pub(crate) layout_tokens: Vec<(crate::tokens::LayoutField, remedy_ui_style::Dp)>,
+    /// Values animations hold now, over its own style.
+    pub(crate) anim_style: StylePatch,
+    /// Animations running on it.
+    pub(crate) anims: Vec<crate::motion::Running>,
+    /// Its animated offset and scale (about its center), drawn without relayout.
+    pub(crate) shift: (Vec2, f32),
+    /// Where it was before a layout change it should glide through ([`El::flip`]), and how.
+    pub(crate) flip: Option<(remedy_ui_core::Point, remedy_ui_motion::Motion)>,
+    /// Does what assistive technology asks of it ([`El::on_accessibility_action`]).
+    pub(crate) a11y_action: Option<Rc<dyn Fn(remedy_ui_a11y::Action) -> bool>>,
     /// Where the element was built (the first caller outside `#[track_caller]` builders).
     pub(crate) created_at: Option<&'static std::panic::Location<'static>>,
 }
@@ -458,6 +493,24 @@ pub(crate) struct Inner {
     pub(crate) next_observer: u64,
     /// What the last frame did.
     pub(crate) last_stats: crate::frame::FrameStats,
+    /// The frame clock: set by the runner each frame, or wall time since the view was made.
+    pub(crate) clock: crate::motion::Clock,
+    /// Error boundaries ([`crate::catch_errors`]) by element, with the failure each holds.
+    pub(crate) boundaries: HashMap<ElementId, remedy_ui_reactive::Signal<Option<crate::CaughtError>>>,
+    /// Failures caught in this window, oldest first, for the inspector.
+    pub(crate) failures: Vec<crate::CaughtError>,
+    /// Changes whenever the failure list does (readers of [`Ui::failures`] follow it).
+    pub(crate) failures_rev: remedy_ui_reactive::Signal<u64>,
+    /// The app's error hook ([`Ui::set_error_hook`]).
+    pub(crate) error_hook: Option<crate::flow::ErrorHook>,
+    /// This view's handler for effect panics in the reactive runtime.
+    pub(crate) panic_handler: u64,
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        remedy_ui_reactive::remove_panic_handler(self.panic_handler);
+    }
 }
 
 /// One window's UI. Cloning gives another handle to the same UI.
@@ -496,6 +549,9 @@ impl Ui {
             El { ui: self.clone(), id: child }.remove();
         }
         let _ = self.tree().clear_handlers(root);
+        self.tree().set_failure_handler(None);
+        let handler = std::mem::take(&mut self.0.borrow_mut().panic_handler);
+        remedy_ui_reactive::remove_panic_handler(handler);
         let (effects, removed, watch) = {
             let mut i = self.0.borrow_mut();
             i.timers.clear();
@@ -635,7 +691,14 @@ impl Ui {
             dirty_observers: Vec::new(),
             next_observer: 1,
             last_stats: crate::frame::FrameStats::default(),
+            clock: crate::motion::Clock::default(),
+            boundaries: HashMap::new(),
+            failures: Vec::new(),
+            failures_rev: remedy_ui_reactive::Signal::new(0),
+            error_hook: None,
+            panic_handler: 0,
         })));
+        crate::flow::install_failure_handling(&ui);
         // The window holds the app's content, then a click-through layer for overlays
         // (dialogs, menus, toasts) that always draws above it.
         let content = ui.el("content").layout(|l| {
@@ -759,6 +822,11 @@ impl Ui {
                     let _ = self.0.borrow_mut().layout.mark_dirty(n);
                 }
                 self.mark(id, Dirty::LAYOUT | Dirty::PAINT);
+            }
+            // Screen readers and the inspector get the pseudo-localized strings too.
+            let ids: Vec<ElementId> = self.0.borrow().els.keys().copied().collect();
+            for id in ids {
+                self.mark(id, Dirty::SEMANTICS);
             }
         }
         let l = self.0.borrow().locale;
@@ -933,7 +1001,12 @@ impl Ui {
     /// A new element styled as `widget`. It shows once added to a parent.
     #[track_caller]
     pub fn el(&self, widget: &'static str) -> El {
-        let at = std::panic::Location::caller();
+        self.el_at(widget, std::panic::Location::caller())
+    }
+
+    /// A new element styled as `widget`, built at `at` in the source (for builders that
+    /// make an element later than the call that asked for it).
+    pub fn el_at(&self, widget: &'static str, at: &'static std::panic::Location<'static>) -> El {
         let mut i = self.0.borrow_mut();
         let id = i.tree.create(widget);
         let style = LayoutStyle::default();
@@ -994,8 +1067,23 @@ impl Ui {
         i.theme = theme;
         i.sheet = sheet;
         let ids: Vec<ElementId> = i.els.keys().copied().collect();
+        // Tokens resolve again: an element given `Space::S3` gets three units of this theme.
+        let theme = i.theme.clone();
+        let mut relayout = Vec::new();
+        for (id, d) in &mut i.els {
+            if !d.style_src.is_plain() || d.style_bound.as_ref().is_some_and(|s| !s.is_plain()) {
+                d.local = crate::tokens::resolve_local(d, &theme);
+            }
+            if !d.layout_tokens.is_empty() {
+                crate::tokens::apply_layout_tokens(d, &theme);
+                relayout.push(*id);
+            }
+        }
         for id in ids {
             i.tree.mark(id, Dirty::STYLE);
+        }
+        for id in relayout {
+            i.tree.mark(id, Dirty::LAYOUT);
         }
     }
 
@@ -1102,6 +1190,12 @@ impl Ui {
             return false;
         };
         let el = El { ui: self.clone(), id };
+        let own = self.0.borrow().els.get(&id).and_then(|d| d.a11y_action.clone());
+        if let Some(f) = own
+            && remedy_ui_reactive::batch(|| f(action))
+        {
+            return true;
+        }
         let tree = self.tree();
         let arrow = |k: remedy_ui_input::Key| {
             let e = remedy_ui_input::KeyEvent::press(k);
@@ -1331,6 +1425,15 @@ impl ElData {
             on_scroll: None,
             chunk: None,
             effects: Vec::new(),
+            prop_bindings: Vec::new(),
+            style_src: remedy_ui_style::Style::default(),
+            style_bound: None,
+            layout_tokens: Vec::new(),
+            anim_style: StylePatch::default(),
+            anims: Vec::new(),
+            shift: (Vec2::ZERO, 1.0),
+            flip: None,
+            a11y_action: None,
             created_at: None,
         }
     }
@@ -1367,15 +1470,27 @@ impl El {
     /// Like [`El::bind`], with a debug name devtools show for the binding ("text", "style").
     #[track_caller]
     pub fn bind_named(self, name: &'static str, f: impl FnMut() + 'static) -> Self {
-        let effect = Effect::new(f).named(name);
+        let effect = self.owned_effect(f).named(name);
         if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
             d.effects.push(effect);
         }
         self
     }
 
-    /// Adds a child at the end.
-    pub fn child(self, child: El) -> Self {
+    /// An effect owned by the element's scope (so it lives exactly as long as the element,
+    /// whatever was running when it was made), or by the current owner when the element has
+    /// no scope.
+    #[track_caller]
+    fn owned_effect(&self, f: impl FnMut() + 'static) -> Effect {
+        match self.scope() {
+            Some(s) => Effect::new_in(s.into(), f),
+            None => Effect::new(f),
+        }
+    }
+
+    /// Adds a child at the end: an element, or a builder that becomes one ([`crate::show`]).
+    pub fn child(self, child: impl Into<El>) -> Self {
+        let child: El = child.into();
         {
             let mut i = self.ui.0.borrow_mut();
             let _ = i.tree.append(self.id, child.id);
@@ -1453,6 +1568,7 @@ impl El {
                     removed.extend(d.removed);
                 }
                 i.scroll_offsets.remove(id);
+                i.boundaries.remove(id);
                 if i.text_sel.is_some_and(|s| s.anchor.0 == *id || s.focus.0 == *id) {
                     i.text_sel = None;
                     i.selecting = false;
@@ -1484,26 +1600,86 @@ impl El {
         }
     }
 
-    /// Sets the theme variant (`primary`, `danger`, …).
-    pub fn variant(self, variant: &'static str) -> Self {
-        self.edit(Dirty::STYLE, |d| d.variant = variant);
-        self
-    }
-
-    /// Overrides style properties on this element.
-    pub fn style(self, patch: StylePatch) -> Self {
-        self.edit(Dirty::STYLE, |d| d.local = d.local.merge(&patch));
-        self
-    }
-
-    /// Replaces the local style whenever `f`'s signals change.
+    /// Sets the theme variant (`primary`, `danger`, …), or binds it to a signal or closure.
     #[track_caller]
-    pub fn style_dyn(self, f: impl Fn() -> StylePatch + 'static) -> Self {
-        let me = self.clone();
-        self.bind_named("style", move || {
-            let p = f();
-            me.edit(Dirty::STYLE, |d| d.local = p);
-        })
+    pub fn variant(self, variant: impl IntoProp<&'static str>) -> Self {
+        self.prop("variant", variant, |me, v| me.edit(Dirty::STYLE, |d| d.variant = v));
+        self
+    }
+
+    /// Overrides style properties on this element: a [`StylePatch`] of values or a
+    /// [`remedy_ui_style::Style`] of tokens (`Style::new().radius(Radius::R3)`), which
+    /// resolve through the theme and again when it changes. Constants merge, later over
+    /// earlier; a signal or closure binds a layer over them that follows its signals.
+    #[track_caller]
+    pub fn style(self, style: impl IntoProp<remedy_ui_style::Style>) -> Self {
+        match style.into_prop() {
+            Prop::Value(s) => {
+                let theme = self.ui.0.borrow().theme.clone();
+                self.edit(Dirty::STYLE, |d| {
+                    d.style_src = d.style_src.merge(&s);
+                    d.local = crate::tokens::resolve_local(d, &theme);
+                });
+            }
+            Prop::Dynamic(f) => {
+                let me = self.clone();
+                self.set_binding("style", move || {
+                    let s = f();
+                    let theme = me.ui.0.borrow().theme.clone();
+                    me.edit(Dirty::STYLE, |d| {
+                        d.style_bound = Some(s);
+                        d.local = crate::tokens::resolve_local(d, &theme);
+                    });
+                });
+            }
+        }
+        self
+    }
+
+    /// Binds a property: runs `f` now and whenever its signals change, replacing the
+    /// binding this property had.
+    #[track_caller]
+    pub(crate) fn set_binding(&self, name: &'static str, f: impl FnMut() + 'static) {
+        self.drop_binding(name);
+        let effect = self.owned_effect(f).named(name);
+        if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
+            d.effects.push(effect);
+            d.prop_bindings.push((name, effect));
+        }
+    }
+
+    /// Sets a property from a value, signal or closure: `set` runs once for a value, and
+    /// for a signal or closure now and whenever what it reads changes. Setting the property
+    /// again replaces its binding. Widgets use it for their own properties.
+    #[track_caller]
+    pub fn prop<T: 'static>(
+        &self,
+        name: &'static str,
+        value: impl IntoProp<T>,
+        set: impl Fn(&El, T) + 'static,
+    ) {
+        match value.into_prop() {
+            Prop::Value(v) => {
+                self.drop_binding(name);
+                set(self, v);
+            }
+            Prop::Dynamic(f) => {
+                let me = self.clone();
+                self.set_binding(name, move || set(&me, f()));
+            }
+        }
+    }
+
+    fn drop_binding(&self, name: &'static str) {
+        let old = self.ui.0.borrow_mut().els.get_mut(&self.id).and_then(|d| {
+            let at = d.prop_bindings.iter().position(|(n, _)| *n == name)?;
+            let (_, e) = d.prop_bindings.remove(at);
+            d.effects.retain(|x| x.key() != e.key());
+            Some(e)
+        });
+        if let Some(e) = old {
+            e.dispose();
+        }
     }
 
     /// Edits the layout style.
@@ -1528,19 +1704,32 @@ impl El {
         })
     }
 
-    /// Space between children.
-    pub fn gap(self, gap: f32) -> Self {
-        self.layout(|l| l.gap = (gap, gap))
+    /// Space between children: logical pixels or a spacing token (`Space::S3`), which
+    /// follows the theme.
+    pub fn gap(self, gap: impl Into<remedy_ui_style::Dp>) -> Self {
+        self.layout_token(crate::tokens::LayoutField::Gap, gap.into())
     }
 
-    /// Fixed width in logical pixels.
-    pub fn width(self, w: f32) -> Self {
-        self.layout(|l| l.width = remedy_ui_layout::Length::Px(w))
+    /// Fixed width: logical pixels or a token.
+    pub fn width(self, w: impl Into<remedy_ui_style::Dp>) -> Self {
+        self.layout_token(crate::tokens::LayoutField::Width, w.into())
     }
 
-    /// Fixed height in logical pixels.
-    pub fn height(self, h: f32) -> Self {
-        self.layout(|l| l.height = remedy_ui_layout::Length::Px(h))
+    /// Fixed height: logical pixels or a token.
+    pub fn height(self, h: impl Into<remedy_ui_style::Dp>) -> Self {
+        self.layout_token(crate::tokens::LayoutField::Height, h.into())
+    }
+
+    fn layout_token(self, field: crate::tokens::LayoutField, v: remedy_ui_style::Dp) -> Self {
+        let theme = self.ui.0.borrow().theme.clone();
+        self.edit(Dirty::LAYOUT, |d| {
+            d.layout_tokens.retain(|(f, _)| *f != field);
+            if v.is_token() {
+                d.layout_tokens.push((field, v));
+            }
+            field.set(&mut d.layout, v.resolve(&theme));
+        });
+        self
     }
 
     /// Takes a share of the free space along the parent's axis.
@@ -1821,9 +2010,11 @@ impl El {
         })
     }
 
-    /// Padding (a style property, so themes can change it).
-    pub fn padding(self, p: Insets) -> Self {
-        self.style(StylePatch::default().padding(p))
+    /// Padding (a style property, so themes can change it): [`Insets`], a token on every
+    /// side (`Space::S3`), or a [`remedy_ui_style::Pad`] by side.
+    #[track_caller]
+    pub fn padding(self, p: impl Into<remedy_ui_style::Pad>) -> Self {
+        self.style(remedy_ui_style::Style::new().padding(p))
     }
 
     /// Sets a state flag (selected, checked, invalid, …).
@@ -1836,27 +2027,26 @@ impl El {
         self.ui.0.borrow().els.get(&self.id).map_or(States::NONE, |d| d.states)
     }
 
-    /// Disables the element: no pointer or keyboard interaction, and the disabled look.
-    pub fn disabled(self, on: bool) -> Self {
-        self.state(States::DISABLED, on);
-        let tree = self.ui.tree();
-        let _ = tree.set_hit_mode(self.id, if on { HitMode::None } else { HitMode::Normal });
+    /// Disables the element: no pointer or keyboard interaction, and the disabled look. A
+    /// signal or closure keeps it in step.
+    #[track_caller]
+    pub fn disabled(self, on: impl IntoProp<bool>) -> Self {
+        self.prop("disabled", on, |me, on| {
+            me.state(States::DISABLED, on);
+            let _ = me.ui.tree().set_hit_mode(me.id, if on { HitMode::None } else { HitMode::Normal });
+        });
         self
     }
 
-    /// Binds the disabled state to `f`.
+    /// Makes the element a text element showing `text`: a string or rich text, or a signal
+    /// or closure giving one, which keeps it current.
     #[track_caller]
-    pub fn disabled_dyn(self, f: impl Fn() -> bool + 'static) -> Self {
-        let me = self.clone();
-        self.bind_named("disabled", move || {
-            let on = f();
-            let _ = me.clone().disabled(on);
-        })
+    pub fn text(self, text: impl IntoProp<RichText>) -> Self {
+        self.prop("text", text, |me, t| me.set_text(t));
+        self
     }
 
-    /// Makes the element a text element showing `text`.
-    pub fn text(self, text: impl Into<RichText>) -> Self {
-        let text = text.into();
+    fn set_text(&self, text: RichText) {
         let engine_scale = self.ui.0.borrow().scale;
         let pseudo = self.ui.0.borrow().pseudo;
         let data_text = self.ui.0.borrow().els.get(&self.id).is_some_and(|d| d.data_text);
@@ -1893,18 +2083,14 @@ impl El {
             let _ = self.ui.0.borrow_mut().layout.mark_dirty(n);
         }
         self.ui.mark(self.id, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
-        crate::links::sync(&self);
-        self
+        crate::links::sync(self);
     }
 
     /// Shows the text `f` returns, updated when its signals change.
+    #[deprecated(note = "`text` takes a closure or signal itself: `.text(move || …)`")]
     #[track_caller]
     pub fn text_dyn(self, f: impl Fn() -> String + 'static) -> Self {
-        let me = self.clone();
-        self.bind_named("text", move || {
-            let t = f();
-            let _ = me.clone().text(RichText::plain(t));
-        })
+        self.text(f)
     }
 
     /// Marks the element's text as data (a date or number the locale formatted, a name, a
@@ -1970,11 +2156,16 @@ impl El {
         let f: Painter = Rc::new(f);
         let ui = Rc::downgrade(&self.ui.0);
         let id = self.id;
-        let watch = Reaction::new(move || {
+        let on_change = move || {
             if let Some(inner) = ui.upgrade() {
                 Ui(inner).mark(id, Dirty::PAINT);
             }
-        })
+        };
+        // The watch belongs to the element: a binding running again does not dispose it.
+        let watch = match self.scope() {
+            Some(s) => Reaction::new_in(s.into(), on_change),
+            None => Reaction::new(on_change),
+        }
         .named("paint");
         let mut old = None;
         self.edit(Dirty::PAINT, |d| {
@@ -2047,7 +2238,12 @@ impl El {
         let tree = self.ui.tree();
         let i = self.ui.0.borrow();
         let d = i.els.get(&self.id)?;
-        Some(crate::frame::composed_semantics(d, tree.root() == self.id, tree.is_focusable(self.id)))
+        Some(crate::frame::composed_semantics(
+            d,
+            tree.root() == self.id,
+            tree.is_focusable(self.id),
+            i.pseudo,
+        ))
     }
 
     /// Everything the element is, for inspectors and tests.
@@ -2063,11 +2259,13 @@ impl El {
             style: d.resolved.clone(),
             local: d.local.clone(),
             bounds: tree.bounds(self.id),
-            text: d.text.as_ref().map(|t| t.borrow().text.as_str().to_owned()),
+            // What is shown: pseudo-locales rewrite it for people, readers and inspectors alike.
+            text: d.text.as_ref().map(|t| t.borrow().shown().as_str().to_owned()),
             semantics: Some(crate::frame::composed_semantics(
                 d,
                 i.layer_root(self.id),
                 tree.is_focusable(self.id),
+                i.pseudo,
             )),
             created_at: d.created_at,
             focusable: tree.is_focusable(self.id),
@@ -2114,20 +2312,22 @@ impl El {
         }
     }
 
-    /// Describes the element to assistive technology.
-    pub fn semantics(self, s: Semantics) -> Self {
-        self.edit(Dirty::SEMANTICS, |d| d.semantics = Some(s));
+    /// Describes the element to assistive technology; a signal or closure keeps the
+    /// description current.
+    #[track_caller]
+    pub fn semantics(self, s: impl IntoProp<Semantics>) -> Self {
+        self.prop("semantics", s, |me, s| me.edit(Dirty::SEMANTICS, |d| d.semantics = Some(s)));
         self
     }
 
-    /// Updates semantics when `f`'s signals change.
-    #[track_caller]
-    pub fn semantics_dyn(self, f: impl Fn() -> Semantics + 'static) -> Self {
-        let me = self.clone();
-        self.bind_named("semantics", move || {
-            let s = f();
-            me.edit(Dirty::SEMANTICS, |d| d.semantics = Some(s));
-        })
+    /// Does what assistive technology (and agents) ask of the element: `f` gets the action
+    /// and returns whether it did it. It is asked before the element's built-in handling,
+    /// so an element can take Click, Expand, Collapse, Increment, Decrement or Show menu
+    /// its own way (a tree row expands, a row with no click handler selects).
+    pub fn on_accessibility_action(self, f: impl Fn(remedy_ui_a11y::Action) -> bool + 'static) -> Self {
+        let f: Rc<dyn Fn(remedy_ui_a11y::Action) -> bool> = Rc::new(f);
+        self.edit(Dirty::SEMANTICS, |d| d.a11y_action = Some(f));
+        self
     }
 
     /// Makes the element a vertical scroll container: its content scrolls on the compositor.

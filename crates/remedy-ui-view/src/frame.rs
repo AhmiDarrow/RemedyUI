@@ -77,6 +77,11 @@ pub(crate) fn text_style_for(d: &ElData, theme: &remedy_ui_style::Theme) -> reme
     }
 }
 
+/// What recording an element's paint gave: the list, whether its painter asked for the next
+/// frame, and why its painter failed, if it did.
+type Recorded = (DisplayList, bool, Option<String>);
+
+#[allow(clippy::too_many_arguments, reason = "the frame's state a chunk is recorded with")]
 fn record(
     d: &ElData,
     rtl: bool,
@@ -85,7 +90,10 @@ fn record(
     engine: &mut remedy_ui_text::TextEngine,
     focused: bool,
     scale: f32,
-) -> (DisplayList, bool) {
+    time: std::time::Duration,
+    reduced_motion: bool,
+) -> Recorded {
+    let mut failed = None;
     let mut next_frame = false;
     let mut list = DisplayList::new();
     let s = &d.resolved;
@@ -148,28 +156,51 @@ fn record(
             scale,
             next_frame: false,
             rtl,
+            time,
+            reduced_motion,
             engine,
         };
-        let tracked = d.paint_watch.as_ref().is_some_and(|w| w.track(|| painter(&mut cx)).is_ok());
-        if !tracked {
-            painter(&mut cx);
+        // A painter that panics is contained: its element is reported to its error
+        // boundary after the frame, and the frame goes on without its drawing.
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let tracked = d.paint_watch.as_ref().is_some_and(|w| w.track(|| painter(&mut cx)).is_ok());
+            if !tracked {
+                painter(&mut cx);
+            }
+        }));
+        match ran {
+            Ok(()) => next_frame = cx.next_frame,
+            Err(p) => failed = Some(remedy_ui_reactive::panic_message(p.as_ref())),
         }
-        next_frame = cx.next_frame;
     }
-    (list, next_frame)
+    (list, next_frame, failed)
 }
 
 /// Adds a paragraph's glyph runs at `origin`. Run colors come from the paragraph's spans;
 /// `default` is the element's text color.
 /// What an element tells assistive technology: its own semantics, or what its text or field
 /// implies, plus disabled, click and focus from its state.
-pub(crate) fn composed_semantics(d: &ElData, is_root: bool, focusable: bool) -> Semantics {
+pub(crate) fn composed_semantics(
+    d: &ElData,
+    is_root: bool,
+    focusable: bool,
+    pseudo: Option<remedy_ui_text::Pseudo>,
+) -> Semantics {
     let mut s = match &d.semantics {
-        Some(s) => s.clone(),
+        // What the app names an element is a string it translates (unless it said the
+        // element's text is data), so a pseudo-locale rewrites it for readers too.
+        Some(s) => match pseudo.filter(|_| !d.data_text) {
+            Some(p) => s.clone().map_text(|t| p.apply_str(t)),
+            None => s.clone(),
+        },
         None if is_root => Semantics::new(Role::Window),
         None => match (&d.text, &d.field) {
-            (Some(t), _) => Semantics::new(Role::Label).label(t.borrow().text.as_str()),
-            (None, Some(f)) => f.borrow().semantics(),
+            (Some(t), _) => Semantics::new(Role::Label).label(t.borrow().shown().as_str()),
+            (None, Some(f)) => match pseudo {
+                // The field's label is the app's; its value is what people typed.
+                Some(p) => f.borrow().semantics().map_text(|t| p.apply_str(t)),
+                None => f.borrow().semantics(),
+            },
             _ => Semantics::new(Role::Group),
         },
     };
@@ -343,6 +374,18 @@ impl Walk<'_> {
             b.pop(Item::PopTransform);
             return;
         }
+        let (offset, s) = d.shift;
+        if offset != Vec2::ZERO || s != 1.0 {
+            // Animated offset and scale (about the center) move its drawing, not its layout.
+            let c = Vec2::new(at.x + rect.width() / 2.0, at.y + rect.height() / 2.0);
+            let t = Affine::translate(Vec2::new(-c.x, -c.y))
+                .then(Affine::scale(s, s))
+                .then(Affine::translate(Vec2::new(c.x + offset.x, c.y + offset.y)));
+            b.push(Item::PushTransform(t));
+            self.body(b, id, rect, at, true);
+            b.pop(Item::PopTransform);
+            return;
+        }
         self.body(b, id, rect, at, true);
     }
 
@@ -426,6 +469,12 @@ impl Ui {
     /// Runs the pipeline for a window of `size` logical pixels at `scale` device pixels per
     /// logical pixel.
     pub fn frame(&self, size: Size, scale: f32) -> Frame {
+        // Animations move to this frame's time first, so what they changed is styled, laid
+        // out and painted in this frame.
+        let finished = self.tick_animations();
+        for f in finished {
+            f();
+        }
         // Before this frame lays out, and outside the borrow below: what follows the window's
         // size (overlays keeping inside it) reacts now and is laid out in this frame.
         let window_size = self.0.borrow().window_size;
@@ -488,7 +537,17 @@ impl Ui {
                 Some(parent) => parent.resolved.inherited_by_children(&base),
                 None => base.clone(),
             };
-            let resolved = i.sheet.resolve(&key, &inherited, &d.local);
+            // Padding the element sets only some sides of comes from the widget's own on the
+            // others; animated values go over the element's own style.
+            let own = if crate::tokens::partial_padding(d) {
+                let mut without = d.local.clone();
+                without.padding = None;
+                let under = i.sheet.resolve(&key, &inherited, &without).padding;
+                crate::tokens::resolve_local_over(d, &theme, under)
+            } else {
+                d.local.clone()
+            };
+            let resolved = i.sheet.resolve(&key, &inherited, &own.merge(&d.anim_style));
             let Some(d) = i.els.get_mut(&id) else { continue };
             let passes_on = resolved.foreground != d.resolved.foreground
                 || resolved.text_size != d.resolved.text_size
@@ -614,6 +673,20 @@ impl Ui {
                 stack.push((k, abs, child_scroll));
             }
         }
+        // Elements gliding through this layout change start from where they were.
+        let flipping: Vec<ElementId> =
+            i.els.iter().filter(|(_, d)| d.flip.is_some()).map(|(id, _)| *id).collect();
+        let mut flipped = false;
+        let now_t = i.clock.now();
+        for id in flipping {
+            let at = i.tree.bounds(id).map(|b| b.min);
+            if let (Some(at), Some(d)) = (at, i.els.get_mut(&id)) {
+                flipped |= crate::motion::start_flip(d, at, now_t);
+            }
+        }
+        if flipped {
+            i.layers_changed = true;
+        }
         let moved = i.frame.bounds_stale;
         i.frame.bounds_stale = false;
         // Elements watching their size hear about changes once the frame is done.
@@ -666,13 +739,20 @@ impl Ui {
         repaint.dedup();
         // Painters that asked to run again next frame.
         let mut again: Vec<ElementId> = Vec::new();
+        let mut paint_failures: Vec<(ElementId, String)> = Vec::new();
+        let now = i.clock.now();
+        let reduced = i.reduced_motion.get_untracked().unwrap_or(false);
         for &id in &repaint {
             let sz = rects.get(&id).map(|r| r.size()).unwrap_or(Size::ZERO);
             let Some(d) = i.els.get(&id) else { continue };
             let rtl = i.layout.is_rtl(d.node);
-            let (chunk, next) = record(d, rtl, sz, &theme, &mut engine, focused == Some(id), i.scale);
+            let (chunk, next, failed) =
+                record(d, rtl, sz, &theme, &mut engine, focused == Some(id), i.scale, now, reduced);
             if next {
                 again.push(id);
+            }
+            if let Some(why) = failed {
+                paint_failures.push((id, why));
             }
             if let Some(d) = i.els.get_mut(&id) {
                 d.chunk = Some((sz, Rc::new(chunk)));
@@ -743,6 +823,12 @@ impl Ui {
         }
         for (cb, now) in placed {
             cb(now.as_ref());
+        }
+        for (id, why) in paint_failures {
+            self.report_failure(id, crate::FailurePhase::Paint, why, None);
+        }
+        if flipped {
+            self.request(crate::Request::Frame);
         }
         Frame { layers, scrollers }
     }
@@ -879,7 +965,7 @@ fn sync_semantics(i: &mut Inner, _rects: &HashMap<ElementId, Rect>) {
         // Hidden content leaves the accessibility tree entirely.
         kids.retain(|k| i.els.get(k).is_none_or(|kd| !kd.hidden));
         let bounds = i.tree.bounds(id).unwrap_or(Rect::ZERO);
-        let s = composed_semantics(d, id == root, i.tree.is_focusable(id));
+        let s = composed_semantics(d, id == root, i.tree.is_focusable(id), i.pseudo);
         i.a11y.set(root_key(id), s.bounds(bounds));
         let child_keys: Vec<u64> = kids.iter().map(|k| root_key(*k)).collect();
         i.a11y.set_children(root_key(id), &child_keys);

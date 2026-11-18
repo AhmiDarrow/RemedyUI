@@ -28,5 +28,6 @@ mod tree;
 
 pub use dirty::Dirty;
 pub use tree::{
-    Dispatch, ElementId, EventCx, Failure, FocusIn, FocusOut, HitMode, Node, Phase, Tree, TreeError,
+    Dispatch, ElementId, EventCx, Failure, FailureHandler, FocusIn, FocusOut, HitMode, Node, Phase, Tree,
+    TreeError,
 };

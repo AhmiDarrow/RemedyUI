@@ -161,7 +161,7 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
             set(next);
             true
         })
-        .semantics_dyn(move || {
+        .semantics(move || {
             let h = hsv.get();
             Semantics::new(Role::Slider)
                 .label("Saturation and brightness")
@@ -258,7 +258,7 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
             set(put(cur, next));
             true
         })
-        .semantics_dyn(move || {
+        .semantics(move || {
             let v = get(hsv.get());
             let shown = if max > 1.0 { v } else { v * 100.0 };
             Semantics::new(Role::Slider)
@@ -315,15 +315,15 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
         .el("swatch")
         .width(40.0)
         .height(40.0)
-        .style_dyn(move || StylePatch::default().background(value.get()).radius(6.0));
+        .style(move || StylePatch::default().background(value.get()).radius(6.0));
     let mut info = w::column(ui).gap(unit).child(fe);
     if let Some(bg) = against {
-        let readout = w::text(ui, "").text_dyn(move || {
+        let readout = w::text(ui, "").text(move || {
             let c = value.get();
             let ratio = c.with_alpha(1.0).contrast(bg);
             format!("Contrast {ratio:.1}:1 · {}", contrast_grade(ratio))
         });
-        info = info.child(readout.semantics_dyn(move || {
+        info = info.child(readout.semantics(move || {
             let ratio = value.get().with_alpha(1.0).contrast(bg);
             Semantics::new(Role::Status).label(format!("Contrast {ratio:.1} to 1, {}", contrast_grade(ratio)))
         }));
@@ -336,5 +336,5 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
         .child(alpha)
         .child(w::row(ui).gap(unit * 2.0).align(Align::Center).child(preview).child(info))
         .child(sync)
-        .semantics_dyn(move || Semantics::new(Role::ColorWell).label(l2.clone()).value(hex(value.get())))
+        .semantics(move || Semantics::new(Role::ColorWell).label(l2.clone()).value(hex(value.get())))
 }

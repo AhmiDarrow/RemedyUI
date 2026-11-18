@@ -24,19 +24,36 @@
 //! assert_eq!(*seen.borrow(), ["Ada Lovelace", "Grace Hopper"]);
 //! ```
 //!
+//! Components share values through context ([`provide_context`], [`use_context`]), fetch
+//! data off the UI thread with a [`Resource`], and (with the `persist` feature) keep state
+//! across restarts with [`Signal::persist`].
+//!
 //! Each UI thread has one runtime. Handles are plain ids: they may be captured by closures
 //! sent to other threads, but their values are reachable only on the thread that created
 //! them. Other threads use a [`Waker`] to post work to the UI thread.
 
+mod context;
 pub mod debug;
 mod error;
+#[cfg(feature = "persist")]
+mod persist;
+mod resource;
 mod runtime;
 mod signal;
 mod store;
 mod vec;
 mod waker;
 
+pub use context::{
+    Caught, ErrorSink, Owner, add_panic_handler, panic_message, provide_context, remove_panic_handler,
+    use_context, with_context,
+};
 pub use error::ReactiveError;
+#[cfg(feature = "persist")]
+pub use persist::{
+    DEFAULT_DEBOUNCE, JsonValue, Migrate, MigrationError, Persist, PersistError, PersistStore,
+};
+pub use resource::{Cancel, Executor, FetchError, Job, Resource, Suspense, WorkerPool};
 pub use signal::{
     Effect, Memo, Reaction, Scope, Signal, Source, SourceKind, Stats, batch, on_cleanup, runtime_id, stats,
     untrack,

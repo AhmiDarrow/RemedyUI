@@ -190,7 +190,7 @@ pub fn calendar(
             cursor.set(next.clamp_to(min, max));
             true
         });
-    let grid = grid.semantics_dyn(move || {
+    let grid = grid.semantics(move || {
         let c = cursor.get();
         Semantics::new(Role::Grid).label(l2.clone()).value(c.to_string())
     });

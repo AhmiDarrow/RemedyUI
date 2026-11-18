@@ -43,6 +43,63 @@ impl std::fmt::Debug for Preview {
     }
 }
 
+/// A preview declared with `#[preview]` (from `remedy-ui-macros`): what to build and the
+/// variations to show it in, as static data. Empty lists mean the defaults of
+/// [`Preview::new`].
+// Exhaustive on purpose: `#[preview]` writes it as a literal in the app's crate; a new
+// setting comes with a macro version that fills it.
+#[derive(Clone, Copy, Debug)]
+pub struct PreviewSpec {
+    /// Its name (also the golden-image file name).
+    pub name: &'static str,
+    /// Palette ids.
+    pub themes: &'static [&'static str],
+    /// Locales.
+    pub locales: &'static [&'static str],
+    /// Window sizes in logical pixels.
+    pub sizes: &'static [(f32, f32)],
+    /// Text scales.
+    pub text_scales: &'static [f32],
+    /// Builds the UI under preview.
+    pub build: fn(&Ui) -> El,
+}
+
+impl PreviewSpec {
+    /// The preview it declares.
+    pub fn preview(&self) -> Preview {
+        let mut p = Preview::new(self.name, self.build);
+        if !self.themes.is_empty() {
+            p = p.themes(self.themes);
+        }
+        if !self.locales.is_empty() {
+            p = p.locales(self.locales);
+        }
+        if !self.sizes.is_empty() {
+            p = p.sizes(self.sizes);
+        }
+        if !self.text_scales.is_empty() {
+            p = p.text_scales(self.text_scales);
+        }
+        p
+    }
+}
+
+impl From<&PreviewSpec> for Preview {
+    fn from(s: &PreviewSpec) -> Preview {
+        s.preview()
+    }
+}
+
+/// The golden-image test `#[preview]` generates: every variation of `spec` against its image
+/// in `dir`. A missing image is written for review and passes (commit it); a differing one
+/// fails, with the rendering written beside the golden image.
+pub fn golden_test(spec: &PreviewSpec, dir: &Path) -> Result<(), GoldenError> {
+    match check_golden(&spec.preview(), dir) {
+        Ok(()) | Err(GoldenError::Missing(_)) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
 /// One rendering of a preview.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Variation {

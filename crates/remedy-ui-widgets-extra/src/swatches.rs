@@ -157,7 +157,7 @@ pub fn color_swatch_grid(
                 })
                 // The grid is the one keyboard stop; a swatch is only a target for the pointer.
                 .focusable(false);
-            let cell = cell.semantics_dyn(move || {
+            let cell = cell.semantics(move || {
                 Semantics::new(Role::GridCell)
                     .label(name.clone())
                     .description(code.clone())
@@ -223,7 +223,7 @@ pub fn color_swatch_grid(
             cursor.set_if_changed(next);
             true
         })
-        .semantics_dyn(move || {
+        .semantics(move || {
             let list = swatches.get();
             let cur = cursor.get().min(list.len().saturating_sub(1));
             let mut s = Semantics::new(Role::Grid).label(l2.clone());

@@ -317,7 +317,7 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         l.inset = Insets { top: AUTO, start: AUTO, end: 16.0, bottom: 16.0 };
     });
     // The day pinned at the top.
-    let pinned = w::text(ui, "").variant("muted").text_dyn(move || first_day.get()).layout(|l| {
+    let pinned = w::text(ui, "").variant("muted").text(move || first_day.get()).layout(|l| {
         l.position = Position::Absolute;
         l.inset = Insets { top: 8.0, start: AUTO, end: AUTO, bottom: AUTO };
         l.align_self = Some(remedy_ui_layout::Align::Center);

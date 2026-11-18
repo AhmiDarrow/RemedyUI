@@ -421,7 +421,7 @@ pub fn carousel(
                 })
                 .child(dot)
                 .on_click(move || go(i))
-                .semantics_dyn(move || {
+                .semantics(move || {
                     Semantics::new(Role::Button)
                         .label(format!("Go to page {} of {n}", i + 1))
                         .selected(index.get() == i)

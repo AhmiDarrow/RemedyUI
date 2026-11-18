@@ -46,8 +46,19 @@ Names examined and kept, with the rule they follow:
   any number of them can be added.
 - `label` is text a person reads on a control, `title` a heading of a window, section, column
   or board, `name` an identifier or proper name; checked across every public field.
-- `*_dyn` for forms that follow signals (`text_dyn`, `style_dyn`, `markdown_dyn`, and now
-  `button_dyn`, `nav_item_dyn`).
+- Properties take `impl IntoProp<T>` (a value, a `Signal`, a `Memo` or a closure), so a
+  reactive property has the same name and shape as a constant one: `El::text`, `disabled`,
+  `variant`, `semantics`, `style`, and the core widgets' labels and texts (`button`,
+  `nav_item`, `text`, `heading`, `link`, `check`, `switch`, …). The `*_dyn` doubles this made
+  redundant (`El::text_dyn`, `button_dyn`, `nav_item_dyn`) are deprecated for a release, and
+  `style_dyn`, `disabled_dyn` and `semantics_dyn`, which no app used, are gone; `cargo remedy
+  migrate` rewrites all of them. `*_dyn` stays only where the whole thing is rebuilt from a
+  closure rather than one property bound (`markdown_dyn`, `App::tray_dyn`).
+- Typed design tokens are named by role, not by the types they resolve to: `Space`, `Radius`,
+  `TextRole`, `ColorRole` (`TextStyle` and `Color` already name the text engine's style and the
+  color value), with `Dp`, `ColorRef`, `Pad` and the token `Style` patch carrying either.
+- Clocks: `Ui::set_clock` is the edit clock undo groups by; `Ui::set_frame_time` /
+  `frame_time` is the frame clock animations and painters (`PaintCx::time`) sample.
 - Units: durations are `Duration`; the nanosecond fields of trace and devtools types end in
   `_ns`; no other numeric time is public.
 
@@ -193,6 +204,25 @@ From the documentation work's findings:
 | `remedy-ui` | `Window::attach_agents` / `Window::agents` (feature `agents`) |
 | `automation` | `Agents::request_access`: the standard consent prompt on the trusted layer; the token is handed over only on Allow |
 | `cargo-remedy` | `document` and `android` templates; `package --target linux` (`.tar.gz` with a desktop entry), `--target android` (signed APK without Gradle), `--target macos` (`.app` in a zip; needs Apple's linker, so not built on this machine); `migrate` |
+
+### Engine features added before the freeze, under the same conventions
+
+| Where | What | Conventions |
+|---|---|---|
+| `reactive` | `provide_context`, `use_context`, `with_context`, `Owner`; `Scope::detached`, `Effect::new_in`, `Reaction::new_in` | — |
+| `reactive` | `ErrorSink`, `Caught` (`#[non_exhaustive]`), `add_panic_handler`, `panic_message` | — |
+| `reactive` | `Resource`, `Executor`, `Job`, `WorkerPool` (on `core::exec`), `Cancel`, `Suspense` | `FetchError` (`#[non_exhaustive]`, implements `Error`) |
+| `reactive` (feature `persist`) | `Signal::persist`, `persist_in`, `PersistStore`, `Persist` | `PersistError` (`#[non_exhaustive]`); migrations return `MigrationError` (`From<String>`/`From<&str>`), not `String` |
+| `view` | `show` → `Show`, `catch_errors`, `suspense` → `SuspenseBoundary`, `Transition` (`#[non_exhaustive]`, `new`/`fade`/`slide`), `Retry` | `CaughtError` and `FailurePhase` `#[non_exhaustive]`, `FailurePhase::describe` for what a match would spell out |
+| `view` | `Ui::failures`, `clear_failures`, `retry_failure`, `is_failed`, `set_error_hook`, `report_failure` | booleans read `is_*` |
+| `view` | `El::provide`, `use_context`, `child_with`, `scope`, `on_accessibility_action`, `prop` | `on_*` for callbacks |
+| `view` | `El::animate`, `animate_then`, `animate_style`, `set_animated`, `flip`, `drawn_offset`, `is_animating`; `motion::Target`, `Pace` (`#[non_exhaustive]`); `PaintCx::time`, `reduced_motion` | facade path `remedy_ui::motion` |
+| `view` | `IntoProp`, `Prop` (exhaustive on purpose: set once or bound) | — |
+| `style` | `Space`, `Radius`, `TextRole`, `ColorRole`, `Dp` (`#[non_exhaustive]`), `ColorRef`, `Pad` (exhaustive on purpose), `Style` (`#[non_exhaustive]`, builder) | — |
+| `widgets-core` | `ListItems` (`#[non_exhaustive]`), `ListTransitions` (`#[non_exhaustive]`, builder), `for_each_with` | lists treat a `VecDiff` they do not know as a whole-contents change |
+| `macros`, `devtools` | `#[preview]`, `#[previews]`, `PreviewSpec` (exhaustive on purpose: the macro writes it as a literal), `golden_test` | errors are `GoldenError` |
+| `widgets-term` | `Emulator::take_clipboard_requests` | — |
+| `remedy-ui` | `App::persist_store` | — |
 
 ## Bugs the review found
 

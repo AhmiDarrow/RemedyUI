@@ -198,7 +198,7 @@ fn start(config: AppConfig, seen: Rc<Seen>) {
                     s4.taps.set(s4.taps.get() + 1);
                     shown.update(|n| *n += 1);
                 }))
-                .child(ui.el("label").text_dyn(move || format!("Taps: {}", shown.get())))
+                .child(ui.el("label").text(move || format!("Taps: {}", shown.get())))
                 .child(field.el())
                 .child(w::context_menu(&ui.el("label").text("Menu here"), || {
                     vec![w::MenuItem::new("Do something", || {})]

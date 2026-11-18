@@ -15,8 +15,8 @@ use crate::{Area, Customizations, shortcut_editor, theme_editor};
 fn status_line(ui: &Ui, name: &'static str, status: Signal<String>) -> El {
     w::text(ui, "")
         .variant("muted")
-        .text_dyn(move || status.get())
-        .semantics_dyn(move || Semantics::new(Role::Status).label(name).value(status.get()))
+        .text(move || status.get())
+        .semantics(move || Semantics::new(Role::Status).label(name).value(status.get()))
 }
 
 /// What could not be loaded or saved, each with its one-click reset and a dismiss button.
@@ -250,9 +250,10 @@ fn message_row(ui: &Ui, c: &Customizations, id: &str) -> El {
         },
     );
     let id5 = id.to_owned();
-    let check = w::text(ui, "").variant("error").text_dyn(move || status.get()).semantics_dyn(move || {
-        Semantics::new(Role::Status).label(format!("{id5} check")).value(status.get())
-    });
+    let check = w::text(ui, "")
+        .variant("error")
+        .text(move || status.get())
+        .semantics(move || Semantics::new(Role::Status).label(format!("{id5} check")).value(status.get()));
     col.child(w::row(ui).gap(unit * 2.0).align(Align::Center).child(reset).child(check))
 }
 
@@ -417,8 +418,8 @@ fn layout_section(ui: &Ui, c: &Customizations, file: &str) -> El {
     );
     let status_el = w::text(ui, "")
         .variant("muted")
-        .text_dyn(move || status.get())
-        .semantics_dyn(move || Semantics::new(Role::Status).label("Layout check").value(status.get()));
+        .text(move || status.get())
+        .semantics(move || Semantics::new(Role::Status).label("Layout check").value(status.get()));
     w::section(ui, file)
         .child(el)
         .child(status_el)

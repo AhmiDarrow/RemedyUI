@@ -47,13 +47,16 @@ mod rejection;
 mod text;
 mod values;
 
-pub use actions::{button, button_dyn, icon_button, menu_button, toggle_button};
+// `button_dyn` is kept, deprecated, until the next minor release: `button` takes a closure.
+#[allow(deprecated)]
+pub use actions::button_dyn;
+pub use actions::{button, icon_button, menu_button, toggle_button};
 pub use choices::{check, chip, radio_group, segmented, select, switch};
 pub use containers::{card, column, divider, row, scroll, section, spacer, split, stack, wrap};
 pub use feedback::{badge, empty_state, lamp, progress, skeleton, spinner, toast};
 pub use icons::{Icon, avatar, canvas, icon, image};
 pub use inputs::{field, reveal_toggle, search, secret_input, text_area, text_input};
-pub use lists::{for_each, list, virtual_list};
+pub use lists::{ListItems, ListTransitions, for_each, for_each_with, list, virtual_list};
 pub use overlays::{
     DialogButton, MenuItem, Modal, context_menu, context_menu_at, dialog, fill_window, fit_near, lock_screen,
     menu, modal, place_at, place_near, place_near_within, popover, tooltip, trusted_prompt,

@@ -900,7 +900,7 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .child(layout_host)
         .child(sorter)
         .child(redraw)
-        .semantics_dyn(move || {
+        .semantics(move || {
             Semantics::new(Role::Table)
                 .label(l2.clone())
                 .description(format!("{} rows", n_rows.with(Vec::len)))

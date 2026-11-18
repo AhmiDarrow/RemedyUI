@@ -332,7 +332,7 @@ impl PerfOverlay {
         };
         let weak = Rc::downgrade(&self.0);
         let version = self.0.version;
-        let headline = text("Waiting for a frame…", INK).text_dyn({
+        let headline = text("Waiting for a frame…", INK).text({
             let weak = weak.clone();
             move || {
                 let _ = version.get();
@@ -351,7 +351,7 @@ impl PerfOverlay {
                 }
             }
         });
-        let detail = text("", DIM).text_dyn({
+        let detail = text("", DIM).text({
             let weak = weak.clone();
             move || {
                 let _ = version.get();
@@ -366,7 +366,7 @@ impl PerfOverlay {
                     .join(" · ")
             }
         });
-        let budget_line = text("", DIM).text_dyn({
+        let budget_line = text("", DIM).text({
             let weak = weak.clone();
             move || {
                 let _ = version.get();
@@ -391,7 +391,7 @@ impl PerfOverlay {
                 }
             }
         });
-        let work_line = text("", DIM).text_dyn({
+        let work_line = text("", DIM).text({
             let weak = weak.clone();
             move || {
                 let _ = version.get();
@@ -407,7 +407,7 @@ impl PerfOverlay {
                 )
             }
         });
-        let cache_line = text("", DIM).text_dyn({
+        let cache_line = text("", DIM).text({
             move || {
                 let _ = version.get();
                 let held = remedy_ui_trace::gauges::snapshot();

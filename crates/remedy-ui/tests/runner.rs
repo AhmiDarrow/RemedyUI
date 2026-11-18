@@ -67,7 +67,7 @@ fn a_window_renders_and_clicks_repaint_it() {
     let count = Signal::new(0u32);
     let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
         app.open(WindowSpec::new("Counter").size(200.0, 100.0), move |ui, _| {
-            let label = ui.el("label").text_dyn(move || format!("Clicked {}", count.get()));
+            let label = ui.el("label").text(move || format!("Clicked {}", count.get()));
             let button = ui
                 .el("button")
                 .layout(|l| {
@@ -611,7 +611,7 @@ fn content_pops_out_to_its_own_window_and_comes_back_with_its_state() {
         let (m3, u3, a) = (m2.clone(), u2.clone(), app.clone());
         app.open(WindowSpec::new("Call").size(400.0, 300.0), move |ui, _| {
             let (el, m) = remedy_ui::movable(ui, &a, "Screen share", move |ui| {
-                remedy_ui::widgets::text(ui, "").text_dyn(move || format!("frames {}", count.get()))
+                remedy_ui::widgets::text(ui, "").text(move || format!("frames {}", count.get()))
             });
             ui.root().child(el);
             *m3.borrow_mut() = Some(m);
@@ -1153,4 +1153,55 @@ fn customizations_live_in_the_apps_data_folder() {
     let theme = std::fs::read_to_string(dir.join("customizations").join("theme.json")).unwrap_or_default();
     assert!(theme.contains("\"stroke\""), "saved in the app's data folder: {theme}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn persisted_signals_in_a_window_come_back_after_a_restart() {
+    let dir = std::env::temp_dir().join(format!("remedy-ui-app-persist-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let seen: Rc<std::cell::RefCell<Vec<f32>>> = Rc::default();
+    let start = |seen: Rc<std::cell::RefCell<Vec<f32>>>, change: bool| {
+        Runner::new(config().data_dir(&dir), move |app: &App| {
+            let app2 = app.clone();
+            app.open(WindowSpec::new("Split").size(200.0, 100.0), move |_, _| {
+                // The window's content is built with the app's store as context.
+                let split = Signal::new(0.5f32).persist("split");
+                seen.borrow_mut().push(split.get());
+                if change {
+                    split.set(0.25);
+                    app2.quit();
+                }
+            });
+        })
+    };
+    let mut runner = start(seen.clone(), true);
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    assert!(dir.join("state").join("split.json").exists(), "written by the time the app quit");
+    let mut again = start(seen.clone(), false);
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut again, 2);
+    assert_eq!(*seen.borrow(), [0.5, 0.25], "restored in the next run");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn each_frame_runs_on_the_frame_clock() {
+    let times: Rc<std::cell::RefCell<Vec<Duration>>> = Rc::default();
+    let t2 = times.clone();
+    let mut runner = Runner::new(config(), move |app: &App| {
+        let t3 = t2.clone();
+        app.open(WindowSpec::new("Clock").size(100.0, 100.0), move |ui, _| {
+            let canvas = ui.el("canvas").width(20.0).height(20.0).paint(move |cx| {
+                t3.borrow_mut().push(cx.time);
+                cx.request_next_frame();
+            });
+            ui.root().child(canvas);
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 4);
+    let seen = times.borrow().clone();
+    assert!(seen.len() >= 2, "painted every frame it asked for: {seen:?}");
+    assert!(seen.windows(2).all(|w| matches!(w, [a, b] if b > a)), "the clock moves on each frame: {seen:?}");
 }

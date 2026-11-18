@@ -172,23 +172,8 @@ impl NavEntry {
     }
 }
 
-/// One navigation item: icon, label and an optional count badge. `active` says whether it is
-/// the current place (tracked).
-#[track_caller]
-pub fn nav_item(
-    ui: &Ui,
-    icon: Icon,
-    label: impl Into<String>,
-    active: impl Fn() -> bool + 'static,
-    badge: Option<Signal<u32>>,
-    on_press: impl Fn() + 'static,
-) -> El {
-    let label = label.into();
-    nav_item_dyn(ui, icon, move || label.clone(), active, badge, on_press)
-}
-
-/// [`nav_item`] whose label follows `label`: it reads signals (a message in the window's
-/// language), and the label and what assistive technology reads change with them.
+/// [`nav_item`] whose label follows `label`.
+#[deprecated(since = "0.1.0", note = "`nav_item` takes a closure or signal as its label")]
 #[track_caller]
 pub fn nav_item_dyn(
     ui: &Ui,
@@ -198,7 +183,22 @@ pub fn nav_item_dyn(
     badge: Option<Signal<u32>>,
     on_press: impl Fn() + 'static,
 ) -> El {
-    let label = std::rc::Rc::new(label);
+    nav_item(ui, icon, label, active, badge, on_press)
+}
+
+/// One navigation item: icon, label and an optional count badge. `active` says whether it is
+/// the current place (tracked). The label may be a signal or closure (a message in the
+/// window's language): it and what assistive technology reads follow it.
+#[track_caller]
+pub fn nav_item(
+    ui: &Ui,
+    icon: Icon,
+    label: impl remedy_ui_view::IntoProp<String>,
+    active: impl Fn() -> bool + 'static,
+    badge: Option<Signal<u32>>,
+    on_press: impl Fn() + 'static,
+) -> El {
+    let label = label.into_prop();
     let unit = ui.theme().spacing.unit;
     let l1 = label.clone();
     let item = w::min_target(ui.el("nav_item"))
@@ -207,7 +207,7 @@ pub fn nav_item_dyn(
         .gap(unit * 2.0)
         .padding(Insets::symmetric(unit * 1.5, unit * 2.5))
         .child(w::icon(ui, icon, ui.theme().type_scale.body + 4.0))
-        .child(ui.el("nav_label").text_dyn(move || l1()).nowrap().grow(1.0))
+        .child(ui.el("nav_label").text(l1.map(remedy_ui_view::RichText::plain)).nowrap().grow(1.0))
         .on_click(on_press);
     let item = match badge {
         Some(count) => {
@@ -228,7 +228,7 @@ pub fn nav_item_dyn(
     item.bind(move || {
         let on = active();
         i2.state(States::SELECTED, on);
-        let mut s = Semantics::new(Role::Tab).label(label()).selected(on).action(Action::Click);
+        let mut s = Semantics::new(Role::Tab).label(label.get()).selected(on).action(Action::Click);
         if let Some(c) = badge.map(|b| b.get()).filter(|c| *c > 0) {
             s = s.description(format!("{c} new"));
         }

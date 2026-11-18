@@ -645,7 +645,7 @@ pub fn fretboard(
             cursor.set_if_changed(next);
             true
         })
-        .semantics_dyn(move || {
+        .semantics(move || {
             let o = &*sem_opts;
             let cur = cursor.get();
             let picked = selected.get();

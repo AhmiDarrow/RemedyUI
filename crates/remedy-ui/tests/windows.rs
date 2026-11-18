@@ -25,7 +25,7 @@ fn an_app_runs_on_a_real_window_and_quits() {
         move |app: &App| {
             app.open(WindowSpec::new("RemedyUI").size(240.0, 120.0), move |ui, _| {
                 ui.root()
-                    .child(ui.el("label").text_dyn(move || label.get()))
+                    .child(ui.el("label").text(move || label.get()))
                     .child(ui.el("box").layout(|l| l.height = Length::Px(20.0)));
                 b2.set(true);
             });

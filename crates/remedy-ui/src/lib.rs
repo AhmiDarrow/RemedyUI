@@ -95,6 +95,13 @@ pub use remedy_ui_media_video as video;
 /// Drawing: display lists, paths, brushes, transforms and images, for painters
 /// (`El::paint`), canvases and page sources.
 pub use remedy_ui_paint as paint;
+/// Motion: elements animate a property, style value, offset or scale to a target with a
+/// spring or an easing curve on the frame clock (`El::animate`), interruptibly and instantly
+/// under reduced motion; `Transition`s for content that appears and leaves.
+pub mod motion {
+    pub use remedy_ui_view::Transition;
+    pub use remedy_ui_view::motion::*;
+}
 pub use remedy_ui_reactive as reactive;
 /// `.rui` markup: screens as data, compiled at build time or loaded for people's own layouts.
 #[cfg(feature = "markup")]

@@ -755,3 +755,25 @@ fn a_real_monospace_face_is_preferred() {
     let h = H::on(ui, TerminalOptions::default());
     assert!(h.term.is_monospace(), "this machine has a monospace font");
 }
+
+#[test]
+fn every_clipboard_request_of_one_chunk_asks_the_app_in_order() {
+    let mut h = H::new();
+    let asked = Rc::new(RefCell::new(Vec::new()));
+    let a = asked.clone();
+    h.term.on_clipboard_write(move |t| {
+        a.borrow_mut().push(t.to_owned());
+        t != "two"
+    });
+    h.feed(b"\x1b]52;c;b25l\x07\x1b]52;c;dHdv\x07\x1b]52;c;dGhyZWU=\x07");
+    assert_eq!(*asked.borrow(), ["one", "two", "three"]);
+    assert_eq!(h.copies(), ["one", "three"]);
+}
+
+#[test]
+fn selecting_everything_leaves_out_the_blank_rows_below_the_output() {
+    let mut h = H::new();
+    h.feed(b"first\r\n\r\nsecond");
+    h.term.select_all();
+    assert_eq!(h.term.selected_text().as_deref(), Some("first\n\nsecond"));
+}

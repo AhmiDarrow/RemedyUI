@@ -145,7 +145,7 @@ fn reactive_text_updates_only_what_reads_it() {
     let ui = ui();
     let label = Signal::new(String::from("One"));
     let l2 = label;
-    let text = ui.el("label").text_dyn(move || l2.get());
+    let text = ui.el("label").text(move || l2.get());
     ui.root().child(text.clone());
     let mut s = Screen::new(ui);
     s.frame();
@@ -384,7 +384,7 @@ fn elements_report_the_signals_their_bindings_and_painters_read() {
     let name = Signal::new(String::from("Ada"));
     let tint = Signal::new(Color::BLACK);
     let unread = Signal::new(0u32);
-    let el = ui.el("label").text_dyn(move || name.get()).paint(move |_| {
+    let el = ui.el("label").text(move || name.get()).paint(move |_| {
         let _ = tint.get();
     });
     let _ = unread;

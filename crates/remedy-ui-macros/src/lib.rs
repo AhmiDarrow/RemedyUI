@@ -1,4 +1,5 @@
-//! Derive macros for RemedyUI.
+//! Derive and attribute macros for RemedyUI: `#[derive(Store)]` below, and
+//! [`macro@preview`] and [`macro@previews`] for previews.
 //!
 //! `#[derive(Store)]` on a struct with named fields generates a trait, `<Name>Fields<R>`,
 //! with one accessor per field. It is implemented for `Field<R, Name>` (a path into a store)
@@ -29,6 +30,8 @@
 //! `set_if_changed`, `project`, `path`, `at`, `len`, `is_empty`) are rejected with a message,
 //! because the accessor could never be called.
 
+mod preview;
+
 use proc_macro::TokenStream;
 use proc_macro_crate::{FoundCrate, crate_name};
 use quote::{format_ident, quote};
@@ -36,6 +39,44 @@ use syn::{Data, DeriveInput, Fields, parse_macro_input};
 
 const RESERVED: &[&str] =
     &["with", "get", "set", "update", "set_if_changed", "project", "path", "at", "len", "is_empty"];
+
+/// Declares a preview: `fn name(ui: &Ui) -> El` shown in each variation the attribute
+/// lists, in the devtools preview gallery and as golden-image tests.
+///
+/// ```ignore
+/// #[preview(theme = "forest", size = (400, 600), locales = ["en-US", "ar-EG"])]
+/// fn unlock_screen_preview(ui: &Ui) -> El { unlock_screen(ui, Vault::fake_locked()) }
+/// ```
+///
+/// Settings: `theme`/`themes` (palette ids), `locale`/`locales` (an RTL locale lays out
+/// mirrored; `en-XA` and `ar-XB` are pseudo-locales), `size`/`sizes` (window sizes in
+/// logical pixels), `text_scale`/`text_scales`, `name` (the golden images' file name; the
+/// function's name by default), `golden` (the folder, `tests/golden` by default), `test`
+/// (`false` for no golden test) and `crate` (where the devtools are; `::remedy_ui::devtools`
+/// by default).
+///
+/// It keeps the function and adds, beside it, a constant named after it in capitals (a
+/// `PreviewSpec` the gallery shows) and, under `cfg(test)`, a test that renders every
+/// variation with the CPU renderer and compares it with its golden image. The first run
+/// writes the images for review.
+#[proc_macro_attribute]
+pub fn preview(attr: TokenStream, item: TokenStream) -> TokenStream {
+    match preview::expand_preview(attr.into(), item.into()) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
+
+/// Collects a module's previews: on `mod name { ... }` holding `#[preview]` functions, it
+/// adds `pub fn all() -> Vec<Preview>` listing every one, for the preview gallery
+/// (`remedy_ui::show_previews(previews::all())`). Takes `crate = path` like `#[preview]`.
+#[proc_macro_attribute]
+pub fn previews(attr: TokenStream, item: TokenStream) -> TokenStream {
+    match preview::expand_previews(attr.into(), item.into()) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
 
 /// Generates field accessors for a reactive store. See the crate documentation.
 #[proc_macro_derive(Store)]

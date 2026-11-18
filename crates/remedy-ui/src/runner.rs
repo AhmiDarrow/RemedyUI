@@ -436,6 +436,8 @@ struct Shared {
     name: String,
     /// The data folder the app config chose, if it chose one.
     data_dir: Option<PathBuf>,
+    /// Persisted signals' folder (`<data>/state`), opened when first needed.
+    persist: Option<remedy_ui_reactive::PersistStore>,
     uis: HashMap<u64, Ui>,
     open: HashSet<u64>,
     /// Windows kept out of screen capture (where the system could do it).
@@ -812,6 +814,20 @@ impl App {
     pub fn data_dir(&self) -> Option<PathBuf> {
         let s = self.0.borrow();
         s.data_dir.clone().or_else(|| data_dir(&s.name))
+    }
+
+    /// Where persisted signals ([`remedy_ui_reactive::Signal::persist`]) are saved: the
+    /// `state` folder of the app's data folder. Every window's content is built with it
+    /// provided as context, so `Signal::new(v).persist("key")` there saves and restores
+    /// itself. `None` when the platform gives the app no data folder or it cannot be made.
+    pub fn persist_store(&self) -> Option<remedy_ui_reactive::PersistStore> {
+        if let Some(s) = self.0.borrow().persist.clone() {
+            return Some(s);
+        }
+        let dir = self.data_dir()?.join("state");
+        let store = remedy_ui_reactive::PersistStore::open(dir).ok()?;
+        self.0.borrow_mut().persist = Some(store.clone());
+        Some(store)
     }
 
     /// The open windows.
@@ -1249,7 +1265,20 @@ impl Runner {
                         cover: None,
                     },
                 );
-                build(&ui, &Window { key, app: self.app.clone() });
+                let window = Window { key, app: self.app.clone() };
+                // The window's content is built in its root's scope, with the app's persisted
+                // state folder provided, so what it builds reads it as context.
+                let content = ui.root();
+                match content.scope() {
+                    Some(scope) => {
+                        if let Some(store) = self.app.persist_store() {
+                            scope.provide_context(store);
+                        }
+                        scope.provide_context(self.app.clone());
+                        let _ = scope.run(|| build(&ui, &window));
+                    }
+                    None => build(&ui, &window),
+                }
             }
             Cmd::Close(key) => {
                 if let Some(h) = self.host_of(key) {
@@ -1395,6 +1424,11 @@ impl Runner {
             }
             Cmd::Quit => {
                 let _ = self.geometry.save();
+                // Persisted signals reach the disk before the app goes.
+                let store = self.app.0.borrow().persist.clone();
+                if let Some(s) = store {
+                    let _ = s.flush();
+                }
                 host.exit();
             }
         }
@@ -1623,6 +1657,8 @@ impl Runner {
         let Some(w) = self.wins.get_mut(&key) else { return };
         let _frame = remedy_ui_trace::phase!("frame", ui = w.ui.id()).entered();
         let (pw, ph, s) = w.size;
+        // Animations and painters sample the frame's presentation time.
+        w.ui.set_frame_time(at);
         let f = w.ui.frame(Size::new(pw as f32 / s, ph as f32 / s), s);
         if let Some(update) = w.ui.take_accessibility_update() {
             host.update_accessibility(w.host, update);

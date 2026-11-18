@@ -1,6 +1,6 @@
 [package]
 name = "remedy-ui-macros"
-description = "RemedyUI derive macros: #[derive(Store)] for field-level reactive stores."
+description = "RemedyUI macros: #[derive(Store)] for field-level reactive stores, #[preview] and #[previews] for previews in the gallery and golden tests."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -18,7 +18,7 @@ proc-macro = true
 proc-macro-crate = { version = "=3.5.0", default-features = false }
 proc-macro2 = { version = "=1.0.107", default-features = false, features = ["proc-macro"] }
 quote = { version = "=1.0.47", default-features = false, features = ["proc-macro"] }
-syn = { version = "=2.0.119", default-features = false, features = ["derive", "parsing", "printing", "proc-macro"] }
+syn = { version = "=2.0.119", default-features = false, features = ["clone-impls", "derive", "full", "parsing", "printing", "proc-macro"] }
 
 [dev-dependencies]
 remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }

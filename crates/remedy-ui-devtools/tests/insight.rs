@@ -61,8 +61,8 @@ fn pump_until(mut done: impl FnMut() -> bool) {
 /// signal.
 fn chat(ui: &Ui) -> (Signal<String>, El, El) {
     let text = Signal::new(String::from("hello")).named("message.text");
-    let row = w::text(ui, "").text_dyn(move || text.get());
-    let count = w::text(ui, "").variant("muted").text_dyn(move || format!("{} letters", text.get().len()));
+    let row = w::text(ui, "").text(move || text.get());
+    let count = w::text(ui, "").variant("muted").text(move || format!("{} letters", text.get().len()));
     let _ = ui.root().child(w::column(ui).child(row.clone()).child(count.clone()));
     (text, row, count)
 }
@@ -506,6 +506,24 @@ fn server_token_after_drop() -> &'static str {
 fn the_inspector_panel_has_every_page() {
     let target = ui();
     let (text, row, _) = chat(&target);
+    // A boundary whose content fails the first time it builds.
+    let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
+    let (a2, t2) = (attempts.clone(), target.clone());
+    let boundary = remedy_ui_view::catch_errors(
+        &target,
+        {
+            let t3 = target.clone();
+            move |e, _| w::text(&t3, format!("Fallback: {}", e.message))
+        },
+        move || {
+            a2.set(a2.get() + 1);
+            if a2.get() == 1 {
+                std::panic::resume_unwind(Box::new("profile missing"));
+            }
+            w::text(&t2, "Profile")
+        },
+    );
+    let _ = target.root().child(boundary);
     frame(&target);
     let insp = Inspector::attach(&target, remedy_ui_themes::sheet);
     let panel = ui();
@@ -553,7 +571,13 @@ fn the_inspector_panel_has_every_page() {
     assert!(page.contains("Screen reader view") && page.contains("window"), "{page}");
     tab(3);
     let page = shown(&panel);
-    assert!(page.contains("Perfetto trace") && page.contains("Start recording"), "{page}");
+    // Captures are process-wide (one tracing subscriber), and the trace test in this binary
+    // may be recording at this moment: the button offers whichever applies.
+    assert!(
+        page.contains("Perfetto trace")
+            && (page.contains("Start recording") || page.contains("Stop and save")),
+        "{page}"
+    );
     assert!(insp.show_overlay(true));
     assert!(insp.overlay().is_some());
     assert!(insp.show_overlay(false));
@@ -561,5 +585,32 @@ fn the_inspector_panel_has_every_page() {
     tab(4);
     let page = shown(&panel);
     assert!(page.contains("Not connected."), "{page}");
-    assert_eq!(TABS.len(), 5);
+    // Failures: what broke, where in the tree and the source, with a retry and a clear.
+    tab(5);
+    let page = shown(&panel);
+    assert!(page.contains("⚠ profile missing"), "{page}");
+    assert!(page.contains("Failed while building at") && page.contains("error_boundary"), "{page}");
+    assert!(page.contains("insight.rs:"), "the source location: {page}");
+    let button = |label: &str| {
+        walk(&panel)
+            .into_iter()
+            .map(|(_, e)| e)
+            .find(|e| {
+                e.info().and_then(|i| i.semantics).and_then(|s| s.name().map(str::to_owned)).as_deref()
+                    == Some(label)
+            })
+            .must("the button")
+    };
+    let retry = button("Retry");
+    assert!(panel.accessibility_action(retry.node_id(), remedy_ui_a11y::Action::Click));
+    frame(&target);
+    frame(&panel);
+    assert_eq!(attempts.get(), 2, "the boundary built its content again");
+    assert!(shown(&target).contains("Profile"));
+    assert!(shown(&panel).contains("Its boundary has built its content again."));
+    let clear = button("Clear failures");
+    assert!(panel.accessibility_action(clear.node_id(), remedy_ui_a11y::Action::Click));
+    frame(&panel);
+    assert!(shown(&panel).contains("Nothing has failed in this window."));
+    assert_eq!(TABS.len(), 6);
 }

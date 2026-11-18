@@ -884,7 +884,7 @@ pub fn inspector_panel(ui: &Ui, insp: &Inspector) -> El {
             .el("swatch")
             .width(20.0)
             .height(20.0)
-            .style_dyn(move || StylePatch::default().background(value.get()).radius(4.0));
+            .style(move || StylePatch::default().background(value.get()).radius(4.0));
         let editor = w::column(ui);
         let (e2, u5) = (editor.clone(), ui.clone());
         let open = Signal::new(false);
@@ -910,7 +910,7 @@ pub fn inspector_panel(ui: &Ui, insp: &Inspector) -> El {
             .align(remedy_ui_view::Align::Center)
             .child(swatch)
             .child(w::text(ui, role).grow(1.0))
-            .child(w::text(ui, "").variant("muted").text_dyn(move || value.get().to_hex()))
+            .child(w::text(ui, "").variant("muted").text(move || value.get().to_hex()))
             .child(w::button(ui, "Edit", move || open.update(|o| *o = !*o)).variant("quiet"));
         tokens = tokens.child(head).child(editor).child(watcher);
     }

@@ -38,9 +38,12 @@ A **theme** is a typed set of design tokens, organized the way modern design sys
 - **Speed.** Resolved styles are cached by (widget kind, variant, state bits, theme version). Hovering a button is a cache hit, not a computation.
 
 ```rust
-button(t("Send")).variant(Variant::Primary)   // theme decides the look
-button(t("Send")).style(|s| s.radius(Radius::R3).padding_x(Space::S4))   // local override, still token-based
+button(ui, t("Send"), send).variant("primary")   // theme decides the look
+button(ui, t("Send"), send).style(Style::new().radius(Radius::R3).padding_x(Space::S4))   // local override, still token-based
 ```
+
+- **Typed tokens in code.** `Space::S0`…`S8`, `Radius::R0`…`R4` (R4 fully rounded), `TextRole` (caption, body, body strong, heading, title, display) and `ColorRole` (the color roles, and `Custom("name")` for an app's own) are what `.gap()`, `.width()`, `.height()`, `.padding()` and `Style` take, beside plain numbers and colors. They resolve through the window's theme, and again whenever it changes. Padding set on only some sides keeps the theme's padding on the others.
+- **Why `Style::new()` and not a closure.** Every builder property takes a constant, a signal or a closure (see [12](12-developer-experience.md)), and a closure always means "re-read this when its signals change". A style builder written as a closure would read as a reactive style, so token styles start from `Style::new()`; `.style(move || ...)` is the reactive form, layered over the constant ones.
 
 ## Markup (`.rui`)
 

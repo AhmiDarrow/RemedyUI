@@ -207,11 +207,10 @@ pub fn find_bar(ui: &Ui, state: &FindState, close: impl Fn() + 'static) -> El {
     let f2 = field.clone();
     let field = field.on_change(move || s2.search(&f2.value()));
     let st = state.clone();
-    let status =
-        ui.el("label").variant("muted").data_text().nowrap().text_dyn(move || st.status()).semantics_dyn({
-            let st = state.clone();
-            move || Semantics::new(Role::Status).label(st.status()).live(Live::Polite)
-        });
+    let status = ui.el("label").variant("muted").data_text().nowrap().text(move || st.status()).semantics({
+        let st = state.clone();
+        move || Semantics::new(Role::Status).label(st.status()).live(Live::Polite)
+    });
     let (p, n) = (state.clone(), state.clone());
     let prev = w::icon_button(ui, Icon::ChevronUp, "Previous match", move || p.previous());
     let next = w::icon_button(ui, Icon::ChevronDown, "Next match", move || n.next());

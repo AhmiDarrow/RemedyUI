@@ -21,7 +21,10 @@ mod toolbar;
 
 pub use bindings::{BindingsError, bindings_from_json, bindings_to_json};
 pub use commands::{CommandInfo, Commands};
-pub use nav::{NavEntry, Tab, bottom_bar, breadcrumbs, nav_item, nav_item_dyn, nav_rail, tabs};
+// `nav_item_dyn` is kept, deprecated, until the next minor release: `nav_item` takes a closure.
+#[allow(deprecated)]
+pub use nav::nav_item_dyn;
+pub use nav::{NavEntry, Tab, bottom_bar, breadcrumbs, nav_item, nav_rail, tabs};
 pub use panels::{Edge, TitleBarActions, drawer, sheet, title_bar};
 pub use stack::NavStack;
 pub use toolbar::{CommandPalette, fuzzy_score, toolbar, toolbar_editor};

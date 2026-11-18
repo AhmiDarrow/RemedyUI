@@ -350,7 +350,7 @@ fn a_page_that_fails_to_draw_says_why() {
 fn thumbnails_show_pages_and_take_the_user_there() {
     let ui = ui();
     let view = PageView::new(doc(300));
-    let rail = thumbnails(&ui, &view).width(160.0).layout(|l| l.grow = 0.0);
+    let rail = thumbnails(&ui, &view);
     let shown = page_view(&ui, &view, "Synthetic.pdf");
     let row = ui.el("row").row().height(WINDOW.height).child(rail.clone()).child(shown);
     ui.root().child(row);
@@ -369,7 +369,8 @@ fn thumbnails_show_pages_and_take_the_user_there() {
     };
     frame(30);
     let rows = |rail: &remedy_ui_view::El| -> Vec<remedy_ui_view::El> {
-        rail.child_elements().get(1).map(|c| c.child_elements()).unwrap_or_default()
+        let list = rail.child_elements().into_iter().next();
+        list.and_then(|l| l.child_elements().get(1).map(|c| c.child_elements())).unwrap_or_default()
     };
     let list = rows(&rail);
     assert!(!list.is_empty() && list.len() < 20, "a few rows exist: {}", list.len());
@@ -387,7 +388,9 @@ fn thumbnails_show_pages_and_take_the_user_there() {
     let selected = third.and_then(|r| r.info()).and_then(|i| i.semantics).and_then(|s| s.selected_state());
     assert_eq!(selected, Some(true));
     // With the rail focused, the keys move through the pages and the rail follows.
-    rail.focus();
+    if let Some(list) = rail.child_elements().into_iter().next() {
+        list.focus();
+    }
     for _ in 0..10 {
         let _ = ui.key(&remedy_ui_input::KeyEvent::press(Key::ArrowDown));
         frame(1);
@@ -399,4 +402,36 @@ fn thumbnails_show_pages_and_take_the_user_there() {
         .filter_map(|r| r.info().and_then(|i| i.semantics).and_then(|s| s.name().map(str::to_string)))
         .collect();
     assert!(names.iter().any(|n| n == "Page 13"), "the rail scrolled to page 13: {names:?}");
+}
+
+#[test]
+fn thumbnails_and_page_view_size_themselves_inside_plain_containers() {
+    let ui = ui();
+    let view = PageView::new(doc(300));
+    // Nothing here sets a width, a grow or a minimum height on the two widgets: a bar, then
+    // a row of the rail and the page view, in a column of the window's size.
+    let rail = thumbnails(&ui, &view);
+    let shown = page_view(&ui, &view, "Synthetic.pdf");
+    let bar = ui.el("bar").height(40.0).fill_width();
+    let row =
+        ui.el("row").row().fill_width().layout(|l| l.grow = 1.0).child(rail.clone()).child(shown.clone());
+    let column = ui.el("column").column().width(WINDOW.width).height(WINDOW.height).child(bar).child(row);
+    ui.root().child(column);
+    for _ in 0..10 {
+        let _ = remedy_ui_reactive::run_posted();
+        let _ = ui.frame(WINDOW, 1.0);
+        let _ = ui.take_requests();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let Some(rb) = rail.bounds() else { unreachable!("the rail was laid out") };
+    let Some(pb) = shown.bounds() else { unreachable!("the page view was laid out") };
+    assert!((rb.width() - 144.0).abs() < 0.5, "the rail has its natural strip width: {}", rb.width());
+    assert!(
+        (pb.width() - (WINDOW.width - rb.width())).abs() < 0.5,
+        "the page view takes the rest: {}",
+        pb.width()
+    );
+    let rest = WINDOW.height - 40.0;
+    assert!((rb.height() - rest).abs() < 0.5, "the rail fills the height it is given: {}", rb.height());
+    assert!((pb.height() - rest).abs() < 0.5, "the page view fills the height it is given: {}", pb.height());
 }

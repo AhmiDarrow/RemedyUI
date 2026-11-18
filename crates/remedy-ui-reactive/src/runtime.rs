@@ -18,7 +18,7 @@ use std::any::Any;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
-use std::panic::Location;
+use std::panic::{AssertUnwindSafe, Location, catch_unwind};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -64,8 +64,13 @@ pub(crate) struct Node {
     sources: Vec<NodeId>,
     subscribers: Vec<NodeId>,
     owner: Option<NodeId>,
+    /// Where context lookups go on from this node, when not its owner: a scope that nothing
+    /// owns but that was made inside another reads that one's context.
+    context_parent: Option<NodeId>,
     owned: Vec<NodeId>,
     cleanups: Vec<Box<dyn FnOnce()>>,
+    /// Values this node provides to what it owns ([`crate::provide_context`]), by type.
+    contexts: Vec<(std::any::TypeId, Rc<dyn Any>)>,
     pub(crate) created_at: &'static Location<'static>,
 }
 
@@ -93,7 +98,12 @@ pub(crate) struct Runtime {
     /// The recorded runs in progress, innermost last (only while tracing).
     running_updates: RefCell<Vec<Rc<Update>>>,
     update_seq: Cell<u64>,
+    /// Told about effect panics no error sink took ([`crate::add_panic_handler`]).
+    panic_handlers: RefCell<Vec<(u64, PanicHandler)>>,
 }
+
+/// Told about an effect's panic; true when it took care of it.
+pub(crate) type PanicHandler = Rc<dyn Fn(&crate::Caught) -> bool>;
 
 /// The public key of a node.
 pub(crate) fn key(id: NodeId) -> NodeKey {
@@ -186,13 +196,25 @@ impl Runtime {
             causes: RefCell::new(HashMap::new()),
             running_updates: RefCell::new(Vec::new()),
             update_seq: Cell::new(0),
+            panic_handlers: RefCell::new(Vec::new()),
         }
     }
 
     // ---------- creating and disposing ----------
 
     pub(crate) fn create(&self, kind: Kind, created_at: &'static Location<'static>) -> NodeId {
-        let owner = self.owner.get();
+        self.create_under(kind, created_at, self.owner.get(), None)
+    }
+
+    /// Creates a node owned by `owner` (disposed with it), reading context through
+    /// `context_parent` when given (instead of through its owner).
+    pub(crate) fn create_under(
+        &self,
+        kind: Kind,
+        created_at: &'static Location<'static>,
+        owner: Option<NodeId>,
+        context_parent: Option<NodeId>,
+    ) -> NodeId {
         let state = match kind {
             Kind::Signal(_) | Kind::Scope | Kind::Reaction(_) => State::Clean,
             Kind::Memo { .. } | Kind::Effect(_) => State::Dirty,
@@ -205,8 +227,10 @@ impl Runtime {
             sources: Vec::new(),
             subscribers: Vec::new(),
             owner,
+            context_parent,
             owned: Vec::new(),
             cleanups: Vec::new(),
+            contexts: Vec::new(),
             created_at,
         };
         let mut nodes = self.nodes.borrow_mut();
@@ -314,7 +338,11 @@ impl Runtime {
     /// memo or effect runs again.
     fn reset_owned(&self, id: NodeId) {
         let owned = match self.nodes.borrow_mut().get_mut(id) {
-            Some(n) => std::mem::take(&mut n.owned),
+            Some(n) => {
+                // What it provided is provided again by the run that follows.
+                n.contexts.clear();
+                std::mem::take(&mut n.owned)
+            }
             None => return,
         };
         for child in owned.into_iter().rev() {
@@ -332,6 +360,53 @@ impl Runtime {
             }
             None => false,
         }
+    }
+
+    /// The current owner, if any.
+    pub(crate) fn owner(&self) -> Option<NodeId> {
+        self.owner.get()
+    }
+
+    /// The owner of `id`.
+    pub(crate) fn owner_of(&self, id: NodeId) -> Option<NodeId> {
+        self.nodes.borrow().get(id).and_then(|n| n.owner)
+    }
+
+    /// Makes `id` provide `value` (replacing what it provided of the same type).
+    pub(crate) fn provide(&self, id: NodeId, ty: std::any::TypeId, value: Rc<dyn Any>) -> bool {
+        match self.nodes.borrow_mut().get_mut(id) {
+            Some(n) => {
+                match n.contexts.iter_mut().find(|(t, _)| *t == ty) {
+                    Some(slot) => slot.1 = value,
+                    None => n.contexts.push((ty, value)),
+                }
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The nearest value of type `ty` provided by `start` or its owners (only `start` itself
+    /// when `own` is set).
+    pub(crate) fn context(
+        &self,
+        start: Option<NodeId>,
+        ty: std::any::TypeId,
+        own: bool,
+    ) -> Option<Rc<dyn Any>> {
+        let nodes = self.nodes.borrow();
+        let mut cur = start;
+        while let Some(id) = cur {
+            let n = nodes.get(id)?;
+            if let Some((_, v)) = n.contexts.iter().find(|(t, _)| *t == ty) {
+                return Some(v.clone());
+            }
+            if own {
+                return None;
+            }
+            cur = n.context_parent.or(n.owner);
+        }
+        None
     }
 
     /// Runs `f` with `owner` as the owner of anything it creates, and no observer.
@@ -604,14 +679,51 @@ impl Runtime {
                 self.effect_runs.set(self.effect_runs.get() + 1);
                 // An effect that sets a signal it reads marks itself again; the flush loop
                 // runs it once more after this run, never recursively.
-                match f.try_borrow_mut() {
-                    Ok(mut f) => f(),
+                let caught = match f.try_borrow_mut() {
+                    Ok(mut f) => catch_unwind(AssertUnwindSafe(&mut *f)).err(),
                     Err(_) => return Err(ReactiveError::Cycle),
+                };
+                if let Some(payload) = caught {
+                    self.contain(id, payload);
                 }
             }
             None => {}
         }
         Ok(())
+    }
+
+    /// Hands an effect's panic to the nearest [`crate::ErrorSink`] its owners provide, then
+    /// to the thread's panic handlers; with neither, the panic goes on unwinding.
+    fn contain(&self, id: NodeId, payload: Box<dyn Any + Send>) {
+        let caught = crate::Caught {
+            message: crate::panic_message(payload.as_ref()),
+            node: key(id),
+            created_at: self.created_at(id),
+        };
+        let sink = self
+            .context(Some(id), std::any::TypeId::of::<crate::ErrorSink>(), false)
+            .and_then(|v| v.downcast_ref::<crate::ErrorSink>().cloned());
+        if let Some(sink) = sink {
+            sink.report(caught);
+            return;
+        }
+        let handlers: Vec<PanicHandler> =
+            self.panic_handlers.borrow().iter().map(|(_, h)| h.clone()).collect();
+        if handlers.iter().any(|h| h(&caught)) {
+            return;
+        }
+        std::panic::resume_unwind(payload);
+    }
+
+    pub(crate) fn add_panic_handler(&self, h: PanicHandler) -> u64 {
+        let id = self.next_watcher.get();
+        self.next_watcher.set(id + 1);
+        self.panic_handlers.borrow_mut().push((id, h));
+        id
+    }
+
+    pub(crate) fn remove_panic_handler(&self, id: u64) {
+        self.panic_handlers.borrow_mut().retain(|(i, _)| *i != id);
     }
 
     // ---------- batching and effects ----------

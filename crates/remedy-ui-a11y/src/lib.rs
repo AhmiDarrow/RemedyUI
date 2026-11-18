@@ -199,6 +199,15 @@ pub struct Semantics {
 }
 
 impl Semantics {
+    /// The same semantics with its name and description passed through `f` (what is said,
+    /// not the value, which is data): pseudo-locales rewrite what readers hear as they
+    /// rewrite what is drawn.
+    pub fn map_text(mut self, f: impl Fn(&str) -> String) -> Self {
+        self.label = self.label.map(|l| f(&l));
+        self.description = self.description.map(|d| f(&d));
+        self
+    }
+
     /// Semantics with a role and nothing else.
     pub fn new(role: Role) -> Self {
         Semantics {

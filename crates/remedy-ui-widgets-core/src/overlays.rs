@@ -97,9 +97,10 @@ pub fn fill_window(el: El) -> El {
     })
 }
 
-/// Shows `text` near `target` after the pointer rests on it, until it leaves.
-pub fn tooltip(target: &El, text: impl Into<String>) {
-    let text = text.into();
+/// Shows `text` near `target` after the pointer rests on it, until it leaves. A signal or
+/// closure gives the text as it is when the tip shows.
+pub fn tooltip(target: &El, text: impl remedy_ui_view::IntoProp<String>) {
+    let text = text.into_prop();
     let ui = target.ui().clone();
     let shown: Rc<RefCell<Option<El>>> = Rc::default();
     let pending: Rc<RefCell<Option<u64>>> = Rc::default();
@@ -126,7 +127,7 @@ pub fn tooltip(target: &El, text: impl Into<String>) {
             let id = ui.after(TOOLTIP_DELAY, move || {
                 let Some(b) = t2.bounds() else { return };
                 // Long tips wrap: at most a readable width, never past the window.
-                let tip = ui2.el("tooltip").text(remedy_ui_view::RichText::plain(text)).pass_through();
+                let tip = ui2.el("tooltip").text(remedy_ui_view::RichText::plain(text.get())).pass_through();
                 let tip = ui2.overlay(place_near_within(&ui2, tip, b, 4.0, TOOLTIP_WIDTH));
                 *shown.borrow_mut() = Some(tip);
             });
