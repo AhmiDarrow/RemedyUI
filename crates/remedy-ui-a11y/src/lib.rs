@@ -226,6 +226,26 @@ impl Semantics {
         self.invalid
     }
 
+    /// Checked, unchecked, or not something that can be checked (`None`).
+    pub fn checked_state(&self) -> Option<bool> {
+        self.checked
+    }
+
+    /// Selected, not selected, or not something that can be selected (`None`).
+    pub fn selected_state(&self) -> Option<bool> {
+        self.selected
+    }
+
+    /// Expanded, collapsed, or not something that expands (`None`).
+    pub fn expanded_state(&self) -> Option<bool> {
+        self.expanded
+    }
+
+    /// The live region politeness: how changes to it are announced.
+    pub fn live_state(&self) -> Live {
+        self.live
+    }
+
     /// The accessible name.
     pub fn label(mut self, s: impl Into<String>) -> Self {
         self.label = Some(s.into());

@@ -498,6 +498,11 @@ pub trait Host {
     fn local_time(&self) -> LocalTime;
     /// Current system settings.
     fn settings(&self) -> SystemSettings;
+    /// The machine's physical memory in bytes, when the platform says (packs size caches
+    /// from it).
+    fn total_memory(&self) -> Option<u64> {
+        None
+    }
     /// Opens a window. A [`HostEvent::Resized`] follows with its real size and scale.
     fn create_window(&mut self, options: &WindowOptions) -> Result<WindowId, Unsupported>;
     /// Closes a window. [`HostEvent::Destroyed`] follows.
@@ -554,6 +559,16 @@ pub trait Host {
     fn set_clipboard_text(&mut self, text: &str, sensitive: bool) -> Result<(), Unsupported>;
     /// Empties the clipboard (a copied secret's time is up).
     fn clear_clipboard(&mut self) -> Result<(), Unsupported>;
+    /// The clipboard's HTML (formatted text another app copied), if it holds any.
+    fn clipboard_html(&mut self) -> Result<Option<String>, Unsupported> {
+        Err(Unsupported::new("clipboard_html", "this host reads plain text only"))
+    }
+    /// Puts formatted text on the clipboard: `html` for apps that paste formatting, `text` for
+    /// the rest. A host without HTML support puts the text alone.
+    fn set_clipboard_html(&mut self, text: &str, html: &str) -> Result<(), Unsupported> {
+        let _ = html;
+        self.set_clipboard_text(text, false)
+    }
     /// Sends a window's accessibility tree, or what changed in it, to assistive technology.
     fn update_accessibility(&mut self, window: WindowId, update: accesskit::TreeUpdate);
     /// Shows, updates (`Some`) or removes (`None`) the app's tray icon.

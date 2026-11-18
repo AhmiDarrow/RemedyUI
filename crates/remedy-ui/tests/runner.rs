@@ -498,6 +498,63 @@ fn capture_protection_is_a_request_and_windows_open_without_it() {
 }
 
 #[test]
+fn content_pops_out_to_its_own_window_and_comes_back_with_its_state() {
+    type Slot<T> = Rc<std::cell::RefCell<Option<T>>>;
+    let m_slot: Slot<remedy_ui::Movable> = Rc::default();
+    let ui_slot: Slot<remedy_ui::Ui> = Rc::default();
+    let count = remedy_ui::reactive::Signal::new(0u32);
+    let (m2, u2) = (m_slot.clone(), ui_slot.clone());
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let (m3, u3, a) = (m2.clone(), u2.clone(), app.clone());
+        app.open(WindowSpec::new("Call").size(400.0, 300.0), move |ui, _| {
+            let (el, m) = remedy_ui::movable(ui, &a, "Screen share", move |ui| {
+                remedy_ui::widgets::label(ui, "", "").text_dyn(move || format!("frames {}", count.get()))
+            });
+            ui.root().child(el);
+            *m3.borrow_mut() = Some(m);
+            *u3.borrow_mut() = Some(ui.clone());
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let texts = |ui: &remedy_ui::Ui| -> Vec<String> {
+        let mut out = Vec::new();
+        let mut stack = vec![ui.root()];
+        while let Some(e) = stack.pop() {
+            if let Some(t) = e.info().and_then(|i| i.text) {
+                out.push(t);
+            }
+            stack.extend(e.child_elements());
+        }
+        out
+    };
+    let main_ui = ui_slot.borrow().clone().unwrap_or_else(|| unreachable!("the window"));
+    count.set(3);
+    host.run_frames(&mut runner, 1);
+    assert!(texts(&main_ui).contains(&"frames 3".to_owned()));
+    let m = m_slot.borrow().clone().unwrap_or_else(|| unreachable!("movable"));
+    m.pop_out();
+    host.run_frames(&mut runner, 2);
+    assert_eq!(host.window_ids().len(), 2, "a real window of its own");
+    assert!(m.out.get_untracked().unwrap_or(false));
+    let out_ui = m.window().and_then(|w| w.ui()).unwrap_or_else(|| unreachable!("its window"));
+    count.set(4);
+    host.run_frames(&mut runner, 1);
+    assert!(texts(&out_ui).contains(&"frames 4".to_owned()), "the same state, shown out there");
+    assert!(
+        texts(&main_ui).iter().any(|t| t.contains("in its own window")),
+        "the place it left says where it went"
+    );
+    // Closing its window brings it back, state and all.
+    let w = m.window().unwrap_or_else(|| unreachable!());
+    w.close();
+    host.run_frames(&mut runner, 2);
+    assert_eq!(host.window_ids().len(), 1);
+    assert!(!m.out.get_untracked().unwrap_or(true));
+    assert!(texts(&main_ui).contains(&"frames 4".to_owned()));
+}
+
+#[test]
 fn windows_report_geometry_and_closing_and_title_bars_drag() {
     let seen = Rc::new(std::cell::RefCell::new(Vec::new()));
     let closed = Rc::new(Cell::new(0u32));
@@ -812,4 +869,34 @@ fn themes_change_live_and_apps_hear_the_system_appearance() {
     runner.app().set_theme(light);
     host.run_frames(&mut runner, 1);
     assert_eq!(ui_slot.borrow().as_ref().map(|u| u.theme().name.clone()), Some("Test light".to_owned()));
+}
+
+#[test]
+fn a_covered_or_flattened_window_tells_its_elements_they_are_not_seen() {
+    let seen: Rc<std::cell::RefCell<Vec<bool>>> = Rc::default();
+    let s2 = seen.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let s2 = s2.clone();
+        app.open(WindowSpec::new("Watched").size(200.0, 100.0), move |ui, _| {
+            let watcher =
+                ui.el("watcher").width(50.0).height(20.0).on_visibility(move |v| s2.borrow_mut().push(v));
+            ui.root().child(watcher);
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    assert_eq!(*seen.borrow(), vec![true]);
+    host.send(HostEvent::Occluded(id, true));
+    host.run_frames(&mut runner, 1);
+    host.send(HostEvent::Occluded(id, false));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*seen.borrow(), vec![true, false, true], "covered, then uncovered");
+    // Windows that lose their area (minimized on Windows) show nothing until they have it again.
+    host.send(HostEvent::Resized { window: id, width: 0, height: 0, scale: 1.0 });
+    host.run_frames(&mut runner, 1);
+    assert_eq!(seen.borrow().last(), Some(&false));
+    host.send(HostEvent::Resized { window: id, width: 200, height: 100, scale: 1.0 });
+    host.run_frames(&mut runner, 1);
+    assert_eq!(seen.borrow().last(), Some(&true));
 }

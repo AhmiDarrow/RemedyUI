@@ -168,9 +168,12 @@ fn dismissable(ui: &Ui, content: El) -> El {
     let layer = fill_window(ui.el("dismiss_layer")).focus_scope();
     let l2 = layer.clone();
     let l3 = layer.clone();
+    let inside = content.clone();
     let layer = layer
         .on_pointer(move |e| {
-            if e.phase == PointerPhase::Down {
+            // Presses inside the content (its buttons, its fields) are the content's own.
+            let within = inside.bounds().is_some_and(|b| b.contains(e.position));
+            if e.phase == PointerPhase::Down && !within {
                 l2.remove();
                 return true;
             }
@@ -252,6 +255,13 @@ pub fn menu(ui: &Ui, anchor: &El, items: Vec<MenuItem>) -> El {
 /// Menu key or Shift+F10 while it has focus.
 #[track_caller]
 pub fn context_menu(target: &El, items: impl Fn() -> Vec<MenuItem> + 'static) -> El {
+    context_menu_at(target, move |_| items())
+}
+
+/// Like [`context_menu`], for menus that depend on what is under the pointer: `items` gets the
+/// window point of the press, or `None` when the menu was opened from the keyboard.
+#[track_caller]
+pub fn context_menu_at(target: &El, items: impl Fn(Option<Point>) -> Vec<MenuItem> + 'static) -> El {
     let ui = target.ui().clone();
     let items = Rc::new(items);
     let (ui2, items2, t2) = (ui.clone(), items.clone(), target.clone());
@@ -259,7 +269,7 @@ pub fn context_menu(target: &El, items: impl Fn() -> Vec<MenuItem> + 'static) ->
         .clone()
         .on_pointer(move |e| {
             if e.phase == PointerPhase::Down && e.buttons.contains(Buttons::SECONDARY) {
-                let _ = menu_at(&ui, Rect::from_points(e.position, e.position), items());
+                let _ = menu_at(&ui, Rect::from_points(e.position, e.position), items(Some(e.position)));
                 return true;
             }
             false
@@ -269,7 +279,7 @@ pub fn context_menu(target: &El, items: impl Fn() -> Vec<MenuItem> + 'static) ->
                 || (e.key == Key::F(10) && e.modifiers.shift);
             if e.pressed && menu_key {
                 let b = t2.bounds().unwrap_or(Rect::ZERO);
-                let _ = menu_at(&ui2, Rect::new(b.min.x, b.max.y, b.min.x, b.max.y), items2());
+                let _ = menu_at(&ui2, Rect::new(b.min.x, b.max.y, b.min.x, b.max.y), items2(None));
                 return true;
             }
             false

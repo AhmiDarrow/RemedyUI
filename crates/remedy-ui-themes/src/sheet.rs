@@ -85,6 +85,56 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         StylePatch { background: Some(d.selected), ..Default::default() },
     );
     rule("board_item", None, States::DRAGGING, StylePatch { opacity: Some(0.6), ..Default::default() });
+    // Documents: quotes get a bar, code a box, tables lines between cells.
+    rule("md_quote_bar", None, States::NONE, StylePatch { background: Some(line), ..Default::default() });
+    rule("md_quote_body", None, States::NONE, StylePatch { foreground: Some(d.muted), ..Default::default() });
+    rule("md_marker", None, States::NONE, StylePatch { foreground: Some(d.muted), ..Default::default() });
+    rule(
+        "md_code_scroll",
+        None,
+        States::NONE,
+        StylePatch {
+            background: Some(c.card),
+            border: Some(line),
+            border_width: Some(t.stroke),
+            radius: Some(r.medium),
+            ..Default::default()
+        },
+    );
+    rule(
+        "md_code",
+        None,
+        States::NONE,
+        StylePatch { mono: Some(true), padding: Some(pad(u * 2.0, u * 3.0)), ..Default::default() },
+    );
+    rule(
+        "md_table",
+        None,
+        States::NONE,
+        StylePatch {
+            border: Some(line),
+            border_width: Some(t.stroke),
+            radius: Some(r.small),
+            ..Default::default()
+        },
+    );
+    rule(
+        "md_cell",
+        None,
+        States::NONE,
+        StylePatch {
+            border: Some(line),
+            border_width: Some(t.stroke * 0.5),
+            padding: Some(pad(u * 1.5, u * 2.5)),
+            ..Default::default()
+        },
+    );
+    rule(
+        "md_cell",
+        Some("head"),
+        States::NONE,
+        StylePatch { weight: Some(700.0), background: Some(c.card), ..Default::default() },
+    );
     // A card that stands out (the user's own message, a highlighted item).
     rule(
         "card",
@@ -178,6 +228,13 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         rule(w, None, States::NONE, base.clone());
         rule(w, None, States::HOVER, StylePatch { background: Some(d.hover), ..Default::default() });
         rule(w, None, States::PRESSED, StylePatch { background: Some(d.pressed), ..Default::default() });
+        // A button that stays on (bold in a toolbar, a toggle) shows it.
+        rule(
+            w,
+            None,
+            States::CHECKED,
+            StylePatch { background: Some(d.selected), border: Some(c.accent), ..Default::default() },
+        );
         rule(w, None, States::DISABLED, disabled.clone());
         rule(
             w,
@@ -525,6 +582,29 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         },
     );
     rule("spinner", None, States::NONE, StylePatch { foreground: Some(c.accent), ..Default::default() });
+    // Live audio visuals (the viz pack): the ring, sparkline and bars take the accent; the meter
+    // sits on a track and draws its zones from the ok, warn and danger colors.
+    for w in ["speaking_ring", "sparkline", "bars"] {
+        rule(w, None, States::NONE, StylePatch { foreground: Some(c.accent), ..Default::default() });
+    }
+    rule(
+        "speaking_ring",
+        Some("muted"),
+        States::NONE,
+        StylePatch { foreground: Some(danger), ..Default::default() },
+    );
+    rule(
+        "level_meter",
+        None,
+        States::NONE,
+        StylePatch { background: Some(line), radius: Some(r.small), ..Default::default() },
+    );
+    rule(
+        "meter_threshold",
+        None,
+        States::NONE,
+        StylePatch { foreground: Some(d.text), radius: Some(r.small), ..Default::default() },
+    );
     rule(
         "toast",
         None,

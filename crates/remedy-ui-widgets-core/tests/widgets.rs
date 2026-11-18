@@ -519,3 +519,41 @@ fn drags_keep_going_when_the_pointer_leaves_the_widget() {
     t.ui.pointer(&ptr(PointerPhase::Move, Point::new(b.min.x + 10.0, y), Buttons::default()));
     assert!((v.get() - 1.0).abs() < 1e-9, "after the release, hovering does not drag");
 }
+
+#[test]
+fn context_menus_learn_where_they_were_opened() {
+    let mut t = T::new();
+    let seen: Rc<Cell<Option<Point>>> = Rc::new(Cell::new(None));
+    let asked = Rc::new(Cell::new(0));
+    let (s2, a2) = (seen.clone(), asked.clone());
+    let target = w::button(&t.ui, "Target", || {});
+    w::context_menu_at(&target, move |at| {
+        s2.set(at);
+        a2.set(a2.get() + 1);
+        vec![w::MenuItem::new("Copy", || {})]
+    });
+    t.ui.root().child(target.clone());
+    t.frame();
+    let at = target.bounds().unwrap_or_default().center();
+    t.ui.pointer(&ptr(PointerPhase::Down, at, Buttons::SECONDARY));
+    assert_eq!((seen.get(), asked.get()), (Some(at), 1), "a right press hands over its point");
+}
+
+#[test]
+fn a_popover_keeps_presses_on_its_own_buttons() {
+    let mut t = T::new();
+    let pressed = Rc::new(Cell::new(0));
+    let p2 = pressed.clone();
+    let anchor = w::button(&t.ui, "Open", || {});
+    t.ui.root().child(anchor.clone());
+    t.frame();
+    let inside = w::button(&t.ui, "Apply", move || p2.set(p2.get() + 1));
+    let layer = w::popover(&t.ui, &anchor, inside.clone());
+    t.frame();
+    t.click(&inside);
+    assert_eq!(pressed.get(), 1, "the button inside took the press");
+    assert!(t.ui.tree().contains(layer.id()), "pressing inside does not close it");
+    t.ui.pointer(&ptr(PointerPhase::Down, Point::new(390.0, 290.0), Buttons::PRIMARY));
+    t.frame();
+    assert!(!t.ui.tree().contains(layer.id()), "a press outside closes it");
+}

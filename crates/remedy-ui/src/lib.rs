@@ -21,9 +21,13 @@
 
 mod geometry;
 mod instance;
+#[cfg(feature = "widgets")]
+mod movable;
 mod runner;
 
 pub use geometry::GeometryStore;
+#[cfg(feature = "widgets")]
+pub use movable::{Movable, movable};
 pub use runner::{
     App, AppConfig, Completion, GPU_PROMOTE_FRAME_COST, GPU_PROMOTE_FRAME_STALL, RendererChoice,
     RendererKind, Runner, Window, WindowSpec,
@@ -34,9 +38,13 @@ pub use remedy_ui_bridge_headless as headless;
 pub use remedy_ui_core as core;
 #[cfg(feature = "devtools")]
 pub use remedy_ui_devtools as devtools;
+#[cfg(feature = "rich")]
+pub use remedy_ui_doc_rich as rich;
 pub use remedy_ui_host as host;
 pub use remedy_ui_input as input;
 pub use remedy_ui_layout as layout;
+#[cfg(feature = "anim")]
+pub use remedy_ui_media_anim as anim;
 #[cfg(feature = "image")]
 pub use remedy_ui_media_image as image;
 #[cfg(feature = "svg")]
@@ -44,6 +52,8 @@ pub use remedy_ui_media_svg as svg;
 pub use remedy_ui_reactive as reactive;
 #[cfg(feature = "i18n")]
 pub use remedy_ui_services_i18n as i18n;
+#[cfg(feature = "spell")]
+pub use remedy_ui_services_spell as spell;
 #[cfg(feature = "update")]
 pub use remedy_ui_services_update as update;
 pub use remedy_ui_style as style;
@@ -52,6 +62,10 @@ pub use remedy_ui_text as text;
 pub use remedy_ui_themes as themes;
 pub use remedy_ui_view as view;
 pub use remedy_ui_view::{El, FieldKind, PaintCx, TextField, Ui};
+#[cfg(feature = "viz")]
+pub use remedy_ui_viz as viz;
+#[cfg(feature = "board")]
+pub use remedy_ui_widgets_board as board;
 #[cfg(feature = "widgets")]
 pub use remedy_ui_widgets_core as widgets;
 #[cfg(feature = "data")]

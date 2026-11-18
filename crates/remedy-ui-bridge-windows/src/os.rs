@@ -166,6 +166,53 @@ pub(crate) fn set_clipboard_text(text: &str, sensitive: bool) -> Result<(), Unsu
     Ok(())
 }
 
+/// The machine's physical memory in bytes.
+pub(crate) fn total_memory() -> Option<u64> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut m =
+        MEMORYSTATUSEX { dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32, ..Default::default() };
+    // SAFETY: `m` is a MEMORYSTATUSEX with its length set, as the call requires.
+    (unsafe { GlobalMemoryStatusEx(&mut m) } != 0).then_some(m.ullTotalPhys).filter(|n| *n > 0)
+}
+
+/// The clipboard's HTML ("HTML Format"), if another app copied formatted text.
+pub(crate) fn clipboard_html() -> Result<Option<String>, Unsupported> {
+    let html_format = format("HTML Format");
+    let _open = Open::new()?;
+    // SAFETY: the clipboard is open; the handle is owned by the clipboard and only read here.
+    let handle = unsafe { GetClipboardData(html_format) };
+    if handle.is_null() {
+        return Ok(None);
+    }
+    // SAFETY: "HTML Format" data is a global memory object; lock, copy out within its size,
+    // unlock.
+    let bytes = unsafe {
+        let size = GlobalSize(handle);
+        let ptr = GlobalLock(handle).cast::<u8>();
+        if ptr.is_null() {
+            return Err(last_error("the clipboard"));
+        }
+        let bytes = std::slice::from_raw_parts(ptr, size).to_vec();
+        GlobalUnlock(handle);
+        bytes
+    };
+    Ok(Some(crate::cf_html::unwrap(&bytes)))
+}
+
+/// Writes formatted text: Unicode text for every app, and "HTML Format" for apps that paste
+/// formatting.
+pub(crate) fn set_clipboard_html(text: &str, html: &str) -> Result<(), Unsupported> {
+    let units = wide(text);
+    let bytes: Vec<u8> = units.iter().flat_map(|u| u.to_le_bytes()).collect();
+    let _open = Open::new()?;
+    // SAFETY: the clipboard is open.
+    if unsafe { EmptyClipboard() } == 0 {
+        return Err(last_error("the clipboard"));
+    }
+    set_data(u32::from(CF_UNICODETEXT), &bytes)?;
+    set_data(format("HTML Format"), &crate::cf_html::wrap(html))
+}
+
 /// Empties the clipboard.
 pub(crate) fn clear_clipboard() -> Result<(), Unsupported> {
     let _open = Open::new()?;

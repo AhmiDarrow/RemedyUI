@@ -269,8 +269,10 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
             if !named {
                 out.push(Problem { element: i.id, kind: ProblemKind::Unnamed, at: i.created_at });
             }
+            // Links inside a sentence take the line's size (WCAG 2.5.8 leaves them out).
             if let Some(b) = i.bounds
                 && i.clickable
+                && !i.inline_link
                 && (b.width() < 23.5 || b.height() < 23.5)
             {
                 out.push(Problem {

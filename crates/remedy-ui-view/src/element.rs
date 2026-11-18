@@ -135,6 +135,8 @@ pub struct ElementInfo {
     pub hidden: bool,
     /// Its children are cut to its box: a scroll container or a clipping element.
     pub clips: bool,
+    /// A link inside a sentence of text ([`El::on_link`]): its size is the line's.
+    pub inline_link: bool,
 }
 
 pub(crate) struct ElData {
@@ -160,6 +162,17 @@ pub(crate) struct ElData {
     pub(crate) pointer: bool,
     /// Draggable: what is dragged, and who hears how it ended.
     pub(crate) drag_source: Option<crate::dnd::DragSource>,
+    /// Its text may be selected ([`El::selectable`]).
+    pub(crate) selectable: bool,
+    /// The bytes of its text selected now.
+    pub(crate) sel: Option<std::ops::Range<usize>>,
+    /// Parts of its text marked (search matches).
+    pub(crate) marks: Vec<std::ops::Range<usize>>,
+    /// Its text's links people can follow ([`El::on_link`]).
+    pub(crate) links: Option<crate::links::TextLinks>,
+    /// A link inside its parent's text: the link's id. It is placed over the link's words,
+    /// not by layout.
+    pub(crate) inline_link: Option<u64>,
     /// Takes drops.
     pub(crate) drop_target: Option<(crate::dnd::DropAccept, crate::dnd::DropHandler)>,
     /// Told when a drag comes over it (or its children) and when it goes.
@@ -169,6 +182,9 @@ pub(crate) struct ElData {
     /// Told the element's new size after a frame where it changed.
     pub(crate) on_resize: Option<Rc<dyn Fn(Size)>>,
     pub(crate) last_size: Option<Size>,
+    /// Told when the element becomes seen or unseen, and the last answer it was given.
+    pub(crate) on_visibility: Option<Rc<dyn Fn(bool)>>,
+    pub(crate) last_visible: Option<bool>,
     /// A scroll container following another's offset: (leader, x, y).
     pub(crate) scroll_follow: Option<(ElementId, bool, bool)>,
     /// Its text is data, not a translatable string ([`El::data_text`]).
@@ -226,6 +242,12 @@ pub(crate) struct Inner {
     /// The last primary press: element, place and time, and how many presses in a row.
     pub(crate) last_press: Option<(ElementId, remedy_ui_core::Point, std::time::Duration)>,
     pub(crate) click_count: u32,
+    /// The text selection over non-editable text, and whether a drag is extending it.
+    pub(crate) text_sel: Option<crate::select::TextSel>,
+    pub(crate) selecting: bool,
+    /// The last rich text copied from a field and the HTML put on the clipboard for it, so
+    /// pasting that copy back keeps what HTML cannot carry (mentions).
+    pub(crate) rich_clip: Option<(String, remedy_ui_text::RichDoc)>,
     pub(crate) local_time: remedy_ui_reactive::Signal<remedy_ui_host::LocalTime>,
     pub(crate) content: ElementId,
     pub(crate) overlays: ElementId,
@@ -239,7 +261,9 @@ pub(crate) struct Inner {
     pub(crate) drag: Option<crate::dnd::Session>,
     pub(crate) drag_pending: Option<crate::dnd::Pending>,
     pub(crate) trusted: ElementId,
-    pub(crate) reduced_motion: bool,
+    pub(crate) reduced_motion: remedy_ui_reactive::Signal<bool>,
+    /// The window is minimized or fully covered: nothing in it is seen.
+    pub(crate) occluded: bool,
     pub(crate) timers: HashMap<u64, Box<dyn FnOnce()>>,
     pub(crate) next_timer: u64,
 }
@@ -247,6 +271,67 @@ pub(crate) struct Inner {
 /// One window's UI. Cloning gives another handle to the same UI.
 #[derive(Clone)]
 pub struct Ui(pub(crate) Rc<RefCell<Inner>>);
+
+/// A handle to a window's view that does not keep it alive ([`Ui::downgrade`]): for state
+/// that outlives a frame but must not hold the window (caches, players, timers).
+#[derive(Clone, Debug)]
+pub struct WeakUi(std::rc::Weak<RefCell<Inner>>);
+
+impl WeakUi {
+    /// The view, while its window is open.
+    pub fn upgrade(&self) -> Option<Ui> {
+        self.0.upgrade().map(Ui)
+    }
+}
+
+impl Ui {
+    /// A handle that does not keep this view alive.
+    pub fn downgrade(&self) -> WeakUi {
+        WeakUi(Rc::downgrade(&self.0))
+    }
+
+    /// Tears the view down when its window closes: every element is removed (its bindings
+    /// disposed, its removal callbacks run, its handlers dropped) and pending timers are
+    /// forgotten, so nothing they captured keeps the window alive.
+    pub fn close(&self) {
+        let root = self.0.borrow().tree.root();
+        for child in self.tree().children(root) {
+            El { ui: self.clone(), id: child }.remove();
+        }
+        let _ = self.tree().clear_handlers(root);
+        let (effects, removed, watch) = {
+            let mut i = self.0.borrow_mut();
+            i.timers.clear();
+            i.interceptor = None;
+            i.wake = None;
+            i.requests.clear();
+            i.rich_clip = None;
+            match i.els.get_mut(&root) {
+                Some(d) => {
+                    d.click = None;
+                    d.hover = None;
+                    d.focus = None;
+                    d.painter = None;
+                    d.on_resize = None;
+                    d.on_scroll = None;
+                    d.on_visibility = None;
+                    d.links = None;
+                    (std::mem::take(&mut d.effects), std::mem::take(&mut d.removed), d.paint_watch.take())
+                }
+                None => (Vec::new(), Vec::new(), None),
+            }
+        };
+        for e in effects {
+            e.dispose();
+        }
+        if let Some(w) = watch {
+            w.dispose();
+        }
+        for f in removed {
+            f();
+        }
+    }
+}
 
 impl std::fmt::Debug for Ui {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -320,6 +405,9 @@ impl Ui {
             double_click: std::time::Duration::from_millis(500),
             last_press: None,
             click_count: 0,
+            text_sel: None,
+            selecting: false,
+            rich_clip: None,
             local_time: remedy_ui_reactive::Signal::new(remedy_ui_host::LocalTime::default()),
             content: root,
             overlays: root,
@@ -329,7 +417,8 @@ impl Ui {
             drag: None,
             drag_pending: None,
             trusted: root,
-            reduced_motion: false,
+            reduced_motion: remedy_ui_reactive::Signal::new(false),
+            occluded: false,
             timers: HashMap::new(),
             next_timer: 0,
         })));
@@ -486,12 +575,35 @@ impl Ui {
 
     /// Follows the system's reduced-motion setting (the runner sets it).
     pub fn set_reduced_motion(&self, on: bool) {
-        self.0.borrow_mut().reduced_motion = on;
+        let s = self.0.borrow().reduced_motion;
+        s.set_if_changed(on);
     }
 
     /// True when motion should be reduced: animations jump to their end, spinners hold still.
+    /// Tracked: what reads it in a binding runs again when the setting changes.
     pub fn reduced_motion(&self) -> bool {
-        self.0.borrow().reduced_motion
+        let s = self.0.borrow().reduced_motion;
+        s.get()
+    }
+
+    /// Tells the UI the window is minimized or fully covered (`true`) or seen again (the
+    /// runner does when the system says so). Elements watching their visibility
+    /// ([`El::on_visibility`]) hear about it in the next frame.
+    pub fn set_occluded(&self, on: bool) {
+        let changed = {
+            let mut i = self.0.borrow_mut();
+            let changed = i.occluded != on;
+            i.occluded = on;
+            changed
+        };
+        if changed {
+            self.request(Request::Frame);
+        }
+    }
+
+    /// True while the window is minimized or fully covered.
+    pub fn occluded(&self) -> bool {
+        self.0.borrow().occluded
     }
 
     /// Runs `f` once after `delay`. Returns an id for [`Ui::cancel_timer`].
@@ -771,11 +883,18 @@ impl ElData {
             focus: None,
             pointer: false,
             drag_source: None,
+            selectable: false,
+            sel: None,
+            marks: Vec::new(),
+            links: None,
+            inline_link: None,
             drop_target: None,
             drag_hover: None,
             scroll_x: false,
             on_resize: None,
             last_size: None,
+            on_visibility: None,
+            last_visible: None,
             scroll_follow: None,
             data_text: false,
             keyboard_alternative: None,
@@ -826,7 +945,8 @@ impl El {
             let mut i = self.ui.0.borrow_mut();
             let _ = i.tree.append(self.id, child.id);
             let nodes = (i.els.get(&self.id).map(|d| d.node), i.els.get(&child.id).map(|d| d.node));
-            if let (Some(p), Some(c)) = nodes {
+            let placed = i.els.get(&child.id).is_some_and(|d| d.inline_link.is_some());
+            if let (Some(p), Some(c), false) = (nodes.0, nodes.1, placed) {
                 let _ = i.layout.add_child(p, c);
             }
             i.structure_changed = true;
@@ -849,8 +969,12 @@ impl El {
             let _ = i.tree.insert(self.id, index.min(n), child.id);
             // Layout children follow the tree's order.
             for p in [Some(self.id), old_parent].into_iter().flatten() {
-                let kids: Vec<LayoutNode> =
-                    i.tree.children(p).iter().filter_map(|k| i.els.get(k).map(|d| d.node)).collect();
+                let kids: Vec<LayoutNode> = i
+                    .tree
+                    .children(p)
+                    .iter()
+                    .filter_map(|k| i.els.get(k).filter(|d| d.inline_link.is_none()).map(|d| d.node))
+                    .collect();
                 if let Some(node) = i.els.get(&p).map(|d| d.node) {
                     let _ = i.layout.set_children(node, &kids);
                 }
@@ -894,6 +1018,10 @@ impl El {
                     removed.extend(d.removed);
                 }
                 i.scroll_offsets.remove(id);
+                if i.text_sel.is_some_and(|s| s.anchor.0 == *id || s.focus.0 == *id) {
+                    i.text_sel = None;
+                    i.selecting = false;
+                }
                 i.hovered.retain(|h| h != id);
                 if i.pressed == Some(*id) {
                     i.pressed = None;
@@ -1081,6 +1209,20 @@ impl El {
             d.last_size = None;
         }
         self.ui.mark(self.id, Dirty::LAYOUT);
+        self
+    }
+
+    /// Calls `f` with whether the element is seen: once after the first frame, then each
+    /// time that changes. It is seen when some of it is inside the window and inside every
+    /// scroll container or clipping element around it, nothing around it is hidden or fully
+    /// transparent, and the window is not minimized or covered ([`Ui::set_occluded`]).
+    /// Animations pause while unseen; lazy content loads when first seen.
+    pub fn on_visibility(self, f: impl Fn(bool) + 'static) -> Self {
+        if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
+            d.on_visibility = Some(Rc::new(f));
+            d.last_visible = None;
+        }
+        self.ui.request(Request::Frame);
         self
     }
 
@@ -1288,6 +1430,7 @@ impl El {
             let _ = self.ui.0.borrow_mut().layout.mark_dirty(n);
         }
         self.ui.mark(self.id, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
+        crate::links::sync(&self);
         self
     }
 
@@ -1471,6 +1614,7 @@ impl El {
             },
             hidden: d.hidden,
             clips: d.clip || d.scroll,
+            inline_link: d.inline_link.is_some(),
         })
     }
 

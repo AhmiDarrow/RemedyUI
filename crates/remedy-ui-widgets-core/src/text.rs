@@ -25,9 +25,11 @@ pub fn heading(ui: &Ui, level: u8, s: impl Into<String>) -> El {
         2 => "2",
         _ => "3",
     };
-    ui.el("heading").variant(variant).text(remedy_ui_view::RichText::plain(s.clone())).semantics(
-        Semantics::new(Role::Label).label(s).description(format!("heading level {}", level.clamp(1, 3))),
-    )
+    // A real heading, so screen readers can move from one to the next.
+    ui.el("heading")
+        .variant(variant)
+        .text(remedy_ui_view::RichText::plain(s.clone()))
+        .semantics(Semantics::new(Role::Heading(level.clamp(1, 6))).label(s))
 }
 
 /// Text that does something when activated (opens a page, shows details).

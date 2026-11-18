@@ -308,6 +308,30 @@ mod linux {
             set.text(text.to_owned()).map_err(|e| Unsupported::new("the clipboard", e.to_string()))
         }
 
+        fn total_memory(&self) -> Option<u64> {
+            // "MemTotal:  16303612 kB" in /proc/meminfo.
+            let info = std::fs::read_to_string("/proc/meminfo").ok()?;
+            let line = info.lines().find(|l| l.starts_with("MemTotal:"))?;
+            let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+            kb.checked_mul(1024)
+        }
+
+        fn clipboard_html(&mut self) -> Result<Option<String>, Unsupported> {
+            match self.clipboard()?.get().html() {
+                Ok(h) => Ok(Some(h)),
+                Err(arboard::Error::ContentNotAvailable) => Ok(None),
+                Err(e) => Err(Unsupported::new("the clipboard", e.to_string())),
+            }
+        }
+
+        fn set_clipboard_html(&mut self, text: &str, html: &str) -> Result<(), Unsupported> {
+            // text/html for apps that paste formatting, and the plain text for the rest.
+            self.clipboard()?
+                .set()
+                .html(html, Some(text))
+                .map_err(|e| Unsupported::new("the clipboard", e.to_string()))
+        }
+
         fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
             self.tray.set(tray)
         }

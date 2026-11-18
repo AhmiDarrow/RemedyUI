@@ -105,6 +105,8 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-media-svg", "remedy-ui-media-image"),
     // The update banner is a widget.
     ("remedy-ui-services-update", "remedy-ui-widgets-core"),
+    // The spelling menu is built from the core menu widgets.
+    ("remedy-ui-services-spell", "remedy-ui-widgets-core"),
     // The inspector and preview gallery are built from widgets, and previews render with
     // the theme pack's palettes and the bundled fonts.
     ("remedy-ui-devtools", "remedy-ui-widgets-core"),
@@ -135,6 +137,8 @@ const UNSAFE_BOUNDARY: &[&str] = &[
     "remedy-ui-services-update",
     // Writes Windows shortcuts (IShellLink) for start-with-the-session entries.
     "remedy-ui-services-desktop",
+    // Talks to the platform's spell checker (Windows ISpellChecker, macOS NSSpellChecker).
+    "remedy-ui-services-spell",
 ];
 
 fn layer(name: &str) -> Option<u8> {

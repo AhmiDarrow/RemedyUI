@@ -48,6 +48,15 @@ M6 (in progress) added:
 - `remedy-ui-services-desktop`: starting with the session, showing files in the file manager, the user's known folders
 - Drag and drop within the app, out to other apps and in from them
 
+M7 (in progress) added:
+
+- `remedy-ui-doc-rich`: Markdown, a rich text editor with links and mentions that saves Markdown, and a find bar
+- `remedy-ui-widgets-board` and `remedy-ui-script`: boards people arrange, with widgets written in sandboxed Luau
+- `remedy-ui-viz`: the speaking ring, level meters, sparklines and bars
+- `remedy-ui-services-spell`: spell checking with the platform's checker or Hunspell dictionaries
+- `remedy-ui-media-anim`: GIF, APNG and animated WebP
+- Rich text fields, formatted text on the clipboard, links inside text, chat lists, selection across messages, and content that pops out to its own window
+
 SecretSticky, SecretFolder and Hearth run on RemedyUI (each repository's `remedyui` branch). A crate is added to the workspace only when it has real code and tests.
 
 Checks: `cargo xtask check` (layer graph and unsafe boundary) and `cargo deny check`, alongside fmt, clippy, tests and docs.

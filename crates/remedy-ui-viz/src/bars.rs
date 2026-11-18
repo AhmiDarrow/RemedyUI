@@ -1,0 +1,155 @@
+//! Bars: a small group of bars, such as a spectrum.
+
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+
+use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::{CornerRadii, Rect};
+use remedy_ui_paint::Brush;
+use remedy_ui_reactive::Signal;
+use remedy_ui_view::{El, Ui};
+
+use crate::drive::{Clock, Moved, Smoothing, Ticker};
+use crate::series::{Range, Samples, extent, fraction, group_max};
+
+/// How the bar group looks and behaves.
+#[derive(Clone, Debug)]
+pub struct BarsOptions {
+    /// The span of values shown. `None` is 0 to 1. Auto fits the values, from zero up.
+    pub range: Option<Range>,
+    /// How the bars rise and fall. Ignored under reduced motion.
+    pub smoothing: Smoothing,
+    /// Space between bars. `None` takes it from the theme. With more values than pixels the
+    /// bars share pixels and the highest value of each group shows.
+    pub gap: Option<f32>,
+    /// The width. `None` fills the available width.
+    pub width: Option<f32>,
+    /// The height. `None` takes it from the theme.
+    pub height: Option<f32>,
+    /// Where time comes from.
+    pub clock: Clock,
+}
+
+impl Default for BarsOptions {
+    fn default() -> Self {
+        BarsOptions {
+            range: None,
+            smoothing: Smoothing::meter(),
+            gap: None,
+            width: None,
+            height: None,
+            clock: Clock::default(),
+        }
+    }
+}
+
+struct State {
+    shown: Vec<f32>,
+    target: Vec<f32>,
+}
+
+/// The values as fractions of their range: the range is 0 to 1 unless the options say
+/// otherwise, and Auto fits the highest value (and the lowest if it is below zero).
+fn fractions<S: Samples + ?Sized>(s: &S, range: Option<Range>) -> Vec<f32> {
+    let (lo, hi) = match range {
+        None => (0.0, 1.0),
+        Some(Range::Fixed(a, b)) => Range::Fixed(a, b).resolve(a, b),
+        Some(Range::Auto) => match extent(s) {
+            Some((lowest, highest)) if highest > lowest.min(0.0) => (lowest.min(0.0), highest),
+            _ => (0.0, 1.0),
+        },
+    };
+    (0..s.len()).map(|i| s.get(i).filter(|v| v.is_finite()).map_or(0.0, |v| fraction(v, lo, hi))).collect()
+}
+
+/// A group of bars for `values`, one bar each, with fast rise and gentle fall.
+///
+/// It repaints only while bars move. Screen readers hear `label` and the highest bar.
+#[track_caller]
+pub fn bars<S: Samples + 'static>(
+    ui: &Ui,
+    label: impl Into<String>,
+    values: Signal<S>,
+    options: BarsOptions,
+) -> El {
+    let label = label.into();
+    let unit = ui.theme().spacing.unit;
+    let gap = options.gap.unwrap_or(unit * 0.5).max(0.0);
+    let el = ui.el("bars").height(options.height.unwrap_or(unit * 10.0));
+    let el = match options.width {
+        Some(w) => el.width(w),
+        None => el.fill_width(),
+    };
+    let state = Rc::new(RefCell::new(State { shown: Vec::new(), target: Vec::new() }));
+    let paint_state = state.clone();
+    let el = el.semantics(Semantics::new(Role::Image).label(label.clone())).paint(move |cx| {
+        let Ok(s) = paint_state.try_borrow() else { return };
+        // Bars at least a pixel wide: more values than that share bars.
+        let columns = (((cx.size.width + gap) / (1.0 + gap)).floor() as usize).max(1);
+        let shown = group_max(&s.shown, columns);
+        let k = shown.len();
+        if k == 0 {
+            return;
+        }
+        let gap = if k > 1 { gap } else { 0.0 };
+        let bar = ((cx.size.width - gap * (k - 1) as f32) / k as f32).max(0.0);
+        let round = (bar / 2.0).min(2.0);
+        let radii = CornerRadii { top_start: round, top_end: round, bottom_end: 0.0, bottom_start: 0.0 };
+        for (i, v) in shown.iter().enumerate() {
+            let h = v * cx.size.height;
+            if *v > 0.004 {
+                let x = i as f32 * (bar + gap);
+                let top = cx.size.height - h.max(1.0);
+                cx.list.fill_rounded(
+                    Rect::new(x, top, x + bar, cx.size.height),
+                    radii,
+                    Brush::Solid(cx.style.foreground),
+                );
+            }
+        }
+    });
+
+    let step_state = state.clone();
+    let step_el = el.clone();
+    let smoothing = options.smoothing;
+    let ticker = Ticker::new(&el, options.clock, move |dt| {
+        let reduced = step_el.ui().reduced_motion();
+        let Ok(mut guard) = step_state.try_borrow_mut() else { return Moved::default() };
+        let s = &mut *guard;
+        let mut changed = false;
+        let mut pending = false;
+        for (shown, target) in s.shown.iter_mut().zip(&s.target) {
+            let next = if reduced { *target } else { smoothing.step(*shown, *target, dt) };
+            changed |= (next - *shown).abs() > f32::EPSILON;
+            pending |= (next - *target).abs() > f32::EPSILON;
+            *shown = next;
+        }
+        Moved { changed, pending }
+    });
+
+    // Screen readers hear the highest bar in twentieths of the range.
+    let heard = Rc::new(Cell::new((usize::MAX, -1i32)));
+    let sem_el = el.clone();
+    let range = options.range;
+    el.bind(move || {
+        let target = values.with(|s| fractions(s, range));
+        let count = target.len();
+        let high = target.iter().copied().fold(0.0f32, f32::max);
+        if let Ok(mut s) = state.try_borrow_mut() {
+            // Bars that did not exist before start at their value instead of rising from zero.
+            let have = s.shown.len();
+            s.shown.truncate(count);
+            s.shown.extend(target.iter().skip(have).copied());
+            s.target = target;
+        }
+        let tick = (high * 20.0).round() as i32;
+        if heard.replace((count, tick)) != (count, tick) {
+            let _ = sem_el.clone().semantics(
+                Semantics::new(Role::Image)
+                    .label(label.clone())
+                    .value(format!("{count} bars, highest {} percent", tick * 5)),
+            );
+        }
+        ticker.kick();
+    })
+}

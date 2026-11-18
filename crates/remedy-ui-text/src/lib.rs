@@ -26,6 +26,8 @@ mod engine;
 mod pseudo;
 mod raster;
 mod rich;
+mod rich_edit;
+mod rich_html;
 mod safety;
 mod style;
 
@@ -39,7 +41,9 @@ pub fn is_rtl_locale(locale: &str) -> bool {
 }
 
 pub use atlas::{AtlasEntry, AtlasStats, GlyphAtlas, GlyphKey, PAGE_SIZE, Page, PageRect};
-pub use editing::{Composition, SecretEditor, SecretString, TextEditor, TextSelection, UNDO_PAUSE_MS};
+pub use editing::{
+    Composition, SecretEditor, SecretString, TextChange, TextEditor, TextSelection, UNDO_PAUSE_MS,
+};
 pub use engine::{
     Affinity, FontCollection, FontError, GlyphRunInfo, LineInfo, Paragraph, ParagraphOptions,
     PositionedGlyph, RunFont, TextEngine, TextPosition,
@@ -47,5 +51,7 @@ pub use engine::{
 pub use pseudo::Pseudo;
 pub use raster::{Antialias, GlyphImage, GlyphRasterizer, Hinting, SUBPIXEL_BINS, size_64, subpixel_bin};
 pub use rich::{InlineObject, OBJECT_REPLACEMENT, RichText, Span};
+pub use rich_edit::{Block, MAX_LEVEL, Mark, RichDoc, RichEditor, RichLook, RichView, SOFT_BREAK};
+pub use rich_html::{from_html, to_html};
 pub use safety::{Reveal, has_hidden_controls, looks_like, reveal_controls, skeleton};
 pub use style::{Align, Direction, Feature, LineHeight, StylePatch, TextStyle};

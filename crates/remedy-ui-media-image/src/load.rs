@@ -11,7 +11,7 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use remedy_ui_paint::Image;
 use remedy_ui_reactive::Signal;
 
-use crate::decode::{DecodeError, decode, dimensions, dimensions_from, fitted_scalable, format_of};
+use crate::decode::{DecodeError, Decoded, decode, dimensions, dimensions_from, fitted_scalable, format_of};
 
 /// Where an image comes from.
 #[derive(Clone, Debug)]
@@ -25,6 +25,26 @@ pub enum Source {
 }
 
 impl Source {
+    /// What identifies the source in a cache: the path of a file, or the allocation of bytes.
+    pub fn id(&self) -> SourceId {
+        SourceId(self.key())
+    }
+
+    /// The file's size and modification time now; `None` for bytes, and for a file that
+    /// cannot be read. A cache entry whose stamp differs is out of date.
+    pub fn stamp(&self) -> Option<Stamp> {
+        match self {
+            Source::File(p) => stamp(p),
+            Source::Bytes(_) => None,
+        }
+    }
+
+    /// The source's bytes (reads a file whole), and the file's stamp as it was read. Do this
+    /// off the UI thread.
+    pub fn read(&self) -> Result<(Arc<[u8]>, Option<Stamp>), DecodeError> {
+        self.read_bytes()
+    }
+
     fn key(&self) -> SourceKey {
         match self {
             Source::File(p) => SourceKey::File(p.clone()),
@@ -52,7 +72,7 @@ impl Source {
         }
     }
 
-    fn read(&self) -> Result<(Arc<[u8]>, Option<Stamp>), DecodeError> {
+    fn read_bytes(&self) -> Result<(Arc<[u8]>, Option<Stamp>), DecodeError> {
         match self {
             Source::Bytes(b) => Ok((b.clone(), None)),
             Source::File(p) => {
@@ -65,12 +85,17 @@ impl Source {
 }
 
 /// A file's size and modification time, to notice edits.
-type Stamp = (u64, std::time::SystemTime);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Stamp(u64, std::time::SystemTime);
 
 fn stamp(p: &std::path::Path) -> Option<Stamp> {
     let m = std::fs::metadata(p).ok()?;
-    Some((m.len(), m.modified().ok()?))
+    Some(Stamp(m.len(), m.modified().ok()?))
 }
+
+/// What identifies a [`Source`] in a cache.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SourceId(SourceKey);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum SourceKey {
@@ -132,6 +157,13 @@ fn worker(pool: &'static Pool) {
         };
         job();
     }
+}
+
+/// Runs `job` on the image workers (one per core but one, newest request first). A job whose
+/// `cancelled` flag is set before it starts is skipped. Long work should be done in short
+/// jobs that queue the next, so other images get their turn.
+pub fn spawn_job(cancelled: Arc<AtomicBool>, job: impl FnOnce() + Send + 'static) {
+    spawn(cancelled, job);
 }
 
 fn spawn(cancelled: Arc<AtomicBool>, job: impl FnOnce() + Send + 'static) {
@@ -271,16 +303,23 @@ fn key_box(key: &Key) -> Option<(u32, u32)> {
 
 type JobResult = Result<(Image, (u32, u32), Option<Stamp>), DecodeError>;
 
-fn decode_job(source: &Source, box_px: &Option<(u32, u32)>, cover: bool) -> JobResult {
-    let (bytes, stamp) = source.read()?;
+/// Decodes `bytes` to show in a box of `box_px` device pixels (`None`: at their own size),
+/// fitting inside it or (`cover`) covering it: the decoding [`load`] does, for callers that
+/// already hold the bytes and run on a worker of their own.
+pub fn decode_for_box(bytes: &[u8], box_px: Option<(u32, u32)>, cover: bool) -> Result<Decoded, DecodeError> {
     let show_at = match box_px {
         Some(b) => {
-            let scalable = format_of(&bytes).is_some_and(|f| f.scalable());
-            Some(fitted_scalable(dimensions(&bytes)?, *b, cover, scalable))
+            let scalable = format_of(bytes).is_some_and(|f| f.scalable());
+            Some(fitted_scalable(dimensions(bytes)?, b, cover, scalable))
         }
         None => None,
     };
-    let d = decode(&bytes, show_at)?;
+    decode(bytes, show_at)
+}
+
+fn decode_job(source: &Source, box_px: &Option<(u32, u32)>, cover: bool) -> JobResult {
+    let (bytes, stamp) = source.read_bytes()?;
+    let d = decode_for_box(&bytes, *box_px, cover)?;
     Ok((d.image, d.source_size, stamp))
 }
 

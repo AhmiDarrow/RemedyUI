@@ -1134,12 +1134,16 @@ impl Runner {
                     }
                     host.request_frame(h);
                 }
-                Request::Copy { text, sensitive } => {
-                    let _ = host.set_clipboard_text(&text, sensitive);
+                Request::Copy { text, sensitive, html } => {
+                    let _ = match html {
+                        Some(html) if !sensitive => host.set_clipboard_html(&text, &html),
+                        _ => host.set_clipboard_text(&text, sensitive),
+                    };
                 }
                 Request::Paste => {
                     if let Ok(Some(t)) = host.clipboard_text() {
-                        ui.paste(&t);
+                        let html = host.clipboard_html().ok().flatten();
+                        ui.paste_html(&t, html.as_deref());
                         host.request_frame(h);
                     }
                 }
@@ -1418,6 +1422,7 @@ impl remedy_ui_host::App for Runner {
         }
         match event {
             HostEvent::Resumed => {
+                remedy_ui_view::device::set_total_memory(host.total_memory());
                 if let Some(setup) = self.setup.take() {
                     setup(&self.app);
                 }
@@ -1451,6 +1456,13 @@ impl remedy_ui_host::App for Runner {
                 let Some(&key) = self.by_host.get(&window) else { return };
                 let reduced = self.settings.reduced_motion;
                 let Some(w) = self.wins.get_mut(&key) else { return };
+                // A window with no area (minimized on Windows) shows nothing; it shows again
+                // when it has area. Platforms that say so (`Occluded`) are told separately.
+                let was_flat = w.size.0 == 0 || w.size.1 == 0;
+                let flat = width == 0 || height == 0;
+                if flat != was_flat {
+                    w.ui.set_occluded(flat);
+                }
                 w.size = (width, height, scale);
                 match w.comp.as_mut() {
                     Some(c) => c.resize(width, height, scale),
@@ -1467,6 +1479,11 @@ impl remedy_ui_host::App for Runner {
                 host.request_frame(window);
                 self.sync_maximized(host, key);
                 self.remember_geometry(host, key);
+            }
+            HostEvent::Occluded(window, covered) => {
+                if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
+                    w.ui.set_occluded(covered);
+                }
             }
             HostEvent::Moved(window, _) => {
                 if let Some(&key) = self.by_host.get(&window) {
@@ -1582,16 +1599,21 @@ impl remedy_ui_host::App for Runner {
                     let closed = {
                         let mut s = self.app.0.borrow_mut();
                         s.open.remove(&key);
-                        s.uis.remove(&key);
+                        let ui = s.uis.remove(&key);
                         s.visible.remove(&key);
                         s.on_geometry.remove(&key);
                         s.renderers.remove(&key);
                         s.titles.remove(&key);
                         s.maximized.remove(&key);
-                        s.on_closed.remove(&key).unwrap_or_default()
+                        (s.on_closed.remove(&key).unwrap_or_default(), ui)
                     };
+                    let (closed, ui) = closed;
                     for f in closed {
                         f();
+                    }
+                    // The window's elements go with it, and with them everything they held.
+                    if let Some(ui) = ui {
+                        ui.close();
                     }
                 }
                 let (none_left, keep) = {
@@ -1669,12 +1691,13 @@ impl remedy_ui_host::App for Runner {
                 }
             }
             HostEvent::SecondInstance(args) => self.launched(args),
-            HostEvent::MemoryPressure(_) => {
+            HostEvent::MemoryPressure(level) => {
                 for w in self.wins.values_mut() {
                     if let Some(c) = w.comp.as_mut() {
                         c.trim_memory();
                     }
                 }
+                remedy_ui_view::device::memory_pressure(level);
             }
             _ => {}
         }
