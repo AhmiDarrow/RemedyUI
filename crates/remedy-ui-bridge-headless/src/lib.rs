@@ -111,6 +111,7 @@ pub struct HeadlessHost {
     a11y: BTreeMap<WindowId, Vec<remedy_ui_host::accesskit::TreeUpdate>>,
     dialogs: Vec<FileDialog>,
     dialog_answers: VecDeque<Vec<std::path::PathBuf>>,
+    dialogs_answer_later: bool,
     drags_out: Vec<(WindowId, DragData)>,
     opened: Vec<String>,
     drag_answers: VecDeque<DropEffect>,
@@ -151,6 +152,7 @@ impl HeadlessHost {
             a11y: BTreeMap::new(),
             dialogs: Vec::new(),
             dialog_answers: VecDeque::new(),
+            dialogs_answer_later: false,
             drags_out: Vec::new(),
             opened: Vec::new(),
             drag_answers: VecDeque::new(),
@@ -314,6 +316,13 @@ impl HeadlessHost {
     /// Queues what the user picks in the next file dialog (empty: cancel).
     pub fn answer_dialog(&mut self, paths: Vec<std::path::PathBuf>) {
         self.dialog_answers.push_back(paths);
+    }
+
+    /// Makes file dialogs stay open after [`Host::file_dialog`] returns, as Android's picker
+    /// does; answer one with [`HostEvent::FileDialog`] through [`HeadlessHost::send`], naming
+    /// it `DialogId(n)` for the n-th dialog opened (counting from 1).
+    pub fn dialogs_answer_later(&mut self, on: bool) {
+        self.dialogs_answer_later = on;
     }
 
     /// The file dialogs the app opened, oldest first.
@@ -618,10 +627,15 @@ impl Host for HeadlessHost {
         &mut self,
         _window: Option<WindowId>,
         dialog: &FileDialog,
-    ) -> Result<Vec<std::path::PathBuf>, Unsupported> {
+    ) -> Result<remedy_ui_host::DialogStarted, Unsupported> {
         self.dialogs.push(dialog.clone());
+        if self.dialogs_answer_later {
+            // As a mobile picker: the dialog stays open until the test answers it.
+            let id = remedy_ui_host::DialogId(u64::try_from(self.dialogs.len()).unwrap_or(u64::MAX));
+            return Ok(remedy_ui_host::DialogStarted::Pending(id));
+        }
         // With no scripted answer, the user cancels.
-        Ok(self.dialog_answers.pop_front().unwrap_or_default())
+        Ok(remedy_ui_host::DialogStarted::Finished(self.dialog_answers.pop_front().unwrap_or_default()))
     }
 
     fn start_drag(

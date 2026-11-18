@@ -1,6 +1,6 @@
 [package]
 name = "remedy-ui-bridge-winit"
-description = "RemedyUI's shared desktop bridge core over winit: windows, events, frames, CPU blits with damage and GPU surface handles for the Windows, macOS, Wayland and X11 bridges."
+description = "RemedyUI's shared bridge core over winit: windows, events, frames, CPU blits with damage, GPU surface handles and the mobile lifecycle for the Windows, macOS, Wayland, X11 and Android bridges."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

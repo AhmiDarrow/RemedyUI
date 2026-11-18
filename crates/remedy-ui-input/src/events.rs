@@ -110,6 +110,9 @@ pub enum Key {
     PageDown,
     /// A function key, F1 to F24.
     F(u8),
+    /// The system's back action: Android's back button and gesture, a keyboard's browser-back
+    /// key. What nothing takes dismisses like Escape, then leaves the window.
+    Back,
     /// A key the model does not name, by the platform's name for it.
     Named(String),
 }

@@ -58,7 +58,7 @@ impl Ui {
         }
     }
 
-    fn field_of(&self, id: ElementId) -> Option<Rc<RefCell<Field>>> {
+    pub(crate) fn field_of(&self, id: ElementId) -> Option<Rc<RefCell<Field>>> {
         self.0.borrow().els.get(&id).and_then(|d| d.field.clone())
     }
 
@@ -143,7 +143,14 @@ impl Ui {
                 if let Some(f) = focusable
                     && let Some(field) = self.field_of(f)
                 {
-                    self.place_caret(f, &field, e.position, false);
+                    let b = tree.bounds(f).unwrap_or_default();
+                    let local = Point::new(e.position.x - b.min.x, e.position.y - b.min.y);
+                    // Alt+click adds a cursor in a code field.
+                    if e.modifiers.alt && field.borrow_mut().add_cursor_at(local) {
+                        self.mark(f, Dirty::PAINT);
+                    } else {
+                        self.place_caret(f, &field, e.position, false);
+                    }
                 }
             }
             PointerPhase::Move if e.buttons.contains(remedy_ui_input::Buttons::PRIMARY) => {
@@ -203,7 +210,22 @@ impl Ui {
     }
 
     /// Routes a key. Returns true when something took it.
+    ///
+    /// The system's back action ([`Key::Back`]) is offered as itself first (a navigation
+    /// stack goes back), then as Escape (a menu, dialog or drag is dismissed). When neither
+    /// takes it, the runner leaves the window.
     pub fn key(&self, e: &KeyEvent) -> bool {
+        if e.key == Key::Back {
+            if self.route_key(e) {
+                return true;
+            }
+            let escape = KeyEvent { key: Key::Escape, text: None, ..e.clone() };
+            return self.route_key(&escape);
+        }
+        self.route_key(e)
+    }
+
+    fn route_key(&self, e: &KeyEvent) -> bool {
         if e.pressed && e.key == remedy_ui_input::Key::Escape && self.cancel_drag() {
             return true;
         }

@@ -125,6 +125,7 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-bridge-windows", "remedy-ui-bridge-winit"),
     ("remedy-ui-bridge-macos", "remedy-ui-bridge-winit"),
     ("remedy-ui-bridge-linux", "remedy-ui-bridge-winit"),
+    ("remedy-ui-bridge-android", "remedy-ui-bridge-winit"),
 ];
 
 /// Crates that may hold unsafe code, each in one `os` or `ffi` module.

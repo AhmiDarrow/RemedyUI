@@ -309,8 +309,10 @@ fn elements_showing_the_same_source_share_one_animation_and_free_it_together() {
     s.frame();
     s.wait("both playing", |s| s.timers.len() == 2 && s.colors() == vec![R, R]);
     assert_eq!(cached(), 1, "one decoder for both");
-    let all = resident_frames();
-    assert_eq!(all, 3, "the three frames once");
+    // Decoding runs on the workers: once all three frames are in, they are held once, not
+    // once per element.
+    s.wait("all three decoded", |_| resident_frames() >= 3);
+    assert_eq!(resident_frames(), 3, "the three frames once");
 
     // The first to run out of time moves the shared playhead; the second finds it moved.
     s.fire_nth(0);

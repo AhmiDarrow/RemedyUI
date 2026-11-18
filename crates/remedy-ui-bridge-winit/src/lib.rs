@@ -1,11 +1,13 @@
-//! RemedyUI's shared desktop bridge core over winit.
+//! RemedyUI's shared bridge core over winit.
 //!
-//! One implementation of the [`Host`] contract for every desktop platform winit serves:
-//! windows, pointer, touch, wheel and key input, input-method sessions, frames on the
-//! display's refresh, timers, wakes from other threads, CPU presents through softbuffer with
-//! damage, and native handles for GPU surfaces. What winit does not cover comes from
-//! [`PlatformHooks`], which each platform bridge implements (`bridge-windows`, `bridge-macos`,
-//! `bridge-wayland`, `bridge-x11`): the clipboard, capture protection and system settings.
+//! One implementation of the [`Host`] contract for every platform winit serves: windows,
+//! pointer, touch, wheel and key input, input-method sessions, frames on the display's
+//! refresh, timers, wakes from other threads, CPU presents through softbuffer with damage,
+//! native handles for GPU surfaces, and the mobile lifecycle (surfaces dropped on suspension
+//! and announced again on resume, memory warnings). What winit does not cover comes from
+//! [`PlatformHooks`], which each platform bridge implements (`bridge-windows`,
+//! `bridge-macos`, `bridge-linux`, `bridge-android`): the clipboard, capture protection,
+//! system settings, safe areas, and assistive technology where winit's adapter cannot reach.
 
 pub mod backend;
 mod translate;
@@ -17,9 +19,9 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{
-    AccessibilityEvent, App, DragData, DragEvent, DragStarted, DropEffect, FileDialog, Host, HostEvent,
-    ImeEvent, Pixels, ResizeEdge, SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported, Waker,
-    WindowHandles, WindowId, WindowOptions,
+    AccessibilityEvent, App, DialogStarted, DragData, DragEvent, DragStarted, DropEffect, FileDialog, Host,
+    HostEvent, ImeEvent, MemoryPressure, Pixels, ResizeEdge, SafeArea, SystemSettings, TextInputState,
+    TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowId, WindowOptions,
 };
 use remedy_ui_input::{
     Buttons, KeyEvent, Modifiers, Platform, PointerEvent, PointerKind, PointerPhase, WheelEvent,
@@ -84,6 +86,17 @@ pub trait PlatformHooks: 'static {
         window: Option<&Window>,
         dialog: &FileDialog,
     ) -> Result<Vec<std::path::PathBuf>, Unsupported>;
+    /// Starts a file dialog. By default it runs [`PlatformHooks::file_dialog`] to its end;
+    /// a platform whose picker answers later (Android) returns
+    /// [`DialogStarted::Pending`] and reports the choice through
+    /// [`PlatformHooks::take_events`] as [`HostEvent::FileDialog`].
+    fn start_file_dialog(
+        &mut self,
+        window: Option<&Window>,
+        dialog: &FileDialog,
+    ) -> Result<DialogStarted, Unsupported> {
+        self.file_dialog(window, dialog).map(DialogStarted::Finished)
+    }
     /// Opens a web or mail link with the system (checked by the caller).
     fn open_url(&mut self, url: &str) -> Result<(), Unsupported>;
     /// Receives a handle that wakes the event loop, for platform services that report from
@@ -133,6 +146,54 @@ pub trait PlatformHooks: 'static {
     fn take_ime_events(&mut self) -> Vec<(winit::window::WindowId, ImeEvent)> {
         Vec::new()
     }
+    /// Serves assistive technology for `window` itself instead of AccessKit's winit adapter
+    /// (Android, where that adapter cannot reach a native activity's view). Called once per
+    /// new window; true means the platform took it, and updates go to
+    /// [`PlatformHooks::update_accessibility`].
+    fn start_accessibility(&mut self, window: &Window) -> bool {
+        let _ = window;
+        false
+    }
+    /// Sends an accessibility update for a window [`PlatformHooks::start_accessibility`] took.
+    fn update_accessibility(&mut self, window: &Window, update: remedy_ui_host::accesskit::TreeUpdate) {
+        let _ = (window, update);
+    }
+    /// The edges of `window` that system interface covers, in logical pixels.
+    fn safe_area(&self, window: &Window) -> SafeArea {
+        let _ = window;
+        SafeArea::default()
+    }
+    /// True when key events reach the window without passing through the input method
+    /// (Android's native activity takes keys before it). A key that types while the input
+    /// method composes then commits the composition first, and
+    /// [`PlatformHooks::end_composition`] tells the input method.
+    fn keys_bypass_ime(&self) -> bool {
+        false
+    }
+    /// The app committed the input method's composition itself (a key typed outside it).
+    fn end_composition(&mut self, window: &Window) {
+        let _ = window;
+    }
+    /// True when a window's surface, once CPU presents drew into it, cannot take a GPU
+    /// swapchain until the platform replaces the surface (Android: a CPU lock connects the
+    /// `ANativeWindow` for good). The window then has no GPU handles until it does.
+    fn cpu_presents_hold_surface(&self) -> bool {
+        false
+    }
+    /// Window events the platform produced since the last call (assistive technology the
+    /// platform serves itself, safe-area changes).
+    fn take_window_events(&mut self) -> Vec<(winit::window::WindowId, WindowNotice)> {
+        Vec::new()
+    }
+}
+
+/// A window event a platform produced outside winit.
+#[derive(Clone, Debug, PartialEq)]
+pub enum WindowNotice {
+    /// Assistive technology on a window the platform serves itself.
+    Accessibility(AccessibilityEvent),
+    /// The edges system interface covers changed (logical pixels).
+    SafeArea(SafeArea),
 }
 
 /// Why the event loop could not run.
@@ -171,12 +232,16 @@ struct Win {
     cursor: Point,
     buttons: Buttons,
     composing: bool,
+    /// The input method's composition while `composing`.
+    preedit: String,
     /// Files winit reported hovering or dropped since the last flush (winit sends one event
     /// per file).
     hovered: Vec<std::path::PathBuf>,
     dropped: Vec<std::path::PathBuf>,
     /// A drag from winit's file drops is over the window.
     dragging: bool,
+    /// CPU presents have drawn into the window's current surface.
+    cpu_presented: bool,
 }
 
 struct State {
@@ -192,6 +257,9 @@ struct State {
     softbuffer: Option<softbuffer::Context<Arc<Window>>>,
     settings: SystemSettings,
     exit: bool,
+    /// The loop has resumed before: a later resume follows a suspension (mobile), and the
+    /// windows' surfaces are new.
+    resumed_once: bool,
 }
 
 /// The host as an app sees it during one callback.
@@ -264,14 +332,22 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         let attrs = self.hooks.window_attributes(attrs);
         let window =
             Arc::new(self.el.create_window(attrs).map_err(|e| Unsupported::new("windows", e.to_string()))?);
+        if self.state.windows.contains_key(&window.id()) {
+            // A platform with one window (Android's activity) hands the same one out again.
+            return Err(Unsupported::new("another window", "this platform shows one window at a time"));
+        }
         self.hooks.window_created(&window);
-        // The accessibility adapter must exist before the window is first shown.
-        let a11y = self
-            .state
-            .proxy
-            .lock()
-            .ok()
-            .map(|p| accesskit_winit::Adapter::with_event_loop_proxy(self.el, &window, p.clone()));
+        // The accessibility adapter must exist before the window is first shown, unless the
+        // platform serves assistive technology itself.
+        let a11y = if self.hooks.start_accessibility(&window) {
+            None
+        } else {
+            self.state
+                .proxy
+                .lock()
+                .ok()
+                .map(|p| accesskit_winit::Adapter::with_event_loop_proxy(self.el, &window, p.clone()))
+        };
         // Best effort: where the system cannot keep windows out of capture, the window still
         // opens (the runner asks again and tells the app whether protection holds).
         if options.capture_protected {
@@ -299,6 +375,8 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
                     hovered: Vec::new(),
                     dropped: Vec::new(),
                     dragging: false,
+                    cpu_presented: false,
+                    preedit: String::new(),
                 },
             ),
         );
@@ -308,6 +386,14 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
             height: size.height.max(1),
             scale,
         });
+        if let Some(wid) = self.state.ids.get(&id)
+            && let Some((_, w)) = self.state.windows.get(wid)
+        {
+            let area = self.hooks.safe_area(&w.window);
+            if area != SafeArea::default() {
+                self.state.pending.push_back(HostEvent::SafeArea(id, area));
+            }
+        }
         Ok(id)
     }
 
@@ -505,15 +591,24 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
                 })
             })
             .collect();
+        w.cpu_presented = true;
         w.window.pre_present_notify();
         if sb.is_empty() { buffer.present() } else { buffer.present_with_damage(&sb) }.map_err(fail)
     }
 
     fn window_handles(&self, window: WindowId) -> Result<Arc<dyn WindowHandles>, Unsupported> {
         match self.win(window) {
+            Some(w) if w.cpu_presented && self.hooks.cpu_presents_hold_surface() => Err(Unsupported::new(
+                "a GPU surface",
+                "CPU presents hold this window's surface until the platform replaces it",
+            )),
             Some(w) => Ok(w.window.clone()),
             None => Err(Unsupported::new("window handles", "the window is closed")),
         }
+    }
+
+    fn renderer_fixed_per_surface(&self) -> bool {
+        self.hooks.cpu_presents_hold_surface()
     }
 
     fn set_text_input(&mut self, window: WindowId, state: Option<TextInputState>) {
@@ -567,20 +662,24 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
 
     fn update_accessibility(&mut self, window: WindowId, update: remedy_ui_host::accesskit::TreeUpdate) {
         let Some(wid) = self.state.ids.get(&window).copied() else { return };
-        if let Some((_, w)) = self.state.windows.get_mut(&wid)
-            && let Some(a) = w.a11y.as_mut()
-        {
-            a.update_if_active(|| update);
+        let Some((_, w)) = self.state.windows.get_mut(&wid) else { return };
+        match w.a11y.as_mut() {
+            Some(a) => a.update_if_active(|| update),
+            None => self.hooks.update_accessibility(&w.window, update),
         }
+    }
+
+    fn safe_area(&self, window: WindowId) -> SafeArea {
+        self.win(window).map(|w| self.hooks.safe_area(&w.window)).unwrap_or_default()
     }
 
     fn file_dialog(
         &mut self,
         window: Option<WindowId>,
         dialog: &FileDialog,
-    ) -> Result<Vec<std::path::PathBuf>, Unsupported> {
+    ) -> Result<DialogStarted, Unsupported> {
         let w = window.and_then(|id| self.win(id)).map(|w| w.window.clone());
-        self.hooks.file_dialog(w.as_deref(), dialog)
+        self.hooks.start_file_dialog(w.as_deref(), dialog)
     }
 
     fn start_drag(
@@ -688,8 +787,14 @@ impl<A: App, H: PlatformHooks> Runner<A, H> {
         for (wid, e) in self.hooks.take_ime_events() {
             let Some((id, w)) = self.state.windows.get_mut(&wid) else { continue };
             match &e {
-                ImeEvent::Preedit { text, .. } => w.composing = !text.is_empty(),
-                ImeEvent::Commit(_) | ImeEvent::Disabled => w.composing = false,
+                ImeEvent::Preedit { text, .. } => {
+                    w.composing = !text.is_empty();
+                    w.preedit.clone_from(text);
+                }
+                ImeEvent::Commit(_) | ImeEvent::Disabled => {
+                    w.composing = false;
+                    w.preedit.clear();
+                }
                 _ => {}
             }
             out.push(HostEvent::Ime(*id, e));
@@ -737,10 +842,42 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
         self.state.settings = settings.clone();
         self.deliver(el, HostEvent::Settings(settings));
         self.deliver(el, HostEvent::Resumed);
+        if std::mem::replace(&mut self.state.resumed_once, true) {
+            // Back from a suspension (mobile): every window has a new surface, perhaps of a
+            // new size; say so and draw it whole.
+            let sizes: Vec<(WindowId, u32, u32, f32)> = self
+                .state
+                .windows
+                .values()
+                .map(|(id, w)| {
+                    let s = w.window.inner_size();
+                    (*id, s.width.max(1), s.height.max(1), w.window.scale_factor() as f32)
+                })
+                .collect();
+            for (window, width, height, scale) in sizes {
+                self.deliver(el, HostEvent::Resized { window, width, height, scale });
+                if let Some(w) = self.state.ids.get(&window).and_then(|wid| self.state.windows.get(wid)) {
+                    w.1.window.request_redraw();
+                }
+            }
+        }
     }
 
     fn suspended(&mut self, el: &ActiveEventLoop) {
+        // The platform takes the windows' surfaces away when this returns (Android destroys
+        // the native window): drop what presents into them first.
+        for (_, w) in self.state.windows.values_mut() {
+            w.surface = None;
+            w.cpu_presented = false;
+        }
+        self.state.softbuffer = None;
         self.deliver(el, HostEvent::Suspended);
+    }
+
+    fn memory_warning(&mut self, el: &ActiveEventLoop) {
+        // The system is about to kill processes for memory (Android's low-memory call, iOS's
+        // memory warning): give back everything not on screen.
+        self.deliver(el, HostEvent::MemoryPressure(MemoryPressure::Critical));
     }
 
     fn user_event(&mut self, el: &ActiveEventLoop, event: UserEvent) {
@@ -879,6 +1016,18 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
             }
             WindowEvent::ModifiersChanged(m) => self.state.modifiers = translate::modifiers(m.state()),
             WindowEvent::KeyboardInput { event, .. } => {
+                let types = event.state == ElementState::Pressed
+                    && event.text.as_ref().is_some_and(|t| !t.chars().all(char::is_control));
+                if types && w.composing && self.hooks.keys_bypass_ime() {
+                    // A key typed outside the input method (a hardware keyboard on Android)
+                    // while it composes: the composition stays as shown, then the key types.
+                    w.composing = false;
+                    let text = std::mem::take(&mut w.preedit);
+                    let window = w.window.clone();
+                    self.hooks.end_composition(&window);
+                    self.deliver(el, HostEvent::Ime(id, ImeEvent::Commit(text)));
+                }
+                let Some((_, w)) = self.state.windows.get_mut(&wid) else { return };
                 let e = KeyEvent {
                     key: translate::key(&event.logical_key),
                     physical: translate::physical(&event.physical_key),
@@ -899,6 +1048,7 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                     winit::event::Ime::Enabled => ImeEvent::Enabled,
                     winit::event::Ime::Preedit(text, cursor) => {
                         w.composing = !text.is_empty();
+                        w.preedit.clone_from(&text);
                         let cursor = translate::preedit_cursor(&text, cursor);
                         ImeEvent::Preedit { text, cursor }
                     }
@@ -936,6 +1086,18 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
             self.deliver(el, e);
         }
         for e in self.hooks.take_events() {
+            // Settings the platform reports itself (Android's configuration) become current.
+            if let HostEvent::Settings(s) = &e {
+                self.state.settings = s.clone();
+            }
+            self.deliver(el, e);
+        }
+        for (wid, notice) in self.hooks.take_window_events() {
+            let Some((id, _)) = self.state.windows.get(&wid) else { continue };
+            let e = match notice {
+                WindowNotice::Accessibility(a) => HostEvent::Accessibility(*id, a),
+                WindowNotice::SafeArea(a) => HostEvent::SafeArea(*id, a),
+            };
             self.deliver(el, e);
         }
         self.fire_timers(el);
@@ -968,6 +1130,7 @@ pub fn run_on<A: App, H: PlatformHooks>(
         softbuffer: None,
         settings,
         exit: false,
+        resumed_once: false,
     };
     let mut hooks = hooks;
     let wake_proxy = state.proxy.clone();

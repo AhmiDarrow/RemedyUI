@@ -129,6 +129,8 @@ pub enum Action {
     ShowContextMenu,
     /// Scroll it into view.
     ScrollIntoView,
+    /// Replace its text (a text field; the new text comes with the request).
+    SetValue,
 }
 
 /// How changes to an element are announced.
@@ -361,9 +363,23 @@ pub struct A11yTree {
     dirty: BTreeSet<u64>,
     connected: bool,
     sent_once: bool,
+    /// Device pixels per logical pixel: bounds are logical, assistive technology reads
+    /// device pixels, so the root carries this scale.
+    scale: f64,
 }
 
 impl A11yTree {
+    /// Sets the window's scale (device pixels per logical pixel). Element bounds stay in
+    /// logical pixels; the root node scales them to the device pixels platforms expect.
+    pub fn set_scale(&mut self, scale: f32) {
+        let s = f64::from(scale);
+        if s.is_finite() && s > 0.0 && s != self.scale {
+            self.scale = s;
+            let root = self.root;
+            self.mark(root);
+        }
+    }
+
     /// A tree whose root element has id `root`.
     pub fn new(root: u64) -> Self {
         A11yTree {
@@ -374,6 +390,7 @@ impl A11yTree {
             dirty: BTreeSet::new(),
             connected: false,
             sent_once: false,
+            scale: 1.0,
         }
     }
 
@@ -472,7 +489,15 @@ impl A11yTree {
     fn build(&self, id: u64) -> Option<Node> {
         let (s, children) = self.nodes.get(&id)?;
         let mut n = Node::new(role(s.role));
+        if id == self.root && self.scale != 1.0 {
+            n.set_transform(accesskit::Affine::scale(self.scale));
+        }
         if let Some(l) = self.composed_label(id) {
+            // AccessKit reads static text's words from its value (its label comes from its
+            // value on every platform); a label alone leaves the text unread.
+            if s.role == Role::Label && s.value.is_none() {
+                n.set_value(l.clone());
+            }
             n.set_label(l);
         }
         if let Some(d) = &s.description {
@@ -637,5 +662,6 @@ fn action(a: Action) -> accesskit::Action {
         Action::Collapse => A::Collapse,
         Action::ShowContextMenu => A::ShowContextMenu,
         Action::ScrollIntoView => A::ScrollIntoView,
+        Action::SetValue => A::SetValue,
     }
 }

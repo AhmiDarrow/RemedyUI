@@ -11,7 +11,7 @@
 //! .ok();
 //! ```
 //!
-//! [`run`] starts the platform's bridge (Windows, macOS or Linux) and drives every window:
+//! [`run`] starts the platform's bridge (Windows, macOS, Linux or Android) and drives every window:
 //! input goes to the window's [`Ui`], each frame runs the view pipeline into the window's
 //! compositor, and frames are presented with the GPU renderer (feature `gpu`, on by default)
 //! or, when no GPU works, the CPU renderer with damage-only presents. App code acts through an
@@ -33,6 +33,9 @@ pub use runner::{
     RendererKind, Runner, Window, WindowSpec,
 };
 
+/// The Android bridge: the app's entry point (`remedy_ui::android::main!`), the system log.
+#[cfg(target_os = "android")]
+pub use remedy_ui_bridge_android as android;
 #[cfg(feature = "headless")]
 pub use remedy_ui_bridge_headless as headless;
 pub use remedy_ui_core as core;
@@ -117,6 +120,16 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
     #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
     {
         remedy_ui_bridge_linux::run(runner).map_err(|e| RunError(e.to_string()))
+    }
+    // The activity comes from the app's `remedy_ui::android::main!` entry point.
+    #[cfg(target_os = "android")]
+    {
+        remedy_ui_bridge_android::run(runner).map_err(|e| RunError(e.to_string()))
+    }
+    #[cfg(target_os = "ios")]
+    {
+        drop(runner);
+        Err(RunError("no bridge for this platform yet".into()))
     }
     #[cfg(not(any(windows, unix)))]
     {

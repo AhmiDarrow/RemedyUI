@@ -74,6 +74,8 @@ struct UndoStep {
     inserted: String,
     before: TextSelection,
     after: TextSelection,
+    /// Steps of one group (an edit at several cursors) undo and redo together; 0 is none.
+    group: u64,
 }
 
 /// Text being composed by an input method (IME): shown inline, not yet part of the text.
@@ -99,6 +101,9 @@ pub struct TextEditor {
     version: u64,
     /// Changes since the last [`TextEditor::take_changes`].
     changes: Vec<TextChange>,
+    /// The group edits now join ([`TextEditor::begin_group`]); 0 when none is open.
+    group: u64,
+    next_group: u64,
 }
 
 /// One change to an editor's text: at byte `at`, `removed` bytes went and `inserted` bytes
@@ -363,12 +368,23 @@ impl TextEditor {
         self.sel = TextSelection::caret(caret);
         self.version += 1;
         self.redo.clear();
-        let step = UndoStep { at, removed, inserted: insert.to_string(), before, after: self.sel };
+        let step = UndoStep {
+            at,
+            removed,
+            inserted: insert.to_string(),
+            before,
+            after: self.sel,
+            group: self.group,
+        };
         // Typing (or deleting) in one place without a long pause joins the previous step,
         // except that typing a space after a word starts a new one.
         let joins = match (self.last, self.undo.last()) {
             (Some((k, t)), Some(prev))
-                if k == kind && kind != EditKind::Other && now_ms.saturating_sub(t) < UNDO_PAUSE_MS =>
+                if k == kind
+                    && kind != EditKind::Other
+                    && self.group == 0
+                    && prev.group == 0
+                    && now_ms.saturating_sub(t) < UNDO_PAUSE_MS =>
             {
                 let contiguous = match kind {
                     EditKind::Typing => prev.at + prev.inserted.len() == at && step.removed.is_empty(),
@@ -468,7 +484,21 @@ impl TextEditor {
 
     /// Undoes the last step. Returns false when there is nothing to undo.
     pub fn undo(&mut self) -> bool {
-        let Some(step) = self.undo.pop() else { return false };
+        if self.undo.is_empty() {
+            return false;
+        }
+        // A group goes back whole, latest step first.
+        while let Some(step) = self.undo.pop() {
+            let group = step.group;
+            self.undo_one(step);
+            if group == 0 || self.undo.last().is_none_or(|s| s.group != group) {
+                break;
+            }
+        }
+        true
+    }
+
+    fn undo_one(&mut self, step: UndoStep) {
         let (cs, ce) = (
             self.rope.byte_to_char(step.at),
             self.rope.byte_to_char(self.char_floor(step.at + step.inserted.len())),
@@ -486,12 +516,24 @@ impl TextEditor {
         self.version += 1;
         self.last = None;
         self.redo.push(step);
-        true
     }
 
     /// Redoes the last undone step. Returns false when there is nothing to redo.
     pub fn redo(&mut self) -> bool {
-        let Some(step) = self.redo.pop() else { return false };
+        if self.redo.is_empty() {
+            return false;
+        }
+        while let Some(step) = self.redo.pop() {
+            let group = step.group;
+            self.redo_one(step);
+            if group == 0 || self.redo.last().is_none_or(|s| s.group != group) {
+                break;
+            }
+        }
+        true
+    }
+
+    fn redo_one(&mut self, step: UndoStep) {
         let (cs, ce) = (
             self.rope.byte_to_char(step.at),
             self.rope.byte_to_char(self.char_floor(step.at + step.removed.len())),
@@ -509,7 +551,20 @@ impl TextEditor {
         self.version += 1;
         self.last = None;
         self.undo.push(step);
-        true
+    }
+
+    /// Starts a group: the edits until [`TextEditor::end_group`] undo and redo as one step (an
+    /// edit made at several cursors at once).
+    pub fn begin_group(&mut self) {
+        self.next_group += 1;
+        self.group = self.next_group;
+        self.last = None;
+    }
+
+    /// Ends the group [`TextEditor::begin_group`] started.
+    pub fn end_group(&mut self) {
+        self.group = 0;
+        self.last = None;
     }
 
     /// How many lines the text has (lines end at `\n`; an empty text has one).
@@ -558,6 +613,7 @@ impl TextEditor {
             inserted: String::new(),
             before: self.sel,
             after: self.sel,
+            group: self.group,
         });
         self.redo.clear();
         self.last = None;
