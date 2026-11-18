@@ -6,7 +6,6 @@ use std::path::Path;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use remedy_ui_media_video::VideoSink;
@@ -68,7 +67,7 @@ type FullscreenHandler = Rc<dyn Fn(bool)>;
 struct Inner {
     id: u64,
     ui: remedy_ui_view::WeakUi,
-    tx: Option<Sender<Cmd>>,
+    tx: Option<engine::Control>,
     shared: Arc<Shared>,
     options: PlayerOptions,
     state: Signal<PlaybackState>,
@@ -91,7 +90,7 @@ struct Inner {
 impl Inner {
     fn send(&self, cmd: Cmd) {
         if let Some(tx) = &self.tx {
-            let _ = tx.send(cmd);
+            tx.send(cmd);
         }
     }
 

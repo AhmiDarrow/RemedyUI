@@ -15,7 +15,11 @@
 //! ([`gpu_slice`]).
 
 use std::sync::OnceLock;
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use std::time::Instant;
+// The page's clock in a browser, where std's panics.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+use web_time::Instant;
 
 pub use tracing;
 

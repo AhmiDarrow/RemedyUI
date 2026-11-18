@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Runs the browser tests in a headless browser with wasm-bindgen-test-runner: the web
+# bridge's (`tests/browser.rs`) and media playback's (`remedy-ui-media-playback/tests/web.rs`).
+#
+#   tools/web-test.sh [firefox|chrome]
+#
+# Needs the wasm32-unknown-unknown target, the wasm-bindgen CLI of the pinned version (which
+# brings wasm-bindgen-test-runner), and the browser's WebDriver: geckodriver for Firefox
+# (`cargo install geckodriver`), chromedriver matching the installed Chrome for Chrome. Set
+# GECKODRIVER or CHROMEDRIVER to the driver's path when it is not on PATH. The runner is set
+# for this one run only.
+#
+# `tools/webdriver.json` (handed to the runner) lets the test
+# pages play sound without a click first, as a page may once its person has used it.
+set -euo pipefail
+
+crate="$(cd "$(dirname "$0")/.." && pwd)"
+root="$(cd "$crate/../.." && pwd)"
+browser="${1:-firefox}"
+case "$browser" in
+    firefox) export GECKODRIVER="${GECKODRIVER:-$(command -v geckodriver)}" ;;
+    chrome) export CHROMEDRIVER="${CHROMEDRIVER:-$(command -v chromedriver)}" ;;
+    *) echo "usage: $0 [firefox|chrome]" >&2; exit 2 ;;
+esac
+export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner
+# Long enough for a software GPU to make its first device.
+export WASM_BINDGEN_TEST_TIMEOUT="${WASM_BINDGEN_TEST_TIMEOUT:-120}"
+export WASM_BINDGEN_TEST_WEBDRIVER_JSON="$crate/tools/webdriver.json"
+cargo test --manifest-path "$crate/Cargo.toml" --target wasm32-unknown-unknown --test browser
+cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web

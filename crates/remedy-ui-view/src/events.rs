@@ -73,10 +73,12 @@ impl Ui {
     /// Routes pointer input. Returns true when an element took it.
     pub fn pointer(&self, e: &PointerEvent) -> bool {
         let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
+        self.0.borrow_mut().consumed = false;
         let tap = self.0.borrow().interceptor.clone();
         if let Some(tap) = tap
             && tap(e)
         {
+            self.0.borrow_mut().consumed = true;
             return true;
         }
         let tree = self.tree();
@@ -84,6 +86,7 @@ impl Ui {
         // A wrapped link's further lines are that link too.
         let hit = self.link_at(hit, e.position).or(hit);
         if self.drag_pointer(e, hit) {
+            self.0.borrow_mut().consumed = true;
             return true;
         }
         // Hover follows the pointer; a press keeps its element hovered until release.
@@ -113,6 +116,7 @@ impl Ui {
         let clicks = self.0.borrow().click_count;
         let selecting = self.select_pointer(e, &chain, clicks);
         if selecting && e.phase != PointerPhase::Down {
+            self.0.borrow_mut().consumed = true;
             return true;
         }
         match e.phase {
@@ -188,6 +192,7 @@ impl Ui {
             && let Ok(d) = tree.dispatch(h, e)
         {
             handled |= d.handled;
+            self.0.borrow_mut().consumed = d.handled;
             if e.phase == PointerPhase::Down {
                 self.0.borrow_mut().captured = d.handled_by;
             }
@@ -196,6 +201,15 @@ impl Ui {
             self.0.borrow_mut().captured = None;
         }
         handled
+    }
+
+    /// True when the last pointer event was consumed: an element's pointer handler took it (a
+    /// context menu opening on a secondary press, a drawing surface), a tool intercepted it, or
+    /// it moved a drag or a text selection. Landing on an element that does nothing with it is
+    /// not consuming it. Hosts use it to keep or cancel what the platform would do with the
+    /// press itself (a browser's own context menu).
+    pub fn pointer_consumed(&self) -> bool {
+        self.0.borrow().consumed
     }
 
     /// Routes a wheel or touchpad scroll to the elements under it that take scrolls

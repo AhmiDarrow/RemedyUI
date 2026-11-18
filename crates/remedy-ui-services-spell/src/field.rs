@@ -10,7 +10,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::{Rc, Weak};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use remedy_ui_core::time::Instant;
 
 use remedy_ui_core::Point;
 use remedy_ui_view::{Decoration, El, FieldKind, TextField, Ui};

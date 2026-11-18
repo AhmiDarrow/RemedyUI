@@ -628,6 +628,20 @@ pub trait Host {
     fn renderer_fixed_per_surface(&self) -> bool {
         false
     }
+    /// Which renderer draws a window now: the GPU (on a surface from
+    /// [`Host::window_handles`]) or the CPU (through [`Host::present_pixels`]). Called before
+    /// a window's first frame and whenever its renderer changes; a host that shows the two
+    /// differently (a browser's GPU and 2D canvases) switches here.
+    fn renderer_changed(&mut self, window: WindowId, gpu: bool) {
+        let _ = (window, gpu);
+    }
+    /// Whether the app consumed the pointer event it was just given (an element's handler took
+    /// it, such as a context menu opening on a secondary press). Called after every pointer
+    /// event; a host whose platform acts on presses itself (a browser's own context menu)
+    /// cancels that action only when the app took the press.
+    fn pointer_consumed(&mut self, window: WindowId, consumed: bool) {
+        let _ = (window, consumed);
+    }
     /// Starts, updates (`Some`) or ends (`None`) text input on a window.
     fn set_text_input(&mut self, window: WindowId, state: Option<TextInputState>);
     /// The clipboard's text.

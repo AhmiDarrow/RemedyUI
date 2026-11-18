@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use remedy_ui_core::Rect;
 use remedy_ui_paint::Image;
@@ -113,57 +113,44 @@ struct Job {
     work: Box<dyn FnOnce() + Send>,
 }
 
-struct Pool {
-    queue: Mutex<Vec<Job>>,
-    ready: Condvar,
-}
+/// Jobs waiting for a worker.
+static QUEUE: Mutex<Vec<Job>> = Mutex::new(Vec::new());
 
-fn pool() -> &'static Pool {
-    static POOL: OnceLock<&'static Pool> = OnceLock::new();
-    POOL.get_or_init(|| {
-        let pool: &'static Pool =
-            Box::leak(Box::new(Pool { queue: Mutex::new(Vec::new()), ready: Condvar::new() }));
-        // One worker per core, leaving one for the UI thread; parked while there is no work.
-        let n = std::thread::available_parallelism().map_or(2, |n| n.get()).saturating_sub(1).max(1);
-        for i in 0..n {
-            let _ = std::thread::Builder::new().name(format!("remedy-pages-{i}")).spawn(move || worker(pool));
+/// Runs the most urgent job not cancelled; false when none is left.
+fn step() -> bool {
+    let job = {
+        let mut q = QUEUE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        q.retain(|j| !j.cancel.is_cancelled());
+        let best =
+            q.iter().enumerate().min_by_key(|(_, j)| j.priority.load(Ordering::Relaxed)).map(|(i, _)| i);
+        match best {
+            Some(i) => q.swap_remove(i),
+            None => return false,
         }
-        pool
-    })
+    };
+    let _span = remedy_ui_trace::phase!("page raster").entered();
+    (job.work)();
+    true
 }
 
-fn worker(pool: &'static Pool) {
-    loop {
-        let job = {
-            let Ok(mut q) = pool.queue.lock() else { return };
-            loop {
-                q.retain(|j| !j.cancel.is_cancelled());
-                let best = q
-                    .iter()
-                    .enumerate()
-                    .min_by_key(|(_, j)| j.priority.load(Ordering::Relaxed))
-                    .map(|(i, _)| i);
-                match best {
-                    Some(i) => break q.swap_remove(i),
-                    None => match pool.ready.wait(q) {
-                        Ok(g) => q = g,
-                        Err(_) => return,
-                    },
-                }
-            }
-        };
-        let _span = remedy_ui_trace::phase!("page raster").entered();
-        (job.work)();
-    }
+fn pool() -> &'static remedy_ui_core::exec::Pool {
+    static POOL: OnceLock<remedy_ui_core::exec::Pool> = OnceLock::new();
+    // One worker per core, leaving one for the UI thread; parked while there is no work (in a
+    // browser, cooperative slices between frames).
+    POOL.get_or_init(|| {
+        let n = remedy_ui_core::exec::parallelism().saturating_sub(1).max(1);
+        remedy_ui_core::exec::Pool::new("remedy-pages", n, step)
+    })
 }
 
 /// Queues `work` on the page workers. It is skipped if `cancel` is set before it starts.
 pub(crate) fn spawn(cancel: Cancel, priority: Arc<AtomicU64>, work: impl FnOnce() + Send + 'static) {
-    let p = pool();
-    if let Ok(mut q) = p.queue.lock() {
-        q.push(Job { cancel, priority, work: Box::new(work) });
-        p.ready.notify_one();
-    }
+    QUEUE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(Job {
+        cancel,
+        priority,
+        work: Box::new(work),
+    });
+    pool().notify();
 }
 
 /// A priority: the class first (previews, then visible tiles, then prefetch, then

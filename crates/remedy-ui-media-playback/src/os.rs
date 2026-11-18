@@ -11,6 +11,8 @@ mod android;
 mod gstreamer;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+mod web;
 #[cfg(windows)]
 mod windows;
 
@@ -31,10 +33,17 @@ pub(crate) fn platform_host() -> Result<Arc<dyn MediaHost>, MediaError> {
     {
         android::host()
     }
-    #[cfg(any(target_os = "ios", not(any(windows, unix))))]
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    {
+        web::host()
+    }
+    #[cfg(any(
+        target_os = "ios",
+        not(any(windows, unix, all(target_arch = "wasm32", target_os = "unknown")))
+    ))]
     {
         Err(MediaError::Unsupported(
-            "this platform has no media backend yet (the web and iOS arrive with their bridges)".into(),
+            "this platform has no media backend yet (iOS arrives with its bridge)".into(),
         ))
     }
 }

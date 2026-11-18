@@ -1,6 +1,6 @@
 [package]
 name = "remedy-ui-render-gpu"
-description = "RemedyUI GPU renderer: wgpu (D3D12, Vulkan, Metal, GL) with vello_gpu tiles, a backend ladder, a persistent pipeline cache and device-loss recovery."
+description = "RemedyUI GPU renderer: wgpu (D3D12, Vulkan, Metal, GL, WebGPU, WebGL2) with vello_gpu tiles, a backend ladder, a persistent pipeline cache and device-loss recovery."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -31,7 +31,11 @@ wgpu = { version = "=30.0.2", default-features = false, features = ["metal"] }
 wgpu = { version = "=30.0.2", default-features = false, features = ["vulkan", "gles"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wgpu = { version = "=30.0.2", default-features = false, features = ["webgpu", "webgl"] }
+# WebGPU first, WebGL2 where the browser has no WebGPU. A page without shared memory has one
+# thread, so wgpu's handles are Send there by construction.
+wgpu = { version = "=30.0.2", default-features = false, features = ["webgpu", "webgl", "fragile-send-sync-non-atomic-wasm"] }
+# Browsers make adapters and devices through promises.
+wasm-bindgen-futures = { version = "=0.4.80" }
 
 [dev-dependencies]
 # Resource counters prove no pipeline or shader is created after start-up (tests only).

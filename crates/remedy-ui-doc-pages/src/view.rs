@@ -5,7 +5,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use remedy_ui_core::time::Instant;
 
 use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Size, Vec2};

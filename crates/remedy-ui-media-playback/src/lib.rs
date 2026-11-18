@@ -9,7 +9,9 @@
 //! - [`MediaHost`]: where decoding and sound come from. [`platform_host`] gives the
 //!   platform's: Media Foundation and WASAPI on Windows; the system's GStreamer on Linux,
 //!   loaded at run time and never bundled; AVFoundation and Audio Queues on macOS;
-//!   MediaCodec and AAudio on Android. An app with its own decoder implements the trait.
+//!   MediaCodec and AAudio on Android; in a browser page, the browser's WebCodecs decoders (MP4
+//!   with H.264 and AAC, taken apart here) and WebAudio. An app with its own decoder
+//!   implements the trait.
 //! - Subtitles: WebVTT, SRT and the basics of ASS/SSA, found next to a file, added by the
 //!   app, or carried in the media where the platform's decoder gives them.
 //!
@@ -28,6 +30,9 @@
 
 mod engine;
 mod host;
+// The MP4 reader feeds the browser's decoders (and is tested everywhere).
+#[cfg(any(test, all(target_arch = "wasm32", target_os = "unknown")))]
+mod mp4;
 #[allow(unsafe_code)]
 mod os;
 mod player;

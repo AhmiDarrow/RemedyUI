@@ -1,0 +1,11 @@
+{
+  "moz:firefoxOptions": {
+    "prefs": {
+      "media.autoplay.default": 0,
+      "media.autoplay.block-webaudio": false
+    }
+  },
+  "goog:chromeOptions": {
+    "args": ["--autoplay-policy=no-user-gesture-required"]
+  }
+}

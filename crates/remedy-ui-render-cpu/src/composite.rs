@@ -82,7 +82,7 @@ impl CpuCompositor {
         for key in &plan.released {
             self.tiles.remove(key);
         }
-        let started = std::time::Instant::now();
+        let started = remedy_ui_core::time::Instant::now();
         let mut pixels = 0u64;
         for req in &plan.raster {
             pixels += req.pixels();

@@ -1,13 +1,14 @@
 //! RemedyUI's GPU renderer.
 //!
-//! Runs on wgpu (D3D12, Vulkan, Metal, OpenGL 3.3 / GLES 3.0), found by a backend ladder that
-//! ends in a software adapter. Display lists draw through `vello_gpu` with the same
+//! Runs on wgpu (D3D12, Vulkan, Metal, OpenGL 3.3 / GLES 3.0; WebGPU and WebGL2 in a
+//! browser), found by a backend ladder that ends in a software adapter. Display lists draw through `vello_gpu` with the same
 //! [`Painter`](remedy_ui_render_cpu::Painter) as the CPU renderer, so both draw the same glyphs
 //! and shapes; compositor tiles live in textures and composite with clips and opacity groups.
 //! Pipelines are created at start-up from a persistent cache where the driver supports one. A
 //! lost device is replaced and every tile rastered again from the retained layer tree with no
 //! app code. See `docs/design/04-rendering.md`.
 
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 mod block;
 mod cache;
 mod composite;
@@ -45,6 +46,9 @@ pub enum GpuError {
     Readback(String),
     /// A window surface could not be made or used.
     Surface(String),
+    /// The device is still being made (browsers make devices asynchronously); the callback
+    /// given to [`GpuContext::prepare_shared`] reports when it is ready.
+    Pending,
 }
 
 impl std::fmt::Display for GpuError {
@@ -57,6 +61,7 @@ impl std::fmt::Display for GpuError {
             GpuError::Render(e) => write!(f, "drawing failed: {e}"),
             GpuError::Readback(e) => write!(f, "reading pixels back failed: {e}"),
             GpuError::Surface(e) => write!(f, "the window surface failed: {e}"),
+            GpuError::Pending => f.write_str("the GPU device is still being made"),
         }
     }
 }

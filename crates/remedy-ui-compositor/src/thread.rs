@@ -1,11 +1,15 @@
 //! The compositor thread: scrolling and compositor animations keep the display's rate even
 //! when the UI thread is busy, because nothing here waits on it.
+//!
+//! Natively it is a thread of its own. In a browser page without threads it is a cooperative
+//! task on the page's thread ([`remedy_ui_core::exec`]) that runs between input and frames,
+//! with the same messages, order and reports.
 
-use std::sync::Arc;
-use std::sync::mpsc::{Receiver, Sender, channel};
-use std::thread::JoinHandle;
+use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use remedy_ui_core::exec::Pool;
 use remedy_ui_core::{Point, Vec2};
 
 use crate::{Compositor, FramePlan, LayerId, LayerTree, Mailbox, TileRequest};
@@ -23,7 +27,7 @@ enum Msg {
     Fling(LayerId, Vec2),
     Resize(u32, u32, f32),
     TrimMemory,
-    Stop,
+    Stop(Sender<Compositor>),
 }
 
 /// What a vsync produced, reported back to the UI thread.
@@ -42,7 +46,7 @@ pub struct CompositorThread {
     commits: Arc<Mailbox<LayerTree>>,
     tx: Sender<Msg>,
     reports: Receiver<FrameReport>,
-    handle: Option<JoinHandle<Compositor>>,
+    worker: Pool,
 }
 
 impl std::fmt::Debug for CompositorThread {
@@ -51,32 +55,42 @@ impl std::fmt::Debug for CompositorThread {
     }
 }
 
-fn run(
-    mut compositor: Compositor,
-    mut presenter: impl Presenter,
+/// What the compositor thread owns while it runs.
+struct Running<P> {
+    /// `None` once stopped and handed back.
+    compositor: Option<Compositor>,
+    presenter: P,
     commits: Arc<Mailbox<LayerTree>>,
     rx: Receiver<Msg>,
     reports: Sender<FrameReport>,
-) -> Compositor {
-    while let Ok(msg) = rx.recv() {
+}
+
+impl<P: Presenter> Running<P> {
+    /// Handles the next message; false when none is waiting (or the thread has stopped).
+    fn step(&mut self) -> bool {
+        let Some(compositor) = self.compositor.as_mut() else { return false };
+        let msg = match self.rx.try_recv() {
+            Ok(m) => m,
+            Err(TryRecvError::Empty | TryRecvError::Disconnected) => return false,
+        };
         match msg {
             Msg::Vsync(at) => {
-                if let Some(tree) = commits.take() {
+                if let Some(tree) = self.commits.take() {
                     compositor.commit(tree);
                 }
                 let plan = compositor.frame(at);
                 let changed = !plan.damage.is_empty() || !plan.raster.is_empty() || !plan.released.is_empty();
                 if changed {
-                    let started = std::time::Instant::now();
+                    let started = remedy_ui_core::time::Instant::now();
                     let present = remedy_ui_trace::phase!("present").entered();
-                    presenter.present(&plan);
+                    self.presenter.present(&plan);
                     drop(present);
                     // What the frame cost sizes the zoom budget (compositing included, so
                     // the estimate errs on the side of smooth frames).
                     let pixels: u64 = plan.raster.iter().map(TileRequest::pixels).sum();
                     compositor.record_raster(pixels, started.elapsed());
                 }
-                let _ = reports.send(FrameReport { at, presented: changed, animating: plan.animating });
+                let _ = self.reports.send(FrameReport { at, presented: changed, animating: plan.animating });
             }
             Msg::ScrollBy(id, d) => {
                 compositor.scroll_by(id, d);
@@ -89,23 +103,42 @@ fn run(
             }
             Msg::Resize(w, h, s) => compositor.resize(w, h, s),
             Msg::TrimMemory => compositor.trim_memory(),
-            Msg::Stop => break,
+            Msg::Stop(back) => {
+                if let Some(c) = self.compositor.take() {
+                    let _ = back.send(c);
+                }
+                return false;
+            }
         }
+        true
     }
-    compositor
 }
 
 impl CompositorThread {
-    /// Starts a thread that owns `compositor` and presents through `presenter`.
+    /// Starts a thread that owns `compositor` and presents through `presenter` (a
+    /// cooperative task in a browser page).
     pub fn spawn(compositor: Compositor, presenter: impl Presenter + 'static) -> std::io::Result<Self> {
         let commits = Arc::new(Mailbox::new());
         let (tx, rx) = channel();
         let (report_tx, reports) = channel();
-        let mailbox = commits.clone();
-        let handle = std::thread::Builder::new()
-            .name("remedy-ui compositor".into())
-            .spawn(move || run(compositor, presenter, mailbox, rx, report_tx))?;
-        Ok(CompositorThread { commits, tx, reports, handle: Some(handle) })
+        let running = Mutex::new(Running {
+            compositor: Some(compositor),
+            presenter,
+            commits: commits.clone(),
+            rx,
+            reports: report_tx,
+        });
+        // One worker: messages are handled in the order they were sent.
+        let worker = Pool::new("remedy-ui compositor", 1, move || {
+            running.lock().unwrap_or_else(PoisonError::into_inner).step()
+        });
+        Ok(CompositorThread { commits, tx, reports, worker })
+    }
+
+    fn send(&self, msg: Msg) {
+        if self.tx.send(msg).is_ok() {
+            self.worker.notify();
+        }
     }
 
     /// Hands over a new layer tree. It replaces one the compositor has not taken yet; the UI
@@ -116,32 +149,32 @@ impl CompositorThread {
 
     /// A display refresh: draw the frame presented at `at`.
     pub fn vsync(&self, at: Duration) {
-        let _ = self.tx.send(Msg::Vsync(at));
+        self.send(Msg::Vsync(at));
     }
 
     /// Scrolls a layer by content units.
     pub fn scroll_by(&self, layer: LayerId, delta: Vec2) {
-        let _ = self.tx.send(Msg::ScrollBy(layer, delta));
+        self.send(Msg::ScrollBy(layer, delta));
     }
 
     /// Routes a wheel scroll at a device-pixel point.
     pub fn scroll_at(&self, point: Point, delta: Vec2) {
-        let _ = self.tx.send(Msg::ScrollAt(point, delta));
+        self.send(Msg::ScrollAt(point, delta));
     }
 
     /// Starts a fling.
     pub fn fling(&self, layer: LayerId, velocity: Vec2) {
-        let _ = self.tx.send(Msg::Fling(layer, velocity));
+        self.send(Msg::Fling(layer, velocity));
     }
 
     /// The window changed size or scale.
     pub fn resize(&self, width: u32, height: u32, scale: f32) {
-        let _ = self.tx.send(Msg::Resize(width, height, scale));
+        self.send(Msg::Resize(width, height, scale));
     }
 
     /// Frees off-screen tiles.
     pub fn trim_memory(&self) {
-        let _ = self.tx.send(Msg::TrimMemory);
+        self.send(Msg::TrimMemory);
     }
 
     /// Reports of frames drawn since the last call, oldest first.
@@ -149,23 +182,25 @@ impl CompositorThread {
         self.reports.try_iter().collect()
     }
 
-    /// Waits for the next frame report, up to `timeout`.
+    /// Waits for the next frame report, up to `timeout` (in a browser page, by running the
+    /// compositor's queued work).
     pub fn wait_report(&self, timeout: Duration) -> Option<FrameReport> {
-        self.reports.recv_timeout(timeout).ok()
+        remedy_ui_core::exec::recv_timeout(&self.reports, timeout).ok()
     }
 
-    /// Stops the thread and returns its compositor.
-    pub fn stop(mut self) -> Option<Compositor> {
-        let _ = self.tx.send(Msg::Stop);
-        self.handle.take().and_then(|h| h.join().ok())
+    /// Stops the thread and returns its compositor, once the messages sent before have been
+    /// handled.
+    pub fn stop(self) -> Option<Compositor> {
+        let (back, compositor) = channel();
+        self.send(Msg::Stop(back));
+        remedy_ui_core::exec::recv(&compositor).ok()
     }
 }
 
 impl Drop for CompositorThread {
     fn drop(&mut self) {
-        let _ = self.tx.send(Msg::Stop);
-        if let Some(h) = self.handle.take() {
-            let _ = h.join();
-        }
+        // The worker hands the compositor to nobody and leaves; `stop` already did if called.
+        let (back, _) = channel();
+        self.send(Msg::Stop(back));
     }
 }

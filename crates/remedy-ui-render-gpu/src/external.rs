@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use crate::block::block_on;
 use crate::renderer::FORMAT;
 use crate::{GpuContext, GpuError, LadderOptions};
 
@@ -74,27 +73,82 @@ impl GpuContext {
 
     /// Runs `f` (the app's own GPU work) and returns what it returned with the first GPU
     /// validation or out-of-memory error it caused, so a mistake in app rendering is reported
-    /// to the app instead of being lost among the device's errors.
+    /// to the app instead of being lost among the device's errors. A browser answers error
+    /// scopes only after returning to the event loop: there the error is returned when the
+    /// browser already knows it, and otherwise arrives later in [`GpuContext::take_errors`].
     pub fn catch_errors<T>(&self, f: impl FnOnce() -> T) -> (T, Option<String>) {
         let oom = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let out = f();
-        let first = block_on(validation.pop());
-        let second = block_on(oom.pop());
-        (out, first.or(second).map(|e| e.to_string()))
+        #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+        {
+            let first = crate::block::block_on(validation.pop());
+            let second = crate::block::block_on(oom.pop());
+            (out, first.or(second).map(|e| e.to_string()))
+        }
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+        {
+            let (validation, oom) = (validation.pop(), oom.pop());
+            let ctx = self.clone();
+            let mut both = Box::pin(async move { (validation.await, oom.await) });
+            let waker = std::task::Waker::noop();
+            let mut cx = std::task::Context::from_waker(waker);
+            match both.as_mut().poll(&mut cx) {
+                std::task::Poll::Ready((a, b)) => (out, a.or(b).map(|e| e.to_string())),
+                std::task::Poll::Pending => {
+                    wasm_bindgen_futures::spawn_local(async move {
+                        let (a, b) = both.await;
+                        if let Some(e) = a.or(b) {
+                            ctx.record_error(e.to_string());
+                        }
+                    });
+                    (out, None)
+                }
+            }
+        }
     }
 
     /// The device RemedyUI draws with in this process: the one windows render with and app
     /// content embedded in them shares. Made from `ladder` on first use, and made again when
-    /// the current one is lost, so every user of it moves to the replacement together.
+    /// the current one is lost, so every user of it moves to the replacement together. In a
+    /// browser it is made asynchronously by [`GpuContext::prepare_shared`]; until then this
+    /// reports [`GpuError::Pending`] (while it is being made) or why it could not be made.
     pub fn shared(ladder: &LadderOptions) -> Result<GpuContext, GpuError> {
-        let mut slot = SHARED.lock().unwrap_or_else(PoisonError::into_inner);
+        let slot = SHARED.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(ctx) = slot.as_ref().filter(|c| !c.is_lost()) {
             return Ok(ctx.clone());
         }
-        let ctx = GpuContext::new(ladder)?;
-        *slot = Some(ctx.clone());
-        Ok(ctx)
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+        {
+            let _ = ladder;
+            drop(slot);
+            web::state()
+        }
+        #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+        {
+            let mut slot = slot;
+            let ctx = GpuContext::new(ladder)?;
+            *slot = Some(ctx.clone());
+            Ok(ctx)
+        }
+    }
+
+    /// Starts making the shared device for `window` without blocking (how a browser makes
+    /// one), unless it exists or is already being made; `ready` runs on this thread once it
+    /// is made or has failed ([`GpuContext::shared`] then answers). Natively the device is
+    /// made here, before `ready` runs.
+    pub fn prepare_shared(
+        ladder: &LadderOptions,
+        window: Arc<dyn remedy_ui_host::WindowHandles>,
+        ready: impl FnOnce(Result<(), GpuError>) + 'static,
+    ) {
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+        web::prepare(ladder.clone(), window, Box::new(ready));
+        #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+        {
+            let _ = window;
+            ready(Self::shared(ladder).map(drop));
+        }
     }
 
     /// The shared device, if one was made (it may since have been lost).
@@ -106,5 +160,89 @@ impl GpuContext {
     /// resources belong to a device that has been replaced.
     pub fn device_serial(&self) -> u64 {
         self.serial
+    }
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+mod web {
+    //! Making the shared device in a browser, where adapters and devices come from promises.
+
+    use std::cell::RefCell;
+    use std::sync::{Arc, PoisonError};
+
+    use super::SHARED;
+    use crate::{GpuContext, GpuError, LadderOptions};
+
+    type Ready = Box<dyn FnOnce(Result<(), GpuError>)>;
+
+    /// Where making the device stands.
+    enum State {
+        /// Never asked, or the last device was lost.
+        Idle,
+        /// Being made; these run when it is.
+        Making(Vec<Ready>),
+        /// It could not be made, and why.
+        Failed(GpuError),
+    }
+
+    thread_local! {
+        static STATE: RefCell<State> = const { RefCell::new(State::Idle) };
+    }
+
+    pub(super) fn state() -> Result<GpuContext, GpuError> {
+        STATE.with_borrow(|s| match s {
+            State::Idle => Err(GpuError::NoAdapter),
+            State::Making(_) => Err(GpuError::Pending),
+            State::Failed(e) => Err(e.clone()),
+        })
+    }
+
+    pub(super) fn prepare(
+        ladder: LadderOptions,
+        window: Arc<dyn remedy_ui_host::WindowHandles>,
+        ready: Ready,
+    ) {
+        let live =
+            SHARED.lock().unwrap_or_else(PoisonError::into_inner).as_ref().is_some_and(|c| !c.is_lost());
+        if live {
+            ready(Ok(()));
+            return;
+        }
+        let start = STATE.with_borrow_mut(|s| match s {
+            State::Making(waiting) => {
+                waiting.push(ready);
+                None
+            }
+            // A failure is not final: a lost device, or a later window, may succeed.
+            State::Idle | State::Failed(_) => {
+                *s = State::Making(Vec::new());
+                Some(ready)
+            }
+        });
+        let Some(first) = start else { return };
+        wasm_bindgen_futures::spawn_local(async move {
+            let made = GpuContext::new_async(&ladder, Some(window)).await;
+            let result = match made {
+                Ok(ctx) => {
+                    *SHARED.lock().unwrap_or_else(PoisonError::into_inner) = Some(ctx);
+                    Ok(())
+                }
+                Err(e) => Err(e),
+            };
+            let waiting = STATE.with_borrow_mut(|s| {
+                let next = match &result {
+                    Ok(()) => State::Idle,
+                    Err(e) => State::Failed(e.clone()),
+                };
+                match std::mem::replace(s, next) {
+                    State::Making(w) => w,
+                    State::Idle | State::Failed(_) => Vec::new(),
+                }
+            });
+            first(result.clone());
+            for w in waiting {
+                w(result.clone());
+            }
+        });
     }
 }

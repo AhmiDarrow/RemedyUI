@@ -11,5 +11,9 @@ authors.workspace = true
 [dependencies]
 tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 
+# The page's clock in a browser (std's panics on wasm32-unknown-unknown).
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+web-time = { version = "=1.1.0" }
+
 [lints]
 workspace = true

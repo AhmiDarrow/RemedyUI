@@ -11,7 +11,8 @@
 //! .ok();
 //! ```
 //!
-//! [`run`] starts the platform's bridge (Windows, macOS, Linux or Android) and drives every window:
+//! [`run`] starts the platform's bridge (Windows, macOS, Linux, Android, or a browser page with
+//! the `web` feature, where it returns once the app has started) and drives every window:
 //! input goes to the window's [`Ui`], each frame runs the view pipeline into the window's
 //! compositor, and frames are presented with the GPU renderer (feature `gpu`, on by default)
 //! or, when no GPU works, the CPU renderer with damage-only presents. App code acts through an
@@ -43,6 +44,10 @@ pub use remedy_ui_automation as agents;
 pub use remedy_ui_bridge_android as android;
 #[cfg(feature = "headless")]
 pub use remedy_ui_bridge_headless as headless;
+/// The web bridge: where the app shows in the page, and the page's files (picked, dropped,
+/// downloaded).
+#[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+pub use remedy_ui_bridge_web as web;
 pub use remedy_ui_core as core;
 /// What people change about the app: theme, shortcuts, toolbars and menus, and text.
 #[cfg(feature = "customize")]
@@ -126,6 +131,18 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
     #[cfg(feature = "svg")]
     remedy_ui_media_svg::install();
     let inbox = instance::SharedInbox::default();
+    // A browser settles the instance across tabs asynchronously: the first tab starts the
+    // app once the browser grants it the instance.
+    #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+    if config.single_instance {
+        let name = config.name.clone();
+        let runner = Runner::new(config, setup).with_inbox(inbox.clone());
+        let args = remedy_ui_bridge_web::launch_args();
+        return remedy_ui_bridge_web::run_single_instance(&name, args, runner, move |a| {
+            instance::deliver(&inbox, a)
+        })
+        .map_err(|e| RunError(e.to_string()));
+    }
     if config.single_instance {
         let args: Vec<String> = std::env::args().skip(1).collect();
         if !instance::claim(&config.name, &args, inbox.clone()).map_err(RunError)? {
@@ -156,7 +173,17 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
         drop(runner);
         Err(RunError("no bridge for this platform yet".into()))
     }
-    #[cfg(not(any(windows, unix)))]
+    // A browser page: the app starts and this returns; the browser runs it from then on.
+    #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+    {
+        remedy_ui_bridge_web::run(runner).map_err(|e| RunError(e.to_string()))
+    }
+    #[cfg(all(not(feature = "web"), target_arch = "wasm32", target_os = "unknown"))]
+    {
+        drop(runner);
+        Err(RunError("browser pages need the `web` feature".into()))
+    }
+    #[cfg(not(any(windows, unix, all(target_arch = "wasm32", target_os = "unknown"))))]
     {
         drop(runner);
         Err(RunError("no bridge for this platform yet".into()))

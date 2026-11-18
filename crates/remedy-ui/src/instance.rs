@@ -14,6 +14,7 @@ pub(crate) struct Inbox {
 
 pub(crate) type SharedInbox = Arc<Mutex<Inbox>>;
 
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown", not(feature = "web")), allow(dead_code))]
 pub(crate) fn deliver(inbox: &SharedInbox, args: Vec<String>) {
     let waker = {
         let mut i = inbox.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -36,7 +37,13 @@ pub(crate) fn claim(app: &str, args: &[String], inbox: SharedInbox) -> Result<bo
     {
         unix::claim(app, args, inbox)
     }
-    #[cfg(not(any(windows, unix)))]
+    // Browser pages claim it across tabs before starting (`run` does it, asynchronously).
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    {
+        let _ = (app, args, inbox);
+        Err("a browser page claims a single instance with the `web` feature".into())
+    }
+    #[cfg(not(any(windows, unix, all(target_arch = "wasm32", target_os = "unknown"))))]
     {
         let _ = (app, args, inbox);
         Err("single instance is not available on this platform yet".into())

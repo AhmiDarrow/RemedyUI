@@ -561,7 +561,8 @@ impl App {
     }
 
     /// Runs `work` on a background thread (slow work: key derivation, downloads, file
-    /// reads), then `done` with its result back on the UI thread.
+    /// reads), then `done` with its result back on the UI thread. In a browser page, which
+    /// has one thread, `work` runs whole as a task between frames.
     pub fn background<T: Send + 'static>(
         &self,
         work: impl FnOnce() -> T + Send + 'static,
@@ -569,7 +570,7 @@ impl App {
     ) {
         let c = self.completion(done);
         // A thread that cannot start drops the completion, which forgets `done`.
-        let _ = std::thread::Builder::new().name("remedy-ui background".into()).spawn(move || {
+        let _ = remedy_ui_core::exec::spawn("remedy-ui background", move || {
             let out = {
                 let _span = remedy_ui_trace::phase!("background").entered();
                 work()
@@ -874,6 +875,10 @@ struct Win {
     /// The CPU renderer has been too slow for this window: use the GPU from now on.
     #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
     wants_gpu: bool,
+    /// It wanted the GPU while the device was still being made (browsers make it
+    /// asynchronously) and draws on the CPU until the device is ready.
+    #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+    awaiting_gpu: bool,
     #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
     cost: FrameCost,
     scrollers: Vec<(LayerId, ElementId)>,
@@ -909,6 +914,10 @@ pub struct Runner {
     inbox: crate::instance::SharedInbox,
     #[cfg(feature = "gpu")]
     gpu: Option<Option<remedy_ui_render_gpu::GpuCompositor>>,
+    /// The GPU device is being made without blocking (in a browser); windows draw on the CPU
+    /// until the host's waker says it is ready.
+    #[cfg(feature = "gpu")]
+    gpu_waiting: bool,
 }
 
 impl std::fmt::Debug for Runner {
@@ -962,6 +971,8 @@ impl Runner {
             inbox: Default::default(),
             #[cfg(feature = "gpu")]
             gpu: None,
+            #[cfg(feature = "gpu")]
+            gpu_waiting: false,
         }
     }
 
@@ -1049,6 +1060,7 @@ impl Runner {
                         spec,
                         present: None,
                         wants_gpu: false,
+                        awaiting_gpu: false,
                         cost: FrameCost::default(),
                         scrollers: Vec::new(),
                         cover: None,
@@ -1385,6 +1397,31 @@ impl Runner {
         self.schedule_save(host);
     }
 
+    /// Once the GPU device being made is ready (or failed), windows that waited for it on the
+    /// CPU choose their renderer again.
+    #[cfg(feature = "gpu")]
+    fn gpu_resolved(&mut self, host: &mut dyn Host) {
+        let ladder = remedy_ui_render_gpu::LadderOptions::default();
+        match remedy_ui_render_gpu::GpuContext::shared(&ladder) {
+            Err(remedy_ui_render_gpu::GpuError::Pending) => return,
+            Ok(ctx) => {
+                let renderer = remedy_ui_render_gpu::GpuRenderer::new(ctx, None);
+                self.gpu = Some(Some(remedy_ui_render_gpu::GpuCompositor::new(renderer, ladder)));
+            }
+            // It could not be made: the CPU renderer from now on.
+            Err(_) => self.gpu = Some(None),
+        }
+        self.gpu_waiting = false;
+        for w in self.wins.values_mut().filter(|w| w.awaiting_gpu) {
+            w.awaiting_gpu = false;
+            w.present = None;
+            if let Some(c) = w.comp.as_mut() {
+                c.invalidate_tiles();
+            }
+            host.request_frame(w.host);
+        }
+    }
+
     fn frame(&mut self, host: &mut dyn Host, key: u64, at: Duration) {
         if self.suspended {
             return;
@@ -1431,14 +1468,17 @@ impl Runner {
                 RendererChoice::Cpu => false,
             };
             #[cfg(feature = "gpu")]
-            if gpu_wanted && let Some(gpu) = self.gpu.get_or_insert_with(new_gpu).as_ref() {
-                let surface = host
-                    .window_handles(w.host)
-                    .ok()
-                    .and_then(|hd| gpu.create_surface(hd, pw, ph, w.spec.options.transparent).ok());
-                if let Some(sf) = surface {
-                    w.present = Some(Present::Gpu(Box::new(sf)));
+            if gpu_wanted {
+                if let Some(gpu) = gpu_device(&mut self.gpu, &mut self.gpu_waiting, host, w.host) {
+                    let surface = host
+                        .window_handles(w.host)
+                        .ok()
+                        .and_then(|hd| gpu.create_surface(hd, pw, ph, w.spec.options.transparent).ok());
+                    if let Some(sf) = surface {
+                        w.present = Some(Present::Gpu(Box::new(sf)));
+                    }
                 }
+                w.awaiting_gpu = w.present.is_none() && self.gpu_waiting;
             }
             if w.present.is_none() {
                 w.present = Some(Present::Cpu(Box::new(CpuCompositor::new())));
@@ -1450,6 +1490,7 @@ impl Runner {
             };
             self.app.0.borrow_mut().renderers.insert(key, kind);
             w.ui.set_gpu_rendering(kind == RendererKind::Gpu);
+            host.renderer_changed(w.host, kind == RendererKind::Gpu);
         }
         let Some(w) = self.wins.get_mut(&key) else { return };
         #[cfg_attr(not(feature = "gpu"), allow(unused_mut))]
@@ -1457,7 +1498,7 @@ impl Runner {
         if changed || again {
             match w.present.as_mut() {
                 Some(Present::Cpu(cpu)) => {
-                    let started = std::time::Instant::now();
+                    let started = remedy_ui_core::time::Instant::now();
                     if changed && let Ok(frame) = cpu.present(&plan, pw, ph, background) {
                         let pixels = Pixels { width: pw, height: ph, data: &frame.pixels };
                         let present = remedy_ui_trace::phase!("present").entered();
@@ -1491,17 +1532,26 @@ impl Runner {
                     if let Some(Some(gpu)) = self.gpu.as_mut() {
                         if gpu.is_lost() {
                             // A lost device: rebuild it, and every window re-rasters.
-                            if gpu.recover_device().is_ok() {
-                                for other in self.wins.values_mut() {
-                                    if let Some(c) = other.comp.as_mut() {
-                                        c.invalidate_tiles();
-                                    }
-                                    host.request_frame(other.host);
+                            let recovered = gpu.recover_device().is_ok();
+                            if !recovered {
+                                // No replacement now (a browser makes one asynchronously):
+                                // every window chooses its renderer again, drawing on the CPU
+                                // until a new device is ready.
+                                self.gpu = None;
+                                self.gpu_waiting = false;
+                            }
+                            for other in self.wins.values_mut() {
+                                if !recovered && matches!(other.present, Some(Present::Gpu(_))) {
+                                    other.present = None;
                                 }
+                                if let Some(c) = other.comp.as_mut() {
+                                    c.invalidate_tiles();
+                                }
+                                host.request_frame(other.host);
                             }
                             return;
                         }
-                        let started = std::time::Instant::now();
+                        let started = remedy_ui_core::time::Instant::now();
                         match gpu.present_to_surface(&plan, surface, background) {
                             Ok(remedy_ui_render_gpu::Presented::Retry) => again = true,
                             Ok(_) => {
@@ -1517,6 +1567,7 @@ impl Runner {
                                 w.present = Some(Present::Cpu(Box::new(CpuCompositor::new())));
                                 self.app.0.borrow_mut().renderers.insert(key, RendererKind::Cpu);
                                 w.ui.set_gpu_rendering(false);
+                                host.renderer_changed(w.host, false);
                                 if let Some(c) = w.comp.as_mut() {
                                     c.invalidate_tiles();
                                 }
@@ -1551,6 +1602,48 @@ fn action(a: remedy_ui_host::accesskit::Action) -> Option<remedy_ui_view::A11yAc
     })
 }
 
+/// The shared GPU compositor, made on first use. Natively the device is made here. A browser
+/// makes it asynchronously: the first call asks for it and returns `None` (the window draws on
+/// the CPU meanwhile, `waiting` set), and the host's waker runs once it is ready or has
+/// failed ([`Runner::gpu_resolved`] then moves the waiting windows).
+#[cfg(feature = "gpu")]
+fn gpu_device<'a>(
+    slot: &'a mut Option<Option<remedy_ui_render_gpu::GpuCompositor>>,
+    waiting: &mut bool,
+    host: &mut dyn Host,
+    window: WindowId,
+) -> Option<&'a remedy_ui_render_gpu::GpuCompositor> {
+    if cfg!(all(target_arch = "wasm32", target_os = "unknown")) {
+        if slot.is_none() {
+            let ladder = remedy_ui_render_gpu::LadderOptions::default();
+            match remedy_ui_render_gpu::GpuContext::shared(&ladder) {
+                Ok(ctx) => {
+                    *waiting = false;
+                    let renderer = remedy_ui_render_gpu::GpuRenderer::new(ctx, None);
+                    *slot = Some(Some(remedy_ui_render_gpu::GpuCompositor::new(renderer, ladder)));
+                }
+                Err(remedy_ui_render_gpu::GpuError::Pending) => *waiting = true,
+                Err(_) if !*waiting => match host.window_handles(window) {
+                    Ok(handles) => {
+                        *waiting = true;
+                        let wake = host.waker();
+                        remedy_ui_render_gpu::GpuContext::prepare_shared(&ladder, handles, move |_| wake());
+                    }
+                    Err(_) => *slot = Some(None),
+                },
+                // It was asked for and could not be made: the CPU renderer from now on.
+                Err(_) => {
+                    *waiting = false;
+                    *slot = Some(None);
+                }
+            }
+        }
+        slot.as_ref().and_then(Option::as_ref)
+    } else {
+        slot.get_or_insert_with(new_gpu).as_ref()
+    }
+}
+
 #[cfg(feature = "gpu")]
 fn new_gpu() -> Option<remedy_ui_render_gpu::GpuCompositor> {
     let ladder = remedy_ui_render_gpu::LadderOptions::default();
@@ -1577,6 +1670,11 @@ impl remedy_ui_host::App for Runner {
             if inbox.waker.is_none() {
                 inbox.waker = Some(host.waker());
             }
+        }
+        // A GPU device made asynchronously (in a browser) is ready, or could not be made.
+        #[cfg(feature = "gpu")]
+        if self.gpu_waiting {
+            self.gpu_resolved(host);
         }
         // Background work that finished.
         self.app.finish_background();
@@ -1681,6 +1779,7 @@ impl remedy_ui_host::App for Runner {
                 self.activity(host);
                 if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
                     w.ui.pointer(&e);
+                    host.pointer_consumed(window, w.ui.pointer_consumed());
                 }
             }
             HostEvent::DragEnded(window, effect) => {

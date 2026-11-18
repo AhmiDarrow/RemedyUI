@@ -11,7 +11,9 @@ use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use remedy_ui_core::time::Instant;
 
 use remedy_ui_media_image::{DecodeError, Source, SourceId, Stamp, decode_for_box, spawn_job};
 use remedy_ui_paint::Image;

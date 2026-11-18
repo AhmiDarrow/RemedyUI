@@ -355,7 +355,12 @@ impl Messages {
 
     /// Re-reads the message folders whenever a file in them changes (checked twice a second
     /// off the UI thread). For development, and for user overrides edited while the app runs.
+    /// A browser page has no folders to read (its messages come embedded) and no thread to
+    /// poll from, so there it watches nothing.
     pub fn watch(&self) {
+        if !remedy_ui_core::exec::threads() {
+            return;
+        }
         let folders: Vec<PathBuf> = self
             .0
             .sources

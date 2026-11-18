@@ -9,9 +9,7 @@
 //!
 //! The calls block; run them off the UI thread (`App::background`).
 
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use base64::Engine;
 use sha2::Digest;
@@ -141,10 +139,6 @@ impl std::fmt::Display for UpdateError {
 
 impl std::error::Error for UpdateError {}
 
-fn net(e: impl std::fmt::Display) -> UpdateError {
-    UpdateError::Network(e.to_string())
-}
-
 /// Only HTTPS, except the loopback interface.
 fn allowed(url: &str) -> Result<(), UpdateError> {
     let local = ["http://127.0.0.1", "http://localhost", "http://[::1]"].iter().any(|p| url.starts_with(p));
@@ -155,27 +149,87 @@ fn allowed(url: &str) -> Result<(), UpdateError> {
     }
 }
 
-fn agent() -> ureq::Agent {
-    // ring is the TLS provider; installing it twice is harmless.
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
-    ureq::Agent::config_builder()
-        .tls_config(tls)
-        .timeout_global(Some(Duration::from_secs(60)))
-        .https_only(false)
-        .build()
-        .into()
-}
-
 fn get_text(url: &str) -> Result<String, UpdateError> {
     allowed(url)?;
-    let mut res = agent()
-        .get(url)
-        .header("User-Agent", "RemedyUI-updater")
-        .header("Accept", "application/vnd.github+json, application/json, */*")
-        .call()
-        .map_err(net)?;
-    res.body_mut().read_to_string().map_err(net)
+    http::get_text(url)
+}
+
+/// HTTPS for the updater. A browser page has none of its own: a page is updated by its
+/// service worker, which installs the new build when the page next loads.
+#[cfg(not(target_arch = "wasm32"))]
+mod http {
+    use std::io::Read;
+    use std::time::Duration;
+
+    use super::UpdateError;
+
+    fn net(e: impl std::fmt::Display) -> UpdateError {
+        UpdateError::Network(e.to_string())
+    }
+
+    fn agent() -> ureq::Agent {
+        // ring is the TLS provider; installing it twice is harmless.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
+        ureq::Agent::config_builder()
+            .tls_config(tls)
+            .timeout_global(Some(Duration::from_secs(60)))
+            .https_only(false)
+            .build()
+            .into()
+    }
+
+    pub(super) fn get_text(url: &str) -> Result<String, UpdateError> {
+        let mut res = agent()
+            .get(url)
+            .header("User-Agent", "RemedyUI-updater")
+            .header("Accept", "application/vnd.github+json, application/json, */*")
+            .call()
+            .map_err(net)?;
+        res.body_mut().read_to_string().map_err(net)
+    }
+
+    /// The body of `url`, reporting bytes so far and the total when the server says it.
+    pub(super) fn fetch(
+        url: &str,
+        mut progress: impl FnMut(u64, Option<u64>),
+    ) -> Result<Vec<u8>, UpdateError> {
+        let res = agent().get(url).header("User-Agent", "RemedyUI-updater").call().map_err(net)?;
+        let total =
+            res.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok());
+        let mut reader = res.into_body().into_reader();
+        let mut bytes = Vec::with_capacity(total.and_then(|t: u64| usize::try_from(t).ok()).unwrap_or(0));
+        let mut buf = [0u8; 64 * 1024];
+        loop {
+            let n = reader.read(&mut buf).map_err(net)?;
+            if n == 0 {
+                break;
+            }
+            bytes.extend_from_slice(buf.get(..n).unwrap_or_default());
+            progress(bytes.len() as u64, total);
+        }
+        Ok(bytes)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+mod http {
+    use super::UpdateError;
+
+    fn none() -> UpdateError {
+        UpdateError::Network(
+            "a browser page has no updater of its own: its service worker installs a new build when the page next loads"
+                .into(),
+        )
+    }
+
+    pub(super) fn get_text(_url: &str) -> Result<String, UpdateError> {
+        Err(none())
+    }
+
+    pub(super) fn fetch(_url: &str, _progress: impl FnMut(u64, Option<u64>)) -> Result<Vec<u8>, UpdateError> {
+        Err(none())
+    }
 }
 
 fn version(v: &str) -> Result<semver::Version, UpdateError> {
@@ -354,29 +408,15 @@ pub fn download(
     mut progress: impl FnMut(u64, Option<u64>),
 ) -> Result<PathBuf, UpdateError> {
     allowed(&release.url)?;
-    let res = agent().get(&release.url).header("User-Agent", "RemedyUI-updater").call().map_err(net)?;
-    let total =
-        res.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok());
-    let mut reader = res.into_body().into_reader();
-    let mut bytes = Vec::with_capacity(total.and_then(|t: u64| usize::try_from(t).ok()).unwrap_or(0));
-    let mut buf = [0u8; 64 * 1024];
-    loop {
-        let n = reader.read(&mut buf).map_err(net)?;
-        if n == 0 {
-            break;
-        }
-        bytes.extend_from_slice(buf.get(..n).unwrap_or_default());
-        progress(bytes.len() as u64, total);
-    }
+    let bytes = http::fetch(&release.url, &mut progress)?;
     verify(cfg, release, &bytes)?;
     let name = release.url.rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or("update.bin");
     let name: String =
         name.chars().map(|c| if c.is_ascii_alphanumeric() || ".-_".contains(c) { c } else { '_' }).collect();
     std::fs::create_dir_all(dir).map_err(|e| UpdateError::Io(e.to_string()))?;
     let path = dir.join(name);
-    let mut f = std::fs::File::create(&path).map_err(|e| UpdateError::Io(e.to_string()))?;
-    f.write_all(&bytes).map_err(|e| UpdateError::Io(e.to_string()))?;
-    drop(f);
+    // Written and closed before anything checks or starts it.
+    std::fs::write(&path, &bytes).map_err(|e| UpdateError::Io(e.to_string()))?;
     if let Trust::Checksums { publisher: Some(thumbprint), .. } = &cfg.trust
         && let Err(e) = verify_publisher(&path, thumbprint)
     {

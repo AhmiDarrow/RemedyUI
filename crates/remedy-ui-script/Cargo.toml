@@ -9,8 +9,11 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-mlua = { version = "=0.11.6", features = ["luau", "vendored"] }
 serde_json = { version = "=1.0.154" }
+
+# Luau, built from source. A browser page cannot have it (see `src/unsupported.rs`).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+mlua = { version = "=0.11.6", features = ["luau", "vendored"] }
 
 [lints]
 workspace = true
