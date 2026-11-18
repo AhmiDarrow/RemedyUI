@@ -11,7 +11,9 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use remedy_ui_paint::Image;
 use remedy_ui_reactive::Signal;
 
-use crate::decode::{DecodeError, Decoded, decode, dimensions, dimensions_from, fitted_scalable, format_of};
+use crate::decode::{
+    DecodeError, Decoded, decode, dimensions, dimensions_from, fitted_scalable, format_of, router,
+};
 
 /// Where an image comes from.
 #[derive(Clone, Debug)]
@@ -54,6 +56,11 @@ impl Source {
 
     /// The source's size, reading only a file's header.
     fn size(&self) -> Result<(u32, u32), DecodeError> {
+        if let Some(r) = router() {
+            // Headers are untrusted bytes too: the router reads them where it decodes.
+            let (bytes, _) = self.read_bytes()?;
+            return r.dimensions(&bytes);
+        }
         match self {
             Source::Bytes(b) => dimensions(b),
             Source::File(p) => {
@@ -305,8 +312,12 @@ type JobResult = Result<(Image, (u32, u32), Option<Stamp>), DecodeError>;
 
 /// Decodes `bytes` to show in a box of `box_px` device pixels (`None`: at their own size),
 /// fitting inside it or (`cover`) covering it: the decoding [`load`] does, for callers that
-/// already hold the bytes and run on a worker of their own.
+/// already hold the bytes and run on a worker of their own. With a [`Router`](crate::Router)
+/// set, the decoding happens there.
 pub fn decode_for_box(bytes: &[u8], box_px: Option<(u32, u32)>, cover: bool) -> Result<Decoded, DecodeError> {
+    if let Some(r) = router() {
+        return r.decode_for_box(bytes, box_px, cover);
+    }
     let show_at = match box_px {
         Some(b) => {
             let scalable = format_of(bytes).is_some_and(|f| f.scalable());

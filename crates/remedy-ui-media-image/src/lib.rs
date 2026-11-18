@@ -5,6 +5,7 @@
 //! - [`image_with`]: the same element, with pixels from a supplier of your own (animations)
 //! - [`load`] and [`probe`]: the loader underneath, for custom elements (avatars, previews)
 //! - [`decode`]: the decoder on its own
+//! - [`set_router`]: decoding somewhere else (a sandboxed helper process)
 
 mod decode;
 mod load;
@@ -20,7 +21,8 @@ use remedy_ui_reactive::{Effect, Signal};
 use remedy_ui_view::{El, Ui};
 
 pub use decode::{
-    DecodeError, Decoded, Format, Srgb, add_format, decode, dimensions, finish_rgba, fitted, fitted_scalable,
+    DecodeError, Decoded, Format, Router, Srgb, add_format, decode, dimensions, finish_rgba, fitted,
+    fitted_scalable, is_scalable, router, set_router,
 };
 pub use load::{
     ImageState, Request, Source, SourceId, Stamp, cached, decode_for_box, load, probe, spawn_job,

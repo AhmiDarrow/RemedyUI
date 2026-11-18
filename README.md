@@ -55,6 +55,7 @@ M7 (in progress) added:
 - `remedy-ui-viz`: the speaking ring, level meters, sparklines and bars
 - `remedy-ui-services-spell`: spell checking with the platform's checker or Hunspell dictionaries
 - `remedy-ui-media-anim`: GIF, APNG and animated WebP
+- `remedy-ui-media-isolated`: images and animations decoded in a sandboxed helper process (AppContainer on Windows, seccomp-bpf and Landlock on Linux, Seatbelt on macOS), so a decoder that crashes, hangs or runs away with memory takes down only the helper
 - Rich text fields, formatted text on the clipboard, links inside text, chat lists, selection across messages, and content that pops out to its own window
 
 SecretSticky, SecretFolder and Hearth run on RemedyUI (each repository's `remedyui` branch). A crate is added to the workspace only when it has real code and tests.

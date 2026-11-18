@@ -1,20 +1,14 @@
 //! The animated formats: each opens a file and hands out its frames one at a time, composited
 //! onto a canvas the size of the picture (disposal and blending done as the format says).
 
+#[cfg(any(feature = "gif", feature = "apng", feature = "webp"))]
 use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 
 use remedy_ui_media_image::{DecodeError, Srgb};
 
-/// How many times an animation plays.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Loops {
-    /// Without end.
-    Forever,
-    /// This many times in all (at least one).
-    Times(u32),
-}
+pub(crate) use crate::route::Loops;
 
 /// What a file says about its animation, once opened.
 pub(crate) struct Info {
@@ -49,6 +43,8 @@ pub(crate) trait Frames: Send {
 /// What a file turned out to be.
 pub(crate) enum Opened {
     /// Frames to play.
+    // A build with no animated format opens none.
+    #[cfg_attr(not(any(feature = "gif", feature = "apng", feature = "webp")), allow(dead_code))]
     Animated(Box<dyn Frames>),
     /// One picture (a still image of any format the image loader reads).
     Still,
@@ -158,6 +154,7 @@ impl remedy_ui_media_image::Format for ApngFirstFrame {
 }
 
 /// The delay the picture plays for: a frame never stays less than a millisecond.
+#[cfg(any(feature = "gif", feature = "apng", feature = "webp"))]
 fn millis(ms: u64) -> Duration {
     Duration::from_millis(ms)
 }

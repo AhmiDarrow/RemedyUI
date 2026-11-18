@@ -557,3 +557,35 @@ fn a_popover_keeps_presses_on_its_own_buttons() {
     t.frame();
     assert!(!t.ui.tree().contains(layer.id()), "a press outside closes it");
 }
+
+#[test]
+fn a_virtual_list_fills_its_height_and_shows_changed_items() {
+    let mut t = T::new();
+    let items = Signal::new((0..5).map(|i| format!("row {i}")).collect::<Vec<_>>());
+    let ui = t.ui.clone();
+    let list =
+        w::virtual_list(&t.ui, "Rows", items, 200.0, move |_, s: &String| w::label(&ui, s.clone(), ""));
+    t.ui.root().child(t.ui.el("col").column().height(280.0).fill_width().child(list.clone()));
+    for _ in 0..3 {
+        t.frame();
+    }
+    let shown = |l: &El| -> Vec<String> {
+        let mut out = Vec::new();
+        let mut stack = vec![l.clone()];
+        while let Some(e) = stack.pop() {
+            if let Some(text) = e.info().and_then(|i| i.text) {
+                out.push(text);
+            }
+            let mut kids = e.child_elements();
+            kids.reverse();
+            stack.extend(kids);
+        }
+        out
+    };
+    // The estimate is far too tall; once laid out, every short row that fits is built.
+    assert_eq!(shown(&list).len(), 5, "{:?}", shown(&list));
+    // New items of the same count show, not the old rows.
+    items.set((0..5).map(|i| format!("new {i}")).collect());
+    t.frame();
+    assert_eq!(shown(&list).first().map(String::as_str), Some("new 0"));
+}
