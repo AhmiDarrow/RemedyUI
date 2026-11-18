@@ -98,6 +98,30 @@ fn grid_tracks_share_fractions() -> R {
 }
 
 #[test]
+fn grid_items_sit_on_the_lines_and_spans_they_ask_for() -> R {
+    // A 4-column board, 100 px a column and row: one area at column 2 spanning 2, row 1;
+    // another at column 1 spanning 4, row 2 spanning 2.
+    let mut t = LayoutTree::new();
+    let root = t.node(&LayoutStyle {
+        display: Display::Grid,
+        columns: vec![Track::Fr(1.0); 4],
+        rows: vec![Track::Px(100.0); 3],
+        ..LayoutStyle::default()
+    })?;
+    let a =
+        t.node(&LayoutStyle { grid_column: Some((2, 2)), grid_row: Some((1, 1)), ..LayoutStyle::default() })?;
+    let b =
+        t.node(&LayoutStyle { grid_column: Some((1, 4)), grid_row: Some((2, 2)), ..LayoutStyle::default() })?;
+    t.set_children(root, &[a, b])?;
+    t.compute(root, Some(400.0), None)?;
+    let ra = t.rect(a).unwrap_or_default();
+    let rb = t.rect(b).unwrap_or_default();
+    assert_eq!((ra.min.x, ra.min.y, ra.width(), ra.height()), (100.0, 0.0, 200.0, 100.0));
+    assert_eq!((rb.min.x, rb.min.y, rb.width(), rb.height()), (0.0, 100.0, 400.0, 200.0));
+    Ok(())
+}
+
+#[test]
 fn measured_leaves_wrap_like_text() -> R {
     // A "paragraph" 30 px per 100 px of width, needing 400 px on one line.
     let mut t = LayoutTree::new();

@@ -167,6 +167,11 @@ pub struct LayoutStyle {
     pub columns: Vec<Track>,
     /// Row tracks (grid).
     pub rows: Vec<Track>,
+    /// In a grid: the column line it starts on (1 is the first) and how many columns it
+    /// spans; `None` places it automatically.
+    pub grid_column: Option<(i16, u16)>,
+    /// In a grid: the row line it starts on and how many rows it spans.
+    pub grid_row: Option<(i16, u16)>,
 }
 
 impl Default for LayoutStyle {
@@ -197,6 +202,8 @@ impl Default for LayoutStyle {
             inset: Insets::ZERO,
             columns: Vec::new(),
             rows: Vec::new(),
+            grid_column: None,
+            grid_row: None,
         }
     }
 }
@@ -282,6 +289,11 @@ fn rect_lpa(i: Insets) -> taffy::Rect<taffy::LengthPercentageAuto> {
 pub const AUTO: f32 = f32::NAN;
 
 /// `s` as a taffy style, with `rtl` the node's resolved direction.
+/// A grid item from its start line and span.
+fn placement((start, span): (i16, u16)) -> taffy::Line<taffy::GridPlacement> {
+    taffy::Line { start: taffy::style_helpers::line(start), end: taffy::style_helpers::span(span.max(1)) }
+}
+
 pub(crate) fn to_taffy(s: &LayoutStyle, rtl: bool) -> taffy::Style {
     let phys = |i: Insets| if rtl { i.mirrored() } else { i };
     taffy::Style {
@@ -333,6 +345,8 @@ pub(crate) fn to_taffy(s: &LayoutStyle, rtl: bool) -> taffy::Style {
             .map(|t| taffy::GridTemplateComponent::Single(track(t)))
             .collect(),
         grid_template_rows: s.rows.iter().map(|t| taffy::GridTemplateComponent::Single(track(t))).collect(),
+        grid_column: s.grid_column.map_or_else(taffy::Line::default, placement),
+        grid_row: s.grid_row.map_or_else(taffy::Line::default, placement),
         ..taffy::Style::default()
     }
 }
