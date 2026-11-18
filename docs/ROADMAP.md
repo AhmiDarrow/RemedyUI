@@ -192,6 +192,13 @@ Next: the macOS run, which needs a Mac.
 
 **Crates:** `doc-pages`, `widgets-music`, `widgets-extra`, `media-playback`, `bridge-web`.
 
+**Status:** in progress. Built:
+- `media-playback`: a `Player` that opens a file or stream on its own threads (one decoding ahead into a buffer sized from the stream, the sound device and the machine's memory; one presenting) and plays it, its state, position, length, volume, captions and errors as signals; the `player` widget (picture with captions over it; play and pause, time, a keyboard-operable seek bar, mute and volume, a captions switch, a full-screen request; Space, K, J, L, M, C, F and Escape), which passes the accessibility audit. Pictures follow the sound device's clock (how much of what was written has been heard); without sound, with no device, after the sound track ends, or while a device holds sound it is not playing, the wall clock leads. Media with pictures pauses while unseen and does not autoplay under reduced motion. Subtitles: WebVTT, SRT and ASS basics, found next to a file, added by the app, or carried in the media where the decoder gives them (GStreamer). Decoding and sound come from a `MediaHost` an app can implement; the platform's own: Media Foundation's source reader and WASAPI on Windows, and the system's GStreamer (opened at run time, never bundled) on Linux, both run against a generated H.264/AAC clip (frames, sound, seeks landing on their target, playing to the end on the sound clock) on Windows and in Ubuntu 24.04 under WSLg; AVFoundation's asset reader with an Audio Queue on macOS, and the NDK's MediaCodec with AAudio on Android, both opened at run time and lint clean cross-compiled, still to be run on those machines.
+- Full-screen windows: `Host::set_fullscreen` (borderless on the window's display on every winit desktop, recorded by the headless host) and `Window::set_fullscreen`/`is_fullscreen`.
+- Media icons in `widgets-core` (play, pause, volume, muted, full screen in and out, captions).
+
+Not yet in `media-playback`: playback speed (needs pitch-preserving time stretching), buffered ranges on the seek bar, next-up, embedded caption tracks from Media Foundation, AVFoundation and MediaCodec (their readers do not hand out text samples), and zero-copy GPU frames from the decoders.
+
 **Also:** progressive zoom in the compositor: old tiles shown scaled while tiles at the new scale raster within a per-frame budget (docs/design/04-rendering.md, Tiles).
 
 **Status:** in progress. Built:
@@ -206,18 +213,23 @@ Not yet: the annotation layer (design 15), and RemedyPDF itself on RemedyUI.
 - a 300-page PDF zooms from 1% to 6400% within budget
 - the 60 Hz pitch graph runs with no UI-thread work per frame
 
-## M9. Power tools and RemedyOS
+## M9. Power tools
 
 **Contents:**
 - `doc-code`, `widgets-term`, `embed-webview`, `embed-gpu`
-- `bridge-remedyos`
 - the agent automation protocol with consent
 - `.rui` user overrides and the code-fluid customization editors
 - devtools complete: signal graph, Perfetto traces, remote devtools
 
+RemedyOS is not part of this plan: the RemedyOS bridge is out of scope.
+
+**Status:** in progress. Built:
+- `doc-code`: syntax highlighting (syntect grammars, incremental), Myers diffs, `code_view`, `diff_view` and `code_editor` with several cursors, auto-indent, bracket pairs and grouped undo.
+- Agents (`remedy-ui-automation`, facade feature `agents`): per-agent grants (read, act, act with confirmation) with expiry and a token; an indicator with Stop in the trusted layer while any agent has access; snapshots of the semantics tree that never hold secrets, hidden or locked content or the trusted layer; actions through the same semantics paths screen readers use and commands through `Commands`, destructive ones confirmed by the person in a trusted prompt agents cannot reach; every change in the window's undo history named for the agent ("Undo Press Noise suppression, by assistant"); a JSON protocol and a loopback transport that turns away connections without a live token before they reach the window. The view gained a window undo history (`Ui::record_change`, `acting_as`, `undo_change`, `redo_change`, Ctrl+Z and Ctrl+Y falling through to it), `El::node_id` and `El::composed_semantics`.
+- `.rui` markup (`remedy-ui-rui`, facade feature `markup`): the language with errors at file, line and column that list what the app exposes; one table of what each element takes, shared by the checker, the interpreter and the compiler; `build::compile_dir` in `build.rs` compiles files to Rust (a `Bindings` struct whose field types follow from use, `build`, `FILE`, `SOURCE`), so release builds pay nothing; the interpreter builds the same elements at run time from a `Scope`; apps add their own elements in both; `Layouts` loads people's own versions of a screen from their config folder, falls back to the built-in screen with a notice and a Reset button when theirs does not load, saves and resets through the undo history, and watches files for live editing. A golden test holds the compiler's output, which the tests compile and compare with the interpreter's elements.
+
 **Done when:**
 - the RemedyAI desktop runs on RemedyUI
-- a RemedyOS-native app (Files or Monitor) runs on RemedyOS through the RemedyOS bridge, with the desktop's theme and semantics wires
 - TheOven's 3D preview embeds
 - an agent operates a FreeSpeak settings screen through commands, under consent, with every action undoable
 

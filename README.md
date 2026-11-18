@@ -60,6 +60,16 @@ M7 (in progress) added:
 - Rich text fields, formatted text on the clipboard, links inside text, chat lists, selection across messages, and content that pops out to its own window
 - `remedy-ui-bridge-android`: apps on Android in a native activity over the shared winit core, with the clipboard, links, capture protection, the safe area, back, the lifecycle, memory trims, system settings and screen readers; a Gradle-free APK build
 
+M8 (in progress) added:
+
+- `remedy-ui-media-playback`: sound and video from files and streams through the platform's decoders (Media Foundation and WASAPI on Windows, the system's GStreamer on Linux, AVFoundation and Audio Queues on macOS, MediaCodec and AAudio on Android), pictures kept in step with the sound device's clock, a keyboard-operable `player` widget, and WebVTT, SRT and ASS captions
+- Full-screen windows (`Window::set_fullscreen`)
+
+M9 (in progress) added:
+
+- `remedy-ui-embed-gpu`: the app's own wgpu rendering (TheOven's 3D preview, game views) as an element, on the device RemedyUI's windows draw with, in double-buffered textures sized from the element, read back when a window stays on the CPU renderer
+- `remedy-ui-embed-webview`: the platform's web view (WebView2 on Windows, WebKitGTK under X11 on Linux) as an element that follows its box, scrolls, clips and hides with it and stays out from under overlays, with an allow-list deciding every navigation, downloads and devtools off unless allowed, and one JSON message channel
+
 SecretSticky, SecretFolder and Hearth run on RemedyUI (each repository's `remedyui` branch). A crate is added to the workspace only when it has real code and tests.
 
 Checks: `cargo xtask check` (layer graph and unsafe boundary) and `cargo deny check`, alongside fmt, clippy, tests and docs.
@@ -74,7 +84,7 @@ Checks: `cargo xtask check` (layer graph and unsafe boundary) and `cargo deny ch
 - **Code fluid.** Users can restyle, rebind and rearrange the apps they use: themes, shortcuts and toolbars, and `.rui` layouts where an app allows it. One theme set is shared by every Remedy app.
 - **Every platform as a bridge.** Windows, macOS, Linux (Wayland and X11) and Android today over one shared core, then RemedyOS, and later the web and iOS.
 - **Accessible, and operable by agents with consent.** One semantics tree serves screen readers, tests and AI agents.
-- **Safe.** No unsafe code outside the `os`/`ffi` modules of the bridges and the GPU renderer, checked in CI. Untrusted content is parsed by fuzzed, memory-safe code off the UI thread, optionally in a sandboxed helper. Secret inputs never leak, and there is no telemetry.
+- **Safe.** No unsafe code outside the `os`/`ffi` modules of the bridges, the GPU renderer and the few packs that call the platform themselves (updates, desktop services, spelling, media playback), checked in CI. Untrusted content is parsed by fuzzed, memory-safe code off the UI thread, optionally in a sandboxed helper. Secret inputs never leak, and there is no telemetry.
 
 ## Documents
 

@@ -988,3 +988,26 @@ fn suspended_windows_draw_again_after_resume() {
     assert!(host.window(id).map_or(0, |w| w.presents()) > before, "the window draws again");
     assert_eq!(px(&host, id, 2, 2), [255, 0, 0, 255]);
 }
+
+#[test]
+fn windows_fill_the_screen_and_say_so() {
+    let handle: Rc<std::cell::RefCell<Option<remedy_ui::Window>>> = Rc::default();
+    let h = handle.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let h = h.clone();
+        app.open(WindowSpec::new("Player"), move |_, window| {
+            window.set_fullscreen(true);
+            *h.borrow_mut() = Some(window.clone());
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let id = first(&host);
+    let window = handle.borrow().clone().unwrap_or_else(|| unreachable!("the window"));
+    assert!(host.window(id).is_some_and(|w| w.fullscreen()));
+    assert!(window.is_fullscreen());
+    window.set_fullscreen(false);
+    host.run_frames(&mut runner, 1);
+    assert!(host.window(id).is_some_and(|w| !w.fullscreen()));
+    assert!(!window.is_fullscreen());
+}

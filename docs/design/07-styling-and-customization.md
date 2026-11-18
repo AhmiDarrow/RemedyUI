@@ -54,11 +54,12 @@ Rust builders are the primary API. An **optional markup language** (`.rui`) desc
 // settings_voice.rui
 column(gap: s3) {
     section(title: @t("Input")) {
-        select(items: $input_devices, selected: $input_device)
-        slider(value: $input_gain, range: 0..200, suffix: "%", on_commit: !save_gain)
-        meter(level: $input_level)
+        select(label: @t("Device"), items: $input_devices, selected: $input_device)
+        slider(label: @t("Gain"), value: $input_gain, range: 0..200, step: 1)
+        meter(level: $input_level)   // the app's own element, registered with the markup
     }
     switch(label: @t("Noise suppression"), checked: $noise_suppression)
+    button(label: @t("Save"), on_press: !save_gain, variant: primary)
 }
 ```
 

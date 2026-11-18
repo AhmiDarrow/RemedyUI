@@ -76,7 +76,7 @@ impl GpuCompositor {
     /// tile rastered again from the compositor's retained layer tree on the next frame. The
     /// app is not involved.
     pub fn recover(&mut self, compositor: &mut Compositor) -> Result<(), GpuError> {
-        let ctx = GpuContext::new(&self.ladder)?;
+        let ctx = GpuContext::shared(&self.ladder)?;
         let store = self.renderer_store();
         self.renderer = GpuRenderer::new(ctx, store);
         self.recover_device()?;
@@ -88,7 +88,9 @@ impl GpuCompositor {
     /// tiles ([`Compositor::invalidate_tiles`]); window surfaces rebuild themselves on their
     /// next present.
     pub fn recover_device(&mut self) -> Result<(), GpuError> {
-        let ctx = GpuContext::new(&self.ladder)?;
+        // The process's shared device, replaced: content embedded from the app moves to the
+        // same new device.
+        let ctx = GpuContext::shared(&self.ladder)?;
         let store = self.renderer_store();
         self.renderer = GpuRenderer::new(ctx, store);
         self.tiles.0.clear();

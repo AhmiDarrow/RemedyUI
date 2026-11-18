@@ -68,7 +68,8 @@ fn record(
     engine: &mut remedy_ui_text::TextEngine,
     focused: bool,
     scale: f32,
-) -> DisplayList {
+) -> (DisplayList, bool) {
+    let mut next_frame = false;
     let mut list = DisplayList::new();
     let s = &d.resolved;
     let rect = Rect::from_origin_size(Point::ZERO, size);
@@ -121,13 +122,15 @@ fn record(
         field.borrow_mut().paint(&mut list, content, s, theme, engine, focused);
     }
     if let Some(painter) = &d.painter {
-        let mut cx = PaintCx { list: &mut list, size, style: s, theme, states: d.states, scale };
+        let mut cx =
+            PaintCx { list: &mut list, size, style: s, theme, states: d.states, scale, next_frame: false };
         let tracked = d.paint_watch.as_ref().is_some_and(|w| w.track(|| painter(&mut cx)).is_ok());
         if !tracked {
             painter(&mut cx);
         }
+        next_frame = cx.next_frame;
     }
-    list
+    (list, next_frame)
 }
 
 /// Adds a paragraph's glyph runs at `origin`. Run colors come from the paragraph's spans;
@@ -622,17 +625,25 @@ impl Ui {
         );
         repaint.sort_unstable_by_key(|id| root_key(*id));
         repaint.dedup();
+        // Painters that asked to run again next frame.
+        let mut again: Vec<ElementId> = Vec::new();
         for id in repaint {
             let sz = rects.get(&id).map(|r| r.size()).unwrap_or(Size::ZERO);
             let Some(d) = i.els.get(&id) else { continue };
             let rtl = i.layout.is_rtl(d.node);
-            let chunk = record(d, rtl, sz, &theme, &mut engine, focused == Some(id), i.scale);
+            let (chunk, next) = record(d, rtl, sz, &theme, &mut engine, focused == Some(id), i.scale);
+            if next {
+                again.push(id);
+            }
             if let Some(d) = i.els.get_mut(&id) {
                 d.chunk = Some((sz, Rc::new(chunk)));
             }
             painted = true;
         }
         drop(engine);
+        for id in &again {
+            i.tree.mark(*id, Dirty::PAINT);
+        }
 
         // Layers.
         let transformed = std::mem::take(&mut i.layers_changed);
@@ -655,13 +666,34 @@ impl Ui {
             i.structure_changed = false;
             sync_semantics(i, &rects);
         }
+        // Elements that follow their place on the window (embedded native views) hear where
+        // they are now, after layout, scrolling and overlays settled.
+        let mut placed: Vec<(PlacedHandler, Option<Placement>)> = Vec::new();
+        let watchers: Vec<ElementId> =
+            i.els.iter().filter(|(_, d)| d.on_placed.is_some()).map(|(id, _)| *id).collect();
+        for id in watchers {
+            let now = placement(i, id, window);
+            if let Some(d) = i.els.get_mut(&id)
+                && d.last_placed.as_ref() != Some(&now)
+                && let Some(cb) = d.on_placed.clone()
+            {
+                d.last_placed = Some(now.clone());
+                placed.push((cb, now));
+            }
+        }
         let scrollers = i.frame.scrollers.clone();
         drop(guard);
+        if !again.is_empty() {
+            self.request(crate::Request::Frame);
+        }
         for (cb, size) in resized {
             cb(size);
         }
         for (cb, now) in seen {
             cb(now);
+        }
+        for (cb, now) in placed {
+            cb(now.as_ref());
         }
         Frame { layers, scrollers }
     }
@@ -689,6 +721,80 @@ fn is_seen(i: &Inner, id: ElementId, window: Rect) -> bool {
     }
     shown.intersect(window).is_some()
 }
+
+/// Where `id` is on the window, or `None` while none of it is seen ([`is_seen`]).
+fn placement(i: &Inner, id: ElementId, window: Rect) -> Option<Placement> {
+    if !is_seen(i, id, window) {
+        return None;
+    }
+    let bounds = i.tree.bounds(id)?;
+    let mut visible = bounds.intersect(window)?;
+    let mut cur = i.tree.parent(id);
+    while let Some(c) = cur {
+        let d = i.els.get(&c)?;
+        if d.scroll || d.clip {
+            visible = visible.intersect(i.tree.bounds(c)?)?;
+        }
+        cur = i.tree.parent(c);
+    }
+    // What the overlay layers above the element draw over it: each shown overlay's box.
+    let mut layers = vec![i.overlays, i.trusted];
+    let mut at = Some(id);
+    while let Some(c) = at {
+        if c == i.overlays {
+            // An element inside the overlay layer is covered only by the trusted layer.
+            layers = vec![i.trusted];
+        }
+        if c == i.trusted {
+            layers.clear();
+        }
+        at = i.tree.parent(c);
+    }
+    let mut covered = Vec::new();
+    for layer in layers {
+        for k in i.tree.children(layer) {
+            let Some(kd) = i.els.get(&k) else { continue };
+            if kd.hidden || kd.resolved.opacity <= 0.0 || at_or_below(i, k, id) {
+                continue;
+            }
+            if let Some(r) = i.tree.bounds(k).and_then(|b| b.intersect(visible)) {
+                covered.push(r);
+            }
+        }
+    }
+    Some(Placement { bounds, visible, covered, scale: i.scale })
+}
+
+/// True when `id` is `top` or inside it.
+fn at_or_below(i: &Inner, top: ElementId, id: ElementId) -> bool {
+    let mut cur = Some(id);
+    while let Some(c) = cur {
+        if c == top {
+            return true;
+        }
+        cur = i.tree.parent(c);
+    }
+    false
+}
+
+/// Where an element is on its window after a frame, for content the platform draws itself
+/// over the window (an embedded web view): [`El::on_placed`](crate::El::on_placed).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Placement {
+    /// The element's box in window logical pixels, scrolled where it is shown.
+    pub bounds: Rect,
+    /// The part of it that shows: inside the window and every scroll container or clipping
+    /// element around it.
+    pub visible: Rect,
+    /// Parts of `visible` drawn over by the window's overlays (menus, dialogs, tooltips, the
+    /// privacy cover), which content placed there must leave uncovered.
+    pub covered: Vec<Rect>,
+    /// Device pixels per logical pixel.
+    pub scale: f32,
+}
+
+/// An element's placement callback.
+pub(crate) type PlacedHandler = Rc<dyn Fn(Option<&Placement>)>;
 
 /// An element's resize callback.
 type ResizeHandler = Rc<dyn Fn(Size)>;

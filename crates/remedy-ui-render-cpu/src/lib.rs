@@ -21,8 +21,8 @@ use std::sync::Arc;
 
 use remedy_ui_core::{Color, CornerRadii, Point, Rect};
 use remedy_ui_paint::{
-    Affine, Blend, Brush, DisplayList, GlyphRun, Image, Item, Path, PathEl, Sampling, Stroke, StrokeCap,
-    StrokeJoin, VideoFrame,
+    Affine, Blend, Brush, DisplayList, ExternalTexture, GlyphRun, Image, Item, Path, PathEl, Sampling,
+    Stroke, StrokeCap, StrokeJoin, VideoFrame,
 };
 use remedy_ui_text::{Antialias, GlyphRasterizer, Hinting, size_64, subpixel_bin};
 use vello_cpu::color::{AlphaColor, Srgb};
@@ -237,6 +237,23 @@ struct VideoEntry {
     data: std::sync::Weak<[u8]>,
     /// The frame converted on the CPU, when the surface did not convert it.
     pixmap: Option<Arc<Pixmap>>,
+}
+
+/// Draws a GPU texture where the surface holds one (the GPU renderer); a surface without
+/// textures (the CPU renderer) draws nothing for it.
+fn texture_item<S: Surface>(ctx: &mut S, texture: &ExternalTexture, rect: Rect, radii: CornerRadii) {
+    let Some(source) = ctx.texture_source(texture) else { return };
+    ctx.set_paint(vello_cpu::Image {
+        image: source,
+        sampler: ImageSampler { quality: ImageQuality::Medium, ..Default::default() },
+    });
+    let sx = f64::from(rect.width()) / f64::from(texture.width.max(1));
+    let sy = f64::from(rect.height()) / f64::from(texture.height.max(1));
+    ctx.set_paint_transform(
+        kurbo::Affine::translate((f64::from(rect.min.x), f64::from(rect.min.y)))
+            * kurbo::Affine::scale_non_uniform(sx, sy),
+    );
+    ctx.fill_path(&rounded(rect, radii));
 }
 
 fn pixmap_from(width: u32, height: u32, rgba: Vec<u8>) -> Option<Pixmap> {
@@ -468,6 +485,7 @@ impl Painter {
                     self.image(s, image, *rect, *radii, *sampling)
                 }
                 Item::Video { frame, rect, radii } => self.video(s, frame, *rect, *radii),
+                Item::Texture { texture, rect, radii } => texture_item(s, texture, *rect, *radii),
                 Item::PushClip { rect, radii } => s.push_clip_layer(&rounded(*rect, *radii)),
                 Item::PopClip => s.pop_layer(),
                 Item::PopLayer => {

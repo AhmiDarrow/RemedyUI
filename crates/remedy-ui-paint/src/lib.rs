@@ -227,6 +227,22 @@ impl PartialEq for GlyphRun {
     }
 }
 
+/// A texture registered with the GPU renderer's device under `id` (premultiplied RGBA8),
+/// showing picture number `frame`. Plain data: the texture itself stays with the device, so
+/// a list holding this can still go to the compositor thread, and a new picture in the same
+/// texture is a new `frame`, which makes the item differ and the renderer draw it again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ExternalTexture {
+    /// The registration id.
+    pub id: u64,
+    /// The picture in it, counting up.
+    pub frame: u64,
+    /// Width in pixels.
+    pub width: u32,
+    /// Height in pixels.
+    pub height: u32,
+}
+
 /// One drawing command.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Item {
@@ -305,6 +321,17 @@ pub enum Item {
         /// Rounded corners.
         radii: CornerRadii,
     },
+    /// A texture the app rendered on the GPU renderer's own device, placed into `rect`.
+    /// Only the GPU renderer can draw it; content shown on the CPU renderer is read back
+    /// and drawn as an [`Item::Image`] instead.
+    Texture {
+        /// Which texture, and which picture in it.
+        texture: ExternalTexture,
+        /// Where it goes.
+        rect: Rect,
+        /// Rounded corners.
+        radii: CornerRadii,
+    },
     /// Starts clipping to a rounded rectangle.
     PushClip {
         /// The clip.
@@ -337,7 +364,8 @@ impl Item {
             Item::FillRect { rect, .. }
             | Item::Border { rect, .. }
             | Item::Image { rect, .. }
-            | Item::Video { rect, .. } => Some(*rect),
+            | Item::Video { rect, .. }
+            | Item::Texture { rect, .. } => Some(*rect),
             Item::Shadow { rect, offset, blur, spread, .. } => {
                 let grow = blur * 1.5 + spread;
                 Some(

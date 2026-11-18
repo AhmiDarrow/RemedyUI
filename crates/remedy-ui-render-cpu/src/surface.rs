@@ -62,6 +62,13 @@ pub trait Surface {
         let _ = frame;
         None
     }
+    /// A paint source for a texture registered with the surface's GPU device, sized
+    /// `texture.width` × `texture.height`. `None` when the surface has no such texture (the
+    /// CPU renderer has none): the item is then skipped.
+    fn texture_source(&mut self, texture: &remedy_ui_paint::ExternalTexture) -> Option<ImageSource> {
+        let _ = texture;
+        None
+    }
 }
 
 impl Surface for RenderContext {

@@ -16,9 +16,9 @@ A bridge implements a small set of traits:
 | `DragHost` | Start drags with typed payloads and a preview; receive drops |
 | `DialogHost` | Open, save and folder dialogs; message boxes; print |
 | `ServiceHost` (optional, per feature) | Tray, notifications, badges, jump lists, single instance, URL activation, autostart, global shortcuts where the platform permits |
-| `MediaHost` (optional) | Platform video decoders for `media-playback` (Media Foundation, AVFoundation, MediaCodec, the system GStreamer on Linux) |
+| `MediaHost` (optional) | Platform decoders and sound output for `media-playback` (Media Foundation and WASAPI, AVFoundation and Audio Queues, MediaCodec and AAudio, the system GStreamer on Linux). The trait and the platform implementations live in `media-playback` itself (its `os` module), so only apps that play media carry them; an app can supply its own |
 | `SandboxHost` (optional) | Starting the sandboxed decoder helper for `media-isolated` |
-| `WebViewHost` (optional) | The platform web view for `embed-webview` |
+| `WebViewHost` (optional, later) | The platform web view for `embed-webview`. Until a bridge offers it, `embed-webview` places its own native child view from the window's handles (see below) |
 | `A11yHost` | AccessKit adapter for the platform |
 
 A trait method that a platform cannot honor returns `Unsupported` with a reason. It is never faked. The engine adapts: a frameless window falls back to a native frame, and a missing tray hides tray-only actions in the UI.
@@ -53,7 +53,13 @@ RemedyOS draws its desktop in the kernel today (`kern_surface.c`, `kern_draw.c`,
 
 - **Embedding other content** (optional packs):
   - **`embed-webview`** hosts the platform web view (WebView2, WKWebView, WebKitGTK, Android WebView) as an element. It is for the RemedyAI desktop's browser slide and help pages from the web. It runs with its own process isolation, no access to the app's signals except through an explicit message channel, and navigation limited by the app's allow-list.
+    - The page sits in a native child view of the window, placed over the element's box after each frame: cut to the part that shows (scroll containers and clips), moved as it scrolls, hidden with it, and with the boxes of the window's overlays (menus, dialogs, tooltips, the privacy cover) cut out of its region, since a native view always draws above its window's own pixels. App content drawn over the element outside the overlay layer stays under the page.
+    - Windows: WebView2 in a child window (region cut-outs with `SetWindowRgn`). Linux: WebKitGTK 4.1/4.0 with GTK 3, loaded with `dlopen`, in a GTK popup window reparented into the app's X11 window (cut-outs with the X shape extension). Under Wayland one client cannot place a surface inside another's, so the element reports `Unsupported`. macOS (WKWebView as a child `NSView`) and Android (`android.webkit.WebView`) report `Unsupported` until their bridges host native views.
+    - Every navigation of the page and its frames goes through the app's allow-list (with none, only what the app loads); new windows, links to other programs and permission requests are refused and reported; downloads are denied unless the app's callback allows each; developer tools are off unless asked for. The page's one way to the app is `window.remedy` (`postMessage`, `onMessage`), carrying JSON values.
   - **`embed-gpu`** hosts the app's own wgpu rendering (TheOven's 3D preview, game views) as an external texture.
+    - The app renders on the GPU renderer's own device (shared by every window in the process), given only the device and queue, inside error scopes that report its mistakes instead of failing the window. After a device loss, the replacement is shared by windows and content alike, and the content prepares again.
+    - The element owns two textures sized from its box and the window's scale, renders into one while the other is shown, and places the picture with `Item::Texture`, which the GPU renderer samples like any image. On the CPU renderer the picture is read back once per render; the element asks the runner to move an `Auto` window to the GPU at once.
+    - Pointer input (in element coordinates), keys and focus reach the content; the element reads as an image named by its label.
 - **Being embedded.** RemedyUI can render into a texture or surface the host owns, for a game engine's menus or another toolkit's window. It uses `bridge-headless` input routing and the GPU renderer on the host's device.
 
 ## Platform conventions

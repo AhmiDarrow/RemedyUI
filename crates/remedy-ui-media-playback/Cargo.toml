@@ -1,0 +1,56 @@
+[package]
+name = "remedy-ui-media-playback"
+description = "RemedyUI media playback: sound and video from files and streams through the platform's own decoders (Media Foundation, GStreamer, AVFoundation, MediaCodec), kept in sync by the sound device's clock, with a keyboard-operable player widget and WebVTT, SRT and ASS captions."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
+remedy-ui-layout = { path = "../remedy-ui-layout", version = "0.1.0" }
+remedy-ui-media-video = { path = "../remedy-ui-media-video", version = "0.1.0" }
+remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
+remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
+remedy-ui-style = { path = "../remedy-ui-style", version = "0.1.0" }
+remedy-ui-view = { path = "../remedy-ui-view", version = "0.1.0" }
+remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "0.1.0" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+] }
+
+# GStreamer (Linux) and the NDK's media and audio libraries (Android) are the system's own,
+# opened at run time: nothing is linked or bundled, and a machine without them gets a clear
+# `Unsupported` rather than an app that will not start.
+[target.'cfg(any(target_os = "android", all(unix, not(any(target_os = "macos", target_os = "ios")))))'.dependencies]
+libloading = { version = "=0.8.9" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "=0.6.5" }
+objc2-av-foundation = { version = "=0.3.2", default-features = false, features = ["std", "AVAsset", "AVAssetReader", "AVAssetReaderOutput", "AVAssetTrack", "AVMediaFormat", "objc2-core-media"] }
+objc2-core-foundation = { version = "=0.3.2", default-features = false, features = ["std", "CFString"] }
+objc2-core-media = { version = "=0.3.2", default-features = false, features = ["std", "CMBase", "CMBlockBuffer", "CMFormatDescription", "CMSampleBuffer", "CMTime", "CMTimeRange", "objc2-core-video"] }
+objc2-core-video = { version = "=0.3.2", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSError", "NSString", "NSURL", "NSValue"] }
+
+[dev-dependencies]
+remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
+remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "0.1.0" }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "0.1.0", features = ["remedy-sans-ui"] }
+remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "0.1.0" }
+remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
+remedy-ui-themes = { path = "../remedy-ui-themes", version = "0.1.0" }
+
+[lints]
+workspace = true

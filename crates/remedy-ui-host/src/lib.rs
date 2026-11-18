@@ -582,6 +582,17 @@ pub trait Host {
     fn set_maximized(&mut self, window: WindowId, maximized: bool);
     /// True while the window is maximized (by the app or the user).
     fn is_maximized(&self, window: WindowId) -> bool;
+    /// Makes the window fill its display with no frame (a player's full screen, a slide
+    /// show), or brings it back.
+    fn set_fullscreen(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported> {
+        let _ = (window, on);
+        Err(Unsupported::new("full-screen windows", "this host has no full-screen mode"))
+    }
+    /// True while the window fills its display (by the app or the user).
+    fn is_fullscreen(&self, window: WindowId) -> bool {
+        let _ = window;
+        false
+    }
     /// Starts a user move of the window, as dragging a title bar does (call on a pointer
     /// press in custom chrome).
     fn begin_move(&mut self, window: WindowId) -> Result<(), Unsupported>;

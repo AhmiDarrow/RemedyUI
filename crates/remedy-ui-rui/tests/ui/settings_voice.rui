@@ -1,0 +1,16 @@
+// Voice settings, as in docs/design/07.
+column(gap: s3, padding: s4) {
+    section(title: @t("Input")) {
+        select(label: @t("Device"), items: $input_devices, selected: $input_device)
+        slider(label: @t("Gain"), value: $input_gain, range: 0..200, step: 1)
+    }
+    switch(label: @t("Noise suppression"), checked: $noise_suppression)
+    text_input(label: @t("Nickname"), value: $nickname)
+    column(visible: $advanced, gap: s2) {
+        text(text: @t("Echo cancellation"), variant: muted)
+    }
+    row(gap: s2, justify: end, fill_width: true) {
+        text(text: $status, grow: 1)
+        button(label: @t("Save"), on_press: !save, variant: primary)
+    }
+}

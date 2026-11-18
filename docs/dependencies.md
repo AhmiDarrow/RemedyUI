@@ -41,10 +41,12 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | Errors | `thiserror` | 2.0.21 | every crate | Typed errors without hand-written boilerplate |
 | Derive macros | `syn` 2, `quote`, `proc-macro2` | 2.0.119, 1.0.47, 1.0.107 | `macros` (build time only) | `#[derive(Store)]`; syn 2 rather than the new 3.0 until 3.x has settled |
 | Platform APIs | `windows`, `objc2`, `ndk`, `jni` | pinned per bridge | bridges | OS calls, in the bridges' `os` modules only |
-| Raw platform calls | `windows-sys`, `libc` | 0.61.2, 0.2.191 | `bridge-windows`, `bridge-linux`, `services-update`, `media-isolated` | The decoding helper's sandbox (AppContainer, restricted token, job object; seccomp-bpf, Landlock, memfds, descriptor passing; Seatbelt), in `media-isolated`'s `os` module only |
+| Raw platform calls | `windows-sys`, `libc` | 0.61.2, 0.2.191 | `bridge-windows`, `bridge-linux`, `services-update`, `media-isolated`, `embed-webview` | The decoding helper's sandbox (AppContainer, restricted token, job object; seccomp-bpf, Landlock, memfds, descriptor passing; Seatbelt), in `media-isolated`'s `os` module only; `dlopen` of GTK 3 and WebKitGTK in `embed-webview`'s `os` module, so apps build and start without them |
 | Android activity | `android-activity` (through winit's `android-native-activity`) | 0.6.1 | `bridge-android` | The `NativeActivity` glue winit runs on: lifecycle, input queue, soft keyboard, the Java main thread |
 | Java calls (Android) | `jni` | 0.21.1 (the release `accesskit_android` uses) | `bridge-android` | Clipboard, links, settings, `FLAG_SECURE` and the bridge's own Java half, in the `os` module; android-activity uses 0.22 internally, so two releases are built on Android only |
 | Screen readers (Android) | `accesskit_android` (`embedded-dex`) | 0.9.1 | `bridge-android` | AccessKit's adapter injected into the native activity's view (accesskit_winit's Android adapter only reaches GameActivity) |
+| Web view (Windows) | `webview2-com` (with `webview2-com-sys`, `webview2-com-macros`) | 0.39.1 | `embed-webview` | WebView2's COM interfaces and callback helpers over `windows` 0.62 (MIT). Its `WebView2LoaderStatic.lib` (Microsoft's loader from the WebView2 SDK, BSD-3-Clause) is linked statically: the one prebuilt library RemedyUI links, chosen over shipping `WebView2Loader.dll` beside every app (a file to plant) or reimplementing Microsoft's undocumented loader protocol. It only finds and starts the Evergreen runtime the system keeps updated |
+| JSON | `serde_json` | 1.0.154 | `script`, `themes`, `services-i18n`, `services-update`, `widgets-board`, `embed-webview` | JSON data files; in `embed-webview`, the values of the one message channel between the app and a page |
 
 Development tools that are not linked into apps: `cargo-fuzz`, `cargo-deny`, `cargo-audit`, `cargo-vet`.
 
@@ -52,7 +54,7 @@ Development tools that are not linked into apps: `cargo-fuzz`, `cargo-deny`, `ca
 
 - **A new dependency needs a reason** in this file: what it does, why RemedyUI should not write it, its license, and its maintenance health.
 - **Minimal features.** `default-features = false`, then only what is used.
-- **No async runtime, and no bundled C code.** Platform frameworks the OS provides (D3D, Metal, Vulkan loaders, system GStreamer on Linux) are loaded from the OS, never shipped.
+- **No async runtime, and no bundled C code.** Platform frameworks the OS provides (D3D, Metal, Vulkan loaders, system GStreamer on Linux, WebKitGTK) are loaded from the OS, never shipped. The one exception is the WebView2 loader, explained in its row above.
 - **Checked in CI**: `cargo deny` (licenses, advisories, bans, duplicate versions), `cargo audit` and `cargo vet`.
 - **One owner module.** Each dependency is used from one internal module, and its types do not appear in public APIs.
 - **Young crates** (parley, the vello renderers, winit 0.31, accesskit) have behavior tests in RemedyUI for what the engine relies on, so an upgrade that changes behavior is caught before release.
