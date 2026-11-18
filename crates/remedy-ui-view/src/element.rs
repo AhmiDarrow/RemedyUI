@@ -34,6 +34,23 @@ pub struct PaintCx<'a> {
     pub scale: f32,
     /// The painter asked to run again in the next frame ([`PaintCx::request_next_frame`]).
     pub(crate) next_frame: bool,
+    /// The element lays out right to left (mirror what is directional).
+    pub rtl: bool,
+    /// The window's text engine, for painters that place glyphs themselves.
+    pub(crate) engine: &'a mut TextEngine,
+}
+
+/// How [`PaintCx::text`] draws a line of text.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextPaint {
+    /// Font size in logical pixels.
+    pub size: f32,
+    /// Weight, 100 to 900.
+    pub weight: f32,
+    /// Fill color.
+    pub color: remedy_ui_core::Color,
+    /// Use the theme's families for numbers and codes (same-width figures).
+    pub mono: bool,
 }
 
 impl PaintCx<'_> {
@@ -42,6 +59,64 @@ impl PaintCx<'_> {
     /// frame while it moves, so it follows the display's rate and stops when it stops asking.
     pub fn request_next_frame(&mut self) {
         self.next_frame = true;
+    }
+
+    /// Lays out `text` with the window's fonts, for a painter that draws text itself (a
+    /// terminal placing each character in its cell, a chart's labels, a note on a page).
+    pub fn layout_text(
+        &mut self,
+        text: &RichText,
+        style: &TextStyle,
+        options: ParagraphOptions,
+    ) -> Paragraph {
+        self.engine.layout(text, style, options)
+    }
+
+    /// Draws a laid-out paragraph with its top-left at `origin`, in `color` where its spans
+    /// set none.
+    pub fn draw_paragraph(
+        &mut self,
+        paragraph: &Paragraph,
+        origin: remedy_ui_core::Point,
+        color: remedy_ui_core::Color,
+    ) {
+        crate::frame::glyphs(self.list, paragraph, origin, color);
+    }
+
+    fn line(&mut self, text: &str, p: TextPaint) -> Paragraph {
+        let style = TextStyle {
+            families: if p.mono {
+                self.theme.mono_families.clone()
+            } else {
+                self.theme.font_families.clone()
+            },
+            size: p.size,
+            weight: p.weight,
+            color: p.color,
+            ..TextStyle::default()
+        };
+        // One line placed by its anchor, so alignment inside it does not matter.
+        let options = ParagraphOptions { max_width: None, scale: self.scale, ..ParagraphOptions::default() };
+        self.layout_text(&RichText::plain(text), &style, options)
+    }
+
+    /// The size one line of `text` takes when drawn with `p`.
+    pub fn measure_text(&mut self, text: &str, p: TextPaint) -> Size {
+        let para = self.line(text, p);
+        Size::new(para.width(), para.height())
+    }
+
+    /// Draws one line of `text` with `p`, placed so the point `at` falls on the text box's
+    /// `anchor` (`(0, 0)` its top-left corner, `(0.5, 0.5)` its middle, `(1, 1)` its
+    /// bottom-right). Returns the size of the text. This is the canvas's way to write
+    /// labels, numbers and names inside a drawing; the text is data, so it is not
+    /// pseudo-localized.
+    pub fn text(&mut self, text: &str, at: remedy_ui_core::Point, anchor: Vec2, p: TextPaint) -> Size {
+        let para = self.line(text, p);
+        let size = Size::new(para.width(), para.height());
+        let origin = remedy_ui_core::Point::new(at.x - size.width * anchor.x, at.y - size.height * anchor.y);
+        self.draw_paragraph(&para, origin, p.color);
+        size
     }
 }
 
@@ -103,6 +178,65 @@ impl TextSlot {
 /// A tool that sees pointer input first ([`Ui::set_pointer_interceptor`]).
 pub type PointerInterceptor = Rc<dyn Fn(&remedy_ui_input::PointerEvent) -> bool>;
 
+/// Told about each element marked for work ([`Ui::add_dirty_observer`]).
+pub type DirtyObserver = Rc<dyn Fn(&DirtyRecord)>;
+
+static NEXT_UI: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// An element marked for work, and why ([`Ui::add_dirty_observer`]): "row 42 repainted
+/// because `message.edited` changed".
+#[derive(Clone, Debug, PartialEq)]
+pub struct DirtyRecord {
+    /// The element.
+    pub element: ElementId,
+    /// Its style is resolved again.
+    pub style: bool,
+    /// It is laid out again.
+    pub layout: bool,
+    /// It is repainted.
+    pub paint: bool,
+    /// Its semantics are sent again.
+    pub semantics: bool,
+    /// The binding or painter run that marked it, with the signal writes that made it run,
+    /// while reactive tracing is on ([`remedy_ui_reactive::debug::trace`]). `None` when the
+    /// mark came from outside any recorded run: input, focus, or a direct call.
+    pub cause: Option<remedy_ui_reactive::debug::Update>,
+    /// The trace clock's time of the mark ([`remedy_ui_trace::now_ns`]).
+    pub at_ns: u64,
+}
+
+impl DirtyRecord {
+    /// What happens to the element, in a word: "repainted", "relaid out", "restyled" or
+    /// "re-described" (semantics), the costliest first.
+    pub fn verb(&self) -> &'static str {
+        if self.layout {
+            "relaid out"
+        } else if self.style {
+            "restyled"
+        } else if self.paint {
+            "repainted"
+        } else {
+            "re-described"
+        }
+    }
+
+    /// Why, in words: the causes of the run that marked it, or how it was marked otherwise.
+    pub fn because(&self) -> String {
+        match &self.cause {
+            Some(u) => {
+                let who = match &u.name {
+                    Some(n) => format!("its {n} binding"),
+                    None => {
+                        format!("the {} at {}:{}", u.kind.as_str(), u.created_at.file(), u.created_at.line())
+                    }
+                };
+                format!("{who} re-ran: {}", u.because())
+            }
+            None => "changed directly (input, focus or a call)".to_owned(),
+        }
+    }
+}
+
 /// A snapshot of an element for inspectors and tests ([`El::info`]).
 #[derive(Clone, Debug)]
 pub struct ElementInfo {
@@ -140,6 +274,9 @@ pub struct ElementInfo {
     pub keyboard_alternative: Option<String>,
     /// Reactive bindings it owns.
     pub bindings: usize,
+    /// Its bindings and painter in the reactive graph (see
+    /// [`remedy_ui_reactive::debug`]): bindings first, then the painter's watch.
+    pub binding_keys: Vec<remedy_ui_reactive::debug::NodeKey>,
     /// The signals and memos its bindings and painter read (each once, in first-seen order).
     pub reads: Vec<remedy_ui_reactive::Source>,
     /// Hidden.
@@ -169,6 +306,9 @@ pub(crate) struct ElData {
     pub(crate) click: Option<Rc<dyn Fn()>>,
     pub(crate) hover: Option<Rc<dyn Fn(bool)>>,
     pub(crate) focus: Option<Rc<dyn Fn(bool)>>,
+    /// Takes text from input methods and the clipboard without being a field
+    /// ([`El::on_text_input`]).
+    pub(crate) text_client: Option<crate::client::TextClient>,
     /// Has a pointer handler of its own (`on_pointer`).
     pub(crate) pointer: bool,
     /// Draggable: what is dragged, and who hears how it ended.
@@ -288,6 +428,8 @@ pub(crate) struct Inner {
     /// The edges system interface covers (status and navigation bars, cutouts, the on-screen
     /// keyboard), in logical pixels.
     pub(crate) safe_area: remedy_ui_reactive::Signal<remedy_ui_host::SafeArea>,
+    /// How often the window's display refreshes, where known.
+    pub(crate) refresh: remedy_ui_reactive::Signal<Option<std::time::Duration>>,
     /// The window is minimized or fully covered: nothing in it is seen.
     pub(crate) occluded: bool,
     pub(crate) timers: HashMap<u64, Box<dyn FnOnce()>>,
@@ -297,6 +439,13 @@ pub(crate) struct Inner {
     pub(crate) window_handles: Option<std::sync::Arc<dyn remedy_ui_host::WindowHandles>>,
     /// The window is drawn by the GPU renderer now.
     pub(crate) gpu: remedy_ui_reactive::Signal<bool>,
+    /// This view's id, unique in the process ([`Ui::id`]).
+    pub(crate) id: u64,
+    /// Told about every element marked for work ([`Ui::add_dirty_observer`]), by id.
+    pub(crate) dirty_observers: Vec<(u64, DirtyObserver)>,
+    pub(crate) next_observer: u64,
+    /// What the last frame did.
+    pub(crate) last_stats: crate::frame::FrameStats,
 }
 
 /// One window's UI. Cloning gives another handle to the same UI.
@@ -455,11 +604,16 @@ impl Ui {
             trusted: root,
             reduced_motion: remedy_ui_reactive::Signal::new(false),
             safe_area: remedy_ui_reactive::Signal::new(remedy_ui_host::SafeArea::default()),
+            refresh: remedy_ui_reactive::Signal::new(None),
             occluded: false,
             timers: HashMap::new(),
             next_timer: 0,
             window_handles: None,
             gpu: remedy_ui_reactive::Signal::new(false),
+            id: NEXT_UI.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            dirty_observers: Vec::new(),
+            next_observer: 1,
+            last_stats: crate::frame::FrameStats::default(),
         })));
         // The window holds the app's content, then a click-through layer for overlays
         // (dialogs, menus, toasts) that always draws above it.
@@ -653,6 +807,20 @@ impl Ui {
             });
         }
         self.request(Request::Frame);
+    }
+
+    /// Sets how often the window's display refreshes (the runner does, from the host, when
+    /// the window opens and moves between displays).
+    pub fn set_refresh_interval(&self, interval: Option<std::time::Duration>) {
+        let s = self.0.borrow().refresh;
+        s.set_if_changed(interval);
+    }
+
+    /// How often the window's display refreshes, where the platform says: the time a frame
+    /// has before it misses a refresh. Tracked.
+    pub fn refresh_interval(&self) -> Option<std::time::Duration> {
+        let s = self.0.borrow().refresh;
+        s.get()
     }
 
     /// The edges system interface covers, in logical pixels (zero where nothing does).
@@ -946,8 +1114,83 @@ impl Ui {
     pub(crate) fn mark(&self, id: ElementId, flags: Dirty) {
         let i = self.0.borrow();
         i.tree.mark(id, flags);
+        let observers: Vec<DirtyObserver> = if i.dirty_observers.is_empty() {
+            Vec::new()
+        } else {
+            i.dirty_observers.iter().map(|(_, f)| f.clone()).collect()
+        };
         drop(i);
+        if !observers.is_empty() {
+            let record = DirtyRecord {
+                element: id,
+                style: flags.contains(Dirty::STYLE),
+                layout: flags.contains(Dirty::LAYOUT),
+                paint: flags.contains(Dirty::PAINT),
+                semantics: flags.contains(Dirty::SEMANTICS),
+                cause: remedy_ui_reactive::debug::current(),
+                at_ns: remedy_ui_trace::now_ns(),
+            };
+            for observe in observers {
+                observe(&record);
+            }
+        }
         self.request(Request::Frame);
+    }
+
+    /// This view's id, unique in the process: trace spans name the window they belong to
+    /// by it.
+    pub fn id(&self) -> u64 {
+        self.0.borrow().id
+    }
+
+    /// Calls `f` for every element marked for work (restyle, relayout, repaint, semantics),
+    /// with what marked it, until [`Ui::remove_dirty_observer`] is called with the returned
+    /// id. Devtools use it to say why each element updated; turn on
+    /// [`remedy_ui_reactive::debug::trace`] for the causes. With no observer, marking costs
+    /// nothing more.
+    pub fn add_dirty_observer(&self, f: DirtyObserver) -> u64 {
+        let mut i = self.0.borrow_mut();
+        let id = i.next_observer;
+        i.next_observer += 1;
+        i.dirty_observers.push((id, f));
+        id
+    }
+
+    /// Stops calling the observer [`Ui::add_dirty_observer`] returned `id` for.
+    pub fn remove_dirty_observer(&self, id: u64) {
+        if let Ok(mut i) = self.0.try_borrow_mut() {
+            i.dirty_observers.retain(|(o, _)| *o != id);
+        }
+    }
+
+    /// What the last frame did ([`FrameStats`](crate::FrameStats)).
+    pub fn last_frame_stats(&self) -> crate::frame::FrameStats {
+        self.0.borrow().last_stats.clone()
+    }
+
+    /// The element owning the binding or painter `node` (a key of the reactive graph), if it
+    /// is one of this view's.
+    pub fn element_of_binding(&self, node: remedy_ui_reactive::debug::NodeKey) -> Option<ElementId> {
+        let i = self.0.borrow();
+        i.els.iter().find_map(|(id, d)| {
+            let mine = d.effects.iter().any(|e| e.key() == node)
+                || d.paint_watch.as_ref().is_some_and(|w| w.key() == node);
+            mine.then_some(*id)
+        })
+    }
+
+    /// The element whose accessibility node id ([`El::node_id`]) is `node`, while it lives.
+    pub fn element_by_node_id(&self, node: u64) -> Option<El> {
+        let index = u32::try_from(node & 0xFFFF_FFFF).ok()?;
+        let generation = u32::try_from(node >> 32).ok()?;
+        let id = ElementId::from_parts(index, generation);
+        self.0.borrow().els.contains_key(&id).then(|| El { ui: self.clone(), id })
+    }
+
+    /// The window as a screen reader meets it, in reading order (see
+    /// [`remedy_ui_a11y::A11yTree::reader_view`]), as of the last frame.
+    pub fn reader_view(&self) -> Vec<remedy_ui_a11y::ReaderNode> {
+        self.0.borrow().a11y.reader_view()
     }
 }
 
@@ -988,6 +1231,7 @@ impl ElData {
             click: None,
             hover: None,
             focus: None,
+            text_client: None,
             pointer: false,
             drag_source: None,
             selectable: false,
@@ -1041,8 +1285,15 @@ impl El {
 
     /// Runs `f` now and again whenever the signals it reads change, for as long as the
     /// element lives.
+    #[track_caller]
     pub fn bind(self, f: impl FnMut() + 'static) -> Self {
-        let effect = Effect::new(f);
+        self.bind_named("bind", f)
+    }
+
+    /// Like [`El::bind`], with a debug name devtools show for the binding ("text", "style").
+    #[track_caller]
+    pub fn bind_named(self, name: &'static str, f: impl FnMut() + 'static) -> Self {
+        let effect = Effect::new(f).named(name);
         if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
             d.effects.push(effect);
         }
@@ -1172,9 +1423,10 @@ impl El {
     }
 
     /// Replaces the local style whenever `f`'s signals change.
+    #[track_caller]
     pub fn style_dyn(self, f: impl Fn() -> StylePatch + 'static) -> Self {
         let me = self.clone();
-        self.bind(move || {
+        self.bind_named("style", move || {
             let p = f();
             me.edit(Dirty::STYLE, |d| d.local = p);
         })
@@ -1519,9 +1771,10 @@ impl El {
     }
 
     /// Binds the disabled state to `f`.
+    #[track_caller]
     pub fn disabled_dyn(self, f: impl Fn() -> bool + 'static) -> Self {
         let me = self.clone();
-        self.bind(move || {
+        self.bind_named("disabled", move || {
             let on = f();
             let _ = me.clone().disabled(on);
         })
@@ -1571,9 +1824,10 @@ impl El {
     }
 
     /// Shows the text `f` returns, updated when its signals change.
+    #[track_caller]
     pub fn text_dyn(self, f: impl Fn() -> String + 'static) -> Self {
         let me = self.clone();
-        self.bind(move || {
+        self.bind_named("text", move || {
             let t = f();
             let _ = me.clone().text(RichText::plain(t));
         })
@@ -1646,7 +1900,8 @@ impl El {
             if let Some(inner) = ui.upgrade() {
                 Ui(inner).mark(id, Dirty::PAINT);
             }
-        });
+        })
+        .named("paint");
         let mut old = None;
         self.edit(Dirty::PAINT, |d| {
             d.painter = Some(f);
@@ -1748,6 +2003,12 @@ impl El {
             pointer: d.pointer,
             keyboard_alternative: d.keyboard_alternative.clone(),
             bindings: d.effects.len(),
+            binding_keys: d
+                .effects
+                .iter()
+                .map(Effect::key)
+                .chain(d.paint_watch.iter().map(Reaction::key))
+                .collect(),
             reads: {
                 let mut all: Vec<remedy_ui_reactive::Source> = Vec::new();
                 let from_effects = d.effects.iter().flat_map(Effect::sources);
@@ -1786,9 +2047,10 @@ impl El {
     }
 
     /// Updates semantics when `f`'s signals change.
+    #[track_caller]
     pub fn semantics_dyn(self, f: impl Fn() -> Semantics + 'static) -> Self {
         let me = self.clone();
-        self.bind(move || {
+        self.bind_named("semantics", move || {
             let s = f();
             me.edit(Dirty::SEMANTICS, |d| d.semantics = Some(s));
         })
@@ -1873,6 +2135,12 @@ impl El {
     /// The element's bounds in window logical pixels after the last frame.
     pub fn bounds(&self) -> Option<remedy_ui_core::Rect> {
         self.ui.tree().bounds(self.id)
+    }
+
+    /// Whether the element lays out right to left (as of the last frame).
+    pub fn is_rtl(&self) -> bool {
+        let i = self.ui.0.borrow();
+        i.els.get(&self.id).is_some_and(|d| i.layout.is_rtl(d.node))
     }
 
     /// Whether the element has keyboard focus.

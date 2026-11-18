@@ -113,6 +113,32 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         States::NONE,
         StylePatch { background: Some(c.card.mix_oklab(c.danger, 0.18)), ..Default::default() },
     );
+    // Terminals: monospace on the terminal's own background (the `term-bg` and `term-fg`
+    // tokens, else the window's), with a focus border; cells take their colors from the
+    // `term-0` … `term-15` tokens (remedy-ui-widgets-term).
+    let term_bg = c.custom.get("term-bg").copied().unwrap_or(c.bg);
+    let term_fg = c.custom.get("term-fg").copied().unwrap_or(d.text);
+    rule(
+        "terminal",
+        None,
+        States::NONE,
+        StylePatch {
+            mono: Some(true),
+            background: Some(term_bg),
+            foreground: Some(term_fg),
+            border: Some(line),
+            border_width: Some(t.stroke),
+            padding: Some(Insets::all(u * 2.0)),
+            ..Default::default()
+        },
+    );
+    rule(
+        "terminal",
+        None,
+        States::FOCUS,
+        StylePatch { border: Some(d.focus), outline_width: Some(0.0), ..Default::default() },
+    );
+    rule("terminal_measure", None, States::NONE, StylePatch { mono: Some(true), ..Default::default() });
     // Video: bars where a picture's shape differs from its place are black, as on every screen.
     rule(
         "video_surface",
@@ -659,6 +685,41 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         States::NONE,
         StylePatch { foreground: Some(d.text), radius: Some(r.small), ..Default::default() },
     );
+    // Music (the music pack): notation and neck diagrams are drawn in the text color; the
+    // neck itself is a card-colored surface.
+    for w in ["fretboard", "tab_staff", "note_staff", "chord_diagram"] {
+        rule(
+            w,
+            None,
+            States::NONE,
+            StylePatch { foreground: Some(d.text), radius: Some(r.small), ..Default::default() },
+        );
+    }
+    // Extras: the star color, the carousel's frame and dots, the wizard's markers and the swatches.
+    rule("rating", None, States::NONE, StylePatch { foreground: Some(c.warn), ..Default::default() });
+    rule("qr_code", None, States::NONE, StylePatch { radius: Some(r.small), ..Default::default() });
+    rule(
+        "carousel_viewport",
+        None,
+        States::NONE,
+        StylePatch { radius: Some(r.medium), ..Default::default() },
+    );
+    for w in ["carousel_dot_target", "step_marker_cell"] {
+        rule(w, None, States::NONE, StylePatch { radius: Some(r.small), ..Default::default() });
+        rule(w, None, States::HOVER, StylePatch { background: Some(d.hover), ..Default::default() });
+    }
+    rule(
+        "swatch_cell",
+        None,
+        States::NONE,
+        StylePatch {
+            radius: Some(r.small),
+            border: Some(line),
+            border_width: Some(t.stroke),
+            ..Default::default()
+        },
+    );
+    rule("swatch_cell", None, States::HOVER, StylePatch { border: Some(d.text), ..Default::default() });
     rule(
         "toast",
         None,

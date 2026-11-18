@@ -91,10 +91,16 @@ pub use remedy_ui_widgets_board as board;
 pub use remedy_ui_widgets_core as widgets;
 #[cfg(feature = "data")]
 pub use remedy_ui_widgets_data as data;
+#[cfg(feature = "extra")]
+pub use remedy_ui_widgets_extra as extra;
 #[cfg(feature = "forms")]
 pub use remedy_ui_widgets_forms as forms;
+#[cfg(feature = "music")]
+pub use remedy_ui_widgets_music as music;
 #[cfg(feature = "nav")]
 pub use remedy_ui_widgets_nav as nav;
+#[cfg(feature = "term")]
+pub use remedy_ui_widgets_term as term;
 
 /// Why the app could not run.
 #[derive(Debug)]

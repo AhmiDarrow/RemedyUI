@@ -15,6 +15,7 @@ mod context;
 mod external;
 #[allow(unsafe_code)]
 mod ffi;
+mod gputime;
 mod images;
 mod renderer;
 mod surface;

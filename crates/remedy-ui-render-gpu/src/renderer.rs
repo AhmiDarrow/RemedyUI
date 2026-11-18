@@ -365,8 +365,10 @@ pub(crate) fn submit_scene(
     if ctx.is_lost() {
         return Err(GpuError::Lost);
     }
+    let _raster = remedy_ui_trace::phase!("raster").entered();
     let mut encoder =
         ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RemedyUI frame") });
+    let timing = ctx.timer.begin(&ctx.device, &mut encoder);
     let clear = vello_gpu::ClearSettings::Viewport {
         color: vello_gpu::color::AlphaColor::new([background.r, background.g, background.b, background.a]),
     };
@@ -382,6 +384,15 @@ pub(crate) fn submit_scene(
             options,
         )
         .map_err(|e| GpuError::Render(e.to_string()))?;
+    if let Some(t) = &timing {
+        ctx.timer.end(t, &mut encoder);
+    }
+    let submitted = remedy_ui_trace::now_ns();
     ctx.queue.submit([encoder.finish()]);
+    match timing {
+        Some(t) => ctx.timer.submitted(t, submitted, &ctx.queue),
+        // Frames timed while a trace recorded still report after it stops.
+        None => ctx.timer.collect(),
+    }
     Ok(())
 }

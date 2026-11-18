@@ -1,0 +1,15 @@
+[package]
+name = "remedy-ui-trace"
+description = "RemedyUI tracing: the phase spans every part of the engine emits (through `tracing`), the clock trace timestamps share across threads, and GPU work slices."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

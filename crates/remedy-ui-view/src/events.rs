@@ -72,6 +72,7 @@ impl Ui {
 
     /// Routes pointer input. Returns true when an element took it.
     pub fn pointer(&self, e: &PointerEvent) -> bool {
+        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
         let tap = self.0.borrow().interceptor.clone();
         if let Some(tap) = tap
             && tap(e)
@@ -201,12 +202,14 @@ impl Ui {
     /// ([`El::on_wheel`](crate::El::on_wheel)), innermost first. Returns true when one used it;
     /// otherwise the host scrolls the scroll containers under the pointer.
     pub fn wheel(&self, e: &remedy_ui_input::WheelEvent) -> bool {
+        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
         self.positioned(e.position, e)
     }
 
     /// Routes a touchpad pinch to the elements under it that zoom
     /// ([`El::on_pinch`](crate::El::on_pinch)). Returns true when one used it.
     pub fn pinch(&self, e: &remedy_ui_input::PinchEvent) -> bool {
+        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
         // A pinch stays with the element it started on, as a press does.
         let tree = self.tree();
         let held = self.0.borrow().pinching.filter(|p| tree.contains(*p));
@@ -249,6 +252,7 @@ impl Ui {
     /// stack goes back), then as Escape (a menu, dialog or drag is dismissed). When neither
     /// takes it, the runner leaves the window.
     pub fn key(&self, e: &KeyEvent) -> bool {
+        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
         if e.key == Key::Back {
             if self.route_key(e) {
                 return true;
@@ -314,8 +318,10 @@ impl Ui {
         } else {
             e.modifiers.ctrl
         };
+        let own_text = focused.is_some_and(|f| self.client_of(f).is_some());
         if e.pressed
             && cmd
+            && !own_text
             && matches!(&e.key, remedy_ui_input::Key::Character(c) if c.eq_ignore_ascii_case("c"))
             && let Some(text) = self.selected_text()
         {
@@ -387,9 +393,12 @@ impl Ui {
 
     /// Routes an input-method event to the focused field.
     pub fn ime(&self, e: &ImeEvent) -> bool {
+        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
         let tree = self.tree();
         let Some(f) = tree.focused() else { return false };
-        let Some(field) = self.field_of(f) else { return false };
+        let Some(field) = self.field_of(f) else {
+            return self.to_client(&crate::TextInput::Ime(e.clone()));
+        };
         let now = self.0.borrow().now_ms;
         let changed = field::ime(&mut field.borrow_mut(), e, now);
         if changed {
@@ -402,9 +411,13 @@ impl Ui {
     /// some. A rich field takes the HTML's allowed formatting (and a copy of its own whole);
     /// other fields take the text.
     pub fn paste_html(&self, text: &str, html: Option<&str>) {
+        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
         let tree = self.tree();
         let Some(f) = tree.focused() else { return };
-        let Some(field) = self.field_of(f) else { return };
+        let Some(field) = self.field_of(f) else {
+            self.to_client(&crate::TextInput::Paste(text.to_owned()));
+            return;
+        };
         let rich = field::is_rich(&field.borrow());
         let Some(html) = html.filter(|_| rich) else {
             return self.paste(text);
@@ -418,9 +431,13 @@ impl Ui {
 
     /// Delivers clipboard text after a [`Request::Paste`].
     pub fn paste(&self, text: &str) {
+        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
         let tree = self.tree();
         let Some(f) = tree.focused() else { return };
-        let Some(field) = self.field_of(f) else { return };
+        let Some(field) = self.field_of(f) else {
+            self.to_client(&crate::TextInput::Paste(text.to_owned()));
+            return;
+        };
         let now = self.0.borrow().now_ms;
         field::paste(&mut field.borrow_mut(), text, now);
         self.field_edited(f, &field, true);
@@ -466,12 +483,19 @@ pub(crate) fn focus_changed(ui: &Ui) {
         }
     }
     let session = now.and_then(|n| ui.field_of(n).map(|f| (n, f)));
+    let client = now.filter(|_| session.is_none()).and_then(|n| ui.client_state(n).map(|s| (n, s)));
     let had = ui.0.borrow().field_session;
     match session {
         Some((n, f)) => {
             ui.0.borrow_mut().field_session = Some(n);
             let b = tree.bounds(n).unwrap_or(remedy_ui_core::Rect::ZERO);
             field::request_session(ui, &f, b);
+        }
+        None if client.is_some() => {
+            if let Some((n, state)) = client {
+                ui.0.borrow_mut().field_session = Some(n);
+                ui.request(Request::TextInput(Some(state)));
+            }
         }
         None if had.is_some() => {
             ui.0.borrow_mut().field_session = None;

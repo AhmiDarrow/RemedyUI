@@ -23,9 +23,10 @@ pub fn key_capture(ui: &Ui, label: impl Into<String>, value: Signal<Option<Chord
     // Key names are the platform's, not the app's strings.
     let text = w::label(ui, "", "").data_text();
     let el = el.child(text.clone());
-    let (u2, e2, e3, l2) = (ui.clone(), el.clone(), el.clone(), label.clone());
+    let (u2, e2, e3, e4, l2) = (ui.clone(), el.clone(), el.clone(), el.clone(), label.clone());
+    // Activating it (a press, or a screen reader's activate) starts recording.
     el.on_focus_change(move |f| recording.set(f))
-        .on_click(|| {})
+        .on_click(move || e4.focus())
         .on_key(move |e: &KeyEvent| {
             if !e.pressed || e.repeat {
                 return e.pressed;
@@ -67,6 +68,7 @@ pub fn key_capture(ui: &Ui, label: impl Into<String>, value: Signal<Option<Chord
                     } else {
                         "Focus to record a shortcut"
                     })
+                    .action(Action::Click)
                     .action(Action::Focus),
             );
         })

@@ -34,7 +34,7 @@ mod series;
 mod sparkline;
 
 pub use bars::{BarsOptions, bars};
-pub use drive::{Clock, Gate, Smoothing, smooth};
+pub use drive::{Clock, Gate, Moved, Smoothing, Ticker, smooth};
 pub use meter::{MeterOptions, Orientation, Zone, Zones, level_meter};
 pub use peak::PeakHold;
 pub use ring::{RingOptions, speaking_ring};

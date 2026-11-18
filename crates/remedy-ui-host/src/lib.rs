@@ -563,6 +563,12 @@ pub trait Host {
         let _ = window;
         SafeArea::default()
     }
+    /// How often the display the window is on refreshes (16.7 ms at 60 Hz), where the
+    /// platform says. Frames that take longer miss a refresh.
+    fn refresh_interval(&self, window: WindowId) -> Option<std::time::Duration> {
+        let _ = window;
+        None
+    }
     /// Changes the title.
     fn set_title(&mut self, window: WindowId, title: &str);
     /// Resizes the content to `size` logical pixels.
@@ -631,6 +637,17 @@ pub trait Host {
     fn set_clipboard_text(&mut self, text: &str, sensitive: bool) -> Result<(), Unsupported>;
     /// Empties the clipboard (a copied secret's time is up).
     fn clear_clipboard(&mut self) -> Result<(), Unsupported>;
+    /// The primary selection's text: what was last selected anywhere, pasted with the middle
+    /// button (X11 and Wayland). Platforms without one say `Unsupported`.
+    fn primary_selection_text(&mut self) -> Result<Option<String>, Unsupported> {
+        Err(Unsupported::new("primary_selection_text", "this platform has no primary selection"))
+    }
+    /// Makes `text` the primary selection (what was just selected), where the platform has
+    /// one.
+    fn set_primary_selection(&mut self, text: &str) -> Result<(), Unsupported> {
+        let _ = text;
+        Err(Unsupported::new("set_primary_selection", "this platform has no primary selection"))
+    }
     /// The clipboard's HTML (formatted text another app copied), if it holds any.
     fn clipboard_html(&mut self) -> Result<Option<String>, Unsupported> {
         Err(Unsupported::new("clipboard_html", "this host reads plain text only"))

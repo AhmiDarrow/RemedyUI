@@ -68,7 +68,9 @@ fn run(
                 let changed = !plan.damage.is_empty() || !plan.raster.is_empty() || !plan.released.is_empty();
                 if changed {
                     let started = std::time::Instant::now();
+                    let present = remedy_ui_trace::phase!("present").entered();
                     presenter.present(&plan);
+                    drop(present);
                     // What the frame cost sizes the zoom budget (compositing included, so
                     // the estimate errs on the side of smooth frames).
                     let pixels: u64 = plan.raster.iter().map(TileRequest::pixels).sum();

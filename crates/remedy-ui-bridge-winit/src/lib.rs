@@ -54,6 +54,17 @@ pub trait PlatformHooks: 'static {
     fn total_memory(&self) -> Option<u64> {
         None
     }
+    /// The primary selection's text: what was last selected anywhere, pasted with the middle
+    /// button (X11 and Wayland). Platforms without one say `Unsupported`.
+    fn primary_selection_text(&mut self) -> Result<Option<String>, Unsupported> {
+        Err(Unsupported::new("primary_selection_text", "this platform has no primary selection"))
+    }
+    /// Makes `text` the primary selection (what was just selected), where the platform has
+    /// one.
+    fn set_primary_selection(&mut self, text: &str) -> Result<(), Unsupported> {
+        let _ = text;
+        Err(Unsupported::new("set_primary_selection", "this platform has no primary selection"))
+    }
     /// The clipboard's HTML, if it holds formatted text.
     fn clipboard_html(&mut self) -> Result<Option<String>, Unsupported> {
         Err(Unsupported::new("clipboard_html", "this platform reads plain text only"))
@@ -481,6 +492,13 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         Ok(())
     }
 
+    fn refresh_interval(&self, window: WindowId) -> Option<std::time::Duration> {
+        let wid = self.state.ids.get(&window)?;
+        let (_, w) = self.state.windows.get(wid)?;
+        let mhz = w.window.current_monitor()?.refresh_rate_millihertz()?;
+        (mhz > 0).then(|| std::time::Duration::from_secs_f64(1000.0 / f64::from(mhz)))
+    }
+
     fn is_fullscreen(&self, window: WindowId) -> bool {
         let Some(wid) = self.state.ids.get(&window) else { return false };
         self.state.windows.get(wid).is_some_and(|(_, w)| w.window.fullscreen().is_some())
@@ -661,6 +679,14 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
 
     fn clear_clipboard(&mut self) -> Result<(), Unsupported> {
         self.hooks.clear_clipboard()
+    }
+
+    fn primary_selection_text(&mut self) -> Result<Option<String>, Unsupported> {
+        self.hooks.primary_selection_text()
+    }
+
+    fn set_primary_selection(&mut self, text: &str) -> Result<(), Unsupported> {
+        self.hooks.set_primary_selection(text)
     }
 
     fn clipboard_html(&mut self) -> Result<Option<String>, Unsupported> {

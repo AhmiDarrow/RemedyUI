@@ -49,6 +49,34 @@ pub enum ProblemKind {
         /// Its size.
         height: f32,
     },
+    /// A control people can see and use that a screen reader cannot reach or operate.
+    Unreachable {
+        /// Why, in a sentence fragment.
+        why: Unreachable,
+    },
+}
+
+/// Why a control is out of a screen reader's reach.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unreachable {
+    /// It, or an ancestor, is hidden from assistive technology while it is shown on screen.
+    Hidden,
+    /// An ancestor merges its descendants into one node, so this control's own action is
+    /// folded away.
+    Merged,
+    /// It reacts to clicks but tells assistive technology of no way to activate it.
+    NoAction,
+}
+
+impl Unreachable {
+    /// The reason in words.
+    pub fn describe(self) -> &'static str {
+        match self {
+            Unreachable::Hidden => "is shown but hidden from assistive technology",
+            Unreachable::Merged => "is folded into a merged node, so its action cannot be reached",
+            Unreachable::NoAction => "reacts to clicks but offers assistive technology no way to activate it",
+        }
+    }
 }
 
 /// One accessibility problem.
@@ -80,6 +108,7 @@ impl Problem {
             ProblemKind::SmallTarget { width, height } => {
                 format!("Target {width:.0}×{height:.0}, needs 24×24{at}")
             }
+            ProblemKind::Unreachable { why } => format!("Control {}{at}", why.describe()),
         }
     }
 }
@@ -209,6 +238,7 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
     let bg = ui.theme().colors.bg;
     let mut out = Vec::new();
     let window = ui.root().bounds();
+    let reader: std::collections::HashSet<u64> = ui.reader_view().iter().map(|n| n.id).collect();
     for (_, el) in walk(ui) {
         let Some(i) = el.info() else { continue };
         let sized = i.bounds.is_some_and(|b| b.width() > 0.0 && b.height() > 0.0);
@@ -264,6 +294,18 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
                     Some(Role::Group | Role::Grid | Role::Dialog)
                 ));
         if interactive {
+            let why = if !reader.contains(&el.node_id()) {
+                Some(if merged_away(&el) { Unreachable::Merged } else { Unreachable::Hidden })
+            } else if i.clickable
+                && !i.semantics.as_ref().is_some_and(|s| s.actions().contains(&remedy_ui_a11y::Action::Click))
+            {
+                Some(Unreachable::NoAction)
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                out.push(Problem { element: i.id, kind: ProblemKind::Unreachable { why }, at: i.created_at });
+            }
             let named = i.semantics.as_ref().and_then(|s| s.name()).is_some_and(|n| !n.trim().is_empty())
                 || text_in(&el).is_some();
             if !named {
@@ -306,6 +348,52 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
         }
     }
     out
+}
+
+/// True when an ancestor folds its descendants into itself for assistive technology.
+fn merged_away(el: &El) -> bool {
+    let mut cur = el.parent();
+    while let Some(e) = cur {
+        if e.composed_semantics().is_some_and(|s| s.merges_descendants()) {
+            return true;
+        }
+        cur = e.parent();
+    }
+    false
+}
+
+/// One line of the accessibility view: a node as a screen reader meets it, with the
+/// element behind it and the problems found there.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReaderLine {
+    /// The node.
+    pub node: remedy_ui_a11y::ReaderNode,
+    /// The element it comes from.
+    pub element: Option<ElementId>,
+    /// What [`audit`] found wrong with it.
+    pub problems: Vec<Problem>,
+}
+
+/// The window as a screen reader meets it, in reading order, each node with the problems
+/// [`audit`] found on its element. Problems on elements a screen reader cannot reach at all
+/// come back as lines too, after the tree, with no node (see [`unreachable_problems`]).
+pub fn reader_lines(ui: &Ui) -> Vec<ReaderLine> {
+    let problems = audit(ui);
+    ui.reader_view()
+        .into_iter()
+        .map(|node| {
+            let element = ui.element_by_node_id(node.id).map(|e| e.id());
+            let mine = problems.iter().filter(|p| Some(p.element) == element).cloned().collect();
+            ReaderLine { node, element, problems: mine }
+        })
+        .collect()
+}
+
+/// The problems [`audit`] finds on elements a screen reader cannot reach, which the reader
+/// view cannot show as lines.
+pub fn unreachable_problems(ui: &Ui) -> Vec<Problem> {
+    let reader: std::collections::HashSet<u64> = ui.reader_view().iter().map(|n| n.id).collect();
+    audit(ui).into_iter().filter(|p| !reader.contains(&ui.element(p.element).node_id())).collect()
 }
 
 /// A one-line description of an element for the tree view.
@@ -373,16 +461,35 @@ fn set_role(t: &mut Theme, role: &str, v: Color) -> bool {
 
 /// An inspector attached to one window's [`Ui`].
 #[derive(Clone)]
-pub struct Inspector(Rc<Inner>);
+pub struct Inspector(pub(crate) Rc<Inner>);
 
-struct Inner {
-    target: Ui,
-    sheet: SheetFn,
-    selected: Signal<Option<ElementId>>,
-    picking: Signal<bool>,
-    revision: Signal<u64>,
-    highlight: RefCell<Option<El>>,
+pub(crate) struct Inner {
+    pub(crate) target: Ui,
+    pub(crate) sheet: SheetFn,
+    pub(crate) selected: Signal<Option<ElementId>>,
+    pub(crate) picking: Signal<bool>,
+    pub(crate) revision: Signal<u64>,
+    pub(crate) highlight: RefCell<Option<El>>,
+    /// The panel page shown: inspect, signals, accessibility, performance, remote.
+    pub(crate) tab: Signal<usize>,
+    /// Why elements of the target updated.
+    pub(crate) log: crate::signals::UpdateLog,
+    /// Bumped (once per turn of the loop) when the log has new entries.
+    pub(crate) log_revision: Signal<u64>,
+    pub(crate) log_keep: Signal<f64>,
+    pub(crate) recorder: Result<crate::Recorder, crate::InstallError>,
+    pub(crate) overlay: RefCell<Option<crate::PerfOverlay>>,
+    pub(crate) overlay_on: Signal<bool>,
+    pub(crate) budget_hz: Signal<f64>,
+    /// The overlay measures against the display's own refresh rate.
+    pub(crate) budget_follow: Signal<bool>,
+    pub(crate) trace_status: Signal<String>,
+    pub(crate) remote: crate::panels::RemoteState,
 }
+
+/// How many "why did this update" entries the inspector keeps until told otherwise (its
+/// panel changes it).
+pub const DEFAULT_LOG_KEEP: usize = 500;
 
 impl Inspector {
     /// Attaches to `target`. `sheet` builds the app's style sheet for edited themes.
@@ -394,7 +501,51 @@ impl Inspector {
             picking: Signal::new(false),
             revision: Signal::new(0),
             highlight: RefCell::new(None),
+            tab: Signal::new(0),
+            log: crate::signals::UpdateLog::attach(target, DEFAULT_LOG_KEEP),
+            log_revision: Signal::new(0),
+            log_keep: Signal::new(DEFAULT_LOG_KEEP as f64),
+            recorder: crate::Recorder::install(),
+            overlay: RefCell::new(None),
+            overlay_on: Signal::new(false),
+            budget_hz: Signal::new(60.0),
+            budget_follow: Signal::new(true),
+            trace_status: Signal::new(String::new()),
+            remote: crate::panels::RemoteState::new(),
         }))
+    }
+
+    /// The "why did this update" log of the target window.
+    pub fn update_log(&self) -> &crate::signals::UpdateLog {
+        &self.0.log
+    }
+
+    /// Shows or hides the performance overlay over the target window. Returns false when
+    /// frame timings cannot be recorded (see [`crate::Recorder::install`]).
+    pub fn show_overlay(&self, on: bool) -> bool {
+        let Ok(rec) = &self.0.recorder else { return false };
+        let mut slot = self.0.overlay.borrow_mut();
+        match (on, slot.is_some()) {
+            (true, false) => {
+                // The display's own rate, or one the developer chose.
+                let follow = self.0.budget_follow.get_untracked().unwrap_or(true);
+                let budget = (!follow)
+                    .then(|| crate::panels::budget_of(self.0.budget_hz.get_untracked().unwrap_or(60.0)));
+                *slot = Some(crate::PerfOverlay::show(&self.0.target, rec, budget));
+            }
+            (false, true) => *slot = None,
+            _ => {}
+        }
+        drop(slot);
+        if self.0.overlay_on.get_untracked().ok() != Some(on) {
+            self.0.overlay_on.set(on);
+        }
+        true
+    }
+
+    /// The performance overlay, while shown.
+    pub fn overlay(&self) -> Option<crate::PerfOverlay> {
+        self.0.overlay.borrow().clone()
     }
 
     /// The window being inspected.
@@ -493,6 +644,7 @@ impl Inspector {
     /// Stops picking and removes the outline.
     pub fn detach(&self) {
         self.pick(false);
+        self.show_overlay(false);
         self.select(None);
     }
 }
@@ -511,7 +663,7 @@ fn place(el: &El, b: Rect) {
     });
 }
 
-fn line(ui: &Ui, k: &str, v: String) -> El {
+pub(crate) fn line(ui: &Ui, k: &str, v: String) -> El {
     let unit = ui.theme().spacing.unit;
     w::row(ui)
         .gap(unit * 2.0)
@@ -520,11 +672,11 @@ fn line(ui: &Ui, k: &str, v: String) -> El {
         .child(w::label(ui, v, "").data_text().grow(1.0))
 }
 
-fn details(ui: &Ui, i: &ElementInfo) -> El {
-    let unit = ui.theme().spacing.unit;
+/// An element's details as the inspector shows them, as (name, value) rows: widget, source
+/// line, box, style, states, semantics, behavior, bindings and what they read.
+pub fn detail_rows(i: &ElementInfo) -> Vec<(&'static str, String)> {
     let s = &i.style;
-    let mut col = w::column(ui).gap(unit).fill_width();
-    let rows: Vec<(&str, String)> = vec![
+    vec![
         (
             "Widget",
             if i.variant.is_empty() { i.widget.to_owned() } else { format!("{} ({})", i.widget, i.variant) },
@@ -591,8 +743,13 @@ fn details(ui: &Ui, i: &ElementInfo) -> El {
                 i.reads.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n")
             },
         ),
-    ];
-    for (k, v) in rows {
+    ]
+}
+
+fn details(ui: &Ui, i: &ElementInfo) -> El {
+    let unit = ui.theme().spacing.unit;
+    let mut col = w::column(ui).gap(unit).fill_width();
+    for (k, v) in detail_rows(i) {
         col = col.child(line(ui, k, v));
     }
     col
@@ -754,14 +911,26 @@ pub fn inspector_panel(ui: &Ui, insp: &Inspector) -> El {
         tokens = tokens.child(head).child(editor).child(watcher);
     }
 
+    let inspect = w::column(ui)
+        .gap(unit * 4.0)
+        .fill_width()
+        .child(w::section(ui, "Selected").child(detail))
+        .child(w::section(ui, "Accessibility check").child(problems))
+        .child(w::section(ui, "Elements").child(tree))
+        .child(w::section(ui, "Theme colors").child(tokens));
+    let tab = insp.0.tab;
+    let inspect = inspect.clone().bind(move || {
+        let on = tab.get() == 0;
+        let _ = inspect.clone().hidden(!on);
+    });
+    let tabs = w::segmented(ui, "Devtools view", &crate::panels::TABS, tab);
     let body = w::column(ui)
         .gap(unit * 4.0)
         .fill_width()
         .padding(Insets::all(unit * 4.0))
         .child(toolbar)
-        .child(w::section(ui, "Selected").child(detail))
-        .child(w::section(ui, "Accessibility check").child(problems))
-        .child(w::section(ui, "Elements").child(tree))
-        .child(w::section(ui, "Theme colors").child(tokens));
+        .child(tabs)
+        .child(inspect)
+        .child(crate::panels::pages(ui, insp));
     w::scroll(ui).grow(1.0).fill_width().child(body)
 }

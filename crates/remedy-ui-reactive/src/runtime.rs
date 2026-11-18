@@ -15,8 +15,9 @@
 //! read and write signals freely from inside memos and effects.
 
 use std::any::Any;
+use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::panic::Location;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -24,6 +25,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use remedy_ui_core::{Arena, Id};
 
+use crate::debug::{Cause, Hook, NodeInfo, NodeKey, NodeKind, Update};
 use crate::error::ReactiveError;
 use crate::waker::PostQueue;
 
@@ -79,6 +81,48 @@ pub(crate) struct Runtime {
     effect_runs: Cell<u64>,
     memo_runs: Cell<u64>,
     runaway_effects: Cell<u64>,
+    /// Debug names, for the nodes that were given one.
+    names: RefCell<HashMap<NodeId, Cow<'static, str>>>,
+    /// True while a `debug::Tracing` guard lives: causes are recorded.
+    tracing: Cell<bool>,
+    /// The live tracing guards, with their hooks.
+    watchers: RefCell<Vec<(u64, Option<Hook>)>>,
+    next_watcher: Cell<u64>,
+    /// Why each marked node will re-run (only while tracing).
+    causes: RefCell<HashMap<NodeId, Vec<Cause>>>,
+    /// The recorded runs in progress, innermost last (only while tracing).
+    running_updates: RefCell<Vec<Rc<Update>>>,
+    update_seq: Cell<u64>,
+}
+
+/// The public key of a node.
+pub(crate) fn key(id: NodeId) -> NodeKey {
+    NodeKey((u64::from(id.generation()) << 32) | u64::from(id.index()))
+}
+
+fn from_key(k: NodeKey) -> NodeId {
+    let index = u32::try_from(k.0 & 0xFFFF_FFFF).unwrap_or(u32::MAX);
+    let generation = u32::try_from(k.0 >> 32).unwrap_or(u32::MAX);
+    NodeId::from_parts(index, generation)
+}
+
+fn kind_of(k: &Kind) -> NodeKind {
+    match k {
+        Kind::Signal(_) => NodeKind::Signal,
+        Kind::Memo { .. } => NodeKind::Memo,
+        Kind::Effect(_) => NodeKind::Effect,
+        Kind::Reaction(_) => NodeKind::Reaction,
+        Kind::Scope => NodeKind::Scope,
+    }
+}
+
+/// One pending mark: the node, the state to raise it to, and (while tracing) why. A
+/// `causes_only` mark carries a cause to nodes already marked, without touching state.
+struct Mark {
+    id: NodeId,
+    state: State,
+    cause: Option<Cause>,
+    causes_only: bool,
 }
 
 /// How many times one effect may run in a single flush before it is treated as a runaway
@@ -135,6 +179,13 @@ impl Runtime {
             effect_runs: Cell::new(0),
             memo_runs: Cell::new(0),
             runaway_effects: Cell::new(0),
+            names: RefCell::new(HashMap::new()),
+            tracing: Cell::new(false),
+            watchers: RefCell::new(Vec::new()),
+            next_watcher: Cell::new(1),
+            causes: RefCell::new(HashMap::new()),
+            running_updates: RefCell::new(Vec::new()),
+            update_seq: Cell::new(0),
         }
     }
 
@@ -194,7 +245,7 @@ impl Runtime {
                     Kind::Memo { .. } => crate::SourceKind::Memo,
                     _ => return None,
                 };
-                Some(crate::Source { kind, created_at: src.created_at })
+                Some(crate::Source { kind, created_at: src.created_at, key: key(*s) })
             })
             .collect()
     }
@@ -235,6 +286,15 @@ impl Runtime {
             }
             drop(nodes);
             self.pending.borrow_mut().retain(|&x| x != id);
+            {
+                let mut names = self.names.borrow_mut();
+                if !names.is_empty() {
+                    names.remove(&id);
+                }
+            }
+            if self.tracing.get() {
+                self.causes.borrow_mut().remove(&id);
+            }
             // Dropping the node's value or closure runs app `Drop` code; no borrow is held.
             drop(node.kind);
         }
@@ -339,33 +399,68 @@ impl Runtime {
     // ---------- writing ----------
 
     /// Marks the subscribers of a changed signal and runs effects unless a batch is open.
-    pub(crate) fn notify(&self, id: NodeId) {
+    /// `at` is where the write happened, recorded while tracing.
+    pub(crate) fn notify(&self, id: NodeId, at: Option<&'static Location<'static>>) {
         let subs = match self.nodes.borrow().get(id) {
             Some(n) => n.subscribers.clone(),
             None => return,
         };
+        let cause = self.tracing.get().then(|| Cause {
+            signal: key(id),
+            signal_name: self.names.borrow().get(&id).cloned(),
+            signal_created_at: self.created_at(id),
+            written_at: at,
+            via: Vec::new(),
+        });
         for sub in subs {
-            self.mark(sub, State::Dirty);
+            self.mark(sub, State::Dirty, cause.clone());
         }
         self.flush_if_idle();
     }
 
-    fn mark(&self, start: NodeId, state: State) {
-        let mut stack = vec![(start, state)];
-        while let Some((id, state)) = stack.pop() {
+    /// Records `cause` for `id`; true when it is new (no cause from the same signal yet).
+    fn add_cause(&self, id: NodeId, cause: &Cause) -> bool {
+        let mut causes = self.causes.borrow_mut();
+        let list = causes.entry(id).or_default();
+        if list.iter().any(|c| c.signal == cause.signal) {
+            return false;
+        }
+        list.push(cause.clone());
+        true
+    }
+
+    fn mark(&self, start: NodeId, state: State, cause: Option<Cause>) {
+        let mut stack = vec![Mark { id: start, state, cause, causes_only: false }];
+        while let Some(Mark { id, state, cause, causes_only }) = stack.pop() {
+            // Only while tracing: the cause reaches this node, and goes on downstream when it
+            // is new here, even where the state is already raised.
+            let fresh = cause.as_ref().is_some_and(|c| self.add_cause(id, c));
             let mut nodes = self.nodes.borrow_mut();
             let Some(node) = nodes.get_mut(id) else { continue };
-            if node.state >= state {
+            let raise = !causes_only && node.state < state;
+            if !raise && !fresh {
                 continue;
             }
             let was_clean = node.state == State::Clean;
-            node.state = state;
-            if matches!(node.kind, Kind::Effect(_) | Kind::Reaction(_)) && !node.queued {
-                node.queued = true;
-                self.pending.borrow_mut().push_back(id);
+            if raise {
+                node.state = state;
+                if matches!(node.kind, Kind::Effect(_) | Kind::Reaction(_)) && !node.queued {
+                    node.queued = true;
+                    self.pending.borrow_mut().push_back(id);
+                }
             }
-            if was_clean {
-                stack.extend(node.subscribers.iter().map(|&s| (s, State::Check)));
+            let propagate = raise && was_clean;
+            if propagate || fresh {
+                let next = cause.map(|mut c| {
+                    c.via.push(key(id));
+                    c
+                });
+                stack.extend(node.subscribers.iter().map(|&s| Mark {
+                    id: s,
+                    state: State::Check,
+                    cause: next.clone(),
+                    causes_only: !propagate,
+                }));
             }
         }
     }
@@ -404,6 +499,9 @@ impl Runtime {
         };
         if dirty {
             self.run(id)?;
+        } else if self.tracing.get() {
+            // Checked and found unchanged: what marked it did not make it run.
+            self.causes.borrow_mut().remove(&id);
         }
         Ok(())
     }
@@ -417,6 +515,9 @@ impl Runtime {
             std::mem::take(&mut n.sources)
         });
         let Some(old) = taken else { return untracked(self, f) };
+        if self.tracing.get() {
+            self.causes.borrow_mut().remove(&id);
+        }
         {
             let mut nodes = self.nodes.borrow_mut();
             for src in old {
@@ -439,6 +540,7 @@ impl Runtime {
         if let Some(on_change) = reaction {
             // Keeps its sources: it is told again on the next change until it re-tracks.
             let _w = swap(&self.observer, None);
+            let _u = self.begin_update(id);
             on_change();
             return Ok(());
         }
@@ -474,6 +576,8 @@ impl Runtime {
             }
         }
         let _running = Running(self, id);
+        // Recorded (and hooks told) before the run's own tracking starts.
+        let _u = self.begin_update(id);
         let _o = swap(&self.owner, Some(id));
         let _w = swap(&self.observer, Some(id));
         match kind {
@@ -490,7 +594,9 @@ impl Runtime {
                 if changed {
                     let subs = self.nodes.borrow().get(id).map(|n| n.subscribers.clone()).unwrap_or_default();
                     for sub in subs {
-                        self.mark(sub, State::Dirty);
+                        // While tracing, the causes reached them already, when the write
+                        // marked them for checking.
+                        self.mark(sub, State::Dirty, None);
                     }
                 }
             }
@@ -533,7 +639,11 @@ impl Runtime {
     }
 
     fn flush(&self) {
+        if self.pending.borrow().is_empty() {
+            return;
+        }
         let _f = swap(&self.flushing, true);
+        let _span = remedy_ui_trace::phase!("binds").entered();
         let mut runs: std::collections::HashMap<NodeId, u32> = std::collections::HashMap::new();
         loop {
             let next = self.pending.borrow_mut().pop_front();
@@ -564,6 +674,121 @@ impl Runtime {
         self.flush_if_idle();
     }
 
+    // ---------- the signal graph, for devtools ----------
+
+    pub(crate) fn tracing(&self) -> bool {
+        self.tracing.get()
+    }
+
+    pub(crate) fn watch(&self, hook: Option<Hook>) -> u64 {
+        let id = self.next_watcher.get();
+        self.next_watcher.set(id + 1);
+        self.watchers.borrow_mut().push((id, hook));
+        self.tracing.set(true);
+        id
+    }
+
+    pub(crate) fn unwatch(&self, id: u64) {
+        let mut w = self.watchers.borrow_mut();
+        w.retain(|(i, _)| *i != id);
+        if w.is_empty() {
+            self.tracing.set(false);
+            self.causes.borrow_mut().clear();
+        }
+    }
+
+    /// While tracing: records that `id` starts a run, with its causes, and tells the hooks.
+    /// The record stays current until the returned guard drops.
+    fn begin_update(&self, id: NodeId) -> Option<UpdateGuard<'_>> {
+        if !self.tracing.get() {
+            return None;
+        }
+        let causes = self.causes.borrow_mut().remove(&id).unwrap_or_default();
+        let (kind, created_at) = {
+            let nodes = self.nodes.borrow();
+            let n = nodes.get(id)?;
+            (kind_of(&n.kind), n.created_at)
+        };
+        let seq = self.update_seq.get() + 1;
+        self.update_seq.set(seq);
+        let update = Rc::new(Update {
+            seq,
+            node: key(id),
+            kind,
+            name: self.names.borrow().get(&id).cloned(),
+            created_at,
+            causes,
+        });
+        self.running_updates.borrow_mut().push(update.clone());
+        let hooks: Vec<Hook> = self.watchers.borrow().iter().filter_map(|(_, h)| h.clone()).collect();
+        if !hooks.is_empty() {
+            // Hooks read what they like without subscribing the run to it.
+            let _w = swap(&self.observer, None);
+            for h in hooks {
+                h(&update);
+            }
+        }
+        Some(UpdateGuard(self))
+    }
+
+    pub(crate) fn current_update(&self) -> Option<Update> {
+        self.running_updates.borrow().last().map(|u| (**u).clone())
+    }
+
+    fn info(&self, id: NodeId, n: &Node) -> NodeInfo {
+        NodeInfo {
+            key: key(id),
+            kind: kind_of(&n.kind),
+            name: self.names.borrow().get(&id).cloned(),
+            created_at: n.created_at,
+            sources: n.sources.iter().map(|s| key(*s)).collect(),
+            subscribers: n.subscribers.iter().map(|s| key(*s)).collect(),
+            owner: n.owner.map(key),
+        }
+    }
+
+    pub(crate) fn graph(&self) -> Vec<NodeInfo> {
+        let nodes = self.nodes.borrow();
+        nodes.iter().map(|(id, n)| self.info(id, n)).collect()
+    }
+
+    pub(crate) fn node_info(&self, k: NodeKey) -> Option<NodeInfo> {
+        let id = from_key(k);
+        let nodes = self.nodes.borrow();
+        nodes.get(id).map(|n| self.info(id, n))
+    }
+
+    pub(crate) fn dependents(&self, k: NodeKey) -> Vec<NodeKey> {
+        let nodes = self.nodes.borrow();
+        let start = from_key(k);
+        let mut seen: std::collections::HashSet<NodeId> = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        let mut queue: VecDeque<NodeId> =
+            nodes.get(start).map(|n| n.subscribers.clone()).unwrap_or_default().into();
+        while let Some(id) = queue.pop_front() {
+            if id == start || !seen.insert(id) {
+                continue;
+            }
+            out.push(key(id));
+            if let Some(n) = nodes.get(id) {
+                queue.extend(n.subscribers.iter().copied());
+            }
+        }
+        out
+    }
+
+    pub(crate) fn set_name(&self, k: NodeKey, name: Cow<'static, str>) -> bool {
+        self.name_node(from_key(k), name)
+    }
+
+    pub(crate) fn name_node(&self, id: NodeId, name: Cow<'static, str>) -> bool {
+        if !self.exists(id) {
+            return false;
+        }
+        self.names.borrow_mut().insert(id, name);
+        true
+    }
+
     pub(crate) fn stats(&self) -> crate::Stats {
         crate::Stats {
             nodes: self.nodes.borrow().len(),
@@ -572,6 +797,15 @@ impl Runtime {
             pending_effects: self.pending.borrow().len(),
             runaway_effects: self.runaway_effects.get(),
         }
+    }
+}
+
+/// Ends a recorded run: the one outside it becomes current again.
+struct UpdateGuard<'a>(&'a Runtime);
+
+impl Drop for UpdateGuard<'_> {
+    fn drop(&mut self) {
+        self.0.running_updates.borrow_mut().pop();
     }
 }
 

@@ -557,8 +557,13 @@ impl App {
     ) {
         let c = self.completion(done);
         // A thread that cannot start drops the completion, which forgets `done`.
-        let _ =
-            std::thread::Builder::new().name("remedy-ui background".into()).spawn(move || c.complete(work()));
+        let _ = std::thread::Builder::new().name("remedy-ui background".into()).spawn(move || {
+            let out = {
+                let _span = remedy_ui_trace::phase!("background").entered();
+                work()
+            };
+            c.complete(out);
+        });
     }
 
     /// A result some other thread will produce (an async runtime's task, a callback from a
@@ -815,6 +820,22 @@ impl Window {
         Some(win)
     }
 
+    /// Serves this window to remote devtools (its element tree, element details, semantics,
+    /// signal graph, update log and frame timings) on a loopback port, for a devtools window
+    /// elsewhere to connect with the server's address and token. Debug builds only unless
+    /// `options.allow_release` is set; serving stops when the returned server is dropped. On
+    /// Android, forward the port to the desktop with `adb forward tcp:PORT tcp:PORT`.
+    #[cfg(feature = "devtools")]
+    pub fn serve_devtools(
+        &self,
+        options: remedy_ui_devtools::RemoteOptions,
+    ) -> std::io::Result<remedy_ui_devtools::RemoteServer> {
+        let ui = self
+            .ui()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "the window is not open"))?;
+        remedy_ui_devtools::RemoteServer::listen(&ui, options)
+    }
+
     /// Keeps the window out of screenshots and screen sharing, or not.
     pub fn set_capture_protected(&self, on: bool) {
         self.app.push(Cmd::Capture(self.key, on));
@@ -995,6 +1016,7 @@ impl Runner {
                 ui.set_reduced_motion(self.settings.reduced_motion);
                 // Content the platform draws itself (an embedded web view) parents to it.
                 ui.set_window_handles(host.window_handles(id).ok());
+                ui.set_refresh_interval(host.refresh_interval(id));
                 self.app.0.borrow_mut().uis.insert(key, ui.clone());
                 self.by_host.insert(id, key);
                 self.wins.insert(
@@ -1217,6 +1239,20 @@ impl Runner {
                         host.request_frame(h);
                     }
                 }
+                Request::SetPrimary(text) => {
+                    // Platforms without a primary selection have nothing to set.
+                    let _ = host.set_primary_selection(&text);
+                }
+                Request::PastePrimary { fallback } => {
+                    let text = match host.primary_selection_text() {
+                        Ok(t) => t,
+                        Err(_) => fallback,
+                    };
+                    if let Some(t) = text {
+                        ui.paste(&t);
+                        host.request_frame(h);
+                    }
+                }
                 Request::Timer { id, delay } => {
                     let t = host.set_timer(host.now() + delay);
                     self.view_timers.insert(t, (key, id));
@@ -1345,6 +1381,7 @@ impl Runner {
         #[cfg(feature = "gpu")]
         let renderer = self.config.renderer;
         let Some(w) = self.wins.get_mut(&key) else { return };
+        let _frame = remedy_ui_trace::phase!("frame", ui = w.ui.id()).entered();
         let (pw, ph, s) = w.size;
         let f = w.ui.frame(Size::new(pw as f32 / s, ph as f32 / s), s);
         if let Some(update) = w.ui.take_accessibility_update() {
@@ -1403,7 +1440,9 @@ impl Runner {
                     let started = std::time::Instant::now();
                     if changed && let Ok(frame) = cpu.present(&plan, pw, ph, background) {
                         let pixels = Pixels { width: pw, height: ph, data: &frame.pixels };
+                        let present = remedy_ui_trace::phase!("present").entered();
                         let _ = host.present_pixels(w.host, pixels, plan.damage.rects());
+                        drop(present);
                         // What rastering cost here sizes the next zoom's per-frame budget.
                         let (px, took) = cpu.last_raster();
                         if let Some(c) = w.comp.as_mut() {
@@ -1595,6 +1634,7 @@ impl remedy_ui_host::App for Runner {
                 if let (Some(Present::Gpu(sf)), Some(Some(gpu))) = (w.present.as_mut(), self.gpu.as_ref()) {
                     gpu.resize_surface(sf, width, height);
                 }
+                w.ui.set_refresh_interval(host.refresh_interval(window));
                 host.request_frame(window);
                 self.sync_maximized(host, key);
                 self.remember_geometry(host, key);
@@ -1606,6 +1646,9 @@ impl remedy_ui_host::App for Runner {
             }
             HostEvent::Moved(window, _) => {
                 if let Some(&key) = self.by_host.get(&window) {
+                    if let Some(w) = self.wins.get(&key) {
+                        w.ui.set_refresh_interval(host.refresh_interval(window));
+                    }
                     self.remember_geometry(host, key);
                 }
             }

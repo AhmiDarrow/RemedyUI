@@ -50,6 +50,7 @@ pub struct GpuContext {
     /// Textures the app renders and display lists place (`Item::Texture`).
     pub(crate) textures: crate::external::Registry,
     pub(crate) serial: u64,
+    pub(crate) timer: crate::gputime::GpuTimer,
 }
 
 impl GpuContext {
@@ -83,7 +84,10 @@ impl GpuContext {
             ..Default::default()
         }))
         .map_err(|_| GpuError::NoAdapter)?;
-        let features = adapter.features() & wgpu::Features::PIPELINE_CACHE;
+        // Timestamps are asked for where the adapter has them: devtools traces put the GPU's
+        // measured frame time on their timeline (nothing is written unless a trace records).
+        let features =
+            adapter.features() & (wgpu::Features::PIPELINE_CACHE | wgpu::Features::TIMESTAMP_QUERY);
         let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("RemedyUI"),
             required_features: features,
@@ -106,7 +110,18 @@ impl GpuContext {
         static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
         let textures = crate::external::Registry::default();
-        Ok(GpuContext { instance, adapter, device, queue, rung, lost, errors, textures, serial })
+        Ok(GpuContext {
+            instance,
+            adapter,
+            device,
+            queue,
+            rung,
+            lost,
+            errors,
+            textures,
+            serial,
+            timer: Default::default(),
+        })
     }
 
     /// True once the device is lost (driver reset, GPU removed, or [`force_loss`]).

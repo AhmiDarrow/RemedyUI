@@ -13,6 +13,7 @@ remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
 remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
+remedy-ui-trace = { path = "../remedy-ui-trace", version = "0.1.0" }
 vello_cpu = { version = "=0.4.0", default-features = false, features = ["std", "u8_pipeline"] }
 
 [dev-dependencies]

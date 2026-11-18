@@ -152,6 +152,7 @@ fn worker(pool: &'static Pool) {
                 }
             }
         };
+        let _span = remedy_ui_trace::phase!("page raster").entered();
         (job.work)();
     }
 }

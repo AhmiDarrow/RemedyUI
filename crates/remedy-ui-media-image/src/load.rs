@@ -162,6 +162,7 @@ fn worker(pool: &'static Pool) {
                 }
             }
         };
+        let _span = remedy_ui_trace::phase!("image work").entered();
         job();
     }
 }

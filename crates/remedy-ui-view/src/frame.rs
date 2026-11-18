@@ -25,6 +25,21 @@ pub struct Frame {
     pub scrollers: Vec<(LayerId, ElementId)>,
 }
 
+/// What one frame did, for the performance overlay and tests ([`Ui::last_frame_stats`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FrameStats {
+    /// Elements whose style was resolved again.
+    pub restyled: usize,
+    /// Elements laid out again (the dirty ones; their subtrees follow inside layout).
+    pub laid_out: usize,
+    /// Elements whose paint chunks were recorded again, in id order.
+    pub repainted: Vec<ElementId>,
+    /// The layers were assembled again.
+    pub layers: bool,
+    /// The accessibility tree was brought up to date.
+    pub semantics: bool,
+}
+
 #[derive(Default)]
 pub(crate) struct FrameState {
     lists: HashMap<LayerId, (Arc<DisplayList>, u64)>,
@@ -122,8 +137,17 @@ fn record(
         field.borrow_mut().paint(&mut list, content, s, theme, engine, focused);
     }
     if let Some(painter) = &d.painter {
-        let mut cx =
-            PaintCx { list: &mut list, size, style: s, theme, states: d.states, scale, next_frame: false };
+        let mut cx = PaintCx {
+            list: &mut list,
+            size,
+            style: s,
+            theme,
+            states: d.states,
+            scale,
+            next_frame: false,
+            rtl,
+            engine,
+        };
         let tracked = d.paint_watch.as_ref().is_some_and(|w| w.track(|| painter(&mut cx)).is_ok());
         if !tracked {
             painter(&mut cx);
@@ -432,7 +456,9 @@ impl Ui {
             i.tree.mark(root, Dirty::LAYOUT);
         }
 
+        let mut stats = FrameStats::default();
         // Style.
+        let style_span = remedy_ui_trace::phase!("style").entered();
         let theme = i.theme.clone();
         let base = i.base.clone();
         // Parents before children: text properties inherit, so a child resolves against its
@@ -453,6 +479,7 @@ impl Ui {
         }
         while let Some(((level, _), id)) = queue.pop_first() {
             let Some(d) = i.els.get(&id) else { continue };
+            stats.restyled += 1;
             let key = StyleKey { widget: d.widget, variant: d.variant, states: d.states };
             let inherited = match i.tree.parent(id).and_then(|p| i.els.get(&p)) {
                 Some(parent) => parent.resolved.inherited_by_children(&base),
@@ -501,8 +528,12 @@ impl Ui {
             }
         }
 
+        drop(style_span);
+
         // Layout.
+        let layout_span = remedy_ui_trace::phase!("layout").entered();
         let layout_dirty = i.tree.take_dirty(Dirty::LAYOUT | Dirty::CHILD_LAYOUT);
+        stats.laid_out = layout_dirty.len();
         if !layout_dirty.is_empty() {
             for id in &layout_dirty {
                 let Some(d) = i.els.get(id) else { continue };
@@ -607,7 +638,10 @@ impl Ui {
             }
         }
 
+        drop(layout_span);
+
         // Paint chunks: re-record what is dirty or changed size.
+        let paint_span = remedy_ui_trace::phase!("paint").entered();
         let mut repaint = i.tree.take_dirty(Dirty::PAINT | Dirty::CHILD_PAINT);
         let mut painted = false;
         let focused = i.tree.focused();
@@ -627,7 +661,7 @@ impl Ui {
         repaint.dedup();
         // Painters that asked to run again next frame.
         let mut again: Vec<ElementId> = Vec::new();
-        for id in repaint {
+        for &id in &repaint {
             let sz = rects.get(&id).map(|r| r.size()).unwrap_or(Size::ZERO);
             let Some(d) = i.els.get(&id) else { continue };
             let rtl = i.layout.is_rtl(d.node);
@@ -644,8 +678,12 @@ impl Ui {
         for id in &again {
             i.tree.mark(*id, Dirty::PAINT);
         }
+        repaint.retain(|id| i.els.contains_key(id));
+        stats.repainted = repaint;
+        drop(paint_span);
 
         // Layers.
+        let layers_span = remedy_ui_trace::phase!("layers").entered();
         let transformed = std::mem::take(&mut i.layers_changed);
         let layers = (painted || moved || transformed).then(|| {
             let mut state = std::mem::take(&mut i.frame);
@@ -659,13 +697,18 @@ impl Ui {
             i.frame = state;
             LayerTree { roots: vec![Arc::new(layer)] }
         });
+        stats.layers = layers.is_some();
+        drop(layers_span);
 
         // Semantics.
+        let semantics_span = remedy_ui_trace::phase!("semantics").entered();
         let sem_dirty = !i.tree.take_dirty(Dirty::SEMANTICS).is_empty();
         if sem_dirty || i.structure_changed || moved {
             i.structure_changed = false;
             sync_semantics(i, &rects);
+            stats.semantics = true;
         }
+        drop(semantics_span);
         // Elements that follow their place on the window (embedded native views) hear where
         // they are now, after layout, scrolling and overlays settled.
         let mut placed: Vec<(PlacedHandler, Option<Placement>)> = Vec::new();
@@ -681,6 +724,7 @@ impl Ui {
                 placed.push((cb, now));
             }
         }
+        i.last_stats = stats;
         let scrollers = i.frame.scrollers.clone();
         drop(guard);
         if !again.is_empty() {

@@ -171,11 +171,11 @@ impl Gate {
 
 /// What one step of a moving visual did.
 #[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct Moved {
+pub struct Moved {
     /// Something on screen changed, so repaint.
-    pub(crate) changed: bool,
+    pub changed: bool,
     /// More steps are needed.
-    pub(crate) pending: bool,
+    pub pending: bool,
 }
 
 struct Inner {
@@ -191,12 +191,12 @@ struct Inner {
 /// Nothing is scheduled while a visual is at rest: a silent ring costs nothing. The loop ends
 /// by itself when the element leaves the window.
 #[derive(Clone)]
-pub(crate) struct Ticker(Rc<Inner>);
+pub struct Ticker(Rc<Inner>);
 
 impl Ticker {
     /// A ticker that repaints `el` after each step that changed something. `step` gets the
     /// time since its last call.
-    pub(crate) fn new(el: &El, clock: Clock, step: impl FnMut(Duration) -> Moved + 'static) -> Self {
+    pub fn new(el: &El, clock: Clock, step: impl FnMut(Duration) -> Moved + 'static) -> Self {
         Ticker(Rc::new(Inner {
             el: el.clone(),
             clock,
@@ -208,7 +208,7 @@ impl Ticker {
 
     /// Takes a step now and keeps stepping while the step function wants more. Does nothing
     /// if the loop already runs.
-    pub(crate) fn kick(&self) {
+    pub fn kick(&self) {
         if self.0.running.replace(true) {
             return;
         }

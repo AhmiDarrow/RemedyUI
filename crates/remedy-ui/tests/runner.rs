@@ -1011,3 +1011,31 @@ fn windows_fill_the_screen_and_say_so() {
     assert!(host.window(id).is_some_and(|w| !w.fullscreen()));
     assert!(!window.is_fullscreen());
 }
+
+#[test]
+fn the_primary_selection_is_set_and_pasted_through_the_host() {
+    let got: Rc<std::cell::RefCell<Vec<String>>> = Rc::default();
+    let g = got.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let g = g.clone();
+        app.open(WindowSpec::new("Primary"), move |ui, _window| {
+            let g = g.clone();
+            let el = ui.el("canvas").width(100.0).height(40.0).on_text_input(
+                remedy_ui_core::Rect::default,
+                move |input| {
+                    if let remedy_ui::view::TextInput::Paste(t) = input {
+                        g.borrow_mut().push(t.clone());
+                    }
+                },
+            );
+            ui.root().child(el.clone());
+            el.focus();
+            ui.set_primary_selection("selected here");
+            ui.request_paste_primary(Some("fallback".into()));
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    assert_eq!(host.primary_selection(), Some("selected here"));
+    assert_eq!(*got.borrow(), ["selected here"], "the middle button's paste reads the primary selection");
+}

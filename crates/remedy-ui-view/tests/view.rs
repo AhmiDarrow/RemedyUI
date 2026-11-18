@@ -1148,3 +1148,41 @@ fn packs_hear_about_memory_and_the_machine() {
     device::set_total_memory(None);
     assert_eq!(device::total_memory(), None);
 }
+
+#[test]
+fn painters_write_text_and_know_the_layout_direction() {
+    use remedy_ui_view::TextPaint;
+    let ui = ui();
+    let seen = Rc::new(Cell::new((0.0f32, 0.0f32, false)));
+    let s2 = seen.clone();
+    let el = ui.el("canvas").width(160.0).height(40.0).paint(move |cx| {
+        let small = TextPaint { size: 12.0, weight: 400.0, color: BLUE, mono: false };
+        let big = TextPaint { size: 24.0, ..small };
+        let a = cx.measure_text("Fret 12", small);
+        let b = cx.measure_text("Fret 12", big);
+        // Drawn centered on the middle of the element.
+        let drawn = cx.text("Fret 12", Point::new(80.0, 20.0), Vec2::new(0.5, 0.5), big);
+        assert_eq!(drawn, b);
+        s2.set((a.width, b.width, cx.rtl));
+    });
+    ui.root().child(el.clone());
+    let mut screen = Screen::new(ui);
+    assert!(screen.frame());
+    let (small, big, rtl) = seen.get();
+    assert!(small > 10.0 && big > small * 1.8, "text measures by its size: {small} {big}");
+    assert!(!rtl && !el.is_rtl());
+    // The text is really there: blue pixels near the middle of the element, none far from it.
+    let b = el.bounds().unwrap_or_default();
+    let white = |x0: f32, x1: f32| {
+        (x0 as u32..x1 as u32).any(|x| {
+            (b.min.y as u32..b.max.y as u32).any(|y| screen.px(x, y)[0] < 60 && screen.px(x, y)[2] > 200)
+        })
+    };
+    assert!(white(b.min.x + 55.0, b.max.x - 55.0));
+    assert!(!white(b.min.x, b.min.x + 20.0));
+    // A right-to-left window says so to its painters and elements.
+    let _ = screen.ui.root().layout(|l| l.direction = remedy_ui_layout::Direction::Rtl);
+    screen.ui.root().child(screen.ui.el("canvas").width(10.0).height(10.0).paint(move |cx| assert!(cx.rtl)));
+    assert!(screen.frame());
+    assert!(el.is_rtl());
+}

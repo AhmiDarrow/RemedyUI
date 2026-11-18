@@ -1,6 +1,6 @@
 [package]
 name = "remedy-ui-devtools"
-description = "RemedyUI devtools: the element inspector with an accessibility check and live theme editing, and previews rendered in variations, shown side by side and used as golden-image tests."
+description = "RemedyUI devtools: the element inspector with live theme editing, the signal graph and why each element updated, the performance overlay and Perfetto traces, the screen-reader view with problems flagged, remote devtools over an authenticated local connection, and previews used as golden-image tests."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -22,9 +22,12 @@ remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "0.1.0" }
 remedy-ui-style = { path = "../remedy-ui-style", version = "0.1.0" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "0.1.0" }
+remedy-ui-trace = { path = "../remedy-ui-trace", version = "0.1.0" }
 remedy-ui-view = { path = "../remedy-ui-view", version = "0.1.0" }
 remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "0.1.0" }
 remedy-ui-widgets-forms = { path = "../remedy-ui-widgets-forms", version = "0.1.0" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154" }
 
 [features]
 ## Previews fall back to the system's fonts for scripts the bundled fonts lack.

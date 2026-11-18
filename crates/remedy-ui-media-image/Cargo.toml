@@ -24,6 +24,7 @@ remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
 remedy-ui-layout = { path = "../remedy-ui-layout", version = "0.1.0" }
 remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
 remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
+remedy-ui-trace = { path = "../remedy-ui-trace", version = "0.1.0" }
 remedy-ui-view = { path = "../remedy-ui-view", version = "0.1.0" }
 image = { version = "=0.25.10", default-features = false }
 moxcms = { version = "=0.8.1" }

@@ -17,6 +17,7 @@ remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
 remedy-ui-layout = { path = "../remedy-ui-layout", version = "0.1.0" }
 remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
 remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
+remedy-ui-trace = { path = "../remedy-ui-trace", version = "0.1.0" }
 remedy-ui-style = { path = "../remedy-ui-style", version = "0.1.0" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
 remedy-ui-tree = { path = "../remedy-ui-tree", version = "0.1.0" }

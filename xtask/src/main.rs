@@ -14,6 +14,8 @@ use std::process::{Command, ExitCode};
 /// Each RemedyUI crate and its layer: L0 base … L6 app-facing.
 const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-core", 0),
+    // Phase spans and the trace clock over `tracing`: every layer emits them.
+    ("remedy-ui-trace", 0),
     ("remedy-ui-reactive", 1),
     // Proc macros run at build time; they sit with the state layer they generate code for.
     ("remedy-ui-macros", 1),
@@ -88,6 +90,8 @@ const SIDEWAYS: &[(&str, &str)] = &[
     // Form values and locale data live in the localization service.
     ("remedy-ui-widgets-forms", "remedy-ui-services-i18n"),
     ("remedy-ui-widgets-extra", "remedy-ui-widgets-core"),
+    // The carousel's slide runs on the viz pack's timer loop, which rests while nothing moves.
+    ("remedy-ui-widgets-extra", "remedy-ui-viz"),
     ("remedy-ui-widgets-music", "remedy-ui-widgets-core"),
     ("remedy-ui-widgets-term", "remedy-ui-widgets-core"),
     // Boards are built from widgets, and edit settings in the property grid.
