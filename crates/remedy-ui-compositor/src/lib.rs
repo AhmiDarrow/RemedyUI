@@ -18,7 +18,7 @@ mod tiles;
 
 pub use compositor::{CompositeOp, Compositor, FramePlan, TileRequest, logical_size};
 pub use damage::Damage;
-pub use layer::{Layer, LayerId, LayerTree};
+pub use layer::{Layer, LayerId, LayerTree, ScrollFollow};
 pub use mailbox::Mailbox;
 pub use thread::{CompositorThread, FrameReport, Presenter};
 pub use tiles::{TileKey, quantize_scale, tile_pixels};

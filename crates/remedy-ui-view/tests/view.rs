@@ -91,6 +91,7 @@ fn pointer(phase: PointerPhase, x: f32, y: f32, down: bool) -> PointerEvent {
         pressure: 0.5,
         time: Duration::ZERO,
         coalesced: Vec::new(),
+        modifiers: remedy_ui_input::Modifiers::NONE,
     }
 }
 
@@ -450,4 +451,252 @@ fn data_text_is_left_alone_by_pseudo_locales() {
     let _ = ui.frame(Size::new(600.0, 200.0), 1.0);
     let w = |e: &remedy_ui_view::El| e.bounds().map(|b| b.width()).unwrap_or(0.0);
     assert!(w(&app) > w(&name) * 1.3, "{} vs {}", w(&app), w(&name));
+}
+
+#[test]
+fn keyboard_focus_draws_the_theme_focus_ring_and_a_pointer_press_does_not() {
+    let ui = ui();
+    let target = ui.el("button").width(40.0).height(30.0).focusable(true);
+    ui.root().child(ui.el("pad").padding(Insets::all(10.0)).child(target.clone()));
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    let ring = Theme::dark_forest().derive().focus;
+    let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as i32;
+    let want = [byte(ring.r), byte(ring.g), byte(ring.b)];
+    let is_ring = |p: [u8; 4]| want.iter().zip(p).all(|(w, g)| (w - i32::from(g)).abs() <= 2);
+    // The ring sits 2 px outside the box, 2 px wide: x 6..8 to the left of x 10.
+    assert!(!is_ring(s.px(7, 25)), "no ring before focus");
+    ui.key(&key(Key::Tab, None, Modifiers::NONE));
+    s.frame();
+    assert!(target.is_focused());
+    assert!(is_ring(s.px(7, 25)), "keyboard focus shows the ring: {:?}", s.px(7, 25));
+    assert!(is_ring(s.px(30, 7)), "on every side");
+    // Focus that came from a pointer press does not draw it.
+    target.blur();
+    s.frame();
+    ui.pointer(&pointer(PointerPhase::Down, 20.0, 20.0, true));
+    ui.pointer(&pointer(PointerPhase::Up, 20.0, 20.0, false));
+    s.frame();
+    assert!(target.is_focused());
+    assert!(!is_ring(s.px(7, 25)), "pointer focus shows no ring");
+    // A style that shows focus another way turns the ring off.
+    let quiet = ui
+        .el("button")
+        .width(40.0)
+        .height(30.0)
+        .focusable(true)
+        .style(StylePatch { outline_width: Some(0.0), ..StylePatch::default() });
+    ui.root().clear();
+    ui.root().child(ui.el("pad").padding(Insets::all(10.0)).child(quiet.clone()));
+    s.frame();
+    ui.key(&key(Key::Tab, None, Modifiers::NONE));
+    s.frame();
+    assert!(quiet.is_focused());
+    assert!(!is_ring(s.px(7, 25)));
+}
+
+#[test]
+fn hidden_elements_take_no_space_and_no_keyboard_focus() {
+    let ui = ui();
+    let first = ui.el("button").width(40.0).height(30.0).focusable(true);
+    let middle = ui.el("button").width(40.0).height(30.0).focusable(true);
+    let last = ui.el("button").width(40.0).height(30.0).focusable(true);
+    let col = ui.el("col").column().child(first.clone()).child(middle.clone()).child(last.clone());
+    ui.root().child(col);
+    let _ = ui.frame(Size::new(200.0, 120.0), 1.0);
+    let y = |e: &remedy_ui_view::El| e.bounds().map(|b| b.min.y).unwrap_or(-1.0);
+    assert_eq!(y(&last), 60.0);
+    // Hidden: the next element moves up into its place, and Tab passes over it.
+    middle.focus();
+    let middle = middle.hidden(true);
+    let _ = ui.frame(Size::new(200.0, 120.0), 1.0);
+    assert_eq!(y(&last), 30.0);
+    assert!(!middle.is_focused(), "hiding the focused element takes focus away");
+    first.focus();
+    ui.key(&key(Key::Tab, None, Modifiers::NONE));
+    assert!(last.is_focused(), "Tab skips the hidden element");
+    middle.focus();
+    assert!(!middle.is_focused(), "a hidden element cannot be focused");
+    // Disabled elements stay in place but are skipped too.
+    let middle = middle.hidden(false).disabled(true);
+    let _ = ui.frame(Size::new(200.0, 120.0), 1.0);
+    assert_eq!(y(&last), 60.0);
+    first.focus();
+    ui.key(&key(Key::Tab, None, Modifiers::NONE));
+    assert!(last.is_focused());
+    let _ = middle;
+}
+
+fn mv(ui: &Ui, phase: PointerPhase, x: f32, y: f32, down: bool) {
+    ui.pointer(&pointer(phase, x, y, down));
+}
+
+#[test]
+fn elements_drag_onto_targets_inside_the_app() {
+    use remedy_ui_host::{DragData, DropEffect};
+    use remedy_ui_view::Drag;
+    let ui = ui();
+    let ended = Rc::new(Cell::new(None));
+    let clicked = Rc::new(Cell::new(0));
+    let got: Rc<std::cell::RefCell<Vec<(String, Point)>>> = Rc::default();
+    let (e2, c2, g2) = (ended.clone(), clicked.clone(), got.clone());
+    let source =
+        ui.el("button").width(40.0).height(30.0).on_click(move || c2.set(c2.get() + 1)).draggable(
+            || Some(Drag::new(DragData::text("hello")).with_local(7u32)),
+            move |e| e2.set(Some(e)),
+        );
+    let target = ui.el("box").width(80.0).height(60.0).on_drop(
+        |d, _| if d.local::<u32>() == Some(&7) { DropEffect::Move } else { DropEffect::None },
+        move |d, at, _| g2.borrow_mut().push((d.data.text.clone().unwrap_or_default(), at)),
+    );
+    let refuses = ui.el("box").width(40.0).height(20.0).on_drop(|_, _| DropEffect::None, |_, _, _| {});
+    ui.root().child(ui.el("col").column().child(source.clone()).child(target.clone()).child(refuses.clone()));
+    let _ = ui.frame(Size::new(200.0, 120.0), 1.0);
+    // Press, move a little (still a press), then far: a drag.
+    mv(&ui, PointerPhase::Down, 10.0, 10.0, true);
+    mv(&ui, PointerPhase::Move, 12.0, 11.0, true);
+    assert!(ui.dragging().is_none(), "a small move is not a drag");
+    mv(&ui, PointerPhase::Move, 20.0, 60.0, true);
+    assert!(ui.dragging().is_some());
+    assert!(source.info().is_some_and(|i| i.states.contains(States::DRAGGING)));
+    assert!(target.info().is_some_and(|i| i.states.contains(States::DROP_TARGET)));
+    // Over the refusing target nothing is highlighted.
+    mv(&ui, PointerPhase::Move, 10.0, 100.0, true);
+    assert!(!refuses.info().is_some_and(|i| i.states.contains(States::DROP_TARGET)));
+    assert!(!target.info().is_some_and(|i| i.states.contains(States::DROP_TARGET)));
+    // Back over the target and let go: it gets the drop, at its own coordinates.
+    mv(&ui, PointerPhase::Move, 25.0, 50.0, true);
+    mv(&ui, PointerPhase::Up, 25.0, 50.0, false);
+    assert_eq!(*got.borrow(), vec![("hello".to_owned(), Point::new(25.0, 20.0))]);
+    assert_eq!(ended.get(), Some(DropEffect::Move));
+    assert_eq!(clicked.get(), 0, "a drag is not a click");
+    assert!(!source.info().is_some_and(|i| i.states.contains(States::DRAGGING)));
+    assert!(!target.info().is_some_and(|i| i.states.contains(States::DROP_TARGET)));
+    // Escape cancels a drag.
+    mv(&ui, PointerPhase::Down, 10.0, 10.0, true);
+    mv(&ui, PointerPhase::Move, 20.0, 50.0, true);
+    assert!(ui.key(&key(Key::Escape, None, Modifiers::NONE)));
+    assert_eq!(ended.get(), Some(DropEffect::None));
+    mv(&ui, PointerPhase::Up, 20.0, 50.0, false);
+    assert_eq!(got.borrow().len(), 1);
+}
+
+#[test]
+fn drags_leave_for_other_apps_and_come_in_from_them() {
+    use remedy_ui_host::{DragData, DragEvent, DropEffect};
+    use remedy_ui_view::Drag;
+    let ui = ui();
+    let ended = Rc::new(Cell::new(None));
+    let e2 = ended.clone();
+    let source = ui.el("button").width(40.0).height(30.0).draggable(
+        || Some(Drag::new(DragData::files(vec!["C:/notes.txt".into()]))),
+        move |e| e2.set(Some(e)),
+    );
+    let files: Rc<std::cell::RefCell<Vec<std::path::PathBuf>>> = Rc::default();
+    let f2 = files.clone();
+    let target = ui.el("box").width(200.0).height(80.0).on_drop(
+        |d, _| if d.data.files.is_empty() { DropEffect::None } else { DropEffect::Copy },
+        move |d, _, _| f2.borrow_mut().extend(d.data.files.iter().cloned()),
+    );
+    ui.root().child(ui.el("col").column().child(source.clone()).child(target.clone()));
+    let _ = ui.frame(Size::new(200.0, 120.0), 1.0);
+    let _ = ui.take_requests();
+    // Out of the window: the platform takes over.
+    mv(&ui, PointerPhase::Down, 10.0, 10.0, true);
+    mv(&ui, PointerPhase::Move, 100.0, 10.0, true);
+    mv(&ui, PointerPhase::Move, 260.0, 10.0, true);
+    let asked = ui.take_requests().into_iter().find_map(|r| match r {
+        Request::StartDrag { data, allowed } => Some((data, allowed)),
+        _ => None,
+    });
+    assert_eq!(
+        asked.map(|(d, a)| (d.files, a)),
+        Some((vec!["C:/notes.txt".into()], vec![DropEffect::Copy, DropEffect::Move]))
+    );
+    ui.drag_finished(DropEffect::Copy);
+    assert_eq!(ended.get(), Some(DropEffect::Copy));
+    assert!(ui.dragging().is_none());
+    // In from another app: files over the target, then dropped.
+    let data = DragData::files(vec!["D:/photo.png".into()]);
+    assert_eq!(
+        ui.drag_event(&DragEvent::Enter { position: Some(Point::new(50.0, 50.0)), data: data.clone() }),
+        DropEffect::Copy
+    );
+    assert!(target.info().is_some_and(|i| i.states.contains(States::DROP_TARGET)));
+    assert_eq!(
+        ui.drag_event(&DragEvent::Over { position: Point::new(50.0, 5.0) }),
+        DropEffect::None,
+        "not over the target"
+    );
+    assert_eq!(
+        ui.drag_event(&DragEvent::Drop { position: Some(Point::new(60.0, 60.0)), data }),
+        DropEffect::Copy
+    );
+    assert_eq!(*files.borrow(), vec![std::path::PathBuf::from("D:/photo.png")]);
+    assert!(ui.dragging().is_none());
+    // A platform that does not say where: the window's outermost target takes it.
+    assert_eq!(
+        ui.drag_event(&DragEvent::Drop { position: None, data: DragData::files(vec!["E:/a.txt".into()]) }),
+        DropEffect::Copy
+    );
+    assert_eq!(files.borrow().len(), 2);
+    // Text alone is refused.
+    assert_eq!(
+        ui.drag_event(&DragEvent::Enter {
+            position: Some(Point::new(50.0, 50.0)),
+            data: DragData::text("x")
+        }),
+        DropEffect::None
+    );
+    assert_eq!(ui.drag_event(&DragEvent::Leave), DropEffect::None);
+    let _ = source;
+}
+
+#[test]
+fn scroll_containers_inside_offset_elements_show_where_they_are() {
+    let ui = ui();
+    let list = ui.el("list").scroll().layout(|l| {
+        l.height = Length::Px(60.0);
+        l.display = remedy_ui_layout::Display::Flex;
+        l.axis = remedy_ui_layout::Axis::Column;
+    });
+    let list = list.child(button(&ui, Rc::new(Cell::new(0))));
+    // Two levels of offset around the scroll container.
+    let inner =
+        ui.el("pad").padding(Insets { top: 30.0, start: 20.0, bottom: 0.0, end: 0.0 }).child(list.clone());
+    ui.root()
+        .child(ui.el("pad").padding(Insets { top: 10.0, start: 10.0, bottom: 0.0, end: 0.0 }).child(inner));
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    // The button (red, 80x30) sits at x 30, y 40, inside the scroll container.
+    assert_eq!(s.px(35, 45), [255, 0, 0, 255], "the scroll content is where its container is");
+    assert_eq!(s.px(5, 5), [255, 255, 255, 255], "not at the window's corner");
+    assert_eq!(list.bounds().map(|b| (b.min.x, b.min.y)), Some((30.0, 40.0)));
+}
+
+#[test]
+fn what_follows_a_scroll_container_paints_above_what_came_before_it() {
+    let ui = ui();
+    // An opaque column holding a scroll container, then a red button after it.
+    let list = ui.el("list").scroll().layout(|l| {
+        l.height = Length::Px(40.0);
+        l.width = Length::Px(60.0);
+    });
+    let after = button(&ui, Rc::new(Cell::new(0)));
+    let col = ui
+        .el("col")
+        .column()
+        .style(StylePatch { background: Some(BLUE), ..StylePatch::default() })
+        .layout(|l| {
+            l.width = Length::Px(200.0);
+            l.height = Length::Px(120.0);
+        })
+        .child(list)
+        .child(after);
+    ui.root().child(col);
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    // The button is at y 40..70: drawn over the column's blue background.
+    assert_eq!(s.px(10, 50), [255, 0, 0, 255], "the button after the scroll container shows");
+    assert_eq!(s.px(150, 100), [0, 0, 255, 255]);
 }

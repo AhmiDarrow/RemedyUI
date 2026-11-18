@@ -122,6 +122,25 @@ Gaps found while finishing M5, each fixed at its root with tests: paragraph alig
 
 **Crates:** `widgets-nav`, `widgets-data`, `media-image`, `media-svg`, `services-i18n`, plus OS drag and drop in and out. Also run `bridge-macos` and `bridge-linux` on their machines (their hooks are built in M4 and cross-compiled here).
 
+**Status:** in progress. Built:
+- `services-i18n`: Fluent messages (embedded, folder, live reload), locale data and exact decimals; app templates are localized.
+- `widgets-nav`: commands and shortcuts, tabs, nav rail, bottom bar, breadcrumbs, a navigation stack, user-arranged toolbars, the command palette, drawers, sheets and a custom title bar.
+- `widgets-data`: tables (sorting off the UI thread past 20,000 rows, resizable and reorderable columns, frozen columns kept in step by compositor scroll links, virtual rows, multi-select, inline editing, row drag and drop); trees (lazy children, type-ahead, moves by drag or cut and paste, import and export with other apps); property grids. The 50,000-file explorer scene meets its budget in release builds (steady scroll under 2 ms a frame, p95 about 6 ms with flicks, against 8 ms).
+- `media-image`: off-thread decoding at the size shown, ICC to sRGB, EXIF orientation, shared while shown and freed after; the renderers now free cached images the app drops.
+- `media-svg`: resvg at exactly the size shown, as an image format, plus tinted icons; untrusted SVG reads no files.
+- Drag and drop: in the app, out to other apps and in from them. On Windows this is our own OLE drop target and `SHDoDragDrop`; on macOS an AppKit dragging session out and winit's file drops in; on Linux winit's file drops in, with dragging out left for the Linux run.
+- `Host::open_url` on every bridge.
+- SecretFolder runs on RemedyUI with its full feature set (the `remedyui` branch of its repository), tested end to end through the accessibility tree.
+
+The engine also gained:
+- Keyboard focus draws the theme's focus ring, and the audit flags focus that does not show.
+- `hidden` takes elements out of layout and the tab order.
+- Pointer capture, linked and programmatic scrolling, and `on_resize`.
+- Posted work reaches real apps.
+- Scroll layers sit where their containers are, and paint order holds around them.
+
+Next: Hearth, then the macOS and Linux runs.
+
 **Done when:**
 - SecretFolder and Hearth run on RemedyUI with their full feature sets
 - the 50,000-file explorer scene meets its frame budget
@@ -135,10 +154,13 @@ Gaps found while finishing M5, each fixed at its root with tests: paragraph alig
 - `bridge-android`
 - multi-window with moving subtrees
 - the FreeSpeak skin mapping
+- spaces the user builds (`widgets-board`): FreeSpeak's Home is a house that holds the voice and chat nodes plus updates, information, links and reactions, not a server list. The engine side is a board that its owner edits in place: drag, drop, resize and arrange areas and widgets (each move also doable from the keyboard, each change undoable), a registry of built-in widgets whose settings are typed so the property grid edits them, layouts saved as versioned documents that peers receive and render, reactions as a reusable component, and custom widgets people write in a sandboxed script (Luau, which was made for running untrusted code: no file, network or process access, only the capabilities the board grants, with time and memory checks sized from the device) that build ordinary RemedyUI elements, so they are themed, accessible and fast like built-in ones
+- the board's editor and viewer share one renderer, so what the host arranges is exactly what visitors see
 
 **Done when:**
 - all of FreeSpeak runs on RemedyUI on Windows, Linux, macOS and Android, meeting the budgets in [design/09](design/09-performance-and-resources.md)
 - the share pop-out is a real window
+- a host builds a Home from built-in and scripted widgets by dragging and from the keyboard, and a visitor on another platform sees the same Home; a hostile script cannot read files, reach the network, stall the UI thread or exhaust memory
 - screen readers operate every screen
 - eframe, egui and the `epaint`, `egui_glow` and `ttf-parser` forks are deleted from FreeSpeak
 

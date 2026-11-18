@@ -96,6 +96,18 @@ pub enum Role {
     GridCell,
     /// A form: fields submitted together.
     Form,
+    /// A table of rows and columns.
+    Table,
+    /// A row of a table.
+    Row,
+    /// A cell of a table row.
+    Cell,
+    /// A column heading of a table.
+    ColumnHeader,
+    /// A tree of items (folders).
+    Tree,
+    /// An item of a tree.
+    TreeItem,
 }
 
 /// Something an assistive technology or agent can ask an element to do.
@@ -150,6 +162,7 @@ pub struct Semantics {
     actions: Vec<Action>,
     bounds: Option<Rect>,
     set_position: Option<(usize, usize)>,
+    level: Option<usize>,
     merge: bool,
 }
 
@@ -173,6 +186,7 @@ impl Semantics {
             actions: Vec::new(),
             bounds: None,
             set_position: None,
+            level: None,
             merge: false,
         }
     }
@@ -185,6 +199,11 @@ impl Semantics {
     /// The accessible name, if set.
     pub fn name(&self) -> Option<&str> {
         self.label.as_deref()
+    }
+
+    /// The longer description, if set.
+    pub fn description_text(&self) -> Option<&str> {
+        self.description.as_deref()
     }
 
     /// The value text, if set.
@@ -288,6 +307,12 @@ impl Semantics {
     /// Bounds in window coordinates.
     pub fn bounds(mut self, r: Rect) -> Self {
         self.bounds = Some(r);
+        self
+    }
+
+    /// The depth of a tree item (1 for a top-level item).
+    pub fn level(mut self, level: usize) -> Self {
+        self.level = Some(level);
         self
     }
 
@@ -484,6 +509,9 @@ impl A11yTree {
             n.set_position_in_set(pos);
             n.set_size_of_set(size);
         }
+        if let Some(level) = s.level {
+            n.set_level(level.max(1));
+        }
         if let Role::Heading(level) = s.role {
             n.set_level(usize::from(level.clamp(1, 6)));
         }
@@ -569,6 +597,12 @@ fn role(r: Role) -> accesskit::Role {
         Role::Grid => R::Grid,
         Role::GridCell => R::GridCell,
         Role::Form => R::Form,
+        Role::Table => R::Table,
+        Role::Row => R::Row,
+        Role::Cell => R::Cell,
+        Role::ColumnHeader => R::ColumnHeader,
+        Role::Tree => R::Tree,
+        Role::TreeItem => R::TreeItem,
     }
 }
 

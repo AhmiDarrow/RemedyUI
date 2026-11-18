@@ -33,6 +33,7 @@ fn press(x: f32, y: f32, phase: PointerPhase) -> PointerEvent {
         pressure: 0.5,
         time: Duration::ZERO,
         coalesced: Vec::new(),
+        modifiers: remedy_ui::input::Modifiers::NONE,
     }
 }
 
@@ -244,6 +245,18 @@ fn idle_lock_waits_for_real_input_and_secret_copies_clear_only_themselves() {
     host.advance(Duration::from_secs(31));
     host.run_frames(&mut runner, 1);
     assert_eq!(host.clipboard(), Some(("my own text", false)), "the user's copy survives");
+    // Clearing on lock removes the app's secret at once, and only that.
+    runner.app().copy_secret("third-secret", Duration::from_secs(30));
+    host.run_frames(&mut runner, 1);
+    runner.app().clear_secret();
+    host.run_frames(&mut runner, 1);
+    assert!(host.clipboard().is_none_or(|(t, _)| t.is_empty()), "the secret is gone: {:?}", host.clipboard());
+    runner.app().copy_secret("fourth-secret", Duration::from_secs(30));
+    host.run_frames(&mut runner, 1);
+    let _ = host.set_clipboard_text("mine again", false);
+    runner.app().clear_secret();
+    host.run_frames(&mut runner, 1);
+    assert_eq!(host.clipboard(), Some(("mine again", false)));
 }
 
 #[test]
@@ -494,4 +507,165 @@ fn windows_know_the_local_date_and_roll_over_at_midnight() {
     host.advance(Duration::from_secs(120));
     host.run_frames(&mut runner, 1);
     assert_eq!(day(seen.get()), first.map(|d| d + 1), "the next local day");
+}
+
+#[test]
+fn keyboard_focus_and_scroll_into_view_move_scroll_containers() {
+    let items = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let (i2, list_el) = (items.clone(), std::rc::Rc::new(std::cell::RefCell::new(None)));
+    let l2 = list_el.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let (i3, l3) = (i2.clone(), l2.clone());
+        app.open(WindowSpec::new("List").size(200.0, 200.0), move |ui, _| {
+            let mut list = ui.el("scroll").scroll().column().layout(|l| {
+                l.grow = 1.0;
+                l.min_height = Length::Px(0.0);
+            });
+            for n in 0..30 {
+                let b = ui
+                    .el("button")
+                    .height(40.0)
+                    .text(remedy_ui::view::RichText::plain(format!("Item {n}")))
+                    .on_click(|| {});
+                i3.borrow_mut().push(b.clone());
+                list = list.child(b);
+            }
+            *l3.borrow_mut() = Some(list.clone());
+            ui.root().child(list);
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let ui = runner.app().windows().first().and_then(|w| w.ui()).unwrap_or_else(|| unreachable!("a window"));
+    let list = list_el.borrow().clone().unwrap_or_else(|| unreachable!("the list"));
+    let item = |n: usize| items.borrow().get(n).cloned().unwrap_or_else(|| unreachable!("item {n}"));
+    // An element far down scrolls into view, just enough.
+    item(20).scroll_into_view();
+    host.run_frames(&mut runner, 2);
+    let off = ui.scroll_offset(list.id());
+    let b = item(20).bounds().unwrap_or_default();
+    assert!(off.y > 600.0 && b.max.y <= 200.5 && b.min.y >= 0.0, "offset {off:?}, item at {b:?}");
+    // Tabbing to the next one keeps it in view.
+    item(20).focus();
+    let id = first(&host);
+    let tab = KeyEvent {
+        key: Key::Tab,
+        physical: "Tab".into(),
+        modifiers: Modifiers::NONE,
+        pressed: true,
+        repeat: false,
+        composing: false,
+        text: None,
+    };
+    for _ in 0..3 {
+        host.send(HostEvent::Key(id, tab.clone()));
+        host.run_frames(&mut runner, 2);
+    }
+    let b = item(23).bounds().unwrap_or_default();
+    assert!(item(23).is_focused() && b.max.y <= 200.5 && b.min.y >= 0.0, "focused item at {b:?}");
+}
+
+#[test]
+fn drags_cross_between_apps_through_the_host() {
+    use remedy_ui::host::{DragData, DragEvent, DropEffect};
+    use remedy_ui::view::Drag;
+    let dropped: Rc<std::cell::RefCell<Vec<std::path::PathBuf>>> = Rc::default();
+    let ended = Rc::new(Cell::new(None));
+    let (d2, e2) = (dropped.clone(), ended.clone());
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let (d3, e3) = (d2.clone(), e2.clone());
+        app.open(WindowSpec::new("Drops").size(200.0, 100.0), move |ui, _| {
+            let (d4, e4) = (d3.clone(), e3.clone());
+            let item = ui
+                .el("button")
+                .layout(|l| {
+                    l.width = Length::Px(40.0);
+                    l.height = Length::Px(20.0);
+                })
+                .draggable(|| Some(Drag::new(DragData::text("note"))), move |e| e4.set(Some(e)));
+            let bin = ui
+                .el("box")
+                .layout(|l| {
+                    l.width = Length::Px(200.0);
+                    l.height = Length::Px(60.0);
+                })
+                .on_drop(
+                    |d, _| if d.data.files.is_empty() { DropEffect::None } else { DropEffect::Copy },
+                    move |d, _, _| d4.borrow_mut().extend(d.data.files.iter().cloned()),
+                );
+            ui.root().child(item).child(bin);
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    // Files from another app, over the bin: the host is told a drop would copy.
+    let data = DragData::files(vec!["C:/in.txt".into()]);
+    host.send(HostEvent::Drag(
+        id,
+        DragEvent::Enter { position: Some(Point::new(50.0, 50.0)), data: data.clone() },
+    ));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(host.drop_effect(id), DropEffect::Copy);
+    host.send(HostEvent::Drag(id, DragEvent::Drop { position: Some(Point::new(50.0, 50.0)), data }));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*dropped.borrow(), vec![std::path::PathBuf::from("C:/in.txt")]);
+    // Our item dragged out of the window: the host carries it, and another app copies it.
+    host.answer_drag(DropEffect::Copy);
+    let mv = |x: f32, y: f32, phase: PointerPhase, down: bool| {
+        let mut e = press(x, y, phase);
+        e.buttons = if down { Buttons::PRIMARY } else { Buttons::default() };
+        e
+    };
+    host.send(HostEvent::Pointer(id, mv(10.0, 10.0, PointerPhase::Down, true)));
+    host.send(HostEvent::Pointer(id, mv(30.0, 10.0, PointerPhase::Move, true)));
+    host.send(HostEvent::Pointer(id, mv(300.0, 10.0, PointerPhase::Move, true)));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(
+        host.drags_out().iter().map(|(_, d)| d.text.clone()).collect::<Vec<_>>(),
+        vec![Some("note".to_owned())]
+    );
+    assert_eq!(ended.get(), Some(DropEffect::Copy));
+}
+
+#[test]
+fn links_open_through_the_host_and_only_web_and_mail_links() {
+    let results: Rc<std::cell::RefCell<Vec<Result<(), String>>>> = Rc::default();
+    let r2 = results.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        for url in [
+            "https://example.com/docs",
+            "mailto:someone@example.com",
+            "file:///C:/Windows/notepad.exe",
+            "https://a.example/ x",
+        ] {
+            let r3 = r2.clone();
+            app.open_url(url, move |r| r3.borrow_mut().push(r));
+        }
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    assert_eq!(host.opened_urls(), ["https://example.com/docs", "mailto:someone@example.com"]);
+    let ok: Vec<bool> = results.borrow().iter().map(Result::is_ok).collect();
+    assert_eq!(ok, vec![true, true, false, false]);
+}
+
+#[test]
+fn work_posted_from_other_threads_reaches_the_app() {
+    let got = Signal::new(0u32);
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |_app: &App| {
+        let waker = remedy_ui::reactive::waker().unwrap_or_else(|e| unreachable!("a waker on the UI thread: {e}"));
+        std::thread::spawn(move || {
+            let _ = waker.post(move || got.set(42));
+        });
+    });
+    let mut host = HeadlessHost::new();
+    for _ in 0..200 {
+        host.run_frames(&mut runner, 1);
+        if got.get_untracked().ok() == Some(42) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(got.get_untracked().ok(), Some(42), "the post ran without the app calling anything");
 }

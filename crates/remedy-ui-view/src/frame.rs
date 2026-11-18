@@ -60,6 +60,7 @@ fn record(
     theme: &remedy_ui_style::Theme,
     engine: &mut remedy_ui_text::TextEngine,
     focused: bool,
+    scale: f32,
 ) -> DisplayList {
     let mut list = DisplayList::new();
     let s = &d.resolved;
@@ -95,7 +96,7 @@ fn record(
         field.borrow_mut().paint(&mut list, content, s, theme, engine, focused);
     }
     if let Some(painter) = &d.painter {
-        let mut cx = PaintCx { list: &mut list, size, style: s, theme, states: d.states };
+        let mut cx = PaintCx { list: &mut list, size, style: s, theme, states: d.states, scale };
         let tracked = d.paint_watch.as_ref().is_some_and(|w| w.track(|| painter(&mut cx)).is_ok());
         if !tracked {
             painter(&mut cx);
@@ -148,6 +149,7 @@ struct Builder {
     id: LayerId,
     bounds: Rect,
     scroll: Option<Size>,
+    follow: Option<remedy_ui_compositor::ScrollFollow>,
     list: DisplayList,
     /// Push items open in `list`, re-opened when a segment starts.
     open: Vec<Item>,
@@ -161,6 +163,7 @@ impl Builder {
             id,
             bounds,
             scroll: None,
+            follow: None,
             list: DisplayList::new(),
             open: Vec::new(),
             children: Vec::new(),
@@ -208,11 +211,25 @@ impl Builder {
             });
         }
         self.open.clear();
-        let mut layer = finish(state, self.id, self.bounds, self.list);
+        // A layer cut around child layers paints its own content below all of them, so what
+        // came after the last child goes above it as one more segment, keeping tree order.
+        let own = if self.segments > 0 {
+            let rest = std::mem::take(&mut self.list);
+            if !rest.is_empty() {
+                let seg = segment_id(self.id, self.segments);
+                let local = Rect::from_origin_size(Point::ZERO, self.bounds.size());
+                self.children.push(finish(state, seg, local, rest));
+            }
+            DisplayList::new()
+        } else {
+            self.list
+        };
+        let mut layer = finish(state, self.id, self.bounds, own);
         layer.children = self.children.into_iter().map(Arc::new).collect();
         if let Some(c) = self.scroll {
             layer = layer.scrolling(c);
         }
+        layer.scroll_follow = self.follow;
         layer
     }
 }
@@ -238,7 +255,9 @@ struct Walk<'a> {
 }
 
 impl Walk<'_> {
-    /// Paints `id` (at `rect`, relative to `b`'s origin) and its subtree into `b`.
+    /// Paints `id` (at `rect`, relative to its parent) and its subtree into `b`. `origin` is
+    /// where the parent sits in `b`'s layer: a scroll container inside becomes a layer at
+    /// its full offset there, while drawing nests transforms relative to each parent.
     fn element(&mut self, b: &mut Builder, id: ElementId, origin: Point) {
         let Some(d) = self.inner.els.get(&id) else { return };
         let Some(rect) = self.rects.get(&id).copied() else { return };
@@ -247,7 +266,7 @@ impl Walk<'_> {
         if opacity <= 0.0 || d.hidden {
             return;
         }
-        b.push(Item::PushTransform(Affine::translate(at.to_vec2())));
+        b.push(Item::PushTransform(Affine::translate(rect.min.to_vec2())));
         if opacity < 1.0 {
             b.push(Item::PushLayer { opacity, blend: remedy_ui_paint::Blend::Normal });
         }
@@ -261,9 +280,15 @@ impl Walk<'_> {
             b.split(self.state);
             let (viewport, content_id) = scroll_ids(id);
             let content = kids.iter().filter_map(|k| self.rects.get(k)).fold(local, |u, r| u.union(*r));
-            let content_size = Size::new(rect.width(), content.max.y.max(rect.height()));
+            let width = if d.scroll_x { content.max.x.max(rect.width()) } else { rect.width() };
+            let content_size = Size::new(width, content.max.y.max(rect.height()));
             let mut vb = Builder::new(viewport, Rect::from_origin_size(at, rect.size()));
             vb.scroll = Some(content_size);
+            vb.follow = d.scroll_follow.map(|(leader, x, y)| remedy_ui_compositor::ScrollFollow {
+                leader: scroll_ids(leader).0,
+                x,
+                y,
+            });
             let mut cb = Builder::new(content_id, Rect::from_origin_size(Point::ZERO, content_size));
             for k in kids {
                 self.element(&mut cb, k, Point::ZERO);
@@ -277,11 +302,25 @@ impl Walk<'_> {
                 b.push(Item::PushClip { rect: local, radii: CornerRadii::all(d.resolved.radius) });
             }
             for k in kids {
-                self.element(b, k, Point::ZERO);
+                self.element(b, k, at);
             }
             if d.clip {
                 b.pop(Item::PopClip);
             }
+        }
+        // Something dragged over it would be taken: the theme's accent outline, inside.
+        if d.states.contains(States::DROP_TARGET) {
+            let w = 2.0;
+            let radius = d.resolved.radius;
+            b.list.border(local, CornerRadii::all(radius), w, self.inner.theme.colors.accent);
+        }
+        // The focus ring goes over the element and its children, so nothing inside hides it.
+        let s = &d.resolved;
+        if d.states.contains(States::FOCUS_VISIBLE) && s.shows_focus_ring() {
+            let grow = s.outline_offset + s.outline_width;
+            let ring = local.deflate(Insets::all(-grow));
+            let radius = if s.radius > 0.0 { (s.radius + grow).max(0.0) } else { 0.0 };
+            b.list.border(ring, CornerRadii::all(radius), s.outline_width, s.outline);
         }
         if opacity < 1.0 {
             b.pop(Item::PopLayer);
@@ -394,6 +433,20 @@ impl Ui {
             for id in &layout_dirty {
                 let Some(d) = i.els.get(id) else { continue };
                 let mut style = d.layout.clone();
+                // Hidden elements take no space, as the `hidden` attribute does on the web.
+                if d.hidden {
+                    style.display = remedy_ui_layout::Display::None;
+                }
+                // A scroll container's automatic minimum size is zero (as in CSS): it scrolls
+                // its content instead of growing to fit it.
+                if d.scroll {
+                    if style.min_height == remedy_ui_layout::Length::Auto {
+                        style.min_height = remedy_ui_layout::Length::Px(0.0);
+                    }
+                    if style.min_width == remedy_ui_layout::Length::Auto {
+                        style.min_width = remedy_ui_layout::Length::Px(0.0);
+                    }
+                }
                 // Content in a scroll container keeps its size and scrolls, never shrinks.
                 if i.tree.parent(*id).and_then(|p| i.els.get(&p)).is_some_and(|p| p.scroll) {
                     style.shrink = 0.0;
@@ -438,6 +491,16 @@ impl Ui {
         }
         let moved = i.frame.bounds_stale;
         i.frame.bounds_stale = false;
+        // Elements watching their size hear about changes once the frame is done.
+        let mut resized: Vec<(ResizeHandler, Size)> = Vec::new();
+        for (id, d) in i.els.iter_mut() {
+            if let (Some(cb), Some(r)) = (&d.on_resize, rects.get(id))
+                && d.last_size != Some(r.size())
+            {
+                d.last_size = Some(r.size());
+                resized.push((cb.clone(), r.size()));
+            }
+        }
 
         // Paint chunks: re-record what is dirty or changed size.
         let mut repaint = i.tree.take_dirty(Dirty::PAINT | Dirty::CHILD_PAINT);
@@ -461,7 +524,7 @@ impl Ui {
             let sz = rects.get(&id).map(|r| r.size()).unwrap_or(Size::ZERO);
             let Some(d) = i.els.get(&id) else { continue };
             let rtl = i.layout.is_rtl(d.node);
-            let chunk = record(d, rtl, sz, &theme, &mut engine, focused == Some(id));
+            let chunk = record(d, rtl, sz, &theme, &mut engine, focused == Some(id), i.scale);
             if let Some(d) = i.els.get_mut(&id) {
                 d.chunk = Some((sz, Rc::new(chunk)));
             }
@@ -490,9 +553,16 @@ impl Ui {
             sync_semantics(i, &rects);
         }
         let scrollers = i.frame.scrollers.clone();
+        drop(guard);
+        for (cb, size) in resized {
+            cb(size);
+        }
         Frame { layers, scrollers }
     }
 }
+
+/// An element's resize callback.
+type ResizeHandler = Rc<dyn Fn(Size)>;
 
 fn collect_ids(l: &Layer) -> std::collections::HashSet<LayerId> {
     let mut out = std::collections::HashSet::new();

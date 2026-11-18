@@ -267,3 +267,29 @@ fn bad_sizes_are_errors() {
     assert_eq!(r.render(&list, 0, 10, 1.0, Color::WHITE), Err(RenderError::BadSize));
     assert_eq!(r.render(&list, 70_000, 10, 1.0, Color::WHITE), Err(RenderError::BadSize));
 }
+
+#[test]
+fn images_the_app_drops_leave_the_cache() {
+    let mut r = CpuRenderer::new();
+    let image = |id: u64| Image { id, width: 2, height: 2, pixels: Arc::from(vec![255u8; 16]) };
+    let (a, b) = (image(1), image(2));
+    let mut list = DisplayList::new();
+    for (i, im) in [&a, &b].into_iter().enumerate() {
+        list.push(Item::Image {
+            image: im.clone(),
+            rect: Rect::new(i as f32 * 4.0, 0.0, i as f32 * 4.0 + 4.0, 4.0),
+            radii: CornerRadii::ZERO,
+            sampling: Sampling::Linear,
+        });
+    }
+    let _ = r.render(&list, 8, 4, 1.0, Color::WHITE);
+    assert_eq!(r.cached_images(), 2);
+    // The list and one image go away; the other is still held by the app.
+    drop(list);
+    drop(a);
+    let _ = r.render(&DisplayList::new(), 8, 4, 1.0, Color::WHITE);
+    assert_eq!(r.cached_images(), 1, "the dropped image is freed, the held one kept");
+    drop(b);
+    let _ = r.render(&DisplayList::new(), 8, 4, 1.0, Color::WHITE);
+    assert_eq!(r.cached_images(), 0);
+}

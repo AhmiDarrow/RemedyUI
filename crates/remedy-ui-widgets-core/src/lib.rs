@@ -26,7 +26,7 @@
 pub const MIN_TARGET: f32 = 24.0;
 
 /// Keeps `el` at least [`MIN_TARGET`] tall.
-pub(crate) fn min_target(el: El) -> El {
+pub fn min_target(el: El) -> El {
     el.layout(|l| {
         l.min_height = remedy_ui_layout::Length::Px(MIN_TARGET);
     })
@@ -53,8 +53,8 @@ pub use icons::{Icon, avatar, canvas, icon, image};
 pub use inputs::{field, reveal_toggle, search, secret_input, text_area, text_input};
 pub use lists::{for_each, list, virtual_list};
 pub use overlays::{
-    DialogButton, MenuItem, Modal, context_menu, dialog, lock_screen, menu, modal, popover, tooltip,
-    trusted_prompt,
+    DialogButton, MenuItem, Modal, context_menu, dialog, fill_window, lock_screen, menu, modal, place_at,
+    popover, tooltip, trusted_prompt,
 };
 pub use text::{heading, label, link, text};
 pub use values::{slider, stepper};

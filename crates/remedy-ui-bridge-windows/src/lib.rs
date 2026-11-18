@@ -17,11 +17,13 @@ mod text_store;
 
 #[cfg(windows)]
 mod hooks {
+    use remedy_ui_bridge_winit::winit::platform::windows::WindowAttributesExtWindows;
     use remedy_ui_bridge_winit::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    use remedy_ui_bridge_winit::winit::window::{Window, WindowId};
+    use remedy_ui_bridge_winit::winit::window::{Window, WindowAttributes, WindowId};
     use remedy_ui_bridge_winit::{PlatformHooks, RunError};
     use remedy_ui_host::{
-        App, FileDialog, HostEvent, ImeEvent, SystemSettings, TextInputState, TrayIcon, Unsupported,
+        App, DragData, DragEvent, DragStarted, DropEffect, FileDialog, HostEvent, ImeEvent, SystemSettings,
+        TextInputState, TrayIcon, Unsupported,
     };
     use remedy_ui_input::Platform;
 
@@ -35,6 +37,11 @@ mod hooks {
         tsf: Option<Result<os::tsf::Tsf, String>>,
         /// Which winit window each HWND with a TSF document belongs to.
         windows: std::collections::HashMap<isize, WindowId>,
+        /// Each window's drop target, and the winit window it belongs to.
+        drops: std::collections::HashMap<isize, (WindowId, os::dnd::Registered)>,
+        drag_queue: os::dnd::Queue,
+        /// Why drops cannot be taken, if registering failed.
+        drop_error: Option<String>,
     }
 
     impl std::fmt::Debug for WindowsHooks {
@@ -105,6 +112,10 @@ mod hooks {
 
         fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
             os::tray::set(tray)
+        }
+
+        fn open_url(&mut self, url: &str) -> Result<(), Unsupported> {
+            os::open_url(url)
         }
 
         fn take_events(&mut self) -> Vec<HostEvent> {
@@ -180,8 +191,53 @@ mod hooks {
             tsf.take_events().into_iter().filter_map(|(h, e)| windows.get(&h).map(|id| (*id, e))).collect()
         }
 
+        fn window_attributes(&mut self, attrs: WindowAttributes) -> WindowAttributes {
+            // Our own OLE drop target replaces winit's, which reports only files.
+            attrs.with_drag_and_drop(false)
+        }
+
+        fn handles_drops(&self) -> bool {
+            self.drop_error.is_none()
+        }
+
+        fn window_created(&mut self, window: &Window) {
+            let Some(h) = hwnd(window) else { return };
+            match os::dnd::register(h, window.scale_factor() as f32, self.drag_queue.clone()) {
+                Ok(r) => {
+                    self.drops.insert(h, (window.id(), r));
+                }
+                Err(e) => self.drop_error = Some(e.to_string()),
+            }
+        }
+
+        fn take_drag_events(&mut self) -> Vec<(WindowId, DragEvent)> {
+            let events = std::mem::take(&mut *self.drag_queue.borrow_mut());
+            events.into_iter().filter_map(|(h, e)| self.drops.get(&h).map(|(id, _)| (*id, e))).collect()
+        }
+
+        fn set_drop_effect(&mut self, window: &Window, effect: DropEffect) {
+            if let Some(h) = hwnd(window)
+                && let Some((_, r)) = self.drops.get(&h)
+            {
+                r.effect.set(effect);
+                r.scale.set(window.scale_factor() as f32);
+            }
+        }
+
+        fn start_drag(
+            &mut self,
+            window: &Window,
+            data: &DragData,
+            allowed: &[DropEffect],
+        ) -> Result<DragStarted, Unsupported> {
+            let h = hwnd(window).ok_or_else(|| Unsupported::new("dragging out", "not a Win32 window"))?;
+            // OLE drags are modal: the call returns when the drop is done.
+            os::dnd::drag_out(h, data, allowed).map(DragStarted::Finished)
+        }
+
         fn window_closed(&mut self, window: &Window) {
             let Some(h) = hwnd(window) else { return };
+            self.drops.remove(&h);
             if let Some(Ok(tsf)) = self.tsf.as_mut() {
                 tsf.close(h);
             }

@@ -1,0 +1,39 @@
+[package]
+name = "remedy-ui-media-image"
+description = "RemedyUI images: PNG, JPEG, GIF (first frame), WebP, BMP and ICO decoded off the UI thread at the size they are shown, color-managed to sRGB, EXIF-oriented, shared while in use and freed when not."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+default = ["png", "jpeg", "gif", "webp", "bmp", "ico"]
+png = ["image/png"]
+jpeg = ["image/jpeg"]
+gif = ["image/gif"]
+webp = ["image/webp"]
+bmp = ["image/bmp"]
+ico = ["image/ico"]
+tiff = ["image/tiff"]
+
+[dependencies]
+remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-layout = { path = "../remedy-ui-layout", version = "0.1.0" }
+remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
+remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
+remedy-ui-view = { path = "../remedy-ui-view", version = "0.1.0" }
+image = { version = "=0.25.10", default-features = false }
+moxcms = { version = "=0.8.1" }
+
+[dev-dependencies]
+remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "0.1.0" }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "0.1.0", features = ["remedy-sans-ui"] }
+remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
+remedy-ui-themes = { path = "../remedy-ui-themes", version = "0.1.0" }
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
+
+[lints]
+workspace = true

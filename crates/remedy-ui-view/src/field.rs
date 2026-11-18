@@ -299,6 +299,11 @@ pub(crate) fn key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> 
     if !e.pressed || e.composing {
         return KeyOutcome::Ignored;
     }
+    // Outside Apple platforms Alt (without Ctrl, which with Alt is AltGr) never edits text:
+    // Alt+Left is "back", Alt+letters reach menus. On Apple platforms Option moves by word.
+    if platform != Platform::Apple && e.modifiers.alt && !e.modifiers.ctrl && e.text.is_none() {
+        return KeyOutcome::Ignored;
+    }
     let primary = Modifiers::primary(platform);
     let cmd = e.modifiers.ctrl == primary.ctrl
         && e.modifiers.meta == primary.meta
@@ -543,6 +548,17 @@ impl TextField {
         f.changed();
         drop(f);
         self.el.ui.mark(self.el.id, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
+    }
+
+    /// Selects all of the text (a rename box opening with the old name ready to replace).
+    pub fn select_all(&self) {
+        let mut f = self.field.borrow_mut();
+        if let Editor::Plain(e) = &mut f.editor {
+            e.select_all();
+        }
+        f.changed();
+        drop(f);
+        self.el.ui.mark(self.el.id, Dirty::PAINT | Dirty::SEMANTICS);
     }
 
     /// Takes a secret field's contents out, leaving it empty.

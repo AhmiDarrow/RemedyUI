@@ -268,14 +268,17 @@ enum Cmd {
     BeginMove(u64),
     BeginResize(u64, ResizeEdge),
     Minimize(u64, bool),
+    Maximize(u64, bool),
     Capture(u64, bool),
     Timer(Duration, Box<dyn FnOnce()>),
     Copy(String, bool),
     CopySecret(String, Duration),
+    ClearSecret,
     Idle(Option<Duration>, Option<Rc<dyn Fn()>>),
     Forget(String),
     Tray(Option<TrayIcon>),
     Dialog(Option<u64>, FileDialog, Box<dyn FnOnce(Vec<std::path::PathBuf>)>),
+    OpenUrl(String, Box<dyn FnOnce(Result<(), String>)>),
     Quit,
 }
 
@@ -308,6 +311,8 @@ struct Shared {
     on_activity: Option<Rc<dyn Fn()>>,
     renderers: HashMap<u64, RendererKind>,
     titles: HashMap<u64, String>,
+    /// Whether each window is maximized, kept current from the host.
+    maximized: HashMap<u64, remedy_ui_reactive::Signal<bool>>,
     on_geometry: HashMap<u64, Rc<dyn Fn(Point, Size)>>,
     on_closed: HashMap<u64, Vec<Box<dyn FnOnce()>>>,
 }
@@ -336,6 +341,17 @@ impl PartialEq for Window {
 }
 
 impl App {
+    /// Wakes the host's loop unless an event is being handled (it drains at the end).
+    fn wake_if_idle(&self) {
+        let w = {
+            let s = self.0.borrow();
+            (!s.in_event).then(|| s.waker.clone()).flatten()
+        };
+        if let Some(w) = w {
+            w();
+        }
+    }
+
     fn push(&self, c: Cmd) {
         let wake = {
             let mut s = self.0.borrow_mut();
@@ -359,6 +375,7 @@ impl App {
         let visible = spec.options.visible;
         self.0.borrow_mut().visible.insert(key, visible);
         self.0.borrow_mut().titles.insert(key, spec.options.title.clone());
+        self.0.borrow_mut().maximized.insert(key, remedy_ui_reactive::Signal::new(false));
         self.push(Cmd::Open(key, spec, Box::new(build)));
         Window { key, app: self.clone() }
     }
@@ -377,6 +394,12 @@ impl App {
     /// the clipboard still holds it.
     pub fn copy_secret(&self, text: impl Into<String>, keep: Duration) {
         self.push(Cmd::CopySecret(text.into(), keep));
+    }
+
+    /// Clears a secret copied with [`App::copy_secret`] now, if the clipboard still holds it
+    /// (anything the user copied since is left alone). Apps call it when they lock.
+    pub fn clear_secret(&self) {
+        self.push(Cmd::ClearSecret);
     }
 
     /// Calls `on_idle` after `timeout` with no real user input (pointer, keys, wheel, input
@@ -479,6 +502,12 @@ impl App {
         self.push(Cmd::Dialog(window.map(|w| w.key), dialog, Box::new(done)));
     }
 
+    /// Opens `url` in the user's browser or mail app, then `done` with the outcome. Only
+    /// `http:`, `https:` and `mailto:` links open; anything else could start a program.
+    pub fn open_url(&self, url: impl Into<String>, done: impl FnOnce(Result<(), String>) + 'static) {
+        self.push(Cmd::OpenUrl(url.into(), Box::new(done)));
+    }
+
     /// Forgets saved geometry for `key`.
     pub fn forget_geometry(&self, key: impl Into<String>) {
         self.push(Cmd::Forget(key.into()));
@@ -567,6 +596,17 @@ impl Window {
         self.app.push(Cmd::Minimize(self.key, on));
     }
 
+    /// Maximizes or restores.
+    pub fn set_maximized(&self, on: bool) {
+        self.app.push(Cmd::Maximize(self.key, on));
+    }
+
+    /// True while the window is maximized, by the app or the user (tracked).
+    pub fn is_maximized(&self) -> bool {
+        let s = self.app.0.borrow().maximized.get(&self.key).copied();
+        s.is_some_and(|s| s.get())
+    }
+
     /// Calls `f` with the window's desktop position and content size (logical pixels) after
     /// the user moves or resizes it.
     pub fn on_geometry(&self, f: impl Fn(Point, Size) + 'static) {
@@ -620,7 +660,7 @@ impl Window {
 }
 
 enum Present {
-    Cpu(CpuCompositor),
+    Cpu(Box<CpuCompositor>),
     #[cfg(feature = "gpu")]
     Gpu(Box<remedy_ui_render_gpu::GpuSurface>),
 }
@@ -765,7 +805,10 @@ impl Runner {
                 );
                 ui.set_platform(self.settings.platform);
                 ui.set_locale(self.settings.locale.clone());
+                ui.set_double_click_time(self.settings.double_click);
                 ui.set_local_time(host.local_time());
+                let app = self.app.clone();
+                ui.set_wake(Rc::new(move || app.wake_if_idle()));
                 ui.set_reduced_motion(self.settings.reduced_motion);
                 self.app.0.borrow_mut().uis.insert(key, ui.clone());
                 self.by_host.insert(id, key);
@@ -830,6 +873,12 @@ impl Runner {
                     host.set_minimized(h, on);
                 }
             }
+            Cmd::Maximize(key, on) => {
+                if let Some(h) = self.host_of(key) {
+                    host.set_maximized(h, on);
+                    self.sync_maximized(host, key);
+                }
+            }
             Cmd::Capture(key, on) => {
                 if let Some(h) = self.host_of(key) {
                     let _ = host.set_capture_protected(h, on);
@@ -852,6 +901,16 @@ impl Runner {
                     self.secret = Some((copy, t));
                 }
             }
+            Cmd::ClearSecret => {
+                if let Some((copy, t)) = self.secret.take() {
+                    host.cancel_timer(t);
+                    if let Ok(Some(current)) = host.clipboard_text()
+                        && copy.still_there(current)
+                    {
+                        let _ = host.clear_clipboard();
+                    }
+                }
+            }
             Cmd::Idle(timeout, cb) => {
                 let now = host.now();
                 match (&mut self.idle, cb) {
@@ -869,6 +928,7 @@ impl Runner {
                 let chosen = host.file_dialog(w, &dialog).unwrap_or_default();
                 done(chosen);
             }
+            Cmd::OpenUrl(url, done) => done(host.open_url(&url).map_err(|e| e.to_string())),
             Cmd::Forget(key) => {
                 self.geometry.remove(&key);
                 self.schedule_save(host);
@@ -887,6 +947,25 @@ impl Runner {
             match r {
                 Request::Frame => host.request_frame(h),
                 Request::TextInput(s) => host.set_text_input(h, s),
+                Request::ScrollTo { scroller, offset } => {
+                    if let Some(w) = self.wins.get_mut(&key) {
+                        let layer = w.scrollers.iter().find(|(_, e)| *e == scroller).map(|(l, _)| *l);
+                        if let (Some(l), Some(c)) = (layer, w.comp.as_mut())
+                            && c.set_scroll_offset(l, offset)
+                        {
+                            host.request_frame(h);
+                        }
+                    }
+                }
+                Request::StartDrag { data, allowed } => {
+                    match host.start_drag(h, &data, &allowed) {
+                        Ok(remedy_ui_host::DragStarted::Finished(effect)) => ui.drag_finished(effect),
+                        // The host reports the end with `HostEvent::DragEnded`.
+                        Ok(remedy_ui_host::DragStarted::Pending) => {}
+                        Err(_) => ui.drag_finished(remedy_ui_host::DropEffect::None),
+                    }
+                    host.request_frame(h);
+                }
                 Request::Copy { text, sensitive } => {
                     let _ = host.set_clipboard_text(&text, sensitive);
                 }
@@ -941,6 +1020,16 @@ impl Runner {
             host.cancel_timer(t);
         }
         self.save_timer = Some(host.set_timer(host.now() + GEOMETRY_SAVE_DELAY));
+    }
+
+    /// Reads whether the window is maximized from the host into its signal.
+    fn sync_maximized(&mut self, host: &dyn Host, key: u64) {
+        let Some(h) = self.host_of(key) else { return };
+        let on = host.is_maximized(h);
+        let s = self.app.0.borrow().maximized.get(&key).copied();
+        if let Some(s) = s {
+            s.set_if_changed(on);
+        }
     }
 
     fn remember_geometry(&mut self, host: &mut dyn Host, key: u64) {
@@ -1010,7 +1099,7 @@ impl Runner {
                 }
             }
             if w.present.is_none() {
-                w.present = Some(Present::Cpu(CpuCompositor::new()));
+                w.present = Some(Present::Cpu(Box::new(CpuCompositor::new())));
             }
             let kind = match w.present.as_ref() {
                 #[cfg(feature = "gpu")]
@@ -1067,7 +1156,7 @@ impl Runner {
                             Ok(_) => {}
                             Err(_) => {
                                 // The GPU failed this window: fall back to the CPU renderer.
-                                w.present = Some(Present::Cpu(CpuCompositor::new()));
+                                w.present = Some(Present::Cpu(Box::new(CpuCompositor::new())));
                                 self.app.0.borrow_mut().renderers.insert(key, RendererKind::Cpu);
                                 if let Some(c) = w.comp.as_mut() {
                                     c.invalidate_tiles();
@@ -1116,7 +1205,11 @@ impl remedy_ui_host::App for Runner {
             let mut s = self.app.0.borrow_mut();
             s.in_event = true;
             if s.waker.is_none() {
-                s.waker = Some(host.waker());
+                let w = host.waker();
+                s.waker = Some(w.clone());
+                // Work other threads post to the UI thread (decoded images, finished sorts,
+                // reloaded messages) wakes the loop, and runs below.
+                let _ = remedy_ui_reactive::set_wake_handler(move || w());
             }
         }
         {
@@ -1127,6 +1220,10 @@ impl remedy_ui_host::App for Runner {
         }
         // Background work that finished.
         self.app.finish_background();
+        // Closures other threads posted through the reactive waker.
+        if remedy_ui_reactive::has_posted() {
+            let _ = remedy_ui_reactive::run_posted();
+        }
         // Launches handed over by later instances.
         let launches = std::mem::take(
             &mut self.inbox.lock().unwrap_or_else(std::sync::PoisonError::into_inner).launches,
@@ -1144,6 +1241,7 @@ impl remedy_ui_host::App for Runner {
                 for w in self.wins.values() {
                     w.ui.set_platform(s.platform);
                     w.ui.set_locale(s.locale.clone());
+                    w.ui.set_double_click_time(s.double_click);
                     w.ui.set_reduced_motion(s.reduced_motion);
                 }
                 for w in self.wins.values_mut() {
@@ -1171,6 +1269,7 @@ impl remedy_ui_host::App for Runner {
                     gpu.resize_surface(sf, width, height);
                 }
                 host.request_frame(window);
+                self.sync_maximized(host, key);
                 self.remember_geometry(host, key);
             }
             HostEvent::Moved(window, _) => {
@@ -1187,6 +1286,25 @@ impl remedy_ui_host::App for Runner {
                 self.activity(host);
                 if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
                     w.ui.pointer(&e);
+                }
+            }
+            HostEvent::DragEnded(window, effect) => {
+                if let Some(ui) =
+                    self.by_host.get(&window).and_then(|k| self.wins.get(k)).map(|w| w.ui.clone())
+                {
+                    ui.drag_finished(effect);
+                    host.request_frame(window);
+                }
+            }
+            HostEvent::Drag(window, e) => {
+                self.activity(host);
+                if let Some(key) = self.by_host.get(&window).copied()
+                    && let Some(ui) = self.wins.get(&key).map(|w| w.ui.clone())
+                {
+                    let effect = ui.drag_event(&e);
+                    host.set_drop_effect(window, effect);
+                    self.requests(host, key);
+                    host.request_frame(window);
                 }
             }
             HostEvent::Wheel(window, e) => {
@@ -1273,6 +1391,7 @@ impl remedy_ui_host::App for Runner {
                         s.on_geometry.remove(&key);
                         s.renderers.remove(&key);
                         s.titles.remove(&key);
+                        s.maximized.remove(&key);
                         s.on_closed.remove(&key).unwrap_or_default()
                     };
                     for f in closed {

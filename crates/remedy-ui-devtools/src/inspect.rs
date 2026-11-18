@@ -33,6 +33,9 @@ pub enum ProblemKind {
     PointerOnly,
     /// Focusable but with no size: keyboard focus lands on nothing visible.
     InvisibleFocus,
+    /// Focusable, but nothing about it changes when keyboard focus reaches it (WCAG 2.4.7
+    /// Focus Visible): its style sheet has no focus rule.
+    NoFocusIndicator,
     /// A control smaller than 24×24 (WCAG 2.2 target size).
     SmallTarget {
         /// Its size.
@@ -63,6 +66,7 @@ impl Problem {
                 format!("Works only with a pointer: make it focusable or name its keyboard alternative{at}")
             }
             ProblemKind::InvisibleFocus => format!("Takes keyboard focus but has no size{at}"),
+            ProblemKind::NoFocusIndicator => format!("Shows no change when keyboard focus reaches it{at}"),
             ProblemKind::LowContrast { ratio, needed } => {
                 format!("Text contrast {ratio:.1}:1, needs {needed:.1}:1{at}")
             }
@@ -71,6 +75,18 @@ impl Problem {
             }
         }
     }
+}
+
+/// True when someone looking would see the change from `a` to `b`.
+fn visibly_differs(a: &remedy_ui_style::ResolvedStyle, b: &remedy_ui_style::ResolvedStyle) -> bool {
+    let border = |s: &remedy_ui_style::ResolvedStyle| {
+        if s.border_width > 0.0 && s.border.a > 0.0 { Some((s.border, s.border_width)) } else { None }
+    };
+    b.shows_focus_ring()
+        || a.background != b.background
+        || a.foreground != b.foreground
+        || border(a) != border(b)
+        || (a.opacity - b.opacity).abs() > 0.05
 }
 
 /// Every element of a window, depth first (content, then overlays, then the trusted layer),
@@ -117,17 +133,50 @@ fn shown_chain(el: &El) -> bool {
     true
 }
 
-fn backdrop(el: &El, theme_bg: Color) -> Color {
-    let mut cur = Some(el.clone());
+/// The color behind `el` and how opaque `el`'s own drawing is: each ancestor's background
+/// laid over the window's, from the window down, through every ancestor's opacity (opacity
+/// applies to a whole subtree, as it is drawn).
+fn backdrop(el: &El, theme_bg: Color) -> (Color, f32) {
+    let mut chain = Vec::new();
+    let mut cur = el.parent();
     while let Some(e) = cur {
-        if let Some(i) = e.info()
-            && i.style.background.a * i.style.opacity >= 0.99
-        {
-            return i.style.background;
+        chain.push(e.clone());
+        cur = e.parent();
+    }
+    let over = |top: Color, a: f32, under: Color| {
+        Color::new(
+            top.r * a + under.r * (1.0 - a),
+            top.g * a + under.g * (1.0 - a),
+            top.b * a + under.b * (1.0 - a),
+            1.0,
+        )
+    };
+    let mut seen = theme_bg;
+    let mut opacity = 1.0f32;
+    for e in chain.iter().rev() {
+        let Some(i) = e.info() else { continue };
+        opacity *= i.style.opacity;
+        seen = over(i.style.background, (i.style.background.a * opacity).clamp(0.0, 1.0), seen);
+    }
+    let own = el.info().map_or(1.0, |i| i.style.opacity);
+    // The element's own background is behind its text too.
+    if let Some(i) = el.info() {
+        seen = over(i.style.background, (i.style.background.a * opacity * own).clamp(0.0, 1.0), seen);
+    }
+    (seen, (opacity * own).clamp(0.0, 1.0))
+}
+
+/// True when `el` sits inside a disabled control (WCAG exempts inactive controls from
+/// contrast and naming rules).
+fn inside_disabled(el: &El) -> bool {
+    let mut cur = el.parent();
+    while let Some(e) = cur {
+        if e.info().is_some_and(|i| i.states.contains(States::DISABLED)) {
+            return true;
         }
         cur = e.parent();
     }
-    theme_bg
+    false
 }
 
 /// Checks a window (after a frame, so boxes are known) for unnamed controls, low-contrast
@@ -139,7 +188,12 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
         let Some(i) = el.info() else { continue };
         let sized = i.bounds.is_some_and(|b| b.width() > 0.0 && b.height() > 0.0);
         let hidden_sem = i.semantics.as_ref().is_some_and(Semantics::is_hidden);
-        if i.hidden || hidden_sem || i.states.contains(States::DISABLED) || !shown_chain(&el) {
+        if i.hidden
+            || hidden_sem
+            || i.states.contains(States::DISABLED)
+            || !shown_chain(&el)
+            || inside_disabled(&el)
+        {
             continue;
         }
         if !sized {
@@ -150,6 +204,23 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
         }
         if i.pointer && !i.focusable && i.keyboard_alternative.is_none() {
             out.push(Problem { element: i.id, kind: ProblemKind::PointerOnly, at: i.created_at });
+        }
+        // Keyboard focus must show: a focus ring, or a focused style that differs visibly
+        // from the unfocused one. Dialogs and windows take focus as containers and show it by
+        // being on top; tables, trees and lists (WAI-ARIA composite widgets) show it on the
+        // item the keyboard is on.
+        let container = matches!(
+            i.semantics.as_ref().map(Semantics::role),
+            Some(Role::Dialog | Role::Window | Role::Table | Role::Tree | Role::List | Role::Grid)
+        );
+        if i.focusable && !container {
+            let rest = i.states.with(States::FOCUS | States::FOCUS_VISIBLE, false);
+            if let (Some(a), Some(b)) =
+                (el.style_in(rest), el.style_in(rest | States::FOCUS | States::FOCUS_VISIBLE))
+                && !visibly_differs(&a, &b)
+            {
+                out.push(Problem { element: i.id, kind: ProblemKind::NoFocusIndicator, at: i.created_at });
+            }
         }
         let interactive = i.clickable
             || (i.focusable
@@ -176,9 +247,9 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
         }
         if i.text.as_deref().is_some_and(|t| !t.trim().is_empty()) {
             let fg = i.style.foreground;
-            let behind = backdrop(&el, bg);
+            let (behind, opacity) = backdrop(&el, bg);
             // Partly transparent text blends with what is behind it.
-            let a = (fg.a * i.style.opacity).clamp(0.0, 1.0);
+            let a = (fg.a * opacity).clamp(0.0, 1.0);
             let seen = Color::new(
                 fg.r * a + behind.r * (1.0 - a),
                 fg.g * a + behind.g * (1.0 - a),

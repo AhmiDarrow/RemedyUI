@@ -156,6 +156,16 @@ pub struct Image {
     pub pixels: Arc<[u8]>,
 }
 
+impl Image {
+    /// An image of premultiplied RGBA8 `pixels` (`width * height * 4` bytes) with a fresh
+    /// id of its own. Renderers skip an image whose pixels do not match its size.
+    pub fn new(width: u32, height: u32, pixels: Arc<[u8]>) -> Image {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Image { id, width, height, pixels }
+    }
+}
+
 impl std::fmt::Debug for Image {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Image({} {}x{})", self.id, self.width, self.height)

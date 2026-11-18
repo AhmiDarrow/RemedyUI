@@ -133,7 +133,6 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         rule(w, None, States::NONE, base.clone());
         rule(w, None, States::HOVER, StylePatch { background: Some(d.hover), ..Default::default() });
         rule(w, None, States::PRESSED, StylePatch { background: Some(d.pressed), ..Default::default() });
-        rule(w, None, States::FOCUS_VISIBLE, StylePatch { border: Some(d.focus), ..Default::default() });
         rule(w, None, States::DISABLED, disabled.clone());
         rule(
             w,
@@ -160,12 +159,6 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         );
         rule(
             w,
-            Some("primary"),
-            States::FOCUS_VISIBLE,
-            StylePatch { border: Some(d.focus.mix_oklab(Color::WHITE, 0.3)), ..Default::default() },
-        );
-        rule(
-            w,
             Some("quiet"),
             States::NONE,
             StylePatch {
@@ -175,12 +168,6 @@ pub fn sheet(t: &Theme) -> StyleSheet {
             },
         );
         rule(w, Some("quiet"), States::HOVER, StylePatch { background: Some(d.hover), ..Default::default() });
-        rule(
-            w,
-            Some("quiet"),
-            States::FOCUS_VISIBLE,
-            StylePatch { border: Some(d.focus), ..Default::default() },
-        );
         rule(
             w,
             Some("danger"),
@@ -245,7 +232,12 @@ pub fn sheet(t: &Theme) -> StyleSheet {
             States::HOVER,
             StylePatch { border: Some(line.mix_oklab(d.text, 0.25)), ..Default::default() },
         );
-        rule(w, None, States::FOCUS, StylePatch { border: Some(d.focus), ..Default::default() });
+        rule(
+            w,
+            None,
+            States::FOCUS,
+            StylePatch { border: Some(d.focus), outline_width: Some(0.0), ..Default::default() },
+        );
         rule(w, None, States::INVALID, StylePatch { border: Some(danger), ..Default::default() });
         rule(w, None, States::DISABLED, disabled.clone());
     }
@@ -265,7 +257,7 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         "text_input",
         Some("bare"),
         States::FOCUS,
-        StylePatch { border: Some(Color::TRANSPARENT), ..Default::default() },
+        StylePatch { border: Some(Color::TRANSPARENT), outline_width: Some(2.0), ..Default::default() },
     );
     rule(
         "field",
@@ -303,7 +295,6 @@ pub fn sheet(t: &Theme) -> StyleSheet {
             ..Default::default()
         },
     );
-    rule("check", None, States::FOCUS_VISIBLE, StylePatch { border: Some(d.focus), ..Default::default() });
     rule(
         "switch",
         None,
@@ -320,12 +311,6 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         None,
         States::CHECKED,
         StylePatch { background: Some(c.accent), foreground: Some(d.on_accent), ..Default::default() },
-    );
-    rule(
-        "switch",
-        None,
-        States::FOCUS_VISIBLE,
-        StylePatch { border: Some(d.focus), border_width: Some(2.0), ..Default::default() },
     );
     for w in ["check", "switch", "radio"] {
         rule(w, None, States::DISABLED, disabled.clone());
@@ -382,12 +367,6 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         StylePatch { background: Some(c.accent), foreground: Some(d.on_accent), ..Default::default() },
     );
     rule(
-        "segment",
-        None,
-        States::FOCUS_VISIBLE,
-        StylePatch { border: Some(d.focus), border_width: Some(1.0), ..Default::default() },
-    );
-    rule(
         "chip",
         None,
         States::NONE,
@@ -419,12 +398,6 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         },
     );
     rule("swatch", None, States::HOVER, StylePatch { border: Some(d.text), ..Default::default() });
-    rule(
-        "swatch",
-        None,
-        States::FOCUS_VISIBLE,
-        StylePatch { border: Some(d.focus), border_width: Some(2.0), ..Default::default() },
-    );
 
     // Lists and menus.
     rule(
@@ -445,12 +418,6 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         None,
         States::SELECTED,
         StylePatch { background: Some(d.selected), ..Default::default() },
-    );
-    rule(
-        "list_item",
-        None,
-        States::FOCUS_VISIBLE,
-        StylePatch { border: Some(d.focus), border_width: Some(1.0), ..Default::default() },
     );
     rule(
         "menu",
@@ -476,7 +443,8 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         "menu_item",
         None,
         States::FOCUS_VISIBLE,
-        StylePatch { background: Some(d.hover), ..Default::default() },
+        // Menus show the focused item by highlighting it, as every platform does.
+        StylePatch { background: Some(d.hover), outline_width: Some(0.0), ..Default::default() },
     );
     rule(
         "menu_item",
@@ -557,6 +525,170 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         None,
         States::NONE,
         StylePatch { background: Some(c.bg), padding: Some(Insets::all(u * 6.0)), ..Default::default() },
+    );
+
+    // Navigation.
+    rule(
+        "tab_strip",
+        None,
+        States::NONE,
+        StylePatch { border: Some(line), border_width: Some(0.0), ..Default::default() },
+    );
+    rule(
+        "tab",
+        None,
+        States::NONE,
+        StylePatch {
+            foreground: Some(d.muted),
+            radius: Some(r.small),
+            padding: Some(pad(u, u * 3.0)),
+            ..Default::default()
+        },
+    );
+    rule(
+        "tab",
+        None,
+        States::HOVER,
+        StylePatch { foreground: Some(d.text), background: Some(d.hover), ..Default::default() },
+    );
+    rule(
+        "tab",
+        None,
+        States::SELECTED,
+        StylePatch {
+            foreground: Some(d.text),
+            background: Some(d.selected),
+            weight: Some(600.0),
+            ..Default::default()
+        },
+    );
+    for w in ["nav_item", "list_item"] {
+        rule(w, None, States::PRESSED, StylePatch { background: Some(d.pressed), ..Default::default() });
+    }
+    rule(
+        "nav_item",
+        None,
+        States::NONE,
+        StylePatch {
+            foreground: Some(d.muted),
+            radius: Some(r.small),
+            padding: Some(pad(u * 1.5, u * 2.5)),
+            ..Default::default()
+        },
+    );
+    rule(
+        "nav_item",
+        None,
+        States::HOVER,
+        StylePatch { foreground: Some(d.text), background: Some(d.hover), ..Default::default() },
+    );
+    rule(
+        "nav_item",
+        None,
+        States::SELECTED,
+        StylePatch {
+            foreground: Some(d.text),
+            background: Some(d.selected),
+            weight: Some(600.0),
+            ..Default::default()
+        },
+    );
+    rule(
+        "nav_rail",
+        None,
+        States::NONE,
+        StylePatch {
+            background: Some(c.panel),
+            border: Some(line),
+            padding: Some(Insets::all(u)),
+            ..Default::default()
+        },
+    );
+    rule(
+        "bottom_bar",
+        None,
+        States::NONE,
+        StylePatch {
+            background: Some(c.panel),
+            border: Some(line),
+            border_width: Some(t.stroke),
+            padding: Some(Insets::all(u)),
+            ..Default::default()
+        },
+    );
+    rule(
+        "toolbar",
+        None,
+        States::NONE,
+        StylePatch { background: Some(c.panel), padding: Some(Insets::all(u)), ..Default::default() },
+    );
+    rule(
+        "drawer",
+        None,
+        States::NONE,
+        StylePatch {
+            background: Some(c.panel),
+            border: Some(line),
+            border_width: Some(t.stroke),
+            padding: Some(Insets::all(u * 3.0)),
+            ..Default::default()
+        },
+    );
+
+    // Data: tables and trees. The table or tree itself takes focus and shows it on the
+    // row the keyboard is on (its cursor), drawn inside the row so scrolling never clips it.
+    for w in ["table", "tree"] {
+        rule(w, None, States::NONE, StylePatch { outline_width: Some(0.0), ..Default::default() });
+    }
+    rule(
+        "table_header_bar",
+        None,
+        States::NONE,
+        StylePatch {
+            background: Some(c.panel),
+            border: Some(line),
+            border_width: Some(0.0),
+            ..Default::default()
+        },
+    );
+    rule(
+        "table_heading",
+        None,
+        States::NONE,
+        StylePatch { foreground: Some(d.muted), outline_offset: Some(-2.0), ..Default::default() },
+    );
+    rule(
+        "table_heading",
+        None,
+        States::HOVER,
+        StylePatch { foreground: Some(d.text), background: Some(d.hover), ..Default::default() },
+    );
+    rule("column_grip", None, States::HOVER, StylePatch { background: Some(d.focus), ..Default::default() });
+    for w in ["table_row", "tree_item"] {
+        rule(w, None, States::NONE, StylePatch { outline_offset: Some(-2.0), ..Default::default() });
+        rule(w, None, States::HOVER, StylePatch { background: Some(d.hover), ..Default::default() });
+        rule(w, None, States::SELECTED, StylePatch { background: Some(d.selected), ..Default::default() });
+        rule(w, None, States::DRAGGING, StylePatch { opacity: Some(0.6), ..Default::default() });
+    }
+    // A row marked to move (cut).
+    rule("tree_item", Some("cut"), States::NONE, StylePatch { opacity: Some(0.55), ..Default::default() });
+    rule(
+        "property_group",
+        None,
+        States::NONE,
+        StylePatch {
+            foreground: Some(d.muted),
+            weight: Some(600.0),
+            padding: Some(pad(u, 0.0)),
+            ..Default::default()
+        },
+    );
+    // An image still loading shows a placeholder the size it will be.
+    rule(
+        "image",
+        Some("loading"),
+        States::NONE,
+        StylePatch { background: Some(d.hover), radius: Some(r.small), ..Default::default() },
     );
     drop(rule);
     s

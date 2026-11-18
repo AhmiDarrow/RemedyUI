@@ -175,6 +175,10 @@ impl GpuRenderer {
         let mut scene = GpuScene { scene: Scene::new(w, h), images: &mut self.images, ctx: &self.ctx };
         self.painter.draw(&mut scene, list, base);
         let scene = scene.scene;
+        let gone = self.painter.take_evicted();
+        if !gone.is_empty() {
+            self.images.evict(&gone);
+        }
         let bindings = self.images.bindings.clone();
         self.submit(&scene, background, target, &bindings)
     }

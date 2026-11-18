@@ -17,15 +17,15 @@ const TOOLTIP_DELAY: Duration = Duration::from_millis(600);
 const TRUSTED_DELAY: Duration = Duration::from_millis(700);
 
 /// An overlay pinned at a window point by its top-left corner, sized by its content.
-fn at(el: El, p: Point) -> El {
+pub fn place_at(el: El, p: Point) -> El {
     el.layout(move |l| {
         l.position = Position::Absolute;
         l.inset = Insets { top: p.y, start: p.x, end: AUTO, bottom: AUTO };
     })
 }
 
-/// A full-window layer: absolute, filling the window.
-fn full(el: El) -> El {
+/// A full-window layer: absolute, filling the window (scrims, drawers, sheets).
+pub fn fill_window(el: El) -> El {
     el.layout(|l| {
         l.position = Position::Absolute;
         l.inset = Insets::ZERO;
@@ -54,7 +54,7 @@ pub fn tooltip(target: &El, text: impl Into<String>) {
                 let Some(b) = t2.bounds() else { return };
                 let tip =
                     ui2.el("tooltip").text(remedy_ui_view::RichText::plain(text)).nowrap().pass_through();
-                let tip = ui2.overlay(at(tip, Point::new(b.min.x, b.max.y + 4.0)));
+                let tip = ui2.overlay(place_at(tip, Point::new(b.min.x, b.max.y + 4.0)));
                 *shown.borrow_mut() = Some(tip);
             });
             *pending.borrow_mut() = Some(id);
@@ -92,7 +92,7 @@ impl MenuItem {
 /// A transparent full-window layer that closes `content` when pressed outside it, and on
 /// Escape.
 fn dismissable(ui: &Ui, content: El) -> El {
-    let layer = full(ui.el("dismiss_layer")).focus_scope();
+    let layer = fill_window(ui.el("dismiss_layer")).focus_scope();
     let l2 = layer.clone();
     let l3 = layer.clone();
     let layer = layer
@@ -115,7 +115,7 @@ fn dismissable(ui: &Ui, content: El) -> El {
 }
 
 fn menu_at(ui: &Ui, p: Point, items: Vec<MenuItem>) -> El {
-    let menu = at(ui.el("menu").column(), p).semantics(Semantics::new(Role::Menu));
+    let menu = place_at(ui.el("menu").column(), p).semantics(Semantics::new(Role::Menu));
     let n = items.len();
     let layer: Rc<RefCell<Option<El>>> = Rc::default();
     let menu = items.into_iter().enumerate().fold(menu, |m, (i, item)| {
@@ -205,7 +205,7 @@ pub fn context_menu(target: &El, items: impl Fn() -> Vec<MenuItem> + 'static) ->
 #[track_caller]
 pub fn popover(ui: &Ui, anchor: &El, content: El) -> El {
     let b = anchor.bounds().unwrap_or(Rect::ZERO);
-    let card = at(ui.el("menu").column(), Point::new(b.min.x, b.max.y + 4.0)).child(content);
+    let card = place_at(ui.el("menu").column(), Point::new(b.min.x, b.max.y + 4.0)).child(content);
     let l = dismissable(ui, card.clone());
     card.focus_first();
     l
@@ -254,7 +254,7 @@ pub fn modal(ui: &Ui, title: impl Into<String>, content: El, escape_closes: bool
         })
         .semantics(Semantics::new(Role::Dialog).label(title.into()))
         .child(content);
-    let layer = full(ui.el("scrim"))
+    let layer = fill_window(ui.el("scrim"))
         .column()
         .align(Align::Center)
         .justify(Justify::Center)
@@ -375,7 +375,7 @@ pub fn trusted_prompt(
                 .child(deny.clone())
                 .child(allow.clone()),
         );
-    let scrim = full(ui.el("scrim"))
+    let scrim = fill_window(ui.el("scrim"))
         .column()
         .align(Align::Center)
         .justify(Justify::Center)
@@ -398,7 +398,7 @@ pub fn trusted_prompt(
 pub fn lock_screen(ui: &Ui, content: El) -> El {
     let root = ui.root();
     let _ = root.clone().hidden(true);
-    let layer = full(ui.el("lock_screen"))
+    let layer = fill_window(ui.el("lock_screen"))
         .column()
         .align(Align::Center)
         .justify(Justify::Center)

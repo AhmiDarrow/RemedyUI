@@ -13,6 +13,10 @@ pub enum Icon {
     Plus,
     /// −
     Minus,
+    /// A window maximize box.
+    Maximize,
+    /// Two overlapping boxes: restore a maximized window.
+    Restore,
     /// ×
     Close,
     /// ✓
@@ -105,6 +109,17 @@ fn strokes(icon: Icon) -> Path {
         }
         Icon::Minus => {
             s.move_to(p(5.0, 12.0)).line_to(p(19.0, 12.0));
+        }
+        Icon::Maximize => {
+            s.move_to(p(6.0, 6.0)).line_to(p(18.0, 6.0)).line_to(p(18.0, 18.0)).line_to(p(6.0, 18.0)).close();
+        }
+        Icon::Restore => {
+            s.move_to(p(6.0, 9.0)).line_to(p(15.0, 9.0)).line_to(p(15.0, 18.0)).line_to(p(6.0, 18.0)).close();
+            s.move_to(p(9.0, 9.0))
+                .line_to(p(9.0, 6.0))
+                .line_to(p(18.0, 6.0))
+                .line_to(p(18.0, 15.0))
+                .line_to(p(15.0, 15.0));
         }
         Icon::Close => {
             s.move_to(p(6.0, 6.0)).line_to(p(18.0, 18.0)).move_to(p(18.0, 6.0)).line_to(p(6.0, 18.0));

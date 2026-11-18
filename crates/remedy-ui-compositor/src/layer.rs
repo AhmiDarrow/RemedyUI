@@ -12,6 +12,17 @@ pub struct LayerId(pub u64);
 /// One layer: a display list in its own coordinate space, with the properties the
 /// compositor can change on its own (transform, opacity, scroll offset).
 ///
+/// A scroll container following another's offset.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScrollFollow {
+    /// The scroll container it follows.
+    pub leader: LayerId,
+    /// Follow the horizontal offset.
+    pub x: bool,
+    /// Follow the vertical offset.
+    pub y: bool,
+}
+
 /// Coordinates: the layer sits at `bounds` in its parent's content space. Its local space
 /// has the origin at `bounds.min`. Its content (the display list and the child layers) is in
 /// content space, which is local space moved by the scroll offset. A clip applies in local
@@ -31,6 +42,9 @@ pub struct Layer {
     pub clip: Option<CornerRadii>,
     /// Makes the layer a scroll container whose content has this size.
     pub scroll: Option<Size>,
+    /// A scroll container that moves with another one on some axes, in the same frame
+    /// (frozen table columns follow the body vertically; a header follows it horizontally).
+    pub scroll_follow: Option<ScrollFollow>,
     /// What the layer draws, in content space.
     pub content: Arc<DisplayList>,
     /// Bumped by the UI thread whenever `content` changes; tiles re-raster on a new version.
@@ -49,6 +63,7 @@ impl Layer {
             opacity: 1.0,
             clip: None,
             scroll: None,
+            scroll_follow: None,
             content: Arc::new(content),
             content_version: 0,
             children: Vec::new(),

@@ -71,6 +71,8 @@ pub struct PointerEvent {
     /// Earlier positions merged into this event since the last frame, oldest first, with
     /// their times. Ink and velocity use them; handlers see one event per frame.
     pub coalesced: Vec<(Point, Duration)>,
+    /// Modifier keys held when it happened (Ctrl-click, Shift-click).
+    pub modifiers: Modifiers,
 }
 
 /// A key's meaning in the user's keyboard layout.

@@ -94,7 +94,11 @@ struct CachedGlyph {
 pub struct Painter {
     raster: GlyphRasterizer,
     glyphs: HashMap<GlyphKey, Option<CachedGlyph>>,
-    images: HashMap<u64, Arc<Pixmap>>,
+    /// App images by id: the converted pixmap, and the app's pixels it came from. When
+    /// nothing holds those pixels any more the image is gone and its cache entry goes too.
+    images: HashMap<u64, (std::sync::Weak<[u8]>, Arc<Pixmap>)>,
+    /// Images dropped since the last [`Painter::take_evicted`], for caches downstream.
+    evicted: Vec<u64>,
     next_glyph: u64,
 }
 
@@ -248,6 +252,12 @@ impl CpuRenderer {
     /// Drops cached glyphs and images (for memory pressure).
     pub fn clear_caches(&mut self) {
         self.painter.clear_caches();
+        let _ = self.painter.take_evicted();
+    }
+
+    /// How many app images are cached (images the app dropped are freed on the next draw).
+    pub fn cached_images(&self) -> usize {
+        self.painter.cached_images()
     }
 
     /// Renders `list` at `scale` device pixels per logical pixel onto `background`.
@@ -304,19 +314,47 @@ impl Painter {
             raster: GlyphRasterizer::new(),
             glyphs: HashMap::new(),
             images: HashMap::new(),
+            evicted: Vec::new(),
             next_glyph: 0,
         }
+    }
+
+    /// Drops cached images the app no longer holds. Runs at the start of every draw.
+    fn sweep_images(&mut self) {
+        let before = self.images.len();
+        let evicted = &mut self.evicted;
+        self.images.retain(|id, (source, _)| {
+            let live = source.strong_count() > 0;
+            if !live {
+                evicted.push(*id);
+            }
+            live
+        });
+        debug_assert!(self.images.len() + self.evicted.len() >= before);
+    }
+
+    /// The ids of images dropped from the cache since the last call, so a renderer can free
+    /// what it uploaded for them.
+    pub fn take_evicted(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.evicted)
+    }
+
+    /// How many app images are cached.
+    pub fn cached_images(&self) -> usize {
+        self.images.len()
     }
 
     /// Drops cached glyphs and images (for memory pressure).
     pub fn clear_caches(&mut self) {
         self.glyphs.clear();
+        self.evicted.extend(self.images.keys().copied());
         self.images.clear();
         self.raster.clear();
     }
 
     /// Draws `list` onto `s` through `base` (list space to device pixels).
     pub fn draw<S: Surface>(&mut self, s: &mut S, list: &DisplayList, base: Affine) {
+        self.sweep_images();
         let scale = base.scale_factor();
         let mut transforms = vec![base];
         // Open opacity/blend groups: LCD text inside one falls back to grayscale.
@@ -415,11 +453,11 @@ impl Painter {
         sampling: Sampling,
     ) {
         let pix = match self.images.get(&image.id) {
-            Some(p) => p.clone(),
+            Some((_, p)) => p.clone(),
             None => {
                 let Some(p) = pixmap_from(image.width, image.height, image.pixels.to_vec()) else { return };
                 let p = Arc::new(p);
-                self.images.insert(image.id, p.clone());
+                self.images.insert(image.id, (Arc::downgrade(&image.pixels), p.clone()));
                 p
             }
         };

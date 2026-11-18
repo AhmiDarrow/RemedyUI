@@ -37,7 +37,13 @@ pub use remedy_ui_devtools as devtools;
 pub use remedy_ui_host as host;
 pub use remedy_ui_input as input;
 pub use remedy_ui_layout as layout;
+#[cfg(feature = "image")]
+pub use remedy_ui_media_image as image;
+#[cfg(feature = "svg")]
+pub use remedy_ui_media_svg as svg;
 pub use remedy_ui_reactive as reactive;
+#[cfg(feature = "i18n")]
+pub use remedy_ui_services_i18n as i18n;
 #[cfg(feature = "update")]
 pub use remedy_ui_services_update as update;
 pub use remedy_ui_style as style;
@@ -48,8 +54,12 @@ pub use remedy_ui_view as view;
 pub use remedy_ui_view::{El, FieldKind, PaintCx, TextField, Ui};
 #[cfg(feature = "widgets")]
 pub use remedy_ui_widgets_core as widgets;
+#[cfg(feature = "data")]
+pub use remedy_ui_widgets_data as data;
 #[cfg(feature = "forms")]
 pub use remedy_ui_widgets_forms as forms;
+#[cfg(feature = "nav")]
+pub use remedy_ui_widgets_nav as nav;
 
 /// Why the app could not run.
 #[derive(Debug)]
@@ -66,6 +76,9 @@ impl std::error::Error for RunError {}
 /// Runs the app on this platform's bridge until it quits. `setup` runs once the platform is
 /// ready, to open the first windows.
 pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), RunError> {
+    // SVG files show wherever images do.
+    #[cfg(feature = "svg")]
+    remedy_ui_media_svg::install();
     let inbox = instance::SharedInbox::default();
     if config.single_instance {
         let args: Vec<String> = std::env::args().skip(1).collect();

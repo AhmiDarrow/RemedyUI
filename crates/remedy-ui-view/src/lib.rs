@@ -14,16 +14,19 @@
 //! view needs from its host (an input-method session, the clipboard, a cursor, a new frame)
 //! comes out as [`Request`]s. See `docs/design/02-state-and-elements.md`.
 
+mod dnd;
 mod element;
 mod events;
 mod field;
 mod frame;
 
+pub use dnd::Drag;
 pub use element::{El, ElementInfo, PaintCx, PointerInterceptor, Ui};
 pub use events::{Click, PointerInput};
 pub use field::{FieldKind, TextField};
 pub use frame::Frame;
 pub use remedy_ui_a11y::Action as A11yAction;
+pub use remedy_ui_host::{DragData, DragEvent, DropEffect};
 pub use remedy_ui_layout::{Align, Justify};
 pub use remedy_ui_text::{RichText, StylePatch as TextPatch};
 pub use remedy_ui_tree::ElementId;
@@ -55,4 +58,19 @@ pub enum Request {
     },
     /// Forget a timer that has not fired.
     CancelTimer(u64),
+    /// Hand a drag that left the window to the platform, for other apps; call
+    /// [`Ui::drag_finished`] with the result.
+    StartDrag {
+        /// What is dragged.
+        data: remedy_ui_host::DragData,
+        /// What a drop may do.
+        allowed: Vec<remedy_ui_host::DropEffect>,
+    },
+    /// Move a scroll container to `offset` (clamped to what it can scroll).
+    ScrollTo {
+        /// The scroll container.
+        scroller: ElementId,
+        /// Its new offset.
+        offset: remedy_ui_core::Vec2,
+    },
 }
