@@ -2,13 +2,16 @@
 //! (the editor's property grid edits them) and a builder. The built-ins are here; apps add
 //! their own (FreeSpeak's voice and chat nodes); people add scripted ones.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use remedy_ui_reactive::{Scope, Signal, untrack};
-use remedy_ui_script::{Limits, Node, ScriptWidget, SettingKind, SettingSpec, TextStyle};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_script::{
+    Engines, Language, Limits, Node, Package, ScriptError, ScriptWidget, SettingKind, SettingSpec, TextStyle,
+};
+
+use remedy_ui_view::{El, ElementId, FailurePhase, Retry, Ui, catch_errors};
 use remedy_ui_widgets_core as w;
 use serde_json::{Map, Value};
 
@@ -17,8 +20,10 @@ pub type ReactionsFn = Rc<dyn Fn(&str) -> Signal<Vec<crate::Reaction>>>;
 /// Toggles the viewer's reaction (widget id, emoji).
 pub type ReactFn = Rc<dyn Fn(&str, &str)>;
 
-/// What a board gives its widgets: data the app shares with them, and the doors out.
+/// What a board gives its widgets: data the app shares with them, and the doors out. Made
+/// with [`Context::local`]; its fields are then set as the app needs.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Context {
     /// Read-only data for widgets (who is here, what is new): scripts see it as `host`.
     pub host: Signal<Value>,
@@ -31,11 +36,15 @@ pub struct Context {
     pub react: ReactFn,
     /// How much a scripted widget may use.
     pub limits: Limits,
+    /// The script engines this board accepts: a scripted widget in another language says
+    /// it cannot run here.
+    pub engines: Engines,
 }
 
 impl Context {
-    /// A context with no data, links opened by `open_link`, and reactions kept on this device
-    /// (for previews and apps that do not share them).
+    /// A context with no data, links opened by `open_link`, reactions kept on this device
+    /// (for previews and apps that do not share them), and no script engines (set
+    /// [`Context::engines`] to accept scripted widgets).
     pub fn local(open_link: impl Fn(&str) + 'static) -> Context {
         let store: Rc<RefCell<BTreeMap<String, Signal<Vec<crate::Reaction>>>>> = Rc::default();
         // The signals live as long as the context, not as long as whatever is being built
@@ -56,13 +65,14 @@ impl Context {
                 s.update(|v| crate::reactions::toggle(v, emoji));
             }),
             limits: Limits::default(),
+            engines: Engines::new(),
         }
     }
 }
 
 impl std::fmt::Debug for Context {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Context").field("limits", &self.limits).finish()
+        f.debug_struct("Context").field("limits", &self.limits).field("engines", &self.engines).finish()
     }
 }
 
@@ -135,7 +145,7 @@ fn text_setting(settings: &Map<String, Value>, key: &str) -> String {
 }
 
 fn spec(key: &str, label: &str, kind: SettingKind, default: Value) -> SettingSpec {
-    SettingSpec { key: key.into(), label: label.into(), kind, default }
+    SettingSpec::new(key, label, kind, default)
 }
 
 /// A title and some text: news, rules, a welcome.
@@ -255,30 +265,42 @@ impl WidgetKind for ReactionsKind {
     }
 }
 
-/// A kind written as a script. Each placed widget gets a machine of its own.
+/// A kind written as a script, in any language a board accepts. Each placed widget gets a
+/// sandbox of its own.
 pub struct ScriptKind {
     id: String,
-    source: Rc<str>,
+    package: Package,
     name: String,
     settings: Vec<SettingSpec>,
 }
 
 impl std::fmt::Debug for ScriptKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ScriptKind").field("id", &self.id).finish()
+        f.debug_struct("ScriptKind").field("id", &self.id).field("language", &self.package.language).finish()
     }
 }
 
 impl ScriptKind {
-    /// A kind `id` from `source` (checked by loading it once with `limits`).
-    pub fn new(id: &str, source: &str, limits: Limits) -> Result<ScriptKind, remedy_ui_script::ScriptError> {
-        let w = ScriptWidget::load(source, limits)?;
+    /// A kind `id` from `package`, checked by loading it once with `engines` and `limits`
+    /// (which also reads its name and settings).
+    pub fn new(
+        id: &str,
+        package: Package,
+        engines: &Engines,
+        limits: Limits,
+    ) -> Result<ScriptKind, ScriptError> {
+        let w = engines.load(&package, limits)?;
         Ok(ScriptKind {
             id: id.to_owned(),
-            source: Rc::from(source),
             name: w.name().to_owned(),
             settings: w.settings().to_vec(),
+            package,
         })
+    }
+
+    /// The language it is written in.
+    pub fn language(&self) -> &Language {
+        &self.package.language
     }
 }
 
@@ -292,54 +314,109 @@ impl WidgetKind for ScriptKind {
     fn settings(&self) -> Vec<SettingSpec> {
         self.settings.clone()
     }
+    /// Each placed widget is an error boundary of its own: when its script stops (it does not
+    /// load, runs past a limit, fails), the stop goes to the window's failures
+    /// ([`Ui::failures`] and the error hook) and the widget shows why, with a button that
+    /// starts it again; the board around it carries on.
     fn build(&self, ui: &Ui, _id: &str, settings: &Map<String, Value>, cx: &Context) -> El {
-        let holder = w::column(ui).fill_width();
-        let widget = match ScriptWidget::load(&self.source, cx.limits) {
-            Ok(w) => Rc::new(RefCell::new(w)),
-            Err(e) => return holder.child(failed(ui, &e.to_string())),
-        };
-        // Rendered again after each button press, and when the host's data changes.
-        let version = Signal::new(0u64);
-        let (h2, u2, settings, host, open) =
-            (holder.clone(), ui.clone(), settings.clone(), cx.host, cx.open_link.clone());
-        holder.bind(move || {
-            let _ = version.get();
-            let data = host.get();
-            untrack(|| {
-                h2.clear();
-                let shown = widget.borrow_mut().render(&settings, &data);
-                let el = match shown {
-                    Ok(node) => build_node(&u2, &node, &widget, version, &open),
-                    Err(e) => failed(&u2, &e.to_string()),
-                };
-                let _ = h2.clone().child(el);
-            });
-        })
+        // The boundary's element, once made; failures before that wait in `pending`.
+        let boundary: Rc<Cell<Option<ElementId>>> = Rc::default();
+        let pending: Rc<RefCell<Option<(FailurePhase, String)>>> = Rc::default();
+        let (u1, b1, p1) = (ui.clone(), boundary.clone(), pending.clone());
+        let stopped: Stopped = Rc::new(move |phase: FailurePhase, e: ScriptError| match b1.get() {
+            Some(at) => {
+                let _ = u1.report_failure(at, phase, e.to_string(), None);
+            }
+            None => *p1.borrow_mut() = Some((phase, e.to_string())),
+        });
+        let (u2, u3, package, settings, cx) =
+            (ui.clone(), ui.clone(), self.package.clone(), settings.clone(), cx.clone());
+        let el = catch_errors(
+            ui,
+            move |err, retry| stopped_view(&u3, &err.message, retry),
+            move || script_view(&u2, &package, &settings, &cx, &stopped),
+        );
+        boundary.set(Some(el.id()));
+        if let Some((phase, message)) = pending.borrow_mut().take() {
+            let _ = ui.report_failure(el.id(), phase, message, None);
+        }
+        el
     }
 }
 
-fn failed(ui: &Ui, why: &str) -> El {
-    w::text(ui, format!("This widget stopped: {why}")).variant("error")
+/// Where a scripted widget's stops go: its error boundary.
+type Stopped = Rc<dyn Fn(FailurePhase, ScriptError)>;
+
+/// A scripted widget's content: loaded, then rendered again after each button press and
+/// when the host's data changes.
+fn script_view(
+    ui: &Ui,
+    package: &Package,
+    settings: &Map<String, Value>,
+    cx: &Context,
+    stopped: &Stopped,
+) -> El {
+    let holder = w::column(ui).fill_width();
+    let widget: SharedWidget = match cx.engines.load(package, cx.limits) {
+        Ok(w) => Rc::new(RefCell::new(w)),
+        Err(e) => {
+            stopped(FailurePhase::Build, e);
+            return holder;
+        }
+    };
+    let version = Signal::new(0u64);
+    let (h2, u2, settings, host, open, stopped) =
+        (holder.clone(), ui.clone(), settings.clone(), cx.host, cx.open_link.clone(), stopped.clone());
+    holder.bind(move || {
+        let _ = version.get();
+        let data = host.get();
+        untrack(|| {
+            h2.clear();
+            let shown = widget.borrow_mut().render(&settings, &data);
+            match shown {
+                Ok(node) => {
+                    let _ = h2.clone().child(build_node(&u2, &node, &widget, version, &open, &stopped));
+                }
+                Err(e) => stopped(FailurePhase::Build, e),
+            }
+        });
+    })
 }
 
-/// Builds elements from what a script described.
+/// What a stopped widget shows: why, and a button that starts it again.
+fn stopped_view(ui: &Ui, why: &str, retry: Retry) -> El {
+    let unit = ui.theme().spacing.unit;
+    w::column(ui)
+        .gap(unit)
+        .fill_width()
+        .child(w::text(ui, format!("This widget stopped: {why}")).variant("error"))
+        .child(w::button(ui, "Start again", move || retry.retry()))
+}
+
+/// A loaded scripted widget, shared by the elements built from its description.
+pub type SharedWidget = Rc<RefCell<Box<dyn ScriptWidget>>>;
+
+/// Builds elements from what a script described: its buttons run their handlers on `widget`
+/// and bump `version` (the host renders again), links open through `open`, and a handler
+/// that stops the script reports it to `stopped`.
 pub fn build_node(
     ui: &Ui,
     node: &Node,
-    widget: &Rc<RefCell<ScriptWidget>>,
+    widget: &SharedWidget,
     version: Signal<u64>,
     open: &Rc<dyn Fn(&str)>,
+    stopped: &Rc<dyn Fn(FailurePhase, ScriptError)>,
 ) -> El {
     let unit = ui.theme().spacing.unit;
     match node {
         Node::Column { gap, children } => {
             children.iter().fold(w::column(ui).gap(*gap).fill_width(), |c, n| {
-                c.child(build_node(ui, n, widget, version, open))
+                c.child(build_node(ui, n, widget, version, open, stopped))
             })
         }
         Node::Row { gap, children } => children
             .iter()
-            .fold(w::wrap(ui).gap(*gap), |c, n| c.child(build_node(ui, n, widget, version, open))),
+            .fold(w::wrap(ui).gap(*gap), |c, n| c.child(build_node(ui, n, widget, version, open, stopped))),
         Node::Text { text, style } => match style {
             TextStyle::Body => w::text(ui, text.clone()),
             TextStyle::Muted => w::text(ui, text.clone()).variant("muted"),
@@ -347,18 +424,12 @@ pub fn build_node(
             TextStyle::Heading(l) => w::heading(ui, *l + 1, text.clone()),
         },
         Node::Button { label, action } => {
-            let (wd, a, u2) = (widget.clone(), *action, ui.clone());
+            let (wd, a, stopped) = (widget.clone(), *action, stopped.clone());
             w::button(ui, label.clone(), move || {
                 let r = wd.borrow_mut().act(a);
                 match r {
                     Ok(()) => version.update(|v| *v += 1),
-                    Err(e) => {
-                        let _ = w::toast(
-                            &u2,
-                            format!("This widget stopped: {e}"),
-                            std::time::Duration::from_secs(4),
-                        );
-                    }
+                    Err(e) => stopped(FailurePhase::Handler, e),
                 }
             })
         }

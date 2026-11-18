@@ -116,6 +116,16 @@ pub use remedy_ui_reactive as reactive;
 /// `.rui` markup: screens as data, compiled at build time or loaded for people's own layouts.
 #[cfg(feature = "markup")]
 pub use remedy_ui_rui as markup;
+/// Scripted widgets, independent of any language: the widget interface, the element protocol,
+/// limits and the engine registry.
+#[cfg(feature = "board")]
+pub use remedy_ui_script as script;
+/// Scripted widgets in Rhai.
+#[cfg(feature = "script-rhai")]
+pub use remedy_ui_script_rhai as script_rhai;
+/// Scripted widgets in WebAssembly.
+#[cfg(feature = "script-wasm")]
+pub use remedy_ui_script_wasm as script_wasm;
 #[cfg(feature = "i18n")]
 pub use remedy_ui_services_i18n as i18n;
 #[cfg(feature = "spell")]

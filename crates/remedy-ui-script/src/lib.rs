@@ -1,54 +1,155 @@
-//! RemedyUI scripted widgets: small programs people write and share (a FreeSpeak Home's
-//! custom widgets), run as untrusted code.
+//! RemedyUI scripted widgets, independent of any language: small programs people write and
+//! share (a FreeSpeak Home's custom widgets), run as untrusted code.
 //!
-//! A script is Luau, which was made for running untrusted code. In a browser page
-//! (`wasm32`) no Luau machine can be built, and [`ScriptWidget::load`] says why with
-//! [`ScriptError::Unsupported`]. Each widget gets a virtual
-//! machine of its own, sandboxed: no files, network, processes or loading other code; only
-//! the standard library's pure parts, a `ui` table that describes elements, its own `state`,
-//! its settings, and the read-only data the host grants (`host`). Every call into it runs
-//! against a time budget (an interrupt stops a script that runs past it, even in a tight loop)
-//! and the machine against a memory limit. Both are sized from the device ([`Limits`]).
+//! This crate is what every script engine and every host agrees on:
 //!
-//! A script never touches elements: it returns a [`Node`] tree, which the host builds into
-//! ordinary RemedyUI elements, so scripted widgets are themed, accessible and fast like
-//! built-in ones. Buttons name handlers ([`Action`]); the host runs one with
-//! [`ScriptWidget::act`] and renders again.
+//! - [`ScriptWidget`]: one loaded widget. It says its name and its [settings](SettingSpec),
+//!   describes itself for the current settings and host data ([`ScriptWidget::render`]),
+//!   and runs the handlers its buttons name ([`ScriptWidget::act`]), keeping its own state
+//!   between calls.
+//! - [`ScriptEngine`]: a language that loads widgets from a [`Package`]. Engines are crates
+//!   of their own (`remedy-ui-script-rhai` for widgets people write by hand in Rhai,
+//!   `remedy-ui-script-wasm` for compiled WebAssembly widgets), and [`Engines`] is the set an
+//!   app or a board enables; a package names its [`Language`].
+//! - The element-description protocol ([`Node`], read from JSON by [`describe`]): what a
+//!   script returns. It is ordinary RemedyUI elements (columns, rows, text, buttons, links,
+//!   progress, dividers), never drawing, so scripted widgets are themed, accessible and fast
+//!   like built-in ones, and the host builds every element itself.
+//! - [`Limits`]: how much one call may use (operations, time, memory, call depth, element
+//!   nesting), sized from the device and configurable. Every engine stops a script that
+//!   runs past them with a [`ScriptError`] that says which, and the host keeps running.
+//! - [`StepRate`]: how many of an engine's steps a millisecond buys on this device,
+//!   calibrated the first time the engine is used and kept current by its calls, so a time
+//!   budget becomes a step budget that fits the machine.
 //!
-//! ```lua
-//! return {
-//!   name = "Claps",
-//!   settings = { { key = "title", label = "Title", kind = "text", default = "Claps" } },
-//!   render = function(settings, state, ui, host)
-//!     state.claps = state.claps or 0
-//!     return ui.column({ gap = 8 }, {
-//!       ui.heading(settings.title),
-//!       ui.text(state.claps .. " claps"),
-//!       ui.button("Clap", function() state.claps = state.claps + 1 end),
-//!     })
-//!   end,
-//! }
+//! The protocol, as JSON (each engine documents how its language produces it):
+//!
+//! ```json
+//! { "name": "Claps",
+//!   "settings": [ { "key": "title", "label": "Title", "kind": "text", "value": "Claps" },
+//!                 { "key": "goal", "kind": "number", "min": 1, "max": 100, "value": 10 } ] }
+//!
+//! { "kind": "column", "gap": 8, "children": [
+//!     { "kind": "text", "text": "Claps", "style": "heading", "level": 2 },
+//!     { "kind": "text", "text": "3 claps", "style": "body" },
+//!     { "kind": "progress", "label": "Claps", "value": 0.3 },
+//!     { "kind": "button", "label": "Clap", "on": "clap" },
+//!     { "kind": "link", "label": "Rules", "url": "https://example.com/rules" },
+//!     { "kind": "divider" } ] }
 //! ```
+//!
+//! A button's `on` is any JSON value the widget chooses; when the button is pressed the host
+//! hands it back through [`ScriptWidget::act`].
 
+use std::borrow::Cow;
+use std::collections::BTreeMap;
+use std::rc::Rc;
 use std::time::Duration;
 
-#[cfg(not(target_arch = "wasm32"))]
-mod luau;
-#[cfg(target_arch = "wasm32")]
-mod unsupported;
+use serde_json::{Map, Value};
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use luau::ScriptWidget;
-#[cfg(target_arch = "wasm32")]
-pub use unsupported::ScriptWidget;
+mod rate;
+pub use rate::{MIN_SAMPLE, StepRate, calibrate_with};
 
-/// How much a script may use, sized from the device.
+/// The JSON values settings, host data and button handlers are made of, re-exported so they
+/// are the version RemedyUI is built with.
+pub use serde_json;
+
+/// The language a widget is written in, named by a short id (`rhai`, `wasm`). Engines for
+/// other languages name their own.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Language(Cow<'static, str>);
+
+impl Language {
+    /// Rhai: widgets people write by hand (`remedy-ui-script-rhai`).
+    pub const RHAI: Language = Language(Cow::Borrowed("rhai"));
+    /// WebAssembly: widgets compiled from Rust or any language that targets it
+    /// (`remedy-ui-script-wasm`).
+    pub const WASM: Language = Language(Cow::Borrowed("wasm"));
+
+    /// The language named `id`.
+    pub fn new(id: impl Into<Cow<'static, str>>) -> Language {
+        Language(id.into())
+    }
+
+    /// Its id.
+    pub fn id(&self) -> &str {
+        &self.0
+    }
+
+    /// The language of a file with extension `ext` (`rhai`, `wasm`), if it is one of the two
+    /// RemedyUI ships engines for.
+    pub fn for_extension(ext: &str) -> Option<Language> {
+        match ext.to_ascii_lowercase().as_str() {
+            "rhai" => Some(Language::RHAI),
+            "wasm" => Some(Language::WASM),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Language {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.id() {
+            "rhai" => f.write_str("Rhai"),
+            "wasm" => f.write_str("WebAssembly"),
+            other => f.write_str(other),
+        }
+    }
+}
+
+/// A widget as shared: its language and its code (source text for Rhai, a module for
+/// WebAssembly).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Package {
+    /// What it is written in.
+    pub language: Language,
+    /// Its code.
+    pub code: Rc<[u8]>,
+}
+
+impl Package {
+    /// A package of `language` with `code`.
+    pub fn new(language: Language, code: impl Into<Rc<[u8]>>) -> Package {
+        Package { language, code: code.into() }
+    }
+
+    /// A Rhai widget from its source.
+    pub fn rhai(source: &str) -> Package {
+        Package::new(Language::RHAI, source.as_bytes())
+    }
+
+    /// A WebAssembly widget from its module.
+    pub fn wasm(module: &[u8]) -> Package {
+        Package::new(Language::WASM, module)
+    }
+}
+
+/// How much a widget may use. Every field is a limit per call (a render or a handler)
+/// except `memory`, which the widget's machine holds across calls. Made with
+/// [`Limits::for_device`] or [`Limits::default`] and adjusted with a setter per field.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Limits {
     /// The most memory one widget's machine may hold.
     pub memory: usize,
-    /// The longest one call (a render or a handler) may run.
+    /// The longest one call may run on the clock. This is the backstop for slow devices;
+    /// `operations` is what stops a script deterministically.
     pub time: Duration,
+    /// How many steps one call may take, in the engine's own unit (a Rhai operation, a
+    /// WebAssembly fuel unit). `None`: each engine derives it from `time` at the rate it
+    /// measured on this device ([`StepRate`]). Set it for a script that must stop at the same
+    /// step on every machine.
+    pub operations: Option<u64>,
+    /// How deeply calls may nest (recursion).
+    pub call_depth: usize,
+    /// The native stack one call may use, in bytes, for engines whose interpreter recurses on
+    /// the caller's stack (Rhai); an engine with a stack of its own (WebAssembly) ignores it.
+    pub stack: usize,
+    /// How deeply described elements may nest. Past this a tree is not a readable widget and
+    /// would only cost the layout.
+    pub nesting: usize,
 }
 
 impl Limits {
@@ -59,31 +160,98 @@ impl Limits {
         const MIB: u64 = 1024 * 1024;
         let memory = (total_memory / 2048).clamp(4 * MIB, 64 * MIB);
         let ms = (cores as u64 * 2).clamp(4, 16);
-        Limits { memory: usize::try_from(memory).unwrap_or(usize::MAX), time: Duration::from_millis(ms) }
+        Limits {
+            memory: usize::try_from(memory).unwrap_or(usize::MAX),
+            time: Duration::from_millis(ms),
+            ..Limits::default()
+        }
+    }
+
+    /// Sets `memory`: the most memory one widget's machine may hold, in bytes.
+    pub fn memory(mut self, value: usize) -> Self {
+        self.memory = value;
+        self
+    }
+
+    /// Sets `time`: the longest one call may run on the clock.
+    pub fn time(mut self, value: Duration) -> Self {
+        self.time = value;
+        self
+    }
+
+    /// Sets `operations`: the steps one call may take, or `None` to derive them from `time`.
+    pub fn operations(mut self, value: Option<u64>) -> Self {
+        self.operations = value;
+        self
+    }
+
+    /// Sets `call_depth`: how deeply calls may nest.
+    pub fn call_depth(mut self, value: usize) -> Self {
+        self.call_depth = value;
+        self
+    }
+
+    /// Sets `stack`: the stack one call may use, in bytes.
+    pub fn stack(mut self, value: usize) -> Self {
+        self.stack = value;
+        self
+    }
+
+    /// Sets `nesting`: how deeply described elements may nest.
+    pub fn nesting(mut self, value: usize) -> Self {
+        self.nesting = value;
+        self
+    }
+
+    /// The operations one call may take: `operations`, or `time` at `per_ms` operations a
+    /// millisecond (an engine's measured rate).
+    pub fn operations_at(&self, per_ms: u64) -> u64 {
+        self.operations.unwrap_or_else(|| {
+            let ms = u64::try_from(self.time.as_micros()).unwrap_or(u64::MAX) / 1000;
+            ms.max(1).saturating_mul(per_ms)
+        })
     }
 }
 
 impl Default for Limits {
-    /// 16 MiB and 8 ms: a mid-range device.
+    /// 16 MiB and 8 ms (a mid-range device), operations from the time, 64 nested calls (more
+    /// than a widget's own recursion needs), 512 KiB of stack (half the smallest stack a UI
+    /// thread gets, 1 MiB on Windows and in browser pages, leaving the rest to the app's own
+    /// frames), and 64 nested elements.
     fn default() -> Self {
-        Limits { memory: 16 * 1024 * 1024, time: Duration::from_millis(8) }
+        Limits {
+            memory: 16 * 1024 * 1024,
+            time: Duration::from_millis(8),
+            operations: None,
+            call_depth: 64,
+            stack: 512 * 1024,
+            nesting: 64,
+        }
     }
 }
 
 /// Why a script failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ScriptError {
     /// It does not compile, or is not a widget (what is wrong, for its author).
     Invalid(String),
+    /// It asked for something the sandbox does not grant (files, the network, processes,
+    /// loading code, a host function that does not exist): what it asked for.
+    Denied(String),
     /// It failed while running.
     Runtime(String),
     /// It ran past its time budget.
     TooSlow,
-    /// It used more memory than allowed.
+    /// It took more steps than its operation budget.
+    OutOfFuel,
+    /// Its calls nested past the call depth (runaway recursion).
+    TooDeep,
+    /// It used more memory than allowed, or made a value too large.
     TooBig,
     /// What it described is not a widget tree (what is wrong).
     Shape(String),
-    /// Scripts cannot run on this platform, and why.
+    /// Scripts in this language cannot run here, and why.
     Unsupported(String),
 }
 
@@ -91,8 +259,11 @@ impl std::fmt::Display for ScriptError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ScriptError::Invalid(e) => write!(f, "the script is not a widget: {e}"),
+            ScriptError::Denied(e) => write!(f, "the script asked for what widgets cannot have: {e}"),
             ScriptError::Runtime(e) => write!(f, "the script failed: {e}"),
             ScriptError::TooSlow => f.write_str("the script took too long"),
+            ScriptError::OutOfFuel => f.write_str("the script took too many steps"),
+            ScriptError::TooDeep => f.write_str("the script's calls nested too deeply"),
             ScriptError::TooBig => f.write_str("the script used too much memory"),
             ScriptError::Shape(e) => write!(f, "the script described something that is not a widget: {e}"),
             ScriptError::Unsupported(e) => write!(f, "scripted widgets cannot run here: {e}"),
@@ -104,6 +275,7 @@ impl std::error::Error for ScriptError {}
 
 /// The kind of a setting, which decides its editor.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum SettingKind {
     /// One line of text.
     Text,
@@ -128,6 +300,7 @@ pub enum SettingKind {
 
 /// A setting a widget declares: the board's property grid edits it.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct SettingSpec {
     /// Its key in the settings.
     pub key: String,
@@ -136,14 +309,124 @@ pub struct SettingSpec {
     /// Its kind.
     pub kind: SettingKind,
     /// Its value until set.
-    pub default: serde_json::Value,
+    pub default: Value,
 }
 
-/// A handler a button names; the host runs it with [`ScriptWidget::act`].
+impl SettingSpec {
+    /// A setting `key`, shown as `label`, of `kind`, at `default` until set.
+    pub fn new(
+        key: impl Into<String>,
+        label: impl Into<String>,
+        kind: SettingKind,
+        default: Value,
+    ) -> SettingSpec {
+        SettingSpec { key: key.into(), label: label.into(), kind, default }
+    }
+}
+
+/// What a widget says about itself when it loads.
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct Manifest {
+    /// Its name, in the add-widget list.
+    pub name: String,
+    /// The settings it declares.
+    pub settings: Vec<SettingSpec>,
+}
+
+fn invalid(e: impl Into<String>) -> ScriptError {
+    ScriptError::Invalid(e.into())
+}
+
+/// Reads a widget's manifest from the protocol's JSON: `name` (a string, "Widget" when
+/// missing) and `settings` (a list of `{ key, label, kind, value, min, max, options }`;
+/// `kind` is `text`, `longtext`, `number`, `bool`, `choice`, `color` or `link`, and `value`
+/// is the setting's value until someone sets it, its default).
+pub fn manifest(v: &Value) -> Result<Manifest, ScriptError> {
+    let Value::Object(m) = v else {
+        return Err(invalid("it must describe itself as a map with a name and settings"));
+    };
+    let name = match m.get("name") {
+        None | Some(Value::Null) => "Widget".to_owned(),
+        Some(Value::String(s)) if !s.trim().is_empty() => s.clone(),
+        Some(_) => return Err(invalid("its name must be text")),
+    };
+    let mut settings = Vec::new();
+    match m.get("settings") {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(list)) => {
+            for s in list {
+                let spec = setting(s)?;
+                if settings.iter().any(|o: &SettingSpec| o.key == spec.key) {
+                    return Err(invalid(format!("the setting {} is declared twice", spec.key)));
+                }
+                settings.push(spec);
+            }
+        }
+        Some(_) => return Err(invalid("its settings must be a list")),
+    }
+    Ok(Manifest { name, settings })
+}
+
+fn number(m: &Map<String, Value>, k: &str) -> Option<f64> {
+    m.get(k).and_then(Value::as_f64)
+}
+
+fn string(m: &Map<String, Value>, k: &str) -> Option<String> {
+    m.get(k).and_then(Value::as_str).map(str::to_owned)
+}
+
+fn setting(v: &Value) -> Result<SettingSpec, ScriptError> {
+    let Value::Object(t) = v else { return Err(invalid("a setting must be a map")) };
+    let key = string(t, "key").filter(|k| !k.is_empty()).ok_or_else(|| invalid("a setting has no key"))?;
+    let label = string(t, "label").unwrap_or_else(|| key.clone());
+    let kind = match string(t, "kind").as_deref().unwrap_or("text") {
+        "text" => SettingKind::Text,
+        "longtext" => SettingKind::LongText,
+        "number" => SettingKind::Number { min: number(t, "min"), max: number(t, "max") },
+        "bool" => SettingKind::Bool,
+        "choice" => {
+            let opts: Vec<String> = t
+                .get("options")
+                .and_then(Value::as_array)
+                .map(|o| o.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default();
+            if opts.is_empty() {
+                return Err(invalid(format!("the choice setting {key} has no options")));
+            }
+            SettingKind::Choice(opts)
+        }
+        "color" => SettingKind::Color,
+        "link" => SettingKind::Link,
+        other => return Err(invalid(format!("the setting {key} has an unknown kind {other}"))),
+    };
+    let default = match t.get("value") {
+        Some(d @ (Value::String(_) | Value::Number(_) | Value::Bool(_))) => d.clone(),
+        _ => match &kind {
+            SettingKind::Number { min, .. } => serde_json::json!(min.unwrap_or(0.0)),
+            SettingKind::Bool => Value::Bool(false),
+            SettingKind::Choice(o) => Value::String(o.first().cloned().unwrap_or_default()),
+            _ => Value::String(String::new()),
+        },
+    };
+    Ok(SettingSpec { key, label, kind, default })
+}
+
+/// The settings a widget sees: each declared one as `given`, or its default.
+pub fn resolve_settings(specs: &[SettingSpec], given: &Map<String, Value>) -> Map<String, Value> {
+    specs
+        .iter()
+        .map(|s| (s.key.clone(), given.get(&s.key).cloned().unwrap_or_else(|| s.default.clone())))
+        .collect()
+}
+
+/// A button's handler in the last description: an index into [`Described::handlers`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Action(pub usize);
 
 /// How text is shown.
+///
+/// Exhaustive, like [`Node`]: the protocol's text styles, each of which every host builds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextStyle {
     /// Body text.
@@ -157,6 +440,10 @@ pub enum TextStyle {
 }
 
 /// What a script describes; the host builds elements from it.
+///
+/// Exhaustive on purpose: the element protocol is a closed set every host must build in full
+/// (a host that skipped an element would show a widget other than the one described), so a
+/// new element is a new protocol version, not a quiet addition.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Node {
     /// Children top to bottom.
@@ -191,7 +478,7 @@ pub enum Node {
     Link {
         /// Its label.
         label: String,
-        /// Where it goes (`https:` or `mailto:` only).
+        /// Where it goes (the host opens only `https:` and `mailto:`).
         url: String,
     },
     /// A progress bar, 0 to 1.
@@ -205,124 +492,262 @@ pub enum Node {
     Divider,
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod tests {
-    use std::time::{Duration, Instant};
-
-    use super::*;
-
-    const CLAPS: &str = r#"
-return {
-  name = "Claps",
-  settings = { { key = "title", label = "Title", kind = "text", default = "Claps" },
-               { key = "goal", kind = "number", min = 1, max = 100, default = 10 } },
-  render = function(settings, state, ui, host)
-    state.claps = state.claps or 0
-    return ui.column({ gap = 8 }, {
-      ui.heading(settings.title),
-      ui.text(state.claps .. " of " .. settings.goal),
-      ui.progress("Claps", state.claps / settings.goal),
-      ui.button("Clap", function() state.claps = state.claps + 1 end),
-      ui.muted("Hello, " .. (host.name or "guest")),
-    })
-  end,
+/// A description read by [`describe`]: the tree, and each button's `on` value by
+/// [`Action`].
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct Described {
+    /// The elements.
+    pub node: Node,
+    /// What each button hands back when pressed, by [`Action`] index.
+    pub handlers: Vec<Value>,
 }
-"#;
 
-    fn host() -> serde_json::Value {
-        serde_json::json!({ "name": "Sam" })
+impl Described {
+    /// The `on` value of `action`, or a [`ScriptError::Shape`] when no such button exists in
+    /// this description.
+    pub fn handler(&self, action: Action) -> Result<&Value, ScriptError> {
+        self.handlers.get(action.0).ok_or_else(|| ScriptError::Shape("that button is gone".into()))
+    }
+}
+
+/// Reads a description from the protocol's JSON (see the crate docs), nesting at most
+/// `limits.nesting` deep.
+pub fn describe(v: &Value, limits: &Limits) -> Result<Described, ScriptError> {
+    let mut handlers = Vec::new();
+    let node = node(v, &mut handlers, 0, limits.nesting)?;
+    Ok(Described { node, handlers })
+}
+
+/// The gap between children, in logical pixels, is kept within what a widget's layout uses.
+const MAX_GAP: f64 = 64.0;
+
+fn node(v: &Value, handlers: &mut Vec<Value>, depth: usize, nesting: usize) -> Result<Node, ScriptError> {
+    let shape = |e: &str| ScriptError::Shape(e.to_owned());
+    if depth >= nesting {
+        return Err(shape("it nests too deeply"));
+    }
+    let Value::Object(t) = v else { return Err(shape("expected a ui element")) };
+    let kind = string(t, "kind").ok_or_else(|| shape("an element has no kind"))?;
+    let text = |k: &str| match t.get(k) {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Null) | None => String::new(),
+        Some(other) => other.to_string(),
+    };
+    let children = |handlers: &mut Vec<Value>| -> Result<Vec<Node>, ScriptError> {
+        match t.get("children") {
+            None | Some(Value::Null) => Ok(Vec::new()),
+            Some(Value::Array(list)) => list.iter().map(|c| node(c, handlers, depth + 1, nesting)).collect(),
+            Some(_) => Err(shape("children must be a list")),
+        }
+    };
+    let gap = number(t, "gap").unwrap_or(0.0).clamp(0.0, MAX_GAP) as f32;
+    Ok(match kind.as_str() {
+        "column" => Node::Column { gap, children: children(handlers)? },
+        "row" => Node::Row { gap, children: children(handlers)? },
+        "text" => {
+            let style = match text("style").as_str() {
+                "" | "body" => TextStyle::Body,
+                "muted" => TextStyle::Muted,
+                "strong" => TextStyle::Strong,
+                "heading" => TextStyle::Heading(number(t, "level").unwrap_or(2.0).clamp(1.0, 3.0) as u8),
+                other => return Err(ScriptError::Shape(format!("unknown text style {other}"))),
+            };
+            Node::Text { text: text("text"), style }
+        }
+        "button" => {
+            let on =
+                t.get("on").filter(|v| !v.is_null()).ok_or_else(|| shape("a button has nothing to run"))?;
+            handlers.push(on.clone());
+            Node::Button { label: text("label"), action: Action(handlers.len() - 1) }
+        }
+        "link" => Node::Link { label: text("label"), url: text("url") },
+        "progress" => {
+            let v = number(t, "value").filter(|v| v.is_finite()).unwrap_or(0.0);
+            Node::Progress { label: text("label"), value: v.clamp(0.0, 1.0) as f32 }
+        }
+        "divider" => Node::Divider,
+        other => return Err(ScriptError::Shape(format!("unknown element {other}"))),
+    })
+}
+
+/// One loaded widget: its machine, its description, its state.
+pub trait ScriptWidget {
+    /// Its name.
+    fn name(&self) -> &str;
+    /// The settings it declares.
+    fn settings(&self) -> &[SettingSpec];
+    /// The limits it runs under.
+    fn limits(&self) -> Limits;
+    /// Its language.
+    fn language(&self) -> Language;
+    /// Describes the widget for `settings` (missing ones take their defaults, see
+    /// [`resolve_settings`]) and `host` (read-only data the host grants, such as the people
+    /// present). The description replaces the last one: its [`Action`]s are the ones
+    /// [`ScriptWidget::act`] takes next.
+    fn render(&mut self, settings: &Map<String, Value>, host: &Value) -> Result<Node, ScriptError>;
+    /// Runs the handler of the last description's button `action`; the host then renders
+    /// again.
+    fn act(&mut self, action: Action) -> Result<(), ScriptError>;
+    /// The memory its machine holds now, in bytes.
+    fn memory_used(&self) -> usize;
+}
+
+impl std::fmt::Debug for dyn ScriptWidget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScriptWidget")
+            .field("name", &self.name())
+            .field("language", &self.language())
+            .field("limits", &self.limits())
+            .finish()
+    }
+}
+
+/// A language: loads widgets written in it, each into a sandbox of its own.
+pub trait ScriptEngine {
+    /// The language it runs.
+    fn language(&self) -> Language;
+    /// Loads a widget from `code` with `limits`. Loading runs the widget's own setup under
+    /// the same limits as a call.
+    fn load(&self, code: &[u8], limits: Limits) -> Result<Box<dyn ScriptWidget>, ScriptError>;
+}
+
+/// The script engines an app or a board enables, by language.
+#[derive(Clone, Default)]
+pub struct Engines {
+    engines: BTreeMap<Language, Rc<dyn ScriptEngine>>,
+}
+
+impl std::fmt::Debug for Engines {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.engines.keys()).finish()
+    }
+}
+
+impl Engines {
+    /// No engines: no scripted widget loads.
+    pub fn new() -> Engines {
+        Engines::default()
     }
 
+    /// Enables `engine` (replacing one for the same language).
+    pub fn add(&mut self, engine: Rc<dyn ScriptEngine>) {
+        self.engines.insert(engine.language(), engine);
+    }
+
+    /// With `engine` enabled.
+    pub fn with(mut self, engine: Rc<dyn ScriptEngine>) -> Engines {
+        self.add(engine);
+        self
+    }
+
+    /// The engine for `language`.
+    pub fn get(&self, language: &Language) -> Option<Rc<dyn ScriptEngine>> {
+        self.engines.get(language).cloned()
+    }
+
+    /// Whether widgets in `language` are accepted.
+    pub fn accepts(&self, language: &Language) -> bool {
+        self.engines.contains_key(language)
+    }
+
+    /// The enabled languages.
+    pub fn languages(&self) -> Vec<Language> {
+        self.engines.keys().cloned().collect()
+    }
+
+    /// Loads `package` with the engine for its language, or says it is not accepted here.
+    pub fn load(&self, package: &Package, limits: Limits) -> Result<Box<dyn ScriptWidget>, ScriptError> {
+        let Some(engine) = self.engines.get(&package.language) else {
+            let enabled = self.languages().iter().map(Language::to_string).collect::<Vec<_>>();
+            let enabled = if enabled.is_empty() { "none".to_owned() } else { enabled.join(", ") };
+            return Err(ScriptError::Unsupported(format!(
+                "{} widgets are not accepted here (accepted: {enabled})",
+                package.language
+            )));
+        };
+        engine.load(&package.code, limits)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
     #[test]
-    fn a_widget_renders_takes_settings_and_handles_its_buttons() {
-        let mut w = ScriptWidget::load(CLAPS, Limits::default()).unwrap_or_else(|e| unreachable!("{e}"));
-        assert_eq!(w.name(), "Claps");
-        assert_eq!(w.settings().len(), 2);
+    fn a_manifest_reads_its_settings_and_defaults() {
+        let m = manifest(&json!({
+            "name": "Claps",
+            "settings": [
+                { "key": "title", "label": "Title", "kind": "text", "value": "Claps" },
+                { "key": "goal", "kind": "number", "min": 1, "max": 100 },
+                { "key": "mood", "kind": "choice", "options": ["calm", "loud"] },
+            ]
+        }));
+        let Ok(m) = m else { unreachable!("{m:?}") };
+        assert_eq!(m.name, "Claps");
+        assert_eq!(m.settings.len(), 3);
         assert_eq!(
-            w.settings().get(1).map(|s| &s.kind),
+            m.settings.get(1).map(|s| &s.kind),
             Some(&SettingKind::Number { min: Some(1.0), max: Some(100.0) })
         );
-        let mut settings = serde_json::Map::new();
-        settings.insert("title".into(), "Party".into());
-        let n = w.render(&settings, &host()).unwrap_or_else(|e| unreachable!("{e}"));
-        let Node::Column { children, .. } = &n else { unreachable!("{n:?}") };
-        assert_eq!(
-            children.first(),
-            Some(&Node::Text { text: "Party".into(), style: TextStyle::Heading(2) })
-        );
-        assert_eq!(children.get(1), Some(&Node::Text { text: "0 of 10".into(), style: TextStyle::Body }));
-        let Some(Node::Button { action, .. }) = children.get(3) else { unreachable!() };
-        w.act(*action).unwrap_or_else(|e| unreachable!("{e}"));
-        w.act(*action).unwrap_or_else(|e| unreachable!("{e}"));
-        let n = w.render(&settings, &host()).unwrap_or_else(|e| unreachable!("{e}"));
-        let Node::Column { children, .. } = &n else { unreachable!() };
-        assert_eq!(children.get(1), Some(&Node::Text { text: "2 of 10".into(), style: TextStyle::Body }));
-        assert_eq!(children.get(2), Some(&Node::Progress { label: "Claps".into(), value: 0.2 }));
-        assert_eq!(children.get(4), Some(&Node::Text { text: "Hello, Sam".into(), style: TextStyle::Muted }));
-    }
-
-    #[test]
-    fn a_hostile_script_cannot_reach_files_the_network_processes_or_loaders() {
-        for probe in [
-            "io.open('x')",
-            "os.execute('x')",
-            "os.remove('x')",
-            "require('socket')",
-            "dofile('x')",
-            "loadfile('x')",
-            "package.loadlib('x')",
-            "debug.getregistry()",
-            "ui.text = nil",
-            "string.rep = nil",
+        assert_eq!(m.settings.get(1).map(|s| &s.default), Some(&json!(1.0)));
+        assert_eq!(m.settings.get(2).map(|s| &s.default), Some(&json!("calm")));
+        let given = Map::from_iter([("goal".to_owned(), json!(5))]);
+        let r = resolve_settings(&m.settings, &given);
+        assert_eq!(r.get("goal"), Some(&json!(5)));
+        assert_eq!(r.get("title"), Some(&json!("Claps")));
+        for bad in [
+            json!(5),
+            json!({ "settings": 3 }),
+            json!({ "settings": [{ "kind": "text" }] }),
+            json!({ "settings": [{ "key": "a", "kind": "choice" }] }),
+            json!({ "settings": [{ "key": "a", "kind": "rocket" }] }),
+            json!({ "settings": [{ "key": "a" }, { "key": "a" }] }),
         ] {
-            let src = format!(
-                "return {{ name = 'x', render = function(s, st, ui) {probe} return ui.text('ran') end }}"
-            );
-            let r = ScriptWidget::load(&src, Limits::default())
-                .and_then(|mut w| w.render(&serde_json::Map::new(), &host()));
-            assert!(r.is_err(), "{probe} must fail, got {r:?}");
+            assert!(matches!(manifest(&bad), Err(ScriptError::Invalid(_))), "{bad}");
         }
     }
 
     #[test]
-    fn a_script_that_never_stops_is_stopped_in_time() {
-        let src = "return { name = 'spin', render = function(s, st, ui) while true do end end }";
-        let mut w = ScriptWidget::load(src, Limits { time: Duration::from_millis(20), ..Limits::default() })
-            .unwrap_or_else(|e| unreachable!("{e}"));
-        let start = Instant::now();
-        assert_eq!(w.render(&serde_json::Map::new(), &host()), Err(ScriptError::TooSlow));
-        assert!(start.elapsed() < Duration::from_millis(500), "{:?}", start.elapsed());
-        // Loading code that spins at the top level is stopped too.
-        let r = ScriptWidget::load(
-            "while true do end",
-            Limits { time: Duration::from_millis(20), ..Limits::default() },
+    fn a_description_becomes_elements_with_handlers() {
+        let d = describe(
+            &json!({ "kind": "column", "gap": 900, "children": [
+                { "kind": "text", "text": "Hi", "style": "heading", "level": 7 },
+                { "kind": "button", "label": "Go", "on": { "vote": 2 } },
+                { "kind": "progress", "label": "P", "value": 3 },
+                { "kind": "row", "children": [ { "kind": "divider" }, { "kind": "link", "label": "L", "url": "https://x.y" } ] },
+            ] }),
+            &Limits::default(),
         );
-        assert_eq!(r.err(), Some(ScriptError::TooSlow));
+        let Ok(d) = d else { unreachable!("{d:?}") };
+        let Node::Column { gap, children } = &d.node else { unreachable!("{:?}", d.node) };
+        assert_eq!(*gap, 64.0);
+        assert_eq!(children.first(), Some(&Node::Text { text: "Hi".into(), style: TextStyle::Heading(3) }));
+        assert_eq!(children.get(1), Some(&Node::Button { label: "Go".into(), action: Action(0) }));
+        assert_eq!(children.get(2), Some(&Node::Progress { label: "P".into(), value: 1.0 }));
+        assert_eq!(d.handler(Action(0)), Ok(&json!({ "vote": 2 })));
+        assert!(matches!(d.handler(Action(1)), Err(ScriptError::Shape(_))));
     }
 
     #[test]
-    fn a_script_that_eats_memory_is_stopped_at_its_limit() {
-        let src = "return { name = 'hog', render = function(s, st, ui) local t = {} for i = 1, 1e9 do t[i] = string.rep('x', 1000) .. i end end }";
-        let limits = Limits { memory: 4 * 1024 * 1024, time: Duration::from_secs(10) };
-        let mut w = ScriptWidget::load(src, limits).unwrap_or_else(|e| unreachable!("{e}"));
-        assert_eq!(w.render(&serde_json::Map::new(), &host()), Err(ScriptError::TooBig));
-        assert!(w.memory_used() <= limits.memory + 1024 * 1024);
-    }
-
-    #[test]
-    fn what_is_not_a_widget_is_said_plainly() {
-        assert!(matches!(ScriptWidget::load("return 5", Limits::default()), Err(ScriptError::Invalid(_))));
-        assert!(matches!(ScriptWidget::load("return {", Limits::default()), Err(ScriptError::Invalid(_))));
-        assert!(matches!(
-            ScriptWidget::load("return { name = 'x' }", Limits::default()),
-            Err(ScriptError::Invalid(_))
-        ));
-        let deep = "return { name='d', render = function(s, st, ui) local n = ui.text('x') for i = 1, 200 do n = ui.column({}, { n }) end return n end }";
-        let mut w = ScriptWidget::load(deep, Limits::default()).unwrap_or_else(|e| unreachable!("{e}"));
-        assert!(matches!(w.render(&serde_json::Map::new(), &host()), Err(ScriptError::Shape(_))));
-        let odd = "return { name='o', render = function(s, st, ui) return { kind = 'iframe' } end }";
-        let mut w = ScriptWidget::load(odd, Limits::default()).unwrap_or_else(|e| unreachable!("{e}"));
-        assert!(matches!(w.render(&serde_json::Map::new(), &host()), Err(ScriptError::Shape(_))));
+    fn what_is_not_a_widget_tree_is_said_plainly() {
+        let mut deep = json!({ "kind": "text", "text": "x" });
+        for _ in 0..Limits::default().nesting {
+            deep = json!({ "kind": "column", "children": [deep] });
+        }
+        for bad in [
+            deep,
+            json!({ "kind": "iframe" }),
+            json!({ "text": "no kind" }),
+            json!({ "kind": "button", "label": "x" }),
+            json!({ "kind": "column", "children": 5 }),
+            json!({ "kind": "text", "style": "blink" }),
+            json!("text"),
+        ] {
+            assert!(matches!(describe(&bad, &Limits::default()), Err(ScriptError::Shape(_))), "{bad}");
+        }
     }
 
     #[test]
@@ -332,5 +757,30 @@ return {
         assert_eq!(small.memory, 4 * 1024 * 1024);
         assert_eq!(big.memory, 32 * 1024 * 1024);
         assert_eq!((small.time, big.time), (Duration::from_millis(4), Duration::from_millis(16)));
+        assert_eq!(small.operations_at(1000), 4000);
+        assert_eq!(Limits { operations: Some(7), ..small }.operations_at(1000), 7);
+    }
+
+    struct Echo;
+
+    impl ScriptEngine for Echo {
+        fn language(&self) -> Language {
+            Language::new("echo")
+        }
+        fn load(&self, _: &[u8], _: Limits) -> Result<Box<dyn ScriptWidget>, ScriptError> {
+            Err(ScriptError::Invalid("echo loads nothing".into()))
+        }
+    }
+
+    #[test]
+    fn engines_load_only_the_languages_they_accept() {
+        let engines = Engines::new().with(Rc::new(Echo));
+        assert!(engines.accepts(&Language::new("echo")) && !engines.accepts(&Language::RHAI));
+        let r = engines.load(&Package::rhai("x"), Limits::default());
+        let Err(ScriptError::Unsupported(why)) = r else { unreachable!("{r:?}") };
+        assert!(why.contains("Rhai") && why.contains("echo"), "{why}");
+        let r = engines.load(&Package::new(Language::new("echo"), &b""[..]), Limits::default());
+        assert!(matches!(r, Err(ScriptError::Invalid(_))));
+        assert_eq!(Language::for_extension("WASM"), Some(Language::WASM));
     }
 }
