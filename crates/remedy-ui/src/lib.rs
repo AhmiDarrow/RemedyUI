@@ -49,6 +49,8 @@ pub use remedy_ui_media_anim as anim;
 pub use remedy_ui_media_image as image;
 #[cfg(feature = "svg")]
 pub use remedy_ui_media_svg as svg;
+#[cfg(feature = "video")]
+pub use remedy_ui_media_video as video;
 pub use remedy_ui_reactive as reactive;
 #[cfg(feature = "i18n")]
 pub use remedy_ui_services_i18n as i18n;

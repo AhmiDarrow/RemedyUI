@@ -3513,6 +3513,7 @@ dependencies = [
  "remedy-ui-media-anim",
  "remedy-ui-media-image",
  "remedy-ui-media-svg",
+ "remedy-ui-media-video",
  "remedy-ui-paint",
  "remedy-ui-reactive",
  "remedy-ui-render-cpu",
@@ -3768,6 +3769,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-media-video"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-a11y",
+ "remedy-ui-compositor",
+ "remedy-ui-core",
+ "remedy-ui-devtools",
+ "remedy-ui-fonts",
+ "remedy-ui-input",
+ "remedy-ui-paint",
+ "remedy-ui-reactive",
+ "remedy-ui-render-cpu",
+ "remedy-ui-text",
+ "remedy-ui-themes",
+ "remedy-ui-view",
+]
+
+[[package]]
 name = "remedy-ui-motion"
 version = "0.1.0"
 dependencies = [
@@ -3952,6 +3971,7 @@ version = "0.1.0"
 dependencies = [
  "remedy-ui-core",
  "remedy-ui-style",
+ "serde_json",
 ]
 
 [[package]]

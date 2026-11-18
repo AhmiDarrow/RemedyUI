@@ -30,7 +30,7 @@ Every widget is built only from public engine APIs: the same ones an app uses fo
 | `media-image` | Image decoding per format feature (`png`, `jpeg`, `webp`, `avif`, `gif`, `ico`) | Most apps |
 | `media-anim` | `animated` (GIF, WebP, APNG), `vector_animation` (Lottie-class) | FreeSpeak, onboarding screens |
 | `media-svg` | SVG icons and illustrations; icon sets as SVG | Most apps |
-| `media-video` | `video_surface` (NV12, I420, RGBA; zero-copy GPU import), `external_texture` | FreeSpeak screen share, Portal, Quickcast |
+| `media-video` | `video_surface` (NV12, I420, RGBA; planes go to the GPU as they are and are converted there); the app's own GPU textures are `embed-gpu`'s ([10](10-platform-bridges.md)) | FreeSpeak screen share, Portal, Quickcast |
 | `media-playback` | `player`: a transport bar (play, pause, seek with buffered ranges, volume, speed), subtitles track rendering (WebVTT, SRT, ASS basics) and next-up. Decoding goes through the bridges' `MediaHost` (Media Foundation, AVFoundation, MediaCodec, the system's GStreamer on Linux, which is loaded from the OS and never bundled); an app can plug in its own | Portal, Quickcast |
 | `viz` | `meter`, `pitch_graph`, `waveform`, `spectrum`, `needle_gauge`, `sparkline`, `line_chart`, `bar_chart`, `timeline`; retained primitives drawn by the compositor from streaming ring buffers ([09](09-performance-and-resources.md)) | FreeSpeak voice ring, VoiceRemedy, GuitarRemedy tuner, RemedyAI usage dashboard, RemedyOS Monitor |
 | `widgets-music` | `fretboard`, `tab_staff`, `chord_diagram`, `note_staff` (on `canvas` + `viz`) | GuitarRemedy, VoiceRemedy |

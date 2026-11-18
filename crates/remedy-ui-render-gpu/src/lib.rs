@@ -17,6 +17,7 @@ mod ffi;
 mod images;
 mod renderer;
 mod surface;
+mod video;
 
 pub use cache::PipelineCacheStore;
 pub use composite::GpuCompositor;

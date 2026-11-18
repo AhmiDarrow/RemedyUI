@@ -8,12 +8,16 @@
 //! - [`high_contrast`]: a theme's high-contrast form, for the system setting.
 //! - [`sheet`]: the style sheet for RemedyUI's widgets, built only from theme tokens, so a
 //!   user's edits to a theme restyle every widget.
+//! - [`to_tokens`] and [`from_tokens`]: themes as W3C design-tokens files, for a user's own
+//!   themes and for apps mapping their skin formats.
 
 mod palettes;
 mod sheet;
+mod tokens;
 
 pub use palettes::{PALETTES, Palette};
 pub use sheet::sheet;
+pub use tokens::{TokenError, from_tokens, to_tokens};
 
 use remedy_ui_core::Color;
 use remedy_ui_style::Theme;

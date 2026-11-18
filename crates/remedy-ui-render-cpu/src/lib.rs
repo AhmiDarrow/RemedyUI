@@ -22,7 +22,7 @@ use std::sync::Arc;
 use remedy_ui_core::{Color, CornerRadii, Point, Rect};
 use remedy_ui_paint::{
     Affine, Blend, Brush, DisplayList, GlyphRun, Image, Item, Path, PathEl, Sampling, Stroke, StrokeCap,
-    StrokeJoin,
+    StrokeJoin, VideoFrame,
 };
 use remedy_ui_text::{Antialias, GlyphRasterizer, Hinting, size_64, subpixel_bin};
 use vello_cpu::color::{AlphaColor, Srgb};
@@ -99,6 +99,11 @@ pub struct Painter {
     images: HashMap<u64, (std::sync::Weak<[u8]>, Arc<Pixmap>)>,
     /// Images dropped since the last [`Painter::take_evicted`], for caches downstream.
     evicted: Vec<u64>,
+    /// Video streams drawn: the latest frame's id and bytes (gone when nothing holds them),
+    /// and its CPU conversion once made.
+    videos: HashMap<u64, VideoEntry>,
+    /// Streams whose frames are all gone since the last [`Painter::take_evicted_videos`].
+    evicted_videos: Vec<u64>,
     next_glyph: u64,
 }
 
@@ -224,6 +229,16 @@ fn kstroke(s: &Stroke) -> kurbo::Stroke {
 }
 
 /// Premultiplied RGBA8 pixels as a pixmap, or `None` if the sizes do not fit.
+/// A video stream the painter has drawn.
+struct VideoEntry {
+    /// Its latest frame.
+    id: u64,
+    /// That frame's bytes; when nothing holds them the stream is gone.
+    data: std::sync::Weak<[u8]>,
+    /// The frame converted on the CPU, when the surface did not convert it.
+    pixmap: Option<Arc<Pixmap>>,
+}
+
 fn pixmap_from(width: u32, height: u32, rgba: Vec<u8>) -> Option<Pixmap> {
     let (w, h) = (u16::try_from(width).ok()?, u16::try_from(height).ok()?);
     if rgba.len() != width as usize * height as usize * 4 || w == 0 || h == 0 {
@@ -315,6 +330,8 @@ impl Painter {
             glyphs: HashMap::new(),
             images: HashMap::new(),
             evicted: Vec::new(),
+            videos: HashMap::new(),
+            evicted_videos: Vec::new(),
             next_glyph: 0,
         }
     }
@@ -331,6 +348,20 @@ impl Painter {
             live
         });
         debug_assert!(self.images.len() + self.evicted.len() >= before);
+        let gone = &mut self.evicted_videos;
+        self.videos.retain(|stream, v| {
+            let live = v.data.strong_count() > 0;
+            if !live {
+                gone.push(*stream);
+            }
+            live
+        });
+    }
+
+    /// Video streams whose frames are all gone since the last call, so a renderer can free
+    /// what it keeps for them.
+    pub fn take_evicted_videos(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.evicted_videos)
     }
 
     /// The ids of images dropped from the cache since the last call, so a renderer can free
@@ -417,6 +448,7 @@ impl Painter {
                 Item::Image { image, rect, radii, sampling } => {
                     self.image(s, image, *rect, *radii, *sampling)
                 }
+                Item::Video { frame, rect, radii } => self.video(s, frame, *rect, *radii),
                 Item::PushClip { rect, radii } => s.push_clip_layer(&rounded(*rect, *radii)),
                 Item::PopClip => s.pop_layer(),
                 Item::PopLayer => {
@@ -475,6 +507,54 @@ impl Painter {
                 ..Default::default()
             },
         });
+        ctx.set_paint_transform(
+            kurbo::Affine::translate((f64::from(rect.min.x), f64::from(rect.min.y)))
+                * kurbo::Affine::scale_non_uniform(sx, sy),
+        );
+        ctx.fill_path(&rounded(rect, radii));
+    }
+
+    /// Draws a video frame: converted by the surface when it can, else here (once per frame).
+    fn video<S: Surface>(&mut self, ctx: &mut S, frame: &VideoFrame, rect: Rect, radii: CornerRadii) {
+        if !frame.is_valid() {
+            return;
+        }
+        let entry = self.videos.entry(frame.stream).or_insert_with(|| VideoEntry {
+            id: frame.id,
+            data: Arc::downgrade(&frame.data),
+            pixmap: None,
+        });
+        if entry.id != frame.id {
+            *entry = VideoEntry { id: frame.id, data: Arc::downgrade(&frame.data), pixmap: None };
+        }
+        let source = match ctx.video_source(frame) {
+            Some(s) => s,
+            None => {
+                let pix = match &entry.pixmap {
+                    Some(p) => p.clone(),
+                    None => {
+                        let Some(p) =
+                            frame.to_rgba().and_then(|rgba| pixmap_from(frame.width, frame.height, rgba))
+                        else {
+                            return;
+                        };
+                        let p = Arc::new(p);
+                        entry.pixmap = Some(p.clone());
+                        p
+                    }
+                };
+                let Some(s) = ctx.image_source(ImageKey::Video(frame.stream, frame.id), &pix, true) else {
+                    return;
+                };
+                s
+            }
+        };
+        ctx.set_paint(vello_cpu::Image {
+            image: source,
+            sampler: ImageSampler { quality: ImageQuality::Medium, ..Default::default() },
+        });
+        let sx = f64::from(rect.width()) / f64::from(frame.width.max(1));
+        let sy = f64::from(rect.height()) / f64::from(frame.height.max(1));
         ctx.set_paint_transform(
             kurbo::Affine::translate((f64::from(rect.min.x), f64::from(rect.min.y)))
                 * kurbo::Affine::scale_non_uniform(sx, sy),
