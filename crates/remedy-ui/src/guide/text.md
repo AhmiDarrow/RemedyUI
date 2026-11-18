@@ -1,0 +1,269 @@
+# Text and input methods
+
+RemedyUI shapes text itself, with full bidi, variable and color fonts, and fallback to the
+system's fonts for scripts the bundled Remedy families lack (feature `system-fonts`, on by
+default; feature `complex-scripts` adds dictionary line breaking for Thai, Lao, Khmer and
+Burmese). Glyphs are hinted and rasterized by the engine, in grayscale or LCD.
+
+This page covers showing text, rich text, editable fields, secrets, input methods, and the
+defenses against text that deceives.
+
+The samples run in a window on the in-memory host with
+[`TestApp`](crate::testing::TestApp), the way an app's own tests do (see
+[`crate::guide::testing`]).
+
+## Showing text
+
+- [`widgets::text`](crate::widgets::text): body text that wraps to its width.
+- [`widgets::text`](crate::widgets::text) with a [variant](crate::El::variant): `muted`,
+  `small`, `error`, `strong` or `code` (monospace, in a box).
+- [`widgets::heading`](crate::widgets::heading): a heading, level 1 to 3, which screen
+  readers can jump between.
+- [`widgets::link`](crate::widgets::link): text that does something when activated.
+
+Any element shows text with [`El::text`](crate::El::text), or text that follows signals with
+a closure or a signal given to [`El::text`](crate::El::text) (`.text(move || ..)`). [`El::nowrap`](crate::El::nowrap) keeps it on one
+line.
+
+```
+use remedy_ui::testing::TestApp;
+use remedy_ui::widgets as w;
+
+let mut app = TestApp::window(|ui, _| {
+    ui.root()
+        .child(w::heading(ui, 1, "Backups"))
+        .child(w::text(ui, "Your files are copied every night."))
+        .child(w::text(ui, "Last copy: 02:00").variant("muted"))
+        .child(w::link(ui, "Show the log", || {}));
+});
+let Some(ui) = app.ui() else { unreachable!("the window is open") };
+let names: Vec<String> = ui.reader_view().into_iter().filter_map(|n| n.name).collect();
+assert_eq!(names, ["Backups", "Your files are copied every night.", "Last copy: 02:00", "Show the log"]);
+```
+
+## Rich text
+
+[`RichText`](crate::view::RichText) is a string with styled spans and inline objects. Spans
+take a [`TextStylePatch`](crate::view::TextStylePatch): size, weight, italic, color, underline,
+strikethrough, letter spacing, OpenType features, families, and a link.
+
+```
+use remedy_ui::view::{RichText, TextStylePatch};
+
+let line = RichText::new()
+    .text("Saved to ")
+    .styled("Documents", TextStylePatch::bold())
+    .text(" just now");
+assert_eq!(line.as_str(), "Saved to Documents just now");
+assert_eq!(line.spans().len(), 1);
+```
+
+Pass it to [`El::text`](crate::El::text). Markdown and a rich text editor are in the
+`rich` feature; see [`crate::guide::documents`].
+
+## Editable fields
+
+A field is a [`TextField`](crate::TextField): a handle to an element with an editor inside.
+It keeps its own text, selection, undo history and input-method composition. Read it with
+[`TextField::value`](crate::TextField::value), set it with
+[`TextField::set_value`](crate::TextField::set_value), and hear about edits with
+[`TextField::on_change`](crate::TextField::on_change). The widgets give each kind its look and
+label:
+
+- [`widgets::text_input`](crate::widgets::text_input): one line; Enter calls
+  [`TextField::on_submit`](crate::TextField::on_submit).
+- [`widgets::text_area`](crate::widgets::text_area): several lines; Enter breaks the line.
+- [`widgets::search`](crate::widgets::search): a search box; Escape clears it.
+- [`widgets::secret_input`](crate::widgets::secret_input): passwords and keys (below).
+- [`widgets::field`](crate::widgets::field): a label above any control.
+
+```
+use remedy_ui::testing::TestApp;
+use remedy_ui::reactive::Signal;
+use remedy_ui::widgets as w;
+use std::cell::OnceCell;
+use std::rc::Rc;
+
+let typed = Signal::new(String::new());
+let slot = Rc::new(OnceCell::new());
+let s = slot.clone();
+let mut app = TestApp::window(move |ui, _| {
+    let name = w::text_input(ui, "Name").placeholder("Ada Lovelace");
+    let n = name.clone();
+    let name = name.on_change(move || typed.set(n.value()));
+    let _ = s.set(name.clone());
+    ui.root().child(name.el());
+});
+let Some(ui) = app.ui() else { unreachable!("the window is open") };
+let Some(name) = slot.get() else { unreachable!("built") };
+let Some(window) = app.host().window_ids().first().copied() else { unreachable!("open") };
+
+// A person types "Grace" (here committed in one go, as an input method or paste would).
+name.el().focus();
+app.host().compose_and_commit(window, "", "Grace");
+app.frames(1);
+assert_eq!(name.value(), "Grace");
+assert_eq!(typed.get(), "Grace", "on_change heard the edit");
+
+// The field is a text input to screen readers, named by its label, valued by its text.
+let node = ui.reader_view().into_iter().find(|n| n.name.as_deref() == Some("Name"));
+assert_eq!(node.and_then(|n| n.value), Some("Grace".to_string()));
+
+// The app's own changes do not call `on_change`; they start a fresh undo history.
+name.set_value("Ada");
+assert_eq!((name.value(), typed.get()), ("Ada".to_string(), "Grace".to_string()));
+```
+
+A field is not bound to a signal: it owns its text, so typing never round-trips through
+app state. Copy its value out in `on_change` (as above) or read it when you need it, such as
+in `on_submit`. [`TextField::on_change`](crate::TextField::on_change) hears what people do;
+[`TextField::observe_text`](crate::TextField::observe_text) hears every change, the app's
+included.
+
+## Input methods
+
+People who write Chinese, Japanese, Korean, Vietnamese and many other languages type
+through an input method: they compose a few keystrokes, pick a candidate, and commit it. A
+focused field opens an input-method session with the platform (TSF on Windows, the platform
+equivalents elsewhere), shows the composition in place, and places the candidate window at
+the caret. Nothing in the app has to change for this.
+
+The in-memory host plays an input method, so tests can check what a person typing through
+one would get:
+
+```
+use remedy_ui::testing::TestApp;
+use remedy_ui::widgets as w;
+use std::cell::OnceCell;
+use std::rc::Rc;
+
+let slot = Rc::new(OnceCell::new());
+let s = slot.clone();
+let mut app = TestApp::window(move |ui, _| {
+    let message = w::text_input(ui, "Message");
+    ui.root().child(message.el());
+    message.el().focus();
+    let _ = s.set(message);
+});
+let Some(window) = app.host().window_ids().first().copied() else { unreachable!("open") };
+assert!(app.host().window(window).is_some_and(|w| w.text_input().is_some()), "focus opened a session");
+
+app.host().compose_and_commit(window, "nihao", "你好");
+app.frames(1);
+assert_eq!(slot.get().map(|f| f.value()), Some("你好".to_string()));
+```
+
+## Secrets
+
+[`widgets::secret_input`](crate::widgets::secret_input) is for passwords, keys and recovery
+phrases. Its text:
+
+- is masked, unless the person turns on [`widgets::reveal_toggle`](crate::widgets::reveal_toggle);
+- lives in a buffer that is wiped when it is dropped, and is never copied to the clipboard;
+- goes to the platform only as a private input session: no composition, no learning, no
+  prediction, and none of the text around the caret;
+- is never given to screen readers, agents or the devtools: they see a password input and
+  its label, never its value.
+
+Take the value with [`TextField::take_secret`](crate::TextField::take_secret), which empties
+the field and hands over a [`SecretString`](crate::text::SecretString) that wipes itself.
+
+```
+use remedy_ui::testing::TestApp;
+use remedy_ui::widgets as w;
+use std::cell::OnceCell;
+use std::rc::Rc;
+
+let slot = Rc::new(OnceCell::new());
+let s = slot.clone();
+let mut app = TestApp::window(move |ui, _| {
+    let password = w::secret_input(ui, "Master password");
+    let row = w::row(ui).child(password.el()).child(w::reveal_toggle(ui, &password));
+    ui.root().child(row);
+    password.el().focus();
+    let _ = s.set(password);
+});
+let Some(ui) = app.ui() else { unreachable!("the window is open") };
+let Some(password) = slot.get() else { unreachable!("built") };
+let Some(window) = app.host().window_ids().first().copied() else { unreachable!("open") };
+let private = app.host().window(window).and_then(|w| w.text_input()).is_some_and(|s| s.private && s.surrounding.is_empty());
+assert!(private, "the platform is told: no learning, no prediction, and no text around the caret");
+// The person types it, key by key: secret fields take no input method.
+app.type_text("correct horse");
+
+let reader = ui.reader_view();
+let Some(node) = reader.iter().find(|n| n.name.as_deref() == Some("Master password")) else {
+    unreachable!("the field is in the tree")
+};
+assert_eq!(node.value, None, "a screen reader never gets the password");
+
+let secret = password.take_secret();
+assert_eq!(secret.expose(), "correct horse");
+assert!(password.is_empty(), "taking it empties the field");
+```
+
+## Text that deceives
+
+Text from other people can lie about itself. Bidi control characters can make a file name
+display as something it is not, and look-alike letters from other scripts can make one name
+pass for another. [`text::reveal_controls`](crate::text::reveal_controls) shows hidden
+controls in text the app marks as security-sensitive, and
+[`text::looks_like`](crate::text::looks_like) tells when two different names would look the
+same on screen:
+
+```
+use remedy_ui::text::{Reveal, looks_like, reveal_controls};
+
+let attachment = "invoice\u{202E}fdp.exe"; // displays as "invoiceexe.pdf"
+assert_eq!(reveal_controls(attachment, Reveal::default()), "invoice⟨RLO⟩fdp.exe");
+
+assert!(looks_like("paypal", "раураl"), "Cyrillic р, а and у");
+assert!(!looks_like("paypal", "paypal"));
+```
+
+Use them on usernames, room names, domains and file names before people act on them.
+
+## Locales and pseudo-locales
+
+[`Ui::set_locale`](crate::Ui::set_locale) (or [`App::set_locale`](crate::App::set_locale)
+for every window) sets the language text is shaped and broken in. Two pseudo-locales check
+layouts before translations exist: `en-XA` makes the app's own strings accented, longer and
+bracketed, and `ar-XB` forces them right to left. They rewrite labels, headings and
+placeholders, never what people type, and never text marked as data with
+[`El::data_text`](crate::El::data_text) (names, dates, file names).
+
+```
+use remedy_ui::testing::TestApp;
+use remedy_ui::widgets as w;
+use std::cell::OnceCell;
+use std::rc::Rc;
+
+let slots = Rc::new((OnceCell::new(), OnceCell::new()));
+let s = slots.clone();
+let mut app = TestApp::window(move |ui, _| {
+    let label = w::text(ui, "Settings").nowrap();
+    let file = w::text(ui, "report.pdf").nowrap().data_text();
+    let _ = (s.0.set(label.clone()), s.1.set(file.clone()));
+    ui.root().child(w::column(ui).align(remedy_ui::layout::Align::Start).child(label).child(file));
+});
+let Some(ui) = app.ui() else { unreachable!("the window is open") };
+let width = |slot: &OnceCell<remedy_ui::El>| slot.get().and_then(|e| e.bounds()).map_or(0.0, |b| b.width());
+let before = (width(&slots.0), width(&slots.1));
+
+ui.set_locale("en-XA");
+app.frames(1);
+assert!(width(&slots.0) > before.0, "the app's string got longer, as translations do");
+assert_eq!(width(&slots.1), before.1, "data is left alone");
+```
+
+Pseudo-locales change only what is drawn. Screen readers and agents still get the real
+strings.
+
+For translations themselves, use Fluent message files through [`i18n`](crate::i18n)
+(feature `i18n`, on with `forms`); `cargo remedy new` sets this up.
+
+## Spell checking
+
+Feature `spell` adds [`spell`](crate::spell): the platform's checker or Hunspell
+dictionaries, run off the UI thread, with misspellings underlined in a field as people type
+and corrections in its context menu ([`spell::SpellCheckField`](crate::spell::SpellCheckField)).

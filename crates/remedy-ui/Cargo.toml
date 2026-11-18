@@ -160,12 +160,19 @@ remedy-ui-bridge-android = { path = "../remedy-ui-bridge-android", version = "0.
 remedy-ui-bridge-web = { path = "../remedy-ui-bridge-web", version = "0.1.0", optional = true }
 
 [dev-dependencies]
-# Tests run the customization layer through the app (`App::customizations`).
-remedy-ui = { path = ".", features = ["customize", "markup", "macros", "agents", "headless"] }
 remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "0.1.0" }
 
 [target.'cfg(windows)'.dev-dependencies]
 remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "0.1.0" }
+
+# Tests, examples and the guide's doctests build with every pack, so `cargo test` checks all of them.
+[target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dev-dependencies]
+remedy-ui = { path = ".", features = ["full"] }
+
+# On Android and the web (linted, not tested there), the packs the tests and examples use; the
+# packs that build C or C++ need toolchains those lints do not set up.
+[target.'cfg(any(target_os = "android", target_arch = "wasm32"))'.dev-dependencies]
+remedy-ui = { path = ".", features = ["customize", "markup", "macros", "agents", "headless", "data", "viz", "pages"] }
 
 [lints]
 workspace = true

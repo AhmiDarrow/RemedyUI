@@ -19,17 +19,27 @@
 //! [`App`] handle and [`Window`] handles; what they ask happens right after the event that
 //! asked. Window geometry can persist under a key, timers run app code later, and the app
 //! keeps running with no windows when it says so (tray apps).
+//!
+//! The [`guide`] holds the guides, porting guides and recipes, starting with
+//! [`guide::getting_started`].
 
 #[cfg(feature = "customize")]
 mod customizations;
 mod geometry;
+pub mod guide;
 mod instance;
+
 #[cfg(feature = "widgets")]
 mod movable;
 mod runner;
 /// Driving an app in tests on the in-memory host: find by role and name, press, type.
 #[cfg(all(feature = "headless", feature = "widgets"))]
 pub mod testing;
+
+// The README's code is compiled with the doctests, so it cannot drift from the API either.
+#[cfg(doctest)]
+#[doc = include_str!("../../../README.md")]
+struct ReadmeDoctests;
 
 pub use geometry::GeometryStore;
 #[cfg(feature = "widgets")]
