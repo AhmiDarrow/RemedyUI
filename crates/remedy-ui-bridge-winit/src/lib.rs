@@ -47,6 +47,19 @@ pub trait PlatformHooks: 'static {
     fn set_clipboard_text(&mut self, text: &str, sensitive: bool) -> Result<(), Unsupported>;
     /// Empties the clipboard.
     fn clear_clipboard(&mut self) -> Result<(), Unsupported>;
+    /// The machine's physical memory in bytes.
+    fn total_memory(&self) -> Option<u64> {
+        None
+    }
+    /// The clipboard's HTML, if it holds formatted text.
+    fn clipboard_html(&mut self) -> Result<Option<String>, Unsupported> {
+        Err(Unsupported::new("clipboard_html", "this platform reads plain text only"))
+    }
+    /// Writes formatted text: `text` for every app, `html` for apps that paste formatting.
+    fn set_clipboard_html(&mut self, text: &str, html: &str) -> Result<(), Unsupported> {
+        let _ = html;
+        self.set_clipboard_text(text, false)
+    }
     /// Keeps a window out of screenshots and screen sharing.
     fn set_capture_protected(&mut self, window: &Window, on: bool) -> Result<(), Unsupported>;
     /// Called once per new window, before it is shown, for platform setup.
@@ -212,6 +225,10 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
     fn settings(&self) -> SystemSettings {
         // Read from the platform at start and again on every change notification.
         self.state.settings.clone()
+    }
+
+    fn total_memory(&self) -> Option<u64> {
+        self.hooks.total_memory()
     }
 
     fn local_time(&self) -> remedy_ui_host::LocalTime {
@@ -534,6 +551,14 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
 
     fn clear_clipboard(&mut self) -> Result<(), Unsupported> {
         self.hooks.clear_clipboard()
+    }
+
+    fn clipboard_html(&mut self) -> Result<Option<String>, Unsupported> {
+        self.hooks.clipboard_html()
+    }
+
+    fn set_clipboard_html(&mut self, text: &str, html: &str) -> Result<(), Unsupported> {
+        self.hooks.set_clipboard_html(text, html)
     }
 
     fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported> {

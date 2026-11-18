@@ -61,6 +61,18 @@ mod hooks {
             os::set_clipboard_text(text, sensitive)
         }
 
+        fn clipboard_html(&mut self) -> Result<Option<String>, Unsupported> {
+            Ok(os::clipboard_html())
+        }
+
+        fn total_memory(&self) -> Option<u64> {
+            Some(objc2_foundation::NSProcessInfo::processInfo().physicalMemory()).filter(|n| *n > 0)
+        }
+
+        fn set_clipboard_html(&mut self, text: &str, html: &str) -> Result<(), Unsupported> {
+            os::set_clipboard_html(text, html)
+        }
+
         fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
             os::tray::set(tray)
         }

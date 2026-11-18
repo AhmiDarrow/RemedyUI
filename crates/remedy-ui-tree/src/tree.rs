@@ -548,6 +548,12 @@ impl Tree {
         self.edit(id, |n| n.handlers.retain(|h| h.id != handler))
     }
 
+    /// Drops every handler on `id` (an element going away for good, or the root of a window
+    /// being torn down).
+    pub fn clear_handlers(&self, id: ElementId) -> Result<(), TreeError> {
+        self.edit(id, |n| n.handlers.clear())
+    }
+
     /// Dispatches `event` to `target`: capture handlers from the root down, then the target's
     /// handlers, then bubble handlers up to the root. Handlers run in one reactive batch, so
     /// what they change updates once. A panicking handler is caught by its nearest error

@@ -374,6 +374,10 @@ pub struct GlyphRunInfo {
     pub range: Range<usize>,
     /// The glyphs.
     pub glyphs: Vec<PositionedGlyph>,
+    /// The underline to draw under the run, from the paragraph's top-left, if it has one.
+    pub underline: Option<Rect>,
+    /// The line through the run, if it has one.
+    pub strikethrough: Option<Rect>,
 }
 
 /// A laid-out paragraph: lines, glyph runs, inline objects, and caret geometry.
@@ -486,6 +490,21 @@ impl Paragraph {
                 let font = r.font();
                 let shaped = r.text_range();
                 let range = rs.range.start.max(shaped.start)..rs.range.end.min(shaped.end);
+                // Decorations: a line under the text and one through its middle, as thick as
+                // the size asks (at least a pixel), placed from the span's metrics.
+                let size = r.font_size();
+                let metrics = run.span_metrics();
+                let thick = (size / 14.0).max(1.0);
+                let (x, baseline, width) = (run.offset(), run.baseline(), run.advance());
+                let bar = |offset: f32, d: &parley::layout::Decoration<u32>| {
+                    let t = d.size.unwrap_or(thick);
+                    let y = baseline - d.offset.unwrap_or(offset);
+                    Rect::new(x, y - t / 2.0, x + width, y + t / 2.0)
+                };
+                let below = -(metrics.descent.abs() * 0.4).max(thick);
+                let middle = if metrics.x_height > 0.0 { metrics.x_height / 2.0 } else { size * 0.25 };
+                let underline = style.underline.as_ref().map(|d| bar(below, d));
+                let strikethrough = style.strikethrough.as_ref().map(|d| bar(middle, d));
                 out.push(GlyphRunInfo {
                     font: RunFont { data: font.data.clone(), index: font.index },
                     size: r.font_size(),
@@ -497,6 +516,8 @@ impl Paragraph {
                         .positioned_glyphs()
                         .map(|g| PositionedGlyph { id: g.id, x: g.x, y: g.y })
                         .collect(),
+                    underline,
+                    strikethrough,
                 });
             }
         }
@@ -531,6 +552,18 @@ impl Paragraph {
             .find(|r| r.range.contains(&pos.index))
             .filter(|r| self.selection_rects(r.range.clone()).iter().any(|rect| rect.contains(point)))
             .and_then(|r| r.link)
+    }
+
+    /// Rectangles covering the text of link `link`, one or more per line it is on, in visual
+    /// order; empty when no text carries it.
+    pub fn link_rects(&self, link: u64) -> Vec<Rect> {
+        let runs: Vec<Range<usize>> =
+            self.glyph_runs().into_iter().filter(|r| r.link == Some(link)).map(|r| r.range).collect();
+        let (Some(start), Some(end)) = (runs.iter().map(|r| r.start).min(), runs.iter().map(|r| r.end).max())
+        else {
+            return Vec::new();
+        };
+        self.selection_rects(start..end)
     }
 
     /// The caret's rectangle at `pos`, `width` logical pixels wide.

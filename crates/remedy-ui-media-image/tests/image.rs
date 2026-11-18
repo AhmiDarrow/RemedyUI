@@ -237,3 +237,98 @@ fn an_edited_file_shows_its_new_pixels() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn other_decoders_can_finish_their_pixels_the_way_decode_does() {
+    // Straight-alpha 4×2 pixels: the top row opaque, the bottom half transparent.
+    let rgba: Vec<u8> =
+        (0..8).flat_map(|x| if x < 4 { [200, 100, 50, 255] } else { [200, 100, 50, 128] }).collect();
+    let img = finish_rgba(4, 2, &rgba, None, None).unwrap_or_else(|e| unreachable!("{e}"));
+    assert_eq!((img.width, img.height), (4, 2));
+    assert_eq!(px(&img, 0, 0), [200, 100, 50, 255]);
+    assert_eq!(px(&img, 3, 1), [100, 50, 25, 128], "premultiplied");
+    // Scaled down, never up.
+    let small = finish_rgba(4, 2, &rgba, None, Some((2, 1))).unwrap_or_else(|e| unreachable!("{e}"));
+    assert_eq!((small.width, small.height), (2, 1));
+    let same = finish_rgba(4, 2, &rgba, None, Some((40, 20))).unwrap_or_else(|e| unreachable!("{e}"));
+    assert_eq!((same.width, same.height), (4, 2));
+    // Pixels that do not fit the size are an error.
+    assert!(matches!(finish_rgba(5, 5, &rgba, None, None), Err(DecodeError::Malformed(_))));
+    // A color profile is read once and applied to every frame.
+    let p3 = moxcms::ColorProfile::new_display_p3().encode().unwrap_or_else(|e| unreachable!("{e:?}"));
+    let srgb = Srgb::from_profile(&p3).unwrap_or_else(|| unreachable!("a profile"));
+    let converted =
+        finish_rgba(1, 1, &[40, 160, 90, 255], Some(&srgb), None).unwrap_or_else(|e| unreachable!("{e}"));
+    assert_ne!(px(&converted, 0, 0), [40, 160, 90, 255]);
+    assert!(Srgb::from_profile(b"not a profile").is_none());
+}
+
+#[test]
+fn an_image_element_can_take_its_pixels_from_another_supplier() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    let ui = ui();
+    let asked: Rc<Cell<Option<(u32, u32)>>> = Rc::default();
+    let dropped: Rc<Cell<bool>> = Rc::default();
+    struct Guard(Rc<Cell<bool>>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            self.0.set(true);
+        }
+    }
+    let (a2, d2) = (asked.clone(), dropped.clone());
+    let loader: Loader = Rc::new(move |_, box_px, _, state| {
+        a2.set(box_px);
+        // Frames arrive one after the other; the element draws each.
+        let pixels: std::sync::Arc<[u8]> = std::sync::Arc::from(vec![0, 0, 255, 255, 0, 0, 255, 255]);
+        state.set(ImageState::Ready(remedy_ui_paint::Image::new(2, 1, pixels), (2, 1)));
+        Box::new(Guard(d2.clone()))
+    });
+    let bytes: Arc<[u8]> = Arc::from(png(2, 1, |_, _| [0, 0, 255, 255], None));
+    let el = image_with(&ui, Source::Bytes(bytes), "Supplied", Fit::Contain, loader).width(20.0).height(10.0);
+    ui.root().child(el.clone());
+    settle(&ui);
+    assert!(asked.get().is_some_and(|(w, h)| w >= 20 && h >= 10));
+    assert_eq!(el.info().map(|i| i.variant), Some(""), "ready");
+    assert!(!dropped.get());
+    el.remove();
+    assert!(dropped.get(), "the supplier is let go with the element");
+}
+
+#[test]
+fn sources_are_told_apart_and_files_notice_edits() {
+    let bytes: Arc<[u8]> = Arc::from(png(1, 1, |_, _| [1, 2, 3, 255], None));
+    let a = Source::Bytes(bytes.clone());
+    assert_eq!(a.id(), Source::Bytes(bytes).id());
+    assert_ne!(a.id(), Source::Bytes(Arc::from(png(1, 1, |_, _| [1, 2, 3, 255], None))).id());
+    assert!(a.stamp().is_none());
+    let dir = std::env::temp_dir().join(format!("remedy-image-id-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("a.png");
+    let _ = std::fs::write(&path, png(2, 2, |_, _| [1, 2, 3, 255], None));
+    let file = Source::File(path.clone());
+    let (read, stamp) = file.read().unwrap_or_else(|e| unreachable!("{e}"));
+    assert_eq!(stamp, file.stamp());
+    assert_eq!(dimensions(&read).ok(), Some((2, 2)));
+    std::thread::sleep(Duration::from_millis(20));
+    let _ = std::fs::write(&path, png(4, 2, |_, _| [1, 2, 3, 255], None));
+    assert_ne!(stamp, file.stamp(), "an edited file has another stamp");
+    let d = decode_for_box(&read, Some((1, 1)), false).unwrap_or_else(|e| unreachable!("{e}"));
+    assert_eq!((d.image.width, d.image.height), (1, 1));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn work_can_be_queued_on_the_image_workers() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    spawn_job(Arc::new(std::sync::atomic::AtomicBool::new(false)), move || {
+        let _ = tx.send(7);
+    });
+    assert_eq!(rx.recv_timeout(Duration::from_secs(5)).ok(), Some(7));
+    // A job cancelled before it runs is skipped.
+    let (tx, rx) = std::sync::mpsc::channel();
+    spawn_job(Arc::new(std::sync::atomic::AtomicBool::new(true)), move || {
+        let _ = tx.send(8);
+    });
+    assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
+}

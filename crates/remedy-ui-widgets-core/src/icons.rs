@@ -83,6 +83,30 @@ pub enum Icon {
     Users,
     /// A screen on a stand (a computer).
     Monitor,
+    /// A heavy B: bold text.
+    Bold,
+    /// A slanted I: italic text.
+    Italic,
+    /// An S with a line through it: struck-through text.
+    Strike,
+    /// Angle brackets: code.
+    Code,
+    /// Two chain links: a link.
+    Link,
+    /// Dots and lines: a bulleted list.
+    ListBullet,
+    /// Numbered lines: a numbered list.
+    ListNumber,
+    /// Boxes and lines: a task list.
+    ListTask,
+    /// A quotation mark and a bar: a quote.
+    Quote,
+    /// A box with angle brackets: a block of code.
+    CodeBlock,
+    /// An H: a heading.
+    Heading,
+    /// An at sign: mention someone.
+    At,
 }
 
 fn p(x: f32, y: f32) -> Point {
@@ -337,6 +361,78 @@ fn strokes(icon: Icon) -> Path {
             rect(&mut s, 3.0, 4.0, 21.0, 16.0);
             s.move_to(p(12.0, 16.0)).line_to(p(12.0, 20.0)).move_to(p(8.0, 20.0)).line_to(p(16.0, 20.0));
         }
+        Icon::Bold => {
+            // A B drawn twice, a little apart, so its strokes read heavy.
+            for dx in [0.0, 1.2] {
+                s.move_to(p(7.0 + dx, 4.0)).line_to(p(7.0 + dx, 20.0));
+                arc(&mut s, p(12.5 + dx, 8.0), 4.0, -PI * 0.5, PI * 0.5);
+                arc(&mut s, p(13.0 + dx, 16.0), 4.0, -PI * 0.5, PI * 0.5);
+                s.move_to(p(7.0 + dx, 4.0)).line_to(p(12.5 + dx, 4.0));
+                s.move_to(p(7.0 + dx, 12.0)).line_to(p(13.0 + dx, 12.0));
+                s.move_to(p(7.0 + dx, 20.0)).line_to(p(13.0 + dx, 20.0));
+            }
+        }
+        Icon::Italic => {
+            s.move_to(p(10.0, 4.0)).line_to(p(18.0, 4.0));
+            s.move_to(p(6.0, 20.0)).line_to(p(14.0, 20.0));
+            s.move_to(p(14.0, 4.0)).line_to(p(10.0, 20.0));
+        }
+        Icon::Strike => {
+            arc(&mut s, p(12.0, 8.0), 4.5, PI * 0.15, PI * 1.5);
+            arc(&mut s, p(12.0, 16.0), 4.5, -PI * 0.5, PI * 0.85);
+            s.move_to(p(4.0, 12.0)).line_to(p(20.0, 12.0));
+        }
+        Icon::Code => {
+            s.move_to(p(8.0, 6.0)).line_to(p(3.0, 12.0)).line_to(p(8.0, 18.0));
+            s.move_to(p(16.0, 6.0)).line_to(p(21.0, 12.0)).line_to(p(16.0, 18.0));
+        }
+        Icon::Link => {
+            arc(&mut s, p(8.0, 12.0), 4.0, PI * 0.5, PI * 1.5);
+            s.move_to(p(8.0, 8.0)).line_to(p(11.0, 8.0)).move_to(p(8.0, 16.0)).line_to(p(11.0, 16.0));
+            arc(&mut s, p(16.0, 12.0), 4.0, -PI * 0.5, PI * 0.5);
+            s.move_to(p(13.0, 8.0)).line_to(p(16.0, 8.0)).move_to(p(13.0, 16.0)).line_to(p(16.0, 16.0));
+            s.move_to(p(9.0, 12.0)).line_to(p(15.0, 12.0));
+        }
+        Icon::ListBullet => {
+            for y in [6.0, 12.0, 18.0] {
+                circle(&mut s, p(5.0, y), 1.0);
+                s.move_to(p(9.0, y)).line_to(p(20.0, y));
+            }
+        }
+        Icon::ListNumber => {
+            s.move_to(p(4.0, 4.5)).line_to(p(5.5, 3.5)).line_to(p(5.5, 8.5));
+            s.move_to(p(4.0, 14.0)).line_to(p(6.5, 14.0)).line_to(p(4.0, 19.0)).line_to(p(7.0, 19.0));
+            for y in [6.0, 12.0, 18.0] {
+                s.move_to(p(10.0, y)).line_to(p(20.0, y));
+            }
+        }
+        Icon::ListTask => {
+            rect(&mut s, 3.0, 4.0, 8.0, 9.0);
+            s.move_to(p(4.0, 6.5)).line_to(p(5.5, 8.0)).line_to(p(8.5, 3.5));
+            rect(&mut s, 3.0, 15.0, 8.0, 20.0);
+            s.move_to(p(11.0, 6.5)).line_to(p(20.0, 6.5)).move_to(p(11.0, 17.5)).line_to(p(20.0, 17.5));
+        }
+        Icon::Quote => {
+            s.move_to(p(4.0, 4.0)).line_to(p(4.0, 20.0));
+            s.move_to(p(9.0, 7.0)).line_to(p(20.0, 7.0));
+            s.move_to(p(9.0, 12.0)).line_to(p(20.0, 12.0));
+            s.move_to(p(9.0, 17.0)).line_to(p(16.0, 17.0));
+        }
+        Icon::CodeBlock => {
+            rect(&mut s, 3.0, 4.0, 21.0, 20.0);
+            s.move_to(p(10.0, 9.0)).line_to(p(7.0, 12.0)).line_to(p(10.0, 15.0));
+            s.move_to(p(14.0, 9.0)).line_to(p(17.0, 12.0)).line_to(p(14.0, 15.0));
+        }
+        Icon::Heading => {
+            s.move_to(p(6.0, 4.0)).line_to(p(6.0, 20.0)).move_to(p(18.0, 4.0)).line_to(p(18.0, 20.0));
+            s.move_to(p(6.0, 12.0)).line_to(p(18.0, 12.0));
+        }
+        Icon::At => {
+            circle(&mut s, p(12.0, 12.0), 3.5);
+            arc(&mut s, p(12.0, 12.0), 8.5, 0.0, PI * 1.8);
+            s.move_to(p(15.5, 9.0)).line_to(p(15.5, 13.5));
+            arc(&mut s, p(18.0, 13.5), 2.5, PI * 0.0, PI);
+        }
     }
     s
 }
@@ -481,7 +577,24 @@ mod tests {
 
     #[test]
     fn every_icon_draws_inside_its_grid() {
-        for icon in ALL.into_iter().chain([Icon::ArrowUp, Icon::Users, Icon::Monitor]) {
+        let more = [
+            Icon::ArrowUp,
+            Icon::Users,
+            Icon::Monitor,
+            Icon::Bold,
+            Icon::Italic,
+            Icon::Strike,
+            Icon::Code,
+            Icon::Link,
+            Icon::ListBullet,
+            Icon::ListNumber,
+            Icon::ListTask,
+            Icon::Quote,
+            Icon::CodeBlock,
+            Icon::Heading,
+            Icon::At,
+        ];
+        for icon in ALL.into_iter().chain(more) {
             let path = strokes(icon);
             assert!(path.elements().len() > 1, "{icon:?} draws nothing");
             for el in path.elements() {

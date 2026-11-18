@@ -160,12 +160,21 @@ pub fn decode(bytes: &[u8], show_at: Option<(u32, u32)>) -> Result<Decoded, Deco
     let mut img = DynamicImage::from_decoder(dec).map_err(malformed)?;
     img.apply_orientation(orientation);
     let source_size = (img.width(), img.height());
-    let mut rgba: RgbaImage = img.into_rgba8();
-    if let Some(icc) = icc {
-        to_srgb(&mut rgba, &icc);
+    let rgba: RgbaImage = img.into_rgba8();
+    let srgb = icc.as_deref().and_then(Srgb::from_profile);
+    let rgba = finish(rgba, srgb.as_ref(), show_at);
+    let (dw, dh) = rgba.dimensions();
+    Ok(Decoded { image: Image::new(dw, dh, Arc::from(rgba.into_raw())), source_size })
+}
+
+/// Straight-alpha RGBA to what is drawn: converted to sRGB, premultiplied, and scaled down to
+/// `show_at` when that is smaller.
+fn finish(mut rgba: RgbaImage, srgb: Option<&Srgb>, show_at: Option<(u32, u32)>) -> RgbaImage {
+    if let Some(t) = srgb {
+        t.apply(&mut rgba);
     }
     premultiply(&mut rgba);
-    let rgba = match show_at {
+    match show_at {
         Some((tw, th)) if tw > 0 && th > 0 && (tw < rgba.width() || th < rgba.height()) => {
             let (tw, th) = (tw.min(rgba.width()), th.min(rgba.height()));
             // Premultiplied, so transparent pixels do not bleed their color into edges.
@@ -176,28 +185,63 @@ pub fn decode(bytes: &[u8], show_at: Option<(u32, u32)>) -> Result<Decoded, Deco
             }
         }
         _ => rgba,
-    };
-    let (dw, dh) = rgba.dimensions();
-    Ok(Decoded { image: Image::new(dw, dh, Arc::from(rgba.into_raw())), source_size })
+    }
 }
 
-/// Converts straight-alpha RGBA pixels described by the ICC `profile` to sRGB in place. A
-/// profile that cannot be read, or that does not describe RGB, leaves the pixels as they
-/// are (they are then taken to be sRGB, as browsers do).
-fn to_srgb(rgba: &mut RgbaImage, profile: &[u8]) {
-    use moxcms::{ColorProfile, DataColorSpace, Layout, TransformOptions};
-    let Ok(src) = ColorProfile::new_from_slice(profile) else { return };
-    if src.color_space != DataColorSpace::Rgb {
-        return;
+/// Makes `width`×`height` straight-alpha RGBA8 pixels (`rgba`, row by row) ready to draw, the
+/// way [`decode`] does: converted to sRGB by `profile` when there is one, premultiplied, and
+/// scaled down to `show_at` when that is smaller (never up). For decoders of other formats,
+/// such as the frames of animations.
+pub fn finish_rgba(
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+    profile: Option<&Srgb>,
+    show_at: Option<(u32, u32)>,
+) -> Result<Image, DecodeError> {
+    let mut copy: Vec<u8> = Vec::new();
+    copy.try_reserve_exact(rgba.len()).map_err(|_| DecodeError::TooLarge { width, height })?;
+    copy.extend_from_slice(rgba);
+    let img = RgbaImage::from_raw(width, height, copy).ok_or_else(|| {
+        DecodeError::Malformed(format!("{width}×{height} pixels need another amount of data"))
+    })?;
+    let img = finish(img, profile, show_at);
+    let (w, h) = img.dimensions();
+    Ok(Image::new(w, h, Arc::from(img.into_raw())))
+}
+
+/// A conversion from an ICC color profile to sRGB, made once and applied to many pixels
+/// (every frame of an animation).
+#[derive(Clone)]
+pub struct Srgb(Arc<moxcms::Transform8BitExecutor>);
+
+impl std::fmt::Debug for Srgb {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Srgb")
     }
-    let dst = ColorProfile::new_srgb();
-    let Ok(t) = src.create_transform_8bit(Layout::Rgba, &dst, Layout::Rgba, TransformOptions::default())
-    else {
-        return;
-    };
-    let mut out = vec![0u8; rgba.as_raw().len()];
-    if t.transform(rgba.as_raw(), &mut out).is_ok() {
-        rgba.copy_from_slice(&out);
+}
+
+impl Srgb {
+    /// The conversion for `profile`, or `None` when it cannot be read or does not describe RGB
+    /// (the pixels are then taken to be sRGB, as browsers do).
+    pub fn from_profile(profile: &[u8]) -> Option<Srgb> {
+        use moxcms::{ColorProfile, DataColorSpace, Layout, TransformOptions};
+        let src = ColorProfile::new_from_slice(profile).ok()?;
+        if src.color_space != DataColorSpace::Rgb {
+            return None;
+        }
+        let dst = ColorProfile::new_srgb();
+        let t =
+            src.create_transform_8bit(Layout::Rgba, &dst, Layout::Rgba, TransformOptions::default()).ok()?;
+        Some(Srgb(t))
+    }
+
+    /// Converts straight-alpha RGBA pixels in place.
+    fn apply(&self, rgba: &mut RgbaImage) {
+        let mut out = vec![0u8; rgba.as_raw().len()];
+        if self.0.transform(rgba.as_raw(), &mut out).is_ok() {
+            rgba.copy_from_slice(&out);
+        }
     }
 }
 

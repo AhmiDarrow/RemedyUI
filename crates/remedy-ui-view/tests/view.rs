@@ -212,7 +212,7 @@ fn text_fields_edit_through_keys_clipboard_and_input_methods() {
     assert_eq!(field.value(), "Hi");
     ui.key(&ctrl("a"));
     ui.key(&ctrl("c"));
-    assert!(ui.take_requests().contains(&Request::Copy { text: "Hi".into(), sensitive: false }));
+    assert!(ui.take_requests().contains(&Request::Copy { text: "Hi".into(), sensitive: false, html: None }));
     ui.key(&ctrl("v"));
     assert!(ui.take_requests().contains(&Request::Paste));
     ui.paste("Hello");
@@ -732,4 +732,419 @@ fn hover_hints_hear_drags_come_and_go_even_when_refused() {
     let _ = ui.drag_event(&DragEvent::Over { position: Point::new(20.0, 60.0) });
     let _ = ui.drag_event(&DragEvent::Leave);
     assert_eq!(*heard.borrow(), vec![Some(2), None, Some(2), None], "the drag going away ends the hint");
+}
+
+#[test]
+fn text_people_wrote_selects_across_messages_and_copies() {
+    let ui = ui();
+    let first = ui.el("label").text(remedy_ui_view::RichText::plain("Dinner at seven")).selectable(true);
+    let second = ui.el("label").text(remedy_ui_view::RichText::plain("bring the salad")).selectable(true);
+    let plain = ui.el("label").text(remedy_ui_view::RichText::plain("not selectable"));
+    let button = ui.el("button").width(80.0).height(24.0).on_click(|| {});
+    ui.root().child(
+        ui.el("col")
+            .column()
+            .gap(10.0)
+            .child(first.clone())
+            .child(second.clone())
+            .child(plain)
+            .child(button.clone()),
+    );
+    let _ = ui.frame(Size::new(400.0, 200.0), 1.0);
+    let a = first.bounds().unwrap_or_default();
+    let b = second.bounds().unwrap_or_default();
+    // From the start of the first message to the middle of the second.
+    mv(&ui, PointerPhase::Down, a.min.x + 0.5, a.center().y, true);
+    // A little way into the second message (the label spans the column; its text is short).
+    mv(&ui, PointerPhase::Move, b.min.x + 30.0, b.center().y, true);
+    mv(&ui, PointerPhase::Up, b.min.x + 30.0, b.center().y, false);
+    let got = ui.selected_text().unwrap_or_default();
+    assert!(got.starts_with("Dinner at seven\nbring"), "{got:?}");
+    assert!(got.len() < "Dinner at seven\nbring the salad".len(), "only part of the second: {got:?}");
+    // Ctrl+C copies it (no field has focus).
+    let _ = ui.take_requests();
+    let ctrl = Modifiers { ctrl: true, ..Modifiers::NONE };
+    assert!(ui.key(&key(Key::Character("c".into()), None, ctrl)));
+    assert!(ui.take_requests().iter().any(|r| matches!(r, Request::Copy { text, .. } if *text == got)));
+    // A press on a control clears it.
+    let c = button.bounds().unwrap_or_default().center();
+    mv(&ui, PointerPhase::Down, c.x, c.y, true);
+    mv(&ui, PointerPhase::Up, c.x, c.y, false);
+    assert_eq!(ui.selected_text(), None);
+    // A double press selects a word.
+    let _ = ui.frame(Size::new(400.0, 200.0), 1.0);
+    let x = a.min.x + 2.0;
+    mv(&ui, PointerPhase::Down, x, a.center().y, true);
+    mv(&ui, PointerPhase::Up, x, a.center().y, false);
+    mv(&ui, PointerPhase::Down, x, a.center().y, true);
+    mv(&ui, PointerPhase::Up, x, a.center().y, false);
+    assert_eq!(ui.selected_text().as_deref().map(str::trim), Some("Dinner"));
+    // When the message goes, so does the selection.
+    first.remove();
+    assert_eq!(ui.selected_text(), None);
+}
+
+#[test]
+fn links_in_text_follow_from_any_line_by_keyboard_and_read_as_links() {
+    use remedy_ui_view::{RichText, TextPatch};
+    let ui = ui();
+    let followed = Rc::new(Cell::new(0u64));
+    let f = followed.clone();
+    let text = RichText::new()
+        .text("Read the ")
+        .styled("release notes for this version of the app", TextPatch::link(7))
+        .text(" or ")
+        .styled("ask", TextPatch::link(9))
+        .text(".");
+    let para = ui.el("label").width(160.0).text(text).selectable(true).on_link(move |id| f.set(id));
+    ui.root().child(ui.el("col").column().padding(Insets::all(10.0)).child(para.clone()));
+    let _ = ui.frame(Size::new(400.0, 200.0), 1.0);
+    let links = para.link_elements();
+    let [notes_link, ask_link] = links.as_slice() else { unreachable!("two links: {}", links.len()) };
+    let notes = notes_link.bounds().unwrap_or_default();
+    let p = para.bounds().unwrap_or_default();
+    assert!(notes.width() > 10.0 && notes.height() > 5.0, "placed over its words: {notes:?}");
+    assert!(notes.min.x > p.min.x + 20.0, "after 'Read the ': {notes:?} in {p:?}");
+    assert!(p.height() > notes.height() * 1.5, "the link wraps onto another line: {p:?}");
+    // A click on its first line follows it.
+    let c = notes.center();
+    mv(&ui, PointerPhase::Down, c.x, c.y, true);
+    mv(&ui, PointerPhase::Up, c.x, c.y, false);
+    assert_eq!(followed.get(), 7);
+    assert_eq!(ui.selected_text(), None, "following a link selects nothing");
+    // A click on its second line follows it too.
+    followed.set(0);
+    let y2 = notes.max.y + notes.height() / 2.0;
+    mv(&ui, PointerPhase::Down, p.min.x + 4.0, y2, true);
+    mv(&ui, PointerPhase::Up, p.min.x + 4.0, y2, false);
+    assert_eq!(followed.get(), 7);
+    // A click on plain words follows nothing.
+    followed.set(0);
+    mv(&ui, PointerPhase::Down, p.min.x + 2.0, notes.center().y, true);
+    mv(&ui, PointerPhase::Up, p.min.x + 2.0, notes.center().y, false);
+    assert_eq!(followed.get(), 0);
+    // Tab reaches each link in order; Enter follows it.
+    ui.root().focus();
+    for want in [7, 9] {
+        ui.key(&key(Key::Tab, None, Modifiers::NONE));
+        ui.key(&key(Key::Enter, None, Modifiers::NONE));
+        assert_eq!(followed.get(), want);
+    }
+    // Screen readers get each link by its words.
+    let s = ask_link.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!("semantics"));
+    assert_eq!(s.role(), remedy_ui_a11y::Role::Link);
+    assert_eq!(s.name(), Some("ask"));
+    // New text, new links.
+    let _ = para.clone().text(RichText::new().text("See ").styled("help", TextPatch::link(3)));
+    let _ = ui.frame(Size::new(400.0, 200.0), 1.0);
+    assert_eq!(para.link_elements().len(), 1);
+    assert!(notes_link.info().is_none(), "the old link elements went");
+}
+
+/// Counts pixels that are clearly blue inside `b` (the decoration color used by the tests).
+fn blue_pixels(s: &Screen, b: remedy_ui_core::Rect) -> usize {
+    let mut n = 0;
+    for y in b.min.y.max(0.0) as u32..b.max.y.max(0.0) as u32 {
+        for x in b.min.x.max(0.0) as u32..b.max.x.max(0.0) as u32 {
+            let p = s.px(x, y);
+            if p[2] > 150 && p[0] < 100 && p[1] < 100 {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+#[test]
+fn field_decorations_draw_under_ranges_and_follow_edits() {
+    use remedy_ui_view::{Decoration, DecorationKind};
+    let ui = ui();
+    let field = ui.text_field("text_input", FieldKind::Single);
+    field.set_value("hello wrold again");
+    ui.root().child(field.el().layout(|l| l.width = Length::Px(190.0)));
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    let b = field.el().bounds().unwrap_or_default();
+    assert_eq!(blue_pixels(&s, b), 0, "nothing is drawn before decorations are set");
+
+    field.set_decorations(vec![Decoration::squiggle(6..11).colored(BLUE)]);
+    s.frame();
+    let marked = blue_pixels(&s, b);
+    assert!(marked > 8, "a squiggle under the word: {marked}");
+    // Under the word's left half only: the first word has no mark.
+    let before = remedy_ui_core::Rect::new(b.min.x, b.min.y, b.min.x + 20.0, b.max.y);
+    assert_eq!(blue_pixels(&s, before), 0, "the first word is clean");
+
+    // Typing before the word moves the mark with it.
+    ui.key(&key(Key::Tab, None, Modifiers::NONE));
+    ui.key(&key(Key::Home, None, Modifiers::NONE));
+    ui.key(&typed("X"));
+    assert_eq!(field.decorations(), vec![Decoration::squiggle(7..12).colored(BLUE)]);
+    s.frame();
+    assert!(blue_pixels(&s, b) > 8);
+    // Editing inside the word drops its mark until the next check.
+    assert!(field.replace_range(8..9, "Q"));
+    assert!(field.decorations().is_empty());
+    s.frame();
+    assert_eq!(blue_pixels(&s, b), 0);
+
+    // Results worked out for older text are carried onto the current text.
+    field.set_decorations_for("hello wrold again", vec![Decoration::squiggle(12..17).colored(BLUE)]);
+    assert_eq!(field.decorations().len(), 1, "the later word sits after the edits");
+    field.set_decorations(vec![Decoration::squiggle(0..5).of_kind(DecorationKind::Underline).colored(BLUE)]);
+    s.frame();
+    assert!(blue_pixels(&s, b) > 8, "a straight underline draws too");
+}
+
+#[test]
+fn field_decorations_are_found_by_point_and_secret_fields_refuse_them() {
+    use remedy_ui_view::Decoration;
+    let ui = ui();
+    let field = ui.text_field("text_input", FieldKind::Single);
+    field.set_value("good bad good");
+    ui.root().child(field.el().layout(|l| l.width = Length::Px(190.0)));
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    field.set_decorations(vec![Decoration::squiggle(5..8)]);
+    s.frame();
+    let b = field.el().bounds().unwrap_or_default();
+    let on_bad = (0..190)
+        .map(|x| Point::new(b.min.x + x as f32, b.min.y + 6.0))
+        .find(|p| field.decoration_at(*p).is_some());
+    let at = on_bad.unwrap_or_else(|| unreachable!("some point is over the marked word"));
+    let idx = field.index_at(at).unwrap_or(usize::MAX);
+    assert!((5..=8).contains(&idx), "the point over the word maps into it: {idx}");
+    assert!(field.decoration_at(Point::new(b.min.x + 1.0, b.min.y + 6.0)).is_none());
+    assert!(!field.replace_range(5..99, "x"), "a range off the text is refused");
+
+    let secret = ui.text_field("secret_input", FieldKind::Secret);
+    secret.set_decorations(vec![Decoration::squiggle(0..1)]);
+    assert!(secret.decorations().is_empty(), "secrets are never marked");
+    assert!(!secret.replace_range(0..0, "x"));
+}
+
+#[test]
+fn field_observers_hear_typing_and_set_value_without_replacing_on_change() {
+    let ui = ui();
+    let changes = Rc::new(Cell::new(0));
+    let c2 = changes.clone();
+    let heard = Rc::new(Cell::new(0));
+    let h2 = heard.clone();
+    let h3 = heard.clone();
+    let field = ui.text_field("text_input", FieldKind::Single).on_change(move || c2.set(c2.get() + 1));
+    field.observe_text(move || h2.set(h2.get() + 1));
+    field.observe_text(move || h3.set(h3.get() + 10));
+    ui.root().child(field.el().layout(|l| l.width = Length::Px(150.0)));
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    ui.key(&key(Key::Tab, None, Modifiers::NONE));
+    ui.key(&typed("a"));
+    assert_eq!((changes.get(), heard.get()), (1, 11));
+    field.set_value("b");
+    assert_eq!((changes.get(), heard.get()), (1, 22), "the app's own set_value is heard, not on_change");
+}
+
+fn rich_field(ui: &Ui) -> remedy_ui_view::TextField {
+    let f = ui.text_field("text_input", FieldKind::Rich);
+    ui.root().child(f.el().width(360.0));
+    let _ = ui.frame(Size::new(400.0, 300.0), 1.0);
+    f.el().focus();
+    f
+}
+
+fn type_all(ui: &Ui, s: &str) {
+    for c in s.chars() {
+        ui.key(&key(Key::Character(c.to_string()), Some(&c.to_string()), Modifiers::NONE));
+    }
+}
+
+#[test]
+fn a_rich_field_formats_with_shortcuts_and_lists() {
+    use remedy_ui_text::{Block, Mark};
+    let ui = ui();
+    let f = rich_field(&ui);
+    type_all(&ui, "Plan ");
+    ui.key(&ctrl("b"));
+    type_all(&ui, "now");
+    ui.key(&ctrl("b"));
+    let doc = f.doc().unwrap_or_default();
+    assert_eq!(doc.text, "Plan now");
+    assert_eq!(doc.marks, [(5..8, Mark::Bold)]);
+    // Ctrl+Shift+8 makes a bulleted list; Enter continues it; Tab nests.
+    let shift_ctrl = Modifiers { ctrl: true, shift: true, ..Modifiers::NONE };
+    ui.key(&key(Key::Enter, None, Modifiers::NONE));
+    ui.key(&key(Key::Character("8".into()), None, shift_ctrl));
+    type_all(&ui, "one");
+    ui.key(&key(Key::Enter, None, Modifiers::NONE));
+    ui.key(&key(Key::Tab, None, Modifiers::NONE));
+    type_all(&ui, "deeper");
+    let doc = f.doc().unwrap_or_default();
+    assert_eq!(doc.text, "Plan now\none\ndeeper");
+    assert_eq!(doc.blocks, [Block::Paragraph, Block::Bullet(0), Block::Bullet(1)]);
+    // Screen readers get the plain text.
+    let s = f.el().info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!("semantics"));
+    assert_eq!(s.role(), remedy_ui_a11y::Role::MultilineTextInput);
+    // Undo takes back the nesting, then the typing.
+    ui.key(&ctrl("z"));
+    ui.key(&ctrl("z"));
+    assert_eq!(f.doc().map(|d| d.blocks), Some(vec![Block::Paragraph, Block::Bullet(0), Block::Bullet(0)]));
+}
+
+#[test]
+fn a_press_on_a_task_box_ticks_it() {
+    use remedy_ui_text::{Block, RichDoc};
+    let ui = ui();
+    let f = rich_field(&ui);
+    f.set_doc(RichDoc {
+        text: "milk".into(),
+        marks: Vec::new(),
+        blocks: vec![Block::Task { done: false, level: 0 }],
+    });
+    let _ = ui.frame(Size::new(400.0, 300.0), 1.0);
+    let b = f.el().bounds().unwrap_or_default();
+    // The box is the first thing on the line.
+    let at = Point::new(b.min.x + f.el().info().map_or(0.0, |i| i.style.padding.start) + 4.0, b.center().y);
+    ui.pointer(&pointer(PointerPhase::Down, at.x, at.y, true));
+    ui.pointer(&pointer(PointerPhase::Up, at.x, at.y, false));
+    assert_eq!(f.doc().map(|d| d.blocks), Some(vec![Block::Task { done: true, level: 0 }]));
+}
+
+#[test]
+fn rich_copy_and_paste_carry_formatting_and_keep_mentions_in_the_app() {
+    use remedy_ui_text::{Mark, RichDoc};
+    let ui = ui();
+    let f = rich_field(&ui);
+    f.set_doc(RichDoc::plain("hi "));
+    f.edit_rich(|e| e.insert_mention("u1", "@Alex", 0));
+    f.edit_rich(|e| {
+        e.select_all();
+    });
+    let _ = ui.take_requests();
+    ui.key(&ctrl("c"));
+    let copied = ui.take_requests().into_iter().find_map(|r| match r {
+        Request::Copy { text, html, .. } => Some((text, html)),
+        _ => None,
+    });
+    let (text, html) = copied.unwrap_or_else(|| unreachable!("a copy"));
+    assert_eq!(text, "hi @Alex ");
+    let html = html.unwrap_or_default();
+    assert!(html.contains("@Alex"), "{html}");
+    // Pasting our own copy back keeps the mention, which HTML alone never carries.
+    f.set_doc(RichDoc::plain(""));
+    ui.paste_html(&text, Some(&html));
+    assert!(f.doc().is_some_and(|d| d.marks.iter().any(|(_, m)| *m == Mark::Mention("u1".into()))));
+    // Another app's HTML comes in as allowed formatting only.
+    f.set_doc(RichDoc::plain(""));
+    ui.paste_html("x", Some("<b>bold</b><script>bad()</script> <a href=\"javascript:x\">link</a>"));
+    let doc = f.doc().unwrap_or_default();
+    assert_eq!(doc.text, "bold link");
+    assert_eq!(doc.marks, [(0..4, Mark::Bold)]);
+    // A plain field takes the text.
+    let plain = ui.text_field("text_input", FieldKind::Multi);
+    ui.root().child(plain.el());
+    plain.el().focus();
+    ui.paste_html("just text", Some("<b>just text</b>"));
+    assert_eq!(plain.value(), "just text");
+}
+
+#[test]
+fn elements_hear_when_they_are_seen_scrolled_away_hidden_or_covered() {
+    let ui = ui();
+    let heard: Rc<std::cell::RefCell<Vec<bool>>> = Rc::default();
+    let h2 = heard.clone();
+    let spacer = ui.el("spacer").layout(|l| l.height = Length::Px(150.0));
+    let target = ui
+        .el("target")
+        .layout(|l| l.height = Length::Px(30.0))
+        .on_visibility(move |s| h2.borrow_mut().push(s));
+    let list = ui.el("list").scroll().layout(|l| {
+        l.height = Length::Px(100.0);
+        l.display = remedy_ui_layout::Display::Flex;
+        l.axis = remedy_ui_layout::Axis::Column;
+    });
+    let list = list.child(spacer).child(target.clone());
+    ui.root().child(list.clone());
+    let size = Size::new(200.0, 120.0);
+    let _ = ui.frame(size, 1.0);
+    // Below the 100 px viewport: unseen, and told so at once.
+    assert_eq!(*heard.borrow(), vec![false]);
+    let _ = ui.frame(size, 1.0);
+    assert_eq!(heard.borrow().len(), 1, "told only when it changes");
+    // Scrolled until it shows.
+    ui.set_scroll_offset(list.id(), Vec2::new(0.0, 80.0));
+    let _ = ui.frame(size, 1.0);
+    assert_eq!(*heard.borrow(), vec![false, true]);
+    // A covered or minimized window shows nothing.
+    ui.set_occluded(true);
+    assert!(ui.take_requests().contains(&Request::Frame));
+    let _ = ui.frame(size, 1.0);
+    assert_eq!(*heard.borrow(), vec![false, true, false]);
+    ui.set_occluded(false);
+    let _ = ui.frame(size, 1.0);
+    assert_eq!(*heard.borrow(), vec![false, true, false, true]);
+    // Hidden by an ancestor.
+    let _ = list.clone().hidden(true);
+    let _ = ui.frame(size, 1.0);
+    assert_eq!(heard.borrow().last(), Some(&false));
+    let _ = list.hidden(false);
+    let _ = ui.frame(size, 1.0);
+    assert_eq!(heard.borrow().last(), Some(&true));
+}
+
+#[test]
+fn reduced_motion_is_tracked_so_what_reads_it_follows_the_setting() {
+    let ui = ui();
+    let seen: Rc<std::cell::RefCell<Vec<bool>>> = Rc::default();
+    let (u2, s2) = (ui.clone(), seen.clone());
+    let _fx = remedy_ui_reactive::Effect::new(move || s2.borrow_mut().push(u2.reduced_motion()));
+    ui.set_reduced_motion(true);
+    ui.set_reduced_motion(true);
+    ui.set_reduced_motion(false);
+    assert_eq!(*seen.borrow(), vec![false, true, false]);
+}
+
+#[test]
+fn closing_a_view_lets_everything_it_held_go() {
+    let ui = ui();
+    let gone = Rc::new(Cell::new(false));
+    let g = gone.clone();
+    // Closures that hold the view itself, as widgets' do: a cycle until the view is closed.
+    let u2 = ui.clone();
+    let b = ui.el("button").on_click(move || {
+        let _ = u2.root();
+    });
+    let u3 = ui.clone();
+    let b = b.bind(move || {
+        let _ = u3.reduced_motion();
+    });
+    let u4 = ui.clone();
+    let _ = ui.root().on_key(move |_| {
+        let _ = u4.root();
+        false
+    });
+    let u5 = ui.clone();
+    let _ = ui.after(Duration::from_secs(60), move || {
+        let _ = u5.root();
+    });
+    ui.root().child(b.on_removed(move || g.set(true)));
+    let _ = ui.frame(Size::new(100.0, 100.0), 1.0);
+    let weak = ui.downgrade();
+    ui.close();
+    assert!(gone.get(), "elements heard they were removed");
+    drop(ui);
+    assert!(weak.upgrade().is_none(), "nothing keeps the closed view alive");
+}
+
+#[test]
+fn packs_hear_about_memory_and_the_machine() {
+    use remedy_ui_view::device;
+    let heard = Rc::new(Cell::new(0));
+    let h = heard.clone();
+    device::on_memory_pressure(move |_| h.set(h.get() + 1));
+    device::memory_pressure(device::MemoryPressure::Critical);
+    assert_eq!(heard.get(), 1);
+    device::set_total_memory(Some(16 << 30));
+    assert_eq!(device::total_memory(), Some(16 << 30));
+    device::set_total_memory(None);
+    assert_eq!(device::total_memory(), None);
 }

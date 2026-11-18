@@ -239,3 +239,30 @@ fn wrapped_lines_take_their_alignment() {
     let end = lefts(Align::End);
     assert!(end.iter().zip(&center).all(|(e, c)| e >= c), "end is further right than center: {end:?}");
 }
+
+#[test]
+fn underlines_sit_below_the_text_and_strikes_through_its_middle() {
+    let mut e = engine();
+    let text = RichText::new()
+        .text("plain ")
+        .styled("linked", StylePatch::link(1))
+        .text(" ")
+        .styled("struck", StylePatch::strikethrough());
+    let p = e.layout(&text, &TextStyle { size: 20.0, ..TextStyle::default() }, opts(None));
+    let runs = p.glyph_runs();
+    let run = |w: &str| {
+        let at = text.as_str().find(w).unwrap_or_default();
+        runs.iter()
+            .find(|r| r.range.start <= at && at < r.range.end)
+            .cloned()
+            .unwrap_or_else(|| unreachable!("{w}"))
+    };
+    assert!(run("plain").underline.is_none() && run("plain").strikethrough.is_none());
+    let line = p.lines().into_iter().next().unwrap_or_else(|| unreachable!("a line"));
+    let under = run("linked").underline.unwrap_or_else(|| unreachable!("an underline"));
+    assert!(under.min.y > line.baseline - 0.5, "below the baseline: {under:?} vs {}", line.baseline);
+    assert!(under.height() >= 1.0 && under.width() > 20.0, "{under:?}");
+    let strike = run("struck").strikethrough.unwrap_or_else(|| unreachable!("a strike"));
+    assert!(strike.max.y < line.baseline && strike.min.y > line.baseline - 20.0, "{strike:?}");
+    assert!(run("struck").underline.is_none());
+}

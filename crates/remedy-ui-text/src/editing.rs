@@ -22,6 +22,14 @@ use zeroize::Zeroize;
 /// a huge document fast.
 const BOUNDARY_WINDOW: usize = 1024;
 
+/// The grapheme boundaries nearest a position.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Near {
+    at_or_before: Option<usize>,
+    before: Option<usize>,
+    after: Option<usize>,
+}
+
 /// Typing pauses longer than this (in milliseconds) start a new undo step.
 pub const UNDO_PAUSE_MS: u64 = 1000;
 
@@ -89,6 +97,28 @@ pub struct TextEditor {
     redo: Vec<UndoStep>,
     last: Option<(EditKind, u64)>,
     version: u64,
+    /// Changes since the last [`TextEditor::take_changes`].
+    changes: Vec<TextChange>,
+}
+
+/// One change to an editor's text: at byte `at`, `removed` bytes went and `inserted` bytes
+/// came. Layers kept beside the text (formatting, marks) follow these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextChange {
+    /// Where.
+    pub at: usize,
+    /// Bytes removed.
+    pub removed: usize,
+    /// Bytes inserted.
+    pub inserted: usize,
+    /// Line breaks (`\n`) among the bytes removed.
+    pub removed_lines: usize,
+    /// Line breaks among the bytes inserted.
+    pub inserted_lines: usize,
+}
+
+fn breaks(s: &str) -> usize {
+    s.bytes().filter(|b| *b == b'\n').count()
 }
 
 impl TextEditor {
@@ -164,29 +194,73 @@ impl TextEditor {
         (start, self.slice(start..end))
     }
 
-    fn grapheme_breaks(&self, at: usize) -> (usize, Vec<usize>) {
-        let (start, text) = self.window(at);
-        let breaks: Vec<usize> =
-            GraphemeClusterSegmenter::new().segment_str(&text).map(|b| b + start).collect();
-        (start, breaks)
+    /// The grapheme boundaries nearest `at` found by segmenting `reach` bytes either side:
+    /// (at or before, before, after). A window's own edges are not boundaries unless they are
+    /// the text's.
+    fn graphemes_within(&self, at: usize, reach: usize) -> Near {
+        // Flags pair from the start of their run, so a window never starts inside one.
+        let mut c = self.rope.byte_to_char(self.char_floor(at.saturating_sub(reach)));
+        while c > 0 && ('\u{1F1E6}'..='\u{1F1FF}').contains(&self.rope.char(c - 1)) {
+            c -= 1;
+        }
+        let start = self.rope.char_to_byte(c);
+        let end = self.char_floor(at.saturating_add(reach));
+        let text = self.slice(start..end);
+        let len = self.len();
+        let mut near = Near::default();
+        for b in GraphemeClusterSegmenter::new().segment_str(&text).map(|b| b + start) {
+            if (b == start && start > 0) || (b == end && end < len) {
+                continue;
+            }
+            if b <= at {
+                near.at_or_before = Some(b);
+            }
+            if b < at {
+                near.before = Some(b);
+            }
+            if b > at && near.after.is_none() {
+                near.after = Some(b);
+            }
+        }
+        near
+    }
+
+    /// The grapheme boundaries nearest `at`. Grapheme clusters are short, so a small window
+    /// is read; it grows until a wider one agrees (a long cluster, or a run of flags whose
+    /// pairing depends on what comes before), so typing in a huge document stays fast.
+    fn graphemes_near(&self, at: usize) -> Near {
+        let len = self.len();
+        let mut reach = 32;
+        loop {
+            let near = self.graphemes_within(at, reach);
+            if reach >= len {
+                return near;
+            }
+            let wider = self.graphemes_within(at, reach * 2);
+            let complete = near.at_or_before.is_some()
+                && (near.before.is_some() || at == 0)
+                && (near.after.is_some() || at >= len);
+            if near == wider && complete {
+                return near;
+            }
+            reach *= 4;
+        }
     }
 
     fn grapheme_floor(&self, at: usize) -> usize {
         let at = self.char_floor(at);
-        let (_, breaks) = self.grapheme_breaks(at);
-        breaks.iter().copied().filter(|&b| b <= at).max().unwrap_or(0)
+        self.graphemes_near(at).at_or_before.unwrap_or(0)
     }
 
     /// The grapheme boundary before `at` (or 0).
     pub fn previous_grapheme(&self, at: usize) -> usize {
-        let (_, breaks) = self.grapheme_breaks(at);
-        breaks.iter().copied().filter(|&b| b < at).max().unwrap_or(0)
+        self.graphemes_near(at.min(self.len())).before.unwrap_or(0)
     }
 
     /// The grapheme boundary after `at` (or the end).
     pub fn next_grapheme(&self, at: usize) -> usize {
-        let (_, breaks) = self.grapheme_breaks(at);
-        breaks.iter().copied().filter(|&b| b > at).min().unwrap_or(self.len()).min(self.len())
+        let len = self.len();
+        self.graphemes_near(at.min(len)).after.unwrap_or(len).min(len)
     }
 
     /// Word segments around `at`: (start, end, is a word).
@@ -278,6 +352,13 @@ impl TextEditor {
         let (cs, ce) = (self.rope.byte_to_char(at), self.rope.byte_to_char(end));
         self.rope.remove(cs..ce);
         self.rope.insert(cs, insert);
+        self.changes.push(TextChange {
+            at,
+            removed: end - at,
+            inserted: insert.len(),
+            removed_lines: breaks(&removed),
+            inserted_lines: breaks(insert),
+        });
         let caret = at + insert.len();
         self.sel = TextSelection::caret(caret);
         self.version += 1;
@@ -394,6 +475,13 @@ impl TextEditor {
         );
         self.rope.remove(cs..ce);
         self.rope.insert(cs, &step.removed);
+        self.changes.push(TextChange {
+            at: step.at,
+            removed: step.inserted.len(),
+            inserted: step.removed.len(),
+            removed_lines: breaks(&step.inserted),
+            inserted_lines: breaks(&step.removed),
+        });
         self.sel = step.before;
         self.version += 1;
         self.last = None;
@@ -410,11 +498,75 @@ impl TextEditor {
         );
         self.rope.remove(cs..ce);
         self.rope.insert(cs, &step.inserted);
+        self.changes.push(TextChange {
+            at: step.at,
+            removed: step.removed.len(),
+            inserted: step.inserted.len(),
+            removed_lines: breaks(&step.removed),
+            inserted_lines: breaks(&step.inserted),
+        });
         self.sel = step.after;
         self.version += 1;
         self.last = None;
         self.undo.push(step);
         true
+    }
+
+    /// How many lines the text has (lines end at `\n`; an empty text has one).
+    pub fn line_count(&self) -> usize {
+        self.rope.len_lines()
+    }
+
+    /// The line holding byte `at`.
+    pub fn line_of(&self, at: usize) -> usize {
+        self.rope.byte_to_line(at.min(self.len()))
+    }
+
+    /// The bytes of line `line`, without its `\n`.
+    pub fn line_range(&self, line: usize) -> Range<usize> {
+        let n = self.rope.len_lines();
+        if line >= n {
+            return self.len()..self.len();
+        }
+        let start = self.rope.line_to_byte(line);
+        let end = if line + 1 < n { self.rope.line_to_byte(line + 1) - 1 } else { self.len() };
+        start..end
+    }
+
+    /// The changes to the text since this was last called, oldest first.
+    pub fn take_changes(&mut self) -> Vec<TextChange> {
+        std::mem::take(&mut self.changes)
+    }
+
+    /// How many steps can be undone.
+    pub fn undo_depth(&self) -> usize {
+        self.undo.len()
+    }
+
+    /// How many steps can be redone.
+    pub fn redo_depth(&self) -> usize {
+        self.redo.len()
+    }
+
+    /// Records an undo step that changes no text (a change made beside it, like making words
+    /// bold), so undo walks back through it in order.
+    pub fn push_step(&mut self) {
+        let at = self.sel.focus;
+        self.undo.push(UndoStep {
+            at,
+            removed: String::new(),
+            inserted: String::new(),
+            before: self.sel,
+            after: self.sel,
+        });
+        self.redo.clear();
+        self.last = None;
+        self.version += 1;
+    }
+
+    /// Ends the current undo step: the next edit starts a new one even mid-word.
+    pub fn break_step(&mut self) {
+        self.last = None;
     }
 
     /// True when there is a step to undo.

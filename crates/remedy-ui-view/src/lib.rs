@@ -14,14 +14,19 @@
 //! view needs from its host (an input-method session, the clipboard, a cursor, a new frame)
 //! comes out as [`Request`]s. See `docs/design/02-state-and-elements.md`.
 
+mod decoration;
+pub mod device;
 mod dnd;
 mod element;
 mod events;
 mod field;
 mod frame;
+mod links;
+mod select;
 
+pub use decoration::{Decoration, DecorationKind};
 pub use dnd::Drag;
-pub use element::{El, ElementInfo, PaintCx, PointerInterceptor, Ui};
+pub use element::{El, ElementInfo, PaintCx, PointerInterceptor, Ui, WeakUi};
 pub use events::{Click, PointerInput};
 pub use field::{FieldKind, TextField};
 pub use frame::Frame;
@@ -44,6 +49,8 @@ pub enum Request {
         text: String,
         /// A secret.
         sensitive: bool,
+        /// The same as HTML, for apps that paste formatting (rich text).
+        html: Option<String>,
     },
     /// Read the clipboard and deliver it with [`Ui::paste`].
     Paste,

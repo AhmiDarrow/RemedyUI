@@ -1043,6 +1043,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "encoding_rs"
+version = "0.8.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "endi"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3324,6 +3333,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
 
 [[package]]
+name = "pulldown-cmark"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3db2be46835f013dd3f4fa7f5f7402c537787b54ebb6fe2b94bbdd7e2669bb7b"
+dependencies = [
+ "bitflags 2.13.2",
+ "memchr",
+ "unicase",
+]
+
+[[package]]
 name = "pxfm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3485,10 +3505,12 @@ dependencies = [
  "remedy-ui-compositor",
  "remedy-ui-core",
  "remedy-ui-devtools",
+ "remedy-ui-doc-rich",
  "remedy-ui-fonts",
  "remedy-ui-host",
  "remedy-ui-input",
  "remedy-ui-layout",
+ "remedy-ui-media-anim",
  "remedy-ui-media-image",
  "remedy-ui-media-svg",
  "remedy-ui-paint",
@@ -3497,12 +3519,15 @@ dependencies = [
  "remedy-ui-render-gpu",
  "remedy-ui-secure",
  "remedy-ui-services-i18n",
+ "remedy-ui-services-spell",
  "remedy-ui-services-update",
  "remedy-ui-style",
  "remedy-ui-text",
  "remedy-ui-themes",
  "remedy-ui-tree",
  "remedy-ui-view",
+ "remedy-ui-viz",
+ "remedy-ui-widgets-board",
  "remedy-ui-widgets-core",
  "remedy-ui-widgets-data",
  "remedy-ui-widgets-forms",
@@ -3624,6 +3649,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-doc-rich"
+version = "0.1.0"
+dependencies = [
+ "pulldown-cmark",
+ "remedy-ui-a11y",
+ "remedy-ui-core",
+ "remedy-ui-devtools",
+ "remedy-ui-fonts",
+ "remedy-ui-input",
+ "remedy-ui-layout",
+ "remedy-ui-reactive",
+ "remedy-ui-style",
+ "remedy-ui-text",
+ "remedy-ui-themes",
+ "remedy-ui-view",
+ "remedy-ui-widgets-core",
+]
+
+[[package]]
 name = "remedy-ui-fonts"
 version = "0.1.0"
 dependencies = [
@@ -3663,6 +3707,29 @@ dependencies = [
  "quote",
  "remedy-ui-reactive",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "remedy-ui-media-anim"
+version = "0.1.0"
+dependencies = [
+ "gif",
+ "image-webp",
+ "png",
+ "remedy-ui-a11y",
+ "remedy-ui-compositor",
+ "remedy-ui-core",
+ "remedy-ui-devtools",
+ "remedy-ui-fonts",
+ "remedy-ui-input",
+ "remedy-ui-layout",
+ "remedy-ui-media-image",
+ "remedy-ui-paint",
+ "remedy-ui-reactive",
+ "remedy-ui-style",
+ "remedy-ui-text",
+ "remedy-ui-themes",
+ "remedy-ui-view",
 ]
 
 [[package]]
@@ -3799,6 +3866,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-services-spell"
+version = "0.1.0"
+dependencies = [
+ "encoding_rs",
+ "icu_locale_core",
+ "icu_normalizer",
+ "icu_segmenter",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "remedy-ui-compositor",
+ "remedy-ui-core",
+ "remedy-ui-fonts",
+ "remedy-ui-input",
+ "remedy-ui-layout",
+ "remedy-ui-reactive",
+ "remedy-ui-render-cpu",
+ "remedy-ui-style",
+ "remedy-ui-text",
+ "remedy-ui-themes",
+ "remedy-ui-view",
+ "remedy-ui-widgets-core",
+ "spellbook",
+ "windows",
+]
+
+[[package]]
 name = "remedy-ui-services-update"
 version = "0.1.0"
 dependencies = [
@@ -3885,6 +3979,26 @@ dependencies = [
  "remedy-ui-style",
  "remedy-ui-text",
  "remedy-ui-tree",
+]
+
+[[package]]
+name = "remedy-ui-viz"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-a11y",
+ "remedy-ui-compositor",
+ "remedy-ui-core",
+ "remedy-ui-devtools",
+ "remedy-ui-fonts",
+ "remedy-ui-input",
+ "remedy-ui-layout",
+ "remedy-ui-paint",
+ "remedy-ui-reactive",
+ "remedy-ui-render-cpu",
+ "remedy-ui-style",
+ "remedy-ui-text",
+ "remedy-ui-themes",
+ "remedy-ui-view",
 ]
 
 [[package]]
@@ -4574,6 +4688,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "spellbook"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a"
+dependencies = [
+ "foldhash 0.2.0",
+ "hashbrown 0.17.1",
+]
+
+[[package]]
 name = "spirv"
 version = "0.4.0+sdk-1.4.341.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4973,6 +5097,12 @@ checksum = "dce1bf08044d4b7a94028c93786f8566047edc11110595914de93362559bc658"
 dependencies = [
  "tinystr",
 ]
+
+[[package]]
+name = "unicase"
+version = "2.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
 
 [[package]]
 name = "unicode-bidi"

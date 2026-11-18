@@ -80,6 +80,8 @@ impl Ui {
         }
         let tree = self.tree();
         let hit = tree.hit_test(e.position);
+        // A wrapped link's further lines are that link too.
+        let hit = self.link_at(hit, e.position).or(hit);
         if self.drag_pointer(e, hit) {
             return true;
         }
@@ -105,6 +107,12 @@ impl Ui {
             });
             i.click_count = if again { i.click_count + 1 } else { 1 };
             i.last_press = hit.map(|h| (h, e.position, e.time));
+        }
+        // Selecting text: a press starts (or clears) it; dragging extends it.
+        let clicks = self.0.borrow().click_count;
+        let selecting = self.select_pointer(e, &chain, clicks);
+        if selecting && e.phase != PointerPhase::Down {
+            return true;
         }
         match e.phase {
             PointerPhase::Down if e.buttons.contains(remedy_ui_input::Buttons::PRIMARY) => {
@@ -184,9 +192,14 @@ impl Ui {
 
     fn place_caret(&self, id: ElementId, field: &Rc<RefCell<Field>>, at: Point, extend: bool) {
         let Some(b) = self.tree().bounds(id) else { return };
-        field.borrow_mut().place(Point::new(at.x - b.min.x, at.y - b.min.y), extend);
+        let changed = field.borrow_mut().place(Point::new(at.x - b.min.x, at.y - b.min.y), extend);
+        if changed {
+            self.field_edited(id, field, true);
+            return;
+        }
         self.mark(id, Dirty::PAINT);
         field::request_session(self, field, b);
+        field::notify_caret(field);
     }
 
     /// Routes a key. Returns true when something took it.
@@ -199,6 +212,11 @@ impl Ui {
         if let Some(f) = focused
             && let Some(field) = self.field_of(f)
         {
+            if let Some(filter) = field::key_filter(&field)
+                && filter(e)
+            {
+                return true;
+            }
             let now = self.0.borrow().now_ms;
             let outcome = field::key(&mut field.borrow_mut(), e, now, self.platform());
             match outcome {
@@ -208,13 +226,23 @@ impl Ui {
                     return true;
                 }
                 KeyOutcome::Submit => {
-                    field::notify_submit(&field);
+                    field::notify_submit(&field, e.modifiers);
                     return true;
                 }
                 KeyOutcome::Copy(text) => {
                     self.field_edited(f, &field, true);
                     if !text.is_empty() {
-                        self.request(Request::Copy { text, sensitive: false });
+                        self.request(Request::Copy { text, sensitive: false, html: None });
+                    }
+                    return true;
+                }
+                KeyOutcome::CopyRich(doc) => {
+                    self.field_edited(f, &field, true);
+                    if !doc.text.is_empty() {
+                        let html = remedy_ui_text::to_html(&doc);
+                        let text = doc.text.replace(remedy_ui_text::SOFT_BREAK, "\n");
+                        self.0.borrow_mut().rich_clip = Some((html.clone(), doc));
+                        self.request(Request::Copy { text, sensitive: false, html: Some(html) });
                     }
                     return true;
                 }
@@ -223,6 +251,20 @@ impl Ui {
                     return true;
                 }
             }
+        }
+        // Copy selected text when no field holds focus (a field copies its own).
+        let cmd = if self.platform() == remedy_ui_input::Platform::Apple {
+            e.modifiers.meta
+        } else {
+            e.modifiers.ctrl
+        };
+        if e.pressed
+            && cmd
+            && matches!(&e.key, remedy_ui_input::Key::Character(c) if c.eq_ignore_ascii_case("c"))
+            && let Some(text) = self.selected_text()
+        {
+            self.request(Request::Copy { text, sensitive: false, html: None });
+            return true;
         }
         // With nothing focused, keys go to the window's content root (where app-wide
         // shortcuts listen).
@@ -262,7 +304,7 @@ impl Ui {
         }
     }
 
-    fn field_edited(&self, id: ElementId, field: &Rc<RefCell<Field>>, changed: bool) {
+    pub(crate) fn field_edited(&self, id: ElementId, field: &Rc<RefCell<Field>>, changed: bool) {
         if changed {
             field::mark_changed(field);
             self.mark(id, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
@@ -275,6 +317,7 @@ impl Ui {
         if changed {
             field::notify_change(field);
         }
+        field::notify_caret(field);
     }
 
     /// Routes an input-method event to the focused field.
@@ -288,6 +331,24 @@ impl Ui {
             self.field_edited(f, &field, true);
         }
         changed
+    }
+
+    /// Delivers the clipboard after a [`Request::Paste`]: its text, and its HTML when it has
+    /// some. A rich field takes the HTML's allowed formatting (and a copy of its own whole);
+    /// other fields take the text.
+    pub fn paste_html(&self, text: &str, html: Option<&str>) {
+        let tree = self.tree();
+        let Some(f) = tree.focused() else { return };
+        let Some(field) = self.field_of(f) else { return };
+        let rich = field::is_rich(&field.borrow());
+        let Some(html) = html.filter(|_| rich) else {
+            return self.paste(text);
+        };
+        let own = self.0.borrow().rich_clip.as_ref().filter(|(h, _)| h == html).map(|(_, d)| d.clone());
+        let doc = own.unwrap_or_else(|| remedy_ui_text::from_html(html));
+        let now = self.0.borrow().now_ms;
+        field::paste_doc(&mut field.borrow_mut(), &doc, now);
+        self.field_edited(f, &field, true);
     }
 
     /// Delivers clipboard text after a [`Request::Paste`].

@@ -97,6 +97,10 @@ pub struct HeadlessHost {
     timers: BTreeMap<TimerId, Duration>,
     queue: VecDeque<HostEvent>,
     clipboard: Option<(String, bool)>,
+    /// HTML on the clipboard beside its text.
+    clipboard_html: Option<String>,
+    /// The machine's memory the scripted host reports.
+    total_memory: Option<u64>,
     woken: Arc<AtomicBool>,
     exited: bool,
     /// Whether windows can be kept out of screen capture (Wayland and X11 cannot).
@@ -136,6 +140,8 @@ impl HeadlessHost {
             timers: BTreeMap::new(),
             queue: VecDeque::from([HostEvent::Resumed]),
             clipboard: None,
+            clipboard_html: None,
+            total_memory: None,
             woken: Arc::new(AtomicBool::new(false)),
             exited: false,
             capture_supported: true,
@@ -233,6 +239,22 @@ impl HeadlessHost {
     /// Every open window.
     pub fn window_ids(&self) -> Vec<WindowId> {
         self.windows.keys().copied().collect()
+    }
+
+    /// Makes the host report `bytes` of physical memory (none by default).
+    pub fn set_total_memory(&mut self, bytes: Option<u64>) {
+        self.total_memory = bytes;
+    }
+
+    /// The HTML on the clipboard, when formatted text was copied.
+    pub fn copied_html(&self) -> Option<&str> {
+        self.clipboard_html.as_deref()
+    }
+
+    /// Puts `text` and its `html` on the clipboard, as another app copying formatted text.
+    pub fn put_clipboard_html(&mut self, text: &str, html: &str) {
+        self.clipboard = Some((text.to_owned(), false));
+        self.clipboard_html = Some(html.to_owned());
     }
 
     /// What is on the clipboard, and whether it was marked sensitive.
@@ -381,6 +403,10 @@ impl Host for HeadlessHost {
 
     fn settings(&self) -> SystemSettings {
         self.settings.clone()
+    }
+
+    fn total_memory(&self) -> Option<u64> {
+        self.total_memory
     }
 
     fn create_window(&mut self, options: &WindowOptions) -> Result<WindowId, Unsupported> {
@@ -559,11 +585,23 @@ impl Host for HeadlessHost {
 
     fn set_clipboard_text(&mut self, text: &str, sensitive: bool) -> Result<(), Unsupported> {
         self.clipboard = Some((text.to_owned(), sensitive));
+        self.clipboard_html = None;
         Ok(())
     }
 
     fn clear_clipboard(&mut self) -> Result<(), Unsupported> {
         self.clipboard = None;
+        self.clipboard_html = None;
+        Ok(())
+    }
+
+    fn clipboard_html(&mut self) -> Result<Option<String>, Unsupported> {
+        Ok(self.clipboard_html.clone())
+    }
+
+    fn set_clipboard_html(&mut self, text: &str, html: &str) -> Result<(), Unsupported> {
+        self.clipboard = Some((text.to_owned(), false));
+        self.clipboard_html = Some(html.to_owned());
         Ok(())
     }
 

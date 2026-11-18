@@ -2,12 +2,14 @@
 //! upright, shared while in use and freed when nothing shows them.
 //!
 //! - [`image()`]: an element showing a file or bytes, fitted to its box
+//! - [`image_with`]: the same element, with pixels from a supplier of your own (animations)
 //! - [`load`] and [`probe`]: the loader underneath, for custom elements (avatars, previews)
 //! - [`decode`]: the decoder on its own
 
 mod decode;
 mod load;
 
+use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -17,8 +19,12 @@ use remedy_ui_paint::{Brush, Image, Item, Path, Sampling, Stroke};
 use remedy_ui_reactive::{Effect, Signal};
 use remedy_ui_view::{El, Ui};
 
-pub use decode::{DecodeError, Decoded, Format, add_format, decode, dimensions, fitted, fitted_scalable};
-pub use load::{ImageState, Request, Source, cached, load, probe};
+pub use decode::{
+    DecodeError, Decoded, Format, Srgb, add_format, decode, dimensions, finish_rgba, fitted, fitted_scalable,
+};
+pub use load::{
+    ImageState, Request, Source, SourceId, Stamp, cached, decode_for_box, load, probe, spawn_job,
+};
 
 /// How an image fills its element.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -58,6 +64,27 @@ fn place(fit: Fit, img: (f32, f32), natural: (f32, f32), w: f32, h: f32) -> Rect
 /// be shown, a broken-image mark, with the reason given to screen readers.
 #[track_caller]
 pub fn image(ui: &Ui, source: Source, alt: impl Into<String>, fit: Fit) -> El {
+    image_with(
+        ui,
+        source,
+        alt,
+        fit,
+        Rc::new(|source, box_px, cover, state| Box::new(load(source, box_px, cover, state)) as Box<dyn Any>),
+    )
+}
+
+/// What supplies an image element's pixels: given the source, the box in device pixels, whether
+/// the image covers it, and the signal to report to (as [`load`] does), it starts the work and
+/// returns what keeps it going. The element drops that when the box outgrows it, and when it
+/// is removed.
+pub type Loader = Rc<dyn Fn(&Source, Option<(u32, u32)>, bool, Signal<ImageState>) -> Box<dyn Any>>;
+
+/// Like [`image()`], with pixels from `loader` instead of the still-image loader. The element
+/// takes its size, placeholder, failure mark, fit and accessibility from the image the loader
+/// reports, and draws each `Ready` it reports as it arrives: a loader that reports a new
+/// frame each time is an animation.
+#[track_caller]
+pub fn image_with(ui: &Ui, source: Source, alt: impl Into<String>, fit: Fit, loader: Loader) -> El {
     let alt = alt.into();
     let state = Signal::new(ImageState::Loading);
     // What is drawn: the last decoded pixels stay up while a sharper version loads.
@@ -73,7 +100,7 @@ pub fn image(ui: &Ui, source: Source, alt: impl Into<String>, fit: Fit) -> El {
     });
     probe(&source, state);
 
-    let request: Rc<RefCell<Option<Request>>> = Rc::default();
+    let request: Rc<RefCell<Option<Box<dyn Any>>>> = Rc::default();
     let asked: Rc<Cell<Option<(u32, u32)>>> = Rc::default();
     let el = ui.el("image").variant("loading");
     let el = if fit == Fit::Cover { el.clip() } else { el };
@@ -90,7 +117,7 @@ pub fn image(ui: &Ui, source: Source, alt: impl Into<String>, fit: Fit) -> El {
             return;
         }
         asked2.set(Some(bucket));
-        let next = load(&src, Some(px), fit == Fit::Cover, state);
+        let next = loader(&src, Some(px), fit == Fit::Cover, state);
         *req.borrow_mut() = Some(next);
     });
     // Removed from the window, the element lets its pixels go (its signals outlive it in

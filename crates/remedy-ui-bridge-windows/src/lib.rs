@@ -8,6 +8,8 @@
 //! time and caret blink). All Win32 calls are in the `os` module. On other platforms this crate
 //! is empty.
 
+#[cfg_attr(not(windows), allow(dead_code))]
+mod cf_html;
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod os;
@@ -108,6 +110,18 @@ mod hooks {
 
         fn clear_clipboard(&mut self) -> Result<(), Unsupported> {
             os::clear_clipboard()
+        }
+
+        fn clipboard_html(&mut self) -> Result<Option<String>, Unsupported> {
+            os::clipboard_html()
+        }
+
+        fn total_memory(&self) -> Option<u64> {
+            os::total_memory()
+        }
+
+        fn set_clipboard_html(&mut self, text: &str, html: &str) -> Result<(), Unsupported> {
+            os::set_clipboard_html(text, html)
         }
 
         fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported> {

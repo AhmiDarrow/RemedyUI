@@ -84,6 +84,24 @@ fn record(
         slot.rtl = rtl;
         let p = slot.paragraph(engine, Some(content.width().max(0.0)));
         let x = content.min.x + p.x_offset(content.width());
+        // Marked and selected text show their highlights under the glyphs.
+        let tokens = theme.derive();
+        for r in &d.marks {
+            for rect in p.selection_rects(r.clone()) {
+                list.fill_rect(
+                    rect.translate(remedy_ui_core::Vec2::new(x, content.min.y)),
+                    Brush::Solid(tokens.mark),
+                );
+            }
+        }
+        if let Some(r) = d.sel.clone() {
+            for rect in p.selection_rects(r) {
+                list.fill_rect(
+                    rect.translate(remedy_ui_core::Vec2::new(x, content.min.y)),
+                    Brush::Solid(tokens.selected),
+                );
+            }
+        }
         glyphs(&mut list, &p, Point::new(x, content.min.y), s.foreground);
     }
     if let Some(field) = &d.field {
@@ -134,6 +152,9 @@ pub(crate) fn composed_semantics(d: &ElData, is_root: bool, focusable: bool) -> 
 pub(crate) fn glyphs(list: &mut DisplayList, p: &Paragraph, origin: Point, default: Color) {
     for run in p.glyph_runs() {
         let color = if run.color == Color::BLACK { default } else { run.color };
+        for bar in [run.underline, run.strikethrough].into_iter().flatten() {
+            list.fill_rect(bar.translate(origin.to_vec2()), Brush::Solid(color));
+        }
         list.push(Item::Glyphs(GlyphRun {
             font: run.font,
             size: run.size,
@@ -415,7 +436,7 @@ impl Ui {
                     t.cache = None;
                 }
                 if let Some(f) = &d.field {
-                    f.borrow_mut().set_style(style);
+                    f.borrow_mut().set_style(style, &theme);
                 }
             }
             let node = d.node;
@@ -476,13 +497,19 @@ impl Ui {
         }
 
         // Bounds: window coordinates for hit testing, local rects for painting.
-        let mut rects = HashMap::new();
+        let mut rects: HashMap<ElementId, Rect> = HashMap::new();
         let mut stack = vec![(root, Point::ZERO, Vec2::ZERO)];
         while let Some((id, parent_at, scroll)) = stack.pop() {
             let Some(d) = i.els.get(&id) else { continue };
             let mut r = i.layout.rect(d.node).unwrap_or(Rect::ZERO);
             if id == root {
                 r = Rect::from_origin_size(Point::ZERO, size);
+            }
+            // A link inside text sits over its words, wherever the text put them.
+            if d.inline_link.is_some() {
+                let parent = i.tree.parent(id);
+                let width = parent.and_then(|p| rects.get(&p)).map_or(0.0, |p| p.width());
+                r = parent.and_then(|p| crate::links::placed_rect(i, id, p, width)).unwrap_or(Rect::ZERO);
             }
             rects.insert(id, r);
             let abs = Point::new(parent_at.x + r.min.x - scroll.x, parent_at.y + r.min.y - scroll.y);
@@ -505,6 +532,22 @@ impl Ui {
             {
                 d.last_size = Some(r.size());
                 resized.push((cb.clone(), r.size()));
+            }
+        }
+
+        // Elements watching whether they are seen hear about changes the same way.
+        let mut seen: Vec<(VisibilityHandler, bool)> = Vec::new();
+        let window = Rect::from_origin_size(Point::ZERO, size);
+        let watchers: Vec<ElementId> =
+            i.els.iter().filter(|(_, d)| d.on_visibility.is_some()).map(|(id, _)| *id).collect();
+        for id in watchers {
+            let now = is_seen(i, id, window);
+            if let Some(d) = i.els.get_mut(&id)
+                && d.last_visible != Some(now)
+                && let Some(cb) = d.on_visibility.clone()
+            {
+                d.last_visible = Some(now);
+                seen.push((cb, now));
             }
         }
 
@@ -563,12 +606,41 @@ impl Ui {
         for (cb, size) in resized {
             cb(size);
         }
+        for (cb, now) in seen {
+            cb(now);
+        }
         Frame { layers, scrollers }
     }
 }
 
+/// True when some of `id` shows: it and its ancestors are not hidden or transparent, the window
+/// is not covered, and its box overlaps the window and every clipping ancestor.
+fn is_seen(i: &Inner, id: ElementId, window: Rect) -> bool {
+    if i.occluded {
+        return false;
+    }
+    let Some(mut shown) = i.tree.bounds(id) else { return false };
+    let mut cur = Some(id);
+    while let Some(c) = cur {
+        let Some(d) = i.els.get(&c) else { return false };
+        if d.hidden || d.resolved.opacity <= 0.0 {
+            return false;
+        }
+        if c != id && (d.scroll || d.clip) {
+            let Some(b) = i.tree.bounds(c) else { return false };
+            let Some(r) = shown.intersect(b) else { return false };
+            shown = r;
+        }
+        cur = i.tree.parent(c);
+    }
+    shown.intersect(window).is_some()
+}
+
 /// An element's resize callback.
 type ResizeHandler = Rc<dyn Fn(Size)>;
+
+/// An element's callback for being seen or not.
+type VisibilityHandler = Rc<dyn Fn(bool)>;
 
 fn collect_ids(l: &Layer) -> std::collections::HashSet<LayerId> {
     let mut out = std::collections::HashSet::new();

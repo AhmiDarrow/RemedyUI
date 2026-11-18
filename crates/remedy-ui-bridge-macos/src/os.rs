@@ -8,7 +8,7 @@ use std::time::Duration;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
     NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSApplication, NSColor, NSColorSpace, NSEvent,
-    NSPasteboard, NSPasteboardTypeString, NSView, NSWindowSharingType, NSWorkspace,
+    NSPasteboard, NSPasteboardTypeHTML, NSPasteboardTypeString, NSView, NSWindowSharingType, NSWorkspace,
 };
 use objc2_foundation::{NSArray, NSLocale, NSString};
 use remedy_ui_core::Color;
@@ -37,6 +37,28 @@ pub(crate) fn set_clipboard_text(text: &str, sensitive: bool) -> Result<(), Unsu
         for marker in ["org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType"] {
             pb.setString_forType(&empty, &NSString::from_str(marker));
         }
+    }
+    Ok(())
+}
+
+/// The pasteboard's HTML, if another app copied formatted text.
+pub(crate) fn clipboard_html() -> Option<String> {
+    let pb = NSPasteboard::generalPasteboard();
+    // SAFETY: NSPasteboardTypeHTML is an immutable framework constant.
+    let ty = unsafe { NSPasteboardTypeHTML };
+    pb.stringForType(ty).map(|s| s.to_string())
+}
+
+/// Writes formatted text: plain text for every app, HTML for apps that paste formatting.
+pub(crate) fn set_clipboard_html(text: &str, html: &str) -> Result<(), Unsupported> {
+    let pb = NSPasteboard::generalPasteboard();
+    pb.clearContents();
+    // SAFETY: both types are immutable framework constants.
+    let (plain, rich) = unsafe { (NSPasteboardTypeString, NSPasteboardTypeHTML) };
+    if !pb.setString_forType(&NSString::from_str(text), plain)
+        || !pb.setString_forType(&NSString::from_str(html), rich)
+    {
+        return Err(Unsupported::new("the clipboard", "the pasteboard refused the text"));
     }
     Ok(())
 }

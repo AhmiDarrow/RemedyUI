@@ -28,7 +28,7 @@ Every widget is built only from public engine APIs: the same ones an app uses fo
 | `doc-pages` | `page_view`: paged documents with tiled deep zoom (1%–6400%), rotation, single and two-page spreads, thumbnails, text selection over positioned runs, an annotation layer that stays exact under rotation and zoom. The app supplies pages through a trait; parsing (MuPDF, an EPUB engine) stays in the app | RemedyPDF |
 | `widgets-term` | `terminal`: VT and xterm emulation, scrollback on a virtual list, selection, links, IME, true color. The PTY stays in the app | RemedyAI, RemedyOS Terminal |
 | `media-image` | Image decoding per format feature (`png`, `jpeg`, `webp`, `avif`, `gif`, `ico`) | Most apps |
-| `media-anim` | `animated_image` (GIF, WebP, APNG), `vector_animation` (Lottie-class) | FreeSpeak, onboarding screens |
+| `media-anim` | `animated` (GIF, WebP, APNG), `vector_animation` (Lottie-class) | FreeSpeak, onboarding screens |
 | `media-svg` | SVG icons and illustrations; icon sets as SVG | Most apps |
 | `media-video` | `video_surface` (NV12, I420, RGBA; zero-copy GPU import), `external_texture` | FreeSpeak screen share, Portal, Quickcast |
 | `media-playback` | `player`: a transport bar (play, pause, seek with buffered ranges, volume, speed), subtitles track rendering (WebVTT, SRT, ASS basics) and next-up. Decoding goes through the bridges' `MediaHost` (Media Foundation, AVFoundation, MediaCodec, the system's GStreamer on Linux, which is loaded from the OS and never bundled); an app can plug in its own | Portal, Quickcast |
@@ -59,7 +59,7 @@ Every SecretSticky note is an ordinary `Window` with `frameless()`, `always_on_t
 
 - **Decoding** runs on the worker pool, or in the isolated helper ([08](08-security-and-privacy.md)), at the size each image is shown. The same source shown at two sizes decodes twice, at both sizes, and shares the parsed headers.
 - **Caching.** Decoded images are cached by (source hash, decoded size). They are uploaded to the GPU when first drawn, and the CPU copy is released after upload unless the CPU renderer or a snapshot needs it. Caches size from the device and shrink under pressure ([09](09-performance-and-resources.md)).
-- **Animated images.** All views of the same source share one decoder. Frames are decoded ahead by a small window and kept in an atlas. Each view has its own clock. Off-screen, unfocused (by app setting) and reduced-motion views do not advance.
+- **Animated images.** All views of the same source at the same size share one decoder and one playhead, so copies play in step and the window of decoded frames stays the same size however many show it. A short animation is kept whole and loops with no decoding; a long one keeps the frames around the one shown and decodes the rest again each time round. Each frame has a timer of its own length. Off-screen, hidden, minimized and reduced-motion views do not advance; under reduced motion the first frame shows with a play button.
 - **Images on device loss** decode again from their source handle ([04](04-rendering.md)).
 - **Video** frames come from any thread through a triple buffer. Each new frame wakes the compositor, not the UI thread, and is composited in the next vsync. Zero-copy import is used where the platform decoder gives GPU textures.
 - **SVG** is parsed once into a path tree. It is drawn as paths, or rasterized into the atlas at icon sizes.

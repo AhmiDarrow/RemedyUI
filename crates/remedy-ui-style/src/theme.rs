@@ -145,6 +145,8 @@ pub struct DerivedTokens {
     pub pressed: Color,
     /// Fill for something selected.
     pub selected: Color,
+    /// Fill behind marked text (what a search found).
+    pub mark: Color,
     /// Accent fill when hovered.
     pub accent_hover: Color,
     /// Accent fill when pressed.
@@ -221,6 +223,7 @@ impl Theme {
             hover: tint(c.card, 0.06),
             pressed: tint(c.card, 0.12),
             selected: c.card.mix_oklab(c.accent, 0.25),
+            mark: c.card.mix_oklab(c.warn, 0.35),
             accent_hover: c.accent.mix_oklab(accent_toward, 0.08),
             accent_pressed: c.accent.mix_oklab(accent_toward, 0.16),
             line,

@@ -11,11 +11,12 @@ use remedy_ui_input::{Key, KeyEvent, Modifiers, Platform};
 use remedy_ui_paint::{Brush, DisplayList};
 use remedy_ui_style::{ResolvedStyle, Theme};
 use remedy_ui_text::{
-    Paragraph, ParagraphOptions, RichText, SecretEditor, SecretString, TextEditor, TextEngine, TextPosition,
-    TextStyle,
+    Block, Mark, Paragraph, ParagraphOptions, RichDoc, RichEditor, RichLook, RichText, RichView,
+    SecretEditor, SecretString, TextEditor, TextEngine, TextPosition, TextStyle,
 };
 use remedy_ui_tree::Dirty;
 
+use crate::decoration::{self, Decoration};
 use crate::element::{El, Ui};
 use crate::{Request, frame};
 
@@ -29,12 +30,49 @@ pub enum FieldKind {
     /// A password or other secret: masked, kept in a zeroizing buffer, never copied, no input
     /// method.
     Secret,
+    /// Rich text: several lines with formatting (bold, links, mentions, lists, quotes, code).
+    Rich,
 }
 
 enum Editor {
     Plain(TextEditor),
     Secret(SecretEditor),
+    Rich(Box<RichState>),
 }
+
+/// A rich field's editor, the look it is drawn with, and its laid-out view (made when needed).
+struct RichState {
+    ed: RichEditor,
+    look: RichLook,
+    view: std::cell::OnceCell<RichView>,
+}
+
+impl RichState {
+    fn view(&self) -> &RichView {
+        self.view.get_or_init(|| self.ed.view(&self.look))
+    }
+
+    fn reset(&mut self) {
+        self.view = std::cell::OnceCell::new();
+    }
+}
+
+/// How a rich field draws its document under `theme`.
+pub(crate) fn rich_look(theme: &Theme) -> RichLook {
+    let d = theme.derive();
+    let c = &theme.colors;
+    let link = remedy_ui_style::ensure_contrast(c.accent, c.bg, 4.5);
+    RichLook {
+        link,
+        mention: link,
+        muted: d.muted,
+        code_families: theme.mono_families.clone(),
+        heading_sizes: [d.sizes[4], d.sizes[3] * 1.15, d.sizes[3]],
+    }
+}
+
+/// Sees a key before a field edits with it; true takes the key.
+type KeyFilter = Rc<dyn Fn(&KeyEvent) -> bool>;
 
 /// The mask shown for each character of a secret.
 const MASK: char = '•';
@@ -55,13 +93,38 @@ pub(crate) struct Field {
     /// The paragraph shown, its width and where its top-left sat in the element.
     shown: Option<(f32, Rc<Paragraph>, Point)>,
     on_change: Option<Rc<dyn Fn()>>,
-    on_submit: Option<Rc<dyn Fn()>>,
+    on_submit: Option<Rc<dyn Fn(remedy_ui_input::Modifiers)>>,
+    /// Called after every change to the text, by a person or by the app.
+    observers: Vec<Rc<dyn Fn()>>,
     version: u64,
+    /// Lines drawn under ranges of the text, as of the text in `deco_text`.
+    decorations: Vec<Decoration>,
+    deco_text: String,
+    /// The text changed since the decorations were last carried over to it.
+    deco_stale: bool,
+    /// Rich fields: Enter submits (a chat's composer) and Shift+Enter starts a new line.
+    submit_on_enter: bool,
+    /// Told when the caret or selection moves (and after edits).
+    caret_observers: Vec<Rc<dyn Fn()>>,
+    /// Sees keys before the field edits with them; true takes the key (a suggestion list).
+    key_filter: Option<KeyFilter>,
 }
 
 impl Field {
     pub(crate) fn invalidate(&mut self) {
         self.shown = None;
+        if let Editor::Rich(r) = &mut self.editor {
+            r.reset();
+        }
+    }
+
+    /// The editing core under a plain or rich field.
+    fn core(&self) -> Option<&TextEditor> {
+        match &self.editor {
+            Editor::Plain(e) => Some(e),
+            Editor::Rich(r) => Some(r.ed.editor()),
+            Editor::Secret(_) => None,
+        }
     }
 
     pub(crate) fn set_pseudo(&mut self, pseudo: Option<remedy_ui_text::Pseudo>) {
@@ -69,22 +132,120 @@ impl Field {
         self.invalidate();
     }
 
-    pub(crate) fn set_style(&mut self, style: TextStyle) {
+    pub(crate) fn set_style(&mut self, style: TextStyle, theme: &Theme) {
         self.style = style;
-        self.shown = None;
+        if let Editor::Rich(r) = &mut self.editor {
+            r.look = rich_look(theme);
+        }
+        self.invalidate();
+    }
+
+    /// Carries the decorations over edits made since they were set.
+    fn sync_decorations(&mut self) {
+        if !self.deco_stale {
+            return;
+        }
+        self.deco_stale = false;
+        if self.decorations.is_empty() {
+            return;
+        }
+        let Some(e) = self.core() else {
+            self.decorations.clear();
+            return;
+        };
+        let now = e.text();
+        decoration::carry(&self.deco_text, &now, &mut self.decorations);
+        self.deco_text = now;
+    }
+
+    /// Where the input-method composition sits in the shown text: the text before it ends at
+    /// `head`, and the text after it starts at `tail` in the text.
+    fn composition_edges(&self) -> Option<(usize, usize, usize)> {
+        let e = self.core()?;
+        let c = e.composition()?;
+        let sel = e.selection();
+        let head = c.at.min(sel.anchor.min(sel.focus));
+        let tail = sel.anchor.max(sel.focus).max(c.at);
+        Some((head, tail, c.text.len()))
+    }
+
+    /// A range of the text as a range of the shown text (which has the input-method
+    /// composition in place of the selection); `None` when the composition covers it.
+    fn to_display(&self, r: &Range<usize>) -> Option<Range<usize>> {
+        if let Editor::Rich(rs) = &self.editor {
+            if let Some((head, tail, _)) = self.composition_edges()
+                && r.end > head
+                && r.start < tail.max(head + 1)
+            {
+                return None;
+            }
+            let v = rs.view();
+            return Some(v.to_display(r.start)..v.to_display(r.end));
+        }
+        if !matches!(self.editor, Editor::Plain(_)) {
+            return None;
+        }
+        let Some((head, tail, len)) = self.composition_edges() else { return Some(r.clone()) };
+        if r.end <= head {
+            Some(r.clone())
+        } else if r.start >= tail {
+            let shift = |t: usize| t - tail + head + len;
+            Some(shift(r.start)..shift(r.end))
+        } else {
+            None
+        }
+    }
+
+    /// An index of the shown text as an index of the text; `None` inside the composition.
+    fn text_index(&self, i: usize) -> Option<usize> {
+        if let Editor::Rich(rs) = &self.editor {
+            let v = rs.view();
+            if v.composition.as_ref().is_some_and(|c| c.start < i && i < c.end) {
+                return None;
+            }
+            return Some(v.to_model(i));
+        }
+        if !matches!(self.editor, Editor::Plain(_)) {
+            return None;
+        }
+        let Some((head, tail, len)) = self.composition_edges() else { return Some(i) };
+        if i <= head {
+            Some(i)
+        } else if i >= head + len {
+            Some(i - head - len + tail)
+        } else {
+            None
+        }
     }
 
     fn display(&self) -> (String, Option<Range<usize>>) {
         match &self.editor {
             Editor::Plain(e) => e.display_text(),
+            Editor::Rich(r) => {
+                let v = r.view();
+                (v.text.as_str().to_owned(), v.composition.clone())
+            }
             Editor::Secret(e) if self.reveal => (e.secret().expose().to_owned(), None),
             Editor::Secret(e) => (MASK.to_string().repeat(e.masked_len()), None),
+        }
+    }
+
+    /// What is laid out: the display text with its styles.
+    fn display_rich(&self) -> RichText {
+        match &self.editor {
+            Editor::Rich(r) => r.view().text.clone(),
+            _ => RichText::plain(self.display().0),
         }
     }
 
     /// The selection in display-text bytes.
     fn display_selection(&self) -> Range<usize> {
         match &self.editor {
+            Editor::Rich(r) => {
+                let s = r.ed.selection().range();
+                let v = r.view();
+                v.to_display(s.start)..v.to_display(s.end)
+            }
             Editor::Plain(e) => {
                 let s = e.selection();
                 s.anchor.min(s.focus)..s.anchor.max(s.focus)
@@ -117,6 +278,13 @@ impl Field {
                 let s = e.selection();
                 e.secret().expose().get(..s.focus).map_or(0, |p| p.chars().count()) * MASK.len_utf8()
             }
+            Editor::Rich(r) => {
+                let v = r.view();
+                match (r.ed.editor().composition(), &v.composition) {
+                    (Some(c), Some(range)) => range.start + c.cursor.min(range.len()),
+                    _ => v.to_display(r.ed.selection().focus),
+                }
+            }
         }
     }
 
@@ -126,16 +294,16 @@ impl Field {
         {
             return p.clone();
         }
-        let (text, _) = self.display();
-        let wrap = (self.kind == FieldKind::Multi).then_some(width);
+        let text = self.display_rich();
+        let wrap = matches!(self.kind, FieldKind::Multi | FieldKind::Rich).then_some(width);
         let options = ParagraphOptions {
             max_width: wrap,
             scale: self.scale,
             container: crate::element::container(self.rtl),
             ..ParagraphOptions::default()
         };
-        let shown = if text.is_empty() { " ".to_owned() } else { text };
-        let p = Rc::new(engine.layout(&RichText::plain(shown), &self.style, options));
+        let shown = if text.is_empty() { RichText::plain(" ") } else { text };
+        let p = Rc::new(engine.layout(&shown, &self.style, options));
         self.shown = Some((width, p.clone(), Point::ZERO));
         p
     }
@@ -184,6 +352,23 @@ impl Field {
         } else {
             frame::glyphs(list, &p, o, s.foreground);
         }
+        self.sync_decorations();
+        if !text.is_empty() {
+            for d in &self.decorations {
+                let Some(r) = self.to_display(&d.range) else { continue };
+                let valid = r.start < r.end
+                    && r.end <= text.len()
+                    && text.is_char_boundary(r.start)
+                    && text.is_char_boundary(r.end);
+                if !valid {
+                    continue;
+                }
+                let color = d.color.unwrap_or(theme.colors.danger);
+                for line in p.selection_rects(r) {
+                    decoration::draw(list, line.translate(o.to_vec2()), d.kind, color);
+                }
+            }
+        }
         if let Some(c) = comp {
             // The composition is underlined, as every platform shows input-method text.
             for r in p.selection_rects(c) {
@@ -204,7 +389,7 @@ impl Field {
     pub(crate) fn semantics(&self) -> Semantics {
         let mut s = Semantics::new(match self.kind {
             FieldKind::Secret => Role::PasswordInput,
-            FieldKind::Multi => Role::MultilineTextInput,
+            FieldKind::Multi | FieldKind::Rich => Role::MultilineTextInput,
             FieldKind::Single => Role::TextInput,
         });
         if let Some(l) = &self.label {
@@ -212,6 +397,7 @@ impl Field {
         }
         match &self.editor {
             Editor::Plain(e) => s.value(e.text()),
+            Editor::Rich(r) => s.value(r.ed.text()),
             // Secrets are never exposed, not even their length.
             Editor::Secret(_) => s,
         }
@@ -228,18 +414,18 @@ impl Field {
             })
             .unwrap_or(Rect::ZERO)
             .translate(bounds.min.to_vec2());
-        match &self.editor {
-            Editor::Plain(e) => {
+        match self.core() {
+            Some(e) => {
                 let s = e.selection();
                 TextInputState {
                     surrounding: e.text(),
                     selection: s.anchor.min(s.focus)..s.anchor.max(s.focus),
                     caret,
                     private: false,
-                    multiline: self.kind == FieldKind::Multi,
+                    multiline: matches!(self.kind, FieldKind::Multi | FieldKind::Rich),
                 }
             }
-            Editor::Secret(_) => TextInputState {
+            None => TextInputState {
                 surrounding: String::new(),
                 selection: 0..0,
                 caret,
@@ -249,12 +435,26 @@ impl Field {
         }
     }
 
-    /// Places the caret at a point in element coordinates.
-    pub(crate) fn place(&mut self, at: Point, extend: bool) {
-        let Some((_, p, o)) = &self.shown else { return };
+    /// Places the caret at a point in element coordinates. Returns true when that changed the
+    /// content (a press on a task's box ticks it).
+    pub(crate) fn place(&mut self, at: Point, extend: bool) -> bool {
+        let Some((_, p, o)) = &self.shown else { return false };
         let pos = p.hit_test(Point::new(at.x - o.x, at.y - o.y)).index;
         let f_reveal = self.reveal;
         match &mut self.editor {
+            Editor::Rich(r) => {
+                let v = r.view();
+                let task = if extend { None } else { v.task_at(pos) };
+                let model = v.to_model(pos);
+                if let Some(line) = task {
+                    r.ed.toggle_task(line);
+                    r.reset();
+                    return true;
+                }
+                let anchor = if extend { r.ed.selection().anchor } else { model };
+                r.ed.set_selection(anchor, model);
+                r.reset();
+            }
             Editor::Plain(e) => {
                 let anchor = if extend { e.selection().anchor } else { pos };
                 e.set_selection(anchor, pos);
@@ -273,11 +473,13 @@ impl Field {
                 e.set_selection(anchor, idx);
             }
         }
+        false
     }
 
     fn changed(&mut self) {
-        self.shown = None;
+        self.invalidate();
         self.version += 1;
+        self.deco_stale = true;
     }
 }
 
@@ -291,6 +493,8 @@ pub(crate) enum KeyOutcome {
     Submit,
     /// Copy this text out.
     Copy(String),
+    /// Copy this rich text out (as plain text and HTML).
+    CopyRich(RichDoc),
     /// Read the clipboard.
     Paste,
 }
@@ -372,6 +576,122 @@ pub(crate) fn key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> 
             }
             out
         }
+        Editor::Rich(r) => {
+            let digit = |d: &str| ch(d) || e.physical == format!("Digit{d}");
+            let ed = &mut r.ed;
+            let out = match &e.key {
+                _ if cmd && ch("a") => {
+                    ed.select_all();
+                    handled()
+                }
+                _ if cmd && ch("c") => KeyOutcome::CopyRich(ed.selected()),
+                _ if cmd && ch("x") => KeyOutcome::CopyRich(ed.cut(now)),
+                _ if cmd && ch("v") => KeyOutcome::Paste,
+                _ if cmd && ch("z") && !extend => KeyOutcome::Handled { changed: ed.undo() },
+                _ if cmd && (ch("y") || (ch("z") && extend)) => KeyOutcome::Handled { changed: ed.redo() },
+                // Formatting, with the shortcuts word processors use.
+                _ if cmd && !extend && ch("b") => {
+                    ed.toggle(Mark::Bold);
+                    edited()
+                }
+                _ if cmd && !extend && ch("i") => {
+                    ed.toggle(Mark::Italic);
+                    edited()
+                }
+                _ if cmd && extend && (ch("x") || ch("X")) => {
+                    ed.toggle(Mark::Strike);
+                    edited()
+                }
+                _ if cmd && !extend && ch("e") => {
+                    ed.toggle(Mark::Code);
+                    edited()
+                }
+                _ if cmd && extend && digit("7") => {
+                    ed.set_block(Block::Numbered(0));
+                    edited()
+                }
+                _ if cmd && extend && digit("8") => {
+                    ed.set_block(Block::Bullet(0));
+                    edited()
+                }
+                _ if cmd && extend && digit("9") => {
+                    ed.set_block(Block::Task { done: false, level: 0 });
+                    edited()
+                }
+                _ if cmd && e.modifiers.alt && (digit("1") || digit("2") || digit("3")) => {
+                    let level = if digit("1") {
+                        1
+                    } else if digit("2") {
+                        2
+                    } else {
+                        3
+                    };
+                    ed.set_block(Block::Heading(level));
+                    edited()
+                }
+                _ if cmd && e.modifiers.alt && digit("0") => {
+                    ed.set_block(Block::Paragraph);
+                    edited()
+                }
+                // Tab nests list items; elsewhere it moves focus as usual.
+                Key::Tab if !cmd => {
+                    if ed.indent(!extend) {
+                        edited()
+                    } else {
+                        KeyOutcome::Ignored
+                    }
+                }
+                Key::Backspace if word => {
+                    ed.delete_word(false, now);
+                    edited()
+                }
+                Key::Backspace => {
+                    ed.backspace(now);
+                    edited()
+                }
+                Key::Delete if word => {
+                    ed.delete_word(true, now);
+                    edited()
+                }
+                Key::Delete => {
+                    ed.delete_forward(now);
+                    edited()
+                }
+                Key::ArrowLeft | Key::ArrowRight if word => {
+                    ed.move_word(e.key == Key::ArrowRight, extend);
+                    handled()
+                }
+                Key::ArrowLeft | Key::ArrowRight => {
+                    ed.move_char(e.key == Key::ArrowRight, extend);
+                    handled()
+                }
+                Key::Home | Key::End => {
+                    ed.move_to_edge(e.key == Key::End, extend);
+                    handled()
+                }
+                // Enter sends where the app asked for that (a chat), Shift+Enter breaks the
+                // line; otherwise Enter starts a new block and Shift+Enter breaks the line.
+                Key::Enter if f.submit_on_enter && !extend => KeyOutcome::Submit,
+                Key::Enter if extend && !f.submit_on_enter => {
+                    ed.soft_break(now);
+                    edited()
+                }
+                Key::Enter => {
+                    ed.enter(now);
+                    edited()
+                }
+                _ if cmd || e.modifiers.alt && !e.modifiers.ctrl => KeyOutcome::Ignored,
+                _ => match &e.text {
+                    Some(t) if !t.is_empty() => {
+                        ed.insert(t, now);
+                        edited()
+                    }
+                    _ => KeyOutcome::Ignored,
+                },
+            };
+            r.reset();
+            out
+        }
         Editor::Secret(ed) => match &e.key {
             _ if cmd && ch("a") => {
                 ed.select_all();
@@ -406,6 +726,30 @@ pub(crate) fn key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> 
 }
 
 pub(crate) fn ime(f: &mut Field, e: &ImeEvent, now: u64) -> bool {
+    if let Editor::Rich(r) = &mut f.editor {
+        let ed = &mut r.ed;
+        match e {
+            ImeEvent::Preedit { text, cursor } => {
+                if text.is_empty() {
+                    ed.cancel_composition();
+                } else {
+                    ed.set_composition(text, cursor.as_ref().map_or(text.len(), |c| c.end));
+                }
+            }
+            ImeEvent::Commit(t) => ed.commit_composition(t, now),
+            ImeEvent::DeleteSurrounding { before, after } => {
+                let s = ed.selection().focus;
+                let (a, b) = (s.saturating_sub(*before), (s + after).min(ed.text().len()));
+                if a < b {
+                    ed.set_selection(a, b);
+                    ed.backspace(now);
+                }
+            }
+            ImeEvent::Enabled | ImeEvent::Disabled => return false,
+        }
+        r.reset();
+        return true;
+    }
     let Editor::Plain(ed) = &mut f.editor else { return false };
     match e {
         ImeEvent::Preedit { text, cursor } => {
@@ -430,11 +774,35 @@ pub(crate) fn ime(f: &mut Field, e: &ImeEvent, now: u64) -> bool {
 }
 
 pub(crate) fn paste(f: &mut Field, text: &str, now: u64) {
-    let text = if f.kind == FieldKind::Multi { text.to_owned() } else { text.replace(['\r', '\n'], " ") };
+    let text = if matches!(f.kind, FieldKind::Multi | FieldKind::Rich) {
+        text.replace("\r\n", "\n").replace('\r', "\n")
+    } else {
+        text.replace(['\r', '\n'], " ")
+    };
     match &mut f.editor {
         Editor::Plain(e) => e.paste(&text, now),
         Editor::Secret(e) => e.insert(&text),
+        Editor::Rich(r) => {
+            r.ed.paste_text(&text, now);
+            r.reset();
+        }
     }
+}
+
+/// Pastes a rich document: into a rich field with its formatting, elsewhere as its text.
+pub(crate) fn paste_doc(f: &mut Field, doc: &RichDoc, now: u64) {
+    match &mut f.editor {
+        Editor::Rich(r) => {
+            r.ed.paste(doc, now);
+            r.reset();
+        }
+        _ => paste(f, &doc.text.replace(remedy_ui_text::SOFT_BREAK, "\n"), now),
+    }
+}
+
+/// True for rich fields (they take HTML from the clipboard).
+pub(crate) fn is_rich(f: &Field) -> bool {
+    matches!(f.editor, Editor::Rich(_))
 }
 
 /// A handle to a text field element.
@@ -456,10 +824,16 @@ impl Ui {
     pub fn text_field(&self, widget: &'static str, kind: FieldKind) -> TextField {
         let el = self.el(widget).focusable(true);
         let scale = self.0.borrow().scale;
+        let look = rich_look(&self.0.borrow().theme);
         let field = Rc::new(RefCell::new(Field {
             kind,
             editor: match kind {
                 FieldKind::Secret => Editor::Secret(SecretEditor::new()),
+                FieldKind::Rich => Editor::Rich(Box::new(RichState {
+                    ed: RichEditor::new(RichDoc::plain("")),
+                    look,
+                    view: std::cell::OnceCell::new(),
+                })),
                 _ => Editor::Plain(TextEditor::new("")),
             },
             style: TextStyle::default(),
@@ -472,7 +846,14 @@ impl Ui {
             shown: None,
             on_change: None,
             on_submit: None,
+            observers: Vec::new(),
             version: 0,
+            decorations: Vec::new(),
+            deco_text: String::new(),
+            deco_stale: false,
+            submit_on_enter: false,
+            caret_observers: Vec::new(),
+            key_filter: None,
         }));
         // Measured like text: the paragraph's size plus one caret width.
         let engine = self.0.borrow().engine.clone();
@@ -484,7 +865,7 @@ impl Ui {
             });
             let mut f = f2.borrow_mut();
             let w = width.unwrap_or(f32::MAX / 4.0);
-            let wrap = if f.kind == FieldKind::Multi { w } else { f32::MAX / 4.0 };
+            let wrap = if matches!(f.kind, FieldKind::Multi | FieldKind::Rich) { w } else { f32::MAX / 4.0 };
             let p = f.paragraph(&mut engine.borrow_mut(), wrap);
             remedy_ui_core::Size::new(width.unwrap_or(p.width().ceil() + 2.0), p.height().ceil())
         };
@@ -521,6 +902,7 @@ impl TextField {
     pub fn value(&self) -> String {
         match &self.field.borrow().editor {
             Editor::Plain(e) => e.text(),
+            Editor::Rich(r) => r.ed.text(),
             Editor::Secret(_) => String::new(),
         }
     }
@@ -529,6 +911,7 @@ impl TextField {
     pub fn len(&self) -> usize {
         match &self.field.borrow().editor {
             Editor::Plain(e) => e.text().chars().count(),
+            Editor::Rich(r) => r.ed.text().chars().count(),
             Editor::Secret(e) => e.masked_len(),
         }
     }
@@ -541,20 +924,27 @@ impl TextField {
     /// Replaces the text (plain fields), caret at the end, starting a fresh undo history.
     pub fn set_value(&self, text: &str) {
         let mut f = self.field.borrow_mut();
-        if let Editor::Plain(e) = &mut f.editor {
-            *e = TextEditor::new(text);
-            e.move_to_edge(true, false);
+        match &mut f.editor {
+            Editor::Plain(e) => {
+                *e = TextEditor::new(text);
+                e.move_to_edge(true, false);
+            }
+            Editor::Rich(r) => r.ed.set_doc(RichDoc::plain(text)),
+            Editor::Secret(_) => {}
         }
         f.changed();
         drop(f);
         self.el.ui.mark(self.el.id, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
+        notify_observers(&self.field);
     }
 
     /// Selects all of the text (a rename box opening with the old name ready to replace).
     pub fn select_all(&self) {
         let mut f = self.field.borrow_mut();
-        if let Editor::Plain(e) = &mut f.editor {
-            e.select_all();
+        match &mut f.editor {
+            Editor::Plain(e) => e.select_all(),
+            Editor::Rich(r) => r.ed.select_all(),
+            Editor::Secret(_) => {}
         }
         f.changed();
         drop(f);
@@ -569,6 +959,11 @@ impl TextField {
             Editor::Plain(e) => {
                 let mut s = SecretString::new();
                 s.insert(0, &e.text());
+                s
+            }
+            Editor::Rich(r) => {
+                let mut s = SecretString::new();
+                s.insert(0, &r.ed.text());
                 s
             }
         };
@@ -613,8 +1008,208 @@ impl TextField {
         self
     }
 
+    /// Calls `f` after every change to the text, whether a person edited it or the app set it
+    /// ([`TextField::set_value`]). Unlike [`TextField::on_change`], any number of observers can
+    /// be added, and they never replace the app's own `on_change`.
+    pub fn observe_text(&self, f: impl Fn() + 'static) {
+        self.field.borrow_mut().observers.push(Rc::new(f));
+    }
+
+    /// The selection as a byte range of the text (empty at the caret). Secret fields report
+    /// an empty range.
+    pub fn selection(&self) -> Range<usize> {
+        self.field.borrow().core().map_or(0..0, |e| e.selection().range())
+    }
+
+    /// The caret as a byte index of the text (the selection's moving end).
+    pub fn caret(&self) -> usize {
+        self.field.borrow().core().map_or(0, |e| e.selection().focus)
+    }
+
+    /// Replaces the bytes in `range` with `text` as one undoable edit, caret after it, and
+    /// reports the change like a typed edit. A range off the text or inside a character is
+    /// refused (`false`), and secret fields refuse every range.
+    pub fn replace_range(&self, range: Range<usize>, text: &str) -> bool {
+        {
+            let mut f = self.field.borrow_mut();
+            let Some(whole) = f.core().map(TextEditor::text) else { return false };
+            if range.start > range.end
+                || range.end > whole.len()
+                || !whole.is_char_boundary(range.start)
+                || !whole.is_char_boundary(range.end)
+            {
+                return false;
+            }
+            match &mut f.editor {
+                Editor::Plain(e) => {
+                    e.set_selection(range.start, range.end);
+                    e.paste(text, 0);
+                }
+                Editor::Rich(r) => {
+                    r.ed.set_selection(range.start, range.end);
+                    r.ed.paste_text(text, 0);
+                    r.reset();
+                }
+                Editor::Secret(_) => return false,
+            }
+        }
+        self.el.ui.field_edited(self.el.id, &self.field, true);
+        true
+    }
+
+    /// Draws lines under ranges of the text, replacing the earlier ones. Ranges are byte
+    /// ranges of the current text. Secret fields draw none.
+    pub fn set_decorations(&self, decorations: Vec<Decoration>) {
+        let text = self.value();
+        self.set_decorations_for(&text, decorations);
+    }
+
+    /// Like [`TextField::set_decorations`] for ranges worked out on `text`, a copy of the
+    /// field's text from some time ago (a check that ran in the background). Edits made since
+    /// are carried over: lines before an edit stay, lines after it move with the text, and
+    /// lines the edit touched are dropped.
+    pub fn set_decorations_for(&self, text: &str, decorations: Vec<Decoration>) {
+        {
+            let mut f = self.field.borrow_mut();
+            if f.kind == FieldKind::Secret {
+                return;
+            }
+            f.decorations = decorations;
+            f.deco_text = text.to_owned();
+            f.deco_stale = true;
+        }
+        self.el.ui.mark(self.el.id, Dirty::PAINT);
+    }
+
+    /// The lines now drawn, moved over any edits since they were set.
+    pub fn decorations(&self) -> Vec<Decoration> {
+        let mut f = self.field.borrow_mut();
+        f.sync_decorations();
+        f.decorations.clone()
+    }
+
+    /// The decoration under `point` (window coordinates), once the field has been drawn.
+    pub fn decoration_at(&self, point: Point) -> Option<Decoration> {
+        let bounds = self.el.bounds()?;
+        let mut f = self.field.borrow_mut();
+        f.sync_decorations();
+        let (_, p, origin) = f.shown.clone()?;
+        let at = Point::new(point.x - bounds.min.x - origin.x, point.y - bounds.min.y - origin.y);
+        let hit = |r: &Rect| at.x >= r.min.x && at.x < r.max.x && at.y >= r.min.y && at.y < r.max.y;
+        f.decorations
+            .iter()
+            .find(|d| f.to_display(&d.range).is_some_and(|r| p.selection_rects(r).iter().any(hit)))
+            .cloned()
+    }
+
+    /// The byte index of the text nearest `point` (window coordinates), once the field has
+    /// been drawn; `None` inside an input-method composition.
+    pub fn index_at(&self, point: Point) -> Option<usize> {
+        let bounds = self.el.bounds()?;
+        let f = self.field.borrow();
+        let (_, p, origin) = f.shown.clone()?;
+        let at = Point::new(point.x - bounds.min.x - origin.x, point.y - bounds.min.y - origin.y);
+        f.text_index(p.hit_test(at).index)
+    }
+
+    /// The rich document (rich fields only).
+    pub fn doc(&self) -> Option<RichDoc> {
+        match &self.field.borrow().editor {
+            Editor::Rich(r) => Some(r.ed.doc()),
+            _ => None,
+        }
+    }
+
+    /// Replaces a rich field's document, caret at the end, starting a fresh undo history.
+    pub fn set_doc(&self, doc: RichDoc) {
+        {
+            let mut f = self.field.borrow_mut();
+            let Editor::Rich(r) = &mut f.editor else { return };
+            r.ed.set_doc(doc);
+            f.changed();
+        }
+        self.el.ui.mark(self.el.id, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
+        notify_observers(&self.field);
+    }
+
+    /// Runs `f` on a rich field's editor (a toolbar's bold button, a link dialog, a mention
+    /// picker), then shows and reports the change like an edit. Returns `None` for other
+    /// fields.
+    pub fn edit_rich<T>(&self, f: impl FnOnce(&mut RichEditor) -> T) -> Option<T> {
+        let (out, before) = {
+            let mut field = self.field.borrow_mut();
+            let Editor::Rich(r) = &mut field.editor else { return None };
+            let before = r.ed.version();
+            let out = f(&mut r.ed);
+            r.reset();
+            (out, before)
+        };
+        let changed = matches!(&self.field.borrow().editor, Editor::Rich(r) if r.ed.version() != before);
+        self.el.ui.field_edited(self.el.id, &self.field, changed);
+        Some(out)
+    }
+
+    /// Reads a rich field's editor (its selection, the marks at the caret, the block).
+    pub fn read_rich<T>(&self, f: impl FnOnce(&RichEditor) -> T) -> Option<T> {
+        match &self.field.borrow().editor {
+            Editor::Rich(r) => Some(f(&r.ed)),
+            _ => None,
+        }
+    }
+
+    /// The caret's box in window coordinates, once the field has been drawn (to place a
+    /// popup at it, such as mention suggestions).
+    pub fn caret_rect(&self) -> Option<Rect> {
+        let bounds = self.el.bounds()?;
+        // Right after an edit the text is laid out again only when drawn; lay it out now.
+        if self.field.borrow().shown.is_none() {
+            let (engine, style) = {
+                let i = self.el.ui.0.borrow();
+                (i.engine.clone(), i.els.get(&self.el.id).map(|d| d.resolved.clone())?)
+            };
+            let inset = style.padding.start + style.border_width;
+            let width = (bounds.width() - inset - style.padding.end - style.border_width).max(1.0);
+            let mut f = self.field.borrow_mut();
+            let p = f.paragraph(&mut engine.borrow_mut(), width);
+            let o = Point::new(inset + p.x_offset(width), style.padding.top + style.border_width);
+            if let Some(shown) = f.shown.as_mut() {
+                shown.2 = o;
+            }
+        }
+        let f = self.field.borrow();
+        let (_, p, o) = f.shown.clone()?;
+        let at = TextPosition { index: f.caret_index(), ..TextPosition::default() };
+        Some(p.caret(at, 1.0).translate(o.to_vec2()).translate(bounds.min.to_vec2()))
+    }
+
+    /// Calls `f` whenever the caret or the selection moves, and after every edit (a toolbar
+    /// showing the formatting where the caret is).
+    pub fn observe_caret(&self, f: impl Fn() + 'static) {
+        self.field.borrow_mut().caret_observers.push(Rc::new(f));
+    }
+
+    /// Lets `f` see each key before the field does while the field has focus; when it returns
+    /// true the key is taken (a list of suggestions taking the arrow keys and Enter).
+    pub fn intercept_keys(&self, f: impl Fn(&KeyEvent) -> bool + 'static) {
+        self.field.borrow_mut().key_filter = Some(Rc::new(f));
+    }
+
+    /// Rich fields: Enter submits ([`TextField::on_submit`]) and Shift+Enter starts a new
+    /// line, as a chat's composer does. Off by default.
+    pub fn submit_on_enter(self, on: bool) -> Self {
+        self.field.borrow_mut().submit_on_enter = on;
+        self
+    }
+
     /// Called when Enter is pressed in a single-line or secret field.
     pub fn on_submit(self, f: impl Fn() + 'static) -> Self {
+        self.field.borrow_mut().on_submit = Some(Rc::new(move |_| f()));
+        self
+    }
+
+    /// Called when Enter is pressed in a single-line or secret field, with the modifiers
+    /// held (Shift+Enter goes back in a find bar).
+    pub fn on_submit_with(self, f: impl Fn(remedy_ui_input::Modifiers) + 'static) -> Self {
         self.field.borrow_mut().on_submit = Some(Rc::new(f));
         self
     }
@@ -625,12 +1220,31 @@ pub(crate) fn notify_change(field: &Rc<RefCell<Field>>) {
     if let Some(cb) = cb {
         cb();
     }
+    notify_observers(field);
 }
 
-pub(crate) fn notify_submit(field: &Rc<RefCell<Field>>) {
+fn notify_observers(field: &Rc<RefCell<Field>>) {
+    let observers = field.borrow().observers.clone();
+    for o in observers {
+        o();
+    }
+}
+
+pub(crate) fn notify_caret(field: &Rc<RefCell<Field>>) {
+    let observers = field.borrow().caret_observers.clone();
+    for o in observers {
+        o();
+    }
+}
+
+pub(crate) fn key_filter(field: &Rc<RefCell<Field>>) -> Option<KeyFilter> {
+    field.borrow().key_filter.clone()
+}
+
+pub(crate) fn notify_submit(field: &Rc<RefCell<Field>>, modifiers: remedy_ui_input::Modifiers) {
     let cb = field.borrow().on_submit.clone();
     if let Some(cb) = cb {
-        cb();
+        cb(modifiers);
     }
 }
 

@@ -177,3 +177,22 @@ fn secret_editing_and_privacy() {
     big.clear();
     assert!(big.is_empty());
 }
+
+#[test]
+fn long_clusters_and_runs_of_flags_move_as_whole_characters() {
+    // A letter under 200 combining marks is one character, however long.
+    let stacked = format!("a{}b", "e".to_owned() + &"\u{0301}".repeat(200));
+    let ed = TextEditor::new(&stacked);
+    assert_eq!(ed.next_grapheme(1), stacked.len() - 1);
+    assert_eq!(ed.previous_grapheme(stacked.len() - 1), 1);
+    // Flags pair from the start of their run: in 40 flags, a caret after the 37th flag's
+    // first letter belongs at that flag's start.
+    let flags = "\u{1F1E9}\u{1F1EA}".repeat(40);
+    let mut ed = TextEditor::new(&flags);
+    let flag = "\u{1F1E9}\u{1F1EA}".len();
+    let half = "\u{1F1E9}".len();
+    ed.set_selection(36 * flag + half, 36 * flag + half);
+    assert_eq!(ed.selection().focus, 36 * flag);
+    assert_eq!(ed.next_grapheme(36 * flag), 37 * flag);
+    assert_eq!(ed.previous_grapheme(36 * flag), 35 * flag);
+}
