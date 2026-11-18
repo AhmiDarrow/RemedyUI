@@ -47,6 +47,9 @@ pub struct GpuContext {
     pub rung: Rung,
     lost: Arc<AtomicBool>,
     errors: Arc<Mutex<Vec<String>>>,
+    /// Textures the app renders and display lists place (`Item::Texture`).
+    pub(crate) textures: crate::external::Registry,
+    pub(crate) serial: u64,
 }
 
 impl GpuContext {
@@ -100,7 +103,10 @@ impl GpuContext {
                 v.push(e.to_string());
             }
         }));
-        Ok(GpuContext { instance, adapter, device, queue, rung, lost, errors })
+        static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
+        let textures = crate::external::Registry::default();
+        Ok(GpuContext { instance, adapter, device, queue, rung, lost, errors, textures, serial })
     }
 
     /// True once the device is lost (driver reset, GPU removed, or [`force_loss`]).

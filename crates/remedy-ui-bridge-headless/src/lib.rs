@@ -33,6 +33,7 @@ pub struct HeadlessWindow {
     text_input: Option<TextInputState>,
     minimized: bool,
     maximized: bool,
+    fullscreen: bool,
 }
 
 impl HeadlessWindow {
@@ -66,9 +67,14 @@ impl HeadlessWindow {
         self.text_input.as_ref()
     }
 
-    /// True while minimized.
+    /// True while maximized.
     pub fn maximized(&self) -> bool {
         self.maximized
+    }
+
+    /// True while it fills the screen.
+    pub fn fullscreen(&self) -> bool {
+        self.fullscreen
     }
 
     /// True while minimized.
@@ -448,6 +454,7 @@ impl Host for HeadlessHost {
             text_input: None,
             minimized: false,
             maximized: false,
+            fullscreen: false,
         };
         Self::apply_size(&mut w, options.size);
         self.queue.push_back(HostEvent::Resized {
@@ -520,6 +527,17 @@ impl Host for HeadlessHost {
 
     fn is_maximized(&self, window: WindowId) -> bool {
         self.window(window).is_some_and(|w| w.maximized)
+    }
+
+    fn set_fullscreen(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported> {
+        if let Some(w) = self.window_mut(window) {
+            w.fullscreen = on;
+        }
+        Ok(())
+    }
+
+    fn is_fullscreen(&self, window: WindowId) -> bool {
+        self.window(window).is_some_and(|w| w.fullscreen)
     }
 
     fn begin_move(&mut self, window: WindowId) -> Result<(), Unsupported> {

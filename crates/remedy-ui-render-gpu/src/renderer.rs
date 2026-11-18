@@ -2,12 +2,13 @@
 
 use remedy_ui_core::Color;
 use remedy_ui_paint::{Affine, DisplayList};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use remedy_ui_render_cpu::{Frame, ImageKey, Painter, Surface};
 use vello_gpu::kurbo::{self, BezPath, Stroke};
 use vello_gpu::peniko::{BlendMode, Fill};
-use vello_gpu::{ImageSource, PaintType, Pixmap, Scene, Tint};
+use vello_gpu::{ImageSource, PaintType, Pixmap, Scene, TextureId, Tint};
 
 use crate::images::GpuImages;
 use crate::video::GpuVideos;
@@ -23,6 +24,7 @@ pub(crate) struct GpuScene<'a> {
     pub(crate) scene: Scene,
     images: &'a mut GpuImages,
     videos: &'a mut GpuVideos,
+    externals: &'a mut HashMap<u64, TextureId>,
     ctx: &'a GpuContext,
 }
 
@@ -87,6 +89,22 @@ impl Surface for GpuScene<'_> {
         }
         Some(ImageSource::external_texture(shown.id, vello_gpu::TextureRegion::Full, true))
     }
+    fn texture_source(&mut self, texture: &remedy_ui_paint::ExternalTexture) -> Option<ImageSource> {
+        let id = match self.externals.get(&texture.id) {
+            Some(id) => *id,
+            None => {
+                let reg = self.ctx.textures.get(texture.id)?;
+                if reg.width != texture.width || reg.height != texture.height {
+                    return None;
+                }
+                let id = self.images.fresh_id();
+                self.images.bind_external(id, reg.view);
+                self.externals.insert(texture.id, id);
+                id
+            }
+        };
+        Some(ImageSource::external_texture(id, vello_gpu::TextureRegion::Full, true))
+    }
 }
 
 pub(crate) fn size16(width: u32, height: u32) -> Result<(u16, u16), GpuError> {
@@ -107,6 +125,8 @@ pub struct GpuRenderer {
     pub(crate) painter: Painter,
     images: GpuImages,
     videos: GpuVideos,
+    /// Registered app textures bound for drawing: registration id to the bound id.
+    externals: HashMap<u64, TextureId>,
     pipeline_cache: Option<wgpu::PipelineCache>,
     store: Option<PipelineCacheStore>,
 }
@@ -130,7 +150,17 @@ impl GpuRenderer {
         let (vello, resources) = vello_gpu::Renderer::new_with(&ctx.device, &ctx.queue, &config, settings);
         let images = GpuImages::new(&ctx.device);
         let videos = GpuVideos::new(&ctx.device, pipeline_cache.as_ref());
-        GpuRenderer { ctx, vello, resources, painter: Painter::new(), images, videos, pipeline_cache, store }
+        GpuRenderer {
+            ctx,
+            vello,
+            resources,
+            painter: Painter::new(),
+            images,
+            videos,
+            externals: HashMap::new(),
+            pipeline_cache,
+            store,
+        }
     }
 
     pub(crate) fn store_ref(&self) -> Option<&PipelineCacheStore> {
@@ -160,6 +190,7 @@ impl GpuRenderer {
         self.painter.clear_caches();
         let _ = self.videos.clear();
         self.images.clear();
+        self.externals.clear();
         self.vello.reset_and_shrink(&mut self.resources);
     }
 
@@ -189,10 +220,22 @@ impl GpuRenderer {
         target: &wgpu::Texture,
     ) -> Result<(), GpuError> {
         let (w, h) = size16(target.width(), target.height())?;
+        // Registrations the app has dropped since: let go of their textures.
+        let gone: Vec<TextureId> = self
+            .externals
+            .iter()
+            .filter(|(reg, _)| !self.ctx.textures.contains(**reg))
+            .map(|(_, id)| *id)
+            .collect();
+        if !gone.is_empty() {
+            self.externals.retain(|reg, _| self.ctx.textures.contains(*reg));
+            self.images.unbind(&gone);
+        }
         let mut scene = GpuScene {
             scene: Scene::new(w, h),
             images: &mut self.images,
             videos: &mut self.videos,
+            externals: &mut self.externals,
             ctx: &self.ctx,
         };
         let area = remedy_ui_core::Rect::new(0.0, 0.0, f32::from(w), f32::from(h));
@@ -239,11 +282,26 @@ impl GpuRenderer {
 
     /// Copies a target's pixels back to memory (premultiplied RGBA8).
     pub fn read_back(&self, texture: &wgpu::Texture) -> Result<Frame, GpuError> {
+        self.ctx.read_back(texture)
+    }
+}
+
+impl GpuContext {
+    /// Copies the pixels of a 4-byte-per-pixel texture made with `COPY_SRC` usage back to
+    /// memory, waiting for the GPU (snapshots, tests, and GPU content shown by the CPU
+    /// renderer).
+    pub fn read_back(&self, texture: &wgpu::Texture) -> Result<Frame, GpuError> {
+        if texture.format().block_copy_size(None) != Some(4) {
+            return Err(GpuError::Readback(format!("{:?} is not 4 bytes per pixel", texture.format())));
+        }
+        if !texture.usage().contains(wgpu::TextureUsages::COPY_SRC) {
+            return Err(GpuError::Readback("the texture was not made with COPY_SRC usage".into()));
+        }
         let (width, height) = (texture.width(), texture.height());
         let row = width * 4;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let padded = row.div_ceil(align) * align;
-        let device = &self.ctx.device;
+        let device = &self.device;
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("RemedyUI readback"),
             size: u64::from(padded) * u64::from(height),
@@ -269,7 +327,7 @@ impl GpuRenderer {
             },
             wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
         );
-        self.ctx.queue.submit([encoder.finish()]);
+        self.queue.submit([encoder.finish()]);
         let (tx, rx) = std::sync::mpsc::channel();
         buffer.slice(..).map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);

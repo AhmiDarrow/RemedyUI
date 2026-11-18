@@ -56,6 +56,7 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-doc-rich", 5),
     ("remedy-ui-doc-code", 5),
     ("remedy-ui-automation", 5),
+    ("remedy-ui-rui", 5),
     ("remedy-ui-doc-pages", 5),
     ("remedy-ui-media-image", 5),
     ("remedy-ui-media-anim", 5),
@@ -74,7 +75,6 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-fonts", 5),
     ("remedy-ui-devtools", 5),
     ("remedy-ui", 6),
-    ("remedy-ui-rui", 6),
     ("remedy-ui-test", 6),
     // Tools: build on everything, nothing builds on them.
     ("cargo-remedy", 7),
@@ -96,6 +96,7 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-doc-rich", "remedy-ui-widgets-core"),
     ("remedy-ui-doc-code", "remedy-ui-widgets-core"),
     ("remedy-ui-automation", "remedy-ui-widgets-core"),
+    ("remedy-ui-rui", "remedy-ui-widgets-core"),
     ("remedy-ui-automation", "remedy-ui-widgets-nav"),
     ("remedy-ui-doc-pages", "remedy-ui-widgets-core"),
     ("remedy-ui-viz", "remedy-ui-widgets-core"),
@@ -110,6 +111,10 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-media-isolated", "remedy-ui-media-image"),
     // ...and the animation pack's opener, playing animations decoded in the helper.
     ("remedy-ui-media-isolated", "remedy-ui-media-anim"),
+    // The player shows its pictures in a video surface, and its transport bar is built from
+    // the core widgets.
+    ("remedy-ui-media-playback", "remedy-ui-media-video"),
+    ("remedy-ui-media-playback", "remedy-ui-widgets-core"),
     // The update banner is a widget.
     ("remedy-ui-services-update", "remedy-ui-widgets-core"),
     // The spelling menu is built from the core menu widgets.
@@ -150,6 +155,12 @@ const UNSAFE_BOUNDARY: &[&str] = &[
     // Starts the sandboxed decoding helper: AppContainer, job objects and sections on
     // Windows; seccomp-bpf, Landlock, memfds and descriptor passing on Linux; Seatbelt on macOS.
     "remedy-ui-media-isolated",
+    // Decodes and plays media through the platform (Media Foundation and WASAPI, GStreamer,
+    // AVFoundation and Audio Queues, MediaCodec and AAudio).
+    "remedy-ui-media-playback",
+    // Hosts the platform's web view: WebView2's COM interfaces and child windows on Windows,
+    // GTK and WebKitGTK through dlopen on Linux.
+    "remedy-ui-embed-webview",
 ];
 
 fn layer(name: &str) -> Option<u8> {

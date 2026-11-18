@@ -48,10 +48,11 @@ The allowed sideways edges inside L5:
 - `widgets-music` may depend on `viz`
 - `doc-rich` may depend on `doc-code`, behind its `code-blocks` feature, for colored code blocks
 - `media-anim` may depend on `media-image`
+- `media-playback` may depend on `media-video` (its pictures go to a video surface) and `widgets-core` (its transport bar)
 
 Image and icon *sources* are a trait in `paint`, so `widgets-core` can show images without knowing any decoder; `media-image` and `media-svg` register decoders for them.
 
-**Unsafe code** lives only in the bridges and `render-gpu`. Each of those crates denies `unsafe_code` at its root and allows it only on its `os` (or `ffi`) module; every other crate forbids it outright, and CI checks that no other module carries the allow. Packs that need the operating system (playback decoders, the decoder sandbox, the web view, tray and notifications) call bridge traits, so they stay free of unsafe code.
+**Unsafe code** lives only in the bridges, `render-gpu`, and the few packs that must call the platform themselves: `services-update` (Authenticode), `services-desktop` (shell links), `services-spell` (the platform's checker), `media-playback` (the platform's decoders and sound output), `media-isolated` (the decoder sandbox's processes) and `embed-webview` (the platform's web view as a native child view). Each of those crates denies `unsafe_code` at its root and allows it only on its `os` (or `ffi`) module; every other crate forbids it outright, and CI checks that no other module carries the allow (the list is `UNSAFE_BOUNDARY` in `xtask`). Keeping such calls in the pack that needs them means an app pays for a platform API only when it uses that pack. Packs that need host services shared by everything else (tray and notifications) call bridge traits, so they stay free of unsafe code.
 
 - **Abstractions.** Widgets (L5) never name a renderer or a bridge. They talk to `paint`, `input` and `a11y` abstractions. The app chooses hosts by feature flag, and `remedy-ui` wires them together.
 - **Core stays small.** L0 to L3 are the engine every app needs: a few small, heavily tested crates with almost no third-party dependencies beyond taffy, the text stack and AccessKit.

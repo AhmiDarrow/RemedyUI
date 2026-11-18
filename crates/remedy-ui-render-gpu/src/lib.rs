@@ -12,6 +12,7 @@ mod block;
 mod cache;
 mod composite;
 mod context;
+mod external;
 #[allow(unsafe_code)]
 mod ffi;
 mod images;

@@ -327,6 +327,7 @@ enum Cmd {
     BeginResize(u64, ResizeEdge),
     Minimize(u64, bool),
     Maximize(u64, bool),
+    Fullscreen(u64, bool),
     Capture(u64, bool),
     Timer(Duration, Box<dyn FnOnce()>),
     Copy(String, bool),
@@ -385,6 +386,8 @@ struct Shared {
     titles: HashMap<u64, String>,
     /// Whether each window is maximized, kept current from the host.
     maximized: HashMap<u64, remedy_ui_reactive::Signal<bool>>,
+    /// Whether each window fills the screen, kept current from the host.
+    fullscreen: HashMap<u64, remedy_ui_reactive::Signal<bool>>,
     on_geometry: HashMap<u64, Rc<dyn Fn(Point, Size)>>,
     on_closed: HashMap<u64, Vec<Box<dyn FnOnce()>>>,
 }
@@ -448,6 +451,7 @@ impl App {
         self.0.borrow_mut().visible.insert(key, visible);
         self.0.borrow_mut().titles.insert(key, spec.options.title.clone());
         self.0.borrow_mut().maximized.insert(key, remedy_ui_reactive::Signal::new(false));
+        self.0.borrow_mut().fullscreen.insert(key, remedy_ui_reactive::Signal::new(false));
         self.push(Cmd::Open(key, spec, Box::new(build)));
         Window { key, app: self.clone() }
     }
@@ -745,6 +749,20 @@ impl Window {
         self.app.push(Cmd::Maximize(self.key, on));
     }
 
+    /// Makes the window fill its display with no frame, or brings it back (a player's full
+    /// screen: wire it to `Player::on_fullscreen` from `remedy_ui::playback`
+    /// with the `playback` feature). Where the platform has no full-screen windows the
+    /// window stays as it is and [`Window::is_fullscreen`] stays false.
+    pub fn set_fullscreen(&self, on: bool) {
+        self.app.push(Cmd::Fullscreen(self.key, on));
+    }
+
+    /// True while the window fills its display, by the app or the user (tracked).
+    pub fn is_fullscreen(&self) -> bool {
+        let s = self.app.0.borrow().fullscreen.get(&self.key).copied();
+        s.is_some_and(|s| s.get())
+    }
+
     /// True while the window is maximized, by the app or the user (tracked).
     pub fn is_maximized(&self) -> bool {
         let s = self.app.0.borrow().maximized.get(&self.key).copied();
@@ -975,6 +993,8 @@ impl Runner {
                 let app = self.app.clone();
                 ui.set_wake(Rc::new(move || app.wake_if_idle()));
                 ui.set_reduced_motion(self.settings.reduced_motion);
+                // Content the platform draws itself (an embedded web view) parents to it.
+                ui.set_window_handles(host.window_handles(id).ok());
                 self.app.0.borrow_mut().uis.insert(key, ui.clone());
                 self.by_host.insert(id, key);
                 self.wins.insert(
@@ -1041,6 +1061,14 @@ impl Runner {
             Cmd::Maximize(key, on) => {
                 if let Some(h) = self.host_of(key) {
                     host.set_maximized(h, on);
+                    self.sync_maximized(host, key);
+                }
+            }
+            Cmd::Fullscreen(key, on) => {
+                if let Some(h) = self.host_of(key) {
+                    // A host without full-screen windows leaves it as it was; the window's
+                    // `is_fullscreen` says what happened.
+                    let _ = host.set_fullscreen(h, on);
                     self.sync_maximized(host, key);
                 }
             }
@@ -1142,6 +1170,21 @@ impl Runner {
             match r {
                 Request::Frame => host.request_frame(h),
                 Request::TextInput(s) => host.set_text_input(h, s),
+                Request::PreferGpu => {
+                    #[cfg(feature = "gpu")]
+                    if self.config.renderer == RendererChoice::Auto
+                        && let Some(w) = self.wins.get_mut(&key)
+                        && !w.wants_gpu
+                    {
+                        // The next frame starts this window on the GPU (as a slow window does).
+                        w.wants_gpu = true;
+                        w.present = None;
+                        if let Some(c) = w.comp.as_mut() {
+                            c.invalidate_tiles();
+                        }
+                        host.request_frame(h);
+                    }
+                }
                 Request::ScrollTo { scroller, offset } => {
                     if let Some(w) = self.wins.get_mut(&key) {
                         let layer = w.scrollers.iter().find(|(_, e)| *e == scroller).map(|(l, _)| *l);
@@ -1252,12 +1295,20 @@ impl Runner {
         }
     }
 
+    /// Reads whether the window is maximized or fills the screen from the host into its
+    /// signals.
     fn sync_maximized(&mut self, host: &dyn Host, key: u64) {
         let Some(h) = self.host_of(key) else { return };
-        let on = host.is_maximized(h);
-        let s = self.app.0.borrow().maximized.get(&key).copied();
+        let (max, full) = (host.is_maximized(h), host.is_fullscreen(h));
+        let (s, f) = {
+            let shared = self.app.0.borrow();
+            (shared.maximized.get(&key).copied(), shared.fullscreen.get(&key).copied())
+        };
         if let Some(s) = s {
-            s.set_if_changed(on);
+            s.set_if_changed(max);
+        }
+        if let Some(f) = f {
+            f.set_if_changed(full);
         }
     }
 
@@ -1341,6 +1392,7 @@ impl Runner {
                 _ => RendererKind::Cpu,
             };
             self.app.0.borrow_mut().renderers.insert(key, kind);
+            w.ui.set_gpu_rendering(kind == RendererKind::Gpu);
         }
         let Some(w) = self.wins.get_mut(&key) else { return };
         #[cfg_attr(not(feature = "gpu"), allow(unused_mut))]
@@ -1405,6 +1457,7 @@ impl Runner {
                                 // The GPU failed this window: fall back to the CPU renderer.
                                 w.present = Some(Present::Cpu(Box::new(CpuCompositor::new())));
                                 self.app.0.borrow_mut().renderers.insert(key, RendererKind::Cpu);
+                                w.ui.set_gpu_rendering(false);
                                 if let Some(c) = w.comp.as_mut() {
                                     c.invalidate_tiles();
                                 }
@@ -1442,7 +1495,8 @@ fn action(a: remedy_ui_host::accesskit::Action) -> Option<remedy_ui_view::A11yAc
 #[cfg(feature = "gpu")]
 fn new_gpu() -> Option<remedy_ui_render_gpu::GpuCompositor> {
     let ladder = remedy_ui_render_gpu::LadderOptions::default();
-    let ctx = remedy_ui_render_gpu::GpuContext::new(&ladder).ok()?;
+    // The process's shared device: GPU content the app embeds renders on the same one.
+    let ctx = remedy_ui_render_gpu::GpuContext::shared(&ladder).ok()?;
     Some(remedy_ui_render_gpu::GpuCompositor::new(remedy_ui_render_gpu::GpuRenderer::new(ctx, None), ladder))
 }
 
@@ -1712,6 +1766,7 @@ impl remedy_ui_host::App for Runner {
                         s.renderers.remove(&key);
                         s.titles.remove(&key);
                         s.maximized.remove(&key);
+                        s.fullscreen.remove(&key);
                         (s.on_closed.remove(&key).unwrap_or_default(), ui)
                     };
                     let (closed, ui) = closed;

@@ -107,6 +107,20 @@ pub enum Icon {
     Heading,
     /// An at sign: mention someone.
     At,
+    /// A triangle pointing right: play.
+    Play,
+    /// Two bars: pause.
+    Pause,
+    /// A speaker with sound waves: volume.
+    Volume,
+    /// A speaker crossed out: muted.
+    VolumeMuted,
+    /// Four corners pointing out: fill the screen.
+    Fullscreen,
+    /// Four corners pointing in: leave full screen.
+    FullscreenExit,
+    /// A box with lines of text: captions and subtitles.
+    Captions,
 }
 
 fn p(x: f32, y: f32) -> Point {
@@ -433,6 +447,45 @@ fn strokes(icon: Icon) -> Path {
             s.move_to(p(15.5, 9.0)).line_to(p(15.5, 13.5));
             arc(&mut s, p(18.0, 13.5), 2.5, PI * 0.0, PI);
         }
+        Icon::Play => {
+            s.move_to(p(7.0, 4.5)).line_to(p(19.0, 12.0)).line_to(p(7.0, 19.5)).close();
+        }
+        Icon::Pause => {
+            rect(&mut s, 6.0, 5.0, 10.0, 19.0);
+            rect(&mut s, 14.0, 5.0, 18.0, 19.0);
+        }
+        Icon::Volume | Icon::VolumeMuted => {
+            s.move_to(p(3.0, 9.0))
+                .line_to(p(7.0, 9.0))
+                .line_to(p(12.0, 4.5))
+                .line_to(p(12.0, 19.5))
+                .line_to(p(7.0, 15.0))
+                .line_to(p(3.0, 15.0))
+                .close();
+            if icon == Icon::Volume {
+                arc(&mut s, p(12.0, 12.0), 4.0, -PI * 0.3, PI * 0.3);
+                arc(&mut s, p(12.0, 12.0), 8.0, -PI * 0.3, PI * 0.3);
+            } else {
+                s.move_to(p(15.5, 9.0)).line_to(p(21.5, 15.0)).move_to(p(21.5, 9.0)).line_to(p(15.5, 15.0));
+            }
+        }
+        Icon::Fullscreen => {
+            s.move_to(p(4.0, 9.0)).line_to(p(4.0, 4.0)).line_to(p(9.0, 4.0));
+            s.move_to(p(15.0, 4.0)).line_to(p(20.0, 4.0)).line_to(p(20.0, 9.0));
+            s.move_to(p(20.0, 15.0)).line_to(p(20.0, 20.0)).line_to(p(15.0, 20.0));
+            s.move_to(p(9.0, 20.0)).line_to(p(4.0, 20.0)).line_to(p(4.0, 15.0));
+        }
+        Icon::FullscreenExit => {
+            s.move_to(p(4.0, 9.0)).line_to(p(9.0, 9.0)).line_to(p(9.0, 4.0));
+            s.move_to(p(15.0, 4.0)).line_to(p(15.0, 9.0)).line_to(p(20.0, 9.0));
+            s.move_to(p(20.0, 15.0)).line_to(p(15.0, 15.0)).line_to(p(15.0, 20.0));
+            s.move_to(p(9.0, 20.0)).line_to(p(9.0, 15.0)).line_to(p(4.0, 15.0));
+        }
+        Icon::Captions => {
+            rect(&mut s, 3.0, 5.0, 21.0, 19.0);
+            s.move_to(p(6.5, 11.0)).line_to(p(11.0, 11.0)).move_to(p(13.0, 11.0)).line_to(p(17.5, 11.0));
+            s.move_to(p(6.5, 15.0)).line_to(p(14.0, 15.0));
+        }
     }
     s
 }
@@ -593,6 +646,13 @@ mod tests {
             Icon::CodeBlock,
             Icon::Heading,
             Icon::At,
+            Icon::Play,
+            Icon::Pause,
+            Icon::Volume,
+            Icon::VolumeMuted,
+            Icon::Fullscreen,
+            Icon::FullscreenExit,
+            Icon::Captions,
         ];
         for icon in ALL.into_iter().chain(more) {
             let path = strokes(icon);

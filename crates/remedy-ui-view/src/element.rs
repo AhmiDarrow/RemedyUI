@@ -32,6 +32,17 @@ pub struct PaintCx<'a> {
     pub states: States,
     /// Device pixels per logical pixel (painters re-record when it changes).
     pub scale: f32,
+    /// The painter asked to run again in the next frame ([`PaintCx::request_next_frame`]).
+    pub(crate) next_frame: bool,
+}
+
+impl PaintCx<'_> {
+    /// Draws this element again in the next frame, and asks for that frame: content that
+    /// changes every frame (a game view, a live 3D preview) calls it from its painter each
+    /// frame while it moves, so it follows the display's rate and stops when it stops asking.
+    pub fn request_next_frame(&mut self) {
+        self.next_frame = true;
+    }
 }
 
 pub(crate) type Painter = Rc<dyn Fn(&mut PaintCx<'_>)>;
@@ -185,6 +196,9 @@ pub(crate) struct ElData {
     /// Told when the element becomes seen or unseen, and the last answer it was given.
     pub(crate) on_visibility: Option<Rc<dyn Fn(bool)>>,
     pub(crate) last_visible: Option<bool>,
+    /// Told where the element is on the window after a frame where that changed.
+    pub(crate) on_placed: Option<crate::frame::PlacedHandler>,
+    pub(crate) last_placed: Option<Option<crate::Placement>>,
     /// A scroll container following another's offset: (leader, x, y).
     pub(crate) scroll_follow: Option<(ElementId, bool, bool)>,
     /// Painted into a compositor layer of its own ([`El::isolate_paint`]), with this
@@ -278,6 +292,11 @@ pub(crate) struct Inner {
     pub(crate) occluded: bool,
     pub(crate) timers: HashMap<u64, Box<dyn FnOnce()>>,
     pub(crate) next_timer: u64,
+    /// The native window this view draws into, for content the platform draws itself (an
+    /// embedded web view); `None` on hosts without one (headless).
+    pub(crate) window_handles: Option<std::sync::Arc<dyn remedy_ui_host::WindowHandles>>,
+    /// The window is drawn by the GPU renderer now.
+    pub(crate) gpu: remedy_ui_reactive::Signal<bool>,
 }
 
 /// One window's UI. Cloning gives another handle to the same UI.
@@ -328,6 +347,7 @@ impl Ui {
                     d.on_resize = None;
                     d.on_scroll = None;
                     d.on_visibility = None;
+                    d.on_placed = None;
                     d.links = None;
                     (std::mem::take(&mut d.effects), std::mem::take(&mut d.removed), d.paint_watch.take())
                 }
@@ -438,6 +458,8 @@ impl Ui {
             occluded: false,
             timers: HashMap::new(),
             next_timer: 0,
+            window_handles: None,
+            gpu: remedy_ui_reactive::Signal::new(false),
         })));
         // The window holds the app's content, then a click-through layer for overlays
         // (dialogs, menus, toasts) that always draws above it.
@@ -980,6 +1002,8 @@ impl ElData {
             last_size: None,
             on_visibility: None,
             last_visible: None,
+            on_placed: None,
+            last_placed: None,
             scroll_follow: None,
             isolate: None,
             data_text: false,

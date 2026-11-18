@@ -50,6 +50,10 @@ pub use remedy_ui_doc_code as code;
 pub use remedy_ui_doc_pages as pages;
 #[cfg(feature = "rich")]
 pub use remedy_ui_doc_rich as rich;
+#[cfg(feature = "gpu-embed")]
+pub use remedy_ui_embed_gpu as gpu_embed;
+#[cfg(feature = "webview")]
+pub use remedy_ui_embed_webview as webview;
 pub use remedy_ui_host as host;
 pub use remedy_ui_input as input;
 pub use remedy_ui_layout as layout;
@@ -57,11 +61,16 @@ pub use remedy_ui_layout as layout;
 pub use remedy_ui_media_anim as anim;
 #[cfg(feature = "image")]
 pub use remedy_ui_media_image as image;
+#[cfg(feature = "playback")]
+pub use remedy_ui_media_playback as playback;
 #[cfg(feature = "svg")]
 pub use remedy_ui_media_svg as svg;
 #[cfg(feature = "video")]
 pub use remedy_ui_media_video as video;
 pub use remedy_ui_reactive as reactive;
+/// `.rui` markup: screens as data, compiled at build time or loaded for people's own layouts.
+#[cfg(feature = "markup")]
+pub use remedy_ui_rui as markup;
 #[cfg(feature = "i18n")]
 pub use remedy_ui_services_i18n as i18n;
 #[cfg(feature = "spell")]

@@ -472,6 +472,20 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         self.state.windows.get(wid).is_some_and(|(_, w)| w.window.is_maximized())
     }
 
+    fn set_fullscreen(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported> {
+        if let Some(w) = self.win(window) {
+            // Borderless on the display the window is on: no video-mode change, so leaving is
+            // instant and other windows keep their places.
+            w.window.set_fullscreen(on.then_some(winit::window::Fullscreen::Borderless(None)));
+        }
+        Ok(())
+    }
+
+    fn is_fullscreen(&self, window: WindowId) -> bool {
+        let Some(wid) = self.state.ids.get(&window) else { return false };
+        self.state.windows.get(wid).is_some_and(|(_, w)| w.window.fullscreen().is_some())
+    }
+
     fn begin_move(&mut self, window: WindowId) -> Result<(), Unsupported> {
         match self.win(window) {
             Some(w) => w.window.drag_window().map_err(|e| Unsupported::new("window moves", e.to_string())),

@@ -120,6 +120,25 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         States::NONE,
         StylePatch { background: Some(Color::BLACK), ..Default::default() },
     );
+    // Captions over a picture: light text on a dark box, readable over any frame, as on
+    // every screen. The player's stage is black like a video surface's bars.
+    rule(
+        "player_caption",
+        None,
+        States::NONE,
+        StylePatch {
+            background: Some(Color::BLACK.with_alpha(0.8)),
+            foreground: Some(Color::WHITE),
+            radius: Some(r.small),
+            ..Default::default()
+        },
+    );
+    rule(
+        "player_stage",
+        None,
+        States::NONE,
+        StylePatch { background: Some(Color::BLACK), ..Default::default() },
+    );
     // Documents: quotes get a bar, code a box, tables lines between cells.
     rule("md_quote_bar", None, States::NONE, StylePatch { background: Some(line), ..Default::default() });
     rule("md_quote_body", None, States::NONE, StylePatch { foreground: Some(d.muted), ..Default::default() });

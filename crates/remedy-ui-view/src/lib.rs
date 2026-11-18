@@ -23,6 +23,7 @@ mod field;
 mod frame;
 mod history;
 mod links;
+mod native;
 mod select;
 
 pub use decoration::{Decoration, DecorationKind};
@@ -30,7 +31,7 @@ pub use dnd::Drag;
 pub use element::{El, ElementInfo, PaintCx, PointerInterceptor, Ui, WeakUi};
 pub use events::{Click, PointerInput};
 pub use field::{CodeColors, FieldKind, TextField};
-pub use frame::Frame;
+pub use frame::{Frame, Placement};
 pub use history::HistoryItem;
 pub use remedy_ui_a11y::Action as A11yAction;
 pub use remedy_ui_host::{DragData, DragEvent, DropEffect};
@@ -75,6 +76,10 @@ pub enum Request {
         /// What a drop may do.
         allowed: Vec<remedy_ui_host::DropEffect>,
     },
+    /// Draw this window with the GPU renderer from now on, where the app lets the runner
+    /// choose: it shows content rendered on the GPU (an embedded 3D view), which the CPU
+    /// renderer could only show by reading it back every frame.
+    PreferGpu,
     /// Move a scroll container to `offset` (clamped to what it can scroll).
     ScrollTo {
         /// The scroll container.
