@@ -24,11 +24,11 @@ pub(crate) fn claim(
     let win = super::web_window()?;
     let locks = super::dom::get(win.navigator().unchecked_ref(), "locks");
     let request = super::dom::get(&locks, "request").dyn_into::<js_sys::Function>().map_err(|_| {
-        RunError("this browser has no Web Locks, which a single instance across tabs needs".into())
+        RunError::new("this browser has no Web Locks, which a single instance across tabs needs")
     })?;
     let name = channel_name(app);
     let channel = web_sys::BroadcastChannel::new(&name)
-        .map_err(|e| RunError(format!("no broadcast channel: {e:?}")))?;
+        .map_err(|e| RunError::new(format!("no broadcast channel: {e:?}")))?;
     let opts = js_sys::Object::new();
     let _ = js_sys::Reflect::set(&opts, &"ifAvailable".into(), &JsValue::TRUE);
     let mut start = Some(start);
@@ -61,7 +61,7 @@ pub(crate) fn claim(
     request
         .call3(&locks, &JsValue::from_str(&name), &opts, &granted)
         .map(drop)
-        .map_err(|e| RunError(format!("the lock request failed: {e:?}")))
+        .map_err(|e| RunError::new(format!("the lock request failed: {e:?}")))
 }
 
 /// The page's launch: its address.

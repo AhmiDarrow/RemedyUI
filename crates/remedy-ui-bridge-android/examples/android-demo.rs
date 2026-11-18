@@ -90,10 +90,11 @@ mod demo {
     }
 
     fn open_file(app: &App) {
-        let dialog = FileDialog {
-            title: "Open a text file".into(),
-            filters: vec![("Text".into(), vec!["txt".into()])],
-            ..FileDialog::default()
+        let dialog = {
+            let mut v_ = FileDialog::default();
+            v_.title = "Open a text file".into();
+            v_.filters = vec![("Text".into(), vec!["txt".into()])];
+            v_
         };
         app.file_dialog(None, dialog, |paths| {
             log(&format!("open dialog chose {paths:?}"));
@@ -107,12 +108,13 @@ mod demo {
     }
 
     fn save_file(app: &App, text: String) {
-        let dialog = FileDialog {
-            title: "Save the message".into(),
-            save: true,
-            file_name: Some("remedyui-saved.txt".into()),
-            filters: vec![("Text".into(), vec!["txt".into()])],
-            ..FileDialog::default()
+        let dialog = {
+            let mut v_ = FileDialog::default();
+            v_.title = "Save the message".into();
+            v_.save = true;
+            v_.file_name = Some("remedyui-saved.txt".into());
+            v_.filters = vec![("Text".into(), vec!["txt".into()])];
+            v_
         };
         app.file_dialog(None, dialog, move |paths| {
             log(&format!("save dialog chose {paths:?}"));
@@ -144,9 +146,9 @@ mod demo {
             let col = w::column(ui)
                 .gap(12.0)
                 .padding(remedy_ui::core::Insets { top: 16.0, end: 16.0, bottom: 16.0, start: 16.0 })
-                .child(w::label(ui, "RemedyUI on Android", "title"))
+                .child(w::text(ui, "RemedyUI on Android").variant("title"))
                 // First, so it shows in a small (freeform or split-screen) window too.
-                .child(w::label(ui, "Drag me out", "").draggable(
+                .child(w::text(ui, "Drag me out").draggable(
                     || Some(Drag::new(DragData::text("Dragged out of RemedyUI"))),
                     |effect| log(&format!("drag out ended: {effect:?}")),
                 ))

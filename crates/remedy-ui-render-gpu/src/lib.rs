@@ -31,6 +31,7 @@ pub use wgpu;
 
 /// Why the GPU renderer could not draw.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum GpuError {
     /// No adapter on any rung of the ladder.
     NoAdapter,

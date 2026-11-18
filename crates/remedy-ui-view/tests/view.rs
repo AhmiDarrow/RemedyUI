@@ -8,9 +8,7 @@ use std::time::Duration;
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Color, Insets, Point, Size, Vec2};
 use remedy_ui_host::ImeEvent;
-use remedy_ui_input::{
-    Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase, ScrollPhysics,
-};
+use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_layout::Length;
 use remedy_ui_reactive::Signal;
 use remedy_ui_render_cpu::{CpuCompositor, Frame};
@@ -31,14 +29,9 @@ fn fonts() -> FontCollection {
 
 fn ui() -> Ui {
     let mut sheet = StyleSheet::new();
-    sheet.rule(
-        "window",
-        None,
-        States::NONE,
-        StylePatch { background: Some(Color::WHITE), ..StylePatch::default() },
-    );
-    sheet.rule("button", None, States::NONE, StylePatch { background: Some(RED), ..StylePatch::default() });
-    sheet.rule("button", None, States::HOVER, StylePatch { background: Some(BLUE), ..StylePatch::default() });
+    sheet.rule("window", None, States::NONE, StylePatch::default().background(Color::WHITE));
+    sheet.rule("button", None, States::NONE, StylePatch::default().background(RED));
+    sheet.rule("button", None, States::HOVER, StylePatch::default().background(BLUE));
     Ui::new(Theme::dark_forest(), sheet, fonts())
 }
 
@@ -82,29 +75,13 @@ impl Screen {
 }
 
 fn pointer(phase: PointerPhase, x: f32, y: f32, down: bool) -> PointerEvent {
-    PointerEvent {
-        id: 0,
-        kind: PointerKind::Mouse,
-        phase,
-        position: Point::new(x, y),
-        buttons: if down { Buttons::PRIMARY } else { Buttons::default() },
-        pressure: 0.5,
-        time: Duration::ZERO,
-        coalesced: Vec::new(),
-        modifiers: remedy_ui_input::Modifiers::NONE,
-    }
+    PointerEvent::new(phase, Point::new(x, y))
+        .with_buttons(if down { Buttons::PRIMARY } else { Buttons::default() })
+        .with_modifiers(remedy_ui_input::Modifiers::NONE)
 }
 
 fn key(k: Key, text: Option<&str>, m: Modifiers) -> KeyEvent {
-    KeyEvent {
-        key: k,
-        physical: String::new(),
-        modifiers: m,
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: text.map(str::to_owned),
-    }
+    KeyEvent::press(k).with_modifiers(m).with_text(text.map(str::to_owned))
 }
 
 fn typed(c: &str) -> KeyEvent {
@@ -325,7 +302,7 @@ fn overlays_draw_above_content_trap_focus_and_timers_fire() {
     let inner = Rc::new(Cell::new(0));
     let dialog = ui.overlay(
         ui.el("dialog")
-            .style(StylePatch { background: Some(BLUE), ..StylePatch::default() })
+            .style(StylePatch::default().background(BLUE))
             .layout(|l| {
                 l.position = remedy_ui_layout::Position::Absolute;
                 l.inset = Insets::ZERO;
@@ -485,7 +462,7 @@ fn keyboard_focus_draws_the_theme_focus_ring_and_a_pointer_press_does_not() {
         .width(40.0)
         .height(30.0)
         .focusable(true)
-        .style(StylePatch { outline_width: Some(0.0), ..StylePatch::default() });
+        .style(StylePatch::default().outline_width(0.0));
     ui.root().clear();
     ui.root().child(ui.el("pad").padding(Insets::all(10.0)).child(quiet.clone()));
     s.frame();
@@ -686,7 +663,7 @@ fn what_follows_a_scroll_container_paints_above_what_came_before_it() {
     let col = ui
         .el("col")
         .column()
-        .style(StylePatch { background: Some(BLUE), ..StylePatch::default() })
+        .style(StylePatch::default().background(BLUE))
         .layout(|l| {
             l.width = Length::Px(200.0);
             l.height = Length::Px(120.0);
@@ -786,15 +763,15 @@ fn text_people_wrote_selects_across_messages_and_copies() {
 
 #[test]
 fn links_in_text_follow_from_any_line_by_keyboard_and_read_as_links() {
-    use remedy_ui_view::{RichText, TextPatch};
+    use remedy_ui_view::{RichText, TextStylePatch};
     let ui = ui();
     let followed = Rc::new(Cell::new(0u64));
     let f = followed.clone();
     let text = RichText::new()
         .text("Read the ")
-        .styled("release notes for this version of the app", TextPatch::link(7))
+        .styled("release notes for this version of the app", TextStylePatch::link(7))
         .text(" or ")
-        .styled("ask", TextPatch::link(9))
+        .styled("ask", TextStylePatch::link(9))
         .text(".");
     let para = ui.el("label").width(160.0).text(text).selectable(true).on_link(move |id| f.set(id));
     ui.root().child(ui.el("col").column().padding(Insets::all(10.0)).child(para.clone()));
@@ -835,7 +812,7 @@ fn links_in_text_follow_from_any_line_by_keyboard_and_read_as_links() {
     assert_eq!(s.role(), remedy_ui_a11y::Role::Link);
     assert_eq!(s.name(), Some("ask"));
     // New text, new links.
-    let _ = para.clone().text(RichText::new().text("See ").styled("help", TextPatch::link(3)));
+    let _ = para.clone().text(RichText::new().text("See ").styled("help", TextStylePatch::link(3)));
     let _ = ui.frame(Size::new(400.0, 200.0), 1.0);
     assert_eq!(para.link_elements().len(), 1);
     assert!(notes_link.info().is_none(), "the old link elements went");
@@ -1048,6 +1025,33 @@ fn rich_copy_and_paste_carry_formatting_and_keep_mentions_in_the_app() {
 }
 
 #[test]
+fn a_plain_text_area_can_submit_on_enter() {
+    let ui = ui();
+    let sent = Rc::new(Cell::new(0u32));
+    let s2 = sent.clone();
+    let area = ui
+        .text_field("text_input", FieldKind::Multi)
+        .submit_on_enter(true)
+        .on_submit(move || s2.set(s2.get() + 1));
+    ui.root().child(area.el());
+    area.el().focus();
+    let _ = ui.frame(Size::new(200.0, 80.0), 1.0);
+    ui.key(&typed("a"));
+    ui.key(&key(Key::Enter, None, Modifiers::NONE));
+    assert_eq!((sent.get(), area.value()), (1, "a".to_owned()), "Enter sends");
+    ui.key(&key(Key::Enter, None, Modifiers::SHIFT));
+    ui.key(&typed("b"));
+    assert_eq!((sent.get(), area.value()), (1, "a\nb".to_owned()), "Shift+Enter breaks the line");
+    // Without it, Enter breaks the line, as before.
+    let plain = ui.text_field("text_input", FieldKind::Multi);
+    ui.root().child(plain.el());
+    plain.el().focus();
+    ui.key(&typed("x"));
+    ui.key(&key(Key::Enter, None, Modifiers::NONE));
+    assert_eq!(plain.value(), "x\n");
+}
+
+#[test]
 fn elements_hear_when_they_are_seen_scrolled_away_hidden_or_covered() {
     let ui = ui();
     let heard: Rc<std::cell::RefCell<Vec<bool>>> = Rc::default();
@@ -1233,12 +1237,7 @@ fn merged_changes_fold_into_one_entry_until_the_run_ends() {
 #[test]
 fn fonts_added_later_and_new_families_reshape_every_text() {
     let mut sheet = StyleSheet::new();
-    sheet.rule(
-        "window",
-        None,
-        States::NONE,
-        StylePatch { background: Some(Color::WHITE), ..StylePatch::default() },
-    );
+    sheet.rule("window", None, States::NONE, StylePatch::default().background(Color::WHITE));
     let ui = Ui::new(Theme::dark_forest(), sheet, FontCollection::new());
     let label = ui.el("label").text(remedy_ui_view::RichText::plain("Save changes")).nowrap();
     ui.root().child(ui.el("box").row().child(label.clone()));

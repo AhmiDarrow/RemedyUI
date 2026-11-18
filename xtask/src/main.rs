@@ -1,4 +1,10 @@
-//! Repository checks for RemedyUI. Run `cargo xtask check`.
+//! Repository checks and release tools for RemedyUI.
+//!
+//! - `cargo xtask check`: the layer graph, the unsafe-code boundary and publishing metadata.
+//! - `cargo xtask semver --baseline <git revision or tag>`: every publishable crate's API
+//!   against the baseline, with `cargo-semver-checks` ([`SEMVER_CHECKS_VERSION`]).
+//! - `cargo xtask msrv`: the workspace builds with the Rust version it declares
+//!   (`rust-version`), installing that toolchain with rustup when it is missing.
 //!
 //! - **Layers.** Every `remedy-ui-*` crate has a layer (docs/design/00-principles-and-modularity.md).
 //!   A crate may depend on crates in lower layers, plus the sideways edges listed in
@@ -191,7 +197,17 @@ struct Package {
     name: String,
     manifest: PathBuf,
     deps: Vec<String>,
+    /// False for `publish = false`.
+    publishable: bool,
+    /// Publishing metadata fields that are missing.
+    missing: Vec<&'static str>,
+    /// `rust-version`, when set.
+    rust_version: Option<String>,
 }
+
+/// The cargo-semver-checks release `cargo xtask semver` is written against
+/// (`cargo install cargo-semver-checks --version 0.51.0 --locked`).
+const SEMVER_CHECKS_VERSION: &str = "0.51.0";
 
 fn packages() -> Result<Vec<Package>, String> {
     let out = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
@@ -218,7 +234,25 @@ fn packages() -> Result<Vec<Package>, String> {
                     .collect()
             })
             .unwrap_or_default();
-        pkgs.push(Package { name, manifest, deps });
+        // `publish = false` is an empty list of registries.
+        let publishable = p.get("publish").and_then(|v| v.as_array()).is_none_or(|a| !a.is_empty());
+        let text = |k: &str| p.get(k).and_then(|v| v.as_str()).is_some_and(|s| !s.trim().is_empty());
+        let list = |k: &str| p.get(k).and_then(|v| v.as_array()).is_some_and(|a| !a.is_empty());
+        let mut missing = Vec::new();
+        for (k, ok) in [
+            ("description", text("description")),
+            ("license", text("license")),
+            ("repository", text("repository")),
+            ("keywords", list("keywords")),
+            ("categories", list("categories")),
+            ("readme", text("readme")),
+        ] {
+            if !ok {
+                missing.push(k);
+            }
+        }
+        let rust_version = p.get("rust_version").and_then(|v| v.as_str()).map(str::to_owned);
+        pkgs.push(Package { name, manifest, deps, publishable, missing, rust_version });
     }
     Ok(pkgs)
 }
@@ -299,11 +333,141 @@ fn check_unsafe(pkgs: &[Package], problems: &mut Vec<String>) {
     }
 }
 
+/// Every crate that is published carries what crates.io shows and searches by.
+fn check_metadata(pkgs: &[Package], problems: &mut Vec<String>) {
+    for p in pkgs.iter().filter(|p| p.publishable) {
+        if !p.missing.is_empty() {
+            problems.push(format!(
+                "{} is published but its Cargo.toml has no {} (or mark it publish = false)",
+                p.name,
+                p.missing.join(", ")
+            ));
+        }
+    }
+}
+
+const USAGE: &str =
+    "usage: cargo xtask check | semver --baseline <git revision or tag> [cargo-semver-checks options] | msrv";
+
+fn cargo_cmd() -> Command {
+    Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+}
+
+/// Runs cargo-semver-checks on every publishable crate against `baseline`.
+fn semver(args: &[String]) -> Result<(), String> {
+    let at = args.iter().position(|a| a == "--baseline").ok_or(USAGE)?;
+    let baseline = args.get(at + 1).ok_or(USAGE)?;
+    let extra: Vec<&String> =
+        args.iter().enumerate().filter(|(i, _)| *i != at && *i != at + 1).map(|(_, a)| a).collect();
+    let version = cargo_cmd()
+        .args(["semver-checks", "--version"])
+        .output()
+        .map_err(|e| format!("could not run cargo semver-checks: {e}"))?;
+    if !version.status.success() {
+        return Err(format!(
+            "cargo-semver-checks is not installed: cargo install cargo-semver-checks --version {SEMVER_CHECKS_VERSION} --locked"
+        ));
+    }
+    let found = String::from_utf8_lossy(&version.stdout).trim().to_owned();
+    if !found.ends_with(SEMVER_CHECKS_VERSION) {
+        eprintln!("note: {found} is installed; these checks are written against {SEMVER_CHECKS_VERSION}");
+    }
+    let pkgs = packages()?;
+    let published: Vec<&Package> = pkgs.iter().filter(|p| p.publishable).collect();
+    println!("checking {} publishable crates against {baseline}", published.len());
+    // cargo-semver-checks builds in `<target>/semver-checks/<a long project name>/target/...`.
+    // On Windows that passes the linker's 260-character path limit from a deep checkout, so
+    // there it builds under a short folder in the temporary directory instead
+    // (REMEDY_SEMVER_TARGET_DIR chooses another).
+    let target_dir = std::env::var_os("REMEDY_SEMVER_TARGET_DIR")
+        .map(PathBuf::from)
+        .or_else(|| cfg!(windows).then(|| std::env::temp_dir().join("rsv")));
+    let mut cmd = cargo_cmd();
+    if let Some(dir) = &target_dir {
+        println!("building the API descriptions in {}", dir.display());
+        cmd.env("CARGO_TARGET_DIR", dir);
+    }
+    // One run for the workspace builds every crate's rustdoc once per side; crates marked
+    // publish = false are skipped by cargo-semver-checks itself.
+    let status = cmd
+        .args(["semver-checks", "check-release", "--workspace", "--baseline-rev", baseline])
+        .args(extra)
+        .status()
+        .map_err(|e| format!("could not run cargo semver-checks: {e}"))?;
+    if status.success() {
+        println!("ok: no breaking change against {baseline}");
+        Ok(())
+    } else {
+        Err(format!("cargo semver-checks found breaking changes against {baseline} (see above)"))
+    }
+}
+
+/// Checks the workspace with the Rust version it declares.
+fn msrv() -> Result<(), String> {
+    let pkgs = packages()?;
+    let mut versions: Vec<&str> = pkgs.iter().filter_map(|p| p.rust_version.as_deref()).collect();
+    versions.sort_unstable();
+    versions.dedup();
+    let [version] = versions.as_slice() else {
+        return Err(format!(
+            "the crates declare different rust-versions: {versions:?}; keep one in [workspace.package]"
+        ));
+    };
+    let rustup = |args: &[&str]| Command::new("rustup").args(args).env_remove("RUSTUP_TOOLCHAIN").status();
+    let have = Command::new("rustup")
+        .args(["run", version, "rustc", "--version"])
+        .env_remove("RUSTUP_TOOLCHAIN")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !have {
+        println!("installing Rust {version} with rustup");
+        let ok = rustup(&["toolchain", "install", version, "--profile", "minimal"])
+            .map_err(|e| format!("could not run rustup: {e}"))?;
+        if !ok.success() {
+            return Err(format!("rustup could not install Rust {version}"));
+        }
+    }
+    println!("checking the workspace with Rust {version}");
+    // A target directory of its own, so the stable toolchain's builds stay as they are.
+    let status = Command::new("rustup")
+        .args(["run", version, "cargo", "check", "--workspace", "--all-targets", "--all-features"])
+        .args(["--target-dir", "target/msrv"])
+        .env_remove("RUSTUP_TOOLCHAIN")
+        .env_remove("CARGO")
+        .env_remove("RUSTC")
+        .env_remove("RUSTDOC")
+        .status()
+        .map_err(|e| format!("could not run cargo {version}: {e}"))?;
+    if status.success() {
+        println!("ok: the workspace builds with Rust {version}, its declared rust-version");
+        Ok(())
+    } else {
+        Err(format!(
+            "the workspace does not build with Rust {version}: raise rust-version (with the reason) or keep the code within it"
+        ))
+    }
+}
+
 fn main() -> ExitCode {
-    let task = std::env::args().nth(1).unwrap_or_default();
-    if task != "check" {
-        eprintln!("usage: cargo xtask check");
-        return ExitCode::from(2);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let task = args.first().cloned().unwrap_or_default();
+    let tool = match task.as_str() {
+        "semver" => Some(semver(args.get(1..).unwrap_or_default())),
+        "msrv" => Some(msrv()),
+        "check" => None,
+        _ => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    if let Some(r) = tool {
+        return match r {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        };
     }
     let pkgs = match packages() {
         Ok(p) => p,
@@ -315,8 +479,12 @@ fn main() -> ExitCode {
     let mut problems = Vec::new();
     check_layers(&pkgs, &mut problems);
     check_unsafe(&pkgs, &mut problems);
+    check_metadata(&pkgs, &mut problems);
     if problems.is_empty() {
-        println!("ok: {} crates follow the layer graph and the unsafe-code boundary", pkgs.len());
+        println!(
+            "ok: {} crates follow the layer graph and the unsafe-code boundary, and published ones carry their metadata",
+            pkgs.len()
+        );
         ExitCode::SUCCESS
     } else {
         for p in &problems {
@@ -335,7 +503,25 @@ mod tests {
             name: name.into(),
             manifest: PathBuf::new(),
             deps: deps.iter().map(|d| d.to_string()).collect(),
+            publishable: true,
+            missing: Vec::new(),
+            rust_version: None,
         }
+    }
+
+    #[test]
+    fn published_crates_need_their_metadata() {
+        let mut p = pkg("remedy-ui-core", &[]);
+        p.missing = vec!["keywords"];
+        let mut out = Vec::new();
+        check_metadata(&[p], &mut out);
+        assert!(out.iter().any(|m| m.contains("keywords")), "{out:?}");
+        let mut tool = pkg("xtask", &[]);
+        tool.publishable = false;
+        tool.missing = vec!["readme"];
+        let mut out = Vec::new();
+        check_metadata(&[tool], &mut out);
+        assert!(out.is_empty(), "unpublished crates are not checked");
     }
 
     fn problems(pkgs: &[Package]) -> Vec<String> {

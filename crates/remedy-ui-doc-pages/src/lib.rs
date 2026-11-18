@@ -170,7 +170,7 @@ fn thumb_row(ui: &Ui, view: &PageView, page: usize) -> El {
         .width(THUMB_WIDTH)
         .height(THUMB_HEIGHT)
         .paint(move |cx| v.paint_thumb(cx, page));
-    let number = remedy_ui_widgets_core::label(ui, format!("{}", page + 1), "small");
+    let number = remedy_ui_widgets_core::text(ui, format!("{}", page + 1)).variant("small");
     let current = view.current_page();
     let go = view.clone();
     let row = ui

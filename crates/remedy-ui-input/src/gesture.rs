@@ -61,6 +61,7 @@ impl VelocityTracker {
 
 /// Platform thresholds for telling gestures apart.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct GestureSettings {
     /// How far a finger may move before a tap becomes a drag.
     pub touch_slop: f32,
@@ -85,6 +86,7 @@ impl Default for GestureSettings {
 
 /// What a recognizer wants.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Claim {
     /// Undecided: keep watching.
     Possible,
@@ -96,6 +98,7 @@ pub enum Claim {
 
 /// The kinds of gesture the built-in recognizer tells apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum GestureKind {
     /// A press and release without moving past the slop.
     Tap,

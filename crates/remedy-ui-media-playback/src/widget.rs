@@ -54,10 +54,12 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             l.position = Position::Absolute;
             l.inset = Insets { top: AUTO, start: u * 4.0, end: u * 4.0, bottom: u * 3.0 };
         })
-        .style(remedy_ui_style::StylePatch {
-            padding: Some(Insets { top: u * 0.5, bottom: u * 0.5, start: u * 1.5, end: u * 1.5 }),
-            ..Default::default()
-        });
+        .style(remedy_ui_style::StylePatch::default().padding(Insets {
+            top: u * 0.5,
+            bottom: u * 0.5,
+            start: u * 1.5,
+            end: u * 1.5,
+        }));
     let cap = caption.clone();
     let p = player.clone();
     let caption = caption.bind(move || {
@@ -72,10 +74,12 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             l.position = Position::Absolute;
             l.inset = Insets { top: u * 3.0, start: u * 3.0, end: u * 3.0, bottom: AUTO };
         })
-        .style(remedy_ui_style::StylePatch {
-            padding: Some(Insets { top: u, bottom: u, start: u * 1.5, end: u * 1.5 }),
-            ..Default::default()
-        })
+        .style(remedy_ui_style::StylePatch::default().padding(Insets {
+            top: u,
+            bottom: u,
+            start: u * 1.5,
+            end: u * 1.5,
+        }))
         .semantics(Semantics::new(Role::Alert));
     let msg = message.clone();
     let p = player.clone();
@@ -158,13 +162,13 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         "Mute (M)",
         {
             let p = player.clone();
-            move || usize::from(p.muted())
+            move || usize::from(p.is_muted())
         },
         {
             let p = player.clone();
-            move || if p.muted() { "Unmute".to_string() } else { "Mute".to_string() }
+            move || if p.is_muted() { "Unmute".to_string() } else { "Mute".to_string() }
         },
-        move || p.set_muted(!p.muted()),
+        move || p.set_muted(!p.is_muted()),
     );
     let level: Signal<f64> = Signal::new(f64::from(player.volume()));
     let volume = ui
@@ -205,13 +209,13 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         "Full screen (F)",
         {
             let p = player.clone();
-            move || usize::from(p.fullscreen())
+            move || usize::from(p.is_fullscreen())
         },
         {
             let p = player.clone();
-            move || if p.fullscreen() { "Exit full screen".to_string() } else { "Full screen".to_string() }
+            move || if p.is_fullscreen() { "Exit full screen".to_string() } else { "Full screen".to_string() }
         },
-        move || p.request_fullscreen(!p.fullscreen()),
+        move || p.request_fullscreen(!p.is_fullscreen()),
     );
     let fb = full.clone();
     let p = player.clone();
@@ -246,15 +250,15 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                 return false;
             }
             match &e.key {
-                Key::Escape if p.fullscreen() => p.request_fullscreen(false),
+                Key::Escape if p.is_fullscreen() => p.request_fullscreen(false),
                 Key::Character(c) => match c.as_str() {
                     "k" => p.toggle(),
                     "j" => p.seek_by(-JUMP_SEEK),
                     "l" => p.seek_by(JUMP_SEEK),
-                    "m" => p.set_muted(!p.muted()),
+                    "m" => p.set_muted(!p.is_muted()),
                     "c" if !p.subtitle_tracks().is_empty() => cycle_captions(&p),
                     "f" if p.info().is_none_or(|i| i.video.is_some()) => {
-                        p.request_fullscreen(!p.fullscreen())
+                        p.request_fullscreen(!p.is_fullscreen())
                     }
                     _ => return false,
                 },

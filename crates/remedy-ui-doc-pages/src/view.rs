@@ -1710,15 +1710,17 @@ impl PageView {
                 if let AnnotationKind::FreeText { rect, text: words, size } = &a.kind
                     && !words.is_empty()
                 {
-                    let style = remedy_ui_text::TextStyle {
-                        size: *size,
-                        color: a.color,
-                        ..remedy_ui_text::TextStyle::default()
+                    let style = {
+                        let mut v_ = remedy_ui_text::TextStyle::default();
+                        v_.size = *size;
+                        v_.color = a.color;
+                        v_
                     };
-                    let options = remedy_ui_text::ParagraphOptions {
-                        max_width: Some((rect.width() - 4.0).max(1.0)),
-                        snap: false,
-                        ..remedy_ui_text::ParagraphOptions::default()
+                    let options = {
+                        let mut v_ = remedy_ui_text::ParagraphOptions::default();
+                        v_.max_width = Some((rect.width() - 4.0).max(1.0));
+                        v_.snap = false;
+                        v_
                     };
                     let para =
                         cx.layout_text(&remedy_ui_text::RichText::plain(words.clone()), &style, options);

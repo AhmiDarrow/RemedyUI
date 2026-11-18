@@ -68,22 +68,22 @@ impl HeadlessWindow {
     }
 
     /// True while maximized.
-    pub fn maximized(&self) -> bool {
+    pub fn is_maximized(&self) -> bool {
         self.maximized
     }
 
     /// True while it fills the screen.
-    pub fn fullscreen(&self) -> bool {
+    pub fn is_fullscreen(&self) -> bool {
         self.fullscreen
     }
 
     /// True while minimized.
-    pub fn minimized(&self) -> bool {
+    pub fn is_minimized(&self) -> bool {
         self.minimized
     }
 
     /// True while a frame is requested and not yet delivered.
-    pub fn frame_requested(&self) -> bool {
+    pub fn is_frame_requested(&self) -> bool {
         self.frame_requested
     }
 }
@@ -200,7 +200,7 @@ impl HeadlessHost {
     /// Queues a wheel scroll with modifier keys held (Ctrl and the wheel zoom).
     pub fn wheel_with(&mut self, window: WindowId, position: Point, delta: Vec2, modifiers: Modifiers) {
         let time = self.clock;
-        let e = WheelEvent { position, delta, precise: true, time, modifiers };
+        let e = WheelEvent::new(position, delta).with_precise(true).with_time(time).with_modifiers(modifiers);
         self.queue.push_back(HostEvent::Wheel(window, e));
     }
 
@@ -209,7 +209,8 @@ impl HeadlessHost {
         let time = self.clock;
         for (phase, scale) in [(PinchPhase::Start, 1.0), (PinchPhase::Change, scale), (PinchPhase::End, 1.0)]
         {
-            self.queue.push_back(HostEvent::Pinch(window, PinchEvent { position, scale, phase, time }));
+            self.queue
+                .push_back(HostEvent::Pinch(window, PinchEvent::new(phase, position, scale).with_time(time)));
         }
     }
 
@@ -360,7 +361,7 @@ impl HeadlessHost {
     }
 
     /// True once the app called [`Host::exit`].
-    pub fn exited(&self) -> bool {
+    pub fn has_exited(&self) -> bool {
         self.exited
     }
 

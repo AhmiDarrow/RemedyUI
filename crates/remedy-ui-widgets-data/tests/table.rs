@@ -70,7 +70,7 @@ fn explorer(n: usize) -> Explorer {
             },
         ),
         Column::new("size", "Size", 120.0, |ui, f: &File| {
-            w::label(ui, format!("{} KB", f.size / 1024), "").data_text().nowrap()
+            w::text(ui, format!("{} KB", f.size / 1024)).data_text().nowrap()
         })
         .sort_by(|f| SortValue::Number(f.size as f64))
         .align_end(),

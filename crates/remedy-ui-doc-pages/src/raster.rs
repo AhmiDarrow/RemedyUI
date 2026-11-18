@@ -265,6 +265,7 @@ pub(crate) struct Visible {
 
 /// Counters for the view's work, for tests, devtools and the app's own status line.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PageStats {
     /// Tiles the source rendered.
     pub rendered: u64,

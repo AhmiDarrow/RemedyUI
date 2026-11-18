@@ -16,6 +16,7 @@ const PREFERRED: [wgpu::TextureFormat; 2] =
 
 /// What presenting a frame did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Presented {
     /// The frame is on its way to the screen.
     Shown,

@@ -24,6 +24,7 @@ const ROUND: f32 = 10_000.0;
 
 /// How the speaking ring looks and behaves.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct RingOptions {
     /// How fast the ring rises and falls. Ignored under reduced motion.
     pub smoothing: Smoothing,
@@ -46,6 +47,68 @@ pub struct RingOptions {
     pub muted: Option<Signal<bool>>,
     /// Where time comes from.
     pub clock: Clock,
+}
+
+impl RingOptions {
+    /// Sets `smoothing`: how fast the ring rises and falls.
+    pub fn smoothing(mut self, value: Smoothing) -> Self {
+        self.smoothing = value;
+        self
+    }
+
+    /// Sets `speaking_at`: the level at which someone counts as speaking.
+    pub fn speaking_at(mut self, value: f32) -> Self {
+        self.speaking_at = value;
+        self
+    }
+
+    /// Sets `hang`: how long the ring stays after the level drops, so pauses between words do not blink it.
+    pub fn hang(mut self, value: Duration) -> Self {
+        self.hang = value;
+        self
+    }
+
+    /// Sets `thickness`: the ring's thickest width when speaking loudly.
+    pub fn thickness(mut self, value: f32) -> Self {
+        self.thickness = Some(value);
+        self
+    }
+
+    /// Sets `gap`: space between the content and the ring.
+    pub fn gap(mut self, value: f32) -> Self {
+        self.gap = Some(value);
+        self
+    }
+
+    /// Sets `radius`: corner radius of the ring.
+    pub fn radius(mut self, value: f32) -> Self {
+        self.radius = Some(value);
+        self
+    }
+
+    /// Sets `show_when_silent`: draw a faint hairline while silent, so the avatar keeps its frame.
+    pub fn show_when_silent(mut self, value: bool) -> Self {
+        self.show_when_silent = value;
+        self
+    }
+
+    /// Sets `speaking`: set to whether the person is speaking, for the app to use elsewhere.
+    pub fn speaking(mut self, value: Signal<bool>) -> Self {
+        self.speaking = Some(value);
+        self
+    }
+
+    /// Sets `muted`: while true the person is muted: the ring ignores the level and shows the theme's muted outline, and screen readers hear "muted".
+    pub fn muted(mut self, value: Signal<bool>) -> Self {
+        self.muted = Some(value);
+        self
+    }
+
+    /// Sets `clock`: where time comes from.
+    pub fn clock(mut self, value: Clock) -> Self {
+        self.clock = value;
+        self
+    }
 }
 
 impl Default for RingOptions {

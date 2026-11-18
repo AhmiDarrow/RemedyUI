@@ -2,7 +2,9 @@
 
 use std::time::{Duration, Instant};
 
-use remedy_ui_services_spell::{Availability, Prepared, SpellBackend, SpellChecker, SpellError};
+use remedy_ui_services_spell::{
+    Availability, BackendError, Prepared, SpellBackend, SpellChecker, SpellError,
+};
 
 const EN_AFF: &str = "SET UTF-8\nSFX S Y 1\nSFX S 0 s [^s]\n";
 const EN_DIC: &str = "9\nthe/S\nquick\nbrown\nfox/S\njumps\nover\nlazy\ndog/S\nhello/S\n";
@@ -128,7 +130,7 @@ fn engines_that_cannot_start_are_listed_with_why() {
     let c = SpellChecker::builder()
         .platform(false)
         .system_dictionaries(false)
-        .backend("sandboxed", Box::new(|| Err("the sandbox forbids it".to_owned())))
+        .backend("sandboxed", Box::new(|| Err(BackendError::new("the sandbox forbids it"))))
         .dictionary("en-US", EN_AFF.into(), EN_DIC.into())
         .build();
     let reports = ok(c.backends());
@@ -156,11 +158,11 @@ impl SpellBackend for Fixed {
         vec!["tlh".into()]
     }
 
-    fn check_word(&mut self, _language: &str, word: &str) -> Result<bool, String> {
+    fn check_word(&mut self, _language: &str, word: &str) -> Result<bool, BackendError> {
         Ok(word == "qapla")
     }
 
-    fn suggest(&mut self, _language: &str, word: &str) -> Result<Vec<String>, String> {
+    fn suggest(&mut self, _language: &str, word: &str) -> Result<Vec<String>, BackendError> {
         Ok(if word == "qapl" { vec!["qapla".into()] } else { Vec::new() })
     }
 }

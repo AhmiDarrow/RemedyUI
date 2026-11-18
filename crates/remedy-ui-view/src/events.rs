@@ -62,7 +62,7 @@ impl Ui {
         self.0.borrow().els.get(&id).and_then(|d| d.field.clone())
     }
 
-    fn clickable(&self, id: ElementId) -> bool {
+    pub(crate) fn clickable(&self, id: ElementId) -> bool {
         self.0
             .borrow()
             .els
@@ -271,7 +271,7 @@ impl Ui {
             if self.route_key(e) {
                 return true;
             }
-            let escape = KeyEvent { key: Key::Escape, text: None, ..e.clone() };
+            let escape = e.clone().with_key(Key::Escape).with_text(None);
             return self.route_key(&escape);
         }
         self.route_key(e)

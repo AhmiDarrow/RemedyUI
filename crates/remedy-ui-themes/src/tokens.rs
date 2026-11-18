@@ -27,6 +27,7 @@ use serde_json::{Map, Value, json};
 
 /// Why a theme file could not be read.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TokenError {
     /// Not JSON, or not an object at the top.
     Invalid(String),
@@ -114,11 +115,7 @@ pub fn to_tokens(theme: &Theme) -> String {
             "standard": ms(theme.motion.standard),
             "emphasized": ms(theme.motion.emphasized),
         },
-        "density": { "$type": "string", "$value": match theme.density {
-            Density::Compact => "compact",
-            Density::Comfortable => "comfortable",
-            Density::Spacious => "spacious",
-        } },
+        "density": { "$type": "string", "$value": theme.density.name() },
     });
     let a = &theme.assets;
     if a.background.is_some() || !a.fonts.is_empty() {
@@ -290,12 +287,10 @@ pub fn from_tokens(json: &str, base: &Theme) -> Result<Theme, TokenError> {
         }
     }
     if let Some(v) = doc.get("density") {
-        t.density = match value(v).as_str() {
-            Some("compact") => Density::Compact,
-            Some("comfortable") => Density::Comfortable,
-            Some("spacious") => Density::Spacious,
-            _ => return Err(bad("density", "density is compact, comfortable or spacious")),
-        };
+        t.density = value(v)
+            .as_str()
+            .and_then(Density::from_name)
+            .ok_or_else(|| bad("density", "density is compact, comfortable or spacious"))?;
     }
     Ok(t)
 }

@@ -26,6 +26,7 @@ use unic_langid::LanguageIdentifier;
 
 /// A user override file that could not be used.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct OverrideProblem {
     /// The file (or the folder, when it could not be read).
     pub path: PathBuf,

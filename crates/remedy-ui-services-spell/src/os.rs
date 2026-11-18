@@ -7,17 +7,17 @@
 //! they behave the same on every back end.
 
 #[cfg(any(windows, target_os = "macos"))]
-use crate::backend::SpellBackend;
+use crate::backend::{BackendError, SpellBackend};
 
 /// The platform's spell checker, made on the thread that will use it.
 #[cfg(windows)]
-pub(crate) fn platform_backend() -> Result<Box<dyn SpellBackend>, String> {
-    win::WindowsBackend::new().map(|b| Box::new(b) as Box<dyn SpellBackend>)
+pub(crate) fn platform_backend() -> Result<Box<dyn SpellBackend>, BackendError> {
+    win::WindowsBackend::new().map(|b| Box::new(b) as Box<dyn SpellBackend>).map_err(BackendError::from)
 }
 
 /// The platform's spell checker, made on the thread that will use it.
 #[cfg(target_os = "macos")]
-pub(crate) fn platform_backend() -> Result<Box<dyn SpellBackend>, String> {
+pub(crate) fn platform_backend() -> Result<Box<dyn SpellBackend>, BackendError> {
     Ok(Box::new(mac::MacBackend::new()))
 }
 
@@ -48,7 +48,7 @@ mod win {
     };
     use windows::core::{HSTRING, PWSTR};
 
-    use crate::backend::{Prepared, SpellBackend};
+    use crate::backend::{BackendError, Prepared, SpellBackend};
 
     /// Windows' `ISpellChecker`, owned by the checking thread (COM objects stay on the thread
     /// that made them).
@@ -146,7 +146,7 @@ mod win {
             self.supported().iter().filter_map(|t| crate::languages::normalize(t).ok()).collect()
         }
 
-        fn check_word(&mut self, language: &str, word: &str) -> Result<bool, String> {
+        fn check_word(&mut self, language: &str, word: &str) -> Result<bool, BackendError> {
             let c = self.checkers.get(language).ok_or_else(|| format!("{language} was not prepared"))?;
             let text = HSTRING::from(word);
             // SAFETY: `text` outlives the call; the enumerator and error are owned interfaces.
@@ -159,7 +159,7 @@ mod win {
             }
         }
 
-        fn suggest(&mut self, language: &str, word: &str) -> Result<Vec<String>, String> {
+        fn suggest(&mut self, language: &str, word: &str) -> Result<Vec<String>, BackendError> {
             let c = self.checkers.get(language).ok_or_else(|| format!("{language} was not prepared"))?;
             let text = HSTRING::from(word);
             // SAFETY: `text` outlives the call; the enumerator is read to its end.
@@ -189,7 +189,7 @@ mod mac {
     use objc2_app_kit::NSSpellChecker;
     use objc2_foundation::{NSInteger, NSRange, NSString};
 
-    use crate::backend::{Prepared, SpellBackend};
+    use crate::backend::{BackendError, Prepared, SpellBackend};
 
     /// `NSNotFound`: what a range's location is when nothing was found.
     const NOT_FOUND: usize = isize::MAX as usize;
@@ -233,7 +233,7 @@ mod mac {
             self.available.iter().filter_map(|t| crate::languages::normalize(t).ok()).collect()
         }
 
-        fn check_word(&mut self, language: &str, word: &str) -> Result<bool, String> {
+        fn check_word(&mut self, language: &str, word: &str) -> Result<bool, BackendError> {
             let lang = self.chosen.get(language).ok_or_else(|| format!("{language} was not prepared"))?;
             let text = NSString::from_str(word);
             // SAFETY: the word count out-parameter is null, which the method documents as
@@ -251,7 +251,7 @@ mod mac {
             Ok(range.location == NOT_FOUND)
         }
 
-        fn suggest(&mut self, language: &str, word: &str) -> Result<Vec<String>, String> {
+        fn suggest(&mut self, language: &str, word: &str) -> Result<Vec<String>, BackendError> {
             let lang = self.chosen.get(language).ok_or_else(|| format!("{language} was not prepared"))?;
             let text = NSString::from_str(word);
             let range = NSRange::new(0, text.length());

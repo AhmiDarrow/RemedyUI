@@ -316,13 +316,12 @@ fn beam_heights(notes: &[&str]) -> Option<(f32, f32)> {
     let ui = ui();
     let events: Vec<StaffEvent> = notes.iter().map(|n| StaffEvent::note(p(n), Eighth)).collect();
     let ms = Signal::new(vec![StaffMeasure::new(events)]);
-    let el = note_staff(
-        &ui,
-        "Run",
-        ms,
-        Signal::new(None),
-        NoteStaffOptions { space: Some(14.0), time: None, ..Default::default() },
-    );
+    let el = note_staff(&ui, "Run", ms, Signal::new(None), {
+        let mut v_ = NoteStaffOptions::default();
+        v_.space = Some(14.0);
+        v_.time = None;
+        v_
+    });
     mount(&ui, &el);
     let mut shot = Shot::new(&ui);
     for _ in 0..4 {
@@ -641,7 +640,11 @@ fn staff_keys_move_notes_by_step_semitone_and_octave() {
 
 #[test]
 fn staff_keys_set_lengths_rests_ties_and_structure() {
-    let r = staff_rig(true, staff_measures(), NoteStaffOptions { key: 1, ..Default::default() });
+    let r = staff_rig(true, staff_measures(), {
+        let mut v_ = NoteStaffOptions::default();
+        v_.key = 1;
+        v_
+    });
     for (k, v) in [
         ('1', NoteValue::Whole),
         ('2', NoteValue::Half),
@@ -732,7 +735,12 @@ fn double_clicking_the_staff_puts_the_note_at_that_height() {
     // One rest, so the staff has no notes or stems above or below it: the bottom line is a
     // known distance from the top of the element.
     let rest = vec![StaffMeasure::new(vec![StaffEvent::rest(NoteValue::Whole)])];
-    let r = staff_rig(true, rest, NoteStaffOptions { space: Some(10.0), time: None, ..Default::default() });
+    let r = staff_rig(true, rest, {
+        let mut v_ = NoteStaffOptions::default();
+        v_.space = Some(10.0);
+        v_.time = None;
+        v_
+    });
     let b = r.el.bounds().unwrap_or_default();
     let bottom = b.min.y + 10.0 + 10.0 + 40.0;
     let x = b.min.x + 120.0;

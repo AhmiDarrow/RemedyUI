@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [features]
 default = ["gpu", "system-fonts", "widgets", "forms", "nav"]
@@ -77,6 +80,11 @@ board = ["data", "dep:remedy-ui-widgets-board"]
 customize = ["forms", "nav", "i18n", "dep:remedy-ui-customize"]
 ## Localization (`remedy_ui::i18n`): Fluent messages, locale data, dates and exact numbers.
 i18n = ["dep:remedy-ui-services-i18n"]
+## `#[derive(Store)]` (`remedy_ui::Store`): field-level reactive stores.
+macros = ["dep:remedy-ui-macros"]
+## Images and animations decoded in a sandboxed helper process (`remedy_ui::isolated`), so a
+## decoder that crashes, hangs or runs away with memory takes down only the helper.
+isolated = ["image", "anim", "dep:remedy-ui-media-isolated"]
 ## Signed updates from GitHub releases or a feed (`remedy_ui::update`).
 update = ["widgets", "dep:remedy-ui-services-update"]
 ## The in-memory host for tests (`remedy_ui::headless`).
@@ -85,9 +93,13 @@ headless = ["dep:remedy-ui-bridge-headless"]
 ## `wasm32-unknown-unknown`. Does nothing on other targets.
 web = ["dep:remedy-ui-bridge-web"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "customize", "web"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "customize", "web", "macros", "isolated"]
 
 [dependencies]
+remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "0.1.0" }
+remedy-ui-macros = { path = "../remedy-ui-macros", version = "0.1.0", optional = true }
+remedy-ui-media-isolated = { path = "../remedy-ui-media-isolated", version = "0.1.0", optional = true }
+remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "0.1.0" }
@@ -149,9 +161,8 @@ remedy-ui-bridge-web = { path = "../remedy-ui-bridge-web", version = "0.1.0", op
 
 [dev-dependencies]
 # Tests run the customization layer through the app (`App::customizations`).
-remedy-ui = { path = ".", features = ["customize"] }
+remedy-ui = { path = ".", features = ["customize", "markup", "macros", "agents", "headless"] }
 remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "0.1.0" }
-remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
 
 [target.'cfg(windows)'.dev-dependencies]
 remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "0.1.0" }

@@ -12,8 +12,8 @@
 //!     fonts.add_static(face.data)?;
 //! }
 //! let mut engine = TextEngine::new(fonts);
-//! let text = RichText::new().text("Hello, ").styled("world", StylePatch::bold());
-//! let options = ParagraphOptions { max_width: Some(200.0), ..Default::default() };
+//! let text = RichText::new().text("Hello, ").styled("world", TextStylePatch::bold());
+//! let options = ParagraphOptions::default().max_width(200.0);
 //! let para = engine.layout(&text, &TextStyle::default(), options);
 //! assert_eq!(para.lines().len(), 1);
 //! assert!(para.width() > 0.0 && para.width() <= 200.0);
@@ -56,4 +56,4 @@ pub use rich::{InlineObject, OBJECT_REPLACEMENT, RichText, Span};
 pub use rich_edit::{Block, MAX_LEVEL, Mark, RichDoc, RichEditor, RichLook, RichView, SOFT_BREAK};
 pub use rich_html::{from_html, to_html};
 pub use safety::{Reveal, has_hidden_controls, looks_like, reveal_controls, skeleton};
-pub use style::{Align, Direction, Feature, LineHeight, StylePatch, TextStyle};
+pub use style::{Align, Direction, Feature, LineHeight, TextStyle, TextStylePatch};

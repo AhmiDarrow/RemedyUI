@@ -50,7 +50,7 @@ pub struct Triangle {
 }
 
 impl GpuContent for Triangle {
-    fn prepare(&mut self, gpu: &Gpu<'_>) -> Result<(), String> {
+    fn prepare(&mut self, gpu: &Gpu<'_>) -> Result<(), remedy_ui_embed_gpu::PrepareError> {
         self.seen.prepared.set(self.seen.prepared.get() + 1);
         let d = gpu.device;
         let module = d.create_shader_module(wgpu::ShaderModuleDescriptor {

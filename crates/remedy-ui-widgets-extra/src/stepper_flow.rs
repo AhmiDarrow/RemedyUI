@@ -51,6 +51,7 @@ impl Step {
 
 /// The words on the flow's buttons.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct StepperLabels {
     /// Back to the step before.
     pub back: String,
@@ -170,7 +171,7 @@ pub fn stepper_flow(
                     );
                 }
             });
-            let caption = w::label(ui, title, "").nowrap();
+            let caption = w::text(ui, title).nowrap();
             ui.el("step_marker_cell")
                 .row()
                 .gap(unit * 2.0)
@@ -210,13 +211,13 @@ pub fn stepper_flow(
     }
 
     // The step bodies: only the current one is shown.
-    let status = w::label(ui, "", "muted").data_text();
+    let status = w::text(ui, "").variant("muted").data_text();
     let mut body = w::column(ui).gap(unit * 3.0);
     let mut bodies = Vec::new();
     for (i, s) in steps.iter().enumerate() {
         let mut part = w::column(ui).gap(unit * 2.0).child(w::heading(ui, 2, s.title.clone()));
         if let Some(d) = &s.description {
-            part = part.child(w::label(ui, d.clone(), "muted"));
+            part = part.child(w::text(ui, d.clone()).variant("muted"));
         }
         let part = part.child(s.content.clone()).hidden(i != 0);
         bodies.push(part.clone());

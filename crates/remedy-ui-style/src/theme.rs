@@ -9,6 +9,7 @@ use crate::contrast::{CONTRAST_AA, CONTRAST_AAA, ensure_contrast};
 
 /// Color roles. The named roles are what built-in widgets read; `custom` holds an app's own.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct ColorRoles {
     /// The window background.
     pub bg: Color,
@@ -38,6 +39,7 @@ pub struct ColorRoles {
 
 /// Text sizes. Six sizes come from three, as FreeSpeak's skins define them.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct TypeScale {
     /// Help text under controls.
     pub small: f32,
@@ -49,6 +51,7 @@ pub struct TypeScale {
 
 /// Spacing: the base unit everything is a multiple of.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Spacing {
     /// The grid unit (4 dp by default); `s(n)` is n units.
     pub unit: f32,
@@ -70,6 +73,7 @@ impl Spacing {
 
 /// Corner radii.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Radii {
     /// Small controls.
     pub small: f32,
@@ -81,6 +85,7 @@ pub struct Radii {
 
 /// Motion tokens.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct MotionTokens {
     /// Hover and press feedback.
     pub quick: Duration,
@@ -94,6 +99,7 @@ pub struct MotionTokens {
 
 /// How much space controls take.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Density {
     /// Tighter rows and padding.
     Compact,
@@ -104,9 +110,37 @@ pub enum Density {
     Spacious,
 }
 
+impl Density {
+    /// Every density, tightest first.
+    pub const ALL: &'static [Density] = &[Density::Compact, Density::Comfortable, Density::Spacious];
+
+    /// The density's name in theme files: `compact`, `comfortable` or `spacious`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Density::Compact => "compact",
+            Density::Comfortable => "comfortable",
+            Density::Spacious => "spacious",
+        }
+    }
+
+    /// The density a theme file names, if it names one.
+    ///
+    /// ```
+    /// use remedy_ui_style::Density;
+    ///
+    /// assert_eq!(Density::from_name("spacious"), Some(Density::Spacious));
+    /// assert_eq!(Density::from_name(Density::Compact.name()), Some(Density::Compact));
+    /// assert_eq!(Density::from_name("roomy"), None);
+    /// ```
+    pub fn from_name(name: &str) -> Option<Density> {
+        Density::ALL.iter().copied().find(|d| d.name() == name)
+    }
+}
+
 /// A theme: every token built-in widgets read. Themes are data: an app maps its own format
 /// (FreeSpeak's `.fskin`, W3C design-token files) onto this.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Theme {
     /// A name for menus.
     pub name: String,
@@ -139,6 +173,7 @@ pub struct Theme {
 /// font engine before use, and a theme from someone else carries none unless the person
 /// allows it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ThemeAssets {
     /// An image drawn behind each window's content, covering it.
     pub background: Option<String>,
@@ -149,6 +184,7 @@ pub struct ThemeAssets {
 
 /// Tokens computed from a theme once per change, not per widget.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct DerivedTokens {
     /// Body text, balanced to at least 7:1 on the background.
     pub text: Color,

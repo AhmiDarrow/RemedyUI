@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Size};
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase};
+use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request, Ui};
 use remedy_ui_widgets_board::*;
@@ -64,17 +64,7 @@ fn widgets(ui: &Ui, w: &str) -> Vec<El> {
 }
 
 fn pointer(ui: &Ui, at: Point, phase: PointerPhase, buttons: Buttons) {
-    ui.pointer(&PointerEvent {
-        id: 0,
-        kind: PointerKind::Mouse,
-        phase,
-        position: at,
-        buttons,
-        pressure: 0.5,
-        time: Duration::from_secs(1),
-        coalesced: Vec::new(),
-        modifiers: Modifiers::NONE,
-    });
+    ui.pointer(&PointerEvent::new(phase, at).with_buttons(buttons).with_time(Duration::from_secs(1)));
 }
 
 fn click(ui: &Ui, el: &El) {
@@ -85,15 +75,7 @@ fn click(ui: &Ui, el: &El) {
 }
 
 fn key(ui: &Ui, k: Key, m: Modifiers) {
-    let _ = ui.key(&KeyEvent {
-        key: k,
-        physical: String::new(),
-        modifiers: m,
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: None,
-    });
+    let _ = ui.key(&KeyEvent::press(k).with_modifiers(m).with_text(None));
     frame(ui);
 }
 

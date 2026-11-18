@@ -20,13 +20,14 @@ use remedy_ui_core::Color;
 
 use crate::editing::{TextChange, TextEditor, TextSelection};
 use crate::rich::RichText;
-use crate::style::StylePatch;
+use crate::style::TextStylePatch;
 
 /// The line separator: a line break inside one block (Shift+Enter in a list item).
 pub const SOFT_BREAK: char = '\u{2028}';
 
 /// Formatting on a run of characters.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+// Exhaustive on purpose: the rich document model, which every serializer and view must handle completely, so a new kind is a major change.
 pub enum Mark {
     /// Bold.
     Bold,
@@ -56,6 +57,7 @@ impl Mark {
 
 /// What kind of block a line is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+// Exhaustive on purpose: the rich document model, which every serializer and view must handle completely, so a new kind is a major change.
 pub enum Block {
     /// Body text.
     #[default]
@@ -988,7 +990,7 @@ impl RichEditor {
             }
             let mstart = out.len();
             if !marker.is_empty() {
-                out.push_styled(&marker, StylePatch::color(look.muted));
+                out.push_styled(&marker, TextStylePatch::color(look.muted));
                 markers.push((s, marker.len()));
                 if let Block::Task { .. } = block {
                     tasks.push((mstart + indent.len()..mstart + marker.len(), i));
@@ -1008,16 +1010,23 @@ impl RichEditor {
                     };
                     out.add_span(
                         line_range,
-                        StylePatch { size: Some(size), weight: Some(700.0), ..StylePatch::default() },
+                        TextStylePatch { size: Some(size), weight: Some(700.0), ..TextStylePatch::default() },
                     );
                 }
                 Block::Quote => out.add_span(
                     line_range,
-                    StylePatch { italic: Some(true), color: Some(look.muted), ..StylePatch::default() },
+                    TextStylePatch {
+                        italic: Some(true),
+                        color: Some(look.muted),
+                        ..TextStylePatch::default()
+                    },
                 ),
                 Block::Code => out.add_span(
                     line_range,
-                    StylePatch { families: Some(look.code_families.clone()), ..StylePatch::default() },
+                    TextStylePatch {
+                        families: Some(look.code_families.clone()),
+                        ..TextStylePatch::default()
+                    },
                 ),
                 _ => {}
             }
@@ -1034,18 +1043,22 @@ impl RichEditor {
                 continue;
             }
             let patch = match m {
-                Mark::Bold => StylePatch::bold(),
-                Mark::Italic => StylePatch::italic(),
-                Mark::Strike => StylePatch::strikethrough(),
+                Mark::Bold => TextStylePatch::bold(),
+                Mark::Italic => TextStylePatch::italic(),
+                Mark::Strike => TextStylePatch::strikethrough(),
                 Mark::Code => {
-                    StylePatch { families: Some(look.code_families.clone()), ..StylePatch::default() }
+                    TextStylePatch { families: Some(look.code_families.clone()), ..TextStylePatch::default() }
                 }
-                Mark::Link(_) => {
-                    StylePatch { color: Some(look.link), underline: Some(true), ..StylePatch::default() }
-                }
-                Mark::Mention(_) => {
-                    StylePatch { color: Some(look.mention), weight: Some(600.0), ..StylePatch::default() }
-                }
+                Mark::Link(_) => TextStylePatch {
+                    color: Some(look.link),
+                    underline: Some(true),
+                    ..TextStylePatch::default()
+                },
+                Mark::Mention(_) => TextStylePatch {
+                    color: Some(look.mention),
+                    weight: Some(600.0),
+                    ..TextStylePatch::default()
+                },
             };
             out.add_span(a..b, patch);
         }

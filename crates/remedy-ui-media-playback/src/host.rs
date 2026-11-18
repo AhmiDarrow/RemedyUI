@@ -15,6 +15,7 @@ pub use remedy_ui_media_video::{Picture, PixelFormat, Plane, YuvMatrix};
 
 /// What to play.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum MediaSource {
     /// A file on this machine.
     File(PathBuf),
@@ -67,6 +68,7 @@ impl MediaSource {
 
 /// The layout of decoded sound: interleaved 32-bit float samples, one per channel per frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct AudioFormat {
     /// Frames per second.
     pub sample_rate: u32,
@@ -75,6 +77,11 @@ pub struct AudioFormat {
 }
 
 impl AudioFormat {
+    /// Samples at `sample_rate` frames per second, `channels` to a frame.
+    pub fn new(sample_rate: u32, channels: u16) -> Self {
+        AudioFormat { sample_rate, channels }
+    }
+
     /// How long `frames` frames last.
     pub fn duration_of(&self, frames: u64) -> Duration {
         if self.sample_rate == 0 {
@@ -93,6 +100,7 @@ impl AudioFormat {
 
 /// The picture of a stream with video.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct VideoInfo {
     /// Width shown, in pixels.
     pub width: u32,
@@ -102,8 +110,17 @@ pub struct VideoInfo {
     pub frame_rate: Option<f64>,
 }
 
+impl VideoInfo {
+    /// A picture `width` by `height` pixels as shown, at `frame_rate` frames per second when
+    /// the stream says.
+    pub fn new(width: u32, height: u32, frame_rate: Option<f64>) -> Self {
+        VideoInfo { width, height, frame_rate }
+    }
+}
+
 /// A text track carried inside the media (subtitles or captions).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TextTrackInfo {
     /// What to call it ("English", "Commentary").
     pub label: String,
@@ -113,6 +130,7 @@ pub struct TextTrackInfo {
 
 /// What an opened source holds.
 #[derive(Clone, Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub struct MediaInfo {
     /// How long it lasts; `None` for a live stream.
     pub duration: Option<Duration>,
@@ -128,6 +146,7 @@ pub struct MediaInfo {
 
 /// One timed piece of decoded media. Times are positions in the media.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum Sample {
     /// A picture to show from `at`.
     Video {
@@ -169,6 +188,7 @@ impl Sample {
 
 /// Why media could not be opened, played or heard.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MediaError {
     /// This platform (or this build) cannot do it; the reason says why.
     Unsupported(String),

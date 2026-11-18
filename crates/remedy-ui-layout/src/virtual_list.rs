@@ -68,6 +68,7 @@ impl<T: Copy + Default + std::ops::Add<Output = T> + std::ops::Sub<Output = T>> 
 
 /// Where a jump puts its row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum JumpAlign {
     /// The row's top at the view's top.
     Start,

@@ -13,7 +13,8 @@ use crate::{Area, Customizations, shortcut_editor, theme_editor};
 
 /// A status line that assistive technology announces.
 fn status_line(ui: &Ui, name: &'static str, status: Signal<String>) -> El {
-    w::label(ui, "", "muted")
+    w::text(ui, "")
+        .variant("muted")
         .text_dyn(move || status.get())
         .semantics_dyn(move || Semantics::new(Role::Status).label(name).value(status.get()))
 }
@@ -48,7 +49,7 @@ pub fn notices_view(ui: &Ui, c: &Customizations) -> El {
                     .align(Align::Center)
                     .fill_width()
                     .semantics(Semantics::new(Role::Alert).label(message.clone()))
-                    .child(w::label(&u, message, "error").grow(1.0))
+                    .child(w::text(&u, message).variant("error").grow(1.0))
                     .child(reset)
                     .child(dismiss);
                 let _ =
@@ -79,7 +80,7 @@ pub fn toolbars_editor(ui: &Ui, c: &Customizations) -> El {
         .child(w::heading(ui, 2, "Toolbars and menus"));
     let slots = c.toolbar_slots();
     if slots.is_empty() {
-        col = col.child(w::label(ui, "This app has no toolbars to change.", "muted"));
+        col = col.child(w::text(ui, "This app has no toolbars to change.").variant("muted"));
     }
     for (id, label) in slots {
         let Some(slot) = c.toolbar(&id) else { continue };
@@ -167,7 +168,7 @@ fn text_row(ui: &Ui, c: &Customizations, source: &str, status: Signal<String>) -
     w::column(ui)
         .gap(unit)
         .fill_width()
-        .child(w::label(ui, source.to_owned(), "muted").data_text())
+        .child(w::text(ui, source.to_owned()).variant("muted").data_text())
         .child(w::row(ui).gap(unit * 2.0).align(Align::Center).fill_width().child(el.grow(1.0)).child(reset))
 }
 
@@ -214,7 +215,7 @@ fn message_row(ui: &Ui, c: &Customizations, id: &str) -> El {
     };
     let mut col =
         w::column(ui).gap(unit).fill_width().semantics(Semantics::new(Role::Group).label(id.to_owned()));
-    col = col.child(w::label(ui, id.to_owned(), "code").data_text());
+    col = col.child(w::text(ui, id.to_owned()).variant("code").data_text());
     let fields: Vec<remedy_ui_view::TextField> =
         value.iter().cloned().chain(attrs.iter().map(|(_, f)| f.clone())).collect();
     for f in &fields {
@@ -249,7 +250,7 @@ fn message_row(ui: &Ui, c: &Customizations, id: &str) -> El {
         },
     );
     let id5 = id.to_owned();
-    let check = w::label(ui, "", "error").text_dyn(move || status.get()).semantics_dyn(move || {
+    let check = w::text(ui, "").variant("error").text_dyn(move || status.get()).semantics_dyn(move || {
         Semantics::new(Role::Status).label(format!("{id5} check")).value(status.get())
     });
     col.child(w::row(ui).gap(unit * 2.0).align(Align::Center).child(reset).child(check))
@@ -280,7 +281,7 @@ fn messages_section(ui: &Ui, c: &Customizations) -> El {
         untrack(|| {
             l2.clear();
             if ids.is_empty() {
-                let _ = l2.clone().child(w::label(&u, "No matching message", "muted"));
+                let _ = l2.clone().child(w::text(&u, "No matching message").variant("muted"));
             }
             for id in &ids {
                 let _ = l2.clone().child(message_row(&u, &c2, id));
@@ -288,7 +289,10 @@ fn messages_section(ui: &Ui, c: &Customizations) -> El {
         });
     });
     w::section(ui, "Messages")
-        .child(w::label(ui, "Fluent messages: text, placeholders such as { $name }, and choices.", "muted"))
+        .child(
+            w::text(ui, "Fluent messages: text, placeholders such as { $name }, and choices.")
+                .variant("muted"),
+        )
         .child(search)
         .child(list)
 }
@@ -314,7 +318,7 @@ pub fn text_editor(ui: &Ui, c: &Customizations) -> El {
         .fill_width()
         .semantics(Semantics::new(Role::Group).label("Text editor"))
         .child(w::heading(ui, 2, "Text"))
-        .child(w::label(ui, folder, "muted").data_text())
+        .child(w::text(ui, folder).variant("muted").data_text())
         .child(reload);
     if c.text_catalog().is_some() {
         let search = w::search(ui, "Search text", move |q| query.set(q));
@@ -334,7 +338,7 @@ pub fn text_editor(ui: &Ui, c: &Customizations) -> El {
             untrack(|| {
                 l2.clear();
                 if found.is_empty() {
-                    let _ = l2.clone().child(w::label(&u, "No matching text", "muted"));
+                    let _ = l2.clone().child(w::text(&u, "No matching text").variant("muted"));
                 }
                 for s in &found {
                     let _ = l2.clone().child(text_row(&u, &c2, s, status));
@@ -368,7 +372,11 @@ fn layout_section(ui: &Ui, c: &Customizations, file: &str) -> El {
     let unit = ui.theme().spacing.unit;
     let status = Signal::new(String::new());
     let source = c.layout_source(file).unwrap_or_default();
-    let options = remedy_ui_doc_code::CodeOptions { language: "rui".into(), ..Default::default() };
+    let options = {
+        let mut v_ = remedy_ui_doc_code::CodeOptions::default();
+        v_.language = "rui".into();
+        v_
+    };
     let (editor, field) = remedy_ui_doc_code::code_editor(ui, format!("Layout {file}"), &source, options);
     // Checked as the person types: what is wrong, at which line and column.
     let (f2, c2, file2) = (field.clone(), c.clone(), file.to_owned());
@@ -407,7 +415,8 @@ fn layout_section(ui: &Ui, c: &Customizations, file: &str) -> El {
             }
         },
     );
-    let status_el = w::label(ui, "", "muted")
+    let status_el = w::text(ui, "")
+        .variant("muted")
         .text_dyn(move || status.get())
         .semantics_dyn(move || Semantics::new(Role::Status).label("Layout check").value(status.get()));
     w::section(ui, file)
@@ -436,10 +445,10 @@ pub fn layouts_editor(ui: &Ui, c: &Customizations) -> El {
         .fill_width()
         .semantics(Semantics::new(Role::Group).label("Layout editor"))
         .child(w::heading(ui, 2, "Screen layouts"))
-        .child(w::label(ui, folder, "muted").data_text());
+        .child(w::text(ui, folder).variant("muted").data_text());
     let files = c.layout_files();
     if files.is_empty() {
-        col = col.child(w::label(ui, "No screen that can be rearranged is open.", "muted"));
+        col = col.child(w::text(ui, "No screen that can be rearranged is open.").variant("muted"));
     }
     for f in &files {
         col = col.child(layout_section(ui, c, f));

@@ -10,6 +10,7 @@ use remedy_ui_reactive::Signal;
 
 /// What a column sorts by, extracted from a row so sorting can run off the UI thread.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum SortValue {
     /// Text, compared the way people expect: case-insensitively, with digit runs as numbers
     /// (`file2` before `file10`).
@@ -22,6 +23,7 @@ pub enum SortValue {
 
 /// Which way a column sorts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+// Exhaustive on purpose: ascending or descending.
 pub enum SortDirection {
     /// Smallest first.
     Ascending,

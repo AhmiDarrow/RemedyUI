@@ -36,6 +36,7 @@ impl Match {
 
 /// Where a search is.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SearchStatus {
     /// What is searched for (empty: no search).
     pub query: String,

@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Size};
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase};
+use remedy_ui_input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase};
 use remedy_ui_services_spell::{SpellCheckField, SpellChecker, SpellError, SpellHook, SpellOptions};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{FieldKind, Request, TextField, Ui};
@@ -25,10 +25,11 @@ fn checker() -> SpellChecker {
 }
 
 fn options() -> SpellOptions {
-    SpellOptions {
-        debounce: Duration::from_millis(10),
-        settle: Duration::from_secs(2),
-        ..SpellOptions::default()
+    {
+        let mut v_ = SpellOptions::default();
+        v_.debounce = Duration::from_millis(10);
+        v_.settle = Duration::from_secs(2);
+        v_
     }
 }
 
@@ -108,45 +109,19 @@ impl T {
     fn type_text(&mut self, text: &str) {
         for c in text.chars() {
             let s = c.to_string();
-            self.ui.key(&KeyEvent {
-                key: Key::Character(s.clone()),
-                physical: String::new(),
-                modifiers: Modifiers::NONE,
-                pressed: true,
-                repeat: false,
-                composing: false,
-                text: Some(s),
-            });
+            self.ui.key(&KeyEvent::press(Key::Character(s.clone())).with_text(Some(s)));
         }
         self.frame();
     }
 
     fn press(&mut self, k: Key) {
-        self.ui.key(&KeyEvent {
-            key: k,
-            physical: String::new(),
-            modifiers: Modifiers::NONE,
-            pressed: true,
-            repeat: false,
-            composing: false,
-            text: None,
-        });
+        self.ui.key(&KeyEvent::press(k).with_text(None));
         self.frame();
     }
 }
 
 fn pointer(phase: PointerPhase, p: Point, buttons: Buttons) -> PointerEvent {
-    PointerEvent {
-        id: 0,
-        kind: PointerKind::Mouse,
-        phase,
-        position: p,
-        buttons,
-        pressure: 0.5,
-        time: Duration::ZERO,
-        coalesced: Vec::new(),
-        modifiers: Modifiers::NONE,
-    }
+    PointerEvent::new(phase, p).with_buttons(buttons)
 }
 
 fn hook(f: &TextField, c: &SpellChecker) -> SpellHook {

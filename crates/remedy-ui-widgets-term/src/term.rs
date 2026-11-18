@@ -18,6 +18,7 @@ use crate::cell::{Attrs, Cell, Line, TermColor, Underline};
 
 /// How much the scrollback keeps.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Scrollback {
     /// A memory budget sized from the machine: 1/256 of its memory (128 MB on a 32 GB
     /// machine), or 64 MB when the platform does not say.
@@ -61,6 +62,7 @@ pub fn default_string_limit() -> usize {
 
 /// The cursor's shape (DECSCUSR).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum CursorShape {
     /// A filled cell.
     #[default]
@@ -73,6 +75,7 @@ pub enum CursorShape {
 
 /// Which pointer events the program asked for (DECSET 9, 1000, 1002, 1003).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum MouseMode {
     /// None: the pointer selects text.
     #[default]
@@ -89,6 +92,7 @@ pub enum MouseMode {
 
 /// How pointer reports are encoded (DECSET 1005, 1006).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum MouseEncoding {
     /// Bytes offset by 32 (positions up to 223).
     #[default]
@@ -101,6 +105,7 @@ pub enum MouseEncoding {
 
 /// The modes a program set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct Modes {
     /// Cursor keys send application sequences (DECCKM).
     pub app_cursor: bool,
@@ -173,6 +178,7 @@ impl Default for Modes {
 
 /// Where the cursor is and how it shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CursorState {
     /// Screen row, from 0.
     pub row: usize,

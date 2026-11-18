@@ -104,7 +104,7 @@ impl Engine {
                     });
                     slots.push(Slot { backend });
                 }
-                Err(reason) => reports.push(BackendReport { name, running: false, reason: Some(reason) }),
+                Err(e) => reports.push(BackendReport { name, running: false, reason: Some(e.to_string()) }),
             }
         }
         Engine { slots, reports, personal, prepared: HashMap::new() }

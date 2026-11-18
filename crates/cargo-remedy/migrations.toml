@@ -1,0 +1,123 @@
+# What `cargo remedy migrate` changes in an app's sources, per RemedyUI release.
+#
+# Every entry is mechanical and token-aware: paths are matched after resolving the file's
+# `use` items, so `remedy_ui::text::StylePatch`, `text::StylePatch` after `use remedy_ui::text`,
+# and `remedy_ui_text::StylePatch` are the same item, and nothing in strings or comments is
+# touched. Paths are written through the facade (`remedy_ui::<module>`); the `[crates]` table
+# says which engine crate each facade module is, so apps that name engine crates directly are
+# migrated too.
+#
+# - [[rename]] kind = "path": the item at `old` is now named `new` (its last segment).
+# - [[rename]] kind = "method": the method `old` of `type` is now `new`. Without type
+#   information, a call `.old(` is renamed only when the app defines no `fn old` of its own.
+# - [[call]]: a call to the function at `path` is rewritten with `template`, where `{fn}` is
+#   the function's path as the app wrote it without its last segment (empty for a bare call,
+#   which gets the full path instead), and `{0}`, `{1}`, ... are the call's arguments as written.
+#
+# Entries name the release that made the change (`since`); every entry up to the version the
+# app moves to applies.
+
+[crates]
+a11y = "remedy_ui_a11y"
+agents = "remedy_ui_automation"
+code = "remedy_ui_doc_code"
+core = "remedy_ui_core"
+customize = "remedy_ui_customize"
+devtools = "remedy_ui_devtools"
+headless = "remedy_ui_bridge_headless"
+host = "remedy_ui_host"
+input = "remedy_ui_input"
+layout = "remedy_ui_layout"
+markup = "remedy_ui_rui"
+nav = "remedy_ui_widgets_nav"
+pages = "remedy_ui_doc_pages"
+paint = "remedy_ui_paint"
+playback = "remedy_ui_media_playback"
+reactive = "remedy_ui_reactive"
+rich = "remedy_ui_doc_rich"
+style = "remedy_ui_style"
+term = "remedy_ui_widgets_term"
+text = "remedy_ui_text"
+view = "remedy_ui_view"
+webview = "remedy_ui_embed_webview"
+widgets = "remedy_ui_widgets_core"
+
+[[rename]]
+since = "0.1.0"
+kind = "path"
+old = "remedy_ui::text::StylePatch"
+new = "TextStylePatch"
+
+[[rename]]
+since = "0.1.0"
+kind = "path"
+old = "remedy_ui::view::TextPatch"
+new = "TextStylePatch"
+
+[[rename]]
+since = "0.1.0"
+kind = "method"
+type = "remedy_ui::view::Ui"
+old = "occluded"
+new = "is_occluded"
+
+[[rename]]
+since = "0.1.0"
+kind = "method"
+type = "remedy_ui::headless::HeadlessWindow"
+old = "maximized"
+new = "is_maximized"
+
+[[rename]]
+since = "0.1.0"
+kind = "method"
+type = "remedy_ui::headless::HeadlessWindow"
+old = "minimized"
+new = "is_minimized"
+
+[[rename]]
+since = "0.1.0"
+kind = "method"
+type = "remedy_ui::headless::HeadlessWindow"
+old = "frame_requested"
+new = "is_frame_requested"
+
+[[rename]]
+since = "0.1.0"
+kind = "method"
+type = "remedy_ui::headless::HeadlessHost"
+old = "exited"
+new = "has_exited"
+
+[[rename]]
+since = "0.1.0"
+kind = "method"
+type = "remedy_ui::headless::HeadlessWindow and remedy_ui::playback::Player"
+old = "fullscreen"
+new = "is_fullscreen"
+
+[[rename]]
+since = "0.1.0"
+kind = "method"
+type = "remedy_ui::playback::Player"
+old = "muted"
+new = "is_muted"
+
+[[rename]]
+since = "0.1.0"
+kind = "method"
+type = "remedy_ui::webview::WebView"
+old = "loading"
+new = "is_loading"
+
+[[rename]]
+since = "0.1.0"
+kind = "method"
+type = "remedy_ui::term::Terminal"
+old = "monospace"
+new = "is_monospace"
+
+[[call]]
+since = "0.1.0"
+path = "remedy_ui::widgets::label"
+template = "{fn}text({0}, {1}).variant({2})"

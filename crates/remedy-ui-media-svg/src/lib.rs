@@ -102,7 +102,7 @@ impl Format for Svg {
     fn decode(&self, bytes: &[u8], show_at: Option<(u32, u32)>) -> Result<Decoded, DecodeError> {
         let natural = size(bytes)?;
         let image = render(bytes, show_at, None)?;
-        Ok(Decoded { image, source_size: natural })
+        Ok(Decoded::new(image, natural))
     }
 
     fn scalable(&self) -> bool {

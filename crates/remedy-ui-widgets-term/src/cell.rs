@@ -4,6 +4,7 @@
 /// A cell's color as the program chose it: the terminal's default, one of the 256 indexed
 /// colors (0 to 15 are the theme's `term-0` to `term-15`), or exact RGB.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum TermColor {
     /// The terminal's default foreground or background.
     #[default]
@@ -16,6 +17,7 @@ pub enum TermColor {
 
 /// How a cell is underlined.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Underline {
     /// Not underlined.
     #[default]
@@ -184,6 +186,7 @@ pub struct PicturePiece {
 
 /// A shell's mark on a line (OSC 133, FinalTerm's semantic prompts).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PromptMark {
     /// A prompt starts here (`A`).
     Prompt,

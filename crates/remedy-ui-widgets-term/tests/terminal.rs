@@ -9,9 +9,7 @@ use std::time::Duration;
 
 use remedy_ui_core::{Color, Point, Size, Vec2};
 use remedy_ui_host::ImeEvent;
-use remedy_ui_input::{
-    Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase, WheelEvent,
-};
+use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, WheelEvent};
 use remedy_ui_paint::Item;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request, Ui};
@@ -146,15 +144,8 @@ impl H {
     }
 
     fn key(&mut self, key: Key, modifiers: Modifiers, text: Option<&str>) -> bool {
-        let handled = self.ui.key(&KeyEvent {
-            key,
-            physical: String::new(),
-            modifiers,
-            pressed: true,
-            repeat: false,
-            composing: false,
-            text: text.map(str::to_owned),
-        });
+        let handled =
+            self.ui.key(&KeyEvent::press(key).with_modifiers(modifiers).with_text(text.map(str::to_owned)));
         self.frame();
         handled
     }
@@ -175,17 +166,12 @@ impl H {
 
     fn pointer(&mut self, phase: PointerPhase, p: Point, buttons: Buttons, modifiers: Modifiers) -> bool {
         self.now += 20;
-        let handled = self.ui.pointer(&PointerEvent {
-            id: 0,
-            kind: PointerKind::Mouse,
-            phase,
-            position: p,
-            buttons,
-            pressure: 0.5,
-            time: Duration::from_millis(self.now),
-            coalesced: Vec::new(),
-            modifiers,
-        });
+        let handled = self.ui.pointer(
+            &PointerEvent::new(phase, p)
+                .with_buttons(buttons)
+                .with_time(Duration::from_millis(self.now))
+                .with_modifiers(modifiers),
+        );
         self.frame();
         handled
     }
@@ -354,13 +340,8 @@ fn the_program_gets_the_pointer_when_it_asks_and_shift_keeps_selecting() {
     assert_eq!(h.term.selected_text().as_deref(), Some("hello"));
     // The wheel is reported too.
     let lh = h.term.size().cell_height as f32;
-    let wheel = WheelEvent {
-        position: h.at(0, 1),
-        delta: Vec2::new(0.0, -2.0 * lh),
-        precise: true,
-        time: Duration::ZERO,
-        modifiers: NONE,
-    };
+    let wheel =
+        WheelEvent::new(h.at(0, 1), Vec2::new(0.0, -2.0 * lh)).with_precise(true).with_modifiers(NONE);
     assert!(h.ui.wheel(&wheel));
     assert_eq!(h.out(), "\x1b[<64;2;1M\x1b[<64;2;1M");
 }
@@ -369,12 +350,8 @@ fn the_program_gets_the_pointer_when_it_asks_and_shift_keeps_selecting() {
 fn the_wheel_scrolls_the_scrollback_or_sends_arrows_on_the_alternate_screen() {
     let mut h = H::new();
     let lh = h.term.size().cell_height as f32;
-    let wheel = |h: &H, dy: f32| WheelEvent {
-        position: h.at(0, 0),
-        delta: Vec2::new(0.0, dy),
-        precise: true,
-        time: Duration::ZERO,
-        modifiers: NONE,
+    let wheel = |h: &H, dy: f32| {
+        WheelEvent::new(h.at(0, 0), Vec2::new(0.0, dy)).with_precise(true).with_modifiers(NONE)
     };
     // On the primary screen the wheel is the scroll view's.
     assert!(!h.ui.wheel(&wheel(&h, -lh)));
@@ -526,7 +503,11 @@ fn a_thread_feeds_while_the_ui_keeps_drawing() {
 
 #[test]
 fn a_view_scrolled_back_stays_on_its_lines_as_old_ones_leave() {
-    let mut h = H::with(TerminalOptions { scrollback: Scrollback::Lines(200), ..TerminalOptions::default() });
+    let mut h = H::with({
+        let mut v_ = TerminalOptions::default();
+        v_.scrollback = Scrollback::Lines(200);
+        v_
+    });
     let mut lines = Vec::new();
     for i in 0..300 {
         lines.extend_from_slice(format!("n{i}\r\n").as_bytes());
@@ -687,15 +668,9 @@ fn key_releases_reach_programs_that_ask_for_them() {
     h.focus();
     let ctrl = Modifiers { ctrl: true, ..NONE };
     h.key(Key::Character("c".into()), ctrl, None);
-    let release = h.ui.key(&KeyEvent {
-        key: Key::Character("c".into()),
-        physical: String::new(),
-        modifiers: ctrl,
-        pressed: false,
-        repeat: false,
-        composing: false,
-        text: None,
-    });
+    let release = h.ui.key(
+        &KeyEvent::press(Key::Character("c".into())).with_modifiers(ctrl).with_pressed(false).with_text(None),
+    );
     assert!(release);
     assert_eq!(h.out(), "\x1b[99;5u\x1b[99;5:3u");
 }
@@ -769,7 +744,7 @@ fn a_line_rewritten_in_place_is_read_again_now_and_then() {
 fn a_real_monospace_face_is_preferred() {
     // Only the bundled faces (none monospace): characters are centered to line up.
     let h = H::new();
-    assert!(!h.term.monospace());
+    assert!(!h.term.is_monospace());
     // With the system's fonts, the system's monospace face is used.
     let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
     let mut fonts = FontCollection::with_system_fonts();
@@ -778,5 +753,5 @@ fn a_real_monospace_face_is_preferred() {
     }
     let ui = Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), fonts);
     let h = H::on(ui, TerminalOptions::default());
-    assert!(h.term.monospace(), "this machine has a monospace font");
+    assert!(h.term.is_monospace(), "this machine has a monospace font");
 }

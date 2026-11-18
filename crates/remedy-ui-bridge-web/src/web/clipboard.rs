@@ -32,15 +32,11 @@ pub(crate) struct Clip {
 
 /// A key event for the platform's clipboard shortcut `letter` (c, x or v).
 pub(crate) fn shortcut(letter: &str, platform: Platform, pressed: bool) -> KeyEvent {
-    KeyEvent {
-        key: Key::Character(letter.to_owned()),
-        physical: format!("Key{}", letter.to_uppercase()),
-        modifiers: Modifiers::primary(platform),
-        pressed,
-        repeat: false,
-        composing: false,
-        text: None,
-    }
+    KeyEvent::press(Key::Character(letter.to_owned()))
+        .with_physical(format!("Key{}", letter.to_uppercase()))
+        .with_modifiers(Modifiers::primary(platform))
+        .with_pressed(pressed)
+        .with_text(None)
 }
 
 fn focused_window(d: &Driver) -> Option<Rc<super::window::Win>> {

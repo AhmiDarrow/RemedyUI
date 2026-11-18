@@ -11,6 +11,7 @@ use remedy_ui_services_i18n::{Decimal, NumberSymbols};
 
 /// The limits and look of a [`number_input`].
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct NumberOptions {
     /// The smallest allowed value.
     pub min: Option<Decimal>,
@@ -22,6 +23,32 @@ pub struct NumberOptions {
     pub precision: u8,
     /// A unit written after the number ("g", "%", "ms").
     pub unit: Option<String>,
+}
+
+impl NumberOptions {
+    /// Sets `min`: the smallest allowed value.
+    pub fn min(mut self, value: Decimal) -> Self {
+        self.min = Some(value);
+        self
+    }
+
+    /// Sets `max`: the largest allowed value.
+    pub fn max(mut self, value: Decimal) -> Self {
+        self.max = Some(value);
+        self
+    }
+
+    /// Sets `step`: what Up and Down add and take away (Shift: ten times as much).
+    pub fn step(mut self, value: Decimal) -> Self {
+        self.step = value;
+        self
+    }
+
+    /// Sets `precision`: fraction digits kept and shown (values are rounded to it).
+    pub fn precision(mut self, value: u8) -> Self {
+        self.precision = value;
+        self
+    }
 }
 
 impl Default for NumberOptions {
@@ -171,7 +198,7 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
 
     let mut row = w::row(ui).gap(unit).align(Align::Center).fill_width().child(el);
     if let Some(u) = &o.unit {
-        row = row.child(w::label(ui, u.clone(), "muted"));
+        row = row.child(w::text(ui, u.clone()).variant("muted"));
     }
     let err = w::column(ui);
     let e3 = err.clone();
@@ -181,7 +208,7 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
         untrack(|| {
             e3.clear();
             if let Some(m) = msg {
-                let _ = e3.clone().child(w::label(&u3, m, "error"));
+                let _ = e3.clone().child(w::text(&u3, m).variant("error"));
             }
         });
     });

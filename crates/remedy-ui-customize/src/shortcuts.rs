@@ -2,49 +2,26 @@
 //! `"Ctrl+Shift+Z"`), holding only the commands they rebound, applied to the app's
 //! [`Commands`].
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use remedy_ui_input::{Chord, Clash};
 use remedy_ui_view::Ui;
 use remedy_ui_widgets_nav::Commands;
-use serde_json::Value;
 
 use crate::{Area, Customizations, CustomizeError, Notice, files};
 
 /// The shortcuts file's name in the config folder.
 pub(crate) const SHORTCUTS_FILE: &str = "shortcuts.json";
 
-/// Reads a shortcuts file: an object of command id to a list of chords (or one chord).
+/// Reads a shortcuts file (the form [`Commands::export_bindings`] writes).
 fn parse(text: &str) -> Result<HashMap<String, Vec<Chord>>, String> {
-    let doc: Value = serde_json::from_str(text).map_err(|e| format!("not a shortcuts file: {e}"))?;
-    let Value::Object(map) = doc else {
-        return Err("a shortcuts file is an object of command ids to shortcuts".into());
-    };
-    let mut out = HashMap::new();
-    for (id, v) in map {
-        let texts: Vec<&Value> = match &v {
-            Value::Array(a) => a.iter().collect(),
-            Value::String(_) => vec![&v],
-            _ => return Err(format!("{id}: shortcuts are a list such as [\"Ctrl+S\"]")),
-        };
-        let mut chords = Vec::new();
-        for t in texts {
-            let Some(s) = t.as_str() else {
-                return Err(format!("{id}: each shortcut is text such as \"Ctrl+S\""));
-            };
-            chords.push(s.parse::<Chord>().map_err(|e| format!("{id}: {e}"))?);
-        }
-        out.insert(id, chords);
-    }
-    Ok(out)
+    remedy_ui_widgets_nav::bindings_from_json(text).map_err(|e| e.to_string())
 }
 
 /// The file for a set of bindings: ids sorted, chords in their portable form.
 fn file_text(bindings: &HashMap<String, Vec<Chord>>) -> Vec<u8> {
-    let sorted: BTreeMap<&String, Vec<String>> =
-        bindings.iter().map(|(id, c)| (id, c.iter().map(Chord::to_string).collect())).collect();
-    files::json_text(&serde_json::to_value(sorted).unwrap_or(Value::Null))
+    remedy_ui_widgets_nav::bindings_to_json(bindings).into_bytes()
 }
 
 impl Customizations {

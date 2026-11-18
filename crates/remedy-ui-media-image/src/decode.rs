@@ -8,6 +8,7 @@ use remedy_ui_paint::Image;
 
 /// Why an image could not be decoded.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DecodeError {
     /// Not a format this build reads.
     Unrecognized,
@@ -46,11 +47,19 @@ impl std::error::Error for DecodeError {}
 
 /// A decoded image.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct Decoded {
     /// The pixels, premultiplied sRGB, possibly smaller than the source.
     pub image: Image,
     /// The source's size after orientation, in pixels.
     pub source_size: (u32, u32),
+}
+
+impl Decoded {
+    /// `image`, decoded from a source of `source_size` pixels (after orientation).
+    pub fn new(image: Image, source_size: (u32, u32)) -> Self {
+        Decoded { image, source_size }
+    }
 }
 
 /// A format added to the built-in raster ones (SVG, from `remedy-ui-media-svg`).

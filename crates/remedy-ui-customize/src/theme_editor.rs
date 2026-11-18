@@ -77,15 +77,16 @@ fn color_row(ui: &Ui, c: &Customizations, token: &Token, status: Signal<String>)
     let label = token.label();
     let open = Signal::new(false);
     let (c1, t1) = (c.clone(), token.clone());
-    let swatch = ui.el("swatch").width(unit * 6.0).height(unit * 6.0).style_dyn(move || StylePatch {
-        background: Some(color_of(&c1, &t1)),
-        radius: Some(c1.theme().map_or(4.0, |t| t.radii.small)),
-        border: c1.theme().map(|t| t.derive().line),
-        border_width: c1.theme().map(|t| t.stroke.max(1.0)),
-        ..StylePatch::default()
+    let swatch = ui.el("swatch").width(unit * 6.0).height(unit * 6.0).style_dyn(move || {
+        let mut v_ = StylePatch::default();
+        v_.background = Some(color_of(&c1, &t1));
+        v_.radius = Some(c1.theme().map_or(4.0, |t| t.radii.small));
+        v_.border = c1.theme().map(|t| t.derive().line);
+        v_.border_width = c1.theme().map(|t| t.stroke.max(1.0));
+        v_
     });
     let (c2, t2) = (c.clone(), token.clone());
-    let hex = w::label(ui, "", "muted").data_text().text_dyn(move || {
+    let hex = w::text(ui, "").variant("muted").data_text().text_dyn(move || {
         let col = color_of(&c2, &t2);
         let h = col.to_hex();
         if col.a >= 0.999 { h.chars().take(7).collect() } else { h }
@@ -179,12 +180,14 @@ fn number_row(
     };
     let to_dec = move |v: f64| Decimal::from_f64(v, precision).unwrap_or(Decimal::ZERO);
     let value = Signal::new(to_dec(read()));
-    let options = NumberOptions {
-        min: Some(Decimal::ZERO),
-        max: None,
-        step: Decimal::ONE,
-        precision,
-        unit: Some(unit_name.to_owned()),
+    let options = {
+        let mut v_ = NumberOptions::default();
+        v_.min = Some(Decimal::ZERO);
+        v_.max = None;
+        v_.step = Decimal::ONE;
+        v_.precision = precision;
+        v_.unit = Some(unit_name.to_owned());
+        v_
     };
     let field = number_input(ui, token.label(), value, options);
     let read2 = Rc::new(read);
@@ -303,7 +306,8 @@ fn contrast_panel(ui: &Ui, c: &Customizations) -> El {
         untrack(|| {
             l2.clear();
             if warnings.is_empty() {
-                let _ = l2.clone().child(w::label(&u, "Every color pair meets WCAG contrast.", "muted"));
+                let _ =
+                    l2.clone().child(w::text(&u, "Every color pair meets WCAG contrast.").variant("muted"));
             }
             for wn in &warnings {
                 let text = format!(
@@ -314,7 +318,7 @@ fn contrast_panel(ui: &Ui, c: &Customizations) -> El {
                     wn.foreground.label(),
                     wn.background.label()
                 );
-                let _ = l2.clone().child(w::label(&u, text, "error"));
+                let _ = l2.clone().child(w::text(&u, text).variant("error"));
             }
         });
     });
@@ -344,7 +348,7 @@ fn preview(ui: &Ui) -> El {
         .semantics(Semantics::new(Role::Group).label("Theme preview"))
         .child(w::heading(ui, 2, "Preview"))
         .child(w::text(ui, "Body text reads like this, at the body size."))
-        .child(w::label(ui, "Muted text, for hints and details.", "muted"))
+        .child(w::text(ui, "Muted text, for hints and details.").variant("muted"))
         .child(
             w::wrap(ui)
                 .gap(unit)
@@ -356,7 +360,7 @@ fn preview(ui: &Ui) -> El {
         .child(field.el())
         .child(w::progress(ui, "Progress", progress))
         .child(w::link(ui, "A link", || {}))
-        .child(w::label(ui, "An error message.", "error"))
+        .child(w::text(ui, "An error message.").variant("error"))
 }
 
 /// A shared theme waiting for the person to decide about what it carries beyond tokens:
@@ -431,10 +435,11 @@ fn sharing(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
         let (c1, r2) = (c.clone(), read_and_import.clone());
         let choose = w::button(ui, "Choose a theme to import…", move || {
             let r3 = r2.clone();
-            let dialog = FileDialog {
-                title: "Import a theme".into(),
-                filters: vec![("Design tokens".into(), vec!["json".into()])],
-                ..FileDialog::default()
+            let dialog = {
+                let mut v_ = FileDialog::default();
+                v_.title = "Import a theme".into();
+                v_.filters = vec![("Design tokens".into(), vec!["json".into()])];
+                v_
             };
             c1.pick(dialog, move |paths| {
                 if let Some(p) = paths.into_iter().next() {
@@ -446,12 +451,13 @@ fn sharing(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
         let save = w::button(ui, "Export to a file…", move || {
             let e4 = e3.clone();
             let name = c2.theme().map_or_else(|| "theme".to_owned(), |t| t.name);
-            let dialog = FileDialog {
-                title: "Export the theme".into(),
-                save: true,
-                file_name: Some(format!("{name}.json")),
-                filters: vec![("Design tokens".into(), vec!["json".into()])],
-                ..FileDialog::default()
+            let dialog = {
+                let mut v_ = FileDialog::default();
+                v_.title = "Export the theme".into();
+                v_.save = true;
+                v_.file_name = Some(format!("{name}.json"));
+                v_.filters = vec![("Design tokens".into(), vec!["json".into()])];
+                v_
             };
             c2.pick(dialog, move |paths| {
                 if let Some(p) = paths.into_iter().next() {
@@ -477,13 +483,9 @@ fn sharing(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
                 .gap(unit)
                 .fill_width()
                 .semantics(Semantics::new(Role::Alert).label("This theme carries more than colors and sizes"))
-                .child(w::label(
-                    &u,
-                    "This theme carries more than colors and sizes. These are off unless you turn them on:",
-                    "strong",
-                ));
+                .child(w::text(&u, "This theme carries more than colors and sizes. These are off unless you turn them on:").variant("strong"));
             for r in &list {
-                box_ = box_.child(w::label(&u, r.to_string(), "muted").data_text());
+                box_ = box_.child(w::text(&u, r.to_string()).variant("muted").data_text());
             }
             if has(RefusalKind::Shader) {
                 box_ = box_.child(w::switch(
@@ -540,7 +542,7 @@ fn files_section(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
     let unit = ui.theme().spacing.unit;
     // The background.
     let c0 = c.clone();
-    let shown = w::label(ui, "", "muted").data_text().text_dyn(move || {
+    let shown = w::text(ui, "").variant("muted").data_text().text_dyn(move || {
         match c0.theme().and_then(|t| t.assets.background) {
             Some(r) if r.starts_with("data:") => "Background: an image inside the theme".to_owned(),
             Some(r) => format!("Background: {r}"),
@@ -571,13 +573,14 @@ fn files_section(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
         let (c4, u4) = (c.clone(), ui.clone());
         image_row = image_row.child(w::button(ui, "Choose an image…", move || {
             let (c5, u5) = (c4.clone(), u4.clone());
-            let dialog = FileDialog {
-                title: "Choose a background image".into(),
-                filters: vec![(
+            let dialog = {
+                let mut v_ = FileDialog::default();
+                v_.title = "Choose a background image".into();
+                v_.filters = vec![(
                     "Images".into(),
                     ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg"].map(String::from).to_vec(),
-                )],
-                ..FileDialog::default()
+                )];
+                v_
             };
             c4.pick(dialog, move |paths| {
                 if let Some(p) = paths.into_iter().next() {
@@ -595,7 +598,7 @@ fn files_section(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
         untrack(|| {
             l2.clear();
             if fonts.is_empty() {
-                let _ = l2.clone().child(w::label(&u, "The theme brings no fonts.", "muted"));
+                let _ = l2.clone().child(w::text(&u, "The theme brings no fonts.").variant("muted"));
             }
             for family in fonts {
                 let (c7, u7, f7) = (c6.clone(), u.clone(), family.clone());
@@ -693,7 +696,8 @@ pub fn theme_editor(ui: &Ui, c: &Customizations) -> El {
             report(status, c2.reset_theme(&u2));
         },
     );
-    let status_line = w::label(ui, "", "muted")
+    let status_line = w::text(ui, "")
+        .variant("muted")
         .text_dyn(move || status.get())
         .semantics_dyn(move || Semantics::new(Role::Status).label("Theme status").value(status.get()));
     let controls = w::column(ui)

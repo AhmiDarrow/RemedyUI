@@ -108,6 +108,12 @@ mod tests {
             icon: None,
             sign_thumbprint: None,
             timestamp_url: String::new(),
+            lib_name: "notes".into(),
+            android_target: "aarch64-linux-android".into(),
+            android_min_api: 26,
+            android_target_api: 35,
+            android_keystore: None,
+            android_key_alias: None,
         }
     }
 

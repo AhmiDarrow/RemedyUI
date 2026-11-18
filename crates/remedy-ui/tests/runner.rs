@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui::host::{Host, HostEvent, ResizeEdge, WindowId};
-use remedy_ui::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase};
+use remedy_ui::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
 use remedy_ui::layout::Length;
 use remedy_ui::reactive::Signal;
 use remedy_ui::style::{States, StylePatch, StyleSheet};
@@ -18,23 +18,31 @@ const RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
 fn config() -> AppConfig {
     AppConfig::new("RemedyUI runner test").cpu_only().theme(remedy_ui::style::Theme::dark_forest(), |_| {
         let mut s = StyleSheet::new();
-        s.rule("button", None, States::NONE, StylePatch { background: Some(RED), ..StylePatch::default() });
+        s.rule("button", None, States::NONE, StylePatch::default().background(RED));
         s
     })
 }
 
+#[test]
+fn the_apps_edition_reaches_every_window() {
+    let seen: Rc<Cell<Option<remedy_ui::Edition>>> = Rc::default();
+    let s2 = seen.clone();
+    let config = config().edition(remedy_ui::Edition::LATEST);
+    let mut runner = Runner::with_geometry(config, GeometryStore::in_memory(), move |app: &App| {
+        let s3 = s2.clone();
+        app.open(WindowSpec::new("Edition"), move |ui, _| s3.set(Some(ui.edition())));
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    assert_eq!(seen.get(), Some(remedy_ui::Edition::LATEST));
+    // An app that never names one keeps the first edition's behavior.
+    assert_eq!(AppConfig::new("No edition").edition, remedy_ui::Edition::FIRST);
+}
+
 fn press(x: f32, y: f32, phase: PointerPhase) -> PointerEvent {
-    PointerEvent {
-        id: 0,
-        kind: PointerKind::Mouse,
-        phase,
-        position: Point::new(x, y),
-        buttons: if phase == PointerPhase::Down { Buttons::PRIMARY } else { Buttons::default() },
-        pressure: 0.5,
-        time: Duration::ZERO,
-        coalesced: Vec::new(),
-        modifiers: remedy_ui::input::Modifiers::NONE,
-    }
+    PointerEvent::new(phase, Point::new(x, y))
+        .with_buttons(if phase == PointerPhase::Down { Buttons::PRIMARY } else { Buttons::default() })
+        .with_modifiers(remedy_ui::input::Modifiers::NONE)
 }
 
 fn px(host: &HeadlessHost, id: WindowId, x: usize, y: usize) -> [u8; 4] {
@@ -103,13 +111,13 @@ fn hide_on_close_windows_survive_and_the_last_real_close_quits() {
     host.send(HostEvent::CloseRequested(note));
     host.run_frames(&mut runner, 1);
     assert!(host.window(note).is_none());
-    assert!(!host.exited(), "the hidden manager still counts as open");
+    assert!(!host.has_exited(), "the hidden manager still counts as open");
     let manager_window = runner.app().windows().into_iter().next();
     if let Some(w) = manager_window {
         w.close();
     }
     host.run_frames(&mut runner, 1);
-    assert!(host.exited(), "the last window closed: quit");
+    assert!(host.has_exited(), "the last window closed: quit");
 }
 
 #[test]
@@ -132,7 +140,7 @@ fn keep_running_tray_apps_outlive_their_windows_and_timers_fire() {
     host.run_frames(&mut runner, 10);
     assert!(fired.get());
     assert!(host.window_ids().is_empty());
-    assert!(!host.exited(), "a tray app keeps running with no windows");
+    assert!(!host.has_exited(), "a tray app keeps running with no windows");
 }
 
 #[test]
@@ -197,18 +205,51 @@ fn fields_paste_from_the_host_clipboard_and_window_commands_reach_the_host() {
         host.window(id).is_some_and(|w| w.text_input().is_some()),
         "the focused field opened a text session"
     );
-    let ctrl_v = KeyEvent {
-        key: Key::Character("v".into()),
-        physical: "KeyV".into(),
-        modifiers: Modifiers { ctrl: true, ..Modifiers::NONE },
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: None,
-    };
+    let ctrl_v = KeyEvent::press(Key::Character("v".into()))
+        .with_physical("KeyV")
+        .with_modifiers(Modifiers { ctrl: true, ..Modifiers::NONE })
+        .with_text(None);
     host.send(HostEvent::Key(id, ctrl_v));
     host.run_frames(&mut runner, 1);
     assert_eq!(*field_value.borrow(), "from the app");
+}
+
+fn typed(c: &str, ctrl: bool) -> KeyEvent {
+    KeyEvent::press(Key::Character(c.into()))
+        .with_modifiers(Modifiers { ctrl, ..Modifiers::NONE })
+        .with_text(if ctrl { None } else { Some(c.into()) })
+}
+
+#[test]
+fn a_pause_in_typing_starts_a_new_undo_step() {
+    let field_value = Rc::new(std::cell::RefCell::new(String::new()));
+    let fv = field_value.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Typing"), move |ui, _| {
+            let field = ui.text_field("text_input", FieldKind::Single);
+            let f2 = field.clone();
+            let field = field.on_change(move || *fv.borrow_mut() = f2.value());
+            ui.root().child(field.el().layout(|l| l.width = Length::Px(150.0)));
+            field.el().focus();
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let id = first(&host);
+    for c in ["a", "b"] {
+        host.send(HostEvent::Key(id, typed(c, false)));
+        host.run_frames(&mut runner, 1);
+    }
+    host.advance(Duration::from_secs(3));
+    host.send(HostEvent::Key(id, typed("c", false)));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*field_value.borrow(), "abc");
+    let platform_undo = if cfg!(target_os = "macos") { (false, true) } else { (true, false) };
+    let mut undo = typed("z", true);
+    (undo.modifiers.ctrl, undo.modifiers.meta) = platform_undo;
+    host.send(HostEvent::Key(id, undo));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*field_value.borrow(), "ab", "the typing after the pause is its own step");
 }
 
 #[test]
@@ -290,20 +331,22 @@ fn tray_dialogs_and_second_launches_reach_the_app() {
     let (e2, l2, p2) = (events.clone(), launches.clone(), picked.clone());
     let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
         app.keep_running(true);
-        app.set_tray(Some(TrayIcon {
-            tooltip: "SecretSticky".into(),
-            icon: TrayImage { size: 2, rgba: vec![255; 16] },
-            menu: vec![
-                TrayItem::Item { id: 7, label: "New note".into(), enabled: true },
-                TrayItem::Separator,
-            ],
-        }));
+        app.set_tray(Some(TrayIcon::new(
+            "SecretSticky",
+            TrayImage { size: 2, rgba: vec![255; 16] },
+            vec![TrayItem::Item { id: 7, label: "New note".into(), enabled: true }, TrayItem::Separator],
+        )));
         app.on_tray(move |e| e2.borrow_mut().push(e));
         app.on_second_instance(move |a| l2.borrow_mut().push(a));
         let p3 = p2.clone();
         app.file_dialog(
             None,
-            FileDialog { title: "Export".into(), save: true, ..FileDialog::default() },
+            {
+                let mut v_ = FileDialog::default();
+                v_.title = "Export".into();
+                v_.save = true;
+                v_
+            },
             move |p| *p3.borrow_mut() = p,
         );
     });
@@ -391,6 +434,62 @@ fn background_work_returns_to_the_ui_thread() {
 }
 
 #[test]
+fn cancelled_background_work_stops_and_never_reports() {
+    let reported = Rc::new(Cell::new(0u32));
+    let r2 = reported.clone();
+    let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+    let (seen_tx, seen_rx) = std::sync::mpsc::channel::<bool>();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.keep_running(true);
+        let job = app.background_cancellable(
+            move |cancelled| {
+                // Waits until the UI has cancelled, as a long search would notice between steps.
+                let _ = go_rx.recv();
+                let _ = seen_tx.send(cancelled.is_cancelled());
+                42u32
+            },
+            move |_| r2.set(r2.get() + 1),
+        );
+        job.cancel();
+        assert!(job.is_cancelled());
+        let _ = go_tx.send(());
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    // However busy the machine, the work finishes; then the UI gets every chance to hear it.
+    let seen = seen_rx.recv_timeout(Duration::from_secs(30));
+    assert_eq!(seen, Ok(true), "the work saw it was cancelled");
+    for _ in 0..10 {
+        host.run_frames(&mut runner, 1);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(reported.get(), 0, "a cancelled job's result never reaches the UI");
+}
+
+#[test]
+fn the_tray_follows_what_it_reads() {
+    use remedy_ui::host::{TrayIcon, TrayImage};
+    let unread = Signal::new(1u32);
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.keep_running(true);
+        app.tray_dyn(move || {
+            let n = unread.get();
+            Some(TrayIcon::new(format!("{n} unread"), TrayImage { size: 1, rgba: vec![255; 4] }, Vec::new()))
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    assert_eq!(host.tray().map(|t| t.tooltip.clone()), Some("1 unread".to_owned()));
+    unread.set(5);
+    host.run_frames(&mut runner, 2);
+    assert_eq!(host.tray().map(|t| t.tooltip.clone()), Some("5 unread".to_owned()));
+    runner.app().set_tray(None);
+    unread.set(6);
+    host.run_frames(&mut runner, 2);
+    assert!(host.tray().is_none(), "set_tray replaces the dynamic tray, which stops following");
+}
+
+#[test]
 fn completions_from_any_thread_reach_the_ui_thread_even_when_started_inside_effects() {
     let got: Rc<std::cell::RefCell<Vec<String>>> = Rc::default();
     let g2 = got.clone();
@@ -452,7 +551,11 @@ fn an_app_language_outlasts_the_system_s_until_it_is_cleared() {
     let locale = |slot: &Rc<std::cell::RefCell<Option<remedy_ui::Ui>>>| {
         slot.borrow().as_ref().map(remedy_ui::Ui::locale)
     };
-    let mut s = remedy_ui::host::SystemSettings { locale: "de-DE".into(), ..Default::default() };
+    let mut s = {
+        let mut v_ = remedy_ui::host::SystemSettings::default();
+        v_.locale = "de-DE".into();
+        v_
+    };
     host.send(HostEvent::Settings(s.clone()));
     host.run_frames(&mut runner, 1);
     assert_eq!(locale(&ui_slot).as_deref(), Some("de-DE"));
@@ -508,7 +611,7 @@ fn content_pops_out_to_its_own_window_and_comes_back_with_its_state() {
         let (m3, u3, a) = (m2.clone(), u2.clone(), app.clone());
         app.open(WindowSpec::new("Call").size(400.0, 300.0), move |ui, _| {
             let (el, m) = remedy_ui::movable(ui, &a, "Screen share", move |ui| {
-                remedy_ui::widgets::label(ui, "", "").text_dyn(move || format!("frames {}", count.get()))
+                remedy_ui::widgets::text(ui, "").text_dyn(move || format!("frames {}", count.get()))
             });
             ui.root().child(el);
             *m3.borrow_mut() = Some(m);
@@ -628,15 +731,7 @@ fn f12_opens_one_inspector_per_window_and_closing_it_detaches() {
     let mut host = HeadlessHost::new();
     host.run_frames(&mut runner, 2);
     let app_win = first(&host);
-    let f12 = KeyEvent {
-        key: Key::F(12),
-        physical: "F12".into(),
-        modifiers: Modifiers::NONE,
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: None,
-    };
+    let f12 = KeyEvent::press(Key::F(12)).with_physical("F12");
     host.send(HostEvent::Key(app_win, f12.clone()));
     host.run_frames(&mut runner, 3);
     assert_eq!(host.window_ids().len(), 2, "the inspector opened");
@@ -712,15 +807,7 @@ fn keyboard_focus_and_scroll_into_view_move_scroll_containers() {
     // Tabbing to the next one keeps it in view.
     item(20).focus();
     let id = first(&host);
-    let tab = KeyEvent {
-        key: Key::Tab,
-        physical: "Tab".into(),
-        modifiers: Modifiers::NONE,
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: None,
-    };
+    let tab = KeyEvent::press(Key::Tab).with_physical("Tab");
     for _ in 0..3 {
         host.send(HostEvent::Key(id, tab.clone()));
         host.run_frames(&mut runner, 2);
@@ -794,7 +881,7 @@ fn drags_cross_between_apps_through_the_host() {
 
 #[test]
 fn links_open_through_the_host_and_only_web_and_mail_links() {
-    let results: Rc<std::cell::RefCell<Vec<Result<(), String>>>> = Rc::default();
+    let results: Rc<std::cell::RefCell<Vec<Result<(), remedy_ui::host::Unsupported>>>> = Rc::default();
     let r2 = results.clone();
     let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
         for url in [
@@ -851,7 +938,11 @@ fn themes_change_live_and_apps_hear_the_system_appearance() {
     });
     let mut host = HeadlessHost::new();
     host.run_frames(&mut runner, 2);
-    let mut s = remedy_ui::host::SystemSettings { dark: Some(false), ..Default::default() };
+    let mut s = {
+        let mut v_ = remedy_ui::host::SystemSettings::default();
+        v_.dark = Some(false);
+        v_
+    };
     host.send(HostEvent::Settings(s.clone()));
     host.run_frames(&mut runner, 1);
     s.dark = Some(true);
@@ -910,7 +1001,7 @@ fn red_block_app() -> Runner {
                     l.width = Length::Px(40.0);
                     l.height = Length::Px(40.0);
                 })
-                .style(StylePatch { background: Some(RED), ..StylePatch::default() });
+                .style(StylePatch::default().background(RED));
             ui.root().child(block);
         });
     })
@@ -938,15 +1029,7 @@ fn an_unclaimed_back_leaves_the_window() {
     let mut host = HeadlessHost::new();
     host.run_frames(&mut runner, 1);
     let id = first(&host);
-    let back = |pressed| KeyEvent {
-        key: Key::Back,
-        physical: "BrowserBack".into(),
-        modifiers: Modifiers::NONE,
-        pressed,
-        repeat: false,
-        composing: false,
-        text: None,
-    };
+    let back = |pressed| KeyEvent::press(Key::Back).with_physical("BrowserBack").with_pressed(pressed);
     host.send(HostEvent::Key(id, back(true)));
     host.send(HostEvent::Key(id, back(false)));
     host.run_frames(&mut runner, 1);
@@ -1004,11 +1087,11 @@ fn windows_fill_the_screen_and_say_so() {
     host.run_frames(&mut runner, 1);
     let id = first(&host);
     let window = handle.borrow().clone().unwrap_or_else(|| unreachable!("the window"));
-    assert!(host.window(id).is_some_and(|w| w.fullscreen()));
+    assert!(host.window(id).is_some_and(|w| w.is_fullscreen()));
     assert!(window.is_fullscreen());
     window.set_fullscreen(false);
     host.run_frames(&mut runner, 1);
-    assert!(host.window(id).is_some_and(|w| !w.fullscreen()));
+    assert!(host.window(id).is_some_and(|w| !w.is_fullscreen()));
     assert!(!window.is_fullscreen());
 }
 

@@ -27,6 +27,7 @@ pub fn authenticode_of(file: &Path) -> (SignatureStatus, Option<String>) {
 
 /// Where releases are published.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Feed {
     /// A GitHub repository's latest release. `asset` names the file to download (exactly, or
     /// as its ending, such as `_x64-setup.exe`); its signature is the asset with `.sig`
@@ -56,6 +57,7 @@ pub enum Feed {
 
 /// Why a download is trusted.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Trust {
     /// A minisign signature (`<asset>.sig`, or the feed's `signature`) under this public key
     /// (the base64 line of a `.pub` file).
@@ -74,6 +76,7 @@ pub enum Trust {
 
 /// What an app's updater needs to know.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct UpdateConfig {
     /// The running version (semantic versioning; a leading `v` is fine).
     pub current: String,
@@ -100,6 +103,7 @@ impl UpdateConfig {
 
 /// A newer release.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Release {
     /// Its version.
     pub version: String,
@@ -113,8 +117,22 @@ pub struct Release {
     pub sha256: Option<String>,
 }
 
+impl Release {
+    /// Release `version`, downloaded from `url`, with no notes, signature or checksum yet.
+    pub fn new(version: impl Into<String>, url: impl Into<String>) -> Self {
+        Release {
+            version: version.into(),
+            notes: String::new(),
+            url: url.into(),
+            signature: String::new(),
+            sha256: None,
+        }
+    }
+}
+
 /// Why an update step failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum UpdateError {
     /// The network or the server failed.
     Network(String),
@@ -428,6 +446,7 @@ pub fn download(
 
 /// How to apply a verified download.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Apply {
     /// Start the installer with these arguments; the app then quits so it can be replaced.
     RunInstaller(Vec<String>),
@@ -465,6 +484,7 @@ pub fn apply(file: &Path, how: &Apply) -> Result<(), UpdateError> {
 
 /// Where an update stands, for the banner.
 #[derive(Clone, Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub enum UpdateState {
     /// Nothing to show.
     #[default]
@@ -487,6 +507,7 @@ pub enum UpdateState {
 /// `restart` is `None` for apps whose installer restarts them (no Restart button);
 /// `failure` turns an error (English, from the updater) into what to show.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct BannerText {
     /// While looking for a release.
     pub checking: String,

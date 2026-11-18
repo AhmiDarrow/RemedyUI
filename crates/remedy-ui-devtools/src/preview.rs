@@ -229,7 +229,7 @@ impl Snapshot {
     }
 
     /// Encodes as PNG (straight alpha, as PNG stores it).
-    pub fn to_png(&self) -> Result<Vec<u8>, String> {
+    pub fn to_png(&self) -> Result<Vec<u8>, PngError> {
         let mut straight = self.rgba.clone();
         for p in straight.chunks_mut(4) {
             if let [r, g, b, a] = p
@@ -246,21 +246,21 @@ impl Snapshot {
             let mut enc = png::Encoder::new(&mut out, self.width, self.height);
             enc.set_color(png::ColorType::Rgba);
             enc.set_depth(png::BitDepth::Eight);
-            let mut w = enc.write_header().map_err(|e| e.to_string())?;
-            w.write_image_data(&straight).map_err(|e| e.to_string())?;
+            let mut w = enc.write_header().map_err(PngError::codec)?;
+            w.write_image_data(&straight).map_err(PngError::codec)?;
         }
         Ok(out)
     }
 
     /// Decodes a PNG written by [`Snapshot::to_png`].
-    pub fn from_png(bytes: &[u8]) -> Result<Snapshot, String> {
+    pub fn from_png(bytes: &[u8]) -> Result<Snapshot, PngError> {
         let dec = png::Decoder::new(std::io::Cursor::new(bytes));
-        let mut r = dec.read_info().map_err(|e| e.to_string())?;
-        let size = r.output_buffer_size().ok_or("image too large")?;
+        let mut r = dec.read_info().map_err(PngError::codec)?;
+        let size = r.output_buffer_size().ok_or(PngError::TooLarge)?;
         let mut buf = vec![0u8; size];
-        let info = r.next_frame(&mut buf).map_err(|e| e.to_string())?;
+        let info = r.next_frame(&mut buf).map_err(PngError::codec)?;
         if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
-            return Err("not 8-bit RGBA".into());
+            return Err(PngError::NotRgba8);
         }
         buf.truncate(info.buffer_size());
         for p in buf.chunks_mut(4) {
@@ -287,8 +287,42 @@ impl Snapshot {
     }
 }
 
+/// Why a snapshot could not be written or read as PNG.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PngError {
+    /// The PNG encoder or decoder failed.
+    Codec {
+        /// The codec's own words.
+        reason: String,
+    },
+    /// The image is larger than this machine can address.
+    TooLarge,
+    /// The PNG is not 8-bit RGBA, which every snapshot is.
+    NotRgba8,
+}
+
+impl PngError {
+    fn codec(e: impl std::fmt::Display) -> PngError {
+        PngError::Codec { reason: e.to_string() }
+    }
+}
+
+impl std::fmt::Display for PngError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PngError::Codec { reason } => write!(f, "PNG coding failed: {reason}"),
+            PngError::TooLarge => f.write_str("the PNG is too large to decode on this machine"),
+            PngError::NotRgba8 => f.write_str("the PNG is not 8-bit RGBA, as snapshots are"),
+        }
+    }
+}
+
+impl std::error::Error for PngError {}
+
 /// Why a golden-image check failed.
 #[derive(Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum GoldenError {
     /// There was no golden image; one was written for review.
     Missing(PathBuf),
@@ -303,6 +337,8 @@ pub enum GoldenError {
     },
     /// Reading or writing failed.
     Io(String),
+    /// A snapshot or golden image could not be encoded or decoded.
+    Png(PngError),
 }
 
 impl std::fmt::Display for GoldenError {
@@ -313,6 +349,16 @@ impl std::fmt::Display for GoldenError {
                 write!(f, "{pixels} pixels differ from {} (see {})", golden.display(), actual.display())
             }
             GoldenError::Io(e) => write!(f, "{e}"),
+            GoldenError::Png(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for GoldenError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            GoldenError::Png(e) => Some(e),
+            _ => None,
         }
     }
 }
@@ -333,7 +379,7 @@ pub fn check_golden(preview: &Preview, dir: &Path) -> Result<(), GoldenError> {
         let shot = preview.render(&v);
         let path = dir.join(format!("{safe}-{}.png", v.tag()));
         let write = |p: &Path, s: &Snapshot| -> Result<(), GoldenError> {
-            let bytes = s.to_png().map_err(GoldenError::Io)?;
+            let bytes = s.to_png().map_err(GoldenError::Png)?;
             std::fs::write(p, bytes).map_err(|e| GoldenError::Io(e.to_string()))
         };
         if update {
@@ -347,7 +393,7 @@ pub fn check_golden(preview: &Preview, dir: &Path) -> Result<(), GoldenError> {
             first.get_or_insert(GoldenError::Missing(path));
             continue;
         };
-        let golden = Snapshot::from_png(&bytes).map_err(GoldenError::Io)?;
+        let golden = Snapshot::from_png(&bytes).map_err(GoldenError::Png)?;
         let pixels = shot.diff(&golden, GOLDEN_TOLERANCE);
         if pixels > 0 {
             let actual = path.with_extension("actual.png");
@@ -380,7 +426,7 @@ pub fn gallery(ui: &Ui, previews: &[Preview]) -> El {
                             .width(v.size.0)
                             .height(v.size.1),
                     )
-                    .child(w::label(ui, caption, "muted")),
+                    .child(w::text(ui, caption).variant("muted")),
             );
         }
         col = col.child(w::section(ui, &p.name).child(row));

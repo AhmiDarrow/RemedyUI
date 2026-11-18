@@ -44,8 +44,9 @@ impl NavStack {
         let depth = Signal::new(1usize);
         let title_s = Signal::new(title.into());
         let body = w::column(ui).grow(1.0).fill_width();
-        let heading = w::label(ui, "", "strong")
-            .style(StylePatch { text_size: Some(ui.theme().type_scale.title), ..StylePatch::default() });
+        let heading = w::text(ui, "")
+            .variant("strong")
+            .style(StylePatch::default().text_size(ui.theme().type_scale.title));
         let h2 = heading.clone();
         let heading = heading.bind(move || {
             let t = title_s.get();

@@ -34,12 +34,12 @@ fn warn_color(ui: &Ui) -> Color {
 }
 
 fn note(ui: &Ui, s: impl Into<String>) -> El {
-    w::label(ui, s.into(), "muted").data_text()
+    w::text(ui, s.into()).variant("muted").data_text()
 }
 
 fn warning(ui: &Ui, s: impl Into<String>) -> El {
     let c = warn_color(ui);
-    w::label(ui, s.into(), "").data_text().style(StylePatch { foreground: Some(c), ..StylePatch::default() })
+    w::text(ui, s.into()).data_text().style(StylePatch::default().foreground(c))
 }
 
 /// The pages other than the inspector's own, shown by the selected tab and rebuilt when it
@@ -118,8 +118,7 @@ fn signals_page(ui: &Ui, insp: &Inspector) -> El {
             for b in bindings {
                 let at = format!("{}:{}", b.node.created_at.file(), b.node.created_at.line());
                 col = col.child(
-                    w::label(&u2, format!("{} {} ({at})", b.node.label(), b.node.kind.as_str()), "")
-                        .data_text(),
+                    w::text(&u2, format!("{} {} ({at})", b.node.label(), b.node.kind.as_str())).data_text(),
                 );
                 if b.reads.is_empty() {
                     col = col.child(note(&u2, "    reads nothing reactive"));
@@ -170,7 +169,7 @@ fn signals_page(ui: &Ui, insp: &Inspector) -> El {
                         ));
                     }
                     for e in own.iter().rev() {
-                        col = col.child(w::label(&u3, e.sentence(), "").data_text());
+                        col = col.child(w::text(&u3, e.sentence()).data_text());
                     }
                 }
                 None => col = col.child(note(&u3, "Pick an element to see why it updated.")),
@@ -181,7 +180,7 @@ fn signals_page(ui: &Ui, insp: &Inspector) -> El {
                 col = col.child(note(&u3, "Nothing in the window has updated since recording started."));
             }
             for e in entries.iter().rev() {
-                col = col.child(w::label(&u3, e.sentence(), "").data_text());
+                col = col.child(w::text(&u3, e.sentence()).data_text());
             }
             let _ = col;
         });
@@ -238,7 +237,7 @@ fn accessibility_page(ui: &Ui, insp: &Inspector) -> El {
                         let i3 = i2.clone();
                         row.child(w::link(&u2, text, move || i3.select(Some(e))))
                     }
-                    None => row.child(w::label(&u2, text, "").data_text()),
+                    None => row.child(w::text(&u2, text).data_text()),
                 };
                 for p in &l.problems {
                     row = row.child(warning(&u2, format!("⚠ {}", p.message())));
@@ -577,7 +576,8 @@ fn remote_page(ui: &Ui, insp: &Inspector) -> El {
                         end: unit,
                     })
                     .child(
-                        w::label(&u2, e.label.clone(), if e.hidden { "muted" } else { "" })
+                        w::text(&u2, e.label.clone())
+                            .variant(if e.hidden { "muted" } else { "" })
                             .data_text()
                             .nowrap(),
                     )
@@ -641,8 +641,7 @@ fn remote_page(ui: &Ui, insp: &Inspector) -> El {
         untrack(|| {
             m2.clear();
             let mut col = m2.clone();
-            col = col
-                .child(w::label(&u4, format!("{} accessibility problems", problems.len()), "").data_text());
+            col = col.child(w::text(&u4, format!("{} accessibility problems", problems.len())).data_text());
             for p in problems {
                 col = col.child(warning(&u4, format!("⚠ {}", p.message)));
             }
@@ -660,7 +659,7 @@ fn remote_page(ui: &Ui, insp: &Inspector) -> El {
                 ));
             }
             for u in updates.iter().rev() {
-                col = col.child(w::label(&u4, u.sentence.clone(), "").data_text());
+                col = col.child(w::text(&u4, u.sentence.clone()).data_text());
             }
             let _ = col;
         });

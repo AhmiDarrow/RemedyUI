@@ -635,9 +635,13 @@ dependencies = [
 name = "cargo-remedy"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "minisign",
  "png",
+ "proc-macro2",
+ "remedy-ui-core",
  "serde_json",
+ "syn 2.0.119",
  "toml",
  "zip",
 ]
@@ -3638,6 +3642,7 @@ name = "remedy-ui"
 version = "0.1.0"
 dependencies = [
  "remedy-ui",
+ "remedy-ui-a11y",
  "remedy-ui-automation",
  "remedy-ui-bridge-android",
  "remedy-ui-bridge-headless",
@@ -3659,8 +3664,10 @@ dependencies = [
  "remedy-ui-host",
  "remedy-ui-input",
  "remedy-ui-layout",
+ "remedy-ui-macros",
  "remedy-ui-media-anim",
  "remedy-ui-media-image",
+ "remedy-ui-media-isolated",
  "remedy-ui-media-playback",
  "remedy-ui-media-svg",
  "remedy-ui-media-video",
@@ -4020,6 +4027,7 @@ dependencies = [
 name = "remedy-ui-macros"
 version = "0.1.0"
 dependencies = [
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "remedy-ui-reactive",
@@ -4562,6 +4570,7 @@ dependencies = [
  "remedy-ui-themes",
  "remedy-ui-view",
  "remedy-ui-widgets-core",
+ "serde_json",
 ]
 
 [[package]]

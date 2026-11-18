@@ -2,6 +2,7 @@
 
 /// What a back end says when asked to get ready for a language.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Prepared {
     /// It can check the language. `dictionary` names what it will use (`en_US`, `en-US`), which
     /// may be a close relative of the language asked for (`en_US` for `en-AU`).
@@ -36,18 +37,70 @@ pub trait SpellBackend {
     }
 
     /// Whether `word` is spelled correctly in `language`, which `prepare` answered `Ready` for.
-    fn check_word(&mut self, language: &str, word: &str) -> Result<bool, String>;
+    fn check_word(&mut self, language: &str, word: &str) -> Result<bool, BackendError>;
 
     /// Corrections for `word` in `language`, best first. Empty when there are none.
-    fn suggest(&mut self, language: &str, word: &str) -> Result<Vec<String>, String>;
+    fn suggest(&mut self, language: &str, word: &str) -> Result<Vec<String>, BackendError>;
 }
 
 /// Builds a back end on the checking thread. `Err` says why it cannot work here (for example
 /// the platform has no spell checker), and is shown in [`crate::SpellChecker::backends`].
-pub type BackendFactory = Box<dyn FnOnce() -> Result<Box<dyn SpellBackend>, String> + Send>;
+pub type BackendFactory = Box<dyn FnOnce() -> Result<Box<dyn SpellBackend>, BackendError> + Send>;
+
+/// Why a back end could not start, check or suggest, in its own words.
+///
+/// Back ends make one from their engine's message; `?` converts a `String` or `&str`:
+///
+/// ```
+/// use remedy_ui_services_spell::BackendError;
+///
+/// fn open(path: &str) -> Result<(), BackendError> {
+///     Err(format!("no dictionary at {path}"))?
+/// }
+/// let e = open("/dicts/xx.dic").err();
+/// assert_eq!(e.map(|e| e.to_string()), Some("no dictionary at /dicts/xx.dic".to_owned()));
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct BackendError {
+    reason: String,
+}
+
+impl BackendError {
+    /// A failure described by `reason`.
+    pub fn new(reason: impl Into<String>) -> Self {
+        BackendError { reason: reason.into() }
+    }
+
+    /// What failed.
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+}
+
+impl std::fmt::Display for BackendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.reason)
+    }
+}
+
+impl std::error::Error for BackendError {}
+
+impl From<String> for BackendError {
+    fn from(reason: String) -> Self {
+        BackendError { reason }
+    }
+}
+
+impl From<&str> for BackendError {
+    fn from(reason: &str) -> Self {
+        BackendError { reason: reason.to_owned() }
+    }
+}
 
 /// Whether a language can be checked, and by whom.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Availability {
     /// A back end can check it.
     Ready {
@@ -66,6 +119,7 @@ pub enum Availability {
 
 /// One back end and whether it started.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BackendReport {
     /// The back end's name.
     pub name: String,

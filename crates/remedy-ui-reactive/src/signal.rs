@@ -572,6 +572,7 @@ fn closure_lost() -> ! {
 
 /// Counts of the runtime's work on this thread, for tests and the performance overlay.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Stats {
     /// Live nodes (signals, memos, effects, scopes).
     pub nodes: usize,

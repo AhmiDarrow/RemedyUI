@@ -94,16 +94,12 @@ fn the_qr_code_follows_its_signal_and_grows_with_the_data() {
 fn a_qr_code_with_a_description_says_it_and_too_much_data_is_invalid() {
     let ui = ui();
     let data = Signal::new("abc".to_owned());
-    let el = qr_code(
-        &ui,
-        "Pair",
-        data,
-        QrOptions {
-            description: Some("Scan with the phone app".into()),
-            module_size: Some(4.0),
-            ..QrOptions::default()
-        },
-    );
+    let el = qr_code(&ui, "Pair", data, {
+        let mut v_ = QrOptions::default();
+        v_.description = Some("Scan with the phone app".into());
+        v_.module_size = Some(4.0);
+        v_
+    });
     mount(&ui, &el);
     let d = el.info().and_then(|i| i.semantics).and_then(|s| s.description_text().map(str::to_owned));
     assert_eq!(d.as_deref(), Some("Scan with the phone app"));
@@ -181,7 +177,11 @@ fn a_rating_fills_its_stars_from_the_theme() {
 fn a_half_star_fills_only_its_start_side() {
     let ui = ui();
     let value = Signal::new(2.5f32);
-    let el = rating(&ui, "Taste", value, RatingOptions { half_steps: true, ..RatingOptions::default() });
+    let el = rating(&ui, "Taste", value, {
+        let mut v_ = RatingOptions::default();
+        v_.half_steps = true;
+        v_
+    });
     mount(&ui, &el);
     let mut shot = Shot::new(&ui);
     shot.take(&ui);
@@ -229,8 +229,12 @@ fn a_rating_works_from_the_keyboard_and_says_its_value() {
 fn half_steps_move_by_halves() {
     let ui = ui();
     let value = Signal::new(0.0f32);
-    let el =
-        rating(&ui, "Taste", value, RatingOptions { half_steps: true, max: 4, ..RatingOptions::default() });
+    let el = rating(&ui, "Taste", value, {
+        let mut v_ = RatingOptions::default();
+        v_.half_steps = true;
+        v_.max = 4;
+        v_
+    });
     mount(&ui, &el);
     el.focus();
     key(&ui, Key::ArrowRight);
@@ -274,7 +278,11 @@ fn clicking_stars_sets_and_clears_the_rating_and_hover_previews() {
 fn a_rating_that_cannot_be_cleared_stays() {
     let ui = ui();
     let value = Signal::new(0.0f32);
-    let el = rating(&ui, "Quality", value, RatingOptions { clearable: false, ..RatingOptions::default() });
+    let el = rating(&ui, "Quality", value, {
+        let mut v_ = RatingOptions::default();
+        v_.clearable = false;
+        v_
+    });
     mount(&ui, &el);
     let p = star_center(&el, 2, 24.0, 4.0);
     click(&ui, p);
@@ -286,7 +294,11 @@ fn a_rating_that_cannot_be_cleared_stays() {
 fn a_half_star_can_be_picked_with_the_pointer() {
     let ui = ui();
     let value = Signal::new(0.0f32);
-    let el = rating(&ui, "Taste", value, RatingOptions { half_steps: true, ..RatingOptions::default() });
+    let el = rating(&ui, "Taste", value, {
+        let mut v_ = RatingOptions::default();
+        v_.half_steps = true;
+        v_
+    });
     mount(&ui, &el);
     let c = star_center(&el, 1, 24.0, 4.0);
     click(&ui, Point::new(c.x - 6.0, c.y));
@@ -299,12 +311,12 @@ fn a_half_star_can_be_picked_with_the_pointer() {
 fn a_read_only_rating_is_an_image_that_says_its_value() {
     let ui = ui();
     let value = Signal::new(3.5f32);
-    let el = rating(
-        &ui,
-        "Average",
-        value,
-        RatingOptions { read_only: true, half_steps: true, ..RatingOptions::default() },
-    );
+    let el = rating(&ui, "Average", value, {
+        let mut v_ = RatingOptions::default();
+        v_.read_only = true;
+        v_.half_steps = true;
+        v_
+    });
     mount(&ui, &el);
     assert_eq!(role_of(&el), Some(Role::Image));
     assert_eq!(value_text(&el), "3.5 of 5 stars");
@@ -360,7 +372,12 @@ fn palette() -> Vec<Swatch> {
 fn grid(ui: &Ui, columns: Option<usize>) -> (El, Signal<Vec<Swatch>>, Signal<Option<usize>>) {
     let swatches = Signal::new(palette());
     let selected = Signal::new(None::<usize>);
-    let el = color_swatch_grid(ui, "Accent color", swatches, selected, SwatchOptions { columns, size: None });
+    let el = color_swatch_grid(ui, "Accent color", swatches, selected, {
+        let mut v_ = SwatchOptions::default();
+        v_.columns = columns;
+        v_.size = None;
+        v_
+    });
     mount(ui, &el);
     (el, swatches, selected)
 }

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 /// A folder every desktop has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum KnownFolder {
     /// The home folder.
     Home,

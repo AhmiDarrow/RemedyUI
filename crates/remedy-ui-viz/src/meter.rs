@@ -18,6 +18,7 @@ use crate::unit_level;
 
 /// How the bar lies.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// Exhaustive on purpose: horizontal or vertical.
 pub enum Orientation {
     /// Left to right. Levels read the same in every text direction.
     #[default]
@@ -28,6 +29,7 @@ pub enum Orientation {
 
 /// How loud a level is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Zone {
     /// Fine.
     Normal,
@@ -85,6 +87,7 @@ impl Zones {
 
 /// How the level meter looks and behaves.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct MeterOptions {
     /// Which way the bar lies.
     pub orientation: Orientation,
@@ -111,6 +114,74 @@ pub struct MeterOptions {
     pub threshold_step: f32,
     /// Where time comes from.
     pub clock: Clock,
+}
+
+impl MeterOptions {
+    /// Sets `orientation`: which way the bar lies.
+    pub fn orientation(mut self, value: Orientation) -> Self {
+        self.orientation = value;
+        self
+    }
+
+    /// Sets `zones`: where loud and clipping begin.
+    pub fn zones(mut self, value: Zones) -> Self {
+        self.zones = value;
+        self
+    }
+
+    /// Sets `smoothing`: how the bar rises and falls.
+    pub fn smoothing(mut self, value: Smoothing) -> Self {
+        self.smoothing = value;
+        self
+    }
+
+    /// Sets `peak_hold`: how long the peak marker stays at the highest level; `None` shows no peak marker.
+    pub fn peak_hold(mut self, value: Duration) -> Self {
+        self.peak_hold = Some(value);
+        self
+    }
+
+    /// Sets `peak_fall_per_second`: how fast the peak marker falls after the hold, as a fraction of the scale per second.
+    pub fn peak_fall_per_second(mut self, value: f32) -> Self {
+        self.peak_fall_per_second = value;
+        self
+    }
+
+    /// Sets `thickness`: the bar's thickness.
+    pub fn thickness(mut self, value: f32) -> Self {
+        self.thickness = Some(value);
+        self
+    }
+
+    /// Sets `length`: the bar's length.
+    pub fn length(mut self, value: f32) -> Self {
+        self.length = Some(value);
+        self
+    }
+
+    /// Sets `threshold`: a marker the user sets by dragging it or with the arrow keys (a voice-activation threshold).
+    pub fn threshold(mut self, value: Signal<f32>) -> Self {
+        self.threshold = Some(value);
+        self
+    }
+
+    /// Sets `threshold_label`: what screen readers call the threshold.
+    pub fn threshold_label(mut self, value: String) -> Self {
+        self.threshold_label = Some(value);
+        self
+    }
+
+    /// Sets `threshold_step`: how far an arrow key moves the threshold (a fraction of the scale).
+    pub fn threshold_step(mut self, value: f32) -> Self {
+        self.threshold_step = value;
+        self
+    }
+
+    /// Sets `clock`: where time comes from.
+    pub fn clock(mut self, value: Clock) -> Self {
+        self.clock = value;
+        self
+    }
 }
 
 impl Default for MeterOptions {

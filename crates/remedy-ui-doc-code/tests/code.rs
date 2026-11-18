@@ -81,8 +81,11 @@ fn the_theme_colors_code_and_a_theme_token_overrides_it() {
 fn a_code_view_numbers_colors_and_folds() {
     let ui = ui();
     let src = Signal::new(RUST.to_owned());
-    let view =
-        code_view(&ui, "main.rs", src, CodeOptions { language: "rs".into(), ..CodeOptions::default() });
+    let view = code_view(&ui, "main.rs", src, {
+        let mut v_ = CodeOptions::default();
+        v_.language = "rs".into();
+        v_
+    });
     ui.root().child(ui.el("col").column().height(600.0).fill_width().child(view.clone()));
     frame(&ui);
     assert_eq!(texts(&view).first().map(String::as_str), Some("// says hi"));
@@ -166,25 +169,16 @@ fn highlighting_after_an_edit_colors_only_what_changed() {
 fn the_code_editor_types_at_several_cursors_and_numbers_its_lines() {
     use remedy_ui_input::{Key, KeyEvent, Modifiers};
     let ui = ui();
-    let (el, field) = code_editor(
-        &ui,
-        "main.rs",
-        "let a = 1;\nlet b = 2;",
-        CodeOptions { language: "rs".into(), ..CodeOptions::default() },
-    );
+    let (el, field) = code_editor(&ui, "main.rs", "let a = 1;\nlet b = 2;", {
+        let mut v_ = CodeOptions::default();
+        v_.language = "rs".into();
+        v_
+    });
     ui.root().child(ui.el("col").column().height(400.0).fill_width().child(el.clone()));
     frame(&ui);
     field.el().focus();
     let key = |k: Key, text: Option<&str>, m: Modifiers| {
-        ui.key(&KeyEvent {
-            key: k,
-            physical: String::new(),
-            modifiers: m,
-            pressed: true,
-            repeat: false,
-            composing: false,
-            text: text.map(str::to_owned),
-        });
+        ui.key(&KeyEvent::press(k).with_modifiers(m).with_text(text.map(str::to_owned)));
     };
     let _ = field.edit_code(|e| e.set_selection(4, 4));
     key(Key::ArrowDown, None, Modifiers { ctrl: true, alt: true, ..Modifiers::NONE });

@@ -8,7 +8,7 @@ use std::rc::Rc;
 use remedy_ui_a11y::{Action, Role, Semantics};
 use remedy_ui_core::Color;
 use remedy_ui_reactive::Signal;
-use remedy_ui_text::{RichText, StylePatch};
+use remedy_ui_text::{RichText, TextStylePatch};
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 
@@ -17,6 +17,7 @@ use crate::highlight::{Kind, highlight};
 
 /// How a code view shows its code.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CodeOptions {
     /// The language: a name ("Rust") or a file extension ("rs").
     pub language: String,
@@ -24,6 +25,26 @@ pub struct CodeOptions {
     pub line_numbers: bool,
     /// Let blocks fold (by indentation) from their first line.
     pub folding: bool,
+}
+
+impl CodeOptions {
+    /// Sets `language`: the language: a name ("Rust") or a file extension ("rs").
+    pub fn language(mut self, value: String) -> Self {
+        self.language = value;
+        self
+    }
+
+    /// Sets `line_numbers`: show line numbers.
+    pub fn line_numbers(mut self, value: bool) -> Self {
+        self.line_numbers = value;
+        self
+    }
+
+    /// Sets `folding`: let blocks fold (by indentation) from their first line.
+    pub fn folding(mut self, value: bool) -> Self {
+        self.folding = value;
+        self
+    }
 }
 
 impl Default for CodeOptions {
@@ -59,7 +80,7 @@ fn colored(text: &str, language: &str, ui: &Ui) -> Vec<RichText> {
             let mut rt = RichText::plain(line.to_owned());
             for (r, k) in runs {
                 if k != Kind::Plain {
-                    rt.add_span(r, StylePatch::color(k.color(&theme)));
+                    rt.add_span(r, TextStylePatch::color(k.color(&theme)));
                 }
             }
             rt

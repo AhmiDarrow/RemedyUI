@@ -9,8 +9,8 @@
 //! - Containers: [`column()`], [`row`], [`wrap`], [`stack`], [`spacer`], [`divider`],
 //!   [`card`], [`section`], [`scroll`], [`split`]
 //! - Lists: [`for_each`], [`list`], [`virtual_list`]
-//! - Text: [`text`], [`heading`], [`label`], [`link`]
-//! - Actions: [`button`], [`icon_button`], [`toggle_button`], [`menu_button`]
+//! - Text: [`text`] (with a variant: `.variant("muted")`), [`heading`], [`link`]
+//! - Actions: [`button`], [`button_dyn`], [`icon_button`], [`toggle_button`], [`menu_button`]
 //! - Choices: [`check`], [`switch`], [`radio_group`], [`segmented`], [`select`], [`chip`]
 //! - Values: [`slider`], [`stepper`]
 //! - Input: [`text_input`], [`text_area`], [`search`], [`secret_input`] with
@@ -20,6 +20,7 @@
 //! - Overlays: [`tooltip`], [`menu`], [`context_menu`], [`popover`], [`modal`], [`dialog`],
 //!   [`trusted_prompt`], [`lock_screen`]
 //! - Media: [`icon`], [`image`], [`avatar`], [`canvas`]
+//! - [`Rejection`]: why the app turned down a person's edit, shown beside it
 
 /// The smallest size, in logical pixels, of anything a pointer can press (WCAG 2.2, 2.5.8
 /// target size): interactive widgets are at least this tall, and icon buttons this wide.
@@ -42,10 +43,11 @@ mod icons;
 mod inputs;
 mod lists;
 mod overlays;
+mod rejection;
 mod text;
 mod values;
 
-pub use actions::{button, icon_button, menu_button, toggle_button};
+pub use actions::{button, button_dyn, icon_button, menu_button, toggle_button};
 pub use choices::{check, chip, radio_group, segmented, select, switch};
 pub use containers::{card, column, divider, row, scroll, section, spacer, split, stack, wrap};
 pub use feedback::{badge, empty_state, lamp, progress, skeleton, spinner, toast};
@@ -56,5 +58,9 @@ pub use overlays::{
     DialogButton, MenuItem, Modal, context_menu, context_menu_at, dialog, fill_window, fit_near, lock_screen,
     menu, modal, place_at, place_near, place_near_within, popover, tooltip, trusted_prompt,
 };
-pub use text::{heading, label, link, text};
+pub use rejection::Rejection;
+// Kept for apps written against it (FreeSpeak) until the next minor release.
+#[allow(deprecated)]
+pub use text::label;
+pub use text::{heading, link, text};
 pub use values::{slider, stepper};

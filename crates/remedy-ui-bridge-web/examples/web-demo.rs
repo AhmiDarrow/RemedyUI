@@ -13,7 +13,12 @@ mod demo {
     use remedy_ui::{App, AppConfig, WindowSpec};
 
     fn open_files(app: &App, status: Signal<String>) {
-        let dialog = FileDialog { title: "Open files".into(), multiple: true, ..FileDialog::default() };
+        let dialog = {
+            let mut v_ = FileDialog::default();
+            v_.title = "Open files".into();
+            v_.multiple = true;
+            v_
+        };
         app.file_dialog(None, dialog, move |paths| {
             let sizes: Vec<String> = paths
                 .iter()
@@ -34,11 +39,12 @@ mod demo {
     }
 
     fn save_file(app: &App, text: String, status: Signal<String>) {
-        let dialog = FileDialog {
-            title: "Save the message".into(),
-            save: true,
-            file_name: Some("remedyui-message.txt".into()),
-            ..FileDialog::default()
+        let dialog = {
+            let mut v_ = FileDialog::default();
+            v_.title = "Save the message".into();
+            v_.save = true;
+            v_.file_name = Some("remedyui-message.txt".into());
+            v_
         };
         app.file_dialog(None, dialog, move |paths| {
             if let Some(p) = paths.first() {
@@ -68,7 +74,7 @@ mod demo {
             let col = w::column(ui)
                 .gap(12.0)
                 .padding(remedy_ui::core::Insets { top: 16.0, end: 16.0, bottom: 16.0, start: 16.0 })
-                .child(w::label(ui, "RemedyUI on the web", "title"))
+                .child(w::text(ui, "RemedyUI on the web").variant("title"))
                 .child(ui.el("label").text_dyn(move || format!("Taps: {}", taps.get())))
                 .child(w::button(ui, "Tap me", move || taps.update(|n| *n += 1)))
                 .child(field.el())
@@ -81,7 +87,7 @@ mod demo {
                             link_app.open_url("https://github.com/AhmiDarrow/RemedyUI", move |r| {
                                 status.set(match r {
                                     Ok(()) => "Opened the link".into(),
-                                    Err(e) => e,
+                                    Err(e) => e.to_string(),
                                 });
                             });
                         })),

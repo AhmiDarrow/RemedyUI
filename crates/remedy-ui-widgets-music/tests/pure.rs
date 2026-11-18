@@ -62,7 +62,11 @@ fn fret_wires_follow_the_twelfth_root_of_two() {
 
 #[test]
 fn the_fretboard_layout_spaces_wires_by_that_rule_and_hits_positions() {
-    let options = FretboardOptions { frets: 24, ..FretboardOptions::default() };
+    let options = {
+        let mut v_ = FretboardOptions::default();
+        v_.frets = 24;
+        v_
+    };
     let g = FretboardLayout::new(&options, 960.0, 4.0);
     // The wires' spacing shrinks by the same ratio all the way up.
     let w = |n: u32| g.wire_x(n + 1) - g.wire_x(n);
@@ -90,13 +94,26 @@ fn the_fretboard_layout_spaces_wires_by_that_rule_and_hits_positions() {
 
 #[test]
 fn a_window_of_frets_and_left_handed_mirroring() {
-    let options = FretboardOptions { first_fret: 5, frets: 7, ..FretboardOptions::default() };
+    let options = {
+        let mut v_ = FretboardOptions::default();
+        v_.first_fret = 5;
+        v_.frets = 7;
+        v_
+    };
     let g = FretboardLayout::new(&options, 700.0, 4.0);
     assert_eq!(g.fret_range(), (6, 12), "frets after the fifth wire");
     assert!(g.wire_x(5) < g.wire_x(6) && g.wire_x(6) < g.wire_x(12));
     let at = remedy_ui_core::Point::new(g.cell_x(6), g.string_y(0));
     assert_eq!(g.hit(at), Some(FretPos { string: 0, fret: 6 }));
-    let lh = FretboardLayout::new(&FretboardOptions { left_handed: true, ..options.clone() }, 700.0, 4.0);
+    let lh = FretboardLayout::new(
+        &{
+            let mut v_ = options.clone();
+            v_.left_handed = true;
+            v_
+        },
+        700.0,
+        4.0,
+    );
     for n in 5..=12 {
         assert!((lh.wire_x(n) - (700.0 - g.wire_x(n))).abs() < 1e-3, "wire {n} mirrored");
     }
@@ -108,15 +125,27 @@ fn a_window_of_frets_and_left_handed_mirroring() {
 
 #[test]
 fn any_tuning_and_string_count_lays_out_and_describes() {
-    let seven = FretboardOptions { tuning: vec![35, 40, 45, 50, 55, 59, 64], ..FretboardOptions::default() };
+    let seven = {
+        let mut v_ = FretboardOptions::default();
+        v_.tuning = vec![35, 40, 45, 50, 55, 59, 64];
+        v_
+    };
     let g = FretboardLayout::new(&seven, 800.0, 4.0);
     assert_eq!(g.strings, 7);
     assert!(g.height > FretboardLayout::new(&FretboardOptions::default(), 800.0, 4.0).height);
     assert_eq!(describe_position(&seven, FretPos { string: 0, fret: 0 }), "string 7 (B 1), open, B 1");
     assert_eq!(describe_position(&seven, FretPos { string: 6, fret: 5 }), "string 1 (E 4), fret 5, A 4");
-    let single = FretboardOptions { tuning: vec![64], ..FretboardOptions::default() };
+    let single = {
+        let mut v_ = FretboardOptions::default();
+        v_.tuning = vec![64];
+        v_
+    };
     assert_eq!(FretboardLayout::new(&single, 400.0, 4.0).strings, 1);
-    let flats = FretboardOptions { flats: true, ..FretboardOptions::default() };
+    let flats = {
+        let mut v_ = FretboardOptions::default();
+        v_.flats = true;
+        v_
+    };
     assert_eq!(describe_position(&flats, FretPos { string: 5, fret: 6 }), "string 1 (E 4), fret 6, B flat 4");
     // Beyond the strings there is no note to say.
     assert_eq!(describe_position(&flats, FretPos { string: 9, fret: 1 }), "string 0, fret 1");
@@ -441,7 +470,15 @@ fn chords_are_described_string_by_string() {
     let (w6, _) = diagram_size(&am, &ChordOptions::default(), 4.0);
     let (w4, _) = diagram_size(&uke, &ChordOptions::default(), 4.0);
     assert!(w4 < w6, "fewer strings, narrower diagram");
-    let (w2x, h2x) = diagram_size(&am, &ChordOptions { scale: 2.0, ..ChordOptions::default() }, 4.0);
+    let (w2x, h2x) = diagram_size(
+        &am,
+        &{
+            let mut v_ = ChordOptions::default();
+            v_.scale = 2.0;
+            v_
+        },
+        4.0,
+    );
     let (w1x, h1x) = diagram_size(&am, &ChordOptions::default(), 4.0);
     assert!((w2x / w1x - 2.0).abs() < 1e-3 && (h2x / h1x - 2.0).abs() < 1e-3);
 }

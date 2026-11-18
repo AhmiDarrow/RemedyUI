@@ -11,6 +11,7 @@ pub struct LayoutNode(NodeId);
 
 /// The space offered to a node along one axis while measuring.
 #[derive(Clone, Copy, Debug, PartialEq)]
+// Exhaustive on purpose: space is definite, min-content or max-content, as in CSS sizing.
 pub enum Available {
     /// A definite amount, in logical pixels.
     Px(f32),
@@ -22,6 +23,7 @@ pub enum Available {
 
 /// What a measured leaf (text, an image) is asked.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct MeasureInput {
     /// Width already decided by layout, if any.
     pub known_width: Option<f32>,

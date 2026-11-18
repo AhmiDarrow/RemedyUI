@@ -9,6 +9,7 @@ use remedy_ui_paint::Affine;
 
 /// How pages sit side by side.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Spread {
     /// One page per row.
     #[default]
@@ -21,6 +22,7 @@ pub enum Spread {
 
 /// How pages are turned, clockwise.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+// Exhaustive on purpose: pages turn in quarter turns.
 pub enum Rotation {
     /// Upright.
     #[default]
@@ -81,6 +83,7 @@ impl Rotation {
 
 /// How the zoom follows the window.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Fit {
     /// The zoom is what the user set.
     #[default]

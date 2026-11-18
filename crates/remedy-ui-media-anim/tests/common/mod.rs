@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_compositor::{Layer, LayerTree};
 use remedy_ui_core::Size;
-use remedy_ui_input::{Key, KeyEvent, Modifiers};
+use remedy_ui_input::{Key, KeyEvent};
 use remedy_ui_paint::{Image, Item};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request, Ui};
@@ -172,15 +172,7 @@ pub fn all_about(got: &[u128], want: &[u128]) -> bool {
 }
 
 pub fn press(ui: &Ui, key: Key) -> bool {
-    ui.key(&KeyEvent {
-        key,
-        physical: String::new(),
-        modifiers: Modifiers::NONE,
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: None,
-    })
+    ui.key(&KeyEvent::press(key).with_text(None))
 }
 
 /// Every element under `el` made by `widget`, in tree order.

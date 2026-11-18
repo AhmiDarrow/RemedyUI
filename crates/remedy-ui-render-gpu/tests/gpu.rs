@@ -191,7 +191,12 @@ fn a_forced_device_loss_recovers_with_no_app_code() {
 
 #[test]
 fn the_ladder_reaches_software_and_reports_its_rung() {
-    let only_software = LadderOptions { high_performance: false, rungs: vec![Rung::Software] };
+    let only_software = {
+        let mut v_ = LadderOptions::default();
+        v_.high_performance = false;
+        v_.rungs = vec![Rung::Software];
+        v_
+    };
     match GpuContext::new(&only_software) {
         Ok(ctx) => {
             assert_eq!(ctx.rung, Rung::Software);
@@ -202,7 +207,12 @@ fn the_ladder_reaches_software_and_reports_its_rung() {
         // Some systems ship no software adapter; then the hardware rungs must work instead.
         Err(e) => assert!(GpuContext::new(&LadderOptions::default()).is_ok(), "no rung works: {e}"),
     }
-    let none = LadderOptions { high_performance: true, rungs: Vec::new() };
+    let none = {
+        let mut v_ = LadderOptions::default();
+        v_.high_performance = true;
+        v_.rungs = Vec::new();
+        v_
+    };
     assert_eq!(GpuContext::new(&none).err(), Some(GpuError::NoAdapter));
 }
 

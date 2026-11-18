@@ -7,15 +7,22 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+readme.workspace = true
+keywords = ["cargo", "gui", "remedy", "package", "migrate"]
+categories = ["development-tools::cargo-plugins", "gui"]
 
 [[bin]]
 name = "cargo-remedy"
 path = "src/main.rs"
 
 [dependencies]
+flate2 = { version = "=1.1.11", default-features = false, features = ["rust_backend"] }
 minisign = "=0.10.0"
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
 png = "=0.18.1"
+proc-macro2 = { version = "=1.0.107", default-features = false, features = ["span-locations"] }
 serde_json = "=1.0.154"
+syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "printing", "visit"] }
 toml = "=1.2.1"
 zip = { version = "=9.6.1", default-features = false, features = ["deflate"] }
 

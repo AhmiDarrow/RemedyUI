@@ -26,13 +26,7 @@ fn the_banner_shows_each_state() {
     };
     let idle = tree(&ui);
     assert!(!idle.contains("Install") && !idle.contains("Restart"), "nothing while idle");
-    state.set(UpdateState::Available(Release {
-        version: "v0.2.0".into(),
-        notes: String::new(),
-        url: String::new(),
-        signature: String::new(),
-        sha256: None,
-    }));
+    state.set(UpdateState::Available(Release::new("v0.2.0", "")));
     let t = tree(&ui);
     assert!(t.contains("Version 0.2.0 is available.") && t.contains("Install"), "{t}");
     state.set(UpdateState::Downloading(Some(0.5)));
@@ -47,12 +41,13 @@ fn the_banner_speaks_the_app_s_language() {
     let ui = ui();
     ui.connect_accessibility();
     let state = Signal::new(UpdateState::Idle);
-    let texts = remedy_ui_services_update::BannerText {
-        available: "Version {version} ist verfügbar.".into(),
-        install: "Update installieren".into(),
-        restart: None,
-        failure: std::rc::Rc::new(|e: &str| format!("Fehler: {e}")),
-        ..Default::default()
+    let texts = {
+        let mut v_ = remedy_ui_services_update::BannerText::default();
+        v_.available = "Version {version} ist verfügbar.".into();
+        v_.install = "Update installieren".into();
+        v_.restart = None;
+        v_.failure = std::rc::Rc::new(|e: &str| format!("Fehler: {e}"));
+        v_
     };
     ui.root().child(remedy_ui_services_update::update_banner_with(&ui, state, &texts, || {}, || {}));
     let tree = |ui: &Ui| {
@@ -60,13 +55,7 @@ fn the_banner_speaks_the_app_s_language() {
         format!("{:?}", ui.take_accessibility_update())
     };
     let _ = tree(&ui);
-    state.set(UpdateState::Available(Release {
-        version: "v0.5.0".into(),
-        notes: String::new(),
-        url: String::new(),
-        signature: String::new(),
-        sha256: None,
-    }));
+    state.set(UpdateState::Available(Release::new("v0.5.0", "")));
     let t = tree(&ui);
     assert!(t.contains("Version 0.5.0 ist verfügbar.") && t.contains("Update installieren"), "{t}");
     state.set(UpdateState::Ready);

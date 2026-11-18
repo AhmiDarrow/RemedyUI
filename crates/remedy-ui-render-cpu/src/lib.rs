@@ -55,6 +55,7 @@ impl Frame {
 
 /// Why a frame could not be rendered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RenderError {
     /// The size is zero or larger than the CPU renderer's 65,535-pixel axis.
     BadSize,

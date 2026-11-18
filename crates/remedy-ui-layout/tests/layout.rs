@@ -8,10 +8,23 @@ type R = Result<(), LayoutError>;
 #[test]
 fn rows_grow_gap_and_pad() -> R {
     let mut t = LayoutTree::new();
-    let root = t.node(&LayoutStyle { gap: (10.0, 0.0), padding: Insets::all(4.0), ..LayoutStyle::row() })?;
+    let root = t.node(&{
+        let mut v_ = LayoutStyle::row();
+        v_.gap = (10.0, 0.0);
+        v_.padding = Insets::all(4.0);
+        v_
+    })?;
     let a = t.node(&LayoutStyle::fixed(50.0, 20.0))?;
-    let b = t.node(&LayoutStyle { grow: 1.0, ..LayoutStyle::fixed(0.0, 20.0) })?;
-    let c = t.node(&LayoutStyle { grow: 2.0, ..LayoutStyle::fixed(0.0, 20.0) })?;
+    let b = t.node(&{
+        let mut v_ = LayoutStyle::fixed(0.0, 20.0);
+        v_.grow = 1.0;
+        v_
+    })?;
+    let c = t.node(&{
+        let mut v_ = LayoutStyle::fixed(0.0, 20.0);
+        v_.grow = 2.0;
+        v_
+    })?;
     t.set_children(root, &[a, b, c])?;
     t.compute(root, Some(300.0), None)?;
     // 300 - 8 padding - 50 - 20 gaps = 222 free, split 1:2.
@@ -25,10 +38,11 @@ fn rows_grow_gap_and_pad() -> R {
 #[test]
 fn right_to_left_mirrors_rows_and_logical_insets() -> R {
     let mut t = LayoutTree::new();
-    let style = LayoutStyle {
-        direction: Direction::Rtl,
-        padding: Insets { start: 10.0, ..Insets::ZERO },
-        ..LayoutStyle::row()
+    let style = {
+        let mut v_ = LayoutStyle::row();
+        v_.direction = Direction::Rtl;
+        v_.padding = Insets { start: 10.0, ..Insets::ZERO };
+        v_
     };
     let root = t.node(&style)?;
     let first = t.node(&LayoutStyle::fixed(40.0, 10.0))?;
@@ -40,9 +54,10 @@ fn right_to_left_mirrors_rows_and_logical_insets() -> R {
     assert_eq!(t.rect(second).map(|r| r.max.x), Some(150.0));
 
     // Children inherit the direction: a nested row with start padding mirrors too.
-    let nested = t.node(&LayoutStyle {
-        padding: Insets { start: 5.0, ..Insets::ZERO },
-        ..LayoutStyle::fixed(60.0, 10.0)
+    let nested = t.node(&{
+        let mut v_ = LayoutStyle::fixed(60.0, 10.0);
+        v_.padding = Insets { start: 5.0, ..Insets::ZERO };
+        v_
     })?;
     let leaf = t.node(&LayoutStyle::fixed(10.0, 10.0))?;
     t.set_children(nested, &[leaf])?;
@@ -55,10 +70,11 @@ fn right_to_left_mirrors_rows_and_logical_insets() -> R {
 #[test]
 fn columns_center_and_justify() -> R {
     let mut t = LayoutTree::new();
-    let root = t.node(&LayoutStyle {
-        align_items: Align::Center,
-        justify: Justify::SpaceBetween,
-        ..LayoutStyle::fixed(100.0, 100.0).into_column()
+    let root = t.node(&{
+        let mut v_ = LayoutStyle::fixed(100.0, 100.0).into_column();
+        v_.align_items = Align::Center;
+        v_.justify = Justify::SpaceBetween;
+        v_
     })?;
     let a = t.node(&LayoutStyle::fixed(20.0, 10.0))?;
     let b = t.node(&LayoutStyle::fixed(40.0, 10.0))?;
@@ -75,18 +91,23 @@ trait IntoColumn {
 
 impl IntoColumn for LayoutStyle {
     fn into_column(self) -> Self {
-        LayoutStyle { axis: Axis::Column, ..self }
+        {
+            let mut v_ = self;
+            v_.axis = Axis::Column;
+            v_
+        }
     }
 }
 
 #[test]
 fn grid_tracks_share_fractions() -> R {
     let mut t = LayoutTree::new();
-    let root = t.node(&LayoutStyle {
-        display: Display::Grid,
-        columns: vec![Track::Px(60.0), Track::Fr(1.0), Track::Fr(3.0)],
-        gap: (5.0, 0.0),
-        ..LayoutStyle::default()
+    let root = t.node(&{
+        let mut v_ = LayoutStyle::default();
+        v_.display = Display::Grid;
+        v_.columns = vec![Track::Px(60.0), Track::Fr(1.0), Track::Fr(3.0)];
+        v_.gap = (5.0, 0.0);
+        v_
     })?;
     let cells: Vec<LayoutNode> = (0..3).map(|_| t.node(&LayoutStyle::default())).collect::<Result<_, _>>()?;
     t.set_children(root, &cells)?;
@@ -102,16 +123,25 @@ fn grid_items_sit_on_the_lines_and_spans_they_ask_for() -> R {
     // A 4-column board, 100 px a column and row: one area at column 2 spanning 2, row 1;
     // another at column 1 spanning 4, row 2 spanning 2.
     let mut t = LayoutTree::new();
-    let root = t.node(&LayoutStyle {
-        display: Display::Grid,
-        columns: vec![Track::Fr(1.0); 4],
-        rows: vec![Track::Px(100.0); 3],
-        ..LayoutStyle::default()
+    let root = t.node(&{
+        let mut v_ = LayoutStyle::default();
+        v_.display = Display::Grid;
+        v_.columns = vec![Track::Fr(1.0); 4];
+        v_.rows = vec![Track::Px(100.0); 3];
+        v_
     })?;
-    let a =
-        t.node(&LayoutStyle { grid_column: Some((2, 2)), grid_row: Some((1, 1)), ..LayoutStyle::default() })?;
-    let b =
-        t.node(&LayoutStyle { grid_column: Some((1, 4)), grid_row: Some((2, 2)), ..LayoutStyle::default() })?;
+    let a = t.node(&{
+        let mut v_ = LayoutStyle::default();
+        v_.grid_column = Some((2, 2));
+        v_.grid_row = Some((1, 1));
+        v_
+    })?;
+    let b = t.node(&{
+        let mut v_ = LayoutStyle::default();
+        v_.grid_column = Some((1, 4));
+        v_.grid_row = Some((2, 2));
+        v_
+    })?;
     t.set_children(root, &[a, b])?;
     t.compute(root, Some(400.0), None)?;
     let ra = t.rect(a).unwrap_or_default();
@@ -147,8 +177,16 @@ fn measured_leaves_wrap_like_text() -> R {
 #[test]
 fn absolute_rects_and_snapping() -> R {
     let mut t = LayoutTree::new();
-    let root = t.node(&LayoutStyle { padding: Insets::all(3.3), ..LayoutStyle::column() })?;
-    let inner = t.node(&LayoutStyle { padding: Insets::all(1.1), ..LayoutStyle::row() })?;
+    let root = t.node(&{
+        let mut v_ = LayoutStyle::column();
+        v_.padding = Insets::all(3.3);
+        v_
+    })?;
+    let inner = t.node(&{
+        let mut v_ = LayoutStyle::row();
+        v_.padding = Insets::all(1.1);
+        v_
+    })?;
     let leaf = t.node(&LayoutStyle::fixed(10.15, 7.7))?;
     t.set_children(root, &[inner])?;
     t.set_children(inner, &[leaf])?;

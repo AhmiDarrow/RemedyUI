@@ -184,14 +184,30 @@ pub fn nav_item(
     on_press: impl Fn() + 'static,
 ) -> El {
     let label = label.into();
+    nav_item_dyn(ui, icon, move || label.clone(), active, badge, on_press)
+}
+
+/// [`nav_item`] whose label follows `label`: it reads signals (a message in the window's
+/// language), and the label and what assistive technology reads change with them.
+#[track_caller]
+pub fn nav_item_dyn(
+    ui: &Ui,
+    icon: Icon,
+    label: impl Fn() -> String + 'static,
+    active: impl Fn() -> bool + 'static,
+    badge: Option<Signal<u32>>,
+    on_press: impl Fn() + 'static,
+) -> El {
+    let label = std::rc::Rc::new(label);
     let unit = ui.theme().spacing.unit;
+    let l1 = label.clone();
     let item = w::min_target(ui.el("nav_item"))
         .row()
         .align(Align::Center)
         .gap(unit * 2.0)
         .padding(Insets::symmetric(unit * 1.5, unit * 2.5))
         .child(w::icon(ui, icon, ui.theme().type_scale.body + 4.0))
-        .child(ui.el("nav_label").text(remedy_ui_view::RichText::plain(label.clone())).nowrap().grow(1.0))
+        .child(ui.el("nav_label").text_dyn(move || l1()).nowrap().grow(1.0))
         .on_click(on_press);
     let item = match badge {
         Some(count) => {
@@ -209,11 +225,10 @@ pub fn nav_item(
         None => item,
     };
     let i2 = item.clone();
-    let l2 = label.clone();
     item.bind(move || {
         let on = active();
         i2.state(States::SELECTED, on);
-        let mut s = Semantics::new(Role::Tab).label(l2.clone()).selected(on).action(Action::Click);
+        let mut s = Semantics::new(Role::Tab).label(label()).selected(on).action(Action::Click);
         if let Some(c) = badge.map(|b| b.get()).filter(|c| *c > 0) {
             s = s.description(format!("{c} new"));
         }
@@ -358,7 +373,8 @@ pub fn breadcrumbs(
                 shown_any = true;
                 let last = i + 1 == n;
                 let el = if last {
-                    w::label(&u, seg.clone(), "strong")
+                    w::text(&u, seg.clone())
+                        .variant("strong")
                         .data_text()
                         .semantics(Semantics::new(Role::Label).label(format!("{seg}, current")))
                 } else {
@@ -373,5 +389,5 @@ pub fn breadcrumbs(
 
 fn sep(ui: &Ui) -> El {
     w::icon(ui, Icon::ChevronRight, ui.theme().type_scale.small + 2.0)
-        .style(StylePatch { opacity: Some(0.6), ..StylePatch::default() })
+        .style(StylePatch::default().opacity(0.6))
 }

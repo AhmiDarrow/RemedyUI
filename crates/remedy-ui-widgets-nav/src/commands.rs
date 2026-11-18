@@ -12,6 +12,7 @@ use remedy_ui_widgets_core::Icon;
 
 /// One command as the widgets show it.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct CommandInfo {
     /// Its id.
     pub id: String,
@@ -204,6 +205,21 @@ impl Commands {
     pub fn set_bindings(&self, bindings: HashMap<String, Vec<Chord>>) {
         self.0.table.borrow_mut().set_user_bindings(bindings);
         self.changed();
+    }
+
+    /// The person's bindings as text, to save or carry to another machine
+    /// ([`crate::bindings_to_json`]); [`Commands::import_bindings`] reads it back.
+    pub fn export_bindings(&self) -> String {
+        crate::bindings_to_json(&self.bindings())
+    }
+
+    /// Replaces the person's bindings with those in `text` (written by
+    /// [`Commands::export_bindings`]), as [`Commands::set_bindings`] does. Text that is not a
+    /// set of bindings changes nothing and says why.
+    pub fn import_bindings(&self, text: &str) -> Result<(), crate::BindingsError> {
+        let b = crate::bindings_from_json(text)?;
+        self.set_bindings(b);
+        Ok(())
     }
 
     /// What binding `id` to `chords` would clash with, without changing anything: each

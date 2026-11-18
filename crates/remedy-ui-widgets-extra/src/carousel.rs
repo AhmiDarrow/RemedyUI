@@ -16,6 +16,7 @@ use remedy_ui_widgets_core as w;
 
 /// How a [`carousel`] behaves.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct CarouselOptions {
     /// Whether the last page leads on to the first and the first back to the last.
     pub wrap: bool,
@@ -32,6 +33,44 @@ pub struct CarouselOptions {
     pub transition: Option<Duration>,
     /// Where time comes from.
     pub clock: Clock,
+}
+
+impl CarouselOptions {
+    /// Sets `wrap`: whether the last page leads on to the first and the first back to the last.
+    pub fn wrap(mut self, value: bool) -> Self {
+        self.wrap = value;
+        self
+    }
+
+    /// Sets `arrows`: previous and next buttons.
+    pub fn arrows(mut self, value: bool) -> Self {
+        self.arrows = value;
+        self
+    }
+
+    /// Sets `dots`: a dot for each page, to jump to it.
+    pub fn dots(mut self, value: bool) -> Self {
+        self.dots = value;
+        self
+    }
+
+    /// Sets `autoplay`: move on by itself after this long on a page.
+    pub fn autoplay(mut self, value: Duration) -> Self {
+        self.autoplay = Some(value);
+        self
+    }
+
+    /// Sets `transition`: how long a slide takes.
+    pub fn transition(mut self, value: Duration) -> Self {
+        self.transition = Some(value);
+        self
+    }
+
+    /// Sets `clock`: where time comes from.
+    pub fn clock(mut self, value: Clock) -> Self {
+        self.clock = value;
+        self
+    }
 }
 
 impl Default for CarouselOptions {

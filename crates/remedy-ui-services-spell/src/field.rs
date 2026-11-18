@@ -22,6 +22,7 @@ use crate::{PendingCheck, SpellChecker, SpellError};
 
 /// The words in the spelling menu. Apps translate them; the defaults are English.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MenuLabels {
     /// The entry that adds the word to the personal dictionary.
     pub add_to_dictionary: String,
@@ -43,6 +44,7 @@ impl Default for MenuLabels {
 
 /// How a field is spell checked.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SpellOptions {
     /// How long after the last change the text is sent to be checked.
     pub debounce: Duration,
@@ -52,6 +54,32 @@ pub struct SpellOptions {
     pub follow_locale: bool,
     /// The words in the menu.
     pub labels: MenuLabels,
+}
+
+impl SpellOptions {
+    /// Sets `debounce`: how long after the last change the text is sent to be checked.
+    pub fn debounce(mut self, value: Duration) -> Self {
+        self.debounce = value;
+        self
+    }
+
+    /// Sets `settle`: how long after the last change the word at the caret is marked too.
+    pub fn settle(mut self, value: Duration) -> Self {
+        self.settle = value;
+        self
+    }
+
+    /// Sets `follow_locale`: check the window's locale as well as the checker's own languages (default true).
+    pub fn follow_locale(mut self, value: bool) -> Self {
+        self.follow_locale = value;
+        self
+    }
+
+    /// Sets `labels`: the words in the menu.
+    pub fn labels(mut self, value: MenuLabels) -> Self {
+        self.labels = value;
+        self
+    }
 }
 
 impl Default for SpellOptions {

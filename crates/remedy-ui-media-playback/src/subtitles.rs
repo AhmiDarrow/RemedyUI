@@ -16,6 +16,7 @@ pub struct Cue {
 
 /// A subtitle file's format.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SubtitleFormat {
     /// WebVTT (`.vtt`).
     WebVtt,

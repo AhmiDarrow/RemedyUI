@@ -4,6 +4,7 @@ use std::fmt;
 
 /// Why a spelling request did not produce an answer.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SpellError {
     /// A language tag is not a BCP 47 tag.
     BadLanguage(String),
@@ -17,7 +18,7 @@ pub enum SpellError {
         reasons: Vec<String>,
     },
     /// A back end failed while checking or suggesting.
-    Backend(String),
+    Backend(crate::BackendError),
     /// The checking thread is not running.
     Stopped(String),
 }
@@ -39,4 +40,11 @@ impl fmt::Display for SpellError {
     }
 }
 
-impl std::error::Error for SpellError {}
+impl std::error::Error for SpellError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            SpellError::Backend(e) => Some(e),
+            _ => None,
+        }
+    }
+}

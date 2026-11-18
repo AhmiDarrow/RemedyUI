@@ -325,11 +325,10 @@ impl PerfOverlay {
         let ui = &self.0.target;
         let unit = ui.theme().spacing.unit;
         let text = |s: &str, color: Color| {
-            w::label(ui, s.to_owned(), "").data_text().nowrap().style(StylePatch {
-                foreground: Some(color),
-                text_size: Some(12.0),
-                ..StylePatch::default()
-            })
+            w::text(ui, s.to_owned())
+                .data_text()
+                .nowrap()
+                .style(StylePatch::default().foreground(color).text_size(12.0))
         };
         let weak = Rc::downgrade(&self.0);
         let version = self.0.version;
@@ -453,11 +452,11 @@ impl PerfOverlay {
         });
         let mut legend = w::wrap(ui).gap(unit);
         for (p, c) in phases::ALL.iter().zip(PHASE_COLORS.iter()) {
-            let chip = ui.el("perf_chip").width(8.0).height(8.0).style(StylePatch {
-                background: Some(*c),
-                radius: Some(2.0),
-                ..StylePatch::default()
-            });
+            let chip = ui
+                .el("perf_chip")
+                .width(8.0)
+                .height(8.0)
+                .style(StylePatch::default().background(*c).radius(2.0));
             legend = legend.child(
                 w::row(ui)
                     .gap(unit / 2.0)
@@ -471,7 +470,7 @@ impl PerfOverlay {
             .gap(unit)
             .pass_through()
             .padding(Insets::all(unit * 2.0))
-            .style(StylePatch { background: Some(PANEL), radius: Some(6.0), ..StylePatch::default() })
+            .style(StylePatch::default().background(PANEL).radius(6.0))
             .layout(|l| {
                 l.position = Position::Absolute;
                 l.inset = Insets {

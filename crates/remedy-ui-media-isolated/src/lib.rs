@@ -123,6 +123,7 @@ pub enum Layer {
 
 /// How decoding is isolated, once [`enable`] has succeeded.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Isolation {
     /// The sandbox layers each helper runs under.
     pub layers: Vec<Layer>,
@@ -130,6 +131,7 @@ pub struct Isolation {
 
 /// Why decoding could not be isolated. Images keep decoding in the app's own process.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EnableError {
     /// This platform has no sandbox this crate can start, and why.
     Unsupported(String),
@@ -156,6 +158,7 @@ impl std::error::Error for EnableError {}
 
 /// What the helpers have done since the app started.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Stats {
     /// Helpers started (the first, those started again after one was stopped, and extra ones
     /// for images decoded at the same time).

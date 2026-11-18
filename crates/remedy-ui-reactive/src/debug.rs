@@ -48,6 +48,7 @@ impl std::fmt::Display for NodeKey {
 
 /// What a node is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum NodeKind {
     /// A [`Signal`](crate::Signal): state.
     Signal,
@@ -77,6 +78,7 @@ impl NodeKind {
 
 /// One node of the graph and its edges, as [`graph`] and [`node`] read them.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct NodeInfo {
     /// The node.
     pub key: NodeKey,
@@ -108,6 +110,7 @@ impl NodeInfo {
 
 /// Why a node re-ran: a signal written, and the memos the change passed through to reach it.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Cause {
     /// The signal that was written.
     pub signal: NodeKey,
@@ -148,6 +151,7 @@ impl std::fmt::Display for Cause {
 
 /// One run of a memo, effect or reaction while tracing, with why it ran.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Update {
     /// Increases by one with each recorded run on this thread.
     pub seq: u64,

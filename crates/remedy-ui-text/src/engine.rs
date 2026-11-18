@@ -120,6 +120,7 @@ impl std::fmt::Debug for TextEngine {
 
 /// Paragraph settings that apply to the whole paragraph.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct ParagraphOptions {
     /// Wrap width in logical pixels; `None` keeps each paragraph on one line.
     pub max_width: Option<f32>,
@@ -135,6 +136,44 @@ pub struct ParagraphOptions {
     pub scale: f32,
     /// Round line metrics to whole device pixels, so hinted text sits on the pixel grid.
     pub snap: bool,
+}
+
+impl ParagraphOptions {
+    /// Sets `max_width`: wrap width in logical pixels; `None` keeps each paragraph on one line.
+    pub fn max_width(mut self, value: f32) -> Self {
+        self.max_width = Some(value);
+        self
+    }
+
+    /// Sets `align`: line alignment.
+    pub fn align(mut self, value: Align) -> Self {
+        self.align = value;
+        self
+    }
+
+    /// Sets `direction`: paragraph direction.
+    pub fn direction(mut self, value: Direction) -> Self {
+        self.direction = value;
+        self
+    }
+
+    /// Sets `container`: the direction of the UI around the paragraph.
+    pub fn container(mut self, value: Direction) -> Self {
+        self.container = value;
+        self
+    }
+
+    /// Sets `scale`: device pixels per logical pixel.
+    pub fn scale(mut self, value: f32) -> Self {
+        self.scale = value;
+        self
+    }
+
+    /// Sets `snap`: round line metrics to whole device pixels, so hinted text sits on the pixel grid.
+    pub fn snap(mut self, value: bool) -> Self {
+        self.snap = value;
+        self
+    }
 }
 
 impl Default for ParagraphOptions {
@@ -289,6 +328,7 @@ fn push_style(
 /// Which side of a character boundary a caret belongs to, for boundaries where a line wraps
 /// or the direction changes.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// Exhaustive on purpose: a caret sits before or after a line break, nothing else.
 pub enum Affinity {
     /// With the character after the boundary.
     #[default]
@@ -308,6 +348,7 @@ pub struct TextPosition {
 
 /// One laid-out line.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct LineInfo {
     /// The text the line covers.
     pub range: Range<usize>,
@@ -367,6 +408,7 @@ impl std::fmt::Debug for RunFont {
 
 /// A run of glyphs in one font, size and style.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct GlyphRunInfo {
     /// The font.
     pub font: RunFont,

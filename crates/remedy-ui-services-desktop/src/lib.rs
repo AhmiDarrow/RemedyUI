@@ -6,6 +6,8 @@
 //! - [`known_folder`]: the user's Documents, Pictures, Downloads and other usual folders
 
 pub mod autostart;
+mod error;
+pub use error::DesktopError;
 mod known;
 pub use known::{KnownFolder, known_folder, xdg_user_dir};
 mod reveal;

@@ -9,6 +9,7 @@ use crate::GpuError;
 
 /// Which rung of the backend ladder a context came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Rung {
     /// A hardware adapter through D3D12, Vulkan or Metal; WebGPU in a browser.
     Primary,
@@ -21,11 +22,26 @@ pub enum Rung {
 
 /// Which rungs to try, in order, and how.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LadderOptions {
     /// Prefer the discrete GPU on machines with two.
     pub high_performance: bool,
     /// The rungs to try, top first.
     pub rungs: Vec<Rung>,
+}
+
+impl LadderOptions {
+    /// Sets `high_performance`: prefer the discrete GPU on machines with two.
+    pub fn high_performance(mut self, value: bool) -> Self {
+        self.high_performance = value;
+        self
+    }
+
+    /// Sets `rungs`: the rungs to try, top first.
+    pub fn rungs(mut self, value: Vec<Rung>) -> Self {
+        self.rungs = value;
+        self
+    }
 }
 
 impl Default for LadderOptions {

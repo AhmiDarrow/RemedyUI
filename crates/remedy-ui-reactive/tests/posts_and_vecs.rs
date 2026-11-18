@@ -40,7 +40,12 @@ fn posts_from_other_threads_run_in_one_batch() -> Result<(), Box<dyn std::error:
     assert_eq!(wakes.load(Ordering::SeqCst), 1, "woken once, when the queue went non-empty");
     assert!(has_posted());
     let report = run_posted();
-    assert_eq!(report, PostReport { ran: 100, panicked: 0 });
+    assert_eq!(report, {
+        let mut v_ = PostReport::default();
+        v_.ran = 100;
+        v_.panicked = 0;
+        v_
+    });
     assert_eq!(runs.get(), 2, "100 posts, one effect run");
     let got = got.borrow();
     assert_eq!(got.first(), Some(&VecDiff::Replace(vec![])));
@@ -56,7 +61,12 @@ fn a_panicking_post_is_contained() -> Result<(), ReactiveError> {
     let _ = waker.post(|| std::panic::panic_any("boom"));
     let _ = waker.post(move || s.set(1));
     let report = run_posted();
-    assert_eq!(report, PostReport { ran: 1, panicked: 1 });
+    assert_eq!(report, {
+        let mut v_ = PostReport::default();
+        v_.ran = 1;
+        v_.panicked = 1;
+        v_
+    });
     assert_eq!(s.get(), 1);
     Ok(())
 }
@@ -122,6 +132,7 @@ fn applying_diffs_reproduces_the_vector() -> Result<(), Box<dyn std::error::Erro
                 model.pop();
             }
             VecDiff::Clear => model.clear(),
+            other => unreachable!("a diff this test does not make: {other:?}"),
         }
     }
     let v = SignalVec::new(Vec::new());

@@ -15,7 +15,7 @@ use remedy_ui_reactive::{Signal, untrack};
 use remedy_ui_style::States;
 use remedy_ui_tree::ElementId;
 use remedy_ui_view::{Align, Drag, DropEffect, El, FieldKind, Justify, Ui};
-use remedy_ui_widgets_core::{self as w, Icon};
+use remedy_ui_widgets_core::{self as w, Icon, Rejection};
 
 use crate::model::{SORT_OFF_THREAD, Selection, SortDirection, SortValue, sorted_order};
 use crate::rows::{RowBuilder, Rows};
@@ -23,7 +23,7 @@ use crate::rows::{RowBuilder, Rows};
 type CellFn<T> = Rc<dyn Fn(&Ui, &T) -> El>;
 type SortKey<T> = Rc<dyn Fn(&T) -> SortValue>;
 type EditGet<T> = Rc<dyn Fn(&T) -> String>;
-type EditSet<T> = Rc<dyn Fn(&T, String) -> Result<(), String>>;
+type EditSet<T> = Rc<dyn Fn(&T, String) -> Result<(), Rejection>>;
 
 /// A table column.
 pub struct Column<T> {
@@ -71,7 +71,7 @@ impl<T: 'static> Column<T> {
     ) -> Self {
         let value = Rc::new(value);
         let v2 = value.clone();
-        Column::new(id, title, width, move |ui, row| w::label(ui, value(row), "").data_text().nowrap())
+        Column::new(id, title, width, move |ui, row| w::text(ui, value(row)).data_text().nowrap())
             .sort_by(move |row| SortValue::Text(v2(row)))
     }
 
@@ -86,7 +86,7 @@ impl<T: 'static> Column<T> {
     pub fn editable(
         mut self,
         get: impl Fn(&T) -> String + 'static,
-        set: impl Fn(&T, String) -> Result<(), String> + 'static,
+        set: impl Fn(&T, String) -> Result<(), Rejection> + 'static,
     ) -> Self {
         self.edit = Some((Rc::new(get), Rc::new(set)));
         self
@@ -272,7 +272,7 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                             edit_error.set(None);
                             editing.set(None);
                         }
-                        Err(e) => edit_error.set(Some(e)),
+                        Err(e) => edit_error.set(Some(e.to_string())),
                     });
                     let c2 = commit.clone();
                     let field = field.on_submit(move || c2());
@@ -507,7 +507,7 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                 .layout(|l| l.shrink = 0.0)
                 .height(h)
                 .padding(Insets::symmetric(0.0, unit * 2.0))
-                .child(w::label(&ui2, col.title.clone(), "strong").nowrap().grow(1.0));
+                .child(w::text(&ui2, col.title.clone()).variant("strong").nowrap().grow(1.0));
             if let Some(d) = sorted {
                 cell = cell.child(w::icon(
                     &ui2,

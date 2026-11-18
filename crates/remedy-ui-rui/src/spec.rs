@@ -5,6 +5,7 @@ use crate::syntax::{Markup, Node, RuiError, Value};
 
 /// What an argument takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Kind {
     /// Fixed text: `"Send"` or `@t("Send")`.
     Label,

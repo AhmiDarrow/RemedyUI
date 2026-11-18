@@ -16,6 +16,7 @@ use crate::engine::RunFont;
 
 /// How outlines are fitted to the pixel grid.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Hinting {
     /// Full hinting: stems on whole pixels in both directions; one horizontal position.
     #[default]
@@ -28,6 +29,7 @@ pub enum Hinting {
 
 /// How coverage is stored.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Antialias {
     /// One coverage byte per pixel.
     #[default]

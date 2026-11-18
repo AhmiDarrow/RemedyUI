@@ -18,6 +18,7 @@ pub type SheetFn = Rc<dyn Fn(&Theme) -> StyleSheet>;
 
 /// What is wrong with an element.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum ProblemKind {
     /// A control assistive technology cannot name.
     Unnamed,
@@ -58,6 +59,7 @@ pub enum ProblemKind {
 
 /// Why a control is out of a screen reader's reach.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Unreachable {
     /// It, or an ancestor, is hidden from assistive technology while it is shown on screen.
     Hidden,
@@ -81,6 +83,7 @@ impl Unreachable {
 
 /// One accessibility problem.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Problem {
     /// The element.
     pub element: ElementId,
@@ -365,6 +368,7 @@ fn merged_away(el: &El) -> bool {
 /// One line of the accessibility view: a node as a screen reader meets it, with the
 /// element behind it and the problems found there.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct ReaderLine {
     /// The node.
     pub node: remedy_ui_a11y::ReaderNode,
@@ -587,12 +591,12 @@ impl Inspector {
                 let h = t
                     .el("inspector_highlight")
                     .pass_through()
-                    .style(StylePatch {
-                        background: Some(accent.with_alpha(0.18)),
-                        border: Some(accent),
-                        border_width: Some(2.0),
-                        ..StylePatch::default()
-                    })
+                    .style(
+                        StylePatch::default()
+                            .background(accent.with_alpha(0.18))
+                            .border(accent)
+                            .border_width(2.0),
+                    )
                     .semantics(Semantics::new(Role::Group).hidden(true));
                 place(&h, b);
                 *slot = Some(t.overlay(h));
@@ -668,8 +672,8 @@ pub(crate) fn line(ui: &Ui, k: &str, v: String) -> El {
     w::row(ui)
         .gap(unit * 2.0)
         .fill_width()
-        .child(w::label(ui, k.to_owned(), "muted").width(110.0))
-        .child(w::label(ui, v, "").data_text().grow(1.0))
+        .child(w::text(ui, k.to_owned()).variant("muted").width(110.0))
+        .child(w::text(ui, v).data_text().grow(1.0))
 }
 
 /// An element's details as the inspector shows them, as (name, value) rows: widget, source
@@ -801,9 +805,8 @@ pub fn inspector_panel(ui: &Ui, insp: &Inspector) -> El {
             d2.clear();
             let content = match sel.and_then(|id| t2.element(id).info()) {
                 Some(info) => details(&u2, &info),
-                None => {
-                    w::label(&u2, "Nothing selected. Pick an element, or choose one in the tree.", "muted")
-                }
+                None => w::text(&u2, "Nothing selected. Pick an element, or choose one in the tree.")
+                    .variant("muted"),
             };
             let _ = d2.clone().child(content);
         });
@@ -833,7 +836,8 @@ pub fn inspector_panel(ui: &Ui, insp: &Inspector) -> El {
                         end: unit,
                     })
                     .child(
-                        w::label(&u3, describe(&info), if info.hidden { "muted" } else { "" })
+                        w::text(&u3, describe(&info))
+                            .variant(if info.hidden { "muted" } else { "" })
                             .data_text()
                             .nowrap(),
                     )
@@ -857,7 +861,7 @@ pub fn inspector_panel(ui: &Ui, insp: &Inspector) -> El {
             let found = audit(&t4);
             let mut col = pr2.clone();
             if found.is_empty() {
-                col = col.child(w::label(&u4, "No problems found.", "muted"));
+                col = col.child(w::text(&u4, "No problems found.").variant("muted"));
             }
             for p in found {
                 let id = p.element;
@@ -876,11 +880,11 @@ pub fn inspector_panel(ui: &Ui, insp: &Inspector) -> El {
         let value = Signal::new(c);
         let i8 = insp.clone();
         let first = std::cell::Cell::new(true);
-        let swatch = ui.el("swatch").width(20.0).height(20.0).style_dyn(move || StylePatch {
-            background: Some(value.get()),
-            radius: Some(4.0),
-            ..StylePatch::default()
-        });
+        let swatch = ui
+            .el("swatch")
+            .width(20.0)
+            .height(20.0)
+            .style_dyn(move || StylePatch::default().background(value.get()).radius(4.0));
         let editor = w::column(ui);
         let (e2, u5) = (editor.clone(), ui.clone());
         let open = Signal::new(false);
@@ -905,8 +909,8 @@ pub fn inspector_panel(ui: &Ui, insp: &Inspector) -> El {
             .gap(unit * 2.0)
             .align(remedy_ui_view::Align::Center)
             .child(swatch)
-            .child(w::label(ui, role, "").grow(1.0))
-            .child(w::label(ui, "", "muted").text_dyn(move || value.get().to_hex()))
+            .child(w::text(ui, role).grow(1.0))
+            .child(w::text(ui, "").variant("muted").text_dyn(move || value.get().to_hex()))
             .child(w::button(ui, "Edit", move || open.update(|o| *o = !*o)).variant("quiet"));
         tokens = tokens.child(head).child(editor).child(watcher);
     }

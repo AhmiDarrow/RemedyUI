@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use spellbook::Dictionary;
 
-use crate::backend::{Prepared, SpellBackend};
+use crate::backend::{BackendError, Prepared, SpellBackend};
 
 /// The folders Hunspell dictionaries are usually in, most specific first: the `DICPATH`
 /// variable Hunspell itself honors, the user's and the system's XDG data folders, the classic
@@ -280,7 +280,7 @@ impl SpellBackend for HunspellBackend {
         out
     }
 
-    fn check_word(&mut self, language: &str, word: &str) -> Result<bool, String> {
+    fn check_word(&mut self, language: &str, word: &str) -> Result<bool, BackendError> {
         let dict = self.dictionary(language).ok_or_else(|| format!("no dictionary for {language}"))?;
         if dict.check(word) {
             return Ok(true);
@@ -289,7 +289,7 @@ impl SpellBackend for HunspellBackend {
         Ok(plain != word && dict.check(&plain))
     }
 
-    fn suggest(&mut self, language: &str, word: &str) -> Result<Vec<String>, String> {
+    fn suggest(&mut self, language: &str, word: &str) -> Result<Vec<String>, BackendError> {
         let dict = self.dictionary(language).ok_or_else(|| format!("no dictionary for {language}"))?;
         let curly = word.contains(['\u{2019}', '\u{02BC}']);
         let mut out = Vec::new();

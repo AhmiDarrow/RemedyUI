@@ -7,12 +7,11 @@ mod common;
 
 use std::cell::Cell;
 use std::rc::Rc;
-use std::time::Duration;
 
 use common::*;
 use remedy_ui_core::Point;
 use remedy_ui_embed_gpu::*;
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase};
+use remedy_ui_input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase};
 
 /// Checks the triangle in the composed frame at angle 0, then turned half a circle.
 fn rotates(gpu: bool) {
@@ -103,17 +102,11 @@ fn animating_renders_a_new_picture_every_frame_until_stopped() {
 }
 
 fn pointer(phase: PointerPhase, x: f32, y: f32) -> PointerEvent {
-    PointerEvent {
-        id: 0,
-        kind: PointerKind::Mouse,
-        phase,
-        position: Point::new(x, y),
-        buttons: if phase == PointerPhase::Down { Buttons::PRIMARY } else { Buttons::default() },
-        pressure: 0.5,
-        time: Duration::ZERO,
-        coalesced: Vec::new(),
-        modifiers: Modifiers::NONE,
-    }
+    PointerEvent::new(phase, Point::new(x, y)).with_buttons(if phase == PointerPhase::Down {
+        Buttons::PRIMARY
+    } else {
+        Buttons::default()
+    })
 }
 
 #[test]
@@ -131,15 +124,7 @@ fn pointer_keys_and_focus_reach_the_content() {
     s.frame();
     assert!(ui.pointer(&pointer(PointerPhase::Down, 50.0, 60.0)));
     assert!(ui.pointer(&pointer(PointerPhase::Up, 50.0, 60.0)));
-    let key = KeyEvent {
-        key: Key::Character("w".into()),
-        physical: String::new(),
-        modifiers: Modifiers::NONE,
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: Some("w".into()),
-    };
+    let key = KeyEvent::press(Key::Character("w".into())).with_text(Some("w".into()));
     assert!(ui.key(&key));
     let inputs = seen.inputs.borrow().clone();
     let firsts: Vec<&EmbedInput> = inputs.iter().filter(|i| !matches!(i, EmbedInput::Focus(_))).collect();

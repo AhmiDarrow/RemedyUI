@@ -31,6 +31,31 @@ pub fn button(ui: &Ui, label: impl Into<String>, on_press: impl Fn() + 'static) 
         .semantics(Semantics::new(Role::Button).label(label).action(Action::Click))
 }
 
+/// A button whose label follows `label`: it reads signals (a message in the window's
+/// language, a count) and the label and what assistive technology reads change with them.
+///
+/// ```
+/// # fn build(ui: &remedy_ui_view::Ui) {
+/// use remedy_ui_reactive::Signal;
+/// use remedy_ui_widgets_core::button_dyn;
+///
+/// let unread = Signal::new(3u32);
+/// let open = button_dyn(ui, move || format!("Open {} new", unread.get()), || {});
+/// ui.root().child(open);
+/// # }
+/// ```
+#[track_caller]
+pub fn button_dyn(ui: &Ui, label: impl Fn() -> String + 'static, on_press: impl Fn() + 'static) -> El {
+    let label = std::rc::Rc::new(label);
+    let gap = ui.theme().spacing.unit * 1.5;
+    let (l1, l2) = (label.clone(), label);
+    centered(ui.el("button"))
+        .gap(gap)
+        .child(ui.el("button_label").text_dyn(move || l1()).nowrap().layout(|l| l.shrink = 0.0))
+        .on_click(on_press)
+        .semantics_dyn(move || Semantics::new(Role::Button).label(l2()).action(Action::Click))
+}
+
 /// A button showing only an icon. The label is required: it is what assistive technology
 /// reads and what the tooltip shows.
 #[track_caller]

@@ -193,13 +193,16 @@ impl Reply {
             Reply::Pixels { size, source } => Writer::new(3).pair(*size).pair(*source),
             Reply::Failed(e) => {
                 let (kind, w, h, text) = match e {
-                    DecodeError::Unrecognized => (0, 0, 0, ""),
-                    DecodeError::Malformed(s) => (1, 0, 0, s.as_str()),
-                    DecodeError::TooLarge { width, height } => (2, *width, *height, ""),
-                    DecodeError::Io(s) => (3, 0, 0, s.as_str()),
-                    DecodeError::Stopped(s) => (4, 0, 0, s.as_str()),
+                    DecodeError::Unrecognized => (0, 0, 0, String::new()),
+                    DecodeError::Malformed(s) => (1, 0, 0, s.clone()),
+                    DecodeError::TooLarge { width, height } => (2, *width, *height, String::new()),
+                    DecodeError::Io(s) => (3, 0, 0, s.clone()),
+                    DecodeError::Stopped(s) => (4, 0, 0, s.clone()),
+                    // A failure this protocol has no code for crosses as malformed input, with
+                    // its own description.
+                    other => (1, 0, 0, other.to_string()),
                 };
-                Writer::new(4).u8(kind).u32(w).u32(h).text(text)
+                Writer::new(4).u8(kind).u32(w).u32(h).text(&text)
             }
             Reply::Animation(o) => Writer::new(5)
                 .u32(o.session)

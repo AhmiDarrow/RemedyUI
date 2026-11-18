@@ -42,7 +42,7 @@ pub fn calendar(
     let allowed = move |d: Date| min.is_none_or(|m| d >= m) && max.is_none_or(|m| d <= m);
 
     // Month names, weekdays and dates come formatted from the locale's data: data text.
-    let title = w::label(ui, "", "strong").grow(1.0).data_text();
+    let title = w::text(ui, "").variant("strong").grow(1.0).data_text();
     let t2 = title.clone();
     let u2 = ui.clone();
     let title = title.bind(move || {
@@ -80,10 +80,13 @@ pub fn calendar(
                 let mut head = w::row(&u3).fill_width();
                 for i in 0..7 {
                     let name = sym.weekday(sym.first_weekday.plus(i)).to_owned();
-                    head = head.child(w::label(&u3, name, "muted").data_text().grow(1.0).style(StylePatch {
-                        text_size: Some(u3.theme().type_scale.small),
-                        ..StylePatch::default()
-                    }));
+                    head = head.child(
+                        w::text(&u3, name)
+                            .variant("muted")
+                            .data_text()
+                            .grow(1.0)
+                            .style(StylePatch::default().text_size(u3.theme().type_scale.small)),
+                    );
                 }
                 let mut g = g2.clone().child(head);
                 for week in days.chunks(7) {
@@ -94,10 +97,11 @@ pub fn calendar(
                             num.format(remedy_ui_services_i18n::Decimal::from_int(i64::from(d.day)), 0);
                         let variant = if d == chosen { "primary" } else { "quiet" };
                         // The keyboard cursor gets a ring in the accent color.
-                        let ring = StylePatch {
-                            border: (d == c).then_some(u3.theme().colors.accent),
-                            border_width: (d == c).then_some(2.0),
-                            ..StylePatch::default()
+                        let ring = {
+                            let mut v_ = StylePatch::default();
+                            v_.border = (d == c).then_some(u3.theme().colors.accent);
+                            v_.border_width = (d == c).then_some(2.0);
+                            v_
                         };
                         let ok = allowed(d);
                         let cell = u3
@@ -109,20 +113,19 @@ pub fn calendar(
                             .justify(Justify::Center)
                             .align(Align::Center)
                             .child(
-                                w::label(&u3, text, if d.month == c.month { "" } else { "muted" })
+                                w::text(&u3, text)
+                                    .variant(if d.month == c.month { "" } else { "muted" })
                                     // Today is bold, with a line under it.
                                     .style(if d == today {
-                                        StylePatch { weight: Some(700.0), ..StylePatch::default() }
+                                        StylePatch::default().weight(700.0)
                                     } else {
                                         StylePatch::default()
                                     }),
                             )
                             .child(if d == today {
-                                u3.el("today_mark").width(14.0).height(2.0).style(StylePatch {
-                                    background: Some(u3.theme().colors.accent),
-                                    radius: Some(1.0),
-                                    ..StylePatch::default()
-                                })
+                                u3.el("today_mark").width(14.0).height(2.0).style(
+                                    StylePatch::default().background(u3.theme().colors.accent).radius(1.0),
+                                )
                             } else {
                                 u3.el("spacer").height(2.0)
                             })

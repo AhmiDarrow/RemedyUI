@@ -84,19 +84,22 @@ impl PaintCx<'_> {
     }
 
     fn line(&mut self, text: &str, p: TextPaint) -> Paragraph {
-        let style = TextStyle {
-            families: if p.mono {
-                self.theme.mono_families.clone()
-            } else {
-                self.theme.font_families.clone()
-            },
-            size: p.size,
-            weight: p.weight,
-            color: p.color,
-            ..TextStyle::default()
+        let style = {
+            let mut v_ = TextStyle::default();
+            v_.families =
+                if p.mono { self.theme.mono_families.clone() } else { self.theme.font_families.clone() };
+            v_.size = p.size;
+            v_.weight = p.weight;
+            v_.color = p.color;
+            v_
         };
         // One line placed by its anchor, so alignment inside it does not matter.
-        let options = ParagraphOptions { max_width: None, scale: self.scale, ..ParagraphOptions::default() };
+        let options = {
+            let mut v_ = ParagraphOptions::default();
+            v_.max_width = None;
+            v_.scale = self.scale;
+            v_
+        };
         self.layout_text(&RichText::plain(text), &style, options)
     }
 
@@ -155,11 +158,12 @@ impl TextSlot {
         {
             return p.clone();
         }
-        let options = ParagraphOptions {
-            max_width,
-            scale: self.scale,
-            container: container(self.rtl),
-            ..ParagraphOptions::default()
+        let options = {
+            let mut v_ = ParagraphOptions::default();
+            v_.max_width = max_width;
+            v_.scale = self.scale;
+            v_.container = container(self.rtl);
+            v_
         };
         let shown;
         let text = match self.pseudo.filter(|_| !self.data) {
@@ -186,6 +190,7 @@ static NEXT_UI: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new
 /// An element marked for work, and why ([`Ui::add_dirty_observer`]): "row 42 repainted
 /// because `message.edited` changed".
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct DirtyRecord {
     /// The element.
     pub element: ElementId,
@@ -239,6 +244,7 @@ impl DirtyRecord {
 
 /// A snapshot of an element for inspectors and tests ([`El::info`]).
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct ElementInfo {
     /// Its id.
     pub id: ElementId,
@@ -394,6 +400,8 @@ pub(crate) struct Inner {
     pub(crate) field_session: Option<ElementId>,
     pub(crate) focus_shown: Option<ElementId>,
     pub(crate) platform: remedy_ui_input::Platform,
+    /// The app's edition: which default behaviors this window follows.
+    pub(crate) edition: remedy_ui_core::Edition,
     pub(crate) locale: remedy_ui_reactive::Signal<String>,
     /// The window's size in logical pixels, set as each frame starts.
     pub(crate) window_size: remedy_ui_reactive::Signal<Size>,
@@ -541,10 +549,11 @@ pub struct El {
 }
 
 fn root_style() -> LayoutStyle {
-    LayoutStyle {
-        width: remedy_ui_layout::Length::Percent(1.0),
-        height: remedy_ui_layout::Length::Percent(1.0),
-        ..LayoutStyle::column()
+    {
+        let mut v_ = LayoutStyle::column();
+        v_.width = remedy_ui_layout::Length::Percent(1.0);
+        v_.height = remedy_ui_layout::Length::Percent(1.0);
+        v_
     }
 }
 
@@ -592,6 +601,7 @@ impl Ui {
             field_session: None,
             focus_shown: None,
             platform: remedy_ui_input::Platform::Standard,
+            edition: remedy_ui_core::Edition::FIRST,
             locale: remedy_ui_reactive::Signal::new(String::from("en-US")),
             window_size: remedy_ui_reactive::Signal::new(Size::ZERO),
             pseudo: None,
@@ -777,6 +787,31 @@ impl Ui {
         self.0.borrow().platform
     }
 
+    /// The app's edition: which default behaviors this window follows. Code whose default
+    /// changed in a later edition asks [`Edition::at_least`](remedy_ui_core::Edition::at_least)
+    /// on it. A view starts on [`Edition::FIRST`](remedy_ui_core::Edition::FIRST); the runner
+    /// sets the app's edition from `AppConfig::edition` before the window is built.
+    ///
+    /// ```
+    /// use remedy_ui_core::Edition;
+    /// use remedy_ui_style::{StyleSheet, Theme};
+    /// use remedy_ui_text::FontCollection;
+    /// use remedy_ui_view::Ui;
+    ///
+    /// let ui = Ui::new(Theme::dark_forest(), StyleSheet::new(), FontCollection::new());
+    /// assert_eq!(ui.edition(), Edition::FIRST);
+    /// ui.set_edition(Edition::LATEST);
+    /// assert!(ui.edition().at_least(Edition::E2026));
+    /// ```
+    pub fn edition(&self) -> remedy_ui_core::Edition {
+        self.0.borrow().edition
+    }
+
+    /// Sets the edition this window follows (the runner sets the app's before building it).
+    pub fn set_edition(&self, edition: remedy_ui_core::Edition) {
+        self.0.borrow_mut().edition = edition;
+    }
+
     /// Follows the system's reduced-motion setting (the runner sets it).
     pub fn set_reduced_motion(&self, on: bool) {
         let s = self.0.borrow().reduced_motion;
@@ -857,7 +892,7 @@ impl Ui {
     }
 
     /// True while the window is minimized or fully covered.
-    pub fn occluded(&self) -> bool {
+    pub fn is_occluded(&self) -> bool {
         self.0.borrow().occluded
     }
 
@@ -996,9 +1031,11 @@ impl Ui {
         std::mem::take(&mut self.0.borrow_mut().requests)
     }
 
-    /// The milliseconds clock edits use to group undo steps; the runner advances it.
-    pub fn set_time(&self, ms: u64) {
-        self.0.borrow_mut().now_ms = ms;
+    /// Sets the clock edits read to group typing into undo steps (a pause of
+    /// [`UNDO_PAUSE_MS`](remedy_ui_text::UNDO_PAUSE_MS) starts a new step): the host's time,
+    /// which the runner sets before it delivers each event.
+    pub fn set_clock(&self, now: std::time::Duration) {
+        self.0.borrow_mut().now_ms = u64::try_from(now.as_millis()).unwrap_or(u64::MAX);
     }
 
     /// The scroll offset the compositor reports for a scroll container, so hit testing
@@ -1067,20 +1104,14 @@ impl Ui {
         let el = El { ui: self.clone(), id };
         let tree = self.tree();
         let arrow = |k: remedy_ui_input::Key| {
-            let e = remedy_ui_input::KeyEvent {
-                key: k,
-                physical: String::new(),
-                modifiers: remedy_ui_input::Modifiers::NONE,
-                pressed: true,
-                repeat: false,
-                composing: false,
-                text: None,
-            };
+            let e = remedy_ui_input::KeyEvent::press(k);
             tree.dispatch(id, &e).is_ok_and(|d| d.handled)
         };
         match action {
             A::Click => {
-                let clickable = self.0.borrow().els.get(&id).is_some_and(|d| d.click.is_some());
+                // A disabled control refuses assistive technology as it refuses the pointer
+                // (a trusted prompt's buttons stay disabled for a moment for that reason).
+                let clickable = self.clickable(id);
                 if clickable {
                     let _ = tree.dispatch(id, &crate::events::Click { position: None });
                 }
@@ -1101,6 +1132,8 @@ impl Ui {
             }
             // Setting text needs the text: `accessibility_set_value`.
             A::Expand | A::Collapse | A::ShowContextMenu | A::SetValue => false,
+            // An action newer than this view is reported as not performed.
+            _ => false,
         }
     }
 
@@ -1790,7 +1823,7 @@ impl El {
 
     /// Padding (a style property, so themes can change it).
     pub fn padding(self, p: Insets) -> Self {
-        self.style(StylePatch { padding: Some(p), ..StylePatch::default() })
+        self.style(StylePatch::default().padding(p))
     }
 
     /// Sets a state flag (selected, checked, invalid, …).

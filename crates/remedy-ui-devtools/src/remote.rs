@@ -36,6 +36,7 @@ use crate::signals::{UpdateLog, element_signals};
 /// A request to a remote app.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum RemoteRequest {
     /// Every element of the window, depth first.
     Tree,
@@ -61,6 +62,7 @@ pub enum RemoteRequest {
 
 /// An element in the remote tree.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RemoteElement {
     /// Its id (its accessibility node id).
     pub id: u64,
@@ -80,6 +82,7 @@ pub struct RemoteElement {
 
 /// A node of the reactive graph.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RemoteNode {
     /// Its key.
     pub key: u64,
@@ -99,6 +102,7 @@ pub struct RemoteNode {
 
 /// A signal or memo a binding read, with what depends on it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RemoteRead {
     /// The signal or memo.
     pub node: RemoteNode,
@@ -108,6 +112,7 @@ pub struct RemoteRead {
 
 /// One binding of an element.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RemoteBinding {
     /// The binding or painter.
     pub node: RemoteNode,
@@ -117,6 +122,7 @@ pub struct RemoteBinding {
 
 /// A node as a screen reader meets it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RemoteReaderNode {
     /// The element's id.
     pub id: u64,
@@ -130,6 +136,7 @@ pub struct RemoteReaderNode {
 
 /// An accessibility problem.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RemoteProblem {
     /// The element's id.
     pub element: u64,
@@ -139,6 +146,7 @@ pub struct RemoteProblem {
 
 /// An element marked for work, with why.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RemoteUpdate {
     /// The element's id.
     pub element: u64,
@@ -150,6 +158,7 @@ pub struct RemoteUpdate {
 
 /// One frame's timings.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RemoteFrame {
     /// When it started, on the app's trace clock.
     pub start_ns: u64,
@@ -164,6 +173,7 @@ pub struct RemoteFrame {
 /// An answer from a remote app.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "answer", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum RemoteAnswer {
     /// The token was accepted; requests may follow.
     Welcome {
@@ -226,6 +236,7 @@ pub const PROTOCOL_VERSION: u32 = 1;
 
 /// How a [`RemoteServer`] listens.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RemoteOptions {
     /// The loopback port; 0 lets the system pick one (read it from [`RemoteServer::addr`]).
     /// A fixed port suits `adb forward`.
@@ -238,6 +249,38 @@ pub struct RemoteOptions {
     pub keep_updates: usize,
     /// How many frames' timings are kept for clients between requests.
     pub keep_frames: usize,
+}
+
+impl RemoteOptions {
+    /// Sets `port`: the loopback port; 0 lets the system pick one (read it from [`RemoteServer::addr`]).
+    pub fn port(mut self, value: u16) -> Self {
+        self.port = value;
+        self
+    }
+
+    /// Sets `allow_release`: serve in a release build too.
+    pub fn allow_release(mut self, value: bool) -> Self {
+        self.allow_release = value;
+        self
+    }
+
+    /// Sets `token`: the token clients must send; `None` draws a fresh random one.
+    pub fn token(mut self, value: String) -> Self {
+        self.token = Some(value);
+        self
+    }
+
+    /// Sets `keep_updates`: how many "why did this update" entries are kept for clients between requests.
+    pub fn keep_updates(mut self, value: usize) -> Self {
+        self.keep_updates = value;
+        self
+    }
+
+    /// Sets `keep_frames`: how many frames' timings are kept for clients between requests.
+    pub fn keep_frames(mut self, value: usize) -> Self {
+        self.keep_frames = value;
+        self
+    }
 }
 
 impl Default for RemoteOptions {

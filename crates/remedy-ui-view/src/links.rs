@@ -1,5 +1,5 @@
 //! Links inside text, as on a web page: words in a paragraph that take you somewhere. A text
-//! element's spans marked with [`TextPatch::link`](crate::TextPatch) become links once the
+//! element's spans marked with [`TextStylePatch::link`](crate::TextStylePatch) become links once the
 //! element has [`El::on_link`]. Each link is a real element placed over its words: Tab reaches
 //! it, Enter or a click follows it, a screen reader reads it as a link inside the text, and
 //! the focus ring shows where it is. A link that wraps onto further lines follows from a press
@@ -27,7 +27,7 @@ pub(crate) struct TextLinks {
 
 impl El {
     /// Lets people follow the links in this text: `f` gets the id of the link followed.
-    /// Mark the linked words with [`TextPatch::link`](crate::TextPatch) when building the
+    /// Mark the linked words with [`TextStylePatch::link`](crate::TextStylePatch) when building the
     /// text.
     pub fn on_link(self, f: impl Fn(u64) + 'static) -> Self {
         let handler: LinkHandler = Rc::new(f);

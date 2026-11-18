@@ -6,9 +6,7 @@ use std::time::Duration;
 
 use remedy_ui_compositor::Compositor;
 use remedy_ui_core::{Point, Size};
-use remedy_ui_input::{
-    Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase, ScrollPhysics,
-};
+use remedy_ui_input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_reactive::Signal;
 use remedy_ui_render_cpu::{CpuCompositor, Frame};
 use remedy_ui_text::FontCollection;
@@ -85,15 +83,7 @@ impl T {
     }
 
     fn key(&mut self, k: Key) -> bool {
-        let r = self.ui.key(&KeyEvent {
-            key: k,
-            physical: String::new(),
-            modifiers: Modifiers::NONE,
-            pressed: true,
-            repeat: false,
-            composing: false,
-            text: None,
-        });
+        let r = self.ui.key(&KeyEvent::press(k).with_text(None));
         self.frame();
         r
     }
@@ -104,17 +94,7 @@ impl T {
 }
 
 fn ptr(phase: PointerPhase, p: Point, buttons: Buttons) -> PointerEvent {
-    PointerEvent {
-        id: 0,
-        kind: PointerKind::Mouse,
-        phase,
-        position: p,
-        buttons,
-        pressure: 0.5,
-        time: Duration::ZERO,
-        coalesced: Vec::new(),
-        modifiers: remedy_ui_input::Modifiers::NONE,
-    }
+    PointerEvent::new(phase, p).with_buttons(buttons).with_modifiers(remedy_ui_input::Modifiers::NONE)
 }
 
 #[test]
@@ -479,15 +459,7 @@ fn reveal_shows_a_secret_without_exposing_it() {
     t.frame();
     pw.el().focus();
     for c in ["s", "3", "c"] {
-        t.ui.key(&KeyEvent {
-            key: Key::Character(c.into()),
-            physical: String::new(),
-            modifiers: Modifiers::NONE,
-            pressed: true,
-            repeat: false,
-            composing: false,
-            text: Some(c.into()),
-        });
+        t.ui.key(&KeyEvent::press(Key::Character(c.into())).with_text(Some(c.into())));
     }
     t.frame();
     let masked_width = pw.el().bounds().map(|b| b.width());
@@ -563,8 +535,7 @@ fn a_virtual_list_fills_its_height_and_shows_changed_items() {
     let mut t = T::new();
     let items = Signal::new((0..5).map(|i| format!("row {i}")).collect::<Vec<_>>());
     let ui = t.ui.clone();
-    let list =
-        w::virtual_list(&t.ui, "Rows", items, 200.0, move |_, s: &String| w::label(&ui, s.clone(), ""));
+    let list = w::virtual_list(&t.ui, "Rows", items, 200.0, move |_, s: &String| w::text(&ui, s.clone()));
     t.ui.root().child(t.ui.el("col").column().height(280.0).fill_width().child(list.clone()));
     for _ in 0..3 {
         t.frame();

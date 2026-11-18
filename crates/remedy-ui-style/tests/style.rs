@@ -51,22 +51,12 @@ fn rules_apply_by_widget_variant_and_state() {
     let mut sheet = StyleSheet::new();
     let accent = Color::rgb8(90, 140, 126);
     let hover = Color::rgb8(100, 150, 136);
-    sheet.rule("button", None, States::NONE, StylePatch { radius: Some(3.0), ..Default::default() });
-    sheet.rule(
-        "button",
-        Some("primary"),
-        States::NONE,
-        StylePatch { background: Some(accent), ..Default::default() },
-    );
-    sheet.rule(
-        "button",
-        Some("primary"),
-        States::HOVER,
-        StylePatch { background: Some(hover), ..Default::default() },
-    );
-    sheet.rule("button", None, States::DISABLED, StylePatch { opacity: Some(0.4), ..Default::default() });
+    sheet.rule("button", None, States::NONE, StylePatch::default().radius(3.0));
+    sheet.rule("button", Some("primary"), States::NONE, StylePatch::default().background(accent));
+    sheet.rule("button", Some("primary"), States::HOVER, StylePatch::default().background(hover));
+    sheet.rule("button", None, States::DISABLED, StylePatch::default().opacity(0.4));
 
-    let defaults = StylePatch { padding: Some(Insets::symmetric(6.0, 12.0)), ..Default::default() };
+    let defaults = StylePatch::default().padding(Insets::symmetric(6.0, 12.0));
     let none = StylePatch::default();
     let key = |states| StyleKey { widget: "button", variant: "primary", states };
 
@@ -77,7 +67,7 @@ fn rules_apply_by_widget_variant_and_state() {
     let disabled = sheet.resolve(&key(States::DISABLED), &defaults, &none);
     assert_eq!((disabled.opacity, disabled.background), (0.4, accent));
     // The element's own properties come last.
-    let local = StylePatch { radius: Some(10.0), ..Default::default() };
+    let local = StylePatch::default().radius(10.0);
     assert_eq!(sheet.resolve(&key(States::NONE), &defaults, &local).radius, 10.0);
     // A quiet button gets none of the primary rules.
     let quiet = sheet.resolve(
@@ -91,12 +81,7 @@ fn rules_apply_by_widget_variant_and_state() {
 #[test]
 fn hovering_is_a_cache_hit() {
     let mut sheet = StyleSheet::new();
-    sheet.rule(
-        "button",
-        None,
-        States::HOVER,
-        StylePatch { background: Some(Color::WHITE), ..Default::default() },
-    );
+    sheet.rule("button", None, States::HOVER, StylePatch::default().background(Color::WHITE));
     let key = StyleKey { widget: "button", variant: "", states: States::HOVER };
     let none = StylePatch::default();
     for _ in 0..1000 {

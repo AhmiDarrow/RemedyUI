@@ -5,16 +5,12 @@ use std::path::{Path, PathBuf};
 use crate::flag_value;
 
 /// Templates and what each makes.
-pub const TEMPLATES: [(&str, &str); 3] = [
+pub const TEMPLATES: [(&str, &str); 5] = [
     ("basic", "one window with a heading and a button"),
     ("tray", "an app that lives in the tray, with one instance and a window it hides to the tray"),
     ("multi-window", "a main window that opens document windows, each remembering its place"),
-];
-
-/// Templates that arrive with later milestones, and why they are not here yet.
-const LATER: [(&str, &str); 2] = [
-    ("document", "needs the document packs (doc-rich, doc-pages), which arrive in M8"),
-    ("android", "needs the Android bridge, which arrives in M7"),
+    ("document", "a viewer for documents made of page images, with zoom, spreads and thumbnails"),
+    ("android", "one app for Android and the desktop, packaged as an APK"),
 ];
 
 pub fn run(args: &[String]) -> Result<(), String> {
@@ -103,11 +99,10 @@ fn check_name(name: &str) -> Result<String, String> {
 /// The files of a new app, relative to its directory.
 pub fn generate(name: &str, template: &str, remedy: &Dependency) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
     let krate = check_name(name)?;
-    if let Some((_, why)) = LATER.iter().find(|(t, _)| *t == template) {
-        return Err(format!("the `{template}` template {why}"));
-    }
     let lib = match template {
         "basic" => BASIC,
+        "document" => crate::templates::DOCUMENT,
+        "android" => crate::templates::ANDROID,
         "tray" => TRAY,
         "multi-window" => MULTI,
         other => {
@@ -119,24 +114,76 @@ pub fn generate(name: &str, template: &str, remedy: &Dependency) -> Result<Vec<(
     let fill =
         |s: &str| s.replace("{{title}}", &title).replace("{{crate}}", &krate).replace("{{name}}", name);
     let single = template == "tray";
-    let main = fill(MAIN).replace("{{config}}", if single { ".single_instance()" } else { "" });
-    let cargo = fill(CARGO)
-        .replace("{{remedy}}", &remedy.spec(""))
-        .replace("{{remedy_dev}}", &remedy.spec("\"headless\", \"devtools\""));
+    // New apps start on the newest edition's behavior; existing apps keep theirs.
+    let main = fill(MAIN)
+        .replace("{{edition}}", &remedy_ui_core::Edition::LATEST.to_string())
+        .replace("{{config}}", if single { ".single_instance()" } else { "" });
+    // Packs a template needs on top of the defaults.
+    let packs = if template == "document" { "\"pages\", \"image\"" } else { "" };
+    let dev = if packs.is_empty() {
+        "\"headless\", \"devtools\"".to_owned()
+    } else {
+        format!("{packs}, \"headless\", \"devtools\"")
+    };
+    let mut cargo =
+        fill(CARGO).replace("{{remedy}}", &remedy.spec(packs)).replace("{{remedy_dev}}", &remedy.spec(&dev));
+    let mut remedy_toml = fill(REMEDY_TOML);
+    if template == "android" {
+        cargo = cargo.replacen(
+            "\n[dependencies]",
+            &format!("{}\n[dependencies]", crate::templates::ANDROID_LIB),
+            1,
+        );
+        remedy_toml.push_str(crate::templates::ANDROID_TOML);
+    }
     let icon = crate::ico::write_png(&crate::ico::default_icon([61, 139, 95]))?;
     let mut files = vec![
         (PathBuf::from("Cargo.toml"), cargo.into_bytes()),
         (PathBuf::from("src/lib.rs"), fill(lib).into_bytes()),
         (PathBuf::from("src/main.rs"), main.into_bytes()),
         (PathBuf::from("tests/app.rs"), fill(TEST).into_bytes()),
-        (PathBuf::from("remedy.toml"), fill(REMEDY_TOML).into_bytes()),
+        (PathBuf::from("remedy.toml"), remedy_toml.into_bytes()),
         (PathBuf::from("assets/icon.png"), icon),
         (PathBuf::from(".gitignore"), b"/target\n*.actual.png\n".to_vec()),
         (PathBuf::from("README.md"), fill(README).into_bytes()),
         (PathBuf::from("i18n/en-US.ftl"), fill(ftl(template)).into_bytes()),
     ];
+    if template == "document" {
+        for (n, color) in [(1u32, [61u8, 139, 95]), (2, [90, 110, 170])] {
+            files.push((
+                PathBuf::from(format!("pages/page-{n:03}.png")),
+                crate::ico::write_png(&sample_page(n, color))?,
+            ));
+        }
+    }
+    let lib_text = files
+        .iter()
+        .find(|(p, _)| p == Path::new("src/lib.rs"))
+        .map(|(_, b)| String::from_utf8_lossy(b).into_owned());
+    if let Some(text) = lib_text {
+        let text = text.replace("{{edition}}", &remedy_ui_core::Edition::LATEST.to_string());
+        if let Some(f) = files.iter_mut().find(|(p, _)| p == Path::new("src/lib.rs")) {
+            f.1 = text.into_bytes();
+        }
+    }
     finish(&mut files, template, &krate);
     Ok(files)
+}
+
+/// A sample page for the document template (US Letter at 150 dpi): a band of `color` across
+/// the top and `n` marks under it, so the pages tell apart. People replace them with theirs.
+fn sample_page(n: u32, color: [u8; 3]) -> crate::ico::Rgba {
+    let (width, height) = (1275u32, 1650u32);
+    let mut data = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let band = (150..330).contains(&y) && (150..1125).contains(&x);
+            let mark = (420..480).contains(&y) && (0..n).any(|i| (150 + i * 90..210 + i * 90).contains(&x));
+            let [r, g, b] = if band || mark { color } else { [255, 255, 255] };
+            data.extend([r, g, b, 255]);
+        }
+    }
+    crate::ico::Rgba { width, height, data }
 }
 
 const CARGO: &str = r#"[package]
@@ -165,7 +212,7 @@ const MAIN: &str = r#"//! {{title}}.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    let config = remedy_ui::AppConfig::new("{{title}}"){{config}};
+    let config = remedy_ui::AppConfig::new("{{title}}").edition(remedy_ui::Edition::E{{edition}}){{config}};
     if let Err(e) = remedy_ui::run(config, {{crate}}::app) {
         eprintln!("{{title}}: {e:?}");
         std::process::exit(1);
@@ -194,22 +241,14 @@ pub fn home(ui: &Ui) -> El {
     let clicks = Signal::new(0u32);
     let unit = ui.theme().spacing.unit;
     let u = ui.clone();
-    let button = w::button(ui, "", move || clicks.update(|c| *c += 1)).variant("primary");
-    let label = button.child_elements().into_iter().next();
     let u2 = ui.clone();
-    let button = button.bind(move || {
-        if let Some(l) = &label {
-            let _ = l.clone().text(remedy_ui::view::RichText::plain(messages().text(&u2, "click-me")));
-        }
-    });
+    let button = w::button_dyn(ui, move || messages().text(&u2, "click-me"), move || clicks.update(|c| *c += 1))
+        .variant("primary");
     w::column(ui)
         .gap(unit * 3.0)
         .padding(Insets::all(unit * 6.0))
-        .child(say(ui, "app-title", "strong").style(remedy_ui::style::StylePatch {
-            text_size: Some(ui.theme().type_scale.title + 6.0),
-            ..Default::default()
-        }))
-        .child(w::label(ui, "", "muted").text_dyn(move || {
+        .child(say(ui, "app-title", "strong").style(remedy_ui::style::StylePatch::new().text_size(ui.theme().type_scale.title + 6.0)))
+        .child(w::text(ui, "").variant("muted").text_dyn(move || {
             messages().format(&u, "clicks", &[("count", Arg::from(clicks.get()))])
         }))
         .child(button)
@@ -234,7 +273,7 @@ pub fn messages() -> Messages {
 /// A label showing message `id`, following the window's locale and message edits.
 fn say(ui: &Ui, id: &'static str, variant: &'static str) -> El {
     let u = ui.clone();
-    w::label(ui, "", variant).text_dyn(move || messages().text(&u, id))
+    w::text(ui, "").variant(variant).text_dyn(move || messages().text(&u, id))
 }
 "#;
 
@@ -260,11 +299,7 @@ pub fn app(app: &App) {
             let m = messages();
             win.set_title(m.text(&u, "app-title"));
             let item = |id, label: String| TrayItem::Item { id, label, enabled: true };
-            a.set_tray(Some(TrayIcon {
-                tooltip: m.text(&u, "app-title"),
-                icon: tray_icon(),
-                menu: vec![item(SHOW, m.text(&u, "tray-show")), TrayItem::Separator, item(QUIT, m.text(&u, "tray-quit"))],
-            }));
+            a.set_tray(Some(TrayIcon::new(m.text(&u, "app-title"), tray_icon(), vec![item(SHOW, m.text(&u, "tray-show")), TrayItem::Separator, item(QUIT, m.text(&u, "tray-quit"))])));
         });
     });
     let (w2, a2) = (win.clone(), app.clone());
@@ -274,7 +309,7 @@ pub fn app(app: &App) {
             w2.focus();
         }
         TrayEvent::Menu(QUIT) => a2.quit(),
-        TrayEvent::Menu(_) => {}
+        _ => {}
     });
     // Starting it again shows the running one.
     app.on_second_instance(move |_| {
@@ -289,10 +324,7 @@ pub fn home(ui: &Ui) -> El {
     w::column(ui)
         .gap(unit * 3.0)
         .padding(Insets::all(unit * 6.0))
-        .child(say(ui, "app-title", "strong").style(remedy_ui::style::StylePatch {
-            text_size: Some(ui.theme().type_scale.title + 6.0),
-            ..Default::default()
-        }))
+        .child(say(ui, "app-title", "strong").style(remedy_ui::style::StylePatch::new().text_size(ui.theme().type_scale.title + 6.0)))
         .child(say(ui, "tray-hint", "muted"))
 }
 
@@ -330,7 +362,7 @@ pub fn messages() -> Messages {
 /// A label showing message `id`, following the window's locale and message edits.
 fn say(ui: &Ui, id: &'static str, variant: &'static str) -> El {
     let u = ui.clone();
-    w::label(ui, "", variant).text_dyn(move || messages().text(&u, id))
+    w::text(ui, "").variant(variant).text_dyn(move || messages().text(&u, id))
 }
 "#;
 
@@ -357,26 +389,17 @@ pub fn app(app: &App) {
 pub fn home(ui: &Ui, app: App) -> El {
     let unit = ui.theme().spacing.unit;
     let next = Rc::new(Cell::new(1u32));
-    let button = w::button(ui, "", move || {
+    let u = ui.clone();
+    let button = w::button_dyn(ui, move || messages().text(&u, "new-document"), move || {
         let n = next.get();
         next.set(n + 1);
         let _ = open_document(&app, n);
     })
     .variant("primary");
-    let label = button.child_elements().into_iter().next();
-    let u = ui.clone();
-    let button = button.bind(move || {
-        if let Some(l) = &label {
-            let _ = l.clone().text(remedy_ui::view::RichText::plain(messages().text(&u, "new-document")));
-        }
-    });
     w::column(ui)
         .gap(unit * 3.0)
         .padding(Insets::all(unit * 6.0))
-        .child(say(ui, "app-title", "strong").style(remedy_ui::style::StylePatch {
-            text_size: Some(ui.theme().type_scale.title + 6.0),
-            ..Default::default()
-        }))
+        .child(say(ui, "app-title", "strong").style(remedy_ui::style::StylePatch::new().text_size(ui.theme().type_scale.title + 6.0)))
         .child(button)
 }
 
@@ -396,10 +419,7 @@ pub fn document(ui: &Ui, n: u32) -> El {
     let unit = ui.theme().spacing.unit;
     let body = w::text_area(ui, "Text");
     let (b, u) = (body.clone(), ui.clone());
-    let heading = w::label(ui, "", "strong").style(remedy_ui::style::StylePatch {
-        text_size: Some(ui.theme().type_scale.title),
-        ..Default::default()
-    });
+    let heading = w::text(ui, "").variant("strong").style(remedy_ui::style::StylePatch::new().text_size(ui.theme().type_scale.title));
     let (h, u2) = (heading.clone(), ui.clone());
     w::column(ui)
         .gap(unit * 2.0)
@@ -434,7 +454,7 @@ pub fn messages() -> Messages {
 /// A label showing message `id`, following the window's locale and message edits.
 fn say(ui: &Ui, id: &'static str, variant: &'static str) -> El {
     let u = ui.clone();
-    w::label(ui, "", variant).text_dyn(move || messages().text(&u, id))
+    w::text(ui, "").variant(variant).text_dyn(move || messages().text(&u, id))
 }
 "#;
 
@@ -443,6 +463,8 @@ fn ftl(template: &str) -> &'static str {
     match template {
         "tray" => TRAY_FTL,
         "multi-window" => MULTI_FTL,
+        "document" => crate::templates::DOCUMENT_FTL,
+        "android" => crate::templates::ANDROID_FTL,
         _ => BASIC_FTL,
     }
 }
@@ -455,17 +477,14 @@ const MULTI_FTL: &str = "# {{title}}'s text, in Fluent (https://projectfluent.or
 
 const TEST: &str = r#"//! The app on the in-memory host, and its previews as golden images.
 
+use remedy_ui::AppConfig;
 use remedy_ui::devtools::{GoldenError, Preview, check_golden};
-use remedy_ui::headless::HeadlessHost;
-use remedy_ui::{AppConfig, GeometryStore, Runner};
+use remedy_ui::testing::TestApp;
 
 #[test]
 fn the_app_opens_its_window() {
-    let config = AppConfig::new("{{title}} test").cpu_only();
-    let mut runner = Runner::with_geometry(config, GeometryStore::in_memory(), {{crate}}::app);
-    let mut host = HeadlessHost::new();
-    host.run_frames(&mut runner, 2);
-    assert!(!host.window_ids().is_empty(), "a window opened");
+    let app = TestApp::new(AppConfig::new("{{title}} test"), {{crate}}::app);
+    assert!(app.ui().is_some(), "a window opened");
 }
 
 #[test]
@@ -519,6 +538,7 @@ A [RemedyUI](https://github.com/AhmiDarrow/RemedyUI) app.
 pub fn preview_expr(template: &str) -> &'static str {
     match template {
         "multi-window" => "{{crate}}::document(ui, 1)",
+        "document" => crate::templates::DOCUMENT_TEST_PREVIEW,
         _ => "{{crate}}::home(ui)",
     }
 }

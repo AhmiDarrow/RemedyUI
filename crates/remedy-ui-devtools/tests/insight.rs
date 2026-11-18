@@ -61,8 +61,8 @@ fn pump_until(mut done: impl FnMut() -> bool) {
 /// signal.
 fn chat(ui: &Ui) -> (Signal<String>, El, El) {
     let text = Signal::new(String::from("hello")).named("message.text");
-    let row = w::label(ui, "", "").text_dyn(move || text.get());
-    let count = w::label(ui, "", "muted").text_dyn(move || format!("{} letters", text.get().len()));
+    let row = w::text(ui, "").text_dyn(move || text.get());
+    let count = w::text(ui, "").variant("muted").text_dyn(move || format!("{} letters", text.get().len()));
     let _ = ui.root().child(w::column(ui).child(row.clone()).child(count.clone()));
     (text, row, count)
 }
@@ -409,10 +409,11 @@ fn remote_devtools_refuse_strangers_and_serve_the_window() {
     let (text, row, _) = chat(&ui);
     let _ = ui.root().child(w::button(&ui, "Send", || {}));
     frame(&ui);
-    let bad = RemoteServer::listen(
-        &ui,
-        RemoteOptions { token: Some("two\nlines".into()), ..RemoteOptions::default() },
-    );
+    let bad = RemoteServer::listen(&ui, {
+        let mut v_ = RemoteOptions::default();
+        v_.token = Some("two\nlines".into());
+        v_
+    });
     assert_eq!(bad.map(|_| ()).map_err(|e| e.kind()), Err(std::io::ErrorKind::InvalidInput));
     let server = RemoteServer::listen(&ui, RemoteOptions::default()).must("serving");
     let addr = server.addr();

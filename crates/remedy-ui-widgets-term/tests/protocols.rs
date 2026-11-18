@@ -125,19 +125,19 @@ fn deccolm_switches_columns_only_when_allowed() {
 }
 
 fn key(k: Key, m: Modifiers, text: Option<&str>, pressed: bool, repeat: bool) -> KeyEvent {
-    KeyEvent {
-        key: k,
-        physical: String::new(),
-        modifiers: m,
-        pressed,
-        repeat,
-        composing: false,
-        text: text.map(str::to_owned),
-    }
+    KeyEvent::press(k)
+        .with_modifiers(m)
+        .with_pressed(pressed)
+        .with_repeat(repeat)
+        .with_text(text.map(str::to_owned))
 }
 
 fn enc(e: &KeyEvent, flags: u8) -> Option<String> {
-    let modes = Modes { kitty_flags: flags, ..Modes::default() };
+    let modes = {
+        let mut v_ = Modes::default();
+        v_.kitty_flags = flags;
+        v_
+    };
     encode_key(e, &modes).map(|b| String::from_utf8_lossy(&b).into_owned())
 }
 

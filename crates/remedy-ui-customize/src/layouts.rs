@@ -137,6 +137,7 @@ impl Customizations {
         layout.save(source).map_err(|e| match e {
             SaveError::Invalid(e) => CustomizeError::Invalid(e.to_string()),
             SaveError::Io(e) => CustomizeError::io(&layout.path(), &e),
+            other => CustomizeError::Invalid(other.to_string()),
         })
     }
 

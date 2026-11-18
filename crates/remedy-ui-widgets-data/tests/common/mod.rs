@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use remedy_ui_core::{Point, Size};
-use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase};
+use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request, Ui};
 
@@ -30,31 +30,13 @@ pub fn frame(ui: &Ui) {
 }
 
 pub fn key(ui: &Ui, k: Key, m: Modifiers) -> bool {
-    let r = ui.key(&KeyEvent {
-        key: k,
-        physical: String::new(),
-        modifiers: m,
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: None,
-    });
+    let r = ui.key(&KeyEvent::press(k).with_modifiers(m).with_text(None));
     frame(ui);
     r
 }
 
 pub fn pointer(ui: &Ui, at: Point, phase: PointerPhase, buttons: Buttons, time: Duration) {
-    ui.pointer(&PointerEvent {
-        id: 0,
-        kind: PointerKind::Mouse,
-        phase,
-        position: at,
-        buttons,
-        pressure: 0.5,
-        time,
-        coalesced: Vec::new(),
-        modifiers: Modifiers::NONE,
-    });
+    ui.pointer(&PointerEvent::new(phase, at).with_buttons(buttons).with_time(time));
 }
 
 pub fn centre(el: &El) -> Point {

@@ -54,6 +54,7 @@ pub fn palette(id: &str) -> Option<&'static Palette> {
 
 /// Which theme the user chose.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ThemeChoice {
     /// Follow the platform: the Dark palette when it prefers dark, Light otherwise.
     System,

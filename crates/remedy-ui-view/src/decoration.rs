@@ -7,6 +7,7 @@ use remedy_ui_paint::{Brush, DisplayList, Item, Path, Stroke};
 
 /// How a decoration is drawn under its text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DecorationKind {
     /// A wavy line, as spell checkers mark a misspelling.
     Squiggle,

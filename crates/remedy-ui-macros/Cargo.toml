@@ -7,11 +7,15 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [lib]
 proc-macro = true
 
 [dependencies]
+proc-macro-crate = { version = "=3.5.0", default-features = false }
 proc-macro2 = { version = "=1.0.107", default-features = false, features = ["proc-macro"] }
 quote = { version = "=1.0.47", default-features = false, features = ["proc-macro"] }
 syn = { version = "=2.0.119", default-features = false, features = ["derive", "parsing", "printing", "proc-macro"] }

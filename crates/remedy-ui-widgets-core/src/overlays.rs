@@ -55,7 +55,7 @@ pub fn place_near(ui: &Ui, el: El, anchor: Rect, gap: f32) -> El {
 /// wraps rather than running past the edge.
 pub fn place_near_within(ui: &Ui, el: El, anchor: Rect, gap: f32, max_width: f32) -> El {
     let el = place_at(el, Point::new(anchor.min.x, anchor.max.y + gap))
-        .style(remedy_ui_style::StylePatch { opacity: Some(0.0), ..Default::default() });
+        .style(remedy_ui_style::StylePatch::default().opacity(0.0));
     // Its own size once measured; placed again when it or the window changes size.
     let measured: Rc<std::cell::Cell<Option<remedy_ui_core::Size>>> = Rc::default();
     let fit = {
@@ -73,7 +73,7 @@ pub fn place_near_within(ui: &Ui, el: El, anchor: Rect, gap: f32, max_width: f32
                     l.inset = Insets { top: p.y, start: p.x, end: AUTO, bottom: AUTO };
                     l.max_width = Length::Px(widest);
                 })
-                .style(remedy_ui_style::StylePatch { opacity: Some(1.0), ..Default::default() });
+                .style(remedy_ui_style::StylePatch::default().opacity(1.0));
         })
     };
     let (ui2, f2, ui3, f3) = (ui.clone(), fit.clone(), ui.clone(), fit);

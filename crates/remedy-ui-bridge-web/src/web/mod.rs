@@ -85,7 +85,7 @@ pub(crate) fn post(event: HostEvent) {
 
 pub(crate) fn web_window() -> Result<web_sys::Window, RunError> {
     web_sys::window()
-        .ok_or_else(|| RunError("there is no browser window (a worker cannot show windows)".into()))
+        .ok_or_else(|| RunError::new("there is no browser window (a worker cannot show windows)"))
 }
 
 /// The page's clock: milliseconds since the page started, as a duration.
@@ -195,17 +195,17 @@ impl Driver {
 /// Starts the loop with `app` and returns; the browser runs it from then on.
 pub(crate) fn start(config: WebConfig, app: Box<dyn App>) -> Result<(), RunError> {
     if driver().is_some() {
-        return Err(RunError("a RemedyUI app already runs in this page".into()));
+        return Err(RunError::new("a RemedyUI app already runs in this page"));
     }
     let win = web_window()?;
-    let document = win.document().ok_or_else(|| RunError("the page has no document".into()))?;
+    let document = win.document().ok_or_else(|| RunError::new("the page has no document"))?;
     if let Mount::Element(id) = &config.mount
         && document.get_element_by_id(id).is_none()
     {
-        return Err(RunError(format!("the page has no element with id `{id}` to show the app in")));
+        return Err(RunError::new(format!("the page has no element with id `{id}` to show the app in")));
     }
     let channel =
-        web_sys::MessageChannel::new().map_err(|e| RunError(format!("no message channel: {e:?}")))?;
+        web_sys::MessageChannel::new().map_err(|e| RunError::new(format!("no message channel: {e:?}")))?;
     let page = settings::read(&win);
     let d = Rc::new_cyclic(|me: &Weak<Driver>| {
         let (m1, m2, m3) = (me.clone(), me.clone(), me.clone());

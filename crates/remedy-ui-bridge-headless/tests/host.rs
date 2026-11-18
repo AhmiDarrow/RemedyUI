@@ -53,10 +53,11 @@ impl App for Demo {
     fn event(&mut self, host: &mut dyn Host, event: HostEvent) {
         match event {
             HostEvent::Resumed => {
-                let opts = WindowOptions {
-                    title: "Demo".into(),
-                    size: Size::new(300.0, 300.0),
-                    ..Default::default()
+                let opts = {
+                    let mut v_ = WindowOptions::default();
+                    v_.title = "Demo".into();
+                    v_.size = Size::new(300.0, 300.0);
+                    v_
                 };
                 self.window = host.create_window(&opts).ok();
             }
@@ -152,12 +153,14 @@ fn scrolling_presents_only_the_scroller_and_the_surface_stays_exact() {
 #[test]
 fn input_methods_are_scripted_through_the_session() {
     let (mut host, mut app, id) = start(1.0);
-    let state = TextInputState {
-        surrounding: "Hello ".into(),
-        selection: 6..6,
-        caret: Rect::new(40.0, 10.0, 41.0, 28.0),
-        private: false,
-        multiline: false,
+    let state = {
+        let mut v_ = TextInputState::default();
+        v_.surrounding = "Hello ".into();
+        v_.selection = 6..6;
+        v_.caret = Rect::new(40.0, 10.0, 41.0, 28.0);
+        v_.private = false;
+        v_.multiline = false;
+        v_
     };
     host.set_text_input(id, Some(state.clone()));
     assert_eq!(host.window(id).and_then(|w| w.text_input()), Some(&state));
@@ -204,7 +207,7 @@ fn clipboard_window_state_and_closing() {
     host.send(HostEvent::CloseRequested(id));
     host.turn(&mut app);
     assert!(host.window(id).is_none());
-    assert!(host.exited());
+    assert!(host.has_exited());
 }
 
 #[test]

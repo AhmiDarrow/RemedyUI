@@ -33,6 +33,7 @@ pub use accesskit::TreeUpdate as AccessKitUpdate;
 
 /// What an element is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Role {
     /// A window.
     Window,
@@ -116,6 +117,7 @@ pub enum Role {
 
 /// Something an assistive technology or agent can ask an element to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Action {
     /// Activate it (click, press).
     Click,
@@ -137,8 +139,32 @@ pub enum Action {
     SetValue,
 }
 
+impl Action {
+    /// The action's stable name, as agents and logs see it (`click`, `show_context_menu`).
+    ///
+    /// ```
+    /// use remedy_ui_a11y::Action;
+    ///
+    /// assert_eq!(Action::ShowContextMenu.name(), "show_context_menu");
+    /// ```
+    pub fn name(self) -> &'static str {
+        match self {
+            Action::Click => "click",
+            Action::Focus => "focus",
+            Action::Increment => "increment",
+            Action::Decrement => "decrement",
+            Action::Expand => "expand",
+            Action::Collapse => "collapse",
+            Action::ShowContextMenu => "show_context_menu",
+            Action::ScrollIntoView => "scroll_into_view",
+            Action::SetValue => "set_value",
+        }
+    }
+}
+
 /// How changes to an element are announced.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Live {
     /// Not announced.
     #[default]
@@ -676,6 +702,7 @@ impl A11yTree {
 
 /// One node of the tree as a screen reader meets it ([`A11yTree::reader_view`]).
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct ReaderNode {
     /// The element's id.
     pub id: u64,

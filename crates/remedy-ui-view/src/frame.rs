@@ -27,6 +27,7 @@ pub struct Frame {
 
 /// What one frame did, for the performance overlay and tests ([`Ui::last_frame_stats`]).
 #[derive(Clone, Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub struct FrameStats {
     /// Elements whose style was resolved again.
     pub restyled: usize,
@@ -66,12 +67,13 @@ fn segment_id(owner: LayerId, n: u64) -> LayerId {
 }
 
 pub(crate) fn text_style_for(d: &ElData, theme: &remedy_ui_style::Theme) -> remedy_ui_text::TextStyle {
-    remedy_ui_text::TextStyle {
-        families: if d.resolved.mono { theme.mono_families.clone() } else { theme.font_families.clone() },
-        size: d.resolved.text_size,
-        weight: d.resolved.weight,
-        color: d.resolved.foreground,
-        ..remedy_ui_text::TextStyle::default()
+    {
+        let mut v_ = remedy_ui_text::TextStyle::default();
+        v_.families = if d.resolved.mono { theme.mono_families.clone() } else { theme.font_families.clone() };
+        v_.size = d.resolved.text_size;
+        v_.weight = d.resolved.weight;
+        v_.color = d.resolved.foreground;
+        v_
     }
 }
 
@@ -827,6 +829,7 @@ fn at_or_below(i: &Inner, top: ElementId, id: ElementId) -> bool {
 /// Where an element is on its window after a frame, for content the platform draws itself
 /// over the window (an embedded web view): [`El::on_placed`](crate::El::on_placed).
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Placement {
     /// The element's box in window logical pixels, scrolled where it is shown.
     pub bounds: Rect,
@@ -838,6 +841,14 @@ pub struct Placement {
     pub covered: Vec<Rect>,
     /// Device pixels per logical pixel.
     pub scale: f32,
+}
+
+impl Placement {
+    /// An element at `bounds`, showing `visible`, with `covered` parts under overlays, at
+    /// `scale` device pixels per logical pixel (bridges and tests that place content).
+    pub fn new(bounds: Rect, visible: Rect, covered: Vec<Rect>, scale: f32) -> Self {
+        Placement { bounds, visible, covered, scale }
+    }
 }
 
 /// An element's placement callback.

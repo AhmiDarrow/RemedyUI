@@ -87,6 +87,7 @@ fn is_devtools(ui: &Ui, id: ElementId) -> bool {
 
 /// One element marked for work, with why.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct UpdateEntry {
     /// The mark as the view reported it.
     pub record: DirtyRecord,

@@ -146,7 +146,9 @@ pub fn encode_key(e: &KeyEvent, modes: &Modes) -> Option<Vec<u8>> {
         }
         // The system's back action is the app's, not the program's.
         Key::Back => return None,
-        Key::Named(_) => return e.text.as_ref().filter(|t| !t.is_empty()).map(|t| t.as_bytes().to_vec()),
+        // Keys with no sequence of their own (named by the platform, or newer than this
+        // terminal) send the text they typed, if any.
+        _ => return e.text.as_ref().filter(|t| !t.is_empty()).map(|t| t.as_bytes().to_vec()),
     };
     Some(out)
 }
@@ -253,7 +255,8 @@ fn encode_kitty(e: &KeyEvent, modes: &Modes) -> Option<Vec<u8>> {
             s.push('u');
             s.into_bytes()
         }
-        Key::Named(_) => return None,
+        // Keys the protocol has no code for here are not reported.
+        _ => return None,
     };
     Some(out)
 }
@@ -281,6 +284,7 @@ pub fn encode_focus(focused: bool) -> &'static [u8] {
 
 /// A pointer button, as reports name them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MouseButton {
     /// The primary button.
     Left,
@@ -298,6 +302,7 @@ pub enum MouseButton {
 
 /// What the pointer did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MouseAction {
     /// A button went down (or the wheel turned).
     Press,

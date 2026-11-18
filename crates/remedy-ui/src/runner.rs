@@ -8,10 +8,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use remedy_ui_compositor::{Compositor, LayerId};
-use remedy_ui_core::{Color, Point, Size, Vec2};
+use remedy_ui_core::{Color, Edition, Point, Size, Vec2};
 use remedy_ui_host::{
     AccessibilityEvent, FileDialog, Host, HostEvent, Pixels, ResizeEdge, SystemSettings, TimerId, TrayEvent,
-    TrayIcon, WindowId, WindowOptions,
+    TrayIcon, Unsupported, WindowId, WindowOptions,
 };
 use remedy_ui_input::ScrollPhysics;
 use remedy_ui_render_cpu::CpuCompositor;
@@ -27,6 +27,7 @@ const GEOMETRY_SAVE_DELAY: Duration = Duration::from_millis(400);
 
 /// App-wide settings.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct AppConfig {
     /// The app's name: its data directory and the default window title.
     pub name: String,
@@ -44,11 +45,17 @@ pub struct AppConfig {
     /// Where the app keeps its data, instead of the platform's place for it ([`App::data_dir`]):
     /// a portable app's folder beside its executable, or a test's temporary folder.
     pub data_dir: Option<PathBuf>,
+    /// Which edition's default behaviors the app's windows follow ([`AppConfig::edition`]).
+    pub edition: Edition,
 }
 
 impl std::fmt::Debug for AppConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "AppConfig({}, theme {}, {:?})", self.name, self.theme.name, self.renderer)
+        write!(
+            f,
+            "AppConfig({}, theme {}, {:?}, edition {})",
+            self.name, self.theme.name, self.renderer, self.edition
+        )
     }
 }
 
@@ -81,7 +88,24 @@ impl AppConfig {
             renderer: RendererChoice::Auto,
             single_instance: false,
             data_dir: None,
+            edition: Edition::FIRST,
         }
+    }
+
+    /// Follows `edition`'s default behaviors. An app that never calls this keeps
+    /// [`Edition::FIRST`]'s, so a newer RemedyUI does not change how it behaves; moving to a
+    /// newer edition is the app's choice, made after reading what the edition changes
+    /// (`docs/STABILITY.md`). `cargo remedy new` writes the latest edition into new apps.
+    ///
+    /// ```
+    /// use remedy_ui::{AppConfig, Edition};
+    ///
+    /// let config = AppConfig::new("Notes").edition(Edition::E2026);
+    /// assert_eq!(config.edition, Edition::E2026);
+    /// ```
+    pub fn edition(mut self, edition: Edition) -> Self {
+        self.edition = edition;
+        self
     }
 
     /// Uses `theme` styled by `sheet`.
@@ -125,6 +149,7 @@ impl AppConfig {
 
 /// Which renderer draws an app's windows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RendererChoice {
     /// Windows start on the CPU renderer, which costs no GPU driver memory, and move to the
     /// GPU (with the `gpu` feature) once their frames take longer than
@@ -150,6 +175,7 @@ pub const GPU_PROMOTE_FRAME_STALL: Duration = Duration::from_millis(50);
 
 /// The renderer drawing a window now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RendererKind {
     /// The CPU renderer.
     Cpu,
@@ -186,6 +212,7 @@ impl FrameCost {
 
 /// How to open a window.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct WindowSpec {
     /// Platform window options.
     pub options: WindowOptions,
@@ -204,7 +231,11 @@ impl WindowSpec {
     /// A window titled `title`.
     pub fn new(title: impl Into<String>) -> Self {
         WindowSpec {
-            options: WindowOptions { title: title.into(), ..WindowOptions::default() },
+            options: {
+                let mut v_ = WindowOptions::default();
+                v_.title = title.into();
+                v_
+            },
             hide_on_close: false,
             persist: None,
             background: None,
@@ -326,6 +357,41 @@ impl<T: Send + 'static> std::fmt::Debug for Completion<T> {
     }
 }
 
+/// Work [`App::background`] started: cancel it when its result is no longer wanted.
+#[derive(Debug)]
+pub struct BackgroundJob {
+    id: u64,
+    app: std::rc::Weak<RefCell<Shared>>,
+    cancelled: Cancelled,
+}
+
+impl BackgroundJob {
+    /// Stops waiting for the job: its `done` never runs, and work started with
+    /// [`App::background_cancellable`] sees [`Cancelled::is_cancelled`] turn true.
+    pub fn cancel(&self) {
+        self.cancelled.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(app) = self.app.upgrade() {
+            app.borrow_mut().jobs.remove(&self.id);
+        }
+    }
+
+    /// True once [`BackgroundJob::cancel`] was called.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.is_cancelled()
+    }
+}
+
+/// Whether a background job was cancelled, for its work to check between steps.
+#[derive(Clone, Debug)]
+pub struct Cancelled(Arc<std::sync::atomic::AtomicBool>);
+
+impl Cancelled {
+    /// True once the job's [`BackgroundJob::cancel`] was called.
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
 enum Cmd {
     Open(u64, WindowSpec, Build),
     Close(u64),
@@ -349,7 +415,7 @@ enum Cmd {
     Forget(String),
     Tray(Option<TrayIcon>),
     Dialog(Option<u64>, FileDialog, Box<dyn FnOnce(Vec<std::path::PathBuf>)>),
-    OpenUrl(String, Box<dyn FnOnce(Result<(), String>)>),
+    OpenUrl(String, Box<dyn FnOnce(Result<(), Unsupported>)>),
     Quit,
 }
 
@@ -402,6 +468,11 @@ struct Shared {
     fullscreen: HashMap<u64, remedy_ui_reactive::Signal<bool>>,
     on_geometry: HashMap<u64, Rc<dyn Fn(Point, Size)>>,
     on_closed: HashMap<u64, Vec<Box<dyn FnOnce()>>>,
+    /// The effect keeping the tray in step with [`App::tray_dyn`], while it does.
+    tray_effect: Option<remedy_ui_reactive::Effect>,
+    /// Agents' access to each window that took them ([`Window::attach_agents`]).
+    #[cfg(feature = "agents")]
+    agents: HashMap<u64, remedy_ui_automation::Agents>,
 }
 
 /// The app, as its code sees it. Requests take effect right after the current event.
@@ -567,16 +638,58 @@ impl App {
         &self,
         work: impl FnOnce() -> T + Send + 'static,
         done: impl FnOnce(T) + 'static,
-    ) {
+    ) -> BackgroundJob {
+        self.background_cancellable(move |_| work(), done)
+    }
+
+    /// Like [`App::background`], with work that can stop early: it gets a [`Cancelled`] to
+    /// check between steps, which turns true once the job is cancelled. Cancelling also
+    /// forgets `done`, so a result that arrives after it never reaches the UI.
+    ///
+    /// ```no_run
+    /// # fn search(app: &remedy_ui::App) {
+    /// let job = app.background_cancellable(
+    ///     |cancelled| {
+    ///         let mut found = Vec::new();
+    ///         for n in 0..1_000_000u32 {
+    ///             if cancelled.is_cancelled() {
+    ///                 break;
+    ///             }
+    ///             if n % 97 == 0 {
+    ///                 found.push(n);
+    ///             }
+    ///         }
+    ///         found
+    ///     },
+    ///     |found| println!("{} matches", found.len()),
+    /// );
+    /// // The person typed again: the old search is not wanted any more.
+    /// job.cancel();
+    /// # }
+    /// ```
+    pub fn background_cancellable<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(&Cancelled) -> T + Send + 'static,
+        done: impl FnOnce(T) + 'static,
+    ) -> BackgroundJob {
         let c = self.completion(done);
+        let job = BackgroundJob {
+            id: c.id,
+            app: Rc::downgrade(&self.0),
+            cancelled: Cancelled(Arc::new(std::sync::atomic::AtomicBool::new(false))),
+        };
+        let cancelled = job.cancelled.clone();
         // A thread that cannot start drops the completion, which forgets `done`.
         let _ = remedy_ui_core::exec::spawn("remedy-ui background", move || {
             let out = {
                 let _span = remedy_ui_trace::phase!("background").entered();
-                work()
+                work(&cancelled)
             };
-            c.complete(out);
+            if !cancelled.is_cancelled() {
+                c.complete(out);
+            }
         });
+        job
     }
 
     /// A result some other thread will produce (an async runtime's task, a callback from a
@@ -631,7 +744,35 @@ impl App {
 
     /// Shows (or updates) the tray icon; `None` removes it.
     pub fn set_tray(&self, tray: Option<TrayIcon>) {
+        if let Some(e) = self.0.borrow_mut().tray_effect.take() {
+            e.dispose();
+        }
         self.push(Cmd::Tray(tray));
+    }
+
+    /// Keeps the tray icon in step with `tray`, which reads signals (the window's language,
+    /// a count of unread messages): it shows what `tray` returns now and again whenever what it
+    /// read changes. A later [`App::set_tray`] or `tray_dyn` replaces it.
+    ///
+    /// ```no_run
+    /// # fn setup(app: &remedy_ui::App, icon: remedy_ui::host::TrayImage) {
+    /// use remedy_ui::host::TrayIcon;
+    /// use remedy_ui::reactive::Signal;
+    ///
+    /// let unread = Signal::new(0u32);
+    /// app.tray_dyn(move || Some(TrayIcon::new(format!("{} unread", unread.get()), icon.clone(), Vec::new())));
+    /// # }
+    /// ```
+    pub fn tray_dyn(&self, tray: impl Fn() -> Option<TrayIcon> + 'static) {
+        if let Some(e) = self.0.borrow_mut().tray_effect.take() {
+            e.dispose();
+        }
+        let app = self.clone();
+        let effect = remedy_ui_reactive::Effect::new(move || {
+            let t = tray();
+            app.push(Cmd::Tray(t));
+        });
+        self.0.borrow_mut().tray_effect = Some(effect);
     }
 
     /// Called when the tray icon is used.
@@ -658,7 +799,7 @@ impl App {
 
     /// Opens `url` in the user's browser or mail app, then `done` with the outcome. Only
     /// `http:`, `https:` and `mailto:` links open; anything else could start a program.
-    pub fn open_url(&self, url: impl Into<String>, done: impl FnOnce(Result<(), String>) + 'static) {
+    pub fn open_url(&self, url: impl Into<String>, done: impl FnOnce(Result<(), Unsupported>) + 'static) {
         self.push(Cmd::OpenUrl(url.into(), Box::new(done)));
     }
 
@@ -802,6 +943,47 @@ impl Window {
     /// The renderer drawing the window now (`None` before its first frame).
     pub fn renderer(&self) -> Option<RendererKind> {
         self.app.0.borrow().renderers.get(&self.key).copied()
+    }
+
+    /// Lets agents (an assistant, the RemedyOS mind) work with this window, through its
+    /// semantics and the app's `commands`, once the person consents: ask them with
+    /// [`Agents::request_access`](remedy_ui_automation::Agents::request_access), then
+    /// [`Agents::listen`](remedy_ui_automation::Agents::listen) for the agent. The same
+    /// access comes back on every call; it ends when the window closes. `None` once the window
+    /// is closed.
+    ///
+    /// ```no_run
+    /// # fn setup(window: &remedy_ui::Window) {
+    /// use remedy_ui::agents::Scope;
+    ///
+    /// if let Some(agents) = window.attach_agents(None) {
+    ///     let a2 = agents.clone();
+    ///     agents.request_access("Assistant", Scope::Act, None, move |token| {
+    ///         if let (Some(token), Ok(listener)) = (token, a2.listen()) {
+    ///             println!("agent: connect to {} with {token}", listener.addr());
+    ///         }
+    ///     });
+    /// }
+    /// # }
+    /// ```
+    #[cfg(feature = "agents")]
+    pub fn attach_agents(
+        &self,
+        commands: Option<&remedy_ui_widgets_nav::Commands>,
+    ) -> Option<remedy_ui_automation::Agents> {
+        if let Some(a) = self.agents() {
+            return Some(a);
+        }
+        let ui = self.ui()?;
+        let agents = remedy_ui_automation::Agents::new(&ui, commands);
+        self.app.0.borrow_mut().agents.insert(self.key, agents.clone());
+        Some(agents)
+    }
+
+    /// The agents' access [`Window::attach_agents`] gave this window, if it did.
+    #[cfg(feature = "agents")]
+    pub fn agents(&self) -> Option<remedy_ui_automation::Agents> {
+        self.app.0.borrow().agents.get(&self.key).cloned()
     }
 
     /// Opens the devtools inspector for this window (F12 does the same), or focuses it.
@@ -1038,6 +1220,7 @@ impl Runner {
                     (self.config.sheet)(&self.config.theme),
                     (self.config.fonts)(),
                 );
+                ui.set_edition(self.config.edition);
                 ui.set_platform(self.settings.platform);
                 ui.set_locale(self.locale.clone().unwrap_or_else(|| self.settings.locale.clone()));
                 ui.set_double_click_time(self.settings.double_click);
@@ -1205,7 +1388,7 @@ impl Runner {
                     Err(_) => done(Vec::new()),
                 }
             }
-            Cmd::OpenUrl(url, done) => done(host.open_url(&url).map_err(|e| e.to_string())),
+            Cmd::OpenUrl(url, done) => done(host.open_url(&url)),
             Cmd::Forget(key) => {
                 self.geometry.remove(&key);
                 self.schedule_save(host);
@@ -1654,6 +1837,11 @@ fn new_gpu() -> Option<remedy_ui_render_gpu::GpuCompositor> {
 
 impl remedy_ui_host::App for Runner {
     fn event(&mut self, host: &mut dyn Host, event: HostEvent) {
+        // Edits group into undo steps by when they happen: every window reads the host's time.
+        let now = host.now();
+        for w in self.wins.values() {
+            w.ui.set_clock(now);
+        }
         {
             let mut s = self.app.0.borrow_mut();
             s.in_event = true;
@@ -1880,10 +2068,8 @@ impl remedy_ui_host::App for Runner {
                                     l.height = remedy_ui_layout::Length::Percent(1.0);
                                 });
                                 let bg = w.spec.background.unwrap_or(self.config.theme.colors.bg);
-                                let cover = cover.style(remedy_ui_style::StylePatch {
-                                    background: Some(bg),
-                                    ..Default::default()
-                                });
+                                let cover =
+                                    cover.style(remedy_ui_style::StylePatch::default().background(bg));
                                 w.cover = Some(ui.trusted_overlay(cover));
                             }
                             (_, keep) => w.cover = keep,
@@ -1929,6 +2115,9 @@ impl remedy_ui_host::App for Runner {
                         s.titles.remove(&key);
                         s.maximized.remove(&key);
                         s.fullscreen.remove(&key);
+                        // An agent's access ends with its window.
+                        #[cfg(feature = "agents")]
+                        s.agents.remove(&key);
                         (s.on_closed.remove(&key).unwrap_or_default(), ui)
                     };
                     let (closed, ui) = closed;

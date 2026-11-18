@@ -128,13 +128,10 @@ fn run(name: &str, renderer: Renderer) -> Run {
     let mut notches = 0;
     while s.w.view.zoom().get_untracked().unwrap_or(MAX_ZOOM) < MAX_ZOOM {
         s.frame(|w| {
-            let _ = w.ui.wheel(&remedy_ui_input::WheelEvent {
-                position: mid,
-                delta: remedy_ui_core::Vec2::new(0.0, -48.0),
-                precise: false,
-                time: Duration::ZERO,
-                modifiers: ctrl(),
-            });
+            let _ = w.ui.wheel(
+                &remedy_ui_input::WheelEvent::new(mid, remedy_ui_core::Vec2::new(0.0, -48.0))
+                    .with_modifiers(ctrl()),
+            );
         });
         notches += 1;
         let st = s.w.view.stats();
@@ -148,13 +145,10 @@ fn run(name: &str, renderer: Renderer) -> Run {
     // Out again, as fast: 6400% to 1%.
     while s.w.view.zoom().get_untracked().unwrap_or(MIN_ZOOM) > MIN_ZOOM {
         s.frame(|w| {
-            let _ = w.ui.wheel(&remedy_ui_input::WheelEvent {
-                position: mid,
-                delta: remedy_ui_core::Vec2::new(0.0, 48.0),
-                precise: false,
-                time: Duration::ZERO,
-                modifiers: ctrl(),
-            });
+            let _ = w.ui.wheel(
+                &remedy_ui_input::WheelEvent::new(mid, remedy_ui_core::Vec2::new(0.0, 48.0))
+                    .with_modifiers(ctrl()),
+            );
         });
     }
     let zoom_out = std::mem::take(&mut s.times);

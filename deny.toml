@@ -68,6 +68,9 @@ exceptions = [
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Dev-dependencies on the facade are path-only (cargo package drops them), because the facade
+# depends on these crates and a versioned dev-dependency would make publishing circular.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

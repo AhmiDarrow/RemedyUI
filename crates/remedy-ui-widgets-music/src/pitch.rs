@@ -4,6 +4,7 @@ use std::fmt;
 
 /// The seven note letters.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+// Exhaustive on purpose: the seven note letters.
 pub enum Step {
     /// C
     C,

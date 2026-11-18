@@ -21,7 +21,7 @@ pub fn key_capture(ui: &Ui, label: impl Into<String>, value: Signal<Option<Chord
     let recording = Signal::new(false);
     let el = ui.el("text_input").focusable(true).fill_width();
     // Key names are the platform's, not the app's strings.
-    let text = w::label(ui, "", "").data_text();
+    let text = w::text(ui, "").data_text();
     let el = el.child(text.clone());
     let (u2, e2, e3, e4, l2) = (ui.clone(), el.clone(), el.clone(), el.clone(), label.clone());
     // Activating it (a press, or a screen reader's activate) starts recording.

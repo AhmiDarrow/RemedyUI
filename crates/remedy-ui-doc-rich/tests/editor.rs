@@ -16,15 +16,11 @@ use common::*;
 
 fn typed(ui: &Ui, s: &str) {
     for c in s.chars() {
-        ui.key(&KeyEvent {
-            key: Key::Character(c.to_string()),
-            physical: String::new(),
-            modifiers: NONE,
-            pressed: true,
-            repeat: false,
-            composing: false,
-            text: Some(c.to_string()),
-        });
+        ui.key(
+            &KeyEvent::press(Key::Character(c.to_string()))
+                .with_modifiers(NONE)
+                .with_text(Some(c.to_string())),
+        );
     }
     frame(ui);
 }
@@ -109,8 +105,11 @@ fn typing_at_suggests_people_to_mention() {
         a2.set(a2.get() + 1);
         people.iter().filter(|p| p.name.to_lowercase().starts_with(&q.to_lowercase())).cloned().collect()
     });
-    let (ui, _el, field) =
-        editor(RichEditorOptions { mentions: Some(source), ..RichEditorOptions::default() });
+    let (ui, _el, field) = editor({
+        let mut v_ = RichEditorOptions::default();
+        v_.mentions = Some(source);
+        v_
+    });
     typed(&ui, "hi @al");
     let list = anywhere(&ui, Role::List);
     let names: Vec<String> =
@@ -136,8 +135,11 @@ fn typing_at_suggests_people_to_mention() {
 
 #[test]
 fn a_composer_sends_on_enter_and_saves_markdown() {
-    let (ui, _el, field) =
-        editor(RichEditorOptions { submit_on_enter: true, ..RichEditorOptions::default() });
+    let (ui, _el, field) = editor({
+        let mut v_ = RichEditorOptions::default();
+        v_.submit_on_enter = true;
+        v_
+    });
     let sent = Rc::new(Cell::new(0));
     let s2 = sent.clone();
     let field = field.on_submit(move || s2.set(s2.get() + 1));

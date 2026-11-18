@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_compositor::Layer;
 use remedy_ui_core::Size;
-use remedy_ui_input::{Key, KeyEvent, Modifiers};
+use remedy_ui_input::{Key, KeyEvent};
 use remedy_ui_media_playback::*;
 use remedy_ui_paint::{Item, VideoFrame};
 use remedy_ui_text::FontCollection;
@@ -102,7 +102,7 @@ fn the_platform_decoder_reads_pictures_and_sound_in_time() {
     // The coded picture is 112 rows; the display aperture is what shows.
     assert_eq!((v.width, v.height), (176, 100));
     assert!(v.frame_rate.is_some_and(|r| (r - 25.0).abs() < 0.01), "{v:?}");
-    assert_eq!(info.audio, Some(AudioFormat { sample_rate: 48_000, channels: 2 }));
+    assert_eq!(info.audio, Some(AudioFormat::new(48_000, 2)));
 
     let (mut frames, mut sound, mut last_video) = (Vec::new(), 0u64, None);
     while let Some(s) = dec.read().unwrap_or_else(|e| unreachable!("read: {e}")) {
@@ -115,6 +115,7 @@ fn the_platform_decoder_reads_pictures_and_sound_in_time() {
             }
             Sample::Audio { samples, .. } => sound += samples.len() as u64 / 2,
             Sample::Text { .. } => {}
+            other => unreachable!("this clip has no other samples: {other:?}"),
         }
     }
     assert_eq!(frames.len(), 75, "every picture of 3 s at 25 fps");
@@ -217,15 +218,7 @@ impl Screen {
 }
 
 fn press(ui: &Ui, key: Key) -> bool {
-    ui.key(&KeyEvent {
-        key,
-        physical: String::new(),
-        modifiers: Modifiers::NONE,
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: None,
-    })
+    ui.key(&KeyEvent::press(key).with_text(None))
 }
 
 fn find(el: &El, widget: &str) -> Vec<El> {
@@ -324,12 +317,11 @@ fn the_player_plays_seeks_and_ends_on_the_platform_decoders() {
 fn the_player_widget_is_operable_by_keyboard_and_passes_the_audit() {
     let Some(host) = platform() else { return };
     let mut s = Screen::new();
-    let p = Player::open(
-        &s.ui,
-        host,
-        MediaSource::file(clip()),
-        PlayerOptions { volume: 0.5, ..Default::default() },
-    );
+    let p = Player::open(&s.ui, host, MediaSource::file(clip()), {
+        let mut v_ = PlayerOptions::default();
+        v_.volume = 0.5;
+        v_
+    });
     let asked = Arc::new(Mutex::new(Vec::new()));
     let a = asked.clone();
     p.on_fullscreen(move |on| a.lock().unwrap_or_else(|e| e.into_inner()).push(on));
@@ -371,14 +363,14 @@ fn the_player_widget_is_operable_by_keyboard_and_passes_the_audit() {
     s.wait("paused", |_| p.state() == PlaybackState::Paused);
     assert!(press(&s.ui, Key::Character("m".into())));
     s.pump();
-    assert!(p.muted() && named(&view, "Unmute").is_some());
+    assert!(p.is_muted() && named(&view, "Unmute").is_some());
     assert!(press(&s.ui, Key::Character("c".into())));
     s.pump();
     assert_eq!(p.caption_track(), Some(0));
     assert!(named(&view, "Captions: fr").is_some());
     assert!(press(&s.ui, Key::Character("f".into())));
     s.pump();
-    assert!(p.fullscreen() && named(&view, "Exit full screen").is_some());
+    assert!(p.is_fullscreen() && named(&view, "Exit full screen").is_some());
     assert!(press(&s.ui, Key::Escape));
     assert_eq!(*asked.lock().unwrap_or_else(|e| e.into_inner()), [true, false]);
     assert!((p.volume() - 0.5).abs() < 1e-6);
@@ -474,7 +466,7 @@ struct ScriptedOut {
 
 impl AudioOutput for ScriptedOut {
     fn format(&self) -> AudioFormat {
-        AudioFormat { sample_rate: RATE, channels: 1 }
+        AudioFormat::new(RATE, 1)
     }
     fn buffer(&self) -> Duration {
         self.buffer
@@ -513,12 +505,14 @@ impl MediaHost for Scripted {
     }
     fn open(&self, _: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
         Ok(Box::new(ScriptedDecoder {
-            info: MediaInfo {
-                duration: Some(Duration::from_secs(self.seconds)),
-                seekable: true,
-                video: Some(VideoInfo { width: 8, height: 8, frame_rate: Some(FPS as f64) }),
-                audio: Some(AudioFormat { sample_rate: RATE, channels: 1 }),
-                text_tracks: Vec::new(),
+            info: {
+                let mut v_ = MediaInfo::default();
+                v_.duration = Some(Duration::from_secs(self.seconds));
+                v_.seekable = true;
+                v_.video = Some(VideoInfo::new(8, 8, Some(FPS as f64)));
+                v_.audio = Some(AudioFormat::new(RATE, 1));
+                v_.text_tracks = Vec::new();
+                v_
             },
             next: 0,
             seconds: self.seconds,
@@ -610,12 +604,11 @@ fn autoplay_waits_for_the_person_under_reduced_motion() {
         });
         let mut s = Screen::new();
         s.ui.set_reduced_motion(reduced);
-        let p = Player::open(
-            &s.ui,
-            host,
-            MediaSource::url("script:"),
-            PlayerOptions { autoplay: true, ..Default::default() },
-        );
+        let p = Player::open(&s.ui, host, MediaSource::url("script:"), {
+            let mut v_ = PlayerOptions::default();
+            v_.autoplay = true;
+            v_
+        });
         s.ui.root().child(player(&s.ui, &p, "Scripted"));
         s.wait("opened", |_| p.info().is_some());
         s.idle(150);

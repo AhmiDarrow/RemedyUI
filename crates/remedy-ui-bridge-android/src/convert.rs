@@ -39,6 +39,7 @@ pub fn trim_pressure(level: i32) -> Option<MemoryPressure> {
 
 /// What the bridge read from Android's configuration and settings.
 #[derive(Clone, Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub struct AndroidSettings {
     /// `Configuration.uiMode` night bits: `Some(true)` for night, `None` when undefined.
     pub night: Option<bool>,
@@ -63,25 +64,25 @@ impl AndroidSettings {
     /// As RemedyUI's system settings; what Android did not say keeps the default.
     pub fn to_settings(&self) -> SystemSettings {
         let base = SystemSettings::default();
-        SystemSettings {
-            platform: Platform::Standard,
-            dark: self.night,
-            accent: self.accent.map(argb),
-            high_contrast: self.high_contrast_text.unwrap_or(false),
-            text_scale: self.font_scale.filter(|s| s.is_finite() && *s > 0.0).unwrap_or(base.text_scale),
-            // Animations off (scale 0) is how Android users ask for less motion; the
-            // accessibility "remove animations" switch sets the same value.
-            reduced_motion: self.animator_scale.is_some_and(|s| s == 0.0),
-            // Android has no reduced-transparency setting.
-            reduced_transparency: false,
-            locale: self.locale.as_deref().and_then(bcp47).unwrap_or(base.locale),
-            double_click: self
-                .double_tap_ms
-                .and_then(|ms| u64::try_from(ms).ok())
-                .filter(|ms| *ms > 0)
-                .map_or(base.double_click, Duration::from_millis),
-            caret_blink: Some(CARET_BLINK),
-        }
+        let mut s = SystemSettings::default();
+        s.platform = Platform::Standard;
+        s.dark = self.night;
+        s.accent = self.accent.map(argb);
+        s.high_contrast = self.high_contrast_text.unwrap_or(false);
+        s.text_scale = self.font_scale.filter(|s| s.is_finite() && *s > 0.0).unwrap_or(base.text_scale);
+        // Animations off (scale 0) is how Android users ask for less motion; the
+        // accessibility "remove animations" switch sets the same value.
+        s.reduced_motion = self.animator_scale.is_some_and(|s| s == 0.0);
+        // Android has no reduced-transparency setting.
+        s.reduced_transparency = false;
+        s.locale = self.locale.as_deref().and_then(bcp47).unwrap_or(base.locale);
+        s.double_click = self
+            .double_tap_ms
+            .and_then(|ms| u64::try_from(ms).ok())
+            .filter(|ms| *ms > 0)
+            .map_or(base.double_click, Duration::from_millis);
+        s.caret_blink = Some(CARET_BLINK);
+        s
     }
 }
 

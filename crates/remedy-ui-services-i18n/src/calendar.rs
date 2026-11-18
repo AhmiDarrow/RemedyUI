@@ -6,6 +6,7 @@ use remedy_ui_view::Ui;
 
 /// A day of the week.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+// Exhaustive on purpose: a week has seven days.
 pub enum Weekday {
     /// Monday.
     Monday,

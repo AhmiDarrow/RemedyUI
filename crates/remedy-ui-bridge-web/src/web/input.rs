@@ -85,22 +85,19 @@ fn pointer(w: &Rc<Win>, e: &web_sys::PointerEvent, phase: PointerPhase) {
     };
     let pressure = match kind {
         PointerKind::Mouse => 0.5,
-        PointerKind::Touch | PointerKind::Pen => {
+        _ => {
             let p = e.pressure();
             if p > 0.0 { p } else { 0.5 }
         }
     };
-    let ev = PointerEvent {
-        id: convert::pointer_id(e.pointer_id(), kind),
-        kind,
-        phase,
-        position: position(w, e),
-        buttons,
-        pressure,
-        time: time(e),
-        coalesced,
-        modifiers: mods(e),
-    };
+    let ev = PointerEvent::new(phase, position(w, e))
+        .with_id(convert::pointer_id(e.pointer_id(), kind))
+        .with_kind(kind)
+        .with_buttons(buttons)
+        .with_pressure(pressure)
+        .with_time(time(e))
+        .with_coalesced(coalesced)
+        .with_modifiers(mods(e));
     let down = ev.phase == PointerPhase::Down;
     w.consumed.set(false);
     // The app handles it now (the page's event is still being dispatched), and says whether
@@ -125,8 +122,7 @@ fn take_focus(w: &Win) {
 
 pub(crate) fn end_pinch(w: &Win) {
     if w.pinch.take().is_some() {
-        let e =
-            PinchEvent { position: w.pinch_at.get(), scale: 1.0, phase: PinchPhase::End, time: super::now() };
+        let e = PinchEvent::new(PinchPhase::End, w.pinch_at.get(), 1.0).with_time(super::now());
         post(HostEvent::Pinch(w.id, e));
     }
 }
@@ -137,20 +133,11 @@ fn pinch(w: &Rc<Win>, at: Point, scale: f32, t: Duration) {
     match w.pinch.take() {
         Some(h) => {
             win.clear_timeout_with_handle(h);
-            post(HostEvent::Pinch(
-                w.id,
-                PinchEvent { position: at, scale, phase: PinchPhase::Change, time: t },
-            ));
+            post(HostEvent::Pinch(w.id, PinchEvent::new(PinchPhase::Change, at, scale).with_time(t)));
         }
         None => {
-            post(HostEvent::Pinch(
-                w.id,
-                PinchEvent { position: at, scale: 1.0, phase: PinchPhase::Start, time: t },
-            ));
-            post(HostEvent::Pinch(
-                w.id,
-                PinchEvent { position: at, scale, phase: PinchPhase::Change, time: t },
-            ));
+            post(HostEvent::Pinch(w.id, PinchEvent::new(PinchPhase::Start, at, 1.0).with_time(t)));
+            post(HostEvent::Pinch(w.id, PinchEvent::new(PinchPhase::Change, at, scale).with_time(t)));
         }
     }
     let h = win
@@ -176,7 +163,7 @@ fn wheel(w: &Rc<Win>, e: &web_sys::WheelEvent) {
     let (pw, ph, _) = w.size.get();
     let page = Size::new(pw as f32 / scale, ph as f32 / scale);
     let (delta, precise) = convert::wheel_delta(e.delta_x(), e.delta_y(), mode, page);
-    let ev = WheelEvent { position: at, delta, precise, time: time(e), modifiers: mods(e) };
+    let ev = WheelEvent::new(at, delta).with_precise(precise).with_time(time(e)).with_modifiers(mods(e));
     post(HostEvent::Wheel(w.id, ev));
 }
 
@@ -197,7 +184,7 @@ fn gesture(w: &Rc<Win>, e: &web_sys::Event, phase: PinchPhase) {
             step as f32
         }
     };
-    post(HostEvent::Pinch(w.id, PinchEvent { position: at, scale, phase, time: time(e) }));
+    post(HostEvent::Pinch(w.id, PinchEvent::new(phase, at, scale).with_time(time(e))));
 }
 
 fn key(w: &Rc<Win>, e: &web_sys::KeyboardEvent, pressed: bool) {
@@ -217,15 +204,12 @@ fn key(w: &Rc<Win>, e: &web_sys::KeyboardEvent, pressed: bool) {
     let platform = d.state.borrow().settings.platform;
     let modifiers = convert::modifiers(e.shift_key(), e.ctrl_key(), e.alt_key(), e.meta_key());
     let k = convert::key(&dom_key);
-    let ev = KeyEvent {
-        text: if pressed { convert::typed_text(&dom_key, modifiers) } else { None },
-        key: k,
-        physical: e.code(),
-        modifiers,
-        pressed,
-        repeat: e.repeat(),
-        composing: false,
-    };
+    let ev = KeyEvent::press(k)
+        .with_physical(e.code())
+        .with_modifiers(modifiers)
+        .with_pressed(pressed)
+        .with_repeat(e.repeat())
+        .with_text(if pressed { convert::typed_text(&dom_key, modifiers) } else { None });
     match (pressed, convert::clipboard_key(&ev.key, modifiers, platform)) {
         // The browser's `paste` event brings the text; the key goes with it.
         (true, Some(ClipboardKey::Paste)) => {

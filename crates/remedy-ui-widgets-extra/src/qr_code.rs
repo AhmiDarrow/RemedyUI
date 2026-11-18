@@ -14,6 +14,7 @@ use crate::qr::{EncodeOptions, QrCode, QrError};
 
 /// How a [`qr_code`] looks.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct QrOptions {
     /// How the data is encoded (error correction level, version range, mask).
     pub encode: EncodeOptions,
@@ -26,6 +27,32 @@ pub struct QrOptions {
     /// What screen readers hear about the code. `None` says it is a QR code with its version
     /// and error correction level; the data itself is never read out unless the app says so.
     pub description: Option<String>,
+}
+
+impl QrOptions {
+    /// Sets `encode`: how the data is encoded (error correction level, version range, mask).
+    pub fn encode(mut self, value: EncodeOptions) -> Self {
+        self.encode = value;
+        self
+    }
+
+    /// Sets `quiet_zone`: light modules around the code that scanners need; `None` is the standard 4.
+    pub fn quiet_zone(mut self, value: u32) -> Self {
+        self.quiet_zone = Some(value);
+        self
+    }
+
+    /// Sets `module_size`: the size of one module in logical pixels when the widget decides its own size; `None` takes one and a half theme units.
+    pub fn module_size(mut self, value: f32) -> Self {
+        self.module_size = Some(value);
+        self
+    }
+
+    /// Sets `description`: what screen readers hear about the code.
+    pub fn description(mut self, value: String) -> Self {
+        self.description = Some(value);
+        self
+    }
 }
 
 struct Cache {

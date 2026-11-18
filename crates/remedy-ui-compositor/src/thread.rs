@@ -32,6 +32,7 @@ enum Msg {
 
 /// What a vsync produced, reported back to the UI thread.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FrameReport {
     /// The presentation time of the frame.
     pub at: Duration,

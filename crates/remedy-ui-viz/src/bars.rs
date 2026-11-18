@@ -14,6 +14,7 @@ use crate::series::{Range, Samples, extent, fraction, group_max};
 
 /// How the bar group looks and behaves.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct BarsOptions {
     /// The span of values shown. `None` is 0 to 1. Auto fits the values, from zero up.
     pub range: Option<Range>,
@@ -28,6 +29,44 @@ pub struct BarsOptions {
     pub height: Option<f32>,
     /// Where time comes from.
     pub clock: Clock,
+}
+
+impl BarsOptions {
+    /// Sets `range`: the span of values shown.
+    pub fn range(mut self, value: Range) -> Self {
+        self.range = Some(value);
+        self
+    }
+
+    /// Sets `smoothing`: how the bars rise and fall.
+    pub fn smoothing(mut self, value: Smoothing) -> Self {
+        self.smoothing = value;
+        self
+    }
+
+    /// Sets `gap`: space between bars.
+    pub fn gap(mut self, value: f32) -> Self {
+        self.gap = Some(value);
+        self
+    }
+
+    /// Sets `width`: the width.
+    pub fn width(mut self, value: f32) -> Self {
+        self.width = Some(value);
+        self
+    }
+
+    /// Sets `height`: the height.
+    pub fn height(mut self, value: f32) -> Self {
+        self.height = Some(value);
+        self
+    }
+
+    /// Sets `clock`: where time comes from.
+    pub fn clock(mut self, value: Clock) -> Self {
+        self.clock = value;
+        self
+    }
 }
 
 impl Default for BarsOptions {

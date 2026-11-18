@@ -26,6 +26,7 @@ pub struct FretPos {
 
 /// How a mark looks.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MarkKind {
     /// A note in the accent color.
     #[default]
@@ -68,6 +69,7 @@ impl FretMark {
 
 /// The dots on the neck.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Inlays {
     /// Single dots at frets 3, 5, 7 and 9 and double dots at 12, repeating every octave.
     Standard,
@@ -106,6 +108,7 @@ impl Inlays {
 
 /// How a [`fretboard`] is set up.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct FretboardOptions {
     /// The open strings as MIDI notes, from the bottom string (drawn lowest on screen) up.
     /// The number of strings is the length. Any tuning and any number of strings works.
@@ -134,6 +137,80 @@ pub struct FretboardOptions {
     pub read_only: bool,
     /// Spell black keys with flats in names.
     pub flats: bool,
+}
+
+impl FretboardOptions {
+    /// Sets `tuning`: the open strings as MIDI notes, from the bottom string (drawn lowest on screen) up.
+    pub fn tuning(mut self, value: Vec<i32>) -> Self {
+        self.tuning = value;
+        self
+    }
+
+    /// Sets `first_fret`: the number of the wire the shown part starts at: 0 shows the nut and open strings, 5 starts at the fifth wire and shows frets 6 onward.
+    pub fn first_fret(mut self, value: u32) -> Self {
+        self.first_fret = value;
+        self
+    }
+
+    /// Sets `frets`: how many frets are shown.
+    pub fn frets(mut self, value: u32) -> Self {
+        self.frets = value;
+        self
+    }
+
+    /// Sets `left_handed`: mirror the neck for a left-handed player (the nut on the right).
+    pub fn left_handed(mut self, value: bool) -> Self {
+        self.left_handed = value;
+        self
+    }
+
+    /// Sets `fret_numbers`: show fret numbers under the neck.
+    pub fn fret_numbers(mut self, value: bool) -> Self {
+        self.fret_numbers = value;
+        self
+    }
+
+    /// Sets `string_names`: show the open string names at the nut.
+    pub fn string_names(mut self, value: bool) -> Self {
+        self.string_names = value;
+        self
+    }
+
+    /// Sets `inlays`: the dots.
+    pub fn inlays(mut self, value: Inlays) -> Self {
+        self.inlays = value;
+        self
+    }
+
+    /// Sets `marks`: marked notes, updated by the app as it likes.
+    pub fn marks(mut self, value: Signal<Vec<FretMark>>) -> Self {
+        self.marks = Some(value);
+        self
+    }
+
+    /// Sets `name_notes`: write the note name in marks that have no label of their own.
+    pub fn name_notes(mut self, value: bool) -> Self {
+        self.name_notes = value;
+        self
+    }
+
+    /// Sets `sounding`: a sounding pitch (a tuner's note, as a MIDI number): every place that makes it gets a ring.
+    pub fn sounding(mut self, value: Signal<Option<i32>>) -> Self {
+        self.sounding = Some(value);
+        self
+    }
+
+    /// Sets `read_only`: show the neck without letting people pick: it is an image, not a control.
+    pub fn read_only(mut self, value: bool) -> Self {
+        self.read_only = value;
+        self
+    }
+
+    /// Sets `flats`: spell black keys with flats in names.
+    pub fn flats(mut self, value: bool) -> Self {
+        self.flats = value;
+        self
+    }
 }
 
 impl Default for FretboardOptions {

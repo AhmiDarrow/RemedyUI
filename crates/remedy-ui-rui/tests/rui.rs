@@ -295,17 +295,21 @@ fn the_compiled_screen_builds_what_the_interpreter_builds() {
 
 #[test]
 fn keywords_become_raw_fields_and_folders_compile() {
-    let rust = codegen::compile("k.rui", "switch(label: \"A\", checked: $type)", &[]).must("compiles");
-    assert!(rust.contains("pub r#type: ::remedy_ui_rui::rt::reactive::Signal<bool>,"));
+    let rust =
+        codegen::compile_in(codegen::DIRECT_ROOT, "k.rui", "switch(label: \"A\", checked: $type)", &[])
+            .must("compiles");
+    assert!(rust.contains("pub r#type: remedy_ui_markup::rt::reactive::Signal<bool>,"));
     let dir = std::env::temp_dir().join(format!("rui-dir-{}", std::process::id()));
     let out = dir.join("out");
     std::fs::create_dir_all(&dir).must("dir");
     std::fs::write(dir.join("my-screen.rui"), "column(gap: s2) { text(text: \"hi\") }").must("write");
     std::fs::write(dir.join("notes.txt"), "not markup").must("write");
-    let written = build::compile_dir_to(&dir, &out, &[], false).must("compiles");
+    let written = build::compile_dir_to(codegen::DIRECT_ROOT, &dir, &out, &[], false).must("compiles");
     assert_eq!(written, vec![out.join("my_screen.rs")]);
     std::fs::write(dir.join("bad.rui"), "column {").must("write");
-    let e = build::compile_dir_to(&dir, &out, &[], false).err().must("a broken file fails the build");
+    let e = build::compile_dir_to(codegen::DIRECT_ROOT, &dir, &out, &[], false)
+        .err()
+        .must("a broken file fails the build");
     assert!(e.to_string().starts_with("bad.rui:1:"), "{e}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -330,7 +334,8 @@ fn apps_add_their_own_elements() {
     let _ = ui.root().child(el.clone());
     frame(&ui);
     assert!(find(&el, "Input level").is_some());
-    let rust = codegen::compile(
+    let rust = codegen::compile_in(
+        codegen::DIRECT_ROOT,
         "m.rui",
         "column { meter(level: $input_level) }",
         &[codegen::Custom {
@@ -341,7 +346,7 @@ fn apps_add_their_own_elements() {
         }],
     )
     .must("compiles");
-    assert!(rust.contains("crate::meter(ui, ::remedy_ui_rui::Call::new().arg(\"level\", ::remedy_ui_rui::Bound::Binding(::remedy_ui_rui::Binding::Level(b.input_level))))"), "{rust}");
+    assert!(rust.contains("crate::meter(ui, remedy_ui_markup::Call::new().arg(\"level\", remedy_ui_markup::Bound::Binding(remedy_ui_markup::Binding::Level(b.input_level))))"), "{rust}");
 }
 
 #[test]

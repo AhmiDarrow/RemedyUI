@@ -12,9 +12,11 @@
 //! - [`time`]: monotonic and wall clocks that work on every platform, browsers included.
 //! - [`exec`]: work away from the UI thread: threads natively, cooperative time slices in a
 //!   browser page without threads.
+//! - [`edition`]: editions, the switch that changes of default behavior hang off.
 
 pub mod arena;
 pub mod color;
+pub mod edition;
 pub mod exec;
 pub mod geometry;
 pub mod time;
@@ -23,5 +25,6 @@ pub mod units;
 
 pub use arena::{Arena, Id};
 pub use color::Color;
+pub use edition::{Edition, ParseEditionError};
 pub use geometry::{CornerRadii, Insets, Point, Rect, Size, Vec2};
 pub use units::Scale;

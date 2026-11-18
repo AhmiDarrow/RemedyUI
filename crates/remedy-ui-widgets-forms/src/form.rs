@@ -8,10 +8,11 @@ use remedy_ui_a11y::{Live, Role, Semantics};
 use remedy_ui_reactive::{Memo, Signal, untrack};
 use remedy_ui_style::States;
 use remedy_ui_view::{El, Ui};
-use remedy_ui_widgets_core as w;
+use remedy_ui_widgets_core::{self as w, Rejection};
 
 /// Where a form's submission stands.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SubmitState {
     /// Nothing submitted since the last change.
     #[default]
@@ -111,11 +112,11 @@ impl Form {
         &self,
         label: impl Into<String>,
         value: Signal<T>,
-        validate: impl Fn(&T) -> Result<(), String> + 'static,
+        validate: impl Fn(&T) -> Result<(), Rejection> + 'static,
     ) -> FormField {
         let saved = Rc::new(RefCell::new(value.get_untracked().ok()));
         let s2 = saved.clone();
-        let error = Memo::new(move || value.with(|v| validate(v).err()));
+        let error = Memo::new(move || value.with(|v| validate(v).err().map(|r| r.to_string())));
         let dirty = Memo::new(move || value.with(|v| s2.borrow().as_ref() != Some(v)));
         let shown = Signal::new(false);
         let state = self.0.state;
@@ -231,14 +232,14 @@ pub fn form_field(ui: &Ui, field: &FormField, control: El) -> El {
         untrack(|| {
             e2.clear();
             if let Some(m) = msg {
-                let _ = e2.clone().child(w::label(&u2, m, "error"));
+                let _ = e2.clone().child(w::text(&u2, m).variant("error"));
             }
         });
     });
     w::column(ui)
         .gap(unit / 2.0)
         .fill_width()
-        .child(w::label(ui, field.label().to_owned(), ""))
+        .child(w::text(ui, field.label().to_owned()))
         .child(control)
         .child(err)
 }
@@ -286,7 +287,7 @@ pub fn submit_button(
 #[track_caller]
 pub fn form_status(ui: &Ui, form: &Form) -> El {
     let f = form.clone();
-    let l = w::label(ui, "", "muted");
+    let l = w::text(ui, "").variant("muted");
     let l2 = l.clone();
     l.bind(move || {
         let (text, variant) = match f.state() {

@@ -16,6 +16,7 @@ use crate::formats::{self, Frames};
 
 /// How many times an animation plays.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// Exhaustive on purpose: an animation loops forever or a number of times.
 pub enum Loops {
     /// Without end.
     Forever,
@@ -50,6 +51,7 @@ pub trait FrameSource: Send {
 }
 
 /// What a file turned out to be.
+// Exhaustive on purpose: an opener answers with a still or an animation; every router must handle both.
 pub enum Opened {
     /// Frames to play.
     Animated(Box<dyn FrameSource>),
@@ -118,7 +120,7 @@ impl remedy_ui_media_image::Format for FirstFrame {
         let (image, _) = source
             .next()?
             .ok_or_else(|| DecodeError::Malformed(String::from("the animation has no frames")))?;
-        Ok(remedy_ui_media_image::Decoded { image, source_size: size })
+        Ok(remedy_ui_media_image::Decoded::new(image, size))
     }
 }
 

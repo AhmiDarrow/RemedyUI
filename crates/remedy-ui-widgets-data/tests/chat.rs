@@ -52,7 +52,7 @@ fn chat(items: Vec<Msg>) -> Chat {
         |m: &Msg| m.id,
         |m: &Msg| m.day.to_owned(),
         40.0,
-        |ui: &Ui, m: &Msg| w::label(ui, m.text.clone(), "").selectable(true),
+        |ui: &Ui, m: &Msg| w::text(ui, m.text.clone()).selectable(true),
         &state,
         move || a2.set(a2.get() + 1),
     );

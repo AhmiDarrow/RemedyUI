@@ -29,11 +29,26 @@ impl Swatch {
 
 /// How a [`color_swatch_grid`] lays out.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub struct SwatchOptions {
     /// A fixed number of columns. `None` wraps swatches to the width the grid is given.
     pub columns: Option<usize>,
     /// The side of one swatch. `None` takes seven theme units.
     pub size: Option<f32>,
+}
+
+impl SwatchOptions {
+    /// Sets `columns`: a fixed number of columns.
+    pub fn columns(mut self, value: usize) -> Self {
+        self.columns = Some(value);
+        self
+    }
+
+    /// Sets `size`: the side of one swatch.
+    pub fn size(mut self, value: f32) -> Self {
+        self.size = Some(value);
+        self
+    }
 }
 
 fn hex(c: Color) -> String {
@@ -102,7 +117,7 @@ pub fn color_swatch_grid(
                 .width(size)
                 .height(size)
                 .layout(|l| l.shrink = 0.0)
-                .style(StylePatch { background: Some(sw.color), ..StylePatch::default() });
+                .style(StylePatch::default().background(sw.color));
             let mark_color = sw.color;
             let cell = cell.paint(move |cx| {
                 let on = selected.get() == Some(i);

@@ -248,6 +248,8 @@ RemedyOS is not part of this plan: the RemedyOS bridge is out of scope.
 
 ## M10. 1.0
 
+**Status:** in progress. The API review is done ([API-REVIEW.md](API-REVIEW.md)): typed errors everywhere, `#[non_exhaustive]` where types will grow, one name per concept, everything reachable through the facade. Editions (`Edition::E2026`), `cargo remedy migrate`, `cargo xtask semver` and `msrv`, and the stability promise ([STABILITY.md](STABILITY.md), [RELEASING.md](RELEASING.md)) are in force. Left: the apps running on the frozen API for a release cycle, and publishing.
+
 **Contents:**
 - API review across all the apps above, then a freeze
 - editions and the deprecation policy in force

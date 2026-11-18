@@ -17,6 +17,7 @@ use crate::decode::{
 
 /// Where an image comes from.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum Source {
     /// A file, read off the UI thread. Its cache entry is checked against the file's size
     /// and modification time, so an edited file shows its new pixels.
@@ -112,6 +113,7 @@ enum SourceKey {
 
 /// Where a load is.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum ImageState {
     /// Reading or decoding.
     Loading,

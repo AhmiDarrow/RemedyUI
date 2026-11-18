@@ -54,13 +54,13 @@ fn car(n: usize, wrap: bool, autoplay: Option<Duration>) -> Car {
     let clock = Clock::manual();
     let index = Signal::new(0usize);
     let pages: Vec<El> = (0..n).map(|i| w::text(&ui, format!("Slide number {}", i + 1))).collect();
-    let root = carousel(
-        &ui,
-        "Highlights",
-        pages.clone(),
-        index,
-        CarouselOptions { wrap, autoplay, clock: clock.clone(), ..CarouselOptions::default() },
-    );
+    let root = carousel(&ui, "Highlights", pages.clone(), index, {
+        let mut v_ = CarouselOptions::default();
+        v_.wrap = wrap;
+        v_.autoplay = autoplay;
+        v_.clock = clock.clone();
+        v_
+    });
     mount(&ui, &root);
     Car { ui, root, pages, index, clock }
 }
@@ -234,13 +234,11 @@ fn right_to_left_pages_run_from_the_right() {
     let clock = Clock::manual();
     let index = Signal::new(0usize);
     let pages: Vec<El> = (0..3).map(|i| w::text(&ui, format!("Slide {i}"))).collect();
-    let root = carousel(
-        &ui,
-        "Highlights",
-        pages.clone(),
-        index,
-        CarouselOptions { clock: clock.clone(), ..CarouselOptions::default() },
-    );
+    let root = carousel(&ui, "Highlights", pages.clone(), index, {
+        let mut v_ = CarouselOptions::default();
+        v_.clock = clock.clone();
+        v_
+    });
     mount(&ui, &root);
     root.focus();
     // Left is on in a right to left window.
@@ -303,13 +301,11 @@ fn autoplay_never_runs_under_reduced_motion() {
     ui.set_reduced_motion(true);
     let index = Signal::new(0usize);
     let pages: Vec<El> = (0..3).map(|i| w::text(&ui, format!("Slide {i}"))).collect();
-    let root = carousel(
-        &ui,
-        "Highlights",
-        pages,
-        index,
-        CarouselOptions { autoplay: Some(Duration::from_secs(2)), ..CarouselOptions::default() },
-    );
+    let root = carousel(&ui, "Highlights", pages, index, {
+        let mut v_ = CarouselOptions::default();
+        v_.autoplay = Some(Duration::from_secs(2));
+        v_
+    });
     mount(&ui, &root);
     assert!(timers(&ui).is_empty());
 }
@@ -320,13 +316,11 @@ fn a_slide_between_pages_of_different_heights_grows_and_shrinks_smoothly() {
     let clock = Clock::manual();
     let index = Signal::new(0usize);
     let pages: Vec<El> = [40.0f32, 160.0, 90.0].iter().map(|h| ui.el("block").height(*h)).collect();
-    let root = carousel(
-        &ui,
-        "Tall and short",
-        pages,
-        index,
-        CarouselOptions { clock: clock.clone(), ..CarouselOptions::default() },
-    );
+    let root = carousel(&ui, "Tall and short", pages, index, {
+        let mut v_ = CarouselOptions::default();
+        v_.clock = clock.clone();
+        v_
+    });
     mount(&ui, &root);
     let _ = frame(&ui);
     let view = first(&root, "carousel_viewport");
@@ -558,11 +552,13 @@ fn custom_button_words_are_used() {
     let ui = ui();
     let current = Signal::new(0usize);
     let steps = vec![Step::new("Eins", w::text(&ui, "a")), Step::new("Zwei", w::text(&ui, "b"))];
-    let labels = StepperLabels {
-        back: "Zur\u{fc}ck".into(),
-        next: "Weiter".into(),
-        skip: "\u{dc}berspringen".into(),
-        finish: "Fertig".into(),
+    let labels = {
+        let mut v_ = StepperLabels::default();
+        v_.back = "Zur\u{fc}ck".into();
+        v_.next = "Weiter".into();
+        v_.skip = "\u{dc}berspringen".into();
+        v_.finish = "Fertig".into();
+        v_
     };
     let root = stepper_flow(&ui, "Einrichtung", steps, current, labels, || {});
     mount(&ui, &root);
