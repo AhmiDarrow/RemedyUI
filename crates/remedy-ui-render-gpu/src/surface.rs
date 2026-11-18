@@ -137,6 +137,8 @@ impl GpuCompositor {
             surface.generation = self.generation();
         }
         let Some(swapchain) = surface.surface.as_ref() else { return Ok(Presented::Retry) };
+        // Waiting for the swapchain to hand out an image is part of presenting.
+        let acquire = remedy_ui_trace::phase!("present").entered();
         let frame = match swapchain.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
             wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => {
@@ -154,8 +156,11 @@ impl GpuCompositor {
                 return Err(GpuError::Surface("the swapchain rejected the frame".into()));
             }
         };
+        drop(acquire);
         let (w, h) = (frame.texture.width(), frame.texture.height());
+        let raster = remedy_ui_trace::phase!("raster").entered();
         let (scene, bindings) = self.prepare(&mut surface.tiles, plan, w, h)?;
+        drop(raster);
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
         submit_scene(
             self.renderer().context(),
@@ -166,6 +171,7 @@ impl GpuCompositor {
             &view,
             &bindings,
         )?;
+        let _present = remedy_ui_trace::phase!("present").entered();
         self.renderer().context().queue.present(frame);
         Ok(Presented::Shown)
     }

@@ -18,6 +18,8 @@ pub struct CpuCompositor {
     renderer: CpuRenderer,
     tiles: HashMap<(LayerId, TileKey), Arc<Pixmap>>,
     last_raster: (u64, std::time::Duration),
+    /// Bytes of tiles held, for tools.
+    gauge: remedy_ui_trace::gauges::Gauge,
 }
 
 impl std::fmt::Debug for CpuCompositor {
@@ -39,6 +41,7 @@ impl CpuCompositor {
             renderer: CpuRenderer::new(),
             tiles: HashMap::new(),
             last_raster: (0, std::time::Duration::ZERO),
+            gauge: remedy_ui_trace::gauges::Gauge::new("cpu tiles"),
         }
     }
 
@@ -74,6 +77,7 @@ impl CpuCompositor {
         height: u32,
         background: Color,
     ) -> Result<Frame, RenderError> {
+        let _raster = remedy_ui_trace::phase!("raster").entered();
         let (w, h) = size16(width, height)?;
         for key in &plan.released {
             self.tiles.remove(key);
@@ -136,6 +140,7 @@ impl CpuCompositor {
         ctx.flush();
         let mut target = Pixmap::new(w, h);
         ctx.render(&mut target, &mut Resources::new());
+        self.gauge.set(self.tile_bytes() as u64);
         Ok(Frame { width, height, pixels: target.data_as_u8_slice().to_vec() })
     }
 }

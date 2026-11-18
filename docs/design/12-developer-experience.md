@@ -52,7 +52,7 @@ fn unlock_screen_preview() -> impl Element { unlock_screen(Vault::fake_locked())
 - **Signal graph.** See what depends on a signal and why something re-rendered: "row 42 repainted because `message.edited` changed".
 - **Performance overlay and Perfetto traces** ([09](09-performance-and-resources.md)).
 - **Accessibility view.** The semantics tree as a screen reader sees it, with problems flagged: unnamed buttons, low contrast, unreachable controls.
-- **Remote devtools** for Android and RemedyOS devices over a local, authenticated connection, which is debug builds only by default.
+- **Remote devtools** for Android and RemedyOS devices over a local, authenticated connection, which is debug builds only by default. The app serves a window on a loopback port; a connection opens with the server's token on its own line, then sends one JSON request per line (tree, element, semantics, signals, updates, frames) and gets one JSON answer per line. A device is reached through a port forward (`adb forward tcp:PORT tcp:PORT`).
 
 ## Diagnostics
 

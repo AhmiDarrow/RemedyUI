@@ -14,6 +14,7 @@
 //! view needs from its host (an input-method session, the clipboard, a cursor, a new frame)
 //! comes out as [`Request`]s. See `docs/design/02-state-and-elements.md`.
 
+mod client;
 mod decoration;
 pub mod device;
 mod dnd;
@@ -26,15 +27,19 @@ mod links;
 mod native;
 mod select;
 
+pub use client::TextInput;
 pub use decoration::{Decoration, DecorationKind};
 pub use dnd::Drag;
-pub use element::{El, ElementInfo, PaintCx, PointerInterceptor, Ui, WeakUi};
+pub use element::{
+    DirtyObserver, DirtyRecord, El, ElementInfo, PaintCx, PointerInterceptor, TextPaint, Ui, WeakUi,
+};
 pub use events::{Click, PointerInput};
 pub use field::{CodeColors, FieldKind, TextField};
-pub use frame::{Frame, Placement};
+pub use frame::{Frame, FrameStats, Placement};
 pub use history::HistoryItem;
 pub use remedy_ui_a11y::Action as A11yAction;
-pub use remedy_ui_host::{DragData, DragEvent, DropEffect};
+pub use remedy_ui_host::{DragData, DragEvent, DropEffect, ImeEvent};
+pub use remedy_ui_input::WheelEvent;
 pub use remedy_ui_layout::{Align, Justify};
 pub use remedy_ui_text::{RichText, StylePatch as TextPatch};
 pub use remedy_ui_tree::ElementId;
@@ -57,6 +62,15 @@ pub enum Request {
     },
     /// Read the clipboard and deliver it with [`Ui::paste`].
     Paste,
+    /// Make this text the primary selection (what was just selected; X11 and Wayland paste
+    /// it with the middle button). Platforms without one ignore it.
+    SetPrimary(String),
+    /// Deliver the primary selection with [`Ui::paste`]; on platforms without one, deliver
+    /// `fallback` (the element's own last selection) instead.
+    PastePrimary {
+        /// What to paste where the platform has no primary selection.
+        fallback: Option<String>,
+    },
     /// Draw a frame.
     Frame,
     /// Call [`Ui::fire_timer`] with `id` after `delay`.

@@ -31,6 +31,10 @@ nav = ["widgets", "dep:remedy-ui-widgets-nav"]
 data = ["widgets", "dep:remedy-ui-widgets-data"]
 ## Live audio visuals (`remedy_ui::viz`): the speaking ring, level meters, sparklines and bars.
 viz = ["widgets", "dep:remedy-ui-viz"]
+## Music widgets (`remedy_ui::music`): fretboard, chord diagram, tab staff and note staff.
+music = ["widgets", "dep:remedy-ui-widgets-music"]
+## Extra widgets (`remedy_ui::extra`): QR code, rating, carousel, setup wizard flow and swatch grid.
+extra = ["widgets", "viz", "dep:remedy-ui-widgets-extra"]
 ## Images (`remedy_ui::image`): PNG, JPEG, GIF, WebP, BMP and ICO, decoded off the UI
 ## thread at the size shown, color-managed and shared while in use.
 image = ["dep:remedy-ui-media-image"]
@@ -54,6 +58,9 @@ markup = ["widgets", "dep:remedy-ui-rui"]
 ## platform's decoders, kept in sync by the sound clock, with the `player` widget and
 ## captions. Wire its full-screen request to `Window::set_fullscreen`.
 playback = ["widgets", "video", "dep:remedy-ui-media-playback"]
+## Terminals (`remedy_ui::term`): VT and xterm emulation with scrollback, selection, links,
+## input methods and true color; the app keeps the PTY.
+term = ["widgets", "dep:remedy-ui-widgets-term"]
 ## Rich documents (`remedy_ui::rich`): Markdown, the rich text editor, the find bar.
 rich = ["widgets", "dep:remedy-ui-doc-rich"]
 ## Paged documents (`remedy_ui::pages`): a page view with deep zoom from 1% to 6400%
@@ -71,7 +78,7 @@ update = ["widgets", "dep:remedy-ui-services-update"]
 ## The in-memory host for tests (`remedy_ui::headless`).
 headless = ["dep:remedy-ui-bridge-headless"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "rich", "pages", "spell", "board", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra"]
 
 [dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
@@ -84,16 +91,20 @@ remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
 remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "0.1.0" }
 remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "0.1.0", optional = true }
 remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "0.1.0", optional = true }
+remedy-ui-trace = { path = "../remedy-ui-trace", version = "0.1.0" }
 remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "0.1.0", optional = true }
 remedy-ui-widgets-forms = { path = "../remedy-ui-widgets-forms", version = "0.1.0", optional = true }
 remedy-ui-widgets-nav = { path = "../remedy-ui-widgets-nav", version = "0.1.0", optional = true }
 remedy-ui-widgets-data = { path = "../remedy-ui-widgets-data", version = "0.1.0", optional = true }
 remedy-ui-viz = { path = "../remedy-ui-viz", version = "0.1.0", optional = true }
+remedy-ui-widgets-music = { path = "../remedy-ui-widgets-music", version = "0.1.0", optional = true }
+remedy-ui-widgets-extra = { path = "../remedy-ui-widgets-extra", version = "0.1.0", optional = true }
 remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "0.1.0", optional = true }
 remedy-ui-media-svg = { path = "../remedy-ui-media-svg", version = "0.1.0", optional = true }
 remedy-ui-doc-code = { path = "../remedy-ui-doc-code", version = "0.1.0", optional = true }
 remedy-ui-automation = { path = "../remedy-ui-automation", version = "0.1.0", optional = true }
 remedy-ui-rui = { path = "../remedy-ui-rui", version = "0.1.0", optional = true }
+remedy-ui-widgets-term = { path = "../remedy-ui-widgets-term", version = "0.1.0", optional = true }
 remedy-ui-media-video = { path = "../remedy-ui-media-video", version = "0.1.0", optional = true }
 remedy-ui-embed-webview = { path = "../remedy-ui-embed-webview", version = "0.1.0", optional = true }
 remedy-ui-embed-gpu = { path = "../remedy-ui-embed-gpu", version = "0.1.0", optional = true }

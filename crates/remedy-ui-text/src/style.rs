@@ -57,7 +57,9 @@ impl Feature {
 /// A complete text style.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextStyle {
-    /// Families in fallback order. The first that covers a character draws it.
+    /// Families in fallback order. The first that covers a character draws it. CSS's
+    /// generic names (`monospace`, `serif`, `sans-serif`, `system-ui`, `ui-monospace`) stand
+    /// for the system's choice, when the collection reaches the system's fonts.
     pub families: Vec<String>,
     /// Font size in logical pixels.
     pub size: f32,

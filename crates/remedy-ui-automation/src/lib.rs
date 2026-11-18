@@ -215,21 +215,8 @@ struct Grant {
     until: Option<Instant>,
 }
 
-/// A secret no other process can guess: 128 bits from the system's randomness (through the
-/// standard library's hasher seeds, which come from the OS) and the time.
 fn token() -> String {
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hasher};
-    let mut out = String::new();
-    for i in 0..2u64 {
-        let mut h = RandomState::new().build_hasher();
-        h.write_u64(i);
-        h.write_u128(
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()),
-        );
-        out.push_str(&format!("{:016x}", h.finish()));
-    }
-    out
+    remedy_ui_core::token::random_token()
 }
 
 struct State {

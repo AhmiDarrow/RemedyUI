@@ -1,0 +1,38 @@
+[package]
+name = "remedy-ui-widgets-term"
+description = "RemedyUI terminals: VT and xterm emulation with scrollback, selection, links, input methods and true color. The PTY stays in the app."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Paul Williams' VT state machine, as Alacritty uses it: bytes to print, execute, CSI, OSC
+# and DCS actions. The screen model on top is RemedyUI's own.
+vte = { version = "=0.15.0", default-features = false, features = ["std"] }
+# How many cells a character takes (UAX #11).
+unicode-width = { version = "=0.2.3", default-features = false }
+# OSC 52 clipboard payloads.
+base64 = { version = "=0.23.1", default-features = false, features = ["alloc"] }
+remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-host = { path = "../remedy-ui-host", version = "0.1.0" }
+remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
+remedy-ui-layout = { path = "../remedy-ui-layout", version = "0.1.0" }
+remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
+remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
+remedy-ui-style = { path = "../remedy-ui-style", version = "0.1.0" }
+remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
+remedy-ui-view = { path = "../remedy-ui-view", version = "0.1.0" }
+
+[dev-dependencies]
+remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
+remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "0.1.0" }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "0.1.0", features = ["remedy-sans-ui", "ahmi-print"] }
+remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0", features = ["system-fonts"] }
+remedy-ui-themes = { path = "../remedy-ui-themes", version = "0.1.0" }
+
+[lints]
+workspace = true

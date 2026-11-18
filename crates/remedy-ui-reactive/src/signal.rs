@@ -1,12 +1,14 @@
 //! Signals, memos, effects and scopes: the public handles over the runtime.
 
 use std::any::Any;
+use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::panic::Location;
 use std::rc::Rc;
 
+use crate::debug::NodeKey;
 use crate::error::ReactiveError;
-use crate::runtime::{Kind, NodeId, Runtime, with_rt};
+use crate::runtime::{Kind, NodeId, Runtime, key, with_rt};
 
 fn on_rt<R>(rt_id: u32, f: impl FnOnce(&Runtime) -> Result<R, ReactiveError>) -> Result<R, ReactiveError> {
     with_rt(|rt| if rt.id == rt_id { f(rt) } else { Err(ReactiveError::WrongThread) })?
@@ -18,6 +20,10 @@ fn current_rt_id() -> Result<u32, ReactiveError> {
 
 fn creation_site(rt_id: u32, id: NodeId) -> Option<&'static Location<'static>> {
     on_rt(rt_id, |rt| Ok(rt.created_at(id))).ok().flatten()
+}
+
+fn name(rt_id: u32, id: NodeId, name: Cow<'static, str>) {
+    let _ = on_rt(rt_id, |rt| Ok(rt.name_node(id, name)));
 }
 
 #[track_caller]
@@ -122,9 +128,23 @@ impl<T: 'static> Signal<T> {
         self.access(false, T::clone)
     }
 
+    /// The signal's key in the reactive graph ([`crate::debug`]).
+    pub fn key(&self) -> NodeKey {
+        key(self.id)
+    }
+
+    /// Gives the signal a debug name: devtools say "`message.edited` changed" instead of
+    /// where it was created.
+    pub fn named(self, n: impl Into<Cow<'static, str>>) -> Self {
+        name(self.rt, self.id, n.into());
+        self
+    }
+
     /// Changes the value with `f` and notifies when `f` returns true. Effects run when the
     /// outermost batch ends.
+    #[track_caller]
     pub fn try_update_if(&self, f: impl FnOnce(&mut T) -> bool) -> Result<(), ReactiveError> {
+        let at = Location::caller();
         on_rt(self.rt, |rt| {
             let cell = rt.signal_cell(self.id, false)?;
             let changed = {
@@ -133,13 +153,14 @@ impl<T: 'static> Signal<T> {
                 f(value)
             };
             if changed {
-                rt.notify(self.id);
+                rt.notify(self.id, Some(at));
             }
             Ok(())
         })
     }
 
     /// Changes the value with `f` and notifies.
+    #[track_caller]
     pub fn try_update(&self, f: impl FnOnce(&mut T)) -> Result<(), ReactiveError> {
         self.try_update_if(|v| {
             f(v);
@@ -156,6 +177,7 @@ impl<T: 'static> Signal<T> {
     }
 
     /// Replaces the value and notifies.
+    #[track_caller]
     pub fn try_set(&self, value: T) -> Result<(), ReactiveError> {
         self.try_update(|v| *v = value)
     }
@@ -256,6 +278,17 @@ impl<T: PartialEq + 'static> Memo<T> {
 }
 
 impl<T: 'static> Memo<T> {
+    /// The memo's key in the reactive graph ([`crate::debug`]).
+    pub fn key(&self) -> NodeKey {
+        key(self.id)
+    }
+
+    /// Gives the memo a debug name, shown by devtools.
+    pub fn named(self, n: impl Into<Cow<'static, str>>) -> Self {
+        name(self.rt, self.id, n.into());
+        self
+    }
+
     fn access<R>(&self, track: bool, f: impl FnOnce(&T) -> R) -> Result<R, ReactiveError> {
         let cell = on_rt(self.rt, |rt| rt.memo_cell(self.id, track))?;
         let guard = cell.try_borrow().map_err(|_| ReactiveError::Cycle)?;
@@ -338,6 +371,17 @@ impl Effect {
         on_rt(self.rt, |rt| Ok(rt.sources(self.id))).unwrap_or_default()
     }
 
+    /// The effect's key in the reactive graph ([`crate::debug`]).
+    pub fn key(&self) -> NodeKey {
+        key(self.id)
+    }
+
+    /// Gives the effect a debug name, shown by devtools.
+    pub fn named(self, n: impl Into<Cow<'static, str>>) -> Self {
+        name(self.rt, self.id, n.into());
+        self
+    }
+
     /// True while the effect exists.
     pub fn is_alive(&self) -> bool {
         on_rt(self.rt, |rt| Ok(rt.exists(self.id))).unwrap_or(false)
@@ -381,6 +425,17 @@ impl Reaction {
         on_rt(self.rt, |rt| Ok(rt.sources(self.id))).unwrap_or_default()
     }
 
+    /// The reaction's key in the reactive graph ([`crate::debug`]).
+    pub fn key(&self) -> NodeKey {
+        key(self.id)
+    }
+
+    /// Gives the reaction a debug name, shown by devtools.
+    pub fn named(self, n: impl Into<Cow<'static, str>>) -> Self {
+        name(self.rt, self.id, n.into());
+        self
+    }
+
     /// True while the reaction exists.
     pub fn is_alive(&self) -> bool {
         on_rt(self.rt, |rt| Ok(rt.exists(self.id))).unwrap_or(false)
@@ -411,6 +466,8 @@ pub struct Source {
     pub kind: SourceKind,
     /// Where it was created.
     pub created_at: &'static Location<'static>,
+    /// Its key in the reactive graph ([`crate::debug`]).
+    pub key: NodeKey,
 }
 
 impl std::fmt::Display for Source {
@@ -458,6 +515,11 @@ impl Scope {
     /// True while the scope exists.
     pub fn is_alive(&self) -> bool {
         on_rt(self.rt, |rt| Ok(rt.exists(self.id))).unwrap_or(false)
+    }
+
+    /// The scope's key in the reactive graph ([`crate::debug`]).
+    pub fn key(&self) -> NodeKey {
+        key(self.id)
     }
 
     /// Disposes everything the scope owns, runs clean-ups, and removes the scope.

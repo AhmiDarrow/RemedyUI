@@ -302,6 +302,24 @@ mod linux {
             }
         }
 
+        fn primary_selection_text(&mut self) -> Result<Option<String>, Unsupported> {
+            use arboard::{GetExtLinux, LinuxClipboardKind};
+            match self.clipboard()?.get().clipboard(LinuxClipboardKind::Primary).text() {
+                Ok(t) => Ok(Some(t)),
+                Err(arboard::Error::ContentNotAvailable) => Ok(None),
+                Err(e) => Err(Unsupported::new("the primary selection", e.to_string())),
+            }
+        }
+
+        fn set_primary_selection(&mut self, text: &str) -> Result<(), Unsupported> {
+            use arboard::LinuxClipboardKind;
+            self.clipboard()?
+                .set()
+                .clipboard(LinuxClipboardKind::Primary)
+                .text(text.to_owned())
+                .map_err(|e| Unsupported::new("the primary selection", e.to_string()))
+        }
+
         fn set_clipboard_text(&mut self, text: &str, sensitive: bool) -> Result<(), Unsupported> {
             let set = self.clipboard()?.set();
             let set = if sensitive { set.exclude_from_history() } else { set };

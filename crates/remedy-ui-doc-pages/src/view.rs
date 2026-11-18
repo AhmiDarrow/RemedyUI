@@ -16,6 +16,7 @@ use remedy_ui_paint::{Affine, Brush, Item, Sampling};
 use remedy_ui_reactive::Signal;
 use remedy_ui_view::{ElementId, PaintCx, WeakUi};
 
+use crate::annot::{self, Annotation, AnnotationKind, AnnotationStyle, Shape, Tool};
 use crate::layout::{Fit, PageLayout, Rotation, Spread};
 use crate::raster::{
     self, Done, Draw, FrameCx, PageStats, TileId, Tiles, Visible, class, level_of, scale_of,
@@ -61,10 +62,30 @@ const MEMORY_SHARE: u64 = 64;
 #[derive(Clone, Copy, Debug)]
 enum Gesture {
     None,
-    Pan { last: Point },
+    Pan {
+        last: Point,
+    },
     Select,
-    Bar { vertical: bool, grab: f32 },
-    Pinch { distance: f32, zoom: f32, mid: Point },
+    Bar {
+        vertical: bool,
+        grab: f32,
+    },
+    Pinch {
+        distance: f32,
+        zoom: f32,
+        mid: Point,
+    },
+    /// Making or moving an annotation (what is in [`State::drawing`]).
+    Annotate,
+}
+
+/// An annotation being made or moved by a drag, in its page's points.
+#[derive(Clone, Debug)]
+enum Drawing {
+    Ink { page: usize, points: Vec<Point> },
+    Shape { page: usize, shape: Shape, from: Point, to: Point },
+    Text { page: usize, from: Point, to: Point },
+    Move { id: u64, last: Point, before: Vec<Annotation>, moved: bool },
 }
 
 /// While a scroll or zoom moves, the view keeps its last picture and the compositor moves
@@ -98,7 +119,16 @@ struct State {
     gesture: Gesture,
     touches: HashMap<u32, Point>,
     thumb_flight: HashMap<usize, Cancel>,
+    annots: Vec<Annotation>,
+    next_annot: u64,
+    tool: Tool,
+    style: AnnotationStyle,
+    picked: Option<u64>,
+    drawing: Option<Drawing>,
 }
+
+/// The app's handler for opening an annotation (to read or edit its comment).
+type OpenHandler = Rc<dyn Fn(Annotation)>;
 
 struct Shared {
     viewer: u64,
@@ -112,6 +142,10 @@ struct Shared {
     search: Signal<SearchStatus>,
     host: RefCell<Option<(WeakUi, ElementId)>>,
     thumbs: RefCell<HashMap<usize, (WeakUi, ElementId)>>,
+    annotations: Signal<Vec<Annotation>>,
+    tool: Signal<Tool>,
+    picked: Signal<Option<u64>>,
+    on_open: RefCell<Option<OpenHandler>>,
 }
 
 impl Drop for Shared {
@@ -188,6 +222,12 @@ impl PageView {
                     gesture: Gesture::None,
                     touches: HashMap::new(),
                     thumb_flight: HashMap::new(),
+                    annots: Vec::new(),
+                    next_annot: 1,
+                    tool: Tool::Select,
+                    style: AnnotationStyle::default(),
+                    picked: None,
+                    drawing: None,
                 }),
                 zoom: Signal::new(1.0),
                 fit: Signal::new(Fit::Width),
@@ -196,6 +236,10 @@ impl PageView {
                 search: Signal::new(SearchStatus::default()),
                 host: RefCell::new(None),
                 thumbs: RefCell::new(HashMap::new()),
+                annotations: Signal::new(Vec::new()),
+                tool: Signal::new(Tool::Select),
+                picked: Signal::new(None),
+                on_open: RefCell::new(None),
             }
         });
         PageView(shared)
@@ -506,15 +550,42 @@ impl PageView {
     fn update_page_text(&self) {
         let page = self.0.page.get_untracked().unwrap_or(0);
         let known = self.0.st.borrow().text.pages.get(&page).cloned();
+        let notes = {
+            let st = self.0.st.borrow();
+            let mut lines: Vec<String> = st
+                .annots
+                .iter()
+                .filter(|a| a.page == page)
+                .map(|a| {
+                    if st.picked == Some(a.id) { format!("Selected: {}", a.describe()) } else { a.describe() }
+                })
+                .collect();
+            if !lines.is_empty() {
+                lines.insert(
+                    0,
+                    format!("{} annotation{}:", lines.len(), if lines.len() == 1 { "" } else { "s" }),
+                );
+            }
+            lines.join("\n")
+        };
+        let with_notes = |body: String| {
+            if notes.is_empty() {
+                body
+            } else if body.is_empty() {
+                notes.clone()
+            } else {
+                format!("{body}\n\n{notes}")
+            }
+        };
         match known {
             Some(Some(t)) => {
-                let _ = self.0.page_text.try_set(text::whole(&t));
+                let _ = self.0.page_text.try_set(with_notes(text::whole(&t)));
             }
             Some(None) => {
-                let _ = self.0.page_text.try_set(String::new());
+                let _ = self.0.page_text.try_set(with_notes(String::new()));
             }
             None => {
-                let _ = self.0.page_text.try_set(String::new());
+                let _ = self.0.page_text.try_set(with_notes(String::new()));
                 self.request_text(page);
             }
         }
@@ -580,6 +651,478 @@ impl PageView {
             }
             Done::Found(generation, page, t) => self.found(generation, page, t),
         }
+    }
+
+    // ---------- annotations ----------
+
+    /// The document's annotations, in the order they were added (later ones draw on top).
+    /// The app reads this to save them; it changes with every edit.
+    pub fn annotations(&self) -> Signal<Vec<Annotation>> {
+        self.0.annotations
+    }
+
+    /// The annotation with `id`.
+    pub fn annotation(&self, id: u64) -> Option<Annotation> {
+        self.0.st.borrow().annots.iter().find(|a| a.id == id).cloned()
+    }
+
+    /// Replaces every annotation, as when the app opens a document. Annotations without an
+    /// id (0) are given one. Not an edit: nothing goes into the undo history.
+    pub fn set_annotations(&self, list: Vec<Annotation>) {
+        {
+            let mut st = self.0.st.borrow_mut();
+            let mut next =
+                list.iter().map(|a| a.id).max().unwrap_or(0).max(st.next_annot.saturating_sub(1)) + 1;
+            st.annots = list
+                .into_iter()
+                .map(|mut a| {
+                    if a.id == 0 {
+                        a.id = next;
+                        next += 1;
+                    }
+                    a
+                })
+                .collect();
+            st.next_annot = next;
+            if st.picked.is_some_and(|p| !st.annots.iter().any(|a| a.id == p)) {
+                st.picked = None;
+            }
+        }
+        self.publish_annotations();
+    }
+
+    /// Adds `a` (on its page, in page points) and returns its id. Undoable.
+    pub fn add_annotation(&self, a: Annotation) -> u64 {
+        let before = self.0.st.borrow().annots.clone();
+        let id = {
+            let mut st = self.0.st.borrow_mut();
+            let id = st.next_annot;
+            st.next_annot += 1;
+            let mut a = a;
+            a.id = id;
+            st.annots.push(a);
+            id
+        };
+        let label = self
+            .annotation(id)
+            .map_or("Add annotation".to_owned(), |a| format!("Add {}", a.kind_name().to_lowercase()));
+        self.commit(label, before);
+        id
+    }
+
+    /// Changes the annotation with `id` through `f`. Undoable. False when there is none.
+    pub fn update_annotation(&self, id: u64, f: impl FnOnce(&mut Annotation)) -> bool {
+        let before = self.0.st.borrow().annots.clone();
+        let label = {
+            let mut st = self.0.st.borrow_mut();
+            let Some(a) = st.annots.iter_mut().find(|a| a.id == id) else { return false };
+            f(a);
+            a.id = id;
+            format!("Change {}", a.kind_name().to_lowercase())
+        };
+        self.commit(label, before);
+        true
+    }
+
+    /// Removes the annotation with `id`. Undoable. False when there is none.
+    pub fn remove_annotation(&self, id: u64) -> bool {
+        let before = self.0.st.borrow().annots.clone();
+        let label = {
+            let mut st = self.0.st.borrow_mut();
+            let Some(i) = st.annots.iter().position(|a| a.id == id) else { return false };
+            let a = st.annots.remove(i);
+            if st.picked == Some(id) {
+                st.picked = None;
+            }
+            format!("Delete {}", a.kind_name().to_lowercase())
+        };
+        self.commit(label, before);
+        true
+    }
+
+    /// What pressing and dragging on the pages does.
+    pub fn tool(&self) -> Signal<Tool> {
+        self.0.tool
+    }
+
+    /// Chooses what pressing and dragging does. A text tool marks the text already selected,
+    /// if any.
+    pub fn set_tool(&self, tool: Tool) {
+        self.0.st.borrow_mut().tool = tool;
+        let _ = self.0.tool.try_set(tool);
+        if matches!(tool, Tool::Highlight | Tool::Underline | Tool::Strikeout | Tool::Squiggly) {
+            self.mark_selection(tool);
+        }
+        self.repaint();
+    }
+
+    /// How new annotations look.
+    pub fn annotation_style(&self) -> AnnotationStyle {
+        self.0.st.borrow().style
+    }
+
+    /// Sets how new annotations look.
+    pub fn set_annotation_style(&self, style: AnnotationStyle) {
+        self.0.st.borrow_mut().style = style;
+    }
+
+    /// The selected annotation.
+    pub fn selected_annotation(&self) -> Signal<Option<u64>> {
+        self.0.picked
+    }
+
+    /// Selects the annotation `id` (or none) and brings it into view.
+    pub fn select_annotation(&self, id: Option<u64>) {
+        let target = {
+            let mut st = self.0.st.borrow_mut();
+            st.picked = id.filter(|i| st.annots.iter().any(|a| a.id == *i));
+            st.picked.and_then(|i| st.annots.iter().find(|a| a.id == i)).map(|a| (a.page, a.bounds()))
+        };
+        let _ = self.0.picked.try_set(target.and(id));
+        if let Some((page, b)) = target {
+            self.reveal(page, b);
+        }
+        self.publish_annotations();
+    }
+
+    /// Selects the next (or previous) annotation in reading order: by page, then top to
+    /// bottom, then left to right.
+    pub fn select_next_annotation(&self, forward: bool) -> bool {
+        let order: Vec<u64> = {
+            let st = self.0.st.borrow();
+            let mut v: Vec<&Annotation> = st.annots.iter().collect();
+            v.sort_by(|a, b| {
+                let (ba, bb) = (a.bounds(), b.bounds());
+                a.page.cmp(&b.page).then(ba.min.y.total_cmp(&bb.min.y)).then(ba.min.x.total_cmp(&bb.min.x))
+            });
+            v.into_iter().map(|a| a.id).collect()
+        };
+        if order.is_empty() {
+            return false;
+        }
+        let at = self.0.st.borrow().picked.and_then(|p| order.iter().position(|i| *i == p));
+        let next = match (at, forward) {
+            (None, true) => order.first(),
+            (None, false) => order.last(),
+            (Some(i), true) => order.get((i + 1) % order.len()),
+            (Some(i), false) => order.get((i + order.len() - 1) % order.len()),
+        };
+        self.select_annotation(next.copied());
+        true
+    }
+
+    /// Calls `f` when someone opens an annotation (double-click, or Enter on the selected
+    /// one, or placing a note): the app shows its comment for reading or editing.
+    pub fn on_open_annotation(&self, f: impl Fn(Annotation) + 'static) {
+        *self.0.on_open.borrow_mut() = Some(Rc::new(f));
+    }
+
+    /// Marks the selected text with a text tool's mark (one annotation per page it spans),
+    /// clearing the selection. False with nothing selected or a tool that does not mark text.
+    pub fn mark_selection(&self, tool: Tool) -> bool {
+        let make = |quads: Vec<Rect>| match tool {
+            Tool::Highlight => Some(AnnotationKind::Highlight { quads }),
+            Tool::Underline => Some(AnnotationKind::Underline { quads }),
+            Tool::Strikeout => Some(AnnotationKind::Strikeout { quads }),
+            Tool::Squiggly => Some(AnnotationKind::Squiggly { quads }),
+            _ => None,
+        };
+        if make(Vec::new()).is_none() {
+            return false;
+        }
+        let (marks, color) = {
+            let st = self.0.st.borrow();
+            let Some((a, b)) = st.text.selection else { return false };
+            let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+            let mut marks = Vec::new();
+            for page in lo.page..=hi.page {
+                let Some(Some(t)) = st.text.pages.get(&page) else { continue };
+                let quads = text::rects(page, t, lo, hi);
+                if quads.is_empty() {
+                    continue;
+                }
+                let from = if page == lo.page { lo } else { TextPos { page, run: 0, offset: 0 } };
+                let to = if page == hi.page {
+                    hi
+                } else {
+                    let last = t.runs.len().saturating_sub(1);
+                    TextPos { page, run: last, offset: t.runs.get(last).map_or(0, |r| r.len()) }
+                };
+                marks.push((page, quads, text::between(&st.text.pages, from, to)));
+            }
+            (marks, st.style.color)
+        };
+        if marks.is_empty() {
+            return false;
+        }
+        let before = self.0.st.borrow().annots.clone();
+        let label = {
+            let mut st = self.0.st.borrow_mut();
+            let mut name = String::new();
+            for (page, quads, words) in marks {
+                let Some(kind) = make(quads) else { continue };
+                let mut a = Annotation::new(page, kind, color);
+                a.marked_text = words;
+                a.id = st.next_annot;
+                st.next_annot += 1;
+                name = format!("Add {}", a.kind_name().to_lowercase());
+                st.annots.push(a);
+            }
+            st.text.selection = None;
+            name
+        };
+        self.commit(label, before);
+        true
+    }
+
+    /// Shows the annotations' current list, redraws, and updates what screen readers hear.
+    fn publish_annotations(&self) {
+        let (list, picked) = {
+            let st = self.0.st.borrow();
+            (st.annots.clone(), st.picked)
+        };
+        let _ = self.0.annotations.try_set(list);
+        if self.0.picked.get_untracked().ok() != Some(picked) {
+            let _ = self.0.picked.try_set(picked);
+        }
+        self.update_page_text();
+        self.repaint();
+        self.repaint_thumbs();
+    }
+
+    /// Publishes an edit and records it in the window's undo history: undo puts `before`
+    /// back, redo the list as it is now.
+    fn commit(&self, label: String, before: Vec<Annotation>) {
+        let after = self.0.st.borrow().annots.clone();
+        self.publish_annotations();
+        let Some(ui) = self.host().map(|el| el.ui().clone()) else { return };
+        let (u, r) = (Rc::downgrade(&self.0), Rc::downgrade(&self.0));
+        ui.record_change(
+            label,
+            None,
+            move || {
+                if let Some(s) = u.upgrade() {
+                    PageView(s).restore(before.clone());
+                }
+            },
+            move || {
+                if let Some(s) = r.upgrade() {
+                    PageView(s).restore(after.clone());
+                }
+            },
+        );
+    }
+
+    fn restore(&self, list: Vec<Annotation>) {
+        {
+            let mut st = self.0.st.borrow_mut();
+            if st.picked.is_some_and(|p| !list.iter().any(|a| a.id == p)) {
+                st.picked = None;
+            }
+            st.annots = list;
+        }
+        self.publish_annotations();
+    }
+
+    fn open(&self, id: u64) {
+        let handler = self.0.on_open.borrow().clone();
+        if let (Some(f), Some(a)) = (handler, self.annotation(id)) {
+            f(a);
+        }
+    }
+
+    /// Scrolls so `bounds` (page points on `page`) shows.
+    fn reveal(&self, page: usize, bounds: Rect) {
+        {
+            let mut st = self.0.st.borrow_mut();
+            let a = st.to_content(page, bounds.min);
+            let b = st.to_content(page, bounds.max);
+            let r = annot::box_of(a, b);
+            let (vw, vh) = (st.viewport.width, st.viewport.height);
+            let pad = 24.0;
+            if r.min.x < st.scroll.x || r.max.x > st.scroll.x + vw {
+                st.scroll.x = r.min.x - pad;
+            }
+            if r.min.y < st.scroll.y || r.max.y > st.scroll.y + vh {
+                st.scroll.y = r.min.y - vh / 3.0;
+            }
+            st.clamp();
+        }
+        self.changed();
+    }
+
+    /// Where a point of the view is on `page`, in that page's points (even off the page).
+    fn page_point(&self, page: usize, p: Point) -> Option<Point> {
+        let st = self.0.st.borrow();
+        let t = st.layout.page_transform(page, st.eff_zoom(), st.viewport.width);
+        let inv = t.inverse()?;
+        Some(inv.apply(Point::new(p.x + st.scroll.x, p.y + st.scroll.y)))
+    }
+
+    /// The page under a point of the view, and the point in its points.
+    fn page_under(&self, p: Point) -> Option<(usize, Point)> {
+        let st = self.0.st.borrow();
+        let c = Point::new(p.x + st.scroll.x, p.y + st.scroll.y);
+        st.layout.page_at(c, st.eff_zoom(), st.viewport.width)
+    }
+
+    /// The topmost annotation under a point of the view.
+    fn annotation_at(&self, p: Point) -> Option<u64> {
+        let (page, at) = self.page_under(p)?;
+        let st = self.0.st.borrow();
+        // A few pixels of slop on screen, whatever the zoom.
+        let slop = 4.0 / st.eff_zoom().max(MIN_ZOOM);
+        st.annots.iter().rev().find(|a| a.page == page && a.hit(at, slop)).map(|a| a.id)
+    }
+
+    /// Starts making or moving an annotation with the current tool. True when the press
+    /// was taken.
+    fn annotate_down(&self, p: Point, double: bool) -> bool {
+        let tool = self.0.st.borrow().tool;
+        match tool {
+            Tool::Select => {
+                let Some(id) = self.annotation_at(p) else {
+                    if self.0.st.borrow().picked.is_some() {
+                        self.select_annotation(None);
+                    }
+                    return false;
+                };
+                if double {
+                    self.open(id);
+                }
+                let at = self.annotation(id).and_then(|a| self.page_point(a.page, p));
+                let before = self.0.st.borrow().annots.clone();
+                {
+                    let mut st = self.0.st.borrow_mut();
+                    st.picked = Some(id);
+                    st.drawing = at.map(|last| Drawing::Move { id, last, before, moved: false });
+                }
+                self.publish_annotations();
+                true
+            }
+            Tool::Hand | Tool::Highlight | Tool::Underline | Tool::Strikeout | Tool::Squiggly => false,
+            Tool::Ink | Tool::Shape(_) | Tool::FreeText | Tool::Note => {
+                let Some((page, at)) = self.page_under(p) else { return false };
+                if tool == Tool::Note {
+                    let style = self.0.st.borrow().style;
+                    let half = annot::NOTE / 2.0;
+                    let id = self.add_annotation(Annotation::new(
+                        page,
+                        AnnotationKind::Note { at: Point::new(at.x - half, at.y - half) },
+                        style.color,
+                    ));
+                    self.select_annotation(Some(id));
+                    self.open(id);
+                    return true;
+                }
+                let drawing = match tool {
+                    Tool::Ink => Drawing::Ink { page, points: vec![at] },
+                    Tool::Shape(shape) => Drawing::Shape { page, shape, from: at, to: at },
+                    _ => Drawing::Text { page, from: at, to: at },
+                };
+                self.0.st.borrow_mut().drawing = Some(drawing);
+                self.repaint();
+                true
+            }
+        }
+    }
+
+    fn annotate_move(&self, p: Point) {
+        let drawing = self.0.st.borrow_mut().drawing.take();
+        let next = match drawing {
+            Some(Drawing::Ink { page, mut points }) => {
+                if let Some(q) = self.page_point(page, p) {
+                    points.push(q);
+                }
+                Some(Drawing::Ink { page, points })
+            }
+            Some(Drawing::Shape { page, shape, from, to }) => {
+                Some(Drawing::Shape { page, shape, from, to: self.page_point(page, p).unwrap_or(to) })
+            }
+            Some(Drawing::Text { page, from, to }) => {
+                Some(Drawing::Text { page, from, to: self.page_point(page, p).unwrap_or(to) })
+            }
+            Some(Drawing::Move { id, last, before, moved }) => {
+                let page = self.annotation(id).map(|a| a.page);
+                match page.and_then(|pg| self.page_point(pg, p)) {
+                    Some(q) => {
+                        {
+                            let mut st = self.0.st.borrow_mut();
+                            if let Some(a) = st.annots.iter_mut().find(|a| a.id == id) {
+                                a.translate(Vec2::new(q.x - last.x, q.y - last.y));
+                            }
+                        }
+                        Some(Drawing::Move { id, last: q, before, moved: true })
+                    }
+                    None => Some(Drawing::Move { id, last, before, moved }),
+                }
+            }
+            None => None,
+        };
+        self.0.st.borrow_mut().drawing = next;
+        self.repaint();
+    }
+
+    fn annotate_up(&self) {
+        let drawing = self.0.st.borrow_mut().drawing.take();
+        let (style, zoom) = {
+            let st = self.0.st.borrow();
+            (st.style, st.eff_zoom().max(MIN_ZOOM))
+        };
+        let made = match drawing {
+            Some(Drawing::Ink { page, points }) => {
+                // Half a screen pixel of tolerance keeps the stroke as drawn.
+                let points = annot::simplify(&points, 0.5 / zoom);
+                Some(Annotation::new(
+                    page,
+                    AnnotationKind::Ink { strokes: vec![points], width: style.width },
+                    style.color,
+                ))
+            }
+            Some(Drawing::Shape { page, shape, from, to }) => {
+                let tiny = ((to.x - from.x).abs() + (to.y - from.y).abs()) * zoom < 3.0;
+                (!tiny).then(|| {
+                    Annotation::new(
+                        page,
+                        AnnotationKind::Shape { shape, from, to, width: style.width },
+                        style.color,
+                    )
+                })
+            }
+            Some(Drawing::Text { page, from, to }) => {
+                // A click without a drag makes a box sized for a few words.
+                let r = annot::box_of(from, to);
+                let r = if r.width() * zoom < 6.0 || r.height() * zoom < 6.0 {
+                    Rect::new(from.x, from.y, from.x + style.text_size * 12.0, from.y + style.text_size * 2.0)
+                } else {
+                    r
+                };
+                Some(Annotation::new(
+                    page,
+                    AnnotationKind::FreeText { rect: r, text: String::new(), size: style.text_size },
+                    style.color,
+                ))
+            }
+            Some(Drawing::Move { id, before, moved, .. }) => {
+                if moved {
+                    let label = self.annotation(id).map_or("Move annotation".to_owned(), |a| {
+                        format!("Move {}", a.kind_name().to_lowercase())
+                    });
+                    self.commit(label, before);
+                }
+                None
+            }
+            None => None,
+        };
+        if let Some(a) = made {
+            let text_box = matches!(a.kind, AnnotationKind::FreeText { .. });
+            let id = self.add_annotation(a);
+            self.select_annotation(Some(id));
+            if text_box {
+                self.open(id);
+            }
+        }
+        self.repaint();
     }
 
     // ---------- selection ----------
@@ -826,10 +1369,13 @@ impl PageView {
                     return false;
                 }
                 let bar = self.0.st.borrow().bar_at(p);
+                let tool = self.0.st.borrow().tool;
                 let gesture = if let Some((vertical, grab)) = bar.filter(|_| !middle) {
                     Gesture::Bar { vertical, grab }
-                } else if middle {
+                } else if middle || tool == Tool::Hand {
                     Gesture::Pan { last: p }
+                } else if self.annotate_down(p, self.host().is_some_and(|el| el.ui().click_count() >= 2)) {
+                    Gesture::Annotate
                 } else if let Some(pos) = self.text_at(p) {
                     let keep = e.modifiers.shift;
                     let mut st = self.0.st.borrow_mut();
@@ -871,11 +1417,32 @@ impl PageView {
                         self.changed();
                         true
                     }
+                    Gesture::Annotate => {
+                        self.annotate_move(p);
+                        true
+                    }
                     Gesture::None | Gesture::Pinch { .. } => false,
                 }
             }
             PointerPhase::Up | PointerPhase::Cancel => {
                 let was = std::mem::replace(&mut self.0.st.borrow_mut().gesture, Gesture::None);
+                match was {
+                    Gesture::Annotate if e.phase == PointerPhase::Cancel => {
+                        // A cancelled drag makes nothing; a cancelled move goes back.
+                        let d = self.0.st.borrow_mut().drawing.take();
+                        if let Some(Drawing::Move { before, .. }) = d {
+                            self.restore(before);
+                        }
+                        self.repaint();
+                    }
+                    Gesture::Annotate => self.annotate_up(),
+                    Gesture::Select => {
+                        // A text tool marks what was just selected.
+                        let tool = self.0.st.borrow().tool;
+                        self.mark_selection(tool);
+                    }
+                    _ => {}
+                }
                 !matches!(was, Gesture::None)
             }
         }
@@ -949,6 +1516,39 @@ impl PageView {
             let st = self.0.st.borrow();
             (st.viewport.width, st.viewport.height)
         };
+        let picked = self.0.st.borrow().picked;
+        if !cmd && !e.modifiers.alt {
+            match (&e.key, ch) {
+                (_, Some("]")) => return self.select_next_annotation(true),
+                (_, Some("[")) => return self.select_next_annotation(false),
+                _ => {}
+            }
+        }
+        if let Some(id) = picked {
+            let step = if e.modifiers.shift { 10.0 } else { 1.0 };
+            let nudge = match &e.key {
+                Key::ArrowLeft => Some(Vec2::new(-step, 0.0)),
+                Key::ArrowRight => Some(Vec2::new(step, 0.0)),
+                Key::ArrowUp => Some(Vec2::new(0.0, -step)),
+                Key::ArrowDown => Some(Vec2::new(0.0, step)),
+                _ => None,
+            };
+            if let Some(d) = nudge {
+                return self.update_annotation(id, |a| a.translate(d));
+            }
+            match &e.key {
+                Key::Delete | Key::Backspace => return self.remove_annotation(id),
+                Key::Escape => {
+                    self.select_annotation(None);
+                    return true;
+                }
+                Key::Enter => {
+                    self.open(id);
+                    return true;
+                }
+                _ => {}
+            }
+        }
         match (&e.key, ch) {
             (_, Some("+" | "=")) if cmd => self.zoom_in(),
             (_, Some("-" | "_")) if cmd => self.zoom_out(),
@@ -1101,7 +1701,58 @@ impl PageView {
                 c.a = 0.25;
                 cx.list.fill_rect(Rect::new(0.0, 0.0, size.width, size.height), Brush::Solid(c));
             }
-            // Search hits, then the selection, over the page.
+            // Annotations, then search hits and the selection, over the page.
+            let accent = colors.accent;
+            for a in st.annots.iter().filter(|a| a.page == *page) {
+                annot::paint(cx.list, a, st.picked == Some(a.id), accent);
+                if let AnnotationKind::FreeText { rect, text: words, size } = &a.kind
+                    && !words.is_empty()
+                {
+                    let style = remedy_ui_text::TextStyle {
+                        size: *size,
+                        color: a.color,
+                        ..remedy_ui_text::TextStyle::default()
+                    };
+                    let options = remedy_ui_text::ParagraphOptions {
+                        max_width: Some((rect.width() - 4.0).max(1.0)),
+                        snap: false,
+                        ..remedy_ui_text::ParagraphOptions::default()
+                    };
+                    let para =
+                        cx.layout_text(&remedy_ui_text::RichText::plain(words.clone()), &style, options);
+                    cx.list.push_clip(*rect, CornerRadii::ZERO);
+                    cx.draw_paragraph(&para, Point::new(rect.min.x + 2.0, rect.min.y + 2.0), a.color);
+                    cx.list.pop_clip();
+                }
+            }
+            // What is being drawn.
+            if let Some(d) = &st.drawing {
+                let preview = match d {
+                    Drawing::Ink { page: p, points } if p == page => Some(Annotation::new(
+                        *p,
+                        AnnotationKind::Ink { strokes: vec![points.clone()], width: st.style.width },
+                        st.style.color,
+                    )),
+                    Drawing::Shape { page: p, shape, from, to } if p == page => Some(Annotation::new(
+                        *p,
+                        AnnotationKind::Shape { shape: *shape, from: *from, to: *to, width: st.style.width },
+                        st.style.color,
+                    )),
+                    Drawing::Text { page: p, from, to } if p == page => Some(Annotation::new(
+                        *p,
+                        AnnotationKind::FreeText {
+                            rect: annot::box_of(*from, *to),
+                            text: String::new(),
+                            size: st.style.text_size,
+                        },
+                        st.style.color,
+                    )),
+                    _ => None,
+                };
+                if let Some(a) = preview {
+                    annot::paint(cx.list, &a, false, accent);
+                }
+            }
             if let Some(Some(text)) = st.text.pages.get(page) {
                 let s = &st.text.search;
                 for (i, m) in s.matches.iter().enumerate().filter(|(_, m)| m.page() == *page) {

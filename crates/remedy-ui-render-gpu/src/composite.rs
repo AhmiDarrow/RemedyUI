@@ -30,6 +30,8 @@ pub struct GpuCompositor {
     tiles: TileSet,
     next_id: u64,
     generation: u64,
+    /// Bytes of tiles and of uploaded images held, for tools.
+    gauges: (remedy_ui_trace::gauges::Gauge, remedy_ui_trace::gauges::Gauge),
 }
 
 impl std::fmt::Debug for GpuCompositor {
@@ -49,7 +51,17 @@ fn krect(r: remedy_ui_core::Rect) -> kurbo::Rect {
 impl GpuCompositor {
     /// A compositor on `renderer`. `ladder` is how a replacement device is found after a loss.
     pub fn new(renderer: GpuRenderer, ladder: LadderOptions) -> Self {
-        GpuCompositor { renderer, ladder, tiles: TileSet::default(), next_id: 1, generation: 0 }
+        GpuCompositor {
+            renderer,
+            ladder,
+            tiles: TileSet::default(),
+            next_id: 1,
+            generation: 0,
+            gauges: (
+                remedy_ui_trace::gauges::Gauge::new("gpu tiles"),
+                remedy_ui_trace::gauges::Gauge::new("gpu images"),
+            ),
+        }
     }
 
     /// The renderer.
@@ -116,6 +128,21 @@ impl GpuCompositor {
         self.renderer.submit(&scene, background, target, &bindings)
     }
 
+    /// Updates the gauges of what this compositor holds on the GPU: the tiles of the set in
+    /// use and the images uploaded.
+    fn measure(&self, tiles: &TileSet) {
+        let bytes: u64 = tiles
+            .0
+            .values()
+            .map(|t| {
+                let s = t.texture.size();
+                u64::from(s.width) * u64::from(s.height) * 4
+            })
+            .sum();
+        self.gauges.0.set(bytes);
+        self.gauges.1.set(self.renderer.image_bytes());
+    }
+
     /// Frees released tiles, rasters requested ones, and records the composite of a
     /// `width` × `height` frame.
     pub(crate) fn prepare(
@@ -179,6 +206,7 @@ impl GpuCompositor {
                 }
             }
         }
+        self.measure(tiles);
         Ok((scene, bindings))
     }
 

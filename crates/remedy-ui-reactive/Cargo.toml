@@ -10,6 +10,7 @@ authors.workspace = true
 
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-trace = { path = "../remedy-ui-trace", version = "0.1.0" }
 
 [lints]
 workspace = true

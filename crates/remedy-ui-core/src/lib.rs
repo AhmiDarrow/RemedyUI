@@ -7,10 +7,12 @@
 //! - [`units`]: the scale from logical to device pixels, and snapping edges to the device grid.
 //! - [`color`]: colors in sRGB, with conversion to linear light and mixing in Oklab.
 //! - [`arena`]: generational ids and an arena that grows with use and never hands out a stale id.
+//! - [`token`]: unguessable tokens for local connections, compared in constant time.
 
 pub mod arena;
 pub mod color;
 pub mod geometry;
+pub mod token;
 pub mod units;
 
 pub use arena::{Arena, Id};

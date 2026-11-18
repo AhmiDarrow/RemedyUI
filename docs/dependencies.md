@@ -37,6 +37,9 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | Images | `image` / `zune-image` | 0.25.10 / 0.5.0 | `media-image`, `media-isolated` (its PNG encoder makes the picture the helper is timed on) | Chosen per format in its milestone, after a RustSec review and fuzzing |
 | SVG | `usvg` | pinned with `media-svg` | `media-svg` | SVG to a path tree |
 | Syntax colors | `syntect` (with `fancy-regex`) | 5.3.0 | `doc-code` | Pure-Rust highlighting, with no C regex engine |
+| Terminal parsing | `vte` | 0.15.0 | `widgets-term` | Paul Williams' DEC state machine as Alacritty uses it (Apache-2.0 OR MIT, maintained by the Alacritty project); bytes to print, execute, CSI, OSC and DCS actions. The screen model on top is RemedyUI's own. Its unbounded OSC buffer is cut by the terminal's own string limit |
+| Character widths | `unicode-width` | 0.2.3 (already in the tree through the text stack) | `widgets-term` | UAX #11 widths: which characters take two cells |
+| Base64 | `base64` | 0.23.1 (already used by `services-update`) | `widgets-term` | OSC 52 clipboard payloads |
 | Diagnostics | `tracing` | 0.1.44 | every crate | Structured spans and events; Perfetto export in `devtools` |
 | Errors | `thiserror` | 2.0.21 | every crate | Typed errors without hand-written boilerplate |
 | Derive macros | `syn` 2, `quote`, `proc-macro2` | 2.0.119, 1.0.47, 1.0.107 | `macros` (build time only) | `#[derive(Store)]`; syn 2 rather than the new 3.0 until 3.x has settled |

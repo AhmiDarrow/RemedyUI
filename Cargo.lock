@@ -3642,14 +3642,18 @@ dependencies = [
  "remedy-ui-style",
  "remedy-ui-text",
  "remedy-ui-themes",
+ "remedy-ui-trace",
  "remedy-ui-tree",
  "remedy-ui-view",
  "remedy-ui-viz",
  "remedy-ui-widgets-board",
  "remedy-ui-widgets-core",
  "remedy-ui-widgets-data",
+ "remedy-ui-widgets-extra",
  "remedy-ui-widgets-forms",
+ "remedy-ui-widgets-music",
  "remedy-ui-widgets-nav",
+ "remedy-ui-widgets-term",
 ]
 
 [[package]]
@@ -3773,6 +3777,7 @@ dependencies = [
  "remedy-ui-input",
  "remedy-ui-motion",
  "remedy-ui-paint",
+ "remedy-ui-trace",
 ]
 
 [[package]]
@@ -3796,9 +3801,12 @@ dependencies = [
  "remedy-ui-style",
  "remedy-ui-text",
  "remedy-ui-themes",
+ "remedy-ui-trace",
  "remedy-ui-view",
  "remedy-ui-widgets-core",
  "remedy-ui-widgets-forms",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3837,6 +3845,7 @@ dependencies = [
  "remedy-ui-style",
  "remedy-ui-text",
  "remedy-ui-themes",
+ "remedy-ui-trace",
  "remedy-ui-view",
  "remedy-ui-widgets-core",
 ]
@@ -3978,6 +3987,7 @@ dependencies = [
  "remedy-ui-reactive",
  "remedy-ui-text",
  "remedy-ui-themes",
+ "remedy-ui-trace",
  "remedy-ui-view",
 ]
 
@@ -4085,6 +4095,7 @@ name = "remedy-ui-reactive"
 version = "0.1.0"
 dependencies = [
  "remedy-ui-core",
+ "remedy-ui-trace",
 ]
 
 [[package]]
@@ -4097,6 +4108,7 @@ dependencies = [
  "remedy-ui-input",
  "remedy-ui-paint",
  "remedy-ui-text",
+ "remedy-ui-trace",
  "vello_cpu",
 ]
 
@@ -4114,6 +4126,7 @@ dependencies = [
  "remedy-ui-paint",
  "remedy-ui-render-cpu",
  "remedy-ui-text",
+ "remedy-ui-trace",
  "vello_gpu",
  "wgpu",
 ]
@@ -4269,6 +4282,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-trace"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+]
+
+[[package]]
 name = "remedy-ui-tree"
 version = "0.1.0"
 dependencies = [
@@ -4292,6 +4312,7 @@ dependencies = [
  "remedy-ui-render-cpu",
  "remedy-ui-style",
  "remedy-ui-text",
+ "remedy-ui-trace",
  "remedy-ui-tree",
 ]
 
@@ -4377,6 +4398,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-widgets-extra"
+version = "0.1.0"
+dependencies = [
+ "encoding_rs",
+ "remedy-ui-a11y",
+ "remedy-ui-compositor",
+ "remedy-ui-core",
+ "remedy-ui-devtools",
+ "remedy-ui-fonts",
+ "remedy-ui-input",
+ "remedy-ui-layout",
+ "remedy-ui-paint",
+ "remedy-ui-reactive",
+ "remedy-ui-render-cpu",
+ "remedy-ui-style",
+ "remedy-ui-text",
+ "remedy-ui-themes",
+ "remedy-ui-view",
+ "remedy-ui-viz",
+ "remedy-ui-widgets-core",
+]
+
+[[package]]
 name = "remedy-ui-widgets-forms"
 version = "0.1.0"
 dependencies = [
@@ -4397,6 +4441,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-widgets-music"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-a11y",
+ "remedy-ui-compositor",
+ "remedy-ui-core",
+ "remedy-ui-devtools",
+ "remedy-ui-fonts",
+ "remedy-ui-input",
+ "remedy-ui-layout",
+ "remedy-ui-paint",
+ "remedy-ui-reactive",
+ "remedy-ui-render-cpu",
+ "remedy-ui-style",
+ "remedy-ui-text",
+ "remedy-ui-themes",
+ "remedy-ui-view",
+]
+
+[[package]]
 name = "remedy-ui-widgets-nav"
 version = "0.1.0"
 dependencies = [
@@ -4412,6 +4476,29 @@ dependencies = [
  "remedy-ui-themes",
  "remedy-ui-view",
  "remedy-ui-widgets-core",
+]
+
+[[package]]
+name = "remedy-ui-widgets-term"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "remedy-ui-a11y",
+ "remedy-ui-compositor",
+ "remedy-ui-core",
+ "remedy-ui-devtools",
+ "remedy-ui-fonts",
+ "remedy-ui-host",
+ "remedy-ui-input",
+ "remedy-ui-layout",
+ "remedy-ui-paint",
+ "remedy-ui-reactive",
+ "remedy-ui-style",
+ "remedy-ui-text",
+ "remedy-ui-themes",
+ "remedy-ui-view",
+ "unicode-width",
+ "vte",
 ]
 
 [[package]]
@@ -5656,6 +5743,16 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vte"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5924018406ce0063cd67f8e008104968b74b563ee1b85dde3ed1f7cb87d3dbd"
+dependencies = [
+ "arrayvec",
+ "memchr",
+]
 
 [[package]]
 name = "walkdir"

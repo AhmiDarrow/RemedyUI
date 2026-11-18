@@ -355,6 +355,11 @@ impl Semantics {
         self.merge = true;
         self
     }
+
+    /// True when it folds its descendants into itself ([`Semantics::merge_descendants`]).
+    pub fn merges_descendants(&self) -> bool {
+        self.merge
+    }
 }
 
 /// The accessibility tree of one window.
@@ -572,6 +577,63 @@ impl A11yTree {
         Some(n)
     }
 
+    /// The tree as a screen reader meets it, in reading order: what is hidden left out, what
+    /// a merging node holds folded into its label, password text never shown. Kept whether
+    /// or not a client is connected, so devtools can show it at any time.
+    pub fn reader_view(&self) -> Vec<ReaderNode> {
+        let mut out = Vec::new();
+        let mut stack = vec![(self.root, 0usize)];
+        while let Some((id, depth)) = stack.pop() {
+            let Some((s, children)) = self.nodes.get(&id) else { continue };
+            if s.hidden {
+                continue;
+            }
+            let mut states = Vec::new();
+            if let Some(c) = s.checked {
+                states.push(if c { "checked" } else { "not checked" });
+            }
+            if s.selected == Some(true) {
+                states.push("selected");
+            }
+            if let Some(e) = s.expanded {
+                states.push(if e { "expanded" } else { "collapsed" });
+            }
+            if s.disabled {
+                states.push("disabled");
+            }
+            if s.read_only {
+                states.push("read only");
+            }
+            if s.invalid {
+                states.push("invalid");
+            }
+            let value = match (s.role, &s.value, s.numeric) {
+                (Role::PasswordInput, _, _) => None,
+                (_, Some(v), _) => Some(v.clone()),
+                (_, None, Some((v, _, _))) => Some(format!("{v}")),
+                _ => None,
+            };
+            out.push(ReaderNode {
+                id,
+                depth,
+                role: s.role,
+                name: self.composed_label(id),
+                value,
+                description: s.description.clone(),
+                states,
+                actions: s.actions.clone(),
+                bounds: s.bounds,
+                focused: self.focus == id,
+                live: s.live,
+                position: s.set_position,
+            });
+            if !s.merge {
+                stack.extend(children.iter().rev().map(|c| (*c, depth + 1)));
+            }
+        }
+        out
+    }
+
     /// The changes since the last call, or the whole tree after `connect`. `None` when no
     /// client is connected or nothing changed.
     pub fn take_update(&mut self) -> Option<TreeUpdate> {
@@ -609,6 +671,124 @@ impl A11yTree {
         });
         self.sent_once = true;
         Some(TreeUpdate { nodes, tree, tree_id: TreeId::ROOT, focus: NodeId(self.focus) })
+    }
+}
+
+/// One node of the tree as a screen reader meets it ([`A11yTree::reader_view`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReaderNode {
+    /// The element's id.
+    pub id: u64,
+    /// How deep it is (the window is 0).
+    pub depth: usize,
+    /// What it is.
+    pub role: Role,
+    /// Its accessible name (for a merging node, its own label and its descendants').
+    pub name: Option<String>,
+    /// Its value (never a password's).
+    pub value: Option<String>,
+    /// Its longer description.
+    pub description: Option<String>,
+    /// Its states, in words: "checked", "selected", "expanded", "disabled", ….
+    pub states: Vec<&'static str>,
+    /// What can be asked of it.
+    pub actions: Vec<Action>,
+    /// Its box in window logical pixels.
+    pub bounds: Option<Rect>,
+    /// It has accessibility focus.
+    pub focused: bool,
+    /// How its changes are announced.
+    pub live: Live,
+    /// Its place in a set: (position from 1, size).
+    pub position: Option<(usize, usize)>,
+}
+
+impl ReaderNode {
+    /// What a screen reader says on reaching it: role, name, value, states and place, in
+    /// that order ("button, Send, disabled").
+    pub fn announcement(&self) -> String {
+        let mut parts: Vec<String> = vec![role_name(self.role)];
+        parts.extend(self.name.iter().filter(|n| !n.trim().is_empty()).cloned());
+        parts.extend(self.value.iter().filter(|v| !v.trim().is_empty()).cloned());
+        parts.extend(self.states.iter().map(|s| (*s).to_owned()));
+        if let Some((pos, size)) = self.position {
+            parts.push(format!("{pos} of {size}"));
+        }
+        parts.join(", ")
+    }
+
+    /// True when it is something a person operates (it offers actions beyond focus and
+    /// scrolling, or its role is a control).
+    pub fn is_control(&self) -> bool {
+        is_control_role(self.role)
+            || self.actions.iter().any(|a| !matches!(a, Action::Focus | Action::ScrollIntoView))
+    }
+}
+
+/// True for roles people operate (buttons, inputs, links, tabs, …).
+pub fn is_control_role(r: Role) -> bool {
+    matches!(
+        r,
+        Role::Button
+            | Role::Check
+            | Role::Switch
+            | Role::Radio
+            | Role::Slider
+            | Role::TextInput
+            | Role::MultilineTextInput
+            | Role::PasswordInput
+            | Role::Link
+            | Role::Tab
+            | Role::MenuItem
+            | Role::SpinButton
+            | Role::ColorWell
+            | Role::DateInput
+            | Role::TimeInput
+    )
+}
+
+/// A role in the words screen readers use.
+pub fn role_name(r: Role) -> String {
+    match r {
+        Role::Window => "window".into(),
+        Role::Group => "group".into(),
+        Role::Button => "button".into(),
+        Role::Check => "check box".into(),
+        Role::Switch => "switch".into(),
+        Role::Radio => "radio button".into(),
+        Role::Slider => "slider".into(),
+        Role::TextInput => "edit text".into(),
+        Role::MultilineTextInput => "edit text, multi-line".into(),
+        Role::PasswordInput => "password, edit text".into(),
+        Role::Link => "link".into(),
+        Role::List => "list".into(),
+        Role::ListItem => "list item".into(),
+        Role::Tab => "tab".into(),
+        Role::TabList => "tab list".into(),
+        Role::Menu => "menu".into(),
+        Role::MenuItem => "menu item".into(),
+        Role::Dialog => "dialog".into(),
+        Role::Alert => "alert".into(),
+        Role::Status => "status".into(),
+        Role::Heading(level) => format!("heading level {}", level.clamp(1, 6)),
+        Role::Image => "image".into(),
+        Role::Progress => "progress bar".into(),
+        Role::Label => "text".into(),
+        Role::SpinButton => "spin button".into(),
+        Role::ColorWell => "color well".into(),
+        Role::DateInput => "date picker".into(),
+        Role::TimeInput => "time picker".into(),
+        Role::Grid => "grid".into(),
+        Role::GridCell => "cell".into(),
+        Role::Form => "form".into(),
+        Role::Table => "table".into(),
+        Role::Row => "row".into(),
+        Role::Cell => "cell".into(),
+        Role::ColumnHeader => "column header".into(),
+        Role::Tree => "tree".into(),
+        Role::TreeItem => "tree item".into(),
+        Role::Document => "document".into(),
+        Role::Page => "page".into(),
     }
 }
 

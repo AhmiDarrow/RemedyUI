@@ -28,6 +28,7 @@
 //! sent to other threads, but their values are reachable only on the thread that created
 //! them. Other threads use a [`Waker`] to post work to the UI thread.
 
+pub mod debug;
 mod error;
 mod runtime;
 mod signal;

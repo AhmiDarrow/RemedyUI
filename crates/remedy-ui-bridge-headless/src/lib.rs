@@ -103,6 +103,8 @@ pub struct HeadlessHost {
     timers: BTreeMap<TimerId, Duration>,
     queue: VecDeque<HostEvent>,
     clipboard: Option<(String, bool)>,
+    /// The primary selection (X11 and Wayland have one; the headless host keeps it too).
+    primary: Option<String>,
     /// HTML on the clipboard beside its text.
     clipboard_html: Option<String>,
     /// The machine's memory the scripted host reports.
@@ -147,6 +149,7 @@ impl HeadlessHost {
             timers: BTreeMap::new(),
             queue: VecDeque::from([HostEvent::Resumed]),
             clipboard: None,
+            primary: None,
             clipboard_html: None,
             total_memory: None,
             woken: Arc::new(AtomicBool::new(false)),
@@ -278,6 +281,11 @@ impl HeadlessHost {
     pub fn put_clipboard_html(&mut self, text: &str, html: &str) {
         self.clipboard = Some((text.to_owned(), false));
         self.clipboard_html = Some(html.to_owned());
+    }
+
+    /// The primary selection: what the app last selected.
+    pub fn primary_selection(&self) -> Option<&str> {
+        self.primary.as_deref()
     }
 
     /// What is on the clipboard, and whether it was marked sensitive.
@@ -536,6 +544,10 @@ impl Host for HeadlessHost {
         Ok(())
     }
 
+    fn refresh_interval(&self, window: WindowId) -> Option<Duration> {
+        self.windows.contains_key(&window).then_some(self.refresh)
+    }
+
     fn is_fullscreen(&self, window: WindowId) -> bool {
         self.window(window).is_some_and(|w| w.fullscreen)
     }
@@ -628,6 +640,15 @@ impl Host for HeadlessHost {
     fn set_clipboard_text(&mut self, text: &str, sensitive: bool) -> Result<(), Unsupported> {
         self.clipboard = Some((text.to_owned(), sensitive));
         self.clipboard_html = None;
+        Ok(())
+    }
+
+    fn primary_selection_text(&mut self) -> Result<Option<String>, Unsupported> {
+        Ok(self.primary.clone())
+    }
+
+    fn set_primary_selection(&mut self, text: &str) -> Result<(), Unsupported> {
+        self.primary = Some(text.to_owned());
         Ok(())
     }
 

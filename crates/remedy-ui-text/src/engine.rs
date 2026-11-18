@@ -249,8 +249,16 @@ fn push_style(
     range: Option<Range<usize>>,
     brush: u32,
 ) {
-    let families: Vec<FontFamilyName<'static>> =
-        s.families.iter().map(|f| FontFamilyName::Named(Cow::Owned(f.clone()))).collect();
+    // CSS's generic names (`monospace`, `serif`, `sans-serif`, `system-ui`, `ui-monospace`,
+    // …) stand for the system's own choice; anything else names a family.
+    let families: Vec<FontFamilyName<'static>> = s
+        .families
+        .iter()
+        .map(|f| match parley::fontique::GenericFamily::parse(f) {
+            Some(g) => FontFamilyName::Generic(g),
+            None => FontFamilyName::Named(Cow::Owned(f.clone())),
+        })
+        .collect();
     let features: Vec<FontFeature> =
         s.features.iter().map(|f| FontFeature::new(Tag::from_bytes(f.tag), f.value)).collect();
     let line_height = match s.line_height {

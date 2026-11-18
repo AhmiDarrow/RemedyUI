@@ -518,7 +518,11 @@ fn widget_el(
             |_| {},
         )
         .keyboard_alternative("Alt with the arrow keys moves it")
-        .semantics(Semantics::new(Role::Button).label(format!("{name} widget")));
+        .semantics(
+            Semantics::new(Role::Button)
+                .label(format!("{name} widget"))
+                .action(remedy_ui_a11y::Action::Click),
+        );
     // A widget dropped on another goes before it.
     let (st4, target) = (state.clone(), placed.id.clone());
     let el = el.on_drop(
@@ -588,7 +592,9 @@ fn area_el(
             |_| {},
         )
         .keyboard_alternative("The arrow keys move it; Shift with the arrow keys resizes it")
-        .semantics(Semantics::new(Role::Group).label(format!("{label} area")));
+        .semantics(
+            Semantics::new(Role::Group).label(format!("{label} area")).action(remedy_ui_a11y::Action::Click),
+        );
     // Widgets dropped on an area go to its end; an area dropped on another trades places.
     let (st3, target) = (state.clone(), a.id.clone());
     let el = el.on_drop(

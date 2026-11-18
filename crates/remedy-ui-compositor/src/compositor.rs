@@ -444,6 +444,7 @@ impl Compositor {
     /// Plans the frame for presentation time `now`: steps scroll physics, samples
     /// animations, lists the tiles to raster and the composite, and computes damage.
     pub fn frame(&mut self, now: Duration) -> FramePlan {
+        let _composite = remedy_ui_trace::phase!("composite").entered();
         let dt = self.last_frame.map_or(0.0, |l| now.saturating_sub(l).as_secs_f32());
         self.last_frame = Some(now);
         let mut animating = false;

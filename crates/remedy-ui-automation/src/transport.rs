@@ -25,7 +25,7 @@ thread_local! {
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
 /// The length of a grant's token: 128 bits as hex.
-const TOKEN_LEN: usize = 32;
+const TOKEN_LEN: usize = remedy_ui_core::token::TOKEN_LEN;
 
 /// A window listening for agents. Dropping it stops listening and closes its connections.
 #[derive(Debug)]

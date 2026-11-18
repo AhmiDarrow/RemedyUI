@@ -103,11 +103,11 @@ pub fn property_grid(ui: &Ui, label: impl Into<String>, groups: Vec<PropertyGrou
             let _ = d2.clone().hidden(!shown);
             let _ = r2.clone().hidden(shown);
             let _ = h2.clone().semantics(
-                Semantics::new(Role::Button).label(title.clone()).expanded(shown).action(if shown {
-                    Action::Collapse
-                } else {
-                    Action::Expand
-                }),
+                Semantics::new(Role::Button)
+                    .label(title.clone())
+                    .expanded(shown)
+                    .action(Action::Click)
+                    .action(if shown { Action::Collapse } else { Action::Expand }),
             );
         });
         let mut rows = ui.el("property_rows").column().fill_width();
