@@ -415,6 +415,8 @@ pub(crate) struct Inner {
     pub(crate) content: ElementId,
     pub(crate) overlays: ElementId,
     pub(crate) interceptor: Option<PointerInterceptor>,
+    /// A handler consumed the last pointer event (see [`Ui::pointer_consumed`]).
+    pub(crate) consumed: bool,
     /// Called when a request arrives with none pending: the host's loop must come around.
     pub(crate) wake: Option<Rc<dyn Fn()>>,
     /// The element that took the current press: it gets the moves and the release, wherever
@@ -604,6 +606,7 @@ impl Ui {
             content: root,
             overlays: root,
             interceptor: None,
+            consumed: false,
             wake: None,
             captured: None,
             pinching: None,

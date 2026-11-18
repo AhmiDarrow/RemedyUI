@@ -317,7 +317,9 @@ fn performance_page(ui: &Ui, insp: &Inspector) -> El {
     });
     let default_path = std::env::temp_dir().join(format!(
         "remedy-trace-{}.json",
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+        remedy_ui_core::time::SystemTime::now()
+            .duration_since(remedy_ui_core::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs())
     ));
     let path = w::text_input(ui, "Save the trace to");
     path.set_value(&default_path.to_string_lossy());
@@ -417,7 +419,7 @@ impl RemoteState {
         let Ok(waker) = remedy_ui_reactive::waker() else { return };
         let me = self.clone_send();
         let client = self.client.clone();
-        let _ = std::thread::Builder::new().name("remedy-devtools-remote".into()).spawn(move || {
+        let _ = remedy_ui_core::exec::spawn("remedy-devtools-remote", move || {
             let mut guard = client.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(c) = guard.as_mut() else { return };
             for req in requests {
@@ -515,7 +517,7 @@ fn remote_page(ui: &Ui, insp: &Inspector) -> El {
         let Ok(waker) = remedy_ui_reactive::waker() else { return };
         s2.status.set(format!("Connecting to {addr}…"));
         let (client, sig) = (s2.client.clone(), s2.clone_send());
-        let _ = std::thread::Builder::new().name("remedy-devtools-connect".into()).spawn(move || {
+        let _ = remedy_ui_core::exec::spawn("remedy-devtools-connect", move || {
             let result = RemoteClient::connect(addr, &secret, REMOTE_TIMEOUT).and_then(|mut c| {
                 let first = c.request(&RemoteRequest::Tree);
                 *client.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(c);

@@ -5,7 +5,9 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use remedy_ui_core::time::Instant;
 
 use remedy_ui_a11y::{Action, Role, Semantics};
 use remedy_ui_core::{Insets, Size, Vec2};

@@ -1,4 +1,5 @@
-//! A player's two threads.
+//! A player's two workers (threads natively; cooperative tasks in a browser page, see
+//! [`remedy_ui_core::exec`]).
 //!
 //! - **Decoding** reads ahead of the playhead into a buffer sized from the stream and the
 //!   machine: enough sound to keep the device's buffer full twice over and the pictures that
@@ -13,9 +14,13 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::task::{Context, Poll, Wake, Waker};
+use std::time::Duration;
+
+use remedy_ui_core::exec::{Bell, Next, Worker};
+use remedy_ui_core::time::Instant;
 
 use remedy_ui_media_video::{Picture, VideoSink};
 
@@ -222,90 +227,134 @@ impl Feed {
 
 struct FeedShared {
     feed: Mutex<Feed>,
-    cv: Condvar,
+    /// Rings the decoding worker, once it runs.
+    decoder: Mutex<Option<Bell>>,
 }
 
-/// The decoding thread's loop.
-fn decode(mut dec: Box<dyn Decoder>, shared: Arc<FeedShared>, wake: Sender<Cmd>) {
-    loop {
-        let (generation, seek) = {
-            let mut f = lock(&shared.feed);
-            loop {
-                if f.closed {
-                    return;
-                }
-                if f.seek.is_some() || f.needs_more() {
-                    break;
-                }
-                f = shared.cv.wait(f).unwrap_or_else(PoisonError::into_inner);
-            }
-            (f.generation, f.seek.take())
-        };
-        if let Some(t) = seek
-            && let Err(e) = dec.seek(t)
-        {
-            let mut f = lock(&shared.feed);
+impl FeedShared {
+    /// Tells the decoding worker the feed changed (room freed, a seek, closing).
+    fn ring(&self) {
+        if let Some(b) = lock(&self.decoder).as_ref() {
+            b.ring();
+        }
+    }
+}
+
+/// A waker that rings a worker (a decoder's answer arriving later, in a browser page).
+struct BellWake(Bell);
+
+impl Wake for BellWake {
+    fn wake(self: Arc<Self>) {
+        self.0.ring();
+    }
+}
+
+/// Tells the presenting worker the decoder has news; false once it is gone.
+type WakePresenter = Arc<dyn Fn() -> bool + Send + Sync>;
+
+/// The decoding worker's state.
+struct Decoding {
+    dec: Box<dyn Decoder>,
+    shared: Arc<FeedShared>,
+    wake: WakePresenter,
+    waker: Waker,
+}
+
+/// One step of decoding: a seek, or one sample read into the feed when it wants more.
+fn decode_step(st: &mut Decoding) -> Next {
+    let (generation, seek) = {
+        let mut f = lock(&st.shared.feed);
+        if f.closed || !(f.seek.is_some() || f.needs_more()) {
+            return Next::Idle;
+        }
+        (f.generation, f.seek.take())
+    };
+    if let Some(t) = seek {
+        if let Err(e) = st.dec.seek(t) {
+            let mut f = lock(&st.shared.feed);
             if f.generation == generation {
                 f.error = Some(e);
                 f.eof = true;
             }
             drop(f);
-            if wake.send(Cmd::Wake).is_err() {
-                return;
+            if !(st.wake)() {
+                return Next::Idle;
             }
-            continue;
         }
-        let read = dec.read();
-        let mut f = lock(&shared.feed);
-        if f.generation != generation {
-            // A seek came while this was read: it is from before it.
-            continue;
+        return Next::Now;
+    }
+    let read = match st.dec.poll_read(&mut Context::from_waker(&st.waker)) {
+        Poll::Ready(r) => r,
+        // The decoder rings this worker when the sample is ready (a browser's decoder).
+        Poll::Pending => return Next::Idle,
+    };
+    let mut f = lock(&st.shared.feed);
+    if f.generation != generation {
+        // A seek came while this was read: it is from before it.
+        return Next::Now;
+    }
+    let (no_video, no_audio) = (f.video.is_empty(), f.audio.is_empty());
+    let ended = match read {
+        Ok(Some(s)) => {
+            f.insert(s);
+            false
         }
-        let (no_video, no_audio) = (f.video.is_empty(), f.audio.is_empty());
-        let ended = match read {
-            Ok(Some(s)) => {
-                f.insert(s);
-                false
-            }
-            Ok(None) => {
-                f.eof = true;
-                true
-            }
-            Err(e) => {
-                f.error = Some(e);
-                f.eof = true;
-                true
-            }
-        };
-        // The presenting thread hears of the first picture or sound after it ran out, and
-        // of the end; the rest it takes on its own schedule.
-        let arrived = (no_video && !f.video.is_empty()) || (no_audio && !f.audio.is_empty());
-        drop(f);
-        if (arrived || ended) && wake.send(Cmd::Wake).is_err() {
-            return;
+        Ok(None) => {
+            f.eof = true;
+            true
+        }
+        Err(e) => {
+            f.error = Some(e);
+            f.eof = true;
+            true
+        }
+    };
+    // The presenting worker hears of the first picture or sound after it ran out, and of
+    // the end; the rest it takes on its own schedule.
+    let arrived = (no_video && !f.video.is_empty()) || (no_audio && !f.audio.is_empty());
+    drop(f);
+    if (arrived || ended) && !(st.wake)() {
+        return Next::Idle;
+    }
+    Next::Now
+}
+
+/// The UI thread's line to a player's presenting worker.
+pub(crate) struct Control {
+    tx: Sender<Cmd>,
+    worker: Worker,
+}
+
+impl Control {
+    /// Sends a command and wakes the worker to take it.
+    pub(crate) fn send(&self, cmd: Cmd) {
+        if self.tx.send(cmd).is_ok() {
+            self.worker.notify();
         }
     }
 }
 
-/// Starts a player's threads. `notify` posts a delivery of [`Shared`] to the UI thread.
+/// Starts a player's workers. `notify` posts a delivery of [`Shared`] to the UI thread.
 pub(crate) fn start(
     host: Arc<dyn MediaHost>,
     source: MediaSource,
     find_subtitles: bool,
     shared: Arc<Shared>,
     notify: Notify,
-) -> Result<Sender<Cmd>, MediaError> {
+) -> Result<Control, MediaError> {
     let (tx, rx) = std::sync::mpsc::channel();
     let wake = tx.clone();
-    std::thread::Builder::new()
-        .name("remedy-player".into())
-        .spawn(move || {
+    let worker = Worker::spawn_timed(
+        "remedy-player",
+        move |bell| {
             let mut presenter = Presenter::new(host, rx, shared, notify);
-            presenter.open(&source, find_subtitles, wake);
-            presenter.run();
-        })
-        .map_err(|e| MediaError::Decode(format!("could not start the player's thread: {e}")))?;
-    Ok(tx)
+            presenter.open(&source, find_subtitles, wake, bell);
+            presenter
+        },
+        Presenter::turn,
+    )
+    .map_err(|e| MediaError::Decode(format!("could not start the player's worker: {e}")))?;
+    Ok(Control { tx, worker })
 }
 
 struct Presenter {
@@ -347,6 +396,16 @@ struct Presenter {
     heard: Option<(u64, Instant)>,
     /// The output was told no more sound follows.
     finished: bool,
+    /// The decoding worker.
+    decoder: Option<Worker>,
+    /// A decoder still getting ready (fetching, configuring), before decoding starts.
+    opening: Option<Box<dyn Decoder>>,
+    /// Tells this worker the decoder has news.
+    wake: Option<Sender<Cmd>>,
+    /// This worker's own bell.
+    own: Option<Bell>,
+    /// Closed: nothing more is done.
+    done: bool,
     /// The device holds sound it is not playing; the wall clock leads meanwhile.
     stalled: bool,
 }
@@ -358,7 +417,7 @@ impl Presenter {
             rx,
             shared,
             notify,
-            feed: Arc::new(FeedShared { feed: Mutex::new(Feed::default()), cv: Condvar::new() }),
+            feed: Arc::new(FeedShared { feed: Mutex::new(Feed::default()), decoder: Mutex::new(None) }),
             info: MediaInfo::default(),
             opened: false,
             failed: None,
@@ -387,18 +446,51 @@ impl Presenter {
             heard: None,
             finished: false,
             stalled: false,
+            decoder: None,
+            opening: None,
+            wake: None,
+            own: None,
+            done: false,
         }
     }
 
-    fn open(&mut self, source: &MediaSource, find_subtitles: bool, wake: Sender<Cmd>) {
+    fn open(&mut self, source: &MediaSource, find_subtitles: bool, wake: Sender<Cmd>, own: Bell) {
         if find_subtitles && let Some(path) = source.local_path() {
             let found = crate::player::sidecar_subtitles(path);
             if !found.is_empty() {
                 lock(&self.shared.status).new_tracks.extend(found);
             }
         }
+        self.wake = Some(wake);
+        self.own = Some(own);
         match self.host.open(source) {
             Ok(dec) => {
+                self.opening = Some(dec);
+                self.finish_open();
+            }
+            Err(e) => {
+                self.failed = Some(e);
+                self.publish(Duration::ZERO, true);
+            }
+        }
+    }
+
+    /// Starts decoding once the decoder is ready: at once natively, later in a browser page
+    /// (it fetches the source and configures the browser's decoders first).
+    fn finish_open(&mut self) {
+        let (Some(mut dec), Some(own), Some(wake)) =
+            (self.opening.take(), self.own.clone(), self.wake.clone())
+        else {
+            return;
+        };
+        let waker = Waker::from(Arc::new(BellWake(own.clone())));
+        match dec.poll_ready(&mut Context::from_waker(&waker)) {
+            Poll::Pending => {
+                self.opening = Some(dec);
+                return;
+            }
+            Poll::Ready(Err(e)) => self.failed = Some(e),
+            Poll::Ready(Ok(())) => {
                 self.info = dec.info().clone();
                 self.opened = true;
                 {
@@ -413,17 +505,28 @@ impl Presenter {
                         .map(|r| Duration::from_secs_f64(1.0 / r));
                 }
                 self.size_buffers();
-                let feed = self.feed.clone();
-                let spawned =
-                    std::thread::Builder::new().name("remedy-player-decode".into()).spawn(move || {
-                        decode(dec, feed, wake);
-                    });
-                if let Err(e) = spawned {
-                    self.failed =
-                        Some(MediaError::Decode(format!("could not start the decoding thread: {e}")));
+                let shared = self.feed.clone();
+                let tell: WakePresenter = Arc::new(move || {
+                    let sent = wake.send(Cmd::Wake).is_ok();
+                    own.ring();
+                    sent
+                });
+                let spawned = Worker::spawn_timed(
+                    "remedy-player-decode",
+                    move |bell| {
+                        *lock(&shared.decoder) = Some(bell.clone());
+                        Decoding { dec, shared, wake: tell, waker: Waker::from(Arc::new(BellWake(bell))) }
+                    },
+                    decode_step,
+                );
+                match spawned {
+                    Ok(w) => self.decoder = Some(w),
+                    Err(e) => {
+                        self.failed =
+                            Some(MediaError::Decode(format!("could not start the decoding worker: {e}")));
+                    }
                 }
             }
-            Err(e) => self.failed = Some(e),
         }
         lock(&self.shared.status).info = self.opened.then(|| self.info.clone());
         self.publish(Duration::ZERO, true);
@@ -457,51 +560,66 @@ impl Presenter {
             }
         }
         drop(f);
-        self.feed.cv.notify_all();
+        self.feed.ring();
     }
 
     fn running(&self) -> bool {
         self.playing && !self.ended && !(self.pause_unseen && !self.visible && self.info.video.is_some())
     }
 
-    fn run(&mut self) {
+    /// One turn of the presenting worker: the commands that came, then the clock, sound and
+    /// pictures; says when to look again.
+    fn turn(&mut self) -> Next {
+        if self.done {
+            return Next::Idle;
+        }
+        if self.opening.is_some() {
+            self.finish_open();
+            if self.opening.is_some() {
+                // Commands wait in the channel until the source is open.
+                return Next::Idle;
+            }
+        }
+        let mut cmds = Vec::new();
+        let mut disconnected = false;
         loop {
-            let first = match self.next_wake() {
-                Some(t) => self.rx.recv_timeout(t),
-                None => self.rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
-            };
-            let mut cmds = Vec::new();
-            match first {
+            match self.rx.try_recv() {
                 Ok(c) => cmds.push(c),
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => break,
-            }
-            while let Ok(c) = self.rx.try_recv() {
-                cmds.push(c);
-            }
-            // Only the last of several seeks matters (a seek bar being dragged).
-            let last_seek = cmds.iter().rposition(|c| matches!(c, Cmd::Seek(_)));
-            for (i, c) in cmds.into_iter().enumerate() {
-                match c {
-                    Cmd::Close => {
-                        self.close();
-                        return;
-                    }
-                    Cmd::Seek(_) if Some(i) != last_seek => {}
-                    c => self.apply(c),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    disconnected = true;
+                    break;
                 }
             }
-            if self.gone {
-                break;
-            }
-            self.step();
         }
-        self.close();
+        // Only the last of several seeks matters (a seek bar being dragged).
+        let last_seek = cmds.iter().rposition(|c| matches!(c, Cmd::Seek(_)));
+        for (i, c) in cmds.into_iter().enumerate() {
+            match c {
+                Cmd::Close => {
+                    self.close();
+                    return Next::Idle;
+                }
+                Cmd::Seek(_) if Some(i) != last_seek => {}
+                c => self.apply(c),
+            }
+        }
+        if self.gone || disconnected {
+            self.close();
+            return Next::Idle;
+        }
+        self.step();
+        match self.next_wake() {
+            Some(d) => Next::After(d),
+            None => Next::Idle,
+        }
     }
 
     fn close(&mut self) {
+        self.done = true;
         lock(&self.feed.feed).closed = true;
-        self.feed.cv.notify_all();
+        self.feed.ring();
+        self.decoder = None;
         if let Some(mut out) = self.out.take() {
             let _ = out.pause();
         }
@@ -606,7 +724,7 @@ impl Presenter {
             f.floor = to;
             f.clear();
         }
-        self.feed.cv.notify_all();
+        self.feed.ring();
         let running = self.running();
         if let Some(out) = self.out.as_mut() {
             let flushed = out.flush().and_then(|()| if running { out.resume() } else { Ok(()) });
@@ -733,7 +851,7 @@ impl Presenter {
             f.audio.pop_front();
         }
         drop(f);
-        self.feed.cv.notify_all();
+        self.feed.ring();
     }
 
     /// Writes as much decoded sound as the device takes.
@@ -789,7 +907,7 @@ impl Presenter {
                 }
             }
         }
-        self.feed.cv.notify_all();
+        self.feed.ring();
         if let Some(e) = failed {
             return self.lose_audio(e);
         }
@@ -830,7 +948,7 @@ impl Presenter {
             lock(&self.shared.status).cues.extend(cues);
         }
         let Some(v) = taken else { return };
-        self.feed.cv.notify_all();
+        self.feed.ring();
         self.preview = false;
         let show = self.visible || !running;
         if show && let Some(sink) = &self.sink {

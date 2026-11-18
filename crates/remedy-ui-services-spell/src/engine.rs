@@ -5,7 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{Receiver, Sender};
 
 use crate::SpellError;
 use crate::backend::{Availability, BackendFactory, BackendReport, Prepared, SpellBackend};
@@ -313,57 +313,60 @@ impl Engine {
     }
 }
 
-/// The checking thread's loop. It ends when every handle to the checker is gone.
-pub(crate) fn run(factories: Vec<(String, BackendFactory)>, personal: PersonalDictionary, rx: Receiver<Job>) {
-    let mut engine = Engine::new(factories, personal);
-    let mut queue: VecDeque<Job> = VecDeque::new();
-    let mut active: Option<Active> = None;
-    let mut closed = false;
-    loop {
-        if active.is_none() && queue.is_empty() {
-            match rx.recv() {
-                Ok(j) => queue.push_back(j),
-                Err(_) => break,
-            }
-        }
-        loop {
-            match rx.try_recv() {
-                Ok(j) => queue.push_back(j),
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => {
-                    closed = true;
-                    break;
-                }
-            }
+/// The checking thread's state between turns: the engine, the requests taken off the channel,
+/// and the check in progress.
+pub(crate) struct Worker {
+    engine: Engine,
+    rx: Receiver<Job>,
+    queue: VecDeque<Job>,
+    active: Option<Active>,
+}
+
+impl Worker {
+    pub(crate) fn new(
+        factories: Vec<(String, BackendFactory)>,
+        personal: PersonalDictionary,
+        rx: Receiver<Job>,
+    ) -> Self {
+        Worker { engine: Engine::new(factories, personal), rx, queue: VecDeque::new(), active: None }
+    }
+
+    /// Does one unit: a request other than a check, or a slice of the check in progress.
+    /// False when there is nothing to do (the checking thread then waits for the next
+    /// request; in a browser page the cooperative task ends until one arrives).
+    pub(crate) fn turn(&mut self) -> bool {
+        while let Ok(j) = self.rx.try_recv() {
+            self.queue.push_back(j);
         }
         // Anything but a check goes first.
-        if let Some(i) = queue.iter().position(|j| !matches!(j, Job::Check { .. }))
-            && let Some(j) = queue.remove(i)
+        if let Some(i) = self.queue.iter().position(|j| !matches!(j, Job::Check { .. }))
+            && let Some(j) = self.queue.remove(i)
         {
-            engine.handle(j);
-            continue;
+            self.engine.handle(j);
+            return true;
         }
-        if active.is_none() {
+        if self.active.is_none() {
             // Checks run in the order they were asked for; those whose owner lost interest
             // (the text changed again) are dropped without being started.
-            while let Some(j) = queue.pop_front() {
+            while let Some(j) = self.queue.pop_front() {
                 if let Job::Check { text, languages, cancel, reply, notify } = j
                     && !cancel.load(Ordering::Relaxed)
                 {
-                    active = engine.begin(text, &languages, cancel, reply, notify);
-                    if active.is_some() {
+                    self.active = self.engine.begin(text, &languages, cancel, reply, notify);
+                    if self.active.is_some() {
                         break;
                     }
                 }
             }
         }
-        if let Some(a) = active.as_mut()
-            && engine.step(a)
-        {
-            active = None;
-        }
-        if closed && active.is_none() && queue.is_empty() {
-            break;
+        match self.active.as_mut() {
+            Some(a) => {
+                if self.engine.step(a) {
+                    self.active = None;
+                }
+                true
+            }
+            None => false,
         }
     }
 }

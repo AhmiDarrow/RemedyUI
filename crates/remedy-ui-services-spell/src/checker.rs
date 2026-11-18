@@ -16,7 +16,9 @@ use crate::personal::PersonalDictionary;
 enum Thread {
     /// Not started: the thread starts with the first request.
     Idle(Vec<(String, BackendFactory)>),
-    Running(Sender<Job>),
+    /// Requests go down the channel; the worker (a thread, or a cooperative task in a
+    /// browser page) is woken for each.
+    Running(Sender<Job>, remedy_ui_core::exec::Worker),
     Failed(String),
 }
 
@@ -173,8 +175,7 @@ impl PendingCheck {
 
     /// Waits for the answer.
     pub fn wait(self) -> Result<Vec<Range<usize>>, SpellError> {
-        self.rx
-            .recv()
+        remedy_ui_core::exec::recv(&self.rx)
             .unwrap_or_else(|_| Err(SpellError::Stopped("the check was dropped before it finished".into())))
     }
 }
@@ -246,22 +247,27 @@ impl SpellChecker {
 
     fn send(&self, job: Job) -> Result<(), SpellError> {
         let mut t = self.inner.thread.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Thread::Idle(_) = &*t {
-            let Thread::Idle(factories) = std::mem::replace(&mut *t, Thread::Failed(String::new())) else {
-                return Err(SpellError::Stopped("unreachable".into()));
-            };
+        if let Thread::Idle(factories) = &mut *t {
+            let factories = std::mem::take(factories);
             let (tx, rx) = mpsc::channel();
             let personal = self.inner.personal.clone();
-            *t = match std::thread::Builder::new()
-                .name("remedy-spell".into())
-                .spawn(move || engine::run(factories, personal, rx))
-            {
-                Ok(_) => Thread::Running(tx),
+            // The back ends are made on the worker and stay there (platform checkers are
+            // bound to the thread that made them).
+            *t = match remedy_ui_core::exec::Worker::spawn(
+                "remedy-spell",
+                move || engine::Worker::new(factories, personal, rx),
+                engine::Worker::turn,
+            ) {
+                Ok(worker) => Thread::Running(tx, worker),
                 Err(e) => Thread::Failed(e.to_string()),
             };
         }
         match &*t {
-            Thread::Running(tx) => tx.send(job).map_err(|_| SpellError::Stopped("it has exited".into())),
+            Thread::Running(tx, worker) => {
+                tx.send(job).map_err(|_| SpellError::Stopped("it has exited".into()))?;
+                worker.notify();
+                Ok(())
+            }
             Thread::Failed(why) => Err(SpellError::Stopped(why.clone())),
             Thread::Idle(_) => Err(SpellError::Stopped("it did not start".into())),
         }
@@ -270,7 +276,7 @@ impl SpellChecker {
     fn ask<T>(&self, make: impl FnOnce(Sender<T>) -> Job) -> Result<T, SpellError> {
         let (tx, rx) = mpsc::channel();
         self.send(make(tx))?;
-        rx.recv().map_err(|_| SpellError::Stopped("it ended before answering".into()))
+        remedy_ui_core::exec::recv(&rx).map_err(|_| SpellError::Stopped("it ended before answering".into()))
     }
 
     /// Starts checking `text` in `languages` on the checking thread and returns at once.

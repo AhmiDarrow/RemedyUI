@@ -13,6 +13,8 @@ targets = [
     "aarch64-apple-darwin",
     "aarch64-linux-android",
     "x86_64-linux-android",
+    # Browser pages (bridge-web).
+    "wasm32-unknown-unknown",
 ]
 
 [advisories]
@@ -55,6 +57,13 @@ allow = [
 confidence-threshold = 0.8
 # The list is the policy; not every license on it is in use yet.
 unused-allowed-license = "allow"
+# The graph joins every target's edges, so with the browser target listed, the updater's TLS
+# verifier (built only natively) shows its wasm32 edge to Mozilla's root certificates as data.
+# RemedyUI never builds that edge: the updater has no HTTPS in a page. CDLA-Permissive-2.0 is a
+# permissive data license; this exception is for that one crate only.
+exceptions = [
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs" },
+]
 
 [bans]
 multiple-versions = "warn"

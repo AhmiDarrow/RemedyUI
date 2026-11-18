@@ -53,6 +53,14 @@ fn build(
     (wgpu::Surface<'static>, wgpu::SurfaceConfiguration, vello_gpu::Renderer, vello_gpu::Resources),
     GpuError,
 > {
+    if let Some(bound) = ctx.bound_canvas
+        && crate::context::canvas_id(&**handles) != Some(bound)
+    {
+        return Err(GpuError::Surface(
+            "a WebGL2 device draws only on the canvas it was made for; this window stays on the CPU renderer"
+                .into(),
+        ));
+    }
     let surface =
         ctx.instance.create_surface(handles.clone()).map_err(|e| GpuError::Surface(e.to_string()))?;
     let caps = surface.get_capabilities(&ctx.adapter);

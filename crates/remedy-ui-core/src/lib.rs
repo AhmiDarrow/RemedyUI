@@ -1,17 +1,23 @@
 //! Base types shared by every RemedyUI crate.
 //!
 //! This crate is layer L0 of the engine (see `docs/design/00-principles-and-modularity.md`):
-//! it has no dependencies and holds only plain data and small algorithms.
+//! it holds plain data and small algorithms, plus the two platform services everything else
+//! builds on, so the engine runs the same natively and in a browser page.
 //!
 //! - [`geometry`]: points, vectors, sizes, rectangles, insets and corner radii in logical pixels.
 //! - [`units`]: the scale from logical to device pixels, and snapping edges to the device grid.
 //! - [`color`]: colors in sRGB, with conversion to linear light and mixing in Oklab.
 //! - [`arena`]: generational ids and an arena that grows with use and never hands out a stale id.
 //! - [`token`]: unguessable tokens for local connections, compared in constant time.
+//! - [`time`]: monotonic and wall clocks that work on every platform, browsers included.
+//! - [`exec`]: work away from the UI thread: threads natively, cooperative time slices in a
+//!   browser page without threads.
 
 pub mod arena;
 pub mod color;
+pub mod exec;
 pub mod geometry;
+pub mod time;
 pub mod token;
 pub mod units;
 

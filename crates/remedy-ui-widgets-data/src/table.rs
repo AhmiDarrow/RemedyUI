@@ -757,7 +757,7 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                             });
                             match waker {
                                 Some(waker) => {
-                                    std::thread::spawn(move || {
+                                    let _ = remedy_ui_core::exec::spawn("remedy-table-sort", move || {
                                         let order = sorted_order(&values, dir);
                                         // A newer sort replaces this one's scope; its result then has nowhere to go.
                                         let _ = waker.post(move || {

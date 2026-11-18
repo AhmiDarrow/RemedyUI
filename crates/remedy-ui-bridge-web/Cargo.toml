@@ -1,0 +1,96 @@
+[package]
+name = "remedy-ui-bridge-web"
+description = "RemedyUI web bridge: apps in a browser page (PWAs). Canvas windows on the page's frame clock, pointer, wheel, pinch and key input, input methods through a hidden text field, the clipboard, links, file pickers and downloads, dropped files, an ARIA mirror of the accessibility tree, and the page's settings followed live."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+# What every platform builds: the platform-neutral parts (keys, wheel units, ARIA roles,
+# pixels, settings, the file store), so they are tested on any machine.
+[dependencies]
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-host = { path = "../remedy-ui-host", version = "0.1.0" }
+remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+wasm-bindgen = { version = "=0.2.130" }
+wasm-bindgen-futures = { version = "=0.4.80" }
+js-sys = { version = "=0.3.107" }
+web-sys = { version = "=0.3.107", features = [
+    "AddEventListenerOptions",
+    "Blob",
+    "BroadcastChannel",
+    "BlobPropertyBag",
+    "CanvasRenderingContext2d",
+    "console",
+    "Clipboard",
+    "ClipboardEvent",
+    "ClipboardItem",
+    "CompositionEvent",
+    "CssStyleDeclaration",
+    "DataTransfer",
+    "DataTransferItem",
+    "DataTransferItemList",
+    "Document",
+    "DomRect",
+    "DomRectReadOnly",
+    "DragEvent",
+    "Element",
+    "Event",
+    "EventTarget",
+    "File",
+    "FileList",
+    "FocusEvent",
+    "FocusOptions",
+    "HtmlAnchorElement",
+    "HtmlCollection",
+    "HtmlCanvasElement",
+    "HtmlElement",
+    "HtmlInputElement",
+    "HtmlTextAreaElement",
+    "ImageData",
+    "InputEvent",
+    "KeyboardEvent",
+    "Location",
+    "MediaQueryList",
+    "MessageChannel",
+    "MessageEvent",
+    "MessagePort",
+    "MouseEvent",
+    "Navigator",
+    "Node",
+    "NodeList",
+    "Performance",
+    "PermissionState",
+    "PermissionStatus",
+    "Permissions",
+    "PointerEvent",
+    "ResizeObserver",
+    "ResizeObserverBoxOptions",
+    "ResizeObserverEntry",
+    "ResizeObserverOptions",
+    "ResizeObserverSize",
+    "Url",
+    "UserActivation",
+    "VisualViewport",
+    "WheelEvent",
+    "Window",
+] }
+
+[dev-dependencies]
+remedy-ui = { path = "../remedy-ui", version = "0.1.0", default-features = false, features = ["widgets", "forms", "nav"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = { version = "=0.3.80" }
+remedy-ui = { path = "../remedy-ui", version = "0.1.0", default-features = false, features = ["widgets", "forms", "nav", "web", "gpu"] }
+
+# The demo page (tools/build-web.sh builds and packages it).
+[[example]]
+name = "web-demo"
+crate-type = ["cdylib"]
+
+[lints]
+workspace = true

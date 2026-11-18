@@ -328,6 +328,11 @@ impl GpuContext {
             wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
         );
         self.queue.submit([encoder.finish()]);
+        if cfg!(all(target_arch = "wasm32", target_os = "unknown")) {
+            return Err(GpuError::Readback(
+                "a browser maps GPU buffers only after the page returns to its event loop, so pixels cannot be read back while a frame is drawn".into(),
+            ));
+        }
         let (tx, rx) = std::sync::mpsc::channel();
         buffer.slice(..).map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);

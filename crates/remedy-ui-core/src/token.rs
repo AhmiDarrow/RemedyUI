@@ -16,7 +16,9 @@ pub fn random_token() -> String {
         let mut h = RandomState::new().build_hasher();
         h.write_u64(i);
         h.write_u128(
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()),
+            crate::time::SystemTime::now()
+                .duration_since(crate::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
         );
         out.push_str(&format!("{:016x}", h.finish()));
     }

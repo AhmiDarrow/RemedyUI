@@ -22,7 +22,9 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use remedy_ui_core::time::Instant;
 
 use remedy_ui_a11y::{Action, Role};
 use remedy_ui_view::{El, Ui};

@@ -199,11 +199,28 @@ impl std::error::Error for MediaError {}
 /// An opened source, decoding in order. It is used from one thread at a time (the player's
 /// decoding thread), which may differ from the thread that opened it.
 pub trait Decoder: Send {
-    /// What the source holds.
+    /// What the source holds (known once [`Decoder::poll_ready`] is ready).
     fn info(&self) -> &MediaInfo;
+    /// Whether the decoder is ready to decode: `Pending` while it is still opening without
+    /// blocking (a browser fetching the source and configuring its decoders), waking `cx`'s
+    /// waker when it is. Decoders that open inside [`MediaHost::open`] are ready at once.
+    fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), MediaError>> {
+        let _ = cx;
+        std::task::Poll::Ready(Ok(()))
+    }
     /// The next sample in decoding order (sound and pictures interleaved roughly by time),
     /// waiting for it if the source is slow. `None` at the end.
     fn read(&mut self) -> Result<Option<Sample>, MediaError>;
+    /// The next sample if it is ready, without waiting: decoders that work asynchronously
+    /// (a browser's) return `Pending` and wake `cx`'s waker when one is. By default this
+    /// reads, waiting as [`Decoder::read`] does (the player calls it off the UI thread).
+    fn poll_read(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<Option<Sample>, MediaError>> {
+        let _ = cx;
+        std::task::Poll::Ready(self.read())
+    }
     /// Moves to `to`: the samples read next start at or before it (a decoder may start at the
     /// key frame before it; the player drops what comes before `to`).
     fn seek(&mut self, to: Duration) -> Result<(), MediaError>;

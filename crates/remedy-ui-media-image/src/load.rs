@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use remedy_ui_paint::Image;
 use remedy_ui_reactive::Signal;
@@ -127,44 +127,34 @@ pub enum ImageState {
 
 type Job = Box<dyn FnOnce() + Send>;
 
-struct Pool {
-    queue: Mutex<Vec<(Arc<AtomicBool>, Job)>>,
-    ready: Condvar,
-}
+/// Jobs waiting for a worker, oldest first.
+static QUEUE: Mutex<Vec<(Arc<AtomicBool>, Job)>> = Mutex::new(Vec::new());
 
-fn pool() -> &'static Pool {
-    static POOL: OnceLock<&'static Pool> = OnceLock::new();
-    POOL.get_or_init(|| {
-        let pool: &'static Pool =
-            Box::leak(Box::new(Pool { queue: Mutex::new(Vec::new()), ready: Condvar::new() }));
-        // One worker per core, leaving one for the UI thread.
-        let n = std::thread::available_parallelism().map_or(2, |n| n.get()).saturating_sub(1).max(1);
-        for i in 0..n {
-            let _ = std::thread::Builder::new().name(format!("remedy-image-{i}")).spawn(move || worker(pool));
-        }
-        pool
-    })
-}
-
-fn worker(pool: &'static Pool) {
-    loop {
-        let job = {
-            let Ok(mut q) = pool.queue.lock() else { return };
-            loop {
-                // Newest first: what was asked for last is what is on screen now.
-                match q.pop() {
-                    Some((cancelled, _)) if cancelled.load(Ordering::Relaxed) => {}
-                    Some((_, job)) => break job,
-                    None => match pool.ready.wait(q) {
-                        Ok(g) => q = g,
-                        Err(_) => return,
-                    },
-                }
+/// Runs the newest job not cancelled; false when none is left.
+fn step() -> bool {
+    let job = {
+        let mut q = QUEUE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        loop {
+            // Newest first: what was asked for last is what is on screen now.
+            match q.pop() {
+                Some((cancelled, _)) if cancelled.load(Ordering::Relaxed) => {}
+                Some((_, job)) => break job,
+                None => return false,
             }
-        };
-        let _span = remedy_ui_trace::phase!("image work").entered();
-        job();
-    }
+        }
+    };
+    let _span = remedy_ui_trace::phase!("image work").entered();
+    job();
+    true
+}
+
+fn pool() -> &'static remedy_ui_core::exec::Pool {
+    static POOL: OnceLock<remedy_ui_core::exec::Pool> = OnceLock::new();
+    // One worker per core, leaving one for the UI thread (cooperative slices in a browser).
+    POOL.get_or_init(|| {
+        let n = remedy_ui_core::exec::parallelism().saturating_sub(1).max(1);
+        remedy_ui_core::exec::Pool::new("remedy-image", n, step)
+    })
 }
 
 /// Runs `job` on the image workers (one per core but one, newest request first). A job whose
@@ -175,11 +165,8 @@ pub fn spawn_job(cancelled: Arc<AtomicBool>, job: impl FnOnce() + Send + 'static
 }
 
 fn spawn(cancelled: Arc<AtomicBool>, job: impl FnOnce() + Send + 'static) {
-    let p = pool();
-    if let Ok(mut q) = p.queue.lock() {
-        q.push((cancelled, Box::new(job)));
-        p.ready.notify_one();
-    }
+    QUEUE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((cancelled, Box::new(job)));
+    pool().notify();
 }
 
 // ---------- the cache ----------

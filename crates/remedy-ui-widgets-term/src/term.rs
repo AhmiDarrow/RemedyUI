@@ -8,7 +8,9 @@
 //! a budget sized from the machine; malformed sequences are dropped.
 
 use std::collections::{HashMap, VecDeque};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use remedy_ui_core::time::Instant;
 
 use unicode_width::UnicodeWidthChar;
 
