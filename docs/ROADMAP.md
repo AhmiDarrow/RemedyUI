@@ -166,6 +166,10 @@ Next: the macOS run, which needs a Mac.
 - spaces the user builds (`widgets-board`): FreeSpeak's Home is a house that holds the voice and chat nodes plus updates, information, links and reactions, not a server list. The engine side is a board that its owner edits in place: drag, drop, resize and arrange areas and widgets (each move also doable from the keyboard, each change undoable), a registry of built-in widgets whose settings are typed so the property grid edits them, layouts saved as versioned documents that peers receive and render, reactions as a reusable component, and custom widgets people write in a sandboxed script (Luau, which was made for running untrusted code: no file, network or process access, only the capabilities the board grants, with time and memory checks sized from the device) that build ordinary RemedyUI elements, so they are themed, accessible and fast like built-in ones
 - the board's editor and viewer share one renderer, so what the host arranges is exactly what visitors see
 
+**Status:** in progress. Built:
+- `script`: Luau widgets, each in a sandboxed machine of its own (no files, network, processes or loaders), stopped past a time budget and a memory limit sized from the device; scripts describe elements and never touch them.
+- `widgets-board`: versioned board documents (areas on a column grid, widgets in areas; every change checked, overlaps refused), a registry of widget kinds (text, links, reactions, the app's own, scripted), one renderer for viewing and editing (selection, drag and drop, every move from the keyboard, undo and redo, settings in the property grid), and reactions as a component. Grid items now take explicit lines and spans.
+
 **Done when:**
 - all of FreeSpeak runs on RemedyUI on Windows, Linux, macOS and Android, meeting the budgets in [design/09](design/09-performance-and-resources.md)
 - the share pop-out is a real window

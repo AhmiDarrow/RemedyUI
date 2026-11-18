@@ -27,6 +27,8 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-a11y", 3),
     ("remedy-ui-compositor", 3),
     ("remedy-ui-secure", 3),
+    // Scripted widgets: untrusted Luau that describes elements, with no UI of its own.
+    ("remedy-ui-script", 3),
     // The host model: the platform-neutral contract bridges implement.
     ("remedy-ui-host", 3),
     // The view layer: elements, the frame pipeline and input routing, over L0-L3.
@@ -50,6 +52,7 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-widgets-extra", 5),
     ("remedy-ui-widgets-music", 5),
     ("remedy-ui-widgets-term", 5),
+    ("remedy-ui-widgets-board", 5),
     ("remedy-ui-doc-rich", 5),
     ("remedy-ui-doc-code", 5),
     ("remedy-ui-doc-pages", 5),
@@ -86,6 +89,9 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-widgets-extra", "remedy-ui-widgets-core"),
     ("remedy-ui-widgets-music", "remedy-ui-widgets-core"),
     ("remedy-ui-widgets-term", "remedy-ui-widgets-core"),
+    // Boards are built from widgets, and edit settings in the property grid.
+    ("remedy-ui-widgets-board", "remedy-ui-widgets-core"),
+    ("remedy-ui-widgets-board", "remedy-ui-widgets-data"),
     ("remedy-ui-doc-rich", "remedy-ui-widgets-core"),
     ("remedy-ui-doc-code", "remedy-ui-widgets-core"),
     ("remedy-ui-doc-pages", "remedy-ui-widgets-core"),

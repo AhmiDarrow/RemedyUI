@@ -1,0 +1,16 @@
+[package]
+name = "remedy-ui-script"
+description = "RemedyUI scripted widgets: untrusted Luau in a sandbox with memory and time limits, describing elements the host builds."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+mlua = { version = "=0.11.6", features = ["luau", "vendored"] }
+serde_json = { version = "=1.0.154" }
+
+[lints]
+workspace = true

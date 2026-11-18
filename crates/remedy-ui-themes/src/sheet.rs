@@ -47,6 +47,44 @@ pub fn sheet(t: &Theme) -> StyleSheet {
             ..Default::default()
         },
     );
+    // Boards: areas are cards; while arranging, areas and widgets show hover and selection.
+    rule(
+        "board_area",
+        None,
+        States::NONE,
+        StylePatch {
+            background: Some(c.card),
+            border: Some(line),
+            border_width: Some(t.stroke),
+            radius: Some(r.large),
+            ..Default::default()
+        },
+    );
+    rule(
+        "board_area",
+        None,
+        States::SELECTED,
+        StylePatch {
+            border: Some(c.accent),
+            border_width: Some(t.stroke.max(1.0) * 2.0),
+            ..Default::default()
+        },
+    );
+    rule(
+        "board_area",
+        None,
+        States::DROP_TARGET,
+        StylePatch { border: Some(c.accent), ..Default::default() },
+    );
+    rule("board_item", None, States::NONE, StylePatch { radius: Some(r.medium), ..Default::default() });
+    rule("board_item", None, States::HOVER, StylePatch { background: Some(d.hover), ..Default::default() });
+    rule(
+        "board_item",
+        None,
+        States::SELECTED,
+        StylePatch { background: Some(d.selected), ..Default::default() },
+    );
+    rule("board_item", None, States::DRAGGING, StylePatch { opacity: Some(0.6), ..Default::default() });
     // A card that stands out (the user's own message, a highlighted item).
     rule(
         "card",
