@@ -54,7 +54,7 @@ pub use inputs::{field, reveal_toggle, search, secret_input, text_area, text_inp
 pub use lists::{for_each, list, virtual_list};
 pub use overlays::{
     DialogButton, MenuItem, Modal, context_menu, dialog, fill_window, fit_near, lock_screen, menu, modal,
-    place_at, place_near, popover, tooltip, trusted_prompt,
+    place_at, place_near, place_near_within, popover, tooltip, trusted_prompt,
 };
 pub use text::{heading, label, link, text};
 pub use values::{slider, stepper};

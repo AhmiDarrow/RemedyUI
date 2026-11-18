@@ -333,6 +333,12 @@ impl Ui {
     /// Runs the pipeline for a window of `size` logical pixels at `scale` device pixels per
     /// logical pixel.
     pub fn frame(&self, size: Size, scale: f32) -> Frame {
+        // Before this frame lays out, and outside the borrow below: what follows the window's
+        // size (overlays keeping inside it) reacts now and is laid out in this frame.
+        let window_size = self.0.borrow().window_size;
+        if window_size.get_untracked().is_ok_and(|s| s != size) {
+            let _ = window_size.try_set(size);
+        }
         let mut guard = self.0.borrow_mut();
         let i = &mut *guard;
         let root = i.tree.root();

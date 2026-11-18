@@ -373,6 +373,18 @@ fn a_tooltip_in_the_corner_stays_inside_the_window() {
         tips.first().and_then(remedy_ui_view::El::info).is_some_and(|i| i.style.opacity > 0.99),
         "and visible once placed"
     );
+    // The window narrows while it shows: placed again inside it.
+    for _ in 0..3 {
+        let _ = t.ui.frame(remedy_ui_core::Size::new(260.0, 300.0), 1.0);
+        let _ = t.ui.take_requests();
+    }
+    let tip = tips.first().and_then(remedy_ui_view::El::bounds).unwrap_or_default();
+    assert!(tip.max.x <= 260.0, "still inside a narrower window: {tip:?}");
+    // Its button goes (a panel rebuilt): so does the tooltip.
+    let tip_id = tips.first().map(remedy_ui_view::El::id);
+    t.ui.root().clear();
+    t.frame();
+    assert!(tip_id.is_some_and(|id| !t.ui.tree().contains(id)), "the tooltip went with its button");
 }
 
 #[test]
