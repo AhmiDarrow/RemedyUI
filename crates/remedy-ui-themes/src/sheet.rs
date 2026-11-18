@@ -47,6 +47,13 @@ pub fn sheet(t: &Theme) -> StyleSheet {
             ..Default::default()
         },
     );
+    // A card that stands out (the user's own message, a highlighted item).
+    rule(
+        "card",
+        Some("accent"),
+        States::NONE,
+        StylePatch { background: Some(d.selected), border: Some(c.accent), ..Default::default() },
+    );
     rule("divider", None, States::NONE, StylePatch { background: Some(line), ..Default::default() });
     rule(
         "scrim",
@@ -637,9 +644,36 @@ pub fn sheet(t: &Theme) -> StyleSheet {
 
     // Data: tables and trees. The table or tree itself takes focus and shows it on the
     // row the keyboard is on (its cursor), drawn inside the row so scrolling never clips it.
-    for w in ["table", "tree"] {
+    for w in ["table", "tree", "grid"] {
         rule(w, None, States::NONE, StylePatch { outline_width: Some(0.0), ..Default::default() });
     }
+    // Grid tiles: rounded, the cursor's ring drawn inside the tile.
+    rule(
+        "grid_tile",
+        None,
+        States::NONE,
+        StylePatch { radius: Some(r.medium), outline_offset: Some(-2.0), ..Default::default() },
+    );
+    rule("grid_tile", None, States::HOVER, StylePatch { background: Some(d.hover), ..Default::default() });
+    rule(
+        "grid_tile",
+        None,
+        States::SELECTED,
+        StylePatch { background: Some(d.selected), ..Default::default() },
+    );
+    rule("grid_tile", None, States::DRAGGING, StylePatch { opacity: Some(0.6), ..Default::default() });
+    // The rubber band: the accent, see-through, with a solid edge.
+    rule(
+        "grid_band",
+        None,
+        States::NONE,
+        StylePatch {
+            background: Some(c.accent.with_alpha(0.18)),
+            border: Some(c.accent),
+            border_width: Some(t.stroke.max(1.0)),
+            ..Default::default()
+        },
+    );
     rule(
         "table_header_bar",
         None,

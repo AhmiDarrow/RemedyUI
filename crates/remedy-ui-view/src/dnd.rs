@@ -68,6 +68,7 @@ impl Drag {
 pub(crate) type DragSource = (Rc<dyn Fn() -> Option<Drag>>, Rc<dyn Fn(DropEffect)>);
 pub(crate) type DropAccept = Rc<dyn Fn(&Drag, Point) -> DropEffect>;
 pub(crate) type DropHandler = Rc<dyn Fn(&Drag, Point, DropEffect)>;
+pub(crate) type DragHover = Rc<dyn Fn(Option<&Drag>)>;
 
 /// The drag under way.
 pub(crate) struct Session {
@@ -78,6 +79,8 @@ pub(crate) struct Session {
     target: Option<(ElementId, DropEffect)>,
     /// Handed to the platform: the pointer left the window.
     outside: bool,
+    /// The elements with an `on_drag_hover` the drag is over, outermost last.
+    hovered: Vec<ElementId>,
 }
 
 /// A press that may become a drag.
@@ -119,6 +122,15 @@ impl El {
         let a: DropAccept = Rc::new(accept);
         let h: DropHandler = Rc::new(drop);
         self.edit(Dirty::NONE, move |d| d.drop_target = Some((a, h)));
+        self
+    }
+
+    /// Calls `f` with the drag when one comes over the element (or anything in it), whether
+    /// or not anything there takes it, and with `None` when it leaves or ends: for hints such
+    /// as "Drop files to add them" or "This folder is read-only".
+    pub fn on_drag_hover(self, f: impl Fn(Option<&Drag>) + 'static) -> Self {
+        let f: DragHover = Rc::new(f);
+        self.edit(Dirty::NONE, move |d| d.drag_hover = Some(f));
         self
     }
 }
@@ -164,8 +176,44 @@ impl Ui {
         None
     }
 
+    /// Tells hover listeners the drag is now over the elements at `p` (none for `None`).
+    fn rehover(&self, p: Option<Point>) {
+        let Some(drag) = self.dragging() else { return };
+        let now: Vec<ElementId> = match p {
+            Some(p) => {
+                let tree = self.tree();
+                let mut out = Vec::new();
+                let mut cur = tree.hit_test(p);
+                while let Some(c) = cur {
+                    if self.0.borrow().els.get(&c).is_some_and(|d| d.drag_hover.is_some()) {
+                        out.push(c);
+                    }
+                    cur = tree.parent(c);
+                }
+                out
+            }
+            None => Vec::new(),
+        };
+        let before = match self.0.borrow_mut().drag.as_mut() {
+            Some(s) => std::mem::replace(&mut s.hovered, now.clone()),
+            None => return,
+        };
+        let listener = |id: &ElementId| self.0.borrow().els.get(id).and_then(|d| d.drag_hover.clone());
+        let left: Vec<DragHover> =
+            before.iter().filter(|id| !now.contains(id)).filter_map(listener).collect();
+        let came: Vec<DragHover> =
+            now.iter().filter(|id| !before.contains(id)).filter_map(listener).collect();
+        for f in left {
+            f(None);
+        }
+        for f in came {
+            f(Some(&drag));
+        }
+    }
+
     fn retarget(&self, p: Option<Point>) -> DropEffect {
         let Some(drag) = self.dragging() else { return DropEffect::None };
+        self.rehover(p);
         let next = self.find_target(&drag, p);
         let old = self.0.borrow_mut().drag.as_mut().and_then(|s| std::mem::replace(&mut s.target, next));
         if old.map(|(id, _)| id) != next.map(|(id, _)| id) {
@@ -182,6 +230,7 @@ impl Ui {
     /// Ends the session: the target loses its outline, the source its dragging state, and
     /// the source hears what happened.
     fn end_drag(&self, effect: DropEffect) {
+        self.rehover(None);
         let session = self.0.borrow_mut().drag.take();
         let Some(s) = session else { return };
         if let Some((id, _)) = s.target {
@@ -230,6 +279,7 @@ impl Ui {
                         source: None,
                         target: None,
                         outside: false,
+                        hovered: Vec::new(),
                     });
                 } else if let Some(s) = self.0.borrow_mut().drag.as_mut() {
                     // Our own drag came back in.
@@ -258,6 +308,7 @@ impl Ui {
                         source: None,
                         target: None,
                         outside: false,
+                        hovered: Vec::new(),
                     });
                 }
                 let effect = self.drop_here(*position);
@@ -275,6 +326,7 @@ impl Ui {
     }
 
     fn retarget_none(&self) -> DropEffect {
+        self.rehover(None);
         let old = self.0.borrow_mut().drag.as_mut().and_then(|s| s.target.take());
         if let Some((id, _)) = old {
             self.set_state(id, States::DROP_TARGET, false);
@@ -371,8 +423,13 @@ impl Ui {
                         }
                         self.0.borrow_mut().captured = None;
                         self.set_state(source, States::DRAGGING, true);
-                        self.0.borrow_mut().drag =
-                            Some(Session { drag, source: Some(source), target: None, outside: false });
+                        self.0.borrow_mut().drag = Some(Session {
+                            drag,
+                            source: Some(source),
+                            target: None,
+                            outside: false,
+                            hovered: Vec::new(),
+                        });
                         self.retarget(Some(e.position));
                         true
                     }

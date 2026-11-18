@@ -25,8 +25,8 @@ mod runner;
 
 pub use geometry::GeometryStore;
 pub use runner::{
-    App, AppConfig, GPU_PROMOTE_FRAME_COST, GPU_PROMOTE_FRAME_STALL, RendererChoice, RendererKind, Runner,
-    Window, WindowSpec,
+    App, AppConfig, Completion, GPU_PROMOTE_FRAME_COST, GPU_PROMOTE_FRAME_STALL, RendererChoice,
+    RendererKind, Runner, Window, WindowSpec,
 };
 
 #[cfg(feature = "headless")]

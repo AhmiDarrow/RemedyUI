@@ -257,6 +257,50 @@ type JobResult = Box<dyn std::any::Any + Send>;
 /// What runs on the UI thread with a background job's result.
 type Job = Box<dyn FnOnce(JobResult)>;
 type Setup = Box<dyn FnOnce(&App)>;
+/// Hears the system's appearance: `(prefers_dark, high_contrast)`.
+type AppearanceFn = Rc<dyn Fn(Option<bool>, bool)>;
+
+/// A result for the UI thread, completed from any thread: see [`App::completion`].
+#[must_use = "a completion that is dropped forgets its callback"]
+pub struct Completion<T: Send + 'static> {
+    id: u64,
+    results: Arc<Mutex<Vec<(u64, JobResult)>>>,
+    waker: Option<remedy_ui_host::Waker>,
+    done: bool,
+    _t: std::marker::PhantomData<fn(T)>,
+}
+
+/// What a completion dropped unfinished sends: its callback is forgotten.
+struct Abandoned;
+
+impl<T: Send + 'static> Completion<T> {
+    /// Hands `value` to the callback, which runs on the UI thread next turn.
+    pub fn complete(mut self, value: T) {
+        self.send(Box::new(value));
+    }
+
+    fn send(&mut self, value: JobResult) {
+        self.done = true;
+        self.results.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((self.id, value));
+        if let Some(w) = &self.waker {
+            w();
+        }
+    }
+}
+
+impl<T: Send + 'static> Drop for Completion<T> {
+    fn drop(&mut self) {
+        if !self.done {
+            self.send(Box::new(Abandoned));
+        }
+    }
+}
+
+impl<T: Send + 'static> std::fmt::Debug for Completion<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Completion({})", self.id)
+    }
+}
 
 enum Cmd {
     Open(u64, WindowSpec, Build),
@@ -274,6 +318,8 @@ enum Cmd {
     Copy(String, bool),
     CopySecret(String, Duration),
     ClearSecret,
+    Theme(Box<Theme>),
+    Locale(Option<String>),
     Idle(Option<Duration>, Option<Rc<dyn Fn()>>),
     Forget(String),
     Tray(Option<TrayIcon>),
@@ -309,6 +355,10 @@ struct Shared {
     done: Arc<Mutex<Vec<(u64, JobResult)>>>,
     on_launch: Option<Rc<dyn Fn(Vec<String>)>>,
     on_activity: Option<Rc<dyn Fn()>>,
+    /// Told the system's light/dark preference and high contrast, now and when they change.
+    on_appearance: Option<AppearanceFn>,
+    /// The last appearance the system reported.
+    appearance: Option<(Option<bool>, bool)>,
     renderers: HashMap<u64, RendererKind>,
     titles: HashMap<u64, String>,
     /// Whether each window is maximized, kept current from the host.
@@ -414,6 +464,38 @@ impl App {
         self.0.borrow_mut().on_activity = Some(Rc::new(f));
     }
 
+    /// Calls `f(prefers_dark, high_contrast)` with the system's appearance now (once the
+    /// system has said) and whenever it changes: apps whose theme follows the system restyle.
+    pub fn on_appearance(&self, f: impl Fn(Option<bool>, bool) + 'static) {
+        let f: AppearanceFn = Rc::new(f);
+        let now = {
+            let mut s = self.0.borrow_mut();
+            s.on_appearance = Some(f.clone());
+            s.appearance
+        };
+        if let Some((dark, hc)) = now {
+            f(dark, hc);
+        }
+    }
+
+    /// The system's appearance as last reported, `(prefers_dark, high_contrast)`; `None`
+    /// until the system has said (an app choosing its theme again reads it).
+    pub fn appearance(&self) -> Option<(Option<bool>, bool)> {
+        self.0.borrow().appearance
+    }
+
+    /// Shows every window (and windows opened later) in `locale` (a BCP 47 tag) instead of
+    /// the system's; `None` follows the system again. For apps with their own language
+    /// setting: the choice outlasts the system's settings changes.
+    pub fn set_locale(&self, locale: Option<String>) {
+        self.push(Cmd::Locale(locale));
+    }
+
+    /// Restyles every window (and windows opened later) with `theme`.
+    pub fn set_theme(&self, theme: Theme) {
+        self.push(Cmd::Theme(Box::new(theme)));
+    }
+
     /// Changes the idle timeout, keeping the callback.
     pub fn set_idle_timeout(&self, timeout: Option<Duration>) {
         self.push(Cmd::Idle(timeout, None));
@@ -426,29 +508,36 @@ impl App {
         work: impl FnOnce() -> T + Send + 'static,
         done: impl FnOnce(T) + 'static,
     ) {
-        let (id, results, waker) = {
-            let mut s = self.0.borrow_mut();
-            s.next_job += 1;
-            let id = s.next_job;
-            s.jobs.insert(
-                id,
-                Box::new(move |any: JobResult| {
-                    if let Ok(v) = any.downcast::<T>() {
-                        done(*v);
-                    }
-                }),
-            );
-            (id, s.done.clone(), s.waker.clone())
-        };
-        let spawned = std::thread::Builder::new().name("remedy-ui background".into()).spawn(move || {
-            let out: JobResult = Box::new(work());
-            results.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((id, out));
-            if let Some(w) = waker {
-                w();
-            }
-        });
-        if spawned.is_err() {
-            self.0.borrow_mut().jobs.remove(&id);
+        let c = self.completion(done);
+        // A thread that cannot start drops the completion, which forgets `done`.
+        let _ =
+            std::thread::Builder::new().name("remedy-ui background".into()).spawn(move || c.complete(work()));
+    }
+
+    /// A result some other thread will produce (an async runtime's task, a callback from a
+    /// library): `done` runs with it on the UI thread once [`Completion::complete`] is called
+    /// from anywhere. Dropping the completion without completing it forgets `done`.
+    ///
+    /// Unlike a signal set from a posted closure, nothing here belongs to a reactive scope, so
+    /// work started inside `done` (or inside an effect) is never lost when that scope re-runs.
+    pub fn completion<T: Send + 'static>(&self, done: impl FnOnce(T) + 'static) -> Completion<T> {
+        let mut s = self.0.borrow_mut();
+        s.next_job += 1;
+        let id = s.next_job;
+        s.jobs.insert(
+            id,
+            Box::new(move |any: JobResult| {
+                if let Ok(v) = any.downcast::<T>() {
+                    done(*v);
+                }
+            }),
+        );
+        Completion {
+            id,
+            results: s.done.clone(),
+            waker: s.waker.clone(),
+            done: false,
+            _t: std::marker::PhantomData,
         }
     }
 
@@ -695,6 +784,8 @@ pub struct Runner {
     geometry: GeometryStore,
     save_timer: Option<TimerId>,
     settings: SystemSettings,
+    /// The app's own locale, in place of the system's.
+    locale: Option<String>,
     idle: Option<(remedy_ui_secure::IdleTimer, Rc<dyn Fn()>)>,
     activity_reported: Option<Duration>,
     idle_timer: Option<TimerId>,
@@ -739,6 +830,7 @@ impl Runner {
             geometry,
             save_timer: None,
             settings: SystemSettings::default(),
+            locale: None,
             idle: None,
             activity_reported: None,
             idle_timer: None,
@@ -804,7 +896,7 @@ impl Runner {
                     (self.config.fonts)(),
                 );
                 ui.set_platform(self.settings.platform);
-                ui.set_locale(self.settings.locale.clone());
+                ui.set_locale(self.locale.clone().unwrap_or_else(|| self.settings.locale.clone()));
                 ui.set_double_click_time(self.settings.double_click);
                 ui.set_local_time(host.local_time());
                 let app = self.app.clone();
@@ -900,6 +992,23 @@ impl Runner {
                     let t = host.set_timer(copy.clear_at());
                     self.secret = Some((copy, t));
                 }
+            }
+            Cmd::Locale(locale) => {
+                self.locale = locale;
+                let tag = self.locale.clone().unwrap_or_else(|| self.settings.locale.clone());
+                for w in self.wins.values() {
+                    w.ui.set_locale(tag.clone());
+                    host.request_frame(w.host);
+                }
+            }
+            Cmd::Theme(theme) => {
+                let theme = *theme;
+                let sheet = (self.config.sheet)(&theme);
+                for w in self.wins.values() {
+                    w.ui.set_theme(theme.clone(), sheet.clone());
+                    host.request_frame(w.host);
+                }
+                self.config.theme = theme;
             }
             Cmd::ClearSecret => {
                 if let Some((copy, t)) = self.secret.take() {
@@ -1240,7 +1349,7 @@ impl remedy_ui_host::App for Runner {
             HostEvent::Settings(s) => {
                 for w in self.wins.values() {
                     w.ui.set_platform(s.platform);
-                    w.ui.set_locale(s.locale.clone());
+                    w.ui.set_locale(self.locale.clone().unwrap_or_else(|| s.locale.clone()));
                     w.ui.set_double_click_time(s.double_click);
                     w.ui.set_reduced_motion(s.reduced_motion);
                 }
@@ -1249,7 +1358,17 @@ impl remedy_ui_host::App for Runner {
                         c.set_reduced_motion(s.reduced_motion);
                     }
                 }
+                let appearance = (s.dark, s.high_contrast);
                 self.settings = s;
+                let notify = {
+                    let mut shared = self.app.0.borrow_mut();
+                    let changed = shared.appearance != Some(appearance);
+                    shared.appearance = Some(appearance);
+                    changed.then(|| shared.on_appearance.clone()).flatten()
+                };
+                if let Some(f) = notify {
+                    f(appearance.0, appearance.1);
+                }
             }
             HostEvent::Resized { window, width, height, scale } => {
                 let Some(&key) = self.by_host.get(&window) else { return };

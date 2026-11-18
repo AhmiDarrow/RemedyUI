@@ -12,11 +12,13 @@
 //!   arithmetic forms and messages need; [`Date::today`] reads the user's local calendar.
 
 mod calendar;
+mod catalog;
 mod decimal;
 mod locale;
 mod messages;
 
 pub use calendar::{Date, Time, Weekday, days_in_month, is_leap, month_grid};
+pub use catalog::{Catalog, fill};
 pub use decimal::{Decimal, DecimalError, MAX_SCALE};
 pub use locale::{CalendarSymbols, NumberSymbols};
 pub use messages::{Arg, Messages, Problem};

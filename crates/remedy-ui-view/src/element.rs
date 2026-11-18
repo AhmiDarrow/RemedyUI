@@ -160,6 +160,8 @@ pub(crate) struct ElData {
     pub(crate) drag_source: Option<crate::dnd::DragSource>,
     /// Takes drops.
     pub(crate) drop_target: Option<(crate::dnd::DropAccept, crate::dnd::DropHandler)>,
+    /// Told when a drag comes over it (or its children) and when it goes.
+    pub(crate) drag_hover: Option<crate::dnd::DragHover>,
     /// A scroll container that also scrolls sideways.
     pub(crate) scroll_x: bool,
     /// Told the element's new size after a frame where it changed.
@@ -195,6 +197,9 @@ pub(crate) struct Inner {
     pub(crate) els: HashMap<ElementId, ElData>,
     pub(crate) sheet: StyleSheet,
     pub(crate) theme: Theme,
+    /// The engine's starting style for `theme`, computed once per theme (elements are made
+    /// often; deriving the theme's tokens is not cheap).
+    pub(crate) base: StylePatch,
     pub(crate) engine: Rc<RefCell<TextEngine>>,
     pub(crate) size: Size,
     pub(crate) scale: f32,
@@ -288,6 +293,7 @@ impl Ui {
             layout,
             els,
             sheet,
+            base: defaults(&theme),
             theme,
             engine: Rc::new(RefCell::new(TextEngine::new(fonts))),
             size: Size::new(1.0, 1.0),
@@ -518,7 +524,7 @@ impl Ui {
         let id = i.tree.create(widget);
         let style = LayoutStyle::default();
         let node = i.layout.node(&style).unwrap_or_else(|_| unreachable_root());
-        let base = defaults(&i.theme);
+        let base = i.base.clone();
         let resolved = i.sheet.resolve(
             &StyleKey { widget, variant: "", states: States::NONE },
             &base,
@@ -567,6 +573,7 @@ impl Ui {
     /// Changes the theme and its style sheet; every element restyles.
     pub fn set_theme(&self, theme: Theme, sheet: StyleSheet) {
         let mut i = self.0.borrow_mut();
+        i.base = defaults(&theme);
         i.theme = theme;
         i.sheet = sheet;
         let ids: Vec<ElementId> = i.els.keys().copied().collect();
@@ -753,6 +760,7 @@ impl ElData {
             pointer: false,
             drag_source: None,
             drop_target: None,
+            drag_hover: None,
             scroll_x: false,
             on_resize: None,
             last_size: None,
@@ -1402,7 +1410,7 @@ impl El {
         let mut guard = self.ui.0.borrow_mut();
         let i = &mut *guard;
         let d = i.els.get(&self.id)?;
-        let base = defaults(&i.theme);
+        let base = i.base.clone();
         let inherited = match i.tree.parent(self.id).and_then(|p| i.els.get(&p)) {
             Some(parent) => parent.resolved.inherited_by_children(&base),
             None => base,

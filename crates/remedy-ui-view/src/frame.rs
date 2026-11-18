@@ -13,7 +13,7 @@ use remedy_ui_style::{States, StyleKey};
 use remedy_ui_text::{Antialias, Hinting, Paragraph};
 use remedy_ui_tree::{Dirty, ElementId};
 
-use crate::element::{ElData, Inner, PaintCx, Ui, defaults, root_key};
+use crate::element::{ElData, Inner, PaintCx, Ui, root_key};
 
 /// What one frame produced.
 #[derive(Clone, Debug, Default)]
@@ -360,7 +360,7 @@ impl Ui {
 
         // Style.
         let theme = i.theme.clone();
-        let base = defaults(&theme);
+        let base = i.base.clone();
         // Parents before children: text properties inherit, so a child resolves against its
         // parent's new style, and a parent whose inherited values changed restyles its
         // children.

@@ -16,6 +16,17 @@ use std::time::Duration;
 use base64::Engine;
 use sha2::Digest;
 
+#[allow(unsafe_code)]
+mod os;
+
+pub use os::SignatureStatus;
+
+/// A file's Authenticode signature status and signer thumbprint (Windows; elsewhere nothing
+/// is signed this way).
+pub fn authenticode_of(file: &Path) -> (SignatureStatus, Option<String>) {
+    os::authenticode(file)
+}
+
 /// Where releases are published.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Feed {
@@ -33,6 +44,34 @@ pub enum Feed {
     /// A JSON document: `{"version", "url", "signature", "sha256"?, "notes"?}`, where
     /// `signature` is the minisign signature (text, or base64 of it).
     Json(String),
+    /// A GitHub repository's newest release including prereleases (drafts skipped); `asset`
+    /// as for [`Feed::GitHub`].
+    GitHubAll {
+        /// Owner.
+        owner: String,
+        /// Repository.
+        repo: String,
+        /// The asset name or its ending.
+        asset: String,
+    },
+}
+
+/// Why a download is trusted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Trust {
+    /// A minisign signature (`<asset>.sig`, or the feed's `signature`) under this public key
+    /// (the base64 line of a `.pub` file).
+    Minisign(String),
+    /// The SHA-256 listed for the asset in a checksum file published beside it (GNU style:
+    /// `<hex>  <name>`), and on Windows, when `publisher` is given, an Authenticode signature
+    /// by the certificate with that SHA-1 thumbprint. A self-signed publisher is fine; a file
+    /// changed after signing never is.
+    Checksums {
+        /// The checksum file's asset name (`SHA256SUMS.txt`).
+        file: String,
+        /// The signing certificate's SHA-1 thumbprint (hex).
+        publisher: Option<String>,
+    },
 }
 
 /// What an app's updater needs to know.
@@ -42,21 +81,22 @@ pub struct UpdateConfig {
     pub current: String,
     /// Where to look.
     pub feed: Feed,
-    /// The app's minisign public key (the base64 line of a `.pub` file).
-    pub public_key: String,
+    /// Why a download is trusted.
+    pub trust: Trust,
     /// GitHub's API base (tests point it at a local server).
     pub github_api: String,
 }
 
 impl UpdateConfig {
-    /// An updater for version `current` on `feed`, trusting `public_key`.
+    /// An updater for version `current` on `feed`, trusting minisign signatures by
+    /// `public_key`.
     pub fn new(current: impl Into<String>, feed: Feed, public_key: impl Into<String>) -> Self {
-        UpdateConfig {
-            current: current.into(),
-            feed,
-            public_key: public_key.into(),
-            github_api: "https://api.github.com".into(),
-        }
+        Self::with_trust(current, feed, Trust::Minisign(public_key.into()))
+    }
+
+    /// An updater for version `current` on `feed`, trusting downloads as `trust` says.
+    pub fn with_trust(current: impl Into<String>, feed: Feed, trust: Trust) -> Self {
+        UpdateConfig { current: current.into(), feed, trust, github_api: "https://api.github.com".into() }
     }
 }
 
@@ -69,7 +109,7 @@ pub struct Release {
     pub notes: String,
     /// The download.
     pub url: String,
-    /// Its minisign signature (text).
+    /// Its minisign signature (text; empty when trusted by checksums).
     pub signature: String,
     /// Its SHA-256, hex, when the feed gives one.
     pub sha256: Option<String>,
@@ -164,33 +204,87 @@ pub fn check(cfg: &UpdateConfig) -> Result<Option<Release>, UpdateError> {
                 format!("{}/repos/{owner}/{repo}/releases/latest", cfg.github_api.trim_end_matches('/'));
             let v: serde_json::Value =
                 serde_json::from_str(&get_text(&url)?).map_err(|e| UpdateError::Feed(e.to_string()))?;
-            let tag = v
-                .get("tag_name")
-                .and_then(|t| t.as_str())
-                .ok_or_else(|| UpdateError::Feed("no tag".into()))?;
-            let assets = v.get("assets").and_then(|a| a.as_array()).cloned().unwrap_or_default();
-            let find = |pred: &dyn Fn(&str) -> bool| {
-                assets.iter().find_map(|a| {
-                    let name = a.get("name")?.as_str()?;
-                    pred(name).then(|| a.get("browser_download_url")?.as_str().map(str::to_owned)).flatten()
-                })
-            };
-            let matches = |n: &str| n == asset || (n.ends_with(asset.as_str()) && !n.ends_with(".sig"));
-            let url =
-                find(&matches).ok_or_else(|| UpdateError::Feed(format!("no asset matching {asset}")))?;
-            let sig_name = url.rsplit('/').next().map(|n| format!("{n}.sig")).unwrap_or_default();
-            let sig_url = find(&|n: &str| n == sig_name)
-                .ok_or_else(|| UpdateError::Feed(format!("no signature {sig_name}")))?;
-            Release {
-                version: tag.to_owned(),
-                notes: v.get("body").and_then(|b| b.as_str()).unwrap_or_default().to_owned(),
-                url,
-                signature: get_text(&sig_url)?,
-                sha256: None,
+            github_release(cfg, &v, asset)?
+        }
+        Feed::GitHubAll { owner, repo, asset } => {
+            let url = format!("{}/repos/{owner}/{repo}/releases", cfg.github_api.trim_end_matches('/'));
+            let v: serde_json::Value =
+                serde_json::from_str(&get_text(&url)?).map_err(|e| UpdateError::Feed(e.to_string()))?;
+            // The newest non-draft release that has the asset.
+            let mut best: Option<(semver::Version, &serde_json::Value)> = None;
+            for r in v.as_array().into_iter().flatten() {
+                if r.get("draft").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+                    continue;
+                }
+                let Some(tag) = r.get("tag_name").and_then(|t| t.as_str()) else { continue };
+                let Ok(ver) = version(tag) else { continue };
+                let has = r.get("assets").and_then(|a| a.as_array()).into_iter().flatten().any(|a| {
+                    a.get("name")
+                        .and_then(|n| n.as_str())
+                        .is_some_and(|n| n == asset || (n.ends_with(asset.as_str()) && !n.ends_with(".sig")))
+                });
+                if has && best.as_ref().is_none_or(|(b, _)| ver > *b) {
+                    best = Some((ver, r));
+                }
+            }
+            match best {
+                Some((_, r)) => github_release(cfg, r, asset)?,
+                None => return Ok(None),
             }
         }
     };
     Ok((version(&release.version)? > current).then_some(release))
+}
+
+/// A release from a GitHub API release object, with what its trust needs: the minisign
+/// signature, or the asset's SHA-256 from the published checksum file.
+fn github_release(cfg: &UpdateConfig, v: &serde_json::Value, asset: &str) -> Result<Release, UpdateError> {
+    let tag = v.get("tag_name").and_then(|t| t.as_str()).ok_or_else(|| UpdateError::Feed("no tag".into()))?;
+    let assets = v.get("assets").and_then(|a| a.as_array()).cloned().unwrap_or_default();
+    let find = |pred: &dyn Fn(&str) -> bool| {
+        assets.iter().find_map(|a| {
+            let name = a.get("name")?.as_str()?;
+            pred(name).then(|| a.get("browser_download_url")?.as_str().map(str::to_owned)).flatten()
+        })
+    };
+    let matches = |n: &str| n == asset || (n.ends_with(asset) && !n.ends_with(".sig"));
+    let url = find(&matches).ok_or_else(|| UpdateError::Feed(format!("no asset matching {asset}")))?;
+    let file_name = url.rsplit('/').next().unwrap_or_default().to_owned();
+    let (signature, sha256) = match &cfg.trust {
+        Trust::Minisign(_) => {
+            let sig_name = format!("{file_name}.sig");
+            let sig_url = find(&|n: &str| n == sig_name)
+                .ok_or_else(|| UpdateError::Feed(format!("no signature {sig_name}")))?;
+            (get_text(&sig_url)?, None)
+        }
+        Trust::Checksums { file, .. } => {
+            let sums_url = find(&|n: &str| n == file).ok_or_else(|| {
+                UpdateError::Feed(format!("the release is missing {file}; refusing to install"))
+            })?;
+            let sums = get_text(&sums_url)?;
+            let hash = checksum_for(&sums, &file_name)
+                .ok_or_else(|| UpdateError::Feed(format!("{file} does not list {file_name}")))?;
+            (String::new(), Some(hash))
+        }
+    };
+    Ok(Release {
+        version: tag.to_owned(),
+        notes: v.get("body").and_then(|b| b.as_str()).unwrap_or_default().to_owned(),
+        url,
+        signature,
+        sha256: Some(sha256).flatten(),
+    })
+}
+
+/// The SHA-256 a GNU-style checksum file (`<64 hex>  [*]name` per line) lists for `name`.
+pub fn checksum_for(sums: &str, name: &str) -> Option<String> {
+    sums.lines().find_map(|line| {
+        let mut it = line.split_whitespace();
+        let hash = it.next()?;
+        let file = it.next()?.trim_start_matches('*');
+        (file == name && hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+            .then(|| hash.to_ascii_lowercase())
+    })
 }
 
 /// A signature as minisign text: as given, or decoded from Tauri's base64 wrapping.
@@ -206,14 +300,23 @@ fn signature_text(sig: &str) -> String {
         .unwrap_or_else(|| t.to_owned())
 }
 
-/// Checks `bytes` against the release's signature and hash.
+/// Checks `bytes` against the release's signature and hash (the Authenticode publisher, for
+/// [`Trust::Checksums`], is checked on the saved file by [`download`]).
 pub fn verify(cfg: &UpdateConfig, release: &Release, bytes: &[u8]) -> Result<(), UpdateError> {
     let bad = |e: String| UpdateError::Verification(e);
-    let key = minisign_verify::PublicKey::from_base64(cfg.public_key.trim())
-        .map_err(|e| bad(format!("public key: {e}")))?;
-    let sig = minisign_verify::Signature::decode(&signature_text(&release.signature))
-        .map_err(|e| bad(format!("signature: {e}")))?;
-    key.verify(bytes, &sig, false).map_err(|e| bad(format!("signature does not match: {e}")))?;
+    match &cfg.trust {
+        Trust::Minisign(public_key) => {
+            let key = minisign_verify::PublicKey::from_base64(public_key.trim())
+                .map_err(|e| bad(format!("public key: {e}")))?;
+            let sig = minisign_verify::Signature::decode(&signature_text(&release.signature))
+                .map_err(|e| bad(format!("signature: {e}")))?;
+            key.verify(bytes, &sig, false).map_err(|e| bad(format!("signature does not match: {e}")))?;
+        }
+        Trust::Checksums { file, .. } if release.sha256.is_none() => {
+            return Err(bad(format!("no checksum from {file}")));
+        }
+        Trust::Checksums { .. } => {}
+    }
     if let Some(want) = &release.sha256 {
         let got: String = sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
         if !got.eq_ignore_ascii_case(want.trim()) {
@@ -221,6 +324,25 @@ pub fn verify(cfg: &UpdateConfig, release: &Release, bytes: &[u8]) -> Result<(),
         }
     }
     Ok(())
+}
+
+/// Checks that `file` carries an Authenticode signature by the certificate with `thumbprint`
+/// (SHA-1, hex). A self-signed (untrusted) publisher is accepted; a missing signature, another
+/// signer, or a file changed after signing is not.
+pub fn verify_publisher(file: &Path, thumbprint: &str) -> Result<(), UpdateError> {
+    let bad = |e: &str| UpdateError::Verification(e.to_owned());
+    let (status, signer) = os::authenticode(file);
+    match status {
+        SignatureStatus::HashMismatch => return Err(bad("the installer was changed after it was signed")),
+        SignatureStatus::NotSigned if signer.is_none() => return Err(bad("the installer is not signed")),
+        _ => {}
+    }
+    let want: String = thumbprint.chars().filter(char::is_ascii_hexdigit).collect::<String>().to_uppercase();
+    match signer {
+        Some(got) if got == want => Ok(()),
+        Some(_) => Err(bad("the installer is not signed by the expected publisher")),
+        None => Err(bad("the installer's signature could not be read")),
+    }
 }
 
 /// Downloads the release into `dir`, reporting `(received, total)` bytes, and verifies it.
@@ -254,6 +376,13 @@ pub fn download(
     let path = dir.join(name);
     let mut f = std::fs::File::create(&path).map_err(|e| UpdateError::Io(e.to_string()))?;
     f.write_all(&bytes).map_err(|e| UpdateError::Io(e.to_string()))?;
+    drop(f);
+    if let Trust::Checksums { publisher: Some(thumbprint), .. } = &cfg.trust
+        && let Err(e) = verify_publisher(&path, thumbprint)
+    {
+        let _ = std::fs::remove_file(&path);
+        return Err(e);
+    }
     Ok(path)
 }
 
