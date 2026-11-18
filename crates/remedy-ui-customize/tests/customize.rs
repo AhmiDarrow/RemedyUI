@@ -136,15 +136,7 @@ fn type_into(ui: &Ui, name: &str, text: &str) -> bool {
 }
 
 fn press(ui: &Ui, modifiers: Modifiers, key: Key) {
-    let e = KeyEvent {
-        key,
-        physical: String::new(),
-        modifiers,
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: None,
-    };
+    let e = KeyEvent::press(key).with_modifiers(modifiers).with_text(None);
     let _ = ui.key(&e);
 }
 
@@ -298,7 +290,11 @@ fn shared_themes_are_untrusted_data() {
 
     // Leaving them out.
     let report = c
-        .import_theme(&ui, shared, ImportPolicy { drop_refused: true, ..ImportPolicy::default() })
+        .import_theme(&ui, shared, {
+            let mut v_ = ImportPolicy::default();
+            v_.drop_refused = true;
+            v_
+        })
         .must("import the rest");
     assert_eq!(report.name, "Ocean");
     assert_eq!(report.dropped.len(), 2);
@@ -307,7 +303,12 @@ fn shared_themes_are_untrusted_data() {
     assert!(!file.contains("shader") && !file.contains("https"), "{file}");
 
     // The person allows links: the link is kept in the file, the shader still left out.
-    let policy = ImportPolicy { allow_external_urls: true, drop_refused: true, ..ImportPolicy::default() };
+    let policy = {
+        let mut v_ = ImportPolicy::default();
+        v_.allow_external_urls = true;
+        v_.drop_refused = true;
+        v_
+    };
     let report = c.import_theme(&ui, shared, policy).must("import with links");
     assert_eq!(report.dropped.len(), 1);
     let file = dir.read("theme.json").must("written");
@@ -332,11 +333,11 @@ fn shared_themes_are_untrusted_data() {
     let other = custom(&other_dir);
     let other_ui = window();
     other
-        .import_theme_file(
-            &other_ui,
-            &out,
-            ImportPolicy { allow_external_urls: true, ..ImportPolicy::default() },
-        )
+        .import_theme_file(&other_ui, &out, {
+            let mut v_ = ImportPolicy::default();
+            v_.allow_external_urls = true;
+            v_
+        })
         .must("import the export");
     assert_eq!(other.theme(), c.theme());
     assert!(ui.undo_change());
@@ -952,13 +953,21 @@ fn a_shared_themes_files_come_only_when_allowed_and_are_used() {
     assert!(dir.read("theme.json").is_none());
 
     // Without them: the colors and names come, the files do not.
-    let policy = ImportPolicy { drop_refused: true, ..ImportPolicy::default() };
+    let policy = {
+        let mut v_ = ImportPolicy::default();
+        v_.drop_refused = true;
+        v_
+    };
     c.import_theme_file(&ui, &shared.file("ocean.json"), policy).must("import without files");
     assert!(!has_background(&ui));
     assert!(ui.undo_change());
 
     // Allowed: copied in, checked, and used.
-    let policy = ImportPolicy { allow_assets: true, ..ImportPolicy::default() };
+    let policy = {
+        let mut v_ = ImportPolicy::default();
+        v_.allow_assets = true;
+        v_
+    };
     c.import_theme_file(&ui, &shared.file("ocean.json"), policy).must("import with files");
     let file = dir.read("theme.json").must("written");
     assert!(file.contains("theme-assets/waves.png") && file.contains("theme-assets/Ocean.ttf"), "{file}");
@@ -976,7 +985,11 @@ fn a_shared_themes_files_come_only_when_allowed_and_are_used() {
 
     // A file outside the theme's folder is refused; so is a path in a theme without its file.
     shared.write("escape.json", r#"{ "asset": { "background": "../../waves.png" } }"#);
-    let allow = ImportPolicy { allow_assets: true, ..ImportPolicy::default() };
+    let allow = {
+        let mut v_ = ImportPolicy::default();
+        v_.allow_assets = true;
+        v_
+    };
     assert!(matches!(
         c.import_theme_file(&ui, &shared.file("escape.json"), allow),
         Err(CustomizeError::Invalid(_))
@@ -1029,7 +1042,11 @@ fn backgrounds_and_fonts_are_chosen_exported_and_reset() {
     );
     let other_dir = TempDir::new("assets-own-other");
     let other = custom(&other_dir);
-    let allow = ImportPolicy { allow_assets: true, ..ImportPolicy::default() };
+    let allow = {
+        let mut v_ = ImportPolicy::default();
+        v_.allow_assets = true;
+        v_
+    };
     other.import_theme_file(&window(), &out, allow).must("import the export");
     assert_eq!(other.theme().map(|t| t.font_families), c.theme().map(|t| t.font_families));
 

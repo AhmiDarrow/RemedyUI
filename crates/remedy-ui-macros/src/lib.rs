@@ -20,11 +20,17 @@
 //! # Ok::<(), remedy_ui_reactive::StoreError>(())
 //! ```
 //!
+//! The generated code names the reactive runtime the way the deriving crate depends on it:
+//! through the facade (`remedy_ui::reactive`, with `remedy_ui::Store` as the derive) when it
+//! depends on `remedy-ui`, or `remedy_ui_reactive` when it depends on that crate directly
+//! (renamed dependencies are followed).
+//!
 //! Field names that would clash with `Field`'s own methods (`with`, `get`, `set`, `update`,
 //! `set_if_changed`, `project`, `path`, `at`, `len`, `is_empty`) are rejected with a message,
 //! because the accessor could never be called.
 
 use proc_macro::TokenStream;
+use proc_macro_crate::{FoundCrate, crate_name};
 use quote::{format_ident, quote};
 use syn::{Data, DeriveInput, Fields, parse_macro_input};
 
@@ -41,7 +47,31 @@ pub fn derive_store(input: TokenStream) -> TokenStream {
     }
 }
 
+/// The path generated code uses for the reactive runtime: the facade's `reactive` module when
+/// the deriving crate depends on `remedy-ui`, else `remedy-ui-reactive` itself.
+fn runtime_path() -> proc_macro2::TokenStream {
+    let ident = |n: &str| proc_macro2::Ident::new(&n.replace('-', "_"), proc_macro2::Span::call_site());
+    match crate_name("remedy-ui-reactive") {
+        Ok(FoundCrate::Itself) => return quote!(crate),
+        Ok(FoundCrate::Name(n)) => {
+            let n = ident(&n);
+            return quote!(::#n);
+        }
+        Err(_) => {}
+    }
+    match crate_name("remedy-ui") {
+        Ok(FoundCrate::Name(n)) => {
+            let n = ident(&n);
+            quote!(::#n::reactive)
+        }
+        Ok(FoundCrate::Itself) => quote!(crate::reactive),
+        // Neither is a dependency: the error names the crate to add.
+        Err(_) => quote!(::remedy_ui_reactive),
+    }
+}
+
 fn expand(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
+    let rt = runtime_path();
     let name = &input.ident;
     if !input.generics.params.is_empty() {
         return Err(syn::Error::new_spanned(
@@ -79,16 +109,16 @@ fn expand(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         let doc = format!("The `{ident}` field of `{name}`.");
         sigs.push(quote! {
             #[doc = #doc]
-            fn #ident(&self) -> ::remedy_ui_reactive::Field<R, #ty>;
+            fn #ident(&self) -> #rt::Field<R, #ty>;
         });
         impls.push(quote! {
-            fn #ident(&self) -> ::remedy_ui_reactive::Field<R, #ty> {
+            fn #ident(&self) -> #rt::Field<R, #ty> {
                 self.project(#index, |v: &#name| &v.#ident, |v: &mut #name| &mut v.#ident)
             }
         });
         root_impls.push(quote! {
-            fn #ident(&self) -> ::remedy_ui_reactive::Field<#name, #ty> {
-                <::remedy_ui_reactive::Field<#name, #name> as #trait_name<#name>>::#ident(&self.root())
+            fn #ident(&self) -> #rt::Field<#name, #ty> {
+                <#rt::Field<#name, #name> as #trait_name<#name>>::#ident(&self.root())
             }
         });
     }
@@ -99,11 +129,11 @@ fn expand(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
             #(#sigs)*
         }
 
-        impl<R: 'static> #trait_name<R> for ::remedy_ui_reactive::Field<R, #name> {
+        impl<R: 'static> #trait_name<R> for #rt::Field<R, #name> {
             #(#impls)*
         }
 
-        impl #trait_name<#name> for ::remedy_ui_reactive::Store<#name> {
+        impl #trait_name<#name> for #rt::Store<#name> {
             #(#root_impls)*
         }
     })

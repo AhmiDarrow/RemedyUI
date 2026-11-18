@@ -91,7 +91,13 @@ fn frames_from_another_thread_show_in_their_colors() {
     s.frame();
     let p = s.px(100, 50);
     assert!(near(p, [255, 0, 0], 6), "{p:?}");
-    assert_eq!(sink.stats(), VideoStats { pushed: 1, shown: 1, dropped: 0 });
+    assert_eq!(sink.stats(), {
+        let mut v_ = VideoStats::default();
+        v_.pushed = 1;
+        v_.shown = 1;
+        v_.dropped = 0;
+        v_
+    });
 }
 
 #[test]
@@ -102,7 +108,13 @@ fn the_newest_frame_wins_and_the_rest_count_as_dropped() {
     }
     s.frame();
     assert!(near(s.px(100, 50), [255, 255, 255], 2), "the last frame shows: {:?}", s.px(100, 50));
-    assert_eq!(sink.stats(), VideoStats { pushed: 5, shown: 1, dropped: 4 });
+    assert_eq!(sink.stats(), {
+        let mut v_ = VideoStats::default();
+        v_.pushed = 5;
+        v_.shown = 1;
+        v_.dropped = 4;
+        v_
+    });
     // A repaint with no new frame shows nothing new.
     s.frame();
     assert_eq!(sink.stats().shown, 1);

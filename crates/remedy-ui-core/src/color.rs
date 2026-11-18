@@ -19,6 +19,7 @@ pub struct Color {
 
 /// Why a color string could not be read.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ParseColorError {
     /// The string does not start with `#`.
     MissingHash,

@@ -381,12 +381,8 @@ fn panel(ui: &Ui, state: &BoardState, registry: &Rc<Registry>) -> El {
                         .clone()
                         .child(w::heading(ui, 3, "Area"))
                         .child(w::field(ui, "Title (Enter to apply)", title.el().fill_width()))
-                        .child(w::label(
-                            ui,
-                            format!("Column {}, row {}, {} wide, {} high", a.col + 1, a.row + 1, a.cols, a.rows),
-                            "muted",
-                        ))
-                        .child(w::label(ui, "Arrow keys move it; Shift with arrows resizes it.", "muted"))
+                        .child(w::text(ui, format!("Column {}, row {}, {} wide, {} high", a.col + 1, a.row + 1, a.cols, a.rows)).variant("muted"))
+                        .child(w::text(ui, "Arrow keys move it; Shift with arrows resizes it.").variant("muted"))
                         .child(
                             w::button(ui, "Remove area", move || {
                                 if st5.apply(st5.current().remove_area(&aid)) {
@@ -417,7 +413,7 @@ fn panel(ui: &Ui, state: &BoardState, registry: &Rc<Registry>) -> El {
                         .clone()
                         .child(w::heading(ui, 3, "Widget"))
                         .child(property_grid(ui, "Settings", groups))
-                        .child(w::label(ui, "Alt with Up and Down moves it; Alt with Left and Right moves it to the next area.", "muted"))
+                        .child(w::text(ui, "Alt with Up and Down moves it; Alt with Left and Right moves it to the next area.").variant("muted"))
                         .child(
                             w::button(ui, "Remove widget", move || {
                                 if st6.apply(st6.current().remove_widget(&wid)) {
@@ -428,7 +424,7 @@ fn panel(ui: &Ui, state: &BoardState, registry: &Rc<Registry>) -> El {
                         );
                 }
                 _ => {
-                    let _ = b2.clone().child(w::label(ui, "Select an area or a widget to change it.", "muted"));
+                    let _ = b2.clone().child(w::text(ui, "Select an area or a widget to change it.").variant("muted"));
                 }
             }
             // Adding a widget.
@@ -480,11 +476,8 @@ fn widget_el(
             settings.extend(placed.settings.clone());
             k.build(ui, &placed.id, &settings, cx)
         }
-        None => w::label(
-            ui,
-            format!("This board uses a widget this app does not have ({}).", placed.kind),
-            "muted",
-        ),
+        None => w::text(ui, format!("This board uses a widget this app does not have ({}).", placed.kind))
+            .variant("muted"),
     };
     if !editing {
         return ui.el("board_widget").column().fill_width().child(built);
@@ -570,7 +563,7 @@ fn area_el(
         return el.semantics(Semantics::new(Role::Group).label(label));
     }
     if a.widgets.is_empty() {
-        el = el.child(w::label(ui, "Empty area: add a widget or drop one here.", "muted"));
+        el = el.child(w::text(ui, "Empty area: add a widget or drop one here.").variant("muted"));
     }
     let (st, id, st2, id2, id3) = (state.clone(), a.id.clone(), state.clone(), a.id.clone(), a.id.clone());
     let el = el
@@ -684,7 +677,7 @@ pub fn board(ui: &Ui, state: &BoardState, registry: Rc<Registry>, cx: Context) -
             }
         });
     });
-    let message = w::label(ui, "", "error");
+    let message = w::text(ui, "").variant("error");
     let (m2, msg) = (message.clone(), state.message);
     let message = message.bind(move || {
         let m = msg.get();

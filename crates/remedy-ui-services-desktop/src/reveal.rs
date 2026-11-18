@@ -4,14 +4,17 @@
 
 use std::path::Path;
 
+use crate::DesktopError;
+
 /// Opens the file manager at `path`'s folder with `path` selected (a folder opens itself
 /// selected in its parent).
-pub fn reveal(path: &Path) -> Result<(), String> {
+pub fn reveal(path: &Path) -> Result<(), DesktopError> {
     if !path.exists() {
-        return Err("That file is no longer available.".into());
+        return Err(DesktopError::NotFound { path: path.to_path_buf() });
     }
-    let path = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
-    platform(&strip_verbatim(&path))
+    let canonical = std::fs::canonicalize(path)
+        .map_err(|e| DesktopError::Io { path: path.to_path_buf(), reason: e.to_string() })?;
+    platform(&strip_verbatim(&canonical)).map_err(|reason| DesktopError::Platform { reason })
 }
 
 /// Windows' canonical paths start with `\\?\`, which the shell does not parse.
@@ -100,6 +103,8 @@ mod tests {
     #[test]
     fn a_missing_file_is_said_plainly() {
         let r = super::reveal(Path::new("/definitely/not/here/at-all.txt"));
-        assert_eq!(r, Err("That file is no longer available.".into()));
+        let Err(e) = r else { unreachable!("the file is not there") };
+        assert!(matches!(e, crate::DesktopError::NotFound { .. }));
+        assert_eq!(e.to_string(), "That file is no longer available.");
     }
 }

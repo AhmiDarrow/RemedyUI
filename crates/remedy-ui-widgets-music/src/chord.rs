@@ -9,6 +9,7 @@ use remedy_ui_view::{El, TextPaint, Ui};
 
 /// What a string does in a chord.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum StringState {
     /// Not played (an X above the nut).
     Muted,
@@ -105,6 +106,7 @@ impl ChordShape {
 
 /// How a [`chord_diagram`] is drawn.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct ChordOptions {
     /// Scale of the whole diagram; 1 is four theme units per string gap and a bit more per fret.
     pub scale: f32,
@@ -114,6 +116,32 @@ pub struct ChordOptions {
     pub fingers: bool,
     /// Mirror the box for left-handed players (the lowest string at the right).
     pub left_handed: bool,
+}
+
+impl ChordOptions {
+    /// Sets `scale`: scale of the whole diagram; 1 is four theme units per string gap and a bit more per fret.
+    pub fn scale(mut self, value: f32) -> Self {
+        self.scale = value;
+        self
+    }
+
+    /// Sets `show_name`: show the chord's name above the box.
+    pub fn show_name(mut self, value: bool) -> Self {
+        self.show_name = value;
+        self
+    }
+
+    /// Sets `fingers`: show finger numbers on the dots.
+    pub fn fingers(mut self, value: bool) -> Self {
+        self.fingers = value;
+        self
+    }
+
+    /// Sets `left_handed`: mirror the box for left-handed players (the lowest string at the right).
+    pub fn left_handed(mut self, value: bool) -> Self {
+        self.left_handed = value;
+        self
+    }
 }
 
 impl Default for ChordOptions {

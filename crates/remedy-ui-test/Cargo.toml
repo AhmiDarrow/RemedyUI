@@ -7,6 +7,8 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+# The engine's own scenario harness; apps test with remedy_ui::testing.
+publish = false
 
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }

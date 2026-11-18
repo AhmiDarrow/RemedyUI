@@ -455,7 +455,7 @@ impl Engine {
                 }
                 let n = size.0 as usize * size.1 as usize * 4;
                 let pixels = out.read(n).map_err(|_| too_large())?;
-                Ok(Decoded { image: Image::new(size.0, size.1, Arc::from(pixels)), source_size: source })
+                Ok(Decoded::new(Image::new(size.0, size.1, Arc::from(pixels)), source))
             }
             Ok(Reply::Failed(e)) => Err(Fail::Image(e)),
             Ok(_) => Err(Fail::Helper(DecodeError::Stopped("it answered out of turn".into()))),

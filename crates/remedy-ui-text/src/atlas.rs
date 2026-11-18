@@ -163,6 +163,7 @@ impl Page {
 
 /// Atlas statistics, for the performance overlay and tests.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AtlasStats {
     /// Live pages.
     pub pages: usize,

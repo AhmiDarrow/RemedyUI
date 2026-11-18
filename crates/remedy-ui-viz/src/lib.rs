@@ -18,7 +18,7 @@
 //!     ui,
 //!     "Microphone",
 //!     level,
-//!     MeterOptions { threshold: Some(threshold), ..MeterOptions::default() },
+//!     MeterOptions::default().threshold(threshold),
 //! );
 //! level.set(0.6); // from the audio callback's timer
 //! # let _ = meter;

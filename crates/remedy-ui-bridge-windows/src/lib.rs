@@ -86,17 +86,19 @@ mod hooks {
         fn settings(&mut self) -> SystemSettings {
             let s = os::settings();
             let base = SystemSettings::default();
-            SystemSettings {
-                platform: Platform::Standard,
-                dark: s.dark,
-                accent: s.accent,
-                high_contrast: s.high_contrast,
-                text_scale: s.text_scale.unwrap_or(base.text_scale),
-                reduced_motion: s.animations.is_some_and(|on| !on),
-                reduced_transparency: s.transparency.is_some_and(|on| !on),
-                locale: s.locale.unwrap_or(base.locale),
-                double_click: s.double_click,
-                caret_blink: s.caret_blink,
+            {
+                let mut v_ = SystemSettings::default();
+                v_.platform = Platform::Standard;
+                v_.dark = s.dark;
+                v_.accent = s.accent;
+                v_.high_contrast = s.high_contrast;
+                v_.text_scale = s.text_scale.unwrap_or(base.text_scale);
+                v_.reduced_motion = s.animations.is_some_and(|on| !on);
+                v_.reduced_transparency = s.transparency.is_some_and(|on| !on);
+                v_.locale = s.locale.unwrap_or(base.locale);
+                v_.double_click = s.double_click;
+                v_.caret_blink = s.caret_blink;
+                v_
             }
         }
 

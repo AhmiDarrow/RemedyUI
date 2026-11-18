@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "0.1.0" }
@@ -27,12 +30,12 @@ windows-core = { version = "=0.62.2" }
 libc = { version = "=0.2.191" }
 
 [target.'cfg(windows)'.dev-dependencies]
-remedy-ui = { path = "../remedy-ui", version = "0.1.0", default-features = false, features = ["widgets"] }
+remedy-ui = { path = "../remedy-ui", default-features = false, features = ["widgets"] }
 remedy-ui-bridge-windows = { path = "../remedy-ui-bridge-windows", version = "0.1.0" }
 remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "0.1.0" }
 
 [target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dev-dependencies]
-remedy-ui = { path = "../remedy-ui", version = "0.1.0", default-features = false, features = ["widgets"] }
+remedy-ui = { path = "../remedy-ui", default-features = false, features = ["widgets"] }
 remedy-ui-bridge-linux = { path = "../remedy-ui-bridge-linux", version = "0.1.0" }
 remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "0.1.0" }
 

@@ -21,6 +21,7 @@ pub struct Token(Vec<String>);
 
 /// What kind of value a token holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum TokenKind {
     /// The theme's name.
     Name,
@@ -44,6 +45,7 @@ pub enum TokenKind {
 
 /// A token's value.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum TokenValue {
     /// The theme's name.
     Name(String),
@@ -311,11 +313,7 @@ impl TokenValue {
 
 /// A density's name in the file.
 pub fn density_name(d: Density) -> &'static str {
-    match d {
-        Density::Compact => "compact",
-        Density::Comfortable => "comfortable",
-        Density::Spacious => "spacious",
-    }
+    d.name()
 }
 
 // --- Token trees -------------------------------------------------------------------------
@@ -441,6 +439,7 @@ fn doc_text(doc: &Map<String, Value>) -> String {
 
 /// What a shared theme may carry beyond plain tokens. Everything is refused unless turned on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ImportPolicy {
     /// Keep shader tokens (code that runs on the GPU).
     pub allow_shaders: bool,
@@ -454,8 +453,35 @@ pub struct ImportPolicy {
     pub drop_refused: bool,
 }
 
+impl ImportPolicy {
+    /// Sets `allow_shaders`: keep shader tokens (code that runs on the GPU).
+    pub fn allow_shaders(mut self, value: bool) -> Self {
+        self.allow_shaders = value;
+        self
+    }
+
+    /// Sets `allow_external_urls`: keep external links (`https:`, `file:` and other URLs; inline `data:` is not one).
+    pub fn allow_external_urls(mut self, value: bool) -> Self {
+        self.allow_external_urls = value;
+        self
+    }
+
+    /// Sets `allow_assets`: use the files the theme brings: its background image and fonts (copied into the config folder, each checked first).
+    pub fn allow_assets(mut self, value: bool) -> Self {
+        self.allow_assets = value;
+        self
+    }
+
+    /// Sets `drop_refused`: import the rest of a theme without what it refuses, instead of refusing the theme.
+    pub fn drop_refused(mut self, value: bool) -> Self {
+        self.drop_refused = value;
+        self
+    }
+}
+
 /// Why part of a shared theme was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum RefusalKind {
     /// A shader: code, not data.
     Shader,
@@ -467,6 +493,7 @@ pub enum RefusalKind {
 
 /// One part of a shared theme that its policy refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Refusal {
     /// Where, as a dotted path (`background.$extensions.image`).
     pub token: String,
@@ -488,6 +515,7 @@ impl std::fmt::Display for Refusal {
 
 /// What importing a shared theme did.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ImportReport {
     /// The theme's name.
     pub name: String,
@@ -601,6 +629,7 @@ pub fn inspect_theme(json: &str) -> Result<Vec<Refusal>, CustomizeError> {
 
 /// A pair of theme colors that people read one on the other, below the WCAG ratio it needs.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct ContrastWarning {
     /// What the pair is ("Text on cards").
     pub pair: &'static str,

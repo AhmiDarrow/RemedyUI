@@ -39,6 +39,7 @@ pub trait PageSource: Send + Sync + 'static {
 
 /// One tile of one page to draw.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct RenderRequest {
     /// The page.
     pub page: usize,
@@ -84,6 +85,7 @@ impl Cancel {
 
 /// Why a page could not be drawn.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RenderError {
     /// The request was withdrawn before it finished.
     Cancelled,

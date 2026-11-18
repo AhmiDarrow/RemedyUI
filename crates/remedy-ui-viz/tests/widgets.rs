@@ -27,13 +27,12 @@ fn avatar(ui: &Ui) -> El {
 fn ring(ui: &Ui, clock: &Clock) -> (Signal<f32>, Signal<bool>, El) {
     let level = Signal::new(0.0f32);
     let speaking = Signal::new(false);
-    let el = speaking_ring(
-        ui,
-        "Alex",
-        level,
-        avatar(ui),
-        RingOptions { speaking: Some(speaking), clock: clock.clone(), ..RingOptions::default() },
-    );
+    let el = speaking_ring(ui, "Alex", level, avatar(ui), {
+        let mut v_ = RingOptions::default();
+        v_.speaking = Some(speaking);
+        v_.clock = clock.clone();
+        v_
+    });
     mount(ui, &el);
     (level, speaking, el)
 }
@@ -87,18 +86,13 @@ fn a_muted_person_shows_muted_whatever_the_microphone_hears() {
     let level = Signal::new(0.0f32);
     let speaking = Signal::new(false);
     let muted = Signal::new(false);
-    let el = speaking_ring(
-        &ui,
-        "Alex",
-        level,
-        avatar(&ui),
-        RingOptions {
-            speaking: Some(speaking),
-            muted: Some(muted),
-            clock: clock.clone(),
-            ..RingOptions::default()
-        },
-    );
+    let el = speaking_ring(&ui, "Alex", level, avatar(&ui), {
+        let mut v_ = RingOptions::default();
+        v_.speaking = Some(speaking);
+        v_.muted = Some(muted);
+        v_.clock = clock.clone();
+        v_
+    });
     mount(&ui, &el);
     level.set(0.8);
     pump(&ui, &clock, 120);
@@ -214,13 +208,12 @@ fn with_reduced_motion_the_ring_only_switches() {
 fn a_ring_can_keep_a_faint_frame_while_silent() {
     let ui = ui();
     let level = Signal::new(0.0f32);
-    let el = speaking_ring(
-        &ui,
-        "Alex",
-        level,
-        avatar(&ui),
-        RingOptions { show_when_silent: true, clock: Clock::manual(), ..RingOptions::default() },
-    );
+    let el = speaking_ring(&ui, "Alex", level, avatar(&ui), {
+        let mut v_ = RingOptions::default();
+        v_.show_when_silent = true;
+        v_.clock = Clock::manual();
+        v_
+    });
     mount(&ui, &el);
     let mut shot = Shot::new(&ui);
     shot.take(&ui);
@@ -233,7 +226,11 @@ fn a_ring_can_keep_a_faint_frame_while_silent() {
 
 fn meter(ui: &Ui, clock: &Clock, options: MeterOptions) -> (Signal<f32>, El) {
     let level = Signal::new(0.0f32);
-    let el = level_meter(ui, "Microphone", level, MeterOptions { clock: clock.clone(), ..options });
+    let el = level_meter(ui, "Microphone", level, {
+        let mut v_ = options;
+        v_.clock = clock.clone();
+        v_
+    });
     mount(ui, &el);
     (level, el)
 }
@@ -318,7 +315,11 @@ fn a_meter_without_peak_hold_shows_no_marker() {
     let ui = ui();
     ui.set_reduced_motion(true);
     let clock = Clock::manual();
-    let (level, el) = meter(&ui, &clock, MeterOptions { peak_hold: None, ..MeterOptions::default() });
+    let (level, el) = meter(&ui, &clock, {
+        let mut v_ = MeterOptions::default();
+        v_.peak_hold = None;
+        v_
+    });
     let mut shot = Shot::new(&ui);
     level.set(0.9);
     level.set(0.1);
@@ -377,7 +378,11 @@ fn the_threshold_is_a_slider_the_keyboard_can_set() {
     ui.set_reduced_motion(true);
     let clock = Clock::manual();
     let threshold = Signal::new(0.2f32);
-    let (_, el) = meter(&ui, &clock, MeterOptions { threshold: Some(threshold), ..MeterOptions::default() });
+    let (_, el) = meter(&ui, &clock, {
+        let mut v_ = MeterOptions::default();
+        v_.threshold = Some(threshold);
+        v_
+    });
     let h = handle(&el);
     let info = h.info().unwrap_or_else(|| unreachable!("info"));
     assert!(info.focusable);
@@ -416,7 +421,11 @@ fn the_threshold_follows_the_pointer_only_while_pressed() {
     ui.set_reduced_motion(true);
     let clock = Clock::manual();
     let threshold = Signal::new(0.2f32);
-    let (_, el) = meter(&ui, &clock, MeterOptions { threshold: Some(threshold), ..MeterOptions::default() });
+    let (_, el) = meter(&ui, &clock, {
+        let mut v_ = MeterOptions::default();
+        v_.threshold = Some(threshold);
+        v_
+    });
     let b = handle(&el).bounds().unwrap_or_default();
     let at = |f: f32| Point::new(b.min.x + f * b.width(), (b.min.y + b.max.y) / 2.0);
     let t = || threshold.get_untracked().unwrap_or(-1.0);
@@ -439,15 +448,12 @@ fn a_vertical_meter_rises_and_its_threshold_goes_up() {
     ui.set_reduced_motion(true);
     let clock = Clock::manual();
     let threshold = Signal::new(0.5f32);
-    let (level, el) = meter(
-        &ui,
-        &clock,
-        MeterOptions {
-            orientation: Orientation::Vertical,
-            threshold: Some(threshold),
-            ..MeterOptions::default()
-        },
-    );
+    let (level, el) = meter(&ui, &clock, {
+        let mut v_ = MeterOptions::default();
+        v_.orientation = Orientation::Vertical;
+        v_.threshold = Some(threshold);
+        v_
+    });
     let b = el.bounds().unwrap_or_default();
     assert!(b.height() > b.width() * 4.0, "tall and thin: {b:?}");
     let c = ui.theme().colors;
@@ -497,8 +503,11 @@ fn a_filling_sparkline_draws_from_the_right_with_the_newest_dot() {
     for i in 0..6 {
         h.update(|h| h.push(i as f32 / 5.0));
     }
-    let el =
-        plain_sparkline(&ui, h, SparklineOptions { range: Range::Fixed(0.0, 1.0), ..Default::default() });
+    let el = plain_sparkline(&ui, h, {
+        let mut v_ = SparklineOptions::default();
+        v_.range = Range::Fixed(0.0, 1.0);
+        v_
+    });
     let b = el.bounds().unwrap_or_default();
     let mut shot = Shot::new(&ui);
     shot.take(&ui);
@@ -529,7 +538,11 @@ fn a_sparkline_takes_a_plain_vec_and_a_huge_one() {
 }
 
 fn plain_bars(ui: &Ui, v: Signal<Vec<f32>>, clock: &Clock, options: BarsOptions) -> El {
-    let el = bars(ui, "Spectrum", v, BarsOptions { clock: clock.clone(), ..options });
+    let el = bars(ui, "Spectrum", v, {
+        let mut v_ = options;
+        v_.clock = clock.clone();
+        v_
+    });
     mount(ui, &el);
     el
 }
@@ -540,7 +553,11 @@ fn bars_stand_as_tall_as_their_values() {
     ui.set_reduced_motion(true);
     let clock = Clock::manual();
     let v = Signal::new(vec![1.0f32, 0.0, 0.5]);
-    let el = plain_bars(&ui, v, &clock, BarsOptions { gap: Some(0.0), ..Default::default() });
+    let el = plain_bars(&ui, v, &clock, {
+        let mut v_ = BarsOptions::default();
+        v_.gap = Some(0.0);
+        v_
+    });
     let b = el.bounds().unwrap_or_default();
     let mut shot = Shot::new(&ui);
     shot.take(&ui);
@@ -561,7 +578,11 @@ fn bars_fall_gently_and_then_everything_stops() {
     let ui = ui();
     let clock = Clock::manual();
     let v = Signal::new(vec![1.0f32, 1.0]);
-    let el = plain_bars(&ui, v, &clock, BarsOptions { gap: Some(0.0), ..Default::default() });
+    let el = plain_bars(&ui, v, &clock, {
+        let mut v_ = BarsOptions::default();
+        v_.gap = Some(0.0);
+        v_
+    });
     let b = el.bounds().unwrap_or_default();
     let mut shot = Shot::new(&ui);
     shot.take(&ui);
@@ -607,12 +628,12 @@ fn bars_can_fit_their_values() {
     ui.set_reduced_motion(true);
     let clock = Clock::manual();
     let v = Signal::new(vec![5.0f32, 10.0]);
-    let el = plain_bars(
-        &ui,
-        v,
-        &clock,
-        BarsOptions { range: Some(Range::Auto), gap: Some(0.0), ..Default::default() },
-    );
+    let el = plain_bars(&ui, v, &clock, {
+        let mut v_ = BarsOptions::default();
+        v_.range = Some(Range::Auto);
+        v_.gap = Some(0.0);
+        v_
+    });
     let b = el.bounds().unwrap_or_default();
     let mut shot = Shot::new(&ui);
     shot.take(&ui);
@@ -640,27 +661,30 @@ fn every_widget_passes_the_accessibility_audit() {
     let history = Signal::new(History::new(30));
     let spectrum = Signal::new(vec![0.2f32, 0.6, 0.4]);
     let col = col
-        .child(speaking_ring(
-            &ui,
-            "Alex",
-            level,
-            avatar(&ui),
-            RingOptions { clock: clock.clone(), show_when_silent: true, ..Default::default() },
-        ))
-        .child(level_meter(
-            &ui,
-            "Microphone",
-            level,
-            MeterOptions { threshold: Some(threshold), clock: clock.clone(), ..Default::default() },
-        ))
-        .child(level_meter(
-            &ui,
-            "Output",
-            level,
-            MeterOptions { orientation: Orientation::Vertical, clock: clock.clone(), ..Default::default() },
-        ))
+        .child(speaking_ring(&ui, "Alex", level, avatar(&ui), {
+            let mut v_ = RingOptions::default();
+            v_.clock = clock.clone();
+            v_.show_when_silent = true;
+            v_
+        }))
+        .child(level_meter(&ui, "Microphone", level, {
+            let mut v_ = MeterOptions::default();
+            v_.threshold = Some(threshold);
+            v_.clock = clock.clone();
+            v_
+        }))
+        .child(level_meter(&ui, "Output", level, {
+            let mut v_ = MeterOptions::default();
+            v_.orientation = Orientation::Vertical;
+            v_.clock = clock.clone();
+            v_
+        }))
         .child(sparkline(&ui, "Ping", history, SparklineOptions::default()))
-        .child(bars(&ui, "Spectrum", spectrum, BarsOptions { clock: clock.clone(), ..Default::default() }));
+        .child(bars(&ui, "Spectrum", spectrum, {
+            let mut v_ = BarsOptions::default();
+            v_.clock = clock.clone();
+            v_
+        }));
     mount(&ui, &col);
     history.update(|h| h.push(0.5));
     pump(&ui, &clock, 200);
@@ -676,16 +700,22 @@ fn every_widget_is_named_for_screen_readers() {
     let history = Signal::new(History::new(3));
     let spectrum = Signal::new(vec![0.5f32]);
     let els = [
-        speaking_ring(
-            &ui,
-            "Alex",
-            level,
-            avatar(&ui),
-            RingOptions { clock: clock.clone(), ..Default::default() },
-        ),
-        level_meter(&ui, "Mic", level, MeterOptions { clock: clock.clone(), ..Default::default() }),
+        speaking_ring(&ui, "Alex", level, avatar(&ui), {
+            let mut v_ = RingOptions::default();
+            v_.clock = clock.clone();
+            v_
+        }),
+        level_meter(&ui, "Mic", level, {
+            let mut v_ = MeterOptions::default();
+            v_.clock = clock.clone();
+            v_
+        }),
         sparkline(&ui, "Ping", history, SparklineOptions::default()),
-        bars(&ui, "Spectrum", spectrum, BarsOptions { clock, ..Default::default() }),
+        bars(&ui, "Spectrum", spectrum, {
+            let mut v_ = BarsOptions::default();
+            v_.clock = clock;
+            v_
+        }),
     ];
     for (el, name) in els.iter().zip(["Alex", "Mic", "Ping", "Spectrum"]) {
         let sem = el.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!("semantics"));

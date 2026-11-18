@@ -56,6 +56,7 @@ pub use serde_json;
 
 /// Who started a navigation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum NavigationSource {
     /// The app: [`WebView::navigate`], [`WebView::load_html`], back, forward or reload.
     App,
@@ -65,6 +66,7 @@ pub enum NavigationSource {
 
 /// A navigation the allow-list decides.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct NavigationRequest {
     /// Where to.
     pub url: String,
@@ -80,6 +82,7 @@ pub struct NavigationRequest {
 
 /// Why something the page tried was stopped.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BlockReason {
     /// The allow-list refused the navigation.
     NotAllowed,
@@ -95,6 +98,7 @@ pub enum BlockReason {
 
 /// Something the page tried that was stopped.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Blocked {
     /// What it was for (the URL, or the origin asking for a permission).
     pub url: String,
@@ -104,6 +108,7 @@ pub struct Blocked {
 
 /// A download the page started.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DownloadRequest {
     /// What is downloaded.
     pub url: String,
@@ -113,6 +118,7 @@ pub struct DownloadRequest {
 
 /// How the web view is doing.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum WebViewStatus {
     /// The platform's web view is starting.
     Starting,
@@ -484,7 +490,7 @@ impl WebView {
     }
 
     /// True while a page loads. Tracked.
-    pub fn loading(&self) -> bool {
+    pub fn is_loading(&self) -> bool {
         self.0.hub.loading.get()
     }
 

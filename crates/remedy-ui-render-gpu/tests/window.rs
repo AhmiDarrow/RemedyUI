@@ -49,10 +49,11 @@ impl App for Probe {
                     Err(e) => return self.errors.push(e.to_string()),
                 };
                 self.gpu = Some(GpuCompositor::new(GpuRenderer::new(ctx, None), LadderOptions::default()));
-                let opts = WindowOptions {
-                    title: "RemedyUI GPU test".into(),
-                    size: Size::new(200.0, 150.0),
-                    ..Default::default()
+                let opts = {
+                    let mut v_ = WindowOptions::default();
+                    v_.title = "RemedyUI GPU test".into();
+                    v_.size = Size::new(200.0, 150.0);
+                    v_
                 };
                 self.window = host.create_window(&opts).ok();
             }

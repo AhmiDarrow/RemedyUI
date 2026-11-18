@@ -213,28 +213,30 @@ mod linux {
                 .i32(INTERFACE, "cursor-blink-time")
                 .and_then(|ms| u64::try_from(ms).ok())
                 .filter(|ms| *ms > 0);
-            SystemSettings {
-                platform: Platform::Standard,
-                dark: p.u32(APPEARANCE, "color-scheme").and_then(|v| match v {
+            {
+                let mut v_ = SystemSettings::default();
+                v_.platform = Platform::Standard;
+                v_.dark = p.u32(APPEARANCE, "color-scheme").and_then(|v| match v {
                     1 => Some(true),
                     2 => Some(false),
                     _ => None,
-                }),
-                accent: p.accent(),
-                high_contrast: p.u32(APPEARANCE, "contrast") == Some(1),
-                text_scale: p.f64(INTERFACE, "text-scaling-factor").map_or(base.text_scale, |f| f as f32),
-                reduced_motion,
-                reduced_transparency: false,
-                locale: locale().unwrap_or(base.locale),
-                double_click: p
+                });
+                v_.accent = p.accent();
+                v_.high_contrast = p.u32(APPEARANCE, "contrast") == Some(1);
+                v_.text_scale = p.f64(INTERFACE, "text-scaling-factor").map_or(base.text_scale, |f| f as f32);
+                v_.reduced_motion = reduced_motion;
+                v_.reduced_transparency = false;
+                v_.locale = locale().unwrap_or(base.locale);
+                v_.double_click = p
                     .i32("org.gnome.desktop.peripherals.mouse", "double-click")
                     .and_then(|ms| u64::try_from(ms).ok())
-                    .map_or(base.double_click, Duration::from_millis),
-                caret_blink: if blink {
+                    .map_or(base.double_click, Duration::from_millis);
+                v_.caret_blink = if blink {
                     Some(cycle.map_or(Duration::from_millis(600), |c| Duration::from_millis(c / 2)))
                 } else {
                     None
-                },
+                };
+                v_
             }
         }
 

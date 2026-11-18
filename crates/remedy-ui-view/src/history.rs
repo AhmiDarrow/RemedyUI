@@ -22,6 +22,7 @@ pub(crate) struct Entry {
 
 /// What a history entry says.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct HistoryItem {
     /// What the change was ("Turn on Noise suppression").
     pub label: String,

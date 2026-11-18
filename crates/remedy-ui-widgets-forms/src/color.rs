@@ -311,14 +311,14 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
         }
     });
 
-    let preview = ui.el("swatch").width(40.0).height(40.0).style_dyn(move || StylePatch {
-        background: Some(value.get()),
-        radius: Some(6.0),
-        ..StylePatch::default()
-    });
+    let preview = ui
+        .el("swatch")
+        .width(40.0)
+        .height(40.0)
+        .style_dyn(move || StylePatch::default().background(value.get()).radius(6.0));
     let mut info = w::column(ui).gap(unit).child(fe);
     if let Some(bg) = against {
-        let readout = w::label(ui, "", "").text_dyn(move || {
+        let readout = w::text(ui, "").text_dyn(move || {
             let c = value.get();
             let ratio = c.with_alpha(1.0).contrast(bg);
             format!("Contrast {ratio:.1}:1 · {}", contrast_grade(ratio))

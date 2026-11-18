@@ -114,7 +114,11 @@ fn marks_are_drawn_on_the_neck_in_theme_colors() {
         FretMark::at(0, 0),
         FretMark::at(2, 40),
     ]);
-    let b = board(FretboardOptions { marks: Some(marks), ..FretboardOptions::default() });
+    let b = board({
+        let mut v_ = FretboardOptions::default();
+        v_.marks = Some(marks);
+        v_
+    });
     let mut shot = Shot::new(&b.ui);
     shot.take(&b.ui);
     let accent = theme_rgb(&b.ui, |t| t.colors.accent);
@@ -139,7 +143,12 @@ fn marks_are_drawn_on_the_neck_in_theme_colors() {
 #[test]
 fn marks_can_say_what_they_are_or_name_their_notes() {
     let marks = Signal::new(vec![FretMark::at(1, 5).labeled("R"), FretMark::at(2, 5)]);
-    let b = board(FretboardOptions { marks: Some(marks), name_notes: true, ..FretboardOptions::default() });
+    let b = board({
+        let mut v_ = FretboardOptions::default();
+        v_.marks = Some(marks);
+        v_.name_notes = true;
+        v_
+    });
     let mut shot = Shot::new(&b.ui);
     shot.take(&b.ui);
     let accent = theme_rgb(&b.ui, |t| t.colors.accent);
@@ -156,7 +165,11 @@ fn marks_can_say_what_they_are_or_name_their_notes() {
 #[test]
 fn the_picked_position_is_drawn_and_a_sounding_pitch_rings_every_place_it_can_be_played() {
     let sounding = Signal::new(None::<i32>);
-    let b = board(FretboardOptions { sounding: Some(sounding), ..FretboardOptions::default() });
+    let b = board({
+        let mut v_ = FretboardOptions::default();
+        v_.sounding = Some(sounding);
+        v_
+    });
     let mut shot = Shot::new(&b.ui);
     shot.take(&b.ui);
     let text = theme_rgb(&b.ui, |t| t.derive().text);
@@ -184,10 +197,11 @@ fn the_picked_position_is_drawn_and_a_sounding_pitch_rings_every_place_it_can_be
 fn nothing_is_drawn_while_nothing_changes() {
     let marks = Signal::new(vec![FretMark::at(1, 5)]);
     let sounding = Signal::new(Some(52i32));
-    let b = board(FretboardOptions {
-        marks: Some(marks),
-        sounding: Some(sounding),
-        ..FretboardOptions::default()
+    let b = board({
+        let mut v_ = FretboardOptions::default();
+        v_.marks = Some(marks);
+        v_.sounding = Some(sounding);
+        v_
     });
     let mut shot = Shot::new(&b.ui);
     shot.take(&b.ui);
@@ -259,7 +273,11 @@ fn the_neck_works_from_the_keyboard() {
 #[test]
 fn marked_notes_are_said_at_the_cursor() {
     let marks = Signal::new(vec![FretMark::at(5, 0)]);
-    let b = board(FretboardOptions { marks: Some(marks), ..FretboardOptions::default() });
+    let b = board({
+        let mut v_ = FretboardOptions::default();
+        v_.marks = Some(marks);
+        v_
+    });
     b.el.focus();
     assert!(value_text(&b.el).ends_with(", marked"), "{}", value_text(&b.el));
     key(&b.ui, Key::ArrowRight);
@@ -268,7 +286,11 @@ fn marked_notes_are_said_at_the_cursor() {
 
 #[test]
 fn a_left_handed_neck_reverses_the_arrows() {
-    let b = board(FretboardOptions { left_handed: true, ..FretboardOptions::default() });
+    let b = board({
+        let mut v_ = FretboardOptions::default();
+        v_.left_handed = true;
+        v_
+    });
     b.el.focus();
     key(&b.ui, Key::ArrowRight);
     assert!(value_text(&b.el).contains("open"), "right goes toward the nut, which is on the right");
@@ -301,7 +323,12 @@ fn clicking_the_neck_picks_a_position() {
 #[test]
 fn a_read_only_neck_is_an_image() {
     let marks = Signal::new(vec![FretMark::at(1, 5), FretMark::at(2, 5)]);
-    let b = board(FretboardOptions { read_only: true, marks: Some(marks), ..FretboardOptions::default() });
+    let b = board({
+        let mut v_ = FretboardOptions::default();
+        v_.read_only = true;
+        v_.marks = Some(marks);
+        v_
+    });
     assert_eq!(role_of(&b.el), Some(Role::Image));
     assert_eq!(value_text(&b.el), "6 strings, 12 frets, 2 marked");
     assert!(!b.el.info().is_some_and(|i| i.focusable));
@@ -312,11 +339,12 @@ fn a_read_only_neck_is_an_image() {
 
 #[test]
 fn a_window_of_frets_and_other_tunings_work_on_screen() {
-    let b = board(FretboardOptions {
-        tuning: BASS.to_vec(),
-        first_fret: 7,
-        frets: 5,
-        ..FretboardOptions::default()
+    let b = board({
+        let mut v_ = FretboardOptions::default();
+        v_.tuning = BASS.to_vec();
+        v_.first_fret = 7;
+        v_.frets = 5;
+        v_
     });
     b.el.focus();
     assert!(value_text(&b.el).starts_with("string 1 (G 2), fret 8"), "{}", value_text(&b.el));
@@ -334,7 +362,11 @@ fn a_window_of_frets_and_other_tunings_work_on_screen() {
 #[test]
 fn the_neck_follows_the_theme() {
     let marks = Signal::new(vec![FretMark::at(2, 5)]);
-    let b = board(FretboardOptions { marks: Some(marks), ..FretboardOptions::default() });
+    let b = board({
+        let mut v_ = FretboardOptions::default();
+        v_.marks = Some(marks);
+        v_
+    });
     let mut shot = Shot::new(&b.ui);
     shot.take(&b.ui);
     let dark_accent = theme_rgb(&b.ui, |t| t.colors.accent);
@@ -360,12 +392,11 @@ fn instruments_are_not_mirrored_in_right_to_left_windows() {
         if rtl {
             is_rtl_window(&ui);
         }
-        let el = fretboard(
-            &ui,
-            "Neck",
-            Signal::new(Some(FretPos { string: 2, fret: 3 })),
-            FretboardOptions { marks: Some(marks), ..FretboardOptions::default() },
-        );
+        let el = fretboard(&ui, "Neck", Signal::new(Some(FretPos { string: 2, fret: 3 })), {
+            let mut v_ = FretboardOptions::default();
+            v_.marks = Some(marks);
+            v_
+        });
         mount(&ui, &el);
         let mut shot = Shot::new(&ui);
         shot.take(&ui);
@@ -485,8 +516,11 @@ fn chord_diagrams_scale_and_do_not_mirror() {
         if rtl {
             is_rtl_window(&ui);
         }
-        let el =
-            chord_diagram(&ui, "Chord", Signal::new(am()), ChordOptions { scale, ..ChordOptions::default() });
+        let el = chord_diagram(&ui, "Chord", Signal::new(am()), {
+            let mut v_ = ChordOptions::default();
+            v_.scale = scale;
+            v_
+        });
         mount(&ui, &el);
         let mut shot = Shot::new(&ui);
         shot.take(&ui);
@@ -499,12 +533,11 @@ fn chord_diagrams_scale_and_do_not_mirror() {
     assert!((big.width() / ba.width() - 2.0).abs() < 0.05);
     // A left-handed diagram puts the lowest string at the right.
     let ui = ui();
-    let el = chord_diagram(
-        &ui,
-        "Chord",
-        Signal::new(am()),
-        ChordOptions { left_handed: true, ..ChordOptions::default() },
-    );
+    let el = chord_diagram(&ui, "Chord", Signal::new(am()), {
+        let mut v_ = ChordOptions::default();
+        v_.left_handed = true;
+        v_
+    });
     mount(&ui, &el);
     let mut shot = Shot::new(&ui);
     shot.take(&ui);
@@ -650,7 +683,11 @@ fn tab_with_more_measures_wraps_onto_more_lines() {
 #[test]
 fn tab_draws_lines_for_each_string_and_rhythm_only_when_asked() {
     let with = tab(TabOptions::default());
-    let without = tab(TabOptions { rhythm: false, ..TabOptions::default() });
+    let without = tab({
+        let mut v_ = TabOptions::default();
+        v_.rhythm = false;
+        v_
+    });
     assert!(with.el.bounds().unwrap_or_default().height() > without.el.bounds().unwrap_or_default().height());
     let mut shot = Shot::new(&with.ui);
     shot.take(&with.ui);
@@ -675,7 +712,12 @@ fn tab_draws_lines_for_each_string_and_rhythm_only_when_asked() {
         .unwrap_or(0);
     assert!(best >= 6, "six strings: {best} rows at the most");
     // Four strings: four lines.
-    let bass = tab(TabOptions { tuning: BASS.to_vec(), string_names: true, ..TabOptions::default() });
+    let bass = tab({
+        let mut v_ = TabOptions::default();
+        v_.tuning = BASS.to_vec();
+        v_.string_names = true;
+        v_
+    });
     assert!(bass.el.bounds().unwrap_or_default().height() < with.el.bounds().unwrap_or_default().height());
 }
 
@@ -716,7 +758,11 @@ fn an_empty_tab_and_a_single_string_do_not_crash() {
         "One string",
         Signal::new(vec![TabMeasure::new(vec![TabEvent::new(vec![TabNote::new(0, 3)], NoteValue::Quarter)])]),
         Signal::new(None),
-        TabOptions { tuning: vec![40], ..TabOptions::default() },
+        {
+            let mut v_ = TabOptions::default();
+            v_.tuning = vec![40];
+            v_
+        },
     );
     mount(&ui, &one);
     one.focus();
@@ -839,7 +885,11 @@ fn the_staff_picks_by_keyboard_and_pointer() {
 
 #[test]
 fn the_staff_draws_five_lines_and_the_notes_move_with_the_signal() {
-    let s = staff(NoteStaffOptions { space: Some(12.0), ..NoteStaffOptions::default() });
+    let s = staff({
+        let mut v_ = NoteStaffOptions::default();
+        v_.space = Some(12.0);
+        v_
+    });
     let mut shot = Shot::new(&s.ui);
     shot.take(&s.ui);
     let b = s.el.bounds().unwrap_or_default();
@@ -901,7 +951,12 @@ fn the_staff_follows_the_theme_and_is_never_mirrored() {
             "Melody",
             Signal::new(melody()),
             Signal::new(Some(StaffCursor { measure: 0, event: 1 })),
-            NoteStaffOptions { key: -2, clef: Clef::Bass, ..NoteStaffOptions::default() },
+            {
+                let mut v_ = NoteStaffOptions::default();
+                v_.key = -2;
+                v_.clef = Clef::Bass;
+                v_
+            },
         );
         mount(&ui, &el);
         let _ = frame(&ui);
@@ -924,13 +979,12 @@ fn every_clef_and_key_renders() {
     for clef in [Clef::Treble, Clef::Bass, Clef::Alto, Clef::Tenor] {
         for key in [-7, -3, 0, 4, 7] {
             let ui = ui();
-            let el = note_staff(
-                &ui,
-                "Melody",
-                Signal::new(melody()),
-                Signal::new(None),
-                NoteStaffOptions { clef, key, ..NoteStaffOptions::default() },
-            );
+            let el = note_staff(&ui, "Melody", Signal::new(melody()), Signal::new(None), {
+                let mut v_ = NoteStaffOptions::default();
+                v_.clef = clef;
+                v_.key = key;
+                v_
+            });
             mount(&ui, &el);
             let mut shot = Shot::new(&ui);
             shot.take(&ui);

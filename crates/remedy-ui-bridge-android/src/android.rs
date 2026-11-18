@@ -528,12 +528,12 @@ impl PlatformHooks for AndroidHooks {
 /// process could not start. `run` therefore returns only when the loop could not start.
 pub fn run(app: impl App) -> Result<(), RunError> {
     let activity = ACTIVITY.lock().unwrap_or_else(PoisonError::into_inner).take().ok_or_else(|| {
-        RunError("no Android activity: start the app with remedy_ui_bridge_android::main!".into())
+        RunError::new("no Android activity: start the app with remedy_ui_bridge_android::main!")
     })?;
     let event_loop = EventLoop::<UserEvent>::with_user_event()
         .with_android_app(activity.clone())
         .build()
-        .map_err(|e| RunError(e.to_string()))?;
+        .map_err(|e| RunError::new(e.to_string()))?;
     let result = remedy_ui_bridge_winit::run_on(event_loop, app, AndroidHooks::new(activity.clone()));
     if let Err(e) = &result {
         os::log(&format!("RemedyUI: the event loop ended with an error: {e}"));

@@ -11,6 +11,7 @@ use std::rc::Rc;
 
 /// How a [`rating`] behaves.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct RatingOptions {
     /// How many stars there are; the highest value.
     pub max: u32,
@@ -26,6 +27,44 @@ pub struct RatingOptions {
     pub star_size: Option<f32>,
     /// What the value is called when read out, such as "stars" or "hearts".
     pub unit: String,
+}
+
+impl RatingOptions {
+    /// Sets `max`: how many stars there are; the highest value.
+    pub fn max(mut self, value: u32) -> Self {
+        self.max = value;
+        self
+    }
+
+    /// Sets `half_steps`: whether half stars can be picked (with the pointer, the arrow keys and assistive technology).
+    pub fn half_steps(mut self, value: bool) -> Self {
+        self.half_steps = value;
+        self
+    }
+
+    /// Sets `read_only`: show the rating without letting people change it.
+    pub fn read_only(mut self, value: bool) -> Self {
+        self.read_only = value;
+        self
+    }
+
+    /// Sets `clearable`: whether choosing the value that is already set clears the rating to zero.
+    pub fn clearable(mut self, value: bool) -> Self {
+        self.clearable = value;
+        self
+    }
+
+    /// Sets `star_size`: the width of one star.
+    pub fn star_size(mut self, value: f32) -> Self {
+        self.star_size = Some(value);
+        self
+    }
+
+    /// Sets `unit`: what the value is called when read out, such as "stars" or "hearts".
+    pub fn unit(mut self, value: String) -> Self {
+        self.unit = value;
+        self
+    }
 }
 
 impl Default for RatingOptions {

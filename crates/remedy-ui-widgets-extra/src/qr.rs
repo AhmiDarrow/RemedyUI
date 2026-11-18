@@ -7,6 +7,7 @@ use crate::qr_segments::{Item, Segment, forced, items_of_bytes, items_of_text, o
 
 /// How much damage a code survives.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+// Exhaustive on purpose: the QR standard's four error correction levels.
 pub enum Ecc {
     /// About 7 percent of the code can be lost.
     Low,
@@ -70,6 +71,7 @@ impl Ecc {
 
 /// Why a code could not be made.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum QrError {
     /// The data does not fit in the largest version allowed at this error correction level.
     TooLong,
@@ -92,6 +94,7 @@ impl std::error::Error for QrError {}
 
 /// How data is written into the code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// Exhaustive on purpose: the QR standard's four data modes.
 pub enum Mode {
     /// Digits only: 10 bits for 3 digits.
     Numeric,
@@ -160,6 +163,7 @@ pub(crate) fn alnum_value(b: u8) -> Option<u32> {
 
 /// What to make.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EncodeOptions {
     /// The error correction level to start from.
     pub ecc: Ecc,
@@ -174,6 +178,44 @@ pub struct EncodeOptions {
     /// Force one mode for all the data; `None` splits it into the segments that take the
     /// fewest bits, mixing modes where that is smaller.
     pub mode: Option<Mode>,
+}
+
+impl EncodeOptions {
+    /// Sets `ecc`: the error correction level to start from.
+    pub fn ecc(mut self, value: Ecc) -> Self {
+        self.ecc = value;
+        self
+    }
+
+    /// Sets `min_version`: never use a version below this (1 to 40).
+    pub fn min_version(mut self, value: u8) -> Self {
+        self.min_version = value;
+        self
+    }
+
+    /// Sets `max_version`: never use a version above this (1 to 40).
+    pub fn max_version(mut self, value: u8) -> Self {
+        self.max_version = value;
+        self
+    }
+
+    /// Sets `mask`: force one of the eight masks (0 to 7); `None` picks the one with the lowest penalty.
+    pub fn mask(mut self, value: u8) -> Self {
+        self.mask = Some(value);
+        self
+    }
+
+    /// Sets `boost_ecc`: raise the error correction level while the version stays the same.
+    pub fn boost_ecc(mut self, value: bool) -> Self {
+        self.boost_ecc = value;
+        self
+    }
+
+    /// Sets `mode`: force one mode for all the data; `None` splits it into the segments that take the fewest bits, mixing modes where that is smaller.
+    pub fn mode(mut self, value: Mode) -> Self {
+        self.mode = Some(value);
+        self
+    }
 }
 
 impl Default for EncodeOptions {

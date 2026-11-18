@@ -134,6 +134,7 @@ fn key_from_name(name: &str) -> Key {
 
 /// Why a chord's text did not read as a chord.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChordError {
     /// The text.
     pub text: String,
@@ -218,6 +219,7 @@ impl FromStr for Chord {
 
 /// Where a command is registered. Inner scopes win over outer ones.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum Scope {
     /// The whole app.
     App,
@@ -245,6 +247,7 @@ pub struct Command {
 
 /// A conflict found when the user rebinds a shortcut.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Conflict {
     /// The command that already uses the chord in that scope.
     pub existing: String,
@@ -252,6 +255,7 @@ pub struct Conflict {
 
 /// A shortcut that more than one command in the same scope answers to.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Clash {
     /// The scope the commands share.
     pub scope: Scope,

@@ -30,6 +30,7 @@ pub struct Pos {
 
 /// What went wrong in a `.rui` file, and where.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RuiError {
     /// The file's name as the app gave it.
     pub file: String,
@@ -66,6 +67,7 @@ impl std::error::Error for RuiError {}
 
 /// An argument's value.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Value {
     /// `12`, `-0.5`.
     Number(f64),

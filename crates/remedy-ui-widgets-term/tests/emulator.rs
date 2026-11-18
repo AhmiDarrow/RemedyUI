@@ -385,17 +385,15 @@ fn hostile_input_stays_bounded() {
 #[test]
 fn keys_encode_as_xterm_does() {
     use remedy_ui_input::{Key, KeyEvent, Modifiers};
-    let key = |k: Key, m: Modifiers, text: Option<&str>| KeyEvent {
-        key: k,
-        physical: String::new(),
-        modifiers: m,
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: text.map(str::to_owned),
+    let key = |k: Key, m: Modifiers, text: Option<&str>| {
+        KeyEvent::press(k).with_modifiers(m).with_text(text.map(str::to_owned))
     };
     let normal = Modes::default();
-    let app = Modes { app_cursor: true, ..Modes::default() };
+    let app = {
+        let mut v_ = Modes::default();
+        v_.app_cursor = true;
+        v_
+    };
     let enc = |e: &KeyEvent, m: &Modes| encode_key(e, m).map(|b| String::from_utf8_lossy(&b).into_owned());
     let none = Modifiers::NONE;
     let ctrl = Modifiers { ctrl: true, ..none };
@@ -423,11 +421,19 @@ fn keys_encode_as_xterm_does() {
     assert_eq!(enc(&key(Key::Tab, shift, None), &normal).as_deref(), Some("\x1b[Z"));
     assert_eq!(enc(&key(Key::Tab, ctrl, None), &normal), None, "Ctrl+Tab leaves the terminal");
     assert_eq!(enc(&key(Key::Enter, none, None), &normal).as_deref(), Some("\r"));
-    let lnm = Modes { newline: true, ..Modes::default() };
+    let lnm = {
+        let mut v_ = Modes::default();
+        v_.newline = true;
+        v_
+    };
     assert_eq!(enc(&key(Key::Enter, none, None), &lnm).as_deref(), Some("\r\n"));
     assert_eq!(enc(&key(Key::Named("Insert".into()), none, None), &normal).as_deref(), Some("\x1b[2~"));
     // The keypad in application mode.
-    let kp = Modes { app_keypad: true, ..Modes::default() };
+    let kp = {
+        let mut v_ = Modes::default();
+        v_.app_keypad = true;
+        v_
+    };
     let mut five = key(Key::Character("5".into()), none, Some("5"));
     five.physical = "Numpad5".into();
     assert_eq!(enc(&five, &kp).as_deref(), Some("\x1bOu"));
@@ -446,7 +452,12 @@ fn pastes_pointer_reports_and_focus() {
     // Bracketed, with escape sequences inside the paste removed: a paste cannot end the
     // bracket early or type keys the person did not see.
     assert_eq!(encode_paste("x\x1b[201~rm -rf\x03\ty", true), b"\x1b[200~x[201~rm -rf\ty\x1b[201~");
-    let sgr = Modes { mouse: MouseMode::Press, mouse_encoding: MouseEncoding::Sgr, ..Modes::default() };
+    let sgr = {
+        let mut v_ = Modes::default();
+        v_.mouse = MouseMode::Press;
+        v_.mouse_encoding = MouseEncoding::Sgr;
+        v_
+    };
     let none = remedy_ui_input::Modifiers::NONE;
     let enc =
         |b, a, m: &Modes| encode_mouse(b, a, 4, 2, none, m).map(|v| String::from_utf8_lossy(&v).into_owned());
@@ -454,9 +465,17 @@ fn pastes_pointer_reports_and_focus() {
     assert_eq!(enc(MouseButton::Left, MouseAction::Release, &sgr).as_deref(), Some("\x1b[<0;5;3m"));
     assert_eq!(enc(MouseButton::WheelUp, MouseAction::Press, &sgr).as_deref(), Some("\x1b[<64;5;3M"));
     assert_eq!(enc(MouseButton::Left, MouseAction::Move, &sgr), None, "no moves in press mode");
-    let drag = Modes { mouse: MouseMode::Drag, ..sgr };
+    let drag = {
+        let mut v_ = sgr;
+        v_.mouse = MouseMode::Drag;
+        v_
+    };
     assert_eq!(enc(MouseButton::Left, MouseAction::Move, &drag).as_deref(), Some("\x1b[<32;5;3M"));
-    let x10 = Modes { mouse: MouseMode::Press, ..Modes::default() };
+    let x10 = {
+        let mut v_ = Modes::default();
+        v_.mouse = MouseMode::Press;
+        v_
+    };
     assert_eq!(
         encode_mouse(MouseButton::Right, MouseAction::Press, 4, 2, none, &x10),
         Some(b"\x1b[M\"%#".to_vec())

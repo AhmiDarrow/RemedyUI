@@ -46,7 +46,7 @@ mod os;
 mod personal;
 mod words;
 
-pub use backend::{Availability, BackendFactory, BackendReport, Prepared, SpellBackend};
+pub use backend::{Availability, BackendError, BackendFactory, BackendReport, Prepared, SpellBackend};
 pub use checker::{PendingCheck, SpellChecker, SpellCheckerBuilder};
 pub use error::SpellError;
 pub use field::{MenuLabels, SpellCheckField, SpellHook, SpellOptions};

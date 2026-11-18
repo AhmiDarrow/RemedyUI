@@ -104,6 +104,7 @@ impl Samples for History {
 
 /// The span of values a chart shows.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Range {
     /// Fit the values currently shown.
     Auto,

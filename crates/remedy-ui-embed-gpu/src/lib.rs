@@ -4,11 +4,11 @@
 //! image, with the element's clips, corners, opacity and scrolling.
 //!
 //! ```no_run
-//! use remedy_ui_embed_gpu::{Gpu, GpuContent, Target, gpu_view, wgpu};
+//! use remedy_ui_embed_gpu::{Gpu, GpuContent, PrepareError, Target, gpu_view, wgpu};
 //! # fn build(ui: &remedy_ui_view::Ui) {
 //! struct Clear;
 //! impl GpuContent for Clear {
-//!     fn prepare(&mut self, _gpu: &Gpu<'_>) -> Result<(), String> {
+//!     fn prepare(&mut self, _gpu: &Gpu<'_>) -> Result<(), PrepareError> {
 //!         Ok(())
 //!     }
 //!     fn render(&mut self, _gpu: &Gpu<'_>, target: &Target<'_>, encoder: &mut wgpu::CommandEncoder) {
@@ -65,6 +65,7 @@ use remedy_ui_view::{El, ElementId, Ui, WeakUi};
 
 /// The device and queue the app renders with: RemedyUI's own, shared with its windows.
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 pub struct Gpu<'a> {
     /// The device.
     pub device: &'a wgpu::Device,
@@ -78,6 +79,7 @@ pub struct Gpu<'a> {
 
 /// Where one picture goes.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct Target<'a> {
     /// The texture to draw into ([`Gpu::format`], premultiplied alpha). Its earlier content is
     /// a picture from two renders ago, so a render starts by clearing or covering all of it.
@@ -98,6 +100,7 @@ pub struct Target<'a> {
 
 /// Input that reached the element.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum EmbedInput {
     /// A pointer event, with its position moved into the element's own space.
     Pointer {
@@ -119,7 +122,7 @@ pub trait GpuContent: 'static {
     /// Makes what rendering needs (pipelines, buffers) on `gpu`: once before the first
     /// render, and again on a replacement device after a loss. An error is shown in
     /// [`GpuView::status`] and rendering waits for the next device.
-    fn prepare(&mut self, gpu: &Gpu<'_>) -> Result<(), String>;
+    fn prepare(&mut self, gpu: &Gpu<'_>) -> Result<(), PrepareError>;
 
     /// Records one picture into `target` with `encoder`, which RemedyUI submits.
     fn render(&mut self, gpu: &Gpu<'_>, target: &Target<'_>, encoder: &mut wgpu::CommandEncoder);
@@ -132,8 +135,60 @@ pub trait GpuContent: 'static {
     }
 }
 
+/// Why content could not get ready to render, in the app's own words.
+///
+/// ```
+/// use remedy_ui_embed_gpu::PrepareError;
+///
+/// fn load_shader(found: bool) -> Result<(), PrepareError> {
+///     if !found {
+///         Err("the preview shader is missing")?;
+///     }
+///     Ok(())
+/// }
+/// assert_eq!(load_shader(false).map_err(|e| e.to_string()), Err("the preview shader is missing".to_owned()));
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PrepareError {
+    reason: String,
+}
+
+impl PrepareError {
+    /// Preparing failed because of `reason`.
+    pub fn new(reason: impl Into<String>) -> Self {
+        PrepareError { reason: reason.into() }
+    }
+
+    /// What failed.
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+}
+
+impl std::fmt::Display for PrepareError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.reason)
+    }
+}
+
+impl std::error::Error for PrepareError {}
+
+impl From<String> for PrepareError {
+    fn from(reason: String) -> Self {
+        PrepareError { reason }
+    }
+}
+
+impl From<&str> for PrepareError {
+    fn from(reason: &str) -> Self {
+        PrepareError { reason: reason.to_owned() }
+    }
+}
+
 /// How the element is doing.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EmbedStatus {
     /// Not drawn yet.
     Starting,
@@ -149,6 +204,7 @@ pub enum EmbedStatus {
 
 /// How many pictures the element has made and shown.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EmbedStats {
     /// Pictures rendered by the app.
     pub rendered: u64,
@@ -327,7 +383,7 @@ impl State {
             }
             self.cpu = None;
             let (prepared, error) = ctx.catch_errors(|| self.content.prepare(&gpu));
-            match prepared.and_then(|()| error.map_or(Ok(()), Err)) {
+            match prepared.map_err(|e| e.to_string()).and_then(|()| error.map_or(Ok(()), Err)) {
                 Ok(()) => self.prepared = Some(serial),
                 Err(e) => {
                     self.status = EmbedStatus::Failed(format!("preparing failed: {e}"));

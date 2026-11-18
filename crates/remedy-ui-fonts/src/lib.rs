@@ -21,6 +21,7 @@
 /// Upright or italic. The Remedy families are upright today; the field is here so a future
 /// italic face needs no API change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Style {
     /// Upright.
     Normal,

@@ -4,6 +4,7 @@ use remedy_ui_core::Color;
 
 /// How tall each line is.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum LineHeight {
     /// The font's own line spacing (ascent + descent + line gap).
     FontMetrics,
@@ -15,6 +16,7 @@ pub enum LineHeight {
 
 /// Horizontal alignment of each line within the paragraph's width.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Align {
     /// Left in left-to-right text, right in right-to-left text.
     #[default]
@@ -30,6 +32,7 @@ pub enum Align {
 /// The direction of the paragraph as a whole. Runs inside it still follow the Unicode
 /// bidirectional algorithm.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// Exhaustive on purpose: text runs left to right or right to left.
 pub enum Direction {
     /// Taken from the first strong character (the Unicode default).
     #[default]
@@ -56,6 +59,7 @@ impl Feature {
 
 /// A complete text style.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct TextStyle {
     /// Families in fallback order. The first that covers a character draws it. CSS's
     /// generic names (`monospace`, `serif`, `sans-serif`, `system-ui`, `ui-monospace`) stand
@@ -100,7 +104,8 @@ impl Default for TextStyle {
 
 /// Changes a span makes to the style around it. Unset fields are inherited.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct StylePatch {
+#[non_exhaustive]
+pub struct TextStylePatch {
     /// Families in fallback order.
     pub families: Option<Vec<String>>,
     /// Font size.
@@ -123,30 +128,30 @@ pub struct StylePatch {
     pub link: Option<u64>,
 }
 
-impl StylePatch {
+impl TextStylePatch {
     /// Bold (weight 700).
     pub fn bold() -> Self {
-        StylePatch { weight: Some(700.0), ..Self::default() }
+        TextStylePatch { weight: Some(700.0), ..Self::default() }
     }
 
     /// Italic.
     pub fn italic() -> Self {
-        StylePatch { italic: Some(true), ..Self::default() }
+        TextStylePatch { italic: Some(true), ..Self::default() }
     }
 
     /// A color.
     pub fn color(c: Color) -> Self {
-        StylePatch { color: Some(c), ..Self::default() }
+        TextStylePatch { color: Some(c), ..Self::default() }
     }
 
     /// A link with an id the app knows, underlined.
     pub fn link(id: u64) -> Self {
-        StylePatch { link: Some(id), underline: Some(true), ..Self::default() }
+        TextStylePatch { link: Some(id), underline: Some(true), ..Self::default() }
     }
 
     /// Strikethrough.
     pub fn strikethrough() -> Self {
-        StylePatch { strikethrough: Some(true), ..Self::default() }
+        TextStylePatch { strikethrough: Some(true), ..Self::default() }
     }
 
     /// Applies this patch over `base`.

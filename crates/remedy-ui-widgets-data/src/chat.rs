@@ -51,6 +51,7 @@ impl Default for ChatState {
 
 /// How the messages changed since the last time, by their keys.
 #[derive(Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Change {
     /// The same messages.
     Same,
@@ -184,7 +185,8 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                     let mut el = ui2.el("chat_row").column().fill_width();
                     if header {
                         el = el.child(
-                            w::label(&ui2, today.clone(), "muted")
+                            w::text(&ui2, today.clone())
+                                .variant("muted")
                                 .semantics(Semantics::new(Role::Heading(3)).label(today))
                                 .layout(move |l| l.align_self = Some(remedy_ui_layout::Align::Center))
                                 .padding(Insets::symmetric(unit * 2.0, 0.0)),
@@ -315,7 +317,7 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         l.inset = Insets { top: AUTO, start: AUTO, end: 16.0, bottom: 16.0 };
     });
     // The day pinned at the top.
-    let pinned = w::label(ui, "", "muted").text_dyn(move || first_day.get()).layout(|l| {
+    let pinned = w::text(ui, "").variant("muted").text_dyn(move || first_day.get()).layout(|l| {
         l.position = Position::Absolute;
         l.inset = Insets { top: 8.0, start: AUTO, end: AUTO, bottom: AUTO };
         l.align_self = Some(remedy_ui_layout::Align::Center);

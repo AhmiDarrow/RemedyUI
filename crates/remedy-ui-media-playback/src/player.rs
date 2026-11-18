@@ -19,6 +19,7 @@ use crate::subtitles::{SubtitleFormat, SubtitleTrack, parse_subtitles};
 /// What a player does while it cannot be seen (scrolled away, hidden, its window minimized
 /// or covered).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum UnseenPolicy {
     /// Media with pictures pauses and plays on when seen again; sound-only media plays on.
     #[default]
@@ -29,6 +30,7 @@ pub enum UnseenPolicy {
 
 /// How a player starts.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct PlayerOptions {
     /// Starts playing once opened. Media with pictures does not start by itself while the
     /// system asks for reduced motion; the person presses play.
@@ -40,6 +42,32 @@ pub struct PlayerOptions {
     pub find_subtitles: bool,
     /// The starting volume, 0 to 1.
     pub volume: f32,
+}
+
+impl PlayerOptions {
+    /// Sets `autoplay`: starts playing once opened.
+    pub fn autoplay(mut self, value: bool) -> Self {
+        self.autoplay = value;
+        self
+    }
+
+    /// Sets `unseen`: what happens while the player is unseen.
+    pub fn unseen(mut self, value: UnseenPolicy) -> Self {
+        self.unseen = value;
+        self
+    }
+
+    /// Sets `find_subtitles`: looks for subtitle files next to a local file: the same name with `.vtt`, `.srt`, `.ass` or `.ssa`, or with a language before it (`film.en.srt`).
+    pub fn find_subtitles(mut self, value: bool) -> Self {
+        self.find_subtitles = value;
+        self
+    }
+
+    /// Sets `volume`: the starting volume, 0 to 1.
+    pub fn volume(mut self, value: f32) -> Self {
+        self.volume = value;
+        self
+    }
 }
 
 impl Default for PlayerOptions {
@@ -349,7 +377,7 @@ impl Player {
     }
 
     /// Whether the sound is muted. Tracked.
-    pub fn muted(&self) -> bool {
+    pub fn is_muted(&self) -> bool {
         self.0.muted.get()
     }
 
@@ -417,7 +445,7 @@ impl Player {
     }
 
     /// Whether the player asked to fill the screen. Tracked.
-    pub fn fullscreen(&self) -> bool {
+    pub fn is_fullscreen(&self) -> bool {
         self.0.fullscreen.get()
     }
 

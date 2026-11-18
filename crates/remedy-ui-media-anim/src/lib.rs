@@ -161,7 +161,7 @@ fn play_button(ui: &Ui, alt: &str, play: Signal<bool>) -> El {
         .row()
         .align(Align::Center)
         .justify(Justify::Center)
-        .style(StylePatch { background: Some(backdrop), ..StylePatch::default() })
+        .style(StylePatch::default().background(backdrop))
         .layout(move |l| {
             l.position = Position::Absolute;
             l.inset = Insets { top: AUTO, start: AUTO, end: margin, bottom: margin };

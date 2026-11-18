@@ -18,6 +18,7 @@ use crate::signal::{Scope, Signal, batch};
 
 /// One step of a path: a struct field, or a position in a vector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Segment {
     /// A struct field, by its declaration index.
     Field(u32),
@@ -29,6 +30,7 @@ type Path = Vec<Segment>;
 
 /// Why a store access failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum StoreError {
     /// The store's signal could not be reached.
     Reactive(ReactiveError),

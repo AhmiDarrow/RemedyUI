@@ -194,7 +194,7 @@ pub fn empty_state(ui: &Ui, title: impl Into<String>, hint: impl Into<String>) -
         .align(Align::Center)
         .gap(gap)
         .child(crate::heading(ui, 3, title.into()))
-        .child(crate::label(ui, hint.into(), "muted"))
+        .child(crate::text(ui, hint.into()).variant("muted"))
 }
 
 /// A placeholder block shown while content loads.

@@ -122,6 +122,7 @@ pub struct Stop {
 
 /// What fills a shape.
 #[derive(Clone, Debug, PartialEq)]
+// Exhaustive on purpose: part of the display list every renderer must draw completely, so a new kind is a major change.
 pub enum Brush {
     /// One color.
     Solid(Color),
@@ -176,6 +177,7 @@ impl std::fmt::Debug for Image {
 
 /// How images are sampled when scaled.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// Exhaustive on purpose: part of the display list every renderer must draw completely, so a new kind is a major change.
 pub enum Sampling {
     /// Smooth (bilinear).
     #[default]
@@ -186,6 +188,7 @@ pub enum Sampling {
 
 /// How a layer combines with what is below.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// Exhaustive on purpose: part of the display list every renderer must draw completely, so a new kind is a major change.
 pub enum Blend {
     /// Normal source-over.
     #[default]
@@ -245,6 +248,7 @@ pub struct ExternalTexture {
 
 /// One drawing command.
 #[derive(Clone, Debug, PartialEq)]
+// Exhaustive on purpose: part of the display list every renderer must draw completely, so a new kind is a major change.
 pub enum Item {
     /// A filled rectangle with rounded corners.
     FillRect {

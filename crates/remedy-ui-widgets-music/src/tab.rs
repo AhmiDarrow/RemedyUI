@@ -20,6 +20,7 @@ use crate::tab_edit::{TabEditing, TabEditor};
 
 /// A way of playing a note, marked on the tab.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Technique {
     /// Plain.
     #[default]
@@ -182,6 +183,7 @@ pub struct TabCursor {
 
 /// How a [`tab_staff`] looks.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct TabOptions {
     /// The open strings as MIDI notes, lowest first. The number of lines is the length.
     pub tuning: Vec<i32>,
@@ -195,6 +197,44 @@ pub struct TabOptions {
     pub line_gap: Option<f32>,
     /// Spell black keys with flats in string names.
     pub flats: bool,
+}
+
+impl TabOptions {
+    /// Sets `tuning`: the open strings as MIDI notes, lowest first.
+    pub fn tuning(mut self, value: Vec<i32>) -> Self {
+        self.tuning = value;
+        self
+    }
+
+    /// Sets `string_names`: show the open string names at the start of each line.
+    pub fn string_names(mut self, value: bool) -> Self {
+        self.string_names = value;
+        self
+    }
+
+    /// Sets `rhythm`: show rhythm stems, flags and beams under the lines.
+    pub fn rhythm(mut self, value: bool) -> Self {
+        self.rhythm = value;
+        self
+    }
+
+    /// Sets `time`: the time signature the piece starts in.
+    pub fn time(mut self, value: (u8, u8)) -> Self {
+        self.time = Some(value);
+        self
+    }
+
+    /// Sets `line_gap`: the distance between lines.
+    pub fn line_gap(mut self, value: f32) -> Self {
+        self.line_gap = Some(value);
+        self
+    }
+
+    /// Sets `flats`: spell black keys with flats in string names.
+    pub fn flats(mut self, value: bool) -> Self {
+        self.flats = value;
+        self
+    }
 }
 
 impl Default for TabOptions {

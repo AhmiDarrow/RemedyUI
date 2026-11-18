@@ -12,7 +12,11 @@ fn engine() -> TextEngine {
 }
 
 fn opts(width: Option<f32>) -> ParagraphOptions {
-    ParagraphOptions { max_width: width, ..Default::default() }
+    {
+        let mut v_ = ParagraphOptions::default();
+        v_.max_width = width;
+        v_
+    }
 }
 
 const PANGRAM: &str =
@@ -50,7 +54,7 @@ fn wraps_to_the_width_and_rewraps_without_reshaping() {
 #[test]
 fn bold_spans_draw_with_the_bold_face() {
     let mut e = engine();
-    let text = RichText::new().text("plain ").styled("bold", StylePatch::bold()).text(" plain");
+    let text = RichText::new().text("plain ").styled("bold", TextStylePatch::bold()).text(" plain");
     let p = e.layout(&text, &TextStyle::default(), opts(None));
     let runs = p.glyph_runs();
     let plain = runs.iter().find(|r| r.range.start == 0).map(|r| r.font.id());
@@ -66,7 +70,11 @@ fn colors_and_links_come_back_with_their_runs() {
     let red = remedy_ui_core::Color::rgb8(200, 30, 30);
     let text = RichText::new()
         .text("see ")
-        .styled("this link", StylePatch { color: Some(red), ..StylePatch::link(42) })
+        .styled("this link", {
+            let mut v_ = TextStylePatch::link(42);
+            v_.color = Some(red);
+            v_
+        })
         .text(" now");
     let p = e.layout(&text, &TextStyle::default(), opts(None));
     let link_run = p.glyph_runs().into_iter().find(|r| r.link == Some(42));
@@ -142,11 +150,11 @@ fn right_to_left_runs_are_marked_and_moved_through_visually() {
 
     let rtl = e.layout(&RichText::plain("\u{05D0}\u{05D1} abc"), &TextStyle::default(), opts(None));
     assert!(rtl.is_rtl(), "the first strong character is Hebrew");
-    let forced = e.layout(
-        &RichText::plain("abc"),
-        &TextStyle::default(),
-        ParagraphOptions { direction: Direction::Rtl, ..Default::default() },
-    );
+    let forced = e.layout(&RichText::plain("abc"), &TextStyle::default(), {
+        let mut v_ = ParagraphOptions::default();
+        v_.direction = Direction::Rtl;
+        v_
+    });
     assert!(forced.is_rtl());
 
     // Moving right through the whole line visits every position and ends at the far right.
@@ -166,7 +174,7 @@ fn right_to_left_runs_are_marked_and_moved_through_visually() {
 #[test]
 fn spans_are_clamped_to_character_boundaries() {
     let mut t = RichText::plain("héllo");
-    t.add_span(2..100, StylePatch::bold()); // 2 is inside 'é'
+    t.add_span(2..100, TextStylePatch::bold()); // 2 is inside 'é'
     let span = t.spans().first().map(|s| s.range.clone());
     assert_eq!(span, Some(1..6));
     let mut e = engine();
@@ -199,8 +207,13 @@ fn thai_breaks_inside_words_only_with_the_complex_scripts_feature() {
 #[test]
 fn paragraphs_say_where_they_sit_in_a_wider_box() {
     let mut e = engine();
-    let o =
-        |align, container, max_width| ParagraphOptions { align, container, max_width, ..Default::default() };
+    let o = |align, container, max_width| {
+        let mut v_ = ParagraphOptions::default();
+        v_.align = align;
+        v_.container = container;
+        v_.max_width = max_width;
+        v_
+    };
     let short = RichText::plain("Hi");
     let p = e.layout(&short, &TextStyle::default(), o(Align::Start, Direction::Ltr, None));
     assert_eq!(p.x_offset(200.0), 0.0, "start of a left-to-right box");
@@ -228,7 +241,12 @@ fn paragraphs_say_where_they_sit_in_a_wider_box() {
 fn wrapped_lines_take_their_alignment() {
     let mut e = engine();
     let mut lefts = |align| {
-        let o = ParagraphOptions { align, max_width: Some(160.0), ..Default::default() };
+        let o = {
+            let mut v_ = ParagraphOptions::default();
+            v_.align = align;
+            v_.max_width = Some(160.0);
+            v_
+        };
         let p = e.layout(&RichText::plain(PANGRAM), &TextStyle::default(), o);
         p.lines().iter().map(|l| l.left).collect::<Vec<f32>>()
     };
@@ -245,10 +263,18 @@ fn underlines_sit_below_the_text_and_strikes_through_its_middle() {
     let mut e = engine();
     let text = RichText::new()
         .text("plain ")
-        .styled("linked", StylePatch::link(1))
+        .styled("linked", TextStylePatch::link(1))
         .text(" ")
-        .styled("struck", StylePatch::strikethrough());
-    let p = e.layout(&text, &TextStyle { size: 20.0, ..TextStyle::default() }, opts(None));
+        .styled("struck", TextStylePatch::strikethrough());
+    let p = e.layout(
+        &text,
+        &{
+            let mut v_ = TextStyle::default();
+            v_.size = 20.0;
+            v_
+        },
+        opts(None),
+    );
     let runs = p.glyph_runs();
     let run = |w: &str| {
         let at = text.as_str().find(w).unwrap_or_default();

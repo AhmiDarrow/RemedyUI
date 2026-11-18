@@ -10,17 +10,11 @@ fn ms(v: u64) -> Duration {
 }
 
 fn ev(phase: PointerPhase, x: f32, y: f32, t: u64, kind: PointerKind) -> PointerEvent {
-    PointerEvent {
-        id: 0,
-        kind,
-        phase,
-        position: Point::new(x, y),
-        buttons: Buttons::PRIMARY,
-        pressure: 0.5,
-        time: ms(t),
-        coalesced: Vec::new(),
-        modifiers: remedy_ui_input::Modifiers::NONE,
-    }
+    PointerEvent::new(phase, Point::new(x, y))
+        .with_kind(kind)
+        .with_buttons(Buttons::PRIMARY)
+        .with_time(ms(t))
+        .with_modifiers(remedy_ui_input::Modifiers::NONE)
 }
 
 #[test]
@@ -107,15 +101,7 @@ fn bouncing_overscroll_resists_and_springs_back() {
 }
 
 fn key(k: Key, m: Modifiers) -> KeyEvent {
-    KeyEvent {
-        key: k,
-        physical: String::new(),
-        modifiers: m,
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: None,
-    }
+    KeyEvent::press(k).with_modifiers(m).with_text(None)
 }
 
 #[test]
@@ -150,7 +136,7 @@ fn commands_match_by_scope_and_respect_ime_and_enabled() {
         Some("app.find"),
         "a disabled command lets the outer one answer"
     );
-    let composing = KeyEvent { composing: true, ..ctrl_f.clone() };
+    let composing = ctrl_f.clone().with_composing(true);
     assert!(t.match_key(&composing, &active).is_none(), "IME composition never fires shortcuts");
     assert!(t.match_key(&key(Key::char('f'), Modifiers::NONE), &active).is_none());
 }
@@ -178,7 +164,7 @@ fn rebinding_checks_conflicts_and_can_reset() {
         },
     );
     let clash = t.rebind("react", vec![Chord::primary(p, Key::char('r'))]);
-    assert_eq!(clash, Err(Conflict { existing: "reply".into() }));
+    assert_eq!(clash.map_err(|c| c.existing), Err("reply".to_owned()));
     assert_eq!(t.rebind("react", vec![Chord::new(Modifiers::NONE, Key::F(9))]), Ok(()));
     assert_eq!(
         t.match_key(&key(Key::F(9), Modifiers::NONE), &[Scope::Window]).map(|c| c.id.as_str()),
@@ -238,10 +224,8 @@ fn conflicts_and_clashes_are_reported_without_changing_anything() {
     t.register(Scope::Window, cmd("search", 's'));
     let ctrl_s = Chord::primary(p, Key::char('s'));
     let found = t.conflicts("send", std::slice::from_ref(&ctrl_s));
-    assert_eq!(
-        found,
-        vec![Clash { scope: Scope::App, chord: ctrl_s.clone(), commands: vec!["save".into()] }]
-    );
+    let found: Vec<_> = found.into_iter().map(|c| (c.scope, c.chord, c.commands)).collect();
+    assert_eq!(found, vec![(Scope::App, ctrl_s.clone(), vec!["save".to_owned()])]);
     assert_eq!(t.chords("send"), vec![Chord::primary(p, Key::char('e'))], "nothing changed");
     assert!(t.clashes().is_empty(), "the window-scoped search does not clash with save");
     assert_eq!(t.default_chords("send"), vec![Chord::primary(p, Key::char('e'))]);
@@ -253,10 +237,8 @@ fn conflicts_and_clashes_are_reported_without_changing_anything() {
     user.insert("not-registered-yet".to_string(), vec![Chord::new(Modifiers::NONE, Key::F(2))]);
     t.set_user_bindings(user);
     assert_eq!(t.user_chords("send"), Some(&[ctrl_s.clone()][..]));
-    assert_eq!(
-        t.clashes(),
-        vec![Clash { scope: Scope::App, chord: ctrl_s, commands: vec!["save".into(), "send".into()] }]
-    );
+    let clashes: Vec<_> = t.clashes().into_iter().map(|c| (c.scope, c.chord, c.commands)).collect();
+    assert_eq!(clashes, vec![(Scope::App, ctrl_s, vec!["save".to_owned(), "send".to_owned()])]);
     // A binding set before its command exists applies once it is registered.
     t.register(Scope::App, cmd("not-registered-yet", 'n'));
     assert_eq!(t.chords("not-registered-yet"), vec![Chord::new(Modifiers::NONE, Key::F(2))]);

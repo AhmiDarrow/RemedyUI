@@ -106,6 +106,7 @@ pub fn has_posted() -> bool {
 
 /// What [`run_posted`] did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PostReport {
     /// Closures that ran to completion.
     pub ran: usize,

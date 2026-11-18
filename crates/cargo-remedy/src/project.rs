@@ -9,6 +9,8 @@ pub struct Project {
     pub root: PathBuf,
     /// The executable's name.
     pub bin: String,
+    /// The library's crate name (what an Android APK loads).
+    pub lib_name: String,
     /// The package version.
     pub version: String,
     /// Where Cargo puts builds.
@@ -27,10 +29,25 @@ pub struct Project {
     pub sign_thumbprint: Option<String>,
     /// The timestamp server for signatures.
     pub timestamp_url: String,
+    /// The Rust target Android packages build for (`[android] target`).
+    pub android_target: String,
+    /// The lowest Android API level (`[android] min_api`, 26 by default: the bridge loads its
+    /// Java half with `InMemoryDexClassLoader`).
+    pub android_min_api: u32,
+    /// The Android API level built against (`[android] target_api`).
+    pub android_target_api: u32,
+    /// The release keystore (`[android] keystore`); a debug key is made when there is none.
+    pub android_keystore: Option<PathBuf>,
+    /// The key's alias in it (`[android] key_alias`).
+    pub android_key_alias: Option<String>,
 }
 
 fn string(t: &toml::Table, section: &str, key: &str) -> Option<String> {
     t.get(section)?.get(key)?.as_str().map(str::to_owned)
+}
+
+fn number(t: &toml::Table, section: &str, key: &str) -> Option<u32> {
+    t.get(section)?.get(key)?.as_integer().and_then(|n| u32::try_from(n).ok())
 }
 
 impl Project {
@@ -50,6 +67,11 @@ impl Project {
             .and_then(|b| b.get("name"))
             .and_then(|n| n.as_str())
             .map_or_else(|| package.clone(), str::to_owned);
+        let lib_name = cargo
+            .get("lib")
+            .and_then(|l| l.get("name"))
+            .and_then(|n| n.as_str())
+            .map_or_else(|| package.replace('-', "_"), str::to_owned);
         let remedy_path = root.join("remedy.toml");
         let remedy: toml::Table = match std::fs::read_to_string(&remedy_path) {
             Ok(s) => s.parse().map_err(|e| format!("{}: {e}", remedy_path.display()))?,
@@ -66,7 +88,14 @@ impl Project {
             sign_thumbprint: string(&remedy, "windows", "sign_thumbprint"),
             timestamp_url: string(&remedy, "windows", "timestamp_url")
                 .unwrap_or_else(|| "http://timestamp.digicert.com".into()),
+            android_target: string(&remedy, "android", "target")
+                .unwrap_or_else(|| "aarch64-linux-android".into()),
+            android_min_api: number(&remedy, "android", "min_api").unwrap_or(26),
+            android_target_api: number(&remedy, "android", "target_api").unwrap_or(35),
+            android_keystore: string(&remedy, "android", "keystore").map(|k| root.join(k)),
+            android_key_alias: string(&remedy, "android", "key_alias"),
             bin,
+            lib_name,
             version,
             target_dir,
         })

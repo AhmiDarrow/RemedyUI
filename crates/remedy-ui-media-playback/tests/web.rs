@@ -144,7 +144,7 @@ async fn the_browser_decodes_the_clip_and_plays_it() {
     let info = dec.info().clone();
     let video = info.video.clone().must("the clip's picture");
     assert_eq!((video.width, video.height), (176, 100));
-    assert_eq!(info.audio, Some(AudioFormat { sample_rate: 48_000, channels: 2 }));
+    assert_eq!(info.audio, Some(AudioFormat::new(48_000, 2)));
     assert!(info.duration.is_some_and(|d| (d.as_secs_f64() - 3.0).abs() < 0.1), "{:?}", info.duration);
 
     // Pictures in the right colors at their times, and sound with them.
@@ -179,7 +179,7 @@ async fn the_browser_decodes_the_clip_and_plays_it() {
     drop(dec);
 
     // WebAudio's clock: written sound is heard, and the clock says how much.
-    let mut out = host.audio_output(AudioFormat { sample_rate: 48_000, channels: 2 }).must("a sound output");
+    let mut out = host.audio_output(AudioFormat::new(48_000, 2)).must("a sound output");
     let room = out.room().must("room");
     assert!(room > 0, "an empty output has room");
     let frames = room.min(9600);

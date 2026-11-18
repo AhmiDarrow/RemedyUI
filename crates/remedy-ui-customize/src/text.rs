@@ -205,7 +205,8 @@ impl Customizations {
                         format!("part of the file did not read, the rest is used: {detail}"),
                     ),
                     Problem::Io { path, detail } => (PathBuf::from(path), detail),
-                    Problem::Missing { .. } | Problem::Format { .. } => continue,
+                    // Missing messages and formatting problems are the app's, not the file's.
+                    _ => continue,
                 };
                 if path.starts_with(&dir) && !notices.iter().any(|n: &Notice| n.path == path) {
                     notices.push(Notice { area: Area::Text, path, message });

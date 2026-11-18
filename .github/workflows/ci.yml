@@ -1,9 +1,12 @@
+# RemedyUI's CI is the owner's local gate, run before every merge: `~/gate.sh` (formatting,
+# clippy for Windows, Linux, macOS, Android and wasm32, the tests, the docs, `cargo xtask
+# check`, `cargo deny check`) and `~/budget-gate.sh` (the reference scenes' budgets). GitHub
+# Actions does not run on pushes or pull requests; this workflow only runs when started by
+# hand, as a second opinion on Linux and Windows runners.
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -31,7 +34,7 @@ jobs:
         run: cargo doc --workspace --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
-      - name: Layer graph and unsafe boundary
+      - name: Layer graph, unsafe boundary and publishing metadata
         run: cargo xtask check
       - name: Supply chain
         if: matrix.os == 'ubuntu-latest'

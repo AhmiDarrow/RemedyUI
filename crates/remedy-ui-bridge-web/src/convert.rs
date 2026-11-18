@@ -94,7 +94,8 @@ pub fn pointer_kind(dom: &str) -> PointerKind {
 pub fn pointer_id(dom_id: i32, kind: PointerKind) -> u32 {
     match kind {
         PointerKind::Mouse => 0,
-        PointerKind::Touch | PointerKind::Pen => u32::try_from(dom_id).unwrap_or(0).max(1),
+        // Fingers, pens and kinds newer than this bridge each have an id of their own.
+        _ => u32::try_from(dom_id).unwrap_or(0).max(1),
     }
 }
 
@@ -171,7 +172,8 @@ pub enum ClipboardKey {
 pub fn clipboard_key(k: &Key, mods: Modifiers, platform: Platform) -> Option<ClipboardKey> {
     let primary = match platform {
         Platform::Apple => mods.meta && !mods.ctrl,
-        Platform::Standard => mods.ctrl && !mods.meta,
+        // Every platform but Apple's uses Ctrl.
+        _ => mods.ctrl && !mods.meta,
     };
     match k {
         Key::Character(c) if primary && !mods.alt => match c.as_str() {
@@ -196,7 +198,7 @@ pub fn clipboard_key(k: &Key, mods: Modifiers, platform: Platform) -> Option<Cli
 pub fn browser_keeps(k: &Key, mods: Modifiers, platform: Platform) -> bool {
     let primary = match platform {
         Platform::Apple => mods.meta,
-        Platform::Standard => mods.ctrl,
+        _ => mods.ctrl,
     };
     match k {
         Key::F(5 | 11 | 12) => true,
@@ -485,31 +487,29 @@ pub struct PageSettings {
 
 /// The engine's settings from the page's.
 pub fn settings(page: &PageSettings) -> SystemSettings {
-    let defaults = SystemSettings::default();
-    SystemSettings {
-        platform: if page.apple { Platform::Apple } else { Platform::Standard },
-        dark: if page.prefers_dark {
-            Some(true)
-        } else if page.prefers_light {
-            Some(false)
-        } else {
-            None
-        },
-        accent: page.accent,
-        high_contrast: page.high_contrast,
-        // Browsers start at 16 px; a larger default is the user asking for larger text.
-        text_scale: if page.root_font_px.is_finite() && page.root_font_px > 0.0 {
-            page.root_font_px / 16.0
-        } else {
-            1.0
-        },
-        reduced_motion: page.reduced_motion,
-        reduced_transparency: page.reduced_transparency,
-        locale: if page.language.trim().is_empty() { defaults.locale } else { page.language.clone() },
-        // Browsers expose neither; these are the platforms' defaults the pages inherit.
-        double_click: Duration::from_millis(500),
-        caret_blink: defaults.caret_blink,
+    // The caret blink keeps the engine's default.
+    let mut s = SystemSettings::default();
+    s.platform = if page.apple { Platform::Apple } else { Platform::Standard };
+    s.dark = if page.prefers_dark {
+        Some(true)
+    } else if page.prefers_light {
+        Some(false)
+    } else {
+        None
+    };
+    s.accent = page.accent;
+    s.high_contrast = page.high_contrast;
+    // Browsers start at 16 px; a larger default is the user asking for larger text.
+    s.text_scale =
+        if page.root_font_px.is_finite() && page.root_font_px > 0.0 { page.root_font_px / 16.0 } else { 1.0 };
+    s.reduced_motion = page.reduced_motion;
+    s.reduced_transparency = page.reduced_transparency;
+    if !page.language.trim().is_empty() {
+        s.locale = page.language.clone();
     }
+    // Browsers expose no double-click time; this is the platforms' default pages inherit.
+    s.double_click = Duration::from_millis(500);
+    s
 }
 
 /// True for a user agent on Apple's platforms (`navigator.platform` or the user agent data's

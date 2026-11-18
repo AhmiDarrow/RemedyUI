@@ -395,16 +395,14 @@ fn noise(len: usize, seed: u32) -> Vec<u8> {
 #[test]
 fn the_standards_example_encodes_to_the_codewords_it_prints() {
     // ISO/IEC 18004 Annex I: "01234567", version 1, level M.
-    let code = QrCode::encode(
-        b"01234567",
-        EncodeOptions {
-            ecc: Ecc::Medium,
-            min_version: 1,
-            max_version: 1,
-            boost_ecc: false,
-            ..EncodeOptions::default()
-        },
-    )
+    let code = QrCode::encode(b"01234567", {
+        let mut v_ = EncodeOptions::default();
+        v_.ecc = Ecc::Medium;
+        v_.min_version = 1;
+        v_.max_version = 1;
+        v_.boost_ecc = false;
+        v_
+    })
     .unwrap_or_else(|e| unreachable!("{e}"));
     assert_eq!(code.version(), 1);
     let d = decode(&code);
@@ -474,12 +472,13 @@ fn every_version_and_level_decodes_when_filled_to_the_last_byte() {
             let count_bits = if v < 10 { 8 } else { 16 };
             let len = (data_codewords(v, ecc) * 8 - 4 - count_bits) / 8;
             let data = noise(len, u32::from(v) * 7 + ecc.format_bits());
-            let options = EncodeOptions {
-                ecc,
-                min_version: v,
-                max_version: v,
-                boost_ecc: false,
-                ..EncodeOptions::default()
+            let options = {
+                let mut v_ = EncodeOptions::default();
+                v_.ecc = ecc;
+                v_.min_version = v;
+                v_.max_version = v;
+                v_.boost_ecc = false;
+                v_
             };
             let code = QrCode::encode(&data, options).unwrap_or_else(|e| unreachable!("v{v} {ecc:?}: {e}"));
             assert_eq!((code.version(), code.ecc()), (v, ecc));
@@ -491,20 +490,28 @@ fn every_version_and_level_decodes_when_filled_to_the_last_byte() {
 
 #[test]
 fn the_smallest_version_that_fits_is_chosen() {
-    let c = QrCode::encode(
-        &noise(17, 1),
-        EncodeOptions { ecc: Ecc::Low, boost_ecc: false, ..Default::default() },
-    )
+    let c = QrCode::encode(&noise(17, 1), {
+        let mut v_ = EncodeOptions::default();
+        v_.ecc = Ecc::Low;
+        v_.boost_ecc = false;
+        v_
+    })
     .unwrap_or_else(|e| unreachable!("{e}"));
     assert_eq!(c.version(), 1, "17 bytes fit version 1-L");
-    let c = QrCode::encode(
-        &noise(18, 1),
-        EncodeOptions { ecc: Ecc::Low, boost_ecc: false, ..Default::default() },
-    )
+    let c = QrCode::encode(&noise(18, 1), {
+        let mut v_ = EncodeOptions::default();
+        v_.ecc = Ecc::Low;
+        v_.boost_ecc = false;
+        v_
+    })
     .unwrap_or_else(|e| unreachable!("{e}"));
     assert_eq!(c.version(), 2, "18 bytes need version 2");
-    let c = QrCode::encode(&noise(2953, 1), EncodeOptions { ecc: Ecc::Low, ..Default::default() })
-        .unwrap_or_else(|e| unreachable!("{e}"));
+    let c = QrCode::encode(&noise(2953, 1), {
+        let mut v_ = EncodeOptions::default();
+        v_.ecc = Ecc::Low;
+        v_
+    })
+    .unwrap_or_else(|e| unreachable!("{e}"));
     assert_eq!(c.version(), 40);
     assert_eq!(c.size(), 177);
 }
@@ -512,36 +519,69 @@ fn the_smallest_version_that_fits_is_chosen() {
 #[test]
 fn data_too_long_is_an_error_not_a_crash() {
     assert_eq!(
-        QrCode::encode(&noise(2954, 1), EncodeOptions { ecc: Ecc::Low, ..Default::default() }),
+        QrCode::encode(&noise(2954, 1), {
+            let mut v_ = EncodeOptions::default();
+            v_.ecc = Ecc::Low;
+            v_
+        }),
         Err(QrError::TooLong)
     );
     assert_eq!(
-        QrCode::encode(&noise(2000, 1), EncodeOptions { ecc: Ecc::High, ..Default::default() }),
+        QrCode::encode(&noise(2000, 1), {
+            let mut v_ = EncodeOptions::default();
+            v_.ecc = Ecc::High;
+            v_
+        }),
         Err(QrError::TooLong)
     );
     assert_eq!(
-        QrCode::encode(b"x", EncodeOptions { min_version: 0, ..Default::default() }),
+        QrCode::encode(b"x", {
+            let mut v_ = EncodeOptions::default();
+            v_.min_version = 0;
+            v_
+        }),
         Err(QrError::BadOptions)
     );
     assert_eq!(
-        QrCode::encode(b"x", EncodeOptions { max_version: 41, ..Default::default() }),
+        QrCode::encode(b"x", {
+            let mut v_ = EncodeOptions::default();
+            v_.max_version = 41;
+            v_
+        }),
         Err(QrError::BadOptions)
     );
     assert_eq!(
-        QrCode::encode(b"x", EncodeOptions { min_version: 5, max_version: 4, ..Default::default() }),
+        QrCode::encode(b"x", {
+            let mut v_ = EncodeOptions::default();
+            v_.min_version = 5;
+            v_.max_version = 4;
+            v_
+        }),
         Err(QrError::BadOptions)
     );
     assert_eq!(
-        QrCode::encode(b"x", EncodeOptions { mask: Some(8), ..Default::default() }),
+        QrCode::encode(b"x", {
+            let mut v_ = EncodeOptions::default();
+            v_.mask = Some(8);
+            v_
+        }),
         Err(QrError::BadOptions)
     );
     assert_eq!(
-        QrCode::encode(b"12a", EncodeOptions { mode: Some(Mode::Numeric), ..Default::default() }),
+        QrCode::encode(b"12a", {
+            let mut v_ = EncodeOptions::default();
+            v_.mode = Some(Mode::Numeric);
+            v_
+        }),
         Err(QrError::BadOptions)
     );
     // The version range is a hard limit.
     assert_eq!(
-        QrCode::encode(&noise(100, 1), EncodeOptions { max_version: 2, ..Default::default() }),
+        QrCode::encode(&noise(100, 1), {
+            let mut v_ = EncodeOptions::default();
+            v_.max_version = 2;
+            v_
+        }),
         Err(QrError::TooLong)
     );
 }
@@ -569,13 +609,20 @@ fn modes_are_chosen_by_what_the_data_is() {
     }
     // Digits take far fewer bits than bytes: 100 digits fit version 3-L numerically but 100 bytes do not.
     let digits: Vec<u8> = (0..100).map(|i| b'0' + (i % 10) as u8).collect();
-    let numeric =
-        QrCode::encode(&digits, EncodeOptions { ecc: Ecc::Low, boost_ecc: false, ..Default::default() })
-            .unwrap_or_else(|e| unreachable!("{e}"));
-    let bytes = QrCode::encode(
-        &digits,
-        EncodeOptions { ecc: Ecc::Low, boost_ecc: false, mode: Some(Mode::Byte), ..Default::default() },
-    )
+    let numeric = QrCode::encode(&digits, {
+        let mut v_ = EncodeOptions::default();
+        v_.ecc = Ecc::Low;
+        v_.boost_ecc = false;
+        v_
+    })
+    .unwrap_or_else(|e| unreachable!("{e}"));
+    let bytes = QrCode::encode(&digits, {
+        let mut v_ = EncodeOptions::default();
+        v_.ecc = Ecc::Low;
+        v_.boost_ecc = false;
+        v_.mode = Some(Mode::Byte);
+        v_
+    })
     .unwrap_or_else(|e| unreachable!("{e}"));
     assert!(numeric.version() < bytes.version());
     assert_eq!(decode(&numeric).payload, digits);
@@ -588,17 +635,15 @@ fn the_mask_with_the_lowest_penalty_is_chosen() {
         let auto = QrCode::encode_text(text, Ecc::Medium).unwrap_or_else(|e| unreachable!("{e}"));
         let mut lowest = u32::MAX;
         for mask in 0..8u8 {
-            let forced = QrCode::encode(
-                text.as_bytes(),
-                EncodeOptions {
-                    ecc: auto.ecc(),
-                    min_version: auto.version(),
-                    max_version: auto.version(),
-                    mask: Some(mask),
-                    boost_ecc: false,
-                    ..Default::default()
-                },
-            )
+            let forced = QrCode::encode(text.as_bytes(), {
+                let mut v_ = EncodeOptions::default();
+                v_.ecc = auto.ecc();
+                v_.min_version = auto.version();
+                v_.max_version = auto.version();
+                v_.mask = Some(mask);
+                v_.boost_ecc = false;
+                v_
+            })
             .unwrap_or_else(|e| unreachable!("{e}"));
             assert_eq!(forced.mask(), mask);
             assert_eq!(decode(&forced).payload, text.as_bytes(), "mask {mask} decodes");
@@ -613,8 +658,13 @@ fn error_correction_is_raised_while_the_version_stays() {
     let c = QrCode::encode_text("hi", Ecc::Low).unwrap_or_else(|e| unreachable!("{e}"));
     assert_eq!(c.version(), 1);
     assert_eq!(c.ecc(), Ecc::High, "two bytes leave room for the strongest level");
-    let c = QrCode::encode(b"hi", EncodeOptions { ecc: Ecc::Low, boost_ecc: false, ..Default::default() })
-        .unwrap_or_else(|e| unreachable!("{e}"));
+    let c = QrCode::encode(b"hi", {
+        let mut v_ = EncodeOptions::default();
+        v_.ecc = Ecc::Low;
+        v_.boost_ecc = false;
+        v_
+    })
+    .unwrap_or_else(|e| unreachable!("{e}"));
     assert_eq!(c.ecc(), Ecc::Low);
 }
 
@@ -689,24 +739,31 @@ fn japanese_text_goes_in_kanji_mode_and_decodes() {
     assert!(d.parsed.ecis.is_empty());
     assert_eq!(d.parsed.text, text);
     // It is smaller than the same text as UTF-8 bytes.
-    let utf8 = QrCode::encode_text_with(
-        text,
-        EncodeOptions { ecc: Ecc::Low, mode: Some(Mode::Byte), boost_ecc: false, ..EncodeOptions::default() },
-    )
+    let utf8 = QrCode::encode_text_with(text, {
+        let mut v_ = EncodeOptions::default();
+        v_.ecc = Ecc::Low;
+        v_.mode = Some(Mode::Byte);
+        v_.boost_ecc = false;
+        v_
+    })
     .unwrap_or_else(|e| unreachable!("{e}"));
     assert_eq!(decode(&utf8).parsed.text, text);
     let kanji_bits = total_bits(&segment_text(text, 1), 1);
     let byte_bits = total_bits(&[Segment::eci(ECI_UTF8), Segment::bytes(text.as_bytes())], 1);
     assert!(kanji_bits < byte_bits, "{kanji_bits} against {byte_bits}");
     // Forced Kanji works for Kanji text and is refused for anything else.
-    let forced =
-        QrCode::encode_text_with(text, EncodeOptions { mode: Some(Mode::Kanji), ..EncodeOptions::default() });
+    let forced = QrCode::encode_text_with(text, {
+        let mut v_ = EncodeOptions::default();
+        v_.mode = Some(Mode::Kanji);
+        v_
+    });
     assert!(forced.is_ok());
     assert_eq!(
-        QrCode::encode_text_with(
-            "abc",
-            EncodeOptions { mode: Some(Mode::Kanji), ..EncodeOptions::default() }
-        ),
+        QrCode::encode_text_with("abc", {
+            let mut v_ = EncodeOptions::default();
+            v_.mode = Some(Mode::Kanji);
+            v_
+        }),
         Err(QrError::BadOptions)
     );
 }

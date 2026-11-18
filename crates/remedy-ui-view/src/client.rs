@@ -13,6 +13,7 @@ use crate::{El, Request, Ui};
 
 /// Text reaching an element with [`El::on_text_input`].
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum TextInput {
     /// What an input method did: composition shown, text committed, composition ended.
     Ime(ImeEvent),
@@ -65,12 +66,14 @@ impl Ui {
         let caret = (client.caret)().translate(at.min.to_vec2());
         // Nothing around the caret is shared: what a terminal shows is not the input
         // method's to read.
-        Some(TextInputState {
-            surrounding: String::new(),
-            selection: 0..0,
-            caret,
-            private: false,
-            multiline: true,
+        Some({
+            let mut v_ = TextInputState::default();
+            v_.surrounding = String::new();
+            v_.selection = 0..0;
+            v_.caret = caret;
+            v_.private = false;
+            v_.multiline = true;
+            v_
         })
     }
 

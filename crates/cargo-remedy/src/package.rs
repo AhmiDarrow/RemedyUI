@@ -1,4 +1,5 @@
-//! `cargo remedy package`: a release build, packaged for Windows.
+//! `cargo remedy package`: a release build, packaged for Windows (here), or for Linux,
+//! Android and macOS ([`crate::platforms`]).
 //!
 //! 1. The icon (from `remedy.toml`, or a default one) becomes a multi-size `.ico`.
 //! 2. With a resource compiler (`llvm-rc`, or `rc` from the Windows SDK), the icon and the
@@ -18,12 +19,34 @@ use std::process::Command;
 use crate::project::{Project, cargo, status};
 
 pub fn run(args: &[String]) -> Result<(), String> {
-    let target = crate::flag_value(args, "--target").unwrap_or_else(|| "windows".into());
+    let default = if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "windows"
+    };
+    let target = crate::flag_value(args, "--target").unwrap_or_else(|| default.into());
     if target != "windows" {
-        return Err(format!(
-            "packaging for `{target}` is not built yet: Windows packages are (M5); macOS, Linux and \
-             Android packages arrive with their first apps"
-        ));
+        let root = std::env::current_dir().map_err(|e| e.to_string())?;
+        let p = Project::load(&root)?;
+        let dist = p.target_dir.join("remedy").join("dist");
+        std::fs::create_dir_all(&dist).map_err(|e| e.to_string())?;
+        let mut notes = Vec::new();
+        let artifacts = match target.as_str() {
+            "linux" => crate::platforms::linux(&p, &dist, &mut notes)?,
+            "android" => crate::platforms::android(&p, &dist, &mut notes)?,
+            "macos" => crate::platforms::macos(&p, &dist, &mut notes)?,
+            other => return Err(format!("no packaging for `{other}`: use windows, linux, macos or android")),
+        };
+        println!("Packaged {} {} for {target}:", p.name, p.version);
+        for a in &artifacts {
+            println!("  {}", a.display());
+        }
+        for n in notes {
+            println!("  note: {n}");
+        }
+        return Ok(());
     }
     if !cfg!(windows) {
         return Err(
@@ -339,6 +362,12 @@ mod tests {
             icon: None,
             sign_thumbprint: None,
             timestamp_url: String::new(),
+            lib_name: "notes".into(),
+            android_target: "aarch64-linux-android".into(),
+            android_min_api: 26,
+            android_target_api: 35,
+            android_keystore: None,
+            android_key_alias: None,
         }
     }
 

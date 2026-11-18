@@ -100,6 +100,7 @@ pub struct StaffCursor {
 
 /// How a [`note_staff`] looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct NoteStaffOptions {
     /// The clef.
     pub clef: Clef,
@@ -109,6 +110,32 @@ pub struct NoteStaffOptions {
     pub time: Option<(u8, u8)>,
     /// The distance between staff lines. `None` takes two and a half theme units.
     pub space: Option<f32>,
+}
+
+impl NoteStaffOptions {
+    /// Sets `clef`: the clef.
+    pub fn clef(mut self, value: Clef) -> Self {
+        self.clef = value;
+        self
+    }
+
+    /// Sets `key`: the key signature: the number of sharps (positive) or flats (negative), -7 to 7.
+    pub fn key(mut self, value: i8) -> Self {
+        self.key = value;
+        self
+    }
+
+    /// Sets `time`: the time signature the piece starts in.
+    pub fn time(mut self, value: (u8, u8)) -> Self {
+        self.time = Some(value);
+        self
+    }
+
+    /// Sets `space`: the distance between staff lines.
+    pub fn space(mut self, value: f32) -> Self {
+        self.space = Some(value);
+        self
+    }
 }
 
 impl Default for NoteStaffOptions {

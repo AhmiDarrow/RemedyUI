@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_core::{Point, Size};
-use remedy_ui_input::{Buttons, Chord, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase};
+use remedy_ui_input::{Buttons, Chord, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
 use remedy_ui_reactive::Signal;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Ui};
@@ -27,15 +27,7 @@ fn frame(ui: &Ui) {
 }
 
 fn key(ui: &Ui, k: Key, m: Modifiers) -> bool {
-    let r = ui.key(&KeyEvent {
-        key: k,
-        physical: String::new(),
-        modifiers: m,
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: None,
-    });
+    let r = ui.key(&KeyEvent::press(k).with_modifiers(m).with_text(None));
     frame(ui);
     r
 }
@@ -44,16 +36,11 @@ fn press(ui: &Ui, el: &El, at: Duration) {
     frame(ui);
     let b = el.bounds().unwrap_or_default();
     let c = Point::new((b.min.x + b.max.x) / 2.0, (b.min.y + b.max.y) / 2.0);
-    let ev = |phase, buttons| PointerEvent {
-        id: 0,
-        kind: PointerKind::Mouse,
-        phase,
-        position: c,
-        buttons,
-        pressure: 0.5,
-        time: at,
-        coalesced: Vec::new(),
-        modifiers: remedy_ui_input::Modifiers::NONE,
+    let ev = |phase, buttons| {
+        PointerEvent::new(phase, c)
+            .with_buttons(buttons)
+            .with_time(at)
+            .with_modifiers(remedy_ui_input::Modifiers::NONE)
     };
     ui.pointer(&ev(PointerPhase::Down, Buttons::PRIMARY));
     ui.pointer(&ev(PointerPhase::Up, Buttons::default()));

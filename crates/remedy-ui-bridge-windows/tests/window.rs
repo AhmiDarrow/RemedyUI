@@ -37,10 +37,11 @@ impl App for Probe {
             HostEvent::Resumed => {
                 let deadline = host.now() + Duration::from_secs(20);
                 host.set_timer(deadline);
-                let opts = WindowOptions {
-                    title: "RemedyUI bridge test".into(),
-                    size: Size::new(200.0, 150.0),
-                    ..Default::default()
+                let opts = {
+                    let mut v_ = WindowOptions::default();
+                    v_.title = "RemedyUI bridge test".into();
+                    v_.size = Size::new(200.0, 150.0);
+                    v_
                 };
                 self.window = host.create_window(&opts).ok();
             }
@@ -88,23 +89,32 @@ impl App for Probe {
                 self.capture = Some(host.set_capture_protected(window, true).map_err(|e| e.to_string()));
                 self.handles = host.window_handles(window).is_ok();
                 // A text session through TSF, a password field (no input method), then none.
-                let field = TextInputState {
-                    surrounding: "Hello".into(),
-                    selection: 5..5,
-                    caret: Rect::new(40.0, 4.0, 41.0, 22.0),
-                    private: false,
-                    multiline: false,
+                let field = {
+                    let mut v_ = TextInputState::default();
+                    v_.surrounding = "Hello".into();
+                    v_.selection = 5..5;
+                    v_.caret = Rect::new(40.0, 4.0, 41.0, 22.0);
+                    v_.private = false;
+                    v_.multiline = false;
+                    v_
                 };
                 host.set_text_input(window, Some(field.clone()));
-                host.set_text_input(window, Some(TextInputState { private: true, ..field }));
+                host.set_text_input(
+                    window,
+                    Some({
+                        let mut v_ = field;
+                        v_.private = true;
+                        v_
+                    }),
+                );
                 host.set_text_input(window, None);
                 self.text_input = true;
                 // A real notification-area icon, then gone again.
-                let tray = TrayIcon {
-                    tooltip: "RemedyUI test".into(),
-                    icon: TrayImage { size: 16, rgba: [40u8, 120, 70, 255].repeat(256) },
-                    menu: vec![TrayItem::Item { id: 1, label: "Quit".into(), enabled: true }],
-                };
+                let tray = TrayIcon::new(
+                    "RemedyUI test",
+                    TrayImage { size: 16, rgba: [40u8, 120, 70, 255].repeat(256) },
+                    vec![TrayItem::Item { id: 1, label: "Quit".into(), enabled: true }],
+                );
                 self.tray = Some(
                     host.set_tray(Some(&tray)).and_then(|()| host.set_tray(None)).map_err(|e| e.to_string()),
                 );

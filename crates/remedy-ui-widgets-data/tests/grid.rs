@@ -31,7 +31,7 @@ fn grid(n: u32) -> G {
     let state = GridState::new(true);
     let opened: Rc<RefCell<Vec<u32>>> = Rc::default();
     let o2 = opened.clone();
-    let tiles = Tiles::new(TILE, |ui: &Ui, i: &u32| w::label(ui, format!("item {i}"), "").nowrap());
+    let tiles = Tiles::new(TILE, |ui: &Ui, i: &u32| w::text(ui, format!("item {i}")).nowrap());
     let g = grid_view(&ui, "Files", items, |i: &u32| *i, tiles, &state, move |k| o2.borrow_mut().push(*k));
     let g = g.fill_width();
     ui.root().child(g.clone());
@@ -162,7 +162,7 @@ fn a_grid_and_a_table_shown_after_starting_hidden_settle() {
     let ui = ui();
     let items = Signal::new(Vec::<u32>::new());
     let state = GridState::new(true);
-    let tiles = Tiles::new(TILE, |ui: &Ui, i: &u32| w::label(ui, format!("item {i}"), "").nowrap());
+    let tiles = Tiles::new(TILE, |ui: &Ui, i: &u32| w::text(ui, format!("item {i}")).nowrap());
     let g = grid_view(&ui, "Files", items, |i: &u32| *i, tiles, &state, |_| {});
     let tstate: TableState<u32> = TableState::new(true);
     let cols = vec![Column::text("n", "Name", 200.0, |i: &u32| i.to_string())];

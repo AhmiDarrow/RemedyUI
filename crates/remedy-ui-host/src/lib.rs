@@ -48,6 +48,7 @@ impl LocalTime {
 
 /// A screen reader or other assistive technology talking to a window.
 #[derive(Clone, Debug, PartialEq)]
+// Exhaustive on purpose: part of the host contract every bridge and runner must handle completely, so a new kind is a major change.
 pub enum AccessibilityEvent {
     /// It connected and wants the whole tree; send it with [`Host::update_accessibility`].
     Requested,
@@ -59,6 +60,7 @@ pub enum AccessibilityEvent {
 
 /// An app's icon in the system tray (notification area, menu bar extras, status notifier).
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct TrayIcon {
     /// What hovering shows.
     pub tooltip: String,
@@ -66,6 +68,13 @@ pub struct TrayIcon {
     pub icon: TrayImage,
     /// The menu, top to bottom.
     pub menu: Vec<TrayItem>,
+}
+
+impl TrayIcon {
+    /// `icon` with `tooltip` and `menu`.
+    pub fn new(tooltip: impl Into<String>, icon: TrayImage, menu: Vec<TrayItem>) -> Self {
+        TrayIcon { tooltip: tooltip.into(), icon, menu }
+    }
 }
 
 /// Tray icon pixels.
@@ -79,6 +88,7 @@ pub struct TrayImage {
 
 /// One tray menu entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
+// Exhaustive on purpose: part of the host contract every bridge must show completely, so a new kind is a major change.
 pub enum TrayItem {
     /// A command; its id comes back in [`TrayEvent::Menu`].
     Item {
@@ -95,6 +105,7 @@ pub enum TrayItem {
 
 /// What the user did with the tray icon.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TrayEvent {
     /// The icon was activated (clicked, or the platform's primary action).
     Activate,
@@ -104,6 +115,7 @@ pub enum TrayEvent {
 
 /// A native open or save dialog.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FileDialog {
     /// Title.
     pub title: String,
@@ -127,6 +139,7 @@ pub struct DialogId(pub u64);
 
 /// Where a file dialog stands once [`Host::file_dialog`] returns.
 #[derive(Clone, Debug, PartialEq, Eq)]
+// Exhaustive on purpose: part of the host contract every bridge and runner must handle completely, so a new kind is a major change.
 pub enum DialogStarted {
     /// It already closed (platforms whose dialogs run inside the call): the chosen paths,
     /// empty when cancelled.
@@ -138,6 +151,7 @@ pub enum DialogStarted {
 
 /// The edge or corner a resize drags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+// Exhaustive on purpose: a window has four edges and four corners.
 pub enum ResizeEdge {
     /// Top edge.
     Top,
@@ -167,6 +181,7 @@ pub struct TimerId(pub u64);
 
 /// A capability this platform does not have, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Unsupported {
     /// What was asked for.
     pub what: &'static str,
@@ -191,6 +206,7 @@ impl std::error::Error for Unsupported {}
 
 /// How to open a window. Sizes are logical pixels.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct WindowOptions {
     /// Title (also what assistive technology and the task switcher show).
     pub title: String,
@@ -234,6 +250,7 @@ impl Default for WindowOptions {
 
 /// System settings the engine follows, delivered again whenever one changes.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct SystemSettings {
     /// Shortcut conventions.
     pub platform: Platform,
@@ -301,6 +318,7 @@ impl SafeArea {
 
 /// How hard the system is asking processes to give memory back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+// Exhaustive on purpose: part of the host contract every bridge and runner must handle completely, so a new kind is a major change.
 pub enum MemoryPressure {
     /// Plenty.
     Normal,
@@ -311,7 +329,8 @@ pub enum MemoryPressure {
 }
 
 /// What a focused text field tells the input method.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub struct TextInputState {
     /// Text around the caret, for reconversion and prediction (empty for private fields).
     pub surrounding: String,
@@ -327,6 +346,7 @@ pub struct TextInputState {
 
 /// What an input method did.
 #[derive(Clone, Debug, PartialEq)]
+// Exhaustive on purpose: part of the host contract every bridge and runner must handle completely, so a new kind is a major change.
 pub enum ImeEvent {
     /// Composition started.
     Enabled,
@@ -352,6 +372,7 @@ pub enum ImeEvent {
 
 /// Everything a host tells the app.
 #[derive(Clone, Debug, PartialEq)]
+// Exhaustive on purpose: part of the host contract every bridge and runner must handle completely, so a new kind is a major change.
 pub enum HostEvent {
     /// The app may create windows (at start, and again after a mobile resume).
     Resumed,
@@ -453,6 +474,7 @@ impl DragData {
 
 /// What a drop does to what was dragged.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+// Exhaustive on purpose: the four outcomes every platform's drag and drop knows.
 pub enum DropEffect {
     /// Refused: nothing happens.
     #[default]
@@ -467,6 +489,7 @@ pub enum DropEffect {
 
 /// Where a drag out of a window stands once [`Host::start_drag`] returns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// Exhaustive on purpose: part of the host contract every bridge and runner must handle completely, so a new kind is a major change.
 pub enum DragStarted {
     /// It already ended (platforms whose drags run to the end inside the call): what the
     /// drop did.
@@ -477,6 +500,7 @@ pub enum DragStarted {
 
 /// A drag from another app (or from this one, outside its own windows) over a window.
 #[derive(Clone, Debug, PartialEq)]
+// Exhaustive on purpose: part of the host contract every bridge and runner must handle completely, so a new kind is a major change.
 pub enum DragEvent {
     /// It came in. Platforms that do not say where report `None` until it moves.
     Enter {

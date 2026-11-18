@@ -38,6 +38,7 @@ pub use transport::Listener;
 /// What an agent may do in a window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Scope {
     /// Read the window: what it shows and what can be done.
     Read,
@@ -50,6 +51,7 @@ pub enum Scope {
 /// Why a request was refused.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "refused", content = "detail")]
+#[non_exhaustive]
 pub enum Refused {
     /// No grant matches the token (never granted, revoked or expired).
     NoAccess,
@@ -85,6 +87,7 @@ impl std::error::Error for Refused {}
 
 /// One element as an agent sees it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Node {
     /// Its id, to act on it.
     pub id: u64,
@@ -117,6 +120,7 @@ pub struct Node {
 
 /// One command as an agent sees it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct CommandNode {
     /// Its id.
     pub id: String,
@@ -130,6 +134,7 @@ pub struct CommandNode {
 
 /// What an agent sees of a window.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Snapshot {
     /// The window's elements as a tree.
     pub tree: Vec<Node>,
@@ -143,6 +148,7 @@ pub struct Snapshot {
 /// An action an agent asks for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "do", content = "value")]
+#[non_exhaustive]
 pub enum AgentAction {
     /// Press it.
     Click,
@@ -174,20 +180,6 @@ impl AgentAction {
             AgentAction::ScrollIntoView => Action::ScrollIntoView,
             AgentAction::SetValue(_) => Action::SetValue,
         }
-    }
-}
-
-fn action_name(a: Action) -> &'static str {
-    match a {
-        Action::Click => "click",
-        Action::Focus => "focus",
-        Action::Increment => "increment",
-        Action::Decrement => "decrement",
-        Action::Expand => "expand",
-        Action::Collapse => "collapse",
-        Action::ShowContextMenu => "show_context_menu",
-        Action::ScrollIntoView => "scroll_into_view",
-        Action::SetValue => "set_value",
     }
 }
 
@@ -246,6 +238,7 @@ impl std::fmt::Debug for Agents {
 /// What a request asked for, in the JSON protocol.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "request")]
+#[non_exhaustive]
 pub enum Request {
     /// What the window shows and offers.
     Snapshot {
@@ -278,6 +271,7 @@ pub enum Request {
 /// The answer to a request.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "answer")]
+#[non_exhaustive]
 pub enum Answer {
     /// The snapshot asked for.
     Snapshot(Snapshot),
@@ -316,6 +310,50 @@ impl Agents {
         }
         self.show_indicator();
         t
+    }
+
+    /// Asks the person, in a trusted prompt nothing the app or an agent draws can cover or
+    /// press, whether `agent` may have `scope` over this window for `lasts` (or until they
+    /// end it). On Allow the access is granted and `answered` gets the token to hand the agent;
+    /// on Deny it gets `None`. Returns the prompt's layer (it removes itself when answered).
+    ///
+    /// ```
+    /// # fn ask(ui: &remedy_ui_view::Ui) {
+    /// use remedy_ui_automation::{Agents, Scope};
+    ///
+    /// let agents = Agents::new(ui, None);
+    /// agents.request_access("Assistant", Scope::Read, None, |token| {
+    ///     if let Some(token) = token {
+    ///         // Hand `token` to the assistant with the listener's address.
+    ///         let _ = token;
+    ///     }
+    /// });
+    /// # }
+    /// ```
+    pub fn request_access(
+        &self,
+        agent: &str,
+        scope: Scope,
+        lasts: Option<Duration>,
+        answered: impl FnOnce(Option<String>) + 'static,
+    ) -> El {
+        let what = match scope {
+            Scope::Read => "see what this window shows",
+            Scope::Act => "see and use this window",
+            Scope::ActWithConfirmation => "see this window and use it, asking you before each action",
+        };
+        let how_long = match lasts {
+            Some(d) if d.as_secs() >= 120 => format!(" for {} minutes", d.as_secs() / 60),
+            Some(d) => format!(" for {} seconds", d.as_secs().max(1)),
+            None => " until you stop it".to_owned(),
+        };
+        let message = format!("{agent} asks to {what}{how_long}. Passwords and secrets stay hidden.");
+        let (me, name) = (self.clone(), agent.to_owned());
+        let answered = RefCell::new(Some(answered));
+        w::trusted_prompt(&self.ui, format!("Allow {agent}?"), message, move |yes| {
+            let Some(f) = answered.borrow_mut().take() else { return };
+            f(yes.then(|| me.grant(&name, scope, lasts)));
+        })
     }
 
     /// Ends `agent`'s access.
@@ -372,7 +410,7 @@ impl Agents {
             .row()
             .gap(unit * 2.0)
             .padding(remedy_ui_core::Insets::all(unit * 2.0))
-            .child(w::label(ui, text.clone(), "strong"))
+            .child(w::text(ui, text.clone()).variant("strong"))
             .child(stop)
             .semantics(remedy_ui_a11y::Semantics::new(Role::Status).label(text));
         let [_, _, trusted] = ui.layers();
@@ -415,7 +453,7 @@ impl Agents {
                 .actions()
                 .iter()
                 .filter(|a| !(secret && **a == Action::SetValue))
-                .map(|a| action_name(*a).to_owned())
+                .map(|a| a.name().to_owned())
                 .collect(),
             children,
         }])

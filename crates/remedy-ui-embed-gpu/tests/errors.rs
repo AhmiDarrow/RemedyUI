@@ -17,7 +17,7 @@ struct Clumsy {
 }
 
 impl GpuContent for Clumsy {
-    fn prepare(&mut self, gpu: &Gpu<'_>) -> Result<(), String> {
+    fn prepare(&mut self, gpu: &Gpu<'_>) -> Result<(), remedy_ui_embed_gpu::PrepareError> {
         self.small = Some(gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("small"),
             size: 16,

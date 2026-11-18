@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 # What every platform builds: the platform-neutral parts (keys, wheel units, ARIA roles,
 # pixels, settings, the file store), so they are tested on any machine.
@@ -81,11 +84,11 @@ web-sys = { version = "=0.3.107", features = [
 ] }
 
 [dev-dependencies]
-remedy-ui = { path = "../remedy-ui", version = "0.1.0", default-features = false, features = ["widgets", "forms", "nav"] }
+remedy-ui = { path = "../remedy-ui", default-features = false, features = ["widgets", "forms", "nav"] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
 wasm-bindgen-test = { version = "=0.3.80" }
-remedy-ui = { path = "../remedy-ui", version = "0.1.0", default-features = false, features = ["widgets", "forms", "nav", "web", "gpu"] }
+remedy-ui = { path = "../remedy-ui", default-features = false, features = ["widgets", "forms", "nav", "web", "gpu"] }
 
 # The demo page (tools/build-web.sh builds and packages it).
 [[example]]

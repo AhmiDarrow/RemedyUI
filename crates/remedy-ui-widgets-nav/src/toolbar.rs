@@ -232,7 +232,7 @@ impl CommandPalette {
             untrack(|| {
                 l2.clear();
                 if found.is_empty() {
-                    let _ = l2.clone().child(w::label(&u, "No matching command", "muted"));
+                    let _ = l2.clone().child(w::text(&u, "No matching command").variant("muted"));
                 }
                 for (i, c) in found.iter().enumerate() {
                     let (me2, id) = (me.clone(), c.id.clone());
@@ -243,8 +243,8 @@ impl CommandPalette {
                         .gap(unit * 2.0)
                         .padding(Insets::symmetric(unit, unit * 2.0))
                         .fill_width()
-                        .child(w::label(&u, c.label.clone(), "").grow(1.0))
-                        .child(w::label(&u, shortcut.clone(), "muted").data_text())
+                        .child(w::text(&u, c.label.clone()).grow(1.0))
+                        .child(w::text(&u, shortcut.clone()).variant("muted").data_text())
                         .on_click(move || {
                             me2.close();
                             me2.commands.run(&id);

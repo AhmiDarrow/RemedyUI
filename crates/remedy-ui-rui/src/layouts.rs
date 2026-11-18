@@ -27,6 +27,7 @@ pub struct Layouts {
 
 /// Why a layout could not be saved.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum SaveError {
     /// It is not valid for this screen.
     Invalid(RuiError),

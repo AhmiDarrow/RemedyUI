@@ -215,7 +215,7 @@ impl WidgetKind for LinksKind {
         }
         let links = parse_links(&text_setting(s, "links"));
         if links.is_empty() {
-            col = col.child(w::label(ui, "No links yet.", "muted"));
+            col = col.child(w::text(ui, "No links yet.").variant("muted"));
         }
         for (label, url) in links {
             let open = cx.open_link.clone();
@@ -319,7 +319,7 @@ impl WidgetKind for ScriptKind {
 }
 
 fn failed(ui: &Ui, why: &str) -> El {
-    w::label(ui, format!("This widget stopped: {why}"), "error")
+    w::text(ui, format!("This widget stopped: {why}")).variant("error")
 }
 
 /// Builds elements from what a script described.
@@ -342,8 +342,8 @@ pub fn build_node(
             .fold(w::wrap(ui).gap(*gap), |c, n| c.child(build_node(ui, n, widget, version, open))),
         Node::Text { text, style } => match style {
             TextStyle::Body => w::text(ui, text.clone()),
-            TextStyle::Muted => w::label(ui, text.clone(), "muted"),
-            TextStyle::Strong => w::label(ui, text.clone(), "strong"),
+            TextStyle::Muted => w::text(ui, text.clone()).variant("muted"),
+            TextStyle::Strong => w::text(ui, text.clone()).variant("strong"),
             TextStyle::Heading(l) => w::heading(ui, *l + 1, text.clone()),
         },
         Node::Button { label, action } => {
@@ -368,7 +368,7 @@ pub fn build_node(
                 w::link(ui, label.clone(), move || open(&url))
             } else {
                 // Not a web page or mail: shown, never opened.
-                w::label(ui, label.clone(), "muted")
+                w::text(ui, label.clone()).variant("muted")
             }
         }
         Node::Progress { label, value } => {

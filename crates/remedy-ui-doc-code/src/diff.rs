@@ -3,6 +3,7 @@
 
 /// One line of a diff.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DiffLine {
     /// In both: the line, its number in the old text and in the new one (from 1).
     Same(String, usize, usize),

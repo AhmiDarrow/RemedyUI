@@ -114,12 +114,10 @@ fn tampered_downloads_wrong_keys_and_bad_hashes_are_refused() {
     let other = keys();
     let data = b"the real update".to_vec();
     let signature = sign(&k, &data);
-    let release = Release {
-        version: "1.0.0".into(),
-        notes: String::new(),
-        url: String::new(),
-        signature: signature.clone(),
-        sha256: None,
+    let release = {
+        let mut v_ = Release::new("1.0.0", "");
+        v_.signature = signature.clone();
+        v_
     };
     let cfg = UpdateConfig::new("0.9.0", Feed::Json(String::new()), k.public.clone());
     assert_eq!(verify(&cfg, &release, &data), Ok(()));
@@ -132,11 +130,26 @@ fn tampered_downloads_wrong_keys_and_bad_hashes_are_refused() {
         matches!(verify(&stranger, &release, &data), Err(UpdateError::Verification(_))),
         "someone else's key"
     );
-    let wrong_hash = Release { sha256: Some("00".repeat(32)), ..release.clone() };
+    let wrong_hash = {
+        let mut v_ = release.clone();
+        v_.sha256 = Some("00".repeat(32));
+        v_
+    };
     assert!(matches!(verify(&cfg, &wrong_hash, &data), Err(UpdateError::Verification(_))), "hash mismatch");
     use sha2::Digest;
     let right: String = sha2::Sha256::digest(&data).iter().map(|b| format!("{b:02x}")).collect();
-    assert_eq!(verify(&cfg, &Release { sha256: Some(right.to_uppercase()), ..release }, &data), Ok(()));
+    assert_eq!(
+        verify(
+            &cfg,
+            &{
+                let mut v_ = release;
+                v_.sha256 = Some(right.to_uppercase());
+                v_
+            },
+            &data
+        ),
+        Ok(())
+    );
 }
 
 #[test]

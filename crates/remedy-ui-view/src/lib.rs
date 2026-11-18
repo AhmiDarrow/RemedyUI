@@ -41,13 +41,14 @@ pub use remedy_ui_a11y::Action as A11yAction;
 pub use remedy_ui_host::{DragData, DragEvent, DropEffect, ImeEvent};
 pub use remedy_ui_input::WheelEvent;
 pub use remedy_ui_layout::{Align, Justify};
-pub use remedy_ui_text::{RichText, StylePatch as TextPatch};
+pub use remedy_ui_text::{RichText, TextStylePatch};
 pub use remedy_ui_tree::ElementId;
 
 use remedy_ui_host::TextInputState;
 
 /// Something the view needs its host to do.
 #[derive(Clone, Debug, PartialEq)]
+// Exhaustive on purpose: what a view asks of its runner; every runner must carry out every request, so a new kind is a major change.
 pub enum Request {
     /// Start, update (`Some`) or end (`None`) an input-method session.
     TextInput(Option<TextInputState>),

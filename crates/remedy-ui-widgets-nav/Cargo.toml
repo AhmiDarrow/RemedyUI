@@ -7,8 +7,12 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
+serde_json = { version = "=1.0.154", default-features = false, features = ["std"] }
 remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "0.1.0" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
 remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }

@@ -9,6 +9,7 @@ use vello_cpu::{ImageSource, PaintType, Pixmap, RenderContext, Tint};
 /// What a pixmap handed to [`Surface::image_source`] is: the same key always means the same
 /// pixels, so surfaces may keep uploads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ImageKey {
     /// An app image, by its [`Image::id`](remedy_ui_paint::Image).
     Image(u64),

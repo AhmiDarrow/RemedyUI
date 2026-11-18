@@ -62,7 +62,7 @@ fn command_row(
         untrack(|| {
             ch2.clear();
             if chords.is_empty() {
-                let _ = ch2.clone().child(w::label(&u, "No shortcut", "muted"));
+                let _ = ch2.clone().child(w::text(&u, "No shortcut").variant("muted"));
             }
             for chord in chords {
                 let shown = chord.label(u.platform());
@@ -77,7 +77,7 @@ fn command_row(
                 let chip = w::row(&u)
                     .align(Align::Center)
                     .gap(unit / 2.0)
-                    .child(w::label(&u, shown, "code").data_text())
+                    .child(w::text(&u, shown).variant("code").data_text())
                     .child(remove);
                 let _ = ch2.clone().child(chip);
             }
@@ -116,7 +116,7 @@ fn command_row(
         .grow(1.0)
         .layout(|l| l.min_width = remedy_ui_layout::Length::Px(160.0))
         .child(w::text(ui, label.clone()))
-        .child(w::label(ui, id.to_owned(), "muted").data_text());
+        .child(w::text(ui, id.to_owned()).variant("muted").data_text());
     w::wrap(ui)
         .gap(unit * 2.0)
         .align(Align::Center)
@@ -163,7 +163,7 @@ fn clash_panel(
                 .gap(unit)
                 .fill_width()
                 .semantics(Semantics::new(Role::Alert).label(message.clone()))
-                .child(w::label(&u, message, "strong"))
+                .child(w::text(&u, message).variant("strong"))
                 .child(w::wrap(&u).gap(unit).child(take).child(keep));
             let _ = p2.clone().child(box_);
         });
@@ -216,7 +216,7 @@ pub fn shortcut_editor(ui: &Ui, c: &Customizations) -> El {
         untrack(|| {
             l2.clear();
             if ids.is_empty() {
-                let _ = l2.clone().child(w::label(&u, "No matching command", "muted"));
+                let _ = l2.clone().child(w::text(&u, "No matching command").variant("muted"));
             }
             for id in &ids {
                 let _ = l2.clone().child(command_row(&u, &c2, &cmds2, id, pending, status));
@@ -234,7 +234,8 @@ pub fn shortcut_editor(ui: &Ui, c: &Customizations) -> El {
             }
         },
     );
-    let status_line = w::label(ui, "", "muted")
+    let status_line = w::text(ui, "")
+        .variant("muted")
         .text_dyn(move || status.get())
         .semantics_dyn(move || Semantics::new(Role::Status).label("Shortcut status").value(status.get()));
     w::column(ui)

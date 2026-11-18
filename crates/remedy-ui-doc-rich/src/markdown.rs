@@ -10,7 +10,7 @@ use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Par
 use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_core::Insets;
 use remedy_ui_layout::{Display, Track};
-use remedy_ui_text::{RichText, StylePatch};
+use remedy_ui_text::{RichText, TextStylePatch};
 use remedy_ui_view::{El, Ui};
 
 /// What following a link calls: the link's destination as the source wrote it.
@@ -88,7 +88,7 @@ enum Open {
 struct Inline {
     text: RichText,
     /// Open style spans: where each began and its patch.
-    styles: Vec<(usize, StylePatch)>,
+    styles: Vec<(usize, TextStylePatch)>,
     /// Links in this text, by id: their destinations.
     links: Vec<String>,
     /// The open link's start and destination.
@@ -104,7 +104,7 @@ impl Inline {
         self.text.push_text(s);
     }
 
-    fn open(&mut self, patch: StylePatch) {
+    fn open(&mut self, patch: TextStylePatch) {
         self.styles.push((self.text.len(), patch));
     }
 
@@ -247,7 +247,11 @@ impl Builder<'_> {
             Event::Code(t) => {
                 let mono = self.ui.theme().mono_families.clone();
                 let i = self.inline();
-                i.open(StylePatch { families: Some(mono), ..StylePatch::default() });
+                i.open({
+                    let mut v_ = TextStylePatch::default();
+                    v_.families = Some(mono);
+                    v_
+                });
                 i.push(&t);
                 i.close();
             }
@@ -382,9 +386,9 @@ impl Builder<'_> {
                 self.cell = Some((head, align));
                 self.inline = Some(Inline::new());
             }
-            Tag::Emphasis => self.inline().open(StylePatch::italic()),
-            Tag::Strong => self.inline().open(StylePatch::bold()),
-            Tag::Strikethrough => self.inline().open(StylePatch::strikethrough()),
+            Tag::Emphasis => self.inline().open(TextStylePatch::italic()),
+            Tag::Strong => self.inline().open(TextStylePatch::bold()),
+            Tag::Strikethrough => self.inline().open(TextStylePatch::strikethrough()),
             Tag::Link { dest_url, .. } => {
                 let i = self.inline();
                 let at = i.text.len();
@@ -438,7 +442,7 @@ impl Builder<'_> {
                     let id = i.links.len() as u64;
                     i.links.push(dest);
                     let end = i.text.len();
-                    i.text.add_span(start..end, StylePatch::link(id));
+                    i.text.add_span(start..end, TextStylePatch::link(id));
                 }
             }
             _ => {}
@@ -457,7 +461,11 @@ impl Builder<'_> {
         }
         let id = i.links.len() as u64;
         i.links.push(dest);
-        i.text.add_span(start..end, StylePatch { color: Some(color), ..StylePatch::link(id) });
+        i.text.add_span(start..end, {
+            let mut v_ = TextStylePatch::link(id);
+            v_.color = Some(color);
+            v_
+        });
     }
 
     fn end_code(&mut self) {

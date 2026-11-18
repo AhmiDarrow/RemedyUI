@@ -128,7 +128,7 @@ fn pinches_zoom_around_the_fingers() {
     let before = page_point(&w, 0, at);
     let z0 = zoom_of(&w, 0);
     for (phase, scale) in [(PinchPhase::Start, 1.0), (PinchPhase::Change, 1.5), (PinchPhase::End, 1.0)] {
-        assert!(w.ui.pinch(&PinchEvent { position: at, scale, phase, time: Duration::ZERO }));
+        assert!(w.ui.pinch(&PinchEvent::new(phase, at, scale)));
     }
     w.frame();
     assert!((zoom_of(&w, 0) / z0 - 1.5).abs() < 0.01);
@@ -380,17 +380,7 @@ fn thumbnails_show_pages_and_take_the_user_there() {
     let at = third.as_ref().and_then(|r| r.bounds()).map(|b| b.center()).unwrap_or_default();
     for phase in [PointerPhase::Down, PointerPhase::Up] {
         let buttons = if phase == PointerPhase::Down { Buttons::PRIMARY } else { Buttons::default() };
-        ui.pointer(&remedy_ui_input::PointerEvent {
-            id: 0,
-            kind: PointerKind::Mouse,
-            phase,
-            position: at,
-            buttons,
-            pressure: 0.5,
-            time: Duration::ZERO,
-            coalesced: Vec::new(),
-            modifiers: Modifiers::NONE,
-        });
+        ui.pointer(&remedy_ui_input::PointerEvent::new(phase, at).with_buttons(buttons));
     }
     frame(5);
     assert_eq!(view.current_page().get_untracked().ok(), Some(2));
@@ -399,15 +389,7 @@ fn thumbnails_show_pages_and_take_the_user_there() {
     // With the rail focused, the keys move through the pages and the rail follows.
     rail.focus();
     for _ in 0..10 {
-        let _ = ui.key(&remedy_ui_input::KeyEvent {
-            key: Key::ArrowDown,
-            physical: String::new(),
-            modifiers: Modifiers::NONE,
-            pressed: true,
-            repeat: false,
-            composing: false,
-            text: None,
-        });
+        let _ = ui.key(&remedy_ui_input::KeyEvent::press(Key::ArrowDown));
         frame(1);
     }
     frame(5);

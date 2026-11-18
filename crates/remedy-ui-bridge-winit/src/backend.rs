@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 /// A display server.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Backend {
     /// Let winit choose (Wayland first, then X11).
     Auto,

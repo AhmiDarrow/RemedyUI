@@ -22,15 +22,11 @@ fn page(ui: &Ui) -> El {
 
 fn typed(ui: &Ui, s: &str) {
     for c in s.chars() {
-        ui.key(&KeyEvent {
-            key: Key::Character(c.to_string()),
-            physical: String::new(),
-            modifiers: NONE,
-            pressed: true,
-            repeat: false,
-            composing: false,
-            text: Some(c.to_string()),
-        });
+        ui.key(
+            &KeyEvent::press(Key::Character(c.to_string()))
+                .with_modifiers(NONE)
+                .with_text(Some(c.to_string())),
+        );
     }
     frame(ui);
 }

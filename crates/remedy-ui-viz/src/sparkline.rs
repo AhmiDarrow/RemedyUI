@@ -13,6 +13,7 @@ use crate::series::{PlotBox, Range, Samples, extent, plot};
 
 /// How the sparkline looks.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct SparklineOptions {
     /// The span of values shown. Auto fits the values on screen.
     pub range: Range,
@@ -29,6 +30,50 @@ pub struct SparklineOptions {
     pub width: Option<f32>,
     /// The height. `None` takes it from the theme.
     pub height: Option<f32>,
+}
+
+impl SparklineOptions {
+    /// Sets `range`: the span of values shown.
+    pub fn range(mut self, value: Range) -> Self {
+        self.range = value;
+        self
+    }
+
+    /// Sets `window`: how many values the width stands for.
+    pub fn window(mut self, value: usize) -> Self {
+        self.window = Some(value);
+        self
+    }
+
+    /// Sets `fill`: shade the area under the line.
+    pub fn fill(mut self, value: bool) -> Self {
+        self.fill = value;
+        self
+    }
+
+    /// Sets `dot`: mark the newest value with a dot.
+    pub fn dot(mut self, value: bool) -> Self {
+        self.dot = value;
+        self
+    }
+
+    /// Sets `line_width`: the line's width.
+    pub fn line_width(mut self, value: f32) -> Self {
+        self.line_width = value;
+        self
+    }
+
+    /// Sets `width`: the width.
+    pub fn width(mut self, value: f32) -> Self {
+        self.width = Some(value);
+        self
+    }
+
+    /// Sets `height`: the height.
+    pub fn height(mut self, value: f32) -> Self {
+        self.height = Some(value);
+        self
+    }
 }
 
 impl Default for SparklineOptions {

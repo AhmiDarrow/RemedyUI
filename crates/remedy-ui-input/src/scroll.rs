@@ -2,6 +2,7 @@
 
 /// Per-platform feel.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct ScrollPhysics {
     /// How quickly a fling slows: the fraction of velocity left after one second (0..1).
     pub decay_per_second: f32,

@@ -41,6 +41,7 @@ const ASSUMED_FPS: f64 = 30.0;
 
 /// What a player is doing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum PlaybackState {
     /// The source is being opened.
     #[default]
@@ -60,6 +61,7 @@ pub enum PlaybackState {
 
 /// How playback has gone.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PlaybackStats {
     /// Pictures handed to the video surface.
     pub frames_shown: u64,

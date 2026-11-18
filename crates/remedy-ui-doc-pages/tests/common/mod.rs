@@ -216,43 +216,21 @@ impl Win {
     }
 
     pub fn key(&mut self, key: Key, modifiers: Modifiers) -> bool {
-        let r = self.ui.key(&KeyEvent {
-            key,
-            physical: String::new(),
-            modifiers,
-            pressed: true,
-            repeat: false,
-            composing: false,
-            text: None,
-        });
+        let r = self.ui.key(&KeyEvent::press(key).with_modifiers(modifiers).with_text(None));
         self.frame();
         r
     }
 
     pub fn wheel(&mut self, at: Point, delta: f32, modifiers: Modifiers) -> bool {
-        let r = self.ui.wheel(&WheelEvent {
-            position: at,
-            delta: remedy_ui_core::Vec2::new(0.0, delta),
-            precise: false,
-            time: Duration::ZERO,
-            modifiers,
-        });
+        let r = self
+            .ui
+            .wheel(&WheelEvent::new(at, remedy_ui_core::Vec2::new(0.0, delta)).with_modifiers(modifiers));
         self.frame();
         r
     }
 
     pub fn pointer(&mut self, id: u32, kind: PointerKind, phase: PointerPhase, at: Point, buttons: Buttons) {
-        self.ui.pointer(&PointerEvent {
-            id,
-            kind,
-            phase,
-            position: at,
-            buttons,
-            pressure: 0.5,
-            time: Duration::ZERO,
-            coalesced: Vec::new(),
-            modifiers: Modifiers::NONE,
-        });
+        self.ui.pointer(&PointerEvent::new(phase, at).with_id(id).with_kind(kind).with_buttons(buttons));
         self.frame();
     }
 }

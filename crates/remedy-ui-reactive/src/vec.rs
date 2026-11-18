@@ -12,6 +12,7 @@ use crate::signal::Signal;
 
 /// One change to a [`SignalVec`].
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum VecDiff<T> {
     /// The whole contents, for a reader's first read or after `replace`.
     Replace(Vec<T>),

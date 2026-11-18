@@ -10,6 +10,7 @@ use remedy_ui_paint::{Brush, Item, Path, Stroke, StrokeCap, StrokeJoin};
 
 /// What an annotation is.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum AnnotationKind {
     /// Text marked with a translucent fill: one rectangle per line.
     Highlight {
@@ -67,6 +68,7 @@ pub enum AnnotationKind {
 
 /// The shapes people draw.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Shape {
     /// A rectangle.
     Rect,
@@ -489,6 +491,7 @@ pub(crate) fn paint(list: &mut remedy_ui_paint::DisplayList, a: &Annotation, sel
 
 /// The tools for making annotations; `Select` is the default (select text and annotations).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum Tool {
     /// Select text, and annotations by pressing them.
     #[default]

@@ -1,10 +1,8 @@
 //! Previews, golden images, the accessibility check and the inspector.
 
-use std::time::Duration;
-
 use remedy_ui_core::{Color, Point, Size};
 use remedy_ui_devtools::*;
-use remedy_ui_input::{Buttons, PointerEvent, PointerKind, PointerPhase};
+use remedy_ui_input::{Buttons, PointerEvent, PointerPhase};
 use remedy_ui_style::StylePatch;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::Ui;
@@ -25,17 +23,9 @@ fn frame(ui: &Ui) {
 }
 
 fn ptr(phase: PointerPhase, p: Point) -> PointerEvent {
-    PointerEvent {
-        id: 0,
-        kind: PointerKind::Mouse,
-        phase,
-        position: p,
-        buttons: if phase == PointerPhase::Down { Buttons::PRIMARY } else { Buttons::default() },
-        pressure: 0.5,
-        time: Duration::ZERO,
-        coalesced: Vec::new(),
-        modifiers: remedy_ui_input::Modifiers::NONE,
-    }
+    PointerEvent::new(phase, p)
+        .with_buttons(if phase == PointerPhase::Down { Buttons::PRIMARY } else { Buttons::default() })
+        .with_modifiers(remedy_ui_input::Modifiers::NONE)
 }
 
 /// A preview's first variation.
@@ -47,10 +37,10 @@ fn v0(p: &Preview) -> Variation {
 fn marker() -> Preview {
     Preview::new("marker", |ui| {
         w::row(ui).fill_width().child(
-            ui.el("box").width(40.0).height(40.0).style(StylePatch {
-                background: Some(Color::new(1.0, 0.0, 0.0, 1.0)),
-                ..StylePatch::default()
-            }),
+            ui.el("box")
+                .width(40.0)
+                .height(40.0)
+                .style(StylePatch::default().background(Color::new(1.0, 0.0, 0.0, 1.0))),
         )
     })
     .sizes(&[(200.0, 60.0)])
@@ -83,14 +73,15 @@ fn golden_images_catch_changes_and_round_trip_through_png() {
     let _ = std::fs::remove_dir_all(&dir);
     assert!(matches!(check_golden(&p, &dir), Err(GoldenError::Missing(_))), "first run writes a baseline");
     assert_eq!(check_golden(&p, &dir), Ok(()), "unchanged UI passes");
-    let moved =
-        Preview::new("marker", |ui| {
-            w::row(ui).fill_width().child(ui.el("box").width(80.0).height(40.0).style(StylePatch {
-                background: Some(Color::new(1.0, 0.0, 0.0, 1.0)),
-                ..StylePatch::default()
-            }))
-        })
-        .sizes(&[(200.0, 60.0)]);
+    let moved = Preview::new("marker", |ui| {
+        w::row(ui).fill_width().child(
+            ui.el("box")
+                .width(80.0)
+                .height(40.0)
+                .style(StylePatch::default().background(Color::new(1.0, 0.0, 0.0, 1.0))),
+        )
+    })
+    .sizes(&[(200.0, 60.0)]);
     match check_golden(&moved, &dir) {
         Err(GoldenError::Differs { pixels, actual, .. }) => {
             assert!(pixels >= 40 * 40, "{pixels}");
@@ -108,11 +99,8 @@ fn the_audit_finds_unnamed_controls_low_contrast_and_small_targets() {
     let good = w::button(&ui, "Save", || {});
     let unnamed = ui.el("box").width(40.0).height(40.0).on_click(|| {});
     let tiny = w::icon_button(&ui, w::Icon::Close, "Close", || {}).width(16.0).height(16.0);
-    let faint = w::label(&ui, "Barely there", "")
-        .style(StylePatch { foreground: Some(bg.with_alpha(0.9)), ..StylePatch::default() });
-    let gone = w::label(&ui, "Hidden", "")
-        .style(StylePatch { foreground: Some(bg), ..StylePatch::default() })
-        .hidden(true);
+    let faint = w::text(&ui, "Barely there").style(StylePatch::default().foreground(bg.with_alpha(0.9)));
+    let gone = w::text(&ui, "Hidden").style(StylePatch::default().foreground(bg)).hidden(true);
     ui.root().child(
         w::column(&ui)
             .child(good.clone())
@@ -295,10 +283,9 @@ fn shots() {
 
 #[test]
 fn start_aligned_text_follows_the_layout_direction() {
-    let p =
-        Preview::new("label", |ui| w::column(ui).fill_width().child(w::label(ui, "Start", "").fill_width()))
-            .sizes(&[(300.0, 40.0)])
-            .locales(&["en-US", "ar-EG"]);
+    let p = Preview::new("label", |ui| w::column(ui).fill_width().child(w::text(ui, "Start").fill_width()))
+        .sizes(&[(300.0, 40.0)])
+        .locales(&["en-US", "ar-EG"]);
     let ink = |s: &Snapshot, x0: u32, x1: u32| {
         let bg = s.pixel(299, 39).unwrap_or_default();
         (x0..x1).any(|x| {
@@ -326,11 +313,10 @@ fn wrapped_text_and_fields_stay_inside_their_boxes_right_to_left() {
         (first, cols.next_back().or(first))
     };
     let long = "The quick brown fox jumps over the lazy dog while the boxing wizards jump quickly";
-    let p = Preview::new("wrapped", move |ui| {
-        w::column(ui).fill_width().child(w::label(ui, long, "").fill_width())
-    })
-    .sizes(&[(240.0, 120.0)])
-    .locales(&["ar-EG"]);
+    let p =
+        Preview::new("wrapped", move |ui| w::column(ui).fill_width().child(w::text(ui, long).fill_width()))
+            .sizes(&[(240.0, 120.0)])
+            .locales(&["ar-EG"]);
     let s = p.render(&v0(&p));
     if let Some(d) = std::env::var_os("REMEDY_SHOTS") {
         let _ =
@@ -458,7 +444,7 @@ fn the_audit_finds_focus_that_does_not_show() {
         .height(40.0)
         .focusable(true)
         .semantics(remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Button).label("Unmarked"))
-        .style(StylePatch { outline_width: Some(0.0), ..StylePatch::default() });
+        .style(StylePatch::default().outline_width(0.0));
     ui.root().child(w::column(&ui).child(ringed.clone()).child(unmarked.clone()));
     frame(&ui);
     let found = audit(&ui);

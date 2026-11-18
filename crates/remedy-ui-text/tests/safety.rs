@@ -31,11 +31,11 @@ fn piles_of_combining_marks_lay_out_in_linear_time() {
     let mut e = TextEngine::new(fonts);
     let zalgo: String = std::iter::once('a').chain(std::iter::repeat_n('\u{0301}', 20_000)).collect();
     let t = std::time::Instant::now();
-    let p = e.layout(
-        &RichText::plain(zalgo),
-        &TextStyle::default(),
-        ParagraphOptions { max_width: Some(300.0), ..Default::default() },
-    );
+    let p = e.layout(&RichText::plain(zalgo), &TextStyle::default(), {
+        let mut v_ = ParagraphOptions::default();
+        v_.max_width = Some(300.0);
+        v_
+    });
     // Measured at about 4 ms in release and well under a second in debug; the bound leaves
     // room for slow CI machines while catching anything worse than linear.
     assert!(t.elapsed().as_secs_f32() < 2.0, "{:?}", t.elapsed());

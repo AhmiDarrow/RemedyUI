@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use crate::style::StylePatch;
+use crate::style::TextStylePatch;
 
 /// The character that stands for an inline object in the text (U+FFFC).
 pub const OBJECT_REPLACEMENT: char = '\u{FFFC}';
@@ -28,19 +28,19 @@ pub struct Span {
     /// Byte range in the text.
     pub range: Range<usize>,
     /// The style changes for that range.
-    pub patch: StylePatch,
+    pub patch: TextStylePatch,
 }
 
 /// A paragraph's content: text, styled spans (which may nest and overlap; later spans win)
 /// and inline objects.
 ///
 /// ```
-/// use remedy_ui_text::{RichText, StylePatch};
+/// use remedy_ui_text::{RichText, TextStylePatch};
 /// let msg = RichText::new()
 ///     .text("Meet at ")
-///     .styled("10:30", StylePatch::bold())
+///     .styled("10:30", TextStylePatch::bold())
 ///     .text(" in ")
-///     .styled("#general", StylePatch::link(7));
+///     .styled("#general", TextStylePatch::link(7));
 /// assert_eq!(msg.as_str(), "Meet at 10:30 in #general");
 /// assert_eq!(msg.spans().len(), 2);
 /// ```
@@ -69,7 +69,7 @@ impl RichText {
     }
 
     /// Appends text with a style patch.
-    pub fn styled(mut self, s: &str, patch: StylePatch) -> Self {
+    pub fn styled(mut self, s: &str, patch: TextStylePatch) -> Self {
         self.push_styled(s, patch);
         self
     }
@@ -86,7 +86,7 @@ impl RichText {
     }
 
     /// Appends styled text in place.
-    pub fn push_styled(&mut self, s: &str, patch: StylePatch) {
+    pub fn push_styled(&mut self, s: &str, patch: TextStylePatch) {
         let start = self.text.len();
         self.text.push_str(s);
         self.spans.push(Span { range: start..self.text.len(), patch });
@@ -94,7 +94,7 @@ impl RichText {
 
     /// Styles a byte range of the existing text. Ranges that are out of bounds or that cut
     /// through a character are clamped to the nearest character boundaries inside the text.
-    pub fn add_span(&mut self, range: Range<usize>, patch: StylePatch) {
+    pub fn add_span(&mut self, range: Range<usize>, patch: TextStylePatch) {
         let start = self.floor_boundary(range.start);
         let end = self.floor_boundary(range.end.max(range.start));
         if start < end {

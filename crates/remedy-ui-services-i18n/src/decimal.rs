@@ -17,6 +17,7 @@ pub struct Decimal {
 
 /// Why text is not a number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DecimalError {
     /// Nothing to read.
     Empty,

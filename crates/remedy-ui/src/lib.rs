@@ -27,15 +27,23 @@ mod instance;
 #[cfg(feature = "widgets")]
 mod movable;
 mod runner;
+/// Driving an app in tests on the in-memory host: find by role and name, press, type.
+#[cfg(all(feature = "headless", feature = "widgets"))]
+pub mod testing;
 
 pub use geometry::GeometryStore;
 #[cfg(feature = "widgets")]
 pub use movable::{Movable, movable};
+/// Editions: which default behaviors the app follows ([`AppConfig::edition`]).
+pub use remedy_ui_core::Edition;
 pub use runner::{
-    App, AppConfig, Completion, GPU_PROMOTE_FRAME_COST, GPU_PROMOTE_FRAME_STALL, RendererChoice,
-    RendererKind, Runner, Window, WindowSpec,
+    App, AppConfig, BackgroundJob, Cancelled, Completion, GPU_PROMOTE_FRAME_COST, GPU_PROMOTE_FRAME_STALL,
+    RendererChoice, RendererKind, Runner, Window, WindowSpec,
 };
 
+/// Semantics: roles, names, states and actions that screen readers, tests and agents read
+/// (`Semantics`, `Role`, `Action`).
+pub use remedy_ui_a11y as a11y;
 /// Agents: assistants read and operate the window under the person's consent.
 #[cfg(feature = "agents")]
 pub use remedy_ui_automation as agents;
@@ -67,16 +75,26 @@ pub use remedy_ui_embed_webview as webview;
 pub use remedy_ui_host as host;
 pub use remedy_ui_input as input;
 pub use remedy_ui_layout as layout;
+/// `#[derive(Store)]`: field accessors for a reactive [`reactive::Store`].
+#[cfg(feature = "macros")]
+pub use remedy_ui_macros::Store;
 #[cfg(feature = "anim")]
 pub use remedy_ui_media_anim as anim;
 #[cfg(feature = "image")]
 pub use remedy_ui_media_image as image;
+/// Decoding in a sandboxed helper process: images and animations whose decoder crashes,
+/// hangs or runs away with memory take down only the helper.
+#[cfg(feature = "isolated")]
+pub use remedy_ui_media_isolated as isolated;
 #[cfg(feature = "playback")]
 pub use remedy_ui_media_playback as playback;
 #[cfg(feature = "svg")]
 pub use remedy_ui_media_svg as svg;
 #[cfg(feature = "video")]
 pub use remedy_ui_media_video as video;
+/// Drawing: display lists, paths, brushes, transforms and images, for painters
+/// (`El::paint`), canvases and page sources.
+pub use remedy_ui_paint as paint;
 pub use remedy_ui_reactive as reactive;
 /// `.rui` markup: screens as data, compiled at build time or loaded for people's own layouts.
 #[cfg(feature = "markup")]
@@ -113,12 +131,42 @@ pub use remedy_ui_widgets_nav as nav;
 pub use remedy_ui_widgets_term as term;
 
 /// Why the app could not run.
-#[derive(Debug)]
-pub struct RunError(pub String);
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RunError {
+    /// [`AppConfig::single_instance`] could not claim or reach the running instance.
+    SingleInstance {
+        /// Why, in the platform's words.
+        reason: String,
+    },
+    /// The platform's bridge could not start its event loop, or the loop failed.
+    Bridge {
+        /// Why, in the platform's words.
+        reason: String,
+    },
+    /// RemedyUI has no bridge for this platform.
+    UnsupportedPlatform,
+    /// This platform's bridge is a feature the app did not turn on (`web` for browser pages).
+    NeedsFeature {
+        /// The `remedy-ui` feature to turn on.
+        feature: &'static str,
+    },
+}
 
 impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the app could not run: {}", self.0)
+        match self {
+            RunError::SingleInstance { reason } => {
+                write!(f, "the app could not run as a single instance: {reason}")
+            }
+            RunError::Bridge { reason } => write!(f, "the app could not run: {reason}"),
+            RunError::UnsupportedPlatform => {
+                write!(f, "the app could not run: RemedyUI has no bridge for this platform yet")
+            }
+            RunError::NeedsFeature { feature } => {
+                write!(f, "the app could not run: this platform needs remedy-ui's `{feature}` feature")
+            }
+        }
     }
 }
 
@@ -141,11 +189,13 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
         return remedy_ui_bridge_web::run_single_instance(&name, args, runner, move |a| {
             instance::deliver(&inbox, a)
         })
-        .map_err(|e| RunError(e.to_string()));
+        .map_err(|e| RunError::SingleInstance { reason: e.reason().to_owned() });
     }
     if config.single_instance {
         let args: Vec<String> = std::env::args().skip(1).collect();
-        if !instance::claim(&config.name, &args, inbox.clone()).map_err(RunError)? {
+        if !instance::claim(&config.name, &args, inbox.clone())
+            .map_err(|reason| RunError::SingleInstance { reason })?
+        {
             // Another instance runs and has our arguments.
             return Ok(());
         }
@@ -153,40 +203,40 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
     let runner = Runner::new(config, setup).with_inbox(inbox);
     #[cfg(windows)]
     {
-        remedy_ui_bridge_windows::run(runner).map_err(|e| RunError(e.to_string()))
+        remedy_ui_bridge_windows::run(runner).map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
     }
     #[cfg(target_os = "macos")]
     {
-        remedy_ui_bridge_macos::run(runner).map_err(|e| RunError(e.to_string()))
+        remedy_ui_bridge_macos::run(runner).map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
     }
     #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
     {
-        remedy_ui_bridge_linux::run(runner).map_err(|e| RunError(e.to_string()))
+        remedy_ui_bridge_linux::run(runner).map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
     }
     // The activity comes from the app's `remedy_ui::android::main!` entry point.
     #[cfg(target_os = "android")]
     {
-        remedy_ui_bridge_android::run(runner).map_err(|e| RunError(e.to_string()))
+        remedy_ui_bridge_android::run(runner).map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
     }
     #[cfg(target_os = "ios")]
     {
         drop(runner);
-        Err(RunError("no bridge for this platform yet".into()))
+        Err(RunError::UnsupportedPlatform)
     }
     // A browser page: the app starts and this returns; the browser runs it from then on.
     #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
     {
-        remedy_ui_bridge_web::run(runner).map_err(|e| RunError(e.to_string()))
+        remedy_ui_bridge_web::run(runner).map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
     }
     #[cfg(all(not(feature = "web"), target_arch = "wasm32", target_os = "unknown"))]
     {
         drop(runner);
-        Err(RunError("browser pages need the `web` feature".into()))
+        Err(RunError::NeedsFeature { feature: "web" })
     }
     #[cfg(not(any(windows, unix, all(target_arch = "wasm32", target_os = "unknown"))))]
     {
         drop(runner);
-        Err(RunError("no bridge for this platform yet".into()))
+        Err(RunError::UnsupportedPlatform)
     }
 }
 

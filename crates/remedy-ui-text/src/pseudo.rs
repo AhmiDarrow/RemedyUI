@@ -11,6 +11,7 @@ use crate::rich::RichText;
 
 /// A pseudo-locale.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Pseudo {
     /// `en-XA`: accented, longer, bracketed.
     Accented,
@@ -114,7 +115,7 @@ fn accent(c: char) -> char {
 mod tests {
     use super::*;
     use crate::rich::OBJECT_REPLACEMENT;
-    use crate::{InlineObject, StylePatch};
+    use crate::{InlineObject, TextStylePatch};
 
     #[test]
     fn pseudo_locales_rewrite_text_and_keep_its_styles() {
@@ -122,7 +123,7 @@ mod tests {
         assert_eq!(Pseudo::for_locale("ar_xb"), Some(Pseudo::Bidi));
         assert_eq!(Pseudo::for_locale("en-US"), None);
         assert_eq!(Pseudo::Accented.apply(&RichText::plain("17")).as_str(), "17", "numbers stay");
-        let t = RichText::new().text("Save ").styled("all", StylePatch::bold()).text(" 12 notes");
+        let t = RichText::new().text("Save ").styled("all", TextStylePatch::bold()).text(" 12 notes");
         let p = Pseudo::Accented.apply(&t);
         let s = p.as_str();
         assert!(s.starts_with("[Šåṽé åļļ 12 ñöţéš") && s.ends_with(']'), "{s}");

@@ -35,6 +35,7 @@ impl std::error::Error for InstallError {}
 
 /// One frame of one window, by phase ([`remedy_ui_trace::phases`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FrameSample {
     /// The window's view ([`remedy_ui_view::Ui::id`]), when the frame span named it.
     pub ui: Option<u64>,
@@ -64,6 +65,7 @@ impl FrameSample {
 
 /// A span or event as a trace holds it.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Slice {
     /// The track (thread) it ran on; [`GPU_TRACK`] for GPU work.
     pub track: u64,

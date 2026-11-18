@@ -87,7 +87,7 @@ pub fn property_grid(ui: &Ui, label: impl Into<String>, groups: Vec<PropertyGrou
             .fill_width()
             .child(down)
             .child(right)
-            .child(w::label(ui, g.title.clone(), "strong").nowrap())
+            .child(w::text(ui, g.title.clone()).variant("strong").nowrap())
             .on_click(move || open.update(|o| *o = !*o))
             .on_key(move |e| {
                 if e.pressed && matches!(e.key, Key::ArrowLeft | Key::ArrowRight) {
@@ -117,9 +117,9 @@ pub fn property_grid(ui: &Ui, label: impl Into<String>, groups: Vec<PropertyGrou
                 l.grow = 2.0;
                 l.basis = Length::Px(0.0);
             });
-            name = name.child(w::label(ui, p.name.clone(), "").nowrap());
+            name = name.child(w::text(ui, p.name.clone()).nowrap());
             if let Some(d) = &p.description {
-                name = name.child(w::label(ui, d.clone(), "muted"));
+                name = name.child(w::text(ui, d.clone()).variant("muted"));
             }
             let editor = ui.el("property_editor").row().align(Align::Center).layout(|l| {
                 l.grow = 3.0;
@@ -156,7 +156,7 @@ pub fn property_grid(ui: &Ui, label: impl Into<String>, groups: Vec<PropertyGrou
         });
         body = body.child(section);
     }
-    let none = w::label(ui, "No properties match", "muted");
+    let none = w::text(ui, "No properties match").variant("muted");
     let n2 = none.clone();
     let none = none.bind(move || {
         let f = filter.get();

@@ -26,7 +26,7 @@ struct Pulse {
 }
 
 impl GpuContent for Pulse {
-    fn prepare(&mut self, gpu: &Gpu<'_>) -> Result<(), String> {
+    fn prepare(&mut self, gpu: &Gpu<'_>) -> Result<(), remedy_ui::gpu_embed::PrepareError> {
         self.device.set(gpu.serial);
         Ok(())
     }

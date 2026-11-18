@@ -5,6 +5,7 @@ use taffy::style_helpers::{fr, length, max_content, min_content, minmax, percent
 
 /// How an element lays out its children.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Display {
     /// A row or column (CSS flexbox).
     #[default]
@@ -19,6 +20,7 @@ pub enum Display {
 
 /// The main axis of a flex container.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// Exhaustive on purpose: a box lays out along one of two axes.
 pub enum Axis {
     /// Children side by side, in the text direction.
     #[default]
@@ -29,6 +31,7 @@ pub enum Axis {
 
 /// A length.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub enum Length {
     /// Decided by content and the container.
     #[default]
@@ -41,6 +44,7 @@ pub enum Length {
 
 /// Alignment of children across the main axis, or of one child.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Align {
     /// At the start.
     Start,
@@ -57,6 +61,7 @@ pub enum Align {
 
 /// Distribution of children along the main axis.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Justify {
     /// Packed at the start.
     #[default]
@@ -75,6 +80,7 @@ pub enum Justify {
 
 /// A grid track's size.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Track {
     /// Logical pixels.
     Px(f32),
@@ -92,6 +98,7 @@ pub enum Track {
 
 /// How an element is positioned.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Position {
     /// In the flow of its parent.
     #[default]
@@ -102,6 +109,7 @@ pub enum Position {
 
 /// Text direction for layout: start and end follow it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// Exhaustive on purpose: text runs left to right or right to left.
 pub enum Direction {
     /// The parent's direction (left to right at the root), as CSS `direction` inherits.
     #[default]
@@ -115,6 +123,7 @@ pub enum Direction {
 /// An element's layout style. All horizontal properties are logical (start and end), so a
 /// right-to-left layout mirrors with no other change.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct LayoutStyle {
     /// Layout mode.
     pub display: Display,

@@ -201,6 +201,7 @@ pub trait PlatformHooks: 'static {
 
 /// A window event a platform produced outside winit.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum WindowNotice {
     /// Assistive technology on a window the platform serves itself.
     Accessibility(AccessibilityEvent),
@@ -210,11 +211,26 @@ pub enum WindowNotice {
 
 /// Why the event loop could not run.
 #[derive(Debug)]
-pub struct RunError(pub String);
+#[non_exhaustive]
+pub struct RunError {
+    reason: String,
+}
+
+impl RunError {
+    /// The event loop could not run because of `reason` (the platform's own words).
+    pub fn new(reason: impl Into<String>) -> Self {
+        RunError { reason: reason.into() }
+    }
+
+    /// Why, in the platform's words.
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+}
 
 impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the event loop failed: {}", self.0)
+        write!(f, "the event loop failed: {}", self.reason)
     }
 }
 
@@ -222,6 +238,7 @@ impl std::error::Error for RunError {}
 
 /// Events from other threads.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum UserEvent {
     /// A [`Waker`] was called.
     Wake,
@@ -855,17 +872,11 @@ impl<A: App, H: PlatformHooks> Runner<A, H> {
 
     fn pointer(&mut self, el: &ActiveEventLoop, wid: winit::window::WindowId, phase: PointerPhase) {
         let Some((id, w)) = self.state.windows.get(&wid) else { return };
-        let e = PointerEvent {
-            id: 0,
-            kind: PointerKind::Mouse,
-            phase,
-            position: w.cursor,
-            buttons: w.buttons,
-            pressure: if w.buttons.0 == 0 { 0.0 } else { 0.5 },
-            time: self.state.start.elapsed(),
-            coalesced: Vec::new(),
-            modifiers: self.state.modifiers,
-        };
+        let e = PointerEvent::new(phase, w.cursor)
+            .with_buttons(w.buttons)
+            .with_pressure(if w.buttons.0 == 0 { 0.0 } else { 0.5 })
+            .with_time(self.state.start.elapsed())
+            .with_modifiers(self.state.modifiers);
         let id = *id;
         self.deliver(el, HostEvent::Pointer(id, e));
     }
@@ -1027,13 +1038,10 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                         (Vec2::new(-l.x as f32, -l.y as f32), true)
                     }
                 };
-                let e = WheelEvent {
-                    position: w.cursor,
-                    delta: d,
-                    precise,
-                    time: now,
-                    modifiers: self.state.modifiers,
-                };
+                let e = WheelEvent::new(w.cursor, d)
+                    .with_precise(precise)
+                    .with_time(now)
+                    .with_modifiers(self.state.modifiers);
                 self.deliver(el, HostEvent::Wheel(id, e));
             }
             WindowEvent::PinchGesture { delta, phase, .. } => {
@@ -1046,7 +1054,7 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                 // winit reports the magnification change (positive grows); a multiplier is
                 // what zooming composes.
                 let scale = (1.0 + delta as f32).max(f32::MIN_POSITIVE);
-                let e = PinchEvent { position: w.cursor, scale, phase, time: now };
+                let e = PinchEvent::new(phase, w.cursor, scale).with_time(now);
                 self.deliver(el, HostEvent::Pinch(id, e));
             }
             WindowEvent::Touch(t) => {
@@ -1057,21 +1065,17 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                     TouchPhase::Cancelled => PointerPhase::Cancel,
                 };
                 let pressure = t.force.map_or(0.5, |f| f.normalized() as f32);
-                let e = PointerEvent {
-                    id: u32::try_from(t.id % u64::from(u32::MAX)).unwrap_or(0).saturating_add(1),
-                    kind: PointerKind::Touch,
-                    phase,
-                    position: logical(t.location, scale),
-                    buttons: if matches!(phase, PointerPhase::Up | PointerPhase::Cancel) {
+                let e = PointerEvent::new(phase, logical(t.location, scale))
+                    .with_id(u32::try_from(t.id % u64::from(u32::MAX)).unwrap_or(0).saturating_add(1))
+                    .with_kind(PointerKind::Touch)
+                    .with_buttons(if matches!(phase, PointerPhase::Up | PointerPhase::Cancel) {
                         Buttons::default()
                     } else {
                         Buttons::PRIMARY
-                    },
-                    pressure,
-                    time: now,
-                    coalesced: Vec::new(),
-                    modifiers: self.state.modifiers,
-                };
+                    })
+                    .with_pressure(pressure)
+                    .with_time(now)
+                    .with_modifiers(self.state.modifiers);
                 self.deliver(el, HostEvent::Pointer(id, e));
             }
             WindowEvent::ModifiersChanged(m) => self.state.modifiers = translate::modifiers(m.state()),
@@ -1088,19 +1092,19 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                     self.deliver(el, HostEvent::Ime(id, ImeEvent::Commit(text)));
                 }
                 let Some((_, w)) = self.state.windows.get_mut(&wid) else { return };
-                let e = KeyEvent {
-                    key: translate::key(&event.logical_key),
-                    physical: translate::physical(&event.physical_key),
-                    modifiers: self.state.modifiers,
-                    pressed: event.state == ElementState::Pressed,
-                    repeat: event.repeat,
-                    composing: w.composing,
-                    text: event
-                        .text
-                        .as_ref()
-                        .map(|t| t.to_string())
-                        .filter(|t| !t.chars().all(char::is_control)),
-                };
+                let e = KeyEvent::press(translate::key(&event.logical_key))
+                    .with_physical(translate::physical(&event.physical_key))
+                    .with_modifiers(self.state.modifiers)
+                    .with_pressed(event.state == ElementState::Pressed)
+                    .with_repeat(event.repeat)
+                    .with_composing(w.composing)
+                    .with_text(
+                        event
+                            .text
+                            .as_ref()
+                            .map(|t| t.to_string())
+                            .filter(|t| !t.chars().all(char::is_control)),
+                    );
                 self.deliver(el, HostEvent::Key(id, e));
             }
             WindowEvent::Ime(ime) => {
@@ -1200,7 +1204,7 @@ pub fn run_on<A: App, H: PlatformHooks>(
         }
     }));
     let mut runner = Runner { app, hooks, state };
-    event_loop.run_app(&mut runner).map_err(|e| RunError(e.to_string()))
+    event_loop.run_app(&mut runner).map_err(|e| RunError::new(e.to_string()))
 }
 
 /// Runs `app` on a new event loop (the main thread's) until it exits.
@@ -1221,6 +1225,6 @@ pub fn run<A: App, H: PlatformHooks>(app: A, hooks: H) -> Result<(), RunError> {
             backend::Backend::Auto => {}
         }
     }
-    let event_loop = builder.build().map_err(|e| RunError(e.to_string()))?;
+    let event_loop = builder.build().map_err(|e| RunError::new(e.to_string()))?;
     run_on(event_loop, app, hooks)
 }

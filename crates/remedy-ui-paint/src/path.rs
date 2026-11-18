@@ -4,6 +4,7 @@ use remedy_ui_core::{Point, Rect};
 
 /// One path segment.
 #[derive(Clone, Copy, Debug, PartialEq)]
+// Exhaustive on purpose: part of the display list every renderer must draw completely, so a new kind is a major change.
 pub enum PathEl {
     /// Starts a new subpath.
     MoveTo(Point),
@@ -108,6 +109,7 @@ impl Path {
 
 /// How line ends look.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// Exhaustive on purpose: part of the display list every renderer must draw completely, so a new kind is a major change.
 pub enum StrokeCap {
     /// Flat at the end point.
     #[default]
@@ -120,6 +122,7 @@ pub enum StrokeCap {
 
 /// How corners look.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// Exhaustive on purpose: part of the display list every renderer must draw completely, so a new kind is a major change.
 pub enum StrokeJoin {
     /// Sharp (beveled past the miter limit).
     #[default]

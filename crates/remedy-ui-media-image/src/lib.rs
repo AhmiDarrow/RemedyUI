@@ -30,6 +30,7 @@ pub use load::{
 
 /// How an image fills its element.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Fit {
     /// All of it, as large as fits, centered (letterboxed).
     #[default]

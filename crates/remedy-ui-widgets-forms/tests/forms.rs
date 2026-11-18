@@ -36,15 +36,7 @@ impl T {
     }
 
     fn key_with(&self, key: Key, modifiers: Modifiers) -> bool {
-        let r = self.ui.key(&KeyEvent {
-            key,
-            physical: String::new(),
-            modifiers,
-            pressed: true,
-            repeat: false,
-            composing: false,
-            text: None,
-        });
+        let r = self.ui.key(&KeyEvent::press(key).with_modifiers(modifiers).with_text(None));
         self.frame();
         r
     }

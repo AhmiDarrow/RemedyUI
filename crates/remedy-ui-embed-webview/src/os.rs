@@ -118,12 +118,12 @@ mod tests {
 
     #[test]
     fn a_scrolled_element_maps_to_its_visible_part_and_its_whole_box() {
-        let p = remedy_ui_view::Placement {
-            bounds: Rect::new(10.0, -20.0, 210.0, 80.0),
-            visible: Rect::new(10.0, 0.0, 210.0, 80.0),
-            covered: vec![Rect::new(100.0, 10.0, 150.0, 30.0)],
-            scale: 1.5,
-        };
+        let p = remedy_ui_view::Placement::new(
+            Rect::new(10.0, -20.0, 210.0, 80.0),
+            Rect::new(10.0, 0.0, 210.0, 80.0),
+            vec![Rect::new(100.0, 10.0, 150.0, 30.0)],
+            1.5,
+        );
         let l = Layout::of(Some(&p)).unwrap_or_else(|| unreachable!("shown"));
         assert_eq!(l.frame, PxRect { left: 15, top: 0, right: 315, bottom: 120 });
         assert_eq!(l.content, PxRect { left: 0, top: -30, right: 300, bottom: 120 });

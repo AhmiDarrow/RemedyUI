@@ -18,6 +18,7 @@ pub type ElementId = Id<Node>;
 
 /// Why a tree operation could not be done.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TreeError {
     /// The element does not exist (it was removed, or the id is from another tree).
     NotFound,
@@ -44,6 +45,7 @@ impl std::error::Error for TreeError {}
 
 /// Whether pointer hit testing can land on an element.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum HitMode {
     /// The element and its children can be hit.
     #[default]
@@ -56,6 +58,7 @@ pub enum HitMode {
 
 /// Event phase a handler listens in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Phase {
     /// From the root down to the target's parent, before the target.
     Capture,
@@ -65,6 +68,7 @@ pub enum Phase {
 
 /// A failure caught by an error boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Failure {
     /// Path of the element whose code failed, such as `root/settings/save`.
     pub element_path: String,
@@ -175,6 +179,7 @@ impl EventCx {
 
 /// What happened when an event was dispatched.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Dispatch {
     /// Handlers that ran (including ones that panicked).
     pub handlers_run: usize,

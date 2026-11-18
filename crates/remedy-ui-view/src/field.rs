@@ -22,6 +22,7 @@ use crate::{Request, frame};
 
 /// What kind of field.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FieldKind {
     /// One line; Enter submits.
     Single,
@@ -269,7 +270,7 @@ impl Field {
                     if let (Some(colors), None) = (&c.colors, comp) {
                         for (r, color) in colors(&text, &c.theme) {
                             if r.start < r.end && r.end <= text.len() {
-                                rt.add_span(r, remedy_ui_text::StylePatch::color(color));
+                                rt.add_span(r, remedy_ui_text::TextStylePatch::color(color));
                             }
                         }
                     }
@@ -358,11 +359,12 @@ impl Field {
         let text = self.display_rich();
         // Code is never wrapped: lines stay as written, the field scrolls sideways.
         let wrap = matches!(self.kind, FieldKind::Multi | FieldKind::Rich).then_some(width);
-        let options = ParagraphOptions {
-            max_width: wrap,
-            scale: self.scale,
-            container: crate::element::container(self.rtl),
-            ..ParagraphOptions::default()
+        let options = {
+            let mut v_ = ParagraphOptions::default();
+            v_.max_width = wrap;
+            v_.scale = self.scale;
+            v_.container = crate::element::container(self.rtl);
+            v_
         };
         let shown = if text.is_empty() { RichText::plain(" ") } else { text };
         let p = Rc::new(engine.layout(&shown, &self.style, options));
@@ -398,17 +400,18 @@ impl Field {
         }
         if text.is_empty() {
             if !self.placeholder.is_empty() {
-                let style = TextStyle { color: tokens.muted, ..self.style.clone() };
+                let style = {
+                    let mut v_ = self.style.clone();
+                    v_.color = tokens.muted;
+                    v_
+                };
                 let plain = RichText::plain(self.placeholder.clone());
-                let ph = engine.layout(
-                    &self.pseudo.map_or(plain.clone(), |p| p.apply(&plain)),
-                    &style,
-                    ParagraphOptions {
-                        scale: self.scale,
-                        container: crate::element::container(self.rtl),
-                        ..ParagraphOptions::default()
-                    },
-                );
+                let ph = engine.layout(&self.pseudo.map_or(plain.clone(), |p| p.apply(&plain)), &style, {
+                    let mut v_ = ParagraphOptions::default();
+                    v_.scale = self.scale;
+                    v_.container = crate::element::container(self.rtl);
+                    v_
+                });
                 frame::glyphs(
                     list,
                     &ph,
@@ -490,21 +493,25 @@ impl Field {
         match self.core() {
             Some(e) => {
                 let s = e.selection();
-                TextInputState {
-                    surrounding: e.text(),
-                    selection: s.anchor.min(s.focus)..s.anchor.max(s.focus),
-                    caret,
-                    private: false,
-                    multiline: matches!(self.kind, FieldKind::Multi | FieldKind::Rich | FieldKind::Code),
+                {
+                    let mut v_ = TextInputState::default();
+                    v_.surrounding = e.text();
+                    v_.selection = s.anchor.min(s.focus)..s.anchor.max(s.focus);
+                    v_.caret = caret;
+                    v_.private = false;
+                    v_.multiline = matches!(self.kind, FieldKind::Multi | FieldKind::Rich | FieldKind::Code);
+                    v_
                 }
             }
-            None => TextInputState {
-                surrounding: String::new(),
-                selection: 0..0,
-                caret,
-                private: true,
-                multiline: false,
-            },
+            None => {
+                let mut v_ = TextInputState::default();
+                v_.surrounding = String::new();
+                v_.selection = 0..0;
+                v_.caret = caret;
+                v_.private = true;
+                v_.multiline = false;
+                v_
+            }
         }
     }
 
@@ -645,6 +652,11 @@ pub(crate) fn key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> 
                 Key::Home | Key::End => {
                     ed.move_to_edge(e.key == Key::End, extend);
                     handled()
+                }
+                // Enter sends where the app asked for that (a chat's composer), and Shift+Enter
+                // breaks the line; otherwise Enter breaks the line.
+                Key::Enter if f.kind == FieldKind::Multi && f.submit_on_enter && !extend => {
+                    KeyOutcome::Submit
                 }
                 Key::Enter if f.kind == FieldKind::Multi => {
                     ed.insert("\n", now);
@@ -1458,20 +1470,23 @@ impl TextField {
         self.field.borrow_mut().key_filter = Some(Rc::new(f));
     }
 
-    /// Rich fields: Enter submits ([`TextField::on_submit`]) and Shift+Enter starts a new
-    /// line, as a chat's composer does. Off by default.
+    /// Multi-line and rich fields: Enter submits ([`TextField::on_submit`]) and Shift+Enter
+    /// starts a new line, as a chat's composer does. Off by default (single-line fields always
+    /// submit on Enter).
     pub fn submit_on_enter(self, on: bool) -> Self {
         self.field.borrow_mut().submit_on_enter = on;
         self
     }
 
-    /// Called when Enter is pressed in a single-line or secret field.
+    /// Called when Enter is pressed in a single-line or secret field, or in a multi-line or
+    /// rich field that [`TextField::submit_on_enter`].
     pub fn on_submit(self, f: impl Fn() + 'static) -> Self {
         self.field.borrow_mut().on_submit = Some(Rc::new(move |_| f()));
         self
     }
 
-    /// Called when Enter is pressed in a single-line or secret field, with the modifiers
+    /// Called when Enter is pressed in a single-line or secret field, or in a multi-line or
+    /// rich field that [`TextField::submit_on_enter`]. with the modifiers
     /// held (Shift+Enter goes back in a find bar).
     pub fn on_submit_with(self, f: impl Fn(remedy_ui_input::Modifiers) + 'static) -> Self {
         self.field.borrow_mut().on_submit = Some(Rc::new(f));

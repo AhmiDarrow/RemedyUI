@@ -3,6 +3,7 @@
 
 /// What Windows says about a file's signature.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SignatureStatus {
     /// Signed, and the chain is trusted.
     Valid,

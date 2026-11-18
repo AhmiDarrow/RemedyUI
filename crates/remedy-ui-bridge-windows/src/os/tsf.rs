@@ -689,12 +689,14 @@ mod tests {
     }
 
     fn field(text: &str, caret: usize) -> TextInputState {
-        TextInputState {
-            surrounding: text.into(),
-            selection: caret..caret,
-            caret: Rect::new(5.0, 5.0, 6.0, 20.0),
-            private: false,
-            multiline: false,
+        {
+            let mut v_ = TextInputState::default();
+            v_.surrounding = text.into();
+            v_.selection = caret..caret;
+            v_.caret = Rect::new(5.0, 5.0, 6.0, 20.0);
+            v_.private = false;
+            v_.multiline = false;
+            v_
         }
     }
 

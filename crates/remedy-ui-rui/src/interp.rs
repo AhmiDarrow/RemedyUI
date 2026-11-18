@@ -14,6 +14,7 @@ use crate::syntax::{Markup, Node, RuiError, Value};
 
 /// A signal or command the app exposes to a file.
 #[derive(Clone)]
+#[non_exhaustive]
 pub enum Binding {
     /// Text.
     Text(Signal<String>),
@@ -144,6 +145,7 @@ impl Scope {
 
 /// An argument's value, resolved against the scope, for the app's own elements.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum Bound {
     /// Fixed text (already translated).
     Label(String),

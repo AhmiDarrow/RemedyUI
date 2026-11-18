@@ -5,6 +5,7 @@ use std::panic::Location;
 
 /// Why a reactive operation could not be done.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ReactiveError {
     /// The signal, memo, effect or scope was disposed (its owner was disposed, or
     /// `dispose` was called). Its value no longer exists.

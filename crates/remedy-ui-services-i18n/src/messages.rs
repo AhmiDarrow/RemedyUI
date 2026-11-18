@@ -23,6 +23,7 @@ type Bundle = fluent_bundle::bundle::FluentBundle<Rc<FluentResource>, IntlLangMe
 
 /// A value passed into a message (`{ $count }`).
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Arg {
     /// Text.
     Text(String),
@@ -55,6 +56,7 @@ numeric_arg!(i32, i64, u32, u64, usize, f32, f64);
 
 /// Something wrong with the messages, for the inspector and logs.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Problem {
     /// A message file did not parse; the rest of it was used.
     Syntax {

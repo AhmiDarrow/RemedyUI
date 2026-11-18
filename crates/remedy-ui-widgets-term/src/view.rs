@@ -50,6 +50,7 @@ const REANNOUNCE_ROUNDS: u32 = 4;
 
 /// How a terminal is set up.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct TerminalOptions {
     /// What screen readers call it ("Terminal", "Build output").
     pub label: String,
@@ -66,6 +67,38 @@ pub struct TerminalOptions {
     /// Characters that count as part of a word when double-clicking, besides letters and
     /// digits (so a path or a URL selects whole).
     pub word_chars: String,
+}
+
+impl TerminalOptions {
+    /// Sets `label`: what screen readers call it ("Terminal", "Build output").
+    pub fn label(mut self, value: String) -> Self {
+        self.label = value;
+        self
+    }
+
+    /// Sets `scrollback`: how much scrollback to keep.
+    pub fn scrollback(mut self, value: Scrollback) -> Self {
+        self.scrollback = value;
+        self
+    }
+
+    /// Sets `string_limit`: the longest string a program may send in one sequence; `None` sizes it from the machine ([`default_string_limit`](crate::default_string_limit)).
+    pub fn string_limit(mut self, value: usize) -> Self {
+        self.string_limit = Some(value);
+        self
+    }
+
+    /// Sets `families`: font families in fallback order; `None` uses the system's monospace font (`ui-monospace`, then `monospace`) and then the theme's monospace families.
+    pub fn families(mut self, value: Vec<String>) -> Self {
+        self.families = Some(value);
+        self
+    }
+
+    /// Sets `word_chars`: characters that count as part of a word when double-clicking, besides letters and digits (so a path or a URL selects whole).
+    pub fn word_chars(mut self, value: String) -> Self {
+        self.word_chars = value;
+        self
+    }
 }
 
 impl Default for TerminalOptions {
@@ -624,7 +657,7 @@ impl Terminal {
 
     /// True when the font in use gives every character the same width (a real monospace
     /// face); false when characters are centered in their cells to line up.
-    pub fn monospace(&self) -> bool {
+    pub fn is_monospace(&self) -> bool {
         self.0.look.borrow().monospace
     }
 
@@ -879,13 +912,18 @@ impl Terminal {
                 return false;
             }
         }
-        let text_style = TextStyle {
-            families: families.clone(),
-            size: style.text_size,
-            weight: style.weight,
-            ..TextStyle::default()
+        let text_style = {
+            let mut v_ = TextStyle::default();
+            v_.families = families.clone();
+            v_.size = style.text_size;
+            v_.weight = style.weight;
+            v_
         };
-        let options = ParagraphOptions { scale, ..ParagraphOptions::default() };
+        let options = {
+            let mut v_ = ParagraphOptions::default();
+            v_.scale = scale;
+            v_
+        };
         let Some(p) = ui.layout_text(&RichText::plain("0000000000"), &text_style, options) else {
             return false;
         };
@@ -1262,6 +1300,8 @@ impl Terminal {
                 self.refresh_views();
             }
             TextInput::Ime(ImeEvent::Enabled | ImeEvent::DeleteSurrounding { .. }) => {}
+            // Input kinds newer than the terminal reach the program as nothing.
+            _ => {}
         }
     }
 
@@ -1816,18 +1856,19 @@ fn shaped(
     if cache.map.len() >= cache.limit.max(4096) {
         cache.map.clear();
     }
-    let ts = TextStyle {
-        families: look.families.clone(),
-        size: look.size,
-        weight: if bold { 700.0 } else { look.weight },
-        italic,
-        ..TextStyle::default()
+    let ts = {
+        let mut v_ = TextStyle::default();
+        v_.families = look.families.clone();
+        v_.size = look.size;
+        v_.weight = if bold { 700.0 } else { look.weight };
+        v_.italic = italic;
+        v_
     };
-    let p = cx.layout_text(
-        &RichText::plain(text.to_owned()),
-        &ts,
-        ParagraphOptions { scale: look.scale, ..ParagraphOptions::default() },
-    );
+    let p = cx.layout_text(&RichText::plain(text.to_owned()), &ts, {
+        let mut v_ = ParagraphOptions::default();
+        v_.scale = look.scale;
+        v_
+    });
     let base = p.first_baseline().unwrap_or(0.0);
     let runs = p
         .glyph_runs()

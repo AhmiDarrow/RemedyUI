@@ -1,0 +1,5 @@
+// A small screen compiled through the facade (remedy_ui::markup).
+column(gap: s2) {
+    switch(label: @t("Noise suppression"), checked: $noise_suppression)
+    button(label: @t("Save"), on_press: !save, variant: primary)
+}

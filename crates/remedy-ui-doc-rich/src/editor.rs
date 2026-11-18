@@ -27,6 +27,7 @@ pub type MentionSource = Rc<dyn Fn(&str) -> Vec<MentionCandidate>>;
 
 /// How a rich editor behaves.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct RichEditorOptions {
     /// The name screen readers read for it.
     pub label: String,
@@ -38,6 +39,38 @@ pub struct RichEditorOptions {
     pub toolbar: bool,
     /// Suggest people to mention when "@" is typed.
     pub mentions: Option<MentionSource>,
+}
+
+impl RichEditorOptions {
+    /// Sets `label`: the name screen readers read for it.
+    pub fn label(mut self, value: String) -> Self {
+        self.label = value;
+        self
+    }
+
+    /// Sets `placeholder`: grey text shown while it is empty.
+    pub fn placeholder(mut self, value: String) -> Self {
+        self.placeholder = value;
+        self
+    }
+
+    /// Sets `submit_on_enter`: enter submits (a chat's composer) and Shift+Enter starts a new line.
+    pub fn submit_on_enter(mut self, value: bool) -> Self {
+        self.submit_on_enter = value;
+        self
+    }
+
+    /// Sets `toolbar`: show the formatting toolbar.
+    pub fn toolbar(mut self, value: bool) -> Self {
+        self.toolbar = value;
+        self
+    }
+
+    /// Sets `mentions`: suggest people to mention when "@" is typed.
+    pub fn mentions(mut self, value: MentionSource) -> Self {
+        self.mentions = Some(value);
+        self
+    }
 }
 
 impl Default for RichEditorOptions {
@@ -344,7 +377,7 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                         .row()
                         .gap(unit * 2.0)
                         .child(w::icon(&ui, Icon::At, ui.theme().type_scale.body))
-                        .child(w::label(&ui, c.name.clone(), "").data_text())
+                        .child(w::text(&ui, c.name.clone()).data_text())
                         .on_pointer(move |e| {
                             if e.phase == remedy_ui_input::PointerPhase::Down {
                                 ins(i);

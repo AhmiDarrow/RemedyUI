@@ -72,6 +72,7 @@ impl CubicBezier {
 
 /// An easing curve.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Easing {
     /// Constant speed.
     Linear,

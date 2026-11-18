@@ -70,6 +70,7 @@ pub use theme_editor::theme_editor;
 
 /// A kind of customization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum Area {
     /// Colors, fonts, sizes, spacing, radii, motion and density.
     Theme,
@@ -101,6 +102,7 @@ impl Area {
 /// A customization that could not be loaded or saved. The app goes on with its defaults
 /// for it; [`Customizations::reset_notice`] clears the file in one step.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Notice {
     /// Which kind.
     pub area: Area,
@@ -119,6 +121,7 @@ impl std::fmt::Display for Notice {
 
 /// Why a customization could not be made.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum CustomizeError {
     /// The app has not turned this kind on.
     NotEnabled(Area),

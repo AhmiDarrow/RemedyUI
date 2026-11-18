@@ -24,6 +24,7 @@ use remedy_ui_view::{El, Ui};
 
 /// How the picture fills its element.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum VideoFit {
     /// All of it, as large as fits, centered, with bars where the shapes differ.
     #[default]
@@ -36,6 +37,7 @@ pub enum VideoFit {
 
 /// How a surface has been doing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VideoStats {
     /// Frames pushed.
     pub pushed: u64,

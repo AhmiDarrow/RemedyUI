@@ -16,7 +16,7 @@ use remedy_ui_layout::Length;
 use remedy_ui_reactive::{Memo, Signal, untrack};
 use remedy_ui_style::States;
 use remedy_ui_view::{Align, Drag, DragData, DropEffect, El, Ui};
-use remedy_ui_widgets_core::{self as w, Icon};
+use remedy_ui_widgets_core::{self as w, Icon, Rejection};
 
 use crate::model::Selection;
 use crate::rows::{RowBuilder, Rows};
@@ -74,7 +74,7 @@ pub struct TreeState<K: Clone + Eq + Hash + 'static> {
 }
 
 type ExportFn<K> = Rc<dyn Fn(&[K]) -> DragData>;
-type ImportFn<K> = Rc<dyn Fn(&DragData, &K) -> Result<(), String>>;
+type ImportFn<K> = Rc<dyn Fn(&DragData, &K) -> Result<(), Rejection>>;
 
 /// Items of this tree being dragged.
 struct Moving<K>(Vec<K>);
@@ -107,7 +107,7 @@ impl<K: Clone + Eq + Hash + 'static> TreeState<K> {
 
     /// Takes files, text or links dropped from other apps on an item with children: `f`
     /// stores them in it, or says why not (the tree shows why).
-    pub fn set_import(&self, f: impl Fn(&DragData, &K) -> Result<(), String> + 'static) {
+    pub fn set_import(&self, f: impl Fn(&DragData, &K) -> Result<(), Rejection> + 'static) {
         *self.import.borrow_mut() = Some(Rc::new(f));
     }
 
@@ -192,9 +192,9 @@ fn toggle_key(m: Modifiers, platform: Platform) -> bool {
     if platform == Platform::Apple { m.meta } else { m.ctrl }
 }
 
-type MoveFn<K> = Rc<dyn Fn(&[K], &K) -> Result<(), String>>;
+type MoveFn<K> = Rc<dyn Fn(&[K], &K) -> Result<(), Rejection>>;
 /// Moves items into a target item, or says why not.
-pub type MoveBox<K> = Box<dyn Fn(&[K], &K) -> Result<(), String>>;
+pub type MoveBox<K> = Box<dyn Fn(&[K], &K) -> Result<(), Rejection>>;
 
 /// A tree view over `state`. `load(key)` is asked for the children of an item that opens
 /// before they are known; `on_activate` runs for Enter or a double click; `on_move`, when
@@ -266,7 +266,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
                     cut.set(Vec::new());
                     sel.cursor.set(Some(target));
                 }
-                Err(e) => error.set(Some(e)),
+                Err(e) => error.set(Some(e.to_string())),
             }
         })
     };
@@ -311,9 +311,9 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
             if let Some(icon) = line.item.icon {
                 row = row.child(w::icon(&ui2, icon, ui2.theme().type_scale.body));
             }
-            row = row.child(w::label(&ui2, line.item.label.clone(), "").nowrap().grow(1.0));
+            row = row.child(w::text(&ui2, line.item.label.clone()).nowrap().grow(1.0));
             if line.loading {
-                row = row.child(w::label(&ui2, "Loading…", "muted").nowrap());
+                row = row.child(w::text(&ui2, "Loading…").variant("muted").nowrap());
             }
             let sem = {
                 let (k, sel, line) = (k.clone(), sel.clone(), line.clone());
@@ -423,7 +423,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
                             if let Some(f) = f {
                                 match f(&d.data, &k5) {
                                     Ok(()) => error.set(None),
-                                    Err(e) => error.set(Some(e)),
+                                    Err(e) => error.set(Some(e.to_string())),
                                 }
                             }
                         }
@@ -618,7 +618,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
 
     let status = {
         // Why a move did not happen, announced as it appears.
-        let el = w::label(ui, "", "danger").text_dyn(move || error.get().unwrap_or_default());
+        let el = w::text(ui, "").variant("danger").text_dyn(move || error.get().unwrap_or_default());
         let e2 = el.clone();
         el.bind(move || {
             let msg = error.get();

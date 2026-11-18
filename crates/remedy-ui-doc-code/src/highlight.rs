@@ -13,6 +13,7 @@ use syntect::parsing::{
 
 /// What a piece of code is, for its color.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Kind {
     /// Anything else.
     Plain,

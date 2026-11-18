@@ -14,6 +14,7 @@ use remedy_ui_widgets_core::{self as w, Icon};
 
 /// The window edge a panel comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Edge {
     /// The start edge (left in left-to-right windows).
     Start,
@@ -130,7 +131,7 @@ impl std::fmt::Debug for TitleBarActions {
 pub fn title_bar(ui: &Ui, title: Signal<String>, extra: Option<El>, actions: TitleBarActions) -> El {
     let unit = ui.theme().spacing.unit;
     let a = Rc::new(actions);
-    let t = w::label(ui, "", "strong").data_text().nowrap();
+    let t = w::text(ui, "").variant("strong").data_text().nowrap();
     let t2 = t.clone();
     let t = t.bind(move || {
         let _ = t2.clone().text(remedy_ui_view::RichText::plain(title.get()));

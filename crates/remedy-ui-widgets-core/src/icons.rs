@@ -564,19 +564,12 @@ pub fn avatar(ui: &Ui, name: &str, size: f32, color: remedy_ui_core::Color) -> E
         .justify(remedy_ui_layout::Justify::Center)
         // The circle is the element's own background, so contrast checks see what the
         // initials sit on.
-        .style(remedy_ui_style::StylePatch {
-            background: Some(color),
-            radius: Some(size / 2.0),
-            ..Default::default()
-        })
-        .child(ui.el("avatar_initials").text(remedy_ui_view::RichText::plain(initials)).nowrap().style(
-            remedy_ui_style::StylePatch {
-                foreground: Some(fg),
-                weight: Some(700.0),
-                text_size: Some(size * 0.4),
-                ..Default::default()
-            },
-        ))
+        .style(remedy_ui_style::StylePatch::default().background(color).radius(size / 2.0))
+        .child(
+            ui.el("avatar_initials").text(remedy_ui_view::RichText::plain(initials)).nowrap().style(
+                remedy_ui_style::StylePatch::default().foreground(fg).weight(700.0).text_size(size * 0.4),
+            ),
+        )
         .semantics(Semantics::new(Role::Image).label(name.to_owned()))
 }
 

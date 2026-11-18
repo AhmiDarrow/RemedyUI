@@ -9,6 +9,9 @@ rust-version = "1.96"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/AhmiDarrow/RemedyUI"
 authors = ["Ahmi Darrow"]
+readme = "README.md"
+keywords = ["gui", "ui", "widgets", "remedy", "retained"]
+categories = ["gui"]
 
 [workspace.lints.rust]
 unsafe_code = "deny"

@@ -23,11 +23,20 @@ use std::time::Duration;
 
 /// Why work could not be started.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SpawnError(pub String);
+pub struct SpawnError {
+    reason: String,
+}
+
+impl SpawnError {
+    /// Why, in the system's words.
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+}
 
 impl std::fmt::Display for SpawnError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the work could not start: {}", self.0)
+        write!(f, "the work could not start: {}", self.reason)
     }
 }
 
@@ -64,7 +73,7 @@ pub fn spawn(name: &str, work: impl FnOnce() + Send + 'static) -> Result<(), Spa
             .name(name.to_owned())
             .spawn(work)
             .map(drop)
-            .map_err(|e| SpawnError(e.to_string()))
+            .map_err(|e| SpawnError { reason: e.to_string() })
     }
 }
 
@@ -421,7 +430,7 @@ impl Worker {
                         next = step(&mut state);
                     }
                 })
-                .map_err(|e| SpawnError(e.to_string()))?;
+                .map_err(|e| SpawnError { reason: e.to_string() })?;
             Ok(Worker { bell })
         }
     }

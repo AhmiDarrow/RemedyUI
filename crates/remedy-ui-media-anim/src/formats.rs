@@ -149,7 +149,7 @@ impl remedy_ui_media_image::Format for ApngFirstFrame {
             .ok_or_else(|| DecodeError::Malformed(String::from("the animation has no frames")))?;
         let image =
             remedy_ui_media_image::finish_rgba(size.0, size.1, frame.rgba, profile.as_ref(), show_at)?;
-        Ok(remedy_ui_media_image::Decoded { image, source_size: size })
+        Ok(remedy_ui_media_image::Decoded::new(image, size))
     }
 }
 

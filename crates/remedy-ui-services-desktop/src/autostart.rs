@@ -9,6 +9,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::DesktopError;
+
 /// What starts, and how it is named.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
@@ -66,8 +68,8 @@ pub fn enabled(e: &Entry) -> bool {
 }
 
 /// Starts `e` with the session (`on`), or stops doing so.
-pub fn set(e: &Entry, on: bool) -> Result<(), String> {
-    let dir = folder().ok_or("This system has no place for apps that start with the session")?;
+pub fn set(e: &Entry, on: bool) -> Result<(), DesktopError> {
+    let dir = folder().ok_or(DesktopError::NoAutostartFolder)?;
     set_in(&dir, e, on)
 }
 
@@ -77,22 +79,24 @@ pub fn enabled_in(dir: &Path, e: &Entry) -> bool {
 }
 
 /// [`set`] for entries in `dir`.
-pub fn set_in(dir: &Path, e: &Entry, on: bool) -> Result<(), String> {
+pub fn set_in(dir: &Path, e: &Entry, on: bool) -> Result<(), DesktopError> {
     let file = file_in(dir, e);
     if !on {
         return match std::fs::remove_file(&file) {
             Ok(()) => Ok(()),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(err) => Err(format!("Could not remove {}: {err}", file.display())),
+            Err(err) => Err(DesktopError::Io { path: file, reason: err.to_string() }),
         };
     }
-    std::fs::create_dir_all(dir).map_err(|err| format!("Could not create {}: {err}", dir.display()))?;
+    std::fs::create_dir_all(dir)
+        .map_err(|err| DesktopError::Io { path: dir.to_path_buf(), reason: err.to_string() })?;
+    let io = |err: std::io::Error| DesktopError::Io { path: file.clone(), reason: err.to_string() };
     if cfg!(windows) {
-        crate::os::shortcut(&file, &e.program, &e.args)
+        crate::os::shortcut(&file, &e.program, &e.args).map_err(|reason| DesktopError::Platform { reason })
     } else if cfg!(target_os = "macos") {
-        std::fs::write(&file, launch_agent(e)).map_err(|err| err.to_string())
+        std::fs::write(&file, launch_agent(e)).map_err(io)
     } else {
-        std::fs::write(&file, desktop_entry(e)).map_err(|err| err.to_string())
+        std::fs::write(&file, desktop_entry(e)).map_err(io)
     }
 }
 

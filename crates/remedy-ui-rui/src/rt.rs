@@ -15,6 +15,7 @@ pub use remedy_ui_widgets_core as w;
 
 /// A space: grid units from the theme, or pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Space {
     /// `s3`: three of the theme's grid units.
     Units(u8),

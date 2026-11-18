@@ -191,8 +191,8 @@ fn a_panicking_handler_is_caught_by_its_boundary() -> R {
     assert_eq!(d.panicked, 1);
     assert!(*reached.borrow(), "the dispatch went on past the failure");
     assert_eq!(
-        failure.get(),
-        Some(Failure { element_path: "root/card/save".into(), message: "disk full".into() })
+        failure.get().map(|f| (f.element_path, f.message)),
+        Some(("root/card/save".to_owned(), "disk full".to_owned()))
     );
     assert!(!t.contains(button), "the failed subtree was removed");
     assert!(t.contains(card) && t.contains(sibling), "the rest of the window is untouched");

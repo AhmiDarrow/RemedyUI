@@ -7,6 +7,7 @@ use remedy_ui_paint::{Brush, DisplayList, Item, Path, Stroke, StrokeCap, StrokeJ
 
 /// How long a note lasts, as a note value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum NoteValue {
     /// A whole note (semibreve).
     Whole,
@@ -100,6 +101,7 @@ impl NoteValue {
 
 /// A clef.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Clef {
     /// The G clef: the second line is G4. For high voices, guitar and most melodies.
     #[default]

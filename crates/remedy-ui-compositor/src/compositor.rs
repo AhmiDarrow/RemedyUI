@@ -16,6 +16,7 @@ use crate::tiles::{Cell, LayerTiles, RasterBudget, TileKey, quantize_scale, tile
 
 /// One step of drawing a frame from rastered tiles.
 #[derive(Clone, Debug, PartialEq)]
+// Exhaustive on purpose: the compositor's operations, which every compositor backend must apply completely, so a new kind is a major change.
 pub enum CompositeOp {
     /// Clips what follows to `rect` with `radii`, both in the space `transform` maps to device
     /// pixels.

@@ -36,21 +36,21 @@ mod hooks {
 
         fn settings(&mut self) -> SystemSettings {
             let s = os::settings();
-            let base = SystemSettings::default();
-            SystemSettings {
-                platform: Platform::Apple,
-                dark: s.dark,
-                accent: s.accent,
-                high_contrast: s.high_contrast,
-                // macOS has no system-wide text scale; apps follow their own Dynamic Type-like
-                // settings, which RemedyUI exposes in its customization layer.
-                text_scale: base.text_scale,
-                reduced_motion: s.reduced_motion,
-                reduced_transparency: s.reduced_transparency,
-                locale: s.locale.unwrap_or(base.locale),
-                double_click: s.double_click,
-                caret_blink: base.caret_blink,
+            // macOS has no system-wide text scale (apps follow their own Dynamic Type-like
+            // settings, which RemedyUI exposes in its customization layer) and the caret blink
+            // keeps RemedyUI's default.
+            let mut out = SystemSettings::default();
+            out.platform = Platform::Apple;
+            out.dark = s.dark;
+            out.accent = s.accent;
+            out.high_contrast = s.high_contrast;
+            out.reduced_motion = s.reduced_motion;
+            out.reduced_transparency = s.reduced_transparency;
+            if let Some(locale) = s.locale {
+                out.locale = locale;
             }
+            out.double_click = s.double_click;
+            out
         }
 
         fn clipboard_text(&mut self) -> Result<Option<String>, Unsupported> {

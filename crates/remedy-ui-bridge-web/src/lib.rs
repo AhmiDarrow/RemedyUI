@@ -62,6 +62,7 @@ mod web;
 
 /// Where the app's first window shows in the page.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Mount {
     /// The element with id `remedy` when the page has one, else the whole page.
     #[default]
@@ -74,11 +75,26 @@ pub enum Mount {
 
 /// How the bridge sits in the page.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct WebConfig {
     /// Where the first window shows.
     pub mount: Mount,
     /// The first window's title is also the page's (`document.title`).
     pub title_is_page_title: bool,
+}
+
+impl WebConfig {
+    /// Shows the first window at `mount`.
+    pub fn mount(mut self, mount: Mount) -> Self {
+        self.mount = mount;
+        self
+    }
+
+    /// Whether the first window's title is also the page's.
+    pub fn title_is_page_title(mut self, on: bool) -> Self {
+        self.title_is_page_title = on;
+        self
+    }
 }
 
 impl Default for WebConfig {
@@ -89,11 +105,26 @@ impl Default for WebConfig {
 
 /// Why the app could not start in the page.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RunError(pub String);
+#[non_exhaustive]
+pub struct RunError {
+    reason: String,
+}
+
+impl RunError {
+    /// The app could not start because of `reason`.
+    pub fn new(reason: impl Into<String>) -> Self {
+        RunError { reason: reason.into() }
+    }
+
+    /// Why, in the browser's words.
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+}
 
 impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the app could not start in this page: {}", self.0)
+        write!(f, "the app could not start in this page: {}", self.reason)
     }
 }
 

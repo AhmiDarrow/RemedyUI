@@ -7,9 +7,7 @@ use std::cell::RefCell;
 
 use remedy_ui_compositor::{Compositor, LayerTree};
 use remedy_ui_core::{Color, Point, Size};
-use remedy_ui_input::{
-    Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase, ScrollPhysics,
-};
+use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_render_cpu::CpuCompositor;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request, Ui};
@@ -83,31 +81,13 @@ pub fn pending_timers(ui: &Ui, clock: &Clock) -> usize {
 }
 
 pub fn key(ui: &Ui, k: Key) -> bool {
-    let r = ui.key(&KeyEvent {
-        key: k,
-        physical: String::new(),
-        modifiers: Modifiers::NONE,
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: None,
-    });
+    let r = ui.key(&KeyEvent::press(k).with_text(None));
     let _ = frame(ui);
     r
 }
 
 pub fn pointer(ui: &Ui, at: Point, phase: PointerPhase, buttons: Buttons) {
-    ui.pointer(&PointerEvent {
-        id: 0,
-        kind: PointerKind::Mouse,
-        phase,
-        position: at,
-        buttons,
-        pressure: 0.5,
-        time: Duration::ZERO,
-        coalesced: Vec::new(),
-        modifiers: Modifiers::NONE,
-    });
+    ui.pointer(&PointerEvent::new(phase, at).with_buttons(buttons));
     let _ = frame(ui);
 }
 
@@ -201,15 +181,7 @@ pub fn near(a: [u8; 3], b: [u8; 3], tol: u8) -> bool {
 }
 
 pub fn key_mod(ui: &Ui, k: Key, modifiers: Modifiers) -> bool {
-    let r = ui.key(&KeyEvent {
-        key: k,
-        physical: String::new(),
-        modifiers,
-        pressed: true,
-        repeat: false,
-        composing: false,
-        text: None,
-    });
+    let r = ui.key(&KeyEvent::press(k).with_modifiers(modifiers).with_text(None));
     let _ = frame(ui);
     r
 }

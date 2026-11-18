@@ -8,7 +8,20 @@ use crate::states::States;
 
 /// Visual properties a style sets. Every field is optional so a patch changes only what it
 /// names.
+///
+/// Build one from [`StylePatch::new`] with a method per property; properties are added over
+/// time, so a patch is never written as a struct literal outside this crate:
+///
+/// ```
+/// use remedy_ui_core::Color;
+/// use remedy_ui_style::StylePatch;
+///
+/// let patch = StylePatch::new().background(Color::rgb8(30, 60, 90)).radius(6.0).text_size(15.0);
+/// assert_eq!(patch.radius, Some(6.0));
+/// assert_eq!(patch.foreground, None);
+/// ```
 #[derive(Clone, Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub struct StylePatch {
     /// Background fill.
     pub background: Option<Color>,
@@ -39,6 +52,89 @@ pub struct StylePatch {
 }
 
 impl StylePatch {
+    /// A patch that sets nothing.
+    pub fn new() -> Self {
+        StylePatch::default()
+    }
+
+    /// Sets the background fill.
+    pub fn background(mut self, value: Color) -> Self {
+        self.background = Some(value);
+        self
+    }
+
+    /// Sets the text and icon color.
+    pub fn foreground(mut self, value: Color) -> Self {
+        self.foreground = Some(value);
+        self
+    }
+
+    /// Sets the border color.
+    pub fn border(mut self, value: Color) -> Self {
+        self.border = Some(value);
+        self
+    }
+
+    /// Sets the border width.
+    pub fn border_width(mut self, value: f32) -> Self {
+        self.border_width = Some(value);
+        self
+    }
+
+    /// Sets the corner radius.
+    pub fn radius(mut self, value: f32) -> Self {
+        self.radius = Some(value);
+        self
+    }
+
+    /// Sets the padding.
+    pub fn padding(mut self, value: Insets) -> Self {
+        self.padding = Some(value);
+        self
+    }
+
+    /// Sets the text size.
+    pub fn text_size(mut self, value: f32) -> Self {
+        self.text_size = Some(value);
+        self
+    }
+
+    /// Sets the text weight.
+    pub fn weight(mut self, value: f32) -> Self {
+        self.weight = Some(value);
+        self
+    }
+
+    /// Sets the opacity, 0 to 1.
+    pub fn opacity(mut self, value: f32) -> Self {
+        self.opacity = Some(value);
+        self
+    }
+
+    /// Sets whether text uses the theme's monospace families.
+    pub fn mono(mut self, value: bool) -> Self {
+        self.mono = Some(value);
+        self
+    }
+
+    /// Sets the focus ring's color.
+    pub fn outline(mut self, value: Color) -> Self {
+        self.outline = Some(value);
+        self
+    }
+
+    /// Sets the focus ring's width.
+    pub fn outline_width(mut self, value: f32) -> Self {
+        self.outline_width = Some(value);
+        self
+    }
+
+    /// Sets the gap between the element's edge and its focus ring.
+    pub fn outline_offset(mut self, value: f32) -> Self {
+        self.outline_offset = Some(value);
+        self
+    }
+
     /// The engine's starting style under `theme`, before any rule: transparent boxes, body
     /// text in the theme's text color, and the theme's focus ring for keyboard focus (as
     /// `:focus-visible` does on the web) unless a rule shows focus another way.

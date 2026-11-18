@@ -195,15 +195,11 @@ fn rows_tell_screen_readers_their_level_position_and_state() {
 fn typing_jumps_to_the_matching_item() {
     let t = tree(true);
     let typed = |c: &str| {
-        t.ui.key(&remedy_ui_input::KeyEvent {
-            key: Key::Character(c.into()),
-            physical: String::new(),
-            modifiers: NONE,
-            pressed: true,
-            repeat: false,
-            composing: false,
-            text: Some(c.into()),
-        })
+        t.ui.key(
+            &remedy_ui_input::KeyEvent::press(Key::Character(c.into()))
+                .with_modifiers(NONE)
+                .with_text(Some(c.into())),
+        )
     };
     assert!(typed("r"));
     frame(&t.ui);

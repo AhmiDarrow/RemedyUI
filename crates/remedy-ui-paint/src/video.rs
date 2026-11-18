@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 /// How a frame's pixels are laid out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+// Exhaustive on purpose: part of the display list every renderer must draw completely, so a new kind is a major change.
 pub enum PixelFormat {
     /// One plane of 8-bit RGBA, straight (not premultiplied) alpha.
     Rgba,
@@ -17,6 +18,7 @@ pub enum PixelFormat {
 
 /// Which matrix turns a frame's Y, U and V into R, G and B.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+// Exhaustive on purpose: part of the display list every renderer must draw completely, so a new kind is a major change.
 pub enum YuvMatrix {
     /// Standard definition (BT.601).
     Bt601,
