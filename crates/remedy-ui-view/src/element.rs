@@ -187,6 +187,9 @@ pub(crate) struct ElData {
     pub(crate) last_visible: Option<bool>,
     /// A scroll container following another's offset: (leader, x, y).
     pub(crate) scroll_follow: Option<(ElementId, bool, bool)>,
+    /// Painted into a compositor layer of its own ([`El::isolate_paint`]), with this
+    /// transform the compositor applies.
+    pub(crate) isolate: Option<remedy_ui_paint::Affine>,
     /// Its text is data, not a translatable string ([`El::data_text`]).
     pub(crate) data_text: bool,
     /// How keyboard users do what this element's pointer handling does.
@@ -228,6 +231,8 @@ pub(crate) struct Inner {
     pub(crate) focus_visible: bool,
     pub(crate) a11y: A11yTree,
     pub(crate) structure_changed: bool,
+    /// A layer's transform changed: the next frame rebuilds layers without repainting.
+    pub(crate) layers_changed: bool,
     pub(crate) frame: crate::frame::FrameState,
     pub(crate) now_ms: u64,
     pub(crate) field_session: Option<ElementId>,
@@ -248,6 +253,8 @@ pub(crate) struct Inner {
     /// The last rich text copied from a field and the HTML put on the clipboard for it, so
     /// pasting that copy back keeps what HTML cannot carry (mentions).
     pub(crate) rich_clip: Option<(String, remedy_ui_text::RichDoc)>,
+    /// The window's undo history (changes outside text fields).
+    pub(crate) history: crate::history::History,
     pub(crate) local_time: remedy_ui_reactive::Signal<remedy_ui_host::LocalTime>,
     pub(crate) content: ElementId,
     pub(crate) overlays: ElementId,
@@ -257,6 +264,8 @@ pub(crate) struct Inner {
     /// The element that took the current press: it gets the moves and the release, wherever
     /// the pointer goes, until the button comes up.
     pub(crate) captured: Option<ElementId>,
+    /// The element a touchpad pinch started on keeps it until the pinch ends.
+    pub(crate) pinching: Option<ElementId>,
     /// The drag under way, and a press that may become one.
     pub(crate) drag: Option<crate::dnd::Session>,
     pub(crate) drag_pending: Option<crate::dnd::Pending>,
@@ -305,6 +314,7 @@ impl Ui {
         let (effects, removed, watch) = {
             let mut i = self.0.borrow_mut();
             i.timers.clear();
+            i.history = crate::history::History::default();
             i.interceptor = None;
             i.wake = None;
             i.requests.clear();
@@ -397,6 +407,7 @@ impl Ui {
             focus_visible: false,
             a11y: A11yTree::new(root_key(root)),
             structure_changed: true,
+            layers_changed: false,
             frame: crate::frame::FrameState::default(),
             now_ms: 0,
             field_session: None,
@@ -411,12 +422,14 @@ impl Ui {
             text_sel: None,
             selecting: false,
             rich_clip: None,
+            history: crate::history::History::default(),
             local_time: remedy_ui_reactive::Signal::new(remedy_ui_host::LocalTime::default()),
             content: root,
             overlays: root,
             interceptor: None,
             wake: None,
             captured: None,
+            pinching: None,
             drag: None,
             drag_pending: None,
             trusted: root,
@@ -870,6 +883,12 @@ impl Ui {
         self.request(Request::Frame);
     }
 
+    /// Puts `text` on the clipboard (not sensitive: it may go to clipboard history). For
+    /// widgets with their own selections, such as a paged document's text.
+    pub fn copy_text(&self, text: impl Into<String>) {
+        self.request(Request::Copy { text: text.into(), sensitive: false, html: None });
+    }
+
     pub(crate) fn request(&self, r: Request) {
         let wake = {
             let mut i = self.0.borrow_mut();
@@ -907,6 +926,14 @@ impl Ui {
         i.tree.mark(id, flags);
         drop(i);
         self.request(Request::Frame);
+    }
+}
+
+impl El {
+    /// The element's id in the accessibility tree (what screen readers and agents name it
+    /// by, and what [`Ui::accessibility_action`] takes).
+    pub fn node_id(&self) -> u64 {
+        root_key(self.id)
     }
 }
 
@@ -954,6 +981,7 @@ impl ElData {
             on_visibility: None,
             last_visible: None,
             scroll_follow: None,
+            isolate: None,
             data_text: false,
             keyboard_alternative: None,
             hidden: false,
@@ -1226,6 +1254,32 @@ impl El {
             }
             start();
             cx.set_handled();
+        });
+        self
+    }
+
+    /// Calls `f` with wheel and touchpad scrolls over the element (or over something inside
+    /// it that did not take them); `f` returns true when it used the scroll. Scrolls nobody
+    /// takes move the scroll containers under the pointer on the compositor, so only
+    /// elements that do their own scrolling or zooming (a paged document, Ctrl and the wheel)
+    /// need this.
+    pub fn on_wheel(self, f: impl Fn(&remedy_ui_input::WheelEvent) -> bool + 'static) -> Self {
+        let _ = self.ui.tree().on::<remedy_ui_input::WheelEvent>(self.id, Phase::Bubble, move |cx, e| {
+            if f(e) {
+                cx.set_handled();
+                cx.stop_propagation();
+            }
+        });
+        self
+    }
+
+    /// Calls `f` with touchpad pinches over the element; `f` returns true when it zoomed.
+    pub fn on_pinch(self, f: impl Fn(&remedy_ui_input::PinchEvent) -> bool + 'static) -> Self {
+        let _ = self.ui.tree().on::<remedy_ui_input::PinchEvent>(self.id, Phase::Bubble, move |cx, e| {
+            if f(e) {
+                cx.set_handled();
+                cx.stop_propagation();
+            }
         });
         self
     }
@@ -1633,6 +1687,16 @@ impl El {
         Some(i.sheet.resolve(&key, &inherited, &local))
     }
 
+    /// What the element is to assistive technology and agents: exactly the semantics the
+    /// accessibility tree carries for it (a field's text and actions, a password field's role
+    /// without its text).
+    pub fn composed_semantics(&self) -> Option<remedy_ui_a11y::Semantics> {
+        let tree = self.ui.tree();
+        let i = self.ui.0.borrow();
+        let d = i.els.get(&self.id)?;
+        Some(crate::frame::composed_semantics(d, tree.root() == self.id, tree.is_focusable(self.id)))
+    }
+
     /// Everything the element is, for inspectors and tests.
     pub fn info(&self) -> Option<ElementInfo> {
         let tree = self.ui.tree();
@@ -1727,6 +1791,40 @@ impl El {
         self.edit(Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS, |d| d.hidden = on);
         self.ui.0.borrow_mut().structure_changed = true;
         self
+    }
+
+    /// Paints the element and everything inside it into a compositor layer of its own,
+    /// clipped to its box: expensive content that changes rarely (a page, a chart's axis), or
+    /// content the compositor moves or zooms without repainting ([`El::set_layer_transform`]).
+    /// Repainting it re-rasters only its own layer.
+    pub fn isolate_paint(self) -> Self {
+        self.edit(Dirty::PAINT, |d| {
+            d.isolate.get_or_insert(remedy_ui_paint::Affine::IDENTITY);
+        });
+        self
+    }
+
+    /// Transforms an isolated element's layer on the compositor (in the element's own
+    /// coordinates, inside its clip) without repainting it. When the transform scales, the
+    /// compositor zooms progressively: tiles of the old scale stand in while the new scale
+    /// rasters within its per-frame budget. Does nothing for an element without
+    /// [`isolate_paint`](Self::isolate_paint).
+    pub fn set_layer_transform(&self, transform: remedy_ui_paint::Affine) {
+        let changed = {
+            let mut i = self.ui.0.borrow_mut();
+            let changed = match i.els.get_mut(&self.id).and_then(|d| d.isolate.as_mut()) {
+                Some(t) if *t != transform => {
+                    *t = transform;
+                    true
+                }
+                _ => false,
+            };
+            i.layers_changed |= changed;
+            changed
+        };
+        if changed {
+            self.ui.request(Request::Frame);
+        }
     }
 
     /// Lets clicks through the element itself to what is below; its children still take

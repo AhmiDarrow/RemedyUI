@@ -1352,6 +1352,11 @@ impl Runner {
                     if changed && let Ok(frame) = cpu.present(&plan, pw, ph, background) {
                         let pixels = Pixels { width: pw, height: ph, data: &frame.pixels };
                         let _ = host.present_pixels(w.host, pixels, plan.damage.rects());
+                        // What rastering cost here sizes the next zoom's per-frame budget.
+                        let (px, took) = cpu.last_raster();
+                        if let Some(c) = w.comp.as_mut() {
+                            c.record_raster(px, took);
+                        }
                     }
                     // Too slow on the CPU: the next frame starts this window on the GPU.
                     #[cfg(feature = "gpu")]
@@ -1385,9 +1390,17 @@ impl Runner {
                             }
                             return;
                         }
+                        let started = std::time::Instant::now();
                         match gpu.present_to_surface(&plan, surface, background) {
                             Ok(remedy_ui_render_gpu::Presented::Retry) => again = true,
-                            Ok(_) => {}
+                            Ok(_) => {
+                                // The GPU's whole present time (recording, submitting, waiting
+                                // for the swapchain) bounds what its rastering cost.
+                                let px: u64 = plan.raster.iter().map(|r| r.pixels()).sum();
+                                if let Some(c) = w.comp.as_mut() {
+                                    c.record_raster(px, started.elapsed());
+                                }
+                            }
                             Err(_) => {
                                 // The GPU failed this window: fall back to the CPU renderer.
                                 w.present = Some(Present::Cpu(Box::new(CpuCompositor::new())));
@@ -1574,7 +1587,20 @@ impl remedy_ui_host::App for Runner {
             }
             HostEvent::Wheel(window, e) => {
                 self.activity(host);
-                if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k)) {
+                // Elements that take the wheel themselves (zoomable documents, Ctrl+wheel)
+                // come first; otherwise it scrolls on the compositor.
+                let taken = self
+                    .by_host
+                    .get(&window)
+                    .and_then(|k| self.wins.get(k))
+                    .map(|w| w.ui.clone())
+                    .is_some_and(|ui| ui.wheel(&e));
+                if taken {
+                    if let Some(&key) = self.by_host.get(&window) {
+                        self.requests(host, key);
+                    }
+                    host.request_frame(window);
+                } else if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k)) {
                     let s = w.size.2;
                     if let Some(c) = w.comp.as_mut() {
                         c.scroll_at(
@@ -1582,6 +1608,16 @@ impl remedy_ui_host::App for Runner {
                             Vec2::new(e.delta.x * s, e.delta.y * s),
                         );
                     }
+                    host.request_frame(window);
+                }
+            }
+            HostEvent::Pinch(window, e) => {
+                self.activity(host);
+                if let Some(&key) = self.by_host.get(&window)
+                    && let Some(ui) = self.wins.get(&key).map(|w| w.ui.clone())
+                {
+                    ui.pinch(&e);
+                    self.requests(host, key);
                     host.request_frame(window);
                 }
             }

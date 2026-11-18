@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use remedy_ui_core::{Point, Vec2};
 
-use crate::{Compositor, FramePlan, LayerId, LayerTree, Mailbox};
+use crate::{Compositor, FramePlan, LayerId, LayerTree, Mailbox, TileRequest};
 
 /// What the compositor thread hands each frame to: a renderer plus a surface.
 pub trait Presenter: Send {
@@ -67,7 +67,12 @@ fn run(
                 let plan = compositor.frame(at);
                 let changed = !plan.damage.is_empty() || !plan.raster.is_empty() || !plan.released.is_empty();
                 if changed {
+                    let started = std::time::Instant::now();
                     presenter.present(&plan);
+                    // What the frame cost sizes the zoom budget (compositing included, so
+                    // the estimate errs on the side of smooth frames).
+                    let pixels: u64 = plan.raster.iter().map(TileRequest::pixels).sum();
+                    compositor.record_raster(pixels, started.elapsed());
                 }
                 let _ = reports.send(FrameReport { at, presented: changed, animating: plan.animating });
             }

@@ -17,7 +17,7 @@ use remedy_ui_host::{
     SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowId,
     WindowOptions,
 };
-use remedy_ui_input::{Platform, WheelEvent};
+use remedy_ui_input::{Modifiers, PinchEvent, PinchPhase, Platform, WheelEvent};
 
 /// A window in memory.
 #[derive(Clone, Debug)]
@@ -185,8 +185,23 @@ impl HeadlessHost {
 
     /// Queues a wheel scroll at `position` (logical pixels) by `delta`.
     pub fn wheel(&mut self, window: WindowId, position: Point, delta: Vec2) {
+        self.wheel_with(window, position, delta, Modifiers::NONE);
+    }
+
+    /// Queues a wheel scroll with modifier keys held (Ctrl and the wheel zoom).
+    pub fn wheel_with(&mut self, window: WindowId, position: Point, delta: Vec2, modifiers: Modifiers) {
         let time = self.clock;
-        self.queue.push_back(HostEvent::Wheel(window, WheelEvent { position, delta, precise: true, time }));
+        let e = WheelEvent { position, delta, precise: true, time, modifiers };
+        self.queue.push_back(HostEvent::Wheel(window, e));
+    }
+
+    /// Queues a whole touchpad pinch at `position`: a start, one change by `scale`, an end.
+    pub fn pinch(&mut self, window: WindowId, position: Point, scale: f32) {
+        let time = self.clock;
+        for (phase, scale) in [(PinchPhase::Start, 1.0), (PinchPhase::Change, scale), (PinchPhase::End, 1.0)]
+        {
+            self.queue.push_back(HostEvent::Pinch(window, PinchEvent { position, scale, phase, time }));
+        }
     }
 
     /// Queues an input method composing `text`, then committing it, as a user typing through

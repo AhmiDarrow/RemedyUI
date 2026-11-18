@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use remedy_ui_core::{Color, Point, Rect, Size};
-use remedy_ui_input::{KeyEvent, Platform, PointerEvent, WheelEvent};
+use remedy_ui_input::{KeyEvent, PinchEvent, Platform, PointerEvent, WheelEvent};
 
 pub use accesskit;
 pub use raw_window_handle;
@@ -386,6 +386,8 @@ pub enum HostEvent {
     Pointer(WindowId, PointerEvent),
     /// Wheel or touchpad scroll.
     Wheel(WindowId, WheelEvent),
+    /// A pinch to zoom the platform recognized (touchpad magnify gestures).
+    Pinch(WindowId, PinchEvent),
     /// Key input.
     Key(WindowId, KeyEvent),
     /// Input method events for the focused text field.

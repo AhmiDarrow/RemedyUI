@@ -108,6 +108,10 @@ pub enum Role {
     Tree,
     /// An item of a tree.
     TreeItem,
+    /// A document read page by page (a PDF, a book).
+    Document,
+    /// One page of a document.
+    Page,
 }
 
 /// Something an assistive technology or agent can ask an element to do.
@@ -648,6 +652,8 @@ fn role(r: Role) -> accesskit::Role {
         Role::ColumnHeader => R::ColumnHeader,
         Role::Tree => R::Tree,
         Role::TreeItem => R::TreeItem,
+        Role::Document => R::Document,
+        Role::Page => R::Article,
     }
 }
 

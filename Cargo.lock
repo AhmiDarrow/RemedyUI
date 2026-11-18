@@ -3557,6 +3557,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "remedy-ui"
 version = "0.1.0"
 dependencies = [
+ "remedy-ui-automation",
  "remedy-ui-bridge-android",
  "remedy-ui-bridge-headless",
  "remedy-ui-bridge-linux",
@@ -3567,6 +3568,7 @@ dependencies = [
  "remedy-ui-core",
  "remedy-ui-devtools",
  "remedy-ui-doc-code",
+ "remedy-ui-doc-pages",
  "remedy-ui-doc-rich",
  "remedy-ui-fonts",
  "remedy-ui-host",
@@ -3603,6 +3605,26 @@ version = "0.1.0"
 dependencies = [
  "accesskit",
  "remedy-ui-core",
+]
+
+[[package]]
+name = "remedy-ui-automation"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-a11y",
+ "remedy-ui-core",
+ "remedy-ui-devtools",
+ "remedy-ui-fonts",
+ "remedy-ui-input",
+ "remedy-ui-reactive",
+ "remedy-ui-style",
+ "remedy-ui-text",
+ "remedy-ui-themes",
+ "remedy-ui-view",
+ "remedy-ui-widgets-core",
+ "remedy-ui-widgets-nav",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3742,6 +3764,28 @@ dependencies = [
  "remedy-ui-view",
  "remedy-ui-widgets-core",
  "syntect",
+]
+
+[[package]]
+name = "remedy-ui-doc-pages"
+version = "0.1.0"
+dependencies = [
+ "remedy-ui-a11y",
+ "remedy-ui-compositor",
+ "remedy-ui-core",
+ "remedy-ui-devtools",
+ "remedy-ui-fonts",
+ "remedy-ui-input",
+ "remedy-ui-layout",
+ "remedy-ui-paint",
+ "remedy-ui-reactive",
+ "remedy-ui-render-cpu",
+ "remedy-ui-render-gpu",
+ "remedy-ui-style",
+ "remedy-ui-text",
+ "remedy-ui-themes",
+ "remedy-ui-view",
+ "remedy-ui-widgets-core",
 ]
 
 [[package]]

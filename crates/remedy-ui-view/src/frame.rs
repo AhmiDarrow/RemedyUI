@@ -38,6 +38,13 @@ pub(crate) fn scroll_ids(id: ElementId) -> (LayerId, LayerId) {
     (LayerId(k.wrapping_mul(4).wrapping_add(1)), LayerId(k.wrapping_mul(4).wrapping_add(2)))
 }
 
+/// The layer ids of an isolated element: its clip, and its content inside.
+pub(crate) fn isolate_ids(id: ElementId) -> (LayerId, LayerId) {
+    let k = root_key(id);
+    let clip = LayerId(k.wrapping_mul(4).wrapping_add(3));
+    (clip, LayerId(clip.0 | (1 << 62)))
+}
+
 /// A paint segment after a child layer: keeps paint order around scroll containers.
 fn segment_id(owner: LayerId, n: u64) -> LayerId {
     LayerId((owner.0.wrapping_mul(1_000_003) ^ n.wrapping_mul(0x9E37_79B9)) | (1 << 63))
@@ -287,6 +294,46 @@ impl Walk<'_> {
         if opacity <= 0.0 || d.hidden {
             return;
         }
+        if let Some(transform) = d.isolate.filter(|_| !d.scroll) {
+            // A layer of its own: a clip at the element's box, and inside it the element's
+            // paint and children in a layer the compositor transforms. The focus ring goes
+            // around the box, outside the clip, in the layer below.
+            b.split(self.state);
+            let (outer, inner) = isolate_ids(id);
+            let size = rect.size();
+            let mut ob = Builder::new(outer, Rect::from_origin_size(at, size));
+            let mut ib = Builder::new(inner, Rect::from_origin_size(Point::ZERO, size));
+            self.body(&mut ib, id, Rect::from_origin_size(Point::ZERO, size), Point::ZERO, false);
+            let mut layer = ib.finish_into(self.state);
+            layer.transform = transform;
+            ob.children.push(layer);
+            let radii = CornerRadii::all(d.resolved.radius);
+            b.children.push(ob.finish_into(self.state).clipped(radii));
+            b.push(Item::PushTransform(Affine::translate(rect.min.to_vec2())));
+            self.focus_ring(b, id, Rect::from_origin_size(Point::ZERO, size));
+            b.pop(Item::PopTransform);
+            return;
+        }
+        self.body(b, id, rect, at, true);
+    }
+
+    /// The focus ring of `id` around `local`, when keyboard focus shows there.
+    fn focus_ring(&mut self, b: &mut Builder, id: ElementId, local: Rect) {
+        let Some(d) = self.inner.els.get(&id) else { return };
+        let s = &d.resolved;
+        if d.states.contains(States::FOCUS_VISIBLE) && s.shows_focus_ring() {
+            let grow = s.outline_offset + s.outline_width;
+            let ring = local.deflate(Insets::all(-grow));
+            let radius = if s.radius > 0.0 { (s.radius + grow).max(0.0) } else { 0.0 };
+            b.list.border(ring, CornerRadii::all(radius), s.outline_width, s.outline);
+        }
+    }
+
+    /// Paints `id` at `rect` (in its parent's space; `at` in `b`'s layer) and its subtree
+    /// into `b`, with its focus ring when `ring`.
+    fn body(&mut self, b: &mut Builder, id: ElementId, rect: Rect, at: Point, ring: bool) {
+        let Some(d) = self.inner.els.get(&id) else { return };
+        let opacity = d.resolved.opacity;
         b.push(Item::PushTransform(Affine::translate(rect.min.to_vec2())));
         if opacity < 1.0 {
             b.push(Item::PushLayer { opacity, blend: remedy_ui_paint::Blend::Normal });
@@ -336,12 +383,8 @@ impl Walk<'_> {
             b.list.border(local, CornerRadii::all(radius), w, self.inner.theme.colors.accent);
         }
         // The focus ring goes over the element and its children, so nothing inside hides it.
-        let s = &d.resolved;
-        if d.states.contains(States::FOCUS_VISIBLE) && s.shows_focus_ring() {
-            let grow = s.outline_offset + s.outline_width;
-            let ring = local.deflate(Insets::all(-grow));
-            let radius = if s.radius > 0.0 { (s.radius + grow).max(0.0) } else { 0.0 };
-            b.list.border(ring, CornerRadii::all(radius), s.outline_width, s.outline);
+        if ring {
+            self.focus_ring(b, id, local);
         }
         if opacity < 1.0 {
             b.pop(Item::PopLayer);
@@ -592,7 +635,8 @@ impl Ui {
         drop(engine);
 
         // Layers.
-        let layers = (painted || moved).then(|| {
+        let transformed = std::mem::take(&mut i.layers_changed);
+        let layers = (painted || moved || transformed).then(|| {
             let mut state = std::mem::take(&mut i.frame);
             state.scrollers.clear();
             let mut b = Builder::new(LayerId(0), Rect::from_origin_size(Point::ZERO, size));

@@ -148,7 +148,7 @@ impl GpuCompositor {
                 }
                 CompositeOp::PopClip | CompositeOp::PopOpacity => scene.pop_layer(),
                 CompositeOp::PushOpacity(o) => scene.push_opacity_layer(*o),
-                CompositeOp::Tile { layer, key, transform, rect, raster_scale } => {
+                CompositeOp::Tile { layer, key, transform, rect, raster_scale, area } => {
                     let Some(tile) = tiles.0.get(&(*layer, *key)) else { continue };
                     bindings
                         .insert(tile.id, tile.texture.create_view(&wgpu::TextureViewDescriptor::default()));
@@ -172,7 +172,7 @@ impl GpuCompositor {
                         kurbo::Affine::translate((f64::from(rect.min.x), f64::from(rect.min.y)))
                             * kurbo::Affine::scale(inv),
                     );
-                    scene.fill_rect(&krect(*rect));
+                    scene.fill_rect(&krect(*area));
                     scene.reset_paint_transform();
                 }
             }

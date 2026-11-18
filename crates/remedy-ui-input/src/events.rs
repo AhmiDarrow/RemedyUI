@@ -196,4 +196,34 @@ pub struct WheelEvent {
     pub precise: bool,
     /// When it happened.
     pub time: Duration,
+    /// Modifier keys held (Ctrl with the wheel zooms; Shift scrolls sideways).
+    pub modifiers: Modifiers,
+}
+
+/// Where a pinch is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PinchPhase {
+    /// Two fingers came down (or a touchpad pinch began).
+    Start,
+    /// They moved.
+    Change,
+    /// They lifted.
+    End,
+    /// The system took the gesture away.
+    Cancel,
+}
+
+/// A pinch to zoom from a touchpad or touch screen, already recognized by the platform.
+/// (Two-finger pinches on touch screens arrive as pointer events, and widgets that zoom
+/// recognize them there too.)
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PinchEvent {
+    /// The point between the fingers, in window logical pixels.
+    pub position: Point,
+    /// The change in scale since the previous event: 1.1 is 10% larger.
+    pub scale: f32,
+    /// Where the gesture is.
+    pub phase: PinchPhase,
+    /// When it happened.
+    pub time: Duration,
 }

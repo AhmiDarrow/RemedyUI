@@ -51,6 +51,7 @@ M6 (in progress) added:
 M7 (in progress) added:
 
 - `remedy-ui-doc-rich`: Markdown, a rich text editor with links and mentions that saves Markdown, and a find bar
+- `remedy-ui-doc-pages`: paged documents (RemedyPDF): the app supplies pages through a trait; a page view zooms from 1% to 6400% with tiles rendered off the UI thread, spreads, rotation, selection, search, thumbnails and screen reader support
 - `remedy-ui-widgets-board` and `remedy-ui-script`: boards people arrange, with widgets written in sandboxed Luau
 - `remedy-ui-viz`: the speaking ring, level meters, sparklines and bars
 - `remedy-ui-services-spell`: spell checking with the platform's checker or Hunspell dictionaries

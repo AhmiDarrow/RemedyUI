@@ -42,8 +42,13 @@ anim = ["image", "dep:remedy-ui-media-anim"]
 video = ["dep:remedy-ui-media-video"]
 ## Code (`remedy_ui::code`): code views with syntax colors from the theme, folding, diffs.
 code = ["widgets", "dep:remedy-ui-doc-code"]
+agents = ["widgets", "nav", "dep:remedy-ui-automation"]
 ## Rich documents (`remedy_ui::rich`): Markdown, the rich text editor, the find bar.
 rich = ["widgets", "dep:remedy-ui-doc-rich"]
+## Paged documents (`remedy_ui::pages`): a page view with deep zoom from 1% to 6400%
+## rendered off the UI thread, spreads, rotation, selection, search and thumbnails, over
+## pages the app supplies (its PDF or e-book engine stays in the app).
+pages = ["widgets", "dep:remedy-ui-doc-pages"]
 ## Spell checking (`remedy_ui::spell`): the platform's checker or Hunspell dictionaries.
 spell = ["widgets", "dep:remedy-ui-services-spell"]
 ## Boards people arrange (`remedy_ui::board`), with sandboxed scripted widgets.
@@ -55,7 +60,7 @@ update = ["widgets", "dep:remedy-ui-services-update"]
 ## The in-memory host for tests (`remedy_ui::headless`).
 headless = ["dep:remedy-ui-bridge-headless"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "rich", "spell", "board", "i18n", "update", "headless"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "rich", "pages", "spell", "board", "agents", "i18n", "update", "headless"]
 
 [dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
@@ -76,9 +81,11 @@ remedy-ui-viz = { path = "../remedy-ui-viz", version = "0.1.0", optional = true 
 remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "0.1.0", optional = true }
 remedy-ui-media-svg = { path = "../remedy-ui-media-svg", version = "0.1.0", optional = true }
 remedy-ui-doc-code = { path = "../remedy-ui-doc-code", version = "0.1.0", optional = true }
+remedy-ui-automation = { path = "../remedy-ui-automation", version = "0.1.0", optional = true }
 remedy-ui-media-video = { path = "../remedy-ui-media-video", version = "0.1.0", optional = true }
 remedy-ui-media-anim = { path = "../remedy-ui-media-anim", version = "0.1.0", optional = true }
 remedy-ui-doc-rich = { path = "../remedy-ui-doc-rich", version = "0.1.0", optional = true }
+remedy-ui-doc-pages = { path = "../remedy-ui-doc-pages", version = "0.1.0", optional = true }
 remedy-ui-services-spell = { path = "../remedy-ui-services-spell", version = "0.1.0", optional = true }
 remedy-ui-widgets-board = { path = "../remedy-ui-widgets-board", version = "0.1.0", optional = true }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "0.1.0", optional = true }

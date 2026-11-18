@@ -17,6 +17,7 @@ use crate::{CpuRenderer, Frame, RenderError, color, kaffine, rounded, size16};
 pub struct CpuCompositor {
     renderer: CpuRenderer,
     tiles: HashMap<(LayerId, TileKey), Arc<Pixmap>>,
+    last_raster: (u64, std::time::Duration),
 }
 
 impl std::fmt::Debug for CpuCompositor {
@@ -34,7 +35,11 @@ impl Default for CpuCompositor {
 impl CpuCompositor {
     /// A compositor with no tiles.
     pub fn new() -> Self {
-        CpuCompositor { renderer: CpuRenderer::new(), tiles: HashMap::new() }
+        CpuCompositor {
+            renderer: CpuRenderer::new(),
+            tiles: HashMap::new(),
+            last_raster: (0, std::time::Duration::ZERO),
+        }
     }
 
     /// Tiles held.
@@ -45,6 +50,13 @@ impl CpuCompositor {
     /// Bytes of tile pixels held.
     pub fn tile_bytes(&self) -> usize {
         self.tiles.values().map(|p| p.data_as_u8_slice().len()).sum()
+    }
+
+    /// What the latest [`present`](Self::present) rastered: pixels, and the time it took.
+    /// Hand it to [`Compositor::record_raster`](remedy_ui_compositor::Compositor::record_raster)
+    /// so zooms raster within the frame budget on this machine.
+    pub fn last_raster(&self) -> (u64, std::time::Duration) {
+        self.last_raster
     }
 
     /// Drops glyph and image caches; tiles are freed through the plan's `released` list.
@@ -66,7 +78,10 @@ impl CpuCompositor {
         for key in &plan.released {
             self.tiles.remove(key);
         }
+        let started = std::time::Instant::now();
+        let mut pixels = 0u64;
         for req in &plan.raster {
+            pixels += req.pixels();
             let pix = self.renderer.render_pixmap(
                 &req.content,
                 req.width,
@@ -76,6 +91,7 @@ impl CpuCompositor {
             )?;
             self.tiles.insert((req.layer, req.key), Arc::new(pix));
         }
+        self.last_raster = (pixels, started.elapsed());
 
         let mut ctx = RenderContext::new(w, h);
         ctx.set_paint(color(background));
@@ -88,7 +104,7 @@ impl CpuCompositor {
                 }
                 CompositeOp::PopClip | CompositeOp::PopOpacity => ctx.pop_layer(),
                 CompositeOp::PushOpacity(o) => ctx.push_opacity_layer(*o),
-                CompositeOp::Tile { layer, key, transform, rect, raster_scale } => {
+                CompositeOp::Tile { layer, key, transform, rect, raster_scale, area } => {
                     let Some(pix) = self.tiles.get(&(*layer, *key)) else { continue };
                     // Pixel-exact placement (the common, static case) samples nearest so tiles
                     // stay crisp and seamless; scaled or rotated tiles filter.
@@ -112,7 +128,7 @@ impl CpuCompositor {
                         kurbo::Affine::translate((f64::from(rect.min.x), f64::from(rect.min.y)))
                             * kurbo::Affine::scale(inv),
                     );
-                    ctx.fill_rect(&crate::krect(*rect));
+                    ctx.fill_rect(&crate::krect(*area));
                     ctx.reset_paint_transform();
                 }
             }

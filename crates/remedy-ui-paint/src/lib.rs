@@ -329,6 +329,38 @@ pub enum Item {
     PopTransform,
 }
 
+impl Item {
+    /// The area a drawing item can touch, in its own space (before transforms and clips).
+    /// `None` for items that only push or pop state.
+    pub fn bounds(&self) -> Option<Rect> {
+        match self {
+            Item::FillRect { rect, .. }
+            | Item::Border { rect, .. }
+            | Item::Image { rect, .. }
+            | Item::Video { rect, .. } => Some(*rect),
+            Item::Shadow { rect, offset, blur, spread, .. } => {
+                let grow = blur * 1.5 + spread;
+                Some(
+                    Rect::new(rect.min.x - grow, rect.min.y - grow, rect.max.x + grow, rect.max.y + grow)
+                        .translate(*offset),
+                )
+            }
+            Item::FillPath { path, .. } => path.bounds(),
+            Item::StrokePath { path, stroke, .. } => path.bounds().map(|b| {
+                let h = stroke.width / 2.0 + stroke.width * 2.0;
+                Rect::new(b.min.x - h, b.min.y - h, b.max.x + h, b.max.y + h)
+            }),
+            Item::Glyphs(run) => glyph_bounds(run),
+            Item::PushClip { .. }
+            | Item::PopClip
+            | Item::PushLayer { .. }
+            | Item::PopLayer
+            | Item::PushTransform(_)
+            | Item::PopTransform => None,
+        }
+    }
+}
+
 /// A list of drawing commands.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DisplayList {
@@ -405,23 +437,6 @@ impl DisplayList {
         for item in &self.items {
             let t = transforms.last().copied().unwrap_or(Affine::IDENTITY);
             let r = match item {
-                Item::FillRect { rect, .. }
-                | Item::Border { rect, .. }
-                | Item::Image { rect, .. }
-                | Item::Video { rect, .. } => Some(*rect),
-                Item::Shadow { rect, offset, blur, spread, .. } => {
-                    let grow = blur * 1.5 + spread;
-                    Some(
-                        Rect::new(rect.min.x - grow, rect.min.y - grow, rect.max.x + grow, rect.max.y + grow)
-                            .translate(*offset),
-                    )
-                }
-                Item::FillPath { path, .. } => path.bounds(),
-                Item::StrokePath { path, stroke, .. } => path.bounds().map(|b| {
-                    let h = stroke.width / 2.0 + stroke.width * 2.0;
-                    Rect::new(b.min.x - h, b.min.y - h, b.max.x + h, b.max.y + h)
-                }),
-                Item::Glyphs(run) => glyph_bounds(run),
                 Item::PushClip { rect, .. } => {
                     clips.push(t.apply_rect(*rect));
                     None
@@ -441,6 +456,7 @@ impl DisplayList {
                     None
                 }
                 Item::PushLayer { .. } | Item::PopLayer => None,
+                drawn => drawn.bounds(),
             };
             if let Some(r) = r {
                 let mut r = t.apply_rect(r);

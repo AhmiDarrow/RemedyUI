@@ -1,0 +1,32 @@
+[package]
+name = "remedy-ui-doc-pages"
+description = "RemedyUI paged documents: a page view with tiled deep zoom (1% to 6400%) rendered off the UI thread, continuous scroll in single or two-page spreads, rotation, text selection and search over the app's text runs, page navigation and a thumbnails rail. The app supplies pages through a trait; parsing stays in the app."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "0.1.0" }
+remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
+remedy-ui-layout = { path = "../remedy-ui-layout", version = "0.1.0" }
+remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
+remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
+remedy-ui-style = { path = "../remedy-ui-style", version = "0.1.0" }
+remedy-ui-view = { path = "../remedy-ui-view", version = "0.1.0" }
+remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "0.1.0" }
+
+[dev-dependencies]
+remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "0.1.0" }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "0.1.0", features = ["remedy-sans-ui"] }
+remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "0.1.0" }
+remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "0.1.0" }
+remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
+remedy-ui-themes = { path = "../remedy-ui-themes", version = "0.1.0" }
+
+[lints]
+workspace = true
