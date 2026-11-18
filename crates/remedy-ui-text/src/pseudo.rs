@@ -32,6 +32,11 @@ impl Pseudo {
         }
     }
 
+    /// Plain `text` rewritten for this pseudo-locale (an accessible name, a tooltip).
+    pub fn apply_str(self, text: &str) -> String {
+        self.apply(&RichText::plain(text)).as_str().to_owned()
+    }
+
     /// `text` rewritten for this pseudo-locale, with its spans and inline objects moved with
     /// the characters they covered.
     pub fn apply(self, text: &RichText) -> RichText {

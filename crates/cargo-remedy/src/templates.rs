@@ -153,10 +153,10 @@ pub fn home(ui: &Ui) -> El {
         .gap(unit * 3.0)
         .padding(Insets::all(unit * 6.0))
         .child(say(ui, "app-title", "strong"))
-        .child(w::text(ui, "").variant("muted").text_dyn(move || {
+        .child(w::text(ui, "").variant("muted").text(move || {
             messages().format(&u, "taps", &[("count", Arg::from(taps.get()))])
         }))
-        .child(w::button_dyn(ui, move || messages().text(&u2, "tap-me"), move || taps.update(|c| *c += 1)).variant("primary"))
+        .child(w::button(ui, move || messages().text(&u2, "tap-me"), move || taps.update(|c| *c += 1)).variant("primary"))
 }
 
 /// The app's strings, from `i18n/<locale>.ftl`, carried inside the app.
@@ -168,7 +168,7 @@ pub fn messages() -> Messages {
 /// A label showing message `id`, following the window's locale.
 fn say(ui: &Ui, id: &'static str, variant: &'static str) -> El {
     let u = ui.clone();
-    w::text(ui, "").variant(variant).text_dyn(move || messages().text(&u, id))
+    w::text(ui, "").variant(variant).text(move || messages().text(&u, id))
 }
 
 /// Android starts the app here, in the activity's thread.

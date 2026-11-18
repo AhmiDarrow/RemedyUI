@@ -3879,6 +3879,7 @@ dependencies = [
  "remedy-ui-fonts",
  "remedy-ui-input",
  "remedy-ui-layout",
+ "remedy-ui-macros",
  "remedy-ui-paint",
  "remedy-ui-reactive",
  "remedy-ui-render-cpu",
@@ -4187,7 +4188,10 @@ name = "remedy-ui-reactive"
 version = "0.1.0"
 dependencies = [
  "remedy-ui-core",
+ "remedy-ui-reactive",
  "remedy-ui-trace",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4401,6 +4405,7 @@ dependencies = [
  "remedy-ui-host",
  "remedy-ui-input",
  "remedy-ui-layout",
+ "remedy-ui-motion",
  "remedy-ui-paint",
  "remedy-ui-reactive",
  "remedy-ui-render-cpu",

@@ -101,3 +101,49 @@ fn states_combine_and_print() {
     assert!(s.contains(States::HOVER) && !s.contains(States::PRESSED));
     assert_eq!(format!("{:?}", s.with(States::HOVER, false)), "States(FOCUS_VISIBLE)");
 }
+
+#[test]
+fn tokens_resolve_through_whatever_theme_is_shown() {
+    let mut theme = Theme::dark_forest();
+    let style = Style::new()
+        .radius(Radius::R3)
+        .padding_x(Space::S4)
+        .background(ColorRole::Accent)
+        .border_width(Dp::Stroke)
+        .text(TextRole::Title);
+    let p = style.resolve_over(&theme, Insets { top: 7.0, end: 1.0, bottom: 7.0, start: 1.0 });
+    assert_eq!(p.radius, Some(theme.radii.large));
+    assert_eq!(p.background, Some(theme.colors.accent));
+    assert_eq!(p.border_width, Some(theme.stroke));
+    assert_eq!(p.text_size, Some(TextRole::Title.size(&theme)));
+    assert_eq!(p.weight, Some(600.0));
+    let pad = p.padding.unwrap_or(Insets::ZERO);
+    assert_eq!((pad.start, pad.end), (theme.spacing.s(4), theme.spacing.s(4)));
+    assert_eq!((pad.top, pad.bottom), (7.0, 7.0), "unset sides keep the widget's own padding");
+    assert!(style.has_partial_padding());
+    assert!(!style.is_plain());
+
+    // Another theme: the same tokens, other numbers.
+    theme.spacing.unit = 8.0;
+    theme.radii.large = 20.0;
+    theme.colors.accent = Color::rgb8(200, 30, 30);
+    let p = style.resolve(&theme);
+    assert_eq!(p.radius, Some(20.0));
+    assert_eq!(p.padding.map(|i| i.start), Some(32.0));
+    assert_eq!(p.background, Some(Color::rgb8(200, 30, 30)));
+
+    // Plain values still work, and a later patch wins property by property.
+    let plain = Style::from(StylePatch::new().radius(5.0));
+    assert!(plain.is_plain());
+    let merged =
+        style.merge(&plain).merge(&Style::new().padding(Pad { top: Some(Dp::Px(2.0)), ..Pad::default() }));
+    let p = merged.resolve(&theme);
+    assert_eq!(p.radius, Some(5.0));
+    assert_eq!(p.padding.map(|i| (i.top, i.start)), Some((2.0, 32.0)));
+    assert_eq!(Radius::R0.px(&theme), 0.0);
+    assert_eq!(Radius::R4.px(&theme), RADIUS_FULL);
+    assert_eq!(Space::S0.px(&theme), 0.0);
+    assert_eq!(ColorRole::Custom("brand").color(&theme), Color::TRANSPARENT);
+    theme.colors.custom.insert("brand".into(), Color::WHITE);
+    assert_eq!(ColorRef::from(ColorRole::Custom("brand")).resolve(&theme), Color::WHITE);
+}

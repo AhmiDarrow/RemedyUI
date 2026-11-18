@@ -10,7 +10,10 @@ use crate::debug::NodeKey;
 use crate::error::ReactiveError;
 use crate::runtime::{Kind, NodeId, Runtime, key, with_rt};
 
-fn on_rt<R>(rt_id: u32, f: impl FnOnce(&Runtime) -> Result<R, ReactiveError>) -> Result<R, ReactiveError> {
+pub(crate) fn on_rt<R>(
+    rt_id: u32,
+    f: impl FnOnce(&Runtime) -> Result<R, ReactiveError>,
+) -> Result<R, ReactiveError> {
     with_rt(|rt| if rt.id == rt_id { f(rt) } else { Err(ReactiveError::WrongThread) })?
 }
 
@@ -30,6 +33,15 @@ fn name(rt_id: u32, id: NodeId, name: Cow<'static, str>) {
 fn create(kind: Kind) -> (u32, NodeId) {
     let at = Location::caller();
     match with_rt(|rt| (rt.id, rt.create(kind, at))) {
+        Ok(v) => v,
+        Err(e) => e.raise(None),
+    }
+}
+
+#[track_caller]
+fn create_in(kind: Kind, owner: Option<NodeId>, context_parent: Option<NodeId>) -> (u32, NodeId) {
+    let at = Location::caller();
+    match with_rt(|rt| (rt.id, rt.create_under(kind, at, owner, context_parent))) {
         Ok(v) => v,
         Err(e) => e.raise(None),
     }
@@ -366,6 +378,19 @@ impl Effect {
         Effect { rt, id }
     }
 
+    /// A new effect running `f`, owned by `owner` (disposed with it) rather than by whatever
+    /// runs now: a binding that belongs to an element, made while another effect runs.
+    #[track_caller]
+    pub fn new_in(owner: crate::Owner, f: impl FnMut() + 'static) -> Self {
+        let kind = Kind::Effect(Rc::new(std::cell::RefCell::new(Box::new(f))));
+        let (rt, id) = create_in(kind, Some(owner.id()), None);
+        let _ = on_rt(rt, |r| {
+            r.schedule_new_effect(id);
+            Ok(())
+        });
+        Effect { rt, id }
+    }
+
     /// The signals and memos it read the last time it ran.
     pub fn sources(&self) -> Vec<Source> {
         on_rt(self.rt, |rt| Ok(rt.sources(self.id))).unwrap_or_default()
@@ -411,6 +436,13 @@ impl Reaction {
     #[track_caller]
     pub fn new(on_change: impl Fn() + 'static) -> Self {
         let (rt, id) = create(Kind::Reaction(Rc::new(on_change)));
+        Reaction { rt, id }
+    }
+
+    /// A reaction owned by `owner` ([`Effect::new_in`]).
+    #[track_caller]
+    pub fn new_in(owner: crate::Owner, on_change: impl Fn() + 'static) -> Self {
+        let (rt, id) = create_in(Kind::Reaction(Rc::new(on_change)), Some(owner.id()), None);
         Reaction { rt, id }
     }
 
@@ -484,8 +516,8 @@ impl std::fmt::Display for Source {
 /// them. Components, windows and list rows are scopes.
 #[derive(Clone, Copy, Debug)]
 pub struct Scope {
-    rt: u32,
-    id: NodeId,
+    pub(crate) rt: u32,
+    pub(crate) id: NodeId,
 }
 
 impl Scope {
@@ -493,6 +525,22 @@ impl Scope {
     #[track_caller]
     pub fn new<R>(f: impl FnOnce() -> R) -> (R, Scope) {
         let (rt, id) = create(Kind::Scope);
+        let scope = Scope { rt, id };
+        let r = match scope.run(f) {
+            Ok(r) => r,
+            Err(e) => e.raise(creation_site(rt, id)),
+        };
+        (r, scope)
+    }
+
+    /// Creates a scope nothing owns (it lives until disposed), runs `f` inside it, and lets
+    /// it read context from the current owner. For what lives on its own terms whatever made
+    /// it, such as an element built while a binding runs: the binding running again does not
+    /// dispose it.
+    #[track_caller]
+    pub fn detached<R>(f: impl FnOnce() -> R) -> (R, Scope) {
+        let parent = with_rt(|rt| rt.owner()).ok().flatten();
+        let (rt, id) = create_in(Kind::Scope, None, parent);
         let scope = Scope { rt, id };
         let r = match scope.run(f) {
             Ok(r) => r,

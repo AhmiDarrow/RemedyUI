@@ -7,26 +7,21 @@ use remedy_ui_layout::Align;
 use remedy_ui_paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_reactive::Signal;
 use remedy_ui_style::States;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_view::{El, IntoProp, Prop, Ui};
 
 use crate::overlays::{MenuItem, menu};
 
-fn labeled(ui: &Ui, control: El, text: &str) -> El {
+fn labeled(ui: &Ui, control: El, text: Prop<String>) -> El {
     let gap = ui.theme().spacing.unit * 2.0;
     crate::min_target(
-        ui.el("choice")
-            .row()
-            .align(Align::Center)
-            .gap(gap)
-            .child(control)
-            .child(crate::text(ui, text.to_owned())),
+        ui.el("choice").row().align(Align::Center).gap(gap).child(control).child(crate::text(ui, text)),
     )
 }
 
 /// A check box with a label. Pressing it (or Space) flips `value`.
 #[track_caller]
-pub fn check(ui: &Ui, text: impl Into<String>, value: Signal<bool>) -> El {
-    let text = text.into();
+pub fn check(ui: &Ui, text: impl IntoProp<String>, value: Signal<bool>) -> El {
+    let text = text.into_prop();
     let box_size = ui.theme().type_scale.body + 3.0;
     let mark = ui.el("check").width(box_size).height(box_size).paint(|cx| {
         if !cx.states.contains(States::CHECKED) {
@@ -49,21 +44,16 @@ pub fn check(ui: &Ui, text: impl Into<String>, value: Signal<bool>) -> El {
             brush: Brush::Solid(cx.style.foreground),
         });
     });
-    let row = labeled(ui, mark.clone(), &text).on_click(move || value.update(|v| *v = !*v));
-    let r2 = row.clone();
-    row.bind(move || {
-        let v = value.get();
-        mark.state(States::CHECKED, v);
-        let _ = r2
-            .clone()
-            .semantics(Semantics::new(Role::Check).label(text.clone()).checked(v).action(Action::Click));
+    let row = labeled(ui, mark.clone(), text.clone()).on_click(move || value.update(|v| *v = !*v));
+    row.bind(move || mark.state(States::CHECKED, value.get())).semantics(move || {
+        Semantics::new(Role::Check).label(text.get()).checked(value.get()).action(Action::Click)
     })
 }
 
 /// An on/off switch with a label.
 #[track_caller]
-pub fn switch(ui: &Ui, text: impl Into<String>, value: Signal<bool>) -> El {
-    let text = text.into();
+pub fn switch(ui: &Ui, text: impl IntoProp<String>, value: Signal<bool>) -> El {
+    let text = text.into_prop();
     let h = ui.theme().type_scale.body + 5.0;
     let track = ui.el("switch").width(h * 1.8).height(h).paint(move |cx| {
         let on = cx.states.contains(States::CHECKED);
@@ -75,14 +65,9 @@ pub fn switch(ui: &Ui, text: impl Into<String>, value: Signal<bool>) -> El {
             Brush::Solid(cx.style.foreground),
         );
     });
-    let row = labeled(ui, track.clone(), &text).on_click(move || value.update(|v| *v = !*v));
-    let r2 = row.clone();
-    row.bind(move || {
-        let v = value.get();
-        track.state(States::CHECKED, v);
-        let _ = r2
-            .clone()
-            .semantics(Semantics::new(Role::Switch).label(text.clone()).checked(v).action(Action::Click));
+    let row = labeled(ui, track.clone(), text.clone()).on_click(move || value.update(|v| *v = !*v));
+    row.bind(move || track.state(States::CHECKED, value.get())).semantics(move || {
+        Semantics::new(Role::Switch).label(text.get()).checked(value.get()).action(Action::Click)
     })
 }
 
@@ -107,7 +92,7 @@ pub fn radio_group(ui: &Ui, label: impl Into<String>, options: &[&str], selected
             }
         });
         let text = (*opt).to_owned();
-        let row = labeled(ui, dot.clone(), &text).on_click(move || selected.set(i));
+        let row = labeled(ui, dot.clone(), Prop::Value(text.clone())).on_click(move || selected.set(i));
         let r2 = row.clone();
         let row = row
             .bind(move || {
@@ -228,19 +213,15 @@ pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected:
 
 /// A small selectable tag.
 #[track_caller]
-pub fn chip(ui: &Ui, text: impl Into<String>, selected: Signal<bool>) -> El {
-    let text = text.into();
+pub fn chip(ui: &Ui, text: impl IntoProp<String>, selected: Signal<bool>) -> El {
+    let text = text.into_prop();
     let c = crate::min_target(ui.el("chip"))
         .row()
         .align(Align::Center)
-        .child(ui.el("chip_label").text(remedy_ui_view::RichText::plain(text.clone())).nowrap())
+        .child(ui.el("chip_label").text(text.clone().map(remedy_ui_view::RichText::plain)).nowrap())
         .on_click(move || selected.update(|v| *v = !*v));
     let c2 = c.clone();
-    c.bind(move || {
-        let on = selected.get();
-        c2.state(States::SELECTED, on);
-        let _ = c2
-            .clone()
-            .semantics(Semantics::new(Role::Check).label(text.clone()).checked(on).action(Action::Click));
+    c.bind(move || c2.state(States::SELECTED, selected.get())).semantics(move || {
+        Semantics::new(Role::Check).label(text.get()).checked(selected.get()).action(Action::Click)
     })
 }

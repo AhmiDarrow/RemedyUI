@@ -47,10 +47,13 @@ pub use inspect::{
 pub use overlay::{PHASE_COLORS, PerfOverlay, graph_frames};
 pub use panels::TABS;
 pub use preview::{
-    GOLDEN_TOLERANCE, GoldenError, Preview, PreviewBuilder, Snapshot, Variation, background, check_golden,
-    gallery, is_rtl,
+    GOLDEN_TOLERANCE, GoldenError, Preview, PreviewBuilder, PreviewSpec, Snapshot, Variation, background,
+    check_golden, gallery, golden_test, is_rtl,
 };
 pub use recorder::{FrameFeed, FrameSample, GPU_TRACK, InstallError, Recorder, Slice, Trace};
+/// `#[preview]` declares a preview beside the UI it shows; `#[previews]` lists a module's
+/// previews for the gallery.
+pub use remedy_ui_macros::{preview, previews};
 pub use remote::{
     PROTOCOL_VERSION, RemoteAnswer, RemoteBinding, RemoteClient, RemoteElement, RemoteFrame, RemoteNode,
     RemoteOptions, RemoteProblem, RemoteRead, RemoteReaderNode, RemoteRequest, RemoteServer, RemoteUpdate,

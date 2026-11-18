@@ -493,3 +493,21 @@ fn pastes_pointer_reports_and_focus() {
     assert_eq!(encode_focus(true), b"\x1b[I");
     assert_eq!(encode_focus(false), b"\x1b[O");
 }
+
+#[test]
+fn several_clipboard_requests_in_one_chunk_all_arrive_in_order() {
+    let mut e = emu(20, 2, "");
+    e.feed(b"\x1b]52;c;b25l\x07\x1b]52;c;dHdv\x07\x1b]52;c;dGhyZWU=\x07");
+    assert_eq!(e.take_clipboard_request().as_deref(), Some("one"));
+    assert_eq!(e.take_clipboard_requests(), ["two", "three"]);
+    assert!(e.take_clipboard_requests().is_empty());
+    assert_eq!(e.take_clipboard_request(), None);
+}
+
+#[test]
+fn screen_text_leaves_out_trailing_blank_rows_only() {
+    let mut e = emu(10, 5, "");
+    assert_eq!(e.screen_text(), "", "an empty screen has no text");
+    e.feed(b"\x1b[2;1Hmid\x1b[3;1H   ");
+    assert_eq!(e.screen_text(), "\nmid", "the blank row before stays, those after go");
+}

@@ -7,52 +7,34 @@ use remedy_ui_core::{CornerRadii, Point, Rect};
 use remedy_ui_layout::{Align, Length, Position};
 use remedy_ui_paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
 use remedy_ui_reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_view::{El, IntoProp, PaintCx, Ui};
 
-/// Frames per second for engine-drawn indeterminate animations.
-const ANIMATION_STEP: Duration = Duration::from_millis(33);
+/// How long one turn of an engine-drawn indeterminate animation takes.
+const LOOP: Duration = Duration::from_millis(825);
 
-/// Advances `phase` while `el` is alive and motion is allowed, repainting it each step.
-fn animate(el: &El, phase: Signal<f32>) {
-    let ui = el.ui().clone();
-    if ui.reduced_motion() {
-        return;
+/// Where a looping animation is (0 to 1) at the frame's time, asking for the next frame
+/// while motion is allowed: it runs on the frame clock, with no timer, and stops asking
+/// (a still frame) under reduced motion.
+fn phase(cx: &mut PaintCx<'_>) -> f32 {
+    if cx.reduced_motion {
+        return 0.0;
     }
-    let el = el.clone();
-    let tick = std::rc::Rc::new(std::cell::RefCell::new(None::<Box<dyn Fn()>>));
-    let t2 = tick.clone();
-    let ui2 = ui.clone();
-    *tick.borrow_mut() = Some(Box::new(move || {
-        if !ui2.tree().contains(el.id()) || ui2.reduced_motion() {
-            return;
-        }
-        phase.update(|p| *p = (*p + 0.04) % 1.0);
-        el.repaint();
-        let t3 = t2.clone();
-        ui2.after(ANIMATION_STEP, move || {
-            if let Some(f) = t3.borrow().as_ref() {
-                f();
-            }
-        });
-    }));
-    if let Some(f) = tick.borrow().as_ref() {
-        f();
-    }
+    cx.request_next_frame();
+    (cx.time.as_secs_f32() / LOOP.as_secs_f32()).fract()
 }
 
 /// A progress bar: `Some(fraction)` (0..1) when the amount is known, `None` for
 /// indeterminate work.
 #[track_caller]
-pub fn progress(ui: &Ui, label: impl Into<String>, value: Signal<Option<f32>>) -> El {
-    let label = label.into();
+pub fn progress(ui: &Ui, label: impl IntoProp<String>, value: Signal<Option<f32>>) -> El {
+    let label = label.into_prop();
     let h = ui.theme().spacing.unit * 1.5;
-    let phase = Signal::new(0.0f32);
     let bar = ui.el("progress").height(h).fill_width().paint(move |cx| {
         let w = cx.size.width;
-        let (x0, x1) = match value.get_untracked().ok().flatten() {
+        let (x0, x1) = match value.get() {
             Some(f) => (0.0, w * f.clamp(0.0, 1.0)),
             None => {
-                let p = phase.get_untracked().unwrap_or(0.0);
+                let p = phase(cx);
                 let x = (p * 1.4 - 0.4) * w;
                 (x.max(0.0), (x + 0.4 * w).min(w))
             }
@@ -66,33 +48,25 @@ pub fn progress(ui: &Ui, label: impl Into<String>, value: Signal<Option<f32>>) -
             );
         }
     });
-    let b2 = bar.clone();
-    let animating = std::rc::Rc::new(std::cell::Cell::new(false));
-    bar.bind(move || {
-        let v = value.get();
-        let mut s = Semantics::new(Role::Progress).label(label.clone());
-        if let Some(f) = v {
+    bar.semantics(move || {
+        let mut s = Semantics::new(Role::Progress).label(label.get());
+        if let Some(f) = value.get() {
             s = s.numeric(f64::from(f), 0.0, 1.0);
-        } else if !animating.replace(true) {
-            animate(&b2, phase);
         }
-        let _ = b2.clone().semantics(s);
-        b2.repaint();
+        s
     })
 }
 
 /// A spinning ring for work of unknown length (still under reduced motion).
 #[track_caller]
-pub fn spinner(ui: &Ui, label: impl Into<String>) -> El {
+pub fn spinner(ui: &Ui, label: impl IntoProp<String>) -> El {
     let size = ui.theme().type_scale.body + 6.0;
-    let phase = Signal::new(0.0f32);
-    let el = ui
-        .el("spinner")
+    ui.el("spinner")
         .width(size)
         .height(size)
-        .semantics(Semantics::new(Role::Progress).label(label.into()))
+        .semantics(label.into_prop().map(|l| Semantics::new(Role::Progress).label(l)))
         .paint(move |cx| {
-            let p = phase.get_untracked().unwrap_or(0.0) * std::f32::consts::TAU;
+            let p = phase(cx) * std::f32::consts::TAU;
             let c = Point::new(cx.size.width / 2.0, cx.size.height / 2.0);
             let r = cx.size.width.min(cx.size.height) / 2.0 - 2.0;
             let mut path = Path::new();
@@ -113,41 +87,32 @@ pub fn spinner(ui: &Ui, label: impl Into<String>) -> El {
                 stroke,
                 brush: Brush::Solid(cx.style.foreground),
             });
-        });
-    animate(&el, phase);
-    el
+        })
 }
 
 /// A status light: on (the theme's ok color) or off.
 #[track_caller]
-pub fn lamp(ui: &Ui, label: impl Into<String>, on: Signal<bool>) -> El {
-    let label = label.into();
+pub fn lamp(ui: &Ui, label: impl IntoProp<String>, on: Signal<bool>) -> El {
+    let label = label.into_prop();
     let size = ui.theme().spacing.unit * 2.5;
     let l = ui.el("lamp").width(size).height(size).paint(move |cx| {
         let c = &cx.theme.colors;
-        let color = if on.get_untracked().unwrap_or(false) { c.ok } else { cx.theme.derive().line };
+        let color = if on.get() { c.ok } else { cx.theme.derive().line };
         cx.list.fill_rounded(
             Rect::new(0.0, 0.0, cx.size.width, cx.size.height),
             CornerRadii::all(cx.size.width / 2.0),
             Brush::Solid(color),
         );
     });
-    let l2 = l.clone();
-    l.bind(move || {
-        let v = on.get();
-        let _ = l2.clone().semantics(Semantics::new(Role::Status).label(label.clone()).value(if v {
-            "on"
-        } else {
-            "off"
-        }));
-        l2.repaint();
+    l.semantics(move || {
+        Semantics::new(Role::Status).label(label.get()).value(if on.get() { "on" } else { "off" })
     })
 }
 
 /// A small count or tag.
 #[track_caller]
-pub fn badge(ui: &Ui, text: impl Into<String>) -> El {
-    ui.el("badge").text(remedy_ui_view::RichText::plain(text.into())).nowrap()
+pub fn badge(ui: &Ui, text: impl IntoProp<String>) -> El {
+    ui.el("badge").text(text.into_prop().map(remedy_ui_view::RichText::plain)).nowrap()
 }
 
 /// A short message at the bottom of the window that goes away by itself after `duration`
@@ -187,14 +152,14 @@ pub fn toast(ui: &Ui, message: impl Into<String>, duration: Duration) -> El {
 
 /// What an empty list or a first run shows: a title and a hint.
 #[track_caller]
-pub fn empty_state(ui: &Ui, title: impl Into<String>, hint: impl Into<String>) -> El {
+pub fn empty_state(ui: &Ui, title: impl IntoProp<String>, hint: impl IntoProp<String>) -> El {
     let gap = ui.theme().spacing.unit * 2.0;
     ui.el("empty_state")
         .column()
         .align(Align::Center)
         .gap(gap)
-        .child(crate::heading(ui, 3, title.into()))
-        .child(crate::text(ui, hint.into()).variant("muted"))
+        .child(crate::heading(ui, 3, title))
+        .child(crate::text(ui, hint).variant("muted"))
 }
 
 /// A placeholder block shown while content loads.

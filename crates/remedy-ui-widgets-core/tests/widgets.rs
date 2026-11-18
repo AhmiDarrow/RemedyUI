@@ -560,3 +560,200 @@ fn a_virtual_list_fills_its_height_and_shows_changed_items() {
     t.frame();
     assert_eq!(shown(&list).first().map(String::as_str), Some("new 0"));
 }
+
+#[test]
+fn keyed_views_apply_signal_vec_operations_without_rebuilding() {
+    let mut t = T::new();
+    let items = remedy_ui_reactive::SignalVec::new(vec![1u32, 2, 3]);
+    let built = Rc::new(Cell::new(0));
+    let b2 = built.clone();
+    let row_ui = t.ui.clone();
+    let col = w::for_each(
+        &w::column(&t.ui),
+        items,
+        |i| *i,
+        move |i| {
+            b2.set(b2.get() + 1);
+            w::text(&row_ui, format!("Row {i}"))
+        },
+    );
+    t.ui.root().child(col.clone());
+    t.frame();
+    assert_eq!(built.get(), 3);
+    let ids = |col: &El| col.child_elements().iter().map(El::id).collect::<Vec<_>>();
+    let before = ids(&col);
+    let _ = items.push(4);
+    let _ = items.insert(0, 0);
+    t.frame();
+    assert_eq!(built.get(), 5, "a push and an insert mount one row each");
+    let after = ids(&col);
+    assert_eq!(after.get(1..4), Some(before.as_slice()), "the old rows kept their elements");
+    let _ = items.move_item(4, 0);
+    let _ = items.remove(1);
+    t.frame();
+    assert_eq!(built.get(), 5, "moves and removals build nothing");
+    let texts: Vec<String> =
+        col.child_elements().iter().filter_map(|c| c.info().and_then(|i| i.text)).collect();
+    assert_eq!(texts, ["Row 4", "Row 1", "Row 2", "Row 3"]);
+    let _ = items.set(0, 40);
+    t.frame();
+    assert_eq!(built.get(), 6, "a changed item rebuilds its own row");
+    let _ = items.clear();
+    t.frame();
+    assert!(col.child_elements().is_empty());
+}
+
+#[test]
+fn virtual_lists_over_a_signal_vec_build_only_new_rows_in_view() {
+    let mut t = T::new();
+    let items = remedy_ui_reactive::SignalVec::new((0..1000u32).collect());
+    let built = Rc::new(Cell::new(0));
+    let (b2, ui) = (built.clone(), t.ui.clone());
+    let vl = w::virtual_list(&t.ui, "Messages", items, 20.0, move |_, i| {
+        b2.set(b2.get() + 1);
+        w::text(&ui, format!("Message {i}")).height(20.0)
+    });
+    let _ = vl.clone().height(200.0);
+    t.ui.root().child(vl.clone());
+    t.frame();
+    t.frame();
+    let first = built.get();
+    assert!(first > 5 && first < 60, "only rows near the viewport: {first}");
+    let _ = items.push(1000);
+    t.frame();
+    assert_eq!(built.get(), first, "a row added far below the viewport builds nothing");
+    let _ = items.insert(0, 9999);
+    t.frame();
+    t.frame();
+    assert_eq!(built.get(), first + 1, "one row added in view builds that row alone");
+    let rows = vl.child_elements().get(1).map(El::child_elements).unwrap_or_default();
+    let text = rows.first().and_then(El::info).and_then(|i| i.text);
+    assert_eq!(text.as_deref(), Some("Message 9999"));
+}
+
+/// A list row as a screen reader meets it: name, place in the list, states and node id.
+type ReaderRow = (Option<String>, Option<(usize, usize)>, Vec<&'static str>, u64);
+
+fn list_rows(t: &T) -> Vec<ReaderRow> {
+    t.ui.reader_view()
+        .into_iter()
+        .filter(|n| n.role == remedy_ui_a11y::Role::ListItem)
+        .map(|n| (n.name, n.position, n.states, n.id))
+        .collect()
+}
+
+#[test]
+fn list_rows_tell_screen_readers_their_name_place_and_selection() {
+    let mut t = T::new();
+    t.ui.connect_accessibility();
+    let items = remedy_ui_reactive::SignalVec::new(vec!["Alex", "Sam", "Kai"]);
+    let sel = Signal::new(None::<&'static str>);
+    let ui = t.ui.clone();
+    let l = w::list(&t.ui, "People", items, |s| *s, move |s| w::text(&ui, *s), sel, |_| {});
+    t.ui.root().child(l);
+    t.frame();
+    let seen = list_rows(&t);
+    let names: Vec<_> = seen.iter().map(|r| (r.0.clone(), r.1)).collect();
+    assert_eq!(
+        names,
+        [
+            (Some("Alex".into()), Some((1, 3))),
+            (Some("Sam".into()), Some((2, 3))),
+            (Some("Kai".into()), Some((3, 3)))
+        ]
+    );
+    // Assistive technology selects a row by clicking it.
+    let sam = seen.get(1).map(|r| r.3).unwrap_or_default();
+    assert!(t.ui.accessibility_action(sam, remedy_ui_a11y::Action::Click));
+    t.frame();
+    assert_eq!(sel.get(), Some("Sam"));
+    let selected: Vec<_> =
+        list_rows(&t).into_iter().filter(|r| r.2.contains(&"selected")).map(|r| r.0).collect();
+    assert_eq!(selected, [Some("Sam".to_string())]);
+    // Places follow inserts.
+    let _ = items.insert(0, "Ann");
+    t.frame();
+    t.frame();
+    let places: Vec<_> = list_rows(&t).into_iter().map(|r| r.1).collect();
+    assert_eq!(places, [Some((1, 4)), Some((2, 4)), Some((3, 4)), Some((4, 4))]);
+}
+
+fn transitions() -> w::ListTransitions {
+    let tween = remedy_ui_view::motion::Motion::Tween {
+        duration: Duration::from_millis(100),
+        easing: remedy_ui_view::motion::Easing::Linear,
+    };
+    w::ListTransitions::new()
+        .enter(remedy_ui_view::Transition::fade(tween))
+        .exit(remedy_ui_view::Transition::fade(tween))
+        .moves(tween)
+}
+
+fn keyed_rows(t: &T, items: remedy_ui_reactive::SignalVec<u32>) -> El {
+    let ui = t.ui.clone();
+    let col = w::for_each_with(
+        &w::column(&t.ui),
+        items,
+        |i| *i,
+        move |i| w::text(&ui, format!("Row {i}")).height(20.0),
+        transitions(),
+    );
+    t.ui.root().child(col.clone());
+    col
+}
+
+fn row_named(col: &El, name: &str) -> Option<El> {
+    col.child_elements().into_iter().find(|c| c.info().and_then(|i| i.text).as_deref() == Some(name))
+}
+
+#[test]
+fn keyed_rows_fade_in_fade_out_and_glide_to_new_places() {
+    let mut t = T::new();
+    t.ui.set_frame_time(Duration::ZERO);
+    let items = remedy_ui_reactive::SignalVec::new(vec![1u32, 2, 3]);
+    let col = keyed_rows(&t, items);
+    t.frame();
+    let opacity = |el: &El| el.info().map_or(-1.0, |i| i.style.opacity);
+    let first = row_named(&col, "Row 1").unwrap_or_else(|| unreachable!("row 1"));
+    assert_eq!(opacity(&first), 1.0, "the rows there at the start do not fade in");
+
+    // Inserting at the top: the new row fades in, the others glide down from where they were.
+    let _ = items.insert(0, 0);
+    t.ui.set_frame_time(Duration::from_millis(1));
+    t.frame();
+    let zero = row_named(&col, "Row 0").unwrap_or_else(|| unreachable!("row 0"));
+    assert!(opacity(&zero) < 0.2, "it starts faded: {}", opacity(&zero));
+    let (offset, _) = first.drawn_offset();
+    assert!(offset.y < -10.0, "row 1 is drawn where it was, above its new place: {offset:?}");
+    t.ui.set_frame_time(Duration::from_millis(200));
+    t.frame();
+    assert_eq!(opacity(&zero), 1.0);
+    assert_eq!(first.drawn_offset().0, remedy_ui_core::Vec2::ZERO, "it arrived");
+
+    // Removing: the row stays, inert and out of the accessibility tree, until it has faded.
+    let _ = items.remove(2);
+    t.ui.set_frame_time(Duration::from_millis(201));
+    t.frame();
+    let two = row_named(&col, "Row 2").unwrap_or_else(|| unreachable!("still there while it leaves"));
+    let sem = two.info().and_then(|i| i.semantics).map(|s| s.is_hidden());
+    assert_eq!(sem, Some(true));
+    t.ui.set_frame_time(Duration::from_millis(400));
+    t.frame();
+    t.frame();
+    assert!(row_named(&col, "Row 2").is_none(), "gone once it faded");
+    let texts: Vec<String> =
+        col.child_elements().iter().filter_map(|c| c.info().and_then(|i| i.text)).collect();
+    assert_eq!(texts, ["Row 0", "Row 1", "Row 3"]);
+
+    // Moving keeps order while rows leave; everything is instant under reduced motion.
+    t.ui.set_reduced_motion(true);
+    let _ = items.move_item(2, 0);
+    let _ = items.remove(1);
+    t.frame();
+    t.frame();
+    let texts: Vec<String> =
+        col.child_elements().iter().filter_map(|c| c.info().and_then(|i| i.text)).collect();
+    assert_eq!(texts, ["Row 3", "Row 1"], "the leaving row went at once");
+    let three = row_named(&col, "Row 3").unwrap_or_else(|| unreachable!("row 3"));
+    assert_eq!(three.drawn_offset().0, remedy_ui_core::Vec2::ZERO, "no glide under reduced motion");
+}

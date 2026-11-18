@@ -75,10 +75,10 @@ mod demo {
                 .gap(12.0)
                 .padding(remedy_ui::core::Insets { top: 16.0, end: 16.0, bottom: 16.0, start: 16.0 })
                 .child(w::text(ui, "RemedyUI on the web").variant("title"))
-                .child(ui.el("label").text_dyn(move || format!("Taps: {}", taps.get())))
+                .child(ui.el("label").text(move || format!("Taps: {}", taps.get())))
                 .child(w::button(ui, "Tap me", move || taps.update(|n| *n += 1)))
                 .child(field.el())
-                .child(ui.el("label").text_dyn(move || format!("You typed: {}", typed.get())))
+                .child(ui.el("label").text(move || format!("You typed: {}", typed.get())))
                 .child(
                     w::row(ui)
                         .gap(12.0)
@@ -100,12 +100,12 @@ mod demo {
                             save_file(&save_app, save_field.value(), status)
                         })),
                 )
-                .child(ui.el("label").text_dyn(move || status.get()))
+                .child(ui.el("label").text(move || status.get()))
                 .child(w::button(ui, "Which renderer?", move || {
                     let r = win.renderer().map_or("none yet".to_owned(), |r| format!("{r:?}"));
                     status.set(format!("Drawing on the {r} renderer"));
                 }))
-                .child(ui.el("label").text_dyn(move || {
+                .child(ui.el("label").text(move || {
                     let s = ui2.safe_area();
                     format!("Safe area: top {:.0}, bottom {:.0}", s.top, s.bottom)
                 }));

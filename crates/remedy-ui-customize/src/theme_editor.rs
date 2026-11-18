@@ -30,7 +30,7 @@ pub(crate) fn reset_button(
     w::button(ui, "Reset", on_press)
         .variant("quiet")
         .semantics(Semantics::new(Role::Button).label(format!("Reset {what}")).action(Action::Click))
-        .disabled_dyn(move || !active())
+        .disabled(move || !active())
 }
 
 /// A token's value in the person's theme now (tracked).
@@ -77,7 +77,7 @@ fn color_row(ui: &Ui, c: &Customizations, token: &Token, status: Signal<String>)
     let label = token.label();
     let open = Signal::new(false);
     let (c1, t1) = (c.clone(), token.clone());
-    let swatch = ui.el("swatch").width(unit * 6.0).height(unit * 6.0).style_dyn(move || {
+    let swatch = ui.el("swatch").width(unit * 6.0).height(unit * 6.0).style(move || {
         let mut v_ = StylePatch::default();
         v_.background = Some(color_of(&c1, &t1));
         v_.radius = Some(c1.theme().map_or(4.0, |t| t.radii.small));
@@ -86,7 +86,7 @@ fn color_row(ui: &Ui, c: &Customizations, token: &Token, status: Signal<String>)
         v_
     });
     let (c2, t2) = (c.clone(), token.clone());
-    let hex = w::text(ui, "").variant("muted").data_text().text_dyn(move || {
+    let hex = w::text(ui, "").variant("muted").data_text().text(move || {
         let col = color_of(&c2, &t2);
         let h = col.to_hex();
         if col.a >= 0.999 { h.chars().take(7).collect() } else { h }
@@ -323,7 +323,7 @@ fn contrast_panel(ui: &Ui, c: &Customizations) -> El {
         });
     });
     let c3 = c.clone();
-    w::section(ui, "Contrast").child(list).semantics_dyn(move || {
+    w::section(ui, "Contrast").child(list).semantics(move || {
         let n = c3.theme().map(|t| contrast_warnings(&t).len()).unwrap_or(0);
         let s = Semantics::new(Role::Status).label("Contrast");
         if n == 0 {
@@ -542,7 +542,7 @@ fn files_section(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
     let unit = ui.theme().spacing.unit;
     // The background.
     let c0 = c.clone();
-    let shown = w::text(ui, "").variant("muted").data_text().text_dyn(move || {
+    let shown = w::text(ui, "").variant("muted").data_text().text(move || {
         match c0.theme().and_then(|t| t.assets.background) {
             Some(r) if r.starts_with("data:") => "Background: an image inside the theme".to_owned(),
             Some(r) => format!("Background: {r}"),
@@ -698,8 +698,8 @@ pub fn theme_editor(ui: &Ui, c: &Customizations) -> El {
     );
     let status_line = w::text(ui, "")
         .variant("muted")
-        .text_dyn(move || status.get())
-        .semantics_dyn(move || Semantics::new(Role::Status).label("Theme status").value(status.get()));
+        .text(move || status.get())
+        .semantics(move || Semantics::new(Role::Status).label("Theme status").value(status.get()));
     let controls = w::column(ui)
         .gap(unit * 4.0)
         .grow(1.0)

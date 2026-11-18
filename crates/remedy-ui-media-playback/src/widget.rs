@@ -146,7 +146,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         move || p.toggle(),
     );
     let p = player.clone();
-    let time = ui.el("label").nowrap().layout(|l| l.shrink = 0.0).text_dyn(move || {
+    let time = ui.el("label").nowrap().layout(|l| l.shrink = 0.0).text(move || {
         let pos = format_time(p.position());
         match p.duration() {
             Some(d) => format!("{pos} / {}", format_time(d)),
@@ -308,7 +308,7 @@ fn glyph_button(
             let _ = b2.clone().hidden(!second);
         })
         .on_click(on_press)
-        .semantics_dyn(move || Semantics::new(Role::Button).label(name()).action(Action::Click));
+        .semantics(move || Semantics::new(Role::Button).label(name()).action(Action::Click));
     w::tooltip(&button, tip);
     button
 }

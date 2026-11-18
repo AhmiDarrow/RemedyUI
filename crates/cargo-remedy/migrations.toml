@@ -117,6 +117,46 @@ type = "remedy_ui::term::Terminal"
 old = "monospace"
 new = "is_monospace"
 
+[[rename]]
+since = "0.1.0"
+kind = "method"
+type = "remedy_ui::view::El"
+old = "text_dyn"
+new = "text"
+
+[[rename]]
+since = "0.1.0"
+kind = "method"
+type = "remedy_ui::view::El"
+old = "style_dyn"
+new = "style"
+
+[[rename]]
+since = "0.1.0"
+kind = "method"
+type = "remedy_ui::view::El"
+old = "disabled_dyn"
+new = "disabled"
+
+[[rename]]
+since = "0.1.0"
+kind = "method"
+type = "remedy_ui::view::El"
+old = "semantics_dyn"
+new = "semantics"
+
+[[rename]]
+since = "0.1.0"
+kind = "path"
+old = "remedy_ui::widgets::button_dyn"
+new = "button"
+
+[[rename]]
+since = "0.1.0"
+kind = "path"
+old = "remedy_ui::nav::nav_item_dyn"
+new = "nav_item"
+
 [[call]]
 since = "0.1.0"
 path = "remedy_ui::widgets::label"

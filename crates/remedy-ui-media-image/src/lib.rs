@@ -155,7 +155,7 @@ pub fn image_with(ui: &Ui, source: Source, alt: impl Into<String>, fit: Fit, loa
     });
 
     let alt2 = alt.clone();
-    let el = el.semantics_dyn(move || {
+    let el = el.semantics(move || {
         if alt2.is_empty() {
             return Semantics::new(Role::Image).hidden(true);
         }

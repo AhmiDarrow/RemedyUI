@@ -152,13 +152,13 @@ mod demo {
                     || Some(Drag::new(DragData::text("Dragged out of RemedyUI"))),
                     |effect| log(&format!("drag out ended: {effect:?}")),
                 ))
-                .child(ui.el("label").text_dyn(move || format!("Taps: {}", taps.get())))
+                .child(ui.el("label").text(move || format!("Taps: {}", taps.get())))
                 .child(w::button(ui, "Tap me", move || {
                     taps.update(|n| *n += 1);
                     log(&format!("button tapped, taps = {}", taps.get_untracked().unwrap_or(0)));
                 }))
                 .child(field.el())
-                .child(ui.el("label").text_dyn(move || format!("You typed: {}", typed.get())))
+                .child(ui.el("label").text(move || format!("You typed: {}", typed.get())))
                 .child(
                     w::row(ui)
                         .gap(12.0)
@@ -187,7 +187,7 @@ mod demo {
                             move || a.borrow_mut().push(Act::OpenLink)
                         })),
                 )
-                .child(ui.el("label").text_dyn(move || {
+                .child(ui.el("label").text(move || {
                     format!("Capture protection: {}", if protected.get() { "on" } else { "off" })
                 }))
                 .child(
@@ -196,7 +196,7 @@ mod demo {
                         .child(w::button(ui, "Open file", move || open_file(&open_app)))
                         .child(w::button(ui, "Save file", move || save_file(&save_app, save_field.value()))),
                 )
-                .child(ui.el("label").text_dyn(move || {
+                .child(ui.el("label").text(move || {
                     let s = ui2.safe_area();
                     format!("Safe area: top {:.0}, bottom {:.0}", s.top, s.bottom)
                 }));

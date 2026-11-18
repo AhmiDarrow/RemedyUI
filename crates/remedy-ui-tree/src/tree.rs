@@ -114,7 +114,12 @@ struct Data {
     dirty_list: Vec<ElementId>,
     next_handler: u64,
     marks: u64,
+    /// Takes failures in place of the tree's own boundaries ([`Tree::set_failure_handler`]).
+    failure_handler: Option<FailureHandler>,
 }
+
+/// Takes a failure: the element whose code failed, and the panic message.
+pub type FailureHandler = Rc<dyn Fn(ElementId, String)>;
 
 /// A window's element tree. Cloning gives another handle to the same tree, so bindings and
 /// handlers can capture it.
@@ -244,6 +249,7 @@ impl Tree {
             dirty_list: Vec::new(),
             next_handler: 0,
             marks: 0,
+            failure_handler: None,
         })))
     }
 
@@ -268,7 +274,7 @@ impl Tree {
     /// when the element is removed.
     #[track_caller]
     pub fn create(&self, name: impl Into<Cow<'static, str>>) -> ElementId {
-        let ((), scope) = Scope::new(|| {});
+        let ((), scope) = Scope::detached(|| {});
         match self.0.borrow_mut().nodes.insert(Node::new(name.into(), scope)) {
             Ok(id) => id,
             Err(_) => std::process::abort(),
@@ -395,6 +401,19 @@ impl Tree {
     /// The element's name.
     pub fn name(&self, id: ElementId) -> Option<String> {
         self.0.borrow().nodes.get(id).map(|n| n.name.to_string())
+    }
+
+    /// Hands every failure caught in this tree (a panicking handler or guarded closure) to
+    /// `f` instead of the tree's own boundaries: a view layer that keeps more per element
+    /// (where it was built, its layout and paint) contains failures itself. `None` restores
+    /// the tree's boundaries.
+    pub fn set_failure_handler(&self, f: Option<FailureHandler>) {
+        self.0.borrow_mut().failure_handler = f;
+    }
+
+    /// The reactive scope that owns what is made for the element.
+    pub fn scope(&self, id: ElementId) -> Option<Scope> {
+        self.0.borrow().nodes.get(id).map(|n| n.scope)
     }
 
     /// The element's path from the root, such as `root/settings/save`.
@@ -639,6 +658,11 @@ impl Tree {
     /// Records a failure at `at` with its nearest error boundary (the root at the latest):
     /// the boundary's children are removed and its signal is set.
     pub fn report_failure(&self, at: ElementId, message: String) {
+        let handler = self.0.borrow().failure_handler.clone();
+        if let Some(h) = handler {
+            h(at, message);
+            return;
+        }
         let (boundary, signal, path) = {
             let d = self.0.borrow();
             let path = d.path(at);

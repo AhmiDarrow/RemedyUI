@@ -393,3 +393,31 @@ fn files_from_other_apps_drop_into_folders_and_items_drag_out_as_files() {
     assert_eq!(out, Some(vec![std::path::PathBuf::from("C:/disk/readme.txt")]));
     t.ui.drag_finished(DropEffect::Copy);
 }
+
+#[test]
+fn assistive_technology_selects_opens_and_closes_rows() {
+    let t = tree(true);
+    let row = |t: &T, i: usize| find(&t.tree, "tree_item").get(i).map(El::node_id).unwrap_or_default();
+    // Click selects the row, as a press does.
+    let music = row(&t, 1);
+    assert!(t.ui.accessibility_action(music, remedy_ui_a11y::Action::Click));
+    frame(&t.ui);
+    assert_eq!(cursor(&t).as_deref(), Some("/music"));
+    assert_eq!(t.state.selection.selected.get(), ["/music".to_string()]);
+    // Expand and Collapse open and close a folder.
+    let docs = row(&t, 0);
+    assert!(t.ui.accessibility_action(docs, remedy_ui_a11y::Action::Expand));
+    frame(&t.ui);
+    assert_eq!(labels(&t), ["docs", "letters", "cv.pdf", "notes.md", "music", "readme.txt"]);
+    let docs = row(&t, 0);
+    let sem = find(&t.tree, "tree_item").first().and_then(El::info).and_then(|i| i.semantics);
+    assert!(sem.is_some_and(
+        |s| s.expanded_state() == Some(true) && s.actions().contains(&remedy_ui_a11y::Action::Collapse)
+    ));
+    assert!(t.ui.accessibility_action(docs, remedy_ui_a11y::Action::Collapse));
+    frame(&t.ui);
+    assert_eq!(labels(&t), ["docs", "music", "readme.txt"]);
+    // A file has nothing to open.
+    let readme = row(&t, 2);
+    assert!(!t.ui.accessibility_action(readme, remedy_ui_a11y::Action::Expand));
+}

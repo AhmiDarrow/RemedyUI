@@ -945,7 +945,7 @@ fn tab_staff_with(
             }
             true
         })
-        .semantics_dyn(move || {
+        .semantics(move || {
             let ms = measures.get();
             let cur = cursor.get();
             let picked = selected.get();

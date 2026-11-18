@@ -236,8 +236,8 @@ pub fn shortcut_editor(ui: &Ui, c: &Customizations) -> El {
     );
     let status_line = w::text(ui, "")
         .variant("muted")
-        .text_dyn(move || status.get())
-        .semantics_dyn(move || Semantics::new(Role::Status).label("Shortcut status").value(status.get()));
+        .text(move || status.get())
+        .semantics(move || Semantics::new(Role::Status).label("Shortcut status").value(status.get()));
     w::column(ui)
         .gap(unit * 3.0)
         .fill_width()

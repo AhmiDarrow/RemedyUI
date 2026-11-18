@@ -371,8 +371,10 @@ pub(crate) struct Outbox {
     pub(crate) bells: u32,
     /// The title changed.
     pub(crate) title: bool,
-    /// The program asked to put this on the clipboard (OSC 52); the app decides.
-    pub(crate) clipboard: Option<String>,
+    /// What the program asked to put on the clipboard (OSC 52), oldest first; the app
+    /// decides. Every request is kept until taken: how many one chunk of output holds is
+    /// bounded by the chunk, and each is bounded by the per-sequence limit.
+    pub(crate) clipboard: std::collections::VecDeque<String>,
     /// The palette or default colors changed (OSC 4, 10, 11, 12, 104, 110–112).
     pub(crate) colors: bool,
     /// The working directory changed (OSC 7).
@@ -2236,7 +2238,7 @@ impl vte::Perform for State {
                 use base64::Engine as _;
                 let cleaned: Vec<u8> = data.into_iter().filter(|b| !b.is_ascii_whitespace()).collect();
                 if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&cleaned) {
-                    self.out.clipboard = Some(String::from_utf8_lossy(&bytes).into_owned());
+                    self.out.clipboard.push_back(String::from_utf8_lossy(&bytes).into_owned());
                 }
             }
             _ => {}
@@ -2601,9 +2603,12 @@ impl Emulator {
         self.state.grid.get(row)?.cells.get(col)
     }
 
-    /// The screen's text, one line per row, trailing blanks left out.
+    /// The screen's text, one line per row, trailing blanks left out, and the blank rows
+    /// after the last row with content too (blank rows between stay).
     pub fn screen_text(&self) -> String {
-        self.state.grid.iter().map(Line::text).collect::<Vec<_>>().join("\n")
+        let lines: Vec<String> = self.state.grid.iter().map(Line::text).collect();
+        let used = lines.iter().rposition(|l| !l.is_empty()).map_or(0, |i| i + 1);
+        lines.iter().take(used).map(String::as_str).collect::<Vec<_>>().join("\n")
     }
 
     /// Lines in the scrollback.
@@ -2654,9 +2659,16 @@ impl Emulator {
         std::mem::take(&mut self.state.out.replies)
     }
 
-    /// Takes what the program asked to put on the clipboard (OSC 52), if it did.
+    /// Takes the oldest of the requests the program made to put text on the clipboard
+    /// (OSC 52), if it made any. Call it again for the next.
     pub fn take_clipboard_request(&mut self) -> Option<String> {
-        self.state.out.clipboard.take()
+        self.state.out.clipboard.pop_front()
+    }
+
+    /// Takes every pending clipboard request (OSC 52), oldest first: a program that sends
+    /// several in one chunk of output has each of them heard, in order.
+    pub fn take_clipboard_requests(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.state.out.clipboard).into()
     }
 
     /// Sets how much scrollback to keep (dropping the oldest lines past it).

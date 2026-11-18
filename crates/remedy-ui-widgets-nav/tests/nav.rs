@@ -273,3 +273,46 @@ fn title_bars_move_on_press_and_maximize_on_double_click() {
     assert!(tree.contains("Restore"), "the maximize button says Restore while maximized");
     audit_clean(&ui);
 }
+
+#[test]
+fn pages_pushed_from_a_binding_keep_their_bindings_while_on_the_stack() {
+    let ui = ui();
+    let stack = NavStack::new(&ui, "Inbox", w::text(&ui, "Inbox"));
+    ui.root().child(stack.el());
+    frame(&ui);
+    // An app pushes the page for the route it follows; the page reads its own signal.
+    let route = Signal::new(0u32);
+    let unread = Signal::new(3u32);
+    let pushed = Rc::new(Cell::new(false));
+    let (s2, u2, p2) = (stack.clone(), ui.clone(), pushed.clone());
+    let follower = ui.el("route").hidden(true).bind(move || {
+        let r = route.get();
+        remedy_ui_reactive::untrack(|| {
+            if r > 0 && !p2.replace(true) {
+                s2.push("Thread", w::text(&u2, move || format!("{} unread", unread.get())));
+            }
+        });
+    });
+    ui.root().child(follower);
+    route.set(1);
+    frame(&ui);
+    // The route binding runs again (another route change) while the page stays on the stack.
+    route.set(2);
+    unread.set(5);
+    frame(&ui);
+    let texts: Vec<String> = texts_under(&stack.el());
+    assert!(texts.iter().any(|t| t == "5 unread"), "the page still follows its signal: {texts:?}");
+}
+
+/// Every text shown under `el`.
+fn texts_under(el: &El) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack = vec![el.clone()];
+    while let Some(e) = stack.pop() {
+        if let Some(t) = e.info().and_then(|i| i.text) {
+            out.push(t);
+        }
+        stack.extend(e.child_elements());
+    }
+    out
+}

@@ -83,7 +83,7 @@ pub fn page_view(ui: &Ui, view: &PageView, label: impl Into<String>) -> El {
             l.inset = Insets::ZERO;
         })
         .pass_through()
-        .semantics_dyn(move || {
+        .semantics(move || {
             Semantics::new(Role::Page).label(format!("Page {}", current.get() + 1)).value(text.get())
         });
     let (a, b, c, d, f, g) =
@@ -92,7 +92,11 @@ pub fn page_view(ui: &Ui, view: &PageView, label: impl Into<String>) -> El {
         .el("page_view")
         .focusable(true)
         .layout(|l| {
+            // A viewport onto huge content: it takes what it is given and never its size from
+            // the pages, so a plain column or row needs nothing set to hold it.
             l.grow = 1.0;
+            l.shrink = 1.0;
+            l.basis = Length::Px(0.0);
             l.min_width = Length::Px(0.0);
             l.min_height = Length::Px(0.0);
         })
@@ -101,7 +105,7 @@ pub fn page_view(ui: &Ui, view: &PageView, label: impl Into<String>) -> El {
         // scale it on the compositor until they settle.
         .isolate_paint()
         .paint(view::painter(view))
-        .semantics_dyn(move || view::semantics(&a, &label))
+        .semantics(move || view::semantics(&a, &label))
         .on_resize(move |s| b.resized(s))
         .on_wheel(move |e| c.wheel(e))
         .on_pinch(move |e| d.pinch(e))
@@ -114,13 +118,16 @@ pub fn page_view(ui: &Ui, view: &PageView, label: impl Into<String>) -> El {
 
 /// The height of a thumbnail row, logical pixels: the picture and its page number.
 const THUMB_ROW: f32 = 184.0;
+/// The rail's width: a thumbnail, room for the scrollbar and the margins around it.
+const THUMB_RAIL: f32 = 144.0;
 /// The box a thumbnail fits in.
 const THUMB_WIDTH: f32 = 120.0;
 const THUMB_HEIGHT: f32 = 150.0;
 
 /// A rail of page thumbnails for `view`: click one (or press Enter on the screen reader's
 /// item) to go to that page; with the rail focused, the arrows, Page Up/Down, Home and End
-/// move through the pages. The current page is selected and kept in sight.
+/// move through the pages. The current page is selected and kept in sight. The rail is a
+/// strip of its own width that fills the height it is given, in any row or column.
 #[track_caller]
 pub fn thumbnails(ui: &Ui, view: &PageView) -> El {
     let n = view.page_count();
@@ -151,7 +158,7 @@ pub fn thumbnails(ui: &Ui, view: &PageView) -> El {
     // Keep the current page's row in sight.
     let follow = view.current_page();
     let scroller = rail.clone();
-    rail.bind(move || {
+    let rail = rail.bind(move || {
         let page = follow.get();
         let Some(b) = scroller.bounds() else { return };
         let off = scroller.ui().scroll_offset(scroller.id()).y;
@@ -160,7 +167,21 @@ pub fn thumbnails(ui: &Ui, view: &PageView) -> El {
             let y = (top - (b.height() - THUMB_ROW) / 2.0).max(0.0);
             scroller.scroll_to(Vec2::new(0.0, y));
         }
-    })
+    });
+    // The strip is a box of its own natural width and no height of its own: it takes the
+    // height it is given, and the list (one row per page, so very tall) lies in it, never
+    // giving it its height. A plain row or column holds it with nothing set.
+    ui.el("page_thumbs")
+        .layout(|l| {
+            l.width = Length::Px(THUMB_RAIL);
+            l.grow = 0.0;
+            l.shrink = 0.0;
+            l.min_height = Length::Px(0.0);
+        })
+        .child(rail.layout(|l| {
+            l.position = Position::Absolute;
+            l.inset = Insets::ZERO;
+        }))
 }
 
 fn thumb_row(ui: &Ui, view: &PageView, page: usize) -> El {
@@ -185,7 +206,7 @@ fn thumb_row(ui: &Ui, view: &PageView, page: usize) -> El {
         .on_click(move || go.go_to_page(page))
         // The rail takes the keys; rows are for the pointer and screen readers.
         .focusable(false)
-        .semantics_dyn(move || {
+        .semantics(move || {
             Semantics::new(Role::ListItem)
                 .label(format!("Page {}", page + 1))
                 .selected(current.get() == page)

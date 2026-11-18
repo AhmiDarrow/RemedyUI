@@ -377,7 +377,27 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
                     _ => false,
                 })
                 .keyboard_alternative("Arrow keys move and open items; Ctrl+X then Ctrl+V moves them")
-                .semantics_dyn(sem);
+                .semantics(sem)
+                .on_accessibility_action({
+                    // Screen readers and agents select, open and close rows as the keyboard does.
+                    let (sel, k, state, has_children) =
+                        (sel.clone(), k.clone(), state.clone(), line.item.has_children);
+                    move |a| match a {
+                        Action::Click => {
+                            sel.select_only(k.clone());
+                            true
+                        }
+                        Action::Expand if has_children => {
+                            state.expand(k.clone());
+                            true
+                        }
+                        Action::Collapse if has_children => {
+                            state.collapse(&k);
+                            true
+                        }
+                        _ => false,
+                    }
+                });
             if movable || state.export.borrow().is_some() {
                 // Dragging carries the selection (or this item), as the app's export says
                 // other apps see it, and as itself to targets in this tree.
@@ -618,7 +638,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
 
     let status = {
         // Why a move did not happen, announced as it appears.
-        let el = w::text(ui, "").variant("danger").text_dyn(move || error.get().unwrap_or_default());
+        let el = w::text(ui, "").variant("danger").text(move || error.get().unwrap_or_default());
         let e2 = el.clone();
         el.bind(move || {
             let msg = error.get();

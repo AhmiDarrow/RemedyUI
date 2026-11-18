@@ -11,9 +11,20 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+## Persisted signals (`Signal::persist`): values saved as JSON in the app's data folder.
+persist = ["dep:serde", "dep:serde_json"]
+
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
 remedy-ui-trace = { path = "../remedy-ui-trace", version = "0.1.0" }
+serde = { version = "=1.0.229", optional = true }
+serde_json = { version = "=1.0.154", optional = true }
+
+[dev-dependencies]
+remedy-ui-reactive = { path = ".", features = ["persist"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154" }
 
 [lints]
 workspace = true

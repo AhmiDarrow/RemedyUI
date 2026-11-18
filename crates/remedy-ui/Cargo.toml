@@ -106,7 +106,7 @@ remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "0.1.0" }
 remedy-ui-host = { path = "../remedy-ui-host", version = "0.1.0" }
 remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
 remedy-ui-layout = { path = "../remedy-ui-layout", version = "0.1.0" }
-remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
+remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0", features = ["persist"] }
 remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "0.1.0" }
 remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "0.1.0", optional = true }
 remedy-ui-customize = { path = "../remedy-ui-customize", version = "0.1.0", optional = true }
