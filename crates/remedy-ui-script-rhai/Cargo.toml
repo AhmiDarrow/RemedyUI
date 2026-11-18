@@ -1,0 +1,25 @@
+[package]
+name = "remedy-ui-script-rhai"
+description = "RemedyUI scripted widgets in Rhai: widgets people write by hand, run sandboxed with operation, depth, size and time limits."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-script = { path = "../remedy-ui-script", version = "0.1.0" }
+remedy-ui-trace = { path = "../remedy-ui-trace", version = "0.1.0" }
+# No clock (`no_time`): scripts are deterministic, and the clock would panic in a page.
+# Modules stay on for the `ui` functions; `import` is switched off in the engine. The
+# debugger interface is how the engine measures what a running call holds.
+rhai = { version = "=1.27.0", default-features = false, features = ["std", "no_time", "debugging"] }
+serde_json = { version = "=1.0.154" }
+
+[lints]
+workspace = true

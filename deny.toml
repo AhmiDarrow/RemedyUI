@@ -34,6 +34,10 @@ ignore = [
     # remove when syntect moves off them.
     { id = "RUSTSEC-2025-0141", reason = "bincode 1 via syntect (grammar dumps); maintenance notice only" },
     { id = "RUSTSEC-2024-0320", reason = "yaml-rust via syntect (grammar files); maintenance notice only" },
+    # Rhai 1.27 (script-rhai, the latest release) depends on smartstring, archived in 2026, even
+    # with its compact_str feature. A maintenance notice, not a vulnerability; remove when Rhai
+    # drops it.
+    { id = "RUSTSEC-2026-0249", reason = "smartstring via rhai; maintenance notice only" },
 ]
 
 [licenses]
@@ -63,6 +67,10 @@ unused-allowed-license = "allow"
 # permissive data license; this exception is for that one crate only.
 exceptions = [
     { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs" },
+    # Rhai's hash seeds come from const-random, whose build-time macro hashes with tiny-keccak:
+    # CC0-1.0, a public-domain dedication, in a proc macro that runs while building and is not
+    # linked into apps. This exception is for that one crate only.
+    { allow = ["CC0-1.0"], crate = "tiny-keccak" },
 ]
 
 [bans]

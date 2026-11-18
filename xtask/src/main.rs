@@ -35,8 +35,11 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-a11y", 3),
     ("remedy-ui-compositor", 3),
     ("remedy-ui-secure", 3),
-    // Scripted widgets: untrusted Luau that describes elements, with no UI of its own.
+    // Scripted widgets: the language-neutral interface for untrusted code that describes
+    // elements, with no UI of its own, and its engines (Rhai, WebAssembly).
     ("remedy-ui-script", 3),
+    ("remedy-ui-script-rhai", 3),
+    ("remedy-ui-script-wasm", 3),
     // The host model: the platform-neutral contract bridges implement.
     ("remedy-ui-host", 3),
     // The view layer: elements, the frame pipeline and input routing, over L0-L3.
@@ -151,6 +154,9 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-customize", "remedy-ui-rui"),
     ("remedy-ui-customize", "remedy-ui-doc-code"),
     ("remedy-ui-customize", "remedy-ui-media-image"),
+    // Each script engine implements the language-neutral widget interface.
+    ("remedy-ui-script-rhai", "remedy-ui-script"),
+    ("remedy-ui-script-wasm", "remedy-ui-script"),
     // The compositor holds display lists and runs motion curves on its own thread.
     ("remedy-ui-compositor", "remedy-ui-paint"),
     ("remedy-ui-compositor", "remedy-ui-motion"),

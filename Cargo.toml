@@ -27,5 +27,27 @@ dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
 
+# The script interpreters (Rhai, wasmi) meter every step, and Rhai recurses on the native
+# stack; their limits are sized from that. They are built optimized in development too, so
+# tests see the stack use and speed the limits are measured for, and wasmi without its debug
+# checks so it runs the same interpreter loop as in release.
+[profile.dev.package.rhai]
+opt-level = 3
+
+[profile.dev.package.wasmi]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.wasmi_core]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.wasmi_ir]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
 [profile.release]
 overflow-checks = true

@@ -10,8 +10,8 @@ entry points, with each gap fixed at its root. The rules it applied are in
 enums, 150 constants, 22 traits, 19 aliases), searched for each rule below; a struct-literal
 census across the workspace and FreeSpeak (the one Remedy app on the engine whose sources
 are here) to size each change; then each crate's surface read where a rule flagged it.
-`remedy-ui-script` and `remedy-ui-widgets-board` are left as they are on main: they are being
-rebuilt on Rhai and WebAssembly engines, and get these conventions when that lands.
+`remedy-ui-script` and `remedy-ui-widgets-board` were rebuilt on Rhai and WebAssembly
+engines after this review and got its conventions then ("Scripted widgets" below).
 
 **For other branches merging after this one:** every rename below is in
 `crates/cargo-remedy/migrations.toml`, so `cargo remedy migrate --path <crate>` applies the
@@ -168,12 +168,35 @@ literals; they become `PointerEvent::new(phase, at).with_buttons(b)` and
 - Dependency types in public signatures were each checked. Kept, as deliberate re-exported
   interop versioned with RemedyUI (STABILITY.md): `wgpu` in `render-gpu` / `embed-gpu`,
   `serde_json` in `embed-webview`, `accesskit` and `raw_window_handle` in `host`, `winit` in
-  `bridge-winit` (engine-internal, for the Android bridge). `remedy-ui-script` exposes
-  `serde_json::Value` without re-exporting it; that crate is being replaced (above).
+  `bridge-winit` (engine-internal, for the Android bridge), and `serde_json` in `script` (the
+  values settings, host data and button handlers are made of; re-exported as
+  `remedy_ui::script::serde_json`).
 - The remaining public items that exist for other engine crates (the runner-facing methods of
   `Ui`, `media_image::spawn_job`, the host contract) are documented as such; they are the
   contract between the facade, the bridges and the renderers, which STABILITY.md classes as
   engine crates.
+
+## Scripted widgets
+
+The earlier `remedy-ui-script` (one built-in language) was replaced by a language-neutral interface and two engine
+crates (`remedy-ui-script-rhai`, `remedy-ui-script-wasm`; facade features `script-rhai` and
+`script-wasm`, modules `remedy_ui::script`, `script_rhai`, `script_wasm`). Nothing was renamed
+mechanically, so `migrations.toml` gains only the new facade modules; the changes, with their
+replacements:
+
+| Crate | Old | New |
+|---|---|---|
+| `remedy-ui-script` | `struct ScriptWidget` with `ScriptWidget::load(source, limits)` | `trait ScriptWidget`; widgets load through an engine: `RhaiEngine::new().load_source(source, limits)`, `WasmEngine::new().load_module(bytes, limits)`, or any enabled engine with `Engines::load(&Package, limits)` |
+| `remedy-ui-script` | `Limits { memory, time }` literals | `#[non_exhaustive]`; `Limits::default()` or `for_device`, then a setter per field (`memory`, `time`, `operations`, `call_depth`, `stack`, `nesting`) |
+| `remedy-ui-script` | `SettingSpec { .. }` literals | `#[non_exhaustive]`; `SettingSpec::new(key, label, kind, default)` |
+| `remedy-ui-script` | `ScriptError`, `SettingKind` exhaustive | `#[non_exhaustive]`; `ScriptError` gains `Denied`, `OutOfFuel`, `TooDeep` |
+| `remedy-ui-script` | (new) | `Language`, `Package`, `Manifest`, `Described` (`#[non_exhaustive]`), `ScriptEngine`, `Engines`, `manifest`, `describe`, `resolve_settings`; `StepRate` and `calibrate_with` (each engine's steps a millisecond, measured on the device) |
+| `remedy-ui-script-rhai`, `remedy-ui-script-wasm` | (new) | `rate()`, `measure()`, `calibrate()`, and `FALLBACK_OPERATIONS_PER_MS` / `FALLBACK_FUEL_PER_MS` for the moment before the first measurement |
+| `remedy-ui-script` | `Node`, `TextStyle` | kept exhaustive, with a comment: the element protocol is a closed set every host builds in full |
+| `remedy-ui-widgets-board` | `ScriptKind::new(id, source, limits)` | `ScriptKind::new(id, Package, &Engines, limits)` |
+| `remedy-ui-widgets-board` | `Context` | `#[non_exhaustive]` (made with `Context::local`), gains `engines`: the languages the board accepts |
+| `remedy-ui-widgets-board` | `build_node(ui, node, &Rc<RefCell<ScriptWidget>>, version, open)` | `build_node(ui, node, &SharedWidget, version, open, stopped)`, `SharedWidget = Rc<RefCell<Box<dyn ScriptWidget>>>`; `stopped` takes a handler's stop (`FailurePhase`, `ScriptError`) |
+| `remedy-ui-widgets-board` | a stopped script showed a label (a handler's stop a toast) | each scripted widget is a `catch_errors` boundary: a stop goes to `Ui::failures` and the error hook, and the widget shows why with a "Start again" button (its `Retry`) |
 
 ## Reachable through the facade
 

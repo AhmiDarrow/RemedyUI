@@ -1,11 +1,20 @@
 //! Boards on a real view with the theme sheet: what visitors see, scripted widgets at work,
 //! arranging with the keyboard and the pointer, undo, and a hostile script kept in its box.
+//! Every scenario with a scripted widget runs once with the Rhai example and once with the
+//! WebAssembly one.
+
+#![cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+
+#[path = "../../remedy-ui-script-wasm/tests/hostile/mod.rs"]
+mod hostile;
 
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Size};
 use remedy_ui_input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
+use remedy_ui_script_rhai::RhaiEngine;
+use remedy_ui_script_wasm::WasmEngine;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Request, Ui};
 use remedy_ui_widgets_board::*;
@@ -91,20 +100,24 @@ fn audit(ui: &Ui) -> Vec<String> {
         .collect()
 }
 
-const CLAPS: &str = r#"
-return {
-  name = "Claps",
-  settings = { { key = "title", label = "Title", kind = "text", default = "Claps" } },
-  render = function(settings, state, ui, host)
-    state.claps = state.claps or 0
-    return ui.column({ gap = 8 }, {
-      ui.heading(settings.title),
-      ui.text(state.claps .. " claps from " .. (host.house or "nobody")),
-      ui.button("Clap", function() state.claps = state.claps + 1 end),
-    })
-  end,
+/// The example widget in each language: the same widget, written by hand in Rhai and
+/// compiled from Rust to WebAssembly.
+fn claps() -> [Package; 2] {
+    [
+        Package::rhai(include_str!("../../remedy-ui-script-rhai/examples/claps.rhai")),
+        Package::wasm(include_bytes!("../../remedy-ui-script-wasm/examples/claps.wasm")),
+    ]
 }
-"#;
+
+/// Both engines.
+fn engines() -> Engines {
+    Engines::new().with(Rc::new(RhaiEngine::new())).with(Rc::new(WasmEngine::new()))
+}
+
+/// Time enough for an unoptimized test build; the hostile test sets its own.
+fn limits() -> Limits {
+    Limits::default().time(Duration::from_secs(5))
+}
 
 fn home() -> (Board, String, String, String) {
     let (b, welcome) = Board::default().add_area("Welcome", 8, 1).unwrap_or_else(|e| unreachable!("{e}"));
@@ -120,26 +133,34 @@ fn home() -> (Board, String, String, String) {
     (b, welcome, side, note)
 }
 
-fn registry() -> Rc<Registry> {
+fn registry(claps: Package) -> Rc<Registry> {
     let mut r = Registry::with_builtins();
     r.add(Rc::new(
-        ScriptKind::new("claps", CLAPS, Limits::default()).unwrap_or_else(|e| unreachable!("{e}")),
+        ScriptKind::new("claps", claps, &engines(), limits()).unwrap_or_else(|e| unreachable!("{e}")),
     ));
     Rc::new(r)
 }
 
 fn context() -> Context {
-    let cx = Context::local(|_| {});
+    let mut cx = Context::local(|_| {});
     cx.host.set(serde_json::json!({ "house": "the Den" }));
+    cx.engines = engines();
+    cx.limits = limits();
     cx
 }
 
 #[test]
 fn a_visitor_sees_the_board_and_scripted_widgets_work() {
+    for claps in claps() {
+        a_visitor_sees_the_board(claps);
+    }
+}
+
+fn a_visitor_sees_the_board(claps: Package) {
     let ui = ui();
     let (b, ..) = home();
     let state = BoardState::new(b);
-    ui.root().child(board(&ui, &state, registry(), context()));
+    ui.root().child(board(&ui, &state, registry(claps), context()));
     frame(&ui);
     assert!(has_text(&ui, "Hello, house") && has_text(&ui, "Dinner is at seven."));
     assert!(has_text(&ui, "0 claps from the Den"), "{:?}", texts_like(&ui, "claps"));
@@ -164,11 +185,17 @@ fn a_visitor_sees_the_board_and_scripted_widgets_work() {
 
 #[test]
 fn the_owner_arranges_with_the_keyboard_and_undoes() {
+    for claps in claps() {
+        the_owner_arranges(claps);
+    }
+}
+
+fn the_owner_arranges(claps: Package) {
     let ui = ui();
     let (b, welcome, side, note) = home();
     let state = BoardState::new(b);
     state.editing.set(true);
-    ui.root().child(board(&ui, &state, registry(), context()));
+    ui.root().child(board(&ui, &state, registry(claps), context()));
     frame(&ui);
     let found = audit(&ui);
     assert!(found.is_empty(), "{found:#?}");
@@ -210,11 +237,17 @@ fn the_owner_arranges_with_the_keyboard_and_undoes() {
 
 #[test]
 fn widgets_are_added_from_the_panel_and_dragged_between_areas() {
+    for claps in claps() {
+        widgets_are_added_and_dragged(claps);
+    }
+}
+
+fn widgets_are_added_and_dragged(claps: Package) {
     let ui = ui();
     let (b, welcome, side, note) = home();
     let state = BoardState::new(b);
     state.editing.set(true);
-    ui.root().child(board(&ui, &state, registry(), context()));
+    ui.root().child(board(&ui, &state, registry(claps), context()));
     frame(&ui);
     click(&ui, &named(&ui, "Around the house area"));
     click(&ui, &named(&ui, "Add widget"));
@@ -233,40 +266,129 @@ fn widgets_are_added_from_the_panel_and_dragged_between_areas() {
     assert!(b.area(&welcome).is_some_and(|a| a.widgets.iter().all(|w| w.id != note)));
 }
 
+/// Hostile widgets in each language: an endless loop, runaway recursion, a memory hog.
+fn hostile_widgets() -> Vec<(&'static str, Package)> {
+    let rhai = |body: &str| Package::rhai(&format!("fn render(s, h) {{ {body} }} #{{ name: \"Hostile\" }}"));
+    vec![
+        ("a Rhai loop", rhai("loop {}")),
+        (
+            "Rhai recursion",
+            Package::rhai("fn down(n) { down(n + 1) } fn render(s, h) { down(0) } #{ name: \"Deep\" }"),
+        ),
+        ("a Rhai hog", rhai("let s = \"x\"; loop { s += s; }")),
+        ("a WebAssembly loop", Package::wasm(&hostile::spin())),
+        ("WebAssembly recursion", Package::wasm(&hostile::recurse())),
+        ("a WebAssembly hog", Package::wasm(&hostile::hog())),
+    ]
+}
+
 #[test]
 fn a_hostile_script_stops_in_its_box_and_the_board_stays_usable() {
-    let ui = ui();
+    for (what, package) in hostile_widgets() {
+        let ui = ui();
+        let mut r = Registry::with_builtins();
+        let limits = Limits::default().time(Duration::from_millis(15)).memory(4 * 1024 * 1024);
+        // Loading is fine (the trouble is only in render); rendering is stopped.
+        r.add(Rc::new(
+            ScriptKind::new("hostile", package, &engines(), limits)
+                .unwrap_or_else(|e| unreachable!("{what}: {e}")),
+        ));
+        let (b, area) = Board::default().add_area("Home", 12, 1).unwrap_or_else(|e| unreachable!("{e}"));
+        let (b, _) =
+            b.add_widget(&area, "hostile", serde_json::Map::new()).unwrap_or_else(|e| unreachable!("{e}"));
+        let (b, _) =
+            b.add_widget(&area, "text", serde_json::Map::new()).unwrap_or_else(|e| unreachable!("{e}"));
+        let state = BoardState::new(b);
+        let mut cx = context();
+        cx.limits = limits;
+        let start = Instant::now();
+        ui.root().child(board(&ui, &state, Rc::new(r), cx));
+        frame(&ui);
+        assert!(start.elapsed() < Duration::from_secs(2), "{what}: {:?}", start.elapsed());
+        assert!(!texts_like(&ui, "This widget stopped").is_empty(), "{what}");
+        assert!(has_text(&ui, "Welcome"), "{what}: the widgets around it still show");
+        // The stop is one of the window's failures, caught by the widget's own boundary.
+        let failures = ui.failures();
+        assert_eq!(failures.len(), 1, "{what}: {failures:?}");
+        assert!(failures.iter().all(|f| f.boundary.is_some()), "{what}: {failures:?}");
+    }
+}
+
+#[test]
+fn a_handler_that_stops_is_reported_and_the_widget_starts_again() {
+    let src = "fn render(s, h) { ui::column([ui::text(\"ready\"), ui::button(\"Spin\", \"spin\")]) } \
+               fn spin() { loop {} } #{ name: \"Spinner\" }";
+    let limits = limits().operations(Some(100_000));
     let mut r = Registry::with_builtins();
-    let spin = "return { name = 'Spinner', render = function(s, st, ui) while true do end end }";
-    let limits = Limits { time: Duration::from_millis(15), ..Limits::default() };
-    // Loading is fine (the loop is only in render); rendering is stopped.
-    r.add(Rc::new(ScriptKind::new("spin", spin, limits).unwrap_or_else(|e| unreachable!("{e}"))));
+    r.add(Rc::new(
+        ScriptKind::new("spin", Package::rhai(src), &engines(), limits)
+            .unwrap_or_else(|e| unreachable!("{e}")),
+    ));
     let (b, area) = Board::default().add_area("Home", 12, 1).unwrap_or_else(|e| unreachable!("{e}"));
     let (b, _) = b.add_widget(&area, "spin", serde_json::Map::new()).unwrap_or_else(|e| unreachable!("{e}"));
-    let (b, _) = b.add_widget(&area, "text", serde_json::Map::new()).unwrap_or_else(|e| unreachable!("{e}"));
     let state = BoardState::new(b);
     let mut cx = context();
     cx.limits = limits;
-    let start = Instant::now();
+    let ui = ui();
     ui.root().child(board(&ui, &state, Rc::new(r), cx));
     frame(&ui);
-    assert!(start.elapsed() < Duration::from_secs(2), "{:?}", start.elapsed());
-    assert!(!texts_like(&ui, "This widget stopped").is_empty());
-    assert!(has_text(&ui, "Welcome"), "the widgets around it still show");
+    assert!(has_text(&ui, "ready"));
+    click(&ui, &named(&ui, "Spin"));
+    let stopped = texts_like(&ui, "This widget stopped");
+    assert!(stopped.iter().any(|t| t.contains("too many steps")), "{stopped:?}");
+    let failures = ui.failures();
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(failures.iter().all(|f| f.phase == remedy_ui_view::FailurePhase::Handler), "{failures:?}");
+    click(&ui, &named(&ui, "Start again"));
+    assert!(has_text(&ui, "ready"), "the widget runs again");
+    assert!(texts_like(&ui, "This widget stopped").is_empty());
+}
+
+#[test]
+fn a_board_runs_only_the_script_languages_it_accepts() {
+    let [rhai, wasm] = claps();
+    let mut r = Registry::with_builtins();
+    r.add(Rc::new(
+        ScriptKind::new("claps-rhai", rhai, &engines(), limits()).unwrap_or_else(|e| unreachable!("{e}")),
+    ));
+    r.add(Rc::new(
+        ScriptKind::new("claps-wasm", wasm, &engines(), limits()).unwrap_or_else(|e| unreachable!("{e}")),
+    ));
+    let (b, area) = Board::default().add_area("Home", 12, 1).unwrap_or_else(|e| unreachable!("{e}"));
+    let (b, _) =
+        b.add_widget(&area, "claps-rhai", serde_json::Map::new()).unwrap_or_else(|e| unreachable!("{e}"));
+    let (b, _) =
+        b.add_widget(&area, "claps-wasm", serde_json::Map::new()).unwrap_or_else(|e| unreachable!("{e}"));
+    let state = BoardState::new(b);
+    let mut cx = context();
+    cx.engines = Engines::new().with(Rc::new(RhaiEngine::new()));
+    let ui = ui();
+    ui.root().child(board(&ui, &state, Rc::new(r), cx));
+    frame(&ui);
+    assert!(has_text(&ui, "0 claps from the Den"), "the Rhai widget runs");
+    let stopped = texts_like(&ui, "This widget stopped");
+    assert!(stopped.iter().any(|t| t.contains("WebAssembly widgets are not accepted here")), "{stopped:?}");
 }
 
 #[test]
 fn a_board_document_from_a_peer_shows_as_sent() {
+    for claps in claps() {
+        a_peer_board_shows_as_sent(claps);
+    }
+}
+
+fn a_peer_board_shows_as_sent(claps: Package) {
     let ui = ui();
     let (b, ..) = home();
     let sent = b.to_json();
     let state = BoardState::new(Board::default());
-    ui.root().child(board(&ui, &state, registry(), context()));
+    ui.root().child(board(&ui, &state, registry(claps), context()));
     frame(&ui);
     assert!(has_text(&ui, "Nothing here yet."));
     state.doc.set(Board::from_json(&sent).unwrap_or_else(|e| unreachable!("{e}")));
     frame(&ui);
     assert!(has_text(&ui, "Hello, house"));
+    assert!(has_text(&ui, "0 claps from the Den"), "the scripted widget shows as sent");
     // A kind this app lacks is named, not hidden.
     let (b, area) = Board::default().add_area("X", 12, 1).unwrap_or_else(|e| unreachable!("{e}"));
     let (b, _) =
