@@ -36,6 +36,12 @@ pub enum ProblemKind {
     /// Focusable, but nothing about it changes when keyboard focus reaches it (WCAG 2.4.7
     /// Focus Visible): its style sheet has no focus rule.
     NoFocusIndicator,
+    /// Drawn partly past the window's edge with nothing to scroll it into view: a tooltip or
+    /// menu placed without room, or content wider than its window (WCAG 1.4.10 Reflow).
+    OffWindow {
+        /// How far past the window it reaches, in logical pixels (the largest side).
+        by: f32,
+    },
     /// A control smaller than 24×24 (WCAG 2.2 target size).
     SmallTarget {
         /// Its size.
@@ -70,6 +76,7 @@ impl Problem {
             ProblemKind::LowContrast { ratio, needed } => {
                 format!("Text contrast {ratio:.1}:1, needs {needed:.1}:1{at}")
             }
+            ProblemKind::OffWindow { by } => format!("Reaches {by:.0} px past the window's edge{at}"),
             ProblemKind::SmallTarget { width, height } => {
                 format!("Target {width:.0}×{height:.0}, needs 24×24{at}")
             }
@@ -122,6 +129,23 @@ fn text_in(el: &El) -> Option<String> {
 }
 
 /// False when the element or an ancestor is hidden.
+/// How far `b` reaches past `w` on its farthest side (0 inside).
+fn past(w: remedy_ui_core::Rect, b: remedy_ui_core::Rect) -> f32 {
+    (w.min.x - b.min.x).max(w.min.y - b.min.y).max(b.max.x - w.max.x).max(b.max.y - w.max.y).max(0.0)
+}
+
+/// Inside a scroll container or a clipping element.
+fn clipped(el: &El) -> bool {
+    let mut cur = el.parent();
+    while let Some(e) = cur {
+        if e.info().is_some_and(|i| i.clips) {
+            return true;
+        }
+        cur = e.parent();
+    }
+    false
+}
+
 fn shown_chain(el: &El) -> bool {
     let mut cur = el.parent();
     while let Some(e) = cur {
@@ -184,6 +208,7 @@ fn inside_disabled(el: &El) -> bool {
 pub fn audit(ui: &Ui) -> Vec<Problem> {
     let bg = ui.theme().colors.bg;
     let mut out = Vec::new();
+    let window = ui.root().bounds();
     for (_, el) in walk(ui) {
         let Some(i) = el.info() else { continue };
         let sized = i.bounds.is_some_and(|b| b.width() > 0.0 && b.height() > 0.0);
@@ -201,6 +226,16 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
                 out.push(Problem { element: i.id, kind: ProblemKind::InvisibleFocus, at: i.created_at });
             }
             continue;
+        }
+        if let (Some(w), Some(b)) = (window, i.bounds) {
+            let by = past(w, b);
+            // The outermost element that reaches past: its children say nothing new, and what
+            // a scroll container or clipping element holds can be scrolled or is cut on purpose.
+            let parent_past =
+                el.parent().and_then(|p| p.info()).and_then(|p| p.bounds).is_some_and(|pb| past(w, pb) > 0.5);
+            if by > 0.5 && !parent_past && !clipped(&el) {
+                out.push(Problem { element: i.id, kind: ProblemKind::OffWindow { by }, at: i.created_at });
+            }
         }
         if i.pointer && !i.focusable && i.keyboard_alternative.is_none() {
             out.push(Problem { element: i.id, kind: ProblemKind::PointerOnly, at: i.created_at });

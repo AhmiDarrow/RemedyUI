@@ -410,13 +410,13 @@ impl Runtime {
 
     /// Runs `f` with reaction `id` as the observer, replacing what it tracked before.
     pub(crate) fn track_reaction<R>(&self, id: NodeId, f: impl FnOnce() -> R) -> R {
-        let old = match self.nodes.borrow_mut().get_mut(id) {
-            Some(n) => {
-                n.state = State::Clean;
-                std::mem::take(&mut n.sources)
-            }
-            None => return untracked(self, f),
-        };
+        // The borrow ends before `f` can run: a match would hold it through the `None` arm,
+        // where `f` (a paint closure, say) reads signals.
+        let taken = self.nodes.borrow_mut().get_mut(id).map(|n| {
+            n.state = State::Clean;
+            std::mem::take(&mut n.sources)
+        });
+        let Some(old) = taken else { return untracked(self, f) };
         {
             let mut nodes = self.nodes.borrow_mut();
             for src in old {

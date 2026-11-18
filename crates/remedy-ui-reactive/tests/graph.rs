@@ -293,3 +293,17 @@ fn reactions_report_changes_to_what_they_last_tracked() {
     assert_eq!(told.get(), 3, "disposed");
     assert_eq!(r.track(|| 5), Ok(5), "a disposed reaction still runs its closure");
 }
+
+#[test]
+fn a_disposed_reaction_still_runs_what_it_tracks_and_may_read_signals() {
+    // A paint closure tracked by a reaction whose element went away in the same frame.
+    let lit = Signal::new(true);
+    let r = Reaction::new(|| {});
+    let gone = r;
+    r.dispose();
+    let read = gone.track(|| lit.get_untracked().ok());
+    assert!(matches!(read, Ok(Some(true)) | Err(_)), "{read:?}");
+    // And signals still work afterwards.
+    lit.set(false);
+    assert_eq!(lit.get_untracked().ok(), Some(false));
+}

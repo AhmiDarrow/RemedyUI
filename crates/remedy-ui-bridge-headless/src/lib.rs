@@ -99,6 +99,8 @@ pub struct HeadlessHost {
     clipboard: Option<(String, bool)>,
     woken: Arc<AtomicBool>,
     exited: bool,
+    /// Whether windows can be kept out of screen capture (Wayland and X11 cannot).
+    capture_supported: bool,
     focused: Option<WindowId>,
     interactions: Vec<(WindowId, Option<ResizeEdge>)>,
     tray: Option<TrayIcon>,
@@ -136,6 +138,7 @@ impl HeadlessHost {
             clipboard: None,
             woken: Arc::new(AtomicBool::new(false)),
             exited: false,
+            capture_supported: true,
             focused: None,
             interactions: Vec::new(),
             tray: None,
@@ -209,6 +212,12 @@ impl HeadlessHost {
         w.width = (size.width * w.scale).round().max(1.0) as u32;
         w.height = (size.height * w.scale).round().max(1.0) as u32;
         w.surface = vec![0; w.width as usize * w.height as usize * 4];
+    }
+
+    /// Acts like a system that cannot keep windows out of screen capture (`false`), as
+    /// Wayland and X11 are, or one that can (the default).
+    pub fn set_capture_supported(&mut self, on: bool) {
+        self.capture_supported = on;
     }
 
     /// Moves the clock forward.
@@ -481,6 +490,12 @@ impl Host for HeadlessHost {
     }
 
     fn set_capture_protected(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported> {
+        if on && !self.capture_supported {
+            return Err(Unsupported::new(
+                "capture protection",
+                "this system cannot exclude windows from capture",
+            ));
+        }
         if let Some(w) = self.window_mut(window) {
             w.options.capture_protected = on;
         }

@@ -344,6 +344,38 @@ fn menus_open_choose_and_dismiss() {
 }
 
 #[test]
+fn a_tooltip_in_the_corner_stays_inside_the_window() {
+    let mut t = T::new();
+    // A gear at the top right, its tooltip long: it must slide back, not run off the edge.
+    let b = w::icon_button(&t.ui, w::Icon::Settings, "Settings and preferences for this window", || {});
+    t.ui.root().child(w::row(&t.ui).fill_width().justify(remedy_ui_view::Justify::End).child(b.clone()));
+    t.frame();
+    let c = b.bounds().unwrap_or_default().center();
+    t.ui.pointer(&ptr(PointerPhase::Move, c, Buttons::default()));
+    t.frame();
+    t.fire();
+    t.frame();
+    t.frame();
+    let mut tips = Vec::new();
+    for layer in t.ui.layers() {
+        let mut stack = vec![layer];
+        while let Some(e) = stack.pop() {
+            if e.info().is_some_and(|i| i.widget == "tooltip") {
+                tips.push(e.clone());
+            }
+            stack.extend(e.child_elements());
+        }
+    }
+    let tip = tips.first().and_then(remedy_ui_view::El::bounds).unwrap_or_default();
+    assert!(tip.width() > 50.0, "the tooltip shows: {tip:?}");
+    assert!(tip.min.x >= 0.0 && tip.max.x <= 400.0 && tip.max.y <= 300.0, "inside the window: {tip:?}");
+    assert!(
+        tips.first().and_then(remedy_ui_view::El::info).is_some_and(|i| i.style.opacity > 0.99),
+        "and visible once placed"
+    );
+}
+
+#[test]
 fn tooltips_wait_trusted_prompts_hold_their_buttons_and_toasts_expire() {
     let mut t = T::new();
     let b = w::icon_button(&t.ui, w::Icon::Trash, "Delete note", || {});
