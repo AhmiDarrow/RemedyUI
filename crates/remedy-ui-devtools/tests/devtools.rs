@@ -34,6 +34,7 @@ fn ptr(phase: PointerPhase, p: Point) -> PointerEvent {
         pressure: 0.5,
         time: Duration::ZERO,
         coalesced: Vec::new(),
+        modifiers: remedy_ui_input::Modifiers::NONE,
     }
 }
 
@@ -416,4 +417,30 @@ fn the_audit_finds_pointer_only_and_invisible_focus() {
     assert_eq!(kinds(grip.id()), vec![ProblemKind::PointerOnly]);
     assert!(kinds(excused.id()).is_empty(), "{found:?}");
     assert_eq!(kinds(ghost.id()), vec![ProblemKind::InvisibleFocus]);
+}
+
+#[test]
+fn the_audit_finds_focus_that_does_not_show() {
+    let ui = ui();
+    // The default ring shows focus; so does a rule that changes the background instead.
+    let ringed = ui
+        .el("box")
+        .width(40.0)
+        .height(40.0)
+        .focusable(true)
+        .semantics(remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Button).label("Ringed"));
+    let unmarked = ui
+        .el("box")
+        .width(40.0)
+        .height(40.0)
+        .focusable(true)
+        .semantics(remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Button).label("Unmarked"))
+        .style(StylePatch { outline_width: Some(0.0), ..StylePatch::default() });
+    ui.root().child(w::column(&ui).child(ringed.clone()).child(unmarked.clone()));
+    frame(&ui);
+    let found = audit(&ui);
+    let kinds =
+        |id| found.iter().filter(move |p| p.element == id).map(|p| p.kind.clone()).collect::<Vec<_>>();
+    assert!(kinds(ringed.id()).is_empty(), "{found:?}");
+    assert_eq!(kinds(unmarked.id()), vec![ProblemKind::NoFocusIndicator]);
 }

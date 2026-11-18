@@ -1,6 +1,7 @@
 //! Win32 calls: the only unsafe code in the Windows bridge. Every function here is a small,
 //! safe wrapper that checks each result.
 
+pub(crate) mod dnd;
 pub(crate) mod instance;
 pub(crate) mod tray;
 pub(crate) mod tsf;
@@ -26,6 +27,31 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetCaretBlinkTime, SPI_GETCLIENTAREAANIMATION, SPI_GETHIGHCONTRAST, SetWindowDisplayAffinity,
     SystemParametersInfoW, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
 };
+
+/// Opens a web or mail link with the user's default app.
+pub(crate) fn open_url(url: &str) -> Result<(), Unsupported> {
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let (verb, target) = (wide("open"), wide(url));
+    // SAFETY: NUL-terminated wide strings that outlive the call; no window, parameters or
+    // directory.
+    let r = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            target.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // Values above 32 mean success.
+    if r as isize > 32 {
+        Ok(())
+    } else {
+        Err(Unsupported::new("opening links", format!("the shell refused it (code {})", r as isize)))
+    }
+}
 
 pub(crate) fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()

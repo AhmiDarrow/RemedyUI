@@ -9,7 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [features]
-default = ["gpu", "system-fonts", "widgets", "forms"]
+default = ["gpu", "system-fonts", "widgets", "forms", "nav"]
 ## Draw with the GPU renderer, falling back to the CPU renderer when no GPU works.
 gpu = ["dep:remedy-ui-render-gpu"]
 ## Dictionary line breaking for Thai, Lao, Khmer and Burmese (adds several MB of data).
@@ -23,13 +23,25 @@ system-fonts = ["remedy-ui-text/system-fonts", "remedy-ui-devtools?/system-fonts
 ## start styled with the first Remedy palette.
 widgets = ["dep:remedy-ui-widgets-core", "dep:remedy-ui-themes"]
 ## Form widgets (`remedy_ui::forms`): exact numbers, colors, shortcuts, dates, times, forms.
-forms = ["widgets", "dep:remedy-ui-widgets-forms"]
+forms = ["widgets", "i18n", "dep:remedy-ui-widgets-forms"]
+## Navigation (`remedy_ui::nav`): commands and shortcuts, tabs, rails, stacks, toolbars,
+## the command palette, drawers and a custom title bar.
+nav = ["widgets", "dep:remedy-ui-widgets-nav"]
+## Data (`remedy_ui::data`): tables, trees and property grids that stay fast at any size.
+data = ["widgets", "dep:remedy-ui-widgets-data"]
+## Images (`remedy_ui::image`): PNG, JPEG, GIF, WebP, BMP and ICO, decoded off the UI
+## thread at the size shown, color-managed and shared while in use.
+image = ["dep:remedy-ui-media-image"]
+## SVG (`remedy_ui::svg`): SVG files wherever images go, and tinted icons.
+svg = ["image", "dep:remedy-ui-media-svg"]
+## Localization (`remedy_ui::i18n`): Fluent messages, locale data, dates and exact numbers.
+i18n = ["dep:remedy-ui-services-i18n"]
 ## Signed updates from GitHub releases or a feed (`remedy_ui::update`).
 update = ["widgets", "dep:remedy-ui-services-update"]
 ## The in-memory host for tests (`remedy_ui::headless`).
 headless = ["dep:remedy-ui-bridge-headless"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "update", "headless"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "image", "svg", "i18n", "update", "headless"]
 
 [dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
@@ -44,8 +56,13 @@ remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "0.1.0", op
 remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "0.1.0", optional = true }
 remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "0.1.0", optional = true }
 remedy-ui-widgets-forms = { path = "../remedy-ui-widgets-forms", version = "0.1.0", optional = true }
+remedy-ui-widgets-nav = { path = "../remedy-ui-widgets-nav", version = "0.1.0", optional = true }
+remedy-ui-widgets-data = { path = "../remedy-ui-widgets-data", version = "0.1.0", optional = true }
+remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "0.1.0", optional = true }
+remedy-ui-media-svg = { path = "../remedy-ui-media-svg", version = "0.1.0", optional = true }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "0.1.0", optional = true }
 remedy-ui-services-update = { path = "../remedy-ui-services-update", version = "0.1.0", optional = true }
+remedy-ui-services-i18n = { path = "../remedy-ui-services-i18n", version = "0.1.0", optional = true }
 remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "0.1.0", optional = true }
 remedy-ui-secure = { path = "../remedy-ui-secure", version = "0.1.0" }
 remedy-ui-style = { path = "../remedy-ui-style", version = "0.1.0" }

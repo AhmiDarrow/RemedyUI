@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use remedy_ui_a11y::{A11yTree, Semantics};
-use remedy_ui_core::{Color, Insets, Size, Vec2};
+use remedy_ui_core::{Insets, Size, Vec2};
 use remedy_ui_layout::{Available, LayoutNode, LayoutStyle, LayoutTree, MeasureInput};
 use remedy_ui_paint::DisplayList;
 use remedy_ui_reactive::{Effect, Reaction};
@@ -30,6 +30,8 @@ pub struct PaintCx<'a> {
     pub theme: &'a Theme,
     /// The element's states (checked, selected, hover, …).
     pub states: States,
+    /// Device pixels per logical pixel (painters re-record when it changes).
+    pub scale: f32,
 }
 
 pub(crate) type Painter = Rc<dyn Fn(&mut PaintCx<'_>)>;
@@ -154,6 +156,17 @@ pub(crate) struct ElData {
     pub(crate) focus: Option<Rc<dyn Fn(bool)>>,
     /// Has a pointer handler of its own (`on_pointer`).
     pub(crate) pointer: bool,
+    /// Draggable: what is dragged, and who hears how it ended.
+    pub(crate) drag_source: Option<crate::dnd::DragSource>,
+    /// Takes drops.
+    pub(crate) drop_target: Option<(crate::dnd::DropAccept, crate::dnd::DropHandler)>,
+    /// A scroll container that also scrolls sideways.
+    pub(crate) scroll_x: bool,
+    /// Told the element's new size after a frame where it changed.
+    pub(crate) on_resize: Option<Rc<dyn Fn(Size)>>,
+    pub(crate) last_size: Option<Size>,
+    /// A scroll container following another's offset: (leader, x, y).
+    pub(crate) scroll_follow: Option<(ElementId, bool, bool)>,
     /// Its text is data, not a translatable string ([`El::data_text`]).
     pub(crate) data_text: bool,
     /// How keyboard users do what this element's pointer handling does.
@@ -199,10 +212,23 @@ pub(crate) struct Inner {
     pub(crate) platform: remedy_ui_input::Platform,
     pub(crate) locale: remedy_ui_reactive::Signal<String>,
     pub(crate) pseudo: Option<remedy_ui_text::Pseudo>,
+    /// The system's double-click time.
+    pub(crate) double_click: std::time::Duration,
+    /// The last primary press: element, place and time, and how many presses in a row.
+    pub(crate) last_press: Option<(ElementId, remedy_ui_core::Point, std::time::Duration)>,
+    pub(crate) click_count: u32,
     pub(crate) local_time: remedy_ui_reactive::Signal<remedy_ui_host::LocalTime>,
     pub(crate) content: ElementId,
     pub(crate) overlays: ElementId,
     pub(crate) interceptor: Option<PointerInterceptor>,
+    /// Called when a request arrives with none pending: the host's loop must come around.
+    pub(crate) wake: Option<Rc<dyn Fn()>>,
+    /// The element that took the current press: it gets the moves and the release, wherever
+    /// the pointer goes, until the button comes up.
+    pub(crate) captured: Option<ElementId>,
+    /// The drag under way, and a press that may become one.
+    pub(crate) drag: Option<crate::dnd::Session>,
+    pub(crate) drag_pending: Option<crate::dnd::Pending>,
     pub(crate) trusted: ElementId,
     pub(crate) reduced_motion: bool,
     pub(crate) timers: HashMap<u64, Box<dyn FnOnce()>>,
@@ -238,18 +264,7 @@ fn root_style() -> LayoutStyle {
 }
 
 pub(crate) fn defaults(theme: &Theme) -> StylePatch {
-    StylePatch {
-        background: Some(Color::TRANSPARENT),
-        foreground: Some(theme.derive().text),
-        border: Some(Color::TRANSPARENT),
-        border_width: Some(0.0),
-        radius: Some(0.0),
-        padding: Some(Insets::ZERO),
-        text_size: Some(theme.type_scale.body),
-        weight: Some(400.0),
-        opacity: Some(1.0),
-        mono: Some(false),
-    }
+    StylePatch::defaults(theme)
 }
 
 impl Ui {
@@ -291,10 +306,17 @@ impl Ui {
             platform: remedy_ui_input::Platform::Standard,
             locale: remedy_ui_reactive::Signal::new(String::from("en-US")),
             pseudo: None,
+            double_click: std::time::Duration::from_millis(500),
+            last_press: None,
+            click_count: 0,
             local_time: remedy_ui_reactive::Signal::new(remedy_ui_host::LocalTime::default()),
             content: root,
             overlays: root,
             interceptor: None,
+            wake: None,
+            captured: None,
+            drag: None,
+            drag_pending: None,
             trusted: root,
             reduced_motion: false,
             timers: HashMap::new(),
@@ -304,6 +326,10 @@ impl Ui {
         // (dialogs, menus, toasts) that always draws above it.
         let content = ui.el("content").layout(|l| {
             l.grow = 1.0;
+            // Held to the window: taller content overflows into scroll containers rather than
+            // stretching the window's content past its edge (flex items otherwise refuse to
+            // shrink below their content).
+            l.min_height = remedy_ui_layout::Length::Px(0.0);
             l.width = remedy_ui_layout::Length::Percent(1.0);
             l.display = remedy_ui_layout::Display::Flex;
             l.axis = remedy_ui_layout::Axis::Column;
@@ -416,6 +442,23 @@ impl Ui {
         }
         let l = self.0.borrow().locale;
         l.set_if_changed(locale);
+    }
+
+    /// Uses the system's double-click time (the runner sets it from system settings).
+    pub fn set_double_click_time(&self, t: std::time::Duration) {
+        self.0.borrow_mut().double_click = t;
+    }
+
+    /// Presses in a row on the same spot of the same element, counting the one being
+    /// handled now (1 for a single click, 2 for a double click, …): read it in pointer and
+    /// click handlers.
+    pub fn click_count(&self) -> u32 {
+        self.0.borrow().click_count
+    }
+
+    /// Device pixels per logical pixel in the last frame (images decode at this density).
+    pub fn scale(&self) -> f32 {
+        self.0.borrow().scale
     }
 
     /// The platform's conventions for shortcuts and modifiers.
@@ -554,6 +597,9 @@ impl Ui {
             i.frame.bounds_stale = true;
             i.els.get(&el).and_then(|d| d.on_scroll.clone())
         };
+        // Window positions inside the container moved: the next frame recomputes them (no
+        // repaint: the compositor already moved the pixels).
+        self.request(Request::Frame);
         if let Some(cb) = cb {
             cb(offset);
         }
@@ -617,7 +663,10 @@ impl Ui {
             }
             A::Increment => arrow(remedy_ui_input::Key::ArrowUp),
             A::Decrement => arrow(remedy_ui_input::Key::ArrowDown),
-            A::ScrollIntoView => true,
+            A::ScrollIntoView => {
+                el.scroll_into_view();
+                true
+            }
             A::Expand | A::Collapse | A::ShowContextMenu => false,
         }
     }
@@ -633,11 +682,25 @@ impl Ui {
     }
 
     pub(crate) fn request(&self, r: Request) {
-        let mut i = self.0.borrow_mut();
-        if r == Request::Frame && i.requests.contains(&Request::Frame) {
-            return;
+        let wake = {
+            let mut i = self.0.borrow_mut();
+            if r == Request::Frame && i.requests.contains(&Request::Frame) {
+                return;
+            }
+            let first = i.requests.is_empty();
+            i.requests.push(r);
+            first.then(|| i.wake.clone()).flatten()
+        };
+        // A request made outside the host's event handling (a timer-free callback, work
+        // posted from another thread) still reaches the host.
+        if let Some(w) = wake {
+            w();
         }
-        i.requests.push(r);
+    }
+
+    /// Sets what wakes the host's loop when requests arrive (the runner does this).
+    pub fn set_wake(&self, wake: Rc<dyn Fn()>) {
+        self.0.borrow_mut().wake = Some(wake);
     }
 
     /// Marks `id` and everything under it for restyling (it moved under a new parent).
@@ -688,6 +751,12 @@ impl ElData {
             hover: None,
             focus: None,
             pointer: false,
+            drag_source: None,
+            drop_target: None,
+            scroll_x: false,
+            on_resize: None,
+            last_size: None,
+            scroll_follow: None,
             data_text: false,
             keyboard_alternative: None,
             hidden: false,
@@ -711,7 +780,7 @@ impl El {
         &self.ui
     }
 
-    fn edit(&self, flags: Dirty, f: impl FnOnce(&mut ElData)) {
+    pub(crate) fn edit(&self, flags: Dirty, f: impl FnOnce(&mut ElData)) {
         {
             let mut i = self.ui.0.borrow_mut();
             if let Some(d) = i.els.get_mut(&self.id) {
@@ -973,13 +1042,76 @@ impl El {
     /// Returns false when there is none.
     pub fn focus_first(&self) -> bool {
         let tree = self.ui.tree();
-        let first = tree.descendants(self.id).into_iter().find(|d| tree.is_focusable(*d));
+        let first = tree.descendants(self.id).into_iter().find(|d| tree.can_focus(*d));
         match first {
             Some(f) => {
                 El { ui: self.ui.clone(), id: f }.focus();
                 true
             }
             None => false,
+        }
+    }
+
+    /// Calls `f` with the element's size (logical pixels) after each frame in which it
+    /// changed, including the first: virtual lists rebuild for a taller viewport, charts
+    /// re-scale.
+    pub fn on_resize(self, f: impl Fn(Size) + 'static) -> Self {
+        if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
+            d.on_resize = Some(Rc::new(f));
+            d.last_size = None;
+        }
+        self.ui.mark(self.id, Dirty::LAYOUT);
+        self
+    }
+
+    /// Lets a scroll container scroll sideways too, when its content is wider than it.
+    pub fn scroll_x(self) -> Self {
+        self.edit(Dirty::LAYOUT | Dirty::PAINT, |d| d.scroll_x = true);
+        self
+    }
+
+    /// Makes this scroll container move with `leader` on the chosen axes, in the same frame:
+    /// a table's frozen columns follow its body vertically, its header horizontally.
+    pub fn scroll_follows(self, leader: &El, x: bool, y: bool) -> Self {
+        let lead = leader.id;
+        self.edit(Dirty::PAINT, |d| d.scroll_follow = Some((lead, x, y)));
+        self
+    }
+
+    /// Scrolls this scroll container to `offset`.
+    pub fn scroll_to(&self, offset: remedy_ui_core::Vec2) {
+        self.ui.request(Request::ScrollTo { scroller: self.id, offset });
+    }
+
+    /// Scrolls the scroll containers around this element just enough to show it.
+    pub fn scroll_into_view(&self) {
+        let tree = self.ui.tree();
+        let Some(mut want) = tree.bounds(self.id) else { return };
+        let mut cur = tree.parent(self.id);
+        while let Some(p) = cur {
+            let is_scroll = self.ui.0.borrow().els.get(&p).is_some_and(|d| d.scroll);
+            if is_scroll && let Some(view) = tree.bounds(p) {
+                let off = self.ui.scroll_offset(p);
+                let mut next = off;
+                if want.min.y < view.min.y {
+                    next.y -= view.min.y - want.min.y;
+                } else if want.max.y > view.max.y {
+                    next.y += (want.max.y - view.max.y).min(want.min.y - view.min.y);
+                }
+                if want.min.x < view.min.x {
+                    next.x -= view.min.x - want.min.x;
+                } else if want.max.x > view.max.x {
+                    next.x += (want.max.x - view.max.x).min(want.min.x - view.min.x);
+                }
+                next.x = next.x.max(0.0);
+                next.y = next.y.max(0.0);
+                if next != off {
+                    self.ui.request(Request::ScrollTo { scroller: p, offset: next });
+                    // The outer containers must show where this one will be.
+                    want = view;
+                }
+            }
+            cur = tree.parent(p);
         }
     }
 
@@ -992,6 +1124,22 @@ impl El {
             d.keyboard_alternative = Some(how);
         }
         self
+    }
+
+    /// Calls `f` on a double click (two presses within the system's double-click time, on
+    /// the same spot).
+    pub fn on_double_click(self, f: impl Fn() + 'static) -> Self {
+        let ui = self.ui.clone();
+        self.on_pointer(move |e| {
+            if e.phase == remedy_ui_input::PointerPhase::Down
+                && e.buttons.contains(remedy_ui_input::Buttons::PRIMARY)
+                && ui.click_count() == 2
+            {
+                f();
+                return true;
+            }
+            false
+        })
     }
 
     /// Calls `f(true)` when the element gains keyboard focus and `f(false)` when it loses it.
@@ -1247,6 +1395,23 @@ impl El {
         crate::events::focus_changed(&self.ui);
     }
 
+    /// The style the element would have in `states`, from the window's style sheet (and its
+    /// own properties, and what it inherits): audits use it to check that focus, selection
+    /// and the like are visible.
+    pub fn style_in(&self, states: States) -> Option<ResolvedStyle> {
+        let mut guard = self.ui.0.borrow_mut();
+        let i = &mut *guard;
+        let d = i.els.get(&self.id)?;
+        let base = defaults(&i.theme);
+        let inherited = match i.tree.parent(self.id).and_then(|p| i.els.get(&p)) {
+            Some(parent) => parent.resolved.inherited_by_children(&base),
+            None => base,
+        };
+        let key = StyleKey { widget: d.widget, variant: d.variant, states };
+        let local = d.local.clone();
+        Some(i.sheet.resolve(&key, &inherited, &local))
+    }
+
     /// Everything the element is, for inspectors and tests.
     pub fn info(&self) -> Option<ElementInfo> {
         let tree = self.ui.tree();
@@ -1329,11 +1494,14 @@ impl El {
         self
     }
 
-    /// Hides the element and everything inside it: not drawn, not hit, not in the
-    /// accessibility tree (content under a lock screen).
+    /// Hides the element and everything inside it: not laid out (it takes no space), not
+    /// drawn, not hit, not reachable by keyboard and not in the accessibility tree.
     pub fn hidden(self, on: bool) -> Self {
         let _ = self.ui.tree().set_hit_mode(self.id, if on { HitMode::None } else { HitMode::Normal });
-        self.edit(Dirty::PAINT | Dirty::SEMANTICS, |d| d.hidden = on);
+        if self.ui.0.borrow().els.get(&self.id).is_some_and(|d| d.hidden == on) {
+            return self;
+        }
+        self.edit(Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS, |d| d.hidden = on);
         self.ui.0.borrow_mut().structure_changed = true;
         self
     }

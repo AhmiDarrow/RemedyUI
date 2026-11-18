@@ -190,6 +190,12 @@ impl CommandTable {
         None
     }
 
+    /// Every command with its scope, enabled or not (for editors and toolbars that show
+    /// disabled commands dimmed).
+    pub fn palette_all(&self) -> Vec<(Scope, &Command)> {
+        self.commands.iter().map(|(s, c)| (*s, c)).collect()
+    }
+
     /// Every enabled command, for a command palette.
     pub fn palette(&self) -> Vec<&Command> {
         self.commands.iter().map(|(_, c)| c).filter(|c| c.enabled).collect()

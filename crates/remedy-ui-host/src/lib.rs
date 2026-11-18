@@ -366,9 +366,101 @@ pub enum HostEvent {
     Tray(TrayEvent),
     /// Assistive technology on a window.
     Accessibility(WindowId, AccessibilityEvent),
+    /// Something is dragged over a window, or dropped on it.
+    Drag(WindowId, DragEvent),
+    /// A drag out of a window that [`Host::start_drag`] left pending ended.
+    DragEnded(WindowId, DropEffect),
     /// The app was launched again while running (single instance); these are the new
     /// launch's arguments.
     SecondInstance(Vec<String>),
+}
+
+/// What a drag carries: files, text and links, in the forms other apps understand.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DragData {
+    /// Files and folders.
+    pub files: Vec<std::path::PathBuf>,
+    /// Plain text.
+    pub text: Option<String>,
+    /// Links (`https:` and other URIs).
+    pub uris: Vec<String>,
+}
+
+impl DragData {
+    /// Nothing.
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty() && self.text.is_none() && self.uris.is_empty()
+    }
+
+    /// Some files.
+    pub fn files(files: Vec<std::path::PathBuf>) -> Self {
+        DragData { files, ..DragData::default() }
+    }
+
+    /// Some text.
+    pub fn text(text: impl Into<String>) -> Self {
+        DragData { text: Some(text.into()), ..DragData::default() }
+    }
+}
+
+/// What a drop does to what was dragged.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum DropEffect {
+    /// Refused: nothing happens.
+    #[default]
+    None,
+    /// Copied; the source keeps it.
+    Copy,
+    /// Moved; the source lets it go.
+    Move,
+    /// Linked to where it is.
+    Link,
+}
+
+/// Where a drag out of a window stands once [`Host::start_drag`] returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DragStarted {
+    /// It already ended (platforms whose drags run to the end inside the call): what the
+    /// drop did.
+    Finished(DropEffect),
+    /// It is under way; [`HostEvent::DragEnded`] reports how it ended.
+    Pending,
+}
+
+/// A drag from another app (or from this one, outside its own windows) over a window.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DragEvent {
+    /// It came in. Platforms that do not say where report `None` until it moves.
+    Enter {
+        /// Where, in logical pixels.
+        position: Option<Point>,
+        /// What it carries.
+        data: DragData,
+    },
+    /// It moved.
+    Over {
+        /// Where, in logical pixels.
+        position: Point,
+    },
+    /// It left, or was cancelled.
+    Leave,
+    /// It was dropped.
+    Drop {
+        /// Where, in logical pixels (`None` when the platform does not say).
+        position: Option<Point>,
+        /// What it carries.
+        data: DragData,
+    },
+}
+
+/// True for links an app may hand to the system to open: web pages and mail. Anything else
+/// (`file:`, custom protocols, programs) could start software the user did not mean to run.
+pub fn is_openable_url(url: &str) -> bool {
+    let u = url.trim();
+    let lower = u.to_ascii_lowercase();
+    let scheme_ok = ["http://", "https://", "mailto:"].iter().any(|s| lower.starts_with(s));
+    // No whitespace or control characters: one link, nothing smuggled after it.
+    scheme_ok && u.len() == url.len() && !u.chars().any(|c| c.is_whitespace() || c.is_control())
 }
 
 /// Premultiplied RGBA8 pixels to present.
@@ -427,6 +519,10 @@ pub trait Host {
     fn focus_window(&mut self, window: WindowId);
     /// Minimizes or restores.
     fn set_minimized(&mut self, window: WindowId, minimized: bool);
+    /// Maximizes or restores.
+    fn set_maximized(&mut self, window: WindowId, maximized: bool);
+    /// True while the window is maximized (by the app or the user).
+    fn is_maximized(&self, window: WindowId) -> bool;
     /// Starts a user move of the window, as dragging a title bar does (call on a pointer
     /// press in custom chrome).
     fn begin_move(&mut self, window: WindowId) -> Result<(), Unsupported>;
@@ -469,6 +565,20 @@ pub trait Host {
         window: Option<WindowId>,
         dialog: &FileDialog,
     ) -> Result<Vec<std::path::PathBuf>, Unsupported>;
+    /// Starts dragging `data` out of `window` to other apps (call while the pointer button
+    /// that began the drag is held). Some platforms run the drag to its end inside the call;
+    /// others return at once and report the end with [`HostEvent::DragEnded`].
+    fn start_drag(
+        &mut self,
+        window: WindowId,
+        data: &DragData,
+        allowed: &[DropEffect],
+    ) -> Result<DragStarted, Unsupported>;
+    /// What a drop on `window` would do now, as the app decided for the last
+    /// [`DragEvent`]: platforms show it with the cursor and tell the source.
+    fn set_drop_effect(&mut self, window: WindowId, effect: DropEffect);
+    /// Opens `url` (an `http:`, `https:` or `mailto:` link) in the user's browser or mail app.
+    fn open_url(&mut self, url: &str) -> Result<(), Unsupported>;
     /// A one-shot timer at host time `at`.
     fn set_timer(&mut self, at: Duration) -> TimerId;
     /// Cancels a timer that has not fired.

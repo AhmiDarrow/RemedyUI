@@ -36,7 +36,7 @@ impl Ui {
         out
     }
 
-    fn set_state(&self, id: ElementId, s: States, on: bool) {
+    pub(crate) fn set_state(&self, id: ElementId, s: States, on: bool) {
         let changed = {
             let mut i = self.0.borrow_mut();
             match i.els.get_mut(&id) {
@@ -80,6 +80,9 @@ impl Ui {
         }
         let tree = self.tree();
         let hit = tree.hit_test(e.position);
+        if self.drag_pointer(e, hit) {
+            return true;
+        }
         // Hover follows the pointer; a press keeps its element hovered until release.
         let chain = self.chain(hit);
         let old = std::mem::take(&mut self.0.borrow_mut().hovered);
@@ -91,6 +94,17 @@ impl Ui {
                 self.set_state(*id, States::HOVER, true);
             }
             self.0.borrow_mut().hovered = chain.clone();
+        }
+        if e.phase == PointerPhase::Down && e.buttons.contains(remedy_ui_input::Buttons::PRIMARY) {
+            // Count presses in a row: same element, within the double-click time and a few
+            // pixels (a hand moves a little between clicks).
+            let mut i = self.0.borrow_mut();
+            let again = i.last_press.is_some_and(|(id, p, t)| {
+                let (dx, dy) = (e.position.x - p.x, e.position.y - p.y);
+                Some(id) == hit && dx * dx + dy * dy <= 16.0 && e.time.saturating_sub(t) <= i.double_click
+            });
+            i.click_count = if again { i.click_count + 1 } else { 1 };
+            i.last_press = hit.map(|h| (h, e.position, e.time));
         }
         match e.phase {
             PointerPhase::Down if e.buttons.contains(remedy_ui_input::Buttons::PRIMARY) => {
@@ -147,11 +161,23 @@ impl Ui {
             }
             _ => {}
         }
-        let mut handled = hit.is_some_and(|h| h != tree.root());
-        if let Some(h) = hit
+        // Pointer capture: the element that took a press keeps the drag.
+        let captured = self.0.borrow().captured.filter(|c| tree.contains(*c));
+        let target = match e.phase {
+            PointerPhase::Move | PointerPhase::Up | PointerPhase::Cancel if captured.is_some() => captured,
+            _ => hit,
+        };
+        let mut handled = target.is_some_and(|h| h != tree.root());
+        if let Some(h) = target
             && let Ok(d) = tree.dispatch(h, e)
         {
             handled |= d.handled;
+            if e.phase == PointerPhase::Down {
+                self.0.borrow_mut().captured = d.handled_by;
+            }
+        }
+        if matches!(e.phase, PointerPhase::Up | PointerPhase::Cancel) {
+            self.0.borrow_mut().captured = None;
         }
         handled
     }
@@ -165,6 +191,9 @@ impl Ui {
 
     /// Routes a key. Returns true when something took it.
     pub fn key(&self, e: &KeyEvent) -> bool {
+        if e.pressed && e.key == remedy_ui_input::Key::Escape && self.cancel_drag() {
+            return true;
+        }
         let tree = self.tree();
         let focused = tree.focused();
         if let Some(f) = focused
@@ -195,7 +224,10 @@ impl Ui {
                 }
             }
         }
-        let target = focused.unwrap_or_else(|| tree.root());
+        // With nothing focused, keys go to the window's content root (where app-wide
+        // shortcuts listen).
+        let content = self.0.borrow().content;
+        let target = focused.unwrap_or(content);
         if tree.dispatch(target, e).is_ok_and(|d| d.handled) {
             return true;
         }
@@ -302,6 +334,10 @@ pub(crate) fn focus_changed(ui: &Ui) {
         ui.set_state(n, States::FOCUS, true);
         ui.set_state(n, States::FOCUS_VISIBLE, visible);
         ui.mark(n, Dirty::PAINT | Dirty::SEMANTICS);
+        // Moving focus by keyboard shows what got it.
+        if visible && before != now {
+            crate::El { ui: ui.clone(), id: n }.scroll_into_view();
+        }
     }
     let session = now.and_then(|n| ui.field_of(n).map(|f| (n, f)));
     let had = ui.0.borrow().field_session;

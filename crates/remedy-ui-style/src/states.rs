@@ -28,6 +28,8 @@ impl States {
     pub const INVALID: States = States(1 << 7);
     /// It is being dragged.
     pub const DRAGGING: States = States(1 << 8);
+    /// Something dragged over it would be accepted if dropped.
+    pub const DROP_TARGET: States = States(1 << 9);
 
     /// True when every flag in `other` is set.
     pub fn contains(self, other: States) -> bool {
@@ -70,6 +72,7 @@ impl fmt::Debug for States {
             (States::CHECKED, "CHECKED"),
             (States::INVALID, "INVALID"),
             (States::DRAGGING, "DRAGGING"),
+            (States::DROP_TARGET, "DROP_TARGET"),
         ];
         let set: Vec<&str> = names.iter().filter(|(s, _)| self.contains(*s)).map(|(_, n)| *n).collect();
         write!(f, "States({})", if set.is_empty() { "NONE".to_string() } else { set.join(" | ") })

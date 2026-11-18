@@ -25,6 +25,15 @@ struct Page {
     texture: wgpu::Texture,
     shelves: Vec<Shelf>,
     next_y: u32,
+    /// Uploads living on the page (images and glyphs); when the last goes, the page starts
+    /// over empty.
+    used: usize,
+}
+
+/// Where an app image's upload lives.
+enum Home {
+    Page(TextureId),
+    Own(TextureId),
 }
 
 /// Uploaded images, keyed like the painter's cache.
@@ -33,6 +42,8 @@ pub(crate) struct GpuImages {
     pages: Vec<Page>,
     entries: HashMap<ImageKey, ImageSource>,
     own: HashMap<ImageKey, wgpu::Texture>,
+    homes: HashMap<u64, Home>,
+    views: HashMap<TextureId, wgpu::TextureView>,
     pub(crate) bindings: vello_gpu::TextureBindings,
     next_id: u64,
 }
@@ -75,8 +86,49 @@ impl GpuImages {
             pages: Vec::new(),
             entries: HashMap::new(),
             own: HashMap::new(),
+            homes: HashMap::new(),
+            views: HashMap::new(),
             bindings: vello_gpu::TextureBindings::new(),
             next_id: IMAGE_ID_BASE,
+        }
+    }
+
+    fn bind(&mut self, id: TextureId, view: wgpu::TextureView) {
+        self.bindings.insert(id, view.clone());
+        self.views.insert(id, view);
+    }
+
+    /// Frees what was uploaded for app images that are gone.
+    pub(crate) fn evict(&mut self, ids: &[u64]) {
+        let mut unbound = false;
+        for id in ids {
+            let key = ImageKey::Image(*id);
+            self.entries.remove(&key);
+            match self.homes.remove(id) {
+                Some(Home::Own(t)) => {
+                    self.own.remove(&key);
+                    self.views.remove(&t);
+                    unbound = true;
+                }
+                Some(Home::Page(p)) => {
+                    if let Some(page) = self.pages.iter_mut().find(|pg| pg.id == p) {
+                        page.used = page.used.saturating_sub(1);
+                        if page.used == 0 {
+                            page.shelves.clear();
+                            page.next_y = 0;
+                        }
+                    }
+                }
+                None => {}
+            }
+        }
+        if unbound {
+            // Bindings cannot be removed one by one: rebuild them from what is left.
+            let mut b = vello_gpu::TextureBindings::new();
+            for (id, view) in &self.views {
+                b.insert(*id, view.clone());
+            }
+            self.bindings = b;
         }
     }
 
@@ -91,6 +143,8 @@ impl GpuImages {
         self.pages.clear();
         self.entries.clear();
         self.own.clear();
+        self.homes.clear();
+        self.views.clear();
         self.bindings = vello_gpu::TextureBindings::new();
     }
 
@@ -126,20 +180,30 @@ impl GpuImages {
             let t = texture(device, w, h, "RemedyUI image");
             upload(queue, &t, 0, 0, pixmap);
             let id = self.fresh_id();
-            self.bindings.insert(id, t.create_view(&wgpu::TextureViewDescriptor::default()));
+            self.bind(id, t.create_view(&wgpu::TextureViewDescriptor::default()));
             self.own.insert(key, t);
+            if let ImageKey::Image(i) = key {
+                self.homes.insert(i, Home::Own(id));
+            }
             ImageSource::external_texture(id, TextureRegion::Full, true)
         } else {
             let (page, x, y) = self.allocate(device, w + 2 * GUTTER, h + 2 * GUTTER)?;
             let (x, y) = (x + GUTTER, y + GUTTER);
             upload(queue, &page.texture, x, y, pixmap);
+            let page_id = page.id;
+            if let Some(p) = self.pages.iter_mut().find(|p| p.id == page_id) {
+                p.used += 1;
+            }
+            if let ImageKey::Image(i) = key {
+                self.homes.insert(i, Home::Page(page_id));
+            }
             let rect = RectU16 {
                 x0: u16::try_from(x).ok()?,
                 y0: u16::try_from(y).ok()?,
                 x1: u16::try_from(x + w).ok()?,
                 y1: u16::try_from(y + h).ok()?,
             };
-            ImageSource::external_texture(page.id, TextureRegion::Rect(rect), true)
+            ImageSource::external_texture(page_id, TextureRegion::Rect(rect), true)
         };
         self.entries.insert(key, source.clone());
         Some(source)
@@ -177,8 +241,8 @@ impl GpuImages {
         if found.is_none() {
             let id = self.fresh_id();
             let t = texture(device, size, size, "RemedyUI atlas page");
-            self.bindings.insert(id, t.create_view(&wgpu::TextureViewDescriptor::default()));
-            let mut p = Page { id, texture: t, shelves: Vec::new(), next_y: 0 };
+            self.bind(id, t.create_view(&wgpu::TextureViewDescriptor::default()));
+            let mut p = Page { id, texture: t, shelves: Vec::new(), next_y: 0, used: 0 };
             let at = fits(&mut p)?;
             self.pages.push(p);
             found = Some((self.pages.len() - 1, at.0, at.1));

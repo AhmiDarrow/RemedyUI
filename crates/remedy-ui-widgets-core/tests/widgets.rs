@@ -113,6 +113,7 @@ fn ptr(phase: PointerPhase, p: Point, buttons: Buttons) -> PointerEvent {
         pressure: 0.5,
         time: Duration::ZERO,
         coalesced: Vec::new(),
+        modifiers: remedy_ui_input::Modifiers::NONE,
     }
 }
 
@@ -454,4 +455,23 @@ fn reveal_shows_a_secret_without_exposing_it() {
     t.click(&eye);
     assert!(!pw.is_revealed());
     assert_eq!(pw.el().bounds().map(|b| b.width()), masked_width);
+}
+
+#[test]
+fn drags_keep_going_when_the_pointer_leaves_the_widget() {
+    let mut t = T::new();
+    let v = Signal::new(0.5f64);
+    let s = w::slider(&t.ui, "Volume", v, 0.0, 1.0, 0.0).width(200.0);
+    t.ui.root().child(w::row(&t.ui).child(s.clone()));
+    t.frame();
+    let b = s.bounds().unwrap_or_default();
+    let y = (b.min.y + b.max.y) / 2.0;
+    t.ui.pointer(&ptr(PointerPhase::Down, Point::new(b.min.x + 100.0, y), Buttons::PRIMARY));
+    // Far outside the slider, and below it.
+    t.ui.pointer(&ptr(PointerPhase::Move, Point::new(b.max.x + 150.0, y + 80.0), Buttons::PRIMARY));
+    t.frame();
+    assert!((v.get() - 1.0).abs() < 1e-9, "the drag reached the end: {}", v.get());
+    t.ui.pointer(&ptr(PointerPhase::Up, Point::new(b.max.x + 150.0, y + 80.0), Buttons::default()));
+    t.ui.pointer(&ptr(PointerPhase::Move, Point::new(b.min.x + 10.0, y), Buttons::default()));
+    assert!((v.get() - 1.0).abs() < 1e-9, "after the release, hovering does not drag");
 }

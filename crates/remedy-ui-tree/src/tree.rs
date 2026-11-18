@@ -136,6 +136,7 @@ pub struct EventCx {
     stopped: bool,
     default_prevented: bool,
     handled: bool,
+    handled_by: Option<ElementId>,
 }
 
 impl EventCx {
@@ -168,6 +169,7 @@ impl EventCx {
     /// Records that a handler dealt with the event.
     pub fn set_handled(&mut self) {
         self.handled = true;
+        self.handled_by.get_or_insert(self.current);
     }
 }
 
@@ -184,6 +186,8 @@ pub struct Dispatch {
     pub default_prevented: bool,
     /// Handlers that panicked; each was caught by an error boundary.
     pub panicked: usize,
+    /// The element whose handler first marked the event handled.
+    pub handled_by: Option<ElementId>,
 }
 
 /// Sent to an element when it gains focus.
@@ -495,7 +499,19 @@ impl Tree {
 
     /// How hit testing treats the element.
     pub fn set_hit_mode(&self, id: ElementId, mode: HitMode) -> Result<(), TreeError> {
-        self.edit(id, |n| n.hit = mode)
+        self.edit(id, |n| n.hit = mode)?;
+        // Nothing inside a subtree that takes no input keeps keyboard focus.
+        if mode == HitMode::None {
+            self.clear_focus_within(id);
+        }
+        Ok(())
+    }
+
+    /// Whether keyboard focus can go to `id`: focusable, attached, and not inside a subtree
+    /// that takes no input (hidden or disabled).
+    pub fn can_focus(&self, id: ElementId) -> bool {
+        let d = self.0.borrow();
+        d.nodes.get(id).is_some_and(|n| n.focusable) && d.is_ancestor_or_self(d.root, id) && d.takes_input(id)
     }
 
     /// The topmost element under `p`: later children are above earlier ones, and children
@@ -551,6 +567,7 @@ impl Tree {
             stopped: false,
             default_prevented: false,
             handled: false,
+            handled_by: None,
         };
         let mut out = Dispatch::default();
         batch(|| {
@@ -575,6 +592,7 @@ impl Tree {
             }
         });
         out.handled = cx.handled;
+        out.handled_by = cx.handled_by;
         out.stopped = cx.stopped;
         out.default_prevented = cx.default_prevented;
         Ok(out)
@@ -680,7 +698,7 @@ impl Tree {
         let (old, ok) = {
             let d = self.0.borrow();
             let n = d.nodes.get(id).ok_or(TreeError::NotFound)?;
-            (d.focus, n.focusable && d.is_ancestor_or_self(d.root, id))
+            (d.focus, n.focusable && d.is_ancestor_or_self(d.root, id) && d.takes_input(id))
         };
         if !ok {
             return Ok(false);
@@ -788,6 +806,19 @@ impl Node {
 }
 
 impl Data {
+    /// No ancestor of `id` (or `id` itself) takes no input.
+    fn takes_input(&self, id: ElementId) -> bool {
+        let mut cur = Some(id);
+        while let Some(c) = cur {
+            match self.nodes.get(c) {
+                Some(n) if n.hit == HitMode::None => return false,
+                Some(n) => cur = n.parent,
+                None => return false,
+            }
+        }
+        true
+    }
+
     fn is_ancestor_or_self(&self, ancestor: ElementId, id: ElementId) -> bool {
         let mut cur = Some(id);
         while let Some(e) = cur {
@@ -927,6 +958,10 @@ impl Data {
         while let Some(e) = stack.pop() {
             let Some(n) = self.nodes.get(e) else { continue };
             if e != scope && n.focus_scope {
+                continue;
+            }
+            // Hidden and disabled subtrees are out of the tab order.
+            if n.hit == HitMode::None {
                 continue;
             }
             if n.focusable {

@@ -9,16 +9,13 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-icu_calendar = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
-icu_datetime = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
-icu_decimal = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
-icu_locale_core = { version = "=2.4.0", default-features = false }
 remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "0.1.0" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
 remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
 remedy-ui-layout = { path = "../remedy-ui-layout", version = "0.1.0" }
 remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
 remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
+remedy-ui-services-i18n = { path = "../remedy-ui-services-i18n", version = "0.1.0" }
 remedy-ui-style = { path = "../remedy-ui-style", version = "0.1.0" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
 remedy-ui-view = { path = "../remedy-ui-view", version = "0.1.0" }

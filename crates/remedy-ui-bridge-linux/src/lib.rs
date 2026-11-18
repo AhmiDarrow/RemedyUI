@@ -243,6 +243,30 @@ mod linux {
             self.tray.set_waker(waker);
         }
 
+        fn open_url(&mut self, url: &str) -> Result<(), Unsupported> {
+            // The desktop portal opens it the user's way (and works inside sandboxes).
+            let portal = zbus::block_on(async {
+                let conn = zbus::Connection::session().await?;
+                let p = zbus::Proxy::new(
+                    &conn,
+                    "org.freedesktop.portal.Desktop",
+                    "/org/freedesktop/portal/desktop",
+                    "org.freedesktop.portal.OpenURI",
+                )
+                .await?;
+                let options: std::collections::HashMap<&str, Value<'_>> = std::collections::HashMap::new();
+                let _: zbus::OwnedObjectPath = p.call("OpenURI", &("", url, options)).await?;
+                Ok::<(), zbus::Error>(())
+            });
+            match portal {
+                Ok(()) => Ok(()),
+                // No portal (a bare X session): the freedesktop opener.
+                Err(e) => std::process::Command::new("xdg-open").arg(url).spawn().map(|_| ()).map_err(|x| {
+                    Unsupported::new("opening links", format!("no portal ({e}) and no xdg-open ({x})"))
+                }),
+            }
+        }
+
         fn take_events(&mut self) -> Vec<HostEvent> {
             self.tray.take_events().into_iter().map(HostEvent::Tray).collect()
         }

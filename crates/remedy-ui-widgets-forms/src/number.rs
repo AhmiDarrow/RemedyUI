@@ -7,8 +7,7 @@ use remedy_ui_style::States;
 use remedy_ui_view::{Align, El, FieldKind, Ui};
 use remedy_ui_widgets_core as w;
 
-use crate::decimal::Decimal;
-use crate::locale::NumberSymbols;
+use remedy_ui_services_i18n::{Decimal, NumberSymbols};
 
 /// The limits and look of a [`number_input`].
 #[derive(Clone, Debug, PartialEq)]

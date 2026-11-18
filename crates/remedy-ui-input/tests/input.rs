@@ -19,6 +19,7 @@ fn ev(phase: PointerPhase, x: f32, y: f32, t: u64, kind: PointerKind) -> Pointer
         pressure: 0.5,
         time: ms(t),
         coalesced: Vec::new(),
+        modifiers: remedy_ui_input::Modifiers::NONE,
     }
 }
 

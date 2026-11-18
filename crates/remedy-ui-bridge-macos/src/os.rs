@@ -1,5 +1,6 @@
 //! AppKit calls: the only unsafe code in the macOS bridge.
 
+pub(crate) mod dnd;
 pub(crate) mod tray;
 
 use std::time::Duration;
@@ -38,6 +39,17 @@ pub(crate) fn set_clipboard_text(text: &str, sensitive: bool) -> Result<(), Unsu
         }
     }
     Ok(())
+}
+
+/// Opens a web or mail link with the user's default app.
+pub(crate) fn open_url(url: &str) -> Result<(), Unsupported> {
+    let u = objc2_foundation::NSURL::URLWithString(&objc2_foundation::NSString::from_str(url))
+        .ok_or_else(|| Unsupported::new("opening links", "not a valid URL"))?;
+    if NSWorkspace::sharedWorkspace().openURL(&u) {
+        Ok(())
+    } else {
+        Err(Unsupported::new("opening links", "no app opened it"))
+    }
 }
 
 /// Empties the pasteboard.

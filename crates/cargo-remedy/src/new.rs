@@ -133,6 +133,7 @@ pub fn generate(name: &str, template: &str, remedy: &Dependency) -> Result<Vec<(
         (PathBuf::from("assets/icon.png"), icon),
         (PathBuf::from(".gitignore"), b"/target\n*.actual.png\n".to_vec()),
         (PathBuf::from("README.md"), fill(README).into_bytes()),
+        (PathBuf::from("i18n/en-US.ftl"), fill(ftl(template)).into_bytes()),
     ];
     finish(&mut files, template, &krate);
     Ok(files)
@@ -175,14 +176,16 @@ fn main() {
 const BASIC: &str = r#"//! {{title}}: the app, as a library so tests and previews can build it too.
 
 use remedy_ui::core::Insets;
+use remedy_ui::i18n::{Arg, Messages};
 use remedy_ui::reactive::Signal;
 use remedy_ui::widgets as w;
 use remedy_ui::{App, El, Ui, WindowSpec};
 
 /// Opens the app's window.
 pub fn app(app: &App) {
-    app.open(WindowSpec::new("{{title}}").size(420.0, 300.0).persist_geometry("main"), |ui, _| {
-        ui.root().child(home(ui));
+    app.open(WindowSpec::new("{{title}}").size(420.0, 300.0).persist_geometry("main"), |ui, window| {
+        let (u, win) = (ui.clone(), window.clone());
+        ui.root().child(home(ui)).bind(move || win.set_title(messages().text(&u, "app-title")));
     });
 }
 
@@ -190,16 +193,48 @@ pub fn app(app: &App) {
 pub fn home(ui: &Ui) -> El {
     let clicks = Signal::new(0u32);
     let unit = ui.theme().spacing.unit;
+    let u = ui.clone();
+    let button = w::button(ui, "", move || clicks.update(|c| *c += 1)).variant("primary");
+    let label = button.child_elements().into_iter().next();
+    let u2 = ui.clone();
+    let button = button.bind(move || {
+        if let Some(l) = &label {
+            let _ = l.clone().text(remedy_ui::view::RichText::plain(messages().text(&u2, "click-me")));
+        }
+    });
     w::column(ui)
         .gap(unit * 3.0)
         .padding(Insets::all(unit * 6.0))
-        .child(w::heading(ui, 1, "{{title}}"))
-        .child(w::label(ui, "", "muted").text_dyn(move || match clicks.get() {
-            0 => "Not clicked yet".to_owned(),
-            1 => "Clicked once".to_owned(),
-            n => format!("Clicked {n} times"),
+        .child(say(ui, "app-title", "strong").style(remedy_ui::style::StylePatch {
+            text_size: Some(ui.theme().type_scale.title + 6.0),
+            ..Default::default()
         }))
-        .child(w::button(ui, "Click me", move || clicks.update(|c| *c += 1)).variant("primary"))
+        .child(w::label(ui, "", "muted").text_dyn(move || {
+            messages().format(&u, "clicks", &[("count", Arg::from(clicks.get()))])
+        }))
+        .child(button)
+}
+
+/// The app's strings, from `i18n/<locale>.ftl`. Release builds carry them inside; debug builds
+/// read the folder and reload it as you edit, so text changes show without a rebuild.
+pub fn messages() -> Messages {
+    thread_local!(static MESSAGES: Messages = {
+        let m = Messages::new("en-US").embedded("en-US", include_str!("../i18n/en-US.ftl"));
+        if cfg!(debug_assertions) {
+            let m = m.folder(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n"));
+            m.watch();
+            m
+        } else {
+            m
+        }
+    });
+    MESSAGES.with(Clone::clone)
+}
+
+/// A label showing message `id`, following the window's locale and message edits.
+fn say(ui: &Ui, id: &'static str, variant: &'static str) -> El {
+    let u = ui.clone();
+    w::label(ui, "", variant).text_dyn(move || messages().text(&u, id))
 }
 "#;
 
@@ -207,6 +242,7 @@ const TRAY: &str = r#"//! {{title}}: lives in the tray; closing the window hides
 
 use remedy_ui::core::Insets;
 use remedy_ui::host::{TrayEvent, TrayIcon, TrayImage, TrayItem};
+use remedy_ui::i18n::Messages;
 use remedy_ui::widgets as w;
 use remedy_ui::{App, El, Ui, WindowSpec};
 
@@ -216,15 +252,21 @@ const QUIT: u32 = 2;
 /// Opens the window and puts the app in the tray.
 pub fn app(app: &App) {
     app.keep_running(true);
-    let win = app.open(WindowSpec::new("{{title}}").size(360.0, 240.0).hide_on_close(), |ui, _| {
-        ui.root().child(home(ui));
+    let a = app.clone();
+    let win = app.open(WindowSpec::new("{{title}}").size(360.0, 240.0).hide_on_close(), move |ui, window| {
+        // The tray and the title speak the window's language, and follow it when it changes.
+        let (u, win, a) = (ui.clone(), window.clone(), a.clone());
+        ui.root().child(home(ui)).bind(move || {
+            let m = messages();
+            win.set_title(m.text(&u, "app-title"));
+            let item = |id, label: String| TrayItem::Item { id, label, enabled: true };
+            a.set_tray(Some(TrayIcon {
+                tooltip: m.text(&u, "app-title"),
+                icon: tray_icon(),
+                menu: vec![item(SHOW, m.text(&u, "tray-show")), TrayItem::Separator, item(QUIT, m.text(&u, "tray-quit"))],
+            }));
+        });
     });
-    let item = |id, label: &str| TrayItem::Item { id, label: label.to_owned(), enabled: true };
-    app.set_tray(Some(TrayIcon {
-        tooltip: "{{title}}".to_owned(),
-        icon: tray_icon(),
-        menu: vec![item(SHOW, "Show {{title}}"), TrayItem::Separator, item(QUIT, "Quit")],
-    }));
     let (w2, a2) = (win.clone(), app.clone());
     app.on_tray(move |e| match e {
         TrayEvent::Activate | TrayEvent::Menu(SHOW) => {
@@ -247,8 +289,11 @@ pub fn home(ui: &Ui) -> El {
     w::column(ui)
         .gap(unit * 3.0)
         .padding(Insets::all(unit * 6.0))
-        .child(w::heading(ui, 1, "{{title}}"))
-        .child(w::label(ui, "Close this window and {{title}} keeps running in the tray.", "muted"))
+        .child(say(ui, "app-title", "strong").style(remedy_ui::style::StylePatch {
+            text_size: Some(ui.theme().type_scale.title + 6.0),
+            ..Default::default()
+        }))
+        .child(say(ui, "tray-hint", "muted"))
 }
 
 /// A 32 px tray icon drawn in code: a green dot, premultiplied RGBA.
@@ -265,6 +310,28 @@ pub fn tray_icon() -> TrayImage {
     }
     TrayImage { size, rgba }
 }
+
+/// The app's strings, from `i18n/<locale>.ftl`. Release builds carry them inside; debug builds
+/// read the folder and reload it as you edit, so text changes show without a rebuild.
+pub fn messages() -> Messages {
+    thread_local!(static MESSAGES: Messages = {
+        let m = Messages::new("en-US").embedded("en-US", include_str!("../i18n/en-US.ftl"));
+        if cfg!(debug_assertions) {
+            let m = m.folder(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n"));
+            m.watch();
+            m
+        } else {
+            m
+        }
+    });
+    MESSAGES.with(Clone::clone)
+}
+
+/// A label showing message `id`, following the window's locale and message edits.
+fn say(ui: &Ui, id: &'static str, variant: &'static str) -> El {
+    let u = ui.clone();
+    w::label(ui, "", variant).text_dyn(move || messages().text(&u, id))
+}
 "#;
 
 const MULTI: &str = r#"//! {{title}}: a main window that opens document windows.
@@ -273,14 +340,16 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use remedy_ui::core::Insets;
+use remedy_ui::i18n::{Arg, Messages};
 use remedy_ui::widgets as w;
 use remedy_ui::{App, El, Ui, Window, WindowSpec};
 
 /// Opens the main window.
 pub fn app(app: &App) {
     let a = app.clone();
-    app.open(WindowSpec::new("{{title}}").size(420.0, 300.0).persist_geometry("main"), move |ui, _| {
-        ui.root().child(home(ui, a));
+    app.open(WindowSpec::new("{{title}}").size(420.0, 300.0).persist_geometry("main"), move |ui, window| {
+        let (u, win) = (ui.clone(), window.clone());
+        ui.root().child(home(ui, a)).bind(move || win.set_title(messages().text(&u, "app-title")));
     });
 }
 
@@ -288,38 +357,101 @@ pub fn app(app: &App) {
 pub fn home(ui: &Ui, app: App) -> El {
     let unit = ui.theme().spacing.unit;
     let next = Rc::new(Cell::new(1u32));
+    let button = w::button(ui, "", move || {
+        let n = next.get();
+        next.set(n + 1);
+        let _ = open_document(&app, n);
+    })
+    .variant("primary");
+    let label = button.child_elements().into_iter().next();
+    let u = ui.clone();
+    let button = button.bind(move || {
+        if let Some(l) = &label {
+            let _ = l.clone().text(remedy_ui::view::RichText::plain(messages().text(&u, "new-document")));
+        }
+    });
     w::column(ui)
         .gap(unit * 3.0)
         .padding(Insets::all(unit * 6.0))
-        .child(w::heading(ui, 1, "{{title}}"))
-        .child(w::button(ui, "New document", move || {
-            let n = next.get();
-            next.set(n + 1);
-            let _ = open_document(&app, n);
-        }).variant("primary"))
+        .child(say(ui, "app-title", "strong").style(remedy_ui::style::StylePatch {
+            text_size: Some(ui.theme().type_scale.title + 6.0),
+            ..Default::default()
+        }))
+        .child(button)
 }
 
 /// Opens document `n` in its own window, where it was last time.
 pub fn open_document(app: &App, n: u32) -> Window {
-    let spec = WindowSpec::new(format!("Document {n}")).size(480.0, 360.0).persist_geometry(format!("document-{n}"));
-    app.open(spec, move |ui, _| {
-        ui.root().child(document(ui, n));
+    let spec = WindowSpec::new(format!("{n}")).size(480.0, 360.0).persist_geometry(format!("document-{n}"));
+    app.open(spec, move |ui, window| {
+        let (u, win) = (ui.clone(), window.clone());
+        ui.root()
+            .child(document(ui, n))
+            .bind(move || win.set_title(messages().format(&u, "document-title", &[("n", Arg::from(n))])));
     })
 }
 
 /// A document: its title and its text.
 pub fn document(ui: &Ui, n: u32) -> El {
     let unit = ui.theme().spacing.unit;
-    let body = w::text_area(ui, "Text").placeholder("Write here…");
+    let body = w::text_area(ui, "Text");
+    let (b, u) = (body.clone(), ui.clone());
+    let heading = w::label(ui, "", "strong").style(remedy_ui::style::StylePatch {
+        text_size: Some(ui.theme().type_scale.title),
+        ..Default::default()
+    });
+    let (h, u2) = (heading.clone(), ui.clone());
     w::column(ui)
         .gap(unit * 2.0)
         .padding(Insets::all(unit * 4.0))
         .grow(1.0)
         .fill_width()
-        .child(w::heading(ui, 2, format!("Document {n}")))
+        .child(heading)
         .child(body.el().grow(1.0).fill_width())
+        .bind(move || {
+            let m = messages();
+            let _ = b.clone().placeholder(m.text(&u, "write-here"));
+            let _ = h.clone().text(remedy_ui::view::RichText::plain(m.format(&u2, "document-title", &[("n", Arg::from(n))])));
+        })
+}
+
+/// The app's strings, from `i18n/<locale>.ftl`. Release builds carry them inside; debug builds
+/// read the folder and reload it as you edit, so text changes show without a rebuild.
+pub fn messages() -> Messages {
+    thread_local!(static MESSAGES: Messages = {
+        let m = Messages::new("en-US").embedded("en-US", include_str!("../i18n/en-US.ftl"));
+        if cfg!(debug_assertions) {
+            let m = m.folder(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n"));
+            m.watch();
+            m
+        } else {
+            m
+        }
+    });
+    MESSAGES.with(Clone::clone)
+}
+
+/// A label showing message `id`, following the window's locale and message edits.
+fn say(ui: &Ui, id: &'static str, variant: &'static str) -> El {
+    let u = ui.clone();
+    w::label(ui, "", variant).text_dyn(move || messages().text(&u, id))
 }
 "#;
+
+/// The template's message file (`i18n/en-US.ftl`).
+fn ftl(template: &str) -> &'static str {
+    match template {
+        "tray" => TRAY_FTL,
+        "multi-window" => MULTI_FTL,
+        _ => BASIC_FTL,
+    }
+}
+
+const BASIC_FTL: &str = "# {{title}}'s text, in Fluent (https://projectfluent.org). Add a file per language:\n# i18n/de.ftl, i18n/ar.ftl, ... with the same ids.\n\napp-title = {{title}}\nclicks = { $count ->\n    [0] Not clicked yet\n    [one] Clicked once\n   *[other] Clicked { $count } times\n}\nclick-me = Click me\n";
+
+const TRAY_FTL: &str = "# {{title}}'s text, in Fluent (https://projectfluent.org). Add a file per language:\n# i18n/de.ftl, i18n/ar.ftl, ... with the same ids.\n\napp-title = {{title}}\ntray-hint = Close this window and { app-title } keeps running in the tray.\ntray-show = Show { app-title }\ntray-quit = Quit\n";
+
+const MULTI_FTL: &str = "# {{title}}'s text, in Fluent (https://projectfluent.org). Add a file per language:\n# i18n/de.ftl, i18n/ar.ftl, ... with the same ids.\n\napp-title = {{title}}\nnew-document = New document\ndocument-title = Document { $n }\nwrite-here = Write here…\n";
 
 const TEST: &str = r#"//! The app on the in-memory host, and its previews as golden images.
 

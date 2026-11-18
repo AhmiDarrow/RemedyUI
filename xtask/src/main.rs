@@ -81,6 +81,8 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-widgets-nav", "remedy-ui-widgets-core"),
     ("remedy-ui-widgets-data", "remedy-ui-widgets-core"),
     ("remedy-ui-widgets-forms", "remedy-ui-widgets-core"),
+    // Form values and locale data live in the localization service.
+    ("remedy-ui-widgets-forms", "remedy-ui-services-i18n"),
     ("remedy-ui-widgets-extra", "remedy-ui-widgets-core"),
     ("remedy-ui-widgets-music", "remedy-ui-widgets-core"),
     ("remedy-ui-widgets-term", "remedy-ui-widgets-core"),
@@ -93,6 +95,8 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-widgets-music", "remedy-ui-viz"),
     ("remedy-ui-doc-rich", "remedy-ui-doc-code"),
     ("remedy-ui-media-anim", "remedy-ui-media-image"),
+    // SVG is an image format: it plugs into the image loader.
+    ("remedy-ui-media-svg", "remedy-ui-media-image"),
     // The update banner is a widget.
     ("remedy-ui-services-update", "remedy-ui-widgets-core"),
     // The inspector and preview gallery are built from widgets, and previews render with

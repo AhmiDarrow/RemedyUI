@@ -15,9 +15,12 @@ mod os;
 #[cfg(target_os = "macos")]
 mod hooks {
     use remedy_ui_bridge_winit::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    use remedy_ui_bridge_winit::winit::window::Window;
+    use remedy_ui_bridge_winit::winit::window::{Window, WindowId};
     use remedy_ui_bridge_winit::{PlatformHooks, RunError};
-    use remedy_ui_host::{App, FileDialog, HostEvent, SystemSettings, TrayIcon, Unsupported, Waker};
+    use remedy_ui_host::{
+        App, DragData, DragStarted, DropEffect, FileDialog, HostEvent, SystemSettings, TrayIcon, Unsupported,
+        Waker,
+    };
     use remedy_ui_input::Platform;
 
     use crate::os;
@@ -63,7 +66,33 @@ mod hooks {
         }
 
         fn set_waker(&mut self, waker: Waker) {
-            os::tray::set_waker(waker);
+            os::tray::set_waker(waker.clone());
+            os::dnd::set_waker(waker);
+        }
+
+        fn start_drag(
+            &mut self,
+            window: &Window,
+            data: &DragData,
+            allowed: &[DropEffect],
+        ) -> Result<DragStarted, Unsupported> {
+            let handle =
+                window.window_handle().map_err(|e| Unsupported::new("dragging out", e.to_string()))?;
+            match handle.as_raw() {
+                RawWindowHandle::AppKit(h) => {
+                    // AppKit runs the session on its own and reports its end.
+                    os::dnd::drag_out(h.ns_view, window.id(), data, allowed).map(|()| DragStarted::Pending)
+                }
+                _ => Err(Unsupported::new("dragging out", "not an AppKit window")),
+            }
+        }
+
+        fn open_url(&mut self, url: &str) -> Result<(), Unsupported> {
+            os::open_url(url)
+        }
+
+        fn take_drag_ends(&mut self) -> Vec<(WindowId, DropEffect)> {
+            os::dnd::take_ended()
         }
 
         fn take_events(&mut self) -> Vec<HostEvent> {

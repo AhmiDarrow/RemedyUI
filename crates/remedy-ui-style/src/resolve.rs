@@ -30,9 +30,36 @@ pub struct StylePatch {
     pub opacity: Option<f32>,
     /// Text in the theme's monospace families (codes, keys, numbers that must line up).
     pub mono: Option<bool>,
+    /// The focus ring's color, drawn while the element has keyboard focus.
+    pub outline: Option<Color>,
+    /// The focus ring's width; 0 for elements that show focus another way.
+    pub outline_width: Option<f32>,
+    /// The gap between the element's edge and its focus ring; negative draws it inside.
+    pub outline_offset: Option<f32>,
 }
 
 impl StylePatch {
+    /// The engine's starting style under `theme`, before any rule: transparent boxes, body
+    /// text in the theme's text color, and the theme's focus ring for keyboard focus (as
+    /// `:focus-visible` does on the web) unless a rule shows focus another way.
+    pub fn defaults(theme: &crate::Theme) -> StylePatch {
+        StylePatch {
+            background: Some(Color::TRANSPARENT),
+            foreground: Some(theme.derive().text),
+            border: Some(Color::TRANSPARENT),
+            border_width: Some(0.0),
+            radius: Some(0.0),
+            padding: Some(Insets::ZERO),
+            text_size: Some(theme.type_scale.body),
+            weight: Some(400.0),
+            opacity: Some(1.0),
+            mono: Some(false),
+            outline: Some(theme.derive().focus),
+            outline_width: Some(2.0),
+            outline_offset: Some(2.0),
+        }
+    }
+
     /// `other`'s set fields over this patch's.
     pub fn merge(&self, other: &StylePatch) -> StylePatch {
         StylePatch {
@@ -46,6 +73,9 @@ impl StylePatch {
             weight: other.weight.or(self.weight),
             opacity: other.opacity.or(self.opacity),
             mono: other.mono.or(self.mono),
+            outline: other.outline.or(self.outline),
+            outline_width: other.outline_width.or(self.outline_width),
+            outline_offset: other.outline_offset.or(self.outline_offset),
         }
     }
 }
@@ -73,6 +103,12 @@ pub struct ResolvedStyle {
     pub opacity: f32,
     /// Monospace text.
     pub mono: bool,
+    /// The focus ring's color.
+    pub outline: Color,
+    /// The focus ring's width (0: none).
+    pub outline_width: f32,
+    /// The focus ring's gap from the edge (negative: inside).
+    pub outline_offset: f32,
 }
 
 impl ResolvedStyle {
@@ -88,7 +124,15 @@ impl ResolvedStyle {
             weight: p.weight.unwrap_or(400.0),
             opacity: p.opacity.unwrap_or(1.0),
             mono: p.mono.unwrap_or(false),
+            outline: p.outline.unwrap_or(Color::TRANSPARENT),
+            outline_width: p.outline_width.unwrap_or(0.0),
+            outline_offset: p.outline_offset.unwrap_or(0.0),
         }
+    }
+
+    /// True when keyboard focus on an element styled `self` draws a ring.
+    pub fn shows_focus_ring(&self) -> bool {
+        self.outline_width > 0.0 && self.outline.a > 0.0
     }
 }
 
@@ -125,7 +169,7 @@ pub struct StyleSheet {
 impl ResolvedStyle {
     /// The defaults for a child of an element styled `self`: text properties (color, size,
     /// weight, monospace) are inherited, as in CSS; box properties (background, border,
-    /// radius, padding, opacity) start fresh from `base`.
+    /// radius, padding, opacity, focus ring) start fresh from `base`.
     pub fn inherited_by_children(&self, base: &StylePatch) -> StylePatch {
         StylePatch {
             foreground: Some(self.foreground),

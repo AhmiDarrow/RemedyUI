@@ -13,8 +13,9 @@ use std::time::Duration;
 
 use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{
-    App, FileDialog, Host, HostEvent, ImeEvent, Pixels, ResizeEdge, SystemSettings, TextInputState, TimerId,
-    TrayIcon, Unsupported, Waker, WindowHandles, WindowId, WindowOptions,
+    App, DragData, DragStarted, DropEffect, FileDialog, Host, HostEvent, ImeEvent, Pixels, ResizeEdge,
+    SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowId,
+    WindowOptions,
 };
 use remedy_ui_input::{Platform, WheelEvent};
 
@@ -31,6 +32,7 @@ pub struct HeadlessWindow {
     last_damage: Vec<Rect>,
     text_input: Option<TextInputState>,
     minimized: bool,
+    maximized: bool,
 }
 
 impl HeadlessWindow {
@@ -62,6 +64,11 @@ impl HeadlessWindow {
     /// The text-input session, if a field asked for one.
     pub fn text_input(&self) -> Option<&TextInputState> {
         self.text_input.as_ref()
+    }
+
+    /// True while minimized.
+    pub fn maximized(&self) -> bool {
+        self.maximized
     }
 
     /// True while minimized.
@@ -98,6 +105,10 @@ pub struct HeadlessHost {
     a11y: BTreeMap<WindowId, Vec<remedy_ui_host::accesskit::TreeUpdate>>,
     dialogs: Vec<FileDialog>,
     dialog_answers: VecDeque<Vec<std::path::PathBuf>>,
+    drags_out: Vec<(WindowId, DragData)>,
+    opened: Vec<String>,
+    drag_answers: VecDeque<DropEffect>,
+    drop_effects: BTreeMap<WindowId, DropEffect>,
 }
 
 impl Default for HeadlessHost {
@@ -131,6 +142,10 @@ impl HeadlessHost {
             a11y: BTreeMap::new(),
             dialogs: Vec::new(),
             dialog_answers: VecDeque::new(),
+            drags_out: Vec::new(),
+            opened: Vec::new(),
+            drag_answers: VecDeque::new(),
+            drop_effects: BTreeMap::new(),
         }
     }
 
@@ -244,6 +259,27 @@ impl HeadlessHost {
         self.tray.as_ref()
     }
 
+    /// Queues what the other app does with the next drag out of a window (none queued:
+    /// the user lets go outside any target, [`DropEffect::None`]).
+    pub fn answer_drag(&mut self, effect: DropEffect) {
+        self.drag_answers.push_back(effect);
+    }
+
+    /// The links the app opened, oldest first.
+    pub fn opened_urls(&self) -> &[String] {
+        &self.opened
+    }
+
+    /// The drags the app started out of its windows, oldest first.
+    pub fn drags_out(&self) -> &[(WindowId, DragData)] {
+        &self.drags_out
+    }
+
+    /// What the app last said a drop on `window` would do.
+    pub fn drop_effect(&self, window: WindowId) -> DropEffect {
+        self.drop_effects.get(&window).copied().unwrap_or_default()
+    }
+
     /// Queues what the user picks in the next file dialog (empty: cancel).
     pub fn answer_dialog(&mut self, paths: Vec<std::path::PathBuf>) {
         self.dialog_answers.push_back(paths);
@@ -352,6 +388,7 @@ impl Host for HeadlessHost {
             last_damage: Vec::new(),
             text_input: None,
             minimized: false,
+            maximized: false,
         };
         Self::apply_size(&mut w, options.size);
         self.queue.push_back(HostEvent::Resized {
@@ -414,6 +451,16 @@ impl Host for HeadlessHost {
         if let Some(w) = self.window_mut(window) {
             w.minimized = minimized;
         }
+    }
+
+    fn set_maximized(&mut self, window: WindowId, maximized: bool) {
+        if let Some(w) = self.window_mut(window) {
+            w.maximized = maximized;
+        }
+    }
+
+    fn is_maximized(&self, window: WindowId) -> bool {
+        self.window(window).is_some_and(|w| w.maximized)
     }
 
     fn begin_move(&mut self, window: WindowId) -> Result<(), Unsupported> {
@@ -522,6 +569,29 @@ impl Host for HeadlessHost {
         self.dialogs.push(dialog.clone());
         // With no scripted answer, the user cancels.
         Ok(self.dialog_answers.pop_front().unwrap_or_default())
+    }
+
+    fn start_drag(
+        &mut self,
+        window: WindowId,
+        data: &DragData,
+        allowed: &[DropEffect],
+    ) -> Result<DragStarted, Unsupported> {
+        self.drags_out.push((window, data.clone()));
+        let effect = self.drag_answers.pop_front().unwrap_or_default();
+        Ok(DragStarted::Finished(if allowed.contains(&effect) { effect } else { DropEffect::None }))
+    }
+
+    fn open_url(&mut self, url: &str) -> Result<(), Unsupported> {
+        if !remedy_ui_host::is_openable_url(url) {
+            return Err(Unsupported::new("opening links", "only web and mail links open"));
+        }
+        self.opened.push(url.to_owned());
+        Ok(())
+    }
+
+    fn set_drop_effect(&mut self, window: WindowId, effect: DropEffect) {
+        self.drop_effects.insert(window, effect);
     }
 
     fn set_timer(&mut self, at: Duration) -> TimerId {

@@ -16,8 +16,9 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{
-    AccessibilityEvent, App, FileDialog, Host, HostEvent, ImeEvent, Pixels, ResizeEdge, SystemSettings,
-    TextInputState, TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowId, WindowOptions,
+    AccessibilityEvent, App, DragData, DragEvent, DragStarted, DropEffect, FileDialog, Host, HostEvent,
+    ImeEvent, Pixels, ResizeEdge, SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported, Waker,
+    WindowHandles, WindowId, WindowOptions,
 };
 use remedy_ui_input::{
     Buttons, KeyEvent, Modifiers, Platform, PointerEvent, PointerKind, PointerPhase, WheelEvent,
@@ -69,13 +70,49 @@ pub trait PlatformHooks: 'static {
         window: Option<&Window>,
         dialog: &FileDialog,
     ) -> Result<Vec<std::path::PathBuf>, Unsupported>;
+    /// Opens a web or mail link with the system (checked by the caller).
+    fn open_url(&mut self, url: &str) -> Result<(), Unsupported>;
     /// Receives a handle that wakes the event loop, for platform services that report from
     /// other threads (a D-Bus tray).
     fn set_waker(&mut self, waker: Waker) {
         let _ = waker;
     }
+    /// Adjusts a new window's attributes before it is created (a platform that handles
+    /// drops itself turns winit's file drops off).
+    fn window_attributes(&mut self, attrs: WindowAttributes) -> WindowAttributes {
+        attrs
+    }
+    /// True when the platform reports drags over windows itself, through
+    /// [`PlatformHooks::take_drag_events`], with positions and every kind of data;
+    /// otherwise winit's file drops are used (files only, without positions).
+    fn handles_drops(&self) -> bool {
+        false
+    }
+    /// Starts a drag out of `window` to other apps.
+    fn start_drag(
+        &mut self,
+        window: &Window,
+        data: &DragData,
+        allowed: &[DropEffect],
+    ) -> Result<DragStarted, Unsupported> {
+        let _ = (window, data, allowed);
+        Err(Unsupported::new("dragging out to other apps", "this platform's bridge does not start drags"))
+    }
+    /// What a drop on `window` would do now (cursor feedback and the source's answer).
+    fn set_drop_effect(&mut self, window: &Window, effect: DropEffect) {
+        let _ = (window, effect);
+    }
     /// App-wide events the platform produced since the last call (tray use).
     fn take_events(&mut self) -> Vec<HostEvent> {
+        Vec::new()
+    }
+    /// Drags over windows the platform reported since the last call.
+    fn take_drag_events(&mut self) -> Vec<(winit::window::WindowId, DragEvent)> {
+        Vec::new()
+    }
+    /// Drags out that [`PlatformHooks::start_drag`] left pending and that have ended since
+    /// the last call.
+    fn take_drag_ends(&mut self) -> Vec<(winit::window::WindowId, DropEffect)> {
         Vec::new()
     }
     /// Input-method events the platform's text services produced since the last call.
@@ -120,6 +157,12 @@ struct Win {
     cursor: Point,
     buttons: Buttons,
     composing: bool,
+    /// Files winit reported hovering or dropped since the last flush (winit sends one event
+    /// per file).
+    hovered: Vec<std::path::PathBuf>,
+    dropped: Vec<std::path::PathBuf>,
+    /// A drag from winit's file drops is over the window.
+    dragging: bool,
 }
 
 struct State {
@@ -200,6 +243,7 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         if let Some(p) = options.position {
             attrs = attrs.with_position(LogicalPosition::new(f64::from(p.x), f64::from(p.y)));
         }
+        let attrs = self.hooks.window_attributes(attrs);
         let window =
             Arc::new(self.el.create_window(attrs).map_err(|e| Unsupported::new("windows", e.to_string()))?);
         self.hooks.window_created(&window);
@@ -232,6 +276,9 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
                     cursor: Point::ZERO,
                     buttons: Buttons::default(),
                     composing: false,
+                    hovered: Vec::new(),
+                    dropped: Vec::new(),
+                    dragging: false,
                 },
             ),
         );
@@ -305,6 +352,17 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         if let Some(w) = self.win(window) {
             w.window.set_minimized(minimized);
         }
+    }
+
+    fn set_maximized(&mut self, window: WindowId, maximized: bool) {
+        if let Some(w) = self.win(window) {
+            w.window.set_maximized(maximized);
+        }
+    }
+
+    fn is_maximized(&self, window: WindowId) -> bool {
+        let Some(wid) = self.state.ids.get(&window) else { return false };
+        self.state.windows.get(wid).is_some_and(|(_, w)| w.window.is_maximized())
     }
 
     fn begin_move(&mut self, window: WindowId) -> Result<(), Unsupported> {
@@ -497,6 +555,31 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         self.hooks.file_dialog(w.as_deref(), dialog)
     }
 
+    fn start_drag(
+        &mut self,
+        window: WindowId,
+        data: &DragData,
+        allowed: &[DropEffect],
+    ) -> Result<DragStarted, Unsupported> {
+        let Some(w) = self.win(window).map(|w| w.window.clone()) else {
+            return Err(Unsupported::new("dragging out", "the window is gone"));
+        };
+        self.hooks.start_drag(&w, data, allowed)
+    }
+
+    fn open_url(&mut self, url: &str) -> Result<(), Unsupported> {
+        if !remedy_ui_host::is_openable_url(url) {
+            return Err(Unsupported::new("opening links", "only web and mail links open"));
+        }
+        self.hooks.open_url(url)
+    }
+
+    fn set_drop_effect(&mut self, window: WindowId, effect: DropEffect) {
+        if let Some(w) = self.win(window).map(|w| w.window.clone()) {
+            self.hooks.set_drop_effect(&w, effect);
+        }
+    }
+
     fn set_timer(&mut self, at: Duration) -> TimerId {
         let id = TimerId(self.state.next_timer);
         self.state.next_timer += 1;
@@ -530,6 +613,34 @@ struct Runner<A: App, H: PlatformHooks> {
 }
 
 impl<A: App, H: PlatformHooks> Runner<A, H> {
+    /// Hands over the files winit reported since the last flush, as one drag event each.
+    fn flush_file_drops(&mut self, el: &ActiveEventLoop) {
+        let mut out = Vec::new();
+        for (id, w) in self.state.windows.values_mut() {
+            if !w.hovered.is_empty() && !w.dragging {
+                w.dragging = true;
+                out.push(HostEvent::Drag(
+                    *id,
+                    DragEvent::Enter {
+                        position: None,
+                        data: DragData::files(std::mem::take(&mut w.hovered)),
+                    },
+                ));
+            }
+            w.hovered.clear();
+            if !w.dropped.is_empty() {
+                w.dragging = false;
+                out.push(HostEvent::Drag(
+                    *id,
+                    DragEvent::Drop { position: None, data: DragData::files(std::mem::take(&mut w.dropped)) },
+                ));
+            }
+        }
+        for e in out {
+            self.deliver(el, e);
+        }
+    }
+
     fn deliver(&mut self, el: &ActiveEventLoop, event: HostEvent) {
         let mut queue = VecDeque::from([event]);
         while let Some(e) = queue.pop_front() {
@@ -579,6 +690,7 @@ impl<A: App, H: PlatformHooks> Runner<A, H> {
             pressure: if w.buttons.0 == 0 { 0.0 } else { 0.5 },
             time: self.state.start.elapsed(),
             coalesced: Vec::new(),
+            modifiers: self.state.modifiers,
         };
         let id = *id;
         self.deliver(el, HostEvent::Pointer(id, e));
@@ -653,6 +765,16 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                 self.deliver(el, HostEvent::Moved(id, Point::new(l.x as f32, l.y as f32)));
             }
             WindowEvent::Destroyed => {}
+            // winit's file drops, where the platform does not report drags itself: one event
+            // per file, gathered and handed over before the loop waits.
+            WindowEvent::HoveredFile(path) if !self.hooks.handles_drops() => w.hovered.push(path),
+            WindowEvent::DroppedFile(path) if !self.hooks.handles_drops() => w.dropped.push(path),
+            WindowEvent::HoveredFileCancelled if !self.hooks.handles_drops() => {
+                w.hovered.clear();
+                if std::mem::take(&mut w.dragging) {
+                    self.deliver(el, HostEvent::Drag(id, DragEvent::Leave));
+                }
+            }
             WindowEvent::Focused(f) => self.deliver(el, HostEvent::Focused(id, f)),
             WindowEvent::Occluded(o) => self.deliver(el, HostEvent::Occluded(id, o)),
             WindowEvent::ThemeChanged(theme) => {
@@ -723,6 +845,7 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                     pressure,
                     time: now,
                     coalesced: Vec::new(),
+                    modifiers: self.state.modifiers,
                 };
                 self.deliver(el, HostEvent::Pointer(id, e));
             }
@@ -767,6 +890,19 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
     }
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        self.flush_file_drops(el);
+        for (wid, e) in self.hooks.take_drag_events() {
+            if let Some((id, _)) = self.state.windows.get(&wid) {
+                let id = *id;
+                self.deliver(el, HostEvent::Drag(id, e));
+            }
+        }
+        for (wid, e) in self.hooks.take_drag_ends() {
+            if let Some((id, _)) = self.state.windows.get(&wid) {
+                let id = *id;
+                self.deliver(el, HostEvent::DragEnded(id, e));
+            }
+        }
         // Text services and the tray act inside message dispatch; hand their events over now.
         for e in self.platform_ime() {
             self.deliver(el, e);

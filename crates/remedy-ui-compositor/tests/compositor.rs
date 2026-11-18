@@ -355,3 +355,35 @@ fn an_unchanged_frame_presents_nothing() {
     assert!(thread.wait_report(Duration::from_secs(5)).is_some_and(|r| !r.presented));
     assert!(thread.stop().is_some());
 }
+
+#[test]
+fn followers_move_with_their_leader_in_the_same_frame() {
+    let body = |id: u64, w: f32| {
+        Layer::new(LayerId(id), Rect::new(0.0, 0.0, 200.0, 300.0), DisplayList::new())
+            .scrolling(Size::new(w, 3000.0))
+            .with_child(Layer::new(LayerId(id + 100), Rect::new(0.0, 0.0, w, 3000.0), solid(w, 3000.0)))
+    };
+    let leader = body(1, 800.0);
+    let mut frozen = body(2, 200.0);
+    frozen.scroll_follow = Some(ScrollFollow { leader: LayerId(1), x: false, y: true });
+    let mut header = Layer::new(LayerId(3), Rect::new(0.0, 0.0, 200.0, 30.0), DisplayList::new())
+        .scrolling(Size::new(800.0, 30.0))
+        .with_child(Layer::new(LayerId(103), Rect::new(0.0, 0.0, 800.0, 30.0), solid(800.0, 30.0)));
+    header.scroll_follow = Some(ScrollFollow { leader: LayerId(1), x: true, y: false });
+    let mut c = Compositor::new(600, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(LayerTree::new(vec![leader, frozen, header]));
+    let _ = c.frame(ms(0));
+    assert!(c.scroll_by(LayerId(1), Vec2::new(120.0, 500.0)));
+    let _ = c.frame(ms(16));
+    assert_eq!(c.scroll_offset(LayerId(1)), Some(Vec2::new(120.0, 500.0)));
+    assert_eq!(
+        c.scroll_offset(LayerId(2)),
+        Some(Vec2::new(0.0, 500.0)),
+        "the frozen pane follows vertically only"
+    );
+    assert_eq!(
+        c.scroll_offset(LayerId(3)),
+        Some(Vec2::new(120.0, 0.0)),
+        "the header follows horizontally only"
+    );
+}

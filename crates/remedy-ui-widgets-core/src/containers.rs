@@ -88,16 +88,29 @@ pub fn scroll(ui: &Ui) -> El {
 /// split's width (`Axis::Row`) or height (`Axis::Column`); dragging and arrow keys move it.
 #[track_caller]
 pub fn split(ui: &Ui, axis: Axis, first: El, second: El, fraction: Signal<f32>) -> El {
+    let horizontal = axis == Axis::Row;
     let container = ui.el("split").layout(move |l| {
         l.display = Display::Flex;
         l.axis = axis;
         l.grow = 1.0;
     });
-    let horizontal = axis == Axis::Row;
-    let a = first.clone().layout(|l| l.shrink = 1.0);
-    let b = second.layout(|l| {
+    // The divider decides the panes' sizes, not their content: each pane may be narrower
+    // (or shorter) than what is in it, which then scrolls or clips inside it.
+    let no_min = move |l: &mut remedy_ui_layout::LayoutStyle| {
+        if horizontal {
+            l.min_width = Length::Px(0.0);
+        } else {
+            l.min_height = Length::Px(0.0);
+        }
+    };
+    let a = first.clone().layout(move |l| {
+        l.shrink = 1.0;
+        no_min(l);
+    });
+    let b = second.layout(move |l| {
         l.grow = 1.0;
         l.basis = Length::Px(0.0);
+        no_min(l);
     });
     let a_bind = a.clone();
     let a = a.bind(move || {

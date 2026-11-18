@@ -12,7 +12,7 @@ use icu_decimal::DecimalFormatter;
 use icu_decimal::input::Decimal as IcuDecimal;
 use icu_locale_core::Locale;
 
-use crate::date::{Date, Weekday};
+use crate::calendar::{Date, Weekday};
 use crate::decimal::{Decimal, DecimalError};
 
 /// How a locale writes numbers.
@@ -307,7 +307,7 @@ impl CalendarSymbols {
 
     /// A time as the locale writes it (`14:30`, `2:30 PM`, or with Arabic digits and the
     /// Arabic day period).
-    pub fn format_time(&self, t: crate::date::Time) -> String {
+    pub fn format_time(&self, t: crate::calendar::Time) -> String {
         let it = icu_datetime::input::Time::try_new(t.hour, t.minute, 0, 0).ok();
         match (&self.time, it) {
             (Some(f), Some(it)) => f.format(&it).to_string(),
@@ -316,7 +316,7 @@ impl CalendarSymbols {
     }
 
     /// Reads a time typed the locale's way, or as `13:05` / `1:05 pm`.
-    pub fn parse_time(&self, s: &str, numbers: &NumberSymbols) -> Option<crate::date::Time> {
+    pub fn parse_time(&self, s: &str, numbers: &NumberSymbols) -> Option<crate::calendar::Time> {
         let mut t: String = s
             .chars()
             .filter(|c| !matches!(c, '\u{200E}' | '\u{200F}' | '\u{061C}'))
@@ -330,7 +330,7 @@ impl CalendarSymbols {
                 t = format!("{} am", t.replace(am.as_str(), "").trim());
             }
         }
-        crate::date::Time::parse(&t)
+        crate::calendar::Time::parse(&t)
     }
 
     /// The short name of a weekday.

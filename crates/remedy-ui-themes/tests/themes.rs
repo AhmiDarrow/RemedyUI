@@ -1,24 +1,13 @@
 //! The theme set: real palettes, system following, high contrast, and readable widgets in
 //! every theme.
 
-use remedy_ui_core::{Color, Insets};
+use remedy_ui_core::Color;
 use remedy_ui_style::{ResolvedStyle, States, StyleKey, StylePatch, Theme};
 use remedy_ui_themes::{PALETTES, ThemeChoice, all, high_contrast, palette, sheet, theme};
 
 fn resolve(t: &Theme, widget: &'static str, variant: &'static str, states: States) -> ResolvedStyle {
     let mut s = sheet(t);
-    let base = StylePatch {
-        background: Some(Color::TRANSPARENT),
-        foreground: Some(t.derive().text),
-        border: Some(Color::TRANSPARENT),
-        border_width: Some(0.0),
-        radius: Some(0.0),
-        padding: Some(Insets::ZERO),
-        text_size: Some(t.type_scale.body),
-        weight: Some(400.0),
-        opacity: Some(1.0),
-        mono: Some(false),
-    };
+    let base = StylePatch::defaults(t);
     s.resolve(&StyleKey { widget, variant, states }, &base, &StylePatch::default())
 }
 
@@ -95,8 +84,7 @@ fn widgets_read_well_in_every_theme_and_in_high_contrast() {
         let danger = resolve(t, "button", "danger_solid", States::NONE);
         check("danger button", danger.foreground, danger.background, 4.5);
         // A focused control is visibly marked: the focus color stands out from its surroundings.
-        let focus = resolve(t, "button", "", States::FOCUS_VISIBLE);
-        check("focus ring", focus.border, bg, 3.0);
+        check("focus ring", t.derive().focus, bg, 3.0);
         assert!(
             resolve(t, "button", "", States::DISABLED).opacity < 1.0,
             "{}: disabled looks disabled",

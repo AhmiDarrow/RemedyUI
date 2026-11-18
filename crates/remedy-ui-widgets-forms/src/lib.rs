@@ -10,21 +10,23 @@
 //! - [`Form`]: validation as values change, dirty tracking against the last save, and a
 //!   submit state ([`form_field`], [`form_view`], [`submit_button`], [`form_status`])
 //!
-//! Locale data comes from ICU4X compiled data; what an app does not use is not linked in.
+//! Values and locale data (numbers, dates, times, names) come from `remedy-ui-services-i18n`,
+//! which reads ICU4X compiled data; what an app does not use is not linked in.
 //! See `docs/design/15-widgets-and-media.md`.
 
 mod color;
 mod date;
-mod decimal;
 mod form;
 mod keys;
-mod locale;
 mod number;
 
 pub use color::{Hsv, color_picker, contrast_grade};
-pub use date::{Date, Time, Weekday, calendar, date_picker, days_in_month, is_leap, month_grid, time_picker};
-pub use decimal::{Decimal, DecimalError, MAX_SCALE};
+pub use date::{calendar, date_picker, time_picker};
+// The values and locale data the widgets work with, from the localization service.
 pub use form::{Form, FormField, Submission, SubmitState, form_field, form_status, form_view, submit_button};
 pub use keys::key_capture;
-pub use locale::{CalendarSymbols, NumberSymbols};
 pub use number::{NumberOptions, number_input};
+pub use remedy_ui_services_i18n::{
+    CalendarSymbols, Date, Decimal, DecimalError, MAX_SCALE, NumberSymbols, Time, Weekday, days_in_month,
+    is_leap, month_grid,
+};

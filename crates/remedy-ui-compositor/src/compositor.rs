@@ -141,6 +141,8 @@ pub struct Compositor {
     scale: f32,
     physics: ScrollPhysics,
     scrollers: HashMap<LayerId, Scroller>,
+    /// Scroll containers that follow others: (follower, link).
+    follows: Vec<(LayerId, crate::layer::ScrollFollow)>,
     overrides: HashMap<LayerId, Overrides>,
     grids: HashMap<LayerId, TileGrid>,
     drawn: HashMap<LayerId, Drawn>,
@@ -178,6 +180,7 @@ impl Compositor {
             scale: quantize_scale(scale),
             physics,
             scrollers: HashMap::new(),
+            follows: Vec::new(),
             overrides: HashMap::new(),
             grids: HashMap::new(),
             drawn: HashMap::new(),
@@ -226,9 +229,14 @@ impl Compositor {
     /// state and tiles of layers that are gone are dropped.
     pub fn commit(&mut self, tree: LayerTree) {
         let mut alive = HashMap::new();
+        let mut follows = Vec::new();
         tree.for_each(|l| {
             alive.insert(l.id, (l.scroll.is_some(), l.max_scroll()));
+            if let Some(f) = l.scroll_follow {
+                follows.push((l.id, f));
+            }
         });
+        self.follows = follows;
         self.scrollers.retain(|id, _| alive.get(id).is_some_and(|(s, _)| *s));
         for (&id, &(scrolls, max)) in &alive {
             if !scrolls {
@@ -300,6 +308,25 @@ impl Compositor {
             .map(|(id, _, s)| (*id, *s))
             .collect();
         for (id, scale) in hits {
+            // A pane that follows another on an axis passes that axis to its leader, so the
+            // wheel over a frozen column scrolls the whole table.
+            let follow = self.follows.iter().find(|(f, _)| *f == id).map(|(_, l)| *l);
+            if let Some(f) = follow {
+                let d = Vec2::new(delta.x / scale, delta.y / scale);
+                let led = Vec2::new(if f.x { d.x } else { 0.0 }, if f.y { d.y } else { 0.0 });
+                let own = Vec2::new(if f.x { 0.0 } else { d.x }, if f.y { 0.0 } else { d.y });
+                let mut moved = None;
+                if (led.x != 0.0 || led.y != 0.0) && self.scroll_by(f.leader, led) {
+                    moved = Some(f.leader);
+                }
+                if (own.x != 0.0 || own.y != 0.0) && self.scroll_by(id, own) {
+                    moved = moved.or(Some(id));
+                }
+                if moved.is_some() {
+                    return moved;
+                }
+                continue;
+            }
             let Some(s) = self.scrollers.get_mut(&id) else { continue };
             let d = Vec2::new(delta.x / scale, delta.y / scale);
             let can = |a: &ScrollAxis, d: f32| (d > 0.0 && a.offset < a.max) || (d < 0.0 && a.offset > 0.0);
@@ -376,6 +403,22 @@ impl Compositor {
         for s in self.scrollers.values_mut() {
             animating |= s.x.step(dt);
             animating |= s.y.step(dt);
+        }
+        // Followers take their leaders' offsets now, so both move in this frame.
+        for (id, f) in self.follows.clone() {
+            let Some((lx, ly)) = self.scrollers.get(&f.leader).map(|l| (l.x.offset, l.y.offset)) else {
+                continue;
+            };
+            if let Some(s) = self.scrollers.get_mut(&id) {
+                if f.x {
+                    s.x.offset = lx.clamp(0.0, s.x.max);
+                    s.x.velocity = 0.0;
+                }
+                if f.y {
+                    s.y.offset = ly.clamp(0.0, s.y.max);
+                    s.y.velocity = 0.0;
+                }
+            }
         }
         animating |= self.overrides.values().any(|o| !o.settled(now));
 
