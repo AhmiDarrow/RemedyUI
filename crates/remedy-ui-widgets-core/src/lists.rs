@@ -147,9 +147,11 @@ pub fn virtual_list<T: Clone + 'static>(
     let vl = Rc::new(RefCell::new(VirtualList::new(0, estimate, false)));
     let shown: Rc<RefCell<Vec<(usize, El)>>> = Rc::default();
     let build: RowBuilder<T> = Rc::new(build);
+    // The items changed: every row shown is built again, even where the range is the same.
+    let stale = Rc::new(std::cell::Cell::new(false));
     let refresh = {
-        let (vl, shown, scroller, top, content, bottom) =
-            (vl.clone(), shown.clone(), scroller.clone(), top, content, bottom);
+        let (vl, shown, scroller, top, content, bottom, stale) =
+            (vl.clone(), shown.clone(), scroller.clone(), top, content, bottom, stale.clone());
         Rc::new(move || {
             let list = items.get_untracked().unwrap_or_default();
             let mut v = vl.borrow_mut();
@@ -167,7 +169,7 @@ pub fn virtual_list<T: Clone + 'static>(
             let range = v.visible_range(estimate * 4.0);
             let range = range.start.min(list.len())..range.end.min(list.len());
             let current: Vec<usize> = shown.borrow().iter().map(|(i, _)| *i).collect();
-            if current != range.clone().collect::<Vec<_>>() {
+            if stale.replace(false) || current != range.clone().collect::<Vec<_>>() {
                 for (_, el) in shown.borrow_mut().drain(..) {
                     el.remove();
                 }
@@ -191,6 +193,9 @@ pub fn virtual_list<T: Clone + 'static>(
         vl2.borrow_mut().scroll_to(o.y);
         r2();
     });
+    // Once laid out (and whenever its size changes) it knows how many rows fit.
+    let r4 = refresh.clone();
+    let scroller = scroller.on_resize(move |_| r4());
     let (vl3, r3) = (vl, refresh);
     scroller.bind(move || {
         let n = items.get().len();
@@ -203,6 +208,7 @@ pub fn virtual_list<T: Clone + 'static>(
                 v.remove(n..have);
             }
         }
+        stale.set(true);
         r3();
     })
 }

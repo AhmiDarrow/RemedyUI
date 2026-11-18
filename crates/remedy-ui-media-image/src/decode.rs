@@ -22,6 +22,10 @@ pub enum DecodeError {
     },
     /// The file could not be read.
     Io(String),
+    /// Its decoder was stopped: decoding in a sandboxed helper
+    /// (`remedy-ui-media-isolated`), it crashed, ran far longer than an image this size takes,
+    /// or used more memory than the image needs. The reason says which.
+    Stopped(String),
 }
 
 impl std::fmt::Display for DecodeError {
@@ -33,6 +37,7 @@ impl std::fmt::Display for DecodeError {
                 write!(f, "the image ({width}×{height}) is too large for the memory available")
             }
             DecodeError::Io(e) => write!(f, "the image could not be read: {e}"),
+            DecodeError::Stopped(why) => write!(f, "the image's decoder was stopped: {why}"),
         }
     }
 }
@@ -74,6 +79,51 @@ pub fn add_format(f: Arc<dyn Format>) {
     if let Ok(mut v) = formats().write() {
         v.push(f);
     }
+}
+
+/// True when `bytes` are in a format that draws sharply at any size (an added vector format
+/// such as SVG): [`fitted_scalable`] may then size them larger than their natural size.
+pub fn is_scalable(bytes: &[u8]) -> bool {
+    format_of(bytes).is_some_and(|f| f.scalable())
+}
+
+/// Decoding done somewhere other than this process: `remedy-ui-media-isolated` decodes in a
+/// sandboxed helper. Once one is set with [`set_router`], the image loader ([`load`],
+/// [`probe`], [`image()`]) and [`decode_for_box`] read sizes and decode through it; [`decode`]
+/// and [`dimensions`] always decode here (they are what a router runs on the other side).
+///
+/// [`load`]: crate::load
+/// [`probe`]: crate::probe
+/// [`image()`]: crate::image
+/// [`decode_for_box`]: crate::decode_for_box
+pub trait Router: Send + Sync {
+    /// The image's natural size, as [`dimensions`] reads it.
+    fn dimensions(&self, bytes: &[u8]) -> Result<(u32, u32), DecodeError>;
+    /// Decodes as [`decode_for_box`](crate::decode_for_box) does: to show in a `box_px` box of
+    /// device pixels (`None`: at its own size), fitting inside it or (`cover`) covering it.
+    fn decode_for_box(
+        &self,
+        bytes: &[u8],
+        box_px: Option<(u32, u32)>,
+        cover: bool,
+    ) -> Result<Decoded, DecodeError>;
+}
+
+fn router_slot() -> &'static std::sync::RwLock<Option<Arc<dyn Router>>> {
+    static R: std::sync::OnceLock<std::sync::RwLock<Option<Arc<dyn Router>>>> = std::sync::OnceLock::new();
+    R.get_or_init(Default::default)
+}
+
+/// Routes the image loader's decoding through `router` from now on; `None` decodes in this
+/// process again. Loads already started finish where they began.
+pub fn set_router(router: Option<Arc<dyn Router>>) {
+    let mut slot = router_slot().write().unwrap_or_else(std::sync::PoisonError::into_inner);
+    *slot = router;
+}
+
+/// The router decoding goes through, when one is set.
+pub fn router() -> Option<Arc<dyn Router>> {
+    router_slot().read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
 }
 
 /// The added format `head` is in, if any.

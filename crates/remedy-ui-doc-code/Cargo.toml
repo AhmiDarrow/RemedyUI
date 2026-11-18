@@ -1,0 +1,35 @@
+[package]
+name = "remedy-ui-doc-code"
+description = "RemedyUI code: code views and editors with syntax colors from the theme, folding, and diffs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+default = ["syntaxes"]
+## The grammars that come with syntect (Rust, Python, JavaScript, C, HTML, Markdown and some
+## seventy more). Without it, only grammars the app adds at run time color code.
+syntaxes = ["syntect/default-syntaxes"]
+
+[dependencies]
+# Sublime Text grammars with the pure-Rust regex engine: no C regex library.
+syntect = { version = "=5.3.0", default-features = false, features = ["parsing", "regex-fancy", "yaml-load"] }
+remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
+remedy-ui-style = { path = "../remedy-ui-style", version = "0.1.0" }
+remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
+remedy-ui-view = { path = "../remedy-ui-view", version = "0.1.0" }
+remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "0.1.0" }
+
+[dev-dependencies]
+remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "0.1.0" }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "0.1.0", features = ["remedy-sans-ui"] }
+remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
+remedy-ui-themes = { path = "../remedy-ui-themes", version = "0.1.0" }
+
+[lints]
+workspace = true

@@ -27,6 +27,11 @@ ignore = [
     { id = "RUSTSEC-2026-0370", reason = "zvariant 5 via accesskit_unix; maintenance notice only" },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names 4 via accesskit_unix; maintenance notice only" },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 5 via accesskit_unix; maintenance notice only" },
+    # syntect 5.3 (doc-code's grammars, the latest release) reads its bundled grammar dump
+    # with bincode 1 and grammar files with yaml-rust. Maintenance notices, not vulnerabilities;
+    # remove when syntect moves off them.
+    { id = "RUSTSEC-2025-0141", reason = "bincode 1 via syntect (grammar dumps); maintenance notice only" },
+    { id = "RUSTSEC-2024-0320", reason = "yaml-rust via syntect (grammar files); maintenance notice only" },
 ]
 
 [licenses]

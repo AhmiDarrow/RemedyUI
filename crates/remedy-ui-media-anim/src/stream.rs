@@ -13,14 +13,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
-use remedy_ui_media_image::{
-    DecodeError, Source, SourceId, Stamp, decode_for_box, finish_rgba, fitted_scalable, spawn_job,
-};
+use remedy_ui_media_image::{DecodeError, Source, SourceId, Stamp, decode_for_box, spawn_job};
 use remedy_ui_paint::Image;
 use remedy_ui_reactive::Waker;
 
-use crate::formats::{Frames, Loops, Opened, open};
 use crate::policy;
+use crate::route::{FrameSource, Loops, Opened, open};
 
 /// What a stream tells the elements showing it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,7 +95,7 @@ struct State {
     source_size: Option<(u32, u32)>,
     show_at: (u32, u32),
     loops: Loops,
-    decoder: Option<Box<dyn Frames>>,
+    decoder: Option<Box<dyn FrameSource>>,
     /// A job is queued or running.
     job: bool,
     /// Bumped when the playhead is sent back, so a frame decoded for the old run is dropped.
@@ -640,7 +638,7 @@ fn run(weak: Weak<Stream>) {
     loop {
         let Some(me) = weak.upgrade() else { return };
         // Decide under the lock, decode outside it.
-        let (mut dec, epoch, seq, show_at, restart) = {
+        let (mut dec, epoch, seq, restart) = {
             let mut st = me.lock();
             if !st.wants_more() {
                 st.job = false;
@@ -655,9 +653,16 @@ fn run(weak: Weak<Stream>) {
                 st.job = false;
                 return;
             };
-            (dec, st.epoch, st.next_seq, st.show_at, std::mem::take(&mut st.restart))
+            (dec, st.epoch, st.next_seq, std::mem::take(&mut st.restart))
         };
-        if restart && let Err(e) = dec.restart() {
+        let restarted = if restart {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| dec.restart())).unwrap_or_else(|_| {
+                Err(DecodeError::Malformed(String::from("the decoder gave up on this file")))
+            })
+        } else {
+            Ok(())
+        };
+        if let Err(e) = restarted {
             let mut st = me.lock();
             st.fail(e);
             st.job = false;
@@ -665,14 +670,8 @@ fn run(weak: Weak<Stream>) {
             me.wake(Event::Changed);
             return;
         }
-        let (size, profile) = (dec.info().size, dec.info().profile.clone());
         // A decoder that trips over a hostile file must not take the worker with it.
-        let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match dec.next() {
-            Ok(Some(f)) => finish_rgba(size.0, size.1, f.rgba, profile.as_ref(), Some(show_at))
-                .map(|img| Some((img, f.delay))),
-            Ok(None) => Ok(None),
-            Err(e) => Err(e),
-        }));
+        let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| dec.next()));
         let Ok(made) = decoded else {
             let mut st = me.lock();
             st.fail(DecodeError::Malformed(String::from("the decoder gave up on this file")));
@@ -738,23 +737,24 @@ fn run(weak: Weak<Stream>) {
 /// Reads the file and opens its decoder (or decodes it, if it is a still).
 fn open_stage(me: &Arc<Stream>) {
     let opened = me.source.read().and_then(|(bytes, stamp)| {
-        let animated = std::panic::catch_unwind(|| open(&bytes)).unwrap_or_else(|_| {
-            Err(DecodeError::Malformed(String::from("the decoder gave up on this file")))
-        })?;
+        let animated =
+            std::panic::catch_unwind(|| open(&bytes, me.box_px, me.cover)).unwrap_or_else(|_| {
+                Err(DecodeError::Malformed(String::from("the decoder gave up on this file")))
+            })?;
         Ok((bytes, stamp, animated))
     });
     let still = match opened {
         Ok((bytes, stamp, Opened::Still)) => Some((decode_for_box(&bytes, Some(me.box_px), me.cover), stamp)),
         Ok((_, stamp, Opened::Animated(dec))) => {
             let mut st = me.lock();
-            let size = dec.info().size;
-            let show_at = fitted_scalable(size, me.box_px, me.cover, false);
+            let a = *dec.animation();
+            let show_at = a.show_at;
             let frame_bytes = (show_at.0 as usize).saturating_mul(show_at.1 as usize).saturating_mul(4);
             st.stamp = stamp;
-            st.source_size = Some(size);
+            st.source_size = Some(a.size);
             st.show_at = show_at;
-            st.loops = dec.info().loops;
-            st.total = dec.info().frames;
+            st.loops = a.loops;
+            st.total = a.frames;
             st.limit = policy::resident_frames(frame_bytes, me.live_at_start);
             st.whole = st.total.is_none_or(|t| t <= st.limit as u64);
             st.delay_sum = Duration::ZERO;

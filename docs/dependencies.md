@@ -34,13 +34,14 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | Clipboard | `arboard` | 3.7.0 | desktop bridges | Text and images; sensitive-item handling added in the bridge |
 | File dialogs | `rfd` | 0.18.0 | `bridge-windows`, `bridge-macos` | Native dialogs. On Linux, dialogs go through the XDG portal with RemedyUI's own client over blocking `zbus`, because `rfd`'s portal backend needs an async runtime |
 | D-Bus (Linux) | `zbus` (blocking API) | 5.19.0 | `bridge-linux` | Portal, notifications, StatusNotifierItem, AT-SPI |
-| Images | `image` / `zune-image` | 0.25.10 / 0.5.0 | `media-image` | Chosen per format in its milestone, after a RustSec review and fuzzing |
+| Images | `image` / `zune-image` | 0.25.10 / 0.5.0 | `media-image`, `media-isolated` (its PNG encoder makes the picture the helper is timed on) | Chosen per format in its milestone, after a RustSec review and fuzzing |
 | SVG | `usvg` | pinned with `media-svg` | `media-svg` | SVG to a path tree |
 | Syntax colors | `syntect` (with `fancy-regex`) | 5.3.0 | `doc-code` | Pure-Rust highlighting, with no C regex engine |
 | Diagnostics | `tracing` | 0.1.44 | every crate | Structured spans and events; Perfetto export in `devtools` |
 | Errors | `thiserror` | 2.0.21 | every crate | Typed errors without hand-written boilerplate |
 | Derive macros | `syn` 2, `quote`, `proc-macro2` | 2.0.119, 1.0.47, 1.0.107 | `macros` (build time only) | `#[derive(Store)]`; syn 2 rather than the new 3.0 until 3.x has settled |
 | Platform APIs | `windows`, `objc2`, `ndk`, `jni` | pinned per bridge | bridges | OS calls, in the bridges' `os` modules only |
+| Raw platform calls | `windows-sys`, `libc` | 0.61.2, 0.2.191 | `bridge-windows`, `bridge-linux`, `services-update`, `media-isolated` | The decoding helper's sandbox (AppContainer, restricted token, job object; seccomp-bpf, Landlock, memfds, descriptor passing; Seatbelt), in `media-isolated`'s `os` module only |
 
 Development tools that are not linked into apps: `cargo-fuzz`, `cargo-deny`, `cargo-audit`, `cargo-vet`.
 

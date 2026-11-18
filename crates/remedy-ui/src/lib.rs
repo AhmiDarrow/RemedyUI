@@ -38,6 +38,8 @@ pub use remedy_ui_bridge_headless as headless;
 pub use remedy_ui_core as core;
 #[cfg(feature = "devtools")]
 pub use remedy_ui_devtools as devtools;
+#[cfg(feature = "code")]
+pub use remedy_ui_doc_code as code;
 #[cfg(feature = "rich")]
 pub use remedy_ui_doc_rich as rich;
 pub use remedy_ui_host as host;

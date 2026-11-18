@@ -103,6 +103,10 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-media-anim", "remedy-ui-media-image"),
     // SVG is an image format: it plugs into the image loader.
     ("remedy-ui-media-svg", "remedy-ui-media-image"),
+    // The sandboxed helper decodes with the image pack and is the loader's router.
+    ("remedy-ui-media-isolated", "remedy-ui-media-image"),
+    // ...and the animation pack's opener, playing animations decoded in the helper.
+    ("remedy-ui-media-isolated", "remedy-ui-media-anim"),
     // The update banner is a widget.
     ("remedy-ui-services-update", "remedy-ui-widgets-core"),
     // The spelling menu is built from the core menu widgets.
@@ -139,6 +143,9 @@ const UNSAFE_BOUNDARY: &[&str] = &[
     "remedy-ui-services-desktop",
     // Talks to the platform's spell checker (Windows ISpellChecker, macOS NSSpellChecker).
     "remedy-ui-services-spell",
+    // Starts the sandboxed decoding helper: AppContainer, job objects and sections on
+    // Windows; seccomp-bpf, Landlock, memfds and descriptor passing on Linux; Seatbelt on macOS.
+    "remedy-ui-media-isolated",
 ];
 
 fn layer(name: &str) -> Option<u8> {

@@ -85,6 +85,33 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         StylePatch { background: Some(d.selected), ..Default::default() },
     );
     rule("board_item", None, States::DRAGGING, StylePatch { opacity: Some(0.6), ..Default::default() });
+    // Code: monospace text, quiet line numbers, added and removed lines tinted.
+    rule("code_text", None, States::NONE, StylePatch { mono: Some(true), ..Default::default() });
+    rule(
+        "code_mark",
+        None,
+        States::NONE,
+        StylePatch { mono: Some(true), foreground: Some(d.muted), ..Default::default() },
+    );
+    rule(
+        "code_gutter",
+        None,
+        States::NONE,
+        StylePatch { mono: Some(true), foreground: Some(d.muted), ..Default::default() },
+    );
+    rule("code_view", None, States::NONE, StylePatch { background: Some(c.card), ..Default::default() });
+    rule(
+        "code_line",
+        Some("added"),
+        States::NONE,
+        StylePatch { background: Some(c.card.mix_oklab(c.ok, 0.18)), ..Default::default() },
+    );
+    rule(
+        "code_line",
+        Some("removed"),
+        States::NONE,
+        StylePatch { background: Some(c.card.mix_oklab(c.danger, 0.18)), ..Default::default() },
+    );
     // Video: bars where a picture's shape differs from its place are black, as on every screen.
     rule(
         "video_surface",

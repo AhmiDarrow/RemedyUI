@@ -5,6 +5,8 @@
 //!   [`remedy_ui_media_image::image`]
 //! - [`set_memory_budget`] and [`trim_memory`]: how much decoded animation the app keeps
 //! - [`register`]: APNG first frames for the still-image loader
+//! - [`route`]: where frames are decoded (here, or a sandboxed helper through an
+//!   [`route::Opener`]), and animated formats of the app's own
 //!
 //! Frames are decoded on the image workers at the size shown, composited as each format says
 //! (GIF disposal, APNG dispose and blend, WebP blending). An animation of up to 64 frames is
@@ -23,9 +25,11 @@
 //! count is how many times it repeats after its first play. A file damaged after its first
 //! frame plays the frames before the damage; one damaged before that cannot be shown.
 
+#[cfg(any(feature = "gif", feature = "apng", feature = "webp"))]
 mod canvas;
 mod formats;
 mod policy;
+pub mod route;
 mod stream;
 #[cfg(test)]
 mod testing;
