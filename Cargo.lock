@@ -3472,6 +3472,9 @@ dependencies = [
  "remedy-ui-host",
  "remedy-ui-input",
  "serde",
+ "wayland-backend",
+ "wayland-client",
+ "x11rb",
  "zbus 6.3.0",
 ]
 

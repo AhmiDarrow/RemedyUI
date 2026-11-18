@@ -9,6 +9,9 @@
 //!   motion) and the desktop's interface settings it exposes (text scale, double-click time,
 //!   caret blink), plus the locale from the environment.
 //!
+//! - drag and drop with other apps: out on X11 through XDND, both ways on Wayland through
+//!   the data device (winit takes file drops in on X11).
+//!
 //! Capture protection is not available: no Linux display server lets a window exclude itself
 //! from capture, so it reports `Unsupported` rather than pretending. On other platforms this
 //! crate is empty.
@@ -21,15 +24,27 @@ mod os;
 mod services;
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod dnd;
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod dnd_wayland;
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod dnd_x11;
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod linux {
     use std::time::Duration;
 
     use arboard::SetExtLinux;
-    use remedy_ui_bridge_winit::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use remedy_ui_bridge_winit::winit::raw_window_handle::{
+        HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
+    };
     use remedy_ui_bridge_winit::winit::window::Window;
     use remedy_ui_bridge_winit::{PlatformHooks, RunError};
     use remedy_ui_core::Color;
-    use remedy_ui_host::{App, FileDialog, HostEvent, SystemSettings, TrayIcon, Unsupported, Waker};
+    use remedy_ui_host::{
+        App, DragData, DragEvent, DragStarted, DropEffect, FileDialog, HostEvent, SystemSettings, TrayIcon,
+        Unsupported, Waker,
+    };
     use remedy_ui_input::Platform;
     use zbus::{OwnedVariant, Variant as Value};
 
@@ -40,6 +55,8 @@ mod linux {
         // process serves the data to whoever pastes.
         clipboard: Option<arboard::Clipboard>,
         tray: crate::services::Tray,
+        /// Drag and drop on Wayland, once a Wayland window exists.
+        wayland: Option<crate::dnd_wayland::Wayland>,
     }
 
     impl std::fmt::Debug for LinuxHooks {
@@ -219,6 +236,62 @@ mod linux {
                     None
                 },
             }
+        }
+
+        fn window_created(&mut self, window: &Window) {
+            let (Ok(d), Ok(w)) = (window.display_handle(), window.window_handle()) else { return };
+            let (RawDisplayHandle::Wayland(d), RawWindowHandle::Wayland(w)) = (d.as_raw(), w.as_raw()) else {
+                return;
+            };
+            if self.wayland.is_none() {
+                // Without it, drags simply stay inside the app.
+                self.wayland =
+                    crate::dnd_wayland::Wayland::new(crate::os::wayland_connection(d.display)).ok();
+            }
+            if let Some(wl) = self.wayland.as_mut()
+                && let Some(surface) = crate::os::wayland_surface(wl.connection(), w.surface)
+            {
+                wl.add_window(&surface, window.id());
+            }
+        }
+
+        fn start_drag(
+            &mut self,
+            window: &Window,
+            data: &DragData,
+            allowed: &[DropEffect],
+        ) -> Result<DragStarted, Unsupported> {
+            let handle =
+                window.window_handle().map_err(|e| Unsupported::new("dragging out", e.to_string()))?;
+            match handle.as_raw() {
+                RawWindowHandle::Xlib(_) | RawWindowHandle::Xcb(_) => {
+                    crate::dnd_x11::drag(data, allowed).map(DragStarted::Finished)
+                }
+                RawWindowHandle::Wayland(h) => {
+                    let wl = self
+                        .wayland
+                        .as_mut()
+                        .ok_or_else(|| Unsupported::new("dragging out", "no Wayland data device"))?;
+                    let surface = crate::os::wayland_surface(wl.connection(), h.surface)
+                        .ok_or_else(|| Unsupported::new("dragging out", "the window's surface is gone"))?;
+                    wl.start(&surface, window.id(), data, allowed).map(|()| DragStarted::Pending)
+                }
+                _ => Err(Unsupported::new("dragging out", "not an X11 or Wayland window")),
+            }
+        }
+
+        fn set_drop_effect(&mut self, window: &Window, effect: DropEffect) {
+            if let Some(wl) = self.wayland.as_mut() {
+                wl.set_effect(window.id(), effect);
+            }
+        }
+
+        fn take_drag_events(&mut self) -> Vec<(remedy_ui_bridge_winit::winit::window::WindowId, DragEvent)> {
+            self.wayland.as_mut().map(crate::dnd_wayland::Wayland::take_events).unwrap_or_default()
+        }
+
+        fn take_drag_ends(&mut self) -> Vec<(remedy_ui_bridge_winit::winit::window::WindowId, DropEffect)> {
+            self.wayland.as_mut().map(crate::dnd_wayland::Wayland::take_ended).unwrap_or_default()
         }
 
         fn clipboard_text(&mut self) -> Result<Option<String>, Unsupported> {

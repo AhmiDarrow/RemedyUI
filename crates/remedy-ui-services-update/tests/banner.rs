@@ -41,3 +41,36 @@ fn the_banner_shows_each_state() {
     state.set(UpdateState::Ready);
     assert!(tree(&ui).contains("Restart now"));
 }
+
+#[test]
+fn the_banner_speaks_the_app_s_language() {
+    let ui = ui();
+    ui.connect_accessibility();
+    let state = Signal::new(UpdateState::Idle);
+    let texts = remedy_ui_services_update::BannerText {
+        available: "Version {version} ist verfügbar.".into(),
+        install: "Update installieren".into(),
+        restart: None,
+        failure: std::rc::Rc::new(|e: &str| format!("Fehler: {e}")),
+        ..Default::default()
+    };
+    ui.root().child(remedy_ui_services_update::update_banner_with(&ui, state, &texts, || {}, || {}));
+    let tree = |ui: &Ui| {
+        let _ = ui.frame(Size::new(400.0, 200.0), 1.0);
+        format!("{:?}", ui.take_accessibility_update())
+    };
+    let _ = tree(&ui);
+    state.set(UpdateState::Available(Release {
+        version: "v0.5.0".into(),
+        notes: String::new(),
+        url: String::new(),
+        signature: String::new(),
+        sha256: None,
+    }));
+    let t = tree(&ui);
+    assert!(t.contains("Version 0.5.0 ist verfügbar.") && t.contains("Update installieren"), "{t}");
+    state.set(UpdateState::Ready);
+    assert!(!tree(&ui).contains("Restart"), "no Restart button when the app has none");
+    state.set(UpdateState::Failed("disk full".into()));
+    assert!(tree(&ui).contains("Fehler: disk full"));
+}
