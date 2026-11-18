@@ -1039,3 +1039,35 @@ fn the_primary_selection_is_set_and_pasted_through_the_host() {
     assert_eq!(host.primary_selection(), Some("selected here"));
     assert_eq!(*got.borrow(), ["selected here"], "the middle button's paste reads the primary selection");
 }
+
+#[cfg(feature = "customize")]
+#[test]
+fn customizations_live_in_the_apps_data_folder() {
+    use remedy_ui::customize::{Token, TokenValue};
+    let dir = std::env::temp_dir().join(format!("remedy-ui-app-customize-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    /// The data folder the app reported, and whether a file picker was wired.
+    type Seen = Option<(Option<std::path::PathBuf>, bool)>;
+    let seen: Rc<std::cell::RefCell<Seen>> = Rc::default();
+    let s2 = seen.clone();
+    let mut runner = Runner::new(config().data_dir(&dir), move |app: &App| {
+        let Some(c) = app.customizations() else { return };
+        *s2.borrow_mut() = Some((app.data_dir(), c.has_file_picker()));
+        c.enable_theme(remedy_ui::style::Theme::dark_forest());
+        app.open(WindowSpec::new("Customized").size(200.0, 100.0), move |ui, _| {
+            c.attach(ui);
+            let _ = c.set_token(ui, &Token::stroke(), TokenValue::Px(2.0));
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let got = seen.borrow().clone();
+    assert_eq!(
+        got,
+        Some((Some(dir.clone()), true)),
+        "the configured folder, and the platform's file dialogs"
+    );
+    let theme = std::fs::read_to_string(dir.join("customizations").join("theme.json")).unwrap_or_default();
+    assert!(theme.contains("\"stroke\""), "saved in the app's data folder: {theme}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

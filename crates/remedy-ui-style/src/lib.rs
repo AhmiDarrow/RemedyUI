@@ -26,4 +26,6 @@ mod theme;
 pub use contrast::{CONTRAST_AA, CONTRAST_AAA, ensure_contrast};
 pub use resolve::{ResolvedStyle, StyleKey, StylePatch, StyleSheet};
 pub use states::States;
-pub use theme::{ColorRoles, Density, DerivedTokens, MotionTokens, Radii, Spacing, Theme, TypeScale};
+pub use theme::{
+    ColorRoles, Density, DerivedTokens, MotionTokens, Radii, Spacing, Theme, ThemeAssets, TypeScale,
+};

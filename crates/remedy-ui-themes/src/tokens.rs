@@ -9,6 +9,15 @@
 //!              "custom": { "speaking": { "$type": "color", "$value": "#7ab08c" } } },
 //!   "size": { "body": { "$type": "dimension", "$value": "14px" } } }
 //! ```
+//!
+//! A theme's files are tokens too, as references (a path relative to the theme file, or a
+//! `data:` URI), never loaded here:
+//!
+//! ```json
+//! { "asset": { "background": { "$type": "image", "$value": "images/waves.png" },
+//!              "font": { "Ocean": { "$type": "font", "$value": "fonts/Ocean-Regular.ttf" } } },
+//!   "font": { "family": { "$type": "fontFamily", "$value": ["Ocean", "Remedy Sans UI"] } } }
+//! ```
 
 use std::time::Duration;
 
@@ -78,7 +87,7 @@ pub fn to_tokens(theme: &Theme) -> String {
         let custom: Map<String, Value> = c.custom.iter().map(|(k, v)| (k.clone(), color_token(*v))).collect();
         colors.insert("custom".into(), Value::Object(custom));
     }
-    let doc = json!({
+    let mut doc = json!({
         "$name": theme.name,
         "color": colors,
         "font": {
@@ -111,7 +120,31 @@ pub fn to_tokens(theme: &Theme) -> String {
             Density::Spacious => "spacious",
         } },
     });
+    let a = &theme.assets;
+    if a.background.is_some() || !a.fonts.is_empty() {
+        let mut assets = Map::new();
+        if let Some(bg) = &a.background {
+            assets.insert("background".into(), json!({ "$type": "image", "$value": bg }));
+        }
+        if !a.fonts.is_empty() {
+            let fonts: Map<String, Value> =
+                a.fonts.iter().map(|(k, v)| (k.clone(), json!({ "$type": "font", "$value": v }))).collect();
+            assets.insert("font".into(), Value::Object(fonts));
+        }
+        if let Some(m) = doc.as_object_mut() {
+            m.insert("asset".into(), Value::Object(assets));
+        }
+    }
     serde_json::to_string_pretty(&doc).unwrap_or_default()
+}
+
+fn read_reference(v: &Value, path: &str) -> Result<String, TokenError> {
+    value(v)
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| bad(path, "a file is a path or a data: URI, such as \"images/waves.png\""))
 }
 
 /// A token's `$value` (or the value itself, for files that skip the wrapper).
@@ -246,6 +279,16 @@ pub fn from_tokens(json: &str, base: &Theme) -> Result<Theme, TokenError> {
             *slot = read_ms(v, &format!("motion.{key}"))?;
         }
     }
+    if let Some(v) = get("asset", "background") {
+        t.assets.background = Some(read_reference(v, "asset.background")?);
+    }
+    if let Some(fonts) = get("asset", "font") {
+        let fonts =
+            fonts.as_object().ok_or_else(|| bad("asset.font", "fonts are named: { \"Ocean\": ... }"))?;
+        for (k, v) in fonts {
+            t.assets.fonts.insert(k.clone(), read_reference(v, &format!("asset.font.{k}"))?);
+        }
+    }
     if let Some(v) = doc.get("density") {
         t.density = match value(v).as_str() {
             Some("compact") => Density::Compact,
@@ -285,6 +328,21 @@ mod tests {
         assert_eq!(t.type_scale.body, 15.0);
         assert_eq!(t.motion.quick, Duration::from_millis(100));
         assert_eq!(t.colors.bg, base.colors.bg, "untouched tokens stay");
+    }
+
+    #[test]
+    fn assets_are_references_that_round_trip() {
+        let mut t = Theme::dark_forest();
+        t.assets.background = Some("images/waves.png".into());
+        t.assets.fonts.insert("Ocean".into(), "fonts/Ocean.ttf".into());
+        t.font_families = vec!["Ocean".into(), "Remedy Sans UI".into()];
+        let back = from_tokens(&to_tokens(&t), &Theme::dark_forest());
+        assert_eq!(back.as_ref(), Ok(&t));
+        assert!(!to_tokens(&Theme::dark_forest()).contains("asset"), "no files, no group");
+        assert!(matches!(
+            from_tokens(r#"{ "asset": { "background": { "$value": "" } } }"#, &t),
+            Err(TokenError::Value { .. })
+        ));
     }
 
     #[test]

@@ -195,3 +195,70 @@ fn chord_labels_follow_the_platform() {
     let mac = Chord::new(Modifiers::primary(Platform::Apple).with_shift(), Key::char('z'));
     assert_eq!(mac.label(Platform::Apple), "⇧⌘Z");
 }
+
+#[test]
+fn chords_have_a_portable_text_form_that_reads_back() {
+    let cases = [
+        (Chord::new(Modifiers::primary(Platform::Standard).with_shift(), Key::char('z')), "Ctrl+Shift+Z"),
+        (Chord::new(Modifiers { alt: true, ..Modifiers::NONE }, Key::F(4)), "Alt+F4"),
+        (Chord::new(Modifiers { meta: true, ..Modifiers::NONE }, Key::ArrowLeft), "Meta+Left"),
+        (Chord::new(Modifiers::primary(Platform::Standard), Key::Character("+".into())), "Ctrl+Plus"),
+        (Chord::new(Modifiers::NONE, Key::Named("MediaPlayPause".into())), "MediaPlayPause"),
+        (Chord::new(Modifiers::NONE, Key::Escape), "Escape"),
+    ];
+    for (chord, text) in cases {
+        assert_eq!(chord.to_string(), text);
+        assert_eq!(text.parse::<Chord>(), Ok(chord.clone()), "{text}");
+    }
+    // Other spellings people write.
+    let ctrl_plus = Chord::new(Modifiers::primary(Platform::Standard), Key::Character("+".into()));
+    assert_eq!("ctrl++".parse::<Chord>(), Ok(ctrl_plus));
+    assert_eq!(
+        "Cmd + Option + k".parse::<Chord>(),
+        Ok(Chord::new(Modifiers { meta: true, alt: true, ..Modifiers::NONE }, Key::char('k')))
+    );
+    assert_eq!("esc".parse::<Chord>().map(|c| c.key), Ok(Key::Escape));
+    for bad in ["", "Ctrl+", "+K", "Hyper+K", "Ctrl+Ctrl+K", "Ctrl++K+"] {
+        assert!(bad.parse::<Chord>().is_err(), "{bad:?} is not a chord");
+    }
+}
+
+#[test]
+fn conflicts_and_clashes_are_reported_without_changing_anything() {
+    let p = Platform::Standard;
+    let mut t = CommandTable::new();
+    let cmd = |id: &str, ch: char| Command {
+        id: id.into(),
+        label: id.into(),
+        default_chords: vec![Chord::primary(p, Key::char(ch))],
+        enabled: true,
+    };
+    t.register(Scope::App, cmd("save", 's'));
+    t.register(Scope::App, cmd("send", 'e'));
+    t.register(Scope::Window, cmd("search", 's'));
+    let ctrl_s = Chord::primary(p, Key::char('s'));
+    let found = t.conflicts("send", std::slice::from_ref(&ctrl_s));
+    assert_eq!(
+        found,
+        vec![Clash { scope: Scope::App, chord: ctrl_s.clone(), commands: vec!["save".into()] }]
+    );
+    assert_eq!(t.chords("send"), vec![Chord::primary(p, Key::char('e'))], "nothing changed");
+    assert!(t.clashes().is_empty(), "the window-scoped search does not clash with save");
+    assert_eq!(t.default_chords("send"), vec![Chord::primary(p, Key::char('e'))]);
+    assert_eq!(t.user_chords("send"), None);
+
+    // A whole set at once: send takes Ctrl+S while save keeps it, so they clash.
+    let mut user = std::collections::HashMap::new();
+    user.insert("send".to_string(), vec![ctrl_s.clone()]);
+    user.insert("not-registered-yet".to_string(), vec![Chord::new(Modifiers::NONE, Key::F(2))]);
+    t.set_user_bindings(user);
+    assert_eq!(t.user_chords("send"), Some(&[ctrl_s.clone()][..]));
+    assert_eq!(
+        t.clashes(),
+        vec![Clash { scope: Scope::App, chord: ctrl_s, commands: vec!["save".into(), "send".into()] }]
+    );
+    // A binding set before its command exists applies once it is registered.
+    t.register(Scope::App, cmd("not-registered-yet", 'n'));
+    assert_eq!(t.chords("not-registered-yet"), vec![Chord::new(Modifiers::NONE, Key::F(2))]);
+    assert_eq!(t.user_bindings().len(), 2);
+}

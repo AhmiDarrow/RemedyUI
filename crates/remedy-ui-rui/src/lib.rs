@@ -32,4 +32,4 @@ pub mod rt;
 #[cfg(feature = "runtime")]
 pub use interp::{Binding, Bound, Builder, Call, Scope, Widgets, build as build_markup, check};
 #[cfg(feature = "runtime")]
-pub use layouts::{Layout, Layouts, SaveError};
+pub use layouts::{Layout, Layouts, SaveError, WeakLayout};

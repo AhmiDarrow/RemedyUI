@@ -76,6 +76,8 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-themes", 5),
     ("remedy-ui-fonts", 5),
     ("remedy-ui-devtools", 5),
+    // The code-fluid layer: what people change about an app, and its editors.
+    ("remedy-ui-customize", 5),
     ("remedy-ui", 6),
     ("remedy-ui-test", 6),
     // Tools: build on everything, nothing builds on them.
@@ -129,6 +131,20 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-devtools", "remedy-ui-widgets-forms"),
     ("remedy-ui-devtools", "remedy-ui-themes"),
     ("remedy-ui-devtools", "remedy-ui-fonts"),
+    // Customization edits the theme pack's tokens and restyles with its sheet; its editors
+    // are built from widgets (the color picker and shortcut recorder from the form pack, the
+    // toolbar editor from navigation, whose commands it rebinds); text overrides are a layer
+    // of the localization service's catalogs.
+    ("remedy-ui-customize", "remedy-ui-themes"),
+    ("remedy-ui-customize", "remedy-ui-widgets-core"),
+    ("remedy-ui-customize", "remedy-ui-widgets-forms"),
+    ("remedy-ui-customize", "remedy-ui-widgets-nav"),
+    ("remedy-ui-customize", "remedy-ui-services-i18n"),
+    // People's own screen layouts are the markup pack's, edited in the code editor; a theme's
+    // background image goes through the image pack's loader (and its sandboxed decoder).
+    ("remedy-ui-customize", "remedy-ui-rui"),
+    ("remedy-ui-customize", "remedy-ui-doc-code"),
+    ("remedy-ui-customize", "remedy-ui-media-image"),
     // The compositor holds display lists and runs motion curves on its own thread.
     ("remedy-ui-compositor", "remedy-ui-paint"),
     ("remedy-ui-compositor", "remedy-ui-motion"),

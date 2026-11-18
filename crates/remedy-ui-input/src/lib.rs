@@ -18,7 +18,7 @@ pub mod events;
 mod gesture;
 mod scroll;
 
-pub use commands::{Chord, Command, CommandTable, Conflict, Scope};
+pub use commands::{Chord, ChordError, Clash, Command, CommandTable, Conflict, Scope};
 pub use events::{
     Buttons, Key, KeyEvent, Modifiers, PinchEvent, PinchPhase, Platform, PointerEvent, PointerKind,
     PointerPhase, WheelEvent,

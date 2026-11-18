@@ -460,6 +460,7 @@ impl Ui {
         // Style.
         let style_span = remedy_ui_trace::phase!("style").entered();
         let theme = i.theme.clone();
+        let reshape = std::mem::take(&mut i.reshape_text);
         let base = i.base.clone();
         // Parents before children: text properties inherit, so a child resolves against its
         // parent's new style, and a parent whose inherited values changed restyles its
@@ -491,11 +492,13 @@ impl Ui {
                 || resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight
                 || resolved.mono != d.resolved.mono;
-            let text_changed = resolved.text_size != d.resolved.text_size
+            let text_changed = reshape
+                || resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight
                 || resolved.mono != d.resolved.mono
                 || resolved.foreground != d.resolved.foreground;
-            let layout_changed = resolved.padding != d.resolved.padding
+            let layout_changed = (reshape && (d.text.is_some() || d.field.is_some()))
+                || resolved.padding != d.resolved.padding
                 || resolved.mono != d.resolved.mono
                 || resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight

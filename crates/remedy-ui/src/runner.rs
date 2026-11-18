@@ -41,6 +41,9 @@ pub struct AppConfig {
     /// One instance per user session: a second launch hands its arguments to the first
     /// ([`App::on_second_instance`]) and exits.
     pub single_instance: bool,
+    /// Where the app keeps its data, instead of the platform's place for it ([`App::data_dir`]):
+    /// a portable app's folder beside its executable, or a test's temporary folder.
+    pub data_dir: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for AppConfig {
@@ -77,6 +80,7 @@ impl AppConfig {
             }),
             renderer: RendererChoice::Auto,
             single_instance: false,
+            data_dir: None,
         }
     }
 
@@ -84,6 +88,12 @@ impl AppConfig {
     pub fn theme(mut self, theme: Theme, sheet: impl Fn(&Theme) -> StyleSheet + 'static) -> Self {
         self.theme = theme;
         self.sheet = Rc::new(sheet);
+        self
+    }
+
+    /// Keeps the app's data in `dir` instead of the platform's place for it.
+    pub fn data_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.data_dir = Some(dir.into());
         self
     }
 
@@ -358,6 +368,8 @@ struct Shared {
     next: u64,
     keep_running: bool,
     name: String,
+    /// The data folder the app config chose, if it chose one.
+    data_dir: Option<PathBuf>,
     uis: HashMap<u64, Ui>,
     open: HashSet<u64>,
     /// Windows kept out of screen capture (where the system could do it).
@@ -656,7 +668,8 @@ impl App {
 
     /// Where the app keeps its data (created on first write).
     pub fn data_dir(&self) -> Option<PathBuf> {
-        data_dir(&self.0.borrow().name)
+        let s = self.0.borrow();
+        s.data_dir.clone().or_else(|| data_dir(&s.name))
     }
 
     /// The open windows.
@@ -907,7 +920,10 @@ impl std::fmt::Debug for Runner {
 impl Runner {
     /// A runner for `config`; `setup` runs when the host is ready.
     pub fn new(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Self {
-        let geometry = data_dir(&config.name)
+        let geometry = config
+            .data_dir
+            .clone()
+            .or_else(|| data_dir(&config.name))
             .map_or_else(GeometryStore::in_memory, |d| GeometryStore::open(d.join("windows.txt")));
         Self::with_geometry(config, geometry, setup)
     }
@@ -918,8 +934,12 @@ impl Runner {
         geometry: GeometryStore,
         setup: impl FnOnce(&App) + 'static,
     ) -> Self {
-        let shared =
-            Shared { name: config.name.clone(), sheet: Some(config.sheet.clone()), ..Shared::default() };
+        let shared = Shared {
+            name: config.name.clone(),
+            data_dir: config.data_dir.clone(),
+            sheet: Some(config.sheet.clone()),
+            ..Shared::default()
+        };
         Runner {
             app: App(Rc::new(RefCell::new(shared))),
             config,

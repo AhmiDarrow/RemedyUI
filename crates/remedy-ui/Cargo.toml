@@ -71,6 +71,10 @@ pages = ["widgets", "dep:remedy-ui-doc-pages"]
 spell = ["widgets", "dep:remedy-ui-services-spell"]
 ## Boards people arrange (`remedy_ui::board`), with sandboxed scripted widgets.
 board = ["data", "dep:remedy-ui-widgets-board"]
+## What people change about the app (`remedy_ui::customize`): their theme, shortcuts,
+## toolbars and menus, and text, kept as readable files with undo and resets, and the editors
+## for them; `App::customizations` keeps them in the app's data folder.
+customize = ["forms", "nav", "i18n", "dep:remedy-ui-customize"]
 ## Localization (`remedy_ui::i18n`): Fluent messages, locale data, dates and exact numbers.
 i18n = ["dep:remedy-ui-services-i18n"]
 ## Signed updates from GitHub releases or a feed (`remedy_ui::update`).
@@ -78,7 +82,7 @@ update = ["widgets", "dep:remedy-ui-services-update"]
 ## The in-memory host for tests (`remedy_ui::headless`).
 headless = ["dep:remedy-ui-bridge-headless"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "customize"]
 
 [dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
@@ -90,6 +94,7 @@ remedy-ui-layout = { path = "../remedy-ui-layout", version = "0.1.0" }
 remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
 remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "0.1.0" }
 remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "0.1.0", optional = true }
+remedy-ui-customize = { path = "../remedy-ui-customize", version = "0.1.0", optional = true }
 remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "0.1.0", optional = true }
 remedy-ui-trace = { path = "../remedy-ui-trace", version = "0.1.0" }
 remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "0.1.0", optional = true }
@@ -137,6 +142,8 @@ remedy-ui-bridge-linux = { path = "../remedy-ui-bridge-linux", version = "0.1.0"
 remedy-ui-bridge-android = { path = "../remedy-ui-bridge-android", version = "0.1.0" }
 
 [dev-dependencies]
+# Tests run the customization layer through the app (`App::customizations`).
+remedy-ui = { path = ".", features = ["customize"] }
 remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "0.1.0" }
 remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
 

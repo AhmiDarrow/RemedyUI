@@ -367,6 +367,8 @@ impl Inner {
 }
 
 pub(crate) struct Inner {
+    /// Every text is shaped again on the next frame: the fonts or font families changed.
+    pub(crate) reshape_text: bool,
     pub(crate) tree: Tree,
     pub(crate) layout: LayoutTree,
     pub(crate) els: HashMap<ElementId, ElData>,
@@ -470,6 +472,11 @@ impl Ui {
         WeakUi(Rc::downgrade(&self.0))
     }
 
+    /// Whether `other` is a handle to this same view (the same window).
+    pub fn is_same(&self, other: &Ui) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+
     /// Tears the view down when its window closes: every element is removed (its bindings
     /// disposed, its removal callbacks run, its handlers dropped) and pending timers are
     /// forgotten, so nothing they captured keeps the window alive.
@@ -566,6 +573,7 @@ impl Ui {
             sheet,
             base: defaults(&theme),
             theme,
+            reshape_text: false,
             engine: Rc::new(RefCell::new(TextEngine::new(fonts))),
             size: Size::new(1.0, 1.0),
             scale: 1.0,
@@ -942,12 +950,42 @@ impl Ui {
     pub fn set_theme(&self, theme: Theme, sheet: StyleSheet) {
         let mut i = self.0.borrow_mut();
         i.base = defaults(&theme);
+        if theme.font_families != i.theme.font_families || theme.mono_families != i.theme.mono_families {
+            i.reshape_text = true;
+        }
         i.theme = theme;
         i.sheet = sheet;
         let ids: Vec<ElementId> = i.els.keys().copied().collect();
         for id in ids {
             i.tree.mark(id, Dirty::STYLE);
         }
+    }
+
+    /// Adds every face in a font file (a theme's font, a person's own) to this window's fonts,
+    /// returning the family names it holds; every text is shaped again so a family that was
+    /// missing shows. Bytes that are not a font this engine can read add nothing and return an
+    /// error.
+    pub fn add_font(&self, data: Vec<u8>) -> Result<Vec<String>, remedy_ui_text::FontError> {
+        let engine = self.0.borrow().engine.clone();
+        let names = engine.borrow_mut().fonts().add_owned(data)?;
+        let mut i = self.0.borrow_mut();
+        i.reshape_text = true;
+        let ids: Vec<ElementId> = i.els.keys().copied().collect();
+        for id in ids {
+            i.tree.mark(id, Dirty::STYLE);
+        }
+        drop(i);
+        self.request(Request::Frame);
+        Ok(names)
+    }
+
+    /// Every font family this window can draw with (its own and those added).
+    pub fn font_families(&self) -> Vec<String> {
+        let engine = self.0.borrow().engine.clone();
+        let mut names = engine.borrow_mut().fonts().families();
+        names.sort();
+        names.dedup();
+        names
     }
 
     /// Requests for the host since the last call.

@@ -32,7 +32,7 @@ Crates form a strict layered graph. A crate may depend only on crates in lower l
 ```
 L6  app-facing:   remedy-ui (facade, feature flags) · remedy-ui-rui (markup compiler and runtime) · remedy-ui-test
                   cargo-remedy (CLI, not linked into apps)
-L5  feature packs: widgets-* · media-* · doc-* · viz · embed-* · services-* · themes · fonts · devtools
+L5  feature packs: widgets-* · media-* · doc-* · viz · embed-* · services-* · themes · fonts · devtools · customize
 L4  host:          view (elements, the frame pipeline, input routing) · render-gpu · render-cpu · bridge-winit (shared desktop core) · bridge-windows · bridge-macos · bridge-linux
                    bridge-android · bridge-web · bridge-remedyos · bridge-headless
 L3  frame:         paint (display list, image and icon sources) · motion · a11y · compositor · secure
@@ -88,6 +88,7 @@ Image and icon *sources* are a trait in `paint`, so `widgets-core` can show imag
 | `services-spell` | Platform spell checker bridge | Editors, chat |
 | `services-i18n` | Message formatting with plurals, locale formatting; locale data per locale at run time | Localized apps |
 | `devtools` | Inspector, performance overlay, hot reload, previews; debug builds by default | Development |
+| `customize` | The code-fluid layer: the person's theme, shortcuts, toolbars and menus, and text as files, with undo, resets and the editors | Every Remedy app |
 
 [../APPS.md](../APPS.md) maps every Remedy app to the packs it uses. [15-widgets-and-media.md](15-widgets-and-media.md) lists each pack's widgets.
 
