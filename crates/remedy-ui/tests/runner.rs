@@ -465,6 +465,29 @@ fn an_app_language_outlasts_the_system_s_until_it_is_cleared() {
 }
 
 #[test]
+fn capture_protection_is_a_request_and_windows_open_without_it() {
+    for supported in [true, false] {
+        let slot: Rc<std::cell::RefCell<Option<remedy_ui::Window>>> = Rc::default();
+        let s2 = slot.clone();
+        let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+            let w = app.open(WindowSpec::new("Vault").size(100.0, 60.0).capture_protected(true), |_, _| {});
+            *s2.borrow_mut() = Some(w);
+        });
+        let mut host = HeadlessHost::new();
+        host.set_capture_supported(supported);
+        host.run_frames(&mut runner, 2);
+        let w = slot.borrow().clone().unwrap_or_else(|| unreachable!("opened"));
+        assert!(w.is_open(), "the window opens either way");
+        assert_eq!(w.open_error(), None);
+        assert_eq!(host.window_ids().len(), 1);
+        assert_eq!(w.is_capture_protected(), supported, "and the app learns whether it holds");
+        w.set_capture_protected(false);
+        host.run_frames(&mut runner, 1);
+        assert!(!w.is_capture_protected());
+    }
+}
+
+#[test]
 fn windows_report_geometry_and_closing_and_title_bars_drag() {
     let seen = Rc::new(std::cell::RefCell::new(Vec::new()));
     let closed = Rc::new(Cell::new(0u32));

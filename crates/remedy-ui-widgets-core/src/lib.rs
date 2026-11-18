@@ -53,8 +53,8 @@ pub use icons::{Icon, avatar, canvas, icon, image};
 pub use inputs::{field, reveal_toggle, search, secret_input, text_area, text_input};
 pub use lists::{for_each, list, virtual_list};
 pub use overlays::{
-    DialogButton, MenuItem, Modal, context_menu, dialog, fill_window, lock_screen, menu, modal, place_at,
-    popover, tooltip, trusted_prompt,
+    DialogButton, MenuItem, Modal, context_menu, dialog, fill_window, fit_near, lock_screen, menu, modal,
+    place_at, place_near, popover, tooltip, trusted_prompt,
 };
 pub use text::{heading, label, link, text};
 pub use values::{slider, stepper};

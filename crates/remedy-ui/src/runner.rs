@@ -345,6 +345,10 @@ struct Shared {
     name: String,
     uis: HashMap<u64, Ui>,
     open: HashSet<u64>,
+    /// Windows kept out of screen capture (where the system could do it).
+    protected: HashSet<u64>,
+    /// Why a window could not be opened.
+    open_errors: HashMap<u64, String>,
     visible: HashMap<u64, bool>,
     /// Wakes the host's loop for requests made between events.
     waker: Option<remedy_ui_host::Waker>,
@@ -631,6 +635,18 @@ impl Window {
         self.app.0.borrow().open.contains(&self.key)
     }
 
+    /// Why the window could not be opened (the system refused it), once it tried.
+    pub fn open_error(&self) -> Option<String> {
+        self.app.0.borrow().open_errors.get(&self.key).cloned()
+    }
+
+    /// True while the system keeps the window out of screenshots and screen sharing. Asking
+    /// for it is a request: where the system has no such protection (Wayland, X11), the window
+    /// opens anyway and this stays false, so the app can say so.
+    pub fn is_capture_protected(&self) -> bool {
+        self.app.0.borrow().protected.contains(&self.key)
+    }
+
     /// True while shown.
     pub fn is_visible(&self) -> bool {
         self.app.0.borrow().visible.get(&self.key).copied().unwrap_or(false)
@@ -886,10 +902,19 @@ impl Runner {
                     spec.options.position = Some(p);
                     spec.options.size = s;
                 }
-                let Ok(id) = host.create_window(&spec.options) else {
-                    self.app.0.borrow_mut().open.remove(&key);
-                    return;
+                let id = match host.create_window(&spec.options) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        let mut s = self.app.0.borrow_mut();
+                        s.open.remove(&key);
+                        s.open_errors.insert(key, e.to_string());
+                        return;
+                    }
                 };
+                // Capture protection is a request: ask again to learn whether it holds here.
+                if spec.options.capture_protected && host.set_capture_protected(id, true).is_ok() {
+                    self.app.0.borrow_mut().protected.insert(key);
+                }
                 let ui = Ui::new(
                     self.config.theme.clone(),
                     (self.config.sheet)(&self.config.theme),
@@ -973,7 +998,13 @@ impl Runner {
             }
             Cmd::Capture(key, on) => {
                 if let Some(h) = self.host_of(key) {
-                    let _ = host.set_capture_protected(h, on);
+                    let holds = host.set_capture_protected(h, on).is_ok() && on;
+                    let mut s = self.app.0.borrow_mut();
+                    if holds {
+                        s.protected.insert(key);
+                    } else {
+                        s.protected.remove(&key);
+                    }
                 }
             }
             Cmd::Timer(delay, f) => {

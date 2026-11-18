@@ -133,6 +133,8 @@ pub struct ElementInfo {
     pub reads: Vec<remedy_ui_reactive::Source>,
     /// Hidden.
     pub hidden: bool,
+    /// Its children are cut to its box: a scroll container or a clipping element.
+    pub clips: bool,
 }
 
 pub(crate) struct ElData {
@@ -1458,6 +1460,7 @@ impl El {
                 all
             },
             hidden: d.hidden,
+            clips: d.clip || d.scroll,
         })
     }
 

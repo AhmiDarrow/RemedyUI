@@ -7,6 +7,7 @@
 //! [`PlatformHooks`], which each platform bridge implements (`bridge-windows`, `bridge-macos`,
 //! `bridge-wayland`, `bridge-x11`): the clipboard, capture protection and system settings.
 
+pub mod backend;
 mod translate;
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -254,8 +255,10 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
             .lock()
             .ok()
             .map(|p| accesskit_winit::Adapter::with_event_loop_proxy(self.el, &window, p.clone()));
+        // Best effort: where the system cannot keep windows out of capture, the window still
+        // opens (the runner asks again and tells the app whether protection holds).
         if options.capture_protected {
-            self.hooks.set_capture_protected(&window, true)?;
+            let _ = self.hooks.set_capture_protected(&window, true);
         }
         let id = WindowId(self.state.next_window);
         self.state.next_window += 1;
@@ -954,7 +957,22 @@ pub fn run_on<A: App, H: PlatformHooks>(
 
 /// Runs `app` on a new event loop (the main thread's) until it exits.
 pub fn run<A: App, H: PlatformHooks>(app: A, hooks: H) -> Result<(), RunError> {
-    let event_loop =
-        EventLoop::<UserEvent>::with_user_event().build().map_err(|e| RunError(e.to_string()))?;
+    let mut builder = EventLoop::<UserEvent>::with_user_event();
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+    {
+        // One event loop per process: the display server is chosen before it is built.
+        match backend::choose(&backend::Env::current(), backend::socket_answers) {
+            backend::Backend::X11 => {
+                use winit::platform::x11::EventLoopBuilderExtX11;
+                builder.with_x11();
+            }
+            backend::Backend::Wayland => {
+                use winit::platform::wayland::EventLoopBuilderExtWayland;
+                builder.with_wayland();
+            }
+            backend::Backend::Auto => {}
+        }
+    }
+    let event_loop = builder.build().map_err(|e| RunError(e.to_string()))?;
     run_on(event_loop, app, hooks)
 }

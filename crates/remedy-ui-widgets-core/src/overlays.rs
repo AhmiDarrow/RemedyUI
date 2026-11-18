@@ -24,6 +24,41 @@ pub fn place_at(el: El, p: Point) -> El {
     })
 }
 
+/// Space kept between an overlay and the window's edges.
+const EDGE: f32 = 4.0;
+
+/// Where an overlay of `size` goes for `anchor` (the rectangle it belongs to) in a window of
+/// `window`: below the anchor at its start, slid back from the end edge, flipped above when
+/// it does not fit below, and never past the window's start or top.
+pub fn fit_near(anchor: Rect, size: remedy_ui_core::Size, gap: f32, window: remedy_ui_core::Size) -> Point {
+    let x = anchor.min.x.min(window.width - size.width - EDGE).max(EDGE);
+    let below = anchor.max.y + gap;
+    let above = anchor.min.y - gap - size.height;
+    let y = if below + size.height + EDGE <= window.height || above < EDGE {
+        below.min(window.height - size.height - EDGE)
+    } else {
+        above
+    };
+    Point::new(x.max(0.0), y.max(0.0))
+}
+
+/// Pins an overlay near `anchor` and keeps it in the window ([`fit_near`]). It is measured
+/// before it shows, so it never flashes where it does not fit, and placed again if its size
+/// changes.
+pub fn place_near(ui: &Ui, el: El, anchor: Rect, gap: f32) -> El {
+    let el = place_at(el, Point::new(anchor.min.x, anchor.max.y + gap))
+        .style(remedy_ui_style::StylePatch { opacity: Some(0.0), ..Default::default() });
+    let (ui2, e2) = (ui.clone(), el.clone());
+    el.on_resize(move |size| {
+        let window = ui2.root().bounds().map_or(size, Rect::size);
+        let p = fit_near(anchor, size, gap, window);
+        let _ = e2
+            .clone()
+            .layout(move |l| l.inset = Insets { top: p.y, start: p.x, end: AUTO, bottom: AUTO })
+            .style(remedy_ui_style::StylePatch { opacity: Some(1.0), ..Default::default() });
+    })
+}
+
 /// A full-window layer: absolute, filling the window (scrims, drawers, sheets).
 pub fn fill_window(el: El) -> El {
     el.layout(|l| {
@@ -54,7 +89,7 @@ pub fn tooltip(target: &El, text: impl Into<String>) {
                 let Some(b) = t2.bounds() else { return };
                 let tip =
                     ui2.el("tooltip").text(remedy_ui_view::RichText::plain(text)).nowrap().pass_through();
-                let tip = ui2.overlay(place_at(tip, Point::new(b.min.x, b.max.y + 4.0)));
+                let tip = ui2.overlay(place_near(&ui2, tip, b, 4.0));
                 *shown.borrow_mut() = Some(tip);
             });
             *pending.borrow_mut() = Some(id);
@@ -114,8 +149,8 @@ fn dismissable(ui: &Ui, content: El) -> El {
     ui.overlay(layer)
 }
 
-fn menu_at(ui: &Ui, p: Point, items: Vec<MenuItem>) -> El {
-    let menu = place_at(ui.el("menu").column(), p).semantics(Semantics::new(Role::Menu));
+fn menu_at(ui: &Ui, anchor: Rect, items: Vec<MenuItem>) -> El {
+    let menu = place_near(ui, ui.el("menu").column(), anchor, 4.0).semantics(Semantics::new(Role::Menu));
     let n = items.len();
     let layer: Rc<RefCell<Option<El>>> = Rc::default();
     let menu = items.into_iter().enumerate().fold(menu, |m, (i, item)| {
@@ -170,7 +205,7 @@ fn menu_at(ui: &Ui, p: Point, items: Vec<MenuItem>) -> El {
 #[track_caller]
 pub fn menu(ui: &Ui, anchor: &El, items: Vec<MenuItem>) -> El {
     let b = anchor.bounds().unwrap_or(Rect::ZERO);
-    menu_at(ui, Point::new(b.min.x, b.max.y + 4.0), items)
+    menu_at(ui, b, items)
 }
 
 /// Opens a menu at the pointer on a secondary press (right click) on `target`, or with the
@@ -184,7 +219,7 @@ pub fn context_menu(target: &El, items: impl Fn() -> Vec<MenuItem> + 'static) ->
         .clone()
         .on_pointer(move |e| {
             if e.phase == PointerPhase::Down && e.buttons.contains(Buttons::SECONDARY) {
-                let _ = menu_at(&ui, e.position, items());
+                let _ = menu_at(&ui, Rect::from_points(e.position, e.position), items());
                 return true;
             }
             false
@@ -194,7 +229,7 @@ pub fn context_menu(target: &El, items: impl Fn() -> Vec<MenuItem> + 'static) ->
                 || (e.key == Key::F(10) && e.modifiers.shift);
             if e.pressed && menu_key {
                 let b = t2.bounds().unwrap_or(Rect::ZERO);
-                let _ = menu_at(&ui2, Point::new(b.min.x, b.max.y), items2());
+                let _ = menu_at(&ui2, Rect::new(b.min.x, b.max.y, b.min.x, b.max.y), items2());
                 return true;
             }
             false
@@ -207,7 +242,7 @@ pub fn context_menu(target: &El, items: impl Fn() -> Vec<MenuItem> + 'static) ->
 #[track_caller]
 pub fn popover(ui: &Ui, anchor: &El, content: El) -> El {
     let b = anchor.bounds().unwrap_or(Rect::ZERO);
-    let card = place_at(ui.el("menu").column(), Point::new(b.min.x, b.max.y + 4.0)).child(content);
+    let card = place_near(ui, ui.el("menu").column(), b, 4.0).child(content);
     let l = dismissable(ui, card.clone());
     card.focus_first();
     l
@@ -413,4 +448,31 @@ pub fn lock_screen(ui: &Ui, content: El) -> El {
     });
     layer.focus_first();
     layer
+}
+
+#[cfg(test)]
+mod tests {
+    use remedy_ui_core::{Point, Rect, Size};
+
+    use super::fit_near;
+
+    const WIN: Size = Size { width: 800.0, height: 600.0 };
+
+    #[test]
+    fn overlays_stay_inside_the_window() {
+        let tip = Size::new(120.0, 30.0);
+        // Room everywhere: below the anchor, at its start.
+        assert_eq!(fit_near(Rect::new(100.0, 100.0, 140.0, 130.0), tip, 4.0, WIN), Point::new(100.0, 134.0));
+        // A gear in the top-right corner: slid back so the end edge stays inside.
+        let p = fit_near(Rect::new(770.0, 4.0, 796.0, 30.0), tip, 4.0, WIN);
+        assert_eq!(p, Point::new(800.0 - 120.0 - 4.0, 34.0));
+        // At the bottom: flipped above.
+        assert_eq!(fit_near(Rect::new(100.0, 570.0, 140.0, 596.0), tip, 4.0, WIN), Point::new(100.0, 536.0));
+        // Too tall for either side: kept inside from the bottom.
+        let tall = Size::new(100.0, 590.0);
+        let p = fit_near(Rect::new(10.0, 300.0, 30.0, 320.0), tall, 4.0, WIN);
+        assert!(p.y + tall.height <= WIN.height && p.y >= 0.0, "{p:?}");
+        // Near the start edge: not pushed past it.
+        assert_eq!(fit_near(Rect::new(0.0, 0.0, 20.0, 20.0), tip, 4.0, WIN).x, 4.0);
+    }
 }
