@@ -437,7 +437,11 @@ fn completions_from_any_thread_reach_the_ui_thread_even_when_started_inside_effe
 fn an_app_language_outlasts_the_system_s_until_it_is_cleared() {
     let ui_slot: Rc<std::cell::RefCell<Option<remedy_ui::Ui>>> = Rc::default();
     let u2 = ui_slot.clone();
+    let heard: Rc<std::cell::RefCell<Vec<String>>> = Rc::default();
+    let h2 = heard.clone();
     let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let h3 = h2.clone();
+        app.on_locale(move |l| h3.borrow_mut().push(l.to_owned()));
         let u3 = u2.clone();
         app.open(WindowSpec::new("Words").size(100.0, 60.0), move |ui, _| {
             *u3.borrow_mut() = Some(ui.clone());
@@ -462,6 +466,12 @@ fn an_app_language_outlasts_the_system_s_until_it_is_cleared() {
     runner.app().set_locale(None);
     host.run_frames(&mut runner, 1);
     assert_eq!(locale(&ui_slot).as_deref(), Some("fr-FR"), "back to the system's");
+    // What has no window hears each change once.
+    assert_eq!(
+        heard.borrow().iter().skip_while(|l| *l != "de-DE").cloned().collect::<Vec<_>>(),
+        ["de-DE", "ja", "fr-FR"]
+    );
+    assert_eq!(runner.app().locale().as_deref(), Some("fr-FR"));
 }
 
 #[test]

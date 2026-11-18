@@ -443,6 +443,53 @@ pub enum UpdateState {
     Failed(String),
 }
 
+/// What the update strip says, for apps in other languages. `available` holds `{version}`;
+/// `restart` is `None` for apps whose installer restarts them (no Restart button);
+/// `failure` turns an error (English, from the updater) into what to show.
+#[derive(Clone)]
+pub struct BannerText {
+    /// While looking for a release.
+    pub checking: String,
+    /// No newer release.
+    pub up_to_date: String,
+    /// A newer release, with `{version}`.
+    pub available: String,
+    /// While downloading.
+    pub downloading: String,
+    /// Downloaded and verified.
+    pub ready: String,
+    /// The Install button.
+    pub install: String,
+    /// The Restart button, or none.
+    pub restart: Option<String>,
+    /// The progress bar's accessible name.
+    pub progress: String,
+    /// What a failure shows.
+    pub failure: std::rc::Rc<dyn Fn(&str) -> String>,
+}
+
+impl Default for BannerText {
+    fn default() -> Self {
+        BannerText {
+            checking: "Checking for updates…".into(),
+            up_to_date: "You have the latest version.".into(),
+            available: "Version {version} is available.".into(),
+            downloading: "Downloading the update…".into(),
+            ready: "The update is ready.".into(),
+            install: "Install".into(),
+            restart: Some("Restart now".into()),
+            progress: "Downloading update".into(),
+            failure: std::rc::Rc::new(str::to_owned),
+        }
+    }
+}
+
+impl std::fmt::Debug for BannerText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BannerText").field("install", &self.install).field("restart", &self.restart).finish()
+    }
+}
+
 /// A strip that shows an update's state, with Install (when one is available) and Restart
 /// (when it is ready) buttons. It is empty while idle.
 #[track_caller]
@@ -452,38 +499,55 @@ pub fn update_banner(
     on_install: impl Fn() + 'static,
     on_restart: impl Fn() + 'static,
 ) -> remedy_ui_view::El {
+    update_banner_with(ui, state, &BannerText::default(), on_install, on_restart)
+}
+
+/// [`update_banner`] in the app's words ([`BannerText`]).
+#[track_caller]
+pub fn update_banner_with(
+    ui: &remedy_ui_view::Ui,
+    state: remedy_ui_reactive::Signal<UpdateState>,
+    texts: &BannerText,
+    on_install: impl Fn() + 'static,
+    on_restart: impl Fn() + 'static,
+) -> remedy_ui_view::El {
     use remedy_ui_widgets_core as w;
     let gap = ui.theme().spacing.unit * 2.0;
     let text = w::text(ui, "");
     let pct = remedy_ui_reactive::Signal::new(None::<f32>);
-    let bar = w::progress(ui, "Downloading update", pct);
-    let install = w::button(ui, "Install", on_install).variant("primary");
-    let restart = w::button(ui, "Restart now", on_restart).variant("primary");
-    let row = w::row(ui)
+    let bar = w::progress(ui, texts.progress.clone(), pct);
+    let install = w::button(ui, texts.install.clone(), on_install).variant("primary");
+    let restart = texts.restart.clone().map(|r| w::button(ui, r, on_restart).variant("primary"));
+    let mut row = w::row(ui)
         .gap(gap)
         .align(remedy_ui_view::Align::Center)
         .child(text.clone())
         .child(w::spacer(ui))
-        .child(install.clone())
-        .child(restart.clone());
+        .child(install.clone());
+    if let Some(r) = &restart {
+        row = row.child(r.clone());
+    }
     let col = w::column(ui).gap(gap).child(row).child(bar.clone());
     let c2 = col.clone();
+    let texts = texts.clone();
     col.bind(move || {
         let s = state.get();
         let (msg, show_install, show_restart, progress) = match &s {
             UpdateState::Idle => (String::new(), false, false, None),
-            UpdateState::Checking => ("Checking for updates…".to_owned(), false, false, None),
-            UpdateState::UpToDate => ("You have the latest version.".to_owned(), false, false, None),
+            UpdateState::Checking => (texts.checking.clone(), false, false, None),
+            UpdateState::UpToDate => (texts.up_to_date.clone(), false, false, None),
             UpdateState::Available(r) => {
-                (format!("Version {} is available.", r.version.trim_start_matches('v')), true, false, None)
+                (texts.available.replace("{version}", r.version.trim_start_matches('v')), true, false, None)
             }
-            UpdateState::Downloading(f) => ("Downloading the update…".to_owned(), false, false, Some(*f)),
-            UpdateState::Ready => ("The update is ready.".to_owned(), false, true, None),
-            UpdateState::Failed(e) => (e.clone(), false, false, None),
+            UpdateState::Downloading(f) => (texts.downloading.clone(), false, false, Some(*f)),
+            UpdateState::Ready => (texts.ready.clone(), false, true, None),
+            UpdateState::Failed(e) => ((texts.failure)(e), false, false, None),
         };
         let _ = text.clone().text(remedy_ui_view::RichText::plain(msg));
         let _ = install.clone().hidden(!show_install);
-        let _ = restart.clone().hidden(!show_restart);
+        if let Some(r) = &restart {
+            let _ = r.clone().hidden(!show_restart);
+        }
         let _ = bar.clone().hidden(progress.is_none());
         pct.set(progress.flatten());
         let _ = c2.clone().hidden(s == UpdateState::Idle);

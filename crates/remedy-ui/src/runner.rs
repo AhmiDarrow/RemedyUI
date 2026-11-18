@@ -259,6 +259,8 @@ type Job = Box<dyn FnOnce(JobResult)>;
 type Setup = Box<dyn FnOnce(&App)>;
 /// Hears the system's appearance: `(prefers_dark, high_contrast)`.
 type AppearanceFn = Rc<dyn Fn(Option<bool>, bool)>;
+/// Hears the app's language.
+type LocaleFn = Rc<dyn Fn(&str)>;
 
 /// A result for the UI thread, completed from any thread: see [`App::completion`].
 #[must_use = "a completion that is dropped forgets its callback"]
@@ -361,6 +363,10 @@ struct Shared {
     on_activity: Option<Rc<dyn Fn()>>,
     /// Told the system's light/dark preference and high contrast, now and when they change.
     on_appearance: Option<AppearanceFn>,
+    /// Hears the app's language (its own, or the system's) when it changes.
+    on_locale: Option<LocaleFn>,
+    /// The language the app shows now, once known.
+    locale: Option<String>,
     /// The last appearance the system reported.
     appearance: Option<(Option<bool>, bool)>,
     renderers: HashMap<u64, RendererKind>,
@@ -493,6 +499,27 @@ impl App {
     /// setting: the choice outlasts the system's settings changes.
     pub fn set_locale(&self, locale: Option<String>) {
         self.push(Cmd::Locale(locale));
+    }
+
+    /// The language the app shows (BCP 47): its own ([`App::set_locale`]) or the system's;
+    /// `None` until the system has said. For parts with no window, such as a tray menu.
+    pub fn locale(&self) -> Option<String> {
+        self.0.borrow().locale.clone()
+    }
+
+    /// Calls `f` with the app's language now (once known) and whenever it changes: the
+    /// system's changes, or [`App::set_locale`]. Windows follow on their own; this is for
+    /// what has no window (a tray menu, notifications).
+    pub fn on_locale(&self, f: impl Fn(&str) + 'static) {
+        let f: LocaleFn = Rc::new(f);
+        let now = {
+            let mut s = self.0.borrow_mut();
+            s.on_locale = Some(f.clone());
+            s.locale.clone()
+        };
+        if let Some(l) = now {
+            f(&l);
+        }
     }
 
     /// Restyles every window (and windows opened later) with `theme`.
@@ -1031,6 +1058,7 @@ impl Runner {
                     w.ui.set_locale(tag.clone());
                     host.request_frame(w.host);
                 }
+                self.publish_locale();
             }
             Cmd::Theme(theme) => {
                 let theme = *theme;
@@ -1163,6 +1191,23 @@ impl Runner {
     }
 
     /// Reads whether the window is maximized from the host into its signal.
+    /// Tells the app its language when it changed (its own, or the system's).
+    fn publish_locale(&self) {
+        let tag = self.locale.clone().unwrap_or_else(|| self.settings.locale.clone());
+        let notify = {
+            let mut shared = self.app.0.borrow_mut();
+            if shared.locale.as_deref() == Some(tag.as_str()) {
+                None
+            } else {
+                shared.locale = Some(tag.clone());
+                shared.on_locale.clone()
+            }
+        };
+        if let Some(f) = notify {
+            f(&tag);
+        }
+    }
+
     fn sync_maximized(&mut self, host: &dyn Host, key: u64) {
         let Some(h) = self.host_of(key) else { return };
         let on = host.is_maximized(h);
@@ -1400,6 +1445,7 @@ impl remedy_ui_host::App for Runner {
                 if let Some(f) = notify {
                     f(appearance.0, appearance.1);
                 }
+                self.publish_locale();
             }
             HostEvent::Resized { window, width, height, scale } => {
                 let Some(&key) = self.by_host.get(&window) else { return };

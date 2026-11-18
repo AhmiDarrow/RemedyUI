@@ -128,7 +128,7 @@ Gaps found while finishing M5, each fixed at its root with tests: paragraph alig
 - `widgets-data`: icon grids (virtual rows of tiles that wrap to the width, the table's selection, rubber-band selection, two-dimensional keys, drag and drop); tables (sorting off the UI thread past 20,000 rows, resizable and reorderable columns, frozen columns kept in step by compositor scroll links, virtual rows, multi-select, inline editing, row drag and drop); trees (lazy children, type-ahead, moves by drag or cut and paste, import and export with other apps); property grids. The 50,000-file explorer scene meets its budget in release builds (steady scroll under 2 ms a frame, p95 about 6 ms with flicks, against 8 ms).
 - `media-image`: off-thread decoding at the size shown, ICC to sRGB, EXIF orientation, shared while shown and freed after; the renderers now free cached images the app drops.
 - `media-svg`: resvg at exactly the size shown, as an image format, plus tinted icons; untrusted SVG reads no files.
-- Drag and drop: in the app, out to other apps and in from them. On Windows this is our own OLE drop target and `SHDoDragDrop`; on macOS an AppKit dragging session out and winit's file drops in; on Linux winit's file drops in, with dragging out left for the Linux run.
+- Drag and drop: in the app, out to other apps and in from them. On Windows this is our own OLE drop target and `SHDoDragDrop`; on macOS an AppKit dragging session out and winit's file drops in; on Linux XDND out on X11 (winit takes drops in) and the Wayland data device both ways, on winit's own connection.
 - `Host::open_url` on every bridge.
 - `services-update` trusts releases by a signed minisign key or by a published checksum file plus the Authenticode signer; `services-desktop` starts apps with the session, shows files in the file manager and finds the user's known folders (following redirection).
 - SecretFolder runs on RemedyUI with its full feature set (the `remedyui` branch of its repository), tested end to end through the accessibility tree.
@@ -139,13 +139,16 @@ The engine also gained:
 - Pointer capture, linked and programmatic scrolling, and `on_resize`.
 - Posted work reaches real apps.
 - Scroll layers sit where their containers are, and paint order holds around them.
+- `App::locale` and `App::on_locale` for parts with no window; `Ui::window_size`; the update banner in the app's words (`BannerText`).
 - `App::completion`: results from any thread (an async runtime's tasks) reach the UI thread without belonging to a reactive scope, so work started inside an effect is never lost.
 - `El::on_drag_hover` tells an element when a drag comes and goes, accepted or not.
 - Explorer icons (folder, file, download, upload, send, arrows), accent cards, avatars whose circle the contrast audit sees, context menus that declare their keyboard route.
 
-Hearth runs on RemedyUI (the `remedyui` branch of its repository): wire-compatible with Hearth 0.4, tested end to end against a second engine and the real Python app.
+Hearth runs on RemedyUI (the `remedyui` branch of its repository): wire-compatible with Hearth 0.4, in its eleven languages, tested end to end against a second engine and the real Python app.
 
-Next: Hearth's eleven languages, then the macOS and Linux runs.
+The Linux run (Ubuntu 24.04 under WSLg, Wayland and X11): the whole workspace's tests pass natively, and SecretFolder and Hearth run with no app changes. It found and fixed: a dead Wayland socket stopping every app (the display server is now chosen before the event loop, falling back to X11); windows that asked for capture protection failing to open (it is now a request the app can check); a reactive closure run while the node table was borrowed. Overlays now stay inside the window at any size, and the audit flags anything that reaches past it.
+
+Next: the macOS run, which needs a Mac.
 
 **Done when:**
 - SecretFolder and Hearth run on RemedyUI with their full feature sets
