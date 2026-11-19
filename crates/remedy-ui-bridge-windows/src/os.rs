@@ -2,6 +2,7 @@
 //! safe wrapper that checks each result.
 
 pub(crate) mod dnd;
+pub(crate) mod icon;
 pub(crate) mod instance;
 pub(crate) mod toast;
 pub(crate) mod tray;

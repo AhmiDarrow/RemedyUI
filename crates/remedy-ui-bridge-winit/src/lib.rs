@@ -21,8 +21,8 @@ use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{
     AccessibilityEvent, App, DialogStarted, DragData, DragEvent, DragStarted, DropEffect, FileDialog, Host,
     HostEvent, ImeEvent, MemoryPressure, Notification, Permission, PermissionStarted, Pixels, ResizeEdge,
-    SafeArea, SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowId,
-    WindowOptions,
+    SafeArea, SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported, Waker, WindowHandles,
+    WindowIcon, WindowId, WindowOptions,
 };
 use remedy_ui_input::{
     Buttons, KeyEvent, Modifiers, PinchEvent, PinchPhase, Platform, PointerEvent, PointerKind, PointerPhase,
@@ -77,6 +77,12 @@ pub trait PlatformHooks: 'static {
     }
     /// Keeps a window out of screenshots and screen sharing.
     fn set_capture_protected(&mut self, window: &Window, on: bool) -> Result<(), Unsupported>;
+    /// Gives a window its own icon, or back the app's with `None`. Platforms whose windows
+    /// have no icons of their own keep the default, which says `Unsupported`.
+    fn set_window_icon(&mut self, window: &Window, icon: Option<&WindowIcon>) -> Result<(), Unsupported> {
+        let _ = (window, icon);
+        Err(Unsupported::new("window icons", "windows on this platform have no icons of their own"))
+    }
     /// Called once per new window, before it is shown, for platform setup.
     fn window_created(&mut self, window: &Window) {
         let _ = window;
@@ -386,6 +392,10 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
             return Err(Unsupported::new("another window", "this platform shows one window at a time"));
         }
         self.hooks.window_created(&window);
+        // Best effort, as capture protection: a platform without window icons shows the app's.
+        if let Some(icon) = &options.icon {
+            let _ = self.hooks.set_window_icon(&window, Some(icon));
+        }
         // The accessibility adapter must exist before the window is first shown, unless the
         // platform serves assistive technology itself.
         let a11y = if self.hooks.start_accessibility(&window) {
@@ -579,6 +589,12 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         let Some(wid) = self.state.ids.get(&window) else { return Ok(()) };
         let Some((_, w)) = self.state.windows.get(wid) else { return Ok(()) };
         self.hooks.set_capture_protected(&w.window, on)
+    }
+
+    fn set_window_icon(&mut self, window: WindowId, icon: Option<&WindowIcon>) -> Result<(), Unsupported> {
+        let Some(wid) = self.state.ids.get(&window) else { return Ok(()) };
+        let Some((_, w)) = self.state.windows.get(wid) else { return Ok(()) };
+        self.hooks.set_window_icon(&w.window, icon)
     }
 
     fn request_frame(&mut self, window: WindowId) {

@@ -58,6 +58,99 @@ pub enum AccessibilityEvent {
     Deactivated,
 }
 
+/// A window's own icon: what the taskbar, the title bar and window switchers show for it
+/// (Windows; X11; Wayland compositors with the `xdg-toplevel-icon` protocol; a browser page's
+/// icon). Square, premultiplied RGBA8; give the largest size the artwork has (256 pixels is
+/// plenty) and each platform scales it to the sizes it shows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WindowIcon {
+    size: u32,
+    rgba: Vec<u8>,
+}
+
+impl WindowIcon {
+    /// An icon `size` pixels square from premultiplied RGBA8, row by row; `None` when `rgba`
+    /// is not `size` × `size` pixels (or `size` is zero).
+    pub fn new(size: u32, rgba: Vec<u8>) -> Option<Self> {
+        let want = u64::from(size) * u64::from(size) * 4;
+        (size > 0 && rgba.len() as u64 == want).then_some(WindowIcon { size, rgba })
+    }
+
+    /// Width and height in pixels.
+    pub fn size(&self) -> u32 {
+        self.size
+    }
+
+    /// Premultiplied RGBA8, row by row.
+    pub fn rgba(&self) -> &[u8] {
+        &self.rgba
+    }
+
+    /// Straight (not premultiplied) RGBA8, as most platforms' icon formats take it.
+    pub fn straight_rgba(&self) -> Vec<u8> {
+        self.rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .flat_map(|&[r, g, b, a]| {
+                let un = |c: u8| match (u16::from(c) * 255 + u16::from(a) / 2).checked_div(u16::from(a)) {
+                    Some(v) => v.min(255) as u8,
+                    None => 0,
+                };
+                [un(r), un(g), un(b), a]
+            })
+            .collect()
+    }
+
+    /// The icon resampled to `size` pixels square: each new pixel is the area-weighted
+    /// average of the pixels it covers (in premultiplied color, so edges keep no dark
+    /// fringe), for the exact sizes a platform shows.
+    pub fn scaled(&self, size: u32) -> WindowIcon {
+        if size == self.size || size == 0 {
+            return self.clone();
+        }
+        let (from, to) = (self.size as usize, size as usize);
+        let ratio = from as f64 / to as f64;
+        // For each output column (and row): the input pixels it covers, with their weights.
+        let spans: Vec<Vec<(usize, f64)>> = (0..to)
+            .map(|o| {
+                let (start, end) = (o as f64 * ratio, (o + 1) as f64 * ratio);
+                let mut cover = Vec::new();
+                let mut i = start.floor() as usize;
+                while (i as f64) < end && i < from {
+                    let w = (end.min(i as f64 + 1.0) - start.max(i as f64)).max(0.0);
+                    if w > 0.0 {
+                        cover.push((i, w));
+                    }
+                    i += 1;
+                }
+                cover
+            })
+            .collect();
+        let mut rgba = Vec::with_capacity(to * to * 4);
+        for ys in &spans {
+            for xs in &spans {
+                let mut sum = [0.0f64; 4];
+                let mut total = 0.0;
+                for &(y, wy) in ys {
+                    for &(x, wx) in xs {
+                        let at = (y * from + x) * 4;
+                        let w = wx * wy;
+                        for (c, s) in sum.iter_mut().enumerate() {
+                            *s += f64::from(self.rgba.get(at + c).copied().unwrap_or(0)) * w;
+                        }
+                        total += w;
+                    }
+                }
+                for s in sum {
+                    rgba.push(if total > 0.0 { (s / total).round().clamp(0.0, 255.0) as u8 } else { 0 });
+                }
+            }
+        }
+        WindowIcon { size, rgba }
+    }
+}
+
 /// An app's icon in the system tray (notification area, menu bar extras, status notifier).
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -330,6 +423,8 @@ pub struct WindowOptions {
     pub visible: bool,
     /// Kept out of screenshots, screen sharing and recordings where the platform allows.
     pub capture_protected: bool,
+    /// The window's own icon; `None` shows the app's (from its executable or desktop entry).
+    pub icon: Option<WindowIcon>,
 }
 
 impl Default for WindowOptions {
@@ -345,6 +440,7 @@ impl Default for WindowOptions {
             transparent: false,
             visible: true,
             capture_protected: false,
+            icon: None,
         }
     }
 }
@@ -738,6 +834,13 @@ pub trait Host {
     fn set_always_on_top(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported>;
     /// Keeps the window out of screenshots and screen sharing, or not.
     fn set_capture_protected(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported>;
+    /// Gives the window its own icon (taskbar, title bar, window switchers), or back the
+    /// app's with `None`. Platforms whose windows have no icons of their own (macOS, where
+    /// the Dock shows the app's; Android) say `Unsupported`.
+    fn set_window_icon(&mut self, window: WindowId, icon: Option<&WindowIcon>) -> Result<(), Unsupported> {
+        let _ = (window, icon);
+        Err(Unsupported::new("window icons", "this host shows no icons for windows"))
+    }
     /// Asks for a [`HostEvent::Frame`] at the next display refresh. Several requests before
     /// it arrives merge into one.
     fn request_frame(&mut self, window: WindowId);
@@ -883,6 +986,30 @@ mod safe_area_tests {
             SafeArea { top: 0.0, right: 10.0, bottom: 0.0, left: 0.0 },
             "a bad scale counts as 1"
         );
+    }
+}
+
+#[cfg(test)]
+mod window_icon_tests {
+    use super::WindowIcon;
+
+    #[test]
+    fn icons_are_square_rgba_and_scale_by_area() {
+        assert!(WindowIcon::new(2, vec![0; 15]).is_none(), "not 2 × 2 pixels");
+        assert!(WindowIcon::new(0, Vec::new()).is_none());
+        // A 2 × 2 icon: opaque red, half-transparent green (premultiplied), clear, opaque blue.
+        let px = [[255, 0, 0, 255], [0, 128, 0, 128], [0, 0, 0, 0], [0, 0, 255, 255]];
+        let icon = WindowIcon::new(2, px.concat()).unwrap_or_else(|| unreachable!("2 × 2"));
+        assert_eq!(icon.straight_rgba().get(4..8), Some(&[0, 255, 0, 128][..]), "unpremultiplied");
+        let one = icon.scaled(1);
+        assert_eq!(one.rgba(), &[64, 32, 64, 160], "the area average of all four");
+        let four = icon.scaled(4);
+        assert_eq!(four.size(), 4);
+        assert_eq!(four.rgba().get(..4), Some(&[255, 0, 0, 255][..]), "each pixel covers one source pixel");
+        assert_eq!(four.rgba().get(60..64), Some(&[0, 0, 255, 255][..]));
+        // Thirds: every output pixel still lands inside the source.
+        let odd = WindowIcon::new(3, vec![200; 36]).unwrap_or_else(|| unreachable!("3 × 3")).scaled(2);
+        assert!(odd.rgba().iter().all(|&c| c == 200));
     }
 }
 

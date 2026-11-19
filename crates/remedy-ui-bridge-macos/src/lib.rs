@@ -150,6 +150,17 @@ mod hooks {
             Ok(())
         }
 
+        fn set_window_icon(
+            &mut self,
+            _window: &Window,
+            _icon: Option<&remedy_ui_host::WindowIcon>,
+        ) -> Result<(), Unsupported> {
+            Err(Unsupported::new(
+                "window icons",
+                "macOS windows have no icons of their own; the Dock and the app switcher show the app's",
+            ))
+        }
+
         fn set_capture_protected(&mut self, window: &Window, on: bool) -> Result<(), Unsupported> {
             let handle =
                 window.window_handle().map_err(|e| Unsupported::new("capture protection", e.to_string()))?;

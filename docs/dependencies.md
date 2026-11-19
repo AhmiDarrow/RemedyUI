@@ -17,6 +17,7 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | Fonts, hinting, color glyphs | `skrifa`, `read-fonts` | 0.49.0 and its read-fonts (through parley 0.13; 0.50.0 is the latest) | `text` | TrueType, CFF and auto hinting with grayscale and LCD targets; COLRv0/v1, CBDT and sbix; fuzzed on OSS-Fuzz; ships in Chrome |
 | Font fallback, system fonts | `fontique` | 0.13.0 | `text` | Fallback chains and system font lists; Android coverage checked when `text` lands |
 | Segmentation, bidi, CLDR data | ICU4X (`icu_segmenter` and others) | 2.4.0 | `text`, `services-i18n` | Unicode-correct segmentation; locale data loaded per locale (Unicode-3.0 license) |
+| Web fonts | `wuff` (with `brotli-decompressor` and `flate2`'s Rust backend) | 0.2.10 | `text` | Pure-Rust WOFF and WOFF2 decoding (MIT; Linebender's Nico Burns, used by Blitz), a port of Google's `woff2` with its size and compression-ratio checks and no unsafe code. RemedyUI checks a WOFF 1.0 file's table sizes against zlib's largest expansion before unpacking, and unwraps each file once (`FontFile`) |
 | Text storage for editing | `ropey` | 1.6.1 | `text` | Rope for large documents |
 | Grapheme and word boundaries | `icu_segmenter` | 2.3.0 (the version parley uses) | `text` | Editing never splits a user-perceived character |
 | Spell checking | `spellbook` | 0.4.2 | `services-spell` | Pure-Rust reader of Hunspell `.aff`/`.dic` dictionaries (MPL-2.0, used unmodified); the engine on Linux and the fallback elsewhere |

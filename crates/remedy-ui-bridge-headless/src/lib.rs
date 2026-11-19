@@ -14,8 +14,8 @@ use std::time::Duration;
 use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{
     App, DragData, DragStarted, DropEffect, FileDialog, Host, HostEvent, ImeEvent, Pixels, ResizeEdge,
-    SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowId,
-    WindowOptions,
+    SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowIcon,
+    WindowId, WindowOptions,
 };
 use remedy_ui_input::{Modifiers, PinchEvent, PinchPhase, Platform, WheelEvent};
 
@@ -613,6 +613,14 @@ impl Host for HeadlessHost {
     fn set_always_on_top(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported> {
         if let Some(w) = self.window_mut(window) {
             w.options.always_on_top = on;
+        }
+        Ok(())
+    }
+
+    fn set_window_icon(&mut self, window: WindowId, icon: Option<&WindowIcon>) -> Result<(), Unsupported> {
+        // Kept in the window's options, where a test reads it.
+        if let Some(w) = self.window_mut(window) {
+            w.options.icon = icon.cloned();
         }
         Ok(())
     }

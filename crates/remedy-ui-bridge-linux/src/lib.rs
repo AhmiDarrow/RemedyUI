@@ -10,7 +10,9 @@
 //!   caret blink), plus the locale from the environment.
 //!
 //! - drag and drop with other apps: out on X11 through XDND, both ways on Wayland through
-//!   the data device (winit takes file drops in on X11).
+//!   the data device (winit takes file drops in on X11);
+//! - window icons: `_NET_WM_ICON` on X11, `xdg-toplevel-icon-v1` on Wayland compositors that
+//!   have it (the others show the app's desktop-entry icon for every window).
 //!
 //! Capture protection is not available: no Linux display server lets a window exclude itself
 //! from capture, so it reports `Unsupported` rather than pretending. On other platforms this
@@ -32,6 +34,8 @@ mod dnd;
 mod dnd_wayland;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod dnd_x11;
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod icon_wayland;
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod linux {
@@ -46,7 +50,7 @@ mod linux {
     use remedy_ui_core::Color;
     use remedy_ui_host::{
         App, DragData, DragEvent, DragStarted, DropEffect, FileDialog, HostEvent, SystemSettings, TrayIcon,
-        Unsupported, Waker,
+        Unsupported, Waker, WindowIcon,
     };
     use remedy_ui_input::Platform;
     use zbus::{OwnedVariant, Variant as Value};
@@ -62,6 +66,8 @@ mod linux {
         notifier: crate::notify::Notifier,
         /// Drag and drop on Wayland, once a Wayland window exists.
         wayland: Option<crate::dnd_wayland::Wayland>,
+        /// Window icons on Wayland, once one is set: `Err` says why the compositor shows none.
+        icons: Option<Result<crate::icon_wayland::Icons, Unsupported>>,
     }
 
     impl std::fmt::Debug for LinuxHooks {
@@ -432,6 +438,40 @@ mod linux {
 
         fn clear_clipboard(&mut self) -> Result<(), Unsupported> {
             self.clipboard()?.clear().map_err(|e| Unsupported::new("the clipboard", e.to_string()))
+        }
+
+        fn set_window_icon(&mut self, window: &Window, icon: Option<&WindowIcon>) -> Result<(), Unsupported> {
+            use remedy_ui_bridge_winit::winit::platform::wayland::WindowExtWayland;
+            let (Ok(d), Ok(w)) = (window.display_handle(), window.window_handle()) else {
+                return Err(Unsupported::new("window icons", "the window has no handle"));
+            };
+            match (d.as_raw(), w.as_raw()) {
+                (RawDisplayHandle::Wayland(d), RawWindowHandle::Wayland(w)) => {
+                    let icons = self.icons.get_or_insert_with(|| {
+                        crate::icon_wayland::Icons::new(crate::os::wayland_connection(d.display))
+                    });
+                    let icons = icons.as_mut().map_err(|e| e.clone())?;
+                    let toplevel = window
+                        .xdg_toplevel()
+                        .ok_or_else(|| Unsupported::new("window icons", "the window has no toplevel"))?;
+                    let surface = crate::os::wayland_surface(icons.connection(), w.surface)
+                        .ok_or_else(|| Unsupported::new("window icons", "the window's surface is gone"))?;
+                    icons.set(toplevel, &surface, icon)
+                }
+                // X11: `_NET_WM_ICON`, which winit sets from straight RGBA.
+                _ => {
+                    use remedy_ui_bridge_winit::winit::window::Icon;
+                    let made = match icon {
+                        Some(i) => Some(
+                            Icon::from_rgba(i.straight_rgba(), i.size(), i.size())
+                                .map_err(|e| Unsupported::new("window icons", e.to_string()))?,
+                        ),
+                        None => None,
+                    };
+                    window.set_window_icon(made);
+                    Ok(())
+                }
+            }
         }
 
         fn set_capture_protected(&mut self, _window: &Window, _on: bool) -> Result<(), Unsupported> {

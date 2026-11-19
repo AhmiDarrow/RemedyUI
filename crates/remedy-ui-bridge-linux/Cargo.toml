@@ -25,6 +25,7 @@ serde = { version = "=1.0.229", features = ["derive"] }
 x11rb = { version = "=0.13.2" }
 wayland-client = { version = "=0.31.15" }
 wayland-backend = { version = "=0.3.17", features = ["client_system"] }
+wayland-protocols = { version = "=0.32.13", features = ["client", "staging"] }
 
 [lints]
 workspace = true

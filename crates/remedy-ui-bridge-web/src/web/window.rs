@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use remedy_ui_core::{Point, Size};
 use remedy_ui_host::{
-    DropEffect, HostEvent, Pixels, ResizeEdge, SafeArea, Unsupported, WindowId, WindowOptions,
+    DropEffect, HostEvent, Pixels, ResizeEdge, SafeArea, Unsupported, WindowIcon, WindowId, WindowOptions,
 };
 use remedy_ui_input::KeyEvent;
 use wasm_bindgen::prelude::*;
@@ -517,9 +517,83 @@ impl Win {
             }
             Kind::Floating => {
                 let _ = self.frame.set_attribute("aria-label", title);
-                if let Some(t) = self.title_el.as_ref().and_then(|b| b.first_element_child()) {
+                if let Some(t) = self.title_el.as_ref().and_then(|b| b.query_selector("span").ok().flatten())
+                {
                     t.set_text_content(Some(title));
                 }
+            }
+        }
+    }
+
+    /// Shows `icon` for the window: as the page's icon when the window is the page (its
+    /// title is the page's), or in a floating window's title bar. `None` takes it away.
+    pub(crate) fn set_icon(&self, icon: Option<&WindowIcon>, page_title: bool) -> Result<(), Unsupported> {
+        let fail = |why: &str| Unsupported::new("window icons", why);
+        let url = match icon {
+            Some(i) => Some(data_url(i).ok_or_else(|| fail("the browser could not encode the icon"))?),
+            None => None,
+        };
+        match self.kind {
+            Kind::Root if page_title => {
+                let doc = dom::document().ok_or_else(|| fail("no document"))?;
+                let head =
+                    doc.query_selector("head").ok().flatten().ok_or_else(|| fail("the page has no head"))?;
+                // The bridge's own icon link, made once; the page's own links are left alone.
+                let link = match doc.query_selector("link[data-remedy-icon]").ok().flatten() {
+                    Some(l) => l,
+                    None => {
+                        let l = doc.create_element("link").map_err(|_| fail("no link element"))?;
+                        let _ = l.set_attribute("rel", "icon");
+                        let _ = l.set_attribute("data-remedy-icon", "");
+                        // Ahead of the page's own icons, so the browser picks it.
+                        let _ = head.insert_before(&l, head.first_child().as_ref());
+                        l
+                    }
+                };
+                match url {
+                    Some(u) => {
+                        let _ = link.set_attribute("href", &u);
+                    }
+                    None => link.remove(),
+                }
+                Ok(())
+            }
+            Kind::Root => Err(fail("the window is part of a page, whose icon is the page's own")),
+            Kind::Floating => {
+                let bar = self.title_el.as_ref().ok_or_else(|| fail("the window has no title bar"))?;
+                let old = bar.query_selector("img").ok().flatten();
+                match url {
+                    Some(u) => {
+                        let img = match old {
+                            Some(i) => i,
+                            None => {
+                                let i: HtmlElement =
+                                    dom::element("img").ok_or_else(|| fail("no image element"))?;
+                                // Decorative: the window's title names it.
+                                let _ = i.set_attribute("alt", "");
+                                let _ = i.set_attribute("aria-hidden", "true");
+                                dom::style(
+                                    &i,
+                                    &[
+                                        ("width", "16px"),
+                                        ("height", "16px"),
+                                        ("margin-right", "8px"),
+                                        ("flex", "0 0 auto"),
+                                    ],
+                                );
+                                let _ = bar.insert_before(&i, bar.first_child().as_ref());
+                                i.into()
+                            }
+                        };
+                        let _ = img.set_attribute("src", &u);
+                    }
+                    None => {
+                        if let Some(i) = old {
+                            i.remove();
+                        }
+                    }
+                }
+                Ok(())
             }
         }
     }
@@ -756,6 +830,19 @@ impl Win {
 
 /// A title bar for a decorated floating window: the title and a close button; dragging it
 /// moves the window.
+/// The icon as a PNG `data:` URL, drawn through a canvas (which takes straight RGBA).
+fn data_url(icon: &WindowIcon) -> Option<String> {
+    let canvas: HtmlCanvasElement = dom::element("canvas")?;
+    canvas.set_width(icon.size());
+    canvas.set_height(icon.size());
+    let ctx: web_sys::CanvasRenderingContext2d = canvas.get_context("2d").ok()??.dyn_into().ok()?;
+    let rgba = icon.straight_rgba();
+    let data = web_sys::ImageData::new_with_u8_clamped_array_and_sh(Clamped(&rgba), icon.size(), icon.size())
+        .ok()?;
+    ctx.put_image_data(&data, 0.0, 0.0).ok()?;
+    canvas.to_data_url().ok()
+}
+
 fn title_bar(frame: &HtmlElement, title: &str) -> Option<HtmlElement> {
     let bar: HtmlElement = dom::element("div")?;
     let label: HtmlElement = dom::element("span")?;

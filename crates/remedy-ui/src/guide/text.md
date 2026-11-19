@@ -41,6 +41,44 @@ let names: Vec<String> = ui.reader_view().into_iter().filter_map(|n| n.name).col
 assert_eq!(names, ["Backups", "Your files are copied every night.", "Last copy: 02:00", "Show the log"]);
 ```
 
+## Your own fonts
+
+An app ships its brand's typeface as files in its binary: TrueType (`.ttf`), OpenType
+(`.otf`), or the web's WOFF and WOFF2 (`.woff`, `.woff2`), which are unwrapped once as they
+are read. [`FontFile::new`](crate::text::FontFile::new) reads and checks one (bytes that are
+not a font are an error, never a silent fallback), and
+[`AppConfig::font`](crate::AppConfig::font) adds it to every window. Name its family first in
+the theme's `font_families`; the Remedy families stay behind it for anything it lacks.
+
+Add one file per weight and style. A web font split into subsets per script (Fontsource's
+`inter-latin-400-normal.woff2`, `inter-cyrillic-400-normal.woff2`, …, which CSS joins with
+`unicode-range`) is added file by file too: the parts join as one family, and each character
+is drawn by whichever part covers it.
+
+```
+use remedy_ui::testing::TestApp;
+use remedy_ui::text::FontFile;
+use remedy_ui::widgets as w;
+use remedy_ui::AppConfig;
+
+# let latin: &'static [u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../remedy-ui-text/tests/fixtures/inter/inter-latin-400-normal.woff2"));
+# let cyrillic: &'static [u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../remedy-ui-text/tests/fixtures/inter/inter-cyrillic-400-normal.woff2"));
+// let latin = include_bytes!("../assets/fonts/inter-latin-400-normal.woff2");
+let mut config = AppConfig::new("Brand")
+    .font(FontFile::new(latin).expect("a WOFF2 font"))
+    .font(FontFile::new(cyrillic).expect("a WOFF2 font"));
+config.theme.font_families.insert(0, "Inter".into());
+
+let mut app = TestApp::new(config, |app| {
+    app.open(remedy_ui::WindowSpec::new("Brand"), |ui, _| {
+        ui.root().child(w::text(ui, "Hello, Привет"));
+    });
+});
+let Some(ui) = app.ui() else { unreachable!("open") };
+assert!(ui.font_families().iter().any(|f| f == "Inter"));
+assert!(FontFile::new(b"not a font").is_err());
+```
+
 ## Rich text
 
 [`RichText`](crate::view::RichText) is a string with styled spans and inline objects. Spans
@@ -200,6 +238,52 @@ assert_eq!(node.value, None, "a screen reader never gets the password");
 let secret = password.take_secret();
 assert_eq!(secret.expose(), "correct horse");
 assert!(password.is_empty(), "taking it empties the field");
+```
+
+### Fields that hold secrets in the clear
+
+Some text is secret but must be seen and edited: a note of passwords, an API key being
+written, a recovery phrase being checked. Keep it in an ordinary field (or a multi-line, rich
+or code field) and call [`TextField::copy_as_secret`](crate::TextField::copy_as_secret):
+what the person copies or cuts out of it goes to the clipboard as a secret, as
+[`App::copy_secret`](crate::App::copy_secret) does. It is kept out of clipboard history and
+cloud sync, and cleared after the time given if the clipboard still holds it (anything the
+person copied since is left alone). A rich field copies plain text only.
+[`TextField::on_copy`](crate::TextField::on_copy) is told after each copy, to say so.
+
+```
+use remedy_ui::input::{Key, KeyEvent, Modifiers};
+use remedy_ui::reactive::Signal;
+use remedy_ui::testing::TestApp;
+use remedy_ui::widgets as w;
+use std::cell::OnceCell;
+use std::rc::Rc;
+use std::time::Duration;
+
+let status = Signal::new(String::new());
+let slot = Rc::new(OnceCell::new());
+let s = slot.clone();
+let mut app = TestApp::window(move |ui, _| {
+    let note = w::text_area(ui, "Note")
+        .copy_as_secret(Duration::from_secs(30))
+        .on_copy(move || status.set("Copied · clears in 30s".into()));
+    note.set_value("api-key-123");
+    ui.root().child(note.el());
+    let _ = s.set(note);
+});
+let Some(note) = slot.get() else { unreachable!("built") };
+note.el().focus();
+note.select_all();
+app.frames(1);
+let copy = KeyEvent::press(Key::Character("c".into())).with_modifiers(Modifiers::CTRL);
+app.key(copy);
+app.frames(1);
+assert_eq!(app.host().clipboard(), Some(("api-key-123", true)), "kept out of history and sync");
+assert_eq!(status.get(), "Copied · clears in 30s");
+
+app.host().advance(Duration::from_secs(31));
+app.frames(1);
+assert!(app.host().clipboard().is_none_or(|(text, _)| text.is_empty()), "cleared after 30 s");
 ```
 
 ## Text that deceives

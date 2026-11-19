@@ -4,7 +4,9 @@ use std::borrow::Cow;
 use std::ops::Range;
 use std::sync::Arc;
 
-use parley::fontique::{Blob, Collection, CollectionOptions, SourceCache};
+use std::collections::HashMap;
+
+use parley::fontique::{Attributes, Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
 use parley::setting::Tag;
 use parley::{
     Affinity as PAffinity, Alignment, AlignmentOptions, BaseDirection, Cursor, FontContext, FontFamily,
@@ -29,10 +31,21 @@ impl std::fmt::Display for FontError {
 impl std::error::Error for FontError {}
 
 /// The fonts a [`TextEngine`] can use. Starts empty; apps add their bundled fonts (for
-/// example from `remedy-ui-fonts`) and, with the `system-fonts` feature, may let fallback
-/// reach the system's fonts.
+/// example from `remedy-ui-fonts`, or their brand's own as TrueType, OpenType, WOFF or
+/// WOFF2) and, with the `system-fonts` feature, may let fallback reach the system's fonts.
+///
+/// A web font often comes as several files for one family, weight and style, each covering
+/// some scripts (Inter's Latin, Cyrillic, Greek and Vietnamese subsets, which CSS joins with
+/// `unicode-range`). Added here, they join the same way: text in that family takes each
+/// character from whichever part covers it, before falling back to another family.
 pub struct FontCollection {
     fcx: FontContext,
+    /// The faces added by the app, by family (lowercase): what a further part of a family is
+    /// told apart by.
+    own: HashMap<String, Vec<Attributes>>,
+    /// Further parts of a family (lowercase name) for faces it already had, each registered
+    /// under a hidden name of its own and tried, in order, right after the family itself.
+    parts: HashMap<String, Vec<String>>,
 }
 
 impl std::fmt::Debug for FontCollection {
@@ -51,48 +64,223 @@ impl FontCollection {
     /// A collection with no fonts and no access to system fonts.
     pub fn new() -> Self {
         let collection = Collection::new(CollectionOptions { shared: false, system_fonts: false });
-        FontCollection { fcx: FontContext { collection, source_cache: SourceCache::default() } }
+        FontCollection::over(collection)
+    }
+
+    fn over(collection: Collection) -> Self {
+        FontCollection {
+            fcx: FontContext { collection, source_cache: SourceCache::default() },
+            own: HashMap::new(),
+            parts: HashMap::new(),
+        }
     }
 
     /// A collection that falls back to the system's fonts after the ones added to it.
     #[cfg(feature = "system-fonts")]
     pub fn with_system_fonts() -> Self {
         let collection = Collection::new(CollectionOptions { shared: false, system_fonts: true });
-        FontCollection { fcx: FontContext { collection, source_cache: SourceCache::default() } }
+        FontCollection::over(collection)
     }
 
-    /// Adds every face in a font file (a single font or a collection) from static bytes,
-    /// returning the family names it contained. Bytes that are not a font add nothing and
-    /// return an error.
+    /// Adds every face in a font file (a single font or a collection, TrueType or OpenType,
+    /// plain or wrapped as WOFF or WOFF2) from static bytes, returning the family names it
+    /// contained. Bytes that are not a font add nothing and return an error.
     pub fn add_static(&mut self, data: &'static [u8]) -> Result<Vec<String>, FontError> {
-        self.add(Blob::new(Arc::new(data)))
+        match unwrap_web_font(data)? {
+            Some(sfnt) => self.add(Blob::new(Arc::new(sfnt))),
+            None => self.add(Blob::new(Arc::new(data))),
+        }
     }
 
-    /// Adds every face in a font file from owned bytes (a user's font file).
+    /// Adds the faces of a font file read once ([`FontFile`]), sharing its bytes: for fonts
+    /// added to every window.
+    pub fn add_file(&mut self, file: &FontFile) -> Result<Vec<String>, FontError> {
+        self.add(file.data.clone())
+    }
+
+    /// Adds every face in a font file from owned bytes (a user's font file), in any format
+    /// [`FontCollection::add_static`] takes.
     pub fn add_owned(&mut self, data: Vec<u8>) -> Result<Vec<String>, FontError> {
-        self.add(Blob::new(Arc::new(data)))
+        match unwrap_web_font(&data)? {
+            Some(sfnt) => self.add(Blob::new(Arc::new(sfnt))),
+            None => self.add(Blob::new(Arc::new(data))),
+        }
     }
 
     fn add(&mut self, blob: Blob<u8>) -> Result<Vec<String>, FontError> {
-        let added = self.fcx.collection.register_fonts(blob, None);
-        if added.is_empty() {
+        // What the file holds, read on a scratch collection first, so a further part of a
+        // family already here (another script's subset) can be told from a new face.
+        let mut probe = Collection::new(CollectionOptions { shared: false, system_fonts: false });
+        let mut names: Vec<String> = Vec::new();
+        let mut faces: Vec<(String, Attributes)> = Vec::new();
+        for (family, fonts) in probe.register_fonts(blob.clone(), None) {
+            let Some(name) = probe.family_name(family).map(str::to_string) else { continue };
+            for f in fonts {
+                faces.push((name.clone(), Attributes::new(f.width(), f.style(), f.weight())));
+            }
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        if faces.is_empty() {
             return Err(FontError("the data is not a font this engine can read".into()));
         }
-        let mut names: Vec<String> = Vec::new();
-        for (family, _) in added {
-            if let Some(name) = self.fcx.collection.family_name(family) {
-                let name = name.to_string();
-                if !names.contains(&name) {
-                    names.push(name);
-                }
+        let taken = |own: &HashMap<String, Vec<Attributes>>, family: &str| {
+            let had = own.get(&family.to_lowercase());
+            faces.iter().any(|(_, a)| had.is_some_and(|h| h.contains(a)))
+        };
+        let target = match names.as_slice() {
+            [name] if taken(&self.own, name) => {
+                let key = name.to_lowercase();
+                let parts = self.parts.get(&key).cloned().unwrap_or_default();
+                let free = parts.iter().find(|p| !taken(&self.own, p)).cloned();
+                Some(free.unwrap_or_else(|| {
+                    // A name no font gives itself: the family's name, a private-use mark and
+                    // the part's number.
+                    let alias = format!("{name}\u{E000}{}", parts.len() + 1);
+                    self.parts.entry(key).or_default().push(alias.clone());
+                    alias
+                }))
             }
+            _ => None,
+        };
+        let over = target
+            .as_deref()
+            .map(|family| FontInfoOverride { family_name: Some(family), ..Default::default() });
+        if self.fcx.collection.register_fonts(blob, over).is_empty() {
+            return Err(FontError("the data is not a font this engine can read".into()));
+        }
+        for (name, attrs) in faces {
+            let family = target.clone().unwrap_or(name);
+            self.own.entry(family.to_lowercase()).or_default().push(attrs);
         }
         Ok(names)
     }
 
+    /// Every family in `families` followed by its further parts, as text styles ask for it.
+    fn with_parts<'a>(&'a self, families: &'a [String]) -> impl Iterator<Item = &'a str> + 'a {
+        families.iter().flat_map(move |f| {
+            let parts = if self.parts.is_empty() { None } else { self.parts.get(&f.to_lowercase()) };
+            std::iter::once(f.as_str()).chain(parts.into_iter().flatten().map(String::as_str))
+        })
+    }
+
     /// Every family name the collection can use.
     pub fn families(&mut self) -> Vec<String> {
-        self.fcx.collection.family_names().map(str::to_string).collect()
+        let parts = &self.parts;
+        self.fcx
+            .collection
+            .family_names()
+            .filter(|n| !parts.values().flatten().any(|p| p == n))
+            .map(str::to_string)
+            .collect()
+    }
+}
+
+/// A font file the app ships (its brand's typeface), read and checked once: TrueType or
+/// OpenType, plain or wrapped as WOFF or WOFF2 (unwrapped here, once). Cloning it shares the
+/// bytes, so every window can add it ([`FontCollection::add_file`]) without copying or
+/// unpacking it again.
+#[derive(Clone)]
+pub struct FontFile {
+    data: Blob<u8>,
+    families: Vec<String>,
+}
+
+impl std::fmt::Debug for FontFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FontFile").field("families", &self.families).field("bytes", &self.data.len()).finish()
+    }
+}
+
+impl FontFile {
+    /// Reads a font file from static bytes (`include_bytes!`). Bytes that are not a font this
+    /// engine can read are an error.
+    pub fn new(data: &'static [u8]) -> Result<Self, FontError> {
+        match unwrap_web_font(data)? {
+            Some(sfnt) => Self::check(Blob::new(Arc::new(sfnt))),
+            None => Self::check(Blob::new(Arc::new(data))),
+        }
+    }
+
+    /// Reads a font file from owned bytes.
+    pub fn from_vec(data: Vec<u8>) -> Result<Self, FontError> {
+        match unwrap_web_font(&data)? {
+            Some(sfnt) => Self::check(Blob::new(Arc::new(sfnt))),
+            None => Self::check(Blob::new(Arc::new(data))),
+        }
+    }
+
+    fn check(data: Blob<u8>) -> Result<Self, FontError> {
+        let families = FontCollection::new().add(data.clone())?;
+        Ok(FontFile { data, families })
+    }
+
+    /// The family names its faces belong to.
+    pub fn families(&self) -> &[String] {
+        &self.families
+    }
+}
+
+/// The TrueType or OpenType font inside a WOFF or WOFF2 file, or `None` for any other data.
+/// The sizes a WOFF file gives are checked against what its compression could produce
+/// before anything is unpacked, so a small file cannot claim gigabytes.
+fn unwrap_web_font(data: &[u8]) -> Result<Option<Vec<u8>>, FontError> {
+    let bad = |what: &str| FontError(format!("the WOFF data is malformed: {what}"));
+    match data.get(..4) {
+        Some(b"wOFF") => {
+            plausible_woff(data).map_err(bad)?;
+            wuff::decompress_woff1(data).map(Some).map_err(|e| bad(&format!("{e:?}")))
+        }
+        // WOFF2's decoder checks its sizes against the data and its compression itself.
+        Some(b"wOF2") => wuff::decompress_woff2(data).map(Some).map_err(|e| bad(&format!("{e:?}"))),
+        _ => Ok(None),
+    }
+}
+
+/// Checks a WOFF 1.0 table directory: every table inside the file, no table larger after
+/// unpacking than zlib could make it (1032 to 1), and none stored larger than unpacked.
+fn plausible_woff(data: &[u8]) -> Result<(), &'static str> {
+    /// zlib's largest expansion: a deflate stream cannot unpack to more than this many
+    /// bytes per byte.
+    const DEFLATE_MAX_RATIO: u64 = 1032;
+    let u16_at =
+        |at: usize| data.get(at..).and_then(|b| b.first_chunk::<2>()).map(|b| u16::from_be_bytes(*b));
+    let u32_at =
+        |at: usize| data.get(at..).and_then(|b| b.first_chunk::<4>()).map(|b| u32::from_be_bytes(*b));
+    let tables = usize::from(u16_at(12).ok_or("too short for its header")?);
+    for t in 0..tables {
+        let entry = 44 + t * 20;
+        let (Some(offset), Some(stored), Some(unpacked)) =
+            (u32_at(entry + 4), u32_at(entry + 8), u32_at(entry + 12))
+        else {
+            return Err("its table directory runs past the end");
+        };
+        let (offset, stored, unpacked) = (u64::from(offset), u64::from(stored), u64::from(unpacked));
+        if offset + stored > data.len() as u64 {
+            return Err("a table runs past the end");
+        }
+        if stored > unpacked {
+            return Err("a table is stored larger than it unpacks");
+        }
+        if unpacked > stored.saturating_mul(DEFLATE_MAX_RATIO) {
+            return Err("a table claims more than its compressed data can hold");
+        }
+    }
+    Ok(())
+}
+
+impl FontCollection {
+    /// The family names a style's stack resolves to, further parts included.
+    fn stack(&self, families: &[String]) -> Vec<FontFamilyName<'static>> {
+        // CSS's generic names (`monospace`, `serif`, `sans-serif`, `system-ui`,
+        // `ui-monospace`, …) stand for the system's own choice; anything else names a family.
+        self.with_parts(families)
+            .map(|f| match parley::fontique::GenericFamily::parse(f) {
+                Some(g) => FontFamilyName::Generic(g),
+                None => FontFamilyName::Named(Cow::Owned(f.to_owned())),
+            })
+            .collect()
     }
 }
 
@@ -205,17 +393,19 @@ impl TextEngine {
         let segments = flatten(text, base);
         let mut run_styles = Vec::with_capacity(segments.len());
         let content = text.as_str();
+        let base_stack = self.fonts.stack(&base.families);
+        let stacks: Vec<_> = segments.iter().map(|seg| self.fonts.stack(&seg.style.families)).collect();
         let mut b = self.lcx.ranged_builder(&mut self.fonts.fcx, content, options.scale, options.snap);
         b.set_base_direction(match options.direction {
             Direction::Auto => BaseDirection::Auto,
             Direction::Ltr => BaseDirection::Ltr,
             Direction::Rtl => BaseDirection::Rtl,
         });
-        push_style(&mut b, base, None, 0);
+        push_style(&mut b, base, base_stack, None, 0);
         run_styles.push(RunStyle { color: base.color, link: None, range: 0..content.len() });
-        for (i, seg) in segments.iter().enumerate() {
+        for ((i, seg), stack) in segments.iter().enumerate().zip(stacks) {
             let brush = u32::try_from(i + 1).unwrap_or(u32::MAX);
-            push_style(&mut b, &seg.style, Some(seg.range.clone()), brush);
+            push_style(&mut b, &seg.style, stack, Some(seg.range.clone()), brush);
             run_styles.push(RunStyle { color: seg.style.color, link: seg.link, range: seg.range.clone() });
         }
         for &(at, obj) in text.objects() {
@@ -285,19 +475,10 @@ fn flatten(text: &RichText, base: &TextStyle) -> Vec<Segment> {
 fn push_style(
     b: &mut parley::RangedBuilder<'_, u32>,
     s: &TextStyle,
+    families: Vec<FontFamilyName<'static>>,
     range: Option<Range<usize>>,
     brush: u32,
 ) {
-    // CSS's generic names (`monospace`, `serif`, `sans-serif`, `system-ui`, `ui-monospace`,
-    // …) stand for the system's own choice; anything else names a family.
-    let families: Vec<FontFamilyName<'static>> = s
-        .families
-        .iter()
-        .map(|f| match parley::fontique::GenericFamily::parse(f) {
-            Some(g) => FontFamilyName::Generic(g),
-            None => FontFamilyName::Named(Cow::Owned(f.clone())),
-        })
-        .collect();
     let features: Vec<FontFeature> =
         s.features.iter().map(|f| FontFeature::new(Tag::from_bytes(f.tag), f.value)).collect();
     let line_height = match s.line_height {
