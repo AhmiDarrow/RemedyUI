@@ -399,6 +399,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - `nav::drawer`: a press outside the panel closes it, read from the pointer on the scrim, so
   the panel no longer takes clicks it does nothing with (the accessibility check reported it
   as a control with no action); the scrim names Escape as its keyboard alternative.
+- The bundled Remedy Sans and AhmiPrint fonts: curved letters no longer sit a pixel off the
+  baseline. Their 1.201 builds put an outline point at the bottom and top of every curve, so
+  e, s, C, G, S and the letters built from them hint onto the same rows as n and o, and 3
+  reaches the baseline.
 - `select`, `segmented` and `radio_group` with nothing chosen (an index past their options,
   as for a stored value none of them is): the arrows start at the first or last option and
   typing finds from the first, instead of overflowing.

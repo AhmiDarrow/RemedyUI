@@ -7,15 +7,21 @@ use remedy_ui_render_cpu::Frame;
 use remedy_ui_render_gpu::{GpuContext, GpuRenderer, LadderOptions};
 use remedy_ui_text::{Antialias, FontCollection, Hinting, ParagraphOptions, RichText, TextEngine, TextStyle};
 
-const TEXT: &str = "Online  Just now  Cedar Finch";
+const TEXT: &str = "Online  Just now  Cedar Finch  Sage Gold 3";
 
-/// Letters whose ink ends on the baseline with a flat stem: their bottom edge is the
-/// baseline itself, in every hinting mode.
+/// Every bundled family with letters on a baseline (Ahmi Pixel is drawn on whole pixels), and
+/// whether its stems end flat. Remedy Sans and AhmiPrint are drawn with round terminals, so
+/// unhinted, the tip of a thin stem that falls between two pixel columns covers less than half
+/// of each: only hinting puts their stems and curves on one row.
+const FAMILIES: &[(&str, bool)] = &[("Remedy Sans UI", true), ("Remedy Sans", false), ("AhmiPrint", false)];
+
+/// Letters whose ink ends on the baseline with a stem: in a family whose stems end flat, their
+/// bottom edge is the baseline itself, in every hinting mode.
 const FLAT: &str = "nlihdF";
 /// Letters whose bottom is a curve with overshoot: hinting puts it on the baseline row too.
-/// (A font whose curves dip a few units further than its stems, as Remedy Sans 1.200 and
-/// AhmiPrint do, fails this at some sizes in every hinter, FreeType's included.)
-const ROUND: &str = "eoascCO";
+/// (A font whose curves dip a few units further than its stems, as Remedy Sans and AhmiPrint
+/// before 1.201 did, fails this at some sizes in every hinter, FreeType's included.)
+const ROUND: &str = "eoascCOSG3";
 
 struct Line {
     frame: Frame,
@@ -23,13 +29,21 @@ struct Line {
     glyphs: Vec<(char, u32, u32)>,
 }
 
-fn line(g: &mut GpuRenderer, scale: f32, origin: Point, hinting: Hinting, aa: Antialias) -> Line {
+fn line(
+    g: &mut GpuRenderer,
+    family: &str,
+    scale: f32,
+    origin: Point,
+    hinting: Hinting,
+    aa: Antialias,
+) -> Line {
     let mut fonts = FontCollection::new();
     for face in remedy_ui_fonts::all() {
         let _ = fonts.add_static(face.data);
     }
     let mut engine = TextEngine::new(fonts);
     let mut style = TextStyle::default();
+    style.families = vec![family.into()];
     style.size = 13.0;
     let p = engine.layout(&RichText::plain(TEXT), &style, ParagraphOptions::default().scale(scale));
     let mut list = DisplayList::new();
@@ -61,7 +75,9 @@ fn line(g: &mut GpuRenderer, scale: f32, origin: Point, hinting: Hinting, aa: An
 
 /// The lowest device row in columns `x0..=x1` with at least half coverage.
 fn bottom(f: &Frame, x0: u32, x1: u32) -> Option<u32> {
-    (0..f.height).rev().find(|&y| (x0..=x1).any(|x| f.pixel(x, y).is_some_and(|p| p[0].min(p[1]).min(p[2]) < 128)))
+    (0..f.height)
+        .rev()
+        .find(|&y| (x0..=x1).any(|x| f.pixel(x, y).is_some_and(|p| p[0].min(p[1]).min(p[2]) < 128)))
 }
 
 #[test]
@@ -71,26 +87,36 @@ fn every_letter_sits_on_the_lines_baseline_on_the_gpu() {
         Err(e) => unreachable!("every machine has at least the software rung: {e}"),
     };
     let mut failures = Vec::new();
-    for scale in [1.0f32, 1.25, 1.5, 1.75, 2.0] {
-        for (hinting, letters) in [(Hinting::Full, [FLAT, ROUND].concat()), (Hinting::None, FLAT.to_string())] {
-            for aa in [Antialias::Grayscale, Antialias::Lcd { bgr: false }] {
-                for oy in [4.0, 4.2, 4.4, 4.5, 4.6, 4.8, 5.1, 7.33] {
-                    for ox in [3.0, 3.3, 3.7] {
-                        let l = line(&mut g, scale, Point::new(ox, oy), hinting, aa);
-                        let rows: Vec<(char, Option<u32>)> = l
-                            .glyphs
-                            .iter()
-                            .filter(|(c, _, _)| letters.contains(*c))
-                            .map(|&(c, x0, x1)| (c, bottom(&l.frame, x0, x1)))
-                            .collect();
-                        let first = rows.first().and_then(|r| r.1);
-                        if rows.iter().any(|r| r.1 != first || r.1.is_none()) {
-                            failures.push(format!("scale {scale} {hinting:?} {aa:?} origin ({ox}, {oy}): {rows:?}"));
+    for &(family, flat_stems) in FAMILIES {
+        for scale in [1.0f32, 1.25, 1.5, 1.75, 2.0] {
+            let unhinted = if flat_stems { vec![(Hinting::None, FLAT.to_string())] } else { Vec::new() };
+            for (hinting, letters) in [(Hinting::Full, [FLAT, ROUND].concat())].into_iter().chain(unhinted) {
+                for aa in [Antialias::Grayscale, Antialias::Lcd { bgr: false }] {
+                    for oy in [4.0, 4.2, 4.4, 4.5, 4.6, 4.8, 5.1, 7.33] {
+                        for ox in [3.0, 3.3, 3.7] {
+                            let l = line(&mut g, family, scale, Point::new(ox, oy), hinting, aa);
+                            let rows: Vec<(char, Option<u32>)> = l
+                                .glyphs
+                                .iter()
+                                .filter(|(c, _, _)| letters.contains(*c))
+                                .map(|&(c, x0, x1)| (c, bottom(&l.frame, x0, x1)))
+                                .collect();
+                            let first = rows.first().and_then(|r| r.1);
+                            if rows.iter().any(|r| r.1 != first || r.1.is_none()) {
+                                failures.push(format!(
+                                    "{family} scale {scale} {hinting:?} {aa:?} origin ({ox}, {oy}): {rows:?}"
+                                ));
+                            }
                         }
                     }
                 }
             }
         }
     }
-    assert!(failures.is_empty(), "{} lines with letters off the baseline:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} lines with letters off the baseline:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }
