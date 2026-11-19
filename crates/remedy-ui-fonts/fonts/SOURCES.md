@@ -5,8 +5,8 @@ The hinted TrueType builds, copied from each family's own repository. To update 
 | Family | Repository | Commit |
 |---|---|---|
 | Remedy Sans UI | https://github.com/AhmiDarrow/RemedySansUI | 50d038e |
-| Remedy Sans | https://github.com/AhmiDarrow/RemedySans | 9844a11 |
-| AhmiPrint | https://github.com/AhmiDarrow/AhmiPrint | 451c495 |
+| Remedy Sans | https://github.com/AhmiDarrow/RemedySans | 023154e |
+| AhmiPrint | https://github.com/AhmiDarrow/AhmiPrint | dd5e94e |
 | AhmiPixel | https://github.com/AhmiDarrow/AhmiPixelFont | 620cb94 |
 
 Remedy Symbols is drawn in this repository: `symbols/build.py` builds `RemedySymbols-Regular.ttf` from geometry on Remedy Sans UI's metrics (`python build.py`, needs fontTools; `--preview` also writes a PNG of every glyph). To add a symbol, draw it there and rebuild.
