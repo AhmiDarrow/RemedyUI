@@ -166,3 +166,36 @@ fn messages_read_well_and_select_across_rows() {
         .collect();
     assert_eq!(headers, ["Today"], "one header for the day");
 }
+
+#[test]
+fn a_chat_follows_a_signal_vec_as_the_other_lists_do() {
+    let ui = ui();
+    let items = remedy_ui_reactive::SignalVec::new(msgs(1000..1100));
+    let state = ChatState::new();
+    let list = chat_list(
+        &ui,
+        "Messages",
+        items,
+        |m: &Msg| m.id,
+        |m: &Msg| m.day.to_owned(),
+        40.0,
+        |ui: &Ui, m: &Msg| w::text(ui, m.text.clone()).selectable(true),
+        &state,
+        || {},
+    );
+    ui.root().child(ui.el("col").column().height(600.0).fill_width().child(list.clone()));
+    for _ in 0..6 {
+        frame(&ui);
+    }
+    let c =
+        Chat { ui: ui.clone(), list, items: Signal::new(Vec::new()), state, asked: Rc::new(Cell::new(0)) };
+    assert!(in_view(&c).iter().any(|t| t.starts_with("message 1099")), "{:?}", in_view(&c));
+    // A pushed message shows, and the view follows it.
+    let Some(next) = msgs(1100..1101).pop() else { unreachable!("one message") };
+    assert!(items.push(next).is_ok());
+    for _ in 0..4 {
+        frame(&ui);
+    }
+    assert!(in_view(&c).iter().any(|t| t.starts_with("message 1100")), "{:?}", in_view(&c));
+    assert_eq!(c.state.unread.get_untracked().ok(), Some(0));
+}

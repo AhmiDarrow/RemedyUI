@@ -2,10 +2,10 @@
 
 Three building blocks change what a part of a window shows, without a rebuild of the rest:
 
-- [`show`](crate::view::show): content that is there while a condition holds;
-- [`catch_errors`](crate::view::catch_errors): an error boundary, which shows a fallback when
+- [`show`](crate::show): content that is there while a condition holds;
+- [`catch_errors`](crate::catch_errors): an error boundary, which shows a fallback when
   the content inside it fails;
-- [`suspense`](crate::view::suspense): a loading boundary, which shows a placeholder while
+- [`suspense`](crate::suspense): a loading boundary, which shows a placeholder while
   data read inside it is still arriving, fetched by a [`Resource`](crate::reactive::Resource).
 
 Each builds its content in a reactive scope of its own. When the content goes (the
@@ -16,14 +16,14 @@ signals, effects and the fetches its resources started, which are cancelled.
 
 `show(ui, when, build)` builds what `build` makes while `when` is true. `when` is a signal, a
 closure or a constant. The content is built each time it appears and disposed when it goes;
-[`Show::fallback`](crate::view::Show::fallback) builds what shows otherwise, and
-[`Show::enter`](crate::view::Show::enter) and [`Show::exit`](crate::view::Show::exit) play
+[`Show::fallback`](crate::Show::fallback) builds what shows otherwise, and
+[`Show::enter`](crate::Show::enter) and [`Show::exit`](crate::Show::exit) play
 transitions ([`crate::guide::motion`]).
 
 ```
 use remedy_ui::reactive::Signal;
 use remedy_ui::testing::TestApp;
-use remedy_ui::view::show;
+use remedy_ui::show;
 use remedy_ui::widgets as w;
 
 let error = Signal::new(None::<String>);
@@ -56,8 +56,10 @@ it is not shown.
 A bug in one panel should not take the window down. `catch_errors(ui, fallback, child)` shows
 what `child` builds. When building it, or any handler, binding, effect or painter inside it,
 panics, the boundary unmounts that content and shows what `fallback` builds from the
-[`CaughtError`](crate::view::CaughtError) and a [`Retry`](crate::view::Retry). The rest of the
-window carries on.
+[`CaughtError`](crate::CaughtError) and a [`Retry`](crate::Retry). The rest of the
+window carries on. `child` is a builder, a closure that makes the content, not an element
+made beforehand: the boundary calls it inside its own scope (so a panic while building is
+caught too) and again on retry, for a fresh copy. `fallback` is a builder too.
 
 The error says what failed, where in the tree (`element_path`), where in the source
 (`location`) and while doing what ([`FailurePhase`](crate::view::FailurePhase)). It also goes
@@ -69,7 +71,8 @@ inspector's Failures page lists them, with Retry for boundaries that are still f
 use remedy_ui::a11y::Role;
 use remedy_ui::reactive::Signal;
 use remedy_ui::testing::TestApp;
-use remedy_ui::view::{FailurePhase, catch_errors};
+use remedy_ui::catch_errors;
+use remedy_ui::view::FailurePhase;
 use remedy_ui::widgets as w;
 
 // Contact lines the app reads from a file; the second has no phone number.
@@ -133,7 +136,7 @@ slow ones never flash.
 ```
 use remedy_ui::reactive::{Resource, Signal};
 use remedy_ui::testing::TestApp;
-use remedy_ui::view::suspense;
+use remedy_ui::suspense;
 use remedy_ui::widgets as w;
 
 let user = Signal::new(7u32);

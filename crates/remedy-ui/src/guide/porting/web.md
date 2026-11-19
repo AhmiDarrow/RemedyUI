@@ -25,8 +25,8 @@ web page, it can still be embedded, behind an allow-list and one message channel
 | `display: flex` / `grid` | [`crate::El::row`], [`crate::El::column`], grid tracks in [`crate::El::layout`] |
 | `overflow: auto` | [`crate::widgets::scroll`] |
 | DOM updates from JS | Signals bound to element properties: `.text(move \|\| ..)`, `.disabled(signal)` |
-| Toggling `hidden` or `display: none` | [`crate::view::show`]: the content exists only while shown |
-| A spinner while `fetch()` runs | [`crate::view::suspense`] around content reading a [`crate::reactive::Resource`] |
+| Toggling `hidden` or `display: none` | [`crate::show`]: the content exists only while shown |
+| A spinner while `fetch()` runs | [`crate::suspense`] around content reading a [`crate::reactive::Resource`] |
 | CSS transitions and animations | [`crate::El::animate`]; [`crate::widgets::for_each_with`] for list items arriving, leaving and moving |
 | `pywebview.api.save(...)` / `window.expose` | A Rust function call |
 | `fetch()` or a Python thread | [`crate::App::background`] (cancel it through the [`crate::BackgroundJob`] it returns) |

@@ -33,9 +33,9 @@ reactive signal the app owns, and the widget shows it.
 | `QTimer::singleShot` | [`crate::App::after`], [`crate::Ui::after`] |
 | `QSettings` for window geometry | [`crate::WindowSpec::persist_geometry`] |
 | `QSettings` for other state | [`crate::reactive::Signal::persist`]: saved on change, restored at start |
-| `setVisible`, `QStackedWidget` | [`crate::view::show`] (with a fallback), [`crate::El::hidden`], [`crate::nav::NavStack`] |
+| `setVisible`, `QStackedWidget` | [`crate::show`] (with a fallback), [`crate::El::hidden`], [`crate::nav::NavStack`] |
 | `QPropertyAnimation` | [`crate::El::animate`] with a spring or a curve from [`crate::motion`] |
-| A slot wrapped in `try`/`except` that shows an error | [`crate::view::catch_errors`] around the content |
+| A slot wrapped in `try`/`except` that shows an error | [`crate::catch_errors`] around the content |
 | `QDialog::exec()` | [`crate::widgets::dialog`] or [`crate::widgets::modal`]; they do not block |
 | `QFileDialog` | [`crate::App::file_dialog`] |
 | `QSystemTrayIcon` | [`crate::App::set_tray`] and [`crate::App::on_tray`] |

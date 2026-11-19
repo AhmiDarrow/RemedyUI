@@ -23,7 +23,11 @@ remedy-ui = { version = "0.1", features = ["headless", "devtools"] }
 
 [`TestApp::new`](crate::testing::TestApp::new) runs the app a setup function opens, as `main`
 would, through its first frame. It draws with the CPU renderer, so pixels are the same on
-every machine, and keeps window positions in memory. [`TestApp::window`](crate::testing::TestApp::window)
+every machine, and keeps window positions in memory. What the app saves (persisted signals,
+files in [`App::data_dir`](crate::App::data_dir)) goes to a private temporary folder that is
+removed when the `TestApp` is dropped, never to the person's real data folder, unless the
+test names a folder with [`AppConfig::data_dir`](crate::AppConfig::data_dir);
+[`TestApp::data_dir`](crate::testing::TestApp::data_dir) says where. [`TestApp::window`](crate::testing::TestApp::window)
 is the short form for one window built by a closure.
 
 ```
@@ -43,6 +47,8 @@ let ids = test.host().window_ids();
 let Some(window) = ids.first().and_then(|id| test.host().window(*id)) else { unreachable!("a window opened") };
 assert_eq!(window.options().title, "Notes");
 assert_eq!(window.size(), (400, 300, 1.0));
+let Some(data) = test.data_dir() else { unreachable!("a test app has a data folder") };
+assert!(data.starts_with(std::env::temp_dir()), "the test's own, not the person's");
 ```
 
 [`TestApp::frames`](crate::testing::TestApp::frames) runs display refreshes: queued events,
@@ -55,11 +61,15 @@ Animations, timers and debounces happen exactly when the test says.
 
 Check a window the way a person meets it: by what things are and what they are called, not by
 how the code built them. [`TestApp::find`](crate::testing::TestApp::find) takes a
-[`Role`](crate::a11y::Role) and an accessible name; [`TestApp::press`](crate::testing::TestApp::press)
-clicks it as assistive technology does and runs a frame;
+[`Role`](crate::a11y::Role) and the accessible name a screen reader gets: a list row that
+merges its contents is found by its composed name ("Ada, Hello there"), and what it merges is
+not found on its own. [`TestApp::press`](crate::testing::TestApp::press) clicks it as
+assistive technology does and runs a frame (a disabled control refuses);
 [`TestApp::type_text`](crate::testing::TestApp::type_text) types into whatever has focus, key
-by key. For values and states, [`Ui::reader_view`](crate::Ui::reader_view) lists the window
-as a screen reader meets it.
+by key. For values and states, [`TestApp::node`](crate::testing::TestApp::node) returns what a
+screen reader hears of one element: its `value`, and `checked`, `selected`, `expanded`,
+`disabled` and `focused`. [`TestApp::reader_view`](crate::testing::TestApp::reader_view)
+(and [`Ui::reader_view`](crate::Ui::reader_view)) lists the whole window that way.
 
 ```
 use remedy_ui::a11y::Role;
@@ -78,16 +88,16 @@ let mut test = TestApp::window(move |ui, _| {
         .child(name.el())
         .child(w::button(ui, "Save preset", move || saved.set(n.value())));
 });
-let Some(ui) = test.ui() else { unreachable!("open") };
-let value = |name: &str| ui.reader_view().into_iter().find(|n| n.name.as_deref() == Some(name)).and_then(|n| n.value);
+let value = |test: &TestApp| test.node(Role::Slider, "Volume").and_then(|n| n.value);
 
-assert_eq!(value("Volume").as_deref(), Some("50"));
+assert_eq!(value(&test).as_deref(), Some("50"));
 assert!(test.press(Role::Button, "Mute"));
-assert_eq!(value("Volume").as_deref(), Some("0"));
+assert_eq!(value(&test).as_deref(), Some("0"));
 
 let Some(field) = test.find(Role::TextInput, "Preset name") else { unreachable!("on screen") };
 field.focus();
 test.type_text("Quiet room");
+assert!(test.node(Role::TextInput, "Preset name").is_some_and(|n| n.focused));
 assert!(test.press(Role::Button, "Save preset"));
 assert_eq!(saved.get(), "Quiet room");
 ```
@@ -97,9 +107,12 @@ find by role and name is one a screen reader cannot name either.
 
 ## Scripted input
 
-[`TestApp::key`](crate::testing::TestApp::key) sends a key
-([`KeyEvent::press`](crate::input::KeyEvent::press)). For everything else, the host queues
-input as the platform would send it:
+[`TestApp::key`](crate::testing::TestApp::key) presses and releases a key, as a keyboard
+does ([`KeyEvent::press`](crate::input::KeyEvent::press));
+[`TestApp::key_press`](crate::testing::TestApp::key_press) and
+[`TestApp::key_release`](crate::testing::TestApp::key_release) send the two halves on their
+own, for keys held down. For everything else, the host queues input as the platform would
+send it:
 
 - [`HeadlessHost::send`](crate::headless::HeadlessHost::send) with any
   [`HostEvent`](crate::host::HostEvent): pointer presses and moves, keys, focus, close

@@ -54,15 +54,15 @@ impl<T, E: std::fmt::Debug> Must<T> for Result<T, E> {
     }
 }
 
-/// Starts a recipe on the in-memory host, settled for a few frames, with its data folder
-/// (where persisted signals are saved) in a temporary folder of its own.
-fn start(name: &str, app: impl FnOnce(&App) + 'static) -> (TestApp, TempDir) {
-    let data = TempDir::new(&format!("data-{}", name.replace(' ', "-")));
-    let t = start_in(name, &data.0, app);
-    (t, data)
+/// Starts a recipe on the in-memory host, settled for a few frames. Its data (persisted
+/// signals) goes to the test app's own temporary folder, removed with it.
+fn start(name: &str, app: impl FnOnce(&App) + 'static) -> TestApp {
+    let mut t = TestApp::new(AppConfig::new(name), app);
+    t.frames(2);
+    t
 }
 
-/// Starts a recipe with its data folder at `data`.
+/// Starts a recipe with its data folder at `data` (to start it again on the same data).
 fn start_in(name: &str, data: &std::path::Path, app: impl FnOnce(&App) + 'static) -> TestApp {
     let mut t = TestApp::new(AppConfig::new(name).data_dir(data), app);
     t.frames(2);
@@ -138,7 +138,7 @@ impl Drop for TempDir {
 
 #[test]
 fn chat_feed_shows_the_latest_and_sends_from_the_composer() {
-    let (mut t, _data) = start("Chat feed", chat_feed::app);
+    let mut t = start("Chat feed", chat_feed::app);
     let ui = ui(&t);
     assert!(node(&ui, Role::List, "Messages").is_some(), "{:?}", names(&ui));
     assert!(has(&ui, "I'll write them after lunch."), "the newest message shows: {:?}", names(&ui));
@@ -170,7 +170,7 @@ fn file_explorer_lists_a_folder_and_opens_another_from_the_tree() {
     std::fs::write(tmp.0.join("file2.txt"), "hello").must("file2.txt");
     std::fs::write(tmp.0.join("file10.txt"), vec![b'x'; 2048]).must("file10.txt");
     let root = tmp.0.clone();
-    let (mut t, _data) = start("File explorer", move |app: &App| {
+    let mut t = start("File explorer", move |app: &App| {
         app.open(WindowSpec::new("Files").size(820.0, 520.0), move |ui, _| {
             ui.root().child(file_explorer::explorer(ui, &root));
         });
@@ -194,7 +194,7 @@ fn file_explorer_lists_a_folder_and_opens_another_from_the_tree() {
 
 #[test]
 fn document_viewer_shows_pages_and_moves_between_them() {
-    let (mut t, _data) = start("Document viewer", document_viewer::app);
+    let mut t = start("Document viewer", document_viewer::app);
     t.frames(4);
     let ui = ui(&t);
     assert!(node(&ui, Role::Document, "Quarterly report").is_some(), "{:?}", names(&ui));
@@ -214,7 +214,7 @@ fn document_viewer_shows_pages_and_moves_between_them() {
 
 #[test]
 fn settings_page_switches_sections_and_disables_what_does_not_apply() {
-    let (mut t, _data) = start("Settings page", settings_page::app);
+    let mut t = start("Settings page", settings_page::app);
     let ui = ui(&t);
     assert!(states(&ui, Role::Tab, "Appearance").contains(&"selected"), "{:?}", names(&ui));
     assert!(has(&ui, "Theme") && has(&ui, "High contrast"), "{:?}", names(&ui));
@@ -249,7 +249,7 @@ fn settings_page_remembers_the_settings_at_the_next_start() {
 
 #[test]
 fn tray_app_lives_in_the_tray_and_comes_back_for_breaks() {
-    let (mut t, _data) = start("Break reminder", tray_app::app);
+    let mut t = start("Break reminder", tray_app::app);
     let labels = |t: &mut TestApp| -> Vec<String> {
         t.host()
             .tray()
@@ -294,7 +294,7 @@ fn tray_app_lives_in_the_tray_and_comes_back_for_breaks() {
 fn sticky_notes_open_as_frameless_windows_that_save_as_you_write() {
     let tmp = TempDir::new("notes");
     let dir = tmp.0.clone();
-    let (mut t, _data) = start("Sticky notes", move |app: &App| sticky_notes::open_notes(app, &dir));
+    let mut t = start("Sticky notes", move |app: &App| sticky_notes::open_notes(app, &dir));
     let id = window(&mut t);
     let opts = t.host().window(id).map(|w| w.options().clone()).must("the note's window");
     assert!(!opts.decorated && opts.always_on_top, "frameless, on top");
@@ -326,7 +326,7 @@ fn sticky_notes_open_as_frameless_windows_that_save_as_you_write() {
 
 #[test]
 fn audio_meter_follows_the_level_and_pauses() {
-    let (mut t, _data) = start("Audio meter", audio_meter::app);
+    let mut t = start("Audio meter", audio_meter::app);
     t.frames(10);
     let ui = ui(&t);
     assert!(node(&ui, Role::Status, "Test signal").is_some(), "the speaking ring: {:?}", names(&ui));
@@ -347,7 +347,7 @@ fn audio_meter_follows_the_level_and_pauses() {
 #[test]
 fn unlock_screen_keeps_the_vault_hidden_until_the_password_opens_it() {
     let check: unlock_screen::Check = Rc::new(|p: &str| p == "hunter2");
-    let (mut t, _data) = start("Unlock screen", move |app: &App| unlock_screen::app_with(app, check));
+    let mut t = start("Unlock screen", move |app: &App| unlock_screen::app_with(app, check));
     let ui = ui(&t);
     assert!(node(&ui, Role::PasswordInput, "Master password").is_some(), "{:?}", names(&ui));
     assert!(!has(&ui, "3 passwords"), "the vault is out of the tree while locked");

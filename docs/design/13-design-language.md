@@ -46,6 +46,21 @@ People should feel at home in any Remedy app without reading anything. That come
 | Empty states say what goes here and how to start | `empty_state` widget |
 | Defaults are sensible, and settings are few, grouped and searchable | Settings recipe with built-in search |
 
+## Spacing scale
+
+Space comes from one scale of the theme's spacing unit (4 dp by default, scaled by density), so
+every gap in every app is a step of it and a theme that changes the unit moves them all.
+
+| Steps | Units | For |
+|---|---|---|
+| `s0_5`, `s1_5`, `s2_5`, `s3_5` | 0.5, 1.5, 2.5, 3.5 | Half steps, only below four units: the fine spacing inside controls (an icon's gap to its label, a badge's padding), where a whole unit is too coarse |
+| `s0` … `s8` | 0 … 8 | Between controls, inside cards and rows |
+| `s10`, `s12`, `s16`, `s20`, `s24` | 10, 12, 16, 20, 24 | Between sections and panes, page margins |
+
+Above four units the scale has no half steps, and above eight it grows by larger steps: the
+difference between nearby large gaps is not one people see. The tokens are `Space::S0_5`,
+`Space::S1` … `Space::S24` (`remedy_ui::style::Space`), resolved through the theme.
+
 ## One family, many apps
 
 All Remedy apps share the token set, the type scale (Remedy Sans UI), the shape language (small radii, no heavy shadows by default) and the motion curves. The **Remedy theme set** ships as `remedy-ui-themes`: Dark Forest as the default, plus the palettes defined in RemedyAI's `themes.ts` and already shared by Portal, Hearth and FreeSpeak's skins, including the deutan, protan and tritan palettes. It is one source for every app. A user who picks a theme in one app can apply it to all of them, and to the RemedyOS desktop ([07](07-styling-and-customization.md)).

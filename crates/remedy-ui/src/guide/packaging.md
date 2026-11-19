@@ -29,7 +29,7 @@ in [`crate::guide::web`].
 Windows packages are built on Windows, since its resource compiler, `signtool` and Inno
 Setup are Windows tools.
 
-### Linux, Android and macOS
+### Linux, Android, macOS and the web
 
 - **Linux** (`--target linux`): `<bin>-<version>-linux-x86_64.tar.gz` holding the executable,
   an XDG desktop entry and the icon, laid out under a prefix (`bin/`, `share/`), so unpacking
@@ -41,6 +41,11 @@ Setup are Windows tools.
 - **macOS** (`--target macos`): `<name>.app` (its `Info.plist`, the executable and an `.icns`
   icon) in a zip. It needs Apple's linker, so it is built on a Mac or with a cross linker set
   up.
+- **Web** (`--target web`): an installable page (a PWA) in `target/remedy/web/<name>` and a
+  zip of it: the app built for `wasm32-unknown-unknown` with remedy-ui's `web` feature,
+  `wasm-bindgen`'s glue (the CLI of the version in `Cargo.lock`), the page, a manifest, icons
+  and an offline service worker, named by a `[web]` section of `remedy.toml`
+  ([`crate::guide::web`]).
 
 The results go to `target/remedy/dist`.
 

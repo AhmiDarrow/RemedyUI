@@ -143,6 +143,17 @@ fn tokens_resolve_through_whatever_theme_is_shown() {
     assert_eq!(Radius::R0.px(&theme), 0.0);
     assert_eq!(Radius::R4.px(&theme), RADIUS_FULL);
     assert_eq!(Space::S0.px(&theme), 0.0);
+    // The scale: half steps below four units, whole steps to eight, layout steps beyond.
+    let units: Vec<f32> = Space::ALL.iter().map(|s| s.units()).collect();
+    assert!(units.windows(2).all(|w| w.first() < w.get(1)), "smallest first: {units:?}");
+    assert_eq!(Space::S0_5.px(&theme), theme.spacing.unit / 2.0);
+    assert_eq!(Space::S3_5.px(&theme), theme.spacing.unit * 3.5);
+    assert_eq!(Dp::from(Space::S12).resolve(&theme), theme.spacing.unit * 12.0);
+    assert!(Space::ALL.iter().all(|s| Space::from_name(s.name()) == Some(*s)));
+    assert_eq!(Space::from_name("s9"), None);
+    let mut roomy = theme.clone();
+    roomy.spacing.unit *= 2.0;
+    assert_eq!(Space::S1_5.px(&roomy), Space::S1_5.px(&theme) * 2.0, "steps follow the theme's unit");
     assert_eq!(ColorRole::Custom("brand").color(&theme), Color::TRANSPARENT);
     theme.colors.custom.insert("brand".into(), Color::WHITE);
     assert_eq!(ColorRef::from(ColorRole::Custom("brand")).resolve(&theme), Color::WHITE);

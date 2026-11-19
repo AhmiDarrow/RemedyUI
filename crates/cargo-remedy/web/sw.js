@@ -1,7 +1,7 @@
 // The app's service worker: the build's files are cached when it installs, served from the
 // cache first (the app starts offline), and caches of older builds are removed when it
-// activates. build-web.sh fills in the build's version and file list.
-const CACHE = 'remedyui-@VERSION@';
+// activates. `cargo remedy package --target web` fills in the build's version and file list.
+const CACHE = @CACHE@;
 const FILES = @FILES@;
 
 self.addEventListener('install', (event) => {
@@ -11,7 +11,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('remedyui-') && k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith(@PREFIX@) && k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });

@@ -12,8 +12,10 @@ browser cannot do.
   the browser drives it from then on. Built for `wasm32-unknown-unknown` without the `web`
   feature, `run` returns [`RunError::NeedsFeature`](crate::RunError::NeedsFeature).
 - **Windows.** The first window fills the page, or the element with id `remedy` when the page
-  has one, and follows its size. Later windows float over the page as panels the person can
-  move, resize, raise and close.
+  has one, and follows its size; [`AppConfig::web`](crate::AppConfig::web) picks another
+  place ([`web::Mount`](crate::web::Mount): the whole page, or inside an element of the
+  page's) and whether the window's title is the page's. Later windows float over the page as
+  panels the person can move, resize, raise and close.
 - **No threads needed.** The engine's background work (the compositor, image and page
   workers, spell checking, table sorts, [`App::background`](crate::App::background)) runs on
   threads natively and in short slices between frames in a page. App code calls the same
@@ -27,7 +29,7 @@ browser cannot do.
   field for secret inputs).
 - **Clipboard, files and links.** Copy, cut and paste go through the browser's clipboard
   events. Open dialogs are file pickers whose files the page keeps in an in-page store
-  (`remedy_ui::web::files`, on `wasm32` only); saving downloads the file. Dropped files arrive
+  ([`web::files`](crate::web::files)); saving downloads the file. Dropped files arrive
   the same way. Links open in a new tab with no access to the app's page.
 - **Screen readers.** The window's semantics tree is mirrored into ARIA elements over the
   canvas, so screen readers read and operate the app as they do on the desktop.
@@ -41,9 +43,23 @@ browser cannot do.
 
 ## The app's entry point
 
-On the web the page loads a WebAssembly module, so the app starts from an exported function
-instead of `main`. The `wasm-bindgen` crate marks it, and `web-sys` reaches the browser's
-console:
+The app's `main` is its entry point in a page too: `wasm-bindgen` makes the binary's `main`
+the module's start function, and [`run`](crate::run) there starts the app in the page and
+returns. The `remedy_ui::web` module is there on every target with the `web` feature (its
+functions that start an app run only in a page), so the configuration builds everywhere
+without `cfg`:
+
+```
+use remedy_ui::AppConfig;
+use remedy_ui::web::{Mount, WebConfig};
+
+// Shown inside <div id="notes-app"> of a page the app's site lays out, not the whole page.
+let config = AppConfig::new("Notes").web(WebConfig::default().mount(Mount::Element("notes-app".into())));
+assert_eq!(config.web.mount, Mount::Element("notes-app".into()));
+```
+
+A page can also load the app as a library, starting from an exported function. The
+`wasm-bindgen` crate marks it, and `web-sys` reaches the browser's console:
 
 ```text
 #[cfg(target_arch = "wasm32")]
@@ -68,23 +84,39 @@ remedy-ui = { version = "0.1", features = ["web"] }
 
 ## Building a page
 
-`crates/remedy-ui-bridge-web/tools/build-web.sh` builds an example of the web bridge into an
-installable page: the WebAssembly module and its `wasm-bindgen` glue, an HTML page, a web app
-manifest, an icon, and a service worker that keeps the page working offline and is replaced
-by each new build. `serve` serves it on `localhost` (a secure context, which service workers
-and the clipboard need).
+`cargo remedy package --target web` builds any app into an installable page in
+`target/remedy/web/<name>`, and a zip of it in `target/remedy/dist`: the app built for
+`wasm32-unknown-unknown` with remedy-ui's `web` feature, the WebAssembly module and its
+`wasm-bindgen` glue, an HTML page with the `#remedy` element the first window mounts in, a web
+app manifest, icons, and a service worker that keeps the page working offline and is replaced
+by each new build. `--example <name>` packages an example instead of the binary, `--dev` a
+debug build, and `--out <dir>` writes the page elsewhere.
 
 ```text
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.130
-EXAMPLE=web-demo APP_NAME="RemedyUI demo" crates/remedy-ui-bridge-web/tools/build-web.sh serve
+cargo remedy package --target web
 ```
 
-The script refuses to run with a `wasm-bindgen` CLI other than the version the workspace
-pins, since the glue and the module must match. Its settings (`EXAMPLE`, `APP_NAME`,
-`SHORT_NAME`, `THEME`, `PROFILE`, `OUT`, `PORT`) are listed at its top. The `web-demo`
-example shows a whole app: a button, a text field, copy and paste, a link, open and save
-dialogs with dropped files, and the renderer in use.
+It refuses a `wasm-bindgen` CLI other than the version the app's `Cargo.lock` resolved, since
+the glue and the module must match. `remedy.toml` names the page:
+
+```toml
+[app]
+name = "Notes"
+description = "Notes, built with RemedyUI"
+
+[web]
+short_name = "Notes"          # under the installed icon
+theme_color = "#1e2a24"       # the browser's chrome and the splash screen
+icon = "assets/icon.svg"      # SVG or PNG; else [app] icon, else the default
+```
+
+Serve the folder over HTTPS, or on `localhost` (a secure context, which service workers and
+the clipboard need), to install it. `crates/remedy-ui-bridge-web/tools/build-web.sh [serve]`
+packages the bridge's `web-demo` example this way and serves it on `localhost`; that example
+shows a whole app: a button, a text field, copy and paste, a link, open and save dialogs with
+dropped files, and the renderer in use.
 
 `crates/remedy-ui-bridge-web/tools/web-test.sh` runs the browser tests in headless Firefox or
 Chrome.

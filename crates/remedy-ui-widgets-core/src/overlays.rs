@@ -1,6 +1,6 @@
 //! Overlays: tooltips, menus, popovers, modals, dialogs, trusted prompts and lock screens.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -469,13 +469,31 @@ pub fn trusted_prompt(
         .justify(Justify::Center)
         .focus_scope()
         .child(body.clone());
+    // The delay starts when the prompt is first seen (after the frame that shows it), not
+    // when it is built: built outside an event, in a minimized or covered window, or long
+    // before the next frame, it would otherwise be shortened or over before anyone saw it.
+    // Hidden again (the window minimized or covered), it disarms, and starts over when seen.
+    let pending: Rc<Cell<Option<u64>>> = Rc::default();
+    let u = ui.clone();
+    let _ = body.on_visibility(move |seen| {
+        if let Some(id) = pending.take() {
+            u.cancel_timer(id);
+        }
+        let _ = deny.clone().disabled(true);
+        let _ = allow.clone().disabled(true);
+        if !seen {
+            return;
+        }
+        let (deny, allow, p) = (deny.clone(), allow.clone(), pending.clone());
+        pending.set(Some(u.after(TRUSTED_DELAY, move || {
+            p.set(None);
+            let _ = deny.clone().disabled(false);
+            let _ = allow.clone().disabled(false);
+            deny.focus();
+        })));
+    });
     let scrim = ui.trusted_overlay(scrim);
     *layer.borrow_mut() = Some(scrim.clone());
-    ui.after(TRUSTED_DELAY, move || {
-        let _ = deny.clone().disabled(false);
-        let _ = allow.clone().disabled(false);
-        deny.focus();
-    });
     scrim
 }
 

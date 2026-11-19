@@ -119,6 +119,9 @@ let Some(ui) = app.ui() else { unreachable!("the window is open") };
 let names: Vec<String> = ui.reader_view().into_iter().filter_map(|n| n.name).collect();
 assert_eq!(names.len(), 1, "one stop for the whole message: {names:?}");
 assert!(names.iter().all(|n| n.contains("Sam") && n.contains("Lunch at noon?")));
+// Tests find it the same way: by the composed name, and not by its parts.
+assert!(app.find(Role::ListItem, "Sam, 09:41, Lunch at noon?").is_some());
+assert!(app.find(Role::Label, "Sam").is_none());
 ```
 
 Do not merge a row whose children have actions of their own (a Reply button): the merge

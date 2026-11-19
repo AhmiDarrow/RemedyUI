@@ -53,7 +53,8 @@ Names examined and kept, with the rule they follow:
   redundant (`El::text_dyn`, `button_dyn`, `nav_item_dyn`) are deprecated for a release, and
   `style_dyn`, `disabled_dyn` and `semantics_dyn`, which no app used, are gone; `cargo remedy
   migrate` rewrites all of them. `*_dyn` stays only where the whole thing is rebuilt from a
-  closure rather than one property bound (`markdown_dyn`, `App::tray_dyn`).
+  closure rather than one property bound (`App::tray_dyn`); `rich::markdown` takes
+  `IntoProp` like everything else (below).
 - Typed design tokens are named by role, not by the types they resolve to: `Space`, `Radius`,
   `TextRole`, `ColorRole` (`TextStyle` and `Color` already name the text engine's style and the
   color value), with `Dp`, `ColorRef`, `Pad` and the token `Style` patch carrying either.
@@ -246,6 +247,33 @@ From the documentation work's findings:
 | `macros`, `devtools` | `#[preview]`, `#[previews]`, `PreviewSpec` (exhaustive on purpose: the macro writes it as a literal), `golden_test` | errors are `GoldenError` |
 | `widgets-term` | `Emulator::take_clipboard_requests` | — |
 | `remedy-ui` | `App::persist_store` | — |
+
+## Polish from the documentation guides
+
+The guides' writer met these while writing; each is fixed at its root.
+
+| Where | Was | Now |
+|---|---|---|
+| `remedy_ui::testing` | `TestApp` used the app's real data folder: every window made `<AppData>/<name>/state` for persisted signals | A private temporary folder, removed when the `TestApp` drops, unless the test sets `AppConfig::data_dir`; `TestApp::data_dir` says which |
+| `remedy_ui::testing` | `find` / `press` matched each element's own label, so list rows (which merge their contents into one name) were never found | They match the accessible name screen readers get (`Ui::reader_view`): by role and name, merged names included, merged-away parts not found on their own; `TestApp::reader_view` |
+| `remedy_ui::testing` | `key` sent no release; no way to read a node's state | `key` presses and releases; `key_press` / `key_release` separately; `node(role, name)` returns the `ReaderNode`: value and `checked`, `selected`, `expanded`, `disabled`, `focused` |
+| `remedy-ui-a11y` | `ReaderNode` had states only as words | `checked`, `selected`, `expanded`, `disabled` fields (it is `#[non_exhaustive]`, so additive) |
+| `remedy-ui` | `show`, `catch_errors`, `suspense` only at `remedy_ui::view::*` | Also `remedy_ui::{show, catch_errors, suspense}` with `Show`, `SuspenseBoundary`, `CaughtError`, `Retry`; `catch_errors` documents (with an example) that its content is a builder closure, rebuilt on retry |
+| `widgets-data` | `chat_list` took only `Signal<Vec<T>>` | `impl Into<ListItems<T>>` like the other lists: `Signal<Vec<T>>` or `SignalVec<T>`; `ListItems::get` is the subscribing read it uses |
+| `style` | `Space` stopped at `S8` with no half step | The design's scale (design 13, "Spacing scale"): half steps `S0_5` … `S3_5`, whole steps to `S8`, layout steps `S10`, `S12`, `S16`, `S20`, `S24`; `units()` is `f32`; `ALL`, `name`, `from_name`; every step resolves through the theme's unit |
+| `doc-rich` | `markdown(&str)` and `markdown_dyn(closure)` | One `markdown(ui, impl IntoProp<String>, open)`; a constant builds once, a signal, memo or closure rebuilds when the text changes. No app used `markdown_dyn`, so it is removed (STABILITY.md: aliases only for names apps use) and `cargo remedy migrate` renames calls |
+| `remedy-ui`, `bridge-web` | `remedy_ui::web` existed only on wasm32, so desktop documentation could not link it | `remedy_ui::web` (feature `web`) on every target: `WebConfig`, `Mount`, `convert`, `files` are platform-neutral, and `run`, `run_with`, `run_single_instance`, `launch_args`, `is_running` are documented on every target (`cfg(any(wasm32, doc))`; in documentation for another target they answer that they run only in a page). Native builds compile no web code: the browser bindings stay wasm32-only dependencies of the bridge |
+| `remedy-ui` | Apps could not choose where their window mounts | `AppConfig::web(WebConfig)` (feature `web`, every target, used in a page): `remedy_ui::run` starts the page with it, single instance included (`run_single_instance` takes the config) |
+| `cargo-remedy` | `tools/build-web.sh` built only the bridge's own examples | `cargo remedy package --target web [--example <name>] [--dev] [--out <dir>]` builds any app crate into an installable page: the wasm32 build with `remedy-ui/web`, wasm-bindgen's glue (checked against the version in the app's `Cargo.lock`), `index.html`, a manifest, 192/512 px icons (or an SVG), a service worker caching exactly this build under a per-app cache name, and a zip. `[web]` in `remedy.toml` sets the short name, theme color and icon. `build-web.sh` now calls it; a test packages a generated app when the target and CLI are installed |
+| `widgets-core` | A trusted prompt's button delay started when its timer request was handled: built outside an event it started at the next frame, built inside one before it showed, and in a covered or minimized window it ran out unseen | The delay starts when the prompt is first seen (`on_visibility`, after the frame that shows it), and starts over if the window is covered or minimized and shown again, so the unpressable moment is never shortened or skipped |
+
+The guides (`remedy_ui::guide`, whose samples are doctests) and recipes
+(`crates/remedy-ui/examples`, tested by `tests/recipes.rs`) use the polished API: `TestApp::node`
+and the private data folder in the testing guide (the recipe tests no longer make their own
+data folders), merged rows found by name in the accessibility guide, `remedy_ui::{show,
+catch_errors, suspense}` everywhere, `markdown` over a signal, `AppConfig::web` and `cargo
+remedy package --target web` in the web and packaging guides, the spacing scale's half steps
+in the theming guide, and the chat feed recipe on a `SignalVec`.
 
 ## Bugs the review found
 

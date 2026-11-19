@@ -13,7 +13,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui::reactive::Signal;
-use remedy_ui::view::{Space, show};
+use remedy_ui::show;
+use remedy_ui::view::Space;
 use remedy_ui::widgets as w;
 use remedy_ui::{App, AppConfig, El, Ui, WindowSpec};
 

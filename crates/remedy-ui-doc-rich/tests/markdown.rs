@@ -138,7 +138,7 @@ fn plain_text_reads_like_the_document() {
 fn a_live_document_follows_its_source() {
     let ui = ui();
     let src = Signal::new("Thinking".to_owned());
-    let doc = markdown_dyn(&ui, move || src.get(), |_| {});
+    let doc = markdown(&ui, move || src.get(), |_| {});
     ui.root().child(doc.clone());
     frame(&ui);
     assert_eq!(texts(&doc), ["Thinking"]);

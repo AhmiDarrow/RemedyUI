@@ -13,7 +13,7 @@ cargo run -p remedy-ui --example chat_feed
 
 The recipes are written the way apps on RemedyUI are: properties that change take a closure
 or a signal (`w::text(ui, move || ..)`, `.disabled(move || ..)`), content that comes and goes
-is a [`show`](crate::view::show), and gaps and padding are spacing tokens
+is a [`show`](crate::show), and gaps and padding are spacing tokens
 ([`Space`](crate::view::Space)) that follow the theme.
 
 ## How the tests check a recipe
@@ -84,7 +84,7 @@ file_explorer -- ~/Documents`. A [`tree_view`](crate::data::tree_view) of folder
 - **Reading the disk.** `read_folder` lists a folder with `std::fs`, folders first, each group
   in [`natural_cmp`](crate::data::natural_cmp) order (`file2` before `file10`), and returns
   the error as text when the folder cannot be read. The window shows it with
-  [`show`](crate::view::show), which builds the error's label only while there is one.
+  [`show`](crate::show), which builds the error's label only while there is one.
 - **The tree loads on demand.** The root starts open with its folders. When another folder
   opens for the first time, the tree calls `load`, which answers with
   [`TreeState::set_children`](crate::data::TreeState::set_children).
@@ -131,7 +131,7 @@ chosen section's controls.
   ([`App::persist_store`](crate::App::persist_store), the `state` folder of the app's data
   folder), so a setting saves itself when it changes, off the UI thread, and comes back at
   the next start.
-- **Sections.** Each section is a [`show`](crate::view::show) on the rail's selected id: it
+- **Sections.** Each section is a [`show`](crate::show) on the rail's selected id: it
   is built when chosen and disposed, with its bindings, when another is.
 - **The theme** is a [`select`](crate::widgets::select) over the Remedy
   [`PALETTES`](crate::themes::PALETTES) and a High contrast switch. A binding turns them into
@@ -187,7 +187,7 @@ and the window both say so, and quits from the menu.
 - **Saving.** Each note is a text file in the app's data folder
   ([`App::data_dir`](crate::App::data_dir)), written on every change, so closing the app
   loses nothing. A failed write shows its error in the note, through
-  [`show`](crate::view::show).
+  [`show`](crate::show).
 - **More notes.** "New note" picks a number no note has yet and opens it beside the others.
 
 The test opens the notes in a temporary folder and checks the window is frameless and on
@@ -221,7 +221,7 @@ pauses the signal and sees the level fall to zero.
 - **The lock.** [`lock_screen`](crate::widgets::lock_screen) covers the window with the
   unlock form and takes everything under it out of the frame and the accessibility tree.
   A binding on the `locked` signal adds the lock screen or removes it. A wrong password's
-  message is a [`show`](crate::view::show).
+  message is a [`show`](crate::show).
 - **The password** is a [`secret_input`](crate::widgets::secret_input) with a
   [`reveal_toggle`](crate::widgets::reveal_toggle): masked, held in a zeroizing buffer, never
   copied, never given to a screen reader, and handed to the platform only as a private

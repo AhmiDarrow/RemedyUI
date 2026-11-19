@@ -289,9 +289,9 @@ paragraphs whose links are real links, lists (ordered, unordered, tasks, nested)
 tables, code and rules. Everything follows the theme, and the text can be selected and
 copied. Nothing in the source runs: raw HTML shows as the text it is, and a link only calls
 the app's `open` callback, which decides what to do with it.
-[`crate::rich::markdown_dyn`] rebuilds when the signals its closure reads change (a reply
-still arriving), and [`crate::rich::plain_text`] gives the text as it reads, for previews,
-notifications and search.
+The source is a string, or a signal, memo or closure, like every property: a reply still
+arriving rebuilds the Markdown as its text grows. [`crate::rich::plain_text`] gives the text
+as it reads, for previews, notifications and search.
 
 ```
 # use remedy_ui::testing::TestApp;
@@ -322,6 +322,13 @@ let Some(link) = reader.iter().find(|n| n.name.as_deref() == Some("changelog")) 
 };
 assert!(ui.accessibility_action(link.id, remedy_ui::view::A11yAction::Click));
 assert_eq!(*opened.borrow(), ["https://example.org/changes"]);
+
+// A reply still arriving: the Markdown follows the signal.
+let reply = remedy_ui::reactive::Signal::new(String::from("Thinking"));
+ui.root().child(markdown(&ui, reply, |_| {}));
+reply.set("## Done\n\nHere it is.".into());
+# app.frames(1);
+assert!(ui.reader_view().iter().any(|n| n.name.as_deref() == Some("Done")));
 ```
 
 ## The rich text editor

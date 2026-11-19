@@ -25,41 +25,127 @@ use remedy_ui_core::{Color, Insets};
 use crate::resolve::StylePatch;
 use crate::theme::Theme;
 
-/// A step on the spacing scale: `Sn` is `n` spacing units (4 dp each by default).
+/// A step on the spacing scale (design 13, "Spacing scale"): `Sn` is `n` spacing units
+/// (4 dp each by default, scaled by the theme's density), and `Sn_5` is `n` and a half.
+///
+/// - Half steps below four units (`S0_5` … `S3_5`), for the fine spacing inside controls:
+///   an icon's gap to its label, a badge's padding.
+/// - Whole steps from `S1` to `S8`, for spacing between controls and inside cards.
+/// - Layout steps `S10`, `S12`, `S16`, `S20`, `S24`, for sections, panes and page margins.
+///
+/// Every step resolves through the theme ([`Space::px`]), so a theme with a larger unit or
+/// a denser density moves every step together.
+///
+/// ```
+/// use remedy_ui_style::{Space, Theme};
+///
+/// let theme = Theme::dark_forest();
+/// assert_eq!(Space::S1_5.px(&theme), theme.spacing.unit * 1.5);
+/// assert_eq!(Space::S24.px(&theme), theme.spacing.unit * 24.0);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-#[allow(missing_docs, reason = "each step is n units, as the type says")]
+#[allow(missing_docs, reason = "each step is its units, as the type says")]
 pub enum Space {
     S0,
+    S0_5,
     S1,
+    S1_5,
     S2,
+    S2_5,
     S3,
+    S3_5,
     S4,
     S5,
     S6,
     S7,
     S8,
+    S10,
+    S12,
+    S16,
+    S20,
+    S24,
 }
 
 impl Space {
-    /// The number of spacing units.
-    pub fn units(self) -> u8 {
+    /// Every step, smallest first (for editors and pickers that list the scale).
+    pub const ALL: [Space; 18] = [
+        Space::S0,
+        Space::S0_5,
+        Space::S1,
+        Space::S1_5,
+        Space::S2,
+        Space::S2_5,
+        Space::S3,
+        Space::S3_5,
+        Space::S4,
+        Space::S5,
+        Space::S6,
+        Space::S7,
+        Space::S8,
+        Space::S10,
+        Space::S12,
+        Space::S16,
+        Space::S20,
+        Space::S24,
+    ];
+
+    /// The number of spacing units (a half step is a whole number and a half).
+    pub fn units(self) -> f32 {
         match self {
-            Space::S0 => 0,
-            Space::S1 => 1,
-            Space::S2 => 2,
-            Space::S3 => 3,
-            Space::S4 => 4,
-            Space::S5 => 5,
-            Space::S6 => 6,
-            Space::S7 => 7,
-            Space::S8 => 8,
+            Space::S0 => 0.0,
+            Space::S0_5 => 0.5,
+            Space::S1 => 1.0,
+            Space::S1_5 => 1.5,
+            Space::S2 => 2.0,
+            Space::S2_5 => 2.5,
+            Space::S3 => 3.0,
+            Space::S3_5 => 3.5,
+            Space::S4 => 4.0,
+            Space::S5 => 5.0,
+            Space::S6 => 6.0,
+            Space::S7 => 7.0,
+            Space::S8 => 8.0,
+            Space::S10 => 10.0,
+            Space::S12 => 12.0,
+            Space::S16 => 16.0,
+            Space::S20 => 20.0,
+            Space::S24 => 24.0,
         }
+    }
+
+    /// The step's name in theme and markup files: `s0`, `s0_5`, `s1`, ... `s24`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Space::S0 => "s0",
+            Space::S0_5 => "s0_5",
+            Space::S1 => "s1",
+            Space::S1_5 => "s1_5",
+            Space::S2 => "s2",
+            Space::S2_5 => "s2_5",
+            Space::S3 => "s3",
+            Space::S3_5 => "s3_5",
+            Space::S4 => "s4",
+            Space::S5 => "s5",
+            Space::S6 => "s6",
+            Space::S7 => "s7",
+            Space::S8 => "s8",
+            Space::S10 => "s10",
+            Space::S12 => "s12",
+            Space::S16 => "s16",
+            Space::S20 => "s20",
+            Space::S24 => "s24",
+        }
+    }
+
+    /// The step named `name` ([`Space::name`]), if the scale has one.
+    pub fn from_name(name: &str) -> Option<Space> {
+        Space::ALL.into_iter().find(|s| s.name() == name)
     }
 
     /// Logical pixels under `theme`.
     pub fn px(self, theme: &Theme) -> f32 {
-        theme.spacing.s(self.units())
+        theme.spacing.unit * self.units()
     }
 }
 

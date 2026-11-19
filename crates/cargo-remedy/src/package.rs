@@ -1,5 +1,5 @@
-//! `cargo remedy package`: a release build, packaged for Windows (here), or for Linux,
-//! Android and macOS ([`crate::platforms`]).
+//! `cargo remedy package`: a release build, packaged for Windows (here), for Linux,
+//! Android and macOS ([`crate::platforms`]), or as an installable web page ([`crate::web`]).
 //!
 //! 1. The icon (from `remedy.toml`, or a default one) becomes a multi-size `.ico`.
 //! 2. With a resource compiler (`llvm-rc`, or `rc` from the Windows SDK), the icon and the
@@ -37,7 +37,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "linux" => crate::platforms::linux(&p, &dist, &mut notes)?,
             "android" => crate::platforms::android(&p, &dist, &mut notes)?,
             "macos" => crate::platforms::macos(&p, &dist, &mut notes)?,
-            other => return Err(format!("no packaging for `{other}`: use windows, linux, macos or android")),
+            "web" => crate::web::package(&p, &crate::web::Options::parse(args), &dist, &mut notes)?,
+            other => {
+                return Err(format!("no packaging for `{other}`: use windows, linux, macos, android or web"));
+            }
         };
         println!("Packaged {} {} for {target}:", p.name, p.version);
         for a in &artifacts {
@@ -368,6 +371,10 @@ mod tests {
             android_target_api: 35,
             android_keystore: None,
             android_key_alias: None,
+            web_short_name: None,
+            web_theme: crate::project::DEFAULT_THEME_COLOR.into(),
+            web_icon: None,
+            uses_remedy_ui: true,
         }
     }
 

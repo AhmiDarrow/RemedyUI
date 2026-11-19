@@ -93,7 +93,13 @@ pub mod documents {}
 #[doc = include_str!("terminal.md")]
 pub mod terminal {}
 
-#[cfg(all(feature = "playback", feature = "update", feature = "headless", feature = "widgets"))]
+#[cfg(all(
+    feature = "playback",
+    feature = "update",
+    feature = "headless",
+    feature = "widgets",
+    feature = "web"
+))]
 #[doc = include_str!("web.md")]
 pub mod web {}
 
