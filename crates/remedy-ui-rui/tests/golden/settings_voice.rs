@@ -39,17 +39,17 @@ pub const SOURCE: &str = "// Voice settings, as in docs/design/07.\ncolumn(gap: 
 /// Builds the file's elements; `t` translates `@t("...")`.
 #[allow(unused_variables, clippy::redundant_clone)]
 pub fn build(ui: &remedy_ui_markup::rt::view::Ui, b: &Bindings, t: &dyn Fn(&str) -> String) -> remedy_ui_markup::rt::view::El {
-    remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::w::column(ui), &remedy_ui_markup::rt::Common { gap: Some(remedy_ui_markup::rt::Space::Units(3)), padding: Some(remedy_ui_markup::rt::Space::Units(4)), ..::core::default::Default::default() }, vec![
+    remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::w::column(ui), &remedy_ui_markup::rt::Common { gap: Some(remedy_ui_markup::rt::Space::Token(remedy_ui_markup::rt::style::Space::S3)), padding: Some(remedy_ui_markup::rt::Space::Token(remedy_ui_markup::rt::style::Space::S4)), ..::core::default::Default::default() }, vec![
         remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::w::section(ui, &t("Input")), &remedy_ui_markup::rt::Common::default(), vec![
             { let ui2 = ui.clone(); let l = t("Device"); let selected = b.input_device; remedy_ui_markup::rt::with_items(ui, &remedy_ui_markup::rt::Common::default(), b.input_devices, move |list| remedy_ui_markup::rt::w::select(&ui2, l.clone(), list.to_vec(), selected)) },
             remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::w::slider(ui, t("Gain"), b.input_gain, 0.0_f64, 200.0_f64, 1.0_f64), &remedy_ui_markup::rt::Common::default(), vec![]),
         ]),
         remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::w::switch(ui, t("Noise suppression"), b.noise_suppression), &remedy_ui_markup::rt::Common::default(), vec![]),
         remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::bound_field(remedy_ui_markup::rt::w::text_input(ui, t("Nickname")), b.nickname), &remedy_ui_markup::rt::Common::default(), vec![]),
-        remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::w::column(ui), &remedy_ui_markup::rt::Common { visible: Some(b.advanced), gap: Some(remedy_ui_markup::rt::Space::Units(2)), ..::core::default::Default::default() }, vec![
+        remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::w::column(ui), &remedy_ui_markup::rt::Common { visible: Some(b.advanced), gap: Some(remedy_ui_markup::rt::Space::Token(remedy_ui_markup::rt::style::Space::S2)), ..::core::default::Default::default() }, vec![
             remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::w::text(ui, t("Echo cancellation")), &remedy_ui_markup::rt::Common { variant: Some("muted"), ..::core::default::Default::default() }, vec![]),
         ]),
-        remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::w::row(ui), &remedy_ui_markup::rt::Common { gap: Some(remedy_ui_markup::rt::Space::Units(2)), justify: remedy_ui_markup::rt::justify("end"), fill_width: true, ..::core::default::Default::default() }, vec![
+        remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::w::row(ui), &remedy_ui_markup::rt::Common { gap: Some(remedy_ui_markup::rt::Space::Token(remedy_ui_markup::rt::style::Space::S2)), justify: remedy_ui_markup::rt::justify("end"), fill_width: true, ..::core::default::Default::default() }, vec![
             remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::live_text(remedy_ui_markup::rt::w::text(ui, ::std::string::String::new()), b.status), &remedy_ui_markup::rt::Common { grow: Some(1.0_f32), ..::core::default::Default::default() }, vec![]),
             remedy_ui_markup::rt::finish(ui, { let f = b.save.clone(); remedy_ui_markup::rt::w::button(ui, t("Save"), move || f()) }, &remedy_ui_markup::rt::Common { variant: Some("primary"), ..::core::default::Default::default() }, vec![]),
         ]),

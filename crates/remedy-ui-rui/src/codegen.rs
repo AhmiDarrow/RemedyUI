@@ -182,7 +182,7 @@ impl Gen<'_> {
         for a in &n.args {
             let v = match (a.name.as_str(), &a.value) {
                 ("gap" | "padding", Value::Token(t)) => {
-                    format!("Some({RT}::Space::Units({}))", spec::space_units(t).unwrap_or(0))
+                    format!("Some({})", space_path(t))
                 }
                 ("gap" | "padding", Value::Number(px)) => format!("Some({RT}::Space::Px({}))", f32_lit(*px)),
                 ("grow", Value::Number(g)) => format!("Some({})", f32_lit(*g)),
@@ -210,8 +210,8 @@ impl Gen<'_> {
             Value::Range(a, z) => format!("{b}::Range({}, {})", f64_lit(*a), f64_lit(*z)),
             Value::Number(n) => format!("{b}::Count({})", f64_lit(*n)),
             Value::Bool(x) => format!("{b}::Switch({x})"),
-            Value::Token(t) => match spec::space_units(t) {
-                Some(u) => format!("{b}::Space({RT}::Space::Units({u}))"),
+            Value::Token(t) => match spec::space_token(t) {
+                Some(_) => format!("{b}::Space({})", space_path(t)),
                 None => format!("{b}::Word({}.to_owned())", lit(t)),
             },
             Value::Signal(s) => format!("{b}::Binding(remedy_ui_markup::Binding::Text(b.{}))", field(s)),
@@ -366,6 +366,12 @@ impl Gen<'_> {
         }
         self.out.push_str("])");
     }
+}
+
+/// The Rust for a spacing word the checker accepted: `s0_5` is `Space::S0_5`.
+fn space_path(word: &str) -> String {
+    let variant = format!("S{}", word.trim_start_matches('s'));
+    format!("{RT}::Space::Token({RT}::style::Space::{variant})")
 }
 
 fn spec_default_step(range: (f64, f64)) -> f64 {

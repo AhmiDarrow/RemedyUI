@@ -418,3 +418,25 @@ fn peoples_layouts_load_fall_back_with_a_notice_and_reset_undoably() {
     assert!(find(&layout.el(), "Quiet").is_some(), "the edited file shows");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn spacing_words_are_the_themes_scale_half_steps_included() {
+    let ui = ui();
+    let m = Markup::parse("s.rui", "column(gap: s0_5, padding: s12) { text(text: \"a\") text(text: \"b\") }")
+        .must("parses");
+    let el = build_markup(&ui, &m, &Scope::new(), &Widgets::new()).must("builds");
+    let _ = ui.root().child(el.clone());
+    frame(&ui);
+    let unit = ui.theme().spacing.unit;
+    let kids = el.child_elements();
+    let (Some(a), Some(b)) = (kids.first().and_then(El::bounds), kids.get(1).and_then(El::bounds)) else {
+        unreachable!("two laid-out children")
+    };
+    assert!((b.min.y - a.max.y - unit * 0.5).abs() < 0.01, "s0_5 is half a unit: {a:?} {b:?}");
+    let outer = el.bounds().must("laid out");
+    assert!((a.min.x - outer.min.x - unit * 12.0).abs() < 0.01, "s12 pads twelve units");
+    let rust = codegen::compile("s.rui", "column(gap: s0_5) {}", &[]).must("compiles");
+    assert!(rust.contains("style::Space::S0_5"), "{rust}");
+    let e = err("column(gap: s9) {}");
+    assert!(e.help.as_deref().is_some_and(|h| h.contains("s0_5") && h.contains("s24")), "{e}");
+}

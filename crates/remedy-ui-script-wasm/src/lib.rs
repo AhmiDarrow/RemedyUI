@@ -53,7 +53,7 @@
 //! a lock held), so after any stop the widget starts over from a fresh instance of its
 //! module.
 
-use remedy_ui_core::time::Instant;
+use remedy_ui_core::time::WorkClock;
 use remedy_ui_script::{
     Action, Described, Language, Limits, Manifest, Node, ScriptEngine, ScriptError, ScriptWidget,
     SettingSpec, StepRate,
@@ -108,9 +108,9 @@ pub fn measure() -> Option<(u64, std::time::Duration)> {
     remedy_ui_script::calibrate_with(FALLBACK_FUEL_PER_MS, |steps| {
         let limits = Limits::default().operations(Some(steps)).time(std::time::Duration::from_secs(10));
         let mut w = WasmWidget::load(CALIBRATION, limits).ok()?;
-        let start = Instant::now();
+        let start = WorkClock::start();
         let r = w.render(&serde_json::Map::new(), &Value::Null);
-        (r == Err(ScriptError::OutOfFuel)).then(|| start.elapsed())
+        (r == Err(ScriptError::OutOfFuel)).then(|| start.work())
     })
 }
 
@@ -269,6 +269,10 @@ fn engine(limits: &Limits) -> Engine {
     let mut config = Config::default();
     config
         .consume_fuel(true)
+        // Compile the whole module when it loads: translated lazily, a function's first use
+        // would charge its translation to that call's fuel as one indivisible step, and a
+        // call could fail on compiling rather than on what the widget does.
+        .compilation_mode(wasmi::CompilationMode::Eager)
         .allow_start_fn(false)
         .set_max_recursion_depth(limits.call_depth.max(1))
         .set_max_cached_stacks(1)
@@ -347,10 +351,10 @@ fn run<P: WasmParams, R: WasmResults>(
     f: &TypedFunc<P, R>,
     params: P,
 ) -> Result<R, ScriptError> {
-    let began = Instant::now();
-    let deadline = began + limits.time;
+    // Processor time on this thread: what the system gives other work does not count.
+    let began = WorkClock::start();
     let rate = RATE.per_ms();
-    let total = limits.operations_at(rate);
+    let total = limits.step_budget(&RATE);
     // Slices are a part of the time budget at the measured rate, whatever the fuel budget.
     let slice = (*limits).operations(None).operations_at(rate) / SLICES;
     let slice = slice.max(1);
@@ -373,7 +377,7 @@ fn run<P: WasmParams, R: WasmResults>(
                 if left == 0 {
                     break Err(ScriptError::OutOfFuel);
                 }
-                if Instant::now() > deadline {
+                if began.over(limits.time) {
                     break Err(ScriptError::TooSlow);
                 }
                 give = slice.min(left);
@@ -387,7 +391,7 @@ fn run<P: WasmParams, R: WasmResults>(
         }
     };
     let unused = store.get_fuel().unwrap_or(0);
-    let _ = RATE.record(given.saturating_sub(unused), began.elapsed());
+    let _ = RATE.record(given.saturating_sub(unused), began.work());
     r
 }
 

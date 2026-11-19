@@ -7,15 +7,24 @@
 //! a browser page) and the steps it took over the time it took is the rate. After that,
 //! every call long enough to time well is a measurement too, so the rate follows the device
 //! when it slows down (thermal throttling, a power-saving mode) or speeds up. Until the
-//! first measurement the engine's documented fallback applies: a low rate, so a step budget
-//! errs short rather than long.
+//! first measurement no step budget is made from a guess ([`Limits::step_budget`]
+//! (crate::Limits::step_budget)): only the time limit applies, so fair work is never stopped
+//! by a rate the device beats. The engine's fallback rate only spaces its clock checks then.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
-/// A measurement shorter than this is not used: the clock's resolution (as coarse as a
-/// millisecond in some browsers) would decide it.
+/// The shortest measurement used on any clock: a page's clock can be as coarse as a
+/// millisecond. [`min_sample`] lengthens it where the thread clock is coarser.
 pub const MIN_SAMPLE: Duration = Duration::from_millis(2);
+
+/// The shortest measurement this device times well: [`MIN_SAMPLE`], or four ticks of the
+/// thread clock where that is coarser (Windows' thread clock moves in about 15.6 ms steps,
+/// which would make a few milliseconds read as nothing or as a whole tick). `None` until the
+/// clock's resolution is known: it is measured by calibration, away from the UI thread.
+pub fn min_sample() -> Option<Duration> {
+    remedy_ui_core::time::ThreadTime::resolution_if_known().map(|r| MIN_SAMPLE.max(r * 4))
+}
 
 /// How much of the way a new measurement moves the rate: a quarter, so a sustained change
 /// shows within a few calls and one odd call does not swing it.
@@ -61,9 +70,11 @@ impl StepRate {
 
     /// Records that `steps` took `elapsed`. The first measurement sets the rate; later ones
     /// move it a quarter of the way. Returns false (and changes nothing) for a measurement
-    /// too short to time well ([`MIN_SAMPLE`]) or with no steps.
+    /// too short to time well ([`min_sample`]), before the clock's resolution is known, or with
+    /// no steps.
     pub fn record(&self, steps: u64, elapsed: Duration) -> bool {
-        if steps == 0 || elapsed < MIN_SAMPLE {
+        let Some(min) = min_sample() else { return false };
+        if steps == 0 || elapsed < min {
             return false;
         }
         let sample = steps as f64 / (elapsed.as_secs_f64() * 1000.0);
@@ -107,22 +118,24 @@ impl StepRate {
 }
 
 /// Runs `round(steps)` with growing step counts, starting at `start`, until one round takes
-/// at least twice [`MIN_SAMPLE`], and returns that round's steps and time: a calibration
-/// run of a few milliseconds whatever the device's speed. `round` returns how long the
-/// steps took, or `None` when they could not run.
+/// at least twice [`min_sample`], and returns that round's steps and time: a calibration
+/// run long enough for this device's clock whatever its speed. `round` returns how long the
+/// steps took, or `None` when they could not run. Measures the thread clock's resolution
+/// first if it is not known yet (call it away from the UI thread).
 pub fn calibrate_with(start: u64, mut round: impl FnMut(u64) -> Option<Duration>) -> Option<(u64, Duration)> {
+    let min = MIN_SAMPLE.max(remedy_ui_core::time::ThreadTime::resolution() * 4);
     let mut steps = start.max(1);
     // Doubling from any start reaches a few milliseconds long before 2^40 steps.
     for _ in 0..40 {
         let took = round(steps)?;
-        if took >= MIN_SAMPLE * 2 {
+        if took >= min * 2 {
             return Some((steps, took));
         }
         // Aim straight for the target when the round says how far off it is.
         let factor = if took.is_zero() {
             2.0
         } else {
-            ((MIN_SAMPLE * 3).as_secs_f64() / took.as_secs_f64()).clamp(2.0, 64.0)
+            ((min * 3).as_secs_f64() / took.as_secs_f64()).clamp(2.0, 64.0)
         };
         steps = ((steps as f64) * factor) as u64;
     }
@@ -134,16 +147,24 @@ mod tests {
     use super::*;
     use crate::Limits;
 
+    /// The shortest sample this machine times well, with the clock's resolution measured.
+    fn sample() -> Duration {
+        let _ = remedy_ui_core::time::ThreadTime::resolution();
+        min_sample().unwrap_or(MIN_SAMPLE)
+    }
+
     #[test]
     fn a_measurement_sets_the_rate_and_later_ones_follow_it() {
+        let t = sample();
+        let ms = t.as_secs_f64() * 1000.0;
         let r = StepRate::new(1000);
         assert_eq!((r.per_ms(), r.is_calibrated()), (1000, false));
-        assert!(!r.record(1_000_000, Duration::from_micros(500)), "too short to time");
-        assert!(r.record(1_000_000, Duration::from_millis(10)));
-        assert_eq!(r.per_ms(), 100_000);
+        assert!(!r.record(1_000_000, t / 4), "too short to time on this clock");
+        assert!(r.record((100_000.0 * ms) as u64, t));
+        assert!((99_000..=101_000).contains(&r.per_ms()), "{}", r.per_ms());
         // The device slows down: the rate follows within a few calls.
         for _ in 0..12 {
-            r.record(500_000, Duration::from_millis(10));
+            r.record((50_000.0 * ms) as u64, t);
         }
         let after = r.per_ms();
         assert!((50_000..52_000).contains(&after), "{after}");
@@ -151,22 +172,31 @@ mod tests {
 
     #[test]
     fn a_slower_machine_gets_smaller_step_budgets() {
+        let t = sample();
         let (fast, slow) = (StepRate::new(1000), StepRate::new(1000));
-        fast.record(2_000_000, Duration::from_millis(10));
+        fast.record(20_000_000, t);
         // The same steps taking twice as long: a machine half as fast.
-        slow.record(2_000_000, Duration::from_millis(20));
+        slow.record(20_000_000, t * 2);
         let limits = Limits::default();
-        let (f, s) = (limits.operations_at(fast.per_ms()), limits.operations_at(slow.per_ms()));
-        assert_eq!(f, 2 * s);
+        let (f, s) = (limits.step_budget(&fast), limits.step_budget(&slow));
+        assert!(f.abs_diff(2 * s) <= 2, "{f} {s}");
         assert!(s > 0);
     }
 
     #[test]
+    fn an_unmeasured_device_is_held_by_time_alone() {
+        let r = StepRate::new(1000);
+        assert_eq!(Limits::default().step_budget(&r), u64::MAX, "no budget from a guessed rate");
+        assert_eq!(Limits::default().operations(Some(5)).step_budget(&r), 5, "a set budget holds");
+    }
+
+    #[test]
     fn calibration_grows_its_run_until_it_times_well() {
+        let t = sample();
         // A device doing 1,000 steps a millisecond.
         let r = calibrate_with(10, |steps| Some(Duration::from_micros(steps)));
         let Some((steps, took)) = r else { unreachable!("calibrates") };
-        assert!(took >= MIN_SAMPLE * 2 && took <= Duration::from_millis(500), "{took:?}");
+        assert!(took >= t * 2 && took <= Duration::from_secs(2), "{took:?}");
         let s = StepRate::new(1);
         assert!(s.record(steps, took));
         assert_eq!(s.per_ms(), 1000);

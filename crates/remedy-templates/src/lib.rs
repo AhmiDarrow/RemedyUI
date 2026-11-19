@@ -561,7 +561,7 @@ fn previews_match_their_golden_images() {
 }
 "#;
 
-const REMEDY_TOML: &str = r#"# How `cargo remedy package` builds and labels the app.
+const REMEDY_TOML: &str = r##"# How `cargo remedy package` builds and labels the app.
 
 [app]
 name = "{{title}}"
@@ -578,11 +578,18 @@ icon = "assets/icon.png"
 # sign_thumbprint = "0123456789ABCDEF0123456789ABCDEF01234567"
 # timestamp_url = "http://timestamp.digicert.com"
 
+[web]
+# `cargo remedy package --target web`: the name under the icon once installed, the color of
+# the browser's own bars, and the icon (SVG or PNG; the app's icon if not set).
+# short_name = "{{title}}"
+# theme_color = "#1e2a24"
+# icon = "assets/icon.svg"
+
 # Auto-update: set REMEDY_UPDATE_KEY to a minisign secret key file (and
 # REMEDY_UPDATE_KEY_PASSWORD if it has one) and `package` writes a .sig beside the
 # installer. Publish both on a GitHub release; the app checks them with
 # remedy_ui::update (feature "update") and its public key.
-"#;
+"##;
 
 const README: &str = r#"# {{title}}
 
@@ -592,7 +599,11 @@ A [RemedyUI](https://github.com/AhmiDarrow/RemedyUI) app.
   and restarts it when you save.
 - `cargo test` runs it on the in-memory host and checks its previews against
   `tests/golden` (the first run writes them; commit them).
-- `cargo remedy package` builds the installer and a portable zip (see `remedy.toml`).
+- `cargo remedy package` builds the installer and a portable zip (see `remedy.toml`);
+  `--target linux`, `--target android` and `--target macos` build for those systems.
+- `cargo remedy package --target web` builds an installable page (a PWA that works
+  offline) in `target/remedy/web` and a zip of it, from the same code (see `[web]` in
+  `remedy.toml`). Serve the folder from any static web host.
 "#;
 
 /// The preview expression for a template's test.

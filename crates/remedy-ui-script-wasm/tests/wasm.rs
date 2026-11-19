@@ -269,3 +269,39 @@ fn the_fuel_rate_is_measured_on_this_device() {
     assert!(matches!(r, Err(ScriptError::OutOfFuel | ScriptError::TooSlow)), "{r:?}");
     assert!(start.elapsed() < Duration::from_millis(500), "{:?}", start.elapsed());
 }
+
+#[test]
+fn a_busy_machine_does_not_stop_fair_work() {
+    // Every core kept busy twice over while fair calls run: their budget is the work done on
+    // their own thread, so the time the system gives the spinners does not count.
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let cores = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+    let spinners: Vec<_> = (0..cores * 2)
+        .map(|_| {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                let mut x = 1u64;
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+                }
+                std::hint::black_box(x);
+            })
+        })
+        .collect();
+    let mut failures = Vec::new();
+    for _ in 0..200 {
+        match load(CLAPS, Limits::default()) {
+            Ok(mut w) => {
+                if let Err(e) = render(&mut w) {
+                    failures.push(e);
+                }
+            }
+            Err(e) => failures.push(e),
+        }
+    }
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    for s in spinners {
+        let _ = s.join();
+    }
+    assert!(failures.is_empty(), "fair calls were stopped on a busy machine: {failures:?}");
+}
