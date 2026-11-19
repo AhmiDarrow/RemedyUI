@@ -407,6 +407,22 @@ fn tooltips_wait_trusted_prompts_hold_their_buttons_and_toasts_expire() {
 }
 
 #[test]
+fn assistive_technology_can_dismiss_a_toast_as_a_click_does() {
+    let mut t = T::new();
+    t.ui.root().child(w::text(&t.ui, "Below"));
+    t.frame();
+    let before = t.ui.tree().len();
+    let toast = w::toast(&t.ui, "Saved", Duration::from_secs(60));
+    t.frame();
+    assert!(t.ui.tree().len() > before);
+    let s = toast.composed_semantics().unwrap_or_else(|| unreachable!("a toast has semantics"));
+    assert!(s.actions().contains(&remedy_ui_a11y::Action::Click), "the click that dismisses it is offered");
+    assert!(t.ui.accessibility_action(toast.node_id(), remedy_ui_a11y::Action::Click));
+    t.frame();
+    assert_eq!(t.ui.tree().len(), before, "dismissed before its time");
+}
+
+#[test]
 fn a_trusted_prompt_waits_from_when_it_is_seen() {
     let mut t = T::new();
     t.ui.root().child(w::text(&t.ui, "Below"));

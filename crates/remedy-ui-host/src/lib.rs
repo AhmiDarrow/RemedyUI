@@ -157,6 +157,81 @@ pub enum Permission {
     /// Hearing the microphone (`RECORD_AUDIO` on Android, which the app's manifest must also
     /// declare).
     Microphone,
+    /// Showing system notifications (`POST_NOTIFICATIONS` on Android 13 and later, which the
+    /// app's manifest must also declare; earlier versions grant it at install). A browser
+    /// asks the person.
+    Notifications,
+}
+
+/// A system notification: a message outside the app's windows (Windows' notification
+/// center, the Linux desktop's notification server, Android's shade, the browser's).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Notification {
+    /// The app's own number for it: showing another with the same number replaces it, and
+    /// [`HostEvent::Notification`] names it.
+    pub id: u64,
+    /// The first line, in bold where the platform has bold.
+    pub title: String,
+    /// The text under the title (may be empty).
+    pub body: String,
+    /// Buttons, in order. Platforms show the first few they have room for (Windows five,
+    /// Android three, most Linux desktops several, browsers two).
+    pub actions: Vec<NotificationAction>,
+    /// Shown without a sound.
+    pub silent: bool,
+    /// The app's name, which the platform shows as the sender. The engine fills it in from
+    /// the app's configuration.
+    pub app: String,
+    /// The picture shown with it (the app's icon when unset): premultiplied RGBA8.
+    pub icon: Option<TrayImage>,
+}
+
+impl Notification {
+    /// A notification numbered `id` with a title and a body.
+    pub fn new(id: u64, title: impl Into<String>, body: impl Into<String>) -> Self {
+        Notification { id, title: title.into(), body: body.into(), ..Notification::default() }
+    }
+
+    /// Adds a button that reports `id` when pressed.
+    pub fn action(mut self, id: impl Into<String>, label: impl Into<String>) -> Self {
+        self.actions.push(NotificationAction { id: id.into(), label: label.into() });
+        self
+    }
+
+    /// Sets `silent`: shown without a sound.
+    pub fn silent(mut self, value: bool) -> Self {
+        self.silent = value;
+        self
+    }
+
+    /// Sets the picture shown with it.
+    pub fn icon(mut self, value: TrayImage) -> Self {
+        self.icon = Some(value);
+        self
+    }
+}
+
+/// A button on a notification.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct NotificationAction {
+    /// What [`NotificationResponse::Action`] reports.
+    pub id: String,
+    /// The button's text.
+    pub label: String,
+}
+
+/// What the person did with a notification.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NotificationResponse {
+    /// They pressed it (the app should come forward and show what it is about).
+    Activated,
+    /// They pressed one of its buttons.
+    Action(String),
+    /// They dismissed it, or it timed out of view (where the platform says so).
+    Dismissed,
 }
 
 /// A permission request's identity while the platform asks the person.
@@ -468,6 +543,8 @@ pub enum HostEvent {
     /// A permission request [`Host::request_permission`] left pending was answered: true when
     /// granted.
     Permission(PermissionId, bool),
+    /// The person used a notification the app showed (by its [`Notification::id`]).
+    Notification(u64, NotificationResponse),
     /// The app was launched again while running (single instance); these are the new
     /// launch's arguments.
     SecondInstance(Vec<String>),
@@ -744,6 +821,17 @@ pub trait Host {
     fn request_permission(&mut self, permission: Permission) -> Result<PermissionStarted, Unsupported> {
         let _ = permission;
         Ok(PermissionStarted::Finished(true))
+    }
+    /// Shows a system notification, or replaces the one with the same id. Hosts without
+    /// notifications say [`Unsupported`].
+    fn show_notification(&mut self, notification: &Notification) -> Result<(), Unsupported> {
+        let _ = notification;
+        Err(Unsupported::new("system notifications", "this host has none"))
+    }
+    /// Takes away a notification the app showed (it no longer applies), if still shown.
+    fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
+        let _ = id;
+        Err(Unsupported::new("system notifications", "this host has none"))
     }
     /// Starts dragging `data` out of `window` to other apps (call while the pointer button
     /// that began the drag is held). Some platforms run the drag to its end inside the call;

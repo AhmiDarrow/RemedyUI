@@ -154,7 +154,8 @@ still off.
 - **Lives in the tray.** [`App::keep_running`](crate::App::keep_running) keeps the app
   alive with no window showing, and
   [`WindowSpec::hide_on_close`](crate::WindowSpec::hide_on_close) makes closing the window
-  hide it.
+  hide it; [`Window::on_visibility`](crate::Window::on_visibility) tells the app when that
+  happens, so it can remember whether its window was open for the next start.
 - **The tray menu follows the state.** [`App::tray_dyn`](crate::App::tray_dyn) builds the
   tray from the paused signal, so the menu says "Pause reminders" or "Resume reminders" and
   changes when the signal does.
@@ -165,11 +166,21 @@ still off.
   its arguments to [`App::on_second_instance`](crate::App::on_second_instance), which shows
   the running window.
 - **The reminder** is [`App::after`](crate::App::after) scheduling itself every twenty
-  minutes. When not paused, it marks a break as due and shows the window.
+  minutes. When not paused, it marks a break as due, shows the window and sends a system
+  notification with [`App::notify`](crate::App::notify): a
+  [`Notification`](crate::host::Notification) with a "Break taken" button.
+  [`App::on_notification`](crate::App::on_notification) takes the break when the button is
+  pressed and shows the window when the notification itself is. Showing it again replaces
+  it (same id), and where the platform has none the window alone does the reminding.
+  Windows shows it as a toast (the engine registers the app's name for its toasts under the
+  current user), Linux through the desktop's notification server, a browser page through
+  the Notification API after
+  [`App::request_permission`](crate::App::request_permission)`(Permission::Notifications, ..)`.
 
 The test reads the tray's tooltip and menu from the host, closes the window and sees it
 hidden while the app runs on, moves the host's clock twenty minutes and finds the window
-shown with the reminder, presses "Break taken", pauses from the tray menu and sees the menu
+shown with the reminder and a notification sent, takes the break from the notification's
+button, waits for the next one and presses "Break taken" in the window, pauses from the tray menu and sees the menu
 and the window both say so, and quits from the menu.
 
 ## Sticky-note windows

@@ -7,6 +7,7 @@ mod dom;
 mod host;
 mod input;
 pub(crate) mod instance;
+mod notify;
 mod settings;
 mod text;
 mod window;

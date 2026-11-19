@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use remedy_ui::a11y::{Action, ReaderNode, Role};
 use remedy_ui::core::Point;
-use remedy_ui::host::{HostEvent, TrayEvent, TrayItem, WindowId};
+use remedy_ui::host::{HostEvent, NotificationResponse, TrayEvent, TrayItem, WindowId};
 use remedy_ui::input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase};
 use remedy_ui::testing::TestApp;
 use remedy_ui::{App, AppConfig, Ui, WindowSpec};
@@ -277,6 +277,21 @@ fn tray_app_lives_in_the_tray_and_comes_back_for_breaks() {
     t.frames(2);
     assert!(t.host().window(id).is_some_and(|w| w.options().visible), "shown for the break");
     assert!(has(&ui, "Time for a break"), "{:?}", names(&ui));
+    let notices = t.host().notifications().to_vec();
+    assert_eq!(notices.len(), 1, "the reminder also notifies");
+    assert_eq!(
+        notices.first().map(|n| (n.id, n.title.as_str(), n.app.as_str())),
+        Some((tray_app::BREAK_NOTICE, "Time for a break", "Break reminder"))
+    );
+    // The notification's button takes the break without opening anything.
+    t.host()
+        .send(HostEvent::Notification(tray_app::BREAK_NOTICE, NotificationResponse::Action("taken".into())));
+    t.frames(2);
+    assert!(!has(&ui, "Time for a break"));
+    // The next one is taken in the window.
+    t.host().advance(tray_app::EVERY);
+    t.frames(2);
+    assert_eq!(t.host().notifications().len(), 2);
     click(&mut t, Role::Button, "Break taken");
     assert!(!has(&ui, "Time for a break"));
     // Pausing from the tray menu: the menu and the window both say so.

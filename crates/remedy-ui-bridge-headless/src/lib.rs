@@ -127,6 +127,9 @@ pub struct HeadlessHost {
     permissions: Vec<remedy_ui_host::Permission>,
     permission_answers: VecDeque<bool>,
     permissions_answer_later: bool,
+    notifications: Vec<remedy_ui_host::Notification>,
+    withdrawn: Vec<u64>,
+    notifications_off: bool,
 }
 
 impl Default for HeadlessHost {
@@ -172,6 +175,9 @@ impl HeadlessHost {
             permissions: Vec::new(),
             permission_answers: VecDeque::new(),
             permissions_answer_later: false,
+            notifications: Vec::new(),
+            withdrawn: Vec::new(),
+            notifications_off: false,
         }
     }
 
@@ -378,6 +384,22 @@ impl HeadlessHost {
     /// The permissions the app asked for, oldest first.
     pub fn permission_requests(&self) -> &[remedy_ui_host::Permission] {
         &self.permissions
+    }
+
+    /// The notifications the app showed, oldest first (a replacement is listed again).
+    /// Answer one with [`HostEvent::Notification`] through [`HeadlessHost::send`].
+    pub fn notifications(&self) -> &[remedy_ui_host::Notification] {
+        &self.notifications
+    }
+
+    /// The ids of the notifications the app took away, oldest first.
+    pub fn withdrawn_notifications(&self) -> &[u64] {
+        &self.withdrawn
+    }
+
+    /// Makes showing notifications fail, as when the person turned them off for the app.
+    pub fn notifications_off(&mut self, off: bool) {
+        self.notifications_off = off;
     }
 
     /// The file dialogs the app opened, oldest first.
@@ -716,6 +738,19 @@ impl Host for HeadlessHost {
         }
         // With no scripted answer, the user cancels.
         Ok(remedy_ui_host::DialogStarted::Finished(self.dialog_answers.pop_front().unwrap_or_default()))
+    }
+
+    fn show_notification(&mut self, notification: &remedy_ui_host::Notification) -> Result<(), Unsupported> {
+        if self.notifications_off {
+            return Err(Unsupported::new("system notifications", "turned off for this app"));
+        }
+        self.notifications.push(notification.clone());
+        Ok(())
+    }
+
+    fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
+        self.withdrawn.push(id);
+        Ok(())
     }
 
     fn request_permission(
