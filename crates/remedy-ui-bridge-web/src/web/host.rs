@@ -13,7 +13,7 @@ use remedy_ui_host::{
 use remedy_ui_input::Platform;
 
 use super::window::{Kind, Win};
-use super::{Driver, clipboard, dialog, driver, now, post, settings};
+use super::{Driver, clipboard, dialog, driver, notify, now, post, settings};
 use crate::Mount;
 
 /// The host the app acts through while it handles an event.
@@ -300,6 +300,26 @@ impl Host for WebHost<'_> {
     fn set_drop_effect(&mut self, window: WindowId, effect: DropEffect) {
         if let Some(w) = self.win(window) {
             w.drop_effect.set(effect);
+        }
+    }
+
+    fn show_notification(&mut self, notification: &remedy_ui_host::Notification) -> Result<(), Unsupported> {
+        notify::show(notification)
+    }
+
+    fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
+        notify::withdraw(id);
+        Ok(())
+    }
+
+    fn request_permission(
+        &mut self,
+        permission: remedy_ui_host::Permission,
+    ) -> Result<remedy_ui_host::PermissionStarted, Unsupported> {
+        match permission {
+            remedy_ui_host::Permission::Notifications => notify::request(),
+            // The microphone's own `getUserMedia` call asks the person.
+            _ => Ok(remedy_ui_host::PermissionStarted::Finished(true)),
         }
     }
 

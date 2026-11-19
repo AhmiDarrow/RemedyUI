@@ -44,6 +44,8 @@ mod hooks {
         drag_queue: os::dnd::Queue,
         /// Why drops cannot be taken, if registering failed.
         drop_error: Option<String>,
+        /// The app's toast notifications.
+        toasts: os::toast::Toasts,
     }
 
     impl std::fmt::Debug for WindowsHooks {
@@ -135,7 +137,25 @@ mod hooks {
         }
 
         fn take_events(&mut self) -> Vec<HostEvent> {
-            os::tray::take_events().into_iter().map(HostEvent::Tray).collect()
+            let mut events: Vec<HostEvent> =
+                os::tray::take_events().into_iter().map(HostEvent::Tray).collect();
+            events.extend(os::toast::take_events());
+            events
+        }
+
+        fn set_waker(&mut self, waker: remedy_ui_host::Waker) {
+            os::toast::set_waker(waker);
+        }
+
+        fn show_notification(
+            &mut self,
+            notification: &remedy_ui_host::Notification,
+        ) -> Result<(), Unsupported> {
+            self.toasts.show(notification)
+        }
+
+        fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
+            self.toasts.withdraw(id)
         }
 
         fn utc_offset(&self, unix_seconds: i64) -> Option<i32> {

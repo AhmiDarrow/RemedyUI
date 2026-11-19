@@ -133,8 +133,9 @@ Changes a person should hear without moving to them are live regions:
 [`Live::Polite`](crate::a11y::Live::Polite) for new messages and status ("Saved"), waiting
 until the person is idle, and [`Live::Assertive`](crate::a11y::Live::Assertive) for what
 cannot wait (a call dropped, an error). [`widgets::toast`](crate::widgets::toast) announces
-itself; for your own, put `.live(Live::Polite)` on the semantics of the element whose text
-changes.
+itself and offers the click action that dismisses it, as a pointer click does; for your own,
+put `.live(Live::Polite)` on the semantics of the element whose text changes, and give
+anything that reacts to a click [`Action::Click`](crate::a11y::Action::Click).
 
 ## The keyboard
 

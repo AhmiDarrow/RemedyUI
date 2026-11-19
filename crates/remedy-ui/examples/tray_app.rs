@@ -7,7 +7,7 @@
 
 use std::time::Duration;
 
-use remedy_ui::host::{TrayEvent, TrayIcon, TrayImage, TrayItem};
+use remedy_ui::host::{Notification, NotificationResponse, TrayEvent, TrayIcon, TrayImage, TrayItem};
 use remedy_ui::reactive::Signal;
 use remedy_ui::view::Space;
 use remedy_ui::widgets as w;
@@ -62,6 +62,12 @@ pub fn app(app: &App) {
     });
     let again = window.clone();
     app.on_second_instance(move |_| show(&again));
+    let (shown, done) = (window.clone(), state.due);
+    app.on_notification(move |id, response| match (id, response) {
+        (BREAK_NOTICE, NotificationResponse::Action(a)) if a == "taken" => done.set(false),
+        (BREAK_NOTICE, NotificationResponse::Activated) => show(&shown),
+        _ => {}
+    });
     remind(app, window, state);
 }
 
@@ -71,13 +77,25 @@ fn show(window: &Window) {
     window.focus();
 }
 
-/// Brings the window back after [`EVERY`] unless paused, then waits again.
+/// The break reminder's notification (showing it again replaces it).
+pub const BREAK_NOTICE: u64 = 1;
+
+/// Brings the window back after [`EVERY`] unless paused, with a system notification that
+/// can take the break from where it shows, then waits again.
 fn remind(app: &App, window: Window, state: Reminder) {
     let a = app.clone();
     app.after(EVERY, move || {
         if !state.paused.get_untracked().unwrap_or(false) {
             state.due.set(true);
             show(&window);
+            let notice = Notification::new(
+                BREAK_NOTICE,
+                "Time for a break",
+                "Stand up and look away from the screen.",
+            )
+            .action("taken", "Break taken");
+            // Where the platform has no notifications, the window alone does the reminding.
+            a.notify(notice, |_| {});
         }
         remind(&a, window, state);
     });

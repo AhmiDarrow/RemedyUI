@@ -3,6 +3,7 @@
 
 pub(crate) mod dnd;
 pub(crate) mod instance;
+pub(crate) mod toast;
 pub(crate) mod tray;
 pub(crate) mod tsf;
 
@@ -27,6 +28,76 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetCaretBlinkTime, SPI_GETCLIENTAREAANIMATION, SPI_GETHIGHCONTRAST, SetWindowDisplayAffinity,
     SystemParametersInfoW, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
 };
+
+/// Joins the calling thread to a COM apartment for WinRT calls, keeping the one it is in (the
+/// UI thread's single-threaded apartment, which WinRT also serves).
+pub(crate) fn com_for_winrt() {
+    // SAFETY: plain COM initialization for the calling thread; an already-initialized thread
+    // returns S_FALSE or RPC_E_CHANGED_MODE and keeps its apartment.
+    let _ = unsafe {
+        windows::Win32::System::Com::CoInitializeEx(
+            None,
+            windows::Win32::System::Com::COINIT_APARTMENTTHREADED,
+        )
+    };
+}
+
+/// Registers `id` as an application user model id for the current user, with the name and
+/// icon Windows shows on the app's toasts (`HKCU\Software\Classes\AppUserModelId\<id>`).
+pub(crate) fn register_app_id(id: &str, name: &str, icon: Option<&std::path::Path>) -> Result<(), String> {
+    use windows_sys::Win32::System::Registry::{
+        HKEY, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey, RegCreateKeyExW, RegSetValueExW,
+    };
+    let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let path = wide(&format!("Software\\Classes\\AppUserModelId\\{id}"));
+    let mut key: HKEY = std::ptr::null_mut();
+    // SAFETY: creating or opening a key under the current user's hive with a NUL-terminated
+    // path; the handle is closed below.
+    let r = unsafe {
+        RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            path.as_ptr(),
+            0,
+            std::ptr::null(),
+            REG_OPTION_NON_VOLATILE,
+            KEY_SET_VALUE,
+            std::ptr::null(),
+            &mut key,
+            std::ptr::null_mut(),
+        )
+    };
+    if r != 0 {
+        return Err(format!("the app's notification identity could not be registered (error {r})"));
+    }
+    let set = |value: &str, data: &str| -> u32 {
+        let v = wide(value);
+        let d = wide(data);
+        // SAFETY: writing a NUL-terminated UTF-16 string value of the stated byte length to
+        // the open key.
+        unsafe {
+            RegSetValueExW(
+                key,
+                v.as_ptr(),
+                0,
+                REG_SZ,
+                d.as_ptr().cast(),
+                u32::try_from(d.len() * 2).unwrap_or(u32::MAX),
+            )
+        }
+    };
+    let mut r = set("DisplayName", name);
+    if r == 0
+        && let Some(icon) = icon
+    {
+        r = set("IconUri", &icon.to_string_lossy());
+    }
+    // SAFETY: closing the key opened above.
+    unsafe { RegCloseKey(key) };
+    if r != 0 {
+        return Err(format!("the app's notification name could not be registered (error {r})"));
+    }
+    Ok(())
+}
 
 /// Opens a web or mail link with the user's default app.
 pub(crate) fn open_url(url: &str) -> Result<(), Unsupported> {

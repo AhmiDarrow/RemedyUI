@@ -10,6 +10,16 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **System notifications**: `App::notify(Notification::new(id, title, body).action(..), ..)`,
+  `App::withdraw_notification` and `App::on_notification` (pressed, a button, dismissed).
+  Windows toasts (with buttons, replacing by id, the app's name and icon; the engine
+  registers an identity for unpackaged apps under the current user and leaves the process's
+  own id alone), the Linux desktop's notification server over D-Bus (buttons, icon, quiet),
+  and the browser's Notification API. `Permission::Notifications` asks the browser (and
+  Android 13). The host contract gains `Host::show_notification`,
+  `Host::withdraw_notification` and `HostEvent::Notification`; the headless host records
+  them. The tray recipe's reminder now notifies.
+
 - **The microphone** (`playback::Microphone`): the default sound input on a worker of its
   own, handed to the app as it arrives in the format asked for (converted from the device's
   own where the platform does not), with its state, error and level as signals. WASAPI on
@@ -25,6 +35,15 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `permissions_answer_later`).
 - **`[android] permissions`** in `remedy.toml`: the manifest permissions `cargo remedy
   package` declares (`microphone`, `internet`, `notifications`, `camera`, or full names).
+- `Window::on_visibility`: told when a window is shown or hidden, including when the user's
+  close button hides a `hide_on_close` window, so a tray app can remember whether its window
+  was open (Hearth restores it after an update).
+
+### Fixed
+
+- `widgets::toast` offers assistive technology the click action that dismisses it. It
+  reacted to a pointer click with none on its semantics, so the accessibility audit
+  (`Unreachable::NoAction`) failed in every app that showed a toast.
 
 ## [1.0.0-rc.1] - 2026-11-18
 

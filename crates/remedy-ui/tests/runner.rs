@@ -121,6 +121,30 @@ fn hide_on_close_windows_survive_and_the_last_real_close_quits() {
 }
 
 #[test]
+fn a_window_reports_being_hidden_by_its_close_button_and_shown_again() {
+    let seen: Rc<std::cell::RefCell<Vec<bool>>> = Rc::default();
+    let s2 = seen.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.keep_running(true);
+        let w = app.open(WindowSpec::new("Tray app").hide_on_close(), |_, _| {});
+        let s3 = s2.clone();
+        w.on_visibility(move |on| s3.borrow_mut().push(on));
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let id = host.window_ids().first().copied().unwrap_or_else(|| unreachable!("a window"));
+    host.send(HostEvent::CloseRequested(id));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*seen.borrow(), [false], "the close button hid it");
+    let w = runner.app().windows().into_iter().next().unwrap_or_else(|| unreachable!("still open"));
+    w.focus();
+    w.set_visible(true);
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*seen.borrow(), [false, true], "shown again, reported once");
+    assert!(host.window(id).is_some_and(|w| w.options().visible));
+}
+
+#[test]
 fn keep_running_tray_apps_outlive_their_windows_and_timers_fire() {
     let fired = Rc::new(Cell::new(false));
     let f2 = fired.clone();
@@ -1093,6 +1117,51 @@ fn permission_answers_reach_the_app_now_or_later() {
     host.send(HostEvent::Permission(PermissionId(1), true));
     host.run_frames(&mut runner, 1);
     assert_eq!(*answers.borrow(), vec![true, false], "each answer reaches its own request, once");
+}
+
+#[test]
+fn notifications_carry_the_app_name_and_answers_reach_the_app() {
+    use remedy_ui::host::{Notification, NotificationResponse};
+    let heard: Rc<std::cell::RefCell<Vec<(u64, NotificationResponse)>>> = Rc::default();
+    let outcomes: Rc<std::cell::RefCell<Vec<bool>>> = Rc::default();
+    let (h2, o2) = (heard.clone(), outcomes.clone());
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Notes").size(100.0, 100.0), |_, _| {});
+        let h = h2.clone();
+        app.on_notification(move |id, r| h.borrow_mut().push((id, r)));
+        let o = o2.clone();
+        app.notify(Notification::new(7, "Ada", "New message").action("reply", "Reply"), move |r| {
+            o.borrow_mut().push(r.is_ok());
+        });
+        app.withdraw_notification(3);
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let shown = host.notifications();
+    assert_eq!(shown.len(), 1);
+    assert_eq!(shown.first().map(|n| (n.id, n.title.as_str(), n.app.is_empty())), Some((7, "Ada", false)));
+    assert_eq!(shown.first().map(|n| n.actions.len()), Some(1));
+    assert_eq!(host.withdrawn_notifications(), &[3]);
+    assert_eq!(*outcomes.borrow(), vec![true]);
+    host.send(HostEvent::Notification(7, NotificationResponse::Action("reply".into())));
+    host.send(HostEvent::Notification(7, NotificationResponse::Activated));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(
+        *heard.borrow(),
+        vec![(7, NotificationResponse::Action("reply".into())), (7, NotificationResponse::Activated)]
+    );
+
+    // Turned off: the app hears that it was not shown.
+    let o3 = outcomes.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Notes").size(100.0, 100.0), |_, _| {});
+        let o = o3.clone();
+        app.notify(Notification::new(1, "Ada", ""), move |r| o.borrow_mut().push(r.is_ok()));
+    });
+    let mut host = HeadlessHost::new();
+    host.notifications_off(true);
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*outcomes.borrow(), vec![true, false]);
 }
 
 #[test]

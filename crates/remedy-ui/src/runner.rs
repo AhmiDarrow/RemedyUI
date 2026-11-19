@@ -441,6 +441,8 @@ enum Cmd {
     Dialog(Option<u64>, FileDialog, Box<dyn FnOnce(Vec<std::path::PathBuf>)>),
     OpenUrl(String, Box<dyn FnOnce(Result<(), Unsupported>)>),
     Permission(remedy_ui_host::Permission, PermissionDone),
+    Notify(Box<remedy_ui_host::Notification>, Box<dyn FnOnce(Result<(), Unsupported>)>),
+    Withdraw(u64),
     Quit,
 }
 
@@ -474,6 +476,7 @@ struct Shared {
     waker: Option<remedy_ui_host::Waker>,
     in_event: bool,
     on_tray: Option<Rc<dyn Fn(TrayEvent)>>,
+    on_notification: Option<Rc<dyn Fn(u64, remedy_ui_host::NotificationResponse)>>,
     next_job: u64,
     jobs: HashMap<u64, Job>,
     done: Arc<Mutex<Vec<(u64, JobResult)>>>,
@@ -494,6 +497,8 @@ struct Shared {
     /// Whether each window fills the screen, kept current from the host.
     fullscreen: HashMap<u64, remedy_ui_reactive::Signal<bool>>,
     on_geometry: HashMap<u64, Rc<dyn Fn(Point, Size)>>,
+    /// Told when a window is shown or hidden ([`Window::on_visibility`]).
+    on_visibility: HashMap<u64, Rc<dyn Fn(bool)>>,
     on_closed: HashMap<u64, Vec<Box<dyn FnOnce()>>>,
     /// The effect keeping the tray in step with [`App::tray_dyn`], while it does.
     tray_effect: Option<remedy_ui_reactive::Effect>,
@@ -545,6 +550,19 @@ impl App {
         };
         if let Some(w) = wake {
             w();
+        }
+    }
+
+    /// Records whether window `key` is shown, and tells its [`Window::on_visibility`] when
+    /// that changed.
+    fn note_visible(&self, key: u64, on: bool) {
+        let cb = {
+            let mut s = self.0.borrow_mut();
+            let was = s.visible.insert(key, on);
+            (was != Some(on)).then(|| s.on_visibility.get(&key).cloned()).flatten()
+        };
+        if let Some(cb) = cb {
+            cb(on);
         }
     }
 
@@ -802,6 +820,35 @@ impl App {
         self.0.borrow_mut().tray_effect = Some(effect);
     }
 
+    /// Shows a system notification (Windows' notification center, the Linux desktop's
+    /// notification server, Android's shade, the browser's), or replaces the one with the
+    /// same id, then `done` with the outcome: [`Unsupported`] where the platform has none or
+    /// the person turned the app's notifications off. What the person does with it reaches
+    /// [`App::on_notification`].
+    ///
+    /// On Android 13 and later and in a browser, ask first with
+    /// [`App::request_permission`]`(Permission::Notifications, ..)` (and list `notifications`
+    /// in `remedy.toml`'s `[android] permissions`). Keep private text out of the body unless
+    /// the person chose to show it: notifications can show on a locked screen.
+    pub fn notify(
+        &self,
+        notification: remedy_ui_host::Notification,
+        done: impl FnOnce(Result<(), Unsupported>) + 'static,
+    ) {
+        self.push(Cmd::Notify(Box::new(notification), Box::new(done)));
+    }
+
+    /// Takes away a notification the app showed, if it is still shown (what it said no
+    /// longer applies: the message was read in the app).
+    pub fn withdraw_notification(&self, id: u64) {
+        self.push(Cmd::Withdraw(id));
+    }
+
+    /// Called when the person uses a notification the app showed: its id and what they did.
+    pub fn on_notification(&self, f: impl Fn(u64, remedy_ui_host::NotificationResponse) + 'static) {
+        self.0.borrow_mut().on_notification = Some(Rc::new(f));
+    }
+
     /// Called when the tray icon is used.
     pub fn on_tray(&self, f: impl Fn(TrayEvent) + 'static) {
         self.0.borrow_mut().on_tray = Some(Rc::new(f));
@@ -920,7 +967,7 @@ impl Window {
 
     /// Shows or hides.
     pub fn set_visible(&self, on: bool) {
-        self.app.0.borrow_mut().visible.insert(self.key, on);
+        self.app.note_visible(self.key, on);
         self.app.push(Cmd::Visible(self.key, on));
     }
 
@@ -991,6 +1038,14 @@ impl Window {
     /// the user moves or resizes it.
     pub fn on_geometry(&self, f: impl Fn(Point, Size) + 'static) {
         self.app.0.borrow_mut().on_geometry.insert(self.key, Rc::new(f));
+    }
+
+    /// Calls `f` with `true` when the window is shown and `false` when it is hidden: by
+    /// [`Window::set_visible`] or [`Window::focus`], or by the user closing a
+    /// [`WindowSpec::hide_on_close`] window (a tray app remembering whether its window was
+    /// open). Only changes are reported; a later call replaces `f`.
+    pub fn on_visibility(&self, f: impl Fn(bool) + 'static) {
+        self.app.0.borrow_mut().on_visibility.insert(self.key, Rc::new(f));
     }
 
     /// Runs `f` once when the window is gone, however it closed.
@@ -1464,6 +1519,15 @@ impl Runner {
                 }
             }
             Cmd::OpenUrl(url, done) => done(host.open_url(&url)),
+            Cmd::Notify(mut notification, done) => {
+                if notification.app.is_empty() {
+                    notification.app = self.app.0.borrow().name.clone();
+                }
+                done(host.show_notification(&notification));
+            }
+            Cmd::Withdraw(id) => {
+                let _ = host.withdraw_notification(id);
+            }
             Cmd::Permission(permission, done) => match host.request_permission(permission) {
                 Ok(remedy_ui_host::PermissionStarted::Finished(granted)) => done(granted),
                 // The platform's prompt answers later, with `HostEvent::Permission`.
@@ -1603,7 +1667,7 @@ impl Runner {
         let hide = self.wins.get(&key).is_some_and(|w| w.spec.hide_on_close);
         if hide {
             host.set_visible(window, false);
-            self.app.0.borrow_mut().visible.insert(key, false);
+            self.app.note_visible(key, false);
         } else {
             host.close_window(window);
         }
@@ -2206,6 +2270,7 @@ impl remedy_ui_host::App for Runner {
                         let ui = s.uis.remove(&key);
                         s.visible.remove(&key);
                         s.on_geometry.remove(&key);
+                        s.on_visibility.remove(&key);
                         s.renderers.remove(&key);
                         s.titles.remove(&key);
                         s.maximized.remove(&key);
@@ -2294,6 +2359,12 @@ impl remedy_ui_host::App for Runner {
                         }
                     }
                     host.request_frame(window);
+                }
+            }
+            HostEvent::Notification(id, response) => {
+                let cb = self.app.0.borrow().on_notification.clone();
+                if let Some(cb) = cb {
+                    cb(id, response);
                 }
             }
             HostEvent::Tray(e) => {

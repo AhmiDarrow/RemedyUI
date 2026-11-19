@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{
     AccessibilityEvent, App, DialogStarted, DragData, DragEvent, DragStarted, DropEffect, FileDialog, Host,
-    HostEvent, ImeEvent, MemoryPressure, Permission, PermissionStarted, Pixels, ResizeEdge, SafeArea,
-    SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowId,
+    HostEvent, ImeEvent, MemoryPressure, Notification, Permission, PermissionStarted, Pixels, ResizeEdge,
+    SafeArea, SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowId,
     WindowOptions,
 };
 use remedy_ui_input::{
@@ -119,6 +119,17 @@ pub trait PlatformHooks: 'static {
     fn request_permission(&mut self, permission: Permission) -> Result<PermissionStarted, Unsupported> {
         let _ = permission;
         Ok(PermissionStarted::Finished(true))
+    }
+    /// Shows or replaces a system notification; what the person does with it comes back
+    /// through [`PlatformHooks::take_events`] as [`HostEvent::Notification`].
+    fn show_notification(&mut self, notification: &Notification) -> Result<(), Unsupported> {
+        let _ = notification;
+        Err(Unsupported::new("system notifications", "this platform bridge has none"))
+    }
+    /// Takes a notification away.
+    fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
+        let _ = id;
+        Err(Unsupported::new("system notifications", "this platform bridge has none"))
     }
     /// Receives a handle that wakes the event loop, for platform services that report from
     /// other threads (a D-Bus tray).
@@ -751,6 +762,14 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
 
     fn request_permission(&mut self, permission: Permission) -> Result<PermissionStarted, Unsupported> {
         self.hooks.request_permission(permission)
+    }
+
+    fn show_notification(&mut self, notification: &Notification) -> Result<(), Unsupported> {
+        self.hooks.show_notification(notification)
+    }
+
+    fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
+        self.hooks.withdraw_notification(id)
     }
 
     fn start_drag(

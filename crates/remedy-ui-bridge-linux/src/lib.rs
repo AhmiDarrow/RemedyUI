@@ -24,6 +24,9 @@ mod os;
 mod services;
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod notify;
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod dnd;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod dnd_wayland;
@@ -55,6 +58,8 @@ mod linux {
         // process serves the data to whoever pastes.
         clipboard: Option<arboard::Clipboard>,
         tray: crate::services::Tray,
+        /// System notifications on the desktop's notification server.
+        notifier: crate::notify::Notifier,
         /// Drag and drop on Wayland, once a Wayland window exists.
         wayland: Option<crate::dnd_wayland::Wayland>,
     }
@@ -357,7 +362,19 @@ mod linux {
         }
 
         fn set_waker(&mut self, waker: Waker) {
+            self.notifier.set_waker(waker.clone());
             self.tray.set_waker(waker);
+        }
+
+        fn show_notification(
+            &mut self,
+            notification: &remedy_ui_host::Notification,
+        ) -> Result<(), Unsupported> {
+            self.notifier.show(notification)
+        }
+
+        fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
+            self.notifier.withdraw(id)
         }
 
         fn open_url(&mut self, url: &str) -> Result<(), Unsupported> {
@@ -385,7 +402,10 @@ mod linux {
         }
 
         fn take_events(&mut self) -> Vec<HostEvent> {
-            self.tray.take_events().into_iter().map(HostEvent::Tray).collect()
+            let mut events: Vec<HostEvent> =
+                self.tray.take_events().into_iter().map(HostEvent::Tray).collect();
+            events.extend(self.notifier.take_events());
+            events
         }
 
         fn utc_offset(&self, unix_seconds: i64) -> Option<i32> {

@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use remedy_ui_a11y::{Live, Role, Semantics};
+use remedy_ui_a11y::{Action, Live, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Point, Rect};
 use remedy_ui_layout::{Align, Length, Position};
 use remedy_ui_paint::{Brush, Path, Stroke, StrokeCap, StrokeJoin};
@@ -116,7 +116,8 @@ pub fn badge(ui: &Ui, text: impl IntoProp<String>) -> El {
 }
 
 /// A short message at the bottom of the window that goes away by itself after `duration`
-/// (or when clicked). Screen readers announce it.
+/// (or when clicked). Screen readers announce it, and assistive technology can dismiss it
+/// with the same click action a pointer uses.
 #[track_caller]
 pub fn toast(ui: &Ui, message: impl Into<String>, duration: Duration) -> El {
     let message = message.into();
@@ -125,7 +126,9 @@ pub fn toast(ui: &Ui, message: impl Into<String>, duration: Duration) -> El {
         .el("toast")
         .row()
         .align(Align::Center)
-        .semantics(Semantics::new(Role::Status).label(message.clone()).live(Live::Polite))
+        .semantics(
+            Semantics::new(Role::Status).label(message.clone()).live(Live::Polite).action(Action::Click),
+        )
         .child(crate::text(ui, message));
     // A click-through layer the size of the window holds the toast at its bottom.
     let host = ui
