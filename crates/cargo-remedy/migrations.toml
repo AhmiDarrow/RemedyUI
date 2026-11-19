@@ -47,127 +47,127 @@ webview = "remedy_ui_embed_webview"
 widgets = "remedy_ui_widgets_core"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "path"
 old = "remedy_ui::text::StylePatch"
 new = "TextStylePatch"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "path"
 old = "remedy_ui::view::TextPatch"
 new = "TextStylePatch"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "method"
 type = "remedy_ui::view::Ui"
 old = "occluded"
 new = "is_occluded"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "method"
 type = "remedy_ui::headless::HeadlessWindow"
 old = "maximized"
 new = "is_maximized"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "method"
 type = "remedy_ui::headless::HeadlessWindow"
 old = "minimized"
 new = "is_minimized"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "method"
 type = "remedy_ui::headless::HeadlessWindow"
 old = "frame_requested"
 new = "is_frame_requested"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "method"
 type = "remedy_ui::headless::HeadlessHost"
 old = "exited"
 new = "has_exited"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "method"
 type = "remedy_ui::headless::HeadlessWindow and remedy_ui::playback::Player"
 old = "fullscreen"
 new = "is_fullscreen"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "method"
 type = "remedy_ui::playback::Player"
 old = "muted"
 new = "is_muted"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "method"
 type = "remedy_ui::webview::WebView"
 old = "loading"
 new = "is_loading"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "method"
 type = "remedy_ui::term::Terminal"
 old = "monospace"
 new = "is_monospace"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "method"
 type = "remedy_ui::view::El"
 old = "text_dyn"
 new = "text"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "method"
 type = "remedy_ui::view::El"
 old = "style_dyn"
 new = "style"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "method"
 type = "remedy_ui::view::El"
 old = "disabled_dyn"
 new = "disabled"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "method"
 type = "remedy_ui::view::El"
 old = "semantics_dyn"
 new = "semantics"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "path"
 old = "remedy_ui::widgets::button_dyn"
 new = "button"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "path"
 old = "remedy_ui::nav::nav_item_dyn"
 new = "nav_item"
 
 [[rename]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 kind = "path"
 old = "remedy_ui::rich::markdown_dyn"
 new = "markdown"
 
 [[call]]
-since = "0.1.0"
+since = "1.0.0-rc.1"
 path = "remedy_ui::widgets::label"
 template = "{fn}text({0}, {1}).variant({2})"

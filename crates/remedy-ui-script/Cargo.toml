@@ -12,7 +12,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 serde_json = { version = "=1.0.154" }
 
 [lints]

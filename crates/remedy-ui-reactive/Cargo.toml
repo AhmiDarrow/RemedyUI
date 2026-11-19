@@ -16,8 +16,8 @@ categories.workspace = true
 persist = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
-remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
-remedy-ui-trace = { path = "../remedy-ui-trace", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
+remedy-ui-trace = { path = "../remedy-ui-trace", version = "1.0.0-rc.1" }
 serde = { version = "=1.0.229", optional = true }
 serde_json = { version = "=1.0.154", optional = true }
 

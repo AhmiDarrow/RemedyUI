@@ -12,20 +12,20 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "0.1.0" }
-remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
-remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
-remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
-remedy-ui-view = { path = "../remedy-ui-view", version = "0.1.0" }
+remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "1.0.0-rc.1" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
+remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
+remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "1.0.0-rc.1" }
+remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
 
 [dev-dependencies]
-remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
-remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "0.1.0", features = ["remedy-sans-ui"] }
-remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
-remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "0.1.0" }
-remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
-remedy-ui-themes = { path = "../remedy-ui-themes", version = "0.1.0" }
-remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "0.1.0" }
+remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui"] }
+remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
+remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "1.0.0-rc.1" }
+remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
+remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
+remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1" }
 
 [lints]
 workspace = true

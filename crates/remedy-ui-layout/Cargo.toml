@@ -12,7 +12,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 taffy = { version = "=0.15.1", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size"] }
 
 [lints]

@@ -46,7 +46,7 @@ and publishing metadata on every published crate) and `cargo deny check`.
    `cargo remedy migrate --dry-run --path <an app>` on the Remedy apps.
 4. **Changelog.** Move "Unreleased" in `CHANGELOG.md` under the new version and date.
 5. **Packages.** `cargo package --workspace --no-verify --allow-dirty --exclude xtask` must
-   package every publishable crate (59 of them). Crates that are not published carry
+   package every publishable crate (64 at 1.0.0-rc.1). Crates that are not published carry
    `publish = false`: `xtask` and `remedy-ui-test`. Dev-dependencies on the facade are
    path-only, so packaging does not need the facade on crates.io first.
 6. **Publish** in dependency order with `cargo publish -p <crate>` (Cargo orders a workspace

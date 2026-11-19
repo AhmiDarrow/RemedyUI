@@ -20,8 +20,8 @@ flate2 = { version = "=1.1.11", default-features = false, features = ["rust_back
 minisign = "=0.10.0"
 png = "=0.18.1"
 proc-macro2 = { version = "=1.0.107", default-features = false, features = ["span-locations"] }
-remedy-templates = { path = "../remedy-templates", version = "0.1.0" }
-remedy-tools = { path = "../remedy-tools", version = "0.1.0" }
+remedy-templates = { path = "../remedy-templates", version = "1.0.0-rc.1" }
+remedy-tools = { path = "../remedy-tools", version = "1.0.0-rc.1" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
 syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "printing", "visit"] }
@@ -31,7 +31,7 @@ zip = { version = "=9.6.1", default-features = false, features = ["deflate"] }
 [dev-dependencies]
 # The tool commands' tests run an app on the in-memory host that opens its window to agents
 # and devtools.
-remedy-ui = { path = "../remedy-ui", version = "0.1.0", default-features = false, features = ["widgets", "nav", "agents", "devtools", "headless"] }
+remedy-ui = { path = "../remedy-ui", version = "1.0.0-rc.1", default-features = false, features = ["widgets", "nav", "agents", "devtools", "headless"] }
 
 [lints]
 workspace = true

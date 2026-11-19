@@ -34,8 +34,8 @@ schema = ["dep:schemars"]
 
 [dependencies]
 flate2 = { version = "=1.1.11", default-features = false, features = ["rust_backend"], optional = true }
-remedy-templates = { path = "../remedy-templates", version = "0.1.0", optional = true }
-remedy-ui-rui = { path = "../remedy-ui-rui", version = "0.1.0", default-features = false, optional = true }
+remedy-templates = { path = "../remedy-templates", version = "1.0.0-rc.1", optional = true }
+remedy-ui-rui = { path = "../remedy-ui-rui", version = "1.0.0-rc.1", default-features = false, optional = true }
 schemars = { version = "=1.2.3", optional = true }
 serde = { version = "=1.0.229", features = ["derive"], optional = true }
 serde_json = { version = "=1.0.154", optional = true }
