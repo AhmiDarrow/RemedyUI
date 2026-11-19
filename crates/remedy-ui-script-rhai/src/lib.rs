@@ -238,7 +238,9 @@ impl Meter {
             return None;
         }
         match (self.allowed.get(), self.began.get()) {
-            (Some(allowed), Some(began)) if began.over(allowed) => Some(TIME_UP.into()),
+            (Some(allowed), Some(began)) if began.over(allowed) && RATE.ran_for(ops, allowed) => {
+                Some(TIME_UP.into())
+            }
             _ => None,
         }
     }

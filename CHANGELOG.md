@@ -8,7 +8,9 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ## [Unreleased]
 
-Everything since the start of the project, by milestone ([docs/ROADMAP.md](docs/ROADMAP.md)).
+## [1.0.0-rc.1] - 2026-11-18
+
+The first release candidate of 1.0: everything since the start of the project, by milestone ([docs/ROADMAP.md](docs/ROADMAP.md)).
 
 ### Added
 
@@ -157,6 +159,10 @@ Breaking before 1.0; `cargo remedy migrate` applies the renames marked (m).
   the monotonic clock say so), speed measurements last several ticks of the thread clock
   (`ThreadTime::resolution`, about 15.6 ms on Windows; `remedy_ui_script::min_sample`), and
   until a device's speed is measured only the time limit applies (`Limits::step_budget`).
+- On a virtual machine whose host takes the processor away, a script's own thread clock counts
+  that time as run: the time limit now stops a call only when it also made its steps at the
+  device's measured speed (`StepRate::ran_for`), so a starved fair call is not stopped while
+  an endless loop still is.
 - WebAssembly widgets compile when they load, so a call's fuel pays only for running the
   widget, never for compiling it (a first call could fail on compiling a large function).
 - A page view fits its zoom as soon as it learns its size, so its first frames render only

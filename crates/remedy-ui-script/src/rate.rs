@@ -53,6 +53,20 @@ impl StepRate {
         }
     }
 
+    /// Whether a call that took `steps` really ran for `time` at this device's speed, rather than
+    /// waiting: on a virtual machine the host can take the processor away from the guest, and
+    /// the guest's own thread clock counts that time as run. A call that made a quarter or less
+    /// of the steps the measured rate allows for `time` was mostly not running, so the time is
+    /// not held against it (its step budget still bounds it); a script that does run, an
+    /// endless loop included, makes its steps at full speed and is stopped. A quarter leaves
+    /// room for the rate falling behind the device (throttling) between measurements. Before
+    /// the rate is measured there is nothing to compare with, and the time decides alone.
+    pub fn ran_for(&self, steps: u64, time: Duration) -> bool {
+        let Some(rate) = self.measured() else { return true };
+        let expected = rate * time.as_secs_f64() * 1000.0;
+        steps as f64 >= expected / 4.0
+    }
+
     /// The rate used before the first measurement.
     pub fn fallback(&self) -> u64 {
         self.fallback
@@ -181,6 +195,18 @@ mod tests {
         let (f, s) = (limits.step_budget(&fast), limits.step_budget(&slow));
         assert!(f.abs_diff(2 * s) <= 2, "{f} {s}");
         assert!(s > 0);
+    }
+
+    #[test]
+    fn time_counts_only_when_the_call_ran_at_the_devices_speed() {
+        let t = sample();
+        let r = StepRate::new(1000);
+        assert!(r.ran_for(0, Duration::from_millis(8)), "unmeasured: the time decides");
+        r.record((10_000.0 * t.as_secs_f64() * 1000.0) as u64, t);
+        // 10,000 steps a millisecond: 8 ms of running is 80,000 steps.
+        assert!(r.ran_for(80_000, Duration::from_millis(8)), "ran at full speed");
+        assert!(r.ran_for(25_000, Duration::from_millis(8)), "throttled, still running");
+        assert!(!r.ran_for(1_000, Duration::from_millis(8)), "mostly waiting: the time was taken");
     }
 
     #[test]

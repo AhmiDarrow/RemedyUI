@@ -14,8 +14,8 @@ categories.workspace = true
 [dependencies]
 accesskit = { version = "=0.25.2" }
 raw-window-handle = { version = "=0.6.2" }
-remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
-remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
+remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
 
 [lints]
 workspace = true

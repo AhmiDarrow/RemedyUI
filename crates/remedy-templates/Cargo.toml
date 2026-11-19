@@ -13,7 +13,7 @@ categories = ["development-tools", "gui"]
 
 [dependencies]
 png = { version = "=0.18.1" }
-remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 
 [lints]
 workspace = true

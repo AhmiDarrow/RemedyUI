@@ -103,79 +103,79 @@ web = ["dep:remedy-ui-bridge-web"]
 full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-rhai", "script-wasm", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "customize", "web", "macros", "isolated"]
 
 [dependencies]
-remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "0.1.0" }
-remedy-ui-macros = { path = "../remedy-ui-macros", version = "0.1.0", optional = true }
-remedy-ui-media-isolated = { path = "../remedy-ui-media-isolated", version = "0.1.0", optional = true }
-remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
-remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "0.1.0" }
-remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
-remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "0.1.0" }
-remedy-ui-host = { path = "../remedy-ui-host", version = "0.1.0" }
-remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
-remedy-ui-layout = { path = "../remedy-ui-layout", version = "0.1.0" }
-remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0", features = ["persist"] }
-remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "0.1.0" }
-remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "0.1.0", optional = true }
-remedy-ui-customize = { path = "../remedy-ui-customize", version = "0.1.0", optional = true }
-remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "0.1.0", optional = true }
-remedy-ui-trace = { path = "../remedy-ui-trace", version = "0.1.0" }
-remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "0.1.0", optional = true }
-remedy-ui-widgets-forms = { path = "../remedy-ui-widgets-forms", version = "0.1.0", optional = true }
-remedy-ui-widgets-nav = { path = "../remedy-ui-widgets-nav", version = "0.1.0", optional = true }
-remedy-ui-widgets-data = { path = "../remedy-ui-widgets-data", version = "0.1.0", optional = true }
-remedy-ui-viz = { path = "../remedy-ui-viz", version = "0.1.0", optional = true }
-remedy-ui-widgets-music = { path = "../remedy-ui-widgets-music", version = "0.1.0", optional = true }
-remedy-ui-widgets-extra = { path = "../remedy-ui-widgets-extra", version = "0.1.0", optional = true }
-remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "0.1.0", optional = true }
-remedy-ui-media-svg = { path = "../remedy-ui-media-svg", version = "0.1.0", optional = true }
-remedy-ui-doc-code = { path = "../remedy-ui-doc-code", version = "0.1.0", optional = true }
-remedy-ui-automation = { path = "../remedy-ui-automation", version = "0.1.0", optional = true }
-remedy-ui-rui = { path = "../remedy-ui-rui", version = "0.1.0", optional = true }
-remedy-ui-widgets-term = { path = "../remedy-ui-widgets-term", version = "0.1.0", optional = true }
-remedy-ui-media-video = { path = "../remedy-ui-media-video", version = "0.1.0", optional = true }
-remedy-ui-embed-webview = { path = "../remedy-ui-embed-webview", version = "0.1.0", optional = true }
-remedy-ui-embed-gpu = { path = "../remedy-ui-embed-gpu", version = "0.1.0", optional = true }
-remedy-ui-media-anim = { path = "../remedy-ui-media-anim", version = "0.1.0", optional = true }
-remedy-ui-media-playback = { path = "../remedy-ui-media-playback", version = "0.1.0", optional = true }
-remedy-ui-doc-rich = { path = "../remedy-ui-doc-rich", version = "0.1.0", optional = true }
-remedy-ui-doc-pages = { path = "../remedy-ui-doc-pages", version = "0.1.0", optional = true }
-remedy-ui-services-spell = { path = "../remedy-ui-services-spell", version = "0.1.0", optional = true }
-remedy-ui-widgets-board = { path = "../remedy-ui-widgets-board", version = "0.1.0", optional = true }
-remedy-ui-script = { path = "../remedy-ui-script", version = "0.1.0", optional = true }
-remedy-ui-script-rhai = { path = "../remedy-ui-script-rhai", version = "0.1.0", optional = true }
-remedy-ui-script-wasm = { path = "../remedy-ui-script-wasm", version = "0.1.0", optional = true }
-remedy-ui-themes = { path = "../remedy-ui-themes", version = "0.1.0", optional = true }
-remedy-ui-services-update = { path = "../remedy-ui-services-update", version = "0.1.0", optional = true }
-remedy-ui-services-i18n = { path = "../remedy-ui-services-i18n", version = "0.1.0", optional = true }
-remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "0.1.0", optional = true }
+remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "1.0.0-rc.1" }
+remedy-ui-macros = { path = "../remedy-ui-macros", version = "1.0.0-rc.1", optional = true }
+remedy-ui-media-isolated = { path = "../remedy-ui-media-isolated", version = "1.0.0-rc.1", optional = true }
+remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
+remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1" }
+remedy-ui-host = { path = "../remedy-ui-host", version = "1.0.0-rc.1" }
+remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
+remedy-ui-layout = { path = "../remedy-ui-layout", version = "1.0.0-rc.1" }
+remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "1.0.0-rc.1", features = ["persist"] }
+remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "1.0.0-rc.1" }
+remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "1.0.0-rc.1", optional = true }
+remedy-ui-customize = { path = "../remedy-ui-customize", version = "1.0.0-rc.1", optional = true }
+remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1", optional = true }
+remedy-ui-trace = { path = "../remedy-ui-trace", version = "1.0.0-rc.1" }
+remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "1.0.0-rc.1", optional = true }
+remedy-ui-widgets-forms = { path = "../remedy-ui-widgets-forms", version = "1.0.0-rc.1", optional = true }
+remedy-ui-widgets-nav = { path = "../remedy-ui-widgets-nav", version = "1.0.0-rc.1", optional = true }
+remedy-ui-widgets-data = { path = "../remedy-ui-widgets-data", version = "1.0.0-rc.1", optional = true }
+remedy-ui-viz = { path = "../remedy-ui-viz", version = "1.0.0-rc.1", optional = true }
+remedy-ui-widgets-music = { path = "../remedy-ui-widgets-music", version = "1.0.0-rc.1", optional = true }
+remedy-ui-widgets-extra = { path = "../remedy-ui-widgets-extra", version = "1.0.0-rc.1", optional = true }
+remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "1.0.0-rc.1", optional = true }
+remedy-ui-media-svg = { path = "../remedy-ui-media-svg", version = "1.0.0-rc.1", optional = true }
+remedy-ui-doc-code = { path = "../remedy-ui-doc-code", version = "1.0.0-rc.1", optional = true }
+remedy-ui-automation = { path = "../remedy-ui-automation", version = "1.0.0-rc.1", optional = true }
+remedy-ui-rui = { path = "../remedy-ui-rui", version = "1.0.0-rc.1", optional = true }
+remedy-ui-widgets-term = { path = "../remedy-ui-widgets-term", version = "1.0.0-rc.1", optional = true }
+remedy-ui-media-video = { path = "../remedy-ui-media-video", version = "1.0.0-rc.1", optional = true }
+remedy-ui-embed-webview = { path = "../remedy-ui-embed-webview", version = "1.0.0-rc.1", optional = true }
+remedy-ui-embed-gpu = { path = "../remedy-ui-embed-gpu", version = "1.0.0-rc.1", optional = true }
+remedy-ui-media-anim = { path = "../remedy-ui-media-anim", version = "1.0.0-rc.1", optional = true }
+remedy-ui-media-playback = { path = "../remedy-ui-media-playback", version = "1.0.0-rc.1", optional = true }
+remedy-ui-doc-rich = { path = "../remedy-ui-doc-rich", version = "1.0.0-rc.1", optional = true }
+remedy-ui-doc-pages = { path = "../remedy-ui-doc-pages", version = "1.0.0-rc.1", optional = true }
+remedy-ui-services-spell = { path = "../remedy-ui-services-spell", version = "1.0.0-rc.1", optional = true }
+remedy-ui-widgets-board = { path = "../remedy-ui-widgets-board", version = "1.0.0-rc.1", optional = true }
+remedy-ui-script = { path = "../remedy-ui-script", version = "1.0.0-rc.1", optional = true }
+remedy-ui-script-rhai = { path = "../remedy-ui-script-rhai", version = "1.0.0-rc.1", optional = true }
+remedy-ui-script-wasm = { path = "../remedy-ui-script-wasm", version = "1.0.0-rc.1", optional = true }
+remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1", optional = true }
+remedy-ui-services-update = { path = "../remedy-ui-services-update", version = "1.0.0-rc.1", optional = true }
+remedy-ui-services-i18n = { path = "../remedy-ui-services-i18n", version = "1.0.0-rc.1", optional = true }
+remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "1.0.0-rc.1", optional = true }
 # On every target for `remedy_ui::web`'s types (`WebConfig`, `Mount`, the file store) and its
 # documentation; the browser bindings it starts apps with are its wasm32-only dependencies,
 # so native builds pull in nothing of the web.
-remedy-ui-bridge-web = { path = "../remedy-ui-bridge-web", version = "0.1.0", optional = true }
-remedy-ui-secure = { path = "../remedy-ui-secure", version = "0.1.0" }
-remedy-ui-style = { path = "../remedy-ui-style", version = "0.1.0" }
-remedy-ui-text = { path = "../remedy-ui-text", version = "0.1.0" }
-remedy-ui-tree = { path = "../remedy-ui-tree", version = "0.1.0" }
-remedy-ui-view = { path = "../remedy-ui-view", version = "0.1.0" }
+remedy-ui-bridge-web = { path = "../remedy-ui-bridge-web", version = "1.0.0-rc.1", optional = true }
+remedy-ui-secure = { path = "../remedy-ui-secure", version = "1.0.0-rc.1" }
+remedy-ui-style = { path = "../remedy-ui-style", version = "1.0.0-rc.1" }
+remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
+remedy-ui-tree = { path = "../remedy-ui-tree", version = "1.0.0-rc.1" }
+remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
 
 [target.'cfg(windows)'.dependencies]
-remedy-ui-bridge-windows = { path = "../remedy-ui-bridge-windows", version = "0.1.0" }
+remedy-ui-bridge-windows = { path = "../remedy-ui-bridge-windows", version = "1.0.0-rc.1" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-remedy-ui-bridge-macos = { path = "../remedy-ui-bridge-macos", version = "0.1.0" }
+remedy-ui-bridge-macos = { path = "../remedy-ui-bridge-macos", version = "1.0.0-rc.1" }
 
 [target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
-remedy-ui-bridge-linux = { path = "../remedy-ui-bridge-linux", version = "0.1.0" }
+remedy-ui-bridge-linux = { path = "../remedy-ui-bridge-linux", version = "1.0.0-rc.1" }
 
 [target.'cfg(target_os = "android")'.dependencies]
-remedy-ui-bridge-android = { path = "../remedy-ui-bridge-android", version = "0.1.0" }
+remedy-ui-bridge-android = { path = "../remedy-ui-bridge-android", version = "1.0.0-rc.1" }
 
 
 [dev-dependencies]
-remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "0.1.0" }
+remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "1.0.0-rc.1" }
 
 [target.'cfg(windows)'.dev-dependencies]
-remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "0.1.0" }
+remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "1.0.0-rc.1" }
 
 # Tests, examples and the guide's doctests build with every pack, so `cargo test` checks all of them.
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dev-dependencies]

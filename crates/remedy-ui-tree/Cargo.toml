@@ -12,8 +12,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
-remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
+remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "1.0.0-rc.1" }
 
 [lints]
 workspace = true

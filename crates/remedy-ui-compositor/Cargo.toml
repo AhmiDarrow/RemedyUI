@@ -12,11 +12,11 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
-remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
-remedy-ui-motion = { path = "../remedy-ui-motion", version = "0.1.0" }
-remedy-ui-paint = { path = "../remedy-ui-paint", version = "0.1.0" }
-remedy-ui-trace = { path = "../remedy-ui-trace", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
+remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
+remedy-ui-motion = { path = "../remedy-ui-motion", version = "1.0.0-rc.1" }
+remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
+remedy-ui-trace = { path = "../remedy-ui-trace", version = "1.0.0-rc.1" }
 
 [lints]
 workspace = true

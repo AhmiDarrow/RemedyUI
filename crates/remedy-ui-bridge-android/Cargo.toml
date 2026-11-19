@@ -14,12 +14,12 @@ categories.workspace = true
 # What every platform builds: the platform-neutral parts (trim levels, settings, insets), so
 # they are tested on any machine.
 [dependencies]
-remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0" }
-remedy-ui-host = { path = "../remedy-ui-host", version = "0.1.0" }
-remedy-ui-input = { path = "../remedy-ui-input", version = "0.1.0" }
+remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
+remedy-ui-host = { path = "../remedy-ui-host", version = "1.0.0-rc.1" }
+remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
 
 [target.'cfg(target_os = "android")'.dependencies]
-remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "0.1.0" }
+remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "1.0.0-rc.1" }
 # NativeActivity: no Java in the app; the bridge's own Java half is loaded from memory.
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "android-native-activity"] }
 # The same JNI release as the accessibility adapter, so both share one Java VM binding.

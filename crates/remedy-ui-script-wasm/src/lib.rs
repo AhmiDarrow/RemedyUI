@@ -377,7 +377,9 @@ fn run<P: WasmParams, R: WasmResults>(
                 if left == 0 {
                     break Err(ScriptError::OutOfFuel);
                 }
-                if began.over(limits.time) {
+                // Fuel used so far: what the call really ran (see `StepRate::ran_for`).
+                let used = given.saturating_sub(store.get_fuel().unwrap_or(0));
+                if began.over(limits.time) && RATE.ran_for(used, limits.time) {
                     break Err(ScriptError::TooSlow);
                 }
                 give = slice.min(left);
