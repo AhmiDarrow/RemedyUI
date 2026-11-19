@@ -49,7 +49,7 @@ use std::time::Duration;
 use serde_json::{Map, Value};
 
 mod rate;
-pub use rate::{MIN_SAMPLE, StepRate, calibrate_with};
+pub use rate::{MIN_SAMPLE, StepRate, calibrate_with, min_sample};
 
 /// The JSON values settings, host data and button handlers are made of, re-exported so they
 /// are the version RemedyUI is built with.
@@ -134,8 +134,10 @@ impl Package {
 pub struct Limits {
     /// The most memory one widget's machine may hold.
     pub memory: usize,
-    /// The longest one call may run on the clock. This is the backstop for slow devices;
-    /// `operations` is what stops a script deterministically.
+    /// The most time one call may work on its thread, timed by
+    /// [`remedy_ui_core::time::WorkClock`]: time the system gives other work while the call
+    /// runs does not count, so a busy machine does not stop fair work. This is the
+    /// backstop for slow devices; `operations` is what stops a script deterministically.
     pub time: Duration,
     /// How many steps one call may take, in the engine's own unit (a Rhai operation, a
     /// WebAssembly fuel unit). `None`: each engine derives it from `time` at the rate it
@@ -205,6 +207,21 @@ impl Limits {
 
     /// The operations one call may take: `operations`, or `time` at `per_ms` operations a
     /// millisecond (an engine's measured rate).
+    /// The steps one call may take on this device: `operations` when set; else the time
+    /// limit at `rate` once the rate is measured; else no step limit (only the time limit).
+    pub fn step_budget(&self, rate: &StepRate) -> u64 {
+        match self.operations {
+            Some(n) => n,
+            // A budget from a guessed rate would stop fair work on a device faster than the
+            // guess; until the device is measured only the time limit applies, and it stops
+            // a runaway script just the same.
+            None if !rate.is_calibrated() => u64::MAX,
+            None => self.operations_at(rate.per_ms()),
+        }
+    }
+
+    /// The steps one call may take at `per_ms` steps a millisecond: `operations` when set,
+    /// else the time limit at that rate.
     pub fn operations_at(&self, per_ms: u64) -> u64 {
         self.operations.unwrap_or_else(|| {
             let ms = u64::try_from(self.time.as_micros()).unwrap_or(u64::MAX) / 1000;

@@ -9,16 +9,17 @@ pub use remedy_ui_layout as layout;
 use remedy_ui_layout::{Align, Justify};
 pub use remedy_ui_reactive as reactive;
 use remedy_ui_reactive::Signal;
+pub use remedy_ui_style as style;
 pub use remedy_ui_view as view;
 use remedy_ui_view::{El, TextField, Ui};
 pub use remedy_ui_widgets_core as w;
 
-/// A space: grid units from the theme, or pixels.
+/// A space: a step of the theme's spacing scale, or pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Space {
-    /// `s3`: three of the theme's grid units.
-    Units(u8),
+    /// `s3`, `s0_5`: a spacing token, resolved through the theme.
+    Token(remedy_ui_style::Space),
     /// `12`: pixels.
     Px(f32),
 }
@@ -27,7 +28,7 @@ impl Space {
     /// In pixels, by `ui`'s theme.
     pub fn px(self, ui: &Ui) -> f32 {
         match self {
-            Space::Units(n) => ui.theme().spacing.s(n),
+            Space::Token(t) => t.px(&ui.theme()),
             Space::Px(p) => p,
         }
     }

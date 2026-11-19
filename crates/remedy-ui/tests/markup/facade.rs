@@ -27,7 +27,7 @@ pub const SOURCE: &str = "// A small screen compiled through the facade (remedy_
 /// Builds the file's elements; `t` translates `@t("...")`.
 #[allow(unused_variables, clippy::redundant_clone)]
 pub fn build(ui: &remedy_ui_markup::rt::view::Ui, b: &Bindings, t: &dyn Fn(&str) -> String) -> remedy_ui_markup::rt::view::El {
-    remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::w::column(ui), &remedy_ui_markup::rt::Common { gap: Some(remedy_ui_markup::rt::Space::Units(2)), ..::core::default::Default::default() }, vec![
+    remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::w::column(ui), &remedy_ui_markup::rt::Common { gap: Some(remedy_ui_markup::rt::Space::Token(remedy_ui_markup::rt::style::Space::S2)), ..::core::default::Default::default() }, vec![
         remedy_ui_markup::rt::finish(ui, remedy_ui_markup::rt::w::switch(ui, t("Noise suppression"), b.noise_suppression), &remedy_ui_markup::rt::Common::default(), vec![]),
         remedy_ui_markup::rt::finish(ui, { let f = b.save.clone(); remedy_ui_markup::rt::w::button(ui, t("Save"), move || f()) }, &remedy_ui_markup::rt::Common { variant: Some("primary"), ..::core::default::Default::default() }, vec![]),
     ])

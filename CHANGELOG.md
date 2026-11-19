@@ -97,6 +97,11 @@ Everything since the start of the project, by milestone ([docs/ROADMAP.md](docs/
 
 ### Changed
 
+- `.rui` spacing words are the theme's spacing scale, half steps and layout steps included
+  (`s0_5` … `s24`); `remedy_ui_rui::rt::Space::Units(u8)` is now `Space::Token(Space)` and
+  `spec::space_units` is `spec::space_token`. A wrong word lists the scale.
+- Generated apps' README and `remedy.toml` describe `cargo remedy package --target web` and
+  the other targets.
 Breaking before 1.0; `cargo remedy migrate` applies the renames marked (m).
 
 - `remedy_ui::text::StylePatch` is `TextStylePatch` (m); `remedy_ui::view::TextPatch` is
@@ -146,6 +151,16 @@ Breaking before 1.0; `cargo remedy migrate` applies the renames marked (m).
 
 ### Fixed
 
+- Scripted widgets are no longer stopped as "too slow" or "out of steps" on a busy machine.
+  Their time limit counts the work done on their own thread (new `remedy_ui_core::time`
+  `ThreadTime` and `WorkClock`: over a budget only when both the thread's processor time and
+  the monotonic clock say so), speed measurements last several ticks of the thread clock
+  (`ThreadTime::resolution`, about 15.6 ms on Windows; `remedy_ui_script::min_sample`), and
+  until a device's speed is measured only the time limit applies (`Limits::step_budget`).
+- WebAssembly widgets compile when they load, so a call's fuel pays only for running the
+  widget, never for compiling it (a first call could fail on compiling a large function).
+- A page view fits its zoom as soon as it learns its size, so its first frames render only
+  the tiles that show.
 - A pause in typing starts a new undo step (the view's edit clock never advanced).
 - Assistive technology can no longer press a disabled control, which let a screen reader (or
   anything driving one) press a trusted prompt's buttons during the moment they stay disabled.

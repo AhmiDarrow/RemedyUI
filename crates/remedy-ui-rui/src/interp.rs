@@ -430,8 +430,8 @@ fn resolve(v: &Value, scope: &Scope) -> Bound {
         Value::Range(a, b) => Bound::Range(*a, *b),
         Value::Number(n) => Bound::Count(*n),
         Value::Bool(b) => Bound::Switch(*b),
-        Value::Token(t) => match spec::space_units(t) {
-            Some(n) => Bound::Space(Space::Units(n)),
+        Value::Token(t) => match spec::space_token(t) {
+            Some(s) => Bound::Space(Space::Token(s)),
             None => Bound::Word(t.clone()),
         },
     }

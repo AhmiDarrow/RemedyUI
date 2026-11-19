@@ -265,3 +265,41 @@ fn the_step_rate_is_measured_on_this_device() {
     assert!(matches!(r, Err(ScriptError::OutOfFuel | ScriptError::TooSlow)), "{r:?}");
     assert!(start.elapsed() < Duration::from_millis(500), "{:?}", start.elapsed());
 }
+
+#[test]
+fn a_busy_machine_does_not_stop_fair_work() {
+    // Keep every core busy, twice over, while fair calls run: their budget is processor time
+    // on their own thread, so time the system gives the spinners does not count against them.
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let cores = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+    let spinners: Vec<_> = (0..cores * 2)
+        .map(|_| {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                let mut x = 1u64;
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+                }
+                std::hint::black_box(x);
+            })
+        })
+        .collect();
+    let mut failures = Vec::new();
+    for _ in 0..200 {
+        let mut w = match load(POLL, Limits::default()) {
+            Ok(w) => w,
+            Err(e) => {
+                failures.push(e);
+                continue;
+            }
+        };
+        if let Err(e) = render(&mut w) {
+            failures.push(e);
+        }
+    }
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    for s in spinners {
+        let _ = s.join();
+    }
+    assert!(failures.is_empty(), "fair calls were stopped on a busy machine: {failures:?}");
+}

@@ -53,7 +53,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use remedy_ui_core::time::Instant;
+use remedy_ui_core::time::WorkClock;
 use remedy_ui_script::StepRate;
 use remedy_ui_script::{
     Action, Described, Language, Limits, Manifest, Node, ScriptEngine, ScriptError, ScriptWidget, SettingSpec,
@@ -91,9 +91,9 @@ pub fn measure() -> Option<(u64, std::time::Duration)> {
     remedy_ui_script::calibrate_with(FALLBACK_OPERATIONS_PER_MS, |steps| {
         let limits = Limits::default().operations(Some(steps)).time(std::time::Duration::from_secs(10));
         let mut w = RhaiWidget::load(CALIBRATION, limits).ok()?;
-        let start = Instant::now();
+        let start = WorkClock::start();
         let r = w.render(&serde_json::Map::new(), &Value::Null);
-        (r == Err(ScriptError::OutOfFuel)).then(|| start.elapsed())
+        (r == Err(ScriptError::OutOfFuel)).then(|| start.work())
     })
 }
 
@@ -161,7 +161,7 @@ pub struct RhaiWidget {
     limits: Limits,
 }
 
-/// What a running call is measured against: its deadline on the clock and where its stack
+/// What a running call is measured against: the processor time it may use and where its stack
 /// began. Rhai's evaluator recurses on the caller's stack, so the engine measures how far
 /// the stack has grown at every step and stops the script before it can overflow it.
 ///
@@ -172,23 +172,24 @@ pub struct RhaiWidget {
 /// without end would take the stack to take apart).
 #[derive(Default)]
 struct Meter {
-    deadline: Cell<Option<Instant>>,
+    /// The processor time the running call may use (none between calls).
+    allowed: Cell<Option<std::time::Duration>>,
     stack_base: Cell<usize>,
     stack: Cell<usize>,
     steps: Cell<u64>,
     memory: Cell<usize>,
     depth: Cell<usize>,
-    /// When the call began, and the operations it has taken: a measurement of the rate.
-    began: Cell<Option<Instant>>,
+    /// The thread's clock when the call began, and the operations it has taken: a measurement
+    /// of the rate.
+    began: Cell<Option<WorkClock>>,
     ops: Cell<u64>,
 }
 
 impl Meter {
     fn start(&self, limits: &Limits) {
-        let now = Instant::now();
-        self.began.set(Some(now));
+        self.began.set(Some(WorkClock::start()));
         self.ops.set(0);
-        self.deadline.set(Some(now + limits.time));
+        self.allowed.set(Some(limits.time));
         self.stack_base.set(stack_position());
         self.stack.set(limits.stack);
         self.steps.set(0);
@@ -220,9 +221,9 @@ impl Meter {
 
     /// Ends the call, and records its operations over its time as a measurement of the rate.
     fn stop(&self) {
-        self.deadline.set(None);
+        self.allowed.set(None);
         if let Some(began) = self.began.take() {
-            let _ = RATE.record(self.ops.get(), began.elapsed());
+            let _ = RATE.record(self.ops.get(), began.work());
         }
     }
 
@@ -236,8 +237,8 @@ impl Meter {
         if !ops.is_multiple_of(CLOCK_EVERY) {
             return None;
         }
-        match self.deadline.get() {
-            Some(at) if Instant::now() > at => Some(TIME_UP.into()),
+        match (self.allowed.get(), self.began.get()) {
+            (Some(allowed), Some(began)) if began.over(allowed) => Some(TIME_UP.into()),
             _ => None,
         }
     }
@@ -488,7 +489,7 @@ impl RhaiWidget {
         RATE.calibrate_once("remedy-ui-script-rhai calibration", measure);
         let mut engine = Engine::new();
         engine
-            .set_max_operations(limits.operations_at(RATE.per_ms()))
+            .set_max_operations(limits.step_budget(&RATE))
             .set_max_call_levels(limits.call_depth)
             .set_max_expr_depths(EXPR_DEPTH, FN_EXPR_DEPTH)
             .set_max_string_size(value_bytes)
@@ -550,7 +551,7 @@ impl RhaiWidget {
         f: impl FnOnce(&Engine, &AST, &mut Dynamic) -> Result<R, Box<EvalAltResult>>,
     ) -> Result<R, ScriptError> {
         // The budget follows the rate as it is measured.
-        self.engine.set_max_operations(self.limits.operations_at(RATE.per_ms()));
+        self.engine.set_max_operations(self.limits.step_budget(&RATE));
         self.meter.start(&self.limits);
         let r = f(&self.engine, &self.ast, &mut self.state);
         self.meter.stop();

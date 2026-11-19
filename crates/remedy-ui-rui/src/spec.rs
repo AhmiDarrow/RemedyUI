@@ -62,7 +62,7 @@ impl Kind {
             Kind::Command => "a command (!name)",
             Kind::Range => "a range (0..100)",
             Kind::Count => "a number",
-            Kind::Space => "a spacing token (s1, s2...) or pixels",
+            Kind::Space => "a spacing token (s0_5, s1, s2...) or pixels",
             Kind::Switch => "true or false",
             Kind::Word => "a word",
         }
@@ -92,7 +92,7 @@ impl Kind {
             (Kind::Range, Value::Range(..)) => true,
             (Kind::Count, Value::Number(_)) => true,
             (Kind::Space, Value::Number(_)) => true,
-            (Kind::Space, Value::Token(t)) => space_units(t).is_some(),
+            (Kind::Space, Value::Token(t)) => space_token(t).is_some(),
             (Kind::Switch, Value::Bool(_)) => true,
             (Kind::Word, Value::Token(_) | Value::Str(_)) => true,
             _ => false,
@@ -100,9 +100,15 @@ impl Kind {
     }
 }
 
-/// `s3` as three grid units.
-pub fn space_units(token: &str) -> Option<u8> {
-    token.strip_prefix('s').and_then(|n| n.parse().ok())
+/// A spacing word (`s3`, `s0_5`, `s12`) as the theme's spacing token: the scale every Remedy
+/// app shares (design 13), so markup and Rust use the same steps.
+pub fn space_token(token: &str) -> Option<remedy_ui_style::Space> {
+    remedy_ui_style::Space::from_name(token)
+}
+
+/// The spacing words markup takes, in order, for messages.
+pub fn space_names() -> String {
+    remedy_ui_style::Space::ALL.iter().map(|s| s.name()).collect::<Vec<_>>().join(", ")
 }
 
 /// A slider's step when the file gives none: a hundredth of the range.
@@ -235,11 +241,16 @@ fn check_node(file: &str, n: &Node, specs: &[Spec], uses: &mut Uses) -> Result<(
                 .help(format!("it takes: {}", names(all().map(|p| p.name)))));
         };
         if !param.kind.accepts(&a.value) {
-            return Err(RuiError::new(
+            let err = RuiError::new(
                 file,
                 a.value_at,
                 format!("`{}` takes {}, not {}", a.name, param.kind.describe(), a.value.describe()),
-            ));
+            );
+            return Err(if param.kind == Kind::Space {
+                err.help(format!("spacing: {}", space_names()))
+            } else {
+                err
+            });
         }
         let word = |list: &[&str]| match &a.value {
             Value::Token(w) | Value::Str(w) if !list.contains(&w.as_str()) => {

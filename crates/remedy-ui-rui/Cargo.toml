@@ -24,6 +24,7 @@ runtime = [
 ]
 
 [dependencies]
+remedy-ui-style = { path = "../remedy-ui-style", version = "0.1.0" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "0.1.0", optional = true }
 remedy-ui-layout = { path = "../remedy-ui-layout", version = "0.1.0", optional = true }
 remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "0.1.0", optional = true }
