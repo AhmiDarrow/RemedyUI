@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "RemedyUI repository checks: the crate layer graph and the unsafe-code boundary. Not published."
+description = "RemedyUI repository checks: the crate layer graph, the unsafe-code boundary and the committed docs index; and the docs-index, semver and msrv tasks. Not published."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,7 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+flate2 = { version = "=1.1.11", default-features = false, features = ["rust_backend"] }
 serde_json = { version = "=1.0.154", default-features = false, features = ["std"] }
 
 [lints]

@@ -38,6 +38,11 @@ ignore = [
     # with its compact_str feature. A maintenance notice, not a vulnerability; remove when Rhai
     # drops it.
     { id = "RUSTSEC-2026-0249", reason = "smartstring via rhai; maintenance notice only" },
+    # rmcp 3.11 (the official MCP SDK, the latest release) depends on chrono for protocol
+    # timestamps, and enables schemars' chrono support. A maintenance notice, not a
+    # vulnerability, in remedy-mcp only, a developer tool no app links; remove when rmcp
+    # moves off chrono.
+    { id = "RUSTSEC-2026-0543", reason = "chrono via rmcp (remedy-mcp only); maintenance notice only" },
 ]
 
 [licenses]

@@ -3,5 +3,6 @@
 *.otf binary
 *.woff2 binary
 *.png binary
+*.zz binary
 *.dex binary
 *.mp4 binary
