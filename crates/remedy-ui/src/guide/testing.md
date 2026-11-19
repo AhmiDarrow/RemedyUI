@@ -158,6 +158,7 @@ answer it:
 | copies ([`App::copy`](crate::App::copy)) | [`HeadlessHost::clipboard`](crate::headless::HeadlessHost::clipboard) says what, and whether it was marked sensitive |
 | opens a file dialog ([`App::file_dialog`](crate::App::file_dialog)) | [`HeadlessHost::answer_dialog`](crate::headless::HeadlessHost::answer_dialog) picks the files; [`HeadlessHost::dialogs`](crate::headless::HeadlessHost::dialogs) lists what was asked |
 | sets a tray icon ([`App::set_tray`](crate::App::set_tray), [`App::tray_dyn`](crate::App::tray_dyn)) | [`HeadlessHost::tray`](crate::headless::HeadlessHost::tray) shows it; a `HostEvent::Tray` clicks it |
+| gives a window its own icon ([`WindowSpec::icon`](crate::WindowSpec::icon), [`Window::set_icon`](crate::Window::set_icon)) | [`HeadlessWindow::options`](crate::headless::HeadlessWindow::options)`().icon` holds it |
 | opens a link ([`App::open_url`](crate::App::open_url)) | [`HeadlessHost::opened_urls`](crate::headless::HeadlessHost::opened_urls) |
 | drags out to other apps | [`HeadlessHost::drags_out`](crate::headless::HeadlessHost::drags_out), [`HeadlessHost::answer_drag`](crate::headless::HeadlessHost::answer_drag) |
 | sizes caches from memory | [`HeadlessHost::set_total_memory`](crate::headless::HeadlessHost::set_total_memory) |

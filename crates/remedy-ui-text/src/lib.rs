@@ -47,7 +47,7 @@ pub use editing::{
     Composition, SecretEditor, SecretString, TextChange, TextEditor, TextSelection, UNDO_PAUSE_MS,
 };
 pub use engine::{
-    Affinity, FontCollection, FontError, GlyphRunInfo, LineInfo, Paragraph, ParagraphOptions,
+    Affinity, FontCollection, FontError, FontFile, GlyphRunInfo, LineInfo, Paragraph, ParagraphOptions,
     PositionedGlyph, RunFont, TextEngine, TextPosition,
 };
 pub use pseudo::Pseudo;

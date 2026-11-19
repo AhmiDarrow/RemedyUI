@@ -371,6 +371,9 @@ pub(crate) struct ElData {
     /// How keyboard users do what this element's pointer handling does.
     pub(crate) keyboard_alternative: Option<String>,
     pub(crate) hidden: bool,
+    /// Lays out as nothing, like `hidden`, but set by the engine (a [`crate::show`] with
+    /// nothing to show), so it never fights what the app sets with [`El::hidden`].
+    pub(crate) collapsed: bool,
     pub(crate) removed: Vec<Box<dyn FnOnce()>>,
     pub(crate) on_scroll: Option<Rc<dyn Fn(Vec2)>>,
     /// The last recorded paint chunk, and the size it was recorded at.
@@ -1421,6 +1424,7 @@ impl ElData {
             data_text: false,
             keyboard_alternative: None,
             hidden: false,
+            collapsed: false,
             removed: Vec::new(),
             on_scroll: None,
             chunk: None,
@@ -2351,6 +2355,16 @@ impl El {
         self.edit(Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS, |d| d.hidden = on);
         self.ui.0.borrow_mut().structure_changed = true;
         self
+    }
+
+    /// Makes an engine-made wrapper take no space (and no gap) while it holds nothing, or
+    /// space again once it does.
+    pub(crate) fn set_collapsed(&self, on: bool) {
+        if self.ui.0.borrow().els.get(&self.id).is_none_or(|d| d.collapsed == on) {
+            return;
+        }
+        self.edit(Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS, |d| d.collapsed = on);
+        self.ui.0.borrow_mut().structure_changed = true;
     }
 
     /// Paints the element and everything inside it into a compositor layer of its own,

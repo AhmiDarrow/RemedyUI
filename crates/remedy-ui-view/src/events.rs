@@ -306,17 +306,29 @@ impl Ui {
                 KeyOutcome::Copy(text) => {
                     self.field_edited(f, &field, true);
                     if !text.is_empty() {
-                        self.request(Request::Copy { text, sensitive: false, html: None });
+                        match field::secret_copy(&field) {
+                            Some(keep) => self.request(Request::CopySecret { text, keep }),
+                            None => self.request(Request::Copy { text, sensitive: false, html: None }),
+                        }
+                        field::notify_copy(&field);
                     }
                     return true;
                 }
                 KeyOutcome::CopyRich(doc) => {
                     self.field_edited(f, &field, true);
                     if !doc.text.is_empty() {
-                        let html = remedy_ui_text::to_html(&doc);
                         let text = doc.text.replace(remedy_ui_text::SOFT_BREAK, "\n");
-                        self.0.borrow_mut().rich_clip = Some((html.clone(), doc));
-                        self.request(Request::Copy { text, sensitive: false, html: Some(html) });
+                        match field::secret_copy(&field) {
+                            // A secret leaves as plain text only and is not kept for a
+                            // formatted paste: nothing of it outlives the clear.
+                            Some(keep) => self.request(Request::CopySecret { text, keep }),
+                            None => {
+                                let html = remedy_ui_text::to_html(&doc);
+                                self.0.borrow_mut().rich_clip = Some((html.clone(), doc));
+                                self.request(Request::Copy { text, sensitive: false, html: Some(html) });
+                            }
+                        }
+                        field::notify_copy(&field);
                     }
                     return true;
                 }

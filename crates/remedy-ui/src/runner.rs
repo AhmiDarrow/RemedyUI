@@ -11,12 +11,12 @@ use remedy_ui_compositor::{Compositor, LayerId};
 use remedy_ui_core::{Color, Edition, Point, Size, Vec2};
 use remedy_ui_host::{
     AccessibilityEvent, FileDialog, Host, HostEvent, Pixels, ResizeEdge, SystemSettings, TimerId, TrayEvent,
-    TrayIcon, Unsupported, WindowId, WindowOptions,
+    TrayIcon, Unsupported, WindowIcon, WindowId, WindowOptions,
 };
 use remedy_ui_input::ScrollPhysics;
 use remedy_ui_render_cpu::CpuCompositor;
 use remedy_ui_style::{StyleSheet, Theme};
-use remedy_ui_text::FontCollection;
+use remedy_ui_text::{FontCollection, FontFile};
 use remedy_ui_tree::ElementId;
 use remedy_ui_view::{Request, Ui};
 
@@ -129,6 +129,38 @@ impl AppConfig {
     #[cfg(feature = "web")]
     pub fn web(mut self, web: remedy_ui_bridge_web::WebConfig) -> Self {
         self.web = web;
+        self
+    }
+
+    /// Adds a font the app ships (its brand's typeface; TrueType, OpenType, WOFF or WOFF2) to
+    /// every window's fonts, after the bundled Remedy families. Name its family first in the
+    /// theme's [`font_families`](remedy_ui_style::Theme::font_families) to draw text in it.
+    /// Several files of one family (weights, styles, or a web font's subsets per script) are
+    /// added one call each and join as one family.
+    ///
+    /// ```
+    /// use remedy_ui::AppConfig;
+    /// use remedy_ui::text::FontFile;
+    ///
+    /// # fn brand() -> Result<AppConfig, remedy_ui::text::FontError> {
+    /// # let font_bytes: &'static [u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../remedy-ui-text/tests/fixtures/inter/inter-latin-400-normal.woff2"));
+    /// // let font_bytes = include_bytes!("../assets/brand-400.woff2");
+    /// let regular = FontFile::new(font_bytes)?;
+    /// let family = regular.families()[0].clone();
+    /// let mut config = AppConfig::new("Notes").font(regular);
+    /// config.theme.font_families.insert(0, family);
+    /// # Ok(config)
+    /// # }
+    /// # assert!(brand().is_ok());
+    /// ```
+    pub fn font(mut self, file: FontFile) -> Self {
+        let before = self.fonts.clone();
+        self.fonts = Rc::new(move || {
+            let mut fonts = before();
+            // Checked when the file was read; adding it again cannot fail.
+            let _ = fonts.add_file(&file);
+            fonts
+        });
         self
     }
 
@@ -315,6 +347,16 @@ impl WindowSpec {
         self
     }
 
+    /// Gives the window its own icon: what the taskbar, its title bar and window switchers
+    /// show for it, instead of the app's (from the executable or the desktop entry). Shown on
+    /// Windows, X11, Wayland compositors with the `xdg-toplevel-icon` protocol, and as the
+    /// page's icon (or in a floating window's title bar) in a browser; macOS and Android show
+    /// the app's icon for every window.
+    pub fn icon(mut self, icon: WindowIcon) -> Self {
+        self.options.icon = Some(icon);
+        self
+    }
+
     /// Covers the content while the window is not focused.
     pub fn privacy_cover(mut self, on: bool) -> Self {
         self.privacy_cover = on;
@@ -429,6 +471,7 @@ enum Cmd {
     Maximize(u64, bool),
     Fullscreen(u64, bool),
     Capture(u64, bool),
+    Icon(u64, Option<WindowIcon>),
     Timer(Duration, Box<dyn FnOnce()>),
     Copy(String, bool),
     CopySecret(String, Duration),
@@ -1149,6 +1192,12 @@ impl Window {
     pub fn set_capture_protected(&self, on: bool) {
         self.app.push(Cmd::Capture(self.key, on));
     }
+
+    /// Changes the window's own icon ([`WindowSpec::icon`]), or gives it back the app's with
+    /// `None`: a note window in its note's color, a document's file type.
+    pub fn set_icon(&self, icon: Option<WindowIcon>) {
+        self.app.push(Cmd::Icon(self.key, icon));
+    }
 }
 
 /// What runs with a file dialog's choice.
@@ -1450,6 +1499,12 @@ impl Runner {
                     }
                 }
             }
+            Cmd::Icon(key, icon) => {
+                if let Some(h) = self.host_of(key) {
+                    // Where windows have no icons of their own, the app's stays: nothing to do.
+                    let _ = host.set_window_icon(h, icon.as_ref());
+                }
+            }
             Cmd::Timer(delay, f) => {
                 let id = host.set_timer(host.now() + delay);
                 self.timers.insert(id, f);
@@ -1457,16 +1512,7 @@ impl Runner {
             Cmd::Copy(text, sensitive) => {
                 let _ = host.set_clipboard_text(&text, sensitive);
             }
-            Cmd::CopySecret(text, keep) => {
-                if host.set_clipboard_text(&text, true).is_ok() {
-                    let copy = remedy_ui_secure::SensitiveCopy::new(&text, host.now(), keep);
-                    if let Some((_, old)) = self.secret.take() {
-                        host.cancel_timer(old);
-                    }
-                    let t = host.set_timer(copy.clear_at());
-                    self.secret = Some((copy, t));
-                }
-            }
+            Cmd::CopySecret(text, keep) => self.copy_secret(host, &text, keep),
             Cmd::Locale(locale) => {
                 self.locale = locale;
                 let tag = self.locale.clone().unwrap_or_else(|| self.settings.locale.clone());
@@ -1552,6 +1598,19 @@ impl Runner {
         }
     }
 
+    /// Puts a secret on the clipboard (out of history and sync) and clears it after `keep`
+    /// if the clipboard still holds it; a newer secret replaces the older one's timer.
+    fn copy_secret(&mut self, host: &mut dyn Host, text: &str, keep: Duration) {
+        if host.set_clipboard_text(text, true).is_ok() {
+            let copy = remedy_ui_secure::SensitiveCopy::new(text, host.now(), keep);
+            if let Some((_, old)) = self.secret.take() {
+                host.cancel_timer(old);
+            }
+            let t = host.set_timer(copy.clear_at());
+            self.secret = Some((copy, t));
+        }
+    }
+
     fn requests(&mut self, host: &mut dyn Host, key: u64) {
         let Some(w) = self.wins.get(&key) else { return };
         let (h, ui) = (w.host, w.ui.clone());
@@ -1599,6 +1658,7 @@ impl Runner {
                         _ => host.set_clipboard_text(&text, sensitive),
                     };
                 }
+                Request::CopySecret { text, keep } => self.copy_secret(host, &text, keep),
                 Request::Paste => {
                     if let Ok(Some(t)) = host.clipboard_text() {
                         let html = host.clipboard_html().ok().flatten();

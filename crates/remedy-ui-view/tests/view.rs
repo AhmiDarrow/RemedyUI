@@ -205,6 +205,66 @@ fn text_fields_edit_through_keys_clipboard_and_input_methods() {
 }
 
 #[test]
+fn fields_that_copy_as_secret_send_copies_and_cuts_to_the_secure_clipboard() {
+    let ui = ui();
+    let keep = std::time::Duration::from_secs(30);
+    let copies = Rc::new(Cell::new(0));
+    let c2 = copies.clone();
+    let note = ui
+        .text_field("text_area", FieldKind::Multi)
+        .copy_as_secret(keep)
+        .on_copy(move || c2.set(c2.get() + 1));
+    let rich = ui.text_field("rich_input", FieldKind::Rich).copy_as_secret(keep);
+    let plain = ui.text_field("text_input", FieldKind::Single);
+    assert_eq!((note.secret_copy(), plain.secret_copy()), (Some(keep), None));
+    ui.root().child(note.el()).child(rich.el()).child(plain.el());
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    note.set_value("token: abc123");
+    note.el().focus();
+    let _ = ui.take_requests();
+
+    // Nothing selected: nothing copied, and nobody told.
+    ui.key(&ctrl("c"));
+    assert!(
+        !ui.take_requests().iter().any(|r| matches!(r, Request::Copy { .. } | Request::CopySecret { .. }))
+    );
+    assert_eq!(copies.get(), 0);
+
+    ui.key(&ctrl("a"));
+    ui.key(&ctrl("c"));
+    let r = ui.take_requests();
+    assert!(r.contains(&Request::CopySecret { text: "token: abc123".into(), keep }), "{r:?}");
+    assert!(!r.iter().any(|r| matches!(r, Request::Copy { .. })), "never an ordinary copy");
+    assert_eq!(copies.get(), 1);
+
+    ui.key(&ctrl("x"));
+    assert!(ui.take_requests().contains(&Request::CopySecret { text: "token: abc123".into(), keep }));
+    assert_eq!(note.value(), "", "cut");
+    assert_eq!(copies.get(), 2);
+
+    // A rich field's secret copy is plain text, with no HTML to outlive the clear.
+    rich.set_value("**bold** key");
+    rich.el().focus();
+    ui.key(&ctrl("a"));
+    ui.key(&ctrl("c"));
+    let r = ui.take_requests();
+    assert!(r.iter().any(|r| matches!(r, Request::CopySecret { text, .. } if text.contains("key"))), "{r:?}");
+    assert!(!r.iter().any(|r| matches!(r, Request::Copy { .. })));
+
+    // Other fields copy as before.
+    plain.set_value("hello");
+    plain.el().focus();
+    ui.key(&ctrl("a"));
+    ui.key(&ctrl("c"));
+    assert!(ui.take_requests().contains(&Request::Copy {
+        text: "hello".into(),
+        sensitive: false,
+        html: None
+    }));
+}
+
+#[test]
 fn secret_fields_mask_never_copy_and_skip_input_methods() {
     let ui = ui();
     let submitted = Rc::new(Cell::new(false));

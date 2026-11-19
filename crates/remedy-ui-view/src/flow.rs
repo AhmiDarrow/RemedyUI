@@ -518,6 +518,8 @@ impl std::fmt::Debug for Show {
 /// Shows what `build` makes while `when` is true: a signal, a closure or a constant. The
 /// content is built in a scope of its own each time it appears and disposed (its effects,
 /// signals and resources with it) when it goes.
+/// While it shows nothing (no fallback, nothing leaving), it takes no room and no gap in its
+/// row or column.
 ///
 /// ```
 /// # use remedy_ui_view::{Ui, show};
@@ -586,8 +588,11 @@ impl Show {
                 if let Some((_, old)) = current.borrow_mut().take() {
                     match &t_out {
                         Some(t) => {
-                            let el = old.el.clone();
-                            play_exit(&el, t, move || old.remove());
+                            let (el, h2) = (old.el.clone(), h.clone());
+                            play_exit(&el, t, move || {
+                                old.remove();
+                                collapse_if_empty(&h2);
+                            });
                         }
                         None => old.remove(),
                     }
@@ -600,12 +605,20 @@ impl Show {
                     }
                     *current.borrow_mut() = Some((on, m));
                 }
+                // Showing nothing (no fallback, nothing leaving), it takes no room and no gap
+                // in its row or column, as content that is not there would not.
+                collapse_if_empty(&h);
                 first = false;
             });
         };
         bind_in_scope(&host, "show", run);
         host
     }
+}
+
+/// Collapses `host` while it holds nothing, and opens it again once it does.
+fn collapse_if_empty(host: &El) {
+    host.set_collapsed(host.ui.tree().children(host.id).is_empty());
 }
 
 impl From<Show> for El {

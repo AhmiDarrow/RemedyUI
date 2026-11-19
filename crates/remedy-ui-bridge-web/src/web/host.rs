@@ -8,7 +8,7 @@ use remedy_ui_core::{Point, Rect, Size};
 use remedy_ui_host::{
     AccessibilityEvent, DialogStarted, DragData, DragStarted, DropEffect, FileDialog, Host, HostEvent,
     LocalTime, Pixels, ResizeEdge, SafeArea, SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported,
-    Waker, WindowHandles, WindowId, WindowOptions,
+    Waker, WindowHandles, WindowIcon, WindowId, WindowOptions,
 };
 use remedy_ui_input::Platform;
 
@@ -79,6 +79,10 @@ impl Host for WebHost<'_> {
         let win = Win::create(self.d, id, options, mount, z)?;
         let page_title = self.d.state.borrow().config.title_is_page_title;
         win.set_title(&options.title, page_title);
+        if let Some(icon) = &options.icon {
+            // Best effort, as on the desktop: a page whose icon is its own keeps it.
+            let _ = win.set_icon(Some(icon), page_title);
+        }
         self.d.state.borrow_mut().windows.insert(id, win.clone());
         // Screen readers cannot announce their presence to a page, so the tree is always
         // kept for them.
@@ -182,6 +186,11 @@ impl Host for WebHost<'_> {
         w.on_top.set(on);
         w.raise();
         Ok(())
+    }
+
+    fn set_window_icon(&mut self, window: WindowId, icon: Option<&WindowIcon>) -> Result<(), Unsupported> {
+        let page_title = self.d.state.borrow().config.title_is_page_title;
+        self.win(window).ok_or_else(closed)?.set_icon(icon, page_title)
     }
 
     fn set_capture_protected(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported> {

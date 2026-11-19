@@ -200,6 +200,14 @@ and the window both say so, and quits from the menu.
   loses nothing. A failed write shows its error in the note, through
   [`show`](crate::show).
 - **More notes.** "New note" picks a number no note has yet and opens it beside the others.
+- **Its icon.** [`WindowSpec::icon`](crate::WindowSpec::icon) gives each note window an icon
+  of its own (in the note's color, say) in the taskbar and window switchers;
+  [`Window::set_icon`](crate::Window::set_icon) changes it when the color does. Where
+  windows have no icons of their own (macOS, Android, Wayland compositors without
+  `xdg-toplevel-icon`), the app's icon shows.
+- **Copying out.** A note that holds passwords keeps them in an ordinary multi-line field
+  with [`TextField::copy_as_secret`](crate::TextField::copy_as_secret): Ctrl+C and Ctrl+X
+  copy as secrets, kept out of clipboard history and cleared after the time given.
 
 The test opens the notes in a temporary folder and checks the window is frameless and on
 top, sets the note's text and reads the file back, presses the header and sees the host asked

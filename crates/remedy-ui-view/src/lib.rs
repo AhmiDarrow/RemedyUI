@@ -71,6 +71,14 @@ pub enum Request {
         /// The same as HTML, for apps that paste formatting (rich text).
         html: Option<String>,
     },
+    /// Put a secret on the clipboard: kept out of history and sync, and cleared after `keep`
+    /// if the clipboard still holds it (a field that [`TextField::copy_as_secret`]).
+    CopySecret {
+        /// The text.
+        text: String,
+        /// How long it may stay.
+        keep: std::time::Duration,
+    },
     /// Read the clipboard and deliver it with [`Ui::paste`].
     Paste,
     /// Make this text the primary selection (what was just selected; X11 and Wayland paste

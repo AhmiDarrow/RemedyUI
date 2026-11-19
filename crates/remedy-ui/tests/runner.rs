@@ -325,6 +325,34 @@ fn idle_lock_waits_for_real_input_and_secret_copies_clear_only_themselves() {
 }
 
 #[test]
+fn windows_carry_icons_of_their_own() {
+    use remedy_ui::host::WindowIcon;
+    let amber = WindowIcon::new(2, [251, 191, 36, 255].repeat(4)).unwrap_or_else(|| unreachable!("2 × 2"));
+    let green = WindowIcon::new(1, vec![74, 222, 128, 255]).unwrap_or_else(|| unreachable!("1 × 1"));
+    let windows = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let (w2, a2) = (windows.clone(), amber.clone());
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        w2.borrow_mut().push(app.open(WindowSpec::new("Manager").icon(a2), |_, _| {}));
+        w2.borrow_mut().push(app.open(WindowSpec::new("Plain"), |_, _| {}));
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let ids = host.window_ids();
+    let icon_of = |host: &HeadlessHost, i: usize| {
+        ids.get(i).and_then(|id| host.window(*id)).and_then(|w| w.options().icon.clone())
+    };
+    assert_eq!(icon_of(&host, 0), Some(amber), "opened with its own icon");
+    assert_eq!(icon_of(&host, 1), None, "the app's icon");
+    let Some(plain) = windows.borrow().get(1).cloned() else { unreachable!("opened") };
+    plain.set_icon(Some(green.clone()));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(icon_of(&host, 1), Some(green));
+    plain.set_icon(None);
+    host.run_frames(&mut runner, 1);
+    assert_eq!(icon_of(&host, 1), None, "back to the app's");
+}
+
+#[test]
 fn privacy_cover_hides_content_while_unfocused() {
     let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), |app: &App| {
         app.open(WindowSpec::new("Secrets").size(200.0, 100.0).privacy_cover(true), |ui, _| {

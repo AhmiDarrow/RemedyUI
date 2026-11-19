@@ -121,6 +121,79 @@ pub enum Icon {
     FullscreenExit,
     /// A box with lines of text: captions and subtitles.
     Captions,
+    /// A house: the home screen or start page.
+    Home,
+    /// A framed picture with a mountain and a sun: an image or photo.
+    Image,
+}
+
+impl Icon {
+    /// What the icon shows, in English, for when the icon alone stands for something ("Home"
+    /// on a toolbar button, "Image" for a file's kind). Screen readers read it where the
+    /// icon carries meaning; [`icon`] itself is decorative, so whatever holds the icon names
+    /// it (an [`icon_button`](crate::icon_button)'s label, or this name translated).
+    pub fn accessible_name(self) -> &'static str {
+        match self {
+            Icon::Plus => "Add",
+            Icon::Minus => "Remove",
+            Icon::Maximize => "Maximize",
+            Icon::Restore => "Restore",
+            Icon::Close => "Close",
+            Icon::Check => "Done",
+            Icon::Lock => "Locked",
+            Icon::Unlock => "Unlocked",
+            Icon::Pin => "Pin",
+            Icon::Trash => "Delete",
+            Icon::Copy => "Copy",
+            Icon::Eye => "Show",
+            Icon::EyeOff => "Hide",
+            Icon::ChevronDown => "Expand",
+            Icon::ChevronRight => "Next",
+            Icon::ChevronLeft => "Previous",
+            Icon::ChevronUp => "Collapse",
+            Icon::Menu => "Menu",
+            Icon::Search => "Search",
+            Icon::Info => "Information",
+            Icon::Alert => "Warning",
+            Icon::Clock => "Time",
+            Icon::Key => "Key",
+            Icon::Settings => "Settings",
+            Icon::Note => "Note",
+            Icon::External => "Open outside the app",
+            Icon::Refresh => "Refresh",
+            Icon::Folder => "Folder",
+            Icon::File => "File",
+            Icon::Download => "Download",
+            Icon::Upload => "Upload",
+            Icon::Send => "Send",
+            Icon::ArrowLeft => "Back",
+            Icon::ArrowRight => "Forward",
+            Icon::ArrowUp => "Up",
+            Icon::Users => "People",
+            Icon::Monitor => "Computer",
+            Icon::Bold => "Bold",
+            Icon::Italic => "Italic",
+            Icon::Strike => "Strikethrough",
+            Icon::Code => "Code",
+            Icon::Link => "Link",
+            Icon::ListBullet => "Bulleted list",
+            Icon::ListNumber => "Numbered list",
+            Icon::ListTask => "Task list",
+            Icon::Quote => "Quote",
+            Icon::CodeBlock => "Code block",
+            Icon::Heading => "Heading",
+            Icon::At => "Mention",
+            Icon::Play => "Play",
+            Icon::Pause => "Pause",
+            Icon::Volume => "Volume",
+            Icon::VolumeMuted => "Muted",
+            Icon::Fullscreen => "Full screen",
+            Icon::FullscreenExit => "Exit full screen",
+            Icon::Captions => "Captions",
+            Icon::Home => "Home",
+            Icon::Image => "Image",
+        }
+    }
 }
 
 fn p(x: f32, y: f32) -> Point {
@@ -486,6 +559,18 @@ fn strokes(icon: Icon) -> Path {
             s.move_to(p(6.5, 11.0)).line_to(p(11.0, 11.0)).move_to(p(13.0, 11.0)).line_to(p(17.5, 11.0));
             s.move_to(p(6.5, 15.0)).line_to(p(14.0, 15.0));
         }
+        Icon::Home => {
+            // A roof over a body with a door, on the grid the other outlines use.
+            s.move_to(p(3.0, 11.0)).line_to(p(12.0, 3.5)).line_to(p(21.0, 11.0));
+            s.move_to(p(5.5, 9.0)).line_to(p(5.5, 20.0)).line_to(p(18.5, 20.0)).line_to(p(18.5, 9.0));
+            s.move_to(p(10.0, 20.0)).line_to(p(10.0, 14.0)).line_to(p(14.0, 14.0)).line_to(p(14.0, 20.0));
+        }
+        Icon::Image => {
+            rect(&mut s, 3.0, 4.0, 21.0, 20.0);
+            circle(&mut s, p(8.5, 9.5), 1.75);
+            s.move_to(p(3.0, 17.0)).line_to(p(9.0, 11.5)).line_to(p(14.0, 16.0));
+            s.move_to(p(12.0, 14.0)).line_to(p(15.5, 11.0)).line_to(p(21.0, 16.0));
+        }
     }
     s
 }
@@ -646,8 +731,14 @@ mod tests {
             Icon::Fullscreen,
             Icon::FullscreenExit,
             Icon::Captions,
+            Icon::Home,
+            Icon::Image,
         ];
+        let mut names = Vec::new();
         for icon in ALL.into_iter().chain(more) {
+            let name = icon.accessible_name();
+            assert!(!name.is_empty() && !names.contains(&name), "{icon:?} needs a name of its own");
+            names.push(name);
             let path = strokes(icon);
             assert!(path.elements().len() > 1, "{icon:?} draws nothing");
             for el in path.elements() {

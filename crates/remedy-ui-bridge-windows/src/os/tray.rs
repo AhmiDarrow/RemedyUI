@@ -5,17 +5,15 @@ use std::cell::{Cell, RefCell};
 
 use remedy_ui_host::{TrayEvent, TrayIcon, TrayItem, Unsupported};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
-use windows_sys::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Shell::{
     NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon,
-    DestroyMenu, GetCursorPos, HICON, HWND_MESSAGE, ICONINFO, MF_GRAYED, MF_SEPARATOR, MF_STRING,
-    PostMessageW, RegisterClassExW, RegisterWindowMessageW, SetForegroundWindow, TPM_NONOTIFY, TPM_RETURNCMD,
-    TPM_RIGHTBUTTON, TrackPopupMenu, WM_APP, WM_CONTEXTMENU, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP,
-    WNDCLASSEXW,
+    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu, GetCursorPos,
+    HICON, HWND_MESSAGE, MF_GRAYED, MF_SEPARATOR, MF_STRING, PostMessageW, RegisterClassExW,
+    RegisterWindowMessageW, SetForegroundWindow, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+    TrackPopupMenu, WM_APP, WM_CONTEXTMENU, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WNDCLASSEXW,
 };
 
 use super::wide;
@@ -159,43 +157,6 @@ fn window() -> Result<HWND, Unsupported> {
     Ok(hwnd)
 }
 
-/// An icon from premultiplied RGBA: straight-alpha BGRA, as 32-bit icons expect.
-fn icon(size: u32, rgba: &[u8]) -> Result<HICON, Unsupported> {
-    if rgba.len() != size as usize * size as usize * 4 || size == 0 {
-        return Err(Unsupported::new("the tray", "the icon is not size × size RGBA"));
-    }
-    let bgra: Vec<u8> = rgba
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .flat_map(|&[r, g, b, a]| {
-            let un = |c: u8| {
-                if a == 0 {
-                    0
-                } else {
-                    ((u16::from(c) * 255 + u16::from(a) / 2) / u16::from(a)).min(255) as u8
-                }
-            };
-            [un(b), un(g), un(r), a]
-        })
-        .collect();
-    let s = size as i32;
-    let mask = vec![0u8; (size as usize).div_ceil(16) * 2 * size as usize];
-    // SAFETY: bitmaps from buffers of the right sizes, turned into an icon, then freed.
-    unsafe {
-        let color = CreateBitmap(s, s, 1, 32, bgra.as_ptr().cast());
-        let mono = CreateBitmap(s, s, 1, 1, mask.as_ptr().cast());
-        let info = ICONINFO { fIcon: 1, xHotspot: 0, yHotspot: 0, hbmMask: mono, hbmColor: color };
-        let h = CreateIconIndirect(&raw const info);
-        DeleteObject(color);
-        DeleteObject(mono);
-        if h.is_null() {
-            return Err(Unsupported::new("the tray", std::io::Error::last_os_error().to_string()));
-        }
-        Ok(h)
-    }
-}
-
 /// Shows, updates or removes the icon.
 pub(crate) fn set(tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
     let hwnd = window()?;
@@ -222,7 +183,7 @@ pub(crate) fn set(tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
         }
         return Ok(());
     };
-    let h = icon(t.icon.size, &t.icon.rgba)?;
+    let h = super::icon::hicon(t.icon.size, &t.icon.rgba, "the tray")?;
     data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     data.uCallbackMessage = CALLBACK;
     data.hIcon = h;

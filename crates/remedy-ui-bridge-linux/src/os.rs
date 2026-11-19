@@ -32,13 +32,40 @@ pub(crate) fn wayland_surface(
     conn: &wayland_client::Connection,
     surface: std::ptr::NonNull<std::ffi::c_void>,
 ) -> Option<wayland_client::protocol::wl_surface::WlSurface> {
-    use wayland_client::Proxy;
-    use wayland_client::protocol::wl_surface::WlSurface;
-    // SAFETY: `surface` is a live `wl_surface` of the same display (winit's window keeps it
-    // alive while the window exists, and the window is alive during this call).
-    let id = unsafe {
-        wayland_backend::client::ObjectId::from_ptr(WlSurface::interface(), surface.as_ptr().cast())
+    wayland_object(conn, surface)
+}
+
+/// An object winit made (its surface, its `xdg_toplevel`), as an object of type `I` on `conn`.
+pub(crate) fn wayland_object<I: wayland_client::Proxy>(
+    conn: &wayland_client::Connection,
+    object: std::ptr::NonNull<std::ffi::c_void>,
+) -> Option<I> {
+    // SAFETY: `object` is a live object of interface `I` on the same display (winit's window
+    // keeps its surface and toplevel alive while the window exists, and the window is alive
+    // during this call); `from_ptr` checks the interface.
+    let id = unsafe { wayland_backend::client::ObjectId::from_ptr(I::interface(), object.as_ptr().cast()) }
+        .ok()?;
+    I::from_id(conn, id).ok()
+}
+
+/// Anonymous shared memory holding `data`, sealed against any later change (what a
+/// compositor maps for a buffer whose contents must not change).
+pub(crate) fn sealed_memory(name: &str, data: &[u8]) -> std::io::Result<std::fs::File> {
+    use std::io::Write;
+    use std::os::fd::FromRawFd;
+    let name = std::ffi::CString::new(name).map_err(std::io::Error::other)?;
+    // SAFETY: a NUL-terminated name; the result is a new descriptor this function owns.
+    let fd = unsafe { libc::memfd_create(name.as_ptr(), libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING) };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
     }
-    .ok()?;
-    WlSurface::from_id(conn, id).ok()
+    // SAFETY: `fd` was just created and is owned by nothing else.
+    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+    file.write_all(data)?;
+    let seals = libc::F_SEAL_SHRINK | libc::F_SEAL_GROW | libc::F_SEAL_WRITE | libc::F_SEAL_SEAL;
+    // SAFETY: fcntl on a descriptor this function owns.
+    if unsafe { libc::fcntl(fd, libc::F_ADD_SEALS, seals) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(file)
 }

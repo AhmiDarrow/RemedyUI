@@ -602,8 +602,9 @@ impl Ui {
             for id in &layout_dirty {
                 let Some(d) = i.els.get(id) else { continue };
                 let mut style = d.layout.clone();
-                // Hidden elements take no space, as the `hidden` attribute does on the web.
-                if d.hidden {
+                // Hidden elements take no space, as the `hidden` attribute does on the web, and
+                // neither do the engine's empty wrappers (a `show` showing nothing).
+                if d.hidden || d.collapsed {
                     style.display = remedy_ui_layout::Display::None;
                 }
                 // A scroll container's automatic minimum size is zero (as in CSS): it scrolls

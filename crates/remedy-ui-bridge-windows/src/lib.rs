@@ -25,7 +25,7 @@ mod hooks {
     use remedy_ui_bridge_winit::{PlatformHooks, RunError};
     use remedy_ui_host::{
         App, DragData, DragEvent, DragStarted, DropEffect, FileDialog, HostEvent, ImeEvent, SystemSettings,
-        TextInputState, TrayIcon, Unsupported,
+        TextInputState, TrayIcon, Unsupported, WindowIcon,
     };
     use remedy_ui_input::Platform;
 
@@ -46,6 +46,8 @@ mod hooks {
         drop_error: Option<String>,
         /// The app's toast notifications.
         toasts: os::toast::Toasts,
+        /// The icons each window shows of its own, kept until replaced or the window closes.
+        icons: std::collections::HashMap<isize, os::icon::WindowIcons>,
     }
 
     impl std::fmt::Debug for WindowsHooks {
@@ -201,6 +203,16 @@ mod hooks {
             }
         }
 
+        fn set_window_icon(&mut self, window: &Window, icon: Option<&WindowIcon>) -> Result<(), Unsupported> {
+            let h = hwnd(window).ok_or_else(|| Unsupported::new("window icons", "not a Win32 window"))?;
+            // The old icons go only after the window has switched to the new ones.
+            match os::icon::set_window_icon(h, icon)? {
+                Some(icons) => self.icons.insert(h, icons),
+                None => self.icons.remove(&h),
+            };
+            Ok(())
+        }
+
         fn set_text_input(&mut self, window: &Window, state: Option<&TextInputState>) -> bool {
             let Some(h) = hwnd(window) else { return false };
             let scale = window.scale_factor() as f32;
@@ -273,6 +285,10 @@ mod hooks {
 
         fn window_closed(&mut self, window: &Window) {
             let Some(h) = hwnd(window) else { return };
+            if self.icons.contains_key(&h) {
+                let _ = os::icon::set_window_icon(h, None);
+                self.icons.remove(&h);
+            }
             self.drops.remove(&h);
             if let Some(Ok(tsf)) = self.tsf.as_mut() {
                 tsf.close(h);

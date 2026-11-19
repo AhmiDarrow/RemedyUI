@@ -237,6 +237,26 @@ async fn an_app_runs_in_the_page() {
     let corner_px = pixel(&ctx, f64::from(canvas.width() - 2), f64::from(canvas.height() - 2));
     assert!(close(corner_px, theme_bg), "the background is the theme's: {corner_px:?} vs {theme_bg:?}");
 
+    // The window's own icon is the page's icon (the window's title is the page's), and goes
+    // again when the window gives it back.
+    let window = seen.app.borrow().as_ref().and_then(|a| a.windows().first().cloned()).must("the window");
+    let icon = remedy_ui::host::WindowIcon::new(2, [251, 191, 36, 255].repeat(4)).must("2 × 2");
+    window.set_icon(Some(icon));
+    let page_icon = || {
+        document()
+            .query_selector("link[rel=icon][data-remedy-icon]")
+            .ok()
+            .flatten()
+            .and_then(|l| l.get_attribute("href"))
+    };
+    assert!(
+        until(30, || page_icon().is_some_and(|h| h.starts_with("data:image/png"))).await,
+        "the page shows the window's icon: {:?}",
+        page_icon()
+    );
+    window.set_icon(None);
+    assert!(until(30, || page_icon().is_none()).await, "and the page's own again");
+
     // The accessibility mirror: the button is an ARIA button named by its label.
     assert!(
         until(60, || query("[role=button][aria-label='Tap me']").is_some()).await,

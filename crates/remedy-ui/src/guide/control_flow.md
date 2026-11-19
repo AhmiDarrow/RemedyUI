@@ -47,6 +47,35 @@ app.frames(1);
 assert_eq!(names(&ui), ["The disk is full"]);
 ```
 
+A `show` with nothing to show (the condition is false and there is no fallback, and no exit
+transition is still playing) takes no room at all: no size, and no gap in the row or column
+around it, as content that is not there would not. Screens that take turns can each
+`grow` in the same column, and only the one shown fills it.
+
+```
+use remedy_ui::reactive::Signal;
+use remedy_ui::testing::TestApp;
+use remedy_ui::show;
+use remedy_ui::widgets as w;
+
+let open = Signal::new(false);
+let mut app = TestApp::window(move |ui, _| {
+    let u = ui.clone();
+    let panel = show(ui, move || open.get(), move || w::text(&u, "Details").height(40.0));
+    let column = w::column(ui).gap(10.0).child(w::text(ui, "Above").height(20.0)).child(panel.el());
+    ui.root().child(column.child(w::text(ui, "Below").height(20.0)));
+});
+let Some(ui) = app.ui() else { unreachable!("open") };
+let top = |name: &str| ui.reader_view().into_iter().find(|n| n.name.as_deref() == Some(name)).and_then(|n| n.bounds).map(|b| b.min.y);
+let first = top("Above").unwrap_or_default();
+// Closed: the next line sits one gap below, with no second gap for the empty panel.
+assert_eq!(top("Below").map(|y| y - first), Some(30.0));
+
+open.set(true);
+app.frames(1);
+assert_eq!(top("Below").map(|y| y - first), Some(80.0));
+```
+
 For content that stays built and only hides (a panel whose state should survive), use
 [`El::hidden`](crate::El::hidden) instead; `show` is for content that should not exist while
 it is not shown.

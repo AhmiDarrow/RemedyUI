@@ -39,11 +39,43 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   close button hides a `hide_on_close` window, so a tray app can remember whether its window
   was open (Hearth restores it after an update).
 
+- **Secret copies out of ordinary fields**: `TextField::copy_as_secret(keep)` sends Ctrl+C
+  and Ctrl+X (Command on Apple platforms) in a single-line, multi-line, rich or code field
+  through the secure clipboard path `App::copy_secret` uses: kept out of clipboard history and
+  cloud sync, and cleared after `keep` if the clipboard still holds it. Rich fields copy plain
+  text only. `TextField::on_copy` is told after each copy or cut; `TextField::secret_copy`
+  reads the setting. The view asks its runner with the new `Request::CopySecret` (before
+  1.0, so the exhaustive `Request` may still grow; a custom runner handles it as
+  `App::copy_secret` does).
+- **Per-window icons**: `WindowSpec::icon` and `Window::set_icon` with the new
+  `host::WindowIcon` (square premultiplied RGBA8, `scaled` to the sizes a platform shows). The
+  host contract gains `WindowOptions::icon` and `Host::set_window_icon` (default
+  `Unsupported`), and `PlatformHooks::set_window_icon` in the winit core. Windows sets the
+  small and big icons (`WM_SETICON`) at the window's DPI; X11 sets `_NET_WM_ICON`; Wayland
+  uses `xdg-toplevel-icon-v1` where the compositor has it, with a buffer for every size it
+  prefers; a browser page shows it as the page's icon (or in a floating window's title bar);
+  macOS and Android say `Unsupported` (their windows show the app's icon); the headless host
+  keeps it in the window's options for tests.
+- **WOFF and WOFF2 fonts**: `FontCollection::add_static` / `add_owned` take WOFF and WOFF2
+  files as well as TrueType and OpenType (pure-Rust `wuff`; a WOFF file whose tables claim
+  more than zlib could unpack is refused before unpacking). `text::FontFile` reads and checks a
+  font file once and shares it, and `AppConfig::font` adds it to every window, so apps ship
+  their brand's typeface. Files of one family, weight and style that each cover other scripts
+  (a web font's subsets, which CSS joins with `unicode-range`) join as one family: each
+  character comes from whichever part covers it.
+- **Icons**: `Icon::Home` (a house) and `Icon::Image` (a framed picture), drawn on the same
+  24-unit stroke grid as the others; `Icon::accessible_name` gives every icon an English
+  name for where the icon alone stands for something.
+
 ### Fixed
 
 - `widgets::toast` offers assistive technology the click action that dismisses it. It
   reacted to a pointer click with none on its semantics, so the accessibility audit
   (`Unreachable::NoAction`) failed in every app that showed a toast.
+- **An empty `show` takes no room**: a `show` with nothing to show (its condition false, no
+  fallback, no exit transition still playing) no longer takes space or a gap in its row or
+  column, so screens that take turns can each `grow` in one column. Apps that hid it
+  themselves with `El::hidden` can drop that.
 
 ## [1.0.0-rc.1] - 2026-11-18
 

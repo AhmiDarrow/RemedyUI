@@ -191,6 +191,45 @@ fn leaving_content_stays_inert_until_its_exit_transition_ends() {
     assert_eq!(done, 1.0);
 }
 
+#[test]
+fn a_show_with_nothing_to_show_takes_no_room_and_no_gap() {
+    let ui = ui();
+    ui.set_frame_time(Duration::ZERO);
+    let which = Signal::new(0);
+    let tween = Motion::Tween { duration: Duration::from_millis(100), easing: Easing::Linear };
+    // Two screens take turns in one column, each growing: only the one shown fills it.
+    let screen = |n: i32, name: &'static str| {
+        let ui2 = ui.clone();
+        show(&ui, move || which.get() == n, move || label(&ui2, name).height(20.0)).el().grow(1.0)
+    };
+    let (a, b) = (screen(0, "First"), screen(1, "Second"));
+    let ui3 = ui.clone();
+    let toast = show(&ui, move || which.get() == 2, move || label(&ui3, "Toast").height(20.0))
+        .exit(Transition::fade(tween))
+        .el();
+    let column = ui.el("panel").column().gap(10.0).child(a.clone()).child(b.clone()).child(toast.clone());
+    let _ = ui.root().child(column.height(300.0));
+    frame(&ui);
+    let rect = |e: &El| e.info().and_then(|i| i.bounds).must("laid out");
+    assert_eq!(rect(&a).height(), 300.0, "the shown screen fills the column, with no gap for the others");
+    assert_eq!(rect(&b).height(), 0.0);
+    which.set(1);
+    frame(&ui);
+    assert_eq!((rect(&a).height(), rect(&b).height(), rect(&b).min.y), (0.0, 300.0, 0.0));
+
+    // Leaving content keeps its room until its exit transition ends.
+    which.set(2);
+    frame(&ui);
+    which.set(0);
+    frame(&ui);
+    assert_eq!(rect(&a).height(), 270.0, "the toast still leaves, one gap away");
+    ui.set_frame_time(Duration::from_millis(120));
+    frame(&ui);
+    frame(&ui);
+    assert!(toast.child_elements().is_empty());
+    assert_eq!(rect(&a).height(), 300.0, "gone, it gives the room back");
+}
+
 // ---------- error boundaries ----------
 
 fn boundary(ui: &Ui, child: impl Fn() -> El + 'static) -> (El, ()) {

@@ -127,6 +127,11 @@ pub(crate) struct Field {
     caret_observers: Vec<Rc<dyn Fn()>>,
     /// Sees keys before the field edits with them; true takes the key (a suggestion list).
     key_filter: Option<KeyFilter>,
+    /// Copies and cuts go to the clipboard as secrets, cleared after this long
+    /// ([`TextField::copy_as_secret`]).
+    secret_copy: Option<std::time::Duration>,
+    /// Told after the person copies or cuts text out of the field.
+    on_copy: Option<Rc<dyn Fn()>>,
 }
 
 impl Field {
@@ -1078,6 +1083,8 @@ impl Ui {
             submit_on_enter: false,
             caret_observers: Vec::new(),
             key_filter: None,
+            secret_copy: None,
+            on_copy: None,
         }));
         // Measured like text: the paragraph's size plus one caret width.
         let engine = self.0.borrow().engine.clone();
@@ -1470,6 +1477,31 @@ impl TextField {
         self.field.borrow_mut().key_filter = Some(Rc::new(f));
     }
 
+    /// Copies and cuts out of this field (Ctrl+C and Ctrl+X, Command on Apple platforms) go
+    /// to the clipboard as a secret: kept out of clipboard history and cloud sync where the
+    /// platform allows, and cleared after `keep` if the clipboard still holds them (anything
+    /// the person copied since is left alone), as `App::copy_secret` does. For fields whose
+    /// text is itself secret but must be seen and edited (a note of passwords, an API key
+    /// being written); a [`FieldKind::Secret`] field never copies at all. Rich fields copy
+    /// plain text only, so no formatted copy outlives the clear.
+    pub fn copy_as_secret(self, keep: std::time::Duration) -> Self {
+        self.field.borrow_mut().secret_copy = Some(keep);
+        self
+    }
+
+    /// How long copies out of this field stay on the clipboard, when they go there as
+    /// secrets ([`TextField::copy_as_secret`]).
+    pub fn secret_copy(&self) -> Option<std::time::Duration> {
+        self.field.borrow().secret_copy
+    }
+
+    /// Called after the person copies or cuts text out of the field (not when nothing was
+    /// selected), such as to say "Copied · clears in 30s".
+    pub fn on_copy(self, f: impl Fn() + 'static) -> Self {
+        self.field.borrow_mut().on_copy = Some(Rc::new(f));
+        self
+    }
+
     /// Multi-line and rich fields: Enter submits ([`TextField::on_submit`]) and Shift+Enter
     /// starts a new line, as a chat's composer does. Off by default (single-line fields always
     /// submit on Enter).
@@ -1513,6 +1545,17 @@ pub(crate) fn notify_caret(field: &Rc<RefCell<Field>>) {
     let observers = field.borrow().caret_observers.clone();
     for o in observers {
         o();
+    }
+}
+
+pub(crate) fn secret_copy(field: &Rc<RefCell<Field>>) -> Option<std::time::Duration> {
+    field.borrow().secret_copy
+}
+
+pub(crate) fn notify_copy(field: &Rc<RefCell<Field>>) {
+    let cb = field.borrow().on_copy.clone();
+    if let Some(cb) = cb {
+        cb();
     }
 }
 

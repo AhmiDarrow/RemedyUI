@@ -111,7 +111,26 @@ assert!(pixels.is_ok_and(|img| img.width == 16));
 ```
 
 The core widgets also carry a set of built-in vector icons ([`crate::widgets::Icon`],
-[`crate::widgets::icon`]) that need no feature.
+[`crate::widgets::icon`]) that need no feature: actions (add, close, copy, delete, search,
+send, refresh), places and things (home, folder, file, image, note, computer, people), media
+controls, and text formatting. An icon drawn with `icon` is decorative, because whatever holds
+it names it (an [`icon_button`](crate::widgets::icon_button)'s label). Where the icon alone
+stands for something (a file's kind in a list), [`Icon::accessible_name`](crate::widgets::Icon::accessible_name)
+gives its English name to translate and hand to the element's semantics.
+
+```
+use remedy_ui::a11y::{Role, Semantics};
+use remedy_ui::testing::TestApp;
+use remedy_ui::widgets::{self as w, Icon};
+
+let mut app = TestApp::window(|ui, _| {
+    let kind = w::icon(ui, Icon::Image, 16.0)
+        .semantics(Semantics::new(Role::Image).label(Icon::Image.accessible_name()));
+    ui.root().child(w::row(ui).child(w::icon_button(ui, Icon::Home, "Home", || {})).child(kind));
+});
+assert!(app.find(Role::Button, "Home").is_some());
+assert!(app.find(Role::Image, "Image").is_some());
+```
 
 ## Animated images
 

@@ -354,6 +354,14 @@ impl PlatformHooks for AndroidHooks {
         self.window = Some(window.id());
     }
 
+    fn set_window_icon(
+        &mut self,
+        _window: &Window,
+        _icon: Option<&remedy_ui_host::WindowIcon>,
+    ) -> Result<(), Unsupported> {
+        Err(Unsupported::new("window icons", "Android shows the app's launcher icon for its window"))
+    }
+
     fn set_tray(&mut self, _tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
         Err(Unsupported::new(
             "the tray",
