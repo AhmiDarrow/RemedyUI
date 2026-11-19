@@ -421,6 +421,11 @@ impl Java {
                         fn_ptr: ime_delete as *mut c_void,
                     },
                     NativeMethod {
+                        name: "permissionDone".into(),
+                        sig: "(JJZ)V".into(),
+                        fn_ptr: permission_done as *mut c_void,
+                    },
+                    NativeMethod {
                         name: "dialogDone".into(),
                         sig: "(JJ[Ljava/lang/String;Ljava/lang/String;)V".into(),
                         fn_ptr: dialog_done as *mut c_void,
@@ -553,6 +558,28 @@ impl Java {
     pub(crate) fn end_text_input(&self, app: &AndroidApp) -> Result<(), String> {
         self.on_bridge(app, "ending the text input session", |env, b| {
             env.call_method(b, "endTextInput", "()V", &[])?;
+            Ok(())
+        })
+    }
+
+    /// Asks the person for `permission` (a manifest permission name) unless it is already
+    /// granted; the answer comes back as [`Notice::Permission`].
+    pub(crate) fn request_permission(
+        &self,
+        app: &AndroidApp,
+        request: u64,
+        permission: &str,
+    ) -> Result<(), String> {
+        let request = jlong::try_from(request).map_err(|e| e.to_string())?;
+        let permission = permission.to_owned();
+        self.on_bridge(app, "the permission prompt", move |env, b| {
+            let name = env.new_string(&permission)?;
+            env.call_method(
+                b,
+                "requestPermission",
+                "(JLjava/lang/String;)V",
+                &[JValue::Long(request), JValue::Object(&name)],
+            )?;
             Ok(())
         })
     }
@@ -756,6 +783,16 @@ extern "system" fn dialog_done(
         log(&format!("RemedyUI: the document picker: {e}"));
     }
     notify(Notice::Dialog(u64::try_from(request).unwrap_or(0), out));
+}
+
+extern "system" fn permission_done(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    _handle: jlong,
+    request: jlong,
+    granted: jni::sys::jboolean,
+) {
+    notify(Notice::Permission(u64::try_from(request).unwrap_or(0), granted != 0));
 }
 
 extern "system" fn document_saved(

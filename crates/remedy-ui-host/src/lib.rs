@@ -149,6 +149,32 @@ pub enum DialogStarted {
     Pending(DialogId),
 }
 
+/// Something the app may need the person's leave for, on platforms that ask at run time
+/// (Android). Desktop platforms grant at install or in their privacy settings instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Permission {
+    /// Hearing the microphone (`RECORD_AUDIO` on Android, which the app's manifest must also
+    /// declare).
+    Microphone,
+}
+
+/// A permission request's identity while the platform asks the person.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PermissionId(pub u64);
+
+/// Where a permission request stands once [`Host::request_permission`] returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// Exhaustive on purpose: part of the host contract every bridge and runner must handle completely, so a new kind is a major change.
+pub enum PermissionStarted {
+    /// Already decided: true when the app may go ahead. Platforms with no run-time
+    /// permissions answer true; their own privacy settings may still refuse the device,
+    /// which then reports why when it is opened.
+    Finished(bool),
+    /// The platform is asking the person; [`HostEvent::Permission`] reports the answer.
+    Pending(PermissionId),
+}
+
 /// The edge or corner a resize drags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 // Exhaustive on purpose: a window has four edges and four corners.
@@ -439,6 +465,9 @@ pub enum HostEvent {
     /// A file dialog [`Host::file_dialog`] left pending closed: the chosen paths, empty when
     /// cancelled.
     FileDialog(DialogId, Vec<std::path::PathBuf>),
+    /// A permission request [`Host::request_permission`] left pending was answered: true when
+    /// granted.
+    Permission(PermissionId, bool),
     /// The app was launched again while running (single instance); these are the new
     /// launch's arguments.
     SecondInstance(Vec<String>),
@@ -708,6 +737,14 @@ pub trait Host {
         window: Option<WindowId>,
         dialog: &FileDialog,
     ) -> Result<DialogStarted, Unsupported>;
+    /// Asks for the person's leave to use `permission`. Platforms without run-time
+    /// permissions answer [`PermissionStarted::Finished`] with true at once; Android shows its
+    /// system prompt (when the permission is not already granted) and reports the answer
+    /// with [`HostEvent::Permission`].
+    fn request_permission(&mut self, permission: Permission) -> Result<PermissionStarted, Unsupported> {
+        let _ = permission;
+        Ok(PermissionStarted::Finished(true))
+    }
     /// Starts dragging `data` out of `window` to other apps (call while the pointer button
     /// that began the drag is held). Some platforms run the drag to its end inside the call;
     /// others return at once and report the end with [`HostEvent::DragEnded`].

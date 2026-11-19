@@ -40,6 +40,10 @@ pub struct Project {
     pub android_keystore: Option<PathBuf>,
     /// The key's alias in it (`[android] key_alias`).
     pub android_key_alias: Option<String>,
+    /// The Android permissions the app's manifest declares (`[android] permissions`), as
+    /// manifest names: `microphone`, `internet`, `notifications` and `camera` stand for
+    /// theirs, and a full name (`android.permission.VIBRATE`) is taken as it is.
+    pub android_permissions: Vec<String>,
     /// The short name an installed page shows under its icon (`[web] short_name`; the name
     /// when unset).
     pub web_short_name: Option<String>,
@@ -62,6 +66,35 @@ fn string(t: &toml::Table, section: &str, key: &str) -> Option<String> {
 
 fn number(t: &toml::Table, section: &str, key: &str) -> Option<u32> {
     t.get(section)?.get(key)?.as_integer().and_then(|n| u32::try_from(n).ok())
+}
+
+/// The manifest names `[android] permissions` lists, in order and without repeats.
+fn android_permissions(t: &toml::Table) -> Result<Vec<String>, String> {
+    let Some(v) = t.get("android").and_then(|a| a.get("permissions")) else { return Ok(Vec::new()) };
+    let list = v.as_array().ok_or("remedy.toml: [android] permissions must be a list of names")?;
+    let mut out: Vec<String> = Vec::new();
+    for item in list {
+        let name = item.as_str().ok_or("remedy.toml: [android] permissions must be a list of names")?;
+        let full = match name {
+            "microphone" => "android.permission.RECORD_AUDIO".to_owned(),
+            "internet" => "android.permission.INTERNET".to_owned(),
+            "notifications" => "android.permission.POST_NOTIFICATIONS".to_owned(),
+            "camera" => "android.permission.CAMERA".to_owned(),
+            n if n.contains('.') && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_') => {
+                n.to_owned()
+            }
+            n => {
+                return Err(format!(
+                    "remedy.toml: [android] permissions: `{n}` is not microphone, internet, notifications, \
+                     camera or a full name such as android.permission.VIBRATE"
+                ));
+            }
+        };
+        if !out.contains(&full) {
+            out.push(full);
+        }
+    }
+    Ok(out)
 }
 
 impl Project {
@@ -111,6 +144,7 @@ impl Project {
             android_target_api: number(&remedy, "android", "target_api").unwrap_or(35),
             android_keystore: string(&remedy, "android", "keystore").map(|k| root.join(k)),
             android_key_alias: string(&remedy, "android", "key_alias"),
+            android_permissions: android_permissions(&remedy)?,
             web_short_name: string(&remedy, "web", "short_name"),
             web_theme: string(&remedy, "web", "theme_color").unwrap_or_else(|| DEFAULT_THEME_COLOR.into()),
             web_icon: string(&remedy, "web", "icon").map(|p| root.join(p)),
@@ -174,11 +208,33 @@ pub(crate) mod tests {
             android_min_api: 26,
             android_target_api: 35,
             android_keystore: None,
+            android_permissions: Vec::new(),
             android_key_alias: None,
             web_short_name: None,
             web_theme: DEFAULT_THEME_COLOR.into(),
             web_icon: None,
             uses_remedy_ui: true,
         }
+    }
+
+    #[test]
+    fn android_permissions_take_short_and_full_names_once() {
+        let t: toml::Table = r#"
+            [android]
+            permissions = ["microphone", "internet", "android.permission.VIBRATE", "microphone"]
+        "#
+        .parse()
+        .unwrap_or_default();
+        assert_eq!(
+            android_permissions(&t),
+            Ok(vec![
+                "android.permission.RECORD_AUDIO".to_owned(),
+                "android.permission.INTERNET".to_owned(),
+                "android.permission.VIBRATE".to_owned(),
+            ])
+        );
+        let bad: toml::Table = "[android]\npermissions = [\"mic\"]".parse().unwrap_or_default();
+        assert!(android_permissions(&bad).is_err_and(|e| e.contains("`mic`")));
+        assert_eq!(android_permissions(&toml::Table::new()), Ok(Vec::new()));
     }
 }

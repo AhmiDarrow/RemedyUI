@@ -8,6 +8,24 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ## [Unreleased]
 
+### Added
+
+- **The microphone** (`playback::Microphone`): the default sound input on a worker of its
+  own, handed to the app as it arrives in the format asked for (converted from the device's
+  own where the platform does not), with its state, error and level as signals. WASAPI on
+  Windows, GStreamer on Linux, AAudio on Android (unprocessed input, low latency) and
+  `getUserMedia` with an audio worklet in a browser page. `MediaHost::audio_input` and the
+  `AudioInput` trait let an app bring its own input; `MediaError::Denied` says when the
+  person or the system's privacy settings refused a device.
+- **Run-time permissions**: `App::request_permission(Permission::Microphone, ..)`. Android
+  shows its system prompt (a new fragment in the bridge's Java half) and answers later;
+  other platforms answer at once. The host contract gains `Host::request_permission`,
+  `PermissionStarted` and `HostEvent::Permission` (before 1.0, so the exhaustive host enums
+  may still grow); the headless host scripts answers (`answer_permission`,
+  `permissions_answer_later`).
+- **`[android] permissions`** in `remedy.toml`: the manifest permissions `cargo remedy
+  package` declares (`microphone`, `internet`, `notifications`, `camera`, or full names).
+
 ## [1.0.0-rc.1] - 2026-11-18
 
 The first release candidate of 1.0: everything since the start of the project, by milestone ([docs/ROADMAP.md](docs/ROADMAP.md)).

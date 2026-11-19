@@ -6,9 +6,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use windows::Win32::Media::Audio::{
-    AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-    IAudioClient, IAudioClock, IAudioRenderClient, IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX,
-    WAVEFORMATEXTENSIBLE, WAVEFORMATEXTENSIBLE_0, eConsole, eRender,
+    AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, IAudioCaptureClient, IAudioClient, IAudioClock,
+    IAudioRenderClient, IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
+    WAVEFORMATEXTENSIBLE_0, eCapture, eConsole, eRender,
 };
 use windows::Win32::Media::MediaFoundation::{
     IMF2DBuffer, IMFAttributes, IMFMediaType, IMFSample, IMFSourceReader, MF_MT_AUDIO_NUM_CHANNELS,
@@ -30,8 +31,8 @@ use windows::Win32::System::Variant::VT_I8;
 use windows::core::{GUID, HSTRING, Interface};
 
 use crate::host::{
-    AudioFormat, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Picture, PixelFormat,
-    Plane, Sample, VideoInfo, YuvMatrix,
+    AudioFormat, AudioInput, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Picture,
+    PixelFormat, Plane, Sample, VideoInfo, YuvMatrix,
 };
 
 /// Sound the device buffer holds: enough to ride out a busy machine's scheduling hiccups
@@ -100,6 +101,10 @@ impl MediaHost for WindowsHost {
 
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
         Ok(Box::new(MfDecoder::open(source)?))
+    }
+
+    fn audio_input(&self, format: AudioFormat) -> Result<Box<dyn AudioInput>, MediaError> {
+        Ok(Box::new(WasapiInput::open(format)?))
     }
 
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
@@ -509,23 +514,7 @@ impl Wasapi {
         if format.channels == 0 || format.sample_rate == 0 {
             return Err(MediaError::Device("a sound format with no channels or no rate".into()));
         }
-        let block = format.channels.saturating_mul(4);
-        let wave = WAVEFORMATEXTENSIBLE {
-            Format: WAVEFORMATEX {
-                wFormatTag: 0xFFFE, // WAVE_FORMAT_EXTENSIBLE
-                nChannels: format.channels,
-                nSamplesPerSec: format.sample_rate,
-                nAvgBytesPerSec: format.sample_rate.saturating_mul(u32::from(block)),
-                nBlockAlign: block,
-                wBitsPerSample: 32,
-                cbSize: (std::mem::size_of::<WAVEFORMATEXTENSIBLE>() - std::mem::size_of::<WAVEFORMATEX>())
-                    as u16,
-            },
-            Samples: WAVEFORMATEXTENSIBLE_0 { wValidBitsPerSample: 32 },
-            dwChannelMask: channel_mask(format.channels),
-            // KSDATAFORMAT_SUBTYPE_IEEE_FLOAT is the same GUID as Media Foundation's float.
-            SubFormat: MFAudioFormat_Float,
-        };
+        let wave = float_wave(format);
         // SAFETY: COM calls on objects created here; the format outlives Initialize.
         unsafe {
             let devices: IMMDeviceEnumerator =
@@ -556,6 +545,27 @@ impl Wasapi {
             }
             Ok(Wasapi { client, render, clock, frequency, frames, format, started: false })
         }
+    }
+}
+
+/// 32-bit float samples in `format`, as WASAPI describes them.
+fn float_wave(format: AudioFormat) -> WAVEFORMATEXTENSIBLE {
+    let block = format.channels.saturating_mul(4);
+    WAVEFORMATEXTENSIBLE {
+        Format: WAVEFORMATEX {
+            wFormatTag: 0xFFFE, // WAVE_FORMAT_EXTENSIBLE
+            nChannels: format.channels,
+            nSamplesPerSec: format.sample_rate,
+            nAvgBytesPerSec: format.sample_rate.saturating_mul(u32::from(block)),
+            nBlockAlign: block,
+            wBitsPerSample: 32,
+            cbSize: (std::mem::size_of::<WAVEFORMATEXTENSIBLE>() - std::mem::size_of::<WAVEFORMATEX>())
+                as u16,
+        },
+        Samples: WAVEFORMATEXTENSIBLE_0 { wValidBitsPerSample: 32 },
+        dwChannelMask: channel_mask(format.channels),
+        // KSDATAFORMAT_SUBTYPE_IEEE_FLOAT is the same GUID as Media Foundation's float.
+        SubFormat: MFAudioFormat_Float,
     }
 }
 
@@ -627,5 +637,120 @@ impl AudioOutput for Wasapi {
 impl Drop for Wasapi {
     fn drop(&mut self) {
         let _ = self.pause();
+    }
+}
+
+/// How much sound the capture buffer holds: room for a busy machine to read late without
+/// losing any, while a reader that keeps up hears it a device period after it was spoken.
+const INPUT_BUFFER: Duration = Duration::from_millis(500);
+
+/// The default microphone through WASAPI in shared mode, converting the device's own rate
+/// and channels to the format asked for.
+struct WasapiInput {
+    client: IAudioClient,
+    capture: IAudioCaptureClient,
+    format: AudioFormat,
+    period: Duration,
+}
+
+// SAFETY: the audio client and its services live in the multithreaded apartment and are
+// used from one thread at a time (the microphone's worker).
+unsafe impl Send for WasapiInput {}
+
+/// The error an input device gives, saying plainly when Windows' privacy settings keep the
+/// app from the microphone (`E_ACCESSDENIED`).
+fn input_error(e: windows::core::Error) -> MediaError {
+    if e.code().0 as u32 == 0x8007_0005 {
+        return MediaError::Denied(
+            "Windows' privacy settings do not let apps use the microphone (Settings, Privacy & security, Microphone)"
+                .into(),
+        );
+    }
+    device_error(e)
+}
+
+impl WasapiInput {
+    fn open(format: AudioFormat) -> Result<WasapiInput, MediaError> {
+        com();
+        if format.channels == 0 || format.sample_rate == 0 {
+            return Err(MediaError::Device("a sound format with no channels or no rate".into()));
+        }
+        let wave = float_wave(format);
+        // SAFETY: COM calls on objects created here; the format outlives Initialize.
+        unsafe {
+            let devices: IMMDeviceEnumerator =
+                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).map_err(device_error)?;
+            let device = devices
+                .GetDefaultAudioEndpoint(eCapture, eConsole)
+                .map_err(|e| MediaError::NotFound(format!("no microphone: {}", e.message())))?;
+            let client: IAudioClient = device.Activate(CLSCTX_ALL, None).map_err(input_error)?;
+            let mut period = 0i64;
+            client.GetDevicePeriod(Some(&mut period), None).map_err(input_error)?;
+            client
+                .Initialize(
+                    AUDCLNT_SHAREMODE_SHARED,
+                    AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+                    hns(INPUT_BUFFER).max(period.saturating_mul(4)),
+                    0,
+                    &wave.Format,
+                    None,
+                )
+                .map_err(input_error)?;
+            let capture: IAudioCaptureClient = client.GetService().map_err(input_error)?;
+            client.Start().map_err(input_error)?;
+            Ok(WasapiInput {
+                client,
+                capture,
+                format,
+                period: from_hns(period).max(Duration::from_millis(1)),
+            })
+        }
+    }
+}
+
+impl AudioInput for WasapiInput {
+    fn format(&self) -> AudioFormat {
+        self.format
+    }
+
+    fn period(&self) -> Duration {
+        self.period
+    }
+
+    fn read(&mut self, into: &mut Vec<f32>) -> Result<usize, MediaError> {
+        let ch = usize::from(self.format.channels);
+        let mut total = 0;
+        loop {
+            // SAFETY: a query on a live capture client.
+            let next = unsafe { self.capture.GetNextPacketSize() }.map_err(input_error)?;
+            if next == 0 {
+                return Ok(total);
+            }
+            let mut data: *mut u8 = std::ptr::null_mut();
+            let mut frames = 0u32;
+            let mut flags = 0u32;
+            // SAFETY: GetBuffer hands out `frames` frames of `ch` floats at `data`, readable
+            // until ReleaseBuffer, which is called with the same count after copying.
+            unsafe {
+                self.capture
+                    .GetBuffer(&mut data, &mut frames, &mut flags, None, None)
+                    .map_err(input_error)?;
+                let n = frames as usize * ch;
+                if flags & (AUDCLNT_BUFFERFLAGS_SILENT.0 as u32) != 0 || data.is_null() {
+                    into.resize(into.len() + n, 0.0);
+                } else {
+                    into.extend_from_slice(std::slice::from_raw_parts(data.cast::<f32>(), n));
+                }
+                self.capture.ReleaseBuffer(frames).map_err(input_error)?;
+            }
+            total += frames as usize;
+        }
+    }
+}
+
+impl Drop for WasapiInput {
+    fn drop(&mut self) {
+        // SAFETY: stopping a started stream.
+        let _ = unsafe { self.client.Stop() };
     }
 }

@@ -12,6 +12,11 @@
 //!   MediaCodec and AAudio on Android; in a browser page, the browser's WebCodecs decoders (MP4
 //!   with H.264 and AAC, taken apart here) and WebAudio. An app with its own decoder
 //!   implements the trait.
+//! - [`Microphone`]: the default sound input, captured on a worker of its own and handed to
+//!   the app as it arrives (a tuner's pitch detection, a singing coach's pitch graph, a
+//!   level meter), with its state and level as signals. WASAPI on Windows, the system's
+//!   GStreamer on Linux, AAudio on Android and `getUserMedia` with an audio worklet in a
+//!   browser page.
 //! - Subtitles: WebVTT, SRT and the basics of ASS/SSA, found next to a file, added by the
 //!   app, or carried in the media where the platform's decoder gives them.
 //!
@@ -28,6 +33,7 @@
 //! Layer 5. Calls into the platform live in the `os` module, the only place unsafe code is
 //! allowed.
 
+mod capture;
 mod engine;
 mod host;
 // The MP4 reader feeds the browser's decoders (and is tested everywhere).
@@ -41,10 +47,11 @@ mod widget;
 
 use std::sync::Arc;
 
+pub use capture::{Microphone, MicrophoneOptions, MicrophoneState};
 pub use engine::{PlaybackState, PlaybackStats};
 pub use host::{
-    AudioFormat, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Picture, PixelFormat,
-    Plane, Sample, TextTrackInfo, VideoInfo, YuvMatrix,
+    AudioFormat, AudioInput, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Picture,
+    PixelFormat, Plane, Sample, TextTrackInfo, VideoInfo, YuvMatrix,
 };
 pub use player::{Player, PlayerOptions, UnseenPolicy};
 pub use subtitles::{Cue, SubtitleFormat, SubtitleTrack, parse_subtitles};

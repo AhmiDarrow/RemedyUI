@@ -11,7 +11,7 @@ use remedy_ui_bridge_winit::{PlatformHooks, RunError, UserEvent, WindowNotice};
 use remedy_ui_host::accesskit::{ActionHandler, ActionRequest, ActivationHandler, TreeUpdate};
 use remedy_ui_host::{
     AccessibilityEvent, App, DialogStarted, DragData, DragStarted, DropEffect, FileDialog, HostEvent,
-    ImeEvent, SafeArea, SystemSettings, TrayIcon, Unsupported, Waker,
+    ImeEvent, Permission, PermissionStarted, SafeArea, SystemSettings, TrayIcon, Unsupported, Waker,
 };
 use remedy_ui_input::Platform;
 
@@ -32,6 +32,8 @@ pub(crate) enum Notice {
     Ime(ImeEvent),
     /// The document picker for this request closed with these files (empty: cancelled).
     Dialog(u64, Vec<std::path::PathBuf>),
+    /// The person answered the permission prompt for this request: true when granted.
+    Permission(u64, bool),
     /// The drag out ended: 1 dropped and taken, 0 dropped nowhere or refused, -1 never started.
     DragEnded(i32),
     /// A screen reader set a text field's text; the field is the target of the focus request
@@ -131,6 +133,8 @@ pub struct AndroidHooks {
     settings: Option<SystemSettings>,
     /// The next document picker's id.
     next_dialog: u64,
+    /// The next permission request's number.
+    next_permission: u64,
     /// A text-input session is open.
     text_session: bool,
     /// The element a screen reader last asked to focus (where its "set text" goes).
@@ -169,6 +173,7 @@ impl AndroidHooks {
             drag_ends: Vec::new(),
             settings: None,
             next_dialog: 1,
+            next_permission: 1,
             text_session: false,
             a11y_focus: None,
         }
@@ -227,6 +232,9 @@ impl AndroidHooks {
                 }
                 Notice::Dialog(id, paths) => {
                     self.app_events.push(HostEvent::FileDialog(remedy_ui_host::DialogId(id), paths));
+                }
+                Notice::Permission(id, granted) => {
+                    self.app_events.push(HostEvent::Permission(remedy_ui_host::PermissionId(id), granted));
                 }
                 Notice::DragEnded(result) => {
                     if let Some(w) = self.window {
@@ -396,6 +404,24 @@ impl PlatformHooks for AndroidHooks {
             )
             .map_err(|e| Unsupported::new("file dialogs", e))?;
         Ok(DialogStarted::Pending(remedy_ui_host::DialogId(id)))
+    }
+
+    fn request_permission(&mut self, permission: Permission) -> Result<PermissionStarted, Unsupported> {
+        let name = match permission {
+            Permission::Microphone => "android.permission.RECORD_AUDIO",
+            _ => {
+                return Err(Unsupported::new(
+                    "this permission",
+                    "Android has no prompt the bridge knows for it",
+                ));
+            }
+        };
+        let id = self.next_permission;
+        self.next_permission += 1;
+        self.java("permission requests")?
+            .request_permission(&self.app, id, name)
+            .map_err(|e| Unsupported::new("permission requests", e))?;
+        Ok(PermissionStarted::Pending(remedy_ui_host::PermissionId(id)))
     }
 
     fn start_drag(

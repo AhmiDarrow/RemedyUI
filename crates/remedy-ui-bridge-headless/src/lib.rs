@@ -124,6 +124,9 @@ pub struct HeadlessHost {
     opened: Vec<String>,
     drag_answers: VecDeque<DropEffect>,
     drop_effects: BTreeMap<WindowId, DropEffect>,
+    permissions: Vec<remedy_ui_host::Permission>,
+    permission_answers: VecDeque<bool>,
+    permissions_answer_later: bool,
 }
 
 impl Default for HeadlessHost {
@@ -166,6 +169,9 @@ impl HeadlessHost {
             opened: Vec::new(),
             drag_answers: VecDeque::new(),
             drop_effects: BTreeMap::new(),
+            permissions: Vec::new(),
+            permission_answers: VecDeque::new(),
+            permissions_answer_later: false,
         }
     }
 
@@ -353,6 +359,25 @@ impl HeadlessHost {
     /// it `DialogId(n)` for the n-th dialog opened (counting from 1).
     pub fn dialogs_answer_later(&mut self, on: bool) {
         self.dialogs_answer_later = on;
+    }
+
+    /// Answers the next permission request (true grants it). Without a scripted answer, a
+    /// request is granted, as on platforms with no run-time permissions.
+    pub fn answer_permission(&mut self, granted: bool) {
+        self.permission_answers.push_back(granted);
+    }
+
+    /// Makes permission requests wait for an answer after [`Host::request_permission`]
+    /// returns, as Android's prompt does; answer one with [`HostEvent::Permission`] through
+    /// [`HeadlessHost::send`], naming it `PermissionId(n)` for the n-th request (counting
+    /// from 1).
+    pub fn permissions_answer_later(&mut self, on: bool) {
+        self.permissions_answer_later = on;
+    }
+
+    /// The permissions the app asked for, oldest first.
+    pub fn permission_requests(&self) -> &[remedy_ui_host::Permission] {
+        &self.permissions
     }
 
     /// The file dialogs the app opened, oldest first.
@@ -691,6 +716,18 @@ impl Host for HeadlessHost {
         }
         // With no scripted answer, the user cancels.
         Ok(remedy_ui_host::DialogStarted::Finished(self.dialog_answers.pop_front().unwrap_or_default()))
+    }
+
+    fn request_permission(
+        &mut self,
+        permission: remedy_ui_host::Permission,
+    ) -> Result<remedy_ui_host::PermissionStarted, Unsupported> {
+        self.permissions.push(permission);
+        if self.permissions_answer_later {
+            let id = remedy_ui_host::PermissionId(u64::try_from(self.permissions.len()).unwrap_or(u64::MAX));
+            return Ok(remedy_ui_host::PermissionStarted::Pending(id));
+        }
+        Ok(remedy_ui_host::PermissionStarted::Finished(self.permission_answers.pop_front().unwrap_or(true)))
     }
 
     fn start_drag(

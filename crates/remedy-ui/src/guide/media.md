@@ -347,6 +347,49 @@ assert_eq!(track.text_at(Duration::from_secs(1)).as_deref(), Some("Hello there."
 assert_eq!(track.text_at(Duration::from_millis(2200)), None, "between cues");
 ```
 
+## The microphone
+
+[`Microphone`](crate::playback::Microphone) opens the default sound input on a worker of its
+own and hands its sound to the app as it arrives: 48 kHz mono by default
+([`MicrophoneOptions`](crate::playback::MicrophoneOptions) asks for another rate or channel
+count, and the platform or the engine converts from the device's own). The handler runs on
+the worker, never on the UI thread, so pitch detection or a recorder does not hold up
+drawing; results go back with [`crate::reactive::waker`]. The microphone's
+[`state`](crate::playback::Microphone::state), [`error`](crate::playback::Microphone::error)
+and [`level`](crate::playback::Microphone::level) (for a meter) are tracked signals.
+
+The sound is the microphone's own, without voice-call processing (echo cancelling, noise
+suppression, gain control) that would bend a sung or played note. WASAPI captures it on
+Windows, the system's GStreamer on Linux, AAudio on Android, and `getUserMedia` with an audio
+worklet in a browser page (which asks the person itself, and only on `https:` or localhost
+pages).
+
+Android asks at run time: call [`App::request_permission`](crate::App::request_permission)
+with [`Permission::Microphone`](crate::host::Permission::Microphone) when the person reaches
+for the feature, and list `microphone` in `remedy.toml`'s `[android] permissions`. A refusal,
+or Windows' privacy settings keeping apps from the microphone, is a
+[`MediaError::Denied`](crate::playback::MediaError::Denied) that says where to change it.
+
+```no_run
+use remedy_ui::App;
+use remedy_ui::host::Permission;
+use remedy_ui::playback::{Microphone, MicrophoneOptions};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+fn start_tuner(app: &App, mic: Rc<RefCell<Option<Microphone>>>) {
+    app.request_permission(Permission::Microphone, move |granted| {
+        if !granted {
+            return; // Say why the tuner cannot listen, and how to allow it.
+        }
+        *mic.borrow_mut() = Some(Microphone::open_platform(MicrophoneOptions::default(), |samples| {
+            // 48 kHz mono, as it arrives: estimate the pitch here.
+            let _ = samples;
+        }));
+    });
+}
+```
+
 ## Decoding in a sandbox
 
 Images and animations come from strangers in chats and feeds. [`crate::isolated`] (feature

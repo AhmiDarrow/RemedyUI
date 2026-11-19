@@ -440,6 +440,7 @@ enum Cmd {
     Tray(Option<TrayIcon>),
     Dialog(Option<u64>, FileDialog, Box<dyn FnOnce(Vec<std::path::PathBuf>)>),
     OpenUrl(String, Box<dyn FnOnce(Result<(), Unsupported>)>),
+    Permission(remedy_ui_host::Permission, PermissionDone),
     Quit,
 }
 
@@ -829,6 +830,23 @@ impl App {
         self.push(Cmd::OpenUrl(url.into(), Box::new(done)));
     }
 
+    /// Asks for the person's leave to use `permission`, then `done` with the answer (true when
+    /// granted). On Android this shows the system's prompt unless the permission was already
+    /// granted, and the app's manifest must declare it (`cargo remedy package` writes it from
+    /// `[android] permissions` in `remedy.toml`). Platforms without run-time permissions answer
+    /// true at once; their privacy settings may still refuse the device, which then says so
+    /// when it is opened.
+    ///
+    /// Ask when the person reaches for the feature (pressing a tuner's start), not at launch,
+    /// so the prompt explains itself.
+    pub fn request_permission(
+        &self,
+        permission: remedy_ui_host::Permission,
+        done: impl FnOnce(bool) + 'static,
+    ) {
+        self.push(Cmd::Permission(permission, Box::new(done)));
+    }
+
     /// Forgets saved geometry for `key`.
     pub fn forget_geometry(&self, key: impl Into<String>) {
         self.push(Cmd::Forget(key.into()));
@@ -1080,6 +1098,7 @@ impl Window {
 
 /// What runs with a file dialog's choice.
 type DialogDone = Box<dyn FnOnce(Vec<std::path::PathBuf>)>;
+type PermissionDone = Box<dyn FnOnce(bool)>;
 
 enum Present {
     Cpu(Box<CpuCompositor>),
@@ -1132,6 +1151,8 @@ pub struct Runner {
     suspended: bool,
     /// File dialogs the platform answers later, and what to call with the choice.
     dialogs: HashMap<remedy_ui_host::DialogId, DialogDone>,
+    /// Permission requests the platform answers later, and what to call with the answer.
+    permissions: HashMap<remedy_ui_host::PermissionId, PermissionDone>,
     secret: Option<(remedy_ui_secure::SensitiveCopy, TimerId)>,
     inbox: crate::instance::SharedInbox,
     #[cfg(feature = "gpu")]
@@ -1189,6 +1210,7 @@ impl Runner {
             midnight_timer: None,
             suspended: false,
             dialogs: HashMap::new(),
+            permissions: HashMap::new(),
             secret: None,
             inbox: Default::default(),
             #[cfg(feature = "gpu")]
@@ -1442,6 +1464,14 @@ impl Runner {
                 }
             }
             Cmd::OpenUrl(url, done) => done(host.open_url(&url)),
+            Cmd::Permission(permission, done) => match host.request_permission(permission) {
+                Ok(remedy_ui_host::PermissionStarted::Finished(granted)) => done(granted),
+                // The platform's prompt answers later, with `HostEvent::Permission`.
+                Ok(remedy_ui_host::PermissionStarted::Pending(id)) => {
+                    self.permissions.insert(id, done);
+                }
+                Err(_) => done(false),
+            },
             Cmd::Forget(key) => {
                 self.geometry.remove(&key);
                 self.schedule_save(host);
@@ -2142,6 +2172,11 @@ impl remedy_ui_host::App for Runner {
             HostEvent::FileDialog(id, chosen) => {
                 if let Some(done) = self.dialogs.remove(&id) {
                     done(chosen);
+                }
+            }
+            HostEvent::Permission(id, granted) => {
+                if let Some(done) = self.permissions.remove(&id) {
+                    done(granted);
                 }
             }
             HostEvent::SafeArea(window, area) => {
