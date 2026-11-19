@@ -24,6 +24,114 @@ pub struct Click {
 /// Pointer input as elements receive it (window logical pixels).
 pub type PointerInput = PointerEvent;
 
+/// A key a window's menu bar answers to wherever focus is, offered to it before anything
+/// focused sees the key ([`Ui::add_menu_keys`]). On Apple platforms, where Option types
+/// characters, only [`MenuKey::F10`] comes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MenuKey {
+    /// Alt pressed and released with nothing in between (no other key, no press): focus the
+    /// menu bar, or leave it.
+    AltTap,
+    /// F10 with no modifier: focus the menu bar, or leave it.
+    F10,
+    /// Alt and a character key (without Ctrl or the Windows/Command key, so AltGr's characters
+    /// are typed): open the menu with that access key. The character is in lower case.
+    Mnemonic(String),
+}
+
+/// Hears a window's menu keys ([`Ui::add_menu_keys`]); returns true when it took the key.
+pub type MenuKeyHandler = Rc<dyn Fn(&MenuKey) -> bool>;
+
+fn is_alt(k: &Key) -> bool {
+    matches!(k, Key::Named(n) if n == "Alt")
+}
+
+impl Ui {
+    /// Hears the window's menu keys ([`MenuKey`]: Alt tapped alone, F10, Alt with a letter)
+    /// before the focused element does, so a menu bar opens from a text field as from
+    /// anywhere else. Only these keys come here; everything else goes to focus as usual.
+    /// Returns an id for [`Ui::remove_menu_keys`]. The handler added last is asked first.
+    pub fn add_menu_keys(&self, f: impl Fn(&MenuKey) -> bool + 'static) -> u64 {
+        let mut i = self.0.borrow_mut();
+        let id = i.next_observer;
+        i.next_observer += 1;
+        i.menu_keys.insert(0, (id, Rc::new(f)));
+        id
+    }
+
+    /// Stops a handler added with [`Ui::add_menu_keys`].
+    pub fn remove_menu_keys(&self, id: u64) {
+        self.0.borrow_mut().menu_keys.retain(|(i, _)| *i != id);
+    }
+
+    /// True while Alt (Option) is held down in this window (tracked): menus underline their
+    /// access keys then, except on Apple platforms, which have none.
+    pub fn alt_held(&self) -> bool {
+        let s = self.0.borrow().alt_held;
+        s.get()
+    }
+
+    /// Tells the view its window gained or lost the keyboard (the runner does): keys held
+    /// when it left are let go, so Alt does not stay down when the person switched windows
+    /// with Alt+Tab.
+    pub fn set_window_focused(&self, focused: bool) {
+        if !focused {
+            let held = {
+                let mut i = self.0.borrow_mut();
+                i.alt_tap = false;
+                i.alt_held
+            };
+            if remedy_ui_reactive::untrack(|| held.get()) {
+                held.set(false);
+            }
+        }
+    }
+
+    fn offer_menu_key(&self, k: &MenuKey) -> bool {
+        let handlers: Vec<MenuKeyHandler> =
+            self.0.borrow().menu_keys.iter().map(|(_, f)| f.clone()).collect();
+        handlers.iter().any(|f| remedy_ui_reactive::batch(|| f(k)))
+    }
+
+    /// The menu key `e` is, keeping track of Alt on its own: `None` for every other key. On
+    /// Apple platforms Option types characters and taps nothing, so only F10 is one there.
+    fn menu_key(&self, e: &KeyEvent) -> Option<MenuKey> {
+        let apple = self.platform() == Platform::Apple;
+        let held = self.0.borrow().alt_held;
+        if is_alt(&e.key) {
+            let tap = {
+                let mut i = self.0.borrow_mut();
+                let tap = i.alt_tap;
+                i.alt_tap = e.pressed
+                    && (e.repeat && tap
+                        || !e.repeat && !e.modifiers.ctrl && !e.modifiers.shift && !e.modifiers.meta);
+                tap
+            };
+            if remedy_ui_reactive::untrack(|| held.get()) != e.pressed {
+                held.set(e.pressed);
+            }
+            return (!e.pressed && tap && !apple).then_some(MenuKey::AltTap);
+        }
+        if !e.pressed {
+            return None;
+        }
+        // Anything else while Alt is down makes it a chord, not a tap.
+        self.0.borrow_mut().alt_tap = false;
+        if e.composing {
+            return None;
+        }
+        let m = e.modifiers;
+        match &e.key {
+            Key::F(10) if m == remedy_ui_input::Modifiers::NONE && !e.repeat => Some(MenuKey::F10),
+            Key::Character(c) if m.alt && !m.ctrl && !m.meta && !e.repeat && !apple => {
+                Some(MenuKey::Mnemonic(c.to_lowercase()))
+            }
+            _ => None,
+        }
+    }
+}
+
 impl Ui {
     fn chain(&self, id: Option<ElementId>) -> Vec<ElementId> {
         let tree = self.tree();
@@ -101,6 +209,10 @@ impl Ui {
             }
             self.0.borrow_mut().hovered = chain.clone();
         }
+        if e.phase == PointerPhase::Down {
+            // A press while Alt is down makes Alt part of it (Alt+click), not a tap.
+            self.0.borrow_mut().alt_tap = false;
+        }
         if e.phase == PointerPhase::Down && e.buttons.contains(remedy_ui_input::Buttons::PRIMARY) {
             // Count presses in a row: same element, within the double-click time and a few
             // pixels (a hand moves a little between clicks).
@@ -127,7 +239,9 @@ impl Ui {
                 }
                 self.0.borrow_mut().pressed = target.or(hit);
                 let focusable = chain.iter().copied().find(|id| tree.is_focusable(*id));
+                let keeps = chain.iter().any(|id| self.0.borrow().els.get(id).is_some_and(|d| d.keeps_focus));
                 match focusable {
+                    _ if keeps => {}
                     Some(f) if tree.focused() != Some(f) => {
                         let _ = tree.focus(f);
                         self.0.borrow_mut().focus_visible = false;
@@ -267,6 +381,11 @@ impl Ui {
     /// takes it, the runner leaves the window.
     pub fn key(&self, e: &KeyEvent) -> bool {
         let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
+        if let Some(k) = self.menu_key(e)
+            && self.offer_menu_key(&k)
+        {
+            return true;
+        }
         if e.key == Key::Back {
             if self.route_key(e) {
                 return true;

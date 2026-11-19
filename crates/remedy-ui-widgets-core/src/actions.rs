@@ -7,7 +7,12 @@ use remedy_ui_style::States;
 use remedy_ui_view::{El, IntoProp, RichText, Ui};
 
 use crate::icons::{Icon, icon};
-use crate::overlays::{MenuItem, menu};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use remedy_ui_input::Key;
+
+use crate::menus::{MenuItem, OpenMenu, open_menu};
 
 fn centered(el: El) -> El {
     el.row().align(Align::Center).justify(remedy_ui_layout::Justify::Center)
@@ -71,26 +76,46 @@ pub fn toggle_button(ui: &Ui, label: impl IntoProp<String>, on: Signal<bool>) ->
     })
 }
 
-/// A button that opens a menu of `items` below itself.
+/// A button that opens a menu of `items` below itself: on a click, Enter or Space, and with
+/// Down (focus on its first entry) or Up (its last). A second click closes it; it reports
+/// whether its menu is open to assistive technology.
 #[track_caller]
 pub fn menu_button(ui: &Ui, label: impl IntoProp<String>, items: Vec<MenuItem>) -> El {
     let label = label.into_prop();
-    let ui2 = ui.clone();
-    let slot: std::rc::Rc<std::cell::RefCell<Option<El>>> = std::rc::Rc::default();
-    let anchor: std::rc::Rc<std::cell::RefCell<Option<El>>> = std::rc::Rc::default();
-    let a2 = anchor.clone();
-    let b = button(ui, label.clone(), move || {
-        if let Some(open) = slot.borrow_mut().take() {
-            open.remove();
-            return;
-        }
-        if let Some(a) = a2.borrow().clone() {
-            let m = menu(&ui2, &a, items.clone());
+    let open: Signal<bool> = Signal::new(false);
+    let slot: Rc<RefCell<Option<OpenMenu>>> = Rc::default();
+    let anchor: Rc<RefCell<Option<El>>> = Rc::default();
+    let items = Rc::new(items);
+    let show = {
+        let (slot, anchor, items) = (slot.clone(), anchor.clone(), items.clone());
+        Rc::new(move |keyboard: bool, last: bool| {
+            if let Some(m) = slot.borrow_mut().take()
+                && m.is_open()
+            {
+                m.close();
+                return;
+            }
+            let Some(a) = anchor.borrow().clone() else { return };
+            let b = a.bounds().unwrap_or(remedy_ui_core::Rect::ZERO);
+            let m = open_menu(&a, b, (*items).clone(), keyboard, last);
+            open.set(true);
+            m.on_closed(move || open.set(false));
             *slot.borrow_mut() = Some(m);
-        }
-    })
-    .child(icon(ui, Icon::ChevronDown, ui.theme().type_scale.small + 2.0))
-    .semantics(label.map(|l| Semantics::new(Role::Button).label(l).expanded(false).action(Action::Click)));
+        })
+    };
+    let (s1, s2) = (show.clone(), show);
+    let b = button(ui, label.clone(), move || s1(false, false))
+        .child(icon(ui, Icon::ChevronDown, ui.theme().type_scale.small + 2.0))
+        .on_key(move |e| match e.key {
+            Key::ArrowDown | Key::ArrowUp if e.pressed => {
+                s2(true, e.key == Key::ArrowUp);
+                true
+            }
+            _ => false,
+        })
+        .semantics(move || {
+            Semantics::new(Role::Button).label(label.get()).expanded(open.get()).action(Action::Click)
+        });
     *anchor.borrow_mut() = Some(b.clone());
     b
 }

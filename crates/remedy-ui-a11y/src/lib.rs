@@ -69,6 +69,14 @@ pub enum Role {
     Menu,
     /// An item in a menu.
     MenuItem,
+    /// A row of menus along the top of a window (File, Edit, View).
+    MenuBar,
+    /// A menu item that is checked or not (View ▸ Full Screen).
+    MenuItemCheckBox,
+    /// A menu item that is one of a set of choices, one of them checked (View ▸ Fit Width).
+    MenuItemRadio,
+    /// A line dividing groups of items (in a menu, a toolbar or a list).
+    Separator,
     /// A dialog.
     Dialog,
     /// An urgent message.
@@ -196,6 +204,8 @@ pub struct Semantics {
     set_position: Option<(usize, usize)>,
     level: Option<usize>,
     merge: bool,
+    shortcut: Option<String>,
+    access_key: Option<String>,
 }
 
 impl Semantics {
@@ -229,6 +239,8 @@ impl Semantics {
             set_position: None,
             level: None,
             merge: false,
+            shortcut: None,
+            access_key: None,
         }
     }
 
@@ -389,6 +401,31 @@ impl Semantics {
     pub fn merge_descendants(mut self) -> Self {
         self.merge = true;
         self
+    }
+
+    /// The keyboard shortcut that does the same from anywhere in the window, as the person
+    /// reads it ("Ctrl+S", "Strg+S", "⌘S"): menus show it beside an item, and screen readers
+    /// say it after the name.
+    pub fn shortcut(mut self, s: impl Into<String>) -> Self {
+        self.shortcut = Some(s.into()).filter(|s: &String| !s.is_empty());
+        self
+    }
+
+    /// The shortcut, if set ([`Semantics::shortcut`]).
+    pub fn shortcut_text(&self) -> Option<&str> {
+        self.shortcut.as_deref()
+    }
+
+    /// The access key (mnemonic) that activates it while its menu or menu bar is active:
+    /// the underlined letter, "F" for File.
+    pub fn access_key(mut self, key: impl Into<String>) -> Self {
+        self.access_key = Some(key.into()).filter(|s: &String| !s.is_empty());
+        self
+    }
+
+    /// The access key, if set ([`Semantics::access_key`]).
+    pub fn access_key_text(&self) -> Option<&str> {
+        self.access_key.as_deref()
     }
 
     /// True when it folds its descendants into itself ([`Semantics::merge_descendants`]).
@@ -604,6 +641,12 @@ impl A11yTree {
         if let Some(level) = s.level {
             n.set_level(level.max(1));
         }
+        if let Some(k) = &s.shortcut {
+            n.set_keyboard_shortcut(k.clone());
+        }
+        if let Some(k) = &s.access_key {
+            n.set_access_key(k.clone());
+        }
         if let Role::Heading(level) = s.role {
             n.set_level(usize::from(level.clamp(1, 6)));
         }
@@ -668,6 +711,8 @@ impl A11yTree {
                 selected: s.selected,
                 expanded: s.expanded,
                 disabled: s.disabled,
+                shortcut: s.shortcut.clone(),
+                access_key: s.access_key.clone(),
             });
             if !s.merge {
                 stack.extend(children.iter().rev().map(|c| (*c, depth + 1)));
@@ -752,6 +797,10 @@ pub struct ReaderNode {
     pub expanded: Option<bool>,
     /// It cannot be used now (`states` says "disabled" too).
     pub disabled: bool,
+    /// The keyboard shortcut that does the same ("Ctrl+S").
+    pub shortcut: Option<String>,
+    /// The access key (mnemonic) that activates it in its menu ("F").
+    pub access_key: Option<String>,
 }
 
 impl ReaderNode {
@@ -762,6 +811,7 @@ impl ReaderNode {
         parts.extend(self.name.iter().filter(|n| !n.trim().is_empty()).cloned());
         parts.extend(self.value.iter().filter(|v| !v.trim().is_empty()).cloned());
         parts.extend(self.states.iter().map(|s| (*s).to_owned()));
+        parts.extend(self.shortcut.iter().cloned());
         if let Some((pos, size)) = self.position {
             parts.push(format!("{pos} of {size}"));
         }
@@ -791,6 +841,8 @@ pub fn is_control_role(r: Role) -> bool {
             | Role::Link
             | Role::Tab
             | Role::MenuItem
+            | Role::MenuItemCheckBox
+            | Role::MenuItemRadio
             | Role::SpinButton
             | Role::ColorWell
             | Role::DateInput
@@ -818,6 +870,10 @@ pub fn role_name(r: Role) -> String {
         Role::TabList => "tab list".into(),
         Role::Menu => "menu".into(),
         Role::MenuItem => "menu item".into(),
+        Role::MenuBar => "menu bar".into(),
+        Role::MenuItemCheckBox => "check menu item".into(),
+        Role::MenuItemRadio => "radio menu item".into(),
+        Role::Separator => "separator".into(),
         Role::Dialog => "dialog".into(),
         Role::Alert => "alert".into(),
         Role::Status => "status".into(),
@@ -863,6 +919,12 @@ fn role(r: Role) -> accesskit::Role {
         Role::TabList => R::TabList,
         Role::Menu => R::Menu,
         Role::MenuItem => R::MenuItem,
+        Role::MenuBar => R::MenuBar,
+        Role::MenuItemCheckBox => R::MenuItemCheckBox,
+        Role::MenuItemRadio => R::MenuItemRadio,
+        // AccessKit's separator: UI Automation's Separator, AT-SPI's separator, ARIA's
+        // `separator`.
+        Role::Separator => R::Splitter,
         Role::Dialog => R::Dialog,
         Role::Alert => R::Alert,
         Role::Status => R::Status,

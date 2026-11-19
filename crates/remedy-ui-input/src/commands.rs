@@ -73,6 +73,267 @@ impl Chord {
     }
 }
 
+/// The words a keyboard's keys go by in one language, for showing shortcuts.
+struct KeyWords {
+    ctrl: &'static str,
+    alt: &'static str,
+    shift: &'static str,
+    meta: &'static str,
+    /// Enter, Tab, Escape, Backspace, Delete, Space, Left, Right, Up, Down, Home, End, Page
+    /// Up, Page Down, Back.
+    keys: [&'static str; 15],
+}
+
+/// Key names by language, as the platforms' own keyboards and menus show them.
+fn key_words(locale: &str) -> &'static KeyWords {
+    const EN: KeyWords = KeyWords {
+        ctrl: "Ctrl",
+        alt: "Alt",
+        shift: "Shift",
+        meta: "Win",
+        keys: [
+            "Enter",
+            "Tab",
+            "Esc",
+            "Backspace",
+            "Del",
+            "Space",
+            "Left",
+            "Right",
+            "Up",
+            "Down",
+            "Home",
+            "End",
+            "PgUp",
+            "PgDn",
+            "Back",
+        ],
+    };
+    const DE: KeyWords = KeyWords {
+        ctrl: "Strg",
+        alt: "Alt",
+        shift: "Umschalt",
+        meta: "Win",
+        keys: [
+            "Eingabe",
+            "Tab",
+            "Esc",
+            "Rücktaste",
+            "Entf",
+            "Leertaste",
+            "Links",
+            "Rechts",
+            "Hoch",
+            "Runter",
+            "Pos1",
+            "Ende",
+            "Bild auf",
+            "Bild ab",
+            "Zurück",
+        ],
+    };
+    const FR: KeyWords = KeyWords {
+        ctrl: "Ctrl",
+        alt: "Alt",
+        shift: "Maj",
+        meta: "Win",
+        keys: [
+            "Entrée",
+            "Tab",
+            "Échap",
+            "Retour arrière",
+            "Suppr",
+            "Espace",
+            "Gauche",
+            "Droite",
+            "Haut",
+            "Bas",
+            "Début",
+            "Fin",
+            "Page préc.",
+            "Page suiv.",
+            "Retour",
+        ],
+    };
+    const ES: KeyWords = KeyWords {
+        ctrl: "Ctrl",
+        alt: "Alt",
+        shift: "Mayús",
+        meta: "Win",
+        keys: [
+            "Intro",
+            "Tab",
+            "Esc",
+            "Retroceso",
+            "Supr",
+            "Espacio",
+            "Izquierda",
+            "Derecha",
+            "Arriba",
+            "Abajo",
+            "Inicio",
+            "Fin",
+            "RePág",
+            "AvPág",
+            "Atrás",
+        ],
+    };
+    const IT: KeyWords = KeyWords {
+        ctrl: "Ctrl",
+        alt: "Alt",
+        shift: "Maiusc",
+        meta: "Win",
+        keys: [
+            "Invio",
+            "Tab",
+            "Esc",
+            "Backspace",
+            "Canc",
+            "Spazio",
+            "Sinistra",
+            "Destra",
+            "Su",
+            "Giù",
+            "Home",
+            "Fine",
+            "PagSu",
+            "PagGiù",
+            "Indietro",
+        ],
+    };
+    const NL: KeyWords = KeyWords {
+        ctrl: "Ctrl",
+        alt: "Alt",
+        shift: "Shift",
+        meta: "Win",
+        keys: [
+            "Enter",
+            "Tab",
+            "Esc",
+            "Backspace",
+            "Del",
+            "Spatie",
+            "Links",
+            "Rechts",
+            "Omhoog",
+            "Omlaag",
+            "Home",
+            "End",
+            "PgUp",
+            "PgDn",
+            "Terug",
+        ],
+    };
+    const PT: KeyWords = KeyWords {
+        ctrl: "Ctrl",
+        alt: "Alt",
+        shift: "Shift",
+        meta: "Win",
+        keys: [
+            "Enter",
+            "Tab",
+            "Esc",
+            "Backspace",
+            "Del",
+            "Espaço",
+            "Esquerda",
+            "Direita",
+            "Cima",
+            "Baixo",
+            "Home",
+            "End",
+            "PgUp",
+            "PgDn",
+            "Voltar",
+        ],
+    };
+    let lang = locale.split(['-', '_']).next().unwrap_or("").to_ascii_lowercase();
+    match lang.as_str() {
+        "de" => &DE,
+        "fr" => &FR,
+        "es" => &ES,
+        "it" => &IT,
+        "nl" => &NL,
+        "pt" => &PT,
+        _ => &EN,
+    }
+}
+
+impl Chord {
+    /// How to show it in a menu or tooltip on `platform` for a person reading `locale` (BCP
+    /// 47, such as `de-DE`): the key names of that language ("Strg+Umschalt+Z", "Ctrl+Maj+Z"),
+    /// or Apple's symbols ("⇧⌘Z", "⌘←"). Languages without their own names use English
+    /// ("Ctrl+Shift+Z", "Ctrl+PgDn").
+    ///
+    /// ```
+    /// use remedy_ui_input::{Chord, Platform};
+    ///
+    /// let redo: Chord = "Ctrl+Shift+Z".parse()?;
+    /// assert_eq!(redo.label_in(Platform::Standard, "de-DE"), "Strg+Umschalt+Z");
+    /// assert_eq!(redo.label_in(Platform::Standard, "en-US"), "Ctrl+Shift+Z");
+    /// let delete: Chord = "Delete".parse()?;
+    /// assert_eq!(delete.label_in(Platform::Standard, "fr"), "Suppr");
+    /// # Ok::<(), remedy_ui_input::ChordError>(())
+    /// ```
+    pub fn label_in(&self, platform: Platform, locale: &str) -> String {
+        let w = key_words(locale);
+        let named = |i: usize| w.keys.get(i).copied().unwrap_or_default().to_owned();
+        let apple = platform == Platform::Apple;
+        let key = match &self.key {
+            Key::Character(s) if s == " " => named(5),
+            Key::Character(s) => s.to_uppercase(),
+            Key::F(n) => format!("F{n}"),
+            Key::Named(n) => n.clone(),
+            Key::Enter if apple => "↩".into(),
+            Key::Tab if apple => "⇥".into(),
+            Key::Escape if apple => "⎋".into(),
+            Key::Backspace if apple => "⌫".into(),
+            Key::Delete if apple => "⌦".into(),
+            Key::ArrowLeft if apple => "←".into(),
+            Key::ArrowRight if apple => "→".into(),
+            Key::ArrowUp if apple => "↑".into(),
+            Key::ArrowDown if apple => "↓".into(),
+            Key::Home if apple => "↖".into(),
+            Key::End if apple => "↘".into(),
+            Key::PageUp if apple => "⇞".into(),
+            Key::PageDown if apple => "⇟".into(),
+            Key::Enter => named(0),
+            Key::Tab => named(1),
+            Key::Escape => named(2),
+            Key::Backspace => named(3),
+            Key::Delete => named(4),
+            Key::Space => named(5),
+            Key::ArrowLeft => named(6),
+            Key::ArrowRight => named(7),
+            Key::ArrowUp => named(8),
+            Key::ArrowDown => named(9),
+            Key::Home => named(10),
+            Key::End => named(11),
+            Key::PageUp => named(12),
+            Key::PageDown => named(13),
+            Key::Back => named(14),
+        };
+        let m = self.modifiers;
+        if apple {
+            let mut s = String::new();
+            for (on, sym) in [(m.ctrl, '⌃'), (m.alt, '⌥'), (m.shift, '⇧'), (m.meta, '⌘')] {
+                if on {
+                    s.push(sym);
+                }
+            }
+            return s + &key;
+        }
+        let mut parts: Vec<&str> = Vec::new();
+        for (on, word) in [(m.ctrl, w.ctrl), (m.alt, w.alt), (m.shift, w.shift), (m.meta, w.meta)] {
+            if on {
+                parts.push(word);
+            }
+        }
+        parts.push(&key);
+        parts.join("+")
+    }
+}
+
 /// The portable name of a key in a chord's text form, or `None` for a character key.
 fn key_name(key: &Key) -> Option<String> {
     Some(match key {

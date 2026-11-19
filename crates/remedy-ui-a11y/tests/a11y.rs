@@ -141,3 +141,38 @@ fn static_text_carries_its_words_as_the_value_adapters_read() {
     let window = u.as_ref().and_then(|u| node(u, 1));
     assert_eq!(window.and_then(|n| n.value()), None, "only static text gets a value");
 }
+
+#[test]
+fn menus_reach_platforms_with_their_roles_states_and_keys() {
+    let mut t = A11yTree::new(1);
+    t.set(1, Semantics::new(Role::Window).label("Reader"));
+    t.set(2, Semantics::new(Role::MenuBar));
+    t.set(
+        3,
+        Semantics::new(Role::MenuItem).label("View").access_key("V").expanded(true).action(Action::Click),
+    );
+    t.set(4, Semantics::new(Role::Menu).label("View"));
+    t.set(5, Semantics::new(Role::MenuItemCheckBox).label("Book Mode").checked(true).shortcut("Ctrl+B"));
+    t.set(6, Semantics::new(Role::Separator));
+    t.set(7, Semantics::new(Role::MenuItemRadio).label("Fit Page").checked(false).set_position(2, 3));
+    t.set_children(1, &[2, 4]);
+    t.set_children(2, &[3]);
+    t.set_children(4, &[5, 6, 7]);
+    t.connect();
+    let u = t.take_update().unwrap_or_else(|| unreachable!("connected"));
+    let role = |id| node(&u, id).map(accesskit::Node::role);
+    assert_eq!(role(2), Some(accesskit::Role::MenuBar));
+    assert_eq!(role(5), Some(accesskit::Role::MenuItemCheckBox));
+    assert_eq!(role(6), Some(accesskit::Role::Splitter), "AccessKit's separator");
+    assert_eq!(role(7), Some(accesskit::Role::MenuItemRadio));
+    assert_eq!(node(&u, 3).and_then(accesskit::Node::access_key), Some("V"));
+    assert_eq!(node(&u, 5).and_then(accesskit::Node::keyboard_shortcut), Some("Ctrl+B"));
+    assert_eq!(node(&u, 5).and_then(accesskit::Node::toggled), Some(accesskit::Toggled::True));
+    assert_eq!(node(&u, 7).and_then(accesskit::Node::toggled), Some(accesskit::Toggled::False));
+    let reader = t.reader_view();
+    let book = reader.iter().find(|n| n.role == Role::MenuItemCheckBox).unwrap_or_else(|| unreachable!());
+    assert_eq!(book.announcement(), "check menu item, Book Mode, checked, Ctrl+B");
+    assert_eq!(book.shortcut.as_deref(), Some("Ctrl+B"));
+    assert!(is_control_role(Role::MenuItemRadio) && !is_control_role(Role::Separator));
+    assert_eq!(role_name(Role::MenuBar), "menu bar");
+}

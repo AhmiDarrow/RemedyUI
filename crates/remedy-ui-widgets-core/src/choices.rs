@@ -9,7 +9,7 @@ use remedy_ui_reactive::Signal;
 use remedy_ui_style::States;
 use remedy_ui_view::{El, IntoProp, Prop, Ui};
 
-use crate::overlays::{MenuItem, menu};
+use crate::menus::{MenuItem, menu};
 
 fn labeled(ui: &Ui, control: El, text: Prop<String>) -> El {
     let gap = ui.theme().spacing.unit * 2.0;

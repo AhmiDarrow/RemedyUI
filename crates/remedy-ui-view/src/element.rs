@@ -333,6 +333,8 @@ pub(crate) struct ElData {
     pub(crate) text_client: Option<crate::client::TextClient>,
     /// Has a pointer handler of its own (`on_pointer`).
     pub(crate) pointer: bool,
+    /// A primary press on it leaves keyboard focus where it is ([`El::keeps_focus_on_press`]).
+    pub(crate) keeps_focus: bool,
     /// Draggable: what is dragged, and who hears how it ended.
     pub(crate) drag_source: Option<crate::dnd::DragSource>,
     /// Its text may be selected ([`El::selectable`]).
@@ -461,6 +463,13 @@ pub(crate) struct Inner {
     pub(crate) content: ElementId,
     pub(crate) overlays: ElementId,
     pub(crate) interceptor: Option<PointerInterceptor>,
+    /// What hears the window's menu keys before anything focused ([`Ui::add_menu_keys`]),
+    /// newest first.
+    pub(crate) menu_keys: Vec<(u64, crate::events::MenuKeyHandler)>,
+    /// Alt is down and nothing else happened since it went down: its release is a tap.
+    pub(crate) alt_tap: bool,
+    /// Alt is held ([`Ui::alt_held`]).
+    pub(crate) alt_held: remedy_ui_reactive::Signal<bool>,
     /// A handler consumed the last pointer event (see [`Ui::pointer_consumed`]).
     pub(crate) consumed: bool,
     /// Called when a request arrives with none pending: the host's loop must come around.
@@ -675,6 +684,9 @@ impl Ui {
             content: root,
             overlays: root,
             interceptor: None,
+            menu_keys: Vec::new(),
+            alt_tap: false,
+            alt_held: remedy_ui_reactive::Signal::new(false),
             consumed: false,
             wake: None,
             captured: None,
@@ -1404,6 +1416,7 @@ impl ElData {
             focus: None,
             text_client: None,
             pointer: false,
+            keeps_focus: false,
             drag_source: None,
             selectable: false,
             sel: None,
@@ -2194,6 +2207,14 @@ impl El {
             cx.stop_propagation();
         });
         self.edit(Dirty::SEMANTICS, |d| d.click = Some(f));
+        self
+    }
+
+    /// A primary press on the element, or on anything inside it, leaves keyboard focus where
+    /// it is instead of moving it (or clearing it): a menu bar's titles, so the menu opened
+    /// from them hands focus back to the field it came from.
+    pub fn keeps_focus_on_press(self, on: bool) -> Self {
+        self.edit(Dirty::NONE, |d| d.keeps_focus = on);
         self
     }
 

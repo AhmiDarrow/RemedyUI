@@ -406,15 +406,31 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         States::NONE,
         StylePatch::default().radius(r.small).padding(pad(u * 1.5, u * 2.5)),
     );
-    rule("menu_item", None, States::HOVER, StylePatch::default().background(d.hover));
-    rule(
-        "menu_item",
-        None,
-        States::FOCUS_VISIBLE,
-        // Menus show the focused item by highlighting it, as every platform does.
-        StylePatch::default().background(d.hover).outline_width(0.0),
-    );
+    // Menus show the focused item by highlighting it, as every platform does; the pointer
+    // resting on an item focuses it, so the highlight follows the pointer and the keyboard
+    // alike, and there is only ever one.
+    for st in [States::FOCUS, States::FOCUS_VISIBLE] {
+        rule("menu_item", None, st, StylePatch::default().background(d.hover).outline_width(0.0));
+    }
+    // An item whose submenu is open stays marked while focus is in the submenu.
+    rule("menu_item", None, States::SELECTED, StylePatch::default().background(d.hover));
+    rule("menu_item", None, States::DISABLED, disabled.clone());
     rule("menu_item", Some("danger"), States::NONE, StylePatch::default().foreground(danger));
+    rule(
+        "menu_shortcut",
+        None,
+        States::NONE,
+        StylePatch::default().foreground(d.muted).text_size(t.type_scale.small),
+    );
+    rule("menu_separator", None, States::NONE, StylePatch::default().background(line));
+    rule("menu_bar", None, States::NONE, StylePatch::default().background(c.panel).padding(pad(u * 0.5, u)));
+    rule("menu_bar_item", None, States::NONE, StylePatch::default().radius(r.small).padding(pad(u, u * 2.5)));
+    rule("menu_bar_item", None, States::HOVER, StylePatch::default().background(d.hover));
+    // The title the keyboard is on is highlighted; Tab-style keyboard focus also gets the ring,
+    // which tells a focused open title from an open one.
+    rule("menu_bar_item", None, States::FOCUS, StylePatch::default().background(d.hover));
+    rule("menu_bar_item", None, States::SELECTED, StylePatch::default().background(d.selected));
+    rule("menu_bar_item", None, States::DISABLED, disabled.clone());
 
     // Feedback.
     rule(

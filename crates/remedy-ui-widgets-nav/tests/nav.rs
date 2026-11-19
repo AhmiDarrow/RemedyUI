@@ -316,3 +316,140 @@ fn texts_under(el: &El) -> Vec<String> {
     }
     out
 }
+
+/// Runs two frames at `size` (overlays measure on the first and take their place on the
+/// next), firing timers that came due.
+fn frames_at(ui: &Ui, size: Size) {
+    for _ in 0..2 {
+        let _ = ui.frame(size, 1.0);
+        let _ = ui.take_requests();
+    }
+}
+
+fn audit_clean_at(ui: &Ui, size: Size) {
+    frames_at(ui, size);
+    let found: Vec<String> = remedy_ui_devtools::audit(ui)
+        .iter()
+        .map(|p| {
+            format!(
+                "{} [{}]",
+                p.message(),
+                ui.element(p.element).info().map(|i| remedy_ui_devtools::describe(&i)).unwrap_or_default()
+            )
+        })
+        .collect();
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+#[test]
+fn menus_made_from_commands_follow_the_commands() {
+    let ui = ui();
+    ui.set_locale("de-DE");
+    let cmds = Commands::new();
+    let saved = Rc::new(Cell::new(0));
+    let s2 = saved.clone();
+    cmds.add("file.save", "Speichern", vec![Chord::new(CTRL, Key::char('s'))], None, move || {
+        s2.set(s2.get() + 1)
+    });
+    cmds.add(
+        "file.delete",
+        "Löschen",
+        vec![Chord::new(Modifiers::NONE, Key::Delete)],
+        Some(Icon::Trash),
+        || {},
+    );
+    cmds.set_destructive("file.delete", true);
+    let bar = w::menu_bar(
+        &ui,
+        vec![
+            w::MenuItem::submenu_with("Datei", {
+                let cmds = cmds.clone();
+                move || {
+                    vec![
+                        cmds.menu_item("file.save").mnemonic('s'),
+                        w::MenuItem::separator(),
+                        cmds.menu_item("file.delete").mnemonic('l'),
+                    ]
+                }
+            })
+            .mnemonic('d'),
+        ],
+    );
+    ui.root().child(bar);
+    frames_at(&ui, Size::new(640.0, 400.0));
+    let node = |name: &str| ui.reader_view().into_iter().find(|n| n.name.as_deref() == Some(name));
+    assert!(ui.key(&KeyEvent::press(Key::F(10))));
+    assert!(ui.key(&KeyEvent::press(Key::Enter)));
+    frames_at(&ui, Size::new(640.0, 400.0));
+    assert_eq!(node("Speichern").and_then(|n| n.shortcut).as_deref(), Some("Strg+S"));
+    assert_eq!(node("Löschen").and_then(|n| n.shortcut).as_deref(), Some("Entf"));
+    audit_clean_at(&ui, Size::new(640.0, 400.0));
+    // Disabled, renamed and rebound commands show so in the menu the next time it opens.
+    assert!(ui.key(&KeyEvent::press(Key::Escape)));
+    assert!(ui.key(&KeyEvent::press(Key::Escape)));
+    cmds.set_enabled("file.save", false);
+    cmds.set_label("file.delete", "In den Papierkorb");
+    let _ = cmds.rebind("file.delete", vec![Chord::new(CTRL, Key::Delete)]);
+    assert!(ui.key(&KeyEvent::press(Key::F(10))));
+    assert!(ui.key(&KeyEvent::press(Key::Enter)));
+    frames_at(&ui, Size::new(640.0, 400.0));
+    let save = node("Speichern").unwrap_or_else(|| unreachable!());
+    assert!(save.disabled);
+    assert_eq!(node("In den Papierkorb").and_then(|n| n.shortcut).as_deref(), Some("Strg+Entf"));
+    assert!(ui.key(&KeyEvent::press(Key::Enter)));
+    assert_eq!(saved.get(), 0, "a disabled command does not run from its menu");
+}
+
+#[test]
+fn open_menus_pass_the_audit_in_narrow_windows_and_long_languages() {
+    for size in [Size::new(640.0, 400.0), Size::new(180.0, 220.0)] {
+        let ui = ui();
+        ui.set_locale("de-DE");
+        let view = Signal::new(1usize);
+        let bar = w::menu_bar(
+            &ui,
+            vec![
+                w::MenuItem::submenu(
+                    "Datei",
+                    vec![
+                        w::MenuItem::new("Öffnen…", || {})
+                            .chord(Chord::new(CTRL, Key::char('o')))
+                            .mnemonic('f'),
+                        w::MenuItem::new("Speichern unter…", || {}).mnemonic('u'),
+                    ],
+                )
+                .mnemonic('d'),
+                w::MenuItem::submenu(
+                    "Ansicht",
+                    vec![
+                        w::MenuItem::radio_signal("An Seitenbreite anpassen", view, 1),
+                        w::MenuItem::radio_signal("Ganze Seite", view, 2),
+                        w::MenuItem::separator(),
+                        w::MenuItem::submenu(
+                            "Sichtbarkeitsdesign",
+                            vec![w::MenuItem::new("Hoher Kontrast (Schwarz auf Weiß)", || {})],
+                        ),
+                    ],
+                )
+                .mnemonic('a'),
+                w::MenuItem::submenu("Hilfe", vec![w::MenuItem::new("Über RemedyPDF", || {})]).mnemonic('h'),
+            ],
+        );
+        ui.root().child(bar);
+        frames_at(&ui, size);
+        frames_at(&ui, size);
+        audit_clean_at(&ui, size);
+        // Open View and its submenu from the keyboard, then check every edge again.
+        assert!(ui.key(&KeyEvent::press(Key::char('a')).with_modifiers(Modifiers::ALT)));
+        frames_at(&ui, size);
+        for _ in 0..3 {
+            let _ = ui.key(&KeyEvent::press(Key::ArrowUp));
+        }
+        let _ = ui.key(&KeyEvent::press(Key::End));
+        let _ = ui.key(&KeyEvent::press(Key::ArrowRight));
+        frames_at(&ui, size);
+        let menus = ui.reader_view().into_iter().filter(|n| n.role == remedy_ui_a11y::Role::Menu).count();
+        assert!(menus >= 2, "the submenu opened at {size:?}");
+        audit_clean_at(&ui, size);
+    }
+}

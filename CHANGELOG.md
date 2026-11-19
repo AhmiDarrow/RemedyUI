@@ -10,6 +10,47 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Desktop menus and the menu bar.** `widgets::menu_bar(ui, menus)`: a row of menus with
+  access keys; a click opens a menu (press, drag and release chooses), hovering another title
+  while one is open switches to it, F10 or a lone Alt press reaches the bar (and leaves it),
+  Alt and a menu's letter opens it from anywhere in the window (a text field included), Left
+  and Right move between menus open or closed, Down, Enter or Space opens one (Up at its last
+  entry), Escape closes it and then gives focus back where it was; right-to-left layouts
+  mirror; titles that do not fit a narrow window move into a "…" menu. `MenuItem` grows
+  separators (`separator`), submenus (`submenu`, `submenu_with`: open beside their entry,
+  flipping at the window's edges; Right/Enter opens, Left/Escape closes one level, resting the
+  pointer opens after a moment), check and radio entries (`check`, `check_signal`, `radio`,
+  `radio_signal`, taking a value or a signal), disabled entries (`disabled`: focusable but not
+  chosen, as WAI-ARIA asks), shortcut text (`shortcut`, or `chord`/`chords` written in the
+  person's language), an icon (`icon`), an access key (`mnemonic`: underlined while Alt is
+  held and in menus opened from the keyboard; pressing it in an open menu chooses), dynamic
+  labels (`label`), and type-ahead by first letter. `menu`, `context_menu` and `menu_button`
+  use the same menus (and `menu_button` reports whether its menu is open, and opens with Down
+  or Up). Menus taller than the window scroll inside it. `nav::Commands::menu_item(id)` makes
+  an entry from a command (label, shortcut, enabled, icon, destructive, action), so menus,
+  toolbars and the command palette share one source. `fit_beside`, `place_beside` and
+  `fit_near_dir` place submenus and right-to-left overlays; `Icon::Dot` marks radio entries.
+  Themes style `menu_bar`, `menu_bar_item`, `menu_separator` and `menu_shortcut`. The recipe
+  `examples/menu_bar.rs` and the guide's Qt page show them.
+- **Menu roles in accessibility**: `Role::MenuBar`, `Role::MenuItemCheckBox`,
+  `Role::MenuItemRadio` and `Role::Separator`, mapped to AccessKit (UI Automation, AT-SPI,
+  NSAccessibility and Android's `AccessibilityNodeInfo`, where check and radio items are
+  checkable) and to ARIA in the web bridge (`menubar`, `menuitemcheckbox`, `menuitemradio`,
+  `separator`, with `aria-checked`, and now `aria-posinset`/`aria-setsize`).
+  `Semantics::shortcut` and `Semantics::access_key` reach AccessKit's keyboard shortcut and
+  access key, and `ReaderNode` carries both (a reader announces the shortcut). The devtools
+  audit treats menus and menu bars as composite widgets and reports
+  `ProblemKind::NoCheckedState` (a check or radio menu item that does not say whether it is
+  checked) and `ProblemKind::OrphanMenuItem` (a menu item outside any menu).
+- **Window menu keys**: `Ui::add_menu_keys` hears `MenuKey::AltTap`, `MenuKey::F10` and
+  `MenuKey::Mnemonic` before the focused element (only these keys), `Ui::alt_held` (tracked)
+  says Alt is down, and `Ui::set_window_focused` (the runner calls it) lets Alt go when the
+  window loses the keyboard. `El::keeps_focus_on_press` leaves focus where it is when an
+  element is pressed (a menu bar's titles, so the field keeps it).
+- `Chord::label_in(platform, locale)`: a shortcut written with the key names of the person's
+  language ("Strg+Umschalt+Z", "Ctrl+Maj+Z", "Entf"; German, French, Spanish, Italian, Dutch
+  and Portuguese, English otherwise; Apple's symbols on Apple platforms).
+
 - **System notifications**: `App::notify(Notification::new(id, title, body).action(..), ..)`,
   `App::withdraw_notification` and `App::on_notification` (pressed, a button, dismissed).
   Windows toasts (with buttons, replacing by id, the app's name and icon; the engine
@@ -66,6 +107,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - **Icons**: `Icon::Home` (a house) and `Icon::Image` (a framed picture), drawn on the same
   24-unit stroke grid as the others; `Icon::accessible_name` gives every icon an English
   name for where the icon alone stands for something.
+
+### Changed
+
+- Menus highlight the entry with keyboard focus whether or not focus came from Tab (arrow
+  keys moved focus without showing it), and the pointer resting on an entry focuses it, so
+  there is one highlight for the pointer and the keyboard. Tab closes an open menu and gives
+  focus back. Nothing to change in apps.
 
 ### Fixed
 

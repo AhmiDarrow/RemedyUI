@@ -2270,6 +2270,7 @@ impl remedy_ui_host::App for Runner {
             }
             HostEvent::Focused(window, focused) => {
                 if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k)) {
+                    w.ui.set_window_focused(focused);
                     if w.spec.privacy_cover {
                         match (focused, w.cover.take()) {
                             (true, Some(c)) => c.remove(),
