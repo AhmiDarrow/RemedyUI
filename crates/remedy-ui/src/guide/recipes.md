@@ -1,6 +1,6 @@
 # Recipes
 
-Eight small apps, each a whole program in `crates/remedy-ui/examples/`. Each one keeps its
+Nine small apps, each a whole program in `crates/remedy-ui/examples/`. Each one keeps its
 app in a `pub fn` beside `main`, so `crates/remedy-ui/tests/recipes.rs` can open the same app
 on the in-memory host and check it through the accessibility tree, the way a screen reader
 or an agent meets it. `cargo test -p remedy-ui --test recipes` runs them all.
@@ -146,6 +146,38 @@ The tests check that Appearance is the selected tab, switch to Notifications thr
 rail, turn notifications off and find the sound switch and the volume slider disabled; then,
 with the app's data folder in a temporary folder, start the app again and find notifications
 still off.
+
+## Menu bar
+
+`examples/menu_bar.rs`. A document reader's File, Edit, View, Go and Help menus, as a desktop
+app has them, from [`menu_bar`](crate::widgets::menu_bar).
+
+- **One source for menus, shortcuts and the palette.** The reader's actions are
+  [`Commands`](crate::nav::Commands); [`Commands::menu_item`](crate::nav::Commands::menu_item)
+  makes each menu entry from its command: the label, the first shortcut (written in the
+  person's language: "Strg+S" in German), whether it can run now, and the action. Closing the
+  document disables Save and Close, and the menu shows them disabled the next time it opens.
+- **Check and radio entries** show signals: Book Mode and Full Screen are
+  [`MenuItem::check_signal`](crate::widgets::MenuItem::check_signal), Page Appearance and UI
+  Scale are submenus ([`MenuItem::submenu`](crate::widgets::MenuItem::submenu)) of
+  [`MenuItem::radio_signal`](crate::widgets::MenuItem::radio_signal). Ctrl+B and the menu
+  toggle the same signal.
+- **The keyboard reaches everything.** Every title and entry has an access key
+  ([`MenuItem::mnemonic`](crate::widgets::MenuItem::mnemonic)): Alt+V opens View from
+  anywhere (a text field included: the window offers these keys to the bar before focus
+  gets them), F10 or a lone Alt reaches the bar, Left and Right move between menus, Right and
+  Left open and close submenus, Escape closes one level, letters choose. The underlines show
+  while Alt is held and in menus opened from the keyboard.
+- **Edges.** Menus open below their title and flip above it, submenus open beside their entry
+  and flip to the other side, at the window's edges; a menu taller than the window scrolls
+  inside it; in a window too narrow for every title, the titles that do not fit go into a
+  "…" menu at the end. In a right-to-left layout the bar and its menus mirror.
+
+The test reads each title as a menu item that opens a menu, with its access key; opens View
+with Alt+V and finds the shortcut text and the unchecked Book Mode; chooses Book Mode with B
+and turns it back with Ctrl+B; goes into Page Appearance and picks Night by its letters;
+moves from File to Edit with Right; and closes the document from File to find Save and Close
+disabled there.
 
 ## Tray app
 

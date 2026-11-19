@@ -125,6 +125,8 @@ pub enum Icon {
     Home,
     /// A framed picture with a mountain and a sun: an image or photo.
     Image,
+    /// A dot: the mark of a chosen radio item in a menu.
+    Dot,
 }
 
 impl Icon {
@@ -192,6 +194,7 @@ impl Icon {
             Icon::Captions => "Captions",
             Icon::Home => "Home",
             Icon::Image => "Image",
+            Icon::Dot => "Selected",
         }
     }
 }
@@ -554,6 +557,12 @@ fn strokes(icon: Icon) -> Path {
             s.move_to(p(20.0, 15.0)).line_to(p(15.0, 15.0)).line_to(p(15.0, 20.0));
             s.move_to(p(9.0, 20.0)).line_to(p(9.0, 15.0)).line_to(p(4.0, 15.0));
         }
+        Icon::Dot => {
+            // Rings drawn close together read as a filled dot at menu sizes.
+            for r in [1.0, 2.0, 3.0, 4.0] {
+                circle(&mut s, p(12.0, 12.0), r);
+            }
+        }
         Icon::Captions => {
             rect(&mut s, 3.0, 5.0, 21.0, 19.0);
             s.move_to(p(6.5, 11.0)).line_to(p(11.0, 11.0)).move_to(p(13.0, 11.0)).line_to(p(17.5, 11.0));
@@ -733,6 +742,7 @@ mod tests {
             Icon::Captions,
             Icon::Home,
             Icon::Image,
+            Icon::Dot,
         ];
         let mut names = Vec::new();
         for icon in ALL.into_iter().chain(more) {

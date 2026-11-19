@@ -37,7 +37,7 @@ pub use dnd::Drag;
 pub use element::{
     DirtyObserver, DirtyRecord, El, ElementInfo, PaintCx, PointerInterceptor, TextPaint, Ui, WeakUi,
 };
-pub use events::{Click, PointerInput};
+pub use events::{Click, MenuKey, MenuKeyHandler, PointerInput};
 pub use field::{CodeColors, FieldKind, TextField};
 pub use flow::{
     CaughtError, ErrorHook, FailurePhase, Retry, SUSPENSE_DELAY, SUSPENSE_MIN_SHOWN, Show, SuspenseBoundary,

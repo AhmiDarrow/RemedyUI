@@ -55,6 +55,12 @@ pub enum ProblemKind {
         /// Why, in a sentence fragment.
         why: Unreachable,
     },
+    /// A check or radio menu item that does not say whether it is checked, so a screen
+    /// reader cannot tell the person (WCAG 4.1.2 Name, Role, Value).
+    NoCheckedState,
+    /// A menu item outside any menu or menu bar: assistive technology reaches it with none
+    /// of a menu's keys or announcements.
+    OrphanMenuItem,
 }
 
 /// Why a control is out of a screen reader's reach.
@@ -112,6 +118,10 @@ impl Problem {
                 format!("Target {width:.0}×{height:.0}, needs 24×24{at}")
             }
             ProblemKind::Unreachable { why } => format!("Control {}{at}", why.describe()),
+            ProblemKind::NoCheckedState => {
+                format!("Check or radio menu item that does not say whether it is checked{at}")
+            }
+            ProblemKind::OrphanMenuItem => format!("Menu item outside any menu or menu bar{at}"),
         }
     }
 }
@@ -222,6 +232,19 @@ fn backdrop(el: &El, theme_bg: Color) -> (Color, f32) {
     (seen, (opacity * own).clamp(0.0, 1.0))
 }
 
+/// True when `el` sits inside a menu or a menu bar.
+fn in_menu(el: &El) -> bool {
+    let mut cur = el.parent();
+    while let Some(e) = cur {
+        let role = e.info().and_then(|i| i.semantics.as_ref().map(Semantics::role));
+        if matches!(role, Some(Role::Menu | Role::MenuBar)) {
+            return true;
+        }
+        cur = e.parent();
+    }
+    false
+}
+
 /// True when `el` sits inside a disabled control (WCAG exempts inactive controls from
 /// contrast and naming rules).
 fn inside_disabled(el: &El) -> bool {
@@ -279,8 +302,30 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
         // item the keyboard is on.
         let container = matches!(
             i.semantics.as_ref().map(Semantics::role),
-            Some(Role::Dialog | Role::Window | Role::Table | Role::Tree | Role::List | Role::Grid)
+            Some(
+                Role::Dialog
+                    | Role::Window
+                    | Role::Table
+                    | Role::Tree
+                    | Role::List
+                    | Role::Grid
+                    | Role::Menu
+                    | Role::MenuBar
+            )
         );
+        // Menus: check and radio items say whether they are checked, and every item sits in
+        // a menu or a menu bar (what gives it its keys and its place in the set).
+        let role = i.semantics.as_ref().map(Semantics::role);
+        if matches!(role, Some(Role::MenuItemCheckBox | Role::MenuItemRadio))
+            && i.semantics.as_ref().is_some_and(|s| s.checked_state().is_none())
+        {
+            out.push(Problem { element: i.id, kind: ProblemKind::NoCheckedState, at: i.created_at });
+        }
+        if matches!(role, Some(Role::MenuItem | Role::MenuItemCheckBox | Role::MenuItemRadio))
+            && !in_menu(&el)
+        {
+            out.push(Problem { element: i.id, kind: ProblemKind::OrphanMenuItem, at: i.created_at });
+        }
         if i.focusable && !container {
             let rest = i.states.with(States::FOCUS | States::FOCUS_VISIBLE, false);
             if let (Some(a), Some(b)) =

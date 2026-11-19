@@ -340,6 +340,8 @@ pub fn aria_attributes(node: &Node) -> Vec<(&'static str, Option<String>)> {
         ("aria-invalid", node.invalid().map(|_| "true".to_owned())),
         ("aria-multiline", flag(role == Role::MultilineTextInput)),
         ("aria-level", node.level().map(|l| l.to_string())),
+        ("aria-posinset", node.position_in_set().map(|p| p.to_string())),
+        ("aria-setsize", node.size_of_set().map(|s| s.to_string())),
         ("aria-valuenow", node.numeric_value().filter(|_| range).map(number)),
         ("aria-valuemin", node.min_numeric_value().filter(|_| range).map(number)),
         ("aria-valuemax", node.max_numeric_value().filter(|_| range).map(number)),
@@ -687,6 +689,20 @@ mod tests {
         let get = |k: &str| a.iter().find(|(n, _)| *n == k).and_then(|(_, v)| v.clone());
         assert_eq!(get("aria-valuenow").as_deref(), Some("150"));
         assert_eq!(get("aria-valuemax").as_deref(), Some("200.5"));
+        // Menus: a menu bar, check and radio items with their state, separators, and each
+        // item's place in its menu.
+        assert_eq!(aria_role(Role::MenuBar), Some("menubar"));
+        assert_eq!(aria_role(Role::MenuItemCheckBox), Some("menuitemcheckbox"));
+        assert_eq!(aria_role(Role::Splitter), Some("separator"));
+        let mut r = Node::new(Role::MenuItemRadio);
+        r.set_toggled(Toggled::False);
+        r.set_position_in_set(2);
+        r.set_size_of_set(3);
+        let a = aria_attributes(&r);
+        let get = |k: &str| a.iter().find(|(n, _)| *n == k).and_then(|(_, v)| v.clone());
+        assert_eq!(aria_role(Role::MenuItemRadio), Some("menuitemradio"));
+        assert_eq!(get("aria-checked").as_deref(), Some("false"));
+        assert_eq!((get("aria-posinset").as_deref(), get("aria-setsize").as_deref()), (Some("2"), Some("3")));
         let mut p = Node::new(Role::PasswordInput);
         p.set_value("••••");
         assert_eq!(text_content(&p), None, "a password's text never reaches the page");

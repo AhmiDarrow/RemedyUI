@@ -24,6 +24,9 @@ mod document_viewer;
 #[path = "../examples/file_explorer.rs"]
 #[allow(dead_code, reason = "the example's `main` opens a real window; the test uses its `app`")]
 mod file_explorer;
+#[path = "../examples/menu_bar.rs"]
+#[allow(dead_code, reason = "the example's `main` opens a real window; the test uses its `app`")]
+mod menu_bar;
 #[path = "../examples/settings_page.rs"]
 #[allow(dead_code, reason = "the example's `main` opens a real window; the test uses its `app`")]
 mod settings_page;
@@ -385,4 +388,51 @@ fn unlock_screen_keeps_the_vault_hidden_until_the_password_opens_it() {
     t.frames(2);
     assert!(node(&ui, Role::PasswordInput, "Master password").is_some(), "locked when idle");
     assert!(!has(&ui, "3 passwords"));
+}
+
+#[test]
+fn menu_bar_reaches_every_menu_from_the_keyboard_and_shares_the_commands() {
+    let mut t = start("Menu bar", menu_bar::app);
+    let ui = ui(&t);
+    let alt = |c: char| KeyEvent::press(Key::char(c)).with_modifiers(remedy_ui::input::Modifiers::ALT);
+    assert!(node(&ui, Role::MenuBar, "").is_none(), "the bar has no name of its own");
+    assert!(ui.reader_view().iter().any(|n| n.role == Role::MenuBar));
+    for title in ["File", "Edit", "View", "Go", "Help"] {
+        let n = node(&ui, Role::MenuItem, title).must(title);
+        assert_eq!(n.expanded, Some(false), "{title} says it opens a menu");
+        assert!(n.access_key.is_some(), "{title} has an access key");
+    }
+    // Alt+V opens View; its entries say what they are.
+    t.key(alt('v'));
+    assert_eq!(node(&ui, Role::MenuItem, "View").and_then(|n| n.expanded), Some(true));
+    assert!(t.node(Role::MenuItem, "Zoom In").must("Zoom In").focused, "the first entry has focus");
+    assert_eq!(node(&ui, Role::MenuItem, "Zoom In").and_then(|n| n.shortcut).as_deref(), Some("Ctrl++"));
+    assert_eq!(node(&ui, Role::MenuItemCheckBox, "Book Mode").and_then(|n| n.checked), Some(false));
+    // B chooses Book Mode; the menu closes.
+    t.key(KeyEvent::press(Key::char('b')));
+    assert!(node(&ui, Role::Menu, "View").is_none(), "choosing closed the menu");
+    // Its shortcut toggles the same signal the menu shows.
+    t.key(KeyEvent::press(Key::char('b')).with_modifiers(remedy_ui::input::Modifiers::CTRL));
+    t.key(alt('v'));
+    assert_eq!(node(&ui, Role::MenuItemCheckBox, "Book Mode").and_then(|n| n.checked), Some(false));
+    // Into Page Appearance, choose Night.
+    t.key(KeyEvent::press(Key::char('a')));
+    assert_eq!(node(&ui, Role::MenuItemRadio, "Light").and_then(|n| n.checked), Some(true));
+    t.key(KeyEvent::press(Key::char('n')));
+    assert!(has(&ui, "night"), "the status shows the new appearance: {:?}", names(&ui));
+    // Right moves to the next menu while one is open.
+    t.key(KeyEvent::press(Key::F(10)));
+    t.key(KeyEvent::press(Key::Enter));
+    t.key(KeyEvent::press(Key::ArrowRight));
+    assert_eq!(node(&ui, Role::MenuItem, "Edit").and_then(|n| n.expanded), Some(true));
+    t.key(KeyEvent::press(Key::Escape));
+    t.key(KeyEvent::press(Key::Escape));
+    assert!(ui.reader_view().iter().all(|n| n.role != Role::Menu));
+    // Closing the document disables Save and Close in File.
+    click(&mut t, Role::MenuItem, "File");
+    click(&mut t, Role::MenuItem, "Close Document");
+    click(&mut t, Role::MenuItem, "File");
+    assert!(node(&ui, Role::MenuItem, "Save").must("Save").disabled);
+    assert!(node(&ui, Role::MenuItem, "Close Document").must("Close").disabled);
+    t.key(KeyEvent::press(Key::Escape));
 }

@@ -8,7 +8,7 @@ use std::rc::Rc;
 use remedy_ui_input::{Chord, Clash, Command, CommandTable, Conflict, Scope};
 use remedy_ui_reactive::Signal;
 use remedy_ui_view::{El, Ui};
-use remedy_ui_widgets_core::Icon;
+use remedy_ui_widgets_core::{Icon, MenuItem};
 
 /// One command as the widgets show it.
 #[derive(Clone, Debug, PartialEq)]
@@ -254,6 +254,41 @@ impl Commands {
     pub fn all(&self) -> Vec<CommandInfo> {
         let ids = self.0.order.borrow().clone();
         ids.iter().filter_map(|id| self.info(id)).collect()
+    }
+
+    /// A menu entry for command `id`, so menus, toolbars and the command palette share one
+    /// source: its label, its first shortcut (written in the person's language, following
+    /// rebinding), its icon, whether it can run now and whether it is destructive all come
+    /// from the command, and choosing it runs the command. Add an access key with
+    /// [`MenuItem::mnemonic`].
+    ///
+    /// ```
+    /// use remedy_ui_input::Chord;
+    /// use remedy_ui_widgets_nav::Commands;
+    ///
+    /// let commands = Commands::new();
+    /// commands.add("file.open", "Open…", vec!["Ctrl+O".parse::<Chord>()?], None, || {});
+    /// let open = commands.menu_item("file.open").mnemonic('o');
+    /// assert_eq!(open.label_text(), "Open…");
+    /// # Ok::<(), remedy_ui_input::ChordError>(())
+    /// ```
+    pub fn menu_item(&self, id: &str) -> MenuItem {
+        let info = self.info(id);
+        let (c1, c2, c3, c4) = (self.clone(), self.clone(), self.clone(), self.clone());
+        let (i1, i2, i3, i4) = (id.to_owned(), id.to_owned(), id.to_owned(), id.to_owned());
+        let mut item = MenuItem::new(String::new(), move || {
+            let _ = c1.run(&i1);
+        })
+        .label(move || c2.info(&i2).map(|c| c.label).unwrap_or_default())
+        .disabled(move || !c3.info(&i3).is_some_and(|c| c.enabled))
+        .chords(move || c4.info(&i4).map(|c| c.chords).unwrap_or_default());
+        if let Some(icon) = info.as_ref().and_then(|c| c.icon) {
+            item = item.icon(icon);
+        }
+        if info.is_some_and(|c| c.destructive) {
+            item = item.danger();
+        }
+        item
     }
 
     /// Makes the shortcuts work in a window: keys nothing inside handled run the matching

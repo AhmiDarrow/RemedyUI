@@ -22,6 +22,7 @@ reactive signal the app owns, and the widget shows it.
 | `connect(sender, signal, receiver, slot)` | A closure: `on_click(move \|\| ..)`, or a binding that reads a signal |
 | `QAction` with a shortcut | A command in [`crate::nav::Commands`] |
 | `QToolBar`, `QMenu` | [`crate::nav::toolbar`], [`crate::widgets::menu`], [`crate::widgets::context_menu`] |
+| `QMenuBar` (`menuBar().addMenu("&File")`) | [`crate::widgets::menu_bar`] of [`crate::widgets::MenuItem::submenu`] with `.mnemonic('f')` |
 | `QShortcut` | A command's chords; people can rebind them ([`crate::nav::Commands::rebind`]) |
 | QSS (Qt style sheets) | A [`crate::style::StyleSheet`] over theme tokens; typed tokens (`Space::S3`, `Radius::R2`) in code |
 | `QPalette` | A [`crate::style::Theme`] (colors by role, type scale, spacing, radii) |
@@ -150,6 +151,66 @@ assert_eq!(saved.get(), 1);
 
 The toolbar shows the command's icon, with its label and shortcut in the tooltip.
 `set_enabled` replaces `QAction::setEnabled`.
+
+## Menus and the menu bar
+
+`QMenuBar`, `QMenu` and `QAction` map to [`crate::widgets::menu_bar`] and
+[`crate::widgets::MenuItem`]: a menu is a [`MenuItem::submenu`](crate::widgets::MenuItem::submenu)
+of entries. Qt's `&` in a label becomes `.mnemonic(..)` with the letter, `addSeparator()`
+becomes [`MenuItem::separator`](crate::widgets::MenuItem::separator), a checkable action
+becomes a check entry, and an `QActionGroup` of exclusive actions becomes radio entries on one
+signal. An action that is also a shortcut is a command, and
+[`Commands::menu_item`](crate::nav::Commands::menu_item) makes its entry, so the menu shows the
+command's label, shortcut and enabled state.
+
+```python
+bar = self.menuBar()
+view = bar.addMenu("&View")
+book = QAction("&Book Mode", self, checkable=True)
+book.setShortcut("Ctrl+B")
+view.addAction(book)
+view.addSeparator()
+scale = view.addMenu("&UI Scale")
+group = QActionGroup(self)
+for p in (100, 125):
+    a = QAction(f"{p}%", self, checkable=True)
+    group.addAction(a)
+    scale.addAction(a)
+```
+
+```
+use remedy_ui::input::Chord;
+use remedy_ui::reactive::Signal;
+use remedy_ui::testing::TestApp;
+use remedy_ui::widgets::{MenuItem, menu_bar};
+
+let book = Signal::new(false);
+let scale = Signal::new(100);
+let mut app = TestApp::window(move |ui, _| {
+    let ctrl_b: Chord = "Ctrl+B".parse().unwrap_or_else(|e| unreachable!("{e}"));
+    let view = MenuItem::submenu(
+        "View",
+        vec![
+            MenuItem::check_signal("Book Mode", book).chord(ctrl_b).mnemonic('b'),
+            MenuItem::separator(),
+            MenuItem::submenu(
+                "UI Scale",
+                [100, 125].into_iter().map(|p| MenuItem::radio_signal(format!("{p}%"), scale, p)).collect(),
+            )
+            .mnemonic('u'),
+        ],
+    )
+    .mnemonic('v');
+    ui.root().child(menu_bar(ui, vec![view]));
+});
+assert!(app.press(remedy_ui::a11y::Role::MenuItem, "View"));
+assert!(app.press(remedy_ui::a11y::Role::MenuItemCheckBox, "Book Mode"));
+assert_eq!(book.get_untracked().ok(), Some(true));
+```
+
+Keyboard handling comes with it: Alt+V opens View wherever focus is, F10 or Alt alone reaches
+the bar, arrows walk menus and submenus, and letters choose. In a narrow window the menus
+that do not fit move into a "…" menu instead of being cut off.
 
 ## Layouts
 

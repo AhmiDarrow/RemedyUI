@@ -244,3 +244,24 @@ fn conflicts_and_clashes_are_reported_without_changing_anything() {
     assert_eq!(t.chords("not-registered-yet"), vec![Chord::new(Modifiers::NONE, Key::F(2))]);
     assert_eq!(t.user_bindings().len(), 2);
 }
+
+#[test]
+fn chord_labels_speak_the_persons_language() {
+    let c = |s: &str| s.parse::<Chord>().unwrap_or_else(|e| unreachable!("{e}"));
+    let redo = c("Ctrl+Shift+Z");
+    assert_eq!(redo.label_in(Platform::Standard, "de-DE"), "Strg+Umschalt+Z");
+    assert_eq!(redo.label_in(Platform::Standard, "fr-CA"), "Ctrl+Maj+Z");
+    assert_eq!(redo.label_in(Platform::Standard, "es"), "Ctrl+Mayús+Z");
+    assert_eq!(
+        redo.label_in(Platform::Standard, "ja-JP"),
+        "Ctrl+Shift+Z",
+        "English where a language has no names"
+    );
+    assert_eq!(redo.label_in(Platform::Apple, "de-DE"), "⌃⇧Z");
+    assert_eq!(c("Delete").label_in(Platform::Standard, "de"), "Entf");
+    assert_eq!(c("Ctrl+PageDown").label_in(Platform::Standard, "en"), "Ctrl+PgDn");
+    assert_eq!(c("Alt+Left").label_in(Platform::Standard, "it"), "Alt+Sinistra");
+    assert_eq!(c("Meta+Left").label_in(Platform::Apple, "en"), "⌘←");
+    assert_eq!(c("F11").label_in(Platform::Standard, "de"), "F11");
+    assert_eq!(c("Ctrl+Plus").label_in(Platform::Standard, "de"), "Strg++");
+}

@@ -17,8 +17,10 @@
 //!   [`reveal_toggle`], [`field`]
 //! - Feedback: [`progress`], [`spinner`], [`lamp`], [`badge`], [`toast`], [`empty_state`],
 //!   [`skeleton`]
-//! - Overlays: [`tooltip`], [`menu`], [`context_menu`], [`popover`], [`modal`], [`dialog`],
-//!   [`trusted_prompt`], [`lock_screen`]
+//! - Overlays: [`tooltip`], [`popover`], [`modal`], [`dialog`], [`trusted_prompt`],
+//!   [`lock_screen`]
+//! - Menus: [`MenuItem`] (commands, check and radio items, submenus, separators, shortcuts,
+//!   icons, access keys), [`menu`], [`context_menu`], [`menu_button`], [`menu_bar`]
 //! - Media: [`icon`], [`image`], [`avatar`], [`canvas`]
 //! - [`Rejection`]: why the app turned down a person's edit, shown beside it
 
@@ -42,6 +44,8 @@ mod feedback;
 mod icons;
 mod inputs;
 mod lists;
+mod menu_bar;
+mod menus;
 mod overlays;
 mod rejection;
 mod text;
@@ -57,9 +61,11 @@ pub use feedback::{badge, empty_state, lamp, progress, skeleton, spinner, toast}
 pub use icons::{Icon, avatar, canvas, icon, image};
 pub use inputs::{field, reveal_toggle, search, secret_input, text_area, text_input};
 pub use lists::{ListItems, ListTransitions, for_each, for_each_with, list, virtual_list};
+pub use menu_bar::menu_bar;
+pub use menus::{MenuItem, context_menu, context_menu_at, menu};
 pub use overlays::{
-    DialogButton, MenuItem, Modal, context_menu, context_menu_at, dialog, fill_window, fit_near, lock_screen,
-    menu, modal, place_at, place_near, place_near_within, popover, tooltip, trusted_prompt,
+    DialogButton, Modal, dialog, fill_window, fit_beside, fit_near, fit_near_dir, lock_screen, modal,
+    place_at, place_beside, place_near, place_near_within, popover, tooltip, trusted_prompt,
 };
 pub use rejection::Rejection;
 // Kept for apps written against it (FreeSpeak) until the next minor release.

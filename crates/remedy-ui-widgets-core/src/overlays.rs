@@ -1,12 +1,13 @@
-//! Overlays: tooltips, menus, popovers, modals, dialogs, trusted prompts and lock screens.
+//! Overlays: tooltips, popovers, modals, dialogs, trusted prompts and lock screens, and the
+//! placement that keeps overlays (menus too) inside the window.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
-use remedy_ui_core::{Insets, Point, Rect};
-use remedy_ui_input::{Buttons, Key, PointerPhase};
+use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::{Insets, Point, Rect, Size};
+use remedy_ui_input::{Key, PointerPhase};
 use remedy_ui_layout::{AUTO, Align, Justify, Length, Position};
 use remedy_ui_view::{El, Ui};
 
@@ -32,7 +33,7 @@ const EDGE: f32 = 4.0;
 /// Where an overlay of `size` goes for `anchor` (the rectangle it belongs to) in a window of
 /// `window`: below the anchor at its start, slid back from the end edge, flipped above when
 /// it does not fit below, and never past the window's start or top.
-pub fn fit_near(anchor: Rect, size: remedy_ui_core::Size, gap: f32, window: remedy_ui_core::Size) -> Point {
+pub fn fit_near(anchor: Rect, size: Size, gap: f32, window: Size) -> Point {
     let x = anchor.min.x.min(window.width - size.width - EDGE).max(EDGE);
     let below = anchor.max.y + gap;
     let above = anchor.min.y - gap - size.height;
@@ -54,29 +55,92 @@ pub fn place_near(ui: &Ui, el: El, anchor: Rect, gap: f32) -> El {
 /// [`place_near`], no wider than `max_width` (and never wider than the window): text in it
 /// wraps rather than running past the edge.
 pub fn place_near_within(ui: &Ui, el: El, anchor: Rect, gap: f32, max_width: f32) -> El {
-    let el = place_at(el, Point::new(anchor.min.x, anchor.max.y + gap))
-        .style(remedy_ui_style::StylePatch::default().opacity(0.0));
+    let first = Point::new(anchor.min.x, anchor.max.y + gap);
+    place_fitted(ui, el, first, max_width, false, move |size, window| fit_near(anchor, size, gap, window))
+}
+
+/// Where a submenu of `size` goes beside `anchor` (the item that opened it) in a window of
+/// `window`: past the anchor's end edge (its right, or its left in a right-to-left layout)
+/// with its top at the anchor's, flipped to the other side when it does not fit there, slid
+/// up from the bottom edge, and never past the window's start or top.
+pub fn fit_beside(anchor: Rect, size: Size, gap: f32, window: Size, rtl: bool) -> Point {
+    let after = anchor.max.x + gap;
+    let before = anchor.min.x - gap - size.width;
+    let fits_after = after + size.width + EDGE <= window.width;
+    let fits_before = before >= EDGE;
+    let x = match (rtl, fits_after, fits_before) {
+        (false, true, _) | (true, true, false) => after,
+        (false, false, true) | (true, _, true) => before,
+        // Room on neither side: as far from the start as it fits.
+        _ if rtl => EDGE,
+        _ => window.width - size.width - EDGE,
+    };
+    let x = x.min(window.width - size.width - EDGE).max(EDGE);
+    let y = anchor.min.y.min(window.height - size.height - EDGE).max(EDGE);
+    Point::new(x.max(0.0), y.max(0.0))
+}
+
+/// [`fit_near`] for an overlay that lines up with its anchor's end edge in a right-to-left
+/// layout (`rtl`): a menu under a menu bar's title starts at the title's right edge there.
+pub fn fit_near_dir(anchor: Rect, size: Size, gap: f32, window: Size, rtl: bool) -> Point {
+    if !rtl {
+        return fit_near(anchor, size, gap, window);
+    }
+    // Mirror the window, place as in a left-to-right one, and mirror back.
+    let mirrored =
+        Rect::new(window.width - anchor.max.x, anchor.min.y, window.width - anchor.min.x, anchor.max.y);
+    let p = fit_near(mirrored, size, gap, window);
+    Point::new((window.width - p.x - size.width).max(0.0), p.y)
+}
+
+/// Pins a submenu (or any overlay that belongs beside something) next to `anchor` and keeps it
+/// in the window ([`fit_beside`]), measured before it shows, placed again when it or the
+/// window changes size, and no taller than the window (make it scroll for long content).
+pub fn place_beside(ui: &Ui, el: El, anchor: Rect, gap: f32) -> El {
+    let rtl = ui.root().is_rtl();
+    let first = Point::new(anchor.max.x + gap, anchor.min.y);
+    place_fitted(ui, el, first, f32::INFINITY, true, move |size, window| {
+        fit_beside(anchor, size, gap, window, rtl)
+    })
+}
+
+/// Places `el` at the point `fit` gives for its measured size and the window's, hidden until
+/// measured, placed again when it or the window changes size; no wider than `max_width` nor
+/// the window, and with `fit_height`, no taller than the window.
+pub(crate) fn place_fitted(
+    ui: &Ui,
+    el: El,
+    first: Point,
+    max_width: f32,
+    fit_height: bool,
+    fit: impl Fn(Size, Size) -> Point + 'static,
+) -> El {
+    let el = place_at(el, first).style(remedy_ui_style::StylePatch::default().opacity(0.0));
     // Its own size once measured; placed again when it or the window changes size.
-    let measured: Rc<std::cell::Cell<Option<remedy_ui_core::Size>>> = Rc::default();
-    let fit = {
+    let measured: Rc<Cell<Option<Size>>> = Rc::default();
+    let place = {
         let (e2, measured) = (el.clone(), measured.clone());
-        Rc::new(move |window: remedy_ui_core::Size| {
+        Rc::new(move |window: Size| {
             let Some(size) = measured.get() else { return };
             if window.width <= 0.0 || window.height <= 0.0 {
                 return;
             }
-            let p = fit_near(anchor, size, gap, window);
+            let p = fit(size, window);
             let widest = max_width.min(window.width - EDGE * 2.0).max(0.0);
+            let tallest = (window.height - EDGE * 2.0).max(0.0);
             let _ = e2
                 .clone()
                 .layout(move |l| {
                     l.inset = Insets { top: p.y, start: p.x, end: AUTO, bottom: AUTO };
                     l.max_width = Length::Px(widest);
+                    if fit_height {
+                        l.max_height = Length::Px(tallest);
+                    }
                 })
                 .style(remedy_ui_style::StylePatch::default().opacity(1.0));
         })
     };
-    let (ui2, f2, ui3, f3) = (ui.clone(), fit.clone(), ui.clone(), fit);
+    let (ui2, f2, ui3, f3) = (ui.clone(), place.clone(), ui.clone(), place);
     el.on_resize(move |size| {
         measured.set(Some(size));
         f2(remedy_ui_reactive::untrack(|| ui2.window_size()));
@@ -136,36 +200,9 @@ pub fn tooltip(target: &El, text: impl remedy_ui_view::IntoProp<String>) {
     });
 }
 
-/// One menu entry.
-#[derive(Clone)]
-pub struct MenuItem {
-    label: String,
-    danger: bool,
-    action: Rc<dyn Fn()>,
-}
-
-impl std::fmt::Debug for MenuItem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "MenuItem({})", self.label)
-    }
-}
-
-impl MenuItem {
-    /// An entry that runs `action`.
-    pub fn new(label: impl Into<String>, action: impl Fn() + 'static) -> Self {
-        MenuItem { label: label.into(), danger: false, action: Rc::new(action) }
-    }
-
-    /// Marks a destructive entry (shown in the danger color).
-    pub fn danger(mut self) -> Self {
-        self.danger = true;
-        self
-    }
-}
-
 /// A transparent full-window layer that closes `content` when pressed outside it, and on
 /// Escape.
-fn dismissable(ui: &Ui, content: El) -> El {
+pub(crate) fn dismissable(ui: &Ui, content: El) -> El {
     let layer = fill_window(ui.el("dismiss_layer")).focus_scope();
     let l2 = layer.clone();
     let l3 = layer.clone();
@@ -191,102 +228,6 @@ fn dismissable(ui: &Ui, content: El) -> El {
         .keyboard_alternative("Escape closes it")
         .child(content);
     ui.overlay(layer)
-}
-
-fn menu_at(ui: &Ui, anchor: Rect, items: Vec<MenuItem>) -> El {
-    let menu = place_near(ui, ui.el("menu").column(), anchor, 4.0).semantics(Semantics::new(Role::Menu));
-    let n = items.len();
-    let layer: Rc<RefCell<Option<El>>> = Rc::default();
-    let menu = items.into_iter().enumerate().fold(menu, |m, (i, item)| {
-        let (action, layer) = (item.action.clone(), layer.clone());
-        let mut entry = ui
-            .el("menu_item")
-            .row()
-            .child(ui.el("menu_label").text(remedy_ui_view::RichText::plain(item.label.clone())).nowrap())
-            .on_click(move || {
-                if let Some(l) = layer.borrow_mut().take() {
-                    l.remove();
-                }
-                action();
-            })
-            .semantics(
-                Semantics::new(Role::MenuItem)
-                    .label(item.label.clone())
-                    .set_position(i + 1, n)
-                    .action(Action::Click),
-            );
-        if item.danger {
-            entry = entry.variant("danger");
-        }
-        m.child(entry)
-    });
-    // Up and down move between entries.
-    let m2 = menu.clone();
-    let menu = menu.on_key(move |e| {
-        if !e.pressed {
-            return false;
-        }
-        let entries = m2.child_elements();
-        let cur = entries.iter().position(El::is_focused);
-        let next = match e.key {
-            Key::ArrowDown => cur.map_or(0, |c| (c + 1) % entries.len().max(1)),
-            Key::ArrowUp => cur.map_or(0, |c| (c + entries.len().max(1) - 1) % entries.len().max(1)),
-            _ => return false,
-        };
-        if let Some(el) = entries.get(next) {
-            el.focus();
-        }
-        true
-    });
-    let l = dismissable(ui, menu.clone());
-    *layer.borrow_mut() = Some(l.clone());
-    menu.focus_first();
-    l
-}
-
-/// Opens a menu below `anchor`. Returns the menu's layer; it closes itself when an entry is
-/// chosen, on a press outside, and on Escape.
-#[track_caller]
-pub fn menu(ui: &Ui, anchor: &El, items: Vec<MenuItem>) -> El {
-    let b = anchor.bounds().unwrap_or(Rect::ZERO);
-    menu_at(ui, b, items)
-}
-
-/// Opens a menu at the pointer on a secondary press (right click) on `target`, or with the
-/// Menu key or Shift+F10 while it has focus.
-#[track_caller]
-pub fn context_menu(target: &El, items: impl Fn() -> Vec<MenuItem> + 'static) -> El {
-    context_menu_at(target, move |_| items())
-}
-
-/// Like [`context_menu`], for menus that depend on what is under the pointer: `items` gets the
-/// window point of the press, or `None` when the menu was opened from the keyboard.
-#[track_caller]
-pub fn context_menu_at(target: &El, items: impl Fn(Option<Point>) -> Vec<MenuItem> + 'static) -> El {
-    let ui = target.ui().clone();
-    let items = Rc::new(items);
-    let (ui2, items2, t2) = (ui.clone(), items.clone(), target.clone());
-    target
-        .clone()
-        .on_pointer(move |e| {
-            if e.phase == PointerPhase::Down && e.buttons.contains(Buttons::SECONDARY) {
-                let _ = menu_at(&ui, Rect::from_points(e.position, e.position), items(Some(e.position)));
-                return true;
-            }
-            false
-        })
-        .on_key(move |e| {
-            let menu_key = matches!(&e.key, Key::Named(n) if n == "ContextMenu")
-                || (e.key == Key::F(10) && e.modifiers.shift);
-            if e.pressed && menu_key {
-                let b = t2.bounds().unwrap_or(Rect::ZERO);
-                let _ = menu_at(&ui2, Rect::new(b.min.x, b.max.y, b.min.x, b.max.y), items2(None));
-                return true;
-            }
-            false
-        })
-        // The same menu opens from the keyboard wherever focus is inside the target.
-        .keyboard_alternative("Shift+F10 or the Menu key opens the same menu")
 }
 
 /// Shows `content` below `anchor` until a press outside or Escape.
