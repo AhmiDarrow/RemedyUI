@@ -169,12 +169,17 @@ pub fn android_manifest(
     target_api: u32,
 ) -> String {
     let esc = |s: &str| s.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;");
+    let permissions: String = p
+        .android_permissions
+        .iter()
+        .map(|n| format!("    <uses-permission android:name=\"{}\" />\n", esc(n)))
+        .collect();
     format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="{id}" android:versionCode="{version_code}" android:versionName="{version}">
     <uses-sdk android:minSdkVersion="{min_api}" android:targetSdkVersion="{target_api}" />
-    <application android:label="{label}" android:hasCode="false">
+{permissions}    <application android:label="{label}" android:hasCode="false">
         <activity android:name="android.app.NativeActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|fontScale|locale|layoutDirection|density"
@@ -438,6 +443,7 @@ mod tests {
             android_target_api: 35,
             android_keystore: None,
             android_key_alias: None,
+            android_permissions: Vec::new(),
             web_short_name: None,
             web_theme: crate::project::DEFAULT_THEME_COLOR.into(),
             web_icon: None,
@@ -470,6 +476,11 @@ mod tests {
         let m = android_manifest(&p, "my_notes", version_code(&p.version), 26, 35);
         assert!(m.contains(r#"package="app.remedy.my-notes""#) && m.contains(r#"android:value="my_notes""#));
         assert!(m.contains(r#"android:versionCode="10203""#));
+        assert!(!m.contains("uses-permission"), "nothing is declared unasked");
+        let mut asks = project();
+        asks.android_permissions = vec!["android.permission.RECORD_AUDIO".into()];
+        let m = android_manifest(&asks, "my_notes", 100, 26, 35);
+        assert!(m.contains(r#"<uses-permission android:name="android.permission.RECORD_AUDIO" />"#), "{m}");
         assert_eq!(version_code("0.1.0"), 100);
         let plist = info_plist(&p);
         assert!(plist.contains("<string>My Notes</string>") && plist.contains("<string>my-notes</string>"));

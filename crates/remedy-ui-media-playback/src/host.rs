@@ -200,6 +200,9 @@ pub enum MediaError {
     Decode(String),
     /// The sound device failed or went away.
     Device(String),
+    /// The person, or the system's privacy settings, did not allow the device (a microphone
+    /// the app may not hear).
+    Denied(String),
 }
 
 impl std::fmt::Display for MediaError {
@@ -210,6 +213,7 @@ impl std::fmt::Display for MediaError {
             MediaError::Format(r) => write!(f, "not playable media: {r}"),
             MediaError::Decode(r) => write!(f, "decoding failed: {r}"),
             MediaError::Device(r) => write!(f, "sound device: {r}"),
+            MediaError::Denied(r) => write!(f, "not allowed: {r}"),
         }
     }
 }
@@ -282,4 +286,27 @@ pub trait MediaHost: Send + Sync {
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError>;
     /// Opens the default sound output for samples in `format`.
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError>;
+    /// Opens the default sound input (the microphone the person chose in the system's
+    /// settings), asking for samples in `format`. A platform that cannot convert from the
+    /// device's own rate and channels gives those instead, as [`AudioInput::format`] reports;
+    /// [`Microphone`](crate::Microphone) converts them. It is capturing when this returns.
+    /// Hosts without one say [`MediaError::Unsupported`].
+    fn audio_input(&self, format: AudioFormat) -> Result<Box<dyn AudioInput>, MediaError> {
+        let _ = format;
+        Err(MediaError::Unsupported(format!("{} has no sound input", self.name())))
+    }
+}
+
+/// Sound coming in from a microphone, as interleaved 32-bit float samples in the format it
+/// was opened with. Capturing starts when it is opened and stops when it is dropped.
+pub trait AudioInput: Send {
+    /// The layout of the samples [`AudioInput::read`] gives.
+    fn format(&self) -> AudioFormat;
+    /// How often the device hands over new sound: a reader that reads this often keeps up
+    /// without waiting on an empty device.
+    fn period(&self) -> Duration;
+    /// Appends the sound captured since the last read to `into` (whole frames) and returns
+    /// how many frames it appended: 0 when nothing new has arrived. Never waits for sound.
+    /// A device that stopped (unplugged, access withdrawn) is an error.
+    fn read(&mut self, into: &mut Vec<f32>) -> Result<usize, MediaError>;
 }

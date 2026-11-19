@@ -11,8 +11,8 @@ use std::time::Duration;
 use libloading::Library;
 
 use crate::host::{
-    AudioFormat, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Picture, PixelFormat,
-    Plane, Sample, VideoInfo, YuvMatrix,
+    AudioFormat, AudioInput, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Picture,
+    PixelFormat, Plane, Sample, VideoInfo, YuvMatrix,
 };
 
 type Ptr = *mut c_void;
@@ -31,6 +31,11 @@ const PCM_FLOAT: i32 = 4;
 const PCM_16: i32 = 2;
 const AAUDIO_OK: i32 = 0;
 const AAUDIO_DIRECTION_OUTPUT: i32 = 0;
+const AAUDIO_DIRECTION_INPUT: i32 = 1;
+const AAUDIO_PERFORMANCE_MODE_LOW_LATENCY: i32 = 12;
+/// Sound as the microphone hears it, without the voice-call processing that would bend a
+/// sung or played note (Android 9, API 28; earlier versions keep their default).
+const AAUDIO_INPUT_PRESET_UNPROCESSED: i32 = 9;
 const AAUDIO_FORMAT_PCM_FLOAT: i32 = 2;
 const CLOCK_MONOTONIC: i32 = 1;
 
@@ -92,6 +97,13 @@ struct AAudio {
     stream_request_flush: unsafe extern "C" fn(Ptr) -> i32,
     stream_close: unsafe extern "C" fn(Ptr) -> i32,
     stream_write: unsafe extern "C" fn(Ptr, *const c_void, i32, i64) -> i32,
+    stream_read: unsafe extern "C" fn(Ptr, *mut c_void, i32, i64) -> i32,
+    stream_get_frames_per_burst: unsafe extern "C" fn(Ptr) -> i32,
+    stream_get_sample_rate: unsafe extern "C" fn(Ptr) -> i32,
+    stream_get_channel_count: unsafe extern "C" fn(Ptr) -> i32,
+    builder_set_performance_mode: unsafe extern "C" fn(Ptr, i32),
+    /// Android 9 and later.
+    builder_set_input_preset: Option<unsafe extern "C" fn(Ptr, i32)>,
     stream_get_buffer_size_in_frames: unsafe extern "C" fn(Ptr) -> i32,
     stream_get_frames_written: unsafe extern "C" fn(Ptr) -> i64,
     stream_get_frames_read: unsafe extern "C" fn(Ptr) -> i64,
@@ -201,6 +213,15 @@ impl AAudio {
             stream_request_flush: sym!(l, "AAudioStream_requestFlush"),
             stream_close: sym!(l, "AAudioStream_close"),
             stream_write: sym!(l, "AAudioStream_write"),
+            stream_read: sym!(l, "AAudioStream_read"),
+            stream_get_frames_per_burst: sym!(l, "AAudioStream_getFramesPerBurst"),
+            stream_get_sample_rate: sym!(l, "AAudioStream_getSampleRate"),
+            stream_get_channel_count: sym!(l, "AAudioStream_getChannelCount"),
+            builder_set_performance_mode: sym!(l, "AAudioStreamBuilder_setPerformanceMode"),
+            // SAFETY: as for `sym!`; absent before Android 9.
+            builder_set_input_preset: unsafe { l.get(b"AAudioStreamBuilder_setInputPreset\0") }
+                .ok()
+                .map(|f| *f),
             stream_get_buffer_size_in_frames: sym!(l, "AAudioStream_getBufferSizeInFrames"),
             stream_get_frames_written: sym!(l, "AAudioStream_getFramesWritten"),
             stream_get_frames_read: sym!(l, "AAudioStream_getFramesRead"),
@@ -248,6 +269,10 @@ impl MediaHost for AndroidHost {
 
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
         Ok(Box::new(NdkDecoder::open(ndk()?, source)?))
+    }
+
+    fn audio_input(&self, format: AudioFormat) -> Result<Box<dyn AudioInput>, MediaError> {
+        Ok(Box::new(AAudioIn::open(aaudio()?, format)?))
     }
 
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
@@ -811,5 +836,116 @@ impl Drop for AAudioOut {
     fn drop(&mut self) {
         // SAFETY: closing the stream `open` made.
         unsafe { (self.aa.stream_close)(self.stream) };
+    }
+}
+
+/// An AAudio input stream (the default microphone) in float samples, read without waiting.
+struct AAudioIn {
+    aa: &'static AAudio,
+    stream: Ptr,
+    format: AudioFormat,
+    period: Duration,
+}
+
+// SAFETY: the stream is used from one thread at a time (the microphone's worker).
+unsafe impl Send for AAudioIn {}
+
+impl AAudioIn {
+    fn open(aa: &'static AAudio, format: AudioFormat) -> Result<AAudioIn, MediaError> {
+        if format.channels == 0 || format.sample_rate == 0 {
+            return Err(MediaError::Device("a sound format with no channels or no rate".into()));
+        }
+        // SAFETY: building, opening and starting a stream; the builder is deleted after, and
+        // a stream that fails to start is closed.
+        unsafe {
+            let mut builder: Ptr = std::ptr::null_mut();
+            let r = (aa.create_stream_builder)(&mut builder);
+            if r != AAUDIO_OK {
+                return Err(aa.error("no stream builder", r));
+            }
+            (aa.builder_set_direction)(builder, AAUDIO_DIRECTION_INPUT);
+            (aa.builder_set_format)(builder, AAUDIO_FORMAT_PCM_FLOAT);
+            (aa.builder_set_channel_count)(builder, i32::from(format.channels));
+            (aa.builder_set_sample_rate)(builder, i32::try_from(format.sample_rate).unwrap_or(i32::MAX));
+            (aa.builder_set_performance_mode)(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+            if let Some(preset) = aa.builder_set_input_preset {
+                preset(builder, AAUDIO_INPUT_PRESET_UNPROCESSED);
+            }
+            let mut stream: Ptr = std::ptr::null_mut();
+            let r = (aa.builder_open_stream)(builder, &mut stream);
+            (aa.builder_delete)(builder);
+            if r != AAUDIO_OK || stream.is_null() {
+                // Without RECORD_AUDIO the open is refused.
+                return Err(MediaError::Denied(format!(
+                    "the microphone would not open ({}); the app needs the microphone permission",
+                    aa.error("AAudio", r)
+                )));
+            }
+            // AAudio converts to the asked-for rate on most devices; where it gives the
+            // device's own instead, the microphone converts (see `capture`).
+            let rate = (aa.stream_get_sample_rate)(stream);
+            let channels = (aa.stream_get_channel_count)(stream);
+            let format = match (u32::try_from(rate), u16::try_from(channels)) {
+                (Ok(r), Ok(c)) if r > 0 && c > 0 => AudioFormat::new(r, c),
+                _ => format,
+            };
+            let r = (aa.stream_request_start)(stream);
+            if r != AAUDIO_OK {
+                (aa.stream_close)(stream);
+                return Err(aa.error("the microphone would not start", r));
+            }
+            let burst = (aa.stream_get_frames_per_burst)(stream);
+            let period = format.duration_of(u64::try_from(burst).unwrap_or(0)).max(Duration::from_millis(1));
+            Ok(AAudioIn { aa, stream, format, period })
+        }
+    }
+}
+
+impl AudioInput for AAudioIn {
+    fn format(&self) -> AudioFormat {
+        self.format
+    }
+
+    fn period(&self) -> Duration {
+        self.period
+    }
+
+    fn read(&mut self, into: &mut Vec<f32>) -> Result<usize, MediaError> {
+        let ch = usize::from(self.format.channels);
+        let chunk = self.format.frames_in(self.period).max(64) as usize;
+        let mut total = 0;
+        loop {
+            let at = into.len();
+            into.resize(at + chunk * ch, 0.0);
+            // SAFETY: reading at most `chunk` frames into room for exactly that many, without
+            // waiting (timeout 0).
+            let r = unsafe {
+                (self.aa.stream_read)(
+                    self.stream,
+                    into.as_mut_ptr().add(at).cast(),
+                    i32::try_from(chunk).unwrap_or(i32::MAX),
+                    0,
+                )
+            };
+            if r < 0 {
+                into.truncate(at);
+                return Err(self.aa.error("the microphone stopped", r));
+            }
+            let got = usize::try_from(r).unwrap_or(0);
+            into.truncate(at + got * ch);
+            total += got;
+            if got < chunk {
+                return Ok(total);
+            }
+        }
+    }
+}
+
+impl Drop for AAudioIn {
+    fn drop(&mut self) {
+        // SAFETY: closing the stream `open` made (closing stops it).
+        unsafe {
+            (self.aa.stream_close)(self.stream);
+        }
     }
 }

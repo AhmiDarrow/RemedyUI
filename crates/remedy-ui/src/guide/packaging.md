@@ -77,6 +77,9 @@ min_api = 26
 target_api = 34
 keystore = "release.keystore"
 key_alias = "release"
+# What the manifest declares: microphone, internet, notifications, camera, or full names
+# such as "android.permission.VIBRATE". Ask for run-time ones with `App::request_permission`.
+permissions = ["internet", "microphone"]
 ```
 
 ## Android

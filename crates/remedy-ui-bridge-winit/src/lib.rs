@@ -20,8 +20,9 @@ use std::time::{Duration, Instant};
 use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{
     AccessibilityEvent, App, DialogStarted, DragData, DragEvent, DragStarted, DropEffect, FileDialog, Host,
-    HostEvent, ImeEvent, MemoryPressure, Pixels, ResizeEdge, SafeArea, SystemSettings, TextInputState,
-    TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowId, WindowOptions,
+    HostEvent, ImeEvent, MemoryPressure, Permission, PermissionStarted, Pixels, ResizeEdge, SafeArea,
+    SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowId,
+    WindowOptions,
 };
 use remedy_ui_input::{
     Buttons, KeyEvent, Modifiers, PinchEvent, PinchPhase, Platform, PointerEvent, PointerKind, PointerPhase,
@@ -111,6 +112,14 @@ pub trait PlatformHooks: 'static {
     }
     /// Opens a web or mail link with the system (checked by the caller).
     fn open_url(&mut self, url: &str) -> Result<(), Unsupported>;
+    /// Asks for a run-time permission. By default the platform has none to ask for and
+    /// grants at once; a platform that prompts (Android) returns
+    /// [`PermissionStarted::Pending`] and reports the answer through
+    /// [`PlatformHooks::take_events`] as [`HostEvent::Permission`].
+    fn request_permission(&mut self, permission: Permission) -> Result<PermissionStarted, Unsupported> {
+        let _ = permission;
+        Ok(PermissionStarted::Finished(true))
+    }
     /// Receives a handle that wakes the event loop, for platform services that report from
     /// other threads (a D-Bus tray).
     fn set_waker(&mut self, waker: Waker) {
@@ -738,6 +747,10 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
     ) -> Result<DialogStarted, Unsupported> {
         let w = window.and_then(|id| self.win(id)).map(|w| w.window.clone());
         self.hooks.start_file_dialog(w.as_deref(), dialog)
+    }
+
+    fn request_permission(&mut self, permission: Permission) -> Result<PermissionStarted, Unsupported> {
+        self.hooks.request_permission(permission)
     }
 
     fn start_drag(

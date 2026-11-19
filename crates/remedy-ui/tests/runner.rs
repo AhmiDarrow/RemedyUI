@@ -1056,6 +1056,46 @@ fn dialogs_that_answer_later_reach_the_app() {
 }
 
 #[test]
+fn permission_answers_reach_the_app_now_or_later() {
+    use remedy_ui::host::{Permission, PermissionId};
+    let answers: Rc<std::cell::RefCell<Vec<bool>>> = Rc::default();
+    let a2 = answers.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Permissions").size(100.0, 100.0), |_, _| {});
+        for _ in 0..3 {
+            let a = a2.clone();
+            app.request_permission(Permission::Microphone, move |g| a.borrow_mut().push(g));
+        }
+    });
+    // A desktop platform answers at once; a scripted refusal is passed on as it is.
+    let mut host = HeadlessHost::new();
+    host.answer_permission(false);
+    host.run_frames(&mut runner, 1);
+    assert_eq!(host.permission_requests(), &[Permission::Microphone; 3]);
+    assert_eq!(*answers.borrow(), vec![false, true, true]);
+
+    // Android's prompt answers later, in any order.
+    answers.borrow_mut().clear();
+    let a3 = answers.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Permissions").size(100.0, 100.0), |_, _| {});
+        for _ in 0..2 {
+            let a = a3.clone();
+            app.request_permission(Permission::Microphone, move |g| a.borrow_mut().push(g));
+        }
+    });
+    let mut host = HeadlessHost::new();
+    host.permissions_answer_later(true);
+    host.run_frames(&mut runner, 1);
+    assert!(answers.borrow().is_empty(), "the prompt is still up");
+    host.send(HostEvent::Permission(PermissionId(2), true));
+    host.send(HostEvent::Permission(PermissionId(1), false));
+    host.send(HostEvent::Permission(PermissionId(1), true));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*answers.borrow(), vec![true, false], "each answer reaches its own request, once");
+}
+
+#[test]
 fn suspended_windows_draw_again_after_resume() {
     let mut runner = red_block_app();
     let mut host = HeadlessHost::new();

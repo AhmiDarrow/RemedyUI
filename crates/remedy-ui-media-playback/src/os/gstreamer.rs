@@ -12,8 +12,8 @@ use std::time::Duration;
 use libloading::Library;
 
 use crate::host::{
-    AudioFormat, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Picture, PixelFormat,
-    Plane, Sample, TextTrackInfo, VideoInfo, YuvMatrix,
+    AudioFormat, AudioInput, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Picture,
+    PixelFormat, Plane, Sample, TextTrackInfo, VideoInfo, YuvMatrix,
 };
 
 type GBoolean = c_int;
@@ -362,6 +362,10 @@ impl MediaHost for GstHost {
 
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
         Ok(Box::new(GstDecoder::open(gst()?, source)?))
+    }
+
+    fn audio_input(&self, format: AudioFormat) -> Result<Box<dyn AudioInput>, MediaError> {
+        Ok(Box::new(GstInput::open(gst()?, format)?))
     }
 
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
@@ -1014,6 +1018,131 @@ impl Drop for GstOutput {
         unsafe {
             (self.g.element_set_state)(self.pipeline, GST_STATE_NULL);
             (self.g.object_unref)(self.src);
+            (self.g.object_unref)(self.pipeline);
+        }
+    }
+}
+
+/// The default microphone through `autoaudiosrc ! audioconvert ! audioresample ! appsink`:
+/// whatever the system's sound server is (PipeWire, PulseAudio, ALSA), converted to the format
+/// asked for.
+struct GstInput {
+    g: &'static Gst,
+    pipeline: Ptr,
+    sink: Ptr,
+    format: AudioFormat,
+}
+
+// SAFETY: as for the decoder: the pipeline is used from one thread at a time.
+unsafe impl Send for GstInput {}
+
+/// How often the source hands over sound: 10 ms buffers, a device period's worth.
+const INPUT_PERIOD: Duration = Duration::from_millis(10);
+
+impl GstInput {
+    fn open(g: &'static Gst, format: AudioFormat) -> Result<GstInput, MediaError> {
+        if format.channels == 0 || format.sample_rate == 0 {
+            return Err(MediaError::Device("a sound format with no channels or no rate".into()));
+        }
+        // Half a second of sound waits in the sink at most, for a reader that is late; a
+        // reader that keeps up never lets it fill.
+        let max_buffers = 50;
+        let desc = format!(
+            "autoaudiosrc ! audioconvert ! audioresample \
+             ! appsink name=sink sync=false max-buffers={max_buffers} drop=false \
+             caps=audio/x-raw,format=F32LE,layout=interleaved,rate={rate},channels={channels}",
+            rate = format.sample_rate,
+            channels = format.channels,
+        );
+        let desc = CString::new(desc).map_err(|e| MediaError::Device(e.to_string()))?;
+        let mut err: *mut GError = std::ptr::null_mut();
+        // SAFETY: building a pipeline from a description; errors come back in `err`.
+        let pipeline = unsafe { (g.parse_launch)(desc.as_ptr(), &mut err) };
+        if pipeline.is_null() {
+            return Err(MediaError::Device(g.take_error(err)));
+        }
+        if !err.is_null() {
+            let msg = g.take_error(err);
+            // SAFETY: releasing the half-made pipeline.
+            unsafe { (g.object_unref)(pipeline) };
+            return Err(MediaError::Device(msg));
+        }
+        // SAFETY: looking up the named sink in the bin (a new reference).
+        let sink = unsafe { (g.bin_get_by_name)(pipeline, c"sink".as_ptr()) };
+        if sink.is_null() {
+            // SAFETY: as above.
+            unsafe { (g.object_unref)(pipeline) };
+            return Err(MediaError::Device("the microphone pipeline has no sink".into()));
+        }
+        // SAFETY: a state change on a live pipeline; on failure everything made is released.
+        unsafe {
+            if (g.element_set_state)(pipeline, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE {
+                let reason = g.bus_error(pipeline).map_or("no microphone could be opened".into(), |e| e.1);
+                (g.element_set_state)(pipeline, GST_STATE_NULL);
+                (g.object_unref)(sink);
+                (g.object_unref)(pipeline);
+                return Err(MediaError::NotFound(reason));
+            }
+        }
+        Ok(GstInput { g, pipeline, sink, format })
+    }
+}
+
+impl AudioInput for GstInput {
+    fn format(&self) -> AudioFormat {
+        self.format
+    }
+
+    fn period(&self) -> Duration {
+        INPUT_PERIOD
+    }
+
+    fn read(&mut self, into: &mut Vec<f32>) -> Result<usize, MediaError> {
+        let g = self.g;
+        if let Some((_, text)) = g.bus_error(self.pipeline) {
+            return Err(MediaError::Device(text));
+        }
+        let ch = usize::from(self.format.channels);
+        let mut frames = 0;
+        loop {
+            // SAFETY: a non-blocking pull from a live sink; the sample is ours until unref'd,
+            // and its buffer is mapped for reading while copied.
+            unsafe {
+                let s = (g.app_sink_try_pull_sample)(self.sink, 0);
+                if s.is_null() {
+                    if (g.app_sink_is_eos)(self.sink) != 0 {
+                        return Err(MediaError::Device("the microphone stopped".into()));
+                    }
+                    return Ok(frames);
+                }
+                let buf = (g.sample_get_buffer)(s);
+                if !buf.is_null() {
+                    let mut map = GstMapInfo::default();
+                    if (g.buffer_map)(buf, &mut map, GST_MAP_READ) != 0 {
+                        let bytes: &[u8] = if map.data.is_null() {
+                            &[]
+                        } else {
+                            std::slice::from_raw_parts(map.data, map.size)
+                        };
+                        let samples = bytes.as_chunks::<4>().0;
+                        let whole = samples.len() - samples.len() % ch.max(1);
+                        into.extend(samples.iter().take(whole).map(|b| f32::from_le_bytes(*b)));
+                        frames += whole / ch.max(1);
+                        (g.buffer_unmap)(buf, &mut map);
+                    }
+                }
+                (g.mini_object_unref)(s);
+            }
+        }
+    }
+}
+
+impl Drop for GstInput {
+    fn drop(&mut self) {
+        // SAFETY: stopping and releasing what `open` made.
+        unsafe {
+            (self.g.element_set_state)(self.pipeline, GST_STATE_NULL);
+            (self.g.object_unref)(self.sink);
             (self.g.object_unref)(self.pipeline);
         }
     }

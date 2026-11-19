@@ -27,8 +27,8 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
 use crate::host::{
-    AudioFormat, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Picture, PixelFormat,
-    Plane, Sample, VideoInfo, YuvMatrix,
+    AudioFormat, AudioInput, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Picture,
+    PixelFormat, Plane, Sample, VideoInfo, YuvMatrix,
 };
 use crate::mp4::{self, Kind, Mp4};
 
@@ -834,6 +834,10 @@ impl MediaHost for WebHost {
         }
     }
 
+    fn audio_input(&self, format: AudioFormat) -> Result<Box<dyn AudioInput>, MediaError> {
+        Ok(Box::new(WebMicrophone::open(format)?))
+    }
+
     fn audio_output(&self, format: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
         Ok(Box::new(WebAudio::new(format)?))
     }
@@ -844,4 +848,263 @@ pub(crate) fn host() -> Result<Arc<dyn MediaHost>, MediaError> {
         return Err(MediaError::Unsupported("this browser has no WebCodecs decoders".into()));
     }
     Ok(Arc::new(WebHost))
+}
+
+/// The audio worklet that hands the microphone's sound to the page: interleaved frames, about
+/// ten milliseconds at a time (a render quantum is 128 frames, under 3 ms; posting each would
+/// wake the page four times as often for nothing).
+const MIC_WORKLET: &str = r#"
+class RemedyMicrophone extends AudioWorkletProcessor {
+  constructor() { super(); this.parts = []; this.frames = 0; this.batch = Math.max(128, Math.round(sampleRate / 100)); }
+  process(inputs) {
+    const input = inputs[0];
+    if (input && input.length > 0 && input[0].length > 0) {
+      const ch = input.length, n = input[0].length, out = new Float32Array(n * ch);
+      for (let c = 0; c < ch; c++) { const p = input[c]; for (let i = 0; i < n; i++) out[i * ch + c] = p[i]; }
+      this.parts.push(out); this.frames += n;
+      if (this.frames >= this.batch) {
+        const all = new Float32Array(this.frames * ch); let at = 0;
+        for (const p of this.parts) { all.set(p, at); at += p.length; }
+        this.port.postMessage({ channels: ch, samples: all }, [all.buffer]);
+        this.parts = []; this.frames = 0;
+      }
+    }
+    return true;
+  }
+}
+registerProcessor("remedy-microphone", RemedyMicrophone);
+"#;
+
+/// What the microphone's page callbacks share with its reader.
+#[derive(Default)]
+struct MicShared {
+    /// Sound in the page's format and the asked-for channels, waiting to be read.
+    queue: Vec<f32>,
+    /// The context's rate once known, when it is not the asked-for one.
+    convert: Option<crate::capture::Converter>,
+    error: Option<MediaError>,
+    /// What to let go when the microphone closes.
+    stream: Option<JsValue>,
+    ctx: Option<web_sys::AudioContext>,
+    url: Option<String>,
+    on_message: Option<Closure<dyn FnMut(JsValue)>>,
+    closed: bool,
+}
+
+impl MicShared {
+    fn release(&mut self) {
+        if let Some(stream) = self.stream.take()
+            && let Ok(tracks) = call0(&stream, "getTracks")
+        {
+            for t in Array::from(&tracks).iter() {
+                let _ = call0(&t, "stop");
+            }
+        }
+        if let Some(ctx) = self.ctx.take() {
+            let _ = ctx.close();
+        }
+        if let Some(url) = self.url.take() {
+            let _ = web_sys::Url::revoke_object_url(&url);
+        }
+        self.on_message = None;
+    }
+}
+
+fn call0(o: &JsValue, method: &str) -> Result<JsValue, JsValue> {
+    let f: js_sys::Function = get(o, method).dyn_into()?;
+    f.call0(o)
+}
+
+/// The microphone through `getUserMedia` and an audio worklet. The browser asks the person
+/// when it opens; until they answer (and the worklet loads) reads give nothing.
+struct WebMicrophone {
+    shared: Rc<RefCell<MicShared>>,
+    format: AudioFormat,
+}
+
+// SAFETY: as for the decoder: one thread in a page without shared memory.
+unsafe impl Send for WebMicrophone {}
+
+impl WebMicrophone {
+    fn open(format: AudioFormat) -> Result<WebMicrophone, MediaError> {
+        if format.channels == 0 || format.sample_rate == 0 {
+            return Err(MediaError::Device("a sound format with no channels or no rate".into()));
+        }
+        let devices = get(&get(&js_sys::global(), "navigator"), "mediaDevices");
+        if devices.is_undefined() || !has_global("AudioWorkletNode") {
+            return Err(MediaError::Unsupported(
+                "this page cannot reach a microphone (browsers allow it only on https: or localhost pages)"
+                    .into(),
+            ));
+        }
+        let shared: Rc<RefCell<MicShared>> = Rc::default();
+        let s = shared.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Err(e) = start_microphone(devices, format, s.clone()).await {
+                let mut m = s.borrow_mut();
+                m.error = Some(e);
+                m.release();
+            }
+        });
+        Ok(WebMicrophone { shared, format })
+    }
+}
+
+/// The error a rejected `getUserMedia` stands for.
+fn media_error(e: &JsValue) -> MediaError {
+    let text = js_error("the microphone", e);
+    match get(e, "name").as_string().as_deref() {
+        Some("NotAllowedError" | "SecurityError") => MediaError::Denied(text),
+        Some("NotFoundError" | "OverconstrainedError") => MediaError::NotFound(text),
+        _ => MediaError::Device(text),
+    }
+}
+
+async fn start_microphone(
+    devices: JsValue,
+    format: AudioFormat,
+    shared: Rc<RefCell<MicShared>>,
+) -> Result<(), MediaError> {
+    // Sound as the microphone hears it: the voice-call processing would bend a sung note.
+    let audio = obj(&[
+        ("echoCancellation", JsValue::FALSE),
+        ("noiseSuppression", JsValue::FALSE),
+        ("autoGainControl", JsValue::FALSE),
+        ("channelCount", JsValue::from(u32::from(format.channels))),
+    ]);
+    let constraints = obj(&[("audio", audio.into()), ("video", JsValue::FALSE)]);
+    let get_user_media: js_sys::Function = get(&devices, "getUserMedia")
+        .dyn_into()
+        .map_err(|e| MediaError::Unsupported(js_error("getUserMedia", &e)))?;
+    let promise: Promise = get_user_media
+        .call1(&devices, &constraints)
+        .map_err(|e| media_error(&e))?
+        .dyn_into()
+        .map_err(|e| MediaError::Device(js_error("getUserMedia", &e)))?;
+    let stream = JsFuture::from(promise).await.map_err(|e| media_error(&e))?;
+    if shared.borrow().closed {
+        shared.borrow_mut().stream = Some(stream);
+        shared.borrow_mut().release();
+        return Ok(());
+    }
+    shared.borrow_mut().stream = Some(stream.clone());
+
+    // A context at the asked-for rate converts in the browser; one that will not take the
+    // microphone at that rate (Firefox wants the device's) runs at its own and is converted here.
+    let opts = web_sys::AudioContextOptions::new();
+    opts.set_sample_rate(format.sample_rate as f32);
+    let make = |at_rate: bool| -> Result<(web_sys::AudioContext, JsValue), JsValue> {
+        let ctx = if at_rate {
+            web_sys::AudioContext::new_with_context_options(&opts)?
+        } else {
+            web_sys::AudioContext::new()?
+        };
+        let source: js_sys::Function = get(&ctx, "createMediaStreamSource").dyn_into()?;
+        match source.call1(&ctx, &stream) {
+            Ok(node) => Ok((ctx, node)),
+            Err(e) => {
+                let _ = ctx.close();
+                Err(e)
+            }
+        }
+    };
+    let (ctx, source) =
+        make(true).or_else(|_| make(false)).map_err(|e| MediaError::Device(js_error("WebAudio", &e)))?;
+    let rate = ctx.sample_rate().round() as u32;
+    shared.borrow_mut().ctx = Some(ctx.clone());
+    if rate != format.sample_rate {
+        shared.borrow_mut().convert =
+            Some(crate::capture::Converter::new(AudioFormat::new(rate, format.channels), format));
+    }
+
+    let parts = Array::of1(&JsValue::from_str(MIC_WORKLET));
+    let bag = obj(&[("type", JsValue::from_str("text/javascript"))]);
+    let blob = Reflect::construct(&get(&js_sys::global(), "Blob").into(), &Array::of2(&parts, &bag))
+        .map_err(|e| MediaError::Device(js_error("the microphone's worklet", &e)))?;
+    let url = web_sys::Url::create_object_url_with_blob(&blob.unchecked_into())
+        .map_err(|e| MediaError::Device(js_error("the microphone's worklet", &e)))?;
+    shared.borrow_mut().url = Some(url.clone());
+    let worklet = get(&ctx, "audioWorklet");
+    let add: js_sys::Function = get(&worklet, "addModule")
+        .dyn_into()
+        .map_err(|e| MediaError::Unsupported(js_error("audio worklets", &e)))?;
+    let loading: Promise = add
+        .call1(&worklet, &JsValue::from_str(&url))
+        .map_err(|e| MediaError::Device(js_error("the microphone's worklet", &e)))?
+        .dyn_into()
+        .map_err(|e| MediaError::Device(js_error("the microphone's worklet", &e)))?;
+    JsFuture::from(loading)
+        .await
+        .map_err(|e| MediaError::Device(js_error("the microphone's worklet", &e)))?;
+    if shared.borrow().closed {
+        shared.borrow_mut().release();
+        return Ok(());
+    }
+
+    let node_opts = obj(&[
+        ("numberOfInputs", JsValue::from(1)),
+        ("numberOfOutputs", JsValue::from(0)),
+        ("channelCount", JsValue::from(u32::from(format.channels))),
+        ("channelCountMode", JsValue::from_str("explicit")),
+        ("channelInterpretation", JsValue::from_str("speakers")),
+    ]);
+    let node = Reflect::construct(
+        &get(&js_sys::global(), "AudioWorkletNode").into(),
+        &Array::of3(&ctx, &JsValue::from_str("remedy-microphone"), &node_opts),
+    )
+    .map_err(|e| MediaError::Device(js_error("the microphone's worklet", &e)))?;
+    let weak = Rc::downgrade(&shared);
+    let on_message = Closure::<dyn FnMut(JsValue)>::new(move |event: JsValue| {
+        let Some(s) = weak.upgrade() else { return };
+        let data = get(&event, "data");
+        let samples: Float32Array = match get(&data, "samples").dyn_into() {
+            Ok(a) => a,
+            Err(_) => return,
+        };
+        let mut m = s.borrow_mut();
+        let m = &mut *m;
+        match m.convert.as_mut() {
+            None => m.queue.extend(samples.to_vec()),
+            Some(c) => c.convert(&samples.to_vec(), &mut m.queue),
+        }
+    });
+    let port = get(&node, "port");
+    let _ = Reflect::set(&port, &JsValue::from_str("onmessage"), on_message.as_ref());
+    shared.borrow_mut().on_message = Some(on_message);
+    let connect: js_sys::Function =
+        get(&source, "connect").dyn_into().map_err(|e| MediaError::Device(js_error("WebAudio", &e)))?;
+    connect.call1(&source, &node).map_err(|e| MediaError::Device(js_error("WebAudio", &e)))?;
+    // A context made outside a press may start suspended; the microphone's own permission
+    // lets it run.
+    let _ = ctx.resume();
+    Ok(())
+}
+
+impl AudioInput for WebMicrophone {
+    fn format(&self) -> AudioFormat {
+        self.format
+    }
+
+    fn period(&self) -> Duration {
+        Duration::from_millis(10)
+    }
+
+    fn read(&mut self, into: &mut Vec<f32>) -> Result<usize, MediaError> {
+        let mut m = self.shared.borrow_mut();
+        if let Some(e) = m.error.take() {
+            return Err(e);
+        }
+        let ch = usize::from(self.format.channels);
+        let whole = m.queue.len() - m.queue.len() % ch;
+        into.extend(m.queue.drain(..whole));
+        Ok(whole / ch)
+    }
+}
+
+impl Drop for WebMicrophone {
+    fn drop(&mut self) {
+        let mut m = self.shared.borrow_mut();
+        m.closed = true;
+        m.release();
+    }
 }

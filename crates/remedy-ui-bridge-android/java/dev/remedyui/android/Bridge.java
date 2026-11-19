@@ -56,6 +56,8 @@ public final class Bridge
 
     static native void imeDelete(long handle, int beforeBytes, int afterBytes);
 
+    static native void permissionDone(long handle, long request, boolean granted);
+
     static native void dialogDone(long handle, long request, String[] paths, String error);
 
     static native void documentSaved(String path, String error);
@@ -254,6 +256,11 @@ public final class Bridge
     /** Ends the text session (UI thread). */
     public void endTextInput() {
         input.end();
+    }
+
+    /** Asks for a run-time permission unless it is already granted (UI thread). */
+    public void requestPermission(long request, String permission) {
+        Permissions.request(activity, handle, request, permission);
     }
 
     /** Opens the document picker (UI thread). */
