@@ -63,11 +63,24 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 
 Development tools that are not linked into apps: `cargo-fuzz`, `cargo-deny`, `cargo-audit`, `cargo-vet`.
 
+### The developer tools
+
+`remedy-tools`, `cargo-remedy` and `remedy-mcp` are tools, and no app links them. They add:
+
+| Area | Crate | Version | Tool | Why this one |
+|---|---|---|---|---|
+| Model Context Protocol | `rmcp` | 3.11.0 | `remedy-mcp` | The official Rust MCP SDK (Apache-2.0): its server, the stdio and streamable-HTTP transports, and the client the tests script. It brings `chrono`, which is marked unmaintained (a maintenance notice, recorded in `deny.toml`) |
+| Async runtime | `tokio` | 1.54.1 | `remedy-mcp` | rmcp runs on it. The tools themselves block, and the server runs them on tokio's blocking pool |
+| HTTP server | `hyper`, `hyper-util`, `http-body-util`, `bytes`, `tower-service` | 1.12.0, 0.1.21, 0.1.5, 1.12.1, 0.3.3 | `remedy-mcp` (feature `http`) | Serves rmcp's streamable-HTTP service on loopback, behind the bearer-token check |
+| JSON schemas | `schemars` | 1.2.3 | `remedy-mcp`, `remedy-tools` (feature `schema`) | Every tool's input schema comes from its typed input, with the field docs as descriptions (the version rmcp uses) |
+| Compressed docs index | `flate2` (miniz_oxide back end) | 1.1.11 | `remedy-tools` (feature `docs`), `xtask` | The committed docs index is zlib-compressed JSON (about 470 KB instead of 1.6 MB); the version `cargo-remedy` already uses for packaging |
+| Manifests | `toml` | 1.2.1 | `cargo-remedy`, `remedy-tools` (feature `preview`) | Reads an app's Cargo.toml and writes the preview harness's |
+
 ## Rules
 
 - **A new dependency needs a reason** in this file: what it does, why RemedyUI should not write it, its license, and its maintenance health.
 - **Minimal features.** `default-features = false`, then only what is used.
-- **No async runtime, and no bundled C code.** Platform frameworks the OS provides (D3D, Metal, Vulkan loaders, system GStreamer on Linux, WebKitGTK) are loaded from the OS, never shipped. The one exception is the WebView2 loader, explained in its row above.
+- **No async runtime, and no bundled C code,** in anything an app links. (`remedy-mcp` runs on tokio because its protocol SDK does, and no app links it.) Platform frameworks the OS provides (D3D, Metal, Vulkan loaders, system GStreamer on Linux, WebKitGTK) are loaded from the OS, never shipped. The one exception is the WebView2 loader, explained in its row above.
 - **Checked in CI**: `cargo deny` (licenses, advisories, bans, duplicate versions), `cargo audit` and `cargo vet`.
 - **One owner module.** Each dependency is used from one internal module, and its types do not appear in public APIs.
 - **Young crates** (parley, the vello renderers, winit 0.31, accesskit) have behavior tests in RemedyUI for what the engine relies on, so an upgrade that changes behavior is caught before release.

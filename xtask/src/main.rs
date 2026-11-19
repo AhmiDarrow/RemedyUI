@@ -14,8 +14,53 @@
 //!   crates in [`UNSAFE_BOUNDARY`] may contain `allow(unsafe_code)`, and only on a module named
 //!   `os` or `ffi`; this check is what holds that line.
 
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+
+/// What the developer tools know of the checkout: the same code `remedy-tools` reads a live
+/// checkout with, so the committed index and `--docs-root` agree.
+#[path = "../../crates/remedy-tools/src/extract.rs"]
+#[allow(dead_code, reason = "xtask uses the index writer; remedy-tools the readers")]
+mod extract;
+
+/// The committed docs index (zlib-compressed JSON), embedded by `remedy-tools`.
+const DOCS_INDEX: &str = "crates/remedy-tools/data/docs-index.json.zz";
+
+/// The checkout's root.
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
+}
+
+/// Writes the docs index from the guides, design docs, rustdoc and widget catalog.
+fn docs_index() -> Result<(), String> {
+    let root = repo_root();
+    let json = extract::index_json(&root);
+    let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+    enc.write_all(json.as_bytes()).map_err(|e| e.to_string())?;
+    let bytes = enc.finish().map_err(|e| e.to_string())?;
+    let path = root.join(DOCS_INDEX);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    std::fs::write(&path, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    println!("wrote {DOCS_INDEX}: {} KB ({} KB of JSON)", bytes.len() / 1024, json.len() / 1024);
+    Ok(())
+}
+
+/// The committed docs index must be what `cargo xtask docs-index` writes now: the tools
+/// would otherwise describe an engine that no longer exists.
+fn check_docs_index(problems: &mut Vec<String>) {
+    let root = repo_root();
+    let committed = std::fs::read(root.join(DOCS_INDEX)).unwrap_or_default();
+    let mut json = String::new();
+    let readable = flate2::read::ZlibDecoder::new(committed.as_slice()).read_to_string(&mut json).is_ok();
+    if !readable || json != extract::index_json(&root) {
+        problems.push(format!(
+            "{DOCS_INDEX} is out of date with the docs and rustdoc: run `cargo xtask docs-index` and commit it"
+        ));
+    }
+}
 
 /// Each RemedyUI crate and its layer: L0 base … L6 app-facing.
 const LAYERS: &[(&str, u8)] = &[
@@ -89,8 +134,14 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-customize", 5),
     ("remedy-ui", 6),
     ("remedy-ui-test", 6),
-    // Tools: build on everything, nothing builds on them.
+    // Tools: build on everything, nothing builds on them. remedy-tools holds the developer
+    // tools' logic; cargo-remedy (the command line) and remedy-mcp (for AI agents) present it.
     ("cargo-remedy", 7),
+    ("remedy-tools", 7),
+    ("remedy-mcp", 7),
+    // The app templates, shared by `cargo remedy new` and remedy-tools' `new_app`. A crate of
+    // their own: remedy-tools cannot depend on cargo-remedy, which depends on remedy-tools.
+    ("remedy-templates", 7),
 ];
 
 /// Allowed dependencies inside one layer: (crate, dependency).
@@ -166,6 +217,11 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-bridge-macos", "remedy-ui-bridge-winit"),
     ("remedy-ui-bridge-linux", "remedy-ui-bridge-winit"),
     ("remedy-ui-bridge-android", "remedy-ui-bridge-winit"),
+    // The command line and the MCP server both present the tools' logic.
+    ("cargo-remedy", "remedy-tools"),
+    ("remedy-mcp", "remedy-tools"),
+    ("cargo-remedy", "remedy-templates"),
+    ("remedy-tools", "remedy-templates"),
 ];
 
 /// Crates that may hold unsafe code, each in one `os` or `ffi` module.
@@ -263,13 +319,18 @@ fn packages() -> Result<Vec<Package>, String> {
     Ok(pkgs)
 }
 
+/// RemedyUI's own crates: the engine's (`remedy-ui*`) and the tools in [`LAYERS`].
+fn ours(name: &str) -> bool {
+    name.starts_with("remedy-ui") || layer(name).is_some()
+}
+
 fn check_layers(pkgs: &[Package], problems: &mut Vec<String>) {
-    for p in pkgs.iter().filter(|p| p.name.starts_with("remedy-ui")) {
+    for p in pkgs.iter().filter(|p| ours(&p.name)) {
         let Some(own) = layer(&p.name) else {
             problems.push(format!("{} has no layer; add it to LAYERS in xtask/src/main.rs", p.name));
             continue;
         };
-        for d in p.deps.iter().filter(|d| d.starts_with("remedy-ui")) {
+        for d in p.deps.iter().filter(|d| ours(d)) {
             let Some(dl) = layer(d) else {
                 problems.push(format!("{} depends on {d}, which has no layer", p.name));
                 continue;
@@ -352,8 +413,7 @@ fn check_metadata(pkgs: &[Package], problems: &mut Vec<String>) {
     }
 }
 
-const USAGE: &str =
-    "usage: cargo xtask check | semver --baseline <git revision or tag> [cargo-semver-checks options] | msrv";
+const USAGE: &str = "usage: cargo xtask check | docs-index | semver --baseline <git revision or tag> [cargo-semver-checks options] | msrv";
 
 fn cargo_cmd() -> Command {
     Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
@@ -460,6 +520,7 @@ fn main() -> ExitCode {
     let tool = match task.as_str() {
         "semver" => Some(semver(args.get(1..).unwrap_or_default())),
         "msrv" => Some(msrv()),
+        "docs-index" => Some(docs_index()),
         "check" => None,
         _ => {
             eprintln!("{USAGE}");
@@ -486,6 +547,7 @@ fn main() -> ExitCode {
     check_layers(&pkgs, &mut problems);
     check_unsafe(&pkgs, &mut problems);
     check_metadata(&pkgs, &mut problems);
+    check_docs_index(&mut problems);
     if problems.is_empty() {
         println!(
             "ok: {} crates follow the layer graph and the unsafe-code boundary, and published ones carry their metadata",
@@ -554,5 +616,14 @@ mod tests {
         assert!(problems(&[pkg("remedy-ui-tree", &["remedy-ui-reactive", "remedy-ui-core"])]).is_empty());
         let p = problems(&[pkg("remedy-ui-unlisted", &[])]);
         assert!(p.iter().any(|m| m.contains("has no layer")));
+    }
+
+    #[test]
+    fn the_tools_are_checked_too() {
+        assert!(problems(&[pkg("remedy-mcp", &["remedy-tools", "remedy-ui-core"])]).is_empty());
+        assert!(problems(&[pkg("cargo-remedy", &["remedy-tools"])]).is_empty());
+        // Nothing builds on the tools, and the tools do not build on each other unlisted.
+        assert_eq!(problems(&[pkg("remedy-ui", &["remedy-tools"])]).len(), 1);
+        assert_eq!(problems(&[pkg("remedy-tools", &["remedy-mcp"])]).len(), 1);
     }
 }

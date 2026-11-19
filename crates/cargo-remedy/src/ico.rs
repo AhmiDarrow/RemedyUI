@@ -1,16 +1,7 @@
-//! Icons: reading a PNG, resampling it, writing Windows `.ico` files, and drawing a default
-//! icon for new apps.
+//! Icons: reading a PNG, resampling it and writing Windows `.ico` files. The default icon new
+//! apps start with is drawn by `remedy-templates`.
 
-/// Straight-alpha RGBA8 pixels.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Rgba {
-    /// Width.
-    pub width: u32,
-    /// Height.
-    pub height: u32,
-    /// Pixels, row by row.
-    pub data: Vec<u8>,
-}
+pub use remedy_templates::image::{Rgba, default_icon};
 
 /// Sizes a Windows icon carries (Explorer, taskbar, Start, alt-tab at every DPI).
 pub const ICO_SIZES: [u32; 8] = [16, 20, 24, 32, 40, 48, 64, 256];
@@ -51,15 +42,7 @@ pub fn read_png(bytes: &[u8]) -> Result<Rgba, String> {
 
 /// Writes straight RGBA8 as a PNG.
 pub fn write_png(img: &Rgba) -> Result<Vec<u8>, String> {
-    let mut out = Vec::new();
-    {
-        let mut enc = png::Encoder::new(&mut out, img.width, img.height);
-        enc.set_color(png::ColorType::Rgba);
-        enc.set_depth(png::BitDepth::Eight);
-        let mut w = enc.write_header().map_err(|e| e.to_string())?;
-        w.write_image_data(&img.data).map_err(|e| e.to_string())?;
-    }
-    Ok(out)
+    remedy_templates::image::write_png(img).map_err(|e| e.to_string())
 }
 
 /// Resamples to `size`×`size` by averaging the source area under each pixel, in
@@ -121,38 +104,6 @@ pub fn ico(img: &Rgba) -> Result<Vec<u8>, String> {
         out.extend(data);
     }
     Ok(out)
-}
-
-/// A 512 px default icon: a rounded square in `color` with a light ring, antialiased.
-pub fn default_icon(color: [u8; 3]) -> Rgba {
-    let size = 512u32;
-    let s = size as f32;
-    let mut data = Vec::with_capacity((size * size * 4) as usize);
-    let inside = |x: f32, y: f32| -> (bool, bool) {
-        // Rounded square with 22% corner radius, inset 6%.
-        let (m, r) = (s * 0.06, s * 0.22);
-        let (cx, cy) = (x.clamp(m + r, s - m - r), y.clamp(m + r, s - m - r));
-        let sq = (x - cx).powi(2) + (y - cy).powi(2) <= r * r && x >= m && x <= s - m && y >= m && y <= s - m;
-        let d = ((x - s / 2.0).powi(2) + (y - s / 2.0).powi(2)).sqrt();
-        (sq, (s * 0.20..=s * 0.28).contains(&d))
-    };
-    for py in 0..size {
-        for px in 0..size {
-            let (mut cov, mut ring) = (0u32, 0u32);
-            for sy in 0..4 {
-                for sx in 0..4 {
-                    let (x, y) = (px as f32 + (sx as f32 + 0.5) / 4.0, py as f32 + (sy as f32 + 0.5) / 4.0);
-                    let (a, b) = inside(x, y);
-                    cov += u32::from(a);
-                    ring += u32::from(a && b);
-                }
-            }
-            let t = ring as f32 / cov.max(1) as f32;
-            let mix = |c: u8| (f32::from(c) * (1.0 - t) + 240.0 * t).round() as u8;
-            data.extend([mix(color[0]), mix(color[1]), mix(color[2]), (cov * 255 / 16) as u8]);
-        }
-    }
-    Rgba { width: size, height: size, data }
 }
 
 #[cfg(test)]

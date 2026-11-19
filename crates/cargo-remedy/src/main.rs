@@ -13,7 +13,7 @@ mod package;
 mod platforms;
 mod project;
 mod run;
-mod templates;
+mod tools;
 
 use std::process::ExitCode;
 
@@ -57,9 +57,10 @@ fn main() -> ExitCode {
         Some("package") => package::run(args.get(1..).unwrap_or_default()),
         Some("migrate") => migrate::run(args.get(1..).unwrap_or_default()),
         Some("help" | "--help" | "-h") | None => {
-            print!("{HELP}");
+            print!("{HELP}\n{}", tools::HELP);
             Ok(())
         }
+        Some(cmd) if tools::handles(cmd) => tools::run(cmd, args.get(1..).unwrap_or_default()),
         Some(other) => Err(format!("unknown command `{other}`\n\n{HELP}")),
     };
     match result {

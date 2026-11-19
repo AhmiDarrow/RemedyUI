@@ -141,6 +141,25 @@ Apps use the facade, `remedy-ui` (`run`, `App`, `Window`, and the packs behind f
 - `remedy-ui-services-desktop`: starting with the session, showing files in the file manager, the user's known folders
 
 Checks: `cargo xtask check` (layer graph and unsafe boundary) and `cargo deny check`, alongside fmt, clippy, tests and docs.
+## Tools for people and AI agents
+
+`cargo remedy` creates, runs and packages apps, and offers developer tools:
+
+- search the docs and the widget catalog
+- check and compile `.rui` markup
+- render previews as PNGs, with their accessibility audit
+- run tests and the budget scenes
+- operate a running app (with the person's grant) and read its devtools
+
+`remedy-mcp` offers the same tools to AI agents over the Model Context Protocol. Both run on one logic, `remedy-tools`, and each tool group is a feature.
+
+```sh
+cargo install --path crates/cargo-remedy
+cargo install --path crates/remedy-mcp
+claude mcp add remedy -- remedy-mcp --workspace /path/to/your/apps
+```
+
+The server runs locally, over stdio (or streamable HTTP on loopback, with a token). Its tools work only in the folders you name. It reaches a running app only with the address and token of a grant you made in that app. See [docs/CLI.md](docs/CLI.md) and [docs/MCP.md](docs/MCP.md).
 
 ## Documents
 
@@ -156,6 +175,8 @@ Checks: `cargo xtask check` (layer graph and unsafe boundary) and `cargo deny ch
 | [docs/RELEASING.md](docs/RELEASING.md) | The release checks: the gate, `cargo xtask semver` and `msrv`, packaging |
 | [docs/API-REVIEW.md](docs/API-REVIEW.md) | The 1.0 API review: every rename, error and growth change, and why |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, by milestone and release |
+| [docs/CLI.md](docs/CLI.md) | `cargo remedy`: every command, from `new` to previews, audits and operating running apps |
+| [docs/MCP.md](docs/MCP.md) | `remedy-mcp`: setup in Claude Code and other MCP clients, every tool, and the security model |
 
 ## License
 

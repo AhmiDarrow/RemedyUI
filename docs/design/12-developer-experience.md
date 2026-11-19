@@ -38,6 +38,20 @@ fn unlock_screen(ui: &Ui, vault: Vault) -> El {
 - **`cargo remedy package`** produces signed installers and bundles: MSIX or NSIS on Windows, `.app` and `.dmg` on macOS, AppImage, `.deb` and Flatpak on Linux, AAB or APK on Android, and a RemedyOS package. It also generates icons from one SVG and wires up auto-update from GitHub releases (an optional updater crate that most Remedy apps already need).
 - **Widget gallery.** `cargo remedy gallery` opens every widget in every state and variant, with its code and the theme tokens it uses. It doubles as visual documentation.
 
+## Tools for people and agents
+
+Every developer tool has one logic, in `remedy-tools`, and two front ends: `cargo remedy`'s commands for people and scripts ([CLI.md](../CLI.md)), and `remedy-mcp` for AI agents over the Model Context Protocol ([MCP.md](../MCP.md)). The tools:
+
+- docs search
+- the widget catalog
+- `.rui` checking
+- new apps
+- headless previews with the accessibility audit
+- tests and budget scenes
+- operating running apps and reading their devtools
+
+An agent building an app sees what a person sees: the rendered PNG, and the screen reader's view. It operates a running app only through the agents protocol, with the person's grant.
+
 ## Previews
 
 ```rust
