@@ -465,6 +465,9 @@ impl A11yTree {
 
     /// Moves accessibility focus.
     pub fn set_focus(&mut self, id: u64) {
+        if self.focus == id {
+            return;
+        }
         self.focus = id;
         self.mark(id);
     }
@@ -661,6 +664,10 @@ impl A11yTree {
                 focused: self.focus == id,
                 live: s.live,
                 position: s.set_position,
+                checked: s.checked,
+                selected: s.selected,
+                expanded: s.expanded,
+                disabled: s.disabled,
             });
             if !s.merge {
                 stack.extend(children.iter().rev().map(|c| (*c, depth + 1)));
@@ -737,6 +744,14 @@ pub struct ReaderNode {
     pub live: Live,
     /// Its place in a set: (position from 1, size).
     pub position: Option<(usize, usize)>,
+    /// Checked, not checked, or not something that can be checked (`None`).
+    pub checked: Option<bool>,
+    /// Selected, not selected, or not something that can be selected (`None`).
+    pub selected: Option<bool>,
+    /// Expanded, collapsed, or not something that expands (`None`).
+    pub expanded: Option<bool>,
+    /// It cannot be used now (`states` says "disabled" too).
+    pub disabled: bool,
 }
 
 impl ReaderNode {

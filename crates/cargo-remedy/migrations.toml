@@ -161,6 +161,12 @@ kind = "path"
 old = "remedy_ui::nav::nav_item_dyn"
 new = "nav_item"
 
+[[rename]]
+since = "0.1.0"
+kind = "path"
+old = "remedy_ui::rich::markdown_dyn"
+new = "markdown"
+
 [[call]]
 since = "0.1.0"
 path = "remedy_ui::widgets::label"

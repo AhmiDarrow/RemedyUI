@@ -114,6 +114,10 @@ mod tests {
             android_target_api: 35,
             android_keystore: None,
             android_key_alias: None,
+            web_short_name: None,
+            web_theme: crate::project::DEFAULT_THEME_COLOR.into(),
+            web_icon: None,
+            uses_remedy_ui: true,
         }
     }
 

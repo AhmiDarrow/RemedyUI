@@ -80,7 +80,9 @@ pub fn change<K: PartialEq>(before: &[K], now: &[K]) -> Change {
     Change::Replaced
 }
 
-/// A chat list of `items`. `key` identifies a message across changes; `day` names the
+/// A chat list of `items`: a `Signal<Vec<T>>` replaced as a whole, a `SignalVec<T>` (pushes
+/// for new messages, inserts at the front for older ones) or a [`w::ListItems`], as the
+/// other lists take. `key` identifies a message across changes; `day` names the
 /// section it belongs to (its date, say: a header goes before the first message of each);
 /// `row` builds a message; `older` is called when the view nears the top, to load older
 /// messages (it may add them later; they appear above without moving the view).
@@ -89,7 +91,7 @@ pub fn change<K: PartialEq>(before: &[K], now: &[K]) -> Change {
 pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
     ui: &Ui,
     label: impl Into<String>,
-    items: Signal<Vec<T>>,
+    items: impl Into<w::ListItems<T>>,
     key: impl Fn(&T) -> K + 'static,
     day: impl Fn(&T) -> String + 'static,
     estimate: f32,
@@ -98,6 +100,7 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
     older: impl Fn() + 'static,
 ) -> El {
     let unit = ui.theme().spacing.unit;
+    let items: w::ListItems<T> = items.into();
     let label = label.into();
     let key: Rc<dyn Fn(&T) -> K> = Rc::new(key);
     let day: Rc<dyn Fn(&T) -> String> = Rc::new(day);
@@ -144,7 +147,7 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
             if busy.replace(true) {
                 return;
             }
-            let list = items.get_untracked().unwrap_or_default();
+            let list = items.snapshot();
             let mut v = vl.borrow_mut();
             // Heights of rows on screen replace their estimates; the model keeps the anchor.
             {

@@ -11,37 +11,49 @@ use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_core::Insets;
 use remedy_ui_layout::{Display, Track};
 use remedy_ui_text::{RichText, TextStylePatch};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_view::{El, IntoProp, Prop, Ui};
 
 /// What following a link calls: the link's destination as the source wrote it.
 pub type OpenLink = Rc<dyn Fn(&str)>;
 
-/// Shows Markdown `source`. Following a link calls `open` with its destination.
+/// Shows Markdown `source`: a string set once, or a signal, memo or closure it follows
+/// (a reply still arriving, a page being edited), rebuilt when the text changes. Following
+/// a link calls `open` with its destination.
+///
+/// ```
+/// # use remedy_ui_view::Ui;
+/// # use remedy_ui_reactive::Signal;
+/// # fn demo(ui: &Ui) {
+/// let note = remedy_ui_doc_rich::markdown(ui, "# Notes\n\nPlain *Markdown*.", |_| {});
+/// let reply = Signal::new(String::from("Thinking"));
+/// let live = remedy_ui_doc_rich::markdown(ui, reply, |_| {});
+/// ui.root().child(note).child(live);
+/// # }
+/// ```
 #[track_caller]
-pub fn markdown(ui: &Ui, source: &str, open: impl Fn(&str) + 'static) -> El {
-    let root = ui.el("markdown").column().fill_width();
-    fill(ui, &root, source, &(Rc::new(open) as OpenLink));
-    root
-}
-
-/// Shows the Markdown `source` returns, rebuilt when the signals it reads change (a reply
-/// still arriving, a page being edited).
-#[track_caller]
-pub fn markdown_dyn(ui: &Ui, source: impl Fn() -> String + 'static, open: impl Fn(&str) + 'static) -> El {
+pub fn markdown(ui: &Ui, source: impl IntoProp<String>, open: impl Fn(&str) + 'static) -> El {
     let root = ui.el("markdown").column().fill_width();
     let open: OpenLink = Rc::new(open);
-    let me = root.clone();
-    let ui2 = ui.clone();
-    let mut last: Option<String> = None;
-    root.bind(move || {
-        let s = source();
-        if last.as_deref() == Some(s.as_str()) {
-            return;
+    match source.into_prop() {
+        Prop::Value(s) => {
+            fill(ui, &root, &s, &open);
+            root
         }
-        me.clear();
-        fill(&ui2, &me, &s, &open);
-        last = Some(s);
-    })
+        Prop::Dynamic(source) => {
+            let me = root.clone();
+            let ui2 = ui.clone();
+            let mut last: Option<String> = None;
+            root.bind(move || {
+                let s = source();
+                if last.as_deref() == Some(s.as_str()) {
+                    return;
+                }
+                me.clear();
+                fill(&ui2, &me, &s, &open);
+                last = Some(s);
+            })
+        }
+    }
 }
 
 /// The plain text of Markdown `source`, as it reads: for previews, notifications and

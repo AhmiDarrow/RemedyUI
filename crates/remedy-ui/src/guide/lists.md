@@ -159,7 +159,9 @@ The `data` feature ([`data`](crate::data)) has the heavier views, all virtual at
 - [`data::property_grid`](crate::data::property_grid): names and values in groups, as in an
   inspector.
 - [`data::chat_list`](crate::data::chat_list): messages grouped by day, kept at the bottom
-  as new ones arrive, older ones loaded at the top without moving what you are reading.
+  as new ones arrive, older ones loaded at the top without moving what you are reading. Like
+  the other lists, it takes a `Signal<Vec<T>>` or a [`SignalVec`](crate::reactive::SignalVec)
+  (push new messages, insert older ones at the front).
 
 The file explorer and chat feed recipes use them ([`crate::guide::recipes`]).
 

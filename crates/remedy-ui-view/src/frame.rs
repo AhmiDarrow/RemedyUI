@@ -971,7 +971,8 @@ fn sync_semantics(i: &mut Inner, _rects: &HashMap<ElementId, Rect>) {
         i.a11y.set_children(root_key(id), &child_keys);
         stack.extend(kids);
     }
-    if let Some(f) = i.tree.focused() {
-        i.a11y.set_focus(root_key(f));
-    }
+    // With nothing focused, accessibility focus is the window (not the element that last
+    // had focus).
+    let focus = i.tree.focused().unwrap_or(root);
+    i.a11y.set_focus(root_key(focus));
 }

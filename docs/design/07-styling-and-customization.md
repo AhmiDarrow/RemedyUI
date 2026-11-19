@@ -15,7 +15,7 @@ A **theme** is a typed set of design tokens, organized the way modern design sys
 |---|---|
 | Color roles | `bg`, `surface`, `surface_raised`, `on_surface`, `muted`, `accent`, `on_accent`, `danger`, `warn`, `ok`, `line`, `focus`, app-defined roles |
 | Type scale | `caption`, `body`, `body_strong`, `heading`, `title`, `display`; each a family, size, weight, line height and tracking |
-| Spacing | `s1` … `s8` on a base unit (4 dp by default) |
+| Spacing | The spacing scale ([13](13-design-language.md#spacing-scale)) on a base unit (4 dp by default): half steps `s0_5` … `s3_5`, `s1` … `s8`, layout steps `s10` … `s24` |
 | Shape | Corner radii `r0` … `r4`, stroke widths |
 | Elevation | Shadow sets per level, or none |
 | Motion | Durations and curves: `quick`, `standard`, `emphasized`; spring presets |

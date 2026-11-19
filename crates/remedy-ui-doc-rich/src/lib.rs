@@ -13,4 +13,4 @@ mod markdown;
 pub use editor::{MentionCandidate, MentionSource, RichEditorOptions, rich_editor};
 pub use find::{FindState, find_bar};
 pub use format::{MENTION_SCHEME, MarkdownFormat, RichFormat};
-pub use markdown::{OpenLink, markdown, markdown_dyn, plain_text};
+pub use markdown::{OpenLink, markdown, plain_text};

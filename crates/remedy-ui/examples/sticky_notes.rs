@@ -9,7 +9,8 @@ use std::rc::Rc;
 
 use remedy_ui::layout::Align;
 use remedy_ui::reactive::Signal;
-use remedy_ui::view::{Space, show};
+use remedy_ui::show;
+use remedy_ui::view::Space;
 use remedy_ui::widgets::{self as w, Icon};
 use remedy_ui::{App, AppConfig, El, Ui, Window, WindowSpec};
 

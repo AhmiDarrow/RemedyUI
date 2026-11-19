@@ -47,6 +47,10 @@ pub struct AppConfig {
     pub data_dir: Option<PathBuf>,
     /// Which edition's default behaviors the app's windows follow ([`AppConfig::edition`]).
     pub edition: Edition,
+    /// In a browser page: where the first window mounts and whether its title is the page's
+    /// ([`AppConfig::web`]). Not used on other platforms.
+    #[cfg(feature = "web")]
+    pub web: remedy_ui_bridge_web::WebConfig,
 }
 
 impl std::fmt::Debug for AppConfig {
@@ -89,6 +93,8 @@ impl AppConfig {
             single_instance: false,
             data_dir: None,
             edition: Edition::FIRST,
+            #[cfg(feature = "web")]
+            web: remedy_ui_bridge_web::WebConfig::default(),
         }
     }
 
@@ -105,6 +111,24 @@ impl AppConfig {
     /// ```
     pub fn edition(mut self, edition: Edition) -> Self {
         self.edition = edition;
+        self
+    }
+
+    /// In a browser page, shows the first window where `web` says (the whole page, or inside
+    /// an element of the page's) and makes its title the page's or not. Other platforms
+    /// ignore it, so the same configuration builds everywhere.
+    ///
+    /// ```
+    /// use remedy_ui::AppConfig;
+    /// use remedy_ui::web::{Mount, WebConfig};
+    ///
+    /// let config = AppConfig::new("Notes")
+    ///     .web(WebConfig::default().mount(Mount::Element("notes-app".into())).title_is_page_title(false));
+    /// assert_eq!(config.web.mount, Mount::Element("notes-app".into()));
+    /// ```
+    #[cfg(feature = "web")]
+    pub fn web(mut self, web: remedy_ui_bridge_web::WebConfig) -> Self {
+        self.web = web;
         self
     }
 

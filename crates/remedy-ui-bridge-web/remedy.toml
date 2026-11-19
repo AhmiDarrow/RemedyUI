@@ -1,0 +1,12 @@
+# How `cargo remedy package --target web --example web-demo` (tools/build-web.sh) builds the
+# demo page.
+
+[app]
+name = "RemedyUI demo"
+id = "app.remedy.web-demo"
+description = "RemedyUI in a browser page"
+
+[web]
+short_name = "RemedyUI"
+theme_color = "#1e2a24"
+icon = "tools/icon.svg"

@@ -85,6 +85,15 @@ Everything since the start of the project, by milestone ([docs/ROADMAP.md](docs/
     linux|android|macos`.
   - Typed errors: `PngError`, `DesktopError`, `BackendError`, `PrepareError`, `Rejection`,
     `BindingsError`, `ParseEditionError`.
+  - From the documentation guides: `TestApp::node` (a node's value and states: checked,
+    selected, expanded, disabled, focused), `TestApp::key_press` / `key_release`,
+    `TestApp::reader_view`, `TestApp::data_dir`; `ReaderNode::{checked, selected, expanded,
+    disabled}`; `remedy_ui::{show, catch_errors, suspense}` (with `Show`,
+    `SuspenseBoundary`, `CaughtError`, `Retry`) at the facade's top level; the spacing
+    scale's half and layout steps (`Space::S0_5` … `S3_5`, `S10`, `S12`, `S16`, `S20`,
+    `S24`, `Space::ALL`, `name` / `from_name`); `ListItems::get`; `AppConfig::web` (where the
+    first window mounts in a page); `remedy_ui::web` on every target (types and docs, no web
+    code natively); `cargo remedy package --target web` (any app as an installable page).
 
 ### Changed
 
@@ -116,6 +125,21 @@ Breaking before 1.0; `cargo remedy migrate` applies the renames marked (m).
 - Compiled `.rui` code reaches the runtime through `remedy_ui::markup` by default;
   `build::compile_dir_to` takes the root path first.
 - `#[derive(Store)]` names the runtime the way the crate depends on RemedyUI.
+- `rich::markdown` takes `impl IntoProp<String>` (a string, signal, memo or closure), and
+  `rich::markdown_dyn` is gone (m): `markdown(ui, move || reply.get(), open)`.
+- `data::chat_list` takes `impl Into<ListItems<T>>`: a `Signal<Vec<T>>` still works, and a
+  `SignalVec<T>` now does too.
+- `Space::units` returns `f32` (half steps); `Space::px` resolves through the theme as before.
+- `TestApp::key` sends the key's press and then its release, as a keyboard does (it sent only
+  the event given); `TestApp::find`, `find_all` and `press` match the accessible name screen
+  readers get, so merged rows are found by their composed name and what they merge is not
+  found on its own.
+- `remedy_ui_bridge_web::run_single_instance` takes the `WebConfig` to start with; the
+  bridge's `run`, `run_with`, `run_single_instance`, `launch_args` and `is_running` are
+  documented on every target (they exist only in a page).
+- `tools/build-web.sh` packages through `cargo remedy package --target web --example`; the
+  page templates moved into `cargo-remedy`, and the demo's names and icon are in
+  `crates/remedy-ui-bridge-web/remedy.toml`.
 - `.github/workflows/ci.yml` runs only when started by hand: the owner's local gate is CI.
 - Every published crate's manifest has keywords, categories and a readme; `remedy-ui-test` is
   `publish = false`.
@@ -126,3 +150,12 @@ Breaking before 1.0; `cargo remedy migrate` applies the renames marked (m).
 - Assistive technology can no longer press a disabled control, which let a screen reader (or
   anything driving one) press a trusted prompt's buttons during the moment they stay disabled.
 - `submit_on_enter` works for plain multi-line fields, not only rich ones.
+- `TestApp` (and so every `cargo remedy new` app's tests) no longer writes into the person's
+  real data folder: a test app keeps persisted signals in a private temporary folder,
+  removed when it is dropped, unless the test sets `AppConfig::data_dir`.
+- A trusted prompt's button delay starts when the prompt is first seen (after the frame that
+  shows it), and starts over when the window is covered or minimized and shown again: built
+  outside an event, or in a window nobody could see, it was shortened or over before it
+  showed.
+- With nothing focused, accessibility focus is the window again, not the element that last
+  had focus.

@@ -6,8 +6,9 @@
 
 use remedy_ui::nav::{NavEntry, nav_rail};
 use remedy_ui::reactive::Signal;
+use remedy_ui::show;
 use remedy_ui::themes::{PALETTES, high_contrast, theme};
-use remedy_ui::view::{Space, show};
+use remedy_ui::view::Space;
 use remedy_ui::widgets::{self as w, Icon};
 use remedy_ui::{App, AppConfig, El, Ui, WindowSpec};
 

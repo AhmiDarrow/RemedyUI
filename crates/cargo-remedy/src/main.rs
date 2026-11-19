@@ -3,7 +3,8 @@
 //! - `cargo remedy new <name> [--template basic|tray|multi-window|document|android] [--path <dir>]
 //!   [--remedy-path <RemedyUI checkout>]`
 //! - `cargo remedy run [--release] [--watch] [-- <app arguments>]`
-//! - `cargo remedy package [--target windows|linux|macos|android]`
+//! - `cargo remedy package [--target windows|linux|macos|android|web] [--example <name>] [--dev]
+//!   [--out <dir>]`
 //! - `cargo remedy migrate [--dry-run] [--path <dir>]`
 
 mod ico;
@@ -14,6 +15,7 @@ mod platforms;
 mod project;
 mod run;
 mod tools;
+mod web;
 
 use std::process::ExitCode;
 
@@ -24,7 +26,8 @@ USAGE:
     cargo remedy new <name> [--template <basic|tray|multi-window|document|android>] [--path <dir>]
                             [--remedy-path <path to a RemedyUI checkout>]
     cargo remedy run [--release] [--watch] [-- <app arguments>]
-    cargo remedy package [--target <windows|linux|macos|android>]
+    cargo remedy package [--target <windows|linux|macos|android|web>]
+                         [--example <name>] [--dev] [--out <dir>]     (web)
     cargo remedy migrate [--dry-run] [--path <app directory>]
 
 new       Creates an app: a window, the Remedy theme, a test and a preview, and remedy.toml
@@ -39,7 +42,11 @@ package   Builds a release and packages it. Windows: the icon and version compil
           REMEDY_UPDATE_KEY points at a minisign secret key. Linux: a .tar.gz with the
           executable, a desktop entry and the icon. Android: a signed APK (ANDROID_HOME, the
           NDK, build-tools; [android] in remedy.toml). macOS: an .app bundle in a zip (needs
-          Apple's linker: a Mac or a cross linker).
+          Apple's linker: a Mac or a cross linker). Web: an installable page (PWA) in
+          target/remedy/web/<name> and a zip of it: the app built for wasm32-unknown-unknown
+          with remedy-ui's `web` feature, wasm-bindgen's glue (the CLI of the version in
+          Cargo.lock), the page, a manifest, icons and an offline service worker ([web] in
+          remedy.toml); --example packages an example, --dev a debug build, --out elsewhere.
 migrate   Applies the mechanical fixes for RemedyUI's renames to the app's sources (paths
           resolved through each file's `use` items; strings and comments untouched).
           --dry-run prints the changes as a diff instead.

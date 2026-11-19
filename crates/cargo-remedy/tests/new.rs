@@ -132,6 +132,75 @@ fn migrate_moves_a_generated_app_off_old_names() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// True when `cmd --version` runs.
+fn has_tool(cmd: &str) -> bool {
+    Command::new(cmd).arg("--version").output().is_ok_and(|o| o.status.success())
+}
+
+/// True when the standard library for `wasm32-unknown-unknown` is installed.
+fn has_wasm_target() -> bool {
+    let Ok(out) = Command::new("rustc").args(["--print", "sysroot"]).output() else { return false };
+    let sysroot = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    std::path::Path::new(&sysroot).join("lib/rustlib/wasm32-unknown-unknown/lib").is_dir()
+}
+
+#[test]
+fn a_generated_app_packages_as_an_installable_page() {
+    if !has_wasm_target() || !has_tool("wasm-bindgen") {
+        eprintln!("skipped: needs the wasm32-unknown-unknown target and the wasm-bindgen CLI");
+        return;
+    }
+    let dir = temp("web");
+    let made = cargo_remedy()
+        .args(["remedy", "new", "web-notes", "--path"])
+        .arg(&dir)
+        .arg("--remedy-path")
+        .arg(workspace())
+        .status();
+    assert!(made.is_ok_and(|s| s.success()));
+    // Builds share a folder of their own under the workspace's target (not the one this
+    // test runs from, which cargo holds while it runs), so later runs are incremental.
+    let target = workspace().join("target").join("remedy-web-test");
+    let out = dir.join("page");
+    let packaged = cargo_remedy()
+        .args(["remedy", "package", "--target", "web", "--dev", "--out"])
+        .arg(&out)
+        .current_dir(&dir)
+        .env("CARGO_TARGET_DIR", &target)
+        .output();
+    let Ok(packaged) = packaged else { unreachable!("cargo-remedy runs") };
+    let said = String::from_utf8_lossy(&packaged.stdout).to_string();
+    assert!(packaged.status.success(), "{said}\n{}", String::from_utf8_lossy(&packaged.stderr));
+    for f in [
+        "index.html",
+        "manifest.webmanifest",
+        "app.js",
+        "app_bg.wasm",
+        "sw.js",
+        "icon-192.png",
+        "icon-512.png",
+    ] {
+        assert!(out.join(f).is_file(), "{f} in {}", out.display());
+    }
+    let wasm = std::fs::read(out.join("app_bg.wasm")).unwrap_or_default();
+    assert_eq!(wasm.get(..4), Some(&b"\0asm"[..]), "a WebAssembly module");
+    let glue = std::fs::read_to_string(out.join("app.js")).unwrap_or_default();
+    // wasm-bindgen's web glue: an init the page imports, which runs the module's start
+    // function, made from the binary's `main` (which calls `remedy_ui::run`).
+    assert!(glue.contains("as default") && glue.contains("wasm.__wbindgen_start()"), "the glue's init");
+    let index = std::fs::read_to_string(out.join("index.html")).unwrap_or_default();
+    assert!(index.contains("<title>Web Notes</title>") && index.contains("id=\"remedy\""), "{index}");
+    let manifest = std::fs::read_to_string(out.join("manifest.webmanifest")).unwrap_or_default();
+    assert!(manifest.contains("\"name\": \"Web Notes\"") && manifest.contains("512x512"), "{manifest}");
+    let worker = std::fs::read_to_string(out.join("sw.js")).unwrap_or_default();
+    assert!(
+        worker.contains("\"./app_bg.wasm\"") && worker.contains("remedy-app.remedy.web-notes-"),
+        "{worker}"
+    );
+    assert!(said.contains("_web.zip"), "the page is zipped for uploading: {said}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 #[ignore = "builds the engine for the generated apps"]
 fn generated_apps_build_and_pass_their_tests() {

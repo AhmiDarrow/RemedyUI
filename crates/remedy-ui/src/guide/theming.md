@@ -106,7 +106,7 @@ whenever the theme changes:
 
 | Token | What it names |
 |---|---|
-| [`Space`](crate::style::Space) (`S0` to `S8`) | Steps of the spacing unit, for gaps, padding and sizes |
+| [`Space`](crate::style::Space) | Steps of the spacing unit, for gaps, padding and sizes: half steps `S0_5` … `S3_5` inside controls, `S0` … `S8` between them, `S10` … `S24` for sections and margins (the design's spacing scale) |
 | [`Radius`](crate::style::Radius) (`R0` to `R4`) | Corner radii |
 | [`TextRole`](crate::style::TextRole) | Text sizes and weights: `Caption`, `Body`, `BodyStrong`, `Heading`, `Title`, `Display` |
 | [`ColorRole`](crate::style::ColorRole) | Color roles: `Bg`, `Panel`, `Card`, `Text`, `Muted`, `Accent`, `Danger`, ... and the theme's custom colors |
@@ -128,7 +128,7 @@ let s = slot.clone();
 let app = TestApp::window(move |ui, _| {
     let badge = w::text(ui, "New")
         .style(Style::new().background(ColorRole::Accent).foreground(ColorRole::OnAccent).radius(Radius::R2).text(TextRole::Caption))
-        .padding(Pad::xy(Space::S2, Space::S1));
+        .padding(Pad::xy(Space::S2, Space::S0_5));
     let _ = s.set(badge.clone());
     let row = w::row(ui).gap(Space::S3).align(Align::Center).child(w::text(ui, "Inbox")).child(badge);
     ui.root().child(row);
@@ -138,6 +138,7 @@ let theme = ui.theme();
 let Some(style) = badge.style_in(States::NONE) else { unreachable!("styled") };
 assert_eq!(style.background, theme.colors.accent);
 assert_eq!(style.radius, theme.radii.medium);
+assert_eq!(style.padding.top, theme.spacing.unit * 0.5, "a half step, through the theme");
 ```
 
 Use plain numbers where a size belongs to the content rather than the design system (an

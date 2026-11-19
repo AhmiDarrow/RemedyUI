@@ -66,6 +66,15 @@ impl<T: Clone + 'static> ListItems<T> {
         }
     }
 
+    /// The items now, subscribing the running binding or effect to every change (for a
+    /// widget that compares the whole contents by key, as a chat list does).
+    pub fn get(&self) -> Vec<T> {
+        match self {
+            ListItems::Signal(s) => s.get(),
+            ListItems::Vec(v) => v.with(<[T]>::to_vec).unwrap_or_default(),
+        }
+    }
+
     /// How many items there are now, without subscribing.
     pub fn len(&self) -> usize {
         match self {

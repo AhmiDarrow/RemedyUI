@@ -1,0 +1,12 @@
+{
+  "id": @ID@,
+  "name": @NAME@,
+  "short_name": @SHORT@,
+  "description": @DESCRIPTION@,
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": @THEME@,
+  "theme_color": @THEME@,
+  "icons": @ICONS@
+}

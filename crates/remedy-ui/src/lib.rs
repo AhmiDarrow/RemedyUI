@@ -62,9 +62,11 @@ pub use remedy_ui_automation as agents;
 pub use remedy_ui_bridge_android as android;
 #[cfg(feature = "headless")]
 pub use remedy_ui_bridge_headless as headless;
-/// The web bridge: where the app shows in the page, and the page's files (picked, dropped,
-/// downloaded).
-#[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+/// The web bridge: where the app shows in the page ([`web::WebConfig`], [`web::Mount`], set
+/// with [`AppConfig::web`]), and the page's files (picked, dropped, downloaded). Its types
+/// are on every target, so app code sets them without `cfg`; starting an app in a page is
+/// [`run`]'s, on `wasm32-unknown-unknown`.
+#[cfg(feature = "web")]
 pub use remedy_ui_bridge_web as web;
 pub use remedy_ui_core as core;
 /// What people change about the app: theme, shortcuts, toolbars and menus, and text.
@@ -137,6 +139,11 @@ pub use remedy_ui_text as text;
 #[cfg(feature = "widgets")]
 pub use remedy_ui_themes as themes;
 pub use remedy_ui_view as view;
+/// Content that comes and goes, fails or loads, where apps build screens: [`show`] (content
+/// shown while a condition holds), [`catch_errors`] (an error boundary that takes a builder
+/// closure for its content, so a retry builds it again) and [`suspense`] (a placeholder
+/// while resources load), with what they return and hand to callbacks.
+pub use remedy_ui_view::{CaughtError, Retry, Show, SuspenseBoundary, catch_errors, show, suspense};
 pub use remedy_ui_view::{El, FieldKind, PaintCx, TextField, Ui};
 #[cfg(feature = "viz")]
 pub use remedy_ui_viz as viz;
@@ -211,9 +218,10 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
     #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
     if config.single_instance {
         let name = config.name.clone();
+        let web = config.web.clone();
         let runner = Runner::new(config, setup).with_inbox(inbox.clone());
         let args = remedy_ui_bridge_web::launch_args();
-        return remedy_ui_bridge_web::run_single_instance(&name, args, runner, move |a| {
+        return remedy_ui_bridge_web::run_single_instance(&name, args, web, runner, move |a| {
             instance::deliver(&inbox, a)
         })
         .map_err(|e| RunError::SingleInstance { reason: e.reason().to_owned() });
@@ -227,6 +235,8 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
             return Ok(());
         }
     }
+    #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+    let web = config.web.clone();
     let runner = Runner::new(config, setup).with_inbox(inbox);
     #[cfg(windows)]
     {
@@ -253,7 +263,8 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
     // A browser page: the app starts and this returns; the browser runs it from then on.
     #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
     {
-        remedy_ui_bridge_web::run(runner).map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
+        remedy_ui_bridge_web::run_with(web, runner)
+            .map_err(|e| RunError::Bridge { reason: e.reason().to_owned() })
     }
     #[cfg(all(not(feature = "web"), target_arch = "wasm32", target_os = "unknown"))]
     {

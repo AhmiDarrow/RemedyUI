@@ -407,6 +407,40 @@ fn tooltips_wait_trusted_prompts_hold_their_buttons_and_toasts_expire() {
 }
 
 #[test]
+fn a_trusted_prompt_waits_from_when_it_is_seen() {
+    let mut t = T::new();
+    t.ui.root().child(w::text(&t.ui, "Below"));
+    t.frame();
+    // Opened while the window is covered (or minimized): its delay must not run out unseen.
+    t.ui.set_occluded(true);
+    let answer = Rc::new(Cell::new(None));
+    let a2 = answer.clone();
+    let _p = w::trusted_prompt(&t.ui, "Allow?", "Something wants access.", move |yes| a2.set(Some(yes)));
+    t.frame();
+    assert!(t.timers.is_empty(), "no delay runs while the prompt is not seen");
+    t.fire();
+    t.key(Key::Enter);
+    assert_eq!(answer.get(), None, "unseen, its buttons stay disabled");
+    // Shown: the delay starts now, and holds the buttons for its whole length.
+    t.ui.set_occluded(false);
+    t.frame();
+    assert_eq!(t.timers.len(), 1, "the delay starts with the first frame that shows it");
+    t.key(Key::Enter);
+    assert_eq!(answer.get(), None, "shown but not yet pressable");
+    // Covered again before it armed: it disarms, and starts over when seen.
+    t.ui.set_occluded(true);
+    t.frame();
+    assert!(t.timers.is_empty(), "the pending delay is cancelled");
+    t.ui.set_occluded(false);
+    t.frame();
+    t.key(Key::Enter);
+    assert_eq!(answer.get(), None);
+    t.fire();
+    t.key(Key::Enter);
+    assert_eq!(answer.get(), Some(false), "pressable once a full delay passed in view");
+}
+
+#[test]
 fn the_lock_screen_hides_everything_below_it() {
     let mut t = T::new();
     t.ui.connect_accessibility();

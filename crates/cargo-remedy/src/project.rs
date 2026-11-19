@@ -40,7 +40,21 @@ pub struct Project {
     pub android_keystore: Option<PathBuf>,
     /// The key's alias in it (`[android] key_alias`).
     pub android_key_alias: Option<String>,
+    /// The short name an installed page shows under its icon (`[web] short_name`; the name
+    /// when unset).
+    pub web_short_name: Option<String>,
+    /// The color of the browser's chrome around the page and of its splash screen
+    /// (`[web] theme_color`).
+    pub web_theme: String,
+    /// The page's icon (`[web] icon`, SVG or PNG), when it differs from the app's.
+    pub web_icon: Option<PathBuf>,
+    /// The package depends on `remedy-ui` itself (so its `web` feature can be turned on).
+    pub uses_remedy_ui: bool,
 }
+
+/// The theme color pages get when `remedy.toml` names none: Dark Forest's background, the
+/// default theme's.
+pub const DEFAULT_THEME_COLOR: &str = "#1e2a24";
 
 fn string(t: &toml::Table, section: &str, key: &str) -> Option<String> {
     t.get(section)?.get(key)?.as_str().map(str::to_owned)
@@ -78,6 +92,9 @@ impl Project {
             Err(_) => toml::Table::new(),
         };
         let target_dir = target_dir(root).unwrap_or_else(|| root.join("target"));
+        let direct = |t: &toml::Value| t.get("dependencies").and_then(|d| d.get("remedy-ui")).is_some();
+        let uses_remedy_ui = cargo.get("dependencies").and_then(|d| d.get("remedy-ui")).is_some()
+            || cargo.get("target").and_then(|t| t.as_table()).is_some_and(|t| t.values().any(direct));
         Ok(Project {
             root: root.to_path_buf(),
             name: string(&remedy, "app", "name").unwrap_or_else(|| package.clone()),
@@ -94,6 +111,10 @@ impl Project {
             android_target_api: number(&remedy, "android", "target_api").unwrap_or(35),
             android_keystore: string(&remedy, "android", "keystore").map(|k| root.join(k)),
             android_key_alias: string(&remedy, "android", "key_alias"),
+            web_short_name: string(&remedy, "web", "short_name"),
+            web_theme: string(&remedy, "web", "theme_color").unwrap_or_else(|| DEFAULT_THEME_COLOR.into()),
+            web_icon: string(&remedy, "web", "icon").map(|p| root.join(p)),
+            uses_remedy_ui,
             bin,
             lib_name,
             version,
@@ -128,4 +149,36 @@ pub fn cargo() -> String {
 pub fn status(cmd: &mut std::process::Command) -> Result<(), String> {
     let s = cmd.status().map_err(|e| format!("cannot run {:?}: {e}", cmd.get_program()))?;
     if s.success() { Ok(()) } else { Err(format!("{:?} failed ({s})", cmd.get_program())) }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    /// A project as `remedy.toml` describes one, for the packaging tests.
+    pub(crate) fn sample() -> Project {
+        Project {
+            root: PathBuf::from("."),
+            bin: "my-notes".into(),
+            lib_name: "my_notes".into(),
+            version: "1.2.3".into(),
+            target_dir: PathBuf::from("target"),
+            name: "My Notes".into(),
+            id: "app.remedy.my-notes".into(),
+            publisher: "Me".into(),
+            description: "Notes & more".into(),
+            icon: None,
+            sign_thumbprint: None,
+            timestamp_url: String::new(),
+            android_target: "aarch64-linux-android".into(),
+            android_min_api: 26,
+            android_target_api: 35,
+            android_keystore: None,
+            android_key_alias: None,
+            web_short_name: None,
+            web_theme: DEFAULT_THEME_COLOR.into(),
+            web_icon: None,
+            uses_remedy_ui: true,
+        }
+    }
 }

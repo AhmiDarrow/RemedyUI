@@ -318,6 +318,26 @@ fn bind_in_scope(el: &El, name: &'static str, f: impl FnMut() + 'static) {
 /// binding, effect or painter inside it, panics, unmounts that content and shows what
 /// `fallback` builds from the error and a [`Retry`]. The rest of the window carries on.
 /// The error also goes to the window's failure list and error hook ([`Ui::set_error_hook`]).
+///
+/// `child` is a builder, a closure that makes the content, not an element made beforehand:
+/// the boundary calls it to build the content inside its own scope (so a panic while
+/// building is caught too), and calls it again on [`Retry`] for a fresh copy. `fallback`
+/// is a builder as well, called each time the content fails.
+///
+/// ```
+/// # use remedy_ui_view::{Ui, catch_errors};
+/// # fn demo(ui: &Ui) {
+/// let (u, u2) = (ui.clone(), ui.clone());
+/// let panel = catch_errors(
+///     ui,
+///     move |error, retry| {
+///         u.el("button").text(format!("{} (retry)", error.message)).on_click(move || retry.retry())
+///     },
+///     move || u2.el("label").text("The panel"),
+/// );
+/// ui.root().child(panel);
+/// # }
+/// ```
 #[track_caller]
 pub fn catch_errors(
     ui: &Ui,

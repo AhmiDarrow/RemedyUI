@@ -27,12 +27,12 @@ DOM, no re-render and no diff: a state change updates exactly the bindings that 
 | Controlled inputs | A [`crate::TextField`] keeps its text; read it or set it |
 | CSS classes and variables | Theme tokens ([`crate::style::Theme`]), a [`crate::style::StyleSheet`] and variants |
 | Inline `style={{…}}` | [`crate::El::style`] with a [`crate::style::Style`] of tokens or a [`crate::style::StylePatch`]: a value, a signal or a closure |
-| `{cond && <Banner/>}` | [`crate::view::show`], with `.fallback(..)` for the `: <Other/>` branch |
-| Error boundaries | [`crate::view::catch_errors`] |
-| `<Suspense>` with React Query or SWR | [`crate::view::suspense`] around content reading a [`crate::reactive::Resource`] |
+| `{cond && <Banner/>}` | [`crate::show`], with `.fallback(..)` for the `: <Other/>` branch |
+| Error boundaries | [`crate::catch_errors`] |
+| `<Suspense>` with React Query or SWR | [`crate::suspense`] around content reading a [`crate::reactive::Resource`] |
 | `createContext` / `useContext` | [`crate::El::provide`] and [`crate::reactive::use_context`] |
 | `localStorage` for UI state | [`crate::reactive::Signal::persist`] |
-| CSS transitions, Framer Motion | [`crate::El::animate`], [`crate::view::show`] transitions, [`crate::widgets::for_each_with`] |
+| CSS transitions, Framer Motion | [`crate::El::animate`], [`crate::show`] transitions, [`crate::widgets::for_each_with`] |
 | Storybook | [`crate::devtools::preview`]: previews in every theme and locale, also golden-image tests |
 | `flex`, `grid` in CSS | [`crate::El::row`], [`crate::El::column`], [`crate::El::layout`] (flex and grid) |
 | React Router | [`crate::nav::NavStack`], [`crate::nav::tabs`], [`crate::nav::nav_rail`] |
@@ -274,12 +274,12 @@ The theme, the locale and the app are already reachable without context:
 
 ## Conditional content, errors and loading
 
-`{cond && <X/>}` is [`crate::view::show`]: its content is built while the condition holds
+`{cond && <X/>}` is [`crate::show`]: its content is built while the condition holds
 and removed, with its signals and bindings, when it stops. An error boundary is
-[`crate::view::catch_errors`]: a failure while building, in a handler, a binding or a
+[`crate::catch_errors`]: a failure while building, in a handler, a binding or a
 painter below it replaces that content with the fallback, which gets the error and a
-[`crate::view::Retry`]; the rest of the window carries on, and the inspector's Failures page
-lists what was caught. `<Suspense>` with React Query is [`crate::view::suspense`] around
+[`crate::Retry`]; the rest of the window carries on, and the inspector's Failures page
+lists what was caught. `<Suspense>` with React Query is [`crate::suspense`] around
 content that reads a [`crate::reactive::Resource`]: the resource fetches off the UI thread,
 refetches when its key changes and cancels the old fetch, and the suspense shows its
 placeholder only if loading takes longer than [`crate::view::SUSPENSE_DELAY`].
@@ -296,7 +296,7 @@ placeholder only if loading takes longer than [`crate::view::SUSPENSE_DELAY`].
 # use remedy_ui::testing::TestApp;
 use remedy_ui::a11y::Role;
 use remedy_ui::reactive::{Resource, Signal};
-use remedy_ui::view::{catch_errors, suspense};
+use remedy_ui::{catch_errors, suspense};
 use remedy_ui::widgets as w;
 
 let id = Signal::new(7u32);
@@ -412,7 +412,7 @@ does. See [`crate::guide::testing`].
 - **Borrowing.** Closures are `'static`. Capture signals by `move` (they are `Copy`); clone
   `El`, `Ui` and `App` handles before moving them in.
 - **Conditional content is `show`, not a rebuilt child.** Clearing and re-adding an element
-  from a binding loses its state each time; [`crate::view::show`] builds it once per showing
+  from a binding loses its state each time; [`crate::show`] builds it once per showing
   and disposes it cleanly.
 - **Effects that fetch must not race.** In React an effect's clean-up ignores a stale
   response. Here [`crate::App::background`] returns a [`crate::BackgroundJob`]: cancel the

@@ -22,7 +22,7 @@ runner sets it from the system's setting and changes it when the setting changes
 tracked: a binding that reads it runs again when it changes.
 
 Everything that moves through the engine follows it on its own: [`El::animate`](crate::El::animate),
-[`show`](crate::view::show) and list transitions, the spinner and indeterminate progress, the
+[`show`](crate::show) and list transitions, the spinner and indeterminate progress, the
 [`viz`](crate::viz) meters, carousels and the terminal's cursor. Painters that animate read
 [`PaintCx::reduced_motion`](crate::PaintCx::reduced_motion) and draw a still frame.
 
@@ -122,7 +122,7 @@ for a value an app animates itself. Springs are solved in closed form, so they a
 Content that appears and leaves plays a [`Transition`](crate::motion::Transition): a fade, a
 slide, or any set of targets it starts from.
 
-- [`show`](crate::view::show) plays `enter` when its content appears and `exit` when it
+- [`show`](crate::show) plays `enter` when its content appears and `exit` when it
   goes; leaving content stays, inert, until its exit ends. See
   [`crate::guide::control_flow`].
 - [`widgets::for_each_with`](crate::widgets::for_each_with) plays enter and exit transitions

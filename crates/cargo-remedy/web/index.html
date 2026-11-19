@@ -5,9 +5,10 @@
 <!-- viewport-fit=cover: the app learns the screen's cutouts as its safe area. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="@THEME@">
+<meta name="description" content="@DESCRIPTION@">
 <title>@NAME@</title>
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
+@ICON_LINKS@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: @THEME@; }
   #remedy { position: fixed; inset: 0; }
@@ -15,12 +16,13 @@
 </style>
 </head>
 <body>
+<!-- The app's first window mounts here (remedy_ui::web::Mount::Auto). -->
 <div id="remedy"></div>
 <noscript>@NAME@ needs JavaScript and WebAssembly.</noscript>
 <script type="module">
   import init from './app.js';
   init().catch((e) => {
-    document.body.textContent = '@NAME@ could not start: ' + e;
+    document.body.textContent = @NAME_JS@ + ' could not start: ' + e;
   });
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});

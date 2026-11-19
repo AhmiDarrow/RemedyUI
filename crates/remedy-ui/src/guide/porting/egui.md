@@ -25,7 +25,7 @@ nothing changes, nothing runs.
 | `Painter` in a custom widget | [`crate::El::paint`] or [`crate::widgets::canvas`] |
 | Keyboard shortcuts read with `ctx.input` | [`crate::nav::Commands`]: rebindable, shown in menus and the palette |
 | `ui.add_enabled(false, ..)` | `.disabled(true)`, or `.disabled(move \|\| ..)` to follow signals |
-| `if show { ui.label(..) }` | [`crate::view::show`]: the content is built while a condition holds, removed when it stops |
+| `if show { ui.label(..) }` | [`crate::show`]: the content is built while a condition holds, removed when it stops |
 | `ui.spacing().item_spacing` | Typed tokens: `.gap(Space::S2)`, `.padding(Space::S4)` ([`crate::style::Space`]) |
 | `ctx.animate_value_with_time` | [`crate::El::animate`] on the frame clock, or a painter reading [`crate::PaintCx::time`] |
 | The egui demo app, to see widgets in isolation | [`crate::devtools::preview`] previews, also golden-image tests |
@@ -248,7 +248,7 @@ use [`crate::viz`] before drawing your own.
 ## Showing, hiding and moving
 
 egui shows a widget by calling it in the frame and hides it by not calling it. In RemedyUI,
-[`crate::view::show`] builds its content while a condition holds and removes it (with its
+[`crate::show`] builds its content while a condition holds and removes it (with its
 bindings and signals) when the condition stops. It can play a transition as content comes
 and goes, and [`crate::El::animate`] moves a property on the frame clock; both are instant
 under reduced motion:
@@ -268,7 +268,7 @@ if ui.button("Details").clicked() {
 use remedy_ui::a11y::Role;
 use remedy_ui::motion::{Motion, Spring, Transition};
 use remedy_ui::reactive::Signal;
-use remedy_ui::view::show;
+use remedy_ui::show;
 use remedy_ui::widgets as w;
 use remedy_ui::{App, WindowSpec};
 use std::time::Duration;
@@ -322,7 +322,7 @@ These are the egui limits FreeSpeak works around today. Remove the workarounds w
 - **Don't rebuild to update.** Moving code from `update` into a builder and then clearing
   and rebuilding children on every change brings the egui cost back. Bind the property that
   changes (`.text(move || ..)`, `.disabled(signal)`, [`crate::El::bind`]) instead, and use
-  [`crate::view::show`] for content that comes and goes.
+  [`crate::show`] for content that comes and goes.
 - **Read signals inside a closure.** `w::text(ui, format!("{}", count.get()))` reads once,
   at build time, and never updates. Pass `move || format!("{}", count.get())` instead.
 - **Lists need keys.** [`crate::widgets::for_each`] and [`crate::widgets::list`] take a key per

@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use remedy_ui::data::{ChatState, chat_list};
-use remedy_ui::reactive::Signal;
+use remedy_ui::reactive::SignalVec;
 use remedy_ui::view::Space;
 use remedy_ui::widgets as w;
 use remedy_ui::{App, AppConfig, El, Ui, WindowSpec};
@@ -52,13 +52,14 @@ pub fn conversation() -> (Vec<Message>, Vec<Message>) {
 pub fn app(app: &App) {
     app.open(WindowSpec::new("Chat").size(420.0, 560.0), |ui, _| {
         let (latest, older) = conversation();
-        ui.root().child(feed(ui, Signal::new(latest), older, "You"));
+        ui.root().child(feed(ui, SignalVec::new(latest), older, "You"));
     });
 }
 
 /// The feed: the chat list over `messages`, filled from `older` as the reader scrolls up,
-/// and a composer whose messages are signed by `me`.
-pub fn feed(ui: &Ui, messages: Signal<Vec<Message>>, older: Vec<Message>, me: &'static str) -> El {
+/// and a composer whose messages are signed by `me`. A `SignalVec` tells the list each
+/// change (a message pushed, older ones inserted at the front) instead of a whole new vector.
+pub fn feed(ui: &Ui, messages: SignalVec<Message>, older: Vec<Message>, me: &'static str) -> El {
     let state = ChatState::new();
     // Older history waits here, newest last, until the list reaches the top.
     let archive = Rc::new(RefCell::new(older));
@@ -68,13 +69,12 @@ pub fn feed(ui: &Ui, messages: Signal<Vec<Message>>, older: Vec<Message>, me: &'
             let from = a.len().saturating_sub(20);
             a.split_off(from)
         };
-        if !page.is_empty() {
-            messages.update(|m| {
-                let mut all = page;
-                all.append(m);
-                *m = all;
-            });
-        }
+        // Oldest first at the front, before the ones already shown, as one change.
+        remedy_ui::reactive::batch(|| {
+            for (at, m) in page.into_iter().enumerate() {
+                let _ = messages.insert(at, m);
+            }
+        });
     };
     let list = chat_list(
         ui,
@@ -96,11 +96,10 @@ pub fn feed(ui: &Ui, messages: Signal<Vec<Message>>, older: Vec<Message>, me: &'
         if text.trim().is_empty() {
             return;
         }
-        messages.update(|m| {
-            let id = m.last().map_or(1, |last| last.id + 1);
-            let day = m.last().map_or_else(|| "Today".to_owned(), |last| last.day.clone());
-            m.push(Message { id, author: me.to_owned(), day, text: text.trim().to_owned() });
-        });
+        let last = remedy_ui::reactive::untrack(|| messages.with(|m| m.last().cloned())).ok().flatten();
+        let id = last.as_ref().map_or(1, |l| l.id + 1);
+        let day = last.map_or_else(|| "Today".to_owned(), |l| l.day);
+        let _ = messages.push(Message { id, author: me.to_owned(), day, text: text.trim().to_owned() });
         field.set_value("");
         // Sending always shows what was sent.
         state.jump_to_latest();

@@ -48,8 +48,10 @@
 //! the page itself, reading the clipboard outside a paste without permission, and opening a
 //! file picker except in answer to a click or key.
 //!
-//! On other platforms this crate holds only its platform-neutral parts ([`convert`], the
-//! [`files`] store).
+//! On other platforms this crate holds its platform-neutral parts ([`convert`], the
+//! [`files`] store, [`WebConfig`] and [`Mount`], so app code can set where it mounts on every
+//! target); the functions that start an app ([`run`], [`run_with`], [`run_single_instance`])
+//! exist only in a page, and are documented for every target.
 
 pub mod convert;
 pub mod files;
@@ -132,43 +134,92 @@ impl std::error::Error for RunError {}
 
 /// Starts `app` in the page with the default [`WebConfig`] and returns at once; the browser
 /// runs the app from then on. One app runs per page.
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+///
+/// Only in a browser page (`wasm32-unknown-unknown`); apps start through `remedy_ui::run`,
+/// which calls this with `AppConfig::web`'s settings.
+#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), doc))]
 pub fn run(app: impl remedy_ui_host::App + 'static) -> Result<(), RunError> {
     run_with(WebConfig::default(), app)
 }
 
-/// Starts `app` in the page as `config` says, and returns at once.
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+/// Starts `app` in the page as `config` says (where the first window mounts, whether its
+/// title is the page's), and returns at once.
+///
+/// Only in a browser page (`wasm32-unknown-unknown`).
+#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), doc))]
 pub fn run_with(config: WebConfig, app: impl remedy_ui_host::App + 'static) -> Result<(), RunError> {
-    web::start(config, Box::new(app))
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    {
+        web::start(config, Box::new(app))
+    }
+    // Documentation built for another target shows this function; it runs only in a page.
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    {
+        drop((config, app));
+        Err(RunError::new(NOT_A_PAGE))
+    }
 }
 
 /// Runs `app` as the only instance of `name` across the browser's tabs: the first tab starts
-/// it (as [`run`]); a later tab hands `args` to that one, where `deliver` receives them, and
-/// does not start. Returns at once; the browser settles which tab is first afterwards.
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+/// it (as [`run_with`] with `config`); a later tab hands `args` to that one, where `deliver`
+/// receives them, and does not start. Returns at once; the browser settles which tab is
+/// first afterwards.
+///
+/// Only in a browser page (`wasm32-unknown-unknown`).
+#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), doc))]
 pub fn run_single_instance(
     name: &str,
     args: Vec<String>,
+    config: WebConfig,
     app: impl remedy_ui_host::App + 'static,
     deliver: impl Fn(Vec<String>) + 'static,
 ) -> Result<(), RunError> {
-    let start = Box::new(move || {
-        if let Err(e) = run(app) {
-            web_sys::console::error_1(&e.to_string().into());
-        }
-    });
-    web::instance::claim(name, args, start, Box::new(deliver))
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    {
+        let start = Box::new(move || {
+            if let Err(e) = run_with(config, app) {
+                web_sys::console::error_1(&e.to_string().into());
+            }
+        });
+        web::instance::claim(name, args, start, Box::new(deliver))
+    }
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    {
+        drop((name, args, config, app, deliver));
+        Err(RunError::new(NOT_A_PAGE))
+    }
 }
 
 /// A page's launch arguments: its address.
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+///
+/// Only in a browser page (`wasm32-unknown-unknown`).
+#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), doc))]
 pub fn launch_args() -> Vec<String> {
-    web::instance::launch_args()
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    {
+        web::instance::launch_args()
+    }
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    {
+        Vec::new()
+    }
 }
 
 /// True while an app runs in this page.
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+///
+/// Only in a browser page (`wasm32-unknown-unknown`).
+#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), doc))]
 pub fn is_running() -> bool {
-    web::driver().is_some()
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    {
+        web::driver().is_some()
+    }
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    {
+        false
+    }
 }
+
+/// What the page-only functions answer in documentation built for another target.
+#[cfg(all(doc, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+const NOT_A_PAGE: &str = "this runs only in a browser page (wasm32-unknown-unknown)";

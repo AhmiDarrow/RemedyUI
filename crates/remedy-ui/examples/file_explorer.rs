@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use remedy_ui::data::{Column, SortValue, TableState, TreeItem, TreeState, natural_cmp, table, tree_view};
 use remedy_ui::layout::Axis;
 use remedy_ui::reactive::Signal;
-use remedy_ui::view::show;
+use remedy_ui::show;
 use remedy_ui::widgets::{self as w, Icon};
 use remedy_ui::{App, AppConfig, El, Ui, WindowSpec};
 
