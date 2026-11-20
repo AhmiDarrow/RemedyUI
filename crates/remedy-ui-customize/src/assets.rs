@@ -23,7 +23,7 @@ use remedy_ui_style::Theme;
 use remedy_ui_view::{El, Ui, WeakUi};
 use serde_json::{Map, Value, json};
 
-use crate::{Area, Customizations, CustomizeError, Notice, files};
+use crate::{Area, Customizations, CustomizeError, Notice, Words, files, locale_of, tr_now};
 
 /// The folder in the config folder that holds a theme's files.
 pub(crate) const ASSETS_DIR: &str = "theme-assets";
@@ -77,11 +77,12 @@ fn b64_value(c: u8) -> Option<u32> {
 }
 
 /// Standard or URL-safe base64, padding optional, whitespace ignored.
-fn base64(s: &str) -> Result<Vec<u8>, String> {
+fn base64(s: &str) -> Result<Vec<u8>, Words> {
     let mut out = Vec::with_capacity(s.len() / 4 * 3);
     let (mut acc, mut bits) = (0u32, 0u32);
     for c in s.bytes().filter(|c| !c.is_ascii_whitespace() && *c != b'=') {
-        let v = b64_value(c).ok_or_else(|| format!("{:?} is not base64", char::from(c)))?;
+        let v = b64_value(c)
+            .ok_or_else(|| Words::msg("not-base64", vec![("char", format!("{:?}", char::from(c)).into())]))?;
         acc = (acc << 6) | v;
         bits += 6;
         if bits >= 8 {
@@ -93,14 +94,16 @@ fn base64(s: &str) -> Result<Vec<u8>, String> {
 }
 
 /// `%xx` escapes decoded.
-fn percent(s: &str) -> Result<Vec<u8>, String> {
+fn percent(s: &str) -> Result<Vec<u8>, Words> {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while let Some(&c) = b.get(i) {
         if c == b'%' {
             let hex = b.get(i + 1..i + 3).and_then(|h| std::str::from_utf8(h).ok());
-            let v = hex.and_then(|h| u8::from_str_radix(h, 16).ok()).ok_or("a broken % escape")?;
+            let v = hex
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+                .ok_or_else(|| Words::msg("broken-escape", Vec::new()))?;
             out.push(v);
             i += 3;
         } else {
@@ -112,9 +115,9 @@ fn percent(s: &str) -> Result<Vec<u8>, String> {
 }
 
 /// The bytes of a `data:` URI.
-pub(crate) fn data_uri(s: &str) -> Result<Vec<u8>, String> {
-    let rest = s.strip_prefix("data:").ok_or("not a data: URI")?;
-    let (meta, data) = rest.split_once(',').ok_or("a data: URI has a comma before its data")?;
+pub(crate) fn data_uri(s: &str) -> Result<Vec<u8>, Words> {
+    let rest = s.strip_prefix("data:").ok_or_else(|| Words::msg("not-data-uri", Vec::new()))?;
+    let (meta, data) = rest.split_once(',').ok_or_else(|| Words::msg("data-uri-comma", Vec::new()))?;
     if meta.split(';').any(|p| p.eq_ignore_ascii_case("base64")) { base64(data) } else { percent(data) }
 }
 
@@ -131,7 +134,7 @@ pub(crate) fn is_link(s: &str) -> bool {
 }
 
 /// Where `reference` points, a path being relative to `base`.
-pub(crate) fn locate(reference: &str, base: &Path) -> Result<Located, String> {
+pub(crate) fn locate(reference: &str, base: &Path) -> Result<Located, Words> {
     let r = reference.trim();
     if r.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("data:")) {
         return data_uri(r).map(Located::Bytes);
@@ -151,22 +154,26 @@ fn contained(reference: &str) -> bool {
 
 /// The bytes at a location (files read whole: a font is needed whole, and an image's decoder
 /// reads it to decode it at the size shown).
-fn bytes_of(at: &Located) -> Result<Vec<u8>, String> {
+fn bytes_of(at: &Located) -> Result<Vec<u8>, Words> {
     match at {
         Located::Bytes(b) => Ok(b.clone()),
-        Located::File(p) => std::fs::read(p).map_err(|e| format!("{}: {e}", p.display())),
-        Located::Link(l) => Err(format!("{l} is a link, and links are not fetched")),
+        Located::File(p) => std::fs::read(p).map_err(|e| {
+            let path = ("path", p.display().to_string().into());
+            Words::msg("error-io", vec![path, ("detail", e.to_string().into())])
+        }),
+        Located::Link(l) => Err(Words::msg("asset-link", vec![("link", l.into())])),
     }
 }
 
 /// The families in a font file, checked by the font engine.
-pub(crate) fn check_font(bytes: &[u8]) -> Result<Vec<String>, String> {
-    remedy_ui_text::FontCollection::new().add_owned(bytes.to_vec()).map_err(|e| e.to_string())
+pub(crate) fn check_font(bytes: &[u8]) -> Result<Vec<String>, Words> {
+    remedy_ui_text::FontCollection::new().add_owned(bytes.to_vec()).map_err(|e| Words::text(e.to_string()))
 }
 
 /// An image's size, read from its header.
-pub(crate) fn check_image(bytes: &[u8]) -> Result<(u32, u32), String> {
-    remedy_ui_media_image::dimensions(bytes).map_err(|e| format!("not an image this app can show: {e:?}"))
+pub(crate) fn check_image(bytes: &[u8]) -> Result<(u32, u32), Words> {
+    remedy_ui_media_image::dimensions(bytes)
+        .map_err(|e| Words::msg("not-an-image", vec![("detail", format!("{e:?}").into())]))
 }
 
 /// What kind of file an asset path in a tokens document is.
@@ -234,30 +241,36 @@ impl Customizations {
     /// Copies the files a tokens document refers to (relative to `base`) into the theme's
     /// files folder, checking each, and points the document at the copies. Inline `data:`
     /// files are checked and stay inline; links stay as they are. With `only`, just that
-    /// reference. Run inside a change, so the copies are part of its undo.
+    /// reference. Run inside a change, so the copies are part of its undo. What is wrong is
+    /// said in `locale`.
     pub(crate) fn bring_assets(
         &self,
         doc: &mut Map<String, Value>,
         base: Option<&Path>,
         only: Option<&[String]>,
+        locale: &str,
     ) -> Result<(), CustomizeError> {
         let dir = self.theme_assets_dir();
         for (path, reference) in references(doc) {
             if only.is_some_and(|o| o != path.as_slice()) {
                 continue;
             }
-            let fail = |why: String| CustomizeError::Invalid(format!("{}: {why}", path.join(".")));
+            let fail = |why: Words| {
+                let at = ("path", path.join(".").into());
+                let words = Words::msg("asset-problem", vec![at, ("detail", why.into())]);
+                CustomizeError::Invalid(words.in_locale(locale))
+            };
             let at = match base {
                 Some(b) => {
                     if !is_link(&reference) && !reference.starts_with("data:") && !contained(&reference) {
-                        return Err(fail("a theme's files are inside its folder".into()));
+                        return Err(fail(Words::msg("asset-outside", Vec::new())));
                     }
                     locate(&reference, b).map_err(fail)?
                 }
                 None if reference.starts_with("data:") || is_link(&reference) => {
                     locate(&reference, &dir).map_err(fail)?
                 }
-                None => return Err(fail("import the theme from its file, so its files can be found".into())),
+                None => return Err(fail(Words::msg("asset-needs-file", Vec::new()))),
             };
             let file = match &at {
                 Located::Link(_) => continue,
@@ -325,8 +338,7 @@ impl Customizations {
         let mut fonts = Vec::new();
         let mut notices = Vec::new();
         let path = self.theme_file();
-        let mut note =
-            |message: String| notices.push(Notice { area: Area::Theme, path: path.clone(), message });
+        let mut note = |words: Words| notices.push(Notice::new(Area::Theme, path.clone(), words));
         for (declared, reference) in &theme.assets.fonts {
             let loaded = locate(reference, &self.0.dir)
                 .and_then(|at| bytes_of(&at))
@@ -342,14 +354,17 @@ impl Customizations {
                     }
                     fonts.push(LoadedFont { reference: reference.clone(), bytes: Rc::new(bytes) });
                 }
-                Err(why) => note(format!("the font {declared} could not be used: {why}")),
+                Err(why) => note(Words::msg(
+                    "font-not-used",
+                    vec![("family", declared.into()), ("detail", why.into())],
+                )),
             }
         }
         let background = theme.assets.background.as_ref().and_then(|reference| {
             let at = match locate(reference, &self.0.dir) {
                 Ok(at) => at,
                 Err(why) => {
-                    note(format!("the background image could not be used: {why}"));
+                    note(Words::msg("background-not-used", vec![("detail", why.into())]));
                     return None;
                 }
             };
@@ -359,7 +374,7 @@ impl Customizations {
                 (Ok(_), Located::File(p)) => Some((reference.clone(), Source::File(p))),
                 (Ok(_), Located::Link(_)) => None,
                 (Err(why), _) => {
-                    note(format!("the background image could not be used: {why}"));
+                    note(Words::msg("background-not-used", vec![("detail", why.into())]));
                     None
                 }
             }
@@ -419,17 +434,13 @@ impl Customizations {
                 let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                 let dir = p.parent().map(Path::to_path_buf).unwrap_or_default();
                 set_reference(&mut doc, &path, &name);
-                return self.write_with_assets(
-                    ui,
-                    "Change the background image".into(),
-                    doc,
-                    Some((dir, path)),
-                );
+                let label = tr_now(ui, "history-change-background", &[]);
+                return self.write_with_assets(ui, label, doc, Some((dir, path)));
             }
-            None => "Remove the background image",
+            None => tr_now(ui, "history-remove-background", &[]),
         };
         crate::theme::remove_token(&mut doc, &path);
-        self.write_with_assets(ui, label.into(), doc, None)
+        self.write_with_assets(ui, label, doc, None)
     }
 
     /// Adds the font file at `file` to the theme as `family` (a copy goes into the theme's
@@ -443,7 +454,7 @@ impl Customizations {
     ) -> Result<(), CustomizeError> {
         let family = family.trim();
         if family.is_empty() {
-            return Err(CustomizeError::Invalid("a font needs a name".into()));
+            return Err(CustomizeError::Invalid(tr_now(ui, "font-needs-name", &[])));
         }
         let (theme, mut doc) = self.theme_doc()?;
         let name = file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -460,7 +471,8 @@ impl Customizations {
             );
         }
         let dir = file.parent().map(Path::to_path_buf).unwrap_or_default();
-        self.write_with_assets(ui, format!("Add the font {family}"), doc, Some((dir, at)))
+        let label = tr_now(ui, "history-add-font", &[("family", family.into())]);
+        self.write_with_assets(ui, label, doc, Some((dir, at)))
     }
 
     /// Takes the theme's font `family` away (and out of the font lists); undoable.
@@ -476,7 +488,8 @@ impl Customizations {
                 crate::theme::put_token(&mut doc, &token, &crate::TokenValue::Families(rest));
             }
         }
-        self.write_with_assets(ui, format!("Remove the font {family}"), doc, None)
+        let label = tr_now(ui, "history-remove-font", &[("family", family.into())]);
+        self.write_with_assets(ui, label, doc, None)
     }
 
     /// The theme with the person's changes as the file says it (assets as references,
@@ -498,9 +511,10 @@ impl Customizations {
         bring: Option<(PathBuf, Vec<String>)>,
     ) -> Result<(), CustomizeError> {
         let (default, _) = self.theme_parts()?;
+        let locale = locale_of(ui);
         self.change(ui, label, None, &[Area::Theme], move |c| {
             if let Some((base, path)) = &bring {
-                c.bring_assets(&mut doc, Some(base), Some(path))?;
+                c.bring_assets(&mut doc, Some(base), Some(path), &locale)?;
             }
             let text = serde_json::to_string(&Value::Object(doc.clone())).unwrap_or_else(|_| "{}".into());
             remedy_ui_themes::from_tokens(&text, &default).map_err(CustomizeError::Token)?;

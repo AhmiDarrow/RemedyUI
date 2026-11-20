@@ -9,7 +9,7 @@ use remedy_ui_input::{Chord, Clash};
 use remedy_ui_view::Ui;
 use remedy_ui_widgets_nav::Commands;
 
-use crate::{Area, Customizations, CustomizeError, Notice, files};
+use crate::{Area, Customizations, CustomizeError, Notice, Words, files, list_in, tr_now};
 
 /// The shortcuts file's name in the config folder.
 pub(crate) const SHORTCUTS_FILE: &str = "shortcuts.json";
@@ -73,9 +73,8 @@ impl Customizations {
         }
         let mut next = cmds.bindings();
         put(&cmds, &mut next, id, chords);
-        self.change(ui, format!("Change shortcuts for {label}"), None, &[Area::Shortcuts], |c| {
-            c.write_shortcuts(&next)
-        })
+        let label = tr_now(ui, "history-change-shortcuts", &[("command", label.into())]);
+        self.change(ui, label, None, &[Area::Shortcuts], |c| c.write_shortcuts(&next))
     }
 
     /// Adds `chord` to `id`'s shortcuts (undoable). When other commands in its scope answer
@@ -100,11 +99,8 @@ impl Customizations {
         mine.push(chord.clone());
         put(&cmds, &mut next, id, mine);
         let shown = chord.label(ui.platform());
-        let label = if clashes.is_empty() {
-            format!("Add {shown} to {}", info.label)
-        } else {
-            format!("Give {shown} to {}", info.label)
-        };
+        let id = if clashes.is_empty() { "history-add-shortcut" } else { "history-give-shortcut" };
+        let label = tr_now(ui, id, &[("chord", shown.into()), ("command", info.label.into())]);
         self.change(ui, label, None, &[Area::Shortcuts], |c| c.write_shortcuts(&next))
     }
 
@@ -117,7 +113,11 @@ impl Customizations {
         }
         let mut next = cmds.bindings();
         put(&cmds, &mut next, id, info.chords.into_iter().filter(|c| c != chord).collect());
-        let label = format!("Remove {} from {}", chord.label(ui.platform()), info.label);
+        let label = tr_now(
+            ui,
+            "shortcut-remove-named",
+            &[("chord", chord.label(ui.platform()).into()), ("command", info.label.into())],
+        );
         self.change(ui, label, None, &[Area::Shortcuts], |c| c.write_shortcuts(&next))
     }
 
@@ -134,16 +134,15 @@ impl Customizations {
             return Err(CustomizeError::Clashes(clashes));
         }
         let label = cmds.info(id).map_or_else(|| id.to_owned(), |i| i.label);
-        self.change(ui, format!("Reset shortcuts for {label}"), None, &[Area::Shortcuts], |c| {
-            c.write_shortcuts(&next)
-        })
+        let label = tr_now(ui, "reset-shortcuts-named", &[("command", label.into())]);
+        self.change(ui, label, None, &[Area::Shortcuts], |c| c.write_shortcuts(&next))
     }
 
     /// Gives every command its default shortcuts back (undoable).
     pub fn reset_shortcuts(&self, ui: &Ui) -> Result<(), CustomizeError> {
         self.shortcut_commands()?;
         let path = self.shortcuts_file();
-        self.change(ui, "Reset all shortcuts", None, &[Area::Shortcuts], |_| {
+        self.change(ui, tr_now(ui, "reset-all-shortcuts", &[]), None, &[Area::Shortcuts], |_| {
             files::remove(&path).map_err(|e| CustomizeError::io(&path, &e))
         })
     }
@@ -161,9 +160,9 @@ impl Customizations {
         let read = match files::read(&path) {
             Ok(None) => Ok(HashMap::new()),
             Ok(Some(bytes)) => String::from_utf8(bytes)
-                .map_err(|_| "the file is not UTF-8 text".to_owned())
-                .and_then(|t| parse(&t)),
-            Err(e) => Err(e.to_string()),
+                .map_err(|_| Words::msg("notice-not-utf8", Vec::new()))
+                .and_then(|t| parse(&t).map_err(Words::text)),
+            Err(e) => Err(Words::text(e.to_string())),
         };
         let mut notices = Vec::new();
         match read {
@@ -185,32 +184,29 @@ impl Customizations {
                                 list.retain(|ch| *ch != c.chord);
                             }
                         }
-                        let all = if c.commands.len() == 2 { "both" } else { "all" };
-                        parts.push(format!("{} would {all} answer to {}", list(&c.commands), c.chord));
+                        let two = c.commands.len() == 2;
+                        let id = if two { "shortcuts-clash-two" } else { "shortcuts-clash-many" };
+                        let (commands, chord) = (c.commands.clone(), c.chord.to_string());
+                        parts.push(Words::new(move |l| {
+                            let commands = ("commands", list_in(l, &commands).into());
+                            crate::tr_in(l, id, &[commands, ("chord", (&chord).into())])
+                        }));
                     }
                     cmds.set_bindings(bindings);
-                    notices.push(Notice {
-                        area: Area::Shortcuts,
-                        path,
-                        message: format!("left out, the rest applies: {}", parts.join("; ")),
+                    let parts = Words::new(move |l| {
+                        let parts: Vec<String> = parts.iter().map(|p| p.in_locale(l)).collect();
+                        crate::clauses_in(l, &parts)
                     });
+                    let words = Words::msg("shortcuts-left-out", vec![("parts", parts.into())]);
+                    notices.push(Notice::new(Area::Shortcuts, path, words));
                 }
             }
-            Err(message) => {
+            Err(words) => {
                 cmds.set_bindings(HashMap::new());
-                notices.push(Notice { area: Area::Shortcuts, path, message });
+                notices.push(Notice::new(Area::Shortcuts, path, words));
             }
         }
         self.set_notices(Area::Shortcuts, None, notices);
-    }
-}
-
-/// `a`, `a and b`, `a, b and c`.
-fn list(ids: &[String]) -> String {
-    match ids {
-        [] => String::new(),
-        [one] => one.clone(),
-        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     }
 }
 
@@ -239,6 +235,8 @@ mod tests {
         assert!(parse(r#"{ "file.save": ["Hyper+S"] }"#).is_err_and(|e| e.contains("file.save")));
         assert!(parse(r#"{ "file.save": 5 }"#).is_err());
         assert!(parse("[]").is_err());
-        assert_eq!(list(&["a".into(), "b".into(), "c".into()]), "a, b and c");
+        assert_eq!(list_in("en", &["a".into(), "b".into(), "c".into()]), "a, b and c");
+        assert_eq!(list_in("en", &["a".into(), "b".into(), "c".into(), "d".into()]), "a, b, c and d");
+        assert_eq!(list_in("en", &["a".into(), "b".into()]), "a and b");
     }
 }
