@@ -10,6 +10,18 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Colour-matrix filters** on any element and in display lists, on both renderers with
+  matching results: `Style::saturate`, `hue_rotate`, `grayscale`, `sepia`, `brightness`,
+  `contrast`, `invert` (the CSS filter functions) and `Style::color_matrix` (SVG
+  `feColorMatrix`), chained into one matrix (`StylePatch::color_matrix`,
+  `ResolvedStyle::color_matrix`); `Filter::ColorMatrix` and `ColorMatrix` (in
+  `remedy_ui_core`, re-exported by `remedy_ui_paint`: presets, `then`, `limited`, `apply`,
+  `apply_premultiplied`). vello runs no colour matrices, so RemedyUI draws the group into a
+  picture of its own and runs the matrix itself (unpremultiply, matrix, clamp, premultiply),
+  on the CPU and in a GPU pass; it works inside display lists and on layers the compositor
+  filters. Bounded for untrusted themes: finite entries within `MAX_COLOR_MATRIX_ENTRY`, at
+  most `MAX_FILTER_MATRIX_DEPTH` nested and `MAX_FILTER_MATRIX_GROUPS` per raster.
+  `DisplayList::bounds_of` gives the bounds of a run of items.
 - **Blur, shadows and frosted glass on any element**, on both renderers with matching results
   (within two levels): `Style::shadow` (CSS `box-shadow`, a `Shadow` value),
   `Style::blur` (`filter: blur()`), `Style::drop_shadow` (`filter: drop-shadow()`, a shadow
@@ -476,6 +488,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- **`Surface` and `CompositeTarget` gain `size` and `color_matrix_group`** (required): what
+  draws a colour-matrix group's picture. Only a custom renderer implements these traits; it
+  renders what the callback draws into a picture of its own, runs
+  `ColorMatrix::apply_to_pixels` over it, and places it back (see the CPU renderer's).
 - **The GPU compositor draws only what changed.** Each window's frame is kept in a texture;
   a present composites only the plan's damage into it (each damaged rectangle a scene of its
   own size placed at its corner, only that rectangle cleared), before acquiring the swapchain

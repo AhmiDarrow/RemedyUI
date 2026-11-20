@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use remedy_ui_core::{Color, Insets, Vec2};
+use remedy_ui_core::{Color, ColorMatrix, Insets, Vec2};
 
 use crate::states::States;
 
@@ -104,6 +104,9 @@ pub struct StylePatch {
     /// `backdrop-filter: blur()`), the standard deviation in logical pixels; 0 for none. The
     /// element gets a compositor layer of its own.
     pub backdrop_blur: Option<f32>,
+    /// A colour matrix on everything the element draws (CSS `saturate()`, `hue-rotate()`,
+    /// `grayscale()`, ...); [`ColorMatrix::IDENTITY`] for none.
+    pub color_matrix: Option<ColorMatrix>,
 }
 
 impl StylePatch {
@@ -214,6 +217,12 @@ impl StylePatch {
         self
     }
 
+    /// Sets the colour matrix on everything the element draws.
+    pub fn color_matrix(mut self, value: ColorMatrix) -> Self {
+        self.color_matrix = Some(value);
+        self
+    }
+
     /// The engine's starting style under `theme`, before any rule: transparent boxes, body
     /// text in the theme's text color, and the theme's focus ring for keyboard focus (as
     /// `:focus-visible` does on the web) unless a rule shows focus another way.
@@ -236,6 +245,7 @@ impl StylePatch {
             blur: Some(0.0),
             drop_shadow: Some(Shadow::NONE),
             backdrop_blur: Some(0.0),
+            color_matrix: Some(ColorMatrix::IDENTITY),
         }
     }
 
@@ -259,6 +269,7 @@ impl StylePatch {
             blur: other.blur.or(self.blur),
             drop_shadow: other.drop_shadow.or(self.drop_shadow),
             backdrop_blur: other.backdrop_blur.or(self.backdrop_blur),
+            color_matrix: other.color_matrix.or(self.color_matrix),
         }
     }
 }
@@ -300,6 +311,8 @@ pub struct ResolvedStyle {
     pub drop_shadow: Shadow,
     /// The blur of what lies behind the element, a standard deviation (0: none).
     pub backdrop_blur: f32,
+    /// The colour matrix on everything the element draws ([`ColorMatrix::IDENTITY`]: none).
+    pub color_matrix: ColorMatrix,
 }
 
 impl ResolvedStyle {
@@ -322,6 +335,7 @@ impl ResolvedStyle {
             blur: p.blur.filter(|b| b.is_finite()).unwrap_or(0.0).max(0.0),
             drop_shadow: p.drop_shadow.unwrap_or(Shadow::NONE),
             backdrop_blur: p.backdrop_blur.filter(|b| b.is_finite()).unwrap_or(0.0).max(0.0),
+            color_matrix: p.color_matrix.map_or(ColorMatrix::IDENTITY, |m| m.limited()),
         }
     }
 

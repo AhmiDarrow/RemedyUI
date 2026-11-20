@@ -110,7 +110,7 @@ impl CompositeOp {
         let filter = &filter.limited(transform.scale_factor());
         let off = match filter {
             remedy_ui_paint::Filter::DropShadow { offset, .. } => offset.x.abs().max(offset.y.abs()),
-            remedy_ui_paint::Filter::Blur { .. } => 0.0,
+            remedy_ui_paint::Filter::Blur { .. } | remedy_ui_paint::Filter::ColorMatrix { .. } => 0.0,
         };
         let off = if off.is_finite() { off } else { 0.0 };
         let r = ((filter.std_dev() * 3.0 + off) * transform.scale_factor()).ceil() + 1.0;
