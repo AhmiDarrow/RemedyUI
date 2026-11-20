@@ -268,17 +268,16 @@ pub fn submit_button(
     })
     .variant("primary");
     let text = b.child_elements().into_iter().next();
-    let f2 = form.clone();
-    let b2 = b.clone();
+    let (f2, b2, u) = (form.clone(), b.clone(), ui.clone());
     b.bind(move || {
         let busy = f2.state() == SubmitState::Submitting;
+        let shown = if busy { crate::tr(&u, "form-saving") } else { label.clone() };
         if let Some(t) = &text {
-            let _ = t.clone().text(remedy_ui_view::RichText::plain(if busy {
-                "Saving…".to_owned()
-            } else {
-                label.clone()
-            }));
+            let _ = t.clone().text(remedy_ui_view::RichText::plain(shown.clone()));
         }
+        let _ = b2
+            .clone()
+            .semantics(Semantics::new(Role::Button).label(shown).action(remedy_ui_a11y::Action::Click));
         b2.state(States::DISABLED, busy);
     })
 }
@@ -288,25 +287,18 @@ pub fn submit_button(
 pub fn form_status(ui: &Ui, form: &Form) -> El {
     let f = form.clone();
     let l = w::text(ui, "").variant("muted");
-    let l2 = l.clone();
+    let (l2, u) = (l.clone(), ui.clone());
     l.bind(move || {
         let (text, variant) = match f.state() {
             SubmitState::Invalid => {
                 let n = f.errors().len();
-                (
-                    if n == 1 {
-                        "Fix 1 field to continue".to_owned()
-                    } else {
-                        format!("Fix {n} fields to continue")
-                    },
-                    "error",
-                )
+                (crate::STRINGS.format(&u, "form-fix-fields", &[("count", n.into())]), "error")
             }
-            SubmitState::Submitting => ("Saving…".to_owned(), "muted"),
-            SubmitState::Saved => ("Saved".to_owned(), "muted"),
+            SubmitState::Submitting => (crate::tr(&u, "form-saving"), "muted"),
+            SubmitState::Saved => (crate::tr(&u, "form-saved"), "muted"),
             SubmitState::Failed(m) => (m, "error"),
             SubmitState::Idle => {
-                (if f.is_dirty() { "Unsaved changes".to_owned() } else { String::new() }, "muted")
+                (if f.is_dirty() { crate::tr(&u, "form-unsaved") } else { String::new() }, "muted")
             }
         };
         let _ = l2.clone().variant(variant).text(remedy_ui_view::RichText::plain(text.clone()));

@@ -188,6 +188,23 @@ fn flatten<K: Clone + Eq + Hash>(
     out
 }
 
+/// Why a move did not happen: this pack's message, or what the app said.
+#[derive(Clone, Debug, PartialEq)]
+enum MoveProblem {
+    Message(&'static str),
+    App(String),
+}
+
+impl MoveProblem {
+    /// What the person is told, in the window's language for this pack's own messages.
+    fn message(&self, ui: &Ui) -> String {
+        match self {
+            MoveProblem::Message(id) => crate::tr(ui, id),
+            MoveProblem::App(m) => m.clone(),
+        }
+    }
+}
+
 fn toggle_key(m: Modifiers, platform: Platform) -> bool {
     if platform == Platform::Apple { m.meta } else { m.ctrl }
 }
@@ -224,7 +241,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
     let on_activate: Rc<dyn Fn(&K)> = Rc::new(on_activate);
     let on_move: Option<MoveFn<K>> = on_move.map(Rc::from);
     let focused = Signal::new(false);
-    let error: Signal<Option<String>> = Signal::new(None);
+    let error: Signal<Option<MoveProblem>> = Signal::new(None);
 
     let (roots, children, expanded) = (state.roots, state.children, state.expanded);
     let lines: Memo<Rc<Vec<Line<K>>>> =
@@ -253,11 +270,11 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
             let into_self = items.iter().any(|k| is_within(&ls, &target, k));
             let target_ok = ls.iter().any(|l| l.item.key == target && l.item.has_children);
             if into_self || !target_ok {
-                error.set(Some(if into_self {
-                    "An item cannot move into itself".into()
+                error.set(Some(MoveProblem::Message(if into_self {
+                    "tree-into-itself"
                 } else {
-                    "Items can only move into a folder".into()
-                }));
+                    "tree-not-folder"
+                })));
                 return;
             }
             match mv(&items, &target) {
@@ -266,7 +283,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
                     cut.set(Vec::new());
                     sel.cursor.set(Some(target));
                 }
-                Err(e) => error.set(Some(e.to_string())),
+                Err(e) => error.set(Some(MoveProblem::App(e.to_string()))),
             }
         })
     };
@@ -313,10 +330,10 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
             }
             row = row.child(w::text(&ui2, line.item.label.clone()).nowrap().grow(1.0));
             if line.loading {
-                row = row.child(w::text(&ui2, "Loading…").variant("muted").nowrap());
+                row = row.child(w::text(&ui2, crate::tr_fn(&ui2, "tree-loading")).variant("muted").nowrap());
             }
             let sem = {
-                let (k, sel, line) = (k.clone(), sel.clone(), line.clone());
+                let (k, sel, line, u) = (k.clone(), sel.clone(), line.clone(), ui2.clone());
                 move || {
                     let mut s = Semantics::new(Role::TreeItem)
                         .label(line.item.label.clone())
@@ -332,7 +349,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
                         });
                     }
                     if line.loading {
-                        s = s.description("Loading");
+                        s = s.description(crate::tr(&u, "tree-loading-spoken"));
                     }
                     s
                 }
@@ -376,7 +393,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
                     }
                     _ => false,
                 })
-                .keyboard_alternative("Arrow keys move and open items; Ctrl+X then Ctrl+V moves them")
+                .keyboard_alternative(crate::tr_fn(&ui2, "tree-keys"))
                 .semantics(sem)
                 .on_accessibility_action({
                     // Screen readers and agents select, open and close rows as the keyboard does.
@@ -443,7 +460,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
                             if let Some(f) = f {
                                 match f(&d.data, &k5) {
                                     Ok(()) => error.set(None),
-                                    Err(e) => error.set(Some(e.to_string())),
+                                    Err(e) => error.set(Some(MoveProblem::App(e.to_string()))),
                                 }
                             }
                         }
@@ -638,10 +655,13 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
 
     let status = {
         // Why a move did not happen, announced as it appears.
-        let el = w::text(ui, "").variant("danger").text(move || error.get().unwrap_or_default());
+        let (u1, u2) = (ui.clone(), ui.clone());
+        let el = w::text(ui, "")
+            .variant("danger")
+            .text(move || error.get().map(|p| p.message(&u1)).unwrap_or_default());
         let e2 = el.clone();
         el.bind(move || {
-            let msg = error.get();
+            let msg = error.get().map(|p| p.message(&u2));
             let _ = e2
                 .clone()
                 .hidden(msg.is_none())

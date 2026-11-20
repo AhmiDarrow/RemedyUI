@@ -7,7 +7,7 @@ use remedy_ui_style::States;
 use remedy_ui_view::{Align, El, FieldKind, Ui};
 use remedy_ui_widgets_core as w;
 
-use remedy_ui_services_i18n::{Decimal, NumberSymbols};
+use remedy_ui_services_i18n::{Decimal, DecimalError, NumberSymbols};
 
 /// The limits and look of a [`number_input`].
 #[derive(Clone, Debug, PartialEq)]
@@ -105,19 +105,47 @@ impl NumberOptions {
     }
 }
 
+/// Why typed text was not accepted.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Problem {
+    /// Not a number.
+    Text(DecimalError),
+    /// Below the minimum.
+    Low(Decimal),
+    /// Above the maximum.
+    High(Decimal),
+}
+
+impl Problem {
+    /// The field's error line, in the window's language (tracked).
+    fn message(self, ui: &Ui, o: &NumberOptions) -> String {
+        let limit = |id: &str, m: Decimal| {
+            let shown = o.format(&NumberSymbols::for_locale(&ui.locale()), m);
+            crate::STRINGS.format(ui, id, &[("value", shown.into())])
+        };
+        match self {
+            Problem::Text(DecimalError::Empty) => crate::tr(ui, "number-empty"),
+            Problem::Text(DecimalError::Overflow) => crate::tr(ui, "number-overflow"),
+            Problem::Text(_) => crate::tr(ui, "number-invalid"),
+            Problem::Low(m) => limit("number-at-least", m),
+            Problem::High(m) => limit("number-at-most", m),
+        }
+    }
+}
+
 /// Why typed text was not accepted, for the field's error line.
-fn problem(text: &str, sym: &NumberSymbols, o: &NumberOptions) -> Result<Decimal, String> {
-    let v = sym.parse(text).map_err(|e| e.to_string())?;
+fn problem(text: &str, sym: &NumberSymbols, o: &NumberOptions) -> Result<Decimal, Problem> {
+    let v = sym.parse(text).map_err(Problem::Text)?;
     let v = v.round(o.precision);
     if let Some(m) = o.min
         && v < m
     {
-        return Err(format!("At least {}", o.format(sym, m)));
+        return Err(Problem::Low(m));
     }
     if let Some(m) = o.max
         && v > m
     {
-        return Err(format!("At most {}", o.format(sym, m)));
+        return Err(Problem::High(m));
     }
     Ok(v)
 }
@@ -134,7 +162,7 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
     let unit = ui.theme().spacing.unit;
     let o = std::rc::Rc::new(options);
     let field = ui.text_field("text_input", FieldKind::Single).label(label.clone());
-    let error = Signal::new(None::<String>);
+    let error = Signal::new(None::<Problem>);
 
     let show = {
         let (f, u, o) = (field.clone(), ui.clone(), o.clone());
@@ -202,7 +230,7 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
         })
         .bind(move || {
             let v = value.get();
-            let bad = error.get();
+            let bad = error.get().map(|p| p.message(&u2, &o3));
             let sym = NumberSymbols::for_locale(&u2.locale());
             let text = o3.format(&sym, v);
             if !e2.is_focused() {
@@ -238,10 +266,9 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
         row = row.child(w::text(ui, u.clone()).variant("muted"));
     }
     let err = w::column(ui);
-    let e3 = err.clone();
-    let u3 = ui.clone();
+    let (e3, u3, o4) = (err.clone(), ui.clone(), o.clone());
     let err = err.bind(move || {
-        let msg = error.get();
+        let msg = error.get().map(|p| p.message(&u3, &o4));
         untrack(|| {
             e3.clear();
             if let Some(m) = msg {

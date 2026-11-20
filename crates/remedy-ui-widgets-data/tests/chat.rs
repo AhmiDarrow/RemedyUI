@@ -118,9 +118,17 @@ fn reading_higher_up_counts_what_arrives_and_jumps_back() {
     let jump = find(&c.list, "button").into_iter().next().unwrap_or_else(|| unreachable!("the jump button"));
     assert!(jump.info().is_some_and(|i| !i.hidden), "the jump button shows");
     let label = find(&jump, "button_label").first().and_then(|l| l.info()).and_then(|i| i.text);
-    assert_eq!(label.as_deref(), Some("3 new"));
+    // Numbers in messages come wrapped in isolation marks (for right-to-left text).
+    let plain = |s: Option<String>| s.map(|s| s.replace(['\u{2068}', '\u{2069}'], ""));
+    assert_eq!(plain(label).as_deref(), Some("3 new"));
     let spoken = jump.info().and_then(|i| i.semantics).and_then(|s| s.name().map(str::to_owned));
-    assert_eq!(spoken.as_deref(), Some("3 new messages, jump to latest"));
+    assert_eq!(plain(spoken.clone()).as_deref(), Some("3 new messages, jump to latest"));
+    c.ui.set_locale("de");
+    frame(&c.ui);
+    let spoken = jump.info().and_then(|i| i.semantics).and_then(|s| s.name().map(str::to_owned));
+    assert_eq!(plain(spoken).as_deref(), Some("3 neue Nachrichten, zu den neuesten springen"));
+    c.ui.set_locale("en");
+    frame(&c.ui);
     c.state.jump_to_latest();
     for _ in 0..4 {
         frame(&c.ui);

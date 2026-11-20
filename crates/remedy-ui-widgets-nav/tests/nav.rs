@@ -197,10 +197,11 @@ fn rails_breadcrumbs_and_stacks_navigate() {
         .collect();
     assert!(
         shown.iter().any(|s| s == "Home")
-            && shown.iter().any(|s| s == "…")
+            && shown.iter().any(|s| s == "More locations")
             && !shown.iter().any(|s| s == "Pictures"),
-        "{shown:?}"
+        "the folded segments' menu shows … and says what it holds: {shown:?}"
     );
+    assert!(texts_under(&crumbs).iter().any(|t| t == "…"), "{:?}", texts_under(&crumbs));
     press(&ui, &nth(&crumbs, 0), Duration::from_secs(1));
     assert_eq!(went.get(), 0, "a crumb goes back there");
     // The stack keeps the page below as it was.
@@ -476,4 +477,50 @@ fn open_menus_pass_the_audit_in_narrow_windows_and_long_languages() {
         assert!(menus >= 2, "the submenu opened at {size:?}");
         audit_clean_at(&ui, size);
     }
+}
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+/// The accessibility tree as text, without the isolation marks placeholders get in messages.
+fn spoken(ui: &Ui) -> String {
+    frame(ui);
+    format!("{:?}", ui.take_accessibility_update()).replace("\\u{2068}", "").replace("\\u{2069}", "")
+}
+
+#[test]
+fn built_in_labels_follow_the_window_language() {
+    let ui = ui();
+    ui.connect_accessibility();
+    let bar = title_bar(
+        &ui,
+        Signal::new("Hearth".to_owned()),
+        None,
+        TitleBarActions {
+            begin_move: Box::new(|| {}),
+            minimize: Box::new(|| {}),
+            toggle_maximize: Box::new(|| {}),
+            is_maximized: Box::new(|| false),
+            close: Box::new(|| {}),
+        },
+    );
+    let items = Signal::new(vec![Tab::new("a", "Pictures").closable()]);
+    let strip = tabs(&ui, "Shares", items, Signal::new(Some("a".to_owned())), |_| {});
+    let path = Signal::new(["Home", "Pictures", "2024", "Trips", "Rome"].map(str::to_owned).to_vec());
+    let crumbs = breadcrumbs(&ui, "Path", path, |_| {});
+    ui.root().child(bar).child(strip).child(crumbs);
+    let tree = spoken(&ui);
+    for s in ["Title bar", "Maximize", "Close Pictures", "More locations", "Rome, current"] {
+        assert!(tree.contains(s), "{s}: {tree}");
+    }
+    ui.set_locale("de");
+    let tree = spoken(&ui);
+    for s in ["Titelleiste", "Maximieren", "Pictures schließen", "Weitere Orte", "Rome, aktuell"] {
+        assert!(tree.contains(s), "{s}: {tree}");
+    }
+    assert!(!tree.contains("Title bar") && !tree.contains("More locations"), "{tree}");
+    audit_clean(&ui);
 }

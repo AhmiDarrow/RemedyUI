@@ -440,3 +440,29 @@ fn rows_drag_onto_rows_and_files_drop_on_the_table() {
     assert_eq!(ui.drag_event(&DragEvent::Drop { position: Some(r2), data }), DropEffect::Copy);
     assert_eq!(moved.borrow().last(), Some(&(Vec::new(), None)));
 }
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+#[test]
+fn counts_and_sort_states_follow_the_window_language() {
+    let t = explorer(3);
+    let said = |el: &El| {
+        // Debug writes the isolation marks around placeholders as escapes.
+        format!("{:?}", el.info().and_then(|i| i.semantics)).replace("\\u{2068}", "").replace("\\u{2069}", "")
+    };
+    let heading = || find(&t.table, "table_heading").into_iter().next().unwrap_or_else(|| unreachable!());
+    assert!(said(&t.table).contains("3 rows"), "{}", said(&t.table));
+    assert!(said(&heading()).contains("not sorted"), "{}", said(&heading()));
+    t.ui.set_locale("de-DE");
+    frame(&t.ui);
+    assert!(said(&t.table).contains("3 Zeilen"), "{}", said(&t.table));
+    assert!(said(&heading()).contains("nicht sortiert"), "{}", said(&heading()));
+    t.rows.update(|r| r.truncate(1));
+    frame(&t.ui);
+    assert!(said(&t.table).contains("1 Zeile\""), "one row: {}", said(&t.table));
+    assert!(audit(&t.ui).is_empty(), "{:#?}", audit(&t.ui));
+}

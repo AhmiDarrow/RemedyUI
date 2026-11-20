@@ -329,16 +329,22 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
             r6();
         });
     });
-    let button = w::button(ui, "Jump to latest", move || state.jump_to_latest()).variant("primary");
-    let (b2, at_end, unread) = (button.clone(), state.at_end, state.unread);
+    let button = w::button(ui, crate::tr_fn(ui, "chat-jump-latest"), move || state.jump_to_latest())
+        .variant("primary");
+    let (b2, at_end, unread, u) = (button.clone(), state.at_end, state.unread, ui.clone());
     let button = button.bind(move || {
         let n = unread.get();
-        let text = if n > 0 { format!("{n} new") } else { "Jump to latest".to_owned() };
+        let text = if n > 0 {
+            crate::STRINGS.format(&u, "chat-new-count", &[("count", n.into())])
+        } else {
+            crate::tr(&u, "chat-jump-latest")
+        };
         if let Some(l) = b2.child_elements().into_iter().next() {
             let _ = l.text(remedy_ui_view::RichText::plain(text.clone()));
         }
         // What a screen reader says matches what the button shows.
-        let spoken = if n > 0 { format!("{n} new messages, jump to latest") } else { text };
+        let spoken =
+            if n > 0 { crate::STRINGS.format(&u, "chat-new-spoken", &[("count", n.into())]) } else { text };
         let _ = b2
             .clone()
             .hidden(at_end.get())

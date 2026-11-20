@@ -230,7 +230,7 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                     }
                     true
                 })
-                .keyboard_alternative("Arrow keys move between items; Space and Shift select");
+                .keyboard_alternative(crate::tr_fn(&ui2, "grid-item-keys"));
             let drag = drag_fn.borrow().clone();
             if let Some(make) = drag {
                 let (sel6, k6) = (sel.clone(), k.clone());
@@ -453,7 +453,7 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
             }
             _ => false,
         })
-        .keyboard_alternative("Shift with the arrow keys selects a range; Ctrl+A selects all");
+        .keyboard_alternative(crate::tr_fn(ui, "grid-keys"));
 
     // ---- keyboard
     let (keys4, sel3, act, ui4, geo4, vp3, body3) = (
@@ -536,7 +536,7 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         }
         None => root,
     };
-    let n_items = items;
+    let (n_items, u) = (items, ui.clone());
     root.column()
         .grow(1.0)
         .fill_width()
@@ -546,9 +546,12 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .child(body)
         .child(watcher)
         .semantics(move || {
-            Semantics::new(Role::List)
-                .label(label.clone())
-                .description(format!("{} items", n_items.with(Vec::len)))
+            let count = n_items.with(Vec::len);
+            Semantics::new(Role::List).label(label.clone()).description(crate::STRINGS.format(
+                &u,
+                "grid-count",
+                &[("count", count.into())],
+            ))
         })
 }
 
