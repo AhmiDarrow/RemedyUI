@@ -62,22 +62,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Unpremultiply for viewing.
             let px: Vec<u8> = pic
                 .pixels
-                .chunks(4)
+                .chunks_exact(4)
                 .flat_map(|p| {
-                    let a = p[3];
-                    if a == 0 {
-                        [0, 0, 0, 0]
-                    } else {
-                        [0, 1, 2]
-                            .map(|k| {
-                                ((u32::from(p[k]) * 255 + u32::from(a) / 2) / u32::from(a)).min(255) as u8
-                            })
-                            .into_iter()
-                            .chain([a])
-                            .collect::<Vec<_>>()
-                            .try_into()
-                            .unwrap_or([0; 4])
-                    }
+                    let [r, g, b, a] = <[u8; 4]>::try_from(p).unwrap_or([0; 4]);
+                    let un = |c: u8| {
+                        if a == 0 {
+                            0
+                        } else {
+                            ((u32::from(c) * 255 + u32::from(a) / 2) / u32::from(a)).min(255) as u8
+                        }
+                    };
+                    [un(r), un(g), un(b), a]
                 })
                 .collect();
             wr.write_image_data(&px)?;

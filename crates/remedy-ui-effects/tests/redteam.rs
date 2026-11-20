@@ -1,6 +1,7 @@
 //! Red team: hostile effects, inputs and sources against the compiler and the CPU renderer.
 //! Nothing may panic, hang, allocate without bound or take long; everything bounded by the
 //! limits and by `fit`.
+#![allow(clippy::indexing_slicing, reason = "test fixtures index sizes they just made")]
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
