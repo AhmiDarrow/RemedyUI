@@ -5,20 +5,30 @@ The renderer is where engines win or lose on smoothness, battery and "it doesn't
 - **WebRender and Chromium's compositor:** layers, tiles and damage tracking.
 - **Flutter's Impeller:** no shader compiled while the user waits.
 - **Core Animation:** compositor-side animation.
-- **WinUI on DirectComposition:** low-latency presenting.
+
+This document describes what the code does. What is planned but not written yet is listed
+under [Not yet in code](#not-yet-in-code) at the end, and nowhere else.
 
 ## From paint to pixels
 
 ```
-element paint() ──▶ paint chunk (display items) ──▶ layer tree ──commit──▶ compositor
+element paint() ──▶ display list ──▶ layer tree ──commit──▶ compositor (plan: tiles, ops, damage)
                                                                    │
-                                     raster (GPU or CPU, dirty tiles only) ◀─┘
+                                     raster tiles that changed (GPU or CPU) ◀─┘
                                                                    │
-                                          composite layers ──▶ present with damage
+                     composite only the damage into the kept frame ──▶ present
 ```
 
-- **Display items.** These are compact, plain-data commands recorded into a per-element **paint chunk**, in a bump-allocated buffer: `RoundRect`, `Border`, `Shadow`, `Gradient`, `Path`, `GlyphRun`, `Image`, `NineSlice`, `PushClip`, `PopClip`, `PushLayer`, `Filter`, `BackdropFilter`. Items hold no pointers, only ids for glyph runs, images and paths.
-- **Paint chunks** are reused until their element is `PAINT`-dirty. A frame re-records only dirty chunks.
+- **Display items** (`remedy_ui::paint::Item`) are plain data recorded per element:
+  `FillRect`, `Border`, `Shadow` (a soft shadow of a rounded rectangle), `FillPath`,
+  `StrokePath`, `Glyphs`, `Image`, `Video`, `Texture` (a GPU texture on the renderer's
+  device), `PushClip`/`PopClip`, `PushLayer`/`PopLayer` (opacity and blend groups),
+  `PushFilter`/`PopFilter` (a Gaussian blur, or a drop shadow of any shape, applied to a
+  group), `Backdrop` (frosted glass over what the list drew before it) and
+  `PushTransform`/`PopTransform`. Images, video frames and glyph runs are shared by
+  reference (`Arc`), so a list is cheap to clone and send to the compositor thread.
+- **Paint chunks** are reused until their element is `PAINT`-dirty. A frame re-records only
+  dirty chunks; unchanged layer content keeps its version, so its tiles are not rastered again.
 - **Layers** group chunks. A **layer tree** is what the UI thread commits.
 
 ## Layerization
@@ -28,63 +38,112 @@ A layer costs GPU memory and a composite. Not having one costs re-rasterizing a 
 | Gets a layer | Why |
 |---|---|
 | Each scroll container's content | Scrolling moves the layer on the compositor; nothing re-rasters |
-| Elements with a running transform, opacity or clip animation | The compositor animates them |
-| Video surfaces, external textures, animated images | Their content changes on their own clock |
-| Elements with a backdrop filter | They sample what is behind them |
+| Elements with ambient loops or painters asking for ambient frames (`AmbientLoop`, Prism effects) | They change on their own clock; a frame costs only them |
+| Elements with a backdrop blur (`Style::backdrop_blur`) | The compositor blurs what lies under them |
 | Elements marked `isolate_paint()` by the app | Expensive, rarely-changing content (a chart axis, a page) |
 | Overlays (menus, tooltips, modals) | They appear and disappear without touching the page below |
 
-Everything else is drawn into its nearest layer. Adjacent siblings with no reason to be separate are merged, and layers that end up covering a tiny area are squashed back into their parent. This is Chromium's lesson about layer explosion.
+Everything else is drawn into its nearest layer.
 
 ## Tiles
 
-Layers larger than the viewport (a long scrolled page, a zoomed PDF page) are split into tiles of 256 × 256 device pixels, or 512 on high-DPI screens. Only tiles in or near the viewport are rastered. A tile that leaves the prefetch area is released when memory is needed. Zooming re-rasters tiles at the new scale in the background, while the old tiles are shown scaled in the meantime, as browsers and PDF viewers do.
+Layers are split into tiles of 256 × 256 device pixels, or 512 at a raster scale of 2 and
+above. Only tiles in the viewport are rastered, plus a one-tile prefetch ring inside scroll
+containers; tiles that leave it are released. Zooming re-rasters tiles at the new scale
+within a per-frame raster budget measured on the machine, visible tiles nearest the middle
+first, while the old tiles are shown scaled in the meantime, as browsers and PDF viewers do.
+Content with nothing to stand in for it is never held back.
+
+## Damage
+
+Each frame plan carries the **damage**: the device-pixel area that changed since the last
+frame (layers whose content, transform, opacity, clip or order changed, tiles replacing
+stand-ins, and a new size or first frame as the whole window). Damage rectangles merge when
+they overlap or their union wastes little area.
+
+- **Glass and blurs.** A change within a backdrop's reach damages the glass and everything
+  its blur reads, so a frame drawn from damage alone is the same frame as a full one.
+  Filter groups grow their layer's bounds by their reach, so their damage covers the blur.
+- **Both renderers keep the last frame** and composite only the damaged rectangles into it
+  (`FramePlan::redraw_rects`: the damage and a pixel around it; the whole frame when there is
+  nothing to keep, the size changed, or the damage covers more than 60% of it). Rectangles
+  that redraw glass start on a 64-pixel grid, since a blur's result depends on where its
+  view starts. Both are tested to give the same pixels as a full redraw.
 
 ## The GPU renderer
 
-The GPU renderer runs on wgpu: D3D12, Vulkan, Metal, and GL 3.3 / GLES 3.0.
+The GPU renderer runs on wgpu: D3D12, Vulkan, Metal, OpenGL 3.3 / GLES 3.0, and WebGPU or
+WebGL2 in a browser.
 
-- **A fixed, small set of pipelines** (uber-shaders): solid and SDF shapes, gradients, glyphs (grayscale, LCD, color), images (RGBA, YUV), paths (`vello_gpu` strips), blur, composite.
-  - The whole fixed set is created at start-up, from a **persistent pipeline cache** on disk. On the very first run, or after a driver update invalidates the cache, the set is compiled once before the first frame; that cost is measured in the start-up benchmarks. Nothing compiles after start-up.
-- **Batching.** Primitives are written into instance buffers and drawn in as few calls as the draw order allows.
-  - Opaque items are drawn front to back with a depth test, so hidden pixels are never shaded.
-  - Translucent items are drawn back to front, and neighbours that do not overlap are merged into one batch.
-- **Shapes without tessellation.** Rects, rounded rects with per-corner radii, borders (with dashes) and box shadows are analytic signed-distance quads. Shadows use the closed-form Gaussian-rounded-rect approximation, with no blur pass.
-- **Clips** are analytic in the shader for axis-aligned rects and rounded rects, up to a small fixed nesting depth folded into the instance. Deeper or path clips use a mask texture.
-- **Paths.** Icons and other small paths are rasterized once at their device size into the atlas and drawn as images, like glyphs. Large or animating paths go through the `vello_gpu` sparse-strip pipeline, behind RemedyUI's `Path` type.
-- **Atlases.** There are separate atlases for grayscale glyphs (R8), LCD glyphs and color glyphs (RGBA8), and small images and icons (RGBA8).
-  - Packing uses shelf allocation per size class. Atlases grow by adding pages as needed, with no fixed count.
-  - Entries not used for a number of frames are evicted when memory pressure asks for it.
-  - Uploads go through a staging ring buffer, batched per frame.
-- **Images** larger than an atlas slot get their own textures, and mipmaps when they are drawn scaled down. Each is decoded at the size it is shown, not at its source size (see [09](09-performance-and-resources.md)). Every image keeps a handle to its source, so a texture lost with the device is decoded again rather than kept twice in memory.
-- **Video** planes are uploaded as they come (R8 + RG8 for NV12, three R8 planes for I420) and converted to RGB in the shader with the stream's matrix and range. Where the platform decoder gives a GPU texture (D3D11/12, VA-API dma-buf, Android `HardwareBuffer`, IOSurface), it is imported directly with no copy.
-- **Blending** happens in sRGB space by default, the way browsers and design tools do, so colors match designers' mock-ups. Text uses gamma and contrast curves matched to each platform's native text. Wide-gamut and HDR windows switch to an extended-linear surface. Colors are tagged with their color space, so this changes no app code.
+- **One painter for both renderers.** Display lists are drawn by the same `Painter` as the
+  CPU renderer onto a `vello_gpu` scene (sparse strips): shapes, paths, gradients, clips,
+  opacity and blend groups, filter groups and backdrops go through vello. Glyphs are
+  rasterized by RemedyUI once per size and subpixel position (grayscale and LCD) and drawn as
+  tinted images, so both renderers draw the same text.
+- **Pipelines** are vello's, RemedyUI's video conversion and Prism's effect kernels, all made
+  when the renderer is created, through a **persistent pipeline cache** on disk where the
+  driver supports one. Nothing compiles mid-frame (a test counts pipelines and shaders after
+  start-up).
+- **Shadows and filters.** `Item::Shadow` is vello's closed-form blurred rounded rectangle,
+  with no blur pass. Blur and drop-shadow filter groups and backdrops are vello filter layers
+  (a multi-scale Gaussian), the same algorithm `vello_cpu` runs, so the two renderers agree
+  within two levels.
+- **Images and glyphs** are uploaded to the GPU on first use: glyphs and nearest-sampled
+  images packed into RGBA atlas pages, filtered or large images in textures of their own.
+  Uploads of images the app dropped are freed, and `clear_caches` drops them all (they are
+  made again as they are drawn). Under memory pressure the compositor frees every tile outside
+  the prefetch area (`Compositor::trim_memory`).
+- **Video** planes are uploaded as they come (one plane of RGBA, NV12's Y and UV, or I420's
+  three planes) and a small render pass converts them to RGBA with the stream's matrix and
+  range, once per frame per stream.
+- **Compositor tiles** live in textures. Small tiles are rastered together in one atlas and
+  copied out (every render has a fixed cost); tiles whose content holds filters raster on
+  their own, so their blur lines up with the CPU's.
+- **The kept frame.** Each window's frame lives in a texture of its own. A present
+  composites only the damage into it: each damaged rectangle is a scene of its own size,
+  placed at its corner (vello's render offset) with only that rectangle cleared, so the GPU's
+  passes cover the damage alone. The frame is drawn before the swapchain image is acquired,
+  so an occluded or stale swapchain loses no damage, then copied to the swapchain image (or
+  drawn onto it where the swapchain takes no copies).
+- **Blending** happens in sRGB space, the way browsers and design tools do: targets are plain
+  8-bit RGBA or BGRA, premultiplied.
 
 ## The CPU renderer
 
-The CPU renderer draws the same display list and layer tree:
+The CPU renderer draws the same display lists and layer trees:
 
-- `vello_cpu` handles paths, shapes and gradients, multithreaded across tiles.
-- RemedyUI's compositor handles glyphs (including LCD), images, YUV conversion and layers.
-- Presenting is a pixel blit through the bridge (softbuffer class), with damage rects.
+- `vello_cpu` (single-threaded) handles shapes, paths, gradients, clips, groups and filters
+  through the shared `Painter`; RemedyUI handles glyph coverage (LCD included), images and YUV
+  conversion.
+- Presenting is a pixel blit through the bridge (softbuffer on desktops, a canvas in a
+  browser), passing the damage rectangles where the platform takes them.
 
-It is used where no GPU backend passes its self-test: no driver, OpenGL older than 3.3 (or GLES older than 3.0, which the GPU renderer accepts as its lowest backend), or WARP and llvmpipe setups that fail the test. It is also used for headless tests and for rendering to images, with the same output as the GPU path within a tested tolerance.
+It is used where no GPU adapter is found, for windows that do not need the GPU (see below),
+for headless tests and for rendering to images, with the same output as the GPU path within
+a tested tolerance.
 
 ## Choosing, recovering and degrading
 
-1. **Start-up.** The bridge proposes backends for the platform. Each is tried with a self-test frame that checks the rendered pixels, not just that creation succeeded. The first that passes is used, and the choice is remembered per GPU and driver version.
-2. **Device loss.** The renderer re-creates the device, rebuilds atlases from their CPU-side copies, decodes large images again from their source handles, and redraws the full frame from the retained layer tree. Apps are not involved.
-3. **Repeated loss or a hang.** A watchdog on present demotes to the next backend for the session and reports it to the app (`RendererInfo` signal).
-4. **Pressure.** Under GPU memory pressure, off-screen tiles go first, then cached layers, then atlas pages not used recently. Under heavier pressure, the renderer draws layers straight to the frame instead of caching them, until the pressure passes.
+1. **The backend ladder.** The GPU renderer tries a hardware adapter through D3D12, Vulkan
+   or Metal, then OpenGL 3.3 / GLES 3.0, then a software adapter (WARP, lavapipe, llvmpipe).
+2. **Which renderer a window uses.** By default (`RendererChoice::Auto`) a window starts on
+   the CPU renderer, which costs no GPU driver memory, and moves to the GPU once its frames
+   take longer than 6 ms on average; heavy content (a Prism effect over its cost threshold)
+   asks for the GPU at once. Where a surface keeps its first renderer (Android) windows start
+   on the GPU. Apps can choose GPU or CPU only.
+3. **Device loss.** The renderer re-creates the device, drops its uploads and tiles, and
+   redraws the full frame from the retained layer tree. Apps are not involved.
+4. **A failure that recovery cannot fix** (no replacement device, a window whose GPU present
+   fails) moves the window to the CPU renderer.
 
 ## Presenting
 
-- **Damage.** The union of changed tile and layer bounds is the damage for the frame. Only it is rastered, and it is passed to the OS where supported: `Present1` dirty rects, Wayland `damage_buffer`, `eglSwapBuffersWithDamage`, Android partial update.
-- **Windows.** Flip-model swapchain on DirectComposition, with a frame-latency waitable object. The UI thread is signalled when the next frame can start, keeping input-to-photon low. Mica and acrylic come from the system backdrop APIs.
-- **macOS.** Metal through `CAMetalLayer`, with display-link pacing. Vibrancy uses `NSVisualEffectView` behind the content.
-- **Linux.** Wayland frame callbacks pace frames, with fractional scale (`wp_fractional_scale_v1`) and viewporter so text is crisp at 125% and 150%. X11 uses present-extension timing where available.
-- **Android.** Choreographer pacing, with `ANativeWindow` and Vulkan or GLES.
-- **Present mode.** FIFO by default (no tearing, lowest power). Mailbox when the app asks for the lowest latency (drawing apps, games' menus). Variable refresh is used where the display and OS offer it.
+- **Present mode.** Frames pace to the display (vsync) by default; apps may present as soon
+  as each frame is drawn instead (`AppConfig`'s vsync setting).
+- **Partial presents** happen on the CPU path, where the bridge hands the damage rectangles
+  to the platform (softbuffer's `present_with_damage`, or only those rectangles put on a
+  browser canvas). wgpu presents whole swapchain images, so the GPU path rasters and
+  composites only the damage but presents the whole kept frame (one copy).
 
 ## Effects and custom shaders
 
@@ -93,22 +152,59 @@ It is used where no GPU backend passes its self-test: no driver, OpenGL older th
   particles, starfields, grain, CRT screens, raymarched 3D. Effects are `.rfx` data compiled
   against cost limits into programs for one fixed GPU kernel (an interpreter RemedyUI ships,
   so nothing compiles after start-up and nothing from a theme reaches the GPU) or, with the
-  same results, the CPU interpreter. Blur and bloom are Prism passes over an effect's own
-  buffers.
+  same results, the CPU interpreter.
+- **Blur, shadows and glass on any element**, from its style (CSS names in brackets):
+  - `Style::shadow` (`box-shadow`): `Item::Shadow` under the box.
+  - `Style::blur` (`filter: blur()`) and `Style::drop_shadow` (`filter: drop-shadow()`, a
+    shadow of the shape of whatever the element draws): filter groups around the element's
+    drawing and the children drawn in its layer. Children that are layers of their own
+    (scroll containers, isolated or animated elements) are not filtered with it.
+  - `Style::backdrop_blur` (`backdrop-filter: blur()`): the element gets a layer with a
+    backdrop; the compositor blurs every layer drawn before it under its box, back to the
+    innermost translucent layer around it (its backdrop root, as on the web). Scroll
+    containers do not take a backdrop.
+
+  Display lists drawn on their own have the same tools: `Item::PushFilter`/`PopFilter` and
+  `Item::Backdrop` (which sees what the list drew before it).
 - **Display-list effects**: gradients, blend modes including additive (`Blend::Plus`) for
-  light that stacks, and soft shadows of rounded rectangles (`Item::Shadow`).
+  light that stacks.
 - **Ambient loops**: endless transform and opacity motion a layer carries (`AmbientLoop`),
   run by the compositor at the window's ambient rate ([09](09-performance-and-resources.md)).
-- **Not yet in code** (planned): filters on an element's own content (Gaussian blur and drop
-  shadow of any shape, backdrop blur, colour matrices). They need the compositor to hand a
-  rendered layer to a kernel; vello's filter effects are a candidate for blur and shadows.
-  Until then, Prism effects cover blur and bloom of their own content, and `stage::fx::blur`
-  blurs a picture once.
 - **App shaders**: apps that need their own GPU work render it with `gpu_view` (the app's
   wgpu on RemedyUI's device, [15](15-widgets-and-media.md)). Raw WGSL is never accepted from
   untrusted content (a theme or a mod); Prism is the language for that.
 
 ## Rendering to images and printing
 
-- **Snapshots.** Any element, window or layer can render to an image at any scale, on the GPU or CPU renderer: CI screenshots, share previews, thumbnails.
-- **Printing and PDF.** The display list also translates to vector PDF, so text stays selectable and paths stay sharp. Printing goes through the platform's print dialog on each bridge that has one.
+- **Snapshots.** Any display list renders to an image at any scale on either renderer
+  (`CpuRenderer::render`, `GpuRenderer::render`): CI screenshots, share previews, thumbnails.
+  `Window::snapshot` pictures a window's next frame: a window the GPU draws reads back the
+  frame it keeps (`GpuCompositor::read_surface`), so the picture holds what the screen does,
+  Prism effects, video, `gpu_view` textures, blurs and glass included; a window the CPU draws
+  draws its frame once more.
+- **Paged documents** (`remedy-ui-doc-pages`) show pages the app parses (a PDF through
+  MuPDF, an e-book) as display lists.
+
+## Not yet in code
+
+Planned, not implemented; nothing above relies on them:
+
+- **Merging and squashing layers**: adjacent siblings with no reason to be separate merged,
+  and layers that cover a tiny area squashed back into their parent.
+- **A start-up self-test frame** that checks a backend's pixels before using it, remembered
+  per GPU and driver version, and a **present watchdog** that demotes a backend that hangs.
+- **Partial presents on the GPU** (`Present1` dirty rects, `eglSwapBuffersWithDamage`,
+  Wayland `damage_buffer`): wgpu does not offer them.
+- **Platform presenting details**: a DirectComposition flip-model swapchain with a
+  frame-latency waitable object, display-link pacing on macOS, Wayland frame callbacks with
+  fractional scale, Android Choreographer pacing; system backdrops (Mica, acrylic,
+  vibrancy); mailbox and variable-refresh present modes.
+- **Wide-gamut and HDR surfaces**, and colours tagged with their colour space.
+- **GPU video without copies**: importing decoder textures (D3D11/12, VA-API dma-buf,
+  Android `HardwareBuffer`, IOSurface) instead of uploading planes.
+- **Mipmaps** for images drawn scaled down, and decoding images at the size they are shown.
+- **A multithreaded CPU raster** (vello_cpu's threads; its filters do not run with them yet).
+- **Colour-matrix filters** (saturate, hue-rotate, grayscale) and filters on layers whose
+  children are layers of their own.
+- **Printing and vector PDF**: translating display lists to PDF (selectable text, sharp
+  paths) and printing through each platform's print dialog.

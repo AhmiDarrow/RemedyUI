@@ -10,6 +10,32 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Blur, shadows and frosted glass on any element**, on both renderers with matching results
+  (within two levels): `Style::shadow` (CSS `box-shadow`, a `Shadow` value),
+  `Style::blur` (`filter: blur()`), `Style::drop_shadow` (`filter: drop-shadow()`, a shadow
+  of the shape of everything the element draws, text and icons included) and
+  `Style::backdrop_blur` (`backdrop-filter: blur()`: the element gets a compositor layer and
+  the compositor blurs every layer below it, back to its backdrop root), with the same on
+  `StylePatch` and `ResolvedStyle`. Display lists gain `Item::PushFilter(Filter)` /
+  `Item::PopFilter` (`Filter::Blur`, `Filter::DropShadow`; `DisplayList::push_filter`,
+  `pop_filter`, `has_filters`, `Filter::outset`) and `Item::Backdrop`; layers gain
+  `Layer::backdrop` (`Backdrop`, `Layer::with_backdrop`) and the composite
+  `CompositeOp::Backdrop` (`CompositeOp::backdrop_root`, `backdrop_reach`). Drawn through
+  vello's filter layers, so tiles stay seamless and both renderers blur alike.
+- **Prism diagnostics**: "did you mean" for a misspelled function, name, parameter, pass or
+  type; an effect over its cost budget is reported at its costliest pass with the passes that
+  cost most; particle and pass-count limits are reported where they are written.
+  `CompileError::report(source)` and `Diagnostic::render(source)` draw each problem under its
+  line with a caret.
+- **Per-effect GPU timing and a GPU quality ladder** for Prism: `GpuEffect::take_gpu_time`
+  samples an effect's GPU time every eighth frame with timestamp queries, without waiting
+  for the GPU; the effect element steps down to half, then a quarter resolution (at most
+  30 fps) when it stays over `EffectView::set_gpu_budget` (2 ms by default), and climbs back.
+  `EffectStats::gpu_time`.
+- `GpuCompositor::read_surface` (a picture of what a GPU window shows),
+  `GpuCompositor::last_composited`, and `FramePlan::redraw_rects` (the rectangles a renderer
+  that keeps its frame draws again; both compositors use it).
+
 - **Prism, the effects system** (`remedy-ui-effects`, `remedy-ui-media-effects`, the
   `effects` feature, `remedy_ui::effects`; in `full`): `.rfx`, a language for animated,
   procedural pictures (types float to mat4, functions, `if`, constant loops; passes at their
@@ -399,6 +425,30 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- **The GPU compositor draws only what changed.** Each window's frame is kept in a texture;
+  a present composites only the plan's damage into it (each damaged rectangle a scene of its
+  own size placed at its corner, only that rectangle cleared), before acquiring the swapchain
+  image, then copies it to the swapchain (or draws it onto one that takes no copies). Damage
+  over most of the window, a new size, a rebuilt device or the first frame draw it all.
+  Tested to equal a full redraw pixel for pixel, frosted glass included. wgpu has no present
+  with damage, so the GPU path presents the whole kept frame. `GpuCompositor::present_to_frame`
+  keeps its frame the same way: hand it every plan. Tiles whose content holds filters raster
+  on their own rather than in the small-tile atlas.
+- **`Window::snapshot` of a GPU window** reads back the frame the GPU shows instead of
+  drawing the frame again on the CPU, so pictures hold Prism effects, video, `gpu_view`
+  textures, blurs and glass. The effects gallery's `--snapshot` no longer needs `--cpu`.
+- Breaking (pre-1.0): `paint::Item` gains `PushFilter`, `PopFilter` and `Backdrop`, and
+  `compositor::CompositeOp` gains `Backdrop`; exhaustive matches on them need the new arms
+  (`PushFilter` closes with `PopFilter`, like `PushLayer`). `render_cpu::Surface` gains
+  `push_filter_layer` (vello's `push_filter_layer`). `Layer` gains a `backdrop` field (build
+  layers with `Layer::new`), and `ResolvedStyle` gains `shadow`, `blur`, `drop_shadow` and
+  `backdrop_blur`. `EffectStats::level` now counts the GPU's steps too.
+- `docs/design/04-rendering.md` describes what the renderers do, and lists what is planned
+  under "Not yet in code" (layer squashing, a backend self-test and present watchdog, partial
+  presents on the GPU, platform presenting details and system backdrops, HDR, zero-copy
+  video, mipmaps, colour-matrix filters, printing). It had described several of those as
+  existing. `16-effects.md` and `10-platform-bridges.md` follow.
+
 - The CPU compositor composites only the damage: each damaged rectangle is recorded on its
   own (tiles and clipped subtrees outside it left out) and rasterized into the kept frame.
   Both compositors clip with clip paths instead of isolated clip layers. The GPU compositor
@@ -470,6 +520,9 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- A snapshot of a window the GPU draws left out GPU content (Prism effects, `gpu_view`
+  textures, video converted on the GPU): it was drawn again by a CPU renderer that cannot read
+  GPU textures. It now reads back the GPU's own frame.
 - Overlays placed near or beside something (tooltips, menus, submenus) are measured from
   the window's start edge, so one opened at the right edge keeps its width instead of
   wrapping its text into the few pixels left there and being placed at that size.
