@@ -140,7 +140,11 @@ impl FramePlan {
     /// ([`CompositeOp::PushFilter`]) start on a 64-pixel grid,
     /// so the glass comes out exactly as in a full frame. Both compositors use it, so a frame
     /// drawn from damage is the same frame on either.
-    pub fn redraw_rects(&self, width: u32, height: u32, kept: bool) -> Vec<Rect> {
+    ///
+    /// `render_cost` is what drawing one more rectangle costs a renderer, in the pixels it
+    /// could draw in that time: when one rectangle around them all costs less than drawing
+    /// them one by one, that one is drawn instead.
+    pub fn redraw_rects(&self, width: u32, height: u32, kept: bool, render_cost: f32) -> Vec<Rect> {
         let full = Rect::new(0.0, 0.0, width as f32, height as f32);
         if !kept || self.damage.area() >= full.size().area() * 0.6 {
             return vec![full];
@@ -158,18 +162,58 @@ impl FramePlan {
                 _ => None,
             })
             .collect();
-        let mut out = Damage::new();
-        for r in self.damage.rects() {
-            let mut r = Rect::new(r.min.x - 1.0, r.min.y - 1.0, r.max.x + 1.0, r.max.y + 1.0);
-            if glass.iter().any(|g| g.intersect(r).is_some_and(|i| !i.is_empty())) {
+        // A rect that draws any of glass draws all it reads (a part of a blur is not the same
+        // as that part of the whole blur), starting on the grid. Merged rects can newly reach
+        // glass that no damage touched, so this holds for them too.
+        let touches = |r: Rect, g: &Rect| g.intersect(r).is_some_and(|i| !i.is_empty());
+        let snap = |mut r: Rect| {
+            let touched = glass.iter().any(|g| touches(r, g));
+            loop {
+                let grown = glass.iter().filter(|g| touches(r, g)).fold(r, |r, g| r.union(*g));
+                if grown == r {
+                    break;
+                }
+                r = grown;
+            }
+            if touched {
                 r.min.x = (r.min.x / GLASS_GRID).floor() * GLASS_GRID;
                 r.min.y = (r.min.y / GLASS_GRID).floor() * GLASS_GRID;
             }
-            if let Some(r) = r.intersect(full) {
-                out.add(r);
+            r
+        };
+        let mut rects: Vec<Rect> = self
+            .damage
+            .rects()
+            .iter()
+            .map(|r| Rect::new(r.min.x - 1.0, r.min.y - 1.0, r.max.x + 1.0, r.max.y + 1.0))
+            .collect();
+        // Snapping and merging take turns until neither changes anything: a snapped rect that
+        // merges with an unsnapped neighbour can start off the grid again. Snapping only moves
+        // corners out, so this ends.
+        loop {
+            let mut out = Damage::new();
+            for &r in &rects {
+                if let Some(r) = snap(r).intersect(full) {
+                    out.add(r);
+                }
+            }
+            let next = out.rects().to_vec();
+            if next == rects {
+                break;
+            }
+            rects = next;
+        }
+        // Each rect is a render of its own: one around them all is cheaper when the renders it
+        // saves cost more than the pixels it adds (spinners, carets and badges over a window).
+        if let Some(all) = rects.iter().copied().reduce(Rect::union) {
+            let all = snap(all).intersect(full).unwrap_or(full);
+            let apart: f32 = rects.iter().map(|r| r.size().area()).sum();
+            let saved = (rects.len() - 1) as f32 * render_cost;
+            if saved > all.size().area() - apart {
+                return vec![all];
             }
         }
-        out.rects().to_vec()
+        rects
     }
 }
 

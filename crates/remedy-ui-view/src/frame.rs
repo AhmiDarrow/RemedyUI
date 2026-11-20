@@ -376,6 +376,9 @@ struct Walk<'a> {
     inner: &'a Inner,
     state: &'a mut FrameState,
     rects: &'a HashMap<ElementId, Rect>,
+    /// [`Walk::layers_below`] answers this frame, so nested filtered elements each walk a
+    /// subtree once, not once per filtered ancestor.
+    layered: HashMap<ElementId, bool>,
 }
 
 impl Walk<'_> {
@@ -466,9 +469,13 @@ impl Walk<'_> {
 
     /// True when something under `id` is drawn in a compositor layer of its own (a scroll
     /// container, an isolated or ambient element, glass, or a filtered element over such).
-    fn layers_below(&self, id: ElementId) -> bool {
-        self.inner.tree.children(id).into_iter().any(|k| {
-            self.inner.els.get(&k).is_some_and(|d| {
+    fn layers_below(&mut self, id: ElementId) -> bool {
+        if let Some(&known) = self.layered.get(&id) {
+            return known;
+        }
+        let inner = self.inner;
+        let found = inner.tree.children(id).into_iter().any(|k| {
+            inner.els.get(&k).is_some_and(|d| {
                 !d.hidden
                     && (d.scroll
                         || d.isolate.is_some()
@@ -476,7 +483,9 @@ impl Walk<'_> {
                         || d.resolved.backdrop_blur > 0.0
                         || self.layers_below(k))
             })
-        })
+        });
+        self.layered.insert(id, found);
+        found
     }
 
     /// The focus ring of `id` around `local`, when keyboard focus shows there.
@@ -999,7 +1008,7 @@ impl Ui {
             let mut state = std::mem::take(&mut i.frame);
             state.scrollers.clear();
             let mut b = Builder::new(LayerId(0), Rect::from_origin_size(Point::ZERO, size));
-            let mut walk = Walk { inner: i, state: &mut state, rects: &rects };
+            let mut walk = Walk { inner: i, state: &mut state, rects: &rects, layered: HashMap::new() };
             walk.element(&mut b, root, Point::ZERO);
             let layer = b.finish_into(&mut state);
             let live: std::collections::HashSet<LayerId> = collect_ids(&layer);

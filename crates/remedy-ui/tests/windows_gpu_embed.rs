@@ -5,7 +5,7 @@
 //!
 //! Optimized builds only, with the feature
 //! (`cargo test --release -p remedy-ui --features gpu-embed --test windows_gpu_embed`).
-#![cfg(all(windows, feature = "gpu-embed", not(debug_assertions)))]
+#![cfg(all(windows, feature = "gpu-embed"))]
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -57,6 +57,10 @@ struct Seen {
 }
 
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "optimized builds only: cargo test --release -p remedy-ui --features gpu-embed --test windows_gpu_embed"
+)]
 fn an_embed_moves_its_window_to_the_gpu_and_renders_on_its_device() {
     let device = Rc::new(Cell::new(0u64));
     let seen = Rc::new(RefCell::new(Seen::default()));

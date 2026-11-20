@@ -2672,6 +2672,16 @@ impl Runner {
                                     c.invalidate_tiles();
                                 }
                                 again = true;
+                                // Pictures asked for come from the CPU's next frame.
+                                if !gpu_snaps.is_empty() {
+                                    self.app
+                                        .0
+                                        .borrow_mut()
+                                        .snapshots
+                                        .entry(key)
+                                        .or_default()
+                                        .append(&mut gpu_snaps);
+                                }
                             }
                         }
                     }
@@ -3225,6 +3235,12 @@ impl remedy_ui_host::App for Runner {
                     if let Some(c) = w.comp.as_mut() {
                         c.trim_memory();
                     }
+                }
+                #[cfg(feature = "gpu")]
+                if level != remedy_ui_host::MemoryPressure::Normal
+                    && let Some(Some(gpu)) = self.gpu.as_mut()
+                {
+                    gpu.trim_memory();
                 }
                 remedy_ui_view::device::memory_pressure(level);
             }

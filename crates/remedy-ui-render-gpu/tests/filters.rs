@@ -165,7 +165,7 @@ fn hostile_filter_sizes_are_bounded_on_both_renderers() {
         l
     };
     let scale = 2.0;
-    let bound = remedy_ui_paint::MAX_FILTER_STD_DEV / scale;
+    let bound = remedy_ui_paint::MAX_FILTER_STD_DEV;
     let mut g = gpu();
     let mut c = CpuRenderer::new();
     for (blur, offset) in [(1.0e9, 1.0e9), (f32::INFINITY, f32::NEG_INFINITY), (f32::NAN, f32::NAN)] {
