@@ -148,8 +148,17 @@ impl<T: Animatable> Animation<T> {
         }
     }
 
-    /// The value at `now`.
+    /// The value at `now`. At rest, and once a tween has run its course, that is the target
+    /// itself, exactly: not a round trip through the components (colors move in Oklab, whose
+    /// round trip is a few millionths off).
     pub fn sample(&self, now: Duration) -> T {
+        match &self.state {
+            State::Still => return self.target.clone(),
+            State::Tween { start, duration, .. } if now.saturating_sub(*start) >= *duration => {
+                return self.target.clone();
+            }
+            _ => {}
+        }
         T::from_components(&self.sample_vec(now))
     }
 
