@@ -15,6 +15,7 @@
 //! nothing to stand in for it is never held back. See `docs/design/01-threads-and-frames.md`
 //! and `docs/design/04-rendering.md` (Tiles).
 
+mod ambient;
 mod compositor;
 mod damage;
 mod layer;
@@ -22,6 +23,7 @@ mod mailbox;
 mod thread;
 mod tiles;
 
+pub use ambient::{AmbientLoop, LoopMotion, Wave};
 pub use compositor::{CompositeOp, Compositor, FramePlan, TileRequest, logical_size};
 pub use damage::Damage;
 pub use layer::{Layer, LayerId, LayerTree, ScrollFollow};

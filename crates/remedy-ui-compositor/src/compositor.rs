@@ -105,6 +105,9 @@ pub struct FramePlan {
     /// Visible tiles shown by stand-ins of an earlier scale this frame, rastering in later
     /// frames within the [`RasterBudget`].
     pub pending: usize,
+    /// Ambient loops are on screen and running: draw the next frame this much later (at the
+    /// ambient rate, not every vsync). `None` when nothing loops or loops are paused.
+    pub wake_in: Option<Duration>,
 }
 
 #[derive(Clone, Debug)]
@@ -166,6 +169,11 @@ pub struct Compositor {
     full_damage: bool,
     last_frame: Option<Duration>,
     reduced_motion: bool,
+    /// The ambient rate loops run at; `None` holds them where they are.
+    ambient: Option<Duration>,
+    /// Loop time: advances only while loops run, so a pause never makes them jump.
+    ambient_t: Duration,
+    ambient_last: Option<Duration>,
 }
 
 struct Walk<'a> {
@@ -183,6 +191,10 @@ struct Walk<'a> {
     spent: u64,
     /// Device areas where a tile replaced its stand-in.
     replaced: Damage,
+    /// The time ambient loops are sampled at.
+    loop_t: Duration,
+    /// A layer with ambient loops showed this frame.
+    looping: bool,
     /// Prefetch tiles at a new scale left for a later frame.
     deferred: usize,
 }
@@ -213,6 +225,9 @@ impl Compositor {
             full_damage: true,
             last_frame: None,
             reduced_motion: false,
+            ambient: Some(Duration::from_secs(1) / 30),
+            ambient_t: Duration::ZERO,
+            ambient_last: None,
         }
     }
 
@@ -239,6 +254,18 @@ impl Compositor {
             o.offset.set_reduced_motion(on);
             o.scale.set_reduced_motion(on);
         }
+    }
+
+    /// Sets the rate ambient loops ([`AmbientLoop`](crate::AmbientLoop)) run at: a frame
+    /// every `interval` while one shows, or `None` to hold them still and ask for no frames
+    /// (the window is hidden, ambient motion is off). Default: 30 frames a second.
+    pub fn set_ambient(&mut self, interval: Option<Duration>) {
+        self.ambient = interval.filter(|d| !d.is_zero());
+    }
+
+    /// The rate ambient loops run at.
+    pub fn ambient(&self) -> Option<Duration> {
+        self.ambient
     }
 
     /// Resizes the window. The next frame redraws everything.
@@ -477,6 +504,16 @@ impl Compositor {
             }
         }
         animating |= self.overrides.values().any(|o| !o.settled(now));
+        if self.ambient.is_some() {
+            if let Some(last) = self.ambient_last {
+                self.ambient_t += now.saturating_sub(last);
+            }
+            self.ambient_last = Some(now);
+        } else {
+            self.ambient_last = None;
+        }
+        // Under reduced motion loops rest at their start.
+        let loop_t = if self.reduced_motion { Duration::ZERO } else { self.ambient_t };
 
         let viewport = Rect::new(0.0, 0.0, self.width as f32, self.height as f32);
         let mut plan = FramePlan { animating, ..FramePlan::default() };
@@ -492,14 +529,17 @@ impl Compositor {
             spent: 0,
             replaced: Damage::new(),
             deferred: 0,
+            loop_t,
+            looping: false,
         };
         let base = Affine::scale(self.scale, self.scale);
         let roots = self.tree.roots.clone();
         for root in &roots {
             self.walk(root, base, self.scale, 1.0, viewport, &mut walk);
         }
-        let Walk { drawn, hits, replaced, deferred, .. } = walk;
+        let Walk { drawn, hits, replaced, deferred, looping, .. } = walk;
         plan.animating |= plan.pending > 0 || deferred > 0;
+        plan.wake_in = if looping && !self.reduced_motion { self.ambient } else { None };
 
         let mut damage = Damage::new();
         if self.full_damage {
@@ -545,9 +585,16 @@ impl Compositor {
             Some(o) => (o.opacity.sample(w.now), o.offset.sample(w.now), o.scale.sample(w.now)),
             None => (1.0, Vec2::ZERO, 1.0),
         };
-        let opacity = (layer.opacity * o_opacity).clamp(0.0, 1.0);
+        let (l_affine, l_opacity) = if layer.ambient.is_empty() {
+            (Affine::IDENTITY, 1.0)
+        } else {
+            crate::AmbientLoop::sample(&layer.ambient, w.loop_t)
+        };
+        let opacity = (layer.opacity * o_opacity * l_opacity).clamp(0.0, 1.0);
         let total_opacity = parent_opacity * opacity;
         if total_opacity <= 0.0 {
+            // A pulse fading through zero must still come back.
+            w.looping |= l_opacity <= 0.0 && parent_opacity > 0.0;
             return;
         }
         let c = layer.local_box().center();
@@ -556,6 +603,7 @@ impl Compositor {
             .then(Affine::translate(c.to_vec2()));
         let local_to_device = layer
             .transform
+            .then(l_affine)
             .then(scale_about_center)
             .then(Affine::translate(Vec2::new(
                 layer.bounds.min.x + o_offset.x,
@@ -563,8 +611,10 @@ impl Compositor {
             )))
             .then(parent);
         let scroll = self.scroll_offset(layer.id).unwrap_or(Vec2::ZERO);
+        let content_to_device = Affine::translate(Vec2::new(-scroll.x, -scroll.y)).then(local_to_device);
+        // A drifting loop moves by fractions of a pixel: snapping it would step.
         let content_to_device =
-            snap(Affine::translate(Vec2::new(-scroll.x, -scroll.y)).then(local_to_device));
+            if layer.ambient.is_empty() { snap(content_to_device) } else { content_to_device };
         let static_scale = parent_static_scale * layer.transform.scale_factor();
         let raster_scale = quantize_scale(static_scale);
 
@@ -602,6 +652,7 @@ impl Compositor {
                 .and_then(|(s, inv)| inv.apply_rect(s).intersect(extent))
                 .filter(|r| !r.is_empty());
             bounds = content_to_device.apply_rect(extent).intersect(clip).filter(|r| !r.is_empty());
+            w.looping |= !layer.ambient.is_empty() && visible.is_some();
             if let Some(visible) = visible {
                 self.tiles(layer, extent, visible, content_to_device, raster_scale, clip, w);
             }

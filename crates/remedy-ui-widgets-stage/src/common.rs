@@ -9,7 +9,7 @@ use remedy_ui_core::{Color, Rect};
 use remedy_ui_layout::{AUTO, Align, Justify, Length, Position};
 use remedy_ui_reactive::untrack;
 use remedy_ui_style::{ColorRole, Theme};
-use remedy_ui_view::{El, Ui};
+use remedy_ui_view::{El, TickKind, Ui};
 use remedy_ui_viz::{Clock, Moved, Ticker};
 
 /// A color for art and strokes: a theme role (which follows the theme) or a fixed color.
@@ -144,8 +144,9 @@ pub(crate) fn layer(ui: &Ui, widget: &'static str) -> El {
 
 /// Runs `step` on a timer while `el` is seen, motion is not reduced and `step` asks for more.
 /// It starts when the element is first seen, and again whenever [`Motion::kick`] is called
-/// (the thing that moves changed) or reduced motion is turned off. A widget at rest, hidden or
-/// under reduced motion schedules nothing.
+/// (the thing that moves changed) or motion is allowed again. A widget at rest, hidden or
+/// under reduced motion schedules nothing. Decoration ([`Motion::attach`]) also follows the
+/// window's ambient policy: its rate, and stopping while ambient motion is off or paused.
 #[derive(Clone)]
 pub(crate) struct Motion {
     ticker: Ticker,
@@ -154,16 +155,23 @@ pub(crate) struct Motion {
 
 impl Motion {
     /// Attaches the loop to `el` and returns the element.
-    pub(crate) fn attach(
+    pub(crate) fn attach(el: El, clock: Clock, step: impl FnMut(Duration) -> Moved + 'static) -> (El, Motion) {
+        Self::attach_kind(el, clock, TickKind::Ambient, step)
+    }
+
+    /// Like [`Motion::attach`], for motion of `kind` (a glide that follows data is
+    /// [`TickKind::Live`]: it settles even while ambient motion is off).
+    pub(crate) fn attach_kind(
         el: El,
         clock: Clock,
+        kind: TickKind,
         mut step: impl FnMut(Duration) -> Moved + 'static,
     ) -> (El, Motion) {
         let seen = Rc::new(Cell::new(false));
         let ui = el.ui().clone();
         let s2 = seen.clone();
-        let ticker = Ticker::new(&el, clock, move |dt| {
-            if !s2.get() || untrack(|| ui.reduced_motion()) {
+        let ticker = Ticker::of_kind(&el, clock, kind, move |dt| {
+            if !s2.get() || untrack(|| ui.reduced_motion()) || ui.tick_interval(kind).is_none() {
                 return Moved::default();
             }
             step(dt)
@@ -182,7 +190,9 @@ impl Motion {
                 }
             })
             .bind_named("reduced_motion", move || {
-                let reduced = ui.reduced_motion();
+                // Ambient motion paused counts as reduced for decoration.
+                let paused = kind == TickKind::Ambient && ui.ambient().is_none();
+                let reduced = ui.reduced_motion() || paused;
                 let was = was_reduced.replace(Some(reduced));
                 if was.is_some_and(|w| w != reduced) {
                     // Painters draw their still frame (or start moving again).
@@ -194,6 +204,11 @@ impl Motion {
                 }
             });
         (el, motion)
+    }
+
+    /// Steps at most once every `interval` (a sprite's frame time).
+    pub(crate) fn set_min_interval(&self, interval: Duration) {
+        self.ticker.set_min_interval(interval);
     }
 
     /// Starts the loop if it is not running and may run.

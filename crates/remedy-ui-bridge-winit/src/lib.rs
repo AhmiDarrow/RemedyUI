@@ -1110,7 +1110,18 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                     self.deliver(el, HostEvent::Drag(id, DragEvent::Leave));
                 }
             }
-            WindowEvent::Focused(f) => self.deliver(el, HostEvent::Focused(id, f)),
+            WindowEvent::Focused(f) => {
+                // Power can change while the app is away (unplugged, battery saver): look
+                // again when people come back to it, and say so only when something changed.
+                if f {
+                    let s = self.hooks.settings();
+                    if s != self.state.settings {
+                        self.state.settings = s.clone();
+                        self.deliver(el, HostEvent::Settings(s));
+                    }
+                }
+                self.deliver(el, HostEvent::Focused(id, f));
+            }
             WindowEvent::Occluded(o) => self.deliver(el, HostEvent::Occluded(id, o)),
             WindowEvent::ThemeChanged(theme) => {
                 let mut s = self.hooks.settings();

@@ -106,6 +106,7 @@ mod hooks {
                 v_.double_click = s.double_click;
                 v_.caret_blink = s.caret_blink;
                 v_.subpixel_text = s.subpixel_text;
+                v_.power_saving = s.power_saving;
                 v_
             }
         }

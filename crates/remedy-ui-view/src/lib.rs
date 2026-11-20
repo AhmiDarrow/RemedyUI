@@ -14,6 +14,7 @@
 //! view needs from its host (an input-method session, the clipboard, a cursor, a new frame)
 //! comes out as [`Request`]s. See `docs/design/02-state-and-elements.md`.
 
+mod ambient;
 mod client;
 mod decoration;
 pub mod device;
@@ -31,6 +32,7 @@ mod prop;
 mod select;
 mod tokens;
 
+pub use ambient::{AmbientLoop, AmbientMode, AmbientPolicy, AmbientRate, AmbientTick, LoopMotion, TickKind, Wave};
 pub use client::TextInput;
 pub use decoration::{Decoration, DecorationKind};
 pub use dnd::Drag;

@@ -321,6 +321,9 @@ pub fn sprite(
     let (src, sh, me) = (source, shown, el.clone());
     el.prop("state", state, move |_, name: String| {
         let ix = src.state_index(&name);
+        // A sprite drawn at 8 frames a second needs 8 steps a second, whatever the window's rate.
+        let (_, fps) = src.frames_fps(ix);
+        motion.set_min_interval(if fps > 0.0 { Duration::from_secs_f32(1.0 / fps) } else { Duration::ZERO });
         if sh.state.replace(ix) != ix {
             sh.frame.set(0);
             sh.since.set(Duration::ZERO);

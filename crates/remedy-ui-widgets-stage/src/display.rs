@@ -291,7 +291,9 @@ pub fn display_text(ui: &Ui, text: impl IntoProp<String>, options: DisplayOption
     // Under reduced motion the text rests at its start.
     let s = state.clone();
     let el = el.bind_named("reduced_motion", move || {
-        if s.line.ui().reduced_motion() && (s.offset.get() != 0.0 || s.flip.get() > 0.0) {
+        let ui = s.line.ui();
+        let still = ui.reduced_motion() || ui.ambient().is_none();
+        if still && (s.offset.get() != 0.0 || s.flip.get() > 0.0) {
             s.offset.set(0.0);
             s.flip.set(0.0);
             s.repaint_flips();

@@ -579,6 +579,8 @@ struct Shared {
     adapter: Option<GraphicsAdapter>,
     /// The app reduces motion whatever the system says ([`App::set_reduce_motion`]).
     reduce_motion: bool,
+    /// Every window's ambient-motion budget ([`App::set_ambient_policy`]); `None`: the default.
+    ambient: Option<remedy_ui_view::AmbientPolicy>,
     /// A tray icon is shown now: one was asked for and the platform took it.
     /// (Made when first asked for.)
     tray_up: Option<remedy_ui_reactive::Signal<bool>>,
@@ -952,6 +954,36 @@ impl App {
         if was != on {
             self.push(Cmd::ReduceMotion);
         }
+    }
+
+    /// Sets how much ambient motion (a theme's animated background, decorative loops) every
+    /// window may have: full, light or off, frames a second with focus and in the
+    /// background, and on battery. Windows minimized, hidden or covered never draw it, and
+    /// reduced motion stops it unless the policy says otherwise. See
+    /// [`AmbientPolicy`](remedy_ui_view::AmbientPolicy).
+    ///
+    /// ```no_run
+    /// # fn setup(app: &remedy_ui::App) {
+    /// use remedy_ui::view::{AmbientMode, AmbientPolicy};
+    /// let mut p = AmbientPolicy::default();
+    /// p.mode = AmbientMode::Light;
+    /// app.set_ambient_policy(p);
+    /// # }
+    /// ```
+    pub fn set_ambient_policy(&self, policy: remedy_ui_view::AmbientPolicy) {
+        let uis: Vec<Ui> = {
+            let mut s = self.0.borrow_mut();
+            s.ambient = Some(policy);
+            s.uis.values().cloned().collect()
+        };
+        for ui in uis {
+            ui.set_ambient_policy(policy);
+        }
+    }
+
+    /// The ambient-motion budget windows follow.
+    pub fn ambient_policy(&self) -> remedy_ui_view::AmbientPolicy {
+        self.0.borrow().ambient.unwrap_or_default()
     }
 
     /// Draws each window at most `fps` times a second (`None`: as often as it changes, up
@@ -1760,6 +1792,10 @@ impl Runner {
                 let app = self.app.clone();
                 ui.set_wake(Rc::new(move || app.wake_if_idle()));
                 ui.set_reduced_motion(self.reduced_motion());
+                ui.set_power_saving(self.settings.power_saving);
+                if let Some(p) = self.app.0.borrow().ambient {
+                    ui.set_ambient_policy(p);
+                }
                 ui.set_system_subpixel(self.settings.subpixel_text);
                 // Content the platform draws itself (an embedded web view) parents to it.
                 ui.set_window_handles(host.window_handles(id).ok());
@@ -2354,6 +2390,7 @@ impl Runner {
         if let Some(l) = f.layers {
             comp.commit(l);
         }
+        comp.set_ambient(w.ui.tick_interval(remedy_ui_view::TickKind::Ambient));
         w.scrollers = f.scrollers;
         // A picture asked for: this frame draws everything, and a CPU renderer of its own
         // draws it once more into the picture.
@@ -2515,6 +2552,13 @@ impl Runner {
         }
         if again && let Some(w) = self.wins.get(&key) {
             host.request_frame(w.host);
+        } else if let (Some(wait), Some(w)) = (plan.wake_in, self.wins.get_mut(&key))
+            && w.held.is_none()
+        {
+            // Ambient loops on the compositor: the next frame at their rate, not the next vsync.
+            let t = host.set_timer(now + wait);
+            w.held = Some(t);
+            self.frame_timers.insert(t, key);
         }
     }
 }
@@ -2648,6 +2692,7 @@ impl remedy_ui_host::App for Runner {
                     w.ui.set_locale(self.locale.clone().unwrap_or_else(|| s.locale.clone()));
                     w.ui.set_double_click_time(s.double_click);
                     w.ui.set_system_subpixel(s.subpixel_text);
+                    w.ui.set_power_saving(s.power_saving);
                 }
                 let appearance = (s.dark, s.high_contrast);
                 self.settings = s;
