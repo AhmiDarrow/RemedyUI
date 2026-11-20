@@ -1,0 +1,30 @@
+// Galaxy: a spiral of stars and dust turning slowly around a bright core: space themes,
+// about screens, loading. Blend plus over a dark sky.
+effect galaxy(
+    color core = #ffe9c4,
+    color arms = #7aa2ff,
+    float arm_count = 2.0 in 1..6,
+    float twist = 9.0 in 0..20,
+    float speed = 0.05 in 0..1,
+    float intensity = 1.0 in 0..2,
+) {
+    fps 24;
+    scale 0.4;
+    blend plus;
+
+    pass disc {
+        let p = centered(uv) * 1.6;
+        let r = length(p);
+        let a = atan2(p.y, p.x) - time * speed;
+        // Arms: a spiral wave, sharpened, fading out from the middle.
+        let wave = 0.5 + 0.5 * cos(a * floor(arm_count) + r * twist);
+        let arm = wave * wave * wave * exp(-r * 2.6);
+        let dust = fbm(rotate(p, time * speed) * 5.0, 4);
+        let stars = step(0.992, hash(floor(px * 0.7))) * exp(-r * 1.2);
+        let glow = exp(-r * r * 30.0);
+        let col = (arms.rgb * arm * (0.4 + dust) + core.rgb * glow * 1.4 + vec3(stars)) * intensity;
+        let m = max(col.r, max(col.g, col.b));
+        out = vec4(col / max(m, 0.0001), clamp(m, 0.0, 1.0));
+    }
+    pass soft = bloom(disc, 0.45, 10.0, 0.6);
+}

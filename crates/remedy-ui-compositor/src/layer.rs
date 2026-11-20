@@ -5,6 +5,17 @@ use std::sync::Arc;
 use remedy_ui_core::{CornerRadii, Rect, Size, Vec2};
 use remedy_ui_paint::{Affine, DisplayList};
 
+/// Frosted glass under a layer: what the window shows below its box, blurred, before its own
+/// content (CSS `backdrop-filter: blur()`). It sees every layer drawn before it, back to the
+/// innermost translucent group around it (its backdrop root, as on the web).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Backdrop {
+    /// The blur's standard deviation, in the layer's local units.
+    pub blur: f32,
+    /// The glass's corners (the layer's box is the glass).
+    pub radii: CornerRadii,
+}
+
 /// A layer's identity, stable across commits (usually the element id that owns it).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LayerId(pub u64);
@@ -58,6 +69,12 @@ pub struct Layer {
     /// Endless transform and opacity loops the compositor runs on this layer at the window's
     /// ambient rate, with no new commits ([`AmbientLoop`](crate::AmbientLoop)).
     pub ambient: Vec<crate::AmbientLoop>,
+    /// Blurs what lies under the layer's box before its content draws.
+    pub backdrop: Option<Backdrop>,
+    /// Filters on the layer and every layer under it, drawn as one picture (a blur, a drop
+    /// shadow of its shape), outermost first: what an element with a filter becomes when
+    /// some of what it draws is in layers of its own.
+    pub filters: Vec<remedy_ui_paint::Filter>,
 }
 
 impl Layer {
@@ -76,7 +93,21 @@ impl Layer {
             content_version: 0,
             children: Vec::new(),
             ambient: Vec::new(),
+            backdrop: None,
+            filters: Vec::new(),
         }
+    }
+
+    /// Draws the layer and its children through `filters`, outermost first.
+    pub fn with_filters(mut self, filters: Vec<remedy_ui_paint::Filter>) -> Self {
+        self.filters = filters;
+        self
+    }
+
+    /// Blurs what lies under the layer's box (rounded by `radii`) before its content.
+    pub fn with_backdrop(mut self, blur: f32, radii: CornerRadii) -> Self {
+        self.backdrop = Some(Backdrop { blur, radii });
+        self
     }
 
     /// Clips to the layer box with `radii`.

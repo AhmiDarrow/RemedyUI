@@ -3,10 +3,10 @@
 
 use std::collections::HashMap;
 
-use remedy_ui_compositor::{CompositeOp, Compositor, FramePlan, LayerId, TileKey};
-use remedy_ui_core::Color;
+use remedy_ui_compositor::{Compositor, FramePlan, LayerId, TileKey};
+use remedy_ui_core::{Color, Rect};
 use remedy_ui_paint::Affine;
-use remedy_ui_render_cpu::Frame;
+use remedy_ui_render_cpu::{CompositeTarget, Frame, record_ops};
 use vello_gpu::kurbo;
 use vello_gpu::peniko::{ImageQuality, ImageSampler};
 use vello_gpu::{ImageSource, Scene, TextureId, TextureRegion};
@@ -38,6 +38,11 @@ pub struct GpuCompositor {
     generation: u64,
     /// The atlas small tiles are rastered in, kept between frames.
     atlas: Option<wgpu::Texture>,
+    /// The frame [`present_to_frame`](Self::present_to_frame) keeps: only damage is drawn
+    /// into it again.
+    retained: Option<wgpu::Texture>,
+    /// Pixels the latest damage-aware present composited.
+    composited: u64,
     /// Bytes of tiles and of uploaded images held, for tools.
     gauges: (remedy_ui_trace::gauges::Gauge, remedy_ui_trace::gauges::Gauge),
 }
@@ -48,12 +53,99 @@ impl std::fmt::Debug for GpuCompositor {
     }
 }
 
-fn kaffine(a: Affine) -> kurbo::Affine {
-    kurbo::Affine::new(a.0.map(f64::from))
+/// What one more damaged rectangle costs the GPU, in pixels it composites in the same time
+/// (a tuning constant): each is a scene, an encoding and a submit of its own. Measured on an
+/// RTX 3080 at 4K: about 0.12 ms a rectangle, while compositing costs about 0.13 ms a million
+/// pixels.
+const RENDER_COST_PIXELS: f32 = 1_000_000.0;
+
+/// The rectangles of `plan` to draw again ([`FramePlan::redraw_rects`]) as whole pixels
+/// `(x0, y0, x1, y1)` within a `w` × `h` frame.
+fn damage_rects(plan: &FramePlan, w: u16, h: u16, kept: bool) -> Vec<(u16, u16, u16, u16)> {
+    plan.redraw_rects(u32::from(w), u32::from(h), kept, RENDER_COST_PIXELS)
+        .into_iter()
+        .filter_map(|r| {
+            let (x0, y0) = (r.min.x.max(0.0) as u16, r.min.y.max(0.0) as u16);
+            let (x1, y1) = (r.max.x.ceil().min(f32::from(w)) as u16, r.max.y.ceil().min(f32::from(h)) as u16);
+            (x1 > x0 && y1 > y0).then_some((x0, y0, x1, y1))
+        })
+        .collect()
 }
 
-fn krect(r: remedy_ui_core::Rect) -> kurbo::Rect {
-    kurbo::Rect::new(f64::from(r.min.x), f64::from(r.min.y), f64::from(r.max.x), f64::from(r.max.y))
+/// Records the composite of the part of the frame inside `area` (device pixels) as a scene of
+/// `w` × `h` whose origin is `area`'s corner. `background` is drawn under a backdrop that
+/// reaches the frame's start (the target is cleared to it first).
+fn compose(
+    tiles: &TileSet,
+    plan: &FramePlan,
+    area: Rect,
+    w: u16,
+    h: u16,
+    background: Color,
+) -> (Scene, vello_gpu::TextureBindings) {
+    let mut rec = Recorder { scene: Scene::new(w, h), bindings: vello_gpu::TextureBindings::new(), tiles };
+    let shift = kurbo::Affine::translate((-f64::from(area.min.x), -f64::from(area.min.y)));
+    record_ops(&mut rec, &plan.ops, 0, area, false, shift, background);
+    (rec.scene, rec.bindings)
+}
+
+/// The GPU's [`CompositeTarget`]: a scene, the tiles it draws from, and the textures it binds.
+struct Recorder<'a> {
+    scene: Scene,
+    bindings: vello_gpu::TextureBindings,
+    tiles: &'a TileSet,
+}
+
+impl CompositeTarget for Recorder<'_> {
+    fn set_transform(&mut self, transform: kurbo::Affine) {
+        self.scene.set_transform(transform);
+    }
+    fn push_clip_rect(&mut self, rect: &kurbo::Rect) {
+        self.scene.push_clip_rect(rect);
+    }
+    fn push_clip_path(&mut self, path: &kurbo::BezPath) {
+        self.scene.push_clip_path(path);
+    }
+    fn pop_clip(&mut self) {
+        self.scene.pop_clip();
+    }
+    fn push_clip_layer(&mut self, path: &kurbo::BezPath) {
+        self.scene.push_clip_layer(path);
+    }
+    fn push_opacity_layer(&mut self, opacity: f32) {
+        self.scene.push_opacity_layer(opacity);
+    }
+    fn push_filter_layer(&mut self, filter: remedy_ui_render_cpu::LayerFilter) {
+        self.scene.push_filter_layer(filter);
+    }
+    fn pop_layer(&mut self) {
+        self.scene.pop_layer();
+    }
+    fn fill_color(&mut self, rect: &kurbo::Rect, c: Color) {
+        self.scene
+            .set_paint(vello_gpu::color::AlphaColor::<vello_gpu::color::Srgb>::new([c.r, c.g, c.b, c.a]));
+        self.scene.fill_rect(rect);
+    }
+    fn fill_tile(
+        &mut self,
+        tile: (LayerId, TileKey),
+        paint_transform: kurbo::Affine,
+        exact: bool,
+        part: &kurbo::Rect,
+    ) {
+        let Some(tile) = self.tiles.0.get(&tile) else { return };
+        self.bindings.insert(tile.id, tile.texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        self.scene.set_paint(vello_gpu::Image {
+            image: ImageSource::external_texture(tile.id, TextureRegion::Full, true),
+            sampler: ImageSampler {
+                quality: if exact { ImageQuality::Low } else { ImageQuality::Medium },
+                ..Default::default()
+            },
+        });
+        self.scene.set_paint_transform(paint_transform);
+        self.scene.fill_rect(part);
+        self.scene.reset_paint_transform();
+    }
 }
 
 /// A graphics adapter as people read it ([`GpuCompositor::adapter`]).
@@ -82,6 +174,8 @@ impl GpuCompositor {
             next_id: 1,
             generation: 0,
             atlas: None,
+            retained: None,
+            composited: 0,
             gauges: (
                 remedy_ui_trace::gauges::Gauge::new("gpu tiles"),
                 remedy_ui_trace::gauges::Gauge::new("gpu images"),
@@ -121,6 +215,14 @@ impl GpuCompositor {
         self.tiles.0.len()
     }
 
+    /// Frees what this compositor and its device keep only to go faster next time (the small
+    /// tiles' atlas, the read back's staging buffer), when the system asks for memory back.
+    /// Tiles go through the compositor's own [`Compositor::trim_memory`].
+    pub fn trim_memory(&mut self) {
+        self.atlas = None;
+        self.renderer.context().trim_memory();
+    }
+
     /// True when the device is gone and [`recover`](Self::recover) must run before drawing.
     pub fn is_lost(&self) -> bool {
         self.renderer.ctx.is_lost()
@@ -149,6 +251,7 @@ impl GpuCompositor {
         self.renderer = GpuRenderer::new(ctx, store);
         self.tiles.0.clear();
         self.atlas = None;
+        self.retained = None;
         self.generation += 1;
         Ok(())
     }
@@ -157,7 +260,8 @@ impl GpuCompositor {
         self.renderer.store_ref().cloned()
     }
 
-    /// Frees released tiles, rasters requested ones, and composites into `target`.
+    /// Frees released tiles, rasters requested ones, and composites the whole frame into
+    /// `target` (whose earlier content is not kept).
     pub fn present(
         &mut self,
         plan: &FramePlan,
@@ -165,10 +269,90 @@ impl GpuCompositor {
         background: Color,
     ) -> Result<(), GpuError> {
         let mut tiles = std::mem::take(&mut self.tiles);
-        let prepared = self.prepare(&mut tiles, plan, target.width(), target.height());
+        let prepared = self.prepare(&mut tiles, plan, target.width(), target.height(), background);
         self.tiles = tiles;
         let (scene, bindings) = prepared?;
         self.renderer.submit(&scene, background, target, &bindings)
+    }
+
+    /// Pixels the latest [`present_to_frame`](Self::present_to_frame) or window present
+    /// composited: the whole frame on a full redraw, only the damage (and a pixel around it)
+    /// otherwise.
+    pub fn last_composited(&self) -> u64 {
+        self.composited
+    }
+
+    /// Rasters the plan's tiles and composites its damage into `frame`, the frame kept between
+    /// presents (made, or made again at a new size, as needed: then all of it is drawn). Only
+    /// the damaged rectangles are drawn, each as a scene of its own size placed at its corner,
+    /// with the rest of the frame left as it was; damage over most of the frame draws it all.
+    /// `with` is the renderer for `format` (a window's), or `None` for this compositor's own.
+    #[allow(clippy::too_many_arguments, reason = "a frame's target and its renderer")]
+    pub(crate) fn render_damage(
+        &mut self,
+        tiles: &mut TileSet,
+        plan: &FramePlan,
+        frame: &mut Option<wgpu::Texture>,
+        format: wgpu::TextureFormat,
+        (width, height): (u32, u32),
+        background: Color,
+        with: Option<(&mut vello_gpu::Renderer, &mut vello_gpu::Resources)>,
+    ) -> Result<(), GpuError> {
+        if self.is_lost() {
+            return Err(GpuError::Lost);
+        }
+        let (w, h) = size16(width, height)?;
+        for key in &plan.released {
+            tiles.0.remove(key);
+        }
+        self.raster(tiles, plan)?;
+        let reuse = frame
+            .as_ref()
+            .is_some_and(|f| (f.width(), f.height()) == (width, height) && f.format() == format);
+        if !reuse {
+            *frame = Some(self.renderer.context().device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("RemedyUI frame"),
+                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            }));
+        }
+        let Some(target) = frame.as_ref() else { return Err(GpuError::BadSize) };
+        let rects = damage_rects(plan, w, h, reuse);
+        self.composited = 0;
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        let ctx = self.renderer.context().clone();
+        let (vello, resources) = match with {
+            Some((v, r)) => (v, r),
+            None => (&mut self.renderer.vello, &mut self.renderer.resources),
+        };
+        for (x0, y0, x1, y1) in rects {
+            let (rw, rh) = (x1 - x0, y1 - y0);
+            self.composited += u64::from(rw) * u64::from(rh);
+            let area = Rect::new(f32::from(x0), f32::from(y0), f32::from(x1), f32::from(y1));
+            let clear = [vello_gpu::RectU16 { x0, y0, x1, y1 }];
+            let color =
+                vello_gpu::color::AlphaColor::new([background.r, background.g, background.b, background.a]);
+            let mut options = vello_gpu::RenderOptions::default();
+            options.target_init = if (rw, rh) == (w, h) {
+                vello_gpu::TargetInit::Clear(vello_gpu::ClearSettings::Viewport { color })
+            } else {
+                vello_gpu::TargetInit::Clear(vello_gpu::ClearSettings::Rects { color, rects: &clear })
+            };
+            // A scene of the rectangle's own size, placed at its corner: the GPU draws only it.
+            options.offset = (i32::from(x0), i32::from(y0));
+            let (scene, bindings) = compose(tiles, plan, area, rw, rh, background);
+            crate::renderer::submit_scene_with(&ctx, vello, resources, &scene, &view, &bindings, options)?;
+        }
+        self.measure(tiles);
+        Ok(())
     }
 
     /// Updates the gauges of what this compositor holds on the GPU: the tiles of the set in
@@ -187,13 +371,15 @@ impl GpuCompositor {
     }
 
     /// Frees released tiles, rasters requested ones, and records the composite of a
-    /// `width` × `height` frame.
+    /// `width` × `height` frame over `background` (the target's clear color, which glass at
+    /// the frame's start blurs too).
     pub(crate) fn prepare(
         &mut self,
         tiles: &mut TileSet,
         plan: &FramePlan,
         width: u32,
         height: u32,
+        background: Color,
     ) -> Result<(Scene, vello_gpu::TextureBindings), GpuError> {
         if self.is_lost() {
             return Err(GpuError::Lost);
@@ -202,56 +388,11 @@ impl GpuCompositor {
             tiles.0.remove(key);
         }
         self.raster(tiles, plan)?;
-
         let (w, h) = size16(width, height)?;
-        let mut scene = Scene::new(w, h);
-        let mut bindings = vello_gpu::TextureBindings::new();
-        for op in &plan.ops {
-            match op {
-                CompositeOp::PushClip { transform, rect, radii } => {
-                    // A clip path, not an isolated clip layer: clipping needs no layer of its
-                    // own, and one per clipped element made every composite that many groups.
-                    scene.set_transform(kaffine(*transform));
-                    if *radii == remedy_ui_core::CornerRadii::ZERO {
-                        scene.push_clip_rect(&krect(*rect));
-                    } else {
-                        scene.push_clip_path(&remedy_ui_render_cpu::rounded_path(*rect, *radii));
-                    }
-                }
-                CompositeOp::PopClip => scene.pop_clip(),
-                CompositeOp::PopOpacity => scene.pop_layer(),
-                CompositeOp::PushOpacity(o) => scene.push_opacity_layer(*o),
-                CompositeOp::Tile { layer, key, transform, rect, raster_scale, area } => {
-                    let Some(tile) = tiles.0.get(&(*layer, *key)) else { continue };
-                    bindings
-                        .insert(tile.id, tile.texture.create_view(&wgpu::TextureViewDescriptor::default()));
-                    let [a, b, c, d, e, f] = transform.0;
-                    let exact = b == 0.0
-                        && c == 0.0
-                        && a == *raster_scale
-                        && d == *raster_scale
-                        && e.fract() == 0.0
-                        && f.fract() == 0.0;
-                    scene.set_transform(kaffine(*transform));
-                    scene.set_paint(vello_gpu::Image {
-                        image: ImageSource::external_texture(tile.id, TextureRegion::Full, true),
-                        sampler: ImageSampler {
-                            quality: if exact { ImageQuality::Low } else { ImageQuality::Medium },
-                            ..Default::default()
-                        },
-                    });
-                    let inv = 1.0 / f64::from(*raster_scale);
-                    scene.set_paint_transform(
-                        kurbo::Affine::translate((f64::from(rect.min.x), f64::from(rect.min.y)))
-                            * kurbo::Affine::scale(inv),
-                    );
-                    scene.fill_rect(&krect(*area));
-                    scene.reset_paint_transform();
-                }
-            }
-        }
+        // The background is the target's clear color; a backdrop at the frame's start draws it.
+        let out = compose(tiles, plan, Rect::new(0.0, 0.0, f32::from(w), f32::from(h)), w, h, background);
         self.measure(tiles);
-        Ok((scene, bindings))
+        Ok(out)
     }
 
     /// Rasters the plan's tile requests. A tile drawn again at the same size keeps its texture.
@@ -272,7 +413,9 @@ impl GpuCompositor {
                 self.next_id += 1;
                 tiles.0.insert((req.layer, req.key), Tile { texture, id });
             }
-            if req.width <= ATLAS_TILE && req.height <= ATLAS_TILE {
+            // Filters blur on a grid that starts at the corner of what is drawn: a tile with
+            // one draws on its own, at its own corner, like the CPU's.
+            if req.width <= ATLAS_TILE && req.height <= ATLAS_TILE && !req.content.has_filters() {
                 small.push(req);
             } else if let Some(tile) = tiles.0.get(&(req.layer, req.key)) {
                 self.renderer.draw(
@@ -355,7 +498,9 @@ impl GpuCompositor {
         Ok(())
     }
 
-    /// Presents into a new texture and reads it back (tests and snapshots).
+    /// Presents into the frame this compositor keeps and reads it back (tests, snapshots,
+    /// thumbnails). Like a window, it draws only the plan's damage into what the previous
+    /// call drew (all of it the first time, or at a new size), so hand it every plan.
     pub fn present_to_frame(
         &mut self,
         plan: &FramePlan,
@@ -363,8 +508,33 @@ impl GpuCompositor {
         height: u32,
         background: Color,
     ) -> Result<Frame, GpuError> {
-        let target = self.renderer.create_target(width, height)?;
-        self.present(plan, &target, background)?;
-        self.renderer.read_back(&target)
+        self.present_to_kept(plan, width, height, background)?;
+        let Some(t) = &self.retained else { return Err(GpuError::BadSize) };
+        self.renderer.read_back(t)
+    }
+
+    /// [`present_to_frame`](Self::present_to_frame) without the read back: the frame stays
+    /// on the GPU (measuring compositing alone, or drawing ahead of a later snapshot).
+    pub fn present_to_kept(
+        &mut self,
+        plan: &FramePlan,
+        width: u32,
+        height: u32,
+        background: Color,
+    ) -> Result<(), GpuError> {
+        let mut tiles = std::mem::take(&mut self.tiles);
+        let mut retained = self.retained.take();
+        let done = self.render_damage(
+            &mut tiles,
+            plan,
+            &mut retained,
+            crate::FORMAT,
+            (width, height),
+            background,
+            None,
+        );
+        self.tiles = tiles;
+        self.retained = retained;
+        done
     }
 }

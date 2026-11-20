@@ -7,6 +7,7 @@
 //! |---|---|---|
 //! | `docs` | [`docs`] | Search and read the guides, design docs and rustdoc; the widget catalog |
 //! | `markup` | [`markup`] | Check `.rui` markup and compile it to Rust |
+//! | `effects` | [`effects`] | Check Prism `.rfx` effects and what they cost; render a frame to PNG |
 //! | `scaffold` | [`scaffold`] | Create an app from the app templates (`remedy-templates`) |
 //! | `preview` | [`preview`] | Render an app's UI headlessly: a PNG, the accessibility tree, the audit |
 //! | `testing` | [`testing`] | Run an app's tests and the engine's budget scenes, summarized |
@@ -20,6 +21,8 @@
 pub mod devtools;
 #[cfg(feature = "docs")]
 pub mod docs;
+#[cfg(feature = "effects")]
+pub mod effects;
 #[cfg(feature = "docs")]
 mod extract;
 #[cfg(any(feature = "live", feature = "devtools"))]
@@ -73,6 +76,8 @@ pub enum Group {
     Docs,
     /// [`markup`].
     Markup,
+    /// [`effects`].
+    Effects,
     /// [`scaffold`].
     Scaffold,
     /// [`preview`].
@@ -87,9 +92,10 @@ pub enum Group {
 
 impl Group {
     /// Every group, in order.
-    pub const ALL: [Group; 7] = [
+    pub const ALL: [Group; 8] = [
         Group::Docs,
         Group::Markup,
+        Group::Effects,
         Group::Scaffold,
         Group::Preview,
         Group::Testing,
@@ -102,6 +108,7 @@ impl Group {
         match self {
             Group::Docs => "docs",
             Group::Markup => "markup",
+            Group::Effects => "effects",
             Group::Scaffold => "scaffold",
             Group::Preview => "preview",
             Group::Testing => "testing",
@@ -120,6 +127,9 @@ impl Group {
         match self {
             Group::Docs => "search and read RemedyUI's guides, design docs and rustdoc; the widget catalog",
             Group::Markup => "check .rui markup and compile it to Rust",
+            Group::Effects => {
+                "check Prism .rfx effects (problems under their lines, cost pass by pass), render a frame to PNG, list the built-in effects"
+            }
             Group::Scaffold => "create an app from the app templates (the same as cargo remedy new)",
             Group::Preview => "render an app's UI headlessly to a PNG with its accessibility tree and audit",
             Group::Testing => "run an app's tests and the engine's budget scenes",
@@ -133,6 +143,7 @@ impl Group {
         match self {
             Group::Docs => cfg!(feature = "docs"),
             Group::Markup => cfg!(feature = "markup"),
+            Group::Effects => cfg!(feature = "effects"),
             Group::Scaffold => cfg!(feature = "scaffold"),
             Group::Preview => cfg!(feature = "preview"),
             Group::Testing => cfg!(feature = "testing"),

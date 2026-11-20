@@ -6,9 +6,9 @@
 //! cargo run --release -p remedy-ui --example effects_gallery -- --snapshot gallery.png
 //! ```
 //!
-//! With `--snapshot <file>` it waits two seconds, saves a picture of the window and quits;
-//! `--cpu` keeps the window on the CPU renderer. (A window's snapshot is drawn by the CPU
-//! renderer, which cannot read GPU textures: snapshot with `--cpu` to see the effects.)
+//! With `--snapshot <file>` it waits two seconds, saves a picture of the window (read back
+//! from the GPU when the GPU draws it, effects included) and quits; `--cpu` keeps the window
+//! on the CPU renderer.
 
 use std::time::Duration;
 
@@ -63,7 +63,9 @@ fn tile(ui: &Ui, name: &str) -> El {
 }
 
 fn app(app: &App, snapshot: Option<String>) {
-    let win = app.open(WindowSpec::new("Prism effects").size(1240.0, 960.0), |ui, _| {
+    // A snapshot shows only the window, so it opens big enough for every tile: 7 columns of 6 rows.
+    let (w, h) = if snapshot.is_some() { (1740.0, 1100.0) } else { (1240.0, 960.0) };
+    let win = app.open(WindowSpec::new("Prism effects").size(w, h), |ui, _| {
         let mut grid = w::wrap(ui).gap(10.0).padding(12.0);
         for (name, _) in LIBRARY {
             grid = grid.child(tile(ui, name));
@@ -74,10 +76,11 @@ fn app(app: &App, snapshot: Option<String>) {
         let a = app.clone();
         app.after(Duration::from_secs(2), move || {
             let a2 = a.clone();
+            let drawn_by = win.renderer();
             win.snapshot(move |image| {
                 if let Some(i) = image {
                     let _ = save(&path, &i);
-                    println!("saved {path}");
+                    println!("saved {path} (drawn by {drawn_by:?})");
                 }
                 a2.quit();
             });

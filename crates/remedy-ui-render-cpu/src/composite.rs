@@ -4,13 +4,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use remedy_ui_compositor::{CompositeOp, FramePlan, LayerId, TileKey};
-use remedy_ui_core::{Color, CornerRadii, Rect};
+use remedy_ui_compositor::{FramePlan, LayerId, TileKey};
+use remedy_ui_core::{Color, Rect};
 use vello_cpu::kurbo;
 use vello_cpu::peniko::{ImageQuality, ImageSampler};
 use vello_cpu::{ImageSource, Pixmap, RenderContext, Resources};
 
-use crate::{CpuRenderer, Frame, RenderError, color, kaffine, rounded, size16};
+use crate::record::{CompositeTarget, record_ops};
+use crate::{CpuRenderer, Frame, RenderError, color, size16};
 
 /// Runs [`FramePlan`]s: the CPU half of the compositor. Keep one per window; it holds the
 /// rastered tiles between frames.
@@ -122,21 +123,9 @@ impl CpuCompositor {
         // composite is recorded once for the whole window and only the damaged rectangles are
         // rasterized from it. A frame of a new size, the first frame, or damage over most of
         // the window draws it all.
-        let full = Rect::new(0.0, 0.0, f32::from(w), f32::from(h));
         let reuse = self.last.as_ref().is_some_and(|f| (f.width, f.height) == (width, height));
-        let rects: Vec<Rect> = if reuse && plan.damage.area() < full.size().area() * 0.6 {
-            // One pixel more around each: a filtered tile may touch the pixel past its box.
-            plan.damage
-                .rects()
-                .iter()
-                .filter_map(|r| {
-                    Rect::new(r.min.x - 1.0, r.min.y - 1.0, r.max.x + 1.0, r.max.y + 1.0).intersect(full)
-                })
-                .filter(|r| !r.is_empty())
-                .collect()
-        } else {
-            vec![full]
-        };
+        // A rectangle costs the CPU about its pixels: no fixed cost to save by merging.
+        let rects = plan.redraw_rects(width, height, reuse, 0.0);
         let mut frame = match self.last.take() {
             Some(f) if (f.width, f.height) == (width, height) => f.pixels,
             _ => vec![0u8; usize::from(w) * usize::from(h) * 4],
@@ -193,69 +182,65 @@ impl CpuCompositor {
         let mut ctx = self.ctx.take(w, h);
         ctx.set_paint(color(background));
         ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, f64::from(w), f64::from(h)));
-        // Inside a skipped subtree: how many pushes deep.
-        let mut skip = 0u32;
-        for op in &plan.ops {
-            if skip > 0 {
-                match op {
-                    CompositeOp::PushClip { .. } | CompositeOp::PushOpacity(_) => skip += 1,
-                    CompositeOp::PopClip | CompositeOp::PopOpacity => skip -= 1,
-                    CompositeOp::Tile { .. } => {}
-                }
-                continue;
-            }
-            match op {
-                CompositeOp::PushClip { transform, rect, .. }
-                    if transform.apply_rect(*rect).intersect(area).is_none_or(|r| r.is_empty()) =>
-                {
-                    skip = 1;
-                }
-                CompositeOp::PushClip { transform, rect, radii } => {
-                    // A clip path, not a clip layer: clipping needs no isolated buffer, and a
-                    // layer per clipped element made every composite cost as many groups.
-                    ctx.set_transform(shift * kaffine(*transform));
-                    if *radii == CornerRadii::ZERO {
-                        ctx.push_clip_rect(&crate::krect(*rect));
-                    } else {
-                        ctx.push_clip_path(&rounded(*rect, *radii));
-                    }
-                }
-                CompositeOp::PopClip => ctx.pop_clip(),
-                CompositeOp::PopOpacity => ctx.pop_layer(),
-                CompositeOp::PushOpacity(o) => ctx.push_opacity_layer(*o),
-                CompositeOp::Tile { layer, key, transform, rect, raster_scale, area: part } => {
-                    if transform.apply_rect(*part).intersect(area).is_none_or(|r| r.is_empty()) {
-                        continue;
-                    }
-                    let Some(pix) = self.tiles.get(&(*layer, *key)) else { continue };
-                    // Pixel-exact placement (the common, static case) samples nearest so tiles
-                    // stay crisp and seamless; scaled or rotated tiles filter.
-                    let [a, b, c, d, e, f] = transform.0;
-                    let exact = b == 0.0
-                        && c == 0.0
-                        && a == *raster_scale
-                        && d == *raster_scale
-                        && e.fract() == 0.0
-                        && f.fract() == 0.0;
-                    ctx.set_transform(shift * kaffine(*transform));
-                    ctx.set_paint(vello_cpu::Image {
-                        image: ImageSource::Pixmap(pix.clone()),
-                        sampler: ImageSampler {
-                            quality: if exact { ImageQuality::Low } else { ImageQuality::Medium },
-                            ..Default::default()
-                        },
-                    });
-                    let inv = 1.0 / f64::from(*raster_scale);
-                    ctx.set_paint_transform(
-                        kurbo::Affine::translate((f64::from(rect.min.x), f64::from(rect.min.y)))
-                            * kurbo::Affine::scale(inv),
-                    );
-                    ctx.fill_rect(&crate::krect(*part));
-                    ctx.reset_paint_transform();
-                }
-            }
-        }
+        let mut rec = Recorder { ctx: &mut ctx, tiles: &self.tiles };
+        record_ops(&mut rec, &plan.ops, 0, area, false, shift, background);
         ctx.flush();
         ctx
+    }
+}
+
+/// The CPU's [`CompositeTarget`]: a render context, and the tiles it draws from.
+struct Recorder<'a> {
+    ctx: &'a mut RenderContext,
+    tiles: &'a HashMap<(LayerId, TileKey), Arc<Pixmap>>,
+}
+
+impl CompositeTarget for Recorder<'_> {
+    fn set_transform(&mut self, transform: kurbo::Affine) {
+        self.ctx.set_transform(transform);
+    }
+    fn push_clip_rect(&mut self, rect: &kurbo::Rect) {
+        self.ctx.push_clip_rect(rect);
+    }
+    fn push_clip_path(&mut self, path: &kurbo::BezPath) {
+        self.ctx.push_clip_path(path);
+    }
+    fn pop_clip(&mut self) {
+        self.ctx.pop_clip();
+    }
+    fn push_clip_layer(&mut self, path: &kurbo::BezPath) {
+        self.ctx.push_clip_layer(path);
+    }
+    fn push_opacity_layer(&mut self, opacity: f32) {
+        self.ctx.push_opacity_layer(opacity);
+    }
+    fn push_filter_layer(&mut self, filter: crate::LayerFilter) {
+        self.ctx.push_filter_layer(filter);
+    }
+    fn pop_layer(&mut self) {
+        self.ctx.pop_layer();
+    }
+    fn fill_color(&mut self, rect: &kurbo::Rect, c: Color) {
+        self.ctx.set_paint(color(c));
+        self.ctx.fill_rect(rect);
+    }
+    fn fill_tile(
+        &mut self,
+        tile: (LayerId, TileKey),
+        paint_transform: kurbo::Affine,
+        exact: bool,
+        part: &kurbo::Rect,
+    ) {
+        let Some(pix) = self.tiles.get(&tile) else { return };
+        self.ctx.set_paint(vello_cpu::Image {
+            image: ImageSource::Pixmap(pix.clone()),
+            sampler: ImageSampler {
+                quality: if exact { ImageQuality::Low } else { ImageQuality::Medium },
+                ..Default::default()
+            },
+        });
+        self.ctx.set_paint_transform(paint_transform);
+        self.ctx.fill_rect(part);
+        self.ctx.reset_paint_transform();
     }
 }

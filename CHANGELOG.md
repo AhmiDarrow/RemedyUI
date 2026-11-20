@@ -10,6 +10,83 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Blur, shadows and frosted glass on any element**, on both renderers with matching results
+  (within two levels): `Style::shadow` (CSS `box-shadow`, a `Shadow` value),
+  `Style::blur` (`filter: blur()`), `Style::drop_shadow` (`filter: drop-shadow()`, a shadow
+  of the shape of everything the element draws, text and icons included) and
+  `Style::backdrop_blur` (`backdrop-filter: blur()`: the element gets a compositor layer and
+  the compositor blurs every layer below it, back to its backdrop root), with the same on
+  `StylePatch` and `ResolvedStyle`. Display lists gain `Item::PushFilter(Filter)` /
+  `Item::PopFilter` (`Filter::Blur`, `Filter::DropShadow`; `DisplayList::push_filter`,
+  `pop_filter`, `has_filters`, `Filter::outset`) and `Item::Backdrop`; layers gain
+  `Layer::backdrop` (`Backdrop`, `Layer::with_backdrop`) and the composite
+  `CompositeOp::Backdrop` (`CompositeOp::backdrop_root`, `backdrop_reach`). Drawn through
+  vello's filter layers, so tiles stay seamless and both renderers blur alike.
+  `examples/glass_and_shadows` shows all four over a Prism aurora. A filter takes children
+  that are compositor layers of their own: the element becomes a layer with
+  `Layer::filters`, composited through `CompositeOp::PushFilter` / `PopFilter`. Glass fades
+  with its element's opacity, and scroll containers can be glass.
+- **Eight more built-in Prism effects** (38 in all): `shimmer` (the sweep of light over a
+  loading placeholder), `mesh_gradient` (drifting pools of colour for backdrops), `confetti`,
+  `smoke`, `galaxy`, `code_rain`, `frost` (ice creeping in from the edges, by `amount`) and
+  `retro_grid`. All fit `Limits::untrusted`, have golden images, and match on the GPU kernel.
+- **Filters are bounded**: a filter's blur is at most `MAX_FILTER_STD_DEV` (64) device pixels
+  and a drop shadow's offset at most `MAX_FILTER_OFFSET` (2048) on each axis
+  (`Filter::limited`), wherever a renderer or compositor draws one, so a theme asking for a
+  blur of a million pixels, infinity or NaN gets the bound and no huge buffers (tested on
+  both renderers).
+- **Effect tools for people and agents**: `cargo remedy rfx check <file or name>
+  [--untrusted]` (each problem under its line, or the parameters and each pass's cost),
+  `rfx render … --png <file>` (a frame on the CPU reference renderer, with sizes, time and
+  parameter values) and `rfx library`; the same as the MCP tools `rfx_check`, `rfx_render`
+  (a PNG image) and `rfx_library`, from the new `effects` group of `remedy-tools`.
+- **Prism effects polished and cheaper**: effects that do not move (`Effect::animated` false:
+  paper, frost) are drawn once per size and parameter change and ask for no frames.
+  `starfield` draws its soft dust band at a quarter of the resolution (cost 268 to 184, at
+  most a level of difference) and `heat_shimmer` its air at half (148 to 62, the same
+  picture). `plasma` has a softer palette whose colours drift over time, and `fog` is
+  denser by default with a haze above its banks. `lightning` forks, stays unbroken where
+  it runs sideways (its core is measured across the bolt, not only sideways), tapers at
+  its tip instead of stopping at a line, strikes twice down the same channel and lights
+  the sky more; its still frame (reduced motion, paused) shows a strike (cost 33 to 127,
+  for the picture). `film_grain` is soft clumps of any size, mostly faint, instead of
+  square cells (26 to 56). The golden-image test draws an effect that shows nothing at its
+  time at its still moment instead, and fails on a blank picture: lightning's had been
+  blank. The compiler turns `pow(x, n)` for a whole `n` from 2 to 8 into
+  multiplies (the same pixels, cheaper than `pow`), and a multiply used only by an add
+  into one `fma`, in every effect, people's own included: `ripples` costs 114 instead of
+  145, and most effects 3 to 10% less with identical pixels. `crystal` marches in the
+  gem's own turning space (390 to 241) and has a smooth outline (a grazing ray covers
+  part of its pixel; 301 with it), `orb` too, with four-sample normals (2279 to
+  2058), and `volumetric_clouds` probes its light with one octave less (548 to 482); each
+  within a few levels of before, on a handful of edge pixels.
+- **Prism's CPU interpreter is faster with the same pixels** (every golden image unchanged,
+  noise checked bit for bit against the old code): instructions read their operands in
+  place instead of copying them (registers are boxed and swapped), each common operation
+  has its own loop, gradient noise shares the hashes of a cell's corners (14 per 3D noise
+  instead of 24) and picks its gradient from a table instead of a branch the random hash
+  mispredicted. Twelve of the costliest effects at 640x400 on four cores: 1064 to about
+  610 ms in all; `orb` 520 to 188, `crystal` 89 to about 45. The GPU kernel picks noise
+  gradients with selects instead of a `switch`, so neighbouring pixels no longer diverge
+  (not measured on a hardware GPU).
+- **Prism in `.rui` markup**: `remedy_ui::effects::register_markup` adds the `effect`
+  element (`effect(name: "fire", param: "intensity", value: $heat) { … }`): a built-in
+  effect, one parameter driven by a number signal, children drawn over it
+  (`markup_element`, `MARKUP_PARAMS` for build-time markup).
+- **Prism diagnostics**: "did you mean" for a misspelled function, name, parameter, pass or
+  type; an effect over its cost budget is reported at its costliest pass with the passes that
+  cost most; particle and pass-count limits are reported where they are written.
+  `CompileError::report(source)` and `Diagnostic::render(source)` draw each problem under its
+  line with a caret.
+- **Per-effect GPU timing and a GPU quality ladder** for Prism: `GpuEffect::take_gpu_time`
+  samples an effect's GPU time every eighth frame with timestamp queries, without waiting
+  for the GPU; the effect element steps down to half, then a quarter resolution (at most
+  30 fps) when it stays over `EffectView::set_gpu_budget` (2 ms by default), and climbs back.
+  `EffectStats::gpu_time`.
+- `GpuCompositor::read_surface` (a picture of what a GPU window shows),
+  `GpuCompositor::last_composited`, and `FramePlan::redraw_rects` (the rectangles a renderer
+  that keeps its frame draws again; both compositors use it).
+
 - **Prism, the effects system** (`remedy-ui-effects`, `remedy-ui-media-effects`, the
   `effects` feature, `remedy_ui::effects`; in `full`): `.rfx`, a language for animated,
   procedural pictures (types float to mat4, functions, `if`, constant loops; passes at their
@@ -399,6 +476,30 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- **The GPU compositor draws only what changed.** Each window's frame is kept in a texture;
+  a present composites only the plan's damage into it (each damaged rectangle a scene of its
+  own size placed at its corner, only that rectangle cleared), before acquiring the swapchain
+  image, then copies it to the swapchain (or draws it onto one that takes no copies). Damage
+  over most of the window, a new size, a rebuilt device or the first frame draw it all.
+  Tested to equal a full redraw pixel for pixel, frosted glass included. wgpu has no present
+  with damage, so the GPU path presents the whole kept frame. `GpuCompositor::present_to_frame`
+  keeps its frame the same way: hand it every plan. Tiles whose content holds filters raster
+  on their own rather than in the small-tile atlas.
+- **`Window::snapshot` of a GPU window** reads back the frame the GPU shows instead of
+  drawing the frame again on the CPU, so pictures hold Prism effects, video, `gpu_view`
+  textures, blurs and glass. The effects gallery's `--snapshot` no longer needs `--cpu`.
+- Breaking (pre-1.0): `paint::Item` gains `PushFilter`, `PopFilter` and `Backdrop`, and
+  `compositor::CompositeOp` gains `Backdrop`, `PushFilter` and `PopFilter`; exhaustive matches on them need the new arms
+  (`PushFilter` closes with `PopFilter`, like `PushLayer`). `render_cpu::Surface` gains
+  `push_filter_layer` (vello's `push_filter_layer`). `Layer` gains `backdrop` and
+  `filters` fields (build layers with `Layer::new`), and `ResolvedStyle` gains `shadow`, `blur`, `drop_shadow` and
+  `backdrop_blur`. `EffectStats::level` now counts the GPU's steps too.
+- `docs/design/04-rendering.md` describes what the renderers do, and lists what is planned
+  under "Not yet in code" (layer squashing, a backend self-test and present watchdog, partial
+  presents on the GPU, platform presenting details and system backdrops, HDR, zero-copy
+  video, mipmaps, colour-matrix filters, printing). It had described several of those as
+  existing. `16-effects.md` and `10-platform-bridges.md` follow.
+
 - The CPU compositor composites only the damage: each damaged rectangle is recorded on its
   own (tiles and clipped subtrees outside it left out) and rasterized into the kept frame.
   Both compositors clip with clip paths instead of isolated clip layers. The GPU compositor
@@ -470,6 +571,20 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- Prism: an `if` that changed two or more variables merged them in a hash map's order, so
+  the same source could compile to differently ordered (equally correct) programs. They now
+  merge in name order.
+- Animations at rest or finished sample their exact target (`Animation::sample`): colors
+  move in Oklab and came back a few millionths off, so a reduced-motion `animate_style`
+  never quite reached its color.
+- A display list with a pop too many (`PopLayer`, `PopClip`, `PopFilter` with nothing open)
+  or groups left open made the renderers panic ("some layers haven't been popped yet"); the
+  painter now skips unmatched pops and closes what a list leaves open. A fuzz test draws
+  random unbalanced lists, with absurd filter values, directly and through compositor tiles
+  on both renderers.
+- A snapshot of a window the GPU draws left out GPU content (Prism effects, `gpu_view`
+  textures, video converted on the GPU): it was drawn again by a CPU renderer that cannot read
+  GPU textures. It now reads back the GPU's own frame.
 - Overlays placed near or beside something (tooltips, menus, submenus) are measured from
   the window's start edge, so one opened at the right edge keeps its width instead of
   wrapping its text into the few pixels left there and being placed at that size.

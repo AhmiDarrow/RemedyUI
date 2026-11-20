@@ -10,11 +10,14 @@ effect film_grain(
 
     pass grain {
         let frame = floor(time * 24.0);
-        let g = hash(vec3(floor(px / size_px), frame)) ;
+        // Grain as film has it: soft clumps of any size (not square cells), most of them
+        // faint and a few strong (two random values summed lean towards the middle).
+        let q = px / size_px + hash2(vec2(frame, 7.0)) * 512.0;
+        let g = noise(vec3(q, frame)) + hash(vec3(floor(px), frame)) - 1.0;
         let v = 1.0 - vignette(uv, vignette_amount);
         // Dark grain as black with alpha, light grain as white with alpha.
-        let light = step(0.5, g);
-        let a = abs(g - 0.5) * 2.0 * strength + v * 0.5;
+        let light = step(0.0, g);
+        let a = abs(g) * 2.0 * strength + v * 0.5;
         out = vec4(vec3(light * (1.0 - v)), clamp(a, 0.0, 1.0));
     }
 }

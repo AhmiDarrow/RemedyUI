@@ -1,5 +1,6 @@
 //! The compositor path (layers, tiles, scroll, opacity) draws what direct rendering draws.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use remedy_ui_compositor::{Compositor, Layer, LayerId, LayerTree};
@@ -166,5 +167,43 @@ fn composites_only_the_damage_and_matches_a_full_frame() {
             .unwrap_or_else(|e| unreachable!("{e:?}"));
         let worst = partial.pixels.iter().zip(&full.pixels).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
         assert!(worst <= 1, "frame {k}: kept pixels plus redrawn damage equal a full frame (worst {worst})");
+    }
+}
+
+/// A tree with frosted glass the square passes under.
+fn under_glass(x: f32) -> LayerTree {
+    let mut tint = DisplayList::new();
+    tint.fill_rounded(
+        Rect::new(0.0, 0.0, 80.0, 50.0),
+        CornerRadii::all(10.0),
+        Brush::Solid(Color::rgba8(255, 255, 255, 40)),
+    );
+    let glass = Layer::new(LayerId(3), Rect::new(70.0, 30.0, 150.0, 80.0), tint)
+        .with_backdrop(4.0, CornerRadii::all(10.0));
+    let mut t = moving(x);
+    if let Some(root) = t.roots.first_mut().and_then(Arc::get_mut) {
+        root.children.push(Arc::new(glass));
+    }
+    t
+}
+
+#[test]
+fn damage_under_glass_matches_a_full_frame_exactly() {
+    let mut comp = Compositor::new(200, 120, 1.0, ScrollPhysics::CLAMPED);
+    let mut cpu = CpuCompositor::new();
+    for (k, x) in [10.0f32, 40.5, 61.0, 90.25, 120.0, 170.0].into_iter().enumerate() {
+        comp.commit(under_glass(x));
+        let plan = comp.frame(Duration::from_millis(16 * k as u64));
+        let partial = cpu.present(&plan, 200, 120, Color::BLACK).unwrap_or_else(|e| unreachable!("{e:?}"));
+        if k > 0 {
+            assert!(cpu.last_composited() < 200 * 120, "frame {k} composites only its damage");
+        }
+        let mut fresh = Compositor::new(200, 120, 1.0, ScrollPhysics::CLAMPED);
+        fresh.commit(under_glass(x));
+        let full = CpuCompositor::new()
+            .present(&fresh.frame(Duration::ZERO), 200, 120, Color::BLACK)
+            .unwrap_or_else(|e| unreachable!("{e:?}"));
+        let worst = partial.pixels.iter().zip(&full.pixels).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
+        assert_eq!(worst, 0, "frame {k}: the glass over damage equals a full frame");
     }
 }

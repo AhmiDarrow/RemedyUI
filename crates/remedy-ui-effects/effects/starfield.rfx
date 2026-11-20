@@ -24,16 +24,20 @@ effect starfield(
         return present * tw * clamp(1.0 - d / r, 0.0, 1.0) + present * tw * 0.35 * exp(-d / (r * 2.5));
     }
 
+    // The band: a soft diagonal of dust. It has no edges, so a quarter of the resolution
+    // draws it the same, at a sixteenth of the work.
+    pass dust scale 0.25 {
+        let q = rotate(centered(uv), 0.5);
+        out = vec4(vec3(exp(-q.y * q.y * 18.0) * fbm(q * 4.0, 4) * band), 1.0);
+    }
+
     pass sky {
         let base = mix(sky_top, sky_bottom, uv.y);
         let d = 1.0 / density;
         var s = layer(px, 9.0 * d, 0.93, 0.0);
         s += layer(px + vec2(31.0, 17.0), 17.0 * d, 0.90, 2.0) * 1.2;
         s += layer(px + vec2(7.0, 53.0), 34.0 * d, 0.86, 4.0) * 1.5;
-        // The band: a soft diagonal of dust.
-        let q = rotate(centered(uv), 0.5);
-        let dust = exp(-q.y * q.y * 18.0) * fbm(q * 4.0, 4) * band;
-        let rgb = base.rgb + vec3(0.45, 0.42, 0.6) * dust + star.rgb * s;
+        let rgb = base.rgb + vec3(0.45, 0.42, 0.6) * sample(dust, uv).r + star.rgb * s;
         out = vec4(rgb, 1.0);
     }
 }

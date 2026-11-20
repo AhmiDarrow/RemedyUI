@@ -1,0 +1,26 @@
+// Frost: ice creeping in from the edges, veined like a window on a winter morning; `amount`
+// from 0 (clear) to 1 (iced over). Over anything.
+effect frost(
+    color ice = #e3f4ff,
+    float amount = 0.6 in 0..1,
+    float scale_px = 36.0 in 10..400,
+) {
+    fps 12;
+    // Frost does not move with time: drawn once per size and `amount`, then free.
+    scale 0.5;
+
+    pass rime {
+        let p = px / scale_px;
+        // Crystals at two sizes: large plates, and fine needles over them.
+        let v = voronoi(p);
+        let f = voronoi(p * 2.7 + vec2(3.1, 1.7));
+        let veins = (1.0 - smoothstep(0.0, 0.05, v.y - v.x)) * 0.7 + (1.0 - smoothstep(0.0, 0.08, f.y - f.x)) * 0.35;
+        let grain = fbm(p * 3.0, 4);
+        // Distance to the nearest edge, in the box's height.
+        let e = min(min(uv.x, 1.0 - uv.x) * aspect, min(uv.y, 1.0 - uv.y));
+        let reach = amount * 0.55;
+        let mask = 1.0 - smoothstep(reach * 0.3, reach + 0.001, e + (grain - 0.5) * 0.2);
+        let a = mask * (0.3 + veins * 0.45 + grain * 0.3);
+        out = vec4(ice.rgb, clamp(a, 0.0, 1.0));
+    }
+}

@@ -631,3 +631,41 @@ fn a_running_app_is_operated_under_consent_and_its_devtools_are_read() {
     ok(&call("devtools_timings", json!({})), "timings");
     assert!(ok(&call("devtools_disconnect", json!({})), "disconnect").contains("disconnected"));
 }
+
+#[test]
+fn effects_are_checked_and_rendered_for_agents() {
+    let ws = scratch("effects-ws");
+    let mcp = Mcp::start(&["--workspace".into(), plain(&ws)], &[]);
+    let tools = mcp.tools();
+    for t in ["rfx_check", "rfx_render", "rfx_library"] {
+        assert!(tools.iter().any(|x| x == t), "{t} is offered: {tools:?}");
+    }
+    let lib = ok(&mcp.call("rfx_library", json!({})), "rfx_library");
+    assert!(lib.contains("fire (cost") && lib.contains("shimmer"), "{lib}");
+    // A slip of the keyboard: the problem under its line, with a suggestion.
+    let bad = ok(
+        &mcp.call("rfx_check", json!({"source": "effect e {\n    pass p { out = vec4(fmb(uv, 3)); }\n}\n"})),
+        "rfx_check",
+    );
+    assert!(bad.contains("did you mean `fbm`?") && bad.contains("2 |     pass p"), "{bad}");
+    let good = ok(&mcp.call("rfx_check", json!({"name": "fire", "untrusted": true})), "rfx_check");
+    assert!(good.starts_with("ok: effect `fire`") && good.contains("pass flame (shade)"), "{good}");
+    let r = mcp.call("rfx_render", json!({"name": "plasma", "width": 160, "height": 100, "time": 1.0}));
+    let t = ok(&r, "rfx_render");
+    assert!(t.contains("at t = 1 s"), "{t}");
+    let png_b64 = r
+        .content
+        .iter()
+        .find_map(|c| match c {
+            ContentBlock::Image(i) if i.mime_type == "image/png" => Some(i.data.clone()),
+            _ => None,
+        })
+        .must("a PNG image");
+    let reader = png::Decoder::new(std::io::Cursor::new(unbase64(&png_b64))).read_info().must("a PNG");
+    // The element's size (plasma draws at a lower resolution, stretched over it).
+    assert_eq!((reader.info().width, reader.info().height), (160, 100));
+    assert!(t.contains("the effect drew at") && !t.contains("drew at 160 x 100"), "{t}");
+    // A file outside the workspace stays out of reach.
+    let outside = mcp.call("rfx_check", json!({"path": plain(&workspace_root().join("README.md"))}));
+    assert!(failed(&outside).contains("outside the workspace"));
+}

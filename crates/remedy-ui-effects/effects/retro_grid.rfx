@@ -1,0 +1,34 @@
+// Retro grid: a glowing floor grid racing towards a horizon under a haze of light: synthwave
+// title screens, music players, arcades. Blend plus over dark.
+effect retro_grid(
+    color line = #ff4fd8,
+    color haze = #7b2cff,
+    float speed = 0.6 in 0..4,
+    float horizon = 0.45 in 0.1..0.9,
+    float spacing = 1.0 in 0.3..4,
+) {
+    fps 30;
+    scale 0.5;
+    blend plus;
+
+    pass grid {
+        let below = uv.y - horizon;
+        // Depth of the floor under this pixel, and where on the floor it is.
+        let z = 1.0 / max(below, 0.002);
+        let gx = (uv.x - 0.5) * aspect * z / spacing;
+        let gz = (z + time * speed * 6.0) / spacing * 0.25;
+        let fx = abs(fract(gx) - 0.5);
+        let fz = abs(fract(gz) - 0.5);
+        // Lines a fixed width on screen: wider in grid units far away, then faded out.
+        let wx = clamp(0.012 * z, 0.01, 0.5);
+        let wz = clamp(0.02 * z, 0.01, 0.5);
+        let lx = smoothstep(0.5 - wx, 0.5, 0.5 - fx + wx * 0.5);
+        let lz = smoothstep(0.5 - wz, 0.5, 0.5 - fz + wz * 0.5);
+        let fade = exp(-z * 0.11) * step(0.0, below);
+        let sky = exp(-abs(below) * 10.0) * 0.7;
+        let col = line.rgb * max(lx, lz) * fade + haze.rgb * sky;
+        let m = max(col.r, max(col.g, col.b));
+        out = vec4(col / max(m, 0.0001), clamp(m, 0.0, 1.0));
+    }
+    pass soft = bloom(grid, 0.35, 8.0, 0.8);
+}

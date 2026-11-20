@@ -22,6 +22,7 @@ Each tool group is a cargo feature. `full` is the default and includes `http`. A
 |---|---|---|
 | `docs` | `docs_search`, `docs_read`, `widget_catalog`; the guides as resources | the docs index only |
 | `markup` | `rui_check`, `rui_compile`, `rui_elements` | `remedy-ui-rui` without its runtime |
+| `effects` | `rfx_check`, `rfx_render`, `rfx_library` | `remedy-ui-effects` (its compiler and CPU interpreter) |
 | `scaffold` | `new_app` | `remedy-templates` (the app templates, shared with `cargo remedy new`) |
 | `preview` | `render_preview`, `list_previews`, `a11y_audit` | nothing (it builds a harness against the app) |
 | `testing` | `run_tests`, `budget_check` | nothing (it runs Cargo) |
@@ -92,6 +93,9 @@ The server listens on `http://127.0.0.1:7801/mcp`. Every request needs `Authoriz
   - its variants
   - an example. Deprecated builders are left out, since their replacements are listed (from its docs, or a call that shows each argument by its type)
   - its source line
+- **`rfx_check`** `{source | path | name, untrusted?}`: checks a Prism `.rfx` effect against the limits an app's own effects get, or a theme's or script's with `untrusted`. A valid effect returns its parameters and what each pass costs; otherwise every problem is drawn under its source line with a caret, and a misspelled name gets a suggestion.
+- **`rfx_render`** `{source | path | name, width?, height?, scale?, time?, values?, background?}`: renders a frame of the effect on the CPU (the reference renderer the GPU kernel is tested against) and returns it as a PNG image the size of the element (`width`, `height` times `scale`), stretched smoothly as the element draws it, with the resolution the effect drew at and the time it took. `values` sets parameters by name (one number for a float, up to four for a color).
+- **`rfx_library`**: the built-in effects, with what each is, its parameters and its cost.
 - **`rui_check`** `{source | path, file?, elements?}`: checks `.rui` markup against the built-in elements, plus the app's own elements passed as specs (`{name, params: [{name, kind, required}], children, path}`). It reports the first problem at `file:line:column` with a hint. A valid file returns the signals it binds (with their Rust types) and the commands it names.
 - **`rui_compile`**: the same input. Returns the Rust that `remedy_ui_rui::build` would generate. App elements need their builder's `path`.
 - **`rui_elements`**: lists the built-in elements and their arguments.

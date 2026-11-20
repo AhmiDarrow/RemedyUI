@@ -4,7 +4,7 @@
 //! Optimized builds only (`cargo test --release -p remedy-ui --test windows_auto_gpu`):
 //! unoptimized, building the GPU pipelines takes long enough to blow the deadline while a
 //! window sits frozen on the desktop.
-#![cfg(all(windows, feature = "gpu", not(debug_assertions)))]
+#![cfg(all(windows, feature = "gpu"))]
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -41,6 +41,10 @@ fn watch(app: &App, win: remedy_ui::Window, seen: Rc<Cell<Option<RendererKind>>>
 }
 
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "optimized builds only: cargo test --release -p remedy-ui --test windows_auto_gpu"
+)]
 fn a_slow_window_moves_from_the_cpu_to_the_gpu() {
     let first = Rc::new(Cell::new(None));
     let later = Rc::new(Cell::new(None));

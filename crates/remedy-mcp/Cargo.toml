@@ -1,6 +1,6 @@
 [package]
 name = "remedy-mcp"
-description = "A Model Context Protocol server for RemedyUI: AI agents search the docs and widget catalog, check and compile .rui markup, create apps, render previews with their accessibility audit, run tests, and operate running apps and their devtools under the person's consent. Over stdio, or streamable HTTP on loopback with a token."
+description = "A Model Context Protocol server for RemedyUI: AI agents search the docs and widget catalog, check and compile .rui markup, check and render Prism effects, create apps, render previews with their accessibility audit, run tests, and operate running apps and their devtools under the person's consent. Over stdio, or streamable HTTP on loopback with a token."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -18,11 +18,12 @@ path = "src/main.rs"
 [features]
 default = ["full"]
 ## Every tool group, and streamable HTTP.
-full = ["docs", "markup", "scaffold", "preview", "testing", "live", "devtools", "http"]
+full = ["docs", "markup", "effects", "scaffold", "preview", "testing", "live", "devtools", "http"]
 ## docs_search, docs_read, widget_catalog; the guides as resources.
 docs = ["remedy-tools/docs"]
 ## rui_check, rui_compile, rui_elements.
 markup = ["remedy-tools/markup"]
+effects = ["remedy-tools/effects"]
 ## new_app.
 scaffold = ["remedy-tools/scaffold"]
 ## render_preview, a11y_audit.

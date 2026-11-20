@@ -35,6 +35,9 @@ The docs come from the index committed with the tools (`cargo xtask docs-index` 
 | `cargo remedy rui check <file.rui> [--elements <specs.json>]` | Checks the file. It prints the signals and commands the file binds, or fails with the first error at `file:line:column` |
 | `cargo remedy rui compile <file.rui> [--elements <specs.json>] [--out <file.rs>]` | Prints (or writes) the Rust the build script would generate |
 | `cargo remedy rui elements` | Lists the built-in elements and their arguments |
+| `cargo remedy rfx check <file.rfx or built-in name> [--untrusted]` | Checks a Prism effect against an app's limits (or a stranger's with `--untrusted`). It prints the parameters and each pass's cost, or fails with every problem drawn under its line, with a suggestion for misspelled names |
+| `cargo remedy rfx render <file.rfx or name> --png <file> [--size <w>x<h>] [--scale <s>] [--time <t>] [--set name=v[,v..]]... [--background #rrggbb\|none]` | Renders a frame of the effect on the CPU to a PNG the size of the element (`--size` times `--scale`), stretched smoothly as the element draws it, and says the resolution the effect drew at |
+| `cargo remedy rfx library` | Lists the built-in effects with what each is and costs |
 
 `--elements` names a JSON file listing the app's own elements, such as:
 

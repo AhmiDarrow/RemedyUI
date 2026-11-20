@@ -5,6 +5,7 @@ use std::sync::Arc;
 use remedy_ui_compositor::FramePlan;
 use remedy_ui_core::Color;
 use remedy_ui_host::WindowHandles;
+use remedy_ui_render_cpu::Frame;
 
 use crate::renderer::submit_scene;
 use crate::{GpuCompositor, GpuContext, GpuError};
@@ -36,6 +37,20 @@ pub struct GpuSurface {
     resources: vello_gpu::Resources,
     generation: u64,
     tiles: crate::composite::TileSet,
+    /// The window's frame, kept between presents: each present draws only the plan's damage
+    /// into it, then shows it. Also what a snapshot of the window reads.
+    frame: Option<wgpu::Texture>,
+    /// The swapchain takes copies (otherwise the frame is drawn onto it).
+    copies: bool,
+}
+
+impl GpuSurface {
+    /// Drops the swapchain as the platform does when it reports it lost (a display mode
+    /// change, a monitor unplugged); the next present builds another. For tests.
+    #[doc(hidden)]
+    pub fn lose_swapchain(&mut self) {
+        self.surface = None;
+    }
 }
 
 impl std::fmt::Debug for GpuSurface {
@@ -75,6 +90,11 @@ fn build(
         .ok_or_else(|| GpuError::Surface("the adapter cannot present to this window".into()))?;
     config.format = format;
     config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
+    // The frame is kept in a texture of its own and copied to the swapchain image, where the
+    // swapchain allows copies.
+    if caps.usages.contains(wgpu::TextureUsages::COPY_DST) {
+        config.usage |= wgpu::TextureUsages::COPY_DST;
+    }
     // Vsync: frames pace to the display, the compositor's begin-frame source. Without it
     // frames show as soon as they are drawn (lower latency; a fast scroll may tear).
     config.present_mode = if vsync { wgpu::PresentMode::AutoVsync } else { wgpu::PresentMode::AutoNoVsync };
@@ -117,6 +137,7 @@ impl GpuCompositor {
     ) -> Result<GpuSurface, GpuError> {
         let (surface, config, vello, resources) =
             build(self.renderer().context(), &handles, width, height, transparent, vsync)?;
+        let copies = config.usage.contains(wgpu::TextureUsages::COPY_DST);
         Ok(GpuSurface {
             handles,
             surface: Some(surface),
@@ -125,6 +146,8 @@ impl GpuCompositor {
             resources,
             generation: self.generation(),
             tiles: Default::default(),
+            frame: None,
+            copies,
         })
     }
 
@@ -159,9 +182,30 @@ impl GpuCompositor {
                 vsync,
             )?;
             (surface.surface, surface.config, surface.vello, surface.resources) = (Some(s), c, v, r);
-            surface.tiles.0.clear();
+            surface.copies = surface.config.usage.contains(wgpu::TextureUsages::COPY_DST);
+            // Tiles and the kept frame are device textures: a lost swapchain on a living
+            // device keeps them (the runner re-rasters only after a device change, so tiles
+            // dropped here would stay missing from the window).
+            if surface.generation != self.generation() {
+                surface.tiles.0.clear();
+                surface.frame = None;
+            }
             surface.generation = self.generation();
         }
+        // The frame first: drawn even when the swapchain has no image to give now, so no
+        // damage is lost and the next present shows it.
+        let raster = remedy_ui_trace::phase!("raster").entered();
+        let size = (surface.config.width, surface.config.height);
+        self.render_damage(
+            &mut surface.tiles,
+            plan,
+            &mut surface.frame,
+            surface.config.format,
+            size,
+            background,
+            Some((&mut surface.vello, &mut surface.resources)),
+        )?;
+        drop(raster);
         let Some(swapchain) = surface.surface.as_ref() else { return Ok(Presented::Retry) };
         // Waiting for the swapchain to hand out an image is part of presenting.
         let acquire = remedy_ui_trace::phase!("present").entered();
@@ -183,22 +227,65 @@ impl GpuCompositor {
             }
         };
         drop(acquire);
-        let (w, h) = (frame.texture.width(), frame.texture.height());
-        let raster = remedy_ui_trace::phase!("raster").entered();
-        let (scene, bindings) = self.prepare(&mut surface.tiles, plan, w, h)?;
-        drop(raster);
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        submit_scene(
-            self.renderer().context(),
-            &mut surface.vello,
-            &mut surface.resources,
-            &scene,
-            background,
-            &view,
-            &bindings,
-        )?;
         let _present = remedy_ui_trace::phase!("present").entered();
-        self.renderer().context().queue.present(frame);
+        let Some(kept) = surface.frame.as_ref() else { return Ok(Presented::Retry) };
+        // wgpu presents whole images (it has no present with damage), so the kept frame is
+        // shown whole: one copy, or one draw where the swapchain takes no copies.
+        let (w, h) = (frame.texture.width().min(kept.width()), frame.texture.height().min(kept.height()));
+        let ctx = self.renderer().context();
+        if surface.copies && frame.texture.format() == kept.format() {
+            let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("RemedyUI show frame"),
+            });
+            encoder.copy_texture_to_texture(
+                kept.as_image_copy(),
+                frame.texture.as_image_copy(),
+                wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            );
+            ctx.queue.submit([encoder.finish()]);
+        } else {
+            let (sw, sh) = crate::renderer::size16(w, h)?;
+            let mut scene = vello_gpu::Scene::new(sw, sh);
+            let id = vello_gpu::TextureId(u64::MAX);
+            let mut bindings = vello_gpu::TextureBindings::new();
+            bindings.insert(id, kept.create_view(&wgpu::TextureViewDescriptor::default()));
+            scene.set_paint(vello_gpu::Image {
+                image: vello_gpu::ImageSource::external_texture(id, vello_gpu::TextureRegion::Full, true),
+                sampler: vello_gpu::peniko::ImageSampler {
+                    quality: vello_gpu::peniko::ImageQuality::Low,
+                    ..Default::default()
+                },
+            });
+            scene.fill_rect(&vello_gpu::kurbo::Rect::new(0.0, 0.0, f64::from(sw), f64::from(sh)));
+            let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+            submit_scene(
+                ctx,
+                &mut surface.vello,
+                &mut surface.resources,
+                &scene,
+                Color::TRANSPARENT,
+                &view,
+                &bindings,
+            )?;
+        }
+        ctx.queue.present(frame);
         Ok(Presented::Shown)
+    }
+
+    /// A picture of what the window shows: the frame the latest present drew, read back from
+    /// the GPU, effects, video and app textures included (premultiplied RGBA). `None` before the
+    /// first present.
+    pub fn read_surface(&self, surface: &GpuSurface) -> Option<Result<Frame, GpuError>> {
+        let kept = surface.frame.as_ref()?;
+        let mut frame = match self.renderer().context().read_back(kept) {
+            Ok(f) => f,
+            Err(e) => return Some(Err(e)),
+        };
+        if matches!(kept.format(), wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb) {
+            for px in frame.pixels.as_chunks_mut::<4>().0 {
+                px.swap(0, 2);
+            }
+        }
+        Some(Ok(frame))
     }
 }

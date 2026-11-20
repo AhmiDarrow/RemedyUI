@@ -1,5 +1,6 @@
-// Lightning: now and then a jagged bolt cracks down with a flash of the sky, then fades. A
-// storm theme's drama; `every` sets the average seconds between strikes.
+// Lightning: now and then a jagged, forking bolt cracks down with a flash of the sky,
+// flickers once more and fades. A storm theme's drama; `every` sets the average seconds
+// between strikes.
 effect lightning(
     color bolt = #e9e6ff,
     color flash = #8d93c9,
@@ -9,23 +10,54 @@ effect lightning(
     fps 30;
     scale 0.5;
     blend plus;
+    // The first strike cracks down at once: the still frame (reduced motion, paused) shows it.
+    still 0.05;
+
+    // Where a bolt is across the frame at height `y`: a start, wandering by two scales of
+    // noise, the wander growing on the way down.
+    fn path(y: float, x0: float, seed: float) -> float {
+        let jag = (fbm(vec2(y * 6.0, seed * 7.3), 4) - 0.5) * 0.35 + (noise(vec2(y * 40.0, seed)) - 0.5) * 0.03;
+        return x0 + jag * y * 1.4;
+    }
+
+    // How close the pixel is to a bolt's core (in heights of the frame): across the bolt,
+    // not only sideways, so its sideways runs stay as bright as its drops. (Close to the
+    // bolt only; its glow uses the sideways distance, which does not streak.)
+    fn across(x: float, x_below: float) -> float {
+        let slope = (x_below - x) * aspect / 0.004;
+        return abs(uv.x - x) * aspect / sqrt(1.0 + slope * slope);
+    }
 
     pass strike {
         let n = floor(time / every);
         let h = hash3(vec2(n, 3.0));
-        let t = time - n * every - h.x * every * 0.6;
-        // Bright at once, flickering out over half a second.
-        let life = step(0.0, t) * exp(-max(t, 0.0) * 7.0) * (0.6 + 0.4 * step(0.5, noise(vec2(t * 40.0, n))));
-        // The bolt: a line down from a random top point, jagged by two scales of noise.
-        let x0 = 0.15 + h.y * 0.7;
+        let k = hash4(vec2(n, 11.0));
+        // Each period's strike comes at a random moment in it; the first one at its start.
+        let t = time - n * every - h.x * every * 0.6 * step(0.5, n);
+        // Bright at once and flickering, a second stroke down the same channel a moment
+        // later, then gone within half a second.
+        let first = exp(-max(t, 0.0) * 7.0) * (0.6 + 0.4 * step(0.5, noise(vec2(t * 40.0, n))));
+        let again = 0.8 * exp(-max(t - 0.16, 0.0) * 9.0) * step(0.16, t);
+        let life = step(0.0, t) * max(first, again);
         let y = uv.y;
-        let jag = (fbm(vec2(y * 6.0, n * 7.3), 4) - 0.5) * 0.35 + (noise(vec2(y * 40.0, n)) - 0.5) * 0.03;
-        let x = x0 + jag * y * 1.4;
-        let d = abs(uv.x - x) * aspect;
-        let reach = step(y, 0.55 + h.z * 0.45);
-        let core = exp(-d * 260.0) * reach;
-        let glow = exp(-d * 18.0) * reach * 0.5;
-        let sky = (1.0 - uv.y) * 0.35;
+        // The main bolt, ending in a taper rather than a cut.
+        let x0 = 0.15 + h.y * 0.7;
+        let x = path(y, x0, n);
+        let d = across(x, path(y + 0.004, x0, n));
+        let end = 0.55 + h.z * 0.45;
+        let reach = smoothstep(end, end - 0.12, y);
+        // A fork: leaving the bolt partway down, wandering its own way, thinner and dimmer.
+        let fy = 0.15 + k.x * 0.2;
+        let fx = path(fy, x0, n);
+        let lean = (0.25 + k.y * 0.35) * sign(k.w - 0.5);
+        let bx = fx + (path(y, 0.0, n + 0.5) - path(fy, 0.0, n + 0.5)) * 0.8 + lean * (y - fy);
+        let bd = across(bx, fx + (path(y + 0.004, 0.0, n + 0.5) - path(fy, 0.0, n + 0.5)) * 0.8 + lean * (y + 0.004 - fy));
+        let fork_end = fy + 0.2 + k.z * 0.2;
+        let fork = step(fy, y) * smoothstep(fork_end, fy, y) * 0.8;
+        let core = exp(-d * 260.0) * reach + exp(-bd * 340.0) * fork;
+        let glow = (exp(-abs(uv.x - x) * aspect * 18.0) * reach + exp(-abs(uv.x - bx) * aspect * 24.0) * fork * 0.6) * 0.5;
+        // The sky lights up, most near the bolt and towards the top.
+        let sky = (1.0 - uv.y) * 0.4 + exp(-abs(uv.x - x0) * aspect * 2.5) * 0.15;
         let rgb = bolt.rgb * (core + glow) + flash.rgb * sky;
         out = vec4(rgb, clamp((core + glow + sky) * life * intensity, 0.0, 1.0));
     }

@@ -470,6 +470,10 @@ pub struct Effect {
     pub still: f32,
     /// True when a stage reads the previous output frame: the effect has state.
     pub feedback: bool,
+    /// True when the picture changes with time: a program reads `time`, or the effect has
+    /// particles or reads its last frame. One that does not (paper, a static texture) is drawn
+    /// once per size and parameter change, never again frame after frame.
+    pub animated: bool,
     /// The static cost of one output pixel at full resolution (see [`crate::Limits`]).
     pub cost: u32,
 }

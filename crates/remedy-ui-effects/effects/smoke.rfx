@@ -1,0 +1,22 @@
+// Smoke: soft wisps curling upwards and thinning out: a chimney, incense, a spell's
+// aftermath, a moody backdrop. Over anything.
+effect smoke(
+    color tint = #cfd3da,
+    float density = 0.7 in 0..1.5,
+    float speed = 0.3 in 0..2,
+    float rise = 0.6 in 0..2,
+) {
+    fps 24;
+    scale 0.3;
+    still 3.0;
+
+    pass wisps {
+        let t = time * speed;
+        let p = vec2(uv.x * aspect * 1.5, uv.y * 1.5 + t * rise);
+        let w = warp(p, 0.9, 3.0);
+        let n = fbm(w + vec2(0.0, t * 0.4), 5);
+        // Thickest low down, where it comes from; thinner as it rises.
+        let a = smoothstep(0.38, 0.82, n) * (0.25 + 0.75 * uv.y) * density;
+        out = vec4(tint.rgb * (0.8 + 0.25 * n), clamp(a, 0.0, 1.0));
+    }
+}
