@@ -849,6 +849,10 @@ pub struct SystemSettings {
     /// The system draws text with subpixel antialiasing (ClearType on Windows): `Some(bgr)`,
     /// true where the panel's subpixels run blue, green, red; `None` for grayscale or unknown.
     pub subpixel_text: Option<bool>,
+    /// The system saves power: on battery, or in a battery or energy saver mode. Ambient
+    /// motion slows down or stops (the view's `AmbientPolicy`). False where the platform
+    /// does not say.
+    pub power_saving: bool,
 }
 
 impl Default for SystemSettings {
@@ -865,6 +869,7 @@ impl Default for SystemSettings {
             double_click: Duration::from_millis(500),
             caret_blink: Some(Duration::from_millis(530)),
             subpixel_text: None,
+            power_saving: false,
         }
     }
 }

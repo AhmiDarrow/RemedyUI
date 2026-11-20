@@ -499,6 +499,7 @@ impl Painter {
                         Blend::Normal => peniko::BlendMode::default(),
                         Blend::Multiply => peniko::BlendMode::from(peniko::Mix::Multiply),
                         Blend::Screen => peniko::BlendMode::from(peniko::Mix::Screen),
+                        Blend::Plus => peniko::BlendMode::new(peniko::Mix::Normal, peniko::Compose::Plus),
                     };
                     s.push_group(mode, *opacity);
                 }

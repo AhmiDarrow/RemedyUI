@@ -166,6 +166,8 @@ pub use remedy_ui_widgets_forms as forms;
 pub use remedy_ui_widgets_music as music;
 #[cfg(feature = "nav")]
 pub use remedy_ui_widgets_nav as nav;
+#[cfg(feature = "stage")]
+pub use remedy_ui_widgets_stage as stage;
 #[cfg(feature = "term")]
 pub use remedy_ui_widgets_term as term;
 

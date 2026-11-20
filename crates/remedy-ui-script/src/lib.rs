@@ -11,7 +11,8 @@
 //!   of their own (`remedy-ui-script-rhai` for widgets people write by hand in Rhai,
 //!   `remedy-ui-script-wasm` for compiled WebAssembly widgets), and [`Engines`] is the set an
 //!   app or a board enables; a package names its [`Language`].
-//! - The element-description protocol ([`Node`], read from JSON by [`describe`]): what a
+//! - The element-description protocol ([`Node`], read from JSON by [`describe`], or by
+//!   [`describe_with`] for apps that offer elements of their own): what a
 //!   script returns. It is ordinary RemedyUI elements (columns, rows, text, buttons, links,
 //!   progress, dividers), never drawing, so scripted widgets are themed, accessible and fast
 //!   like built-in ones, and the host builds every element itself.
@@ -548,7 +549,39 @@ pub enum Node {
     },
     /// A line between parts.
     Divider,
+    /// A picture (protocol 2). The host resolves `src` (an asset of the script's package, a
+    /// picture the app keeps); one it cannot show is replaced by `alt` as text. An empty `alt`
+    /// marks the picture as decoration, left out of the accessibility tree.
+    Image {
+        /// Where the picture comes from, as the host understands it.
+        src: String,
+        /// What it shows, for people who cannot see it.
+        alt: String,
+        /// Its width in logical pixels; 0 lets the host choose.
+        width: f32,
+        /// Its height in logical pixels; 0 lets the host choose.
+        height: f32,
+    },
+    /// One of the host app's own elements (protocol 2): a kind the app offers scripts by name
+    /// ([`describe_with`]), such as a scene, a sprite or a part of the app it draws itself.
+    /// Hosts that do not offer the kind refuse the description, so a script never shows half a
+    /// widget.
+    Element {
+        /// The element's kind, as the app names it.
+        kind: String,
+        /// Its properties, as the script gave them (handlers taken out).
+        props: Map<String, Value>,
+        /// Its handlers: each property named `on` or `on_...` that the script gave, with the
+        /// [`Action`] the host hands back through [`ScriptWidget::act`] when it fires.
+        handlers: Vec<(String, Action)>,
+        /// What the script put inside it.
+        children: Vec<Node>,
+    },
 }
+
+/// The element protocol's version: 1 had columns, rows, text, buttons, links, progress and
+/// dividers; 2 adds [`Node::Image`] and the app's own elements ([`Node::Element`]).
+pub const PROTOCOL: u32 = 2;
 
 /// A description read by [`describe`]: the tree, and each button's `on` value by
 /// [`Action`].
@@ -572,15 +605,34 @@ impl Described {
 /// Reads a description from the protocol's JSON (see the crate docs), nesting at most
 /// `limits.nesting` deep.
 pub fn describe(v: &Value, limits: &Limits) -> Result<Described, ScriptError> {
+    describe_with(v, limits, &|_| false)
+}
+
+/// Reads a description like [`describe`], also accepting the app's own elements of the kinds
+/// `offered` says yes to (`{ "kind": "scene", ..., "children": [...] }`; see [`Node::Element`]).
+/// A kind the app does not offer is refused, as any unknown element is.
+pub fn describe_with(v: &Value, limits: &Limits, offered: &dyn Fn(&str) -> bool) -> Result<Described, ScriptError> {
     let mut handlers = Vec::new();
-    let node = node(v, &mut handlers, 0, limits.nesting)?;
+    let node = node(v, &mut handlers, 0, limits.nesting, offered)?;
     Ok(Described { node, handlers })
 }
+
+/// The most handlers one description may hold, so a script cannot make the host keep an
+/// unbounded table between renders.
+const MAX_HANDLERS: usize = 4096;
+/// The largest picture a description may ask for, in logical pixels a side.
+const MAX_IMAGE_SIDE: f64 = 4096.0;
 
 /// The gap between children, in logical pixels, is kept within what a widget's layout uses.
 const MAX_GAP: f64 = 64.0;
 
-fn node(v: &Value, handlers: &mut Vec<Value>, depth: usize, nesting: usize) -> Result<Node, ScriptError> {
+fn node(
+    v: &Value,
+    handlers: &mut Vec<Value>,
+    depth: usize,
+    nesting: usize,
+    offered: &dyn Fn(&str) -> bool,
+) -> Result<Node, ScriptError> {
     let shape = |e: &str| ScriptError::Shape(e.to_owned());
     if depth >= nesting {
         return Err(shape("it nests too deeply"));
@@ -595,7 +647,7 @@ fn node(v: &Value, handlers: &mut Vec<Value>, depth: usize, nesting: usize) -> R
     let children = |handlers: &mut Vec<Value>| -> Result<Vec<Node>, ScriptError> {
         match t.get("children") {
             None | Some(Value::Null) => Ok(Vec::new()),
-            Some(Value::Array(list)) => list.iter().map(|c| node(c, handlers, depth + 1, nesting)).collect(),
+            Some(Value::Array(list)) => list.iter().map(|c| node(c, handlers, depth + 1, nesting, offered)).collect(),
             Some(_) => Err(shape("children must be a list")),
         }
     };
@@ -616,8 +668,7 @@ fn node(v: &Value, handlers: &mut Vec<Value>, depth: usize, nesting: usize) -> R
         "button" => {
             let on =
                 t.get("on").filter(|v| !v.is_null()).ok_or_else(|| shape("a button has nothing to run"))?;
-            handlers.push(on.clone());
-            Node::Button { label: text("label"), action: Action(handlers.len() - 1) }
+            Node::Button { label: text("label"), action: handler(handlers, on)? }
         }
         "link" => Node::Link { label: text("label"), url: text("url") },
         "progress" => {
@@ -625,8 +676,37 @@ fn node(v: &Value, handlers: &mut Vec<Value>, depth: usize, nesting: usize) -> R
             Node::Progress { label: text("label"), value: v.clamp(0.0, 1.0) as f32 }
         }
         "divider" => Node::Divider,
+        "image" => {
+            let side = |k: &str| number(t, k).filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, MAX_IMAGE_SIDE) as f32;
+            Node::Image { src: text("src"), alt: text("alt"), width: side("width"), height: side("height") }
+        }
+        other if offered(other) => {
+            let mut props = Map::new();
+            let mut own = Vec::new();
+            for (k, v) in t {
+                if k == "kind" || k == "children" {
+                    continue;
+                }
+                if (k == "on" || k.starts_with("on_")) && !v.is_null() {
+                    own.push((k.clone(), handler(handlers, v)?));
+                } else {
+                    props.insert(k.clone(), v.clone());
+                }
+            }
+            // The element's own handlers first, then its children's, in reading order.
+            let kids = children(handlers)?;
+            Node::Element { kind: other.to_owned(), props, handlers: own, children: kids }
+        }
         other => return Err(ScriptError::Shape(format!("unknown element {other}"))),
     })
+}
+
+fn handler(handlers: &mut Vec<Value>, on: &Value) -> Result<Action, ScriptError> {
+    if handlers.len() >= MAX_HANDLERS {
+        return Err(ScriptError::Shape("it has too many buttons".into()));
+    }
+    handlers.push(on.clone());
+    Ok(Action(handlers.len() - 1))
 }
 
 /// One loaded widget: its machine, its description, its state.
@@ -647,6 +727,13 @@ pub trait ScriptWidget {
     /// Runs the handler of the last description's button `action`; the host then renders
     /// again.
     fn act(&mut self, action: Action) -> Result<(), ScriptError>;
+    /// Runs the handler of `action` with a value from the element that fired it (where a
+    /// knob was turned to, which station a dial chose). Engines that take no value run
+    /// [`ScriptWidget::act`]; the default does that.
+    fn act_with(&mut self, action: Action, value: &Value) -> Result<(), ScriptError> {
+        let _ = value;
+        self.act(action)
+    }
     /// The memory its machine holds now, in bytes.
     fn memory_used(&self) -> usize;
 }
@@ -833,6 +920,40 @@ mod tests {
         ] {
             assert!(matches!(describe(&bad, &Limits::default()), Err(ScriptError::Shape(_))), "{bad}");
         }
+    }
+
+    #[test]
+    fn pictures_and_the_apps_own_elements() {
+        let tree = json!({ "kind": "column", "children": [
+            { "kind": "image", "src": "art/fire.png", "alt": "A fire", "width": 99999, "height": -3 },
+            { "kind": "scene", "design": [320, 180], "on_press": { "join": 4 }, "on_drag": null, "children": [
+                { "kind": "button", "label": "Sit", "on": "sit" },
+            ] },
+        ] });
+        // Without the app offering it, a scene is an unknown element.
+        assert!(matches!(describe(&tree, &Limits::default()), Err(ScriptError::Shape(_))));
+        let d = describe_with(&tree, &Limits::default(), &|k| k == "scene");
+        let Ok(d) = d else { unreachable!("{d:?}") };
+        let Node::Column { children, .. } = &d.node else { unreachable!("{:?}", d.node) };
+        assert_eq!(
+            children.first(),
+            Some(&Node::Image { src: "art/fire.png".into(), alt: "A fire".into(), width: 4096.0, height: 0.0 })
+        );
+        let Some(Node::Element { kind, props, handlers, children }) = children.get(1) else { unreachable!() };
+        assert_eq!(kind, "scene");
+        assert_eq!(props.get("design"), Some(&json!([320, 180])));
+        assert!(props.get("on_drag").is_some_and(Value::is_null), "a null handler stays a plain property");
+        assert_eq!(handlers, &[("on_press".to_owned(), Action(0))]);
+        assert_eq!(children.first(), Some(&Node::Button { label: "Sit".into(), action: Action(1) }));
+        assert_eq!(d.handler(Action(0)), Ok(&json!({ "join": 4 })));
+        assert_eq!(PROTOCOL, 2);
+    }
+
+    #[test]
+    fn a_description_cannot_hold_endless_handlers() {
+        let many: Vec<Value> = (0..5000).map(|i| json!({ "kind": "button", "label": "x", "on": i })).collect();
+        let r = describe(&json!({ "kind": "column", "children": many }), &Limits::default());
+        assert!(matches!(r, Err(ScriptError::Shape(_))), "{r:?}");
     }
 
     #[test]
