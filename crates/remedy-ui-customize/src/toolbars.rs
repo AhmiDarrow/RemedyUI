@@ -155,7 +155,13 @@ impl Customizations {
         if file.remove(id).is_none() {
             return Ok(());
         }
-        self.change(ui, fill(&ui.word("Reset {name}"), &[("name", &slot.label)]), None, &[Area::Toolbars], |c| c.write_toolbars(&file))
+        self.change(
+            ui,
+            fill(&ui.word("Reset {name}"), &[("name", &slot.label)]),
+            None,
+            &[Area::Toolbars],
+            |c| c.write_toolbars(&file),
+        )
     }
 
     /// Gives every slot the app's commands back (undoable).
@@ -196,9 +202,13 @@ impl Customizations {
         } else {
             file.insert(slot.id.clone(), ids);
         }
-        self.change(ui, fill(&ui.word("Change {name}"), &[("name", &slot.label)]), None, &[Area::Toolbars], |c| {
-            c.write_toolbars(&file)
-        })
+        self.change(
+            ui,
+            fill(&ui.word("Change {name}"), &[("name", &slot.label)]),
+            None,
+            &[Area::Toolbars],
+            |c| c.write_toolbars(&file),
+        )
     }
 
     fn write_toolbars(&self, file: &BTreeMap<String, Vec<String>>) -> Result<(), CustomizeError> {

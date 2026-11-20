@@ -292,11 +292,10 @@ pub fn describe_tab_note_in(locale: &str, e: &TabEvent, string: usize, strings: 
                 Technique::None | Technique::Dead => {
                     fill(word_or(locale, "string {number}: {fret}"), &[("number", &number), ("fret", &fret)])
                 }
-                t => fill(word_or(locale, "string {number}: {fret}, {technique}"), &[
-                    ("number", &number),
-                    ("fret", &fret),
-                    ("technique", &t.spoken_in(locale)),
-                ]),
+                t => fill(
+                    word_or(locale, "string {number}: {fret}, {technique}"),
+                    &[("number", &number), ("fret", &fret), ("technique", &t.spoken_in(locale))],
+                ),
             }
         }
         None => fill(word_or(locale, "string {number}: no note"), &[("number", &number)]),
@@ -974,23 +973,27 @@ fn tab_staff_with(
             let mut value = String::new();
             if let Some(ev) = ms.get(cur.measure).and_then(|m| m.events.get(cur.event)) {
                 let beat = beat_in(&ms, sem_options.time, cur.measure, cur.event);
-                value = fill(word_or(&locale, "measure {measure}, beat {beat}, {note}"), &[
-                    ("measure", &(cur.measure + 1).to_string()),
-                    ("beat", &beat.to_string()),
-                    ("note", &describe_tab_note_in(&locale, ev, cur.string, strings)),
-                ]);
+                value = fill(
+                    word_or(&locale, "measure {measure}, beat {beat}, {note}"),
+                    &[
+                        ("measure", &(cur.measure + 1).to_string()),
+                        ("beat", &beat.to_string()),
+                        ("note", &describe_tab_note_in(&locale, ev, cur.string, strings)),
+                    ],
+                );
                 if picked == Some(cur) {
                     value = fill(word_or(&locale, "{value}, picked"), &[("value", &value)]);
                 }
             }
-            let mut said = fill(word_or(&locale, "Tablature, {strings} strings, {measures} measures"), &[
-                ("strings", &strings.to_string()),
-                ("measures", &ms.len().to_string()),
-            ]);
+            let mut said = fill(
+                word_or(&locale, "Tablature, {strings} strings, {measures} measures"),
+                &[("strings", &strings.to_string()), ("measures", &ms.len().to_string())],
+            );
             if editable {
-                said = fill(word_or(&locale, "{summary}. Editable: type a fret number, Delete removes the note."), &[(
-                    "summary", &said,
-                )]);
+                said = fill(
+                    word_or(&locale, "{summary}. Editable: type a fret number, Delete removes the note."),
+                    &[("summary", &said)],
+                );
             }
             Semantics::new(Role::Grid)
                 .label(sem_label.clone())

@@ -796,7 +796,10 @@ impl Customizations {
             set_leaf(&mut doc, token.path(), leaf_value);
         }
         remedy_ui_themes::from_tokens(&doc_text(&doc), &default).map_err(CustomizeError::Token)?;
-        let label = remedy_ui_view::words::fill(&ui.word("Change {name}"), &[("name", &token.label_in(&ui.locale()))]);
+        let label = remedy_ui_view::words::fill(
+            &ui.word("Change {name}"),
+            &[("name", &token.label_in(&ui.locale()))],
+        );
         self.change(ui, label, Some(format!("theme:{}", token.dotted())), &[Area::Theme], |c| {
             c.write_theme(&doc)
         })
@@ -809,7 +812,8 @@ impl Customizations {
             return Ok(());
         }
         remove_leaf(&mut doc, token.path());
-        let label = remedy_ui_view::words::fill(&ui.word("Reset {name}"), &[("name", &token.label_in(&ui.locale()))]);
+        let label =
+            remedy_ui_view::words::fill(&ui.word("Reset {name}"), &[("name", &token.label_in(&ui.locale()))]);
         self.change(ui, label, None, &[Area::Theme], |c| c.write_theme(&doc))
     }
 
@@ -891,10 +895,16 @@ impl Customizations {
         let mut file = diff_doc(&default, &theme, &map);
         let name = theme.name.clone();
         // Files are checked (and copied in) inside the change, so undo takes the copies too.
-        self.change(ui, remedy_ui_view::words::fill(&ui.word("Import theme {name}"), &[("name", &name)]), None, &[Area::Theme], |c| {
-            c.bring_assets(&mut file, base, None)?;
-            c.write_theme(&file)
-        })?;
+        self.change(
+            ui,
+            remedy_ui_view::words::fill(&ui.word("Import theme {name}"), &[("name", &name)]),
+            None,
+            &[Area::Theme],
+            |c| {
+                c.bring_assets(&mut file, base, None)?;
+                c.write_theme(&file)
+            },
+        )?;
         Ok(ImportReport { name, dropped: if policy.drop_refused { refused } else { Vec::new() } })
     }
 

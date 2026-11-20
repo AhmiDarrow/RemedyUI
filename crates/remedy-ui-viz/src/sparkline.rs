@@ -178,7 +178,10 @@ pub fn sparkline<S: Samples + 'static>(
     el.bind(move || {
         let latest = values.with(|s| s.len().checked_sub(1).and_then(|i| s.get(i)).filter(|v| v.is_finite()));
         let u = sem_el.ui();
-        let text = latest.map_or_else(|| u.word("no data"), |v| remedy_ui_view::words::fill(&u.word("latest {value}"), &[("value", &format!("{v:.2}"))]));
+        let text = latest.map_or_else(
+            || u.word("no data"),
+            |v| remedy_ui_view::words::fill(&u.word("latest {value}"), &[("value", &format!("{v:.2}"))]),
+        );
         if *heard.borrow() != text {
             let _ = sem_el
                 .clone()

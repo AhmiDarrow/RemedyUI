@@ -149,9 +149,13 @@ impl Customizations {
         if !path.exists() {
             return Ok(());
         }
-        self.change(ui, fill(&ui.word("Reset layout {file}"), &[("file", file)]), None, &[Area::Layouts], |_| {
-            files::remove(&path).map_err(|e| CustomizeError::io(&path, &e))
-        })
+        self.change(
+            ui,
+            fill(&ui.word("Reset layout {file}"), &[("file", file)]),
+            None,
+            &[Area::Layouts],
+            |_| files::remove(&path).map_err(|e| CustomizeError::io(&path, &e)),
+        )
     }
 
     /// Goes back to the app's version of every screen (undoable).

@@ -340,19 +340,21 @@ impl Agents {
     ) -> El {
         let ui = &self.ui;
         let asks = match scope {
-            Scope::Read => {
-                ui.word("{agent} asks to see what this window shows {how_long}. Passwords and secrets stay hidden.")
-            }
-            Scope::Act => {
-                ui.word("{agent} asks to see and use this window {how_long}. Passwords and secrets stay hidden.")
-            }
+            Scope::Read => ui.word(
+                "{agent} asks to see what this window shows {how_long}. Passwords and secrets stay hidden.",
+            ),
+            Scope::Act => ui.word(
+                "{agent} asks to see and use this window {how_long}. Passwords and secrets stay hidden.",
+            ),
             Scope::ActWithConfirmation => ui.word(
                 "{agent} asks to see this window and use it, asking you before each action {how_long}. \
                  Passwords and secrets stay hidden.",
             ),
         };
         let how_long = match lasts {
-            Some(d) if d.as_secs() >= 120 => ui.counted("for {count} minute", "for {count} minutes", d.as_secs() / 60),
+            Some(d) if d.as_secs() >= 120 => {
+                ui.counted("for {count} minute", "for {count} minutes", d.as_secs() / 60)
+            }
             Some(d) => ui.counted("for {count} second", "for {count} seconds", d.as_secs().max(1)),
             None => ui.word("until you stop it"),
         };
@@ -625,10 +627,10 @@ impl Agents {
         if info.destructive || grant.scope == Scope::ActWithConfirmation {
             self.confirm(
                 &grant.agent,
-                &fill(&self.ui.word("Let {agent} {command}?"), &[
-                    ("agent", &grant.agent),
-                    ("command", &info.label.to_lowercase()),
-                ]),
+                &fill(
+                    &self.ui.word("Let {agent} {command}?"),
+                    &[("agent", &grant.agent), ("command", &info.label.to_lowercase())],
+                ),
                 run,
                 done,
             );
@@ -649,9 +651,14 @@ impl Agents {
         run: impl Fn() -> Result<(), Refused> + 'static,
         done: impl Fn(Result<(), Refused>) + 'static,
     ) {
-        let _ = w::trusted_prompt(&self.ui, fill(&self.ui.word("{agent} asks"), &[("agent", agent)]), question, move |yes| {
-            done(if yes { run() } else { Err(Refused::Declined) });
-        });
+        let _ = w::trusted_prompt(
+            &self.ui,
+            fill(&self.ui.word("{agent} asks"), &[("agent", agent)]),
+            question,
+            move |yes| {
+                done(if yes { run() } else { Err(Refused::Declined) });
+            },
+        );
     }
 
     /// Answers one request in the JSON protocol: `request` is one JSON object, the answer one

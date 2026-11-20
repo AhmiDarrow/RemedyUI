@@ -547,9 +547,11 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .child(body)
         .child(watcher)
         .semantics(move || {
-            Semantics::new(Role::List)
-                .label(label.clone())
-                .description(u.counted("{count} item", "{count} items", n_items.with(Vec::len) as u64))
+            Semantics::new(Role::List).label(label.clone()).description(u.counted(
+                "{count} item",
+                "{count} items",
+                n_items.with(Vec::len) as u64,
+            ))
         })
 }
 

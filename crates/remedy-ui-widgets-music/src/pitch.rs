@@ -189,10 +189,10 @@ impl Pitch {
             a if a > 0 => word_or(locale, "{letter} sharp {octave}"),
             _ => word_or(locale, "{letter} flat {octave}"),
         };
-        remedy_ui_view::words::fill(template, &[
-            ("letter", &self.step.letter().to_string()),
-            ("octave", &self.octave.to_string()),
-        ])
+        remedy_ui_view::words::fill(
+            template,
+            &[("letter", &self.step.letter().to_string()), ("octave", &self.octave.to_string())],
+        )
     }
 }
 

@@ -311,13 +311,19 @@ pub fn describe_event_in(locale: &str, e: &StaffEvent) -> String {
     if e.is_rest() {
         fill(word_or(locale, "{value} rest"), &[("value", &value)])
     } else if e.pitches.len() == 1 {
-        let template =
-            if e.tie { word_or(locale, "{pitch} {value} note, tied to the next") } else { word_or(locale, "{pitch} {value} note") };
+        let template = if e.tie {
+            word_or(locale, "{pitch} {value} note, tied to the next")
+        } else {
+            word_or(locale, "{pitch} {value} note")
+        };
         let pitch = e.pitches.first().map(|p| p.spoken_in(locale)).unwrap_or_default();
         fill(template, &[("pitch", &pitch), ("value", &value)])
     } else {
         let names: Vec<String> = e.pitches.iter().map(|p| p.spoken_in(locale)).collect();
-        fill(word_or(locale, "{value} chord of {pitches}"), &[("value", &value), ("pitches", &names.join(", "))])
+        fill(
+            word_or(locale, "{value} chord of {pitches}"),
+            &[("value", &value), ("pitches", &names.join(", "))],
+        )
     }
 }
 
@@ -1011,8 +1017,11 @@ fn note_staff_with(
                 0 => word_or(&locale, "no sharps or flats").to_owned(),
                 k => {
                     let n = u64::from(k.unsigned_abs());
-                    let (one, other) =
-                        if k > 0 { ("{count} sharp", "{count} sharps") } else { ("{count} flat", "{count} flats") };
+                    let (one, other) = if k > 0 {
+                        ("{count} sharp", "{count} sharps")
+                    } else {
+                        ("{count} flat", "{count} flats")
+                    };
                     let english = if n == 1 { one } else { other };
                     let form = if k > 0 {
                         counted(&locale, "{count} sharp", "{count} sharps", n)
@@ -1025,11 +1034,14 @@ fn note_staff_with(
             let mut value = String::new();
             if let Some(e) = ms.get(cur.measure).and_then(|m| m.events.get(cur.event)) {
                 let beat = beat_of(&ms, options.time, cur);
-                value = fill(word_or(&locale, "measure {measure}, beat {beat}: {event}"), &[
-                    ("measure", &(cur.measure + 1).to_string()),
-                    ("beat", &beat),
-                    ("event", &describe_event_in(&locale, e)),
-                ]);
+                value = fill(
+                    word_or(&locale, "measure {measure}, beat {beat}: {event}"),
+                    &[
+                        ("measure", &(cur.measure + 1).to_string()),
+                        ("beat", &beat),
+                        ("event", &describe_event_in(&locale, e)),
+                    ],
+                );
                 if picked == Some(cur) {
                     value = fill(word_or(&locale, "{value}, picked"), &[("value", &value)]);
                 }
@@ -1037,23 +1049,23 @@ fn note_staff_with(
             let clef = word_or(&locale, options.clef.name());
             let measures = ms.len().to_string();
             let mut said = match options.time {
-                Some((a, b)) => fill(word_or(&locale, "{clef} clef, {key}, {time} time, {measures} measures"), &[
-                    ("clef", clef),
-                    ("key", &key),
-                    ("time", &format!("{a}/{b}")),
-                    ("measures", &measures),
-                ]),
-                None => fill(word_or(&locale, "{clef} clef, {key}, {measures} measures"), &[
-                    ("clef", clef),
-                    ("key", &key),
-                    ("measures", &measures),
-                ]),
+                Some((a, b)) => fill(
+                    word_or(&locale, "{clef} clef, {key}, {time} time, {measures} measures"),
+                    &[("clef", clef), ("key", &key), ("time", &format!("{a}/{b}")), ("measures", &measures)],
+                ),
+                None => fill(
+                    word_or(&locale, "{clef} clef, {key}, {measures} measures"),
+                    &[("clef", clef), ("key", &key), ("measures", &measures)],
+                ),
             };
             let mut sem =
                 Semantics::new(Role::Grid).label(sem_label.clone()).value(value).action(Action::Focus);
             if editable {
                 said = fill(
-                    word_or(&locale, "{summary}. Editable: letters set notes, Up and Down move them, digits set lengths."),
+                    word_or(
+                        &locale,
+                        "{summary}. Editable: letters set notes, Up and Down move them, digits set lengths.",
+                    ),
                     &[("summary", &said)],
                 );
                 sem = sem.action(Action::Increment).action(Action::Decrement);

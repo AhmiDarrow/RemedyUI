@@ -115,11 +115,15 @@ pub fn tabs(
                 tab.state(States::SELECTED, on);
                 if t.closable {
                     let (c1, c2, c3) = (close.clone(), id.clone(), id.clone());
-                    let close_btn =
-                        w::icon_button(&u, Icon::Close, remedy_ui_view::words::fill(&u.word("Close {name}"), &[("name", &t.title)]), move || c1(&c2))
-                            .variant("quiet")
-                            .width(w::MIN_TARGET)
-                            .height(w::MIN_TARGET);
+                    let close_btn = w::icon_button(
+                        &u,
+                        Icon::Close,
+                        remedy_ui_view::words::fill(&u.word("Close {name}"), &[("name", &t.title)]),
+                        move || c1(&c2),
+                    )
+                    .variant("quiet")
+                    .width(w::MIN_TARGET)
+                    .height(w::MIN_TARGET);
                     let c4 = close.clone();
                     tab = tab
                         .child(close_btn)
@@ -374,10 +378,10 @@ pub fn breadcrumbs(
                 shown_any = true;
                 let last = i + 1 == n;
                 let el = if last {
-                    w::text(&u, seg.clone())
-                        .variant("strong")
-                        .data_text()
-                        .semantics(Semantics::new(Role::Label).label(remedy_ui_view::words::fill(&u.word("{name}, current"), &[("name", seg)])))
+                    w::text(&u, seg.clone()).variant("strong").data_text().semantics(
+                        Semantics::new(Role::Label)
+                            .label(remedy_ui_view::words::fill(&u.word("{name}, current"), &[("name", seg)])),
+                    )
                 } else {
                     let f = on_select.clone();
                     w::link(&u, seg.clone(), move || f(i)).data_text()

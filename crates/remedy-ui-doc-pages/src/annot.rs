@@ -153,13 +153,19 @@ impl Annotation {
         use remedy_ui_view::words::{fill, word_or};
         let mut s = self.kind_name_in(locale).to_owned();
         if !self.marked_text.is_empty() {
-            s = fill(word_or(locale, "{kind}: \u{201c}{text}\u{201d}"), &[("kind", &s), ("text", &self.marked_text)]);
+            s = fill(
+                word_or(locale, "{kind}: \u{201c}{text}\u{201d}"),
+                &[("kind", &s), ("text", &self.marked_text)],
+            );
         }
         if let AnnotationKind::FreeText { text, .. } = &self.kind {
             s = fill(word_or(locale, "{kind}: \u{201c}{text}\u{201d}"), &[("kind", &s), ("text", text)]);
         }
         if !self.comment.is_empty() {
-            s = fill(word_or(locale, "{annotation}, comment: {comment}"), &[("annotation", &s), ("comment", &self.comment)]);
+            s = fill(
+                word_or(locale, "{annotation}, comment: {comment}"),
+                &[("annotation", &s), ("comment", &self.comment)],
+            );
         }
         if let Some(a) = &self.author {
             s = fill(word_or(locale, "{annotation}, by {author}"), &[("annotation", &s), ("author", a)]);

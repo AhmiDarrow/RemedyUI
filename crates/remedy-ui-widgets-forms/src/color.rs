@@ -167,10 +167,13 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
             let h = hsv.get();
             Semantics::new(Role::Slider)
                 .label(area_name.clone())
-                .value(remedy_ui_view::words::fill(&area_value, &[
-                    ("saturation", &format!("{:.0}", h.s * 100.0)),
-                    ("brightness", &format!("{:.0}", h.v * 100.0)),
-                ]))
+                .value(remedy_ui_view::words::fill(
+                    &area_value,
+                    &[
+                        ("saturation", &format!("{:.0}", h.s * 100.0)),
+                        ("brightness", &format!("{:.0}", h.v * 100.0)),
+                    ],
+                ))
                 .action(Action::Focus)
         });
 
@@ -278,7 +281,9 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
     let alpha = strip(ui.word("Opacity"), |h| h.a, |h, v| Hsv { a: v, ..h }, 1.0, 0.01, "%");
 
     // Hex field.
-    let field = ui.text_field("text_input", FieldKind::Single).label(remedy_ui_view::words::fill(&ui.word("{label} hex"), &[("label", &label)]));
+    let field = ui
+        .text_field("text_input", FieldKind::Single)
+        .label(remedy_ui_view::words::fill(&ui.word("{label} hex"), &[("label", &label)]));
     let bad = Signal::new(false);
     let f2 = field.clone();
     let field = field.on_change(move || match Color::from_hex(f2.value().trim()) {
@@ -327,17 +332,17 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
         let readout = w::text(ui, "").text(move || {
             let c = value.get();
             let ratio = c.with_alpha(1.0).contrast(bg);
-            remedy_ui_view::words::fill(&u.word("Contrast {ratio}:1 · {grade}"), &[
-                ("ratio", &format!("{ratio:.1}")),
-                ("grade", &u.word(contrast_grade(ratio))),
-            ])
+            remedy_ui_view::words::fill(
+                &u.word("Contrast {ratio}:1 · {grade}"),
+                &[("ratio", &format!("{ratio:.1}")), ("grade", &u.word(contrast_grade(ratio)))],
+            )
         });
         info = info.child(readout.semantics(move || {
             let ratio = value.get().with_alpha(1.0).contrast(bg);
-            Semantics::new(Role::Status).label(remedy_ui_view::words::fill(&u2.word("Contrast {ratio} to 1, {grade}"), &[
-                ("ratio", &format!("{ratio:.1}")),
-                ("grade", &u2.word(contrast_grade(ratio))),
-            ]))
+            Semantics::new(Role::Status).label(remedy_ui_view::words::fill(
+                &u2.word("Contrast {ratio} to 1, {grade}"),
+                &[("ratio", &format!("{ratio:.1}")), ("grade", &u2.word(contrast_grade(ratio)))],
+            ))
         }));
     }
     let l2 = label.clone();

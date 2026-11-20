@@ -166,16 +166,14 @@ pub fn describe_chord_in(locale: &str, chord: &ChordShape) -> String {
         parts.push(match s {
             StringState::Muted => fill(word_or(locale, "string {number} muted"), &[("number", &number)]),
             StringState::Open => fill(word_or(locale, "string {number} open"), &[("number", &number)]),
-            StringState::Fretted { fret, finger: Some(f) } => {
-                fill(word_or(locale, "string {number} fret {fret} finger {finger}"), &[
-                    ("number", &number),
-                    ("fret", &fret.to_string()),
-                    ("finger", &f.to_string()),
-                ])
-            }
-            StringState::Fretted { fret, finger: None } => {
-                fill(word_or(locale, "string {number} fret {fret}"), &[("number", &number), ("fret", &fret.to_string())])
-            }
+            StringState::Fretted { fret, finger: Some(f) } => fill(
+                word_or(locale, "string {number} fret {fret} finger {finger}"),
+                &[("number", &number), ("fret", &fret.to_string()), ("finger", &f.to_string())],
+            ),
+            StringState::Fretted { fret, finger: None } => fill(
+                word_or(locale, "string {number} fret {fret}"),
+                &[("number", &number), ("fret", &fret.to_string())],
+            ),
         });
     }
     for b in &chord.barres {
@@ -184,15 +182,21 @@ pub fn describe_chord_in(locale: &str, chord: &ChordShape) -> String {
         } else {
             word_or(locale, "barre at fret {fret} across strings {from} to {to}")
         };
-        parts.push(fill(template, &[
-            ("fret", &b.fret.to_string()),
-            ("from", &n.saturating_sub(b.from).to_string()),
-            ("to", &n.saturating_sub(b.to).to_string()),
-            ("finger", &b.finger.map(|f| f.to_string()).unwrap_or_default()),
-        ]));
+        parts.push(fill(
+            template,
+            &[
+                ("fret", &b.fret.to_string()),
+                ("from", &n.saturating_sub(b.from).to_string()),
+                ("to", &n.saturating_sub(b.to).to_string()),
+                ("finger", &b.finger.map(|f| f.to_string()).unwrap_or_default()),
+            ],
+        ));
     }
     if chord.base_fret > 1 {
-        parts.push(fill(word_or(locale, "diagram starts at fret {fret}"), &[("fret", &chord.base_fret.to_string())]));
+        parts.push(fill(
+            word_or(locale, "diagram starts at fret {fret}"),
+            &[("fret", &chord.base_fret.to_string())],
+        ));
     }
     parts.join(", ")
 }
@@ -395,7 +399,12 @@ pub fn chord_diagram(
         let locale = sem_el.ui().locale();
         let name = ch.name.clone().map_or_else(
             || label.clone(),
-            |n| remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "{label}: {name}"), &[("label", &label), ("name", &n)]),
+            |n| {
+                remedy_ui_view::words::fill(
+                    remedy_ui_view::words::word_or(&locale, "{label}: {name}"),
+                    &[("label", &label), ("name", &n)],
+                )
+            },
         );
         let _ = sem_el
             .clone()

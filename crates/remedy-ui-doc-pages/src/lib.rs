@@ -86,7 +86,10 @@ pub fn page_view(ui: &Ui, view: &PageView, label: impl Into<String>) -> El {
         .pass_through()
         .semantics(move || {
             Semantics::new(Role::Page)
-                .label(remedy_ui_view::words::fill(&page_word, &[("number", &(current.get() + 1).to_string())]))
+                .label(remedy_ui_view::words::fill(
+                    &page_word,
+                    &[("number", &(current.get() + 1).to_string())],
+                ))
                 .value(text.get())
         });
     let (a, b, c, d, f, g) =
@@ -136,9 +139,10 @@ pub fn thumbnails(ui: &Ui, view: &PageView) -> El {
     let n = view.page_count();
     let items = Signal::new((0..n).collect::<Vec<usize>>());
     let (ui2, v) = (ui.clone(), view.clone());
-    let rail = remedy_ui_widgets_core::virtual_list(ui, ui.word("Pages"), items, THUMB_ROW, move |_, &page| {
-        thumb_row(&ui2, &v, page)
-    });
+    let rail =
+        remedy_ui_widgets_core::virtual_list(ui, ui.word("Pages"), items, THUMB_ROW, move |_, &page| {
+            thumb_row(&ui2, &v, page)
+        });
     let keys = view.clone();
     let rail = rail.focusable(true).on_key(move |k| {
         if !k.pressed {

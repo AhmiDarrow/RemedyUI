@@ -106,15 +106,24 @@ pub fn toolbar_editor(ui: &Ui, commands: &Commands, slot: Signal<Vec<String>>) -
                     .fill_width()
                     .child(sw.grow(1.0))
                     .child(
-                        w::icon_button(&u, Icon::ChevronUp, remedy_ui_view::words::fill(&u.word("Move {name} earlier"), &[("name", &c.label)]), move || {
-                            shift(-1, id2.clone())
-                        })
+                        w::icon_button(
+                            &u,
+                            Icon::ChevronUp,
+                            remedy_ui_view::words::fill(
+                                &u.word("Move {name} earlier"),
+                                &[("name", &c.label)],
+                            ),
+                            move || shift(-1, id2.clone()),
+                        )
                         .disabled(!shown.contains(&c.id)),
                     )
                     .child(
-                        w::icon_button(&u, Icon::ChevronDown, remedy_ui_view::words::fill(&u.word("Move {name} later"), &[("name", &c.label)]), move || {
-                            shift(1, id3.clone())
-                        })
+                        w::icon_button(
+                            &u,
+                            Icon::ChevronDown,
+                            remedy_ui_view::words::fill(&u.word("Move {name} later"), &[("name", &c.label)]),
+                            move || shift(1, id3.clone()),
+                        )
                         .disabled(!shown.contains(&c.id)),
                     );
                 let _ = l2.clone().child(row);

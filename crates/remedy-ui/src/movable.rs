@@ -65,9 +65,9 @@ impl Movable {
         let ui = self.holder.ui().clone();
         let unit = ui.theme().spacing.unit;
         let me = self.clone();
-        let said = remedy_ui_words::fill(&ui.word("{title} is in its own window."), &[("title", &self.title)]);
-        let note = remedy_ui_widgets_core::text(&ui, said)
-            .variant("muted");
+        let said =
+            remedy_ui_words::fill(&ui.word("{title} is in its own window."), &[("title", &self.title)]);
+        let note = remedy_ui_widgets_core::text(&ui, said).variant("muted");
         let back = remedy_ui_widgets_core::button(&ui, ui.word("Bring it back"), move || me.bring_back());
         let _ = self.holder.clone().child(
             remedy_ui_widgets_core::column(&ui)

@@ -293,9 +293,10 @@ impl StaffEditor {
                         |ms, c| move_octaves(ms, c, d).then_some(c),
                     )
                 } else if m.shift {
-                    self.apply(if up { en("Raise note a semitone") } else { en("Lower note a semitone") }, |ms, c| {
-                        move_semitones(ms, c, d, key).then_some(c)
-                    })
+                    self.apply(
+                        if up { en("Raise note a semitone") } else { en("Lower note a semitone") },
+                        |ms, c| move_semitones(ms, c, d, key).then_some(c),
+                    )
                 } else {
                     self.apply(if up { en("Move note up") } else { en("Move note down") }, |ms, c| {
                         move_steps(ms, c, d, key).then_some(c)
@@ -340,9 +341,10 @@ impl StaffEditor {
                 };
                 if let Some(step) = letter {
                     let add = m.shift;
-                    return self.apply(if add { en("Add note to chord") } else { en("Set note") }, |ms, c| {
-                        set_letter(ms, c, step, clef, key, add).then_some(c)
-                    });
+                    return self
+                        .apply(if add { en("Add note to chord") } else { en("Set note") }, |ms, c| {
+                            set_letter(ms, c, step, clef, key, add).then_some(c)
+                        });
                 }
                 let value = match ch.as_str() {
                     "1" => Some(NoteValue::Whole),

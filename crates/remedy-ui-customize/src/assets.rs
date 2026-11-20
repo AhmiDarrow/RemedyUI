@@ -461,7 +461,12 @@ impl Customizations {
             );
         }
         let dir = file.parent().map(Path::to_path_buf).unwrap_or_default();
-        self.write_with_assets(ui, fill(&ui.word("Add the font {family}"), &[("family", family)]), doc, Some((dir, at)))
+        self.write_with_assets(
+            ui,
+            fill(&ui.word("Add the font {family}"), &[("family", family)]),
+            doc,
+            Some((dir, at)),
+        )
     }
 
     /// Takes the theme's font `family` away (and out of the font lists); undoable.
@@ -477,7 +482,12 @@ impl Customizations {
                 crate::theme::put_token(&mut doc, &token, &crate::TokenValue::Families(rest));
             }
         }
-        self.write_with_assets(ui, fill(&ui.word("Remove the font {family}"), &[("family", family)]), doc, None)
+        self.write_with_assets(
+            ui,
+            fill(&ui.word("Remove the font {family}"), &[("family", family)]),
+            doc,
+            None,
+        )
     }
 
     /// The theme with the person's changes as the file says it (assets as references,

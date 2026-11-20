@@ -71,7 +71,8 @@ fn every_shipped_file_parses_and_keeps_the_placeholders() {
                 if is_counted(&en, &key) { value.split(SEPARATOR).collect() } else { vec![value.as_str()] };
             for f in forms {
                 if placeholders(f) != want {
-                    problems.push(format!("{}: {key:?} → {f:?} should have the placeholders {want:?}", l.tag));
+                    problems
+                        .push(format!("{}: {key:?} → {f:?} should have the placeholders {want:?}", l.tag));
                 }
             }
         }
@@ -84,7 +85,9 @@ fn the_files_are_the_shipped_list() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("words");
     let mut on_disk: BTreeSet<String> = std::fs::read_dir(&dir)
         .map(|d| {
-            d.flatten().filter_map(|e| e.file_name().to_str()?.strip_suffix(".json").map(str::to_owned)).collect()
+            d.flatten()
+                .filter_map(|e| e.file_name().to_str()?.strip_suffix(".json").map(str::to_owned))
+                .collect()
         })
         .unwrap_or_default();
     assert!(on_disk.remove("en"), "words/en.json is the inventory");
@@ -100,8 +103,90 @@ fn the_files_are_the_shipped_list() {
 /// names.
 const SAME_AS_ENGLISH: &[&str] = &["WCAG", "OK"];
 
+/// Words a language writes exactly as English does, checked one by one: everything else
+/// that reads the same as the English is an untranslated word.
+const SAME_IN: &[(&str, &[&str])] = &[
+    ("es", &["Terminal", "Widget", "normal", "vibrato", "{label} hex"]),
+    (
+        "fr",
+        &[
+            "Accent",
+            "Code",
+            "Code, {language}",
+            "Compact",
+            "Danger",
+            "Ellipse",
+            "Image",
+            "Images",
+            "Information",
+            "Mention",
+            "Menu",
+            "Message",
+            "Messages",
+            "Note",
+            "Page {number}",
+            "Pages",
+            "Pause",
+            "Question",
+            "Rectangle",
+            "Terminal",
+            "Volume",
+            "Widget",
+            "hammer-on",
+            "normal",
+            "pull-off",
+            "vibrato",
+        ],
+    ),
+    (
+        "pt-BR",
+        &[
+            "Layout {file}",
+            "Link",
+            "Links",
+            "Menu",
+            "Terminal",
+            "Volume",
+            "Widget",
+            "layout {file}",
+            "normal",
+            "vibrato",
+        ],
+    ),
+    (
+        "de",
+        &[
+            "Code",
+            "Code, {language}",
+            "Computer",
+            "Ellipse",
+            "Information",
+            "Layout {file}",
+            "Link",
+            "Links",
+            "Terminal",
+            "Text",
+            "Widget",
+            "normal",
+            "{position} · Live",
+        ],
+    ),
+];
+
+/// Whether a word has any words of its own besides its placeholders.
+fn has_words(key: &str) -> bool {
+    let mut rest = key;
+    let mut text = String::new();
+    while let Some(open) = rest.find('{') {
+        text.push_str(rest.get(..open).unwrap_or_default());
+        let after = rest.get(open..).unwrap_or_default();
+        rest = after.find('}').and_then(|c| after.get(c + 1..)).unwrap_or_default();
+    }
+    text.push_str(rest);
+    text.chars().any(char::is_alphabetic)
+}
+
 #[test]
-#[ignore = "translations pending"]
 fn every_shipped_locale_is_complete() {
     let en = english();
     let mut problems = Vec::new();
@@ -123,7 +208,12 @@ fn every_shipped_locale_is_complete() {
                     ));
                 }
             }
-            if value == english_value && !SAME_AS_ENGLISH.contains(&key.as_str()) {
+            let allowed = SAME_IN.iter().find(|(tag, _)| *tag == l.tag).map_or(&[][..], |(_, words)| *words);
+            if value == english_value
+                && has_words(key)
+                && !SAME_AS_ENGLISH.contains(&key.as_str())
+                && !allowed.contains(&key.as_str())
+            {
                 problems.push(format!("{}: {key:?} is still English", l.tag));
             }
         }
@@ -193,14 +283,17 @@ fn plural_rules_pick_the_forms() {
     let forms = |rule: &str, ns: &[u64]| ns.iter().map(|&n| plural_form(rule, n)).collect::<Vec<_>>();
     assert_eq!(forms("one-other", &[0, 1, 2, 11, 21]), [1, 0, 1, 1, 1]);
     assert_eq!(forms("zero-one", &[0, 1, 2, 11, 21]), [0, 0, 1, 1, 1]);
-    assert_eq!(forms("slavic", &[0, 1, 2, 4, 5, 11, 12, 14, 21, 22, 24, 25, 101, 111, 112]), [
-        2, 0, 1, 1, 2, 2, 2, 2, 0, 1, 1, 2, 0, 2, 2
-    ]);
-    assert_eq!(forms("arabic", &[0, 1, 2, 3, 10, 11, 99, 100, 101, 102, 103, 111, 1000]), [
-        0, 1, 2, 3, 3, 4, 4, 5, 5, 5, 3, 4, 5
-    ]);
+    assert_eq!(
+        forms("slavic", &[0, 1, 2, 4, 5, 11, 12, 14, 21, 22, 24, 25, 101, 111, 112]),
+        [2, 0, 1, 1, 2, 2, 2, 2, 0, 1, 1, 2, 0, 2, 2]
+    );
+    assert_eq!(
+        forms("arabic", &[0, 1, 2, 3, 10, 11, 99, 100, 101, 102, 103, 111, 1000]),
+        [0, 1, 2, 3, 3, 4, 4, 5, 5, 5, 3, 4, 5]
+    );
     assert_eq!(forms("none", &[0, 1, 2, 100]), [0, 0, 0, 0]);
-    let counts: Vec<usize> = ["one-other", "zero-one", "slavic", "arabic", "none"].map(plural_form_count).into();
+    let counts: Vec<usize> =
+        ["one-other", "zero-one", "slavic", "arabic", "none"].map(plural_form_count).into();
     assert_eq!(counts, [2, 2, 3, 6, 1]);
     for l in &SHIPPED {
         let max = (0..1000).map(|n| l.form(n)).max().unwrap_or_default();
@@ -226,7 +319,10 @@ fn pick_and_fill() {
 fn translations_are_found_by_locale_and_count() {
     let mut tables: Vec<HashMap<String, String>> = vec![HashMap::new(); SHIPPED.len()];
     let fixture = [
-        ("ru", r#"{"Close": "Закрыть", "{count} reactions": "{count} реакция || {count} реакции || {count} реакций", "Empty": " "}"#),
+        (
+            "ru",
+            r#"{"Close": "Закрыть", "{count} reactions": "{count} реакция || {count} реакции || {count} реакций", "Empty": " "}"#,
+        ),
         ("zh-Hans", r#"{"Close": "关闭"}"#),
     ];
     for (tag, json) in fixture {
@@ -240,7 +336,8 @@ fn translations_are_found_by_locale_and_count() {
     assert_eq!(word_in(&tables, "zh-TW", "Close"), None, "no Simplified for Traditional readers");
     assert_eq!(word_in(&tables, "ru", "Empty"), None, "a blank translation is no translation");
     assert_eq!(word_in(&tables, "de", "Close"), None, "not translated yet");
-    let say = |n| counted_in(&tables, "ru", "{count} reactions", n).map(|f| fill(f, &[("count", &n.to_string())]));
+    let say =
+        |n| counted_in(&tables, "ru", "{count} reactions", n).map(|f| fill(f, &[("count", &n.to_string())]));
     assert_eq!(say(1).as_deref(), Some("1 реакция"));
     assert_eq!(say(3).as_deref(), Some("3 реакции"));
     assert_eq!(say(11).as_deref(), Some("11 реакций"));
@@ -264,10 +361,7 @@ fn the_parser_is_strict() {
     assert!(ok(" \u{feff}{}").is_err(), "a byte-order mark only at the start");
     assert_eq!(ok("\u{feff}{ }\n"), Ok(vec![]));
     assert_eq!(ok(r#"{"a":"b" , "c" : "d"}"#), Ok(vec!["a=b".into(), "c=d".into()]));
-    assert_eq!(
-        ok(r#"{"q\"\\\/":"\n\té😀"}"#),
-        Ok(vec!["q\"\\/=\n\té\u{1f600}".into()])
-    );
+    assert_eq!(ok(r#"{"q\"\\\/":"\n\té😀"}"#), Ok(vec!["q\"\\/=\n\té\u{1f600}".into()]));
     for bad in [
         "",
         "[]",
@@ -342,7 +436,9 @@ fn tokens(src: &str) -> Vec<Tok> {
                     i += 1;
                 }
             }
-        } else if c == '"' || ((c == 'r' || c == 'b') && (at(i + 1) == '"' || at(i + 1) == '#' || at(i + 1) == 'r')) {
+        } else if c == '"'
+            || ((c == 'r' || c == 'b') && (at(i + 1) == '"' || at(i + 1) == '#' || at(i + 1) == 'r'))
+        {
             // Byte strings and raw strings: r"…", r#"…"#, b"…", br"…".
             let start = i;
             if c == 'b' {
@@ -589,10 +685,15 @@ fn extract(src: &str, found: &mut Found, file: &str, problems: &mut Vec<String>)
     // Names a `use … words::{…}` (or `use … words::name;`) brings in: their bare calls count.
     let mut imported = BTreeSet::new();
     for i in 0..toks.len() {
-        if !(matches!(ident(i), Some("words" | "remedy_ui_words")) && punct(i + 1, ':') && punct(i + 2, ':')) {
+        if !(matches!(ident(i), Some("words" | "remedy_ui_words")) && punct(i + 1, ':') && punct(i + 2, ':'))
+        {
             continue;
         }
-        let in_use = (0..i).rev().take(16).map_while(|k| (!punct(k, ';')).then_some(k)).any(|k| ident(k) == Some("use"));
+        let in_use = (0..i)
+            .rev()
+            .take(16)
+            .map_while(|k| (!punct(k, ';')).then_some(k))
+            .any(|k| ident(k) == Some("use"));
         if !in_use {
             continue;
         }
@@ -637,7 +738,8 @@ fn extract(src: &str, found: &mut Found, file: &str, problems: &mut Vec<String>)
                 [one, other, ..] => {
                     found.counted.insert(other.clone(), one.clone());
                 }
-                [_] => problems.push(format!("{file}: `{name}(` takes both forms as string literals, or neither")),
+                [_] => problems
+                    .push(format!("{file}: `{name}(` takes both forms as string literals, or neither")),
                 _ => {}
             },
             // `impl Default for SomethingLabels { … }`
@@ -652,7 +754,10 @@ fn extract(src: &str, found: &mut Found, file: &str, problems: &mut Vec<String>)
                 }
             }
             // The board's `words! { SomethingLabels { field: "default", … } }`.
-            n if n.ends_with("Labels") && punct(i + 1, '{') && macro_bodies.iter().any(|r| r.contains(&i)) => {
+            n if n.ends_with("Labels")
+                && punct(i + 1, '{')
+                && macro_bodies.iter().any(|r| r.contains(&i)) =>
+            {
                 found.labels.extend(block_strings(&toks, i + 1));
             }
             _ => {}
@@ -671,7 +776,9 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
             }
             rust_files(&path, out);
         } else if path.extension().is_some_and(|x| x == "rs")
-            && !path.file_name().is_some_and(|n| n == "tests.rs" || n.to_string_lossy().ends_with("_tests.rs"))
+            && !path
+                .file_name()
+                .is_some_and(|n| n == "tests.rs" || n.to_string_lossy().ends_with("_tests.rs"))
         {
             out.push(path);
         }
@@ -729,7 +836,8 @@ fn the_inventory_is_every_word_the_sources_say() {
     let en = english();
     let missing: Vec<&String> = found.keys().filter(|k| !en.contains_key(*k)).collect();
     let stale: Vec<&String> = en.keys().filter(|k| !found.contains_key(*k)).collect();
-    let changed: Vec<&String> = found.iter().filter(|(k, v)| en.get(*k).is_some_and(|e| e != *v)).map(|(k, _)| k).collect();
+    let changed: Vec<&String> =
+        found.iter().filter(|(k, v)| en.get(*k).is_some_and(|e| e != *v)).map(|(k, _)| k).collect();
     assert!(
         missing.is_empty() && stale.is_empty() && changed.is_empty(),
         "words/en.json is out of date with the sources; run `REMEDY_WRITE_WORDS=1 cargo test -p remedy-ui-words` \
@@ -776,7 +884,10 @@ fn the_extractor_reads_calls_and_labels() {
     extract(src, &mut found, "x.rs", &mut problems);
     assert!(problems.is_empty(), "{problems:?}");
     let words: Vec<&str> = found.words.iter().map(String::as_str).collect();
-    assert_eq!(words, ["After tests", "Bare", "Close", "Highlight", "Open", "Quit", "Raw \"one\"", "Show \"password\""]);
+    assert_eq!(
+        words,
+        ["After tests", "Bare", "Close", "Highlight", "Open", "Quit", "Raw \"one\"", "Show \"password\""]
+    );
     assert_eq!(found.counted.get("{count} sharps").map(String::as_str), Some("{count} sharp"));
     let labels: Vec<&str> = found.labels.iter().map(String::as_str).collect();
     assert_eq!(labels, ["1 reaction", "Ignore", "Undo", "{count} reactions"]);

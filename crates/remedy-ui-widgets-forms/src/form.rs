@@ -300,7 +300,9 @@ pub fn form_status(ui: &Ui, form: &Form) -> El {
             SubmitState::Submitting => (u.word("Saving…"), "muted"),
             SubmitState::Saved => (u.word("Saved"), "muted"),
             SubmitState::Failed(m) => (m, "error"),
-            SubmitState::Idle => (if f.is_dirty() { u.word("Unsaved changes") } else { String::new() }, "muted"),
+            SubmitState::Idle => {
+                (if f.is_dirty() { u.word("Unsaved changes") } else { String::new() }, "muted")
+            }
         };
         let _ = l2.clone().variant(variant).text(remedy_ui_view::RichText::plain(text.clone()));
         let _ = l2.clone().semantics(Semantics::new(Role::Status).label(text).live(Live::Polite));

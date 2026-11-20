@@ -474,7 +474,11 @@ impl Terminal {
     fn wire(&self, root: El, scroller: El, measure: El, announcer: El, tick: Signal<u64>) {
         let ui = &self.0.ui;
         // The default name is the engine's word; an app's own is its own.
-        let label = if self.0.options.label == "Terminal" { ui.word("Terminal") } else { self.0.options.label.clone() };
+        let label = if self.0.options.label == "Terminal" {
+            ui.word("Terminal")
+        } else {
+            self.0.options.label.clone()
+        };
         let u_words = ui.clone();
         let (title, screen) = (self.0.title, self.0.screen_text);
         let t = self.clone();
@@ -505,7 +509,10 @@ impl Terminal {
                     if t.is_empty() {
                         label.clone()
                     } else {
-                        remedy_ui_view::words::fill(&u_words.word("{label}: {name}"), &[("label", &label), ("name", t)])
+                        remedy_ui_view::words::fill(
+                            &u_words.word("{label}: {name}"),
+                            &[("label", &label), ("name", t)],
+                        )
                     }
                 });
                 Semantics::new(Role::MultilineTextInput).label(name).value(screen.get())

@@ -172,7 +172,10 @@ pub fn rating(ui: &Ui, label: impl Into<String>, value: Signal<f32>, options: Ra
         return el.bind(move || {
             let v = value.get().clamp(0.0, max as f32);
             let _ = sem_el.clone().semantics(
-                Semantics::new(Role::Image).label(l2.clone()).value(spoken(&of, v, max, &unit)).read_only(true),
+                Semantics::new(Role::Image)
+                    .label(l2.clone())
+                    .value(spoken(&of, v, max, &unit))
+                    .read_only(true),
             );
             sem_el.repaint();
         });
