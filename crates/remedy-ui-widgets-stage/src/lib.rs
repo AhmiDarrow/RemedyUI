@@ -29,6 +29,30 @@
 //! no work while nothing changes. Children placed on stages, orbits, paths and timelines are
 //! read and focused in the order the app gave them, not their position in the picture.
 //! See `docs/design/15-widgets-and-media.md`.
+//!
+//! A radio's front, as a stage: a tuner of rooms across the top, a lamp-lit push-to-talk
+//! button, and a board saying what is on.
+//!
+//! ```
+//! use remedy_ui_core::Size;
+//! use remedy_ui_reactive::Signal;
+//! use remedy_ui_widgets_stage::*;
+//!
+//! # fn demo(ui: &remedy_ui_view::Ui) {
+//! let room = Signal::new(0usize);
+//! let talking = Signal::new(false);
+//! let rooms = vec![Station::new("General").detail("01.0"), Station::new("Lounge").detail("02.4")];
+//! let radio = scene(ui, "Radio", Size::new(1280.0, 720.0), SceneOptions::default())
+//!     .anchor("dial", Anchor::rect(240.0, 40.0, 900.0, 160.0))
+//!     .anchor("ptt", Anchor::point(540.0, 625.0))
+//!     .anchor("board", Anchor::rect(840.0, 570.0, 380.0, 110.0))
+//!     .place("dial", tuner(ui, "Room", rooms, room, TunerOptions::default()))
+//!     .place("ptt", big_button(ui, "Push to talk", || {}, BigButtonOptions::default().held(talking)))
+//!     .place("board", display_text(ui, move || if talking.get() { "ON AIR" } else { "STANDBY" }, DisplayOptions::default()));
+//! let el: remedy_ui_view::El = radio.into();
+//! # let _ = el;
+//! # }
+//! ```
 
 mod button;
 mod common;
