@@ -11,9 +11,11 @@
 //! right-to-left before they paint.
 
 mod composite;
+mod record;
 mod surface;
 
 pub use composite::CpuCompositor;
+pub use record::{CompositeTarget, LayerFilter, record_ops};
 pub use surface::{ImageKey, Surface};
 
 use std::collections::HashMap;

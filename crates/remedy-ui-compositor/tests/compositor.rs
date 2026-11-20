@@ -470,8 +470,11 @@ fn glass_damage_stays_on_the_grid_after_merging_with_a_neighbour() {
     // The first rect is near the glass and snaps to (192, 192); the second does not touch the
     // glass but touches the snapped rect, and their union starts at x 149, off the grid.
     let plan = glass_plan(&[Rect::new(230.0, 230.0, 240.0, 240.0), Rect::new(150.0, 200.0, 191.0, 210.0)]);
-    let rects = plan.redraw_rects(1000, 800, true);
+    let rects = plan.redraw_rects(1000, 800, true, 0.0);
     assert!(!rects.is_empty());
+    // The glass reads its box and a pixel around it (no blur): all of it is drawn again.
+    let reads = Rect::new(199.0, 199.0, 301.0, 301.0);
+    assert!(rects.iter().any(|r| r.intersect(reads) == Some(reads)), "{rects:?} draw only part of the glass");
     for r in rects {
         assert_eq!((r.min.x % 64.0, r.min.y % 64.0), (0.0, 0.0), "{r:?} redraws glass off the 64-pixel grid");
     }
@@ -494,9 +497,12 @@ fn scattered_damage_redraws_one_rect_around_it() {
         plan.damage.add(r);
     }
     assert_eq!(plan.damage.rects().len(), 12);
-    let rects = plan.redraw_rects(3840, 2160, true);
+    // Renders that cost a million pixels each: one rectangle around them all is cheaper.
+    let rects = plan.redraw_rects(3840, 2160, true, 1.0e6);
     assert_eq!(rects.len(), 1, "one render instead of twelve");
     for d in dots {
         assert!(rects.iter().any(|r| r.intersect(d) == Some(d)), "{d:?} is still redrawn");
     }
+    // Renders that cost little: the dots are drawn one by one, not the area between them.
+    assert_eq!(plan.redraw_rects(3840, 2160, true, 0.0).len(), 12);
 }
