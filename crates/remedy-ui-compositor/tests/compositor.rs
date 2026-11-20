@@ -506,3 +506,65 @@ fn scattered_damage_redraws_one_rect_around_it() {
     // Renders that cost little: the dots are drawn one by one, not the area between them.
     assert_eq!(plan.redraw_rects(3840, 2160, true, 0.0).len(), 12);
 }
+
+#[test]
+fn trees_any_depth_are_walked_and_dropped_on_a_threads_stack() {
+    // A tree nesting tens of thousands of layers: committed, walked, diffed and dropped on a
+    // test thread's stack (2 MB), with balanced ops and the deepest layer's tiles drawn.
+    const N: u64 = 20_000;
+    let full = Rect::new(0.0, 0.0, 200.0, 200.0);
+    let tree = |opacity: f32| {
+        let mut layer = Layer::new(LayerId(N + 1), full, solid(200.0, 200.0));
+        for i in 0..N {
+            let mut parent = Layer::new(LayerId(i + 1), full, DisplayList::new());
+            match i % 3 {
+                0 => parent.clip = Some(CornerRadii::ZERO),
+                1 => parent.opacity = opacity,
+                _ => parent.filters.push(remedy_ui_paint::Filter::Blur { radius: 0.0 }),
+            }
+            layer = parent.with_child(layer);
+        }
+        LayerTree::new(vec![layer])
+    };
+    let t = tree(0.999);
+    let mut seen = 0u64;
+    t.for_each(|_| seen += 1);
+    assert_eq!(seen, N + 1, "every layer visited");
+    assert!(t.find(LayerId(N + 1)).is_some(), "the deepest layer found");
+    let mut comp = Compositor::new(200, 200, 1.0, ScrollPhysics::CLAMPED);
+    comp.commit(t);
+    let plan = comp.frame(ms(0));
+    let depth = plan.ops.iter().try_fold(0i64, |d, op| {
+        let d = match op {
+            CompositeOp::PushClip { .. } | CompositeOp::PushOpacity(_) | CompositeOp::PushFilter { .. } => {
+                d + 1
+            }
+            CompositeOp::PopClip | CompositeOp::PopOpacity | CompositeOp::PopFilter => d - 1,
+            _ => d,
+        };
+        (d >= 0).then_some(d)
+    });
+    assert_eq!(depth, Some(0), "pushes and pops balance");
+    assert!(tiles(&plan).iter().any(|(l, _)| *l == LayerId(N + 1)), "the deepest layer drawn");
+    // A second commit diffs against the first, and drops it.
+    comp.commit(tree(0.99));
+    let plan = comp.frame(ms(16));
+    assert!(!plan.damage.rects().is_empty(), "an opacity change is damage");
+    drop(comp);
+}
+
+#[test]
+fn layer_tree_visits_parents_before_children_back_to_front() {
+    let leaf = |id| Layer::new(LayerId(id), Rect::new(0.0, 0.0, 10.0, 10.0), DisplayList::new());
+    let a = leaf(1).with_child(leaf(2).with_child(leaf(3))).with_child(leaf(4));
+    let t = LayerTree::new(vec![a, leaf(5).with_child(leaf(6))]);
+    let mut order = Vec::new();
+    t.for_each(|l| order.push(l.id.0));
+    assert_eq!(order, [1, 2, 3, 4, 5, 6]);
+    assert_eq!(t.find(LayerId(4)).map(|l| l.id), Some(LayerId(4)));
+    assert!(t.find(LayerId(7)).is_none());
+    // A layer still shared by another tree outlives this one's drop.
+    let shared = t.roots.first().cloned();
+    drop(t);
+    assert_eq!(shared.map(|s| s.children.len()), Some(2));
+}

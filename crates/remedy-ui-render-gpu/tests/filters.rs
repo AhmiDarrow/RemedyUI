@@ -339,32 +339,22 @@ fn deeply_nested_groups_are_bounded_on_both_renderers() {
     }
     assert_eq!(differing(&c, &g, 2).0, 0, "GPU matches CPU");
 
-    // The same depth through the compositor: nested layers, each clipped and faded. The
-    // compositor's own tree walk recurses per layer, so the plan is built on a large stack;
-    // the composite walk draws it on this one.
-    let plan = std::thread::Builder::new()
-        .stack_size(256 << 20)
-        .spawn(|| {
-            let full = Rect::new(0.0, 0.0, 320.0, 240.0);
-            let mut leaf = DisplayList::new();
-            leaf.fill_rect(Rect::new(10.0, 10.0, 100.0, 100.0), Brush::Solid(Color::BLACK));
-            let mut layer = Layer::new(LayerId(N as u64 + 1), full, leaf);
-            for i in 0..N / 2 {
-                let mut parent = Layer::new(LayerId(i as u64 + 1), full, DisplayList::new());
-                parent.opacity = if i == N / 2 - 1 { 0.5 } else { 0.999 };
-                parent.clip = Some(CornerRadii::ZERO);
-                parent.children.push(std::sync::Arc::new(layer));
-                layer = parent;
-            }
-            let mut comp = Compositor::new(320, 240, 1.0, ScrollPhysics::CLAMPED);
-            comp.commit(LayerTree::new(vec![layer]));
-            let plan = comp.frame(Duration::ZERO);
-            // Dropping the tree recurses too: it goes on this thread.
-            drop(comp);
-            plan
-        })
-        .map(|t| t.join());
-    let Ok(Ok(plan)) = plan else { unreachable!("the plan is built") };
+    // The same depth through the compositor: nested layers, each clipped and faded, walked,
+    // composited and dropped on this thread's stack.
+    let full = Rect::new(0.0, 0.0, 320.0, 240.0);
+    let mut leaf = DisplayList::new();
+    leaf.fill_rect(Rect::new(10.0, 10.0, 100.0, 100.0), Brush::Solid(Color::BLACK));
+    let mut layer = Layer::new(LayerId(N as u64 + 1), full, leaf);
+    for i in 0..N / 2 {
+        let mut parent = Layer::new(LayerId(i as u64 + 1), full, DisplayList::new());
+        parent.opacity = if i == N / 2 - 1 { 0.5 } else { 0.999 };
+        parent.clip = Some(CornerRadii::ZERO);
+        parent.children.push(std::sync::Arc::new(layer));
+        layer = parent;
+    }
+    let mut comp = Compositor::new(320, 240, 1.0, ScrollPhysics::CLAMPED);
+    comp.commit(LayerTree::new(vec![layer]));
+    let plan = comp.frame(Duration::ZERO);
     let (Ok(c), Ok(g)) = (
         CpuCompositor::new().present(&plan, 320, 240, Color::WHITE),
         GpuCompositor::new(gpu(), LadderOptions::default()).present_to_frame(&plan, 320, 240, Color::WHITE),
