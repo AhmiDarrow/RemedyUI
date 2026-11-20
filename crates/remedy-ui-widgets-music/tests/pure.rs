@@ -482,3 +482,32 @@ fn chords_are_described_string_by_string() {
     let (w1x, h1x) = diagram_size(&am, &ChordOptions::default(), 4.0);
     assert!((w2x / w1x - 2.0).abs() < 1e-3 && (h2x / h1x - 2.0).abs() < 1e-3);
 }
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&remedy_ui_widgets_music::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+#[test]
+fn notes_are_said_the_way_musicians_of_each_language_say_them() {
+    use NoteValue::*;
+    assert_eq!(p("C#4").spoken_in("de"), "Cis 4");
+    assert_eq!(p("Bb2").spoken_in("de"), "B 2");
+    assert_eq!(p("B3").spoken_in("de-AT"), "H 3");
+    assert_eq!(p("Bb2").spoken_in("fr"), "si bémol 2");
+    assert_eq!(p("F#3").spoken_in("ja"), "Fシャープ 3");
+    assert_eq!(describe_event_in(&StaffEvent::note(p("C#4"), Quarter), "de"), "Cis 4, Viertelnote");
+    assert_eq!(describe_event_in(&StaffEvent::rest(Quarter).dotted(1), "fr"), "soupir pointé");
+    assert_eq!(describe_event_in(&StaffEvent::rest(Half).dotted(1), "fr"), "demi-pause pointée");
+    assert_eq!(
+        describe_event_in(&StaffEvent::chord(vec![p("C4"), p("E4")], Whole), "zh-Hans"),
+        "C 4、E 4 和弦，全音符"
+    );
+    assert_eq!(Technique::Bend(3).spoken(), "bend 1.5 steps");
+    assert_eq!(Technique::Bend(4).spoken_in("ru"), "подтяжка на 2 тона");
+    let e = TabEvent::new(vec![TabNote::new(2, 5).with(Technique::HammerOn)], Quarter);
+    assert_eq!(describe_tab_note_in(&e, 2, 6, "es"), "cuerda 4: traste 5, hammer-on");
+    let am = ChordShape::new(Some("Am"), vec![StringState::Muted, StringState::Open]);
+    assert_eq!(describe_chord_in(&am, "de"), "Saite 2 nicht gespielt, Saite 1 leer");
+}

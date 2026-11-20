@@ -48,23 +48,31 @@ pub enum Technique {
 }
 
 impl Technique {
-    /// How it is said aloud.
+    /// How it is said aloud in English ([`Technique::spoken_in`] for another language).
     pub fn spoken(self) -> String {
-        match self {
-            Technique::None => String::new(),
-            Technique::HammerOn => "hammer-on".into(),
-            Technique::PullOff => "pull-off".into(),
-            Technique::SlideUp => "slide up".into(),
-            Technique::SlideDown => "slide down".into(),
-            Technique::Bend(1) => "bend a half step".into(),
-            Technique::Bend(2) => "bend a whole step".into(),
-            Technique::Bend(n) => format!("bend {} steps", bend_text(n)),
-            Technique::Vibrato => "vibrato".into(),
-            Technique::Harmonic => "harmonic".into(),
-            Technique::PalmMute => "palm mute".into(),
-            Technique::Dead => "dead note".into(),
-            Technique::Tie => "tied".into(),
-        }
+        self.spoken_in("en")
+    }
+
+    /// How it is said aloud in `locale` (empty for a plain note).
+    pub fn spoken_in(self, locale: &str) -> String {
+        let id = match self {
+            Technique::None => return String::new(),
+            Technique::HammerOn => "hammer-on",
+            Technique::PullOff => "pull-off",
+            Technique::SlideUp => "slide-up",
+            Technique::SlideDown => "slide-down",
+            Technique::Bend(1) => "bend-half",
+            Technique::Bend(2) => "bend-whole",
+            Technique::Bend(n) => {
+                return crate::say(locale, "technique-bend", &[("steps", (f64::from(n) / 2.0).into())]);
+            }
+            Technique::Vibrato => "vibrato",
+            Technique::Harmonic => "harmonic",
+            Technique::PalmMute => "palm-mute",
+            Technique::Dead => "dead",
+            Technique::Tie => "tied",
+        };
+        crate::say(locale, "technique", &[("technique", id.into())])
     }
 
     /// Whether the technique runs on to the next note on the same string.
@@ -259,28 +267,39 @@ pub fn fret_text(n: &TabNote) -> String {
     }
 }
 
-/// How an event is said aloud on `string`: "string 3 fret 5 hammer-on", or "no note".
+/// How an event is said aloud on `string` in English: "string 3: fret 5, hammer-on", or
+/// "string 3: no note" ([`describe_tab_note_in`] for another language).
 pub fn describe_tab_note(e: &TabEvent, string: usize, strings: usize) -> String {
-    let number = strings.saturating_sub(string);
+    describe_tab_note_in(e, string, strings, "en")
+}
+
+/// How an event is said aloud on `string` in `locale`.
+pub fn describe_tab_note_in(e: &TabEvent, string: usize, strings: usize, locale: &str) -> String {
+    use crate::note_staff::{dots_id, value_id};
+    let number = ("string", strings.saturating_sub(string).into());
     if e.is_rest() {
-        return format!("{} rest", e.value.name());
+        let args = [("value", value_id(e.value).into()), ("dots", dots_id(e.dots).into())];
+        return crate::say(locale, "event-rest", &args);
     }
     match e.notes.iter().find(|n| n.string == string) {
         Some(n) => {
-            let fret = if n.technique == Technique::Dead {
-                "dead note".to_owned()
+            let note = if n.technique == Technique::Dead {
+                crate::say(locale, "tab-note-dead", &[number])
             } else if n.fret == 0 {
-                "open".to_owned()
+                crate::say(locale, "tab-note-open", &[number])
             } else {
-                format!("fret {}", n.fret)
+                crate::say(locale, "tab-note-fret", &[number, ("fret", n.fret.into())])
             };
-            let t = match n.technique {
-                Technique::None | Technique::Dead => String::new(),
-                t => format!(", {}", t.spoken()),
-            };
-            format!("string {number}: {fret}{t}")
+            match n.technique {
+                Technique::None | Technique::Dead => note,
+                t => crate::say(
+                    locale,
+                    "tab-note-technique",
+                    &[("note", note.into()), ("technique", t.spoken_in(locale).into())],
+                ),
+            }
         }
-        None => format!("string {number}: no note"),
+        None => crate::say(locale, "tab-no-note", &[number]),
     }
 }
 
@@ -876,7 +895,7 @@ fn tab_staff_with(
     let editable = editor.is_some();
     let key_editor = editor.clone();
     let pointer_editor = editor;
-    let sem_label = label.clone();
+    let (sem_label, u) = (label.clone(), ui.clone());
     let sem_options = options.clone();
     el.focusable(true)
         .on_focus_change(move |f| focused.set_if_changed(f))
@@ -949,21 +968,30 @@ fn tab_staff_with(
             let ms = measures.get();
             let cur = cursor.get();
             let picked = selected.get();
+            let locale = u.locale();
             let mut value = String::new();
             if let Some(ev) = ms.get(cur.measure).and_then(|m| m.events.get(cur.event)) {
                 let beat = beat_in(&ms, sem_options.time, cur.measure, cur.event);
-                value = format!(
-                    "measure {}, beat {beat}, {}",
-                    cur.measure + 1,
-                    describe_tab_note(ev, cur.string, strings)
+                value = crate::say(
+                    &locale,
+                    "tab-cursor",
+                    &[
+                        ("measure", (cur.measure + 1).into()),
+                        ("beat", crate::note_staff::beat_arg(beat)),
+                        ("note", describe_tab_note_in(ev, cur.string, strings, &locale).into()),
+                    ],
                 );
                 if picked == Some(cur) {
-                    value.push_str(", picked");
+                    value = crate::say(&locale, "cursor-picked", &[("what", value.into())]);
                 }
             }
-            let mut said = format!("Tablature, {strings} strings, {} measures", ms.len());
+            let mut said = crate::say(
+                &locale,
+                "tab-summary",
+                &[("strings", strings.into()), ("measures", ms.len().into())],
+            );
             if editable {
-                said.push_str(". Editable: type a fret number, Delete removes the note.");
+                said = crate::say(&locale, "tab-editable", &[("summary", said.into())]);
             }
             Semantics::new(Role::Grid)
                 .label(sem_label.clone())

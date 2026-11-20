@@ -117,7 +117,7 @@ impl Annotation {
         }
     }
 
-    /// What it is, in a word, for lists and screen readers.
+    /// What it is, in a word, in English ([`Annotation::kind_name_in`] in another language).
     pub fn kind_name(&self) -> &'static str {
         match &self.kind {
             AnnotationKind::Highlight { .. } => "Highlight",
@@ -134,20 +134,55 @@ impl Annotation {
         }
     }
 
-    /// A sentence describing it: "Highlight: “the text”, comment: …".
+    /// What it is, in a word, in `locale` ([`Annotation::kind_name`] translated).
+    pub fn kind_name_in(&self, locale: &str) -> String {
+        crate::say(locale, "annotation-kind", &[("kind", self.kind_id().into())])
+    }
+
+    /// Its kind as the catalog's messages select on it.
+    pub(crate) fn kind_id(&self) -> &'static str {
+        match &self.kind {
+            AnnotationKind::Highlight { .. } => "highlight",
+            AnnotationKind::Underline { .. } => "underline",
+            AnnotationKind::Strikeout { .. } => "strikeout",
+            AnnotationKind::Squiggly { .. } => "squiggly",
+            AnnotationKind::Ink { .. } => "drawing",
+            AnnotationKind::Note { .. } => "note",
+            AnnotationKind::FreeText { .. } => "text-box",
+            AnnotationKind::Shape { shape: Shape::Rect, .. } => "rectangle",
+            AnnotationKind::Shape { shape: Shape::Ellipse, .. } => "ellipse",
+            AnnotationKind::Shape { shape: Shape::Line, .. } => "line",
+            AnnotationKind::Shape { shape: Shape::Arrow, .. } => "arrow",
+        }
+    }
+
+    /// A sentence describing it, in English: "Highlight: “the text”, comment: …"
+    /// ([`Annotation::describe_in`] for another language).
     pub fn describe(&self) -> String {
-        let mut s = self.kind_name().to_owned();
+        self.describe_in("en")
+    }
+
+    /// A sentence describing it in `locale`, for lists and screen readers.
+    pub fn describe_in(&self, locale: &str) -> String {
+        let mut s = self.kind_name_in(locale);
+        let quote = |s: String, text: &str| {
+            crate::say(locale, "annotation-quoting", &[("what", s.into()), ("text", text.into())])
+        };
         if !self.marked_text.is_empty() {
-            s.push_str(&format!(": \u{201c}{}\u{201d}", self.marked_text));
+            s = quote(s, &self.marked_text);
         }
         if let AnnotationKind::FreeText { text, .. } = &self.kind {
-            s.push_str(&format!(": \u{201c}{text}\u{201d}"));
+            s = quote(s, text);
         }
         if !self.comment.is_empty() {
-            s.push_str(&format!(", comment: {}", self.comment));
+            s = crate::say(
+                locale,
+                "annotation-with-comment",
+                &[("what", s.into()), ("comment", self.comment.as_str().into())],
+            );
         }
         if let Some(a) = &self.author {
-            s.push_str(&format!(", by {a}"));
+            s = crate::say(locale, "annotation-by", &[("what", s.into()), ("author", a.as_str().into())]);
         }
         s
     }

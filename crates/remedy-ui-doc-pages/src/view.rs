@@ -534,7 +534,16 @@ impl PageView {
         }
     }
 
-    fn update_page_text(&self) {
+    /// The window's language (not tracked), for what the view says; English before it is
+    /// shown.
+    fn locale(&self) -> String {
+        let h = self.0.host.borrow();
+        let ui = h.as_ref().and_then(|(ui, _)| ui.upgrade());
+        ui.map_or_else(|| "en".to_owned(), |ui| remedy_ui_reactive::untrack(|| ui.locale()))
+    }
+
+    pub(crate) fn update_page_text(&self) {
+        let locale = self.locale();
         let page = self.0.page.get_untracked().unwrap_or(0);
         let known = self.0.st.borrow().text.pages.get(&page).cloned();
         let notes = {
@@ -544,14 +553,16 @@ impl PageView {
                 .iter()
                 .filter(|a| a.page == page)
                 .map(|a| {
-                    if st.picked == Some(a.id) { format!("Selected: {}", a.describe()) } else { a.describe() }
+                    let said = a.describe_in(&locale);
+                    if st.picked == Some(a.id) {
+                        crate::say(&locale, "annotation-selected", &[("description", said.into())])
+                    } else {
+                        said
+                    }
                 })
                 .collect();
             if !lines.is_empty() {
-                lines.insert(
-                    0,
-                    format!("{} annotation{}:", lines.len(), if lines.len() == 1 { "" } else { "s" }),
-                );
+                lines.insert(0, crate::say(&locale, "annotation-count", &[("count", lines.len().into())]));
             }
             lines.join("\n")
         };
@@ -690,9 +701,7 @@ impl PageView {
             st.annots.push(a);
             id
         };
-        let label = self
-            .annotation(id)
-            .map_or("Add annotation".to_owned(), |a| format!("Add {}", a.kind_name().to_lowercase()));
+        let label = self.undo_name("undo-add", self.annotation(id).as_ref());
         self.commit(label, before);
         id
     }
@@ -705,8 +714,9 @@ impl PageView {
             let Some(a) = st.annots.iter_mut().find(|a| a.id == id) else { return false };
             f(a);
             a.id = id;
-            format!("Change {}", a.kind_name().to_lowercase())
+            a.kind_id()
         };
+        let label = crate::say(&self.locale(), "undo-change", &[("kind", label.into())]);
         self.commit(label, before);
         true
     }
@@ -721,8 +731,9 @@ impl PageView {
             if st.picked == Some(id) {
                 st.picked = None;
             }
-            format!("Delete {}", a.kind_name().to_lowercase())
+            a.kind_id()
         };
+        let label = crate::say(&self.locale(), "undo-delete", &[("kind", label.into())]);
         self.commit(label, before);
         true
     }
@@ -845,19 +856,20 @@ impl PageView {
         let before = self.0.st.borrow().annots.clone();
         let label = {
             let mut st = self.0.st.borrow_mut();
-            let mut name = String::new();
+            let mut name = "annotation";
             for (page, quads, words) in marks {
                 let Some(kind) = make(quads) else { continue };
                 let mut a = Annotation::new(page, kind, color);
                 a.marked_text = words;
                 a.id = st.next_annot;
                 st.next_annot += 1;
-                name = format!("Add {}", a.kind_name().to_lowercase());
+                name = a.kind_id();
                 st.annots.push(a);
             }
             st.text.selection = None;
             name
         };
+        let label = crate::say(&self.locale(), "undo-add", &[("kind", label.into())]);
         self.commit(label, before);
         true
     }
@@ -875,6 +887,12 @@ impl PageView {
         self.update_page_text();
         self.repaint();
         self.repaint_thumbs();
+    }
+
+    /// The undo history's name for an edit of `a` (message `id`, by its kind).
+    fn undo_name(&self, id: &str, a: Option<&Annotation>) -> String {
+        let kind = a.map_or("annotation", Annotation::kind_id);
+        crate::say(&self.locale(), id, &[("kind", kind.into())])
     }
 
     /// Publishes an edit and records it in the window's undo history: undo puts `before`
@@ -1092,9 +1110,7 @@ impl PageView {
             }
             Some(Drawing::Move { id, before, moved, .. }) => {
                 if moved {
-                    let label = self.annotation(id).map_or("Move annotation".to_owned(), |a| {
-                        format!("Move {}", a.kind_name().to_lowercase())
-                    });
+                    let label = self.undo_name("undo-move", self.annotation(id).as_ref());
                     self.commit(label, before);
                 }
                 None
@@ -2063,11 +2079,16 @@ impl State {
 }
 
 /// The semantics of a page view.
-pub(crate) fn semantics(view: &PageView, label: &str) -> Semantics {
+pub(crate) fn semantics(view: &PageView, label: &str, locale: &str) -> Semantics {
     let n = view.page_count();
     let page = view.0.page.get() + 1;
     let zoom = (view.0.zoom.get() * 100.0).round();
-    Semantics::new(Role::Document).label(label).value(format!("Page {page} of {n}, {zoom}%"))
+    let value = crate::say(
+        locale,
+        "page-view-value",
+        &[("page", page.into()), ("count", n.into()), ("zoom", zoom.into())],
+    );
+    Semantics::new(Role::Document).label(label).value(value)
 }
 
 /// The paint closure for a page view.
