@@ -45,6 +45,8 @@ pub struct GpuCompositor {
     composited: u64,
     /// Bytes of tiles and of uploaded images held, for tools.
     gauges: (remedy_ui_trace::gauges::Gauge, remedy_ui_trace::gauges::Gauge),
+    /// Watches presents: one that hangs lets this device go ([`crate::health`]).
+    watchdog: crate::health::PresentWatchdog,
 }
 
 impl std::fmt::Debug for GpuCompositor {
@@ -215,7 +217,9 @@ pub struct AdapterSummary {
 impl GpuCompositor {
     /// A compositor on `renderer`. `ladder` is how a replacement device is found after a loss.
     pub fn new(renderer: GpuRenderer, ladder: LadderOptions) -> Self {
+        let watchdog = crate::health::PresentWatchdog::new(renderer.context());
         GpuCompositor {
+            watchdog,
             renderer,
             ladder,
             tiles: TileSet::default(),
@@ -271,9 +275,24 @@ impl GpuCompositor {
         self.renderer.context().trim_memory();
     }
 
-    /// True when the device is gone and [`recover`](Self::recover) must run before drawing.
+    /// True when the device is gone and [`recover`](Self::recover) must run before drawing:
+    /// lost, or let go after a present hung ([`crate::health`]); recovering then walks the
+    /// ladder past the hung backend.
     pub fn is_lost(&self) -> bool {
         self.renderer.ctx.is_lost()
+    }
+
+    /// The present watchdog (tests shorten its threshold).
+    #[doc(hidden)]
+    pub fn watchdog(&self) -> &crate::health::PresentWatchdog {
+        &self.watchdog
+    }
+
+    /// After a present: a hang lets the device go, as a loss does.
+    pub(crate) fn after_present(&self) {
+        if self.watchdog.hung() && !self.renderer.ctx.is_lost() {
+            self.renderer.ctx.force_loss();
+        }
     }
 
     /// Rebuilds after a device loss: a new device from the ladder, new pipelines, and every
@@ -297,6 +316,7 @@ impl GpuCompositor {
         let ctx = GpuContext::shared(&self.ladder)?;
         let store = self.renderer_store();
         self.renderer = GpuRenderer::new(ctx, store);
+        self.watchdog = crate::health::PresentWatchdog::new(self.renderer.context());
         self.tiles.0.clear();
         self.atlas = None;
         self.retained = None;
@@ -317,10 +337,14 @@ impl GpuCompositor {
         background: Color,
     ) -> Result<(), GpuError> {
         let mut tiles = std::mem::take(&mut self.tiles);
-        let prepared = self.prepare(&mut tiles, plan, target.width(), target.height(), background);
+        let watchdog = self.watchdog.clone();
+        let done = watchdog.watch(|| {
+            let prepared = self.prepare(&mut tiles, plan, target.width(), target.height(), background);
+            prepared.and_then(|(scene, bindings)| self.renderer.submit(&scene, background, target, &bindings))
+        });
         self.tiles = tiles;
-        let (scene, bindings) = prepared?;
-        self.renderer.submit(&scene, background, target, &bindings)
+        self.after_present();
+        done
     }
 
     /// Pixels the latest [`present_to_frame`](Self::present_to_frame) or window present
@@ -574,6 +598,19 @@ impl GpuCompositor {
     /// [`present_to_frame`](Self::present_to_frame) without the read back: the frame stays
     /// on the GPU (measuring compositing alone, or drawing ahead of a later snapshot).
     pub fn present_to_kept(
+        &mut self,
+        plan: &FramePlan,
+        width: u32,
+        height: u32,
+        background: Color,
+    ) -> Result<(), GpuError> {
+        let watchdog = self.watchdog.clone();
+        let done = watchdog.watch(|| self.present_to_kept_unwatched(plan, width, height, background));
+        self.after_present();
+        done
+    }
+
+    fn present_to_kept_unwatched(
         &mut self,
         plan: &FramePlan,
         width: u32,

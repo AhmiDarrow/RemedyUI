@@ -168,6 +168,20 @@ impl GpuCompositor {
         surface: &mut GpuSurface,
         background: Color,
     ) -> Result<Presented, GpuError> {
+        // Watched: a present that hangs lets the device go (see `health`), and the next frame
+        // finds it lost and recovers down the ladder.
+        let watchdog = self.watchdog().clone();
+        let done = watchdog.watch(|| self.present_to_surface_unwatched(plan, surface, background));
+        self.after_present();
+        done
+    }
+
+    fn present_to_surface_unwatched(
+        &mut self,
+        plan: &FramePlan,
+        surface: &mut GpuSurface,
+        background: Color,
+    ) -> Result<Presented, GpuError> {
         if surface.generation != self.generation() || surface.surface.is_none() {
             // A window has one swapchain: the old one goes before the new one is made.
             surface.surface = None;

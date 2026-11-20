@@ -18,6 +18,7 @@ mod external;
 #[allow(unsafe_code)]
 mod ffi;
 mod gputime;
+pub mod health;
 mod images;
 mod matrix;
 mod renderer;

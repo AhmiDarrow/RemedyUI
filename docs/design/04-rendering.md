@@ -151,6 +151,14 @@ a tested tolerance.
 
 1. **The backend ladder.** The GPU renderer tries a hardware adapter through D3D12, Vulkan
    or Metal, then OpenGL 3.3 / GLES 3.0, then a software adapter (WARP, lavapipe, llvmpipe).
+   **A self-test frame** checks each rung's device before it is used (`health::self_test`,
+   on unless `LadderOptions::self_test` is off): a 64 × 64 scene of what interfaces draw
+   (fills, rounded edges, a gradient, an image, a blur, a colour matrix) drawn on the device
+   and on the CPU reference renderer must agree, with no validation errors and no loss, or
+   the ladder moves down a rung. The verdict is remembered per adapter, driver, backend and
+   engine version (`health::remember_in`, which the runner points at the app's data folder),
+   so it runs once per driver: about 120 ms on llvmpipe in a release build. Browsers cannot
+   read pixels back mid-frame, so there it is skipped.
 2. **Which renderer a window uses.** By default (`RendererChoice::Auto`) a window starts on
    the CPU renderer, which costs no GPU driver memory, and moves to the GPU once its frames
    take longer than 6 ms on average; heavy content (a Prism effect over its cost threshold)
@@ -158,6 +166,12 @@ a tested tolerance.
    on the GPU. Apps can choose GPU or CPU only.
 3. **Device loss.** The renderer re-creates the device, drops its uploads and tiles, and
    redraws the full frame from the retained layer tree. Apps are not involved.
+   **A present watchdog** (`health::PresentWatchdog`, a thread per compositor) watches every
+   GPU present: one running past `PRESENT_HANG` (3 s; Windows resets a GPU silent for 2 s) is
+   recorded as a hang at once, from the watchdog's thread, so a present that never returns
+   still demotes the backend at the next start. When it does return, the device is let go as
+   if lost and recovery walks the ladder past the hung backend (another API or adapter, the
+   software rung, or the CPU renderer).
 4. **A failure that recovery cannot fix** (no replacement device, a window whose GPU present
    fails) moves the window to the CPU renderer.
 
@@ -225,8 +239,6 @@ Planned, not implemented; nothing above relies on them:
 
 - **Merging and squashing layers**: adjacent siblings with no reason to be separate merged,
   and layers that cover a tiny area squashed back into their parent.
-- **A start-up self-test frame** that checks a backend's pixels before using it, remembered
-  per GPU and driver version, and a **present watchdog** that demotes a backend that hangs.
 - **Partial presents on the GPU** (`Present1` dirty rects, `eglSwapBuffersWithDamage`,
   Wayland `damage_buffer`): wgpu does not offer them.
 - **Platform presenting details**: a DirectComposition flip-model swapchain with a

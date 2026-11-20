@@ -10,6 +10,14 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **A start-up self-test frame and a present watchdog for the GPU** (`remedy_ui_render_gpu::health`).
+  Each rung of the backend ladder draws a small reference scene that must match the CPU
+  renderer before it is used (`LadderOptions::self_test`, on by default), or the ladder moves
+  down. Every present is watched from a thread: one running past `PRESENT_HANG` (3 s) marks
+  the backend hung at once and lets the device go, and recovery walks the ladder past it.
+  Verdicts (`health::Verdict`) are remembered per adapter, driver and backend in the app's
+  data folder (`health::remember_in`, set by the runner), so the test runs once per driver and
+  a backend that hung is skipped from the next start.
 - **Next-up in the media player**: `Player::set_next_up(Some(NextUp::new(source, title)))`
   sets what plays after the end. At the end a countdown runs (`PlayerOptions::next_up_delay`,
   `NEXT_UP_DELAY` = 5 s; `None` waits for the person; no countdown under reduced motion),
