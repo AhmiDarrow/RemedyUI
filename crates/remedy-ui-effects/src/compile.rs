@@ -1663,16 +1663,29 @@ impl Compiler<'_> {
                 }
                 NodeKey::Op(op, imm, args) => {
                     let mut src = [0u8; 4];
-                    let mut loaded = Vec::new();
+                    // Constants and per-frame values are loaded where they are used and let go
+                    // of at once (a load costs nothing): holding a shared constant from its
+                    // first use to its last would tie up a register in between.
+                    let mut temps: Vec<u8> = Vec::new();
                     for (k, a) in args.iter().enumerate() {
                         if *a == NONE {
                             continue;
                         }
-                        let was = reg.contains_key(a);
-                        let r = load(*a, &mut code, &mut reg, &mut free, &mut alloc)?;
-                        if !was && slots.contains_key(a) {
-                            loaded.push(*a);
-                        }
+                        let r = match (reg.get(a), slots.get(a)) {
+                            (Some(r), _) => *r,
+                            (None, Some(&slot)) => {
+                                let r = alloc(&mut free)?;
+                                code.push(Instr { op: Op::Const, dst: r, src: [0; 4], imm: slot as u16 });
+                                temps.push(r);
+                                r
+                            }
+                            (None, None) => {
+                                return Err(Diagnostic::new(
+                                    Span { line: 1, col: 1 },
+                                    "internal: a value has no register",
+                                ));
+                            }
+                        };
                         if let Some(s) = src.get_mut(k) {
                             *s = r;
                         }
@@ -1680,12 +1693,17 @@ impl Compiler<'_> {
                     // Operands used for the last time free their registers before the
                     // result takes one (the interpreter reads operands first).
                     for a in args.iter().filter(|a| **a != NONE) {
-                        let done = last.get(a).is_some_and(|l| *l == pos)
-                            || loaded.contains(a) && last.get(a).is_none_or(|l| *l <= pos);
-                        if done && let Some(r) = reg.remove(a) {
-                            if !free.contains(&r) {
-                                free.push(r);
-                            }
+                        if last.get(a).is_some_and(|l| *l == pos)
+                            && !slots.contains_key(a)
+                            && let Some(r) = reg.remove(a)
+                            && !free.contains(&r)
+                        {
+                            free.push(r);
+                        }
+                    }
+                    for r in temps {
+                        if !free.contains(&r) {
+                            free.push(r);
                         }
                     }
                     let r = alloc(&mut free)?;

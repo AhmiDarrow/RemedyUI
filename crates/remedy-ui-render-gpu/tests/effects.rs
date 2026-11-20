@@ -130,3 +130,41 @@ fn every_instruction_matches_the_cpu_reference() {
     }
     assert!(ctx.take_errors().is_empty(), "{:?}", ctx.take_errors());
 }
+
+/// A storm of huge particles is capped before it reaches the GPU (a fill-rate attack could
+/// otherwise stall it), and finishes quickly.
+#[test]
+fn huge_particles_cannot_flood_the_gpu() {
+    let ctx = ctx();
+    let effect = match Effect::compile(
+        "effect storm { scale 1.0; particles p (count: 8192, life: 1.0) {
+            pos = vec2(rand(1.0), rand(2.0)) * size; radius = 1.0e6; trail = vec2(1.0e6); color = vec4(1.0);
+        } }",
+    ) {
+        Ok(e) => Arc::new(e),
+        Err(e) => unreachable!("{e}"),
+    };
+    let started = std::time::Instant::now();
+    let _ = both(&ctx, effect, &[0.5], 400.0, 300.0);
+    assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
+    assert!(ctx.take_errors().is_empty());
+}
+
+/// A lost device is reported, never a panic; a renderer made on the next device works.
+#[test]
+fn a_lost_device_is_an_error_not_a_crash() {
+    let ctx = ctx();
+    let Some(effect) = remedy_ui_effects::library("fire") else { unreachable!() };
+    let instance = Instance::new(effect.clone());
+    let input = FrameInput::new(64.0, 48.0, 1.0, 0.5);
+    let (w, h) = GpuEffect::output_size(&effect, &input);
+    let out = out_texture(&ctx, w, h);
+    let mut gpu = GpuEffect::new(&ctx);
+    assert!(gpu.render(&ctx, &instance, &input, &out).is_ok());
+    ctx.force_loss();
+    assert_eq!(gpu.render(&ctx, &instance, &input, &out), Err(remedy_ui_render_gpu::GpuError::Lost));
+    let fresh = self::ctx();
+    let out = out_texture(&fresh, w, h);
+    let mut gpu = GpuEffect::new(&fresh);
+    assert!(gpu.render(&fresh, &instance, &input, &out).is_ok());
+}

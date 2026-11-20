@@ -56,9 +56,66 @@ pub struct Picture {
     pub pixels: Vec<u8>,
 }
 
+/// Pixels all of one effect's buffers may hold together: 16 MiB of RGBA8. A huge element
+/// draws its effect at a lower resolution rather than allocating without bound.
+pub const MAX_EFFECT_PIXELS: u64 = 4 << 20;
+
+/// The lowest device scale an effect is drawn at (for absurdly large elements).
+const MIN_SCALE: f32 = 1.0e-4;
+
+/// Particles may cover at most this many times their buffer's pixels a frame (counting each
+/// particle's box); the rest are not drawn. Keeps a hostile emitter (thousands of huge
+/// particles) from costing billions of pixel writes on either renderer.
+pub const MAX_OVERDRAW: u64 = 8;
+
+/// `input` made safe to render `effect` with: finite sizes and time, and a scale lowered
+/// until every buffer fits within the texture limit and all of them within
+/// [`MAX_EFFECT_PIXELS`]. Both renderers render what this gives.
+pub fn fit(effect: &Effect, input: &FrameInput) -> FrameInput {
+    let mut f = *input;
+    let clean = |v: f32, hi: f32| if v.is_finite() { v.clamp(0.0, hi) } else { 0.0 };
+    f.width = clean(f.width, 100_000.0);
+    f.height = clean(f.height, 100_000.0);
+    f.scale = if f.scale.is_finite() && f.scale > 0.0 { f.scale.clamp(MIN_SCALE, 8.0) } else { 1.0 };
+    f.max_side = f.max_side.clamp(1, 16_384);
+    for _ in 0..8 {
+        let total: u64 = effect
+            .stages
+            .iter()
+            .map(|s| {
+                let (w, h) = buffer_size(effect, s, &f);
+                u64::from(w) * u64::from(h)
+            })
+            .sum();
+        if total <= MAX_EFFECT_PIXELS || f.scale <= MIN_SCALE {
+            break;
+        }
+        f.scale = (f.scale * (MAX_EFFECT_PIXELS as f32 / total as f32).sqrt() * 0.97).max(MIN_SCALE);
+    }
+    f
+}
+
+/// Drops the particles past the overdraw budget for a buffer of `buffer_px` pixels, `k`
+/// buffer pixels per logical pixel ([`MAX_OVERDRAW`]).
+pub fn cap_overdraw(sprites: &mut Vec<Sprite>, k: f32, buffer_px: u64) {
+    let budget = (buffer_px * MAX_OVERDRAW).max(65_536);
+    let mut spent = 0u64;
+    let keep = sprites
+        .iter()
+        .take_while(|s| {
+            let r = (s.radius * k).max(0.5) + 1.0;
+            let w = (s.trail[0] * k).abs() + 2.0 * r;
+            let h = (s.trail[1] * k).abs() + 2.0 * r;
+            spent += (w * h) as u64;
+            spent <= budget
+        })
+        .count();
+    sprites.truncate(keep);
+}
+
 /// The pixel size of `stage`'s buffer for `input`.
 pub fn buffer_size(effect: &Effect, stage: &Stage, input: &FrameInput) -> (u32, u32) {
-    let k = effect.scale * stage.scale * input.scale.clamp(0.25, 8.0);
+    let k = effect.scale * stage.scale * input.scale.clamp(MIN_SCALE, 8.0);
     let side = |v: f32| -> u32 {
         let px = (v.max(0.0) * k).round();
         if px.is_finite() { (px as u32).clamp(1, input.max_side.max(1)) } else { 1 }
@@ -428,6 +485,8 @@ impl CpuEffect {
     /// Renders `instance` for `input`.
     pub fn render(&mut self, instance: &Instance, input: &FrameInput) -> Picture {
         let effect: &Arc<Effect> = instance.effect();
+        let fitted = fit(effect, input);
+        let input = &fitted;
         let uniforms = uniforms(effect, instance, input);
         let textures: Vec<Option<View<'_>>> = instance
             .textures()
@@ -479,8 +538,9 @@ impl CpuEffect {
                     if let Some(s) = src.and_then(|s| earlier.get(usize::from(s))) {
                         resample(s, &mut target);
                     }
-                    let sprites = particles(effect, stage, instance, &uniforms, input);
+                    let mut sprites = particles(effect, stage, instance, &uniforms, input);
                     let k = w as f32 / input.width.max(1.0);
+                    cap_overdraw(&mut sprites, k, u64::from(w) * u64::from(h));
                     for s in &sprites {
                         splat(&mut target, s, k, emitter.splat, emitter.blend);
                     }
