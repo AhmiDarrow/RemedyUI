@@ -346,6 +346,15 @@ fn the_same_source_compiles_the_same() {
     for (_, src) in remedy_ui_effects::LIBRARY {
         assert_eq!(compile(src), compile(src));
     }
+    // A branch that changes several variables (the merge once followed a hash map's order).
+    let src = "effect x { scale 1.0; pass p {
+        var a = 0.0; var b = 0.0; var c = 0.0; var d = 0.0; var e = 0.0; var f = 0.0;
+        if uv.x < 0.5 { a = 1.0; b = uv.y; c = 2.0; d = uv.x; e = 3.0; f = 4.0; }
+        out = vec3(a + b * c, d + e, f); } }";
+    let first = compile(src);
+    for _ in 0..16 {
+        assert_eq!(compile(src), first);
+    }
 }
 
 #[test]

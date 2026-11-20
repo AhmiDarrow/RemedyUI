@@ -1176,9 +1176,12 @@ impl Compiler<'_> {
                     scope.push(HashMap::new());
                     self.stmts(otherwise, scope, ctx, None)?;
                     scope.pop();
-                    // Every variable either branch changed: select per variable.
+                    // Every variable either branch changed: select per variable, in name
+                    // order, so the same source always compiles to the same program.
                     for (lvl, (t, e)) in after_then.iter().zip(scope.iter_mut()).enumerate() {
-                        for (name, tb) in t {
+                        let mut names: Vec<(&String, &Binding)> = t.iter().collect();
+                        names.sort_unstable_by(|a, b| a.0.cmp(b.0));
+                        for (name, tb) in names {
                             let Some(eb) = e.get_mut(name) else { continue };
                             let orig = before.get(lvl).and_then(|m| m.get(name));
                             let same = |a: &Val, b: &Val| match (a, b) {

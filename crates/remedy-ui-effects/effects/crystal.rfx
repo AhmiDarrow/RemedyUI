@@ -28,11 +28,22 @@ effect crystal(
         // March in the gem's space: turning the ray once is turning every point on it.
         let eq = turn(eye);
         let rq = turn(rd);
+        // Keep where the ray came closest to the gem, as an angle: a ray that grazes it
+        // covers part of its pixel, so the outline is smooth rather than stair-stepped.
         var t = 0.0;
-        for i in 0..40 { t += gem(eq + rq * t); }
-        let q = eq + rq * t;
-        let dist = gem(q);
-        let hit = step(dist, 0.01);
+        var closest = 1.0;
+        var at = 0.0;
+        for i in 0..40 {
+            let d = gem(eq + rq * t);
+            let a = d / max(t, 0.5);
+            if a < closest { closest = a; at = t; }
+            t += d;
+        }
+        let dist = gem(eq + rq * t);
+        // One pixel of the effect's picture (half the element's resolution), as an angle.
+        let pixel = 4.0 / (size.y * 2.37);
+        let hit = 1.0 - smoothstep(0.0, pixel, closest);
+        let q = eq + rq * at;
         let e = 0.004;
         let n = unturn(normalize(vec3(
             gem(q + vec3(e, 0.0, 0.0)) - gem(q - vec3(e, 0.0, 0.0)),
