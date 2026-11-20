@@ -442,20 +442,118 @@ fn script_view(
             return holder;
         }
     };
+    let hooks = ScriptHooks {
+        open_link: cx.open_link.clone(),
+        picture: cx.picture.clone(),
+        element: None,
+        stopped: stopped.clone(),
+    };
+    let _ = holder.clone().child(mount_script(ui, widget, settings.clone(), cx.host, hooks));
+    holder
+}
+
+/// Builds one of the app's own elements a script described ([`Node::Element`]).
+pub type ElementFn = Rc<dyn Fn(&Ui, AppElement) -> El>;
+
+/// An app element's handler: runs the script's handler with a value.
+pub type HandlerFn = Rc<dyn Fn(Value)>;
+
+/// One of the app's own elements, as a script described it, for the app to build.
+#[non_exhaustive]
+pub struct AppElement {
+    /// Its kind.
+    pub kind: String,
+    /// Its properties.
+    pub props: Map<String, Value>,
+    /// What the script put inside it, built.
+    pub children: Vec<El>,
+    /// Its handlers by property name (`on`, `on_press`, ...): calling one runs the script's
+    /// handler with the value given (see [`ScriptWidget::act_with`]) and renders it again.
+    pub handlers: Vec<(String, HandlerFn)>,
+}
+
+impl std::fmt::Debug for AppElement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppElement")
+            .field("kind", &self.kind)
+            .field("props", &self.props)
+            .field("children", &self.children.len())
+            .field("handlers", &self.handlers.iter().map(|(n, _)| n).collect::<Vec<_>>())
+            .finish()
+    }
+}
+
+impl AppElement {
+    /// The handler named `name`, if the script gave one.
+    pub fn handler(&self, name: &str) -> Option<HandlerFn> {
+        self.handlers.iter().find(|(n, _)| n == name).map(|(_, f)| f.clone())
+    }
+}
+
+/// What a scripted element reaches outside itself through: links (the app asks the person
+/// first), pictures, the app's own elements, and where its stops go.
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct ScriptHooks {
+    /// Opens a web link; the app asks the person first.
+    pub open_link: Rc<dyn Fn(&str)>,
+    /// Shows a picture from its source. `None`: pictures show their description as text.
+    pub picture: Option<PictureFn>,
+    /// Builds the app's own elements. `None`: they build nothing (a script cannot describe
+    /// them unless the app offers them, see [`remedy_ui_script::describe_with`]).
+    pub element: Option<ElementFn>,
+    /// Where the script's stops go (it failed to render, or a handler failed).
+    pub stopped: Rc<dyn Fn(FailurePhase, ScriptError)>,
+}
+
+impl std::fmt::Debug for ScriptHooks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScriptHooks")
+            .field("picture", &self.picture.is_some())
+            .field("element", &self.element.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl ScriptHooks {
+    /// Hooks that open links with `open_link`, show pictures as their description, build no
+    /// app elements and send stops to `stopped`.
+    pub fn new(open_link: impl Fn(&str) + 'static, stopped: impl Fn(FailurePhase, ScriptError) + 'static) -> Self {
+        ScriptHooks { open_link: Rc::new(open_link), picture: None, element: None, stopped: Rc::new(stopped) }
+    }
+
+    /// Shows pictures with `f`.
+    pub fn picture(mut self, f: impl Fn(&Ui, &str) -> El + 'static) -> Self {
+        self.picture = Some(Rc::new(f));
+        self
+    }
+
+    /// Builds the app's own elements with `f`.
+    pub fn element(mut self, f: impl Fn(&Ui, AppElement) -> El + 'static) -> Self {
+        self.element = Some(Rc::new(f));
+        self
+    }
+}
+
+/// A loaded scripted widget as an element anywhere (a board's slot, a screen built in Rust,
+/// an element of a `.rui` file the app registers): it renders `widget` with `settings` and
+/// `host`, again whenever `host` changes and after each of its handlers runs. A failure goes
+/// to `hooks.stopped` and leaves the last good picture in place.
+pub fn mount_script(ui: &Ui, widget: SharedWidget, settings: Map<String, Value>, host: Signal<Value>, hooks: ScriptHooks) -> El {
+    let holder = w::column(ui).fill_width();
     let version = Signal::new(0u64);
-    let (h2, u2, settings, host, open, stopped) =
-        (holder.clone(), ui.clone(), settings.clone(), cx.host, cx.open_link.clone(), stopped.clone());
+    let (h2, u2) = (holder.clone(), ui.clone());
     holder.bind(move || {
         let _ = version.get();
         let data = host.get();
         untrack(|| {
-            h2.clear();
             let shown = widget.borrow_mut().render(&settings, &data);
             match shown {
                 Ok(node) => {
-                    let _ = h2.clone().child(build_node(&u2, &node, &widget, version, &open, &stopped));
+                    h2.clear();
+                    let _ = h2.clone().child(build_node_with(&u2, &node, &widget, version, &hooks));
                 }
-                Err(e) => stopped(FailurePhase::Build, e),
+                Err(e) => (hooks.stopped)(FailurePhase::Build, e),
             }
         });
     })
@@ -485,16 +583,22 @@ pub fn build_node(
     open: &Rc<dyn Fn(&str)>,
     stopped: &Rc<dyn Fn(FailurePhase, ScriptError)>,
 ) -> El {
+    let hooks = ScriptHooks { open_link: open.clone(), picture: None, element: None, stopped: stopped.clone() };
+    build_node_with(ui, node, widget, version, &hooks)
+}
+
+/// Builds elements from what a script described, like [`build_node`], with pictures and the
+/// app's own elements built through `hooks`.
+pub fn build_node_with(ui: &Ui, node: &Node, widget: &SharedWidget, version: Signal<u64>, hooks: &ScriptHooks) -> El {
     let unit = ui.theme().spacing.unit;
+    let (open, stopped) = (&hooks.open_link, &hooks.stopped);
     match node {
-        Node::Column { gap, children } => {
-            children.iter().fold(w::column(ui).gap(*gap).fill_width(), |c, n| {
-                c.child(build_node(ui, n, widget, version, open, stopped))
-            })
-        }
+        Node::Column { gap, children } => children
+            .iter()
+            .fold(w::column(ui).gap(*gap).fill_width(), |c, n| c.child(build_node_with(ui, n, widget, version, hooks))),
         Node::Row { gap, children } => children
             .iter()
-            .fold(w::wrap(ui).gap(*gap), |c, n| c.child(build_node(ui, n, widget, version, open, stopped))),
+            .fold(w::wrap(ui).gap(*gap), |c, n| c.child(build_node_with(ui, n, widget, version, hooks))),
         Node::Text { text, style } => match style {
             TextStyle::Body => w::text(ui, text.clone()),
             TextStyle::Muted => w::text(ui, text.clone()).variant("muted"),
@@ -524,6 +628,40 @@ pub fn build_node(
             w::progress(ui, label.clone(), Signal::new(Some(*value))).fill_width()
         }
         Node::Divider => w::divider(ui, false).margin_y(unit),
+        Node::Image { src, alt, width, height } => {
+            match &hooks.picture {
+                Some(picture) => {
+                    let el = picture(ui, src);
+                    let el = if alt.is_empty() {
+                        el
+                    } else {
+                        el.semantics(remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Image).label(alt.clone()))
+                    };
+                    let el = if *width > 0.0 { el.width(*width) } else { el };
+                    if *height > 0.0 { el.height(*height) } else { el }
+                }
+                None => w::text(ui, alt.clone()).variant("muted"),
+            }
+        }
+        Node::Element { kind, props, handlers, children } => {
+            let Some(make) = &hooks.element else { return w::column(ui) };
+            let built = children.iter().map(|n| build_node_with(ui, n, widget, version, hooks)).collect();
+            let handlers = handlers
+                .iter()
+                .map(|(name, action)| {
+                    let (wd, a, stopped) = (widget.clone(), *action, stopped.clone());
+                    let f: HandlerFn = Rc::new(move |arg: Value| {
+                        let r = wd.borrow_mut().act_with(a, &arg);
+                        match r {
+                            Ok(()) => version.update(|v| *v += 1),
+                            Err(e) => stopped(FailurePhase::Handler, e),
+                        }
+                    });
+                    (name.clone(), f)
+                })
+                .collect();
+            make(ui, AppElement { kind: kind.clone(), props: props.clone(), children: built, handlers })
+        }
     }
 }
 
