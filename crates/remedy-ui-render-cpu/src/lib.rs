@@ -315,6 +315,12 @@ pub fn backdrop_filter(blur: f32) -> Option<vello_cpu::filter_effects::Filter> {
     vello_filter(&remedy_ui_paint::Filter::Blur { radius: blur })
 }
 
+/// The vello filter a display-list filter is drawn with, or `None` when it changes nothing.
+/// Both compositors use it for layers' filters, so they filter alike.
+pub fn layer_filter(f: &remedy_ui_paint::Filter) -> Option<vello_cpu::filter_effects::Filter> {
+    vello_filter(f)
+}
+
 /// How far, in device pixels, filter `f` pushed under transform `t` carries drawing.
 fn filter_reach(f: &remedy_ui_paint::Filter, t: Affine) -> f32 {
     let k = t.scale_factor();

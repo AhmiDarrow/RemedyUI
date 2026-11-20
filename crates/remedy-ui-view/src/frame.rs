@@ -392,15 +392,20 @@ impl Walk<'_> {
         }
         // Frosted glass needs a layer of its own: the compositor blurs what lies under it.
         let glass = d.resolved.backdrop_blur;
+        // So does a filter over children that are layers of their own: the compositor draws
+        // the whole subtree through it.
+        let own_filters = filters(&d.resolved);
+        let layer_filters = !d.scroll && !own_filters.is_empty() && self.layers_below(id);
         let isolate = d
             .isolate
             .or(d.ambient_layer.then_some(Affine::IDENTITY))
-            .or((glass > 0.0).then_some(Affine::IDENTITY));
+            .or((glass > 0.0 || layer_filters).then_some(Affine::IDENTITY));
         if let Some(transform) = isolate.filter(|_| !d.scroll) {
             // A layer of its own: a clip at the element's box, and inside it the element's
             // paint and children in a layer the compositor transforms. The box's shadow and
             // the focus ring go around the box, outside the clip, in the layer below.
-            if let Some(shadow) = box_shadow(&d.resolved, rect.size(), opacity) {
+            // Filtered, the shadow is filtered with the rest, inside the layer.
+            if !layer_filters && let Some(shadow) = box_shadow(&d.resolved, rect.size(), opacity) {
                 b.push(Item::PushTransform(Affine::translate(rect.min.to_vec2())));
                 b.list.push(shadow);
                 b.pop(Item::PopTransform);
@@ -413,14 +418,25 @@ impl Walk<'_> {
             // Glass fades with its element: the opacity goes on the layer holding the glass, so the
             // compositor fades the blurred backdrop and the content as one.
             let faded = glass > 0.0 && opacity < 1.0;
-            let paint = Paint { ring: false, shadow: false, opacity: !faded };
+            let paint =
+                Paint { ring: false, shadow: layer_filters, opacity: !faded, filters: !layer_filters };
             self.body(&mut ib, id, Rect::from_origin_size(Point::ZERO, size), Point::ZERO, paint);
             let mut layer = ib.finish_into(self.state);
             layer.transform = transform;
             layer.ambient = d.loops.clone();
             ob.children.push(layer);
             let radii = CornerRadii::all(d.resolved.radius);
-            let mut outer = ob.finish_into(self.state).clipped(radii);
+            let mut outer = ob.finish_into(self.state);
+            // A filtered element draws past its box (a blur, a shadow): only an element that
+            // clips its children, or one the compositor moves, keeps the clip at its box.
+            if layer_filters {
+                if d.clip || d.isolate.is_some() || d.ambient_layer {
+                    outer = outer.clipped(radii);
+                }
+                outer = outer.with_filters(own_filters);
+            } else {
+                outer = outer.clipped(radii);
+            }
             if glass > 0.0 {
                 outer = outer.with_backdrop(glass, radii);
             }
@@ -448,6 +464,21 @@ impl Walk<'_> {
         self.body(b, id, rect, at, Paint::ALL);
     }
 
+    /// True when something under `id` is drawn in a compositor layer of its own (a scroll
+    /// container, an isolated or ambient element, glass, or a filtered element over such).
+    fn layers_below(&self, id: ElementId) -> bool {
+        self.inner.tree.children(id).into_iter().any(|k| {
+            self.inner.els.get(&k).is_some_and(|d| {
+                !d.hidden
+                    && (d.scroll
+                        || d.isolate.is_some()
+                        || d.ambient_layer
+                        || d.resolved.backdrop_blur > 0.0
+                        || self.layers_below(k))
+            })
+        })
+    }
+
     /// The focus ring of `id` around `local`, when keyboard focus shows there.
     fn focus_ring(&mut self, b: &mut Builder, id: ElementId, local: Rect) {
         let Some(d) = self.inner.els.get(&id) else { return };
@@ -463,7 +494,7 @@ impl Walk<'_> {
     /// Paints `id` at `rect` (in its parent's space; `at` in `b`'s layer) and its subtree
     /// into `b`, with what `paint` says.
     fn body(&mut self, b: &mut Builder, id: ElementId, rect: Rect, at: Point, paint: Paint) {
-        let Paint { ring, shadow, opacity: own_opacity } = paint;
+        let Paint { ring, shadow, opacity: own_opacity, filters: own_filters } = paint;
         let Some(d) = self.inner.els.get(&id) else { return };
         let opacity = if own_opacity { d.resolved.opacity } else { 1.0 };
         // A scroll container with frosted glass: its own drawing goes in the viewport layer,
@@ -476,7 +507,7 @@ impl Walk<'_> {
         }
         // Filters take the element's drawing, its box shadow and its children (those drawn in
         // its layer) as one picture: a drop shadow of the shape, then a blur.
-        let filters = filters(&d.resolved);
+        let filters = if own_filters { filters(&d.resolved) } else { Vec::new() };
         for f in &filters {
             b.push(Item::PushFilter(*f));
         }
@@ -567,10 +598,12 @@ struct Paint {
     shadow: bool,
     /// The element's own opacity (off when the layer holding it fades it).
     opacity: bool,
+    /// The element's filters (off when the layer holding it filters it).
+    filters: bool,
 }
 
 impl Paint {
-    const ALL: Paint = Paint { ring: true, shadow: true, opacity: true };
+    const ALL: Paint = Paint { ring: true, shadow: true, opacity: true, filters: true };
 }
 
 /// The shadow a box styled `s` of `size` casts, faded by `opacity`, as a display item at the

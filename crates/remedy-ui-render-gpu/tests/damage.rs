@@ -134,3 +134,61 @@ fn damage_under_glass_damages_the_glass() {
         plan.damage.rects().iter().filter_map(|r| r.intersect(pane)).map(|r| r.size().area()).sum();
     assert_eq!(covered, pane.size().area(), "the pane is redrawn whole");
 }
+
+/// A blurred group over the stripes whose child layer (a dot) moves, and a drop-shadowed
+/// group around a second moving layer.
+fn filtered_scene(x: f32) -> LayerTree {
+    let LayerTree { roots } = scene(x, false);
+    let Some(back) = roots.first() else { unreachable!("a root") };
+    let back_list = (*back.content).clone();
+    let mut dot = DisplayList::new();
+    dot.fill_rounded(Rect::new(0.0, 0.0, 22.0, 22.0), CornerRadii::all(11.0), Brush::Solid(Color::WHITE));
+    let mut plate = DisplayList::new();
+    plate.fill_rect(Rect::new(0.0, 0.0, 120.0, 50.0), Brush::Solid(Color::rgba8(255, 255, 255, 60)));
+    let blurred = Layer::new(LayerId(20), Rect::new(40.0, 20.0, 160.0, 70.0), plate)
+        .with_filters(vec![Filter::Blur { radius: 3.0 }])
+        .with_child(Layer::new(LayerId(21), Rect::new(x * 0.4, 14.0, x * 0.4 + 22.0, 36.0), dot.clone()));
+    let shadowed = Layer::new(LayerId(30), Rect::new(180.0, 110.0, 300.0, 180.0), DisplayList::new())
+        .with_filters(vec![Filter::DropShadow {
+            offset: remedy_ui_core::Vec2::new(4.0, 6.0),
+            blur: 10.0,
+            color: Color::rgba8(0, 0, 0, 180),
+        }])
+        .with_child(Layer::new(LayerId(31), Rect::new(10.0 + x * 0.3, 10.0, 32.0 + x * 0.3, 32.0), dot));
+    let root = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 320.0, 200.0), back_list)
+        .with_child(blurred)
+        .with_child(shadowed);
+    LayerTree::new(vec![root])
+}
+
+#[test]
+fn filtered_groups_of_layers_draw_from_damage_like_a_full_frame() {
+    let mut comp = Compositor::new(W, H, 1.0, ScrollPhysics::CLAMPED);
+    let mut partial = gpu();
+    let mut full = gpu();
+    let mut cpu = CpuCompositor::new();
+    for (k, x) in [10.0f32, 30.5, 61.0, 96.0, 140.25, 190.0].into_iter().enumerate() {
+        comp.commit(filtered_scene(x));
+        let plan = comp.frame(Duration::from_millis(16 * k as u64));
+        assert!(plan.ops.iter().any(|o| matches!(o, remedy_ui_compositor::CompositeOp::PushFilter { .. })));
+        let a = partial.present_to_frame(&plan, W, H, Color::BLACK);
+        let b = full
+            .renderer()
+            .create_target(W, H)
+            .and_then(|t| full.present(&plan, &t, Color::BLACK).and_then(|()| full.renderer().read_back(&t)));
+        let c = cpu.present(&plan, W, H, Color::BLACK);
+        let (Ok(a), Ok(b), Ok(c)) = (a, b, c) else { unreachable!("all draw") };
+        if k > 0 {
+            assert!(partial.last_composited() < u64::from(W * H), "frame {k} composites only its damage");
+        }
+        assert_eq!(worst(&a, &b), 0, "frame {k}: damage-only equals a full frame on the GPU");
+        assert!(worst(&a, &c) <= 3, "frame {k}: the GPU matches the CPU (worst {})", worst(&a, &c));
+    }
+    // The CPU's damage frames equal a full CPU frame too.
+    let mut fresh = Compositor::new(W, H, 1.0, ScrollPhysics::CLAMPED);
+    fresh.commit(filtered_scene(190.0));
+    let full_cpu = CpuCompositor::new().present(&fresh.frame(Duration::ZERO), W, H, Color::BLACK);
+    let last = cpu.present(&comp.frame(Duration::from_millis(200)), W, H, Color::BLACK);
+    let (Ok(full_cpu), Ok(last)) = (full_cpu, last) else { unreachable!("both draw") };
+    assert_eq!(worst(&full_cpu, &last), 0);
+}

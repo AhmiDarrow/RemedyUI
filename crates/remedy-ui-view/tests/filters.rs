@@ -194,3 +194,38 @@ fn scroll_containers_can_be_frosted_glass() {
     let tint = frame.pixel(60, 50).unwrap_or([0; 4]);
     assert!(tint[0] > tint[2], "its background tints the glass: {tint:?}");
 }
+
+#[test]
+fn a_filter_takes_children_that_are_layers_of_their_own() {
+    let ui = ui();
+    // A black square in a layer of its own (isolate_paint), inside a blurred panel.
+    let square = ui
+        .el("square")
+        .style(Style::new().background(Color::BLACK))
+        .layout(|l| {
+            l.width = Length::Px(40.0);
+            l.height = Length::Px(40.0);
+        })
+        .isolate_paint();
+    let panel = ui.el("panel").style(Style::new().blur(4.0)).padding(20.0).child(square);
+    ui.root().padding(20.0).child(panel);
+    let (tree, frame) = draw(&ui);
+    let mut filtered = None;
+    tree.for_each(|l| {
+        if !l.filters.is_empty() {
+            filtered = Some((l.filters.clone(), l.clip.is_some()));
+        }
+    });
+    let Some((filters, clipped)) = filtered else { unreachable!("the panel is a filtered layer") };
+    assert_eq!(filters, vec![Filter::Blur { radius: 4.0 }]);
+    assert!(!clipped, "a blur draws past the box: not clipped there");
+    assert!(
+        !items(&tree).iter().any(|i| matches!(i, Item::PushFilter(_))),
+        "filtered once, by the compositor"
+    );
+    // The square spans 40..80; its edge is soft, and it is grey just outside.
+    let edge = frame.pixel(39, 60).unwrap_or([255; 4]);
+    assert!(edge[0] > 20 && edge[0] < 240, "the layer inside is blurred: {edge:?}");
+    let inside = frame.pixel(60, 60).unwrap_or([255; 4]);
+    assert!(inside[0] < 20, "its middle stays dark: {inside:?}");
+}
