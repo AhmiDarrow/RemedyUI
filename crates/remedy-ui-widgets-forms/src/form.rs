@@ -270,11 +270,12 @@ pub fn submit_button(
     let text = b.child_elements().into_iter().next();
     let f2 = form.clone();
     let b2 = b.clone();
+    let u = ui.clone();
     b.bind(move || {
         let busy = f2.state() == SubmitState::Submitting;
         if let Some(t) = &text {
             let _ = t.clone().text(remedy_ui_view::RichText::plain(if busy {
-                "Saving…".to_owned()
+                u.word("Saving…")
             } else {
                 label.clone()
             }));
@@ -289,25 +290,17 @@ pub fn form_status(ui: &Ui, form: &Form) -> El {
     let f = form.clone();
     let l = w::text(ui, "").variant("muted");
     let l2 = l.clone();
+    let u = ui.clone();
     l.bind(move || {
         let (text, variant) = match f.state() {
             SubmitState::Invalid => {
-                let n = f.errors().len();
-                (
-                    if n == 1 {
-                        "Fix 1 field to continue".to_owned()
-                    } else {
-                        format!("Fix {n} fields to continue")
-                    },
-                    "error",
-                )
+                let n = f.errors().len() as u64;
+                (u.counted("Fix {count} field to continue", "Fix {count} fields to continue", n), "error")
             }
-            SubmitState::Submitting => ("Saving…".to_owned(), "muted"),
-            SubmitState::Saved => ("Saved".to_owned(), "muted"),
+            SubmitState::Submitting => (u.word("Saving…"), "muted"),
+            SubmitState::Saved => (u.word("Saved"), "muted"),
             SubmitState::Failed(m) => (m, "error"),
-            SubmitState::Idle => {
-                (if f.is_dirty() { "Unsaved changes".to_owned() } else { String::new() }, "muted")
-            }
+            SubmitState::Idle => (if f.is_dirty() { u.word("Unsaved changes") } else { String::new() }, "muted"),
         };
         let _ = l2.clone().variant(variant).text(remedy_ui_view::RichText::plain(text.clone()));
         let _ = l2.clone().semantics(Semantics::new(Role::Status).label(text).live(Live::Polite));

@@ -17,6 +17,7 @@ categories.workspace = true
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-host = { path = "../remedy-ui-host", version = "1.0.0-rc.1" }
 remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
+remedy-ui-words = { path = "../remedy-ui-words", version = "1.0.0-rc.1" }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { version = "=0.2.130" }

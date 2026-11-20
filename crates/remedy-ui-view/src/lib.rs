@@ -56,6 +56,8 @@ pub use remedy_ui_layout::{Align, Justify};
 pub use remedy_ui_style::{ColorRole, Dp, Pad, Radius, Space, Style, TextRole};
 pub use remedy_ui_text::{InlineObject, RichText, TextStylePatch};
 pub use remedy_ui_tree::ElementId;
+/// The engine's own words and their built-in translations (`Ui::word`, `Ui::counted`).
+pub use remedy_ui_words as words;
 
 use remedy_ui_host::TextInputState;
 

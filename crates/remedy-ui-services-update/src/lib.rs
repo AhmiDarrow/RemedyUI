@@ -530,17 +530,40 @@ pub struct BannerText {
 }
 
 impl Default for BannerText {
+    /// The English words.
     fn default() -> Self {
+        use remedy_ui_view::words::en;
         BannerText {
-            checking: "Checking for updates…".into(),
-            up_to_date: "You have the latest version.".into(),
-            available: "Version {version} is available.".into(),
-            downloading: "Downloading the update…".into(),
-            ready: "The update is ready.".into(),
-            install: "Install".into(),
-            restart: Some("Restart now".into()),
-            progress: "Downloading update".into(),
+            checking: en("Checking for updates…").into(),
+            up_to_date: en("You have the latest version.").into(),
+            available: en("Version {version} is available.").into(),
+            downloading: en("Downloading the update…").into(),
+            ready: en("The update is ready.").into(),
+            install: en("Install").into(),
+            restart: Some(en("Restart now").into()),
+            progress: en("Downloading update").into(),
             failure: std::rc::Rc::new(str::to_owned),
+        }
+    }
+}
+
+impl BannerText {
+    /// The words in `locale` (BCP 47), from RemedyUI's built-in translations
+    /// ([`remedy_ui_view::words`]); English where it has none. [`update_banner`] shows these
+    /// for the window's locale. A failure still shows the error's own text.
+    pub fn for_locale(locale: &str) -> Self {
+        let w = |en: &str| remedy_ui_view::words::word(locale, en).map_or_else(|| en.to_owned(), str::to_owned);
+        let en = BannerText::default();
+        BannerText {
+            checking: w(&en.checking),
+            up_to_date: w(&en.up_to_date),
+            available: w(&en.available),
+            downloading: w(&en.downloading),
+            ready: w(&en.ready),
+            install: w(&en.install),
+            restart: en.restart.as_deref().map(w),
+            progress: w(&en.progress),
+            failure: en.failure,
         }
     }
 }
@@ -560,7 +583,7 @@ pub fn update_banner(
     on_install: impl Fn() + 'static,
     on_restart: impl Fn() + 'static,
 ) -> remedy_ui_view::El {
-    update_banner_with(ui, state, &BannerText::default(), on_install, on_restart)
+    update_banner_with(ui, state, &BannerText::for_locale(&ui.locale()), on_install, on_restart)
 }
 
 /// [`update_banner`] in the app's words ([`BannerText`]).

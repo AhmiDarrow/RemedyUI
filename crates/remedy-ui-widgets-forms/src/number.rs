@@ -7,7 +7,7 @@ use remedy_ui_style::States;
 use remedy_ui_view::{Align, El, FieldKind, Ui};
 use remedy_ui_widgets_core as w;
 
-use remedy_ui_services_i18n::{Decimal, NumberSymbols};
+use remedy_ui_services_i18n::{Decimal, DecimalError, NumberSymbols};
 
 /// The limits and look of a [`number_input`].
 #[derive(Clone, Debug, PartialEq)]
@@ -106,18 +106,23 @@ impl NumberOptions {
 }
 
 /// Why typed text was not accepted, for the field's error line.
-fn problem(text: &str, sym: &NumberSymbols, o: &NumberOptions) -> Result<Decimal, String> {
-    let v = sym.parse(text).map_err(|e| e.to_string())?;
+fn problem(ui: &Ui, text: &str, sym: &NumberSymbols, o: &NumberOptions) -> Result<Decimal, String> {
+    let v = sym.parse(text).map_err(|e| match e {
+        DecimalError::Empty => ui.word("Enter a number"),
+        DecimalError::Invalid => ui.word("Not a number"),
+        DecimalError::Overflow => ui.word("Too many digits"),
+        other => other.to_string(),
+    })?;
     let v = v.round(o.precision);
     if let Some(m) = o.min
         && v < m
     {
-        return Err(format!("At least {}", o.format(sym, m)));
+        return Err(remedy_ui_view::words::fill(&ui.word("At least {number}"), &[("number", &o.format(sym, m))]));
     }
     if let Some(m) = o.max
         && v > m
     {
-        return Err(format!("At most {}", o.format(sym, m)));
+        return Err(remedy_ui_view::words::fill(&ui.word("At most {number}"), &[("number", &o.format(sym, m))]));
     }
     Ok(v)
 }
@@ -150,7 +155,7 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
         let (f, u, o) = (field.clone(), ui.clone(), o.clone());
         field.on_change(move || {
             let sym = NumberSymbols::for_locale(&untrack(|| u.locale()));
-            match problem(&f.value(), &sym, &o) {
+            match problem(&u, &f.value(), &sym, &o) {
                 Ok(v) => {
                     value.set_if_changed(v);
                     error.set_if_changed(None);

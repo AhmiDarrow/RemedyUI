@@ -117,39 +117,61 @@ impl Annotation {
         }
     }
 
-    /// What it is, in a word, for lists and screen readers.
+    /// What it is, in a word, for lists and screen readers, in English (see
+    /// [`Annotation::kind_name_in`]).
     pub fn kind_name(&self) -> &'static str {
+        use remedy_ui_view::words::en;
         match &self.kind {
-            AnnotationKind::Highlight { .. } => "Highlight",
-            AnnotationKind::Underline { .. } => "Underline",
-            AnnotationKind::Strikeout { .. } => "Strikeout",
-            AnnotationKind::Squiggly { .. } => "Squiggly underline",
-            AnnotationKind::Ink { .. } => "Drawing",
-            AnnotationKind::Note { .. } => "Note",
-            AnnotationKind::FreeText { .. } => "Text box",
-            AnnotationKind::Shape { shape: Shape::Rect, .. } => "Rectangle",
-            AnnotationKind::Shape { shape: Shape::Ellipse, .. } => "Ellipse",
-            AnnotationKind::Shape { shape: Shape::Line, .. } => "Line",
-            AnnotationKind::Shape { shape: Shape::Arrow, .. } => "Arrow",
+            AnnotationKind::Highlight { .. } => en("Highlight"),
+            AnnotationKind::Underline { .. } => en("Underline"),
+            AnnotationKind::Strikeout { .. } => en("Strikeout"),
+            AnnotationKind::Squiggly { .. } => en("Squiggly underline"),
+            AnnotationKind::Ink { .. } => en("Drawing"),
+            AnnotationKind::Note { .. } => en("Note"),
+            AnnotationKind::FreeText { .. } => en("Text box"),
+            AnnotationKind::Shape { shape: Shape::Rect, .. } => en("Rectangle"),
+            AnnotationKind::Shape { shape: Shape::Ellipse, .. } => en("Ellipse"),
+            AnnotationKind::Shape { shape: Shape::Line, .. } => en("Line"),
+            AnnotationKind::Shape { shape: Shape::Arrow, .. } => en("Arrow"),
         }
+    }
+
+    /// [`Annotation::kind_name`] in `locale` (BCP 47), with RemedyUI's built-in words;
+    /// English where it has none.
+    pub fn kind_name_in(&self, locale: &str) -> &'static str {
+        remedy_ui_view::words::word_or(locale, self.kind_name())
     }
 
     /// A sentence describing it: "Highlight: “the text”, comment: …".
     pub fn describe(&self) -> String {
-        let mut s = self.kind_name().to_owned();
+        self.describe_in("en")
+    }
+
+    /// [`Annotation::describe`] in `locale` (BCP 47), with RemedyUI's built-in words; English
+    /// where it has none.
+    pub fn describe_in(&self, locale: &str) -> String {
+        use remedy_ui_view::words::{fill, word_or};
+        let mut s = self.kind_name_in(locale).to_owned();
         if !self.marked_text.is_empty() {
-            s.push_str(&format!(": \u{201c}{}\u{201d}", self.marked_text));
+            s = fill(word_or(locale, "{kind}: \u{201c}{text}\u{201d}"), &[("kind", &s), ("text", &self.marked_text)]);
         }
         if let AnnotationKind::FreeText { text, .. } = &self.kind {
-            s.push_str(&format!(": \u{201c}{text}\u{201d}"));
+            s = fill(word_or(locale, "{kind}: \u{201c}{text}\u{201d}"), &[("kind", &s), ("text", text)]);
         }
         if !self.comment.is_empty() {
-            s.push_str(&format!(", comment: {}", self.comment));
+            s = fill(word_or(locale, "{annotation}, comment: {comment}"), &[("annotation", &s), ("comment", &self.comment)]);
         }
         if let Some(a) = &self.author {
-            s.push_str(&format!(", by {a}"));
+            s = fill(word_or(locale, "{annotation}, by {author}"), &[("annotation", &s), ("author", a)]);
         }
         s
+    }
+
+    /// Its kind as a history label names it: the built-in word for `locale`, or the English
+    /// one in lower case ("Add highlight").
+    pub(crate) fn kind_for_label(&self, locale: &str) -> String {
+        remedy_ui_view::words::word(locale, self.kind_name())
+            .map_or_else(|| self.kind_name().to_lowercase(), str::to_owned)
     }
 
     /// The area it covers on its page, points (including its line width).

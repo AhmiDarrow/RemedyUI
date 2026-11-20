@@ -58,9 +58,9 @@ pub fn calendar(
         .fill_width()
         .align(Align::Center)
         .gap(unit)
-        .child(step_button(ui, false, "Previous month", move || cursor.update(|c| *c = c.add_months(-1))))
+        .child(step_button(ui, false, &ui.word("Previous month"), move || cursor.update(|c| *c = c.add_months(-1))))
         .child(title)
-        .child(step_button(ui, true, "Next month", move || cursor.update(|c| *c = c.add_months(1))));
+        .child(step_button(ui, true, &ui.word("Next month"), move || cursor.update(|c| *c = c.add_months(1))));
 
     let grid = ui.el("calendar").column().gap(unit / 2.0).fill_width().focusable(true);
     let g2 = grid.clone();
@@ -133,7 +133,7 @@ pub fn calendar(
                             .semantics(
                                 Semantics::new(Role::GridCell)
                                     .label(if d == today {
-                                        format!("{}, today", sym.long_date(d))
+                                        remedy_ui_view::words::fill(&u3.word("{date}, today"), &[("date", &sym.long_date(d))])
                                     } else {
                                         sym.long_date(d)
                                     })

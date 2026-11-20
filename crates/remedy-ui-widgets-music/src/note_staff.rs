@@ -295,20 +295,29 @@ pub fn beam_line(points: &[(f32, f32)], up: bool, space: f32, middle: f32) -> (f
 
 /// How an event is said aloud: "C sharp 4 quarter note", "half rest", "chord of C 4, E 4".
 pub fn describe_event(e: &StaffEvent) -> String {
-    let dots = match e.dots {
-        0 => "",
-        1 => "dotted ",
-        _ => "double dotted ",
+    describe_event_in("en", e)
+}
+
+/// [`describe_event`] in `locale` (BCP 47), with RemedyUI's built-in words; English where it
+/// has none.
+pub fn describe_event_in(locale: &str, e: &StaffEvent) -> String {
+    use remedy_ui_view::words::{fill, word_or};
+    let name = word_or(locale, e.value.name());
+    let value = match e.dots {
+        0 => name.to_owned(),
+        1 => fill(word_or(locale, "dotted {value}"), &[("value", name)]),
+        _ => fill(word_or(locale, "double dotted {value}"), &[("value", name)]),
     };
-    let value = format!("{dots}{}", e.value.name());
     if e.is_rest() {
-        format!("{value} rest")
+        fill(word_or(locale, "{value} rest"), &[("value", &value)])
     } else if e.pitches.len() == 1 {
-        let tie = if e.tie { ", tied to the next" } else { "" };
-        format!("{} {value} note{tie}", e.pitches.first().map(|p| p.spoken()).unwrap_or_default())
+        let template =
+            if e.tie { word_or(locale, "{pitch} {value} note, tied to the next") } else { word_or(locale, "{pitch} {value} note") };
+        let pitch = e.pitches.first().map(|p| p.spoken_in(locale)).unwrap_or_default();
+        fill(template, &[("pitch", &pitch), ("value", &value)])
     } else {
-        let names: Vec<String> = e.pitches.iter().map(|p| p.spoken()).collect();
-        format!("{value} chord of {}", names.join(", "))
+        let names: Vec<String> = e.pitches.iter().map(|p| p.spoken_in(locale)).collect();
+        fill(word_or(locale, "{value} chord of {pitches}"), &[("value", &value), ("pitches", &names.join(", "))])
     }
 }
 
@@ -930,6 +939,7 @@ fn note_staff_with(
     };
     let down = Rc::new(std::cell::Cell::new(false));
     let sem_label = label.clone();
+    let u = ui.clone();
     el.focusable(true)
         .on_focus_change(move |f| focused.set_if_changed(f))
         .on_pointer(move |e| {
@@ -995,25 +1005,57 @@ fn note_staff_with(
             let ms = measures.get();
             let cur = cursor.get();
             let picked = selected.get();
+            use remedy_ui_view::words::{counted, fill, word_or};
+            let locale = u.locale();
             let key = match options.key {
-                0 => "no sharps or flats".to_owned(),
-                k if k > 0 => format!("{k} sharp{}", if k == 1 { "" } else { "s" }),
-                k => format!("{} flat{}", k.unsigned_abs(), if k == -1 { "" } else { "s" }),
+                0 => word_or(&locale, "no sharps or flats").to_owned(),
+                k => {
+                    let n = u64::from(k.unsigned_abs());
+                    let (one, other) =
+                        if k > 0 { ("{count} sharp", "{count} sharps") } else { ("{count} flat", "{count} flats") };
+                    let english = if n == 1 { one } else { other };
+                    let form = if k > 0 {
+                        counted(&locale, "{count} sharp", "{count} sharps", n)
+                    } else {
+                        counted(&locale, "{count} flat", "{count} flats", n)
+                    };
+                    fill(form.unwrap_or(english), &[("count", &n.to_string())])
+                }
             };
-            let time = options.time.map(|(a, b)| format!(", {a}/{b} time")).unwrap_or_default();
             let mut value = String::new();
             if let Some(e) = ms.get(cur.measure).and_then(|m| m.events.get(cur.event)) {
                 let beat = beat_of(&ms, options.time, cur);
-                value = format!("measure {}, beat {beat}: {}", cur.measure + 1, describe_event(e));
+                value = fill(word_or(&locale, "measure {measure}, beat {beat}: {event}"), &[
+                    ("measure", &(cur.measure + 1).to_string()),
+                    ("beat", &beat),
+                    ("event", &describe_event_in(&locale, e)),
+                ]);
                 if picked == Some(cur) {
-                    value.push_str(", picked");
+                    value = fill(word_or(&locale, "{value}, picked"), &[("value", &value)]);
                 }
             }
-            let mut said = format!("{} clef, {key}{time}, {} measures", options.clef.name(), ms.len());
+            let clef = word_or(&locale, options.clef.name());
+            let measures = ms.len().to_string();
+            let mut said = match options.time {
+                Some((a, b)) => fill(word_or(&locale, "{clef} clef, {key}, {time} time, {measures} measures"), &[
+                    ("clef", clef),
+                    ("key", &key),
+                    ("time", &format!("{a}/{b}")),
+                    ("measures", &measures),
+                ]),
+                None => fill(word_or(&locale, "{clef} clef, {key}, {measures} measures"), &[
+                    ("clef", clef),
+                    ("key", &key),
+                    ("measures", &measures),
+                ]),
+            };
             let mut sem =
                 Semantics::new(Role::Grid).label(sem_label.clone()).value(value).action(Action::Focus);
             if editable {
-                said.push_str(". Editable: letters set notes, Up and Down move them, digits set lengths.");
+                said = fill(
+                    word_or(&locale, "{summary}. Editable: letters set notes, Up and Down move them, digits set lengths."),
+                    &[("summary", &said)],
+                );
                 sem = sem.action(Action::Increment).action(Action::Decrement);
             }
             sem.description(said)

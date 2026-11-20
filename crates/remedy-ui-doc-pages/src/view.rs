@@ -309,6 +309,11 @@ impl PageView {
             .translate(Vec2::new(-st.scroll.x, -st.scroll.y))
     }
 
+    /// The window's locale (tracked), or English before the view is shown.
+    fn locale(&self) -> String {
+        self.host().map(|el| el.ui().locale()).unwrap_or_default()
+    }
+
     fn host(&self) -> Option<remedy_ui_view::El> {
         let h = self.0.host.borrow();
         let (ui, id) = h.as_ref()?;
@@ -533,6 +538,7 @@ impl PageView {
     fn update_page_text(&self) {
         let page = self.0.page.get_untracked().unwrap_or(0);
         let known = self.0.st.borrow().text.pages.get(&page).cloned();
+        let locale = self.locale();
         let notes = {
             let st = self.0.st.borrow();
             let mut lines: Vec<String> = st
@@ -540,13 +546,23 @@ impl PageView {
                 .iter()
                 .filter(|a| a.page == page)
                 .map(|a| {
-                    if st.picked == Some(a.id) { format!("Selected: {}", a.describe()) } else { a.describe() }
+                    let said = a.describe_in(&locale);
+                    if st.picked == Some(a.id) {
+                        remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "Selected: {annotation}"), &[("annotation", &said)])
+                    } else {
+                        said
+                    }
                 })
                 .collect();
             if !lines.is_empty() {
                 lines.insert(
                     0,
-                    format!("{} annotation{}:", lines.len(), if lines.len() == 1 { "" } else { "s" }),
+                    {
+                        let n = lines.len() as u64;
+                        let english = if n == 1 { "{count} annotation:" } else { "{count} annotations:" };
+                        let form = remedy_ui_view::words::counted(&locale, "{count} annotation:", "{count} annotations:", n);
+                        remedy_ui_view::words::fill(form.unwrap_or(english), &[("count", &n.to_string())])
+                    },
                 );
             }
             lines.join("\n")
@@ -686,9 +702,11 @@ impl PageView {
             st.annots.push(a);
             id
         };
-        let label = self
-            .annotation(id)
-            .map_or("Add annotation".to_owned(), |a| format!("Add {}", a.kind_name().to_lowercase()));
+        let locale = self.locale();
+        let label = self.annotation(id).map_or_else(
+            || remedy_ui_view::words::word_or(&locale, "Add annotation").to_owned(),
+            |a| remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "Add {kind}"), &[("kind", &a.kind_for_label(&locale))]),
+        );
         self.commit(label, before);
         id
     }
@@ -696,12 +714,13 @@ impl PageView {
     /// Changes the annotation with `id` through `f`. Undoable. False when there is none.
     pub fn update_annotation(&self, id: u64, f: impl FnOnce(&mut Annotation)) -> bool {
         let before = self.0.st.borrow().annots.clone();
+        let locale = self.locale();
         let label = {
             let mut st = self.0.st.borrow_mut();
             let Some(a) = st.annots.iter_mut().find(|a| a.id == id) else { return false };
             f(a);
             a.id = id;
-            format!("Change {}", a.kind_name().to_lowercase())
+            remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "Change {kind}"), &[("kind", &a.kind_for_label(&locale))])
         };
         self.commit(label, before);
         true
@@ -710,6 +729,7 @@ impl PageView {
     /// Removes the annotation with `id`. Undoable. False when there is none.
     pub fn remove_annotation(&self, id: u64) -> bool {
         let before = self.0.st.borrow().annots.clone();
+        let locale = self.locale();
         let label = {
             let mut st = self.0.st.borrow_mut();
             let Some(i) = st.annots.iter().position(|a| a.id == id) else { return false };
@@ -717,7 +737,7 @@ impl PageView {
             if st.picked == Some(id) {
                 st.picked = None;
             }
-            format!("Delete {}", a.kind_name().to_lowercase())
+            remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "Delete {kind}"), &[("kind", &a.kind_for_label(&locale))])
         };
         self.commit(label, before);
         true
@@ -839,6 +859,7 @@ impl PageView {
             return false;
         }
         let before = self.0.st.borrow().annots.clone();
+        let locale = self.locale();
         let label = {
             let mut st = self.0.st.borrow_mut();
             let mut name = String::new();
@@ -848,7 +869,7 @@ impl PageView {
                 a.marked_text = words;
                 a.id = st.next_annot;
                 st.next_annot += 1;
-                name = format!("Add {}", a.kind_name().to_lowercase());
+                name = remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "Add {kind}"), &[("kind", &a.kind_for_label(&locale))]);
                 st.annots.push(a);
             }
             st.text.selection = None;
@@ -1088,9 +1109,11 @@ impl PageView {
             }
             Some(Drawing::Move { id, before, moved, .. }) => {
                 if moved {
-                    let label = self.annotation(id).map_or("Move annotation".to_owned(), |a| {
-                        format!("Move {}", a.kind_name().to_lowercase())
-                    });
+                    let locale = self.locale();
+                    let label = self.annotation(id).map_or_else(
+                        || remedy_ui_view::words::word_or(&locale, "Move annotation").to_owned(),
+                        |a| remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "Move {kind}"), &[("kind", &a.kind_for_label(&locale))]),
+                    );
                     self.commit(label, before);
                 }
                 None
@@ -2058,7 +2081,13 @@ pub(crate) fn semantics(view: &PageView, label: &str) -> Semantics {
     let n = view.page_count();
     let page = view.0.page.get() + 1;
     let zoom = (view.0.zoom.get() * 100.0).round();
-    Semantics::new(Role::Document).label(label).value(format!("Page {page} of {n}, {zoom}%"))
+    let locale = view.locale();
+    let value = remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "Page {page} of {total}, {zoom}%"), &[
+        ("page", &page.to_string()),
+        ("total", &n.to_string()),
+        ("zoom", &zoom.to_string()),
+    ]);
+    Semantics::new(Role::Document).label(label).value(value)
 }
 
 /// The paint closure for a page view.

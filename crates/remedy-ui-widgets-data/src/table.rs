@@ -264,7 +264,7 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                 let editing_here = edit_now.as_ref().is_some_and(|(ek, cid)| *ek == k && *cid == col.id);
                 let content = if editing_here && let Some((get, set)) = &col.edit {
                     let field =
-                        ui2.text_field("text_input", FieldKind::Single).label(format!("Edit {}", col.title));
+                        ui2.text_field("text_input", FieldKind::Single).label(remedy_ui_view::words::fill(&ui2.word("Edit {name}"), &[("name", &col.title)]));
                     field.set_value(&get(&row));
                     let (f2, set, row2) = (field.clone(), set.clone(), row.clone());
                     let commit = Rc::new(move || match set(&row2, f2.value()) {
@@ -594,10 +594,10 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                 }
             };
             let desc = match sorted {
-                Some(SortDirection::Ascending) => "sorted ascending",
-                Some(SortDirection::Descending) => "sorted descending",
-                None if sortable => "not sorted",
-                None => "",
+                Some(SortDirection::Ascending) => ui2.word("sorted ascending"),
+                Some(SortDirection::Descending) => ui2.word("sorted descending"),
+                None if sortable => ui2.word("not sorted"),
+                None => String::new(),
             };
             // Reorder by dragging the heading sideways onto another column.
             let (d2, id6, ui3, hids) = (drag.clone(), id.clone(), ui2.clone(), heading_ids.clone());
@@ -881,6 +881,7 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .child(main_body);
     let n_rows = rows;
     let l2 = label.clone();
+    let u = ui.clone();
     // Drops around the rows go to the table itself.
     let drop = state.drop.borrow().clone();
     let root = match drop {
@@ -903,6 +904,6 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .semantics(move || {
             Semantics::new(Role::Table)
                 .label(l2.clone())
-                .description(format!("{} rows", n_rows.with(Vec::len)))
+                .description(u.counted("{count} row", "{count} rows", n_rows.with(Vec::len) as u64))
         })
 }

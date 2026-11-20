@@ -4037,6 +4037,7 @@ dependencies = [
  "remedy-ui-widgets-nav",
  "remedy-ui-widgets-stage",
  "remedy-ui-widgets-term",
+ "remedy-ui-words",
 ]
 
 [[package]]
@@ -4136,6 +4137,7 @@ dependencies = [
  "remedy-ui-core",
  "remedy-ui-host",
  "remedy-ui-input",
+ "remedy-ui-words",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -4801,6 +4803,7 @@ dependencies = [
  "remedy-ui-text",
  "remedy-ui-trace",
  "remedy-ui-tree",
+ "remedy-ui-words",
 ]
 
 [[package]]
@@ -5015,6 +5018,10 @@ dependencies = [
  "unicode-width",
  "vte",
 ]
+
+[[package]]
+name = "remedy-ui-words"
+version = "1.0.0-rc.1"
 
 [[package]]
 name = "renderdoc-sys"

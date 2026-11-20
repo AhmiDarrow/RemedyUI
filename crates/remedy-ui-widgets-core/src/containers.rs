@@ -132,7 +132,7 @@ pub fn split(ui: &Ui, axis: Axis, first: El, second: El, fraction: Signal<f32>) 
             l.shrink = 0.0;
         })
         .focusable(true)
-        .semantics(Semantics::new(Role::Slider).label("Resize panes").numeric(
+        .semantics(Semantics::new(Role::Slider).label(ui.word("Resize panes")).numeric(
             f64::from(fraction.get_untracked().unwrap_or(0.5)),
             0.0,
             1.0,

@@ -78,7 +78,7 @@ fn composer(send: impl Fn(String) + Copy + 'static) -> impl Element {
 
 | Layer | Crates |
 |---|---|
-| L0 base | `remedy-ui-core` |
+| L0 base | `remedy-ui-core`, `remedy-ui-trace`, `remedy-ui-words` (the engine's own words and their translations) |
 | L1 state | `remedy-ui-reactive` |
 | L2 engine | `remedy-ui-tree`, `remedy-ui-style`, `remedy-ui-layout`, `remedy-ui-text`, `remedy-ui-input` |
 | L3 frame | `remedy-ui-paint`, `remedy-ui-motion`, `remedy-ui-a11y`, `remedy-ui-compositor`, `remedy-ui-secure` |

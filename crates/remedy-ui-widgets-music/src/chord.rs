@@ -152,30 +152,47 @@ impl Default for ChordOptions {
 
 /// How a chord is said aloud: each string from the lowest, barres, and where the diagram starts.
 pub fn describe_chord(chord: &ChordShape) -> String {
+    describe_chord_in("en", chord)
+}
+
+/// [`describe_chord`] in `locale` (BCP 47), with RemedyUI's built-in words; English where it
+/// has none.
+pub fn describe_chord_in(locale: &str, chord: &ChordShape) -> String {
+    use remedy_ui_view::words::{fill, word_or};
     let n = chord.strings.len();
     let mut parts: Vec<String> = Vec::new();
     for (i, s) in chord.strings.iter().enumerate() {
-        let number = n - i;
+        let number = (n - i).to_string();
         parts.push(match s {
-            StringState::Muted => format!("string {number} muted"),
-            StringState::Open => format!("string {number} open"),
+            StringState::Muted => fill(word_or(locale, "string {number} muted"), &[("number", &number)]),
+            StringState::Open => fill(word_or(locale, "string {number} open"), &[("number", &number)]),
             StringState::Fretted { fret, finger: Some(f) } => {
-                format!("string {number} fret {fret} finger {f}")
+                fill(word_or(locale, "string {number} fret {fret} finger {finger}"), &[
+                    ("number", &number),
+                    ("fret", &fret.to_string()),
+                    ("finger", &f.to_string()),
+                ])
             }
-            StringState::Fretted { fret, finger: None } => format!("string {number} fret {fret}"),
+            StringState::Fretted { fret, finger: None } => {
+                fill(word_or(locale, "string {number} fret {fret}"), &[("number", &number), ("fret", &fret.to_string())])
+            }
         });
     }
     for b in &chord.barres {
-        let finger = b.finger.map(|f| format!(" with finger {f}")).unwrap_or_default();
-        parts.push(format!(
-            "barre at fret {} across strings {} to {}{finger}",
-            b.fret,
-            n.saturating_sub(b.from),
-            n.saturating_sub(b.to)
-        ));
+        let template = if b.finger.is_some() {
+            word_or(locale, "barre at fret {fret} across strings {from} to {to} with finger {finger}")
+        } else {
+            word_or(locale, "barre at fret {fret} across strings {from} to {to}")
+        };
+        parts.push(fill(template, &[
+            ("fret", &b.fret.to_string()),
+            ("from", &n.saturating_sub(b.from).to_string()),
+            ("to", &n.saturating_sub(b.to).to_string()),
+            ("finger", &b.finger.map(|f| f.to_string()).unwrap_or_default()),
+        ]));
     }
     if chord.base_fret > 1 {
-        parts.push(format!("diagram starts at fret {}", chord.base_fret));
+        parts.push(fill(word_or(locale, "diagram starts at fret {fret}"), &[("fret", &chord.base_fret.to_string())]));
     }
     parts.join(", ")
 }
@@ -375,10 +392,14 @@ pub fn chord_diagram(
             l.width = Length::Px(w);
             l.height = Length::Px(h);
         });
-        let name = ch.name.clone().map_or_else(|| label.clone(), |n| format!("{label}: {n}"));
+        let locale = sem_el.ui().locale();
+        let name = ch.name.clone().map_or_else(
+            || label.clone(),
+            |n| remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "{label}: {name}"), &[("label", &label), ("name", &n)]),
+        );
         let _ = sem_el
             .clone()
-            .semantics(Semantics::new(Role::Image).label(name).description(describe_chord(&ch)));
+            .semantics(Semantics::new(Role::Image).label(name).description(describe_chord_in(&locale, &ch)));
         sem_el.repaint();
     })
 }

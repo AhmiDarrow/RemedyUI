@@ -106,13 +106,13 @@ pub fn toolbar_editor(ui: &Ui, commands: &Commands, slot: Signal<Vec<String>>) -
                     .fill_width()
                     .child(sw.grow(1.0))
                     .child(
-                        w::icon_button(&u, Icon::ChevronUp, format!("Move {} earlier", c.label), move || {
+                        w::icon_button(&u, Icon::ChevronUp, remedy_ui_view::words::fill(&u.word("Move {name} earlier"), &[("name", &c.label)]), move || {
                             shift(-1, id2.clone())
                         })
                         .disabled(!shown.contains(&c.id)),
                     )
                     .child(
-                        w::icon_button(&u, Icon::ChevronDown, format!("Move {} later", c.label), move || {
+                        w::icon_button(&u, Icon::ChevronDown, remedy_ui_view::words::fill(&u.word("Move {name} later"), &[("name", &c.label)]), move || {
                             shift(1, id3.clone())
                         })
                         .disabled(!shown.contains(&c.id)),
@@ -200,8 +200,8 @@ impl CommandPalette {
         let chosen = Signal::new(0usize);
         let field = ui
             .text_field("text_input", FieldKind::Single)
-            .label("Search commands")
-            .placeholder("Type a command…");
+            .label(ui.word("Search commands"))
+            .placeholder(ui.word("Type a command…"));
         let f2 = field.clone();
         let field = field.on_change(move || {
             query.set(f2.value());
@@ -224,7 +224,7 @@ impl CommandPalette {
         let list = w::column(ui)
             .gap(unit / 2.0)
             .fill_width()
-            .semantics(Semantics::new(Role::List).label("Commands"));
+            .semantics(Semantics::new(Role::List).label(ui.word("Commands")));
         let (l2, u, m2, me) = (list.clone(), ui.clone(), matches.clone(), self.clone());
         let list = list.bind(move || {
             let found = m2();
@@ -232,7 +232,7 @@ impl CommandPalette {
             untrack(|| {
                 l2.clear();
                 if found.is_empty() {
-                    let _ = l2.clone().child(w::text(&u, "No matching command").variant("muted"));
+                    let _ = l2.clone().child(w::text(&u, u.word("No matching command")).variant("muted"));
                 }
                 for (i, c) in found.iter().enumerate() {
                     let (me2, id) = (me.clone(), c.id.clone());
@@ -288,7 +288,7 @@ impl CommandPalette {
                 l.max_height = remedy_ui_layout::Length::Px(360.0);
             }),
         );
-        let m = w::modal(ui, "Command palette", content, true);
+        let m = w::modal(ui, ui.word("Command palette"), content, true);
         *self.open.borrow_mut() = Some(m);
         field_el.focus();
     }

@@ -1,0 +1,17 @@
+[package]
+name = "remedy-ui-words"
+description = "RemedyUI's own words (the labels, accessible names and menu items the engine shows) with built-in translations for its shipped locales, plural rules and locale matching."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

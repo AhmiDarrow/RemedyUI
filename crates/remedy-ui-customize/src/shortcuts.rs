@@ -2,6 +2,7 @@
 //! `"Ctrl+Shift+Z"`), holding only the commands they rebound, applied to the app's
 //! [`Commands`].
 
+use remedy_ui_view::words::fill;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -73,7 +74,7 @@ impl Customizations {
         }
         let mut next = cmds.bindings();
         put(&cmds, &mut next, id, chords);
-        self.change(ui, format!("Change shortcuts for {label}"), None, &[Area::Shortcuts], |c| {
+        self.change(ui, fill(&ui.word("Change shortcuts for {label}"), &[("label", &label)]), None, &[Area::Shortcuts], |c| {
             c.write_shortcuts(&next)
         })
     }
@@ -101,9 +102,9 @@ impl Customizations {
         put(&cmds, &mut next, id, mine);
         let shown = chord.label(ui.platform());
         let label = if clashes.is_empty() {
-            format!("Add {shown} to {}", info.label)
+            fill(&ui.word("Add {shortcut} to {command}"), &[("shortcut", &shown), ("command", &info.label)])
         } else {
-            format!("Give {shown} to {}", info.label)
+            fill(&ui.word("Give {shortcut} to {command}"), &[("shortcut", &shown), ("command", &info.label)])
         };
         self.change(ui, label, None, &[Area::Shortcuts], |c| c.write_shortcuts(&next))
     }
@@ -117,7 +118,10 @@ impl Customizations {
         }
         let mut next = cmds.bindings();
         put(&cmds, &mut next, id, info.chords.into_iter().filter(|c| c != chord).collect());
-        let label = format!("Remove {} from {}", chord.label(ui.platform()), info.label);
+        let label = fill(&ui.word("Remove {shortcut} from {command}"), &[
+            ("shortcut", &chord.label(ui.platform())),
+            ("command", &info.label),
+        ]);
         self.change(ui, label, None, &[Area::Shortcuts], |c| c.write_shortcuts(&next))
     }
 
@@ -134,7 +138,7 @@ impl Customizations {
             return Err(CustomizeError::Clashes(clashes));
         }
         let label = cmds.info(id).map_or_else(|| id.to_owned(), |i| i.label);
-        self.change(ui, format!("Reset shortcuts for {label}"), None, &[Area::Shortcuts], |c| {
+        self.change(ui, fill(&ui.word("Reset shortcuts for {label}"), &[("label", &label)]), None, &[Area::Shortcuts], |c| {
             c.write_shortcuts(&next)
         })
     }
@@ -143,7 +147,7 @@ impl Customizations {
     pub fn reset_shortcuts(&self, ui: &Ui) -> Result<(), CustomizeError> {
         self.shortcut_commands()?;
         let path = self.shortcuts_file();
-        self.change(ui, "Reset all shortcuts", None, &[Area::Shortcuts], |_| {
+        self.change(ui, ui.word("Reset all shortcuts"), None, &[Area::Shortcuts], |_| {
             files::remove(&path).map_err(|e| CustomizeError::io(&path, &e))
         })
     }

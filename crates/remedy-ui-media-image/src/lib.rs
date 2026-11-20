@@ -154,6 +154,7 @@ pub fn image_with(ui: &Ui, source: Source, alt: impl Into<String>, fit: Fit, loa
         }
     });
 
+    let not_shown = ui.word("Not shown: {why}");
     let alt2 = alt.clone();
     let el = el.semantics(move || {
         if alt2.is_empty() {
@@ -161,7 +162,7 @@ pub fn image_with(ui: &Ui, source: Source, alt: impl Into<String>, fit: Fit, loa
         }
         let s = Semantics::new(Role::Image).label(alt2.clone());
         match failed.get() {
-            Some(why) => s.description(format!("Not shown: {why}")),
+            Some(why) => s.description(remedy_ui_view::words::fill(&not_shown, &[("why", &why)])),
             None => s,
         }
     });

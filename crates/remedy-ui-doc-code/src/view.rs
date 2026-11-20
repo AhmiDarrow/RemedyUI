@@ -166,9 +166,10 @@ pub fn code_view(ui: &Ui, label: impl Into<String>, source: Signal<String>, opti
                 let toggle = match &line.fold {
                     Some(_) => {
                         let n = line.number - 1;
-                        let label = if line.folded { "Unfold" } else { "Fold" };
+                        let label = if line.folded { ui.word("Unfold line {number}") } else { ui.word("Fold line {number}") };
                         let icon = if line.folded { w::Icon::ChevronRight } else { w::Icon::ChevronDown };
-                        w::icon_button(&ui, icon, format!("{label} line {}", line.number), move || {
+                        let label = remedy_ui_view::words::fill(&label, &[("number", &line.number.to_string())]);
+                        w::icon_button(&ui, icon, label, move || {
                             folded.update(|f| {
                                 if !f.remove(&n) {
                                     f.insert(n);
@@ -230,9 +231,9 @@ pub fn diff_view(ui: &Ui, label: impl Into<String>, old: &str, new: &str, langua
         move |_, (a, b, line): &DiffRow| {
             let unit = ui.theme().spacing.unit;
             let (variant, said) = match line.mark {
-                Some('+') => ("added", "Added"),
-                Some('-') => ("removed", "Removed"),
-                _ => ("", "Unchanged"),
+                Some('+') => ("added", ui.word("Added: {line}")),
+                Some('-') => ("removed", ui.word("Removed: {line}")),
+                _ => ("", ui.word("Unchanged: {line}")),
             };
             let mark = line.mark.map_or_else(|| " ".to_owned(), |c| c.to_string());
             let text = ui.el("code_text").text(line.text.clone()).selectable(true).data_text().nowrap();
@@ -247,7 +248,7 @@ pub fn diff_view(ui: &Ui, label: impl Into<String>, old: &str, new: &str, langua
                 .child(text)
                 .semantics(
                     Semantics::new(Role::ListItem)
-                        .label(format!("{said}: {}", line.text.as_str()))
+                        .label(remedy_ui_view::words::fill(&said, &[("line", line.text.as_str())]))
                         .action(Action::Focus),
                 )
         }

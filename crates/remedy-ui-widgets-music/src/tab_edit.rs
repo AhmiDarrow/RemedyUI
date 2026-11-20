@@ -1,6 +1,7 @@
 //! Editing tablature: the changes the keyboard and pointer make, as plain functions on the
 //! measures so apps can use them too. Each returns whether anything changed.
 
+use remedy_ui_view::words::en;
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
@@ -197,7 +198,7 @@ impl TabEditor {
     /// for undo and reported.
     fn apply(
         &self,
-        label: &str,
+        label: &'static str,
         f: impl FnOnce(&mut Vec<TabMeasure>, TabCursor) -> Option<TabCursor>,
     ) -> bool {
         let before = self.measures.get_untracked().unwrap_or_default();
@@ -208,7 +209,7 @@ impl TabEditor {
         measures.set(after.clone());
         cursor.set(c1);
         self.ui.record_change(
-            label,
+            self.ui.word(label),
             None,
             move || {
                 measures.set(before.clone());
@@ -234,7 +235,7 @@ impl TabEditor {
             }
             _ => d,
         };
-        self.apply("Set fret", |ms, c| set_fret(ms, c, fret).then_some(c));
+        self.apply(en("Set fret"), |ms, c| set_fret(ms, c, fret).then_some(c));
         self.typing.set(Some((here, fret)));
         let generation = self.generation.get() + 1;
         self.generation.set(generation);
@@ -254,9 +255,9 @@ impl TabEditor {
             Some(ms.get(c.measure)?.events.get(c.event)?.notes.iter().any(|n| n.string == c.string))
         });
         if there == Some(true) {
-            self.apply("Delete note", |ms, c| remove_note(ms, c).then_some(c))
+            self.apply(en("Delete note"), |ms, c| remove_note(ms, c).then_some(c))
         } else {
-            self.apply("Add note", |ms, c| set_fret(ms, c, 0).then_some(c))
+            self.apply(en("Add note"), |ms, c| set_fret(ms, c, 0).then_some(c))
         }
     }
 
@@ -269,16 +270,16 @@ impl TabEditor {
         match &e.key {
             Key::ArrowUp | Key::ArrowDown if m.alt => {
                 let d = if e.key == Key::ArrowUp { 1 } else { -1 };
-                self.apply(if d > 0 { "Raise fret" } else { "Lower fret" }, |ms, c| {
+                self.apply(if d > 0 { en("Raise fret") } else { en("Lower fret") }, |ms, c| {
                     nudge_fret(ms, c, d).then_some(c)
                 })
             }
             Key::Delete | Key::Backspace => {
                 if m.ctrl {
-                    return self.apply("Delete measure", remove_measure);
+                    return self.apply(en("Delete measure"), remove_measure);
                 }
                 if m.shift {
-                    return self.apply("Delete event", |ms, c| remove_event(ms, c));
+                    return self.apply(en("Delete event"), |ms, c| remove_event(ms, c));
                 }
                 // The note on the string goes; a rest, which has none, goes away itself.
                 let has_note = self
@@ -292,13 +293,13 @@ impl TabEditor {
                     })
                     .unwrap_or(false);
                 if has_note {
-                    self.apply("Delete note", |ms, c| remove_note(ms, c).then_some(c))
+                    self.apply(en("Delete note"), |ms, c| remove_note(ms, c).then_some(c))
                 } else {
-                    self.apply("Make rest", |ms, c| make_rest(ms, c).then_some(c))
+                    self.apply(en("Make rest"), |ms, c| make_rest(ms, c).then_some(c))
                 }
             }
-            Key::Named(n) if n == "Insert" => self.apply("Insert rest", |ms, c| insert_rest_after(ms, c)),
-            Key::Enter if m.ctrl => self.apply("Insert measure", insert_measure_after),
+            Key::Named(n) if n == "Insert" => self.apply(en("Insert rest"), |ms, c| insert_rest_after(ms, c)),
+            Key::Enter if m.ctrl => self.apply(en("Insert measure"), insert_measure_after),
             Key::Character(ch) if !m.ctrl && !m.alt => {
                 if let Some(d) =
                     ch.chars().next().and_then(|c| c.to_digit(10)).filter(|_| ch.chars().count() == 1)
@@ -320,13 +321,13 @@ impl TabEditor {
                     _ => None,
                 };
                 if let Some(t) = technique {
-                    return self.apply("Set technique", |ms, c| set_technique(ms, c, t).then_some(c));
+                    return self.apply(en("Set technique"), |ms, c| set_technique(ms, c, t).then_some(c));
                 }
                 match ch.as_str() {
-                    "." => self.apply("Cycle dots", |ms, c| toggle_dot(ms, c).then_some(c)),
-                    "[" => self.apply("Shorten", |ms, c| change_value(ms, c, false).then_some(c)),
-                    "]" => self.apply("Lengthen", |ms, c| change_value(ms, c, true).then_some(c)),
-                    "r" => self.apply("Make rest", |ms, c| make_rest(ms, c).then_some(c)),
+                    "." => self.apply(en("Cycle dots"), |ms, c| toggle_dot(ms, c).then_some(c)),
+                    "[" => self.apply(en("Shorten"), |ms, c| change_value(ms, c, false).then_some(c)),
+                    "]" => self.apply(en("Lengthen"), |ms, c| change_value(ms, c, true).then_some(c)),
+                    "r" => self.apply(en("Make rest"), |ms, c| make_rest(ms, c).then_some(c)),
                     _ => false,
                 }
             }

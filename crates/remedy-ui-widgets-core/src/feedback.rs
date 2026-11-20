@@ -174,7 +174,7 @@ pub fn skeleton(ui: &Ui, width: f32, height: f32) -> El {
     ui.el("skeleton")
         .width(width)
         .height(height)
-        .semantics(Semantics::new(Role::Progress).label("Loading"))
+        .semantics(Semantics::new(Role::Progress).label(ui.word("Loading")))
         .paint(move |cx| {
             cx.list.fill_rounded(
                 Rect::new(0.0, 0.0, cx.size.width, cx.size.height),

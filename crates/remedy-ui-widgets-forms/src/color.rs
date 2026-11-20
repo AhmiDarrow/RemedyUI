@@ -58,16 +58,16 @@ impl Hsv {
     }
 }
 
-/// What WCAG says about a contrast ratio.
+/// What WCAG says about a contrast ratio, in English ([`Ui::word`] translates it).
 pub fn contrast_grade(ratio: f32) -> &'static str {
     if ratio >= 7.0 {
         "AAA"
     } else if ratio >= 4.5 {
         "AA"
     } else if ratio >= 3.0 {
-        "AA large text"
+        remedy_ui_view::words::en("AA large text")
     } else {
-        "Fails"
+        remedy_ui_view::words::en("Fails")
     }
 }
 
@@ -84,6 +84,8 @@ fn hex(c: Color) -> String {
 pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, against: Option<Color>) -> El {
     let label = label.into();
     let unit = ui.theme().spacing.unit;
+    let area_name = ui.word("Saturation and brightness");
+    let area_value = ui.word("saturation {saturation}%, brightness {brightness}%");
     // Kept apart from the color so hue survives grays and black.
     let hsv = Signal::new(Hsv::from_color(value.get_untracked().unwrap_or(Color::BLACK)));
     let set = move |n: Hsv| {
@@ -164,13 +166,16 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
         .semantics(move || {
             let h = hsv.get();
             Semantics::new(Role::Slider)
-                .label("Saturation and brightness")
-                .value(format!("saturation {:.0}%, brightness {:.0}%", h.s * 100.0, h.v * 100.0))
+                .label(area_name.clone())
+                .value(remedy_ui_view::words::fill(&area_value, &[
+                    ("saturation", &format!("{:.0}", h.s * 100.0)),
+                    ("brightness", &format!("{:.0}", h.v * 100.0)),
+                ]))
                 .action(Action::Focus)
         });
 
     // A horizontal strip for hue or opacity.
-    let strip = |name: &'static str,
+    let strip = |name: String,
                  get: fn(Hsv) -> f32,
                  put: fn(Hsv, f32) -> Hsv,
                  max: f32,
@@ -262,18 +267,18 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
             let v = get(hsv.get());
             let shown = if max > 1.0 { v } else { v * 100.0 };
             Semantics::new(Role::Slider)
-                .label(name)
+                .label(name.clone())
                 .numeric(f64::from(shown), 0.0, f64::from(if max > 1.0 { max } else { 100.0 }))
                 .value(format!("{shown:.0}{unit_s}"))
                 .action(Action::Increment)
                 .action(Action::Decrement)
         })
     };
-    let hue = strip("Hue", |h| h.h, |h, v| Hsv { h: v.min(359.99), ..h }, 360.0, 1.0, "°");
-    let alpha = strip("Opacity", |h| h.a, |h, v| Hsv { a: v, ..h }, 1.0, 0.01, "%");
+    let hue = strip(ui.word("Hue"), |h| h.h, |h, v| Hsv { h: v.min(359.99), ..h }, 360.0, 1.0, "°");
+    let alpha = strip(ui.word("Opacity"), |h| h.a, |h, v| Hsv { a: v, ..h }, 1.0, 0.01, "%");
 
     // Hex field.
-    let field = ui.text_field("text_input", FieldKind::Single).label(format!("{label} hex"));
+    let field = ui.text_field("text_input", FieldKind::Single).label(remedy_ui_view::words::fill(&ui.word("{label} hex"), &[("label", &label)]));
     let bad = Signal::new(false);
     let f2 = field.clone();
     let field = field.on_change(move || match Color::from_hex(f2.value().trim()) {
@@ -318,14 +323,21 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
         .style(move || StylePatch::default().background(value.get()).radius(6.0));
     let mut info = w::column(ui).gap(unit).child(fe);
     if let Some(bg) = against {
+        let (u, u2) = (ui.clone(), ui.clone());
         let readout = w::text(ui, "").text(move || {
             let c = value.get();
             let ratio = c.with_alpha(1.0).contrast(bg);
-            format!("Contrast {ratio:.1}:1 · {}", contrast_grade(ratio))
+            remedy_ui_view::words::fill(&u.word("Contrast {ratio}:1 · {grade}"), &[
+                ("ratio", &format!("{ratio:.1}")),
+                ("grade", &u.word(contrast_grade(ratio))),
+            ])
         });
         info = info.child(readout.semantics(move || {
             let ratio = value.get().with_alpha(1.0).contrast(bg);
-            Semantics::new(Role::Status).label(format!("Contrast {ratio:.1} to 1, {}", contrast_grade(ratio)))
+            Semantics::new(Role::Status).label(remedy_ui_view::words::fill(&u2.word("Contrast {ratio} to 1, {grade}"), &[
+                ("ratio", &format!("{ratio:.1}")),
+                ("grade", &u2.word(contrast_grade(ratio))),
+            ]))
         }));
     }
     let l2 = label.clone();

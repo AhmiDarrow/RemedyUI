@@ -83,10 +83,13 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .semantics(Semantics::new(Role::Alert));
     let msg = message.clone();
     let p = player.clone();
+    let uw = ui.clone();
     let message = message.bind(move || {
         let text = match (p.state(), p.error()) {
-            (PlaybackState::Failed, Some(e)) => Some(format!("This can't be played: {e}")),
-            (PlaybackState::Failed, None) => Some("This can't be played.".to_string()),
+            (PlaybackState::Failed, Some(e)) => {
+                Some(remedy_ui_view::words::fill(&uw.word("This can't be played: {error}"), &[("error", &e.to_string())]))
+            }
+            (PlaybackState::Failed, None) => Some(uw.word("This can't be played.")),
             _ => None,
         };
         let _ = msg.clone().hidden(text.is_none());
@@ -103,7 +106,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: 0.0 };
         })
         .pass_through()
-        .child(w::spinner(ui, "Loading"));
+        .child(w::spinner(ui, ui.word("Loading")));
     // The picture fills the stage (letterboxed by the surface); the rest sits over it.
     let stage = ui
         .el("player_stage")
@@ -128,29 +131,29 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     let play = glyph_button(
         ui,
         [Icon::Play, Icon::Pause],
-        "Play or pause (K)",
+        &ui.word("Play or pause (K)"),
         {
             let p = player.clone();
             move || usize::from(matches!(p.state(), PlaybackState::Playing | PlaybackState::Buffering))
         },
         {
-            let p = player.clone();
+            let (p, u) = (player.clone(), ui.clone());
             move || {
                 if matches!(p.state(), PlaybackState::Playing | PlaybackState::Buffering) {
-                    "Pause".to_string()
+                    u.word("Pause")
                 } else {
-                    "Play".to_string()
+                    u.word("Play")
                 }
             }
         },
         move || p.toggle(),
     );
-    let p = player.clone();
+    let (p, uw) = (player.clone(), ui.clone());
     let time = ui.el("label").nowrap().layout(|l| l.shrink = 0.0).text(move || {
         let pos = format_time(p.position());
         match p.duration() {
             Some(d) => format!("{pos} / {}", format_time(d)),
-            None if p.info().is_some() => format!("{pos} · Live"),
+            None if p.info().is_some() => remedy_ui_view::words::fill(&uw.word("{position} · Live"), &[("position", &pos)]),
             None => pos,
         }
     });
@@ -159,14 +162,14 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     let mute = glyph_button(
         ui,
         [Icon::Volume, Icon::VolumeMuted],
-        "Mute (M)",
+        &ui.word("Mute (M)"),
         {
             let p = player.clone();
             move || usize::from(p.is_muted())
         },
         {
-            let p = player.clone();
-            move || if p.is_muted() { "Unmute".to_string() } else { "Mute".to_string() }
+            let (p, u) = (player.clone(), ui.clone());
+            move || if p.is_muted() { u.word("Unmute") } else { u.word("Mute") }
         },
         move || p.set_muted(!p.is_muted()),
     );
@@ -175,22 +178,22 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .el("player_volume")
         .width(u * 14.0)
         .layout(|l| l.shrink = 0.0)
-        .child(w::slider(ui, "Volume", level, 0.0, 1.0, 0.05));
+        .child(w::slider(ui, ui.word("Volume"), level, 0.0, 1.0, 0.05));
     let p = player.clone();
     let volume = volume.bind(move || p.set_volume(level.get() as f32));
     let p = player.clone();
     let captions = glyph_button(
         ui,
         [Icon::Captions, Icon::Captions],
-        "Captions (C)",
+        &ui.word("Captions (C)"),
         || 0,
         {
-            let p = player.clone();
+            let (p, u) = (player.clone(), ui.clone());
             move || {
                 let tracks = p.subtitle_tracks();
                 match p.caption_track().and_then(|i| tracks.get(i)) {
-                    Some(t) => format!("Captions: {}", t.label),
-                    None => "Captions: off".to_string(),
+                    Some(t) => remedy_ui_view::words::fill(&u.word("Captions: {track}"), &[("track", &t.label)]),
+                    None => u.word("Captions: off"),
                 }
             }
         },
@@ -206,14 +209,14 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     let full = glyph_button(
         ui,
         [Icon::Fullscreen, Icon::FullscreenExit],
-        "Full screen (F)",
+        &ui.word("Full screen (F)"),
         {
             let p = player.clone();
             move || usize::from(p.is_fullscreen())
         },
         {
-            let p = player.clone();
-            move || if p.is_fullscreen() { "Exit full screen".to_string() } else { "Full screen".to_string() }
+            let (p, u) = (player.clone(), ui.clone());
+            move || if p.is_fullscreen() { u.word("Exit full screen") } else { u.word("Full screen") }
         },
         move || p.request_fullscreen(!p.is_fullscreen()),
     );
@@ -338,6 +341,7 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
     let painted = player.clone();
     let b3 = bar.clone();
     let p2 = player.clone();
+    let (seek_word, seek_of) = (ui.word("Seek"), ui.word("{position} of {length}"));
     let len2 = length.clone();
     bar.paint(move |cx| {
         let pos = painted.position();
@@ -402,9 +406,9 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
         let total = len.unwrap_or_default();
         let _ = b3.clone().semantics(
             Semantics::new(Role::Slider)
-                .label("Seek")
+                .label(seek_word.clone())
                 .numeric(pos.as_secs_f64(), 0.0, total.as_secs_f64())
-                .value(format!("{} of {}", format_time(pos), format_time(total)))
+                .value(remedy_ui_view::words::fill(&seek_of, &[("position", &format_time(pos)), ("length", &format_time(total))]))
                 .action(Action::Increment)
                 .action(Action::Decrement),
         );

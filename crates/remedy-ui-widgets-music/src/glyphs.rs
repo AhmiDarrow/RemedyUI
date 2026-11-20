@@ -80,15 +80,16 @@ impl NoteValue {
         self.denominator() >= 4
     }
 
-    /// Its name in words.
+    /// Its name in words, in English (`remedy_ui_view::words::word_or` gives it in a locale).
     pub fn name(self) -> &'static str {
+        use remedy_ui_view::words::en;
         match self {
-            NoteValue::Whole => "whole",
-            NoteValue::Half => "half",
-            NoteValue::Quarter => "quarter",
-            NoteValue::Eighth => "eighth",
-            NoteValue::Sixteenth => "sixteenth",
-            NoteValue::ThirtySecond => "thirty-second",
+            NoteValue::Whole => en("whole"),
+            NoteValue::Half => en("half"),
+            NoteValue::Quarter => en("quarter"),
+            NoteValue::Eighth => en("eighth"),
+            NoteValue::Sixteenth => en("sixteenth"),
+            NoteValue::ThirtySecond => en("thirty-second"),
         }
     }
 
@@ -125,13 +126,14 @@ impl Clef {
         }
     }
 
-    /// Its name.
+    /// Its name, in English (`remedy_ui_view::words::word_or` gives it in a locale).
     pub fn name(self) -> &'static str {
+        use remedy_ui_view::words::en;
         match self {
-            Clef::Treble => "treble",
-            Clef::Bass => "bass",
-            Clef::Alto => "alto",
-            Clef::Tenor => "tenor",
+            Clef::Treble => en("treble"),
+            Clef::Bass => en("bass"),
+            Clef::Alto => en("alto"),
+            Clef::Tenor => en("tenor"),
         }
     }
 }

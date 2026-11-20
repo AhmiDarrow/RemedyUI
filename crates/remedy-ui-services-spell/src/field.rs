@@ -33,12 +33,34 @@ pub struct MenuLabels {
 }
 
 impl Default for MenuLabels {
+    /// The English words.
     fn default() -> Self {
         MenuLabels {
             add_to_dictionary: "Add to dictionary".into(),
             ignore: "Ignore".into(),
             no_suggestions: "No suggestions".into(),
         }
+    }
+}
+
+impl MenuLabels {
+    /// Every word passed through `translate`, which is given a word as it is now (the
+    /// English one, by default) and returns it in the person's language: a catalog keyed by
+    /// source text (such as `remedy_ui::i18n::Catalog`) or the app's own `t()`.
+    pub fn translated(&self, translate: impl Fn(&str) -> String) -> Self {
+        MenuLabels {
+            add_to_dictionary: translate(&self.add_to_dictionary),
+            ignore: translate(&self.ignore),
+            no_suggestions: translate(&self.no_suggestions),
+        }
+    }
+
+    /// The words in `locale` (BCP 47), from RemedyUI's built-in translations
+    /// ([`remedy_ui_view::words`]); English where it has none. The spelling menu shows these
+    /// for the window's locale when its labels are the defaults.
+    pub fn for_locale(locale: &str) -> Self {
+        MenuLabels::default()
+            .translated(|en| remedy_ui_view::words::word(locale, en).map_or_else(|| en.to_owned(), str::to_owned))
     }
 }
 
@@ -339,7 +361,13 @@ impl SpellHook {
     pub fn menu_items(&self, at: Option<Point>) -> Vec<MenuItem> {
         let (field, checker, labels, langs) = {
             let s = self.shared.borrow();
-            (s.field.clone(), s.checker.clone(), s.options.labels.clone(), languages(&s))
+            // The defaults are English: show the window's language instead.
+            let labels = if s.options.labels == MenuLabels::default() {
+                MenuLabels::for_locale(&s.ui.locale())
+            } else {
+                s.options.labels.clone()
+            };
+            (s.field.clone(), s.checker.clone(), labels, languages(&s))
         };
         let mark = match at {
             Some(p) => field.decoration_at(p),

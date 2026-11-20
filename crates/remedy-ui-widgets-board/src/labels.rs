@@ -15,6 +15,7 @@ macro_rules! words {
             $( $(#[$fm:meta])* $f:ident: $en:literal, )*
         }
         $( nested { $( $(#[$nm:meta])* $nf:ident: $nt:ty, )* } )?
+        $( kept { $( $(#[$km:meta])* $kf:ident: $kt:ty, )* } )?
     ) => {
         $(#[$m])*
         #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +23,7 @@ macro_rules! words {
         pub struct $name {
             $( $(#[$fm])* pub $f: String, )*
             $( $( $(#[$nm])* pub $nf: $nt, )* )?
+            $( $( $(#[$km])* pub $kf: $kt, )* )?
         }
 
         impl Default for $name {
@@ -30,6 +32,7 @@ macro_rules! words {
                 $name {
                     $( $f: $en.to_owned(), )*
                     $( $( $nf: <$nt>::default(), )* )?
+                    $( $( $kf: <$kt>::default(), )* )?
                 }
             }
         }
@@ -43,10 +46,16 @@ macro_rules! words {
                 $name {
                     $( $f: translate(&self.$f), )*
                     $( $( $nf: self.$nf.translated(&translate), )* )?
+                    $( $( $kf: self.$kf.clone(), )* )?
                 }
             }
         }
     };
+}
+
+/// `english` in RemedyUI's built-in words for `locale`, or as it is.
+fn builtin(locale: &str, english: &str) -> String {
+    remedy_ui_view::words::word(locale, english).map_or_else(|| english.to_owned(), str::to_owned)
 }
 
 words! {
@@ -56,13 +65,46 @@ words! {
         group: "Reactions",
         /// One reaction, as counted for screen readers.
         one: "1 reaction",
-        /// Several (or no) reactions: `{count}`.
+        /// Several (or no) reactions: `{count}`. It may hold every form of the word for a
+        /// language with more than one plural, separated by `" || "` in the order of
+        /// `plural_locale`'s rule (as [`ReactionLabels::for_locale`] sets it); `one` is then
+        /// not used.
         many: "{count} reactions",
         /// A reaction button for screen readers: `{emoji}` and `{count}` (a count from `one`
         /// or `many`).
         spoken: "{emoji}, {count}",
         /// A reaction button that includes the viewer's: `{emoji}`, `{count}`.
         spoken_mine: "{emoji}, {count}, including yours",
+    }
+    kept {
+        /// The locale (BCP 47) whose plural rule picks among `many`'s forms when it holds
+        /// several; empty for English.
+        plural_locale: String,
+    }
+}
+
+impl ReactionLabels {
+    /// The words in `locale` (BCP 47), from RemedyUI's built-in translations
+    /// (`remedy_ui::words`); English where it has none.
+    pub fn for_locale(locale: &str) -> Self {
+        let mut l = ReactionLabels::default().translated(|en| builtin(locale, en));
+        if let Some(forms) = remedy_ui_view::words::forms(locale, "1 reaction", "{count} reactions") {
+            l.many = forms.to_owned();
+            l.plural_locale = locale.to_owned();
+        }
+        l
+    }
+
+    /// How `count` reactions are counted, with `{count}` filled.
+    pub fn count(&self, count: u64) -> String {
+        if self.many.contains(remedy_ui_view::words::SEPARATOR) {
+            let form = remedy_ui_view::words::pick(&self.plural_locale, &self.many, count);
+            return fill(form, &[("count", count.to_string())]);
+        }
+        match count {
+            1 => self.one.clone(),
+            n => fill(&self.many, &[("count", n.to_string())]),
+        }
     }
 }
 
@@ -201,6 +243,22 @@ words! {
     nested {
         /// The reactions component's words.
         reactions: ReactionLabels,
+    }
+}
+
+impl BoardLabels {
+    /// The words in `locale` (BCP 47), from RemedyUI's built-in translations
+    /// (`remedy_ui::words`); English where it has none. A board shows these for the window's
+    /// locale when its [`Context::labels`](crate::Context::labels) are the defaults.
+    pub fn for_locale(locale: &str) -> Self {
+        let mut l = BoardLabels::default().translated(|en| builtin(locale, en));
+        l.reactions = ReactionLabels::for_locale(locale);
+        l
+    }
+
+    /// `labels`, or the words of `locale` when `labels` are the English defaults.
+    pub(crate) fn or_locale(labels: &BoardLabels, locale: &str) -> BoardLabels {
+        if *labels == BoardLabels::default() { BoardLabels::for_locale(locale) } else { labels.clone() }
     }
 }
 

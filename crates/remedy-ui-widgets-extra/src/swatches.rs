@@ -174,6 +174,7 @@ pub fn color_swatch_grid(
     let key_el = root.clone();
     let sem_el = root.clone();
     let l2 = label.clone();
+    let u = ui.clone();
     root.on_focus_change(move |f| focused.set_if_changed(f))
         .on_key(move |e| {
             if !e.pressed {
@@ -230,14 +231,17 @@ pub fn color_swatch_grid(
             if let Some(sw) = list.get(cur) {
                 let cols = columns_of(&options, &sem_el);
                 let picked = selected.get() == Some(cur);
-                s = s.value(format!(
-                    "{}, {}, row {} column {}{}",
-                    sw.name,
-                    hex(sw.color),
-                    cur / cols + 1,
-                    cur % cols + 1,
-                    if picked { ", selected" } else { "" }
-                ));
+                let template = if picked {
+                    u.word("{name}, {color}, row {row} column {column}, selected")
+                } else {
+                    u.word("{name}, {color}, row {row} column {column}")
+                };
+                s = s.value(remedy_ui_view::words::fill(&template, &[
+                    ("name", &sw.name),
+                    ("color", &hex(sw.color)),
+                    ("row", &(cur / cols + 1).to_string()),
+                    ("column", &(cur % cols + 1).to_string()),
+                ]));
             }
             s
         })

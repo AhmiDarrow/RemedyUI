@@ -874,7 +874,9 @@ fn title_bar(frame: &HtmlElement, title: &str) -> Option<HtmlElement> {
     );
     label.set_text_content(Some(title));
     close.set_text_content(Some("\u{00d7}"));
-    let _ = close.set_attribute("aria-label", "Close");
+    // The page's language: the bridge draws this button before any window's `Ui` exists.
+    let language = web_sys::window().and_then(|w| w.navigator().language()).unwrap_or_default();
+    let _ = close.set_attribute("aria-label", remedy_ui_words::word_or(&language, "Close"));
     let _ = close.set_attribute("type", "button");
     dom::style(
         &close,

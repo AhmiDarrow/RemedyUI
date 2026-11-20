@@ -68,7 +68,7 @@ impl NavStack {
             root: root.clone(),
         }));
         let m1 = me.clone();
-        let back = w::icon_button(ui, Icon::ChevronLeft, "Back", move || {
+        let back = w::icon_button(ui, Icon::ChevronLeft, ui.word("Back"), move || {
             m1.pop();
         });
         let b2 = back.clone();
