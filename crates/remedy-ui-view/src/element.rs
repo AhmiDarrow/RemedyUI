@@ -61,7 +61,103 @@ pub struct TextPaint {
     pub mono: bool,
 }
 
+/// Renders `list` (in logical pixels, `size` big) to a picture at `scale` device pixels per
+/// logical pixel, on a transparent background, with the CPU renderer. For art that is
+/// expensive to draw and rarely changes (a scene's backdrop, a texture, a frame): draw it
+/// once, keep the picture, and push it as an image. `None` for an empty or too-large size
+/// (the CPU renderer's axis limit is 65,535 device pixels). Text in `list` must have been
+/// laid out with the window's fonts (see [`PaintCx::cached`], which does that for you).
+pub fn rasterize(list: &DisplayList, size: Size, scale: f32) -> Option<remedy_ui_paint::Image> {
+    thread_local! {
+        static CPU: std::cell::RefCell<remedy_ui_render_cpu::CpuRenderer> = std::cell::RefCell::new(remedy_ui_render_cpu::CpuRenderer::new());
+    }
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    let w = (size.width * scale).ceil();
+    let h = (size.height * scale).ceil();
+    if !(w >= 1.0 && h >= 1.0 && w <= 65_535.0 && h <= 65_535.0) {
+        return None;
+    }
+    let (w, h) = (w as u32, h as u32);
+    let frame = CPU
+        .with(|r| r.borrow_mut().render(list, w, h, scale, remedy_ui_core::Color::TRANSPARENT))
+        .ok()?;
+    Some(remedy_ui_paint::Image::new(frame.width, frame.height, std::sync::Arc::from(frame.pixels)))
+}
+
+thread_local! {
+    /// [`PaintCx::cached`]'s pictures: by key, with the size and scale they were drawn at.
+    static CACHED: std::cell::RefCell<HashMap<u64, (u32, u32, u32, remedy_ui_paint::Image)>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// Most pictures [`PaintCx::cached`] keeps; past it the cache starts again.
+const CACHED_MAX: usize = 512;
+
+/// Drops every picture [`PaintCx::cached`] keeps (on memory pressure, or a theme change
+/// the keys do not cover).
+pub fn clear_paint_cache() {
+    CACHED.with(|c| c.borrow_mut().clear());
+}
+
 impl PaintCx<'_> {
+    /// Draws what `f` records once as a picture and reuses it while `key`, the element's
+    /// size and the scale stay the same; then it is drawn again. Put everything the drawing
+    /// depends on (the theme's colours, a seed, a state) into `key`. The picture is drawn
+    /// at device resolution, so it stays sharp. What `f` draws is clipped to the element.
+    ///
+    /// ```ignore
+    /// el.paint(|cx| {
+    ///     cx.cached(hash(("backdrop", night)), |cx| draw_forest(cx)); // once
+    ///     draw_fireflies(cx);                                          // every frame
+    /// })
+    /// ```
+    pub fn cached(&mut self, key: u64, f: impl FnOnce(&mut PaintCx<'_>)) {
+        let size = self.size;
+        let scale = if self.scale.is_finite() && self.scale > 0.0 { self.scale } else { 1.0 };
+        let dims = ((size.width * 64.0).round() as u32, (size.height * 64.0).round() as u32, scale.to_bits());
+        let hit = CACHED.with(|c| c.borrow().get(&key).filter(|(w, h, s, _)| (*w, *h, *s) == dims).map(|(_, _, _, i)| i.clone()));
+        let image = match hit {
+            Some(i) => Some(i),
+            None => {
+                let mut list = DisplayList::new();
+                {
+                    let mut inner = PaintCx {
+                        list: &mut list,
+                        size,
+                        style: self.style,
+                        theme: self.theme,
+                        states: self.states,
+                        scale,
+                        next_frame: false,
+                        rtl: self.rtl,
+                        time: self.time,
+                        reduced_motion: self.reduced_motion,
+                        engine: &mut *self.engine,
+                    };
+                    f(&mut inner);
+                }
+                let img = rasterize(&list, size, scale);
+                if let Some(img) = &img {
+                    CACHED.with(|c| {
+                        let mut c = c.borrow_mut();
+                        if c.len() >= CACHED_MAX {
+                            c.clear();
+                        }
+                        c.insert(key, (dims.0, dims.1, dims.2, img.clone()));
+                    });
+                }
+                img
+            }
+        };
+        if let Some(image) = image {
+            self.list.push(remedy_ui_paint::Item::Image {
+                image,
+                rect: remedy_ui_core::Rect::new(0.0, 0.0, size.width, size.height),
+                radii: remedy_ui_core::CornerRadii::ZERO,
+                sampling: remedy_ui_paint::Sampling::Linear,
+            });
+        }
+    }
+
     /// Draws this element again in the next frame, and asks for that frame: content that
     /// changes every frame (a game view, a live 3D preview) calls it from its painter each
     /// frame while it moves, so it follows the display's rate and stops when it stops asking.

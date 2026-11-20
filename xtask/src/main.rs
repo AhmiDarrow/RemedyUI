@@ -225,6 +225,8 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-compositor", "remedy-ui-motion"),
     // The GPU renderer shares the CPU renderer's painter, and falls back to it.
     ("remedy-ui-render-gpu", "remedy-ui-render-cpu"),
+    // Painters cache art they draw once as pictures (`rasterize`, `PaintCx::cached`).
+    ("remedy-ui-view", "remedy-ui-render-cpu"),
     ("remedy-ui-bridge-windows", "remedy-ui-bridge-winit"),
     ("remedy-ui-bridge-macos", "remedy-ui-bridge-winit"),
     ("remedy-ui-bridge-linux", "remedy-ui-bridge-winit"),
