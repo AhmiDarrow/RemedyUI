@@ -55,7 +55,8 @@ const JUMP_SEEK: f64 = 10.0;
 /// ("Talk recording").
 ///
 /// Keyboard, anywhere in the player: K plays and pauses, J and L jump 10 seconds, M mutes,
-/// C turns captions on and off, F asks for full screen and Escape leaves it. On the seek bar
+/// C turns captions on and off, F asks for full screen and Escape leaves it, and Shift+N plays
+/// what is [next up](Player::set_next_up). On the seek bar
 /// Space plays and pauses, the arrows move 5 seconds, Page Up and Page Down a tenth, Home and
 /// End to either end. Space and Enter press whichever button has focus.
 ///
@@ -271,6 +272,8 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .child(captions)
         .child(full);
 
+    let next = next_up_card(ui, player);
+
     let p = player.clone();
     let vis = player.clone();
     ui.el("player")
@@ -278,6 +281,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .grow(1.0)
         .semantics(Semantics::new(Role::Group).label(label))
         .child(stage)
+        .child(next)
         .child(bar)
         .on_visibility(move |seen| vis.set_visible(seen))
         .on_key(move |e| {
@@ -295,12 +299,96 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                     "f" if p.info().is_none_or(|i| i.video.is_some()) => {
                         p.request_fullscreen(!p.is_fullscreen())
                     }
+                    "N" | "n" if e.modifiers.shift && p.next_up().is_some() => p.play_next(),
                     _ => return false,
                 },
                 _ => return false,
             }
             true
         })
+}
+
+/// "Up next" at the end of the media, when something is set to play next: its title, the
+/// countdown while it runs, Play now, and Cancel (which stops the countdown and puts the
+/// card away). Shown between the picture and the transport bar, so sound-only media has it
+/// too.
+#[track_caller]
+fn next_up_card(ui: &Ui, player: &Player) -> El {
+    let u = ui.theme().spacing.unit;
+    let dismissed = Signal::new(false);
+    let (p, tu) = (player.clone(), ui.clone());
+    let title = ui.el("label").text(move || {
+        let title = p.next_up().map(|n| n.title).unwrap_or_default();
+        crate::STRINGS.format(&tu, "playback-next-up", &[("title", title.into())])
+    });
+    let (p, tu) = (player.clone(), ui.clone());
+    let left = ui.el("label").nowrap().text(move || match p.countdown() {
+        // Whole seconds, rounded up: 5, 4, ... 1.
+        Some(d) => {
+            let secs = d.as_secs() + u64::from(d.subsec_nanos() > 0);
+            crate::STRINGS.format(&tu, "playback-next-up-in", &[("count", secs.into())])
+        }
+        None => String::new(),
+    });
+    let lb = left.clone();
+    let p = player.clone();
+    let left = left.bind(move || {
+        let _ = lb.clone().hidden(p.countdown().is_none());
+    });
+    let p = player.clone();
+    let now = w::button(
+        ui,
+        {
+            let u = ui.clone();
+            move || tr(&u, "playback-play-now")
+        },
+        move || p.play_next(),
+    );
+    let p = player.clone();
+    let cancel = w::button(
+        ui,
+        {
+            let u = ui.clone();
+            move || tr(&u, "playback-next-cancel")
+        },
+        move || {
+            p.cancel_countdown();
+            dismissed.set(true);
+        },
+    );
+    let card = ui
+        .el("player_next")
+        .row()
+        .align(Align::Center)
+        .gap(u * 1.5)
+        .style(remedy_ui_style::StylePatch::default().padding(Insets {
+            top: u,
+            bottom: u,
+            start: u * 1.5,
+            end: u * 1.5,
+        }))
+        .semantics(Semantics::new(Role::Group))
+        .child(title.grow(1.0))
+        .child(left)
+        .child(now)
+        .child(cancel);
+    let c = card.clone();
+    let p = player.clone();
+    let seen = std::cell::RefCell::new(None);
+    card.bind(move || {
+        let ended = p.state() == PlaybackState::Ended;
+        let next = p.next_up();
+        // A new end, or something new next, brings the card back.
+        if !ended || *seen.borrow() != next {
+            dismissed.set_if_changed(false);
+        }
+        *seen.borrow_mut() = next.clone();
+        let shown = ended && next.is_some() && !dismissed.get();
+        let _ = c.clone().hidden(!shown);
+        if let Some(n) = next {
+            let _ = c.clone().semantics(Semantics::new(Role::Group).label(n.title));
+        }
+    })
 }
 
 /// Off, then each track in turn, then off again.

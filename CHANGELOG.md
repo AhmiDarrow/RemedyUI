@@ -10,6 +10,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Next-up in the media player**: `Player::set_next_up(Some(NextUp::new(source, title)))`
+  sets what plays after the end. At the end a countdown runs (`PlayerOptions::next_up_delay`,
+  `NEXT_UP_DELAY` = 5 s; `None` waits for the person; no countdown under reduced motion),
+  then the next plays in the same player, every signal about the media starting over and its
+  volume, picture and visibility carried over. `Player::countdown`, `cancel_countdown` and
+  `play_next`. The `player` widget shows "Up next: …" with the countdown, Play now and Cancel,
+  in every shipped language; Shift+N plays it.
 - **Buffered ranges on the player's seek bar**: `Player::buffered()` (a signal of time ranges)
   holds what can play without waiting: all of a local file; for a stream, what has arrived
   where the decoder says (`Decoder::buffered`, a new provided method; GStreamer answers its

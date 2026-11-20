@@ -168,6 +168,8 @@ struct Screen {
     frame: Option<VideoFrame>,
     /// The layers of the latest frame that drew any.
     layers: Vec<Arc<Layer>>,
+    /// Timers the window asked for, and when each is due.
+    timers: Vec<(u64, Instant)>,
 }
 
 fn videos(layer: &Layer, out: &mut Option<VideoFrame>) {
@@ -183,7 +185,7 @@ fn videos(layer: &Layer, out: &mut Option<VideoFrame>) {
 
 impl Screen {
     fn new() -> Screen {
-        Screen { ui: ui(), frame: None, layers: Vec::new() }
+        Screen { ui: ui(), frame: None, layers: Vec::new(), timers: Vec::new() }
     }
 
     fn pump(&mut self) {
@@ -199,7 +201,21 @@ impl Screen {
             }
             self.layers = tree.roots.clone();
         }
-        let _ = self.ui.take_requests();
+        for r in self.ui.take_requests() {
+            match r {
+                remedy_ui_view::Request::Timer { id, delay } => {
+                    self.timers.push((id, Instant::now() + delay))
+                }
+                remedy_ui_view::Request::CancelTimer(id) => self.timers.retain(|(t, _)| *t != id),
+                _ => {}
+            }
+        }
+        let now = Instant::now();
+        let due: Vec<u64> = self.timers.iter().filter(|(_, at)| *at <= now).map(|(id, _)| *id).collect();
+        self.timers.retain(|(_, at)| *at > now);
+        for id in due {
+            self.ui.fire_timer(id);
+        }
     }
 
     fn wait(&mut self, what: &str, ok: impl Fn(&Screen) -> bool) {
@@ -779,4 +795,124 @@ fn the_seek_bar_shows_what_has_arrived_and_what_is_decoded_ahead() {
     assert_eq!(toned.len(), 1, "one buffered stretch drawn: {toned:?}");
     let problems = remedy_ui_devtools::audit(&s.ui);
     assert!(problems.is_empty(), "{problems:?}");
+}
+
+/// Scripted clips by name: `script:N` lasts N seconds, with no sound device.
+struct Clips;
+
+impl MediaHost for Clips {
+    fn name(&self) -> &str {
+        "clips"
+    }
+    fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
+        let seconds = source.to_url().trim_start_matches("script:").parse().unwrap_or(1);
+        Scripted {
+            heard: Arc::new(AtomicU64::new(0)),
+            buffer: Duration::from_millis(200),
+            device: false,
+            seconds,
+        }
+        .open(source)
+    }
+    fn audio_output(&self, _: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
+        Err(MediaError::Device("no device in this script".into()))
+    }
+}
+
+/// Whether the "up next" card shows.
+fn card_shown(view: &El) -> bool {
+    find(view, "player_next").iter().any(|c| c.info().is_some_and(|i| !i.hidden))
+}
+
+fn texts(el: &El, widget: &str) -> Vec<String> {
+    find(el, widget)
+        .iter()
+        .filter_map(|l| l.info().filter(|i| !i.hidden).and_then(|i| i.text))
+        .map(|t| plain(&t))
+        .collect()
+}
+
+#[test]
+fn next_up_counts_down_at_the_end_and_plays_in_the_same_player() {
+    let mut s = Screen::new();
+    let options = PlayerOptions::default().next_up_delay(Some(Duration::from_millis(1500)));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:1"), options);
+    let view = player(&s.ui, &p, "Scripted");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:3"), "The long one")));
+    assert!(!card_shown(&view), "no card before the end");
+    p.play();
+    s.wait("ended", |_| p.state() == PlaybackState::Ended);
+    s.wait("counting down", |_| p.countdown().is_some());
+    assert!(card_shown(&view));
+    let shown = texts(&view, "label");
+    assert!(shown.iter().any(|t| t == "Up next: The long one"), "{shown:?}");
+    assert!(shown.iter().any(|t| t == "Playing in 2 seconds"), "{shown:?}");
+    s.wait("one second left", |_| texts(&view, "label").iter().any(|t| t == "Playing in 1 second"));
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "the card passes the audit: {problems:?}");
+    // The countdown ends: the next plays here, from its start, with every signal its own.
+    s.wait("the next playing", |_| {
+        p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(3))
+    });
+    assert_eq!(p.next_up(), None);
+    assert_eq!(p.countdown(), None);
+    assert!(p.position() < Duration::from_secs(1));
+    assert!(!card_shown(&view), "the card went");
+    // It ends with nothing next: nothing counts down.
+    s.wait("the second end", |_| p.state() == PlaybackState::Ended);
+    s.idle(100);
+    assert_eq!(p.countdown(), None);
+}
+
+#[test]
+fn cancelling_keeps_the_next_for_when_the_person_asks() {
+    let mut s = Screen::new();
+    let options = PlayerOptions::default().next_up_delay(Some(Duration::from_millis(300)));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:1"), options);
+    let view = player(&s.ui, &p, "Scripted");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:2"), "Two")));
+    p.play();
+    s.wait("counting down", |_| p.countdown().is_some());
+    // Cancel on the card: the countdown stops and the card goes.
+    named(&view, "Cancel").unwrap_or_else(|| unreachable!("a cancel button")).focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.idle(600);
+    assert_eq!(p.state(), PlaybackState::Ended, "it stays at the end");
+    assert_eq!(p.countdown(), None);
+    assert!(p.next_up().is_some(), "the next is kept");
+    // Shift+N plays it.
+    s.pump();
+    let shift = remedy_ui_input::Modifiers { shift: true, ..Default::default() };
+    assert!(!card_shown(&view), "cancelled: the card is put away");
+    named(&view, "Seek").unwrap_or_else(|| unreachable!("a seek bar")).focus();
+    assert!(s.ui.key(&KeyEvent::press(Key::Character("N".into())).with_modifiers(shift).with_text(None)));
+    s.wait("the next playing", |_| {
+        p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(2))
+    });
+}
+
+#[test]
+fn under_reduced_motion_the_next_waits_for_the_person() {
+    let mut s = Screen::new();
+    s.ui.set_reduced_motion(true);
+    let options = PlayerOptions::default().next_up_delay(Some(Duration::from_millis(200)));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:1"), options);
+    let view = player(&s.ui, &p, "Scripted");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:2"), "Two")));
+    p.play();
+    s.wait("ended", |_| p.state() == PlaybackState::Ended);
+    s.idle(500);
+    assert_eq!(p.countdown(), None, "no countdown");
+    assert_eq!(p.state(), PlaybackState::Ended);
+    assert!(card_shown(&view), "the card still offers it");
+    assert!(texts(&view, "label").iter().any(|t| t == "Up next: Two"));
+    // Play now, though: chosen, it plays even under reduced motion.
+    p.play_next();
+    s.wait("the next playing", |_| p.state() == PlaybackState::Playing);
 }
