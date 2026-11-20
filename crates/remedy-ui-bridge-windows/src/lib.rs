@@ -177,6 +177,16 @@ mod hooks {
             self.sharing.share(h, share)
         }
 
+        fn print_html(
+            &mut self,
+            window: Option<&Window>,
+            title: &str,
+            html: &str,
+        ) -> Result<(), Unsupported> {
+            let _ = window;
+            crate::os::print::print_html(title, html)
+        }
+
         fn utc_offset(&self, unix_seconds: i64) -> Option<i32> {
             crate::os::utc_offset(unix_seconds)
         }

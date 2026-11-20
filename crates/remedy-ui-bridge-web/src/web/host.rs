@@ -13,7 +13,7 @@ use remedy_ui_host::{
 use remedy_ui_input::Platform;
 
 use super::window::{Kind, Win};
-use super::{Driver, clipboard, dialog, driver, notify, now, post, settings, share};
+use super::{Driver, clipboard, dialog, driver, notify, now, post, print, settings, share};
 use crate::Mount;
 
 /// The host the app acts through while it handles an event.
@@ -300,6 +300,11 @@ impl Host for WebHost<'_> {
     ) -> Result<ShareStarted, Unsupported> {
         let _ = window;
         share::share(self.d, options)
+    }
+
+    fn print_html(&mut self, window: Option<WindowId>, title: &str, html: &str) -> Result<(), Unsupported> {
+        let _ = (window, title);
+        print::print_html(html)
     }
 
     fn start_drag(

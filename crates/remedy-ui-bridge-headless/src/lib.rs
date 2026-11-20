@@ -134,6 +134,7 @@ pub struct HeadlessHost {
     foreground: Option<remedy_ui_host::ForegroundTask>,
     foreground_refused: Option<String>,
     shares: Vec<(Option<WindowId>, remedy_ui_host::ShareOptions)>,
+    prints: Vec<(Option<WindowId>, String, String)>,
     share_answers: VecDeque<remedy_ui_host::ShareOutcome>,
     shares_answer_later: bool,
 }
@@ -188,6 +189,7 @@ impl HeadlessHost {
             foreground: None,
             foreground_refused: None,
             shares: Vec::new(),
+            prints: Vec::new(),
             share_answers: VecDeque::new(),
             shares_answer_later: false,
         }
@@ -448,6 +450,11 @@ impl HeadlessHost {
     /// `ShareId(n)` for the n-th share (counting from 1).
     pub fn shares_answer_later(&mut self, on: bool) {
         self.shares_answer_later = on;
+    }
+
+    /// What the app printed: the window, the job's title and the page, oldest first.
+    pub fn prints(&self) -> &[(Option<WindowId>, String, String)] {
+        &self.prints
     }
 
     /// What the app shared, and over which window, oldest first.
@@ -856,6 +863,11 @@ impl Host for HeadlessHost {
         }
         let outcome = self.share_answers.pop_front().unwrap_or(remedy_ui_host::ShareOutcome::Shared);
         Ok(remedy_ui_host::ShareStarted::Finished(outcome))
+    }
+
+    fn print_html(&mut self, window: Option<WindowId>, title: &str, html: &str) -> Result<(), Unsupported> {
+        self.prints.push((window, title.to_owned(), html.to_owned()));
+        Ok(())
     }
 
     fn start_drag(
