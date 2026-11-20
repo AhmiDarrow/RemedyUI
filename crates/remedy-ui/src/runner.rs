@@ -1751,11 +1751,16 @@ impl Runner {
             let d = remedy_ui_services_i18n::Decimal::from_f64(value, max)?;
             Some(remedy_ui_services_i18n::NumberSymbols::for_locale(locale).format(d, d.scale()))
         })));
-        let geometry = config
-            .data_dir
-            .clone()
-            .or_else(|| data_dir(&config.name))
-            .map_or_else(GeometryStore::in_memory, |d| GeometryStore::open(d.join("windows.txt")));
+        let dir = config.data_dir.clone().or_else(|| data_dir(&config.name));
+        // What this machine's graphics backends did (passed their self-test, drew wrong,
+        // hung presenting) is remembered with the app's data: tested once per driver, and a
+        // backend that hung is skipped from the next start.
+        #[cfg(feature = "gpu")]
+        if let Some(d) = &dir {
+            remedy_ui_render_gpu::health::remember_in(d.join("gpu"));
+        }
+        let geometry =
+            dir.map_or_else(GeometryStore::in_memory, |d| GeometryStore::open(d.join("windows.txt")));
         let runner = Self::with_geometry(config, geometry, setup);
         // A page has no files: its windows' geometry is kept with its persisted state.
         #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]

@@ -28,6 +28,10 @@ pub struct LadderOptions {
     pub high_performance: bool,
     /// The rungs to try, top first.
     pub rungs: Vec<Rung>,
+    /// Checks each rung's device with a self-test frame before using it, and skips rungs
+    /// that failed it or hung presenting ([`health`](crate::health)). On by default; a
+    /// backend is tested once per driver.
+    pub self_test: bool,
 }
 
 impl LadderOptions {
@@ -42,11 +46,21 @@ impl LadderOptions {
         self.rungs = value;
         self
     }
+
+    /// Sets `self_test`: checks each rung's device before using it.
+    pub fn self_test(mut self, value: bool) -> Self {
+        self.self_test = value;
+        self
+    }
 }
 
 impl Default for LadderOptions {
     fn default() -> Self {
-        LadderOptions { high_performance: true, rungs: vec![Rung::Primary, Rung::Gl, Rung::Software] }
+        LadderOptions {
+            high_performance: true,
+            rungs: vec![Rung::Primary, Rung::Gl, Rung::Software],
+            self_test: true,
+        }
     }
 }
 
@@ -132,7 +146,21 @@ impl GpuContext {
         let mut last = GpuError::NoAdapter;
         for &rung in &options.rungs {
             match Self::try_rung(rung, options.high_performance, window.clone()).await {
-                Ok(ctx) => return Ok(ctx),
+                Ok(ctx) if !options.self_test => return Ok(ctx),
+                // A backend that drew the self-test wrong or hung presenting is skipped; one
+                // not yet known is tested now (once per driver).
+                Ok(ctx) => match crate::health::verdict(&crate::health::key(&ctx)) {
+                    Some(v) if v.usable() => return Ok(ctx),
+                    Some(v) => {
+                        last = GpuError::Device(format!("{} is not used: {}", ctx.describe(), v.reason()))
+                    }
+                    None => match crate::health::self_test(&ctx) {
+                        Ok(()) => return Ok(ctx),
+                        Err(e) => {
+                            last = GpuError::Device(format!("{} failed its self-test: {e}", ctx.describe()))
+                        }
+                    },
+                },
                 Err(e) => last = e,
             }
         }
