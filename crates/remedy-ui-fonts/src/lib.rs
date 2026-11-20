@@ -144,6 +144,7 @@ pub struct ScriptFallback {
 }
 
 /// What each enabled script face is a fallback for, in the order to try them.
+#[allow(clippy::vec_init_then_push, reason = "each entry is behind its own feature")]
 pub fn script_fallbacks() -> Vec<ScriptFallback> {
     #[allow(unused_mut, reason = "empty when no script face is enabled")]
     let mut out = Vec::new();

@@ -26,6 +26,10 @@ use unic_langid::LanguageIdentifier;
 use crate::Ui;
 
 type Bundle = fluent_bundle::bundle::FluentBundle<Rc<FluentResource>, IntlLangMemoizer>;
+/// A catalog (by address) and a locale.
+type Key = (usize, String);
+/// Messages apps added: catalog name → locale → sources.
+type Added = HashMap<String, BTreeMap<String, Vec<Rc<FluentResource>>>>;
 
 /// A crate's catalog from its `i18n/<locale>.ftl` files, one per [`LOCALES`] entry:
 /// `pub static STRINGS: Strings = remedy_ui_view::engine_strings!("widgets-core");`
@@ -50,6 +54,10 @@ macro_rules! engine_strings {
         )
     };
 }
+
+/// The view's own words (the Undo menu item's name), from `i18n/*.ftl` in this crate. Apps
+/// reword them, or add a language, with [`add_messages`] under the name `view`.
+pub static STRINGS: Strings = crate::engine_strings!("view");
 
 /// The locales every engine catalog ships, English first.
 pub const LOCALES: &[&str] = &["en", "es", "zh-Hans", "hi", "ar", "fr", "pt-BR", "ru", "ja", "de", "bn"];
@@ -121,11 +129,11 @@ pub type NumberFormat = Rc<dyn Fn(&str, f64, Option<usize>) -> Option<String>>;
 
 thread_local! {
     /// Parsed resources: (catalog, locale) → resource, parsed once.
-    static RESOURCES: RefCell<HashMap<(usize, String), Rc<FluentResource>>> = RefCell::new(HashMap::new());
+    static RESOURCES: RefCell<HashMap<Key, Rc<FluentResource>>> = RefCell::new(HashMap::new());
     /// Bundles by (catalog, requested locale): the fallback chain.
-    static CHAINS: RefCell<HashMap<(usize, String), Rc<Vec<Bundle>>>> = RefCell::new(HashMap::new());
+    static CHAINS: RefCell<HashMap<Key, Rc<Vec<Bundle>>>> = RefCell::new(HashMap::new());
     /// Messages apps added ([`add_messages`]): catalog name → locale → Fluent sources.
-    static ADDED: RefCell<HashMap<String, BTreeMap<String, Vec<Rc<FluentResource>>>>> = RefCell::new(HashMap::new());
+    static ADDED: RefCell<Added> = RefCell::new(HashMap::new());
     static NUMBERS: RefCell<Option<NumberFormat>> = const { RefCell::new(None) };
 }
 
