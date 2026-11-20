@@ -44,9 +44,15 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   paper, frost) are drawn once per size and parameter change and ask for no frames.
   `starfield` draws its soft dust band at a quarter of the resolution (cost 268 to 184, at
   most a level of difference) and `heat_shimmer` its air at half (148 to 62, the same
-  picture). `plasma` has a softer palette whose colours drift over time, `lightning`'s
-  still frame (reduced motion, paused) shows a strike, and `fog` is denser by default with
-  a haze above its banks. The compiler turns `pow(x, n)` for a whole `n` from 2 to 8 into
+  picture). `plasma` has a softer palette whose colours drift over time, and `fog` is
+  denser by default with a haze above its banks. `lightning` forks, stays unbroken where
+  it runs sideways (its core is measured across the bolt, not only sideways), tapers at
+  its tip instead of stopping at a line, strikes twice down the same channel and lights
+  the sky more; its still frame (reduced motion, paused) shows a strike (cost 33 to 127,
+  for the picture). `film_grain` is soft clumps of any size, mostly faint, instead of
+  square cells (26 to 56). The golden-image test draws an effect that shows nothing at its
+  time at its still moment instead, and fails on a blank picture: lightning's had been
+  blank. The compiler turns `pow(x, n)` for a whole `n` from 2 to 8 into
   multiplies (the same pixels, cheaper than `pow`), and a multiply used only by an add
   into one `fma`, in every effect, people's own included: `ripples` costs 114 instead of
   145, and most effects 3 to 10% less with identical pixels. `crystal` marches in the
