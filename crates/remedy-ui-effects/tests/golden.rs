@@ -37,11 +37,26 @@ fn render(name: &str, threads: usize) -> (u32, u32, Vec<u8>) {
     let mut cpu = CpuEffect::new().with_threads(threads);
     // Effects that read their last frame build up over a few frames first.
     let frames = if effect.feedback { 12 } else { 1 };
-    let mut pic = cpu.render(&instance, &FrameInput::new(W, H, 1.0, AT));
-    for k in 1..frames {
-        pic = cpu.render(&instance, &FrameInput::new(W, H, 1.0, AT + k as f32 / 30.0));
+    let mut draw = |at: f32| {
+        let mut pic = cpu.render(&instance, &FrameInput::new(W, H, 1.0, at));
+        for k in 1..frames {
+            pic = cpu.render(&instance, &FrameInput::new(W, H, 1.0, at + k as f32 / 30.0));
+        }
+        pic
+    };
+    let mut pic = draw(AT);
+    // An effect that shows nothing at AT (lightning between strikes) is drawn at its still
+    // moment, which shows it.
+    if blank(&pic.pixels) {
+        pic = draw(effect.still);
     }
+    assert!(!blank(&pic.pixels), "{name} draws nothing at {AT} s or at its still moment");
     (pic.width, pic.height, pic.pixels)
+}
+
+/// Whether every pixel is the same.
+fn blank(px: &[u8]) -> bool {
+    px.chunks_exact(4).all(|p| px.get(..4) == Some(p))
 }
 
 fn golden_path(name: &str) -> PathBuf {
