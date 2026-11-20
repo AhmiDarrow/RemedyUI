@@ -1,0 +1,39 @@
+// Starfield: layered stars that twinkle out of step, with a faint milky band. Night skies,
+// Constellation, space backgrounds. Stars sit on cells, so they stay put as the element
+// resizes, and twinkle by a per-star phase (a pure function of time: resumes exactly).
+effect starfield(
+    color sky_top = #05081c,
+    color sky_bottom = #18234d,
+    color star = #fff8e7,
+    float density = 1.0 in 0.2..3,
+    float twinkle = 1.0 in 0..1,
+    float band = 0.35 in 0..1,
+) {
+    fps 15;
+    scale 1.0;
+    still 0.0;
+
+    fn layer(p: vec2, cell: float, threshold: float, phase: float) -> float {
+        let c = floor(p / cell);
+        let h = hash3(c);
+        let present = step(threshold, h.x);
+        let centre = (c + vec2(0.2) + h.yz * 0.6) * cell;
+        let d = length(p - centre);
+        let r = mix(0.6, 1.6, h.y * h.y);
+        let tw = mix(1.0, 0.55 + 0.45 * sin(time * (1.2 + h.z * 2.8) + h.x * 40.0 + phase), twinkle);
+        return present * tw * clamp(1.0 - d / r, 0.0, 1.0) + present * tw * 0.35 * exp(-d / (r * 2.5));
+    }
+
+    pass sky {
+        let base = mix(sky_top, sky_bottom, uv.y);
+        let d = 1.0 / density;
+        var s = layer(px, 9.0 * d, 0.93, 0.0);
+        s += layer(px + vec2(31.0, 17.0), 17.0 * d, 0.90, 2.0) * 1.2;
+        s += layer(px + vec2(7.0, 53.0), 34.0 * d, 0.86, 4.0) * 1.5;
+        // The band: a soft diagonal of dust.
+        let q = rotate(centered(uv), 0.5);
+        let dust = exp(-q.y * q.y * 18.0) * fbm(q * 4.0, 4) * band;
+        let rgb = base.rgb + vec3(0.45, 0.42, 0.6) * dust + star.rgb * s;
+        out = vec4(rgb, 1.0);
+    }
+}

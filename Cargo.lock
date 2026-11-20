@@ -4305,6 +4305,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-effects"
+version = "1.0.0-rc.1"
+dependencies = [
+ "png",
+ "remedy-ui-core",
+ "remedy-ui-paint",
+]
+
+[[package]]
 name = "remedy-ui-embed-gpu"
 version = "1.0.0-rc.1"
 dependencies = [
