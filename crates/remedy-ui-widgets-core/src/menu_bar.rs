@@ -64,7 +64,7 @@ impl Bar {
     }
 
     fn slot_label(&self, slot: usize) -> String {
-        self.menus.get(slot).map_or_else(|| MORE.to_owned(), MenuItem::label_text)
+        self.menus.get(slot).map_or_else(|| crate::tr(&self.ui, MORE), MenuItem::label_text)
     }
 
     pub(crate) fn slot_at(&self, p: Point) -> Option<usize> {
@@ -420,8 +420,8 @@ impl Bar {
     }
 }
 
-/// The "more" title's accessible name; it shows "…".
-const MORE: &str = "More";
+/// The "more" title's accessible name (its message); it shows "…".
+const MORE: &str = "menu-more";
 
 /// A menu bar: a row of menus along the top of a window, each a [`MenuItem::submenu`] (with
 /// a [`MenuItem::mnemonic`] for its access key), as desktop apps have.
@@ -485,7 +485,10 @@ pub fn menu_bar(ui: &Ui, menus: Vec<MenuItem>) -> El {
         .fill_width()
         .clip()
         .semantics(Semantics::new(Role::MenuBar))
-        .keyboard_alternative("F10 or Alt reaches the menu bar; Alt and a menu's underlined letter opens it");
+        .keyboard_alternative({
+            let u = ui.clone();
+            move || crate::tr(&u, "menu-bar-keys")
+        });
     let bar = Rc::new(Bar {
         ui: ui.clone(),
         el: bar_el.clone(),
@@ -573,13 +576,16 @@ fn bar_title(bar: &Rc<Bar>, slot: usize, title: El, labels: &[(Prop<String>, Opt
             }
         })
         .focusable(false)
-        .keyboard_alternative("F10, or Alt and its underlined letter, opens it")
+        .keyboard_alternative({
+            let u = bar.ui.clone();
+            move || crate::tr(&u, "menu-title-keys")
+        })
         .bind(move || t2.state(States::SELECTED, open_slot.get() == Some(slot)))
         .bind(move || t3.state(States::DISABLED, d2.get()))
         .semantics(move || {
             let slots = b5.slots_of(shown.get());
             let pos = slots.iter().position(|s| *s == slot).map_or(1, |p| p + 1);
-            let name = if is_more { MORE.to_owned() } else { label.get() };
+            let name = if is_more { crate::tr(&b5.ui, MORE) } else { label.get() };
             let mut s = Semantics::new(Role::MenuItem).label(name).set_position(pos, slots.len());
             if submenu {
                 s = s.expanded(open_slot.get() == Some(slot));

@@ -229,7 +229,10 @@ pub(crate) fn dismissable(ui: &Ui, content: El) -> El {
             false
         })
         // A press outside closes it; from the keyboard, Escape does (focus stays inside).
-        .keyboard_alternative("Escape closes it")
+        .keyboard_alternative({
+            let u = ui.clone();
+            move || crate::tr(&u, "escape-closes")
+        })
         .child(content);
     ui.overlay(layer)
 }
@@ -390,8 +393,10 @@ pub fn trusted_prompt(
             a(yes);
         }
     };
-    let deny = crate::button(ui, "Deny", answer(false)).disabled(true);
-    let allow = crate::button(ui, "Allow", answer(true)).variant("primary").disabled(true);
+    let (u1, u2) = (ui.clone(), ui.clone());
+    let deny = crate::button(ui, move || crate::tr(&u1, "prompt-deny"), answer(false)).disabled(true);
+    let allow =
+        crate::button(ui, move || crate::tr(&u2, "prompt-allow"), answer(true)).variant("primary").disabled(true);
     let body = ui
         .el("dialog")
         .column()

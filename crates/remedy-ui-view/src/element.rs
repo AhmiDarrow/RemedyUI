@@ -2379,12 +2379,25 @@ impl El {
     /// Says how keyboard users reach what this element's pointer handling does, for an
     /// element that is deliberately not focusable (a window-resize grip: the system's window
     /// menu). The accessibility check accepts pointer-only elements that say this.
-    pub fn keyboard_alternative(self, how: impl Into<String>) -> Self {
-        let how = how.into();
-        if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
-            d.keyboard_alternative = Some(how);
+    /// A closure or signal keeps it current (a translated hint follows the window's locale).
+    pub fn keyboard_alternative(self, how: impl IntoProp<String>) -> Self {
+        match how.into_prop() {
+            Prop::Value(how) => {
+                if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
+                    d.keyboard_alternative = Some(how);
+                }
+                self
+            }
+            dynamic => {
+                let (ui, id) = (self.ui.clone(), self.id);
+                self.bind_named("keyboard_alternative", move || {
+                    let how = dynamic.get();
+                    if let Some(d) = ui.0.borrow_mut().els.get_mut(&id) {
+                        d.keyboard_alternative = Some(how);
+                    }
+                })
+            }
         }
-        self
     }
 
     /// Calls `f` on a double click (two presses within the system's double-click time, on
