@@ -156,3 +156,72 @@ fn a_hidden_sprite_does_not_animate() {
     pump(&ui, &clock, 100);
     assert_eq!(pending_timers(&ui, &clock), 0, "stops when hidden");
 }
+
+#[test]
+fn anchors_keep_to_the_art_in_right_to_left_windows() {
+    let ui = ui();
+    let a = chip(&ui, 20.0, 10.0);
+    let stage = scene(&ui, "Map", Size::new(100.0, 50.0), SceneOptions::default())
+        .place_at(Anchor::point(0.0, 0.0).place(Place::Start, Place::Start), a.clone());
+    let el: El = stage.into();
+    let holder = ui.el("holder").layout(|l| l.direction = remedy_ui_layout::Direction::Rtl).child(el.clone().width(200.0).height(100.0));
+    mount(&ui, &holder);
+    let b = el.bounds().unwrap_or_default();
+    // The art is a picture: its left stays left.
+    assert!(near_rect(a.bounds().unwrap_or_default(), Rect::new(b.min.x, b.min.y, b.min.x + 20.0, b.min.y + 10.0)), "{:?} {b:?}", a.bounds());
+}
+
+#[test]
+fn parallax_follows_the_pointer_but_not_under_reduced_motion() {
+    use remedy_ui_input::{Buttons, PointerPhase};
+    let ui = ui();
+    let stage = scene(&ui, "Sky", Size::new(100.0, 100.0), SceneOptions::default().parallax(10.0)).layer(
+        Layer::paint(|cx| {
+            let c = cx.theme.colors.accent;
+            cx.list.fill_rect(Rect::new(40.0, 40.0, 60.0, 60.0), Brush::Solid(c));
+        })
+        .depth(1.0),
+    );
+    let el: El = stage.into();
+    let el = el.width(100.0).height(100.0);
+    let _ = ui.root().child(el.clone());
+    let mut shot = Shot::new(&ui);
+    shot.take(&ui);
+    shot.take(&ui);
+    let accent = rgb(ui.theme().colors.accent);
+    let b = el.bounds().unwrap_or_default();
+    let at = |s: &Shot, x: f32| s.at((b.min.x + x) as u32, (b.min.y + 50.0) as u32);
+    assert!(near(at(&shot, 41.0), accent, 3));
+    // The pointer at the right edge moves a depth-1 layer the full ten units right.
+    pointer(&ui, remedy_ui_core::Point::new(b.max.x - 1.0, b.center().y), PointerPhase::Move, Buttons::default());
+    shot.take(&ui);
+    assert!(!near(at(&shot, 45.0), accent, 3), "moved right");
+    assert!(near(at(&shot, 65.0), accent, 3));
+    ui.set_reduced_motion(true);
+    shot.take(&ui);
+    assert!(near(at(&shot, 41.0), accent, 3), "still under reduced motion");
+}
+
+#[test]
+fn sprite_sheets_show_their_cells() {
+    use remedy_ui_paint::Image;
+    use remedy_ui_widgets_stage::SpriteSheet;
+    let ui = ui();
+    // Two 1x1 cells side by side: red, then blue.
+    let px: Vec<u8> = vec![255, 0, 0, 255, 0, 0, 255, 255];
+    let sheet = SpriteSheet::new(Image::new(2, 1, px.into()), 1, 1).state("a", [0], 0.0).state("b", [1], 0.0);
+    let state = Signal::new("a".to_owned());
+    let el = sprite(&ui, "Gem", sheet, state, SpriteOptions::default().scale(PixelScale::Fixed(10)));
+    mount(&ui, &el);
+    let mut shot = Shot::new(&ui);
+    shot.take(&ui);
+    let b = el.bounds().unwrap_or_default();
+    assert_eq!(b.size(), Size::new(10.0, 10.0));
+    let mid = |s: &Shot| s.at(b.center().x as u32, b.center().y as u32);
+    assert_eq!(mid(&shot), [255, 0, 0]);
+    state.set("b".to_owned());
+    shot.take(&ui);
+    assert_eq!(mid(&shot), [0, 0, 255]);
+    // Only the cell shows, not its neighbour.
+    assert!(!near(shot.at(b.max.x as u32 + 2, b.center().y as u32), [0, 0, 255], 10));
+}

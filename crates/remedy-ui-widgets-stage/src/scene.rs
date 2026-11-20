@@ -8,7 +8,7 @@ use remedy_ui_core::{CornerRadii, Point, Rect, Size, Vec2};
 use remedy_ui_input::PointerPhase;
 use remedy_ui_paint::{Affine, Image, Item, Sampling};
 use remedy_ui_reactive::{Signal, untrack};
-use remedy_ui_view::{El, IntoProp, PaintCx, Ui};
+use remedy_ui_view::{El, IntoProp, PaintCx, Prop, Ui};
 
 use crate::common::{Place, Slot, layer};
 
@@ -124,6 +124,12 @@ impl Anchor {
         self.x = x;
         self.y = y;
         self
+    }
+}
+
+impl IntoProp<Anchor> for Anchor {
+    fn into_prop(self) -> Prop<Anchor> {
+        Prop::Value(self)
     }
 }
 
@@ -375,6 +381,8 @@ pub fn scene(ui: &Ui, label: impl Into<String>, design: Size, options: SceneOpti
 
     let weak = Rc::downgrade(&state);
     let w2 = weak.clone();
+    let w3 = weak.clone();
+    let ui = ui.clone();
     let pointer = state.pointer;
     let parallax = state.options.parallax > 0.0;
     let el = el
@@ -411,6 +419,14 @@ pub fn scene(ui: &Ui, label: impl Into<String>, design: Size, options: SceneOpti
             }
         })
         .keyboard_alternative("Parallax is decoration; nothing needs the pointer")
+        // Turning reduced motion on settles the layers.
+        .bind_named("reduced_motion", move || {
+            let _ = ui.reduced_motion();
+            if let Some(s) = w3.upgrade() {
+                s.el.repaint();
+                s.front_el.repaint();
+            }
+        })
     } else {
         el
     };

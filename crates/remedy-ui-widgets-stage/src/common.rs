@@ -173,6 +173,7 @@ impl Motion {
         let m3 = motion.clone();
         let ui = el.ui().clone();
         let was_reduced = Cell::new(None);
+        let me = el.clone();
         let el = el
             .on_visibility(move |v| {
                 m2.seen.set(v);
@@ -182,7 +183,12 @@ impl Motion {
             })
             .bind_named("reduced_motion", move || {
                 let reduced = ui.reduced_motion();
-                if was_reduced.replace(Some(reduced)) == Some(true) && !reduced {
+                let was = was_reduced.replace(Some(reduced));
+                if was.is_some_and(|w| w != reduced) {
+                    // Painters draw their still frame (or start moving again).
+                    me.repaint();
+                }
+                if was == Some(true) && !reduced {
                     let m = m3.clone();
                     let _ = ui.after(Duration::ZERO, move || m.kick());
                 }
