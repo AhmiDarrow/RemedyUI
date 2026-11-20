@@ -79,7 +79,7 @@ pub(crate) fn text_style_for(d: &ElData, theme: &remedy_ui_style::Theme) -> reme
 
 /// What recording an element's paint gave: the list, whether its painter asked for the next
 /// frame, and why its painter failed, if it did.
-type Recorded = (DisplayList, bool, Option<String>);
+type Recorded = (DisplayList, bool, Option<String>, crate::ambient::PaintAsk);
 
 #[allow(clippy::too_many_arguments, reason = "the frame's state a chunk is recorded with")]
 fn record(
@@ -92,7 +92,9 @@ fn record(
     scale: f32,
     time: std::time::Duration,
     reduced_motion: bool,
+    ambient_rate: Option<crate::AmbientRate>,
 ) -> Recorded {
+    let mut ask = crate::ambient::PaintAsk::default();
     let mut failed = None;
     let mut next_frame = false;
     let mut list = DisplayList::new();
@@ -172,6 +174,9 @@ fn record(
             time,
             reduced_motion,
             engine,
+            ambient_rate,
+            last_tick: d.ambient_last,
+            ask: crate::ambient::PaintAsk::default(),
         };
         // A painter that panics is contained: its element is reported to its error
         // boundary after the frame, and the frame goes on without its drawing.
@@ -182,11 +187,14 @@ fn record(
             }
         }));
         match ran {
-            Ok(()) => next_frame = cx.next_frame,
+            Ok(()) => {
+                next_frame = cx.next_frame;
+                ask = cx.ask;
+            }
             Err(p) => failed = Some(remedy_ui_reactive::panic_message(p.as_ref())),
         }
     }
-    (list, next_frame, failed)
+    (list, next_frame, failed, ask)
 }
 
 /// Adds a paragraph's glyph runs at `origin`. Run colors come from the paragraph's spans;
@@ -377,7 +385,8 @@ impl Walk<'_> {
         if opacity <= 0.0 || d.hidden {
             return;
         }
-        if let Some(transform) = d.isolate.filter(|_| !d.scroll) {
+        let isolate = d.isolate.or(d.ambient_layer.then_some(Affine::IDENTITY));
+        if let Some(transform) = isolate.filter(|_| !d.scroll) {
             // A layer of its own: a clip at the element's box, and inside it the element's
             // paint and children in a layer the compositor transforms. The focus ring goes
             // around the box, outside the clip, in the layer below.
@@ -389,6 +398,7 @@ impl Walk<'_> {
             self.body(&mut ib, id, Rect::from_origin_size(Point::ZERO, size), Point::ZERO, false);
             let mut layer = ib.finish_into(self.state);
             layer.transform = transform;
+            layer.ambient = d.loops.clone();
             ob.children.push(layer);
             let radii = CornerRadii::all(d.resolved.radius);
             b.children.push(ob.finish_into(self.state).clipped(radii));
@@ -746,12 +756,15 @@ impl Ui {
 
         // Paint chunks: re-record what is dirty or changed size.
         let paint_span = remedy_ui_trace::phase!("paint").entered();
-        let mut repaint = i.tree.take_dirty(Dirty::PAINT | Dirty::CHILD_PAINT);
+        // Only elements marked themselves record again: a parent whose child changed keeps
+        // its own chunk (layers are assembled from every chunk anyway), so a firefly's tick
+        // never re-runs the backdrop painter around it.
+        let mut repaint = i.tree.take_dirty(Dirty::PAINT);
+        let _ = i.tree.take_dirty(Dirty::CHILD_PAINT);
         let mut painted = false;
         let focused = i.tree.focused();
         let engine = i.engine.clone();
         let mut engine = engine.borrow_mut();
-        repaint.retain(|id| i.tree.dirty(*id).is_empty() || true);
         repaint.extend(
             i.els
                 .iter()
@@ -768,24 +781,48 @@ impl Ui {
         let mut paint_failures: Vec<(ElementId, String)> = Vec::new();
         let now = i.clock.now();
         let reduced = i.reduced_motion.get_untracked().unwrap_or(false);
+        let rate = i.ambient.policy.rate(crate::ambient::activity(i));
+        let mut asks = Vec::new();
         for &id in &repaint {
             let sz = rects.get(&id).map(|r| r.size()).unwrap_or(Size::ZERO);
             let Some(d) = i.els.get(&id) else { continue };
             let rtl = i.layout.is_rtl(d.node);
-            let (chunk, next, failed) =
-                record(d, rtl, sz, &theme, &mut engine, focused == Some(id), i.scale, now, reduced);
-            if next {
-                again.push(id);
-            }
+            let (chunk, next, failed, ask) =
+                record(d, rtl, sz, &theme, &mut engine, focused == Some(id), i.scale, now, reduced, rate);
             if let Some(why) = failed {
                 paint_failures.push((id, why));
             }
             if let Some(d) = i.els.get_mut(&id) {
                 d.chunk = Some((sz, Rc::new(chunk)));
+                d.ambient_layer |= ask.ambient;
+                if ask.ticked {
+                    d.ambient_last = Some(now);
+                }
             }
+            asks.push((id, next, ask));
             painted = true;
         }
         drop(engine);
+        // Painters that want to be drawn again: now, later, or once seen. Nothing unseen
+        // keeps frames coming.
+        let window = Rect::from_origin_size(Point::ZERO, size);
+        for (id, next, ask) in asks {
+            if !next && ask.wake_in.is_none() && !ask.ambient {
+                i.ambient.wakes.remove(&id);
+                continue;
+            }
+            let kind = if ask.ambient { crate::TickKind::Ambient } else { crate::TickKind::Seen };
+            if !is_seen(i, id, window) || (ask.ambient && !ask.ticked) {
+                i.ambient.wakes.remove(&id);
+                i.ambient.parked_paint.insert(id, kind);
+                continue;
+            }
+            if next {
+                again.push(id);
+            } else if let Some(w) = ask.wake_in {
+                i.ambient.wakes.insert(id, now + w);
+            }
+        }
         for id in &again {
             i.tree.mark(*id, Dirty::PAINT);
         }
@@ -841,6 +878,8 @@ impl Ui {
         if !again.is_empty() {
             self.request(crate::Request::Frame);
         }
+        self.arm_wakes(now);
+        self.wake_parked();
         for (cb, size) in resized {
             cb(size);
         }
@@ -862,7 +901,7 @@ impl Ui {
 
 /// True when some of `id` shows: it and its ancestors are not hidden or transparent, the window
 /// is not covered, and its box overlaps the window and every clipping ancestor.
-fn is_seen(i: &Inner, id: ElementId, window: Rect) -> bool {
+pub(crate) fn is_seen(i: &Inner, id: ElementId, window: Rect) -> bool {
     if i.occluded {
         return false;
     }

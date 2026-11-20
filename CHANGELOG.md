@@ -10,6 +10,49 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Ambient motion with a budget**: animated backgrounds and decoration that cost nothing
+  while unseen. `AmbientPolicy` (`App::set_ambient_policy`, `Ui::set_ambient_policy`):
+  `AmbientMode::{Full, Light, Off}`, frames a second focused (30) and in the background (10, or
+  0 to pause), on battery or power saver (`power_saving_fps`, 15), and following reduced
+  motion; minimized, hidden and covered windows never draw it. Painters animate with
+  `PaintCx::ambient()` / `ambient_at(fps)` (`Option<AmbientTick { t, dt, light }>`: `None`
+  draws a still frame) and get a compositor layer of their own; `PaintCx::request_frame_in`
+  asks for one repaint later. `El::ambient_loop(AmbientLoop::{spin, sway, drift, pulse,
+  breathe})` runs transform and opacity loops on the compositor with no UI-thread work
+  (`Layer::ambient`, `Compositor::set_ambient`, `FramePlan::wake_in`). Painters asking for
+  frames (`ambient`, `request_frame_in`, and now `request_next_frame`) keep no frames coming
+  while their element is scrolled out, clipped away or its window hidden, and resume when it
+  shows (`El::is_seen`, `El::resume_when`, `Ui::tick_interval(TickKind)`). `viz` tickers and
+  the stage widgets follow the policy (`Ticker::ambient`, live tickers slow in the background
+  and stop when hidden). `SystemSettings::power_saving` from Windows (`GetSystemPowerStatus`:
+  on battery or battery saver) and Linux (a discharging battery or the low-power platform
+  profile), read again when a window gains focus.
+- **`Blend::Plus`**: additive blending, so glows, light pools and beams add up like light.
+- **`remedy_ui::stage::fx`**: shader-free effects for scenes: `flicker`, `twinkle`,
+  `breathe` and `noise1` curves, `value_noise`, `perlin` and `fbm`, `noise_image` (a seeded,
+  tileable noise texture through a color ramp, made once and shared), `blur` (a cached
+  three-pass box blur), `glow` and `light_cone` (additive gradients), `scroll_tiled` and
+  `shimmer` (a cached texture moving with time).
+
+- **Stage widgets for whole alternative presentations** (`remedy-ui-widgets-stage`, the
+  `stage` feature, `remedy_ui::stage`; in `full`): the parts for scene-based, skeuomorphic and
+  playful layouts, all themed from tokens, accessible, keyboard operable, still under reduced
+  motion, animating only while seen and idle when nothing moves. `scene`: a stage of a design
+  size scaled to its box (`Fit::Contain`, `Cover`, `Stretch`, whole-number pixel scaling) with
+  art `Layer`s (behind or in front, optional pointer parallax) and children at named `Anchor`s
+  that stay on their spot as the window resizes (`StageTransform` maps design to box).
+  `sprite` and `pixel_art`: pixel art as code (`PixelArt`: a palette of `Ink`s and rows of
+  characters) or `SpriteSheet` cells, crisp at whole-number scales, with named states chosen
+  by a signal and frame animation. `orbit`: children on nested rings, optionally turning.
+  `path_layout`: children along a `Route` (polyline or smooth curve), spread or at fractions,
+  with the route drawn solid or dashed (`LineStyle`). `knob` and `tuner` (a line or arc dial
+  of `Station`s whose needle snaps and glides), `fader` (ticks, a level meter beside it),
+  `timeline` (items by time, virtualized, scrubbed by drag, wheel and keys, flowing as items
+  arrive, asking for history near the oldest), `big_button` and `big_toggle` (round arcade,
+  plate and switch-with-lamp looks; hold-to-talk through `held`), and `display_text` (LED or
+  split-flap boards that stay real text, with a marquee). The theme sheet styles `knob`,
+  `tuner`, `fader`, `big_button` (variants `accent`, `danger`, `ok`, `warn`), `display_text`
+  (`led`, `split_flap`) and `display_flap`.
 - **Missing system components, said plainly.** `MediaError::Missing(MissingDependency)`: which
   component is missing (GStreamer, a plugin set for a named element, a VA-API or NVIDIA driver,
   the screen-sharing portal, libpulse, an X server extension, Media Foundation on Windows N),
@@ -320,6 +363,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- A child's repaint no longer re-records its ancestors' paint (they were re-recorded and
+  thrown away identical): an animated element inside a costly backdrop redraws only itself.
 - Secondary text (`DerivedTokens::muted`: labels, help under controls, unselected options,
   table headings) is balanced to 7:1 instead of 4.5:1, on the background and on panels and
   cards, and body text (`DerivedTokens::text`) holds 7:1 on all three too: quieter than body

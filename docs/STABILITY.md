@@ -98,4 +98,5 @@ RemedyUI uses, and versioned with it:
   renderers and bridges.
 - **Experimental:** scripted widgets (`remedy-ui-script`, `remedy-ui-widgets-board`) are being
   rebuilt on Rhai and WebAssembly engines behind one interface, and are not covered by the
-  1.0 promise until that lands.
+  1.0 promise until that lands. The stage pack (`remedy-ui-widgets-stage`, `stage`) is new
+  and may still change while the first presentations are built on it.

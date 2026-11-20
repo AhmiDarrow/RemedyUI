@@ -92,7 +92,9 @@ It is used where no GPU backend passes its self-test: no driver, OpenGL older th
   - Gaussian blur and drop shadow on layers.
   - Backdrop blur (frosted glass), with a downsample/upsample chain limited to the damaged region.
   - Color matrix: grayscale, tint, saturation.
-  - Gradient masks and blend modes.
+  - Gradient masks and blend modes, including additive (`Blend::Plus`) for light that stacks.
+  - Ambient loops: endless transform and opacity motion a layer carries (`AmbientLoop`), run by
+    the compositor at the window's ambient rate ([09](09-performance-and-resources.md)).
 - **App shaders** can be added as WGSL fragment effects. They are validated by `naga` before use, get only the inputs the effect declares (its texture, size, time and uniform values), and cannot read other textures or buffers. An effect that fails validation, or takes too long on the GPU, is disabled with a logged reason and the element draws without it.
 - **Untrusted content** (a theme or a mod) cannot ship shaders unless the user turns that on.
 

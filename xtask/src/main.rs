@@ -106,6 +106,7 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-widgets-data", 5),
     ("remedy-ui-widgets-forms", 5),
     ("remedy-ui-widgets-extra", 5),
+    ("remedy-ui-widgets-stage", 5),
     ("remedy-ui-widgets-music", 5),
     ("remedy-ui-widgets-term", 5),
     ("remedy-ui-widgets-board", 5),
@@ -159,6 +160,8 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-widgets-extra", "remedy-ui-widgets-core"),
     // The carousel's slide runs on the viz pack's timer loop, which rests while nothing moves.
     ("remedy-ui-widgets-extra", "remedy-ui-viz"),
+    // Stage widgets animate on the viz pack's timer loop, and a fader shows its level meter.
+    ("remedy-ui-widgets-stage", "remedy-ui-viz"),
     ("remedy-ui-widgets-music", "remedy-ui-widgets-core"),
     ("remedy-ui-widgets-term", "remedy-ui-widgets-core"),
     // Boards are built from widgets, and edit settings in the property grid.
@@ -222,6 +225,8 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-compositor", "remedy-ui-motion"),
     // The GPU renderer shares the CPU renderer's painter, and falls back to it.
     ("remedy-ui-render-gpu", "remedy-ui-render-cpu"),
+    // Painters cache art they draw once as pictures (`rasterize`, `PaintCx::cached`).
+    ("remedy-ui-view", "remedy-ui-render-cpu"),
     ("remedy-ui-bridge-windows", "remedy-ui-bridge-winit"),
     ("remedy-ui-bridge-macos", "remedy-ui-bridge-winit"),
     ("remedy-ui-bridge-linux", "remedy-ui-bridge-winit"),

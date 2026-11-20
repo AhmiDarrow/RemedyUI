@@ -44,6 +44,30 @@ Some apps draw at the display's rate all the time: tuners, pitch graphs and mete
 - **App canvases** are different: their paint closures are app code, so they run on the UI thread, on their own layer, with no layout, and only in frames where the data they read changed. Display-rate visuals should be built from `viz` primitives.
 - **Frame-synced, not polled.** A `viz` element requests frames only while its source reports new data, and stops when the microphone stops or the window hides (VoiceRemedy's "stop the mic when hidden" becomes automatic).
 
+## Ambient motion
+
+Decoration that moves all the time (a theme's fireflies, a flickering fire, a sweeping
+lighthouse beam, a slow drift of clouds) runs under a budget, the **ambient policy**
+(`AmbientPolicy`, set per app with `App::set_ambient_policy`):
+
+- **Throttled, not every vsync.** Ambient motion runs at the policy's rate: 30 frames a second
+  with focus, 10 in the background, 15 (and "light") while the system saves power, by default.
+  `AmbientMode::Light` lowers the rate and tells painters to draw less; `Off` stills it.
+- **Zero when unseen.** Minimized, hidden and covered windows draw none; an element scrolled
+  out or clipped away schedules nothing and resumes when it shows; reduced motion stills it.
+  The same holds for painters that ask for every frame (`request_next_frame`).
+- **Three tools, cheapest first.** Static art is drawn once into a picture (`PaintCx::cached`,
+  uploaded to the GPU once, keyed by image id). Pure transform and opacity motion is an
+  `AmbientLoop` on the element's layer that the compositor samples at the ambient rate, with no
+  UI-thread work, no repaint and no re-raster; only the layer's screen area is damaged. Art that
+  changes uses `PaintCx::ambient()`, which schedules the element's next repaint at the rate,
+  and gives the element a layer of its own so the repaint re-rasters only it; ancestors are not
+  re-recorded.
+- **Measured** on the runner with the reference scene (a cached backdrop, 50 animated sprites,
+  a beam sweeping the window): an idle or minimized window draws no frame, the scene runs at
+  30 fps focused and 10 in the background. On the CPU renderer every present still composites
+  the whole window; compositing only the damage is the next step.
+
 ## Large content
 
 - **Lists and grids** of any length: virtualization with prefetch ([03](03-layout.md)).

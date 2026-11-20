@@ -391,3 +391,61 @@ fn followers_move_with_their_leader_in_the_same_frame() {
         "the header follows horizontally only"
     );
 }
+
+fn beam_scene() -> (Compositor, Layer) {
+    // A big static backdrop and a small beam layer that spins about its own center.
+    let backdrop = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 400.0, 300.0), solid(400.0, 300.0));
+    let mut beam = Layer::new(LayerId(2), Rect::new(300.0, 20.0, 360.0, 80.0), solid(60.0, 60.0));
+    beam.ambient = vec![AmbientLoop::spin(Point::new(30.0, 30.0), ms(4000))];
+    let c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    (c, backdrop.with_child(beam.clone()))
+}
+
+#[test]
+fn ambient_loops_run_at_the_ambient_rate_and_damage_only_their_layer() {
+    let (mut c, root) = beam_scene();
+    c.commit(LayerTree::new(vec![root]));
+    let first = c.frame(ms(0));
+    assert_eq!(first.wake_in, Some(Duration::from_secs(1) / 30), "the default ambient rate");
+    assert!(!first.animating, "not every vsync");
+    c.set_ambient(Some(ms(100)));
+    let p = c.frame(ms(100));
+    assert_eq!(p.wake_in, Some(ms(100)));
+    assert!(p.raster.is_empty(), "a turn re-rasters nothing");
+    let d = p.damage.bounds().unwrap_or(Rect::ZERO);
+    assert!(d.min.x >= 280.0 && d.max.x <= 380.0 && d.max.y <= 100.0, "only around the beam: {d:?}");
+}
+
+#[test]
+fn paused_loops_hold_still_ask_nothing_and_resume_without_a_jump() {
+    let (mut c, root) = beam_scene();
+    c.commit(LayerTree::new(vec![root]));
+    let _ = c.frame(ms(0));
+    let _ = c.frame(ms(1000));
+    c.set_ambient(None);
+    let held = c.frame(ms(2000));
+    assert_eq!(held.wake_in, None);
+    assert!(held.damage.is_empty(), "nothing moved while paused");
+    assert!(c.frame(ms(60_000)).damage.is_empty());
+    c.set_ambient(Some(ms(33)));
+    let back = c.frame(ms(61_000));
+    assert!(back.damage.is_empty(), "resumes where it stopped");
+    assert!(!c.frame(ms(61_033)).damage.is_empty());
+}
+
+#[test]
+fn loops_rest_under_reduced_motion_and_offscreen_loops_ask_nothing() {
+    let (mut c, root) = beam_scene();
+    c.set_reduced_motion(true);
+    c.commit(LayerTree::new(vec![root]));
+    let _ = c.frame(ms(0));
+    let p = c.frame(ms(500));
+    assert_eq!(p.wake_in, None);
+    assert!(p.damage.is_empty());
+
+    let mut away = Layer::new(LayerId(3), Rect::new(5000.0, 0.0, 5100.0, 100.0), solid(100.0, 100.0));
+    away.ambient = vec![AmbientLoop::pulse(0.5, 1.0, ms(1000))];
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(LayerTree::new(vec![away]));
+    assert_eq!(c.frame(ms(0)).wake_in, None, "an unseen loop keeps no frames coming");
+}

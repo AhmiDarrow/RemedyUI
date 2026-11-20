@@ -76,6 +76,7 @@ impl Ui {
     /// when it left are let go, so Alt does not stay down when the person switched windows
     /// with Alt+Tab.
     pub fn set_window_focused(&self, focused: bool) {
+        self.note_window_focused(focused);
         if !focused {
             let held = {
                 let mut i = self.0.borrow_mut();

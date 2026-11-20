@@ -46,6 +46,12 @@ pub struct PaintCx<'a> {
     pub reduced_motion: bool,
     /// The window's text engine, for painters that place glyphs themselves.
     pub(crate) engine: &'a mut TextEngine,
+    /// The window's ambient rate now (`None`: paused).
+    pub(crate) ambient_rate: Option<crate::AmbientRate>,
+    /// When this element last got an ambient tick.
+    pub(crate) last_tick: Option<std::time::Duration>,
+    /// What the painter asked of the frame clock.
+    pub(crate) ask: crate::ambient::PaintAsk,
 }
 
 /// How [`PaintCx::text`] draws a line of text.
@@ -61,7 +67,107 @@ pub struct TextPaint {
     pub mono: bool,
 }
 
+/// Renders `list` (in logical pixels, `size` big) to a picture at `scale` device pixels per
+/// logical pixel, on a transparent background, with the CPU renderer. For art that is
+/// expensive to draw and rarely changes (a scene's backdrop, a texture, a frame): draw it
+/// once, keep the picture, and push it as an image. `None` for an empty or too-large size
+/// (the CPU renderer's axis limit is 65,535 device pixels). Text in `list` must have been
+/// laid out with the window's fonts (see [`PaintCx::cached`], which does that for you).
+pub fn rasterize(list: &DisplayList, size: Size, scale: f32) -> Option<remedy_ui_paint::Image> {
+    thread_local! {
+        static CPU: std::cell::RefCell<remedy_ui_render_cpu::CpuRenderer> = std::cell::RefCell::new(remedy_ui_render_cpu::CpuRenderer::new());
+    }
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    let w = (size.width * scale).ceil();
+    let h = (size.height * scale).ceil();
+    if !(w >= 1.0 && h >= 1.0 && w <= 65_535.0 && h <= 65_535.0) {
+        return None;
+    }
+    let (w, h) = (w as u32, h as u32);
+    let frame = CPU
+        .with(|r| r.borrow_mut().render(list, w, h, scale, remedy_ui_core::Color::TRANSPARENT))
+        .ok()?;
+    Some(remedy_ui_paint::Image::new(frame.width, frame.height, std::sync::Arc::from(frame.pixels)))
+}
+
+thread_local! {
+    /// [`PaintCx::cached`]'s pictures: by key, with the size and scale they were drawn at.
+    static CACHED: std::cell::RefCell<HashMap<u64, (u32, u32, u32, remedy_ui_paint::Image)>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// Most pictures [`PaintCx::cached`] keeps; past it the cache starts again.
+const CACHED_MAX: usize = 512;
+
+/// Drops every picture [`PaintCx::cached`] keeps (on memory pressure, or a theme change
+/// the keys do not cover).
+pub fn clear_paint_cache() {
+    CACHED.with(|c| c.borrow_mut().clear());
+}
+
 impl PaintCx<'_> {
+    /// Draws what `f` records once as a picture and reuses it while `key`, the element's
+    /// size and the scale stay the same; then it is drawn again. Put everything the drawing
+    /// depends on (the theme's colours, a seed, a state) into `key`. The picture is drawn
+    /// at device resolution, so it stays sharp. What `f` draws is clipped to the element.
+    ///
+    /// ```ignore
+    /// el.paint(|cx| {
+    ///     cx.cached(hash(("backdrop", night)), |cx| draw_forest(cx)); // once
+    ///     draw_fireflies(cx);                                          // every frame
+    /// })
+    /// ```
+    pub fn cached(&mut self, key: u64, f: impl FnOnce(&mut PaintCx<'_>)) {
+        let size = self.size;
+        let scale = if self.scale.is_finite() && self.scale > 0.0 { self.scale } else { 1.0 };
+        let dims = ((size.width * 64.0).round() as u32, (size.height * 64.0).round() as u32, scale.to_bits());
+        let hit = CACHED.with(|c| c.borrow().get(&key).filter(|(w, h, s, _)| (*w, *h, *s) == dims).map(|(_, _, _, i)| i.clone()));
+        let image = match hit {
+            Some(i) => Some(i),
+            None => {
+                let mut list = DisplayList::new();
+                {
+                    let mut inner = PaintCx {
+                        list: &mut list,
+                        size,
+                        style: self.style,
+                        theme: self.theme,
+                        states: self.states,
+                        scale,
+                        next_frame: false,
+                        rtl: self.rtl,
+                        time: self.time,
+                        reduced_motion: self.reduced_motion,
+                        engine: &mut *self.engine,
+                        // Cached art is a still picture: it never animates.
+                        ambient_rate: None,
+                        last_tick: None,
+                        ask: crate::ambient::PaintAsk::default(),
+                    };
+                    f(&mut inner);
+                }
+                let img = rasterize(&list, size, scale);
+                if let Some(img) = &img {
+                    CACHED.with(|c| {
+                        let mut c = c.borrow_mut();
+                        if c.len() >= CACHED_MAX {
+                            c.clear();
+                        }
+                        c.insert(key, (dims.0, dims.1, dims.2, img.clone()));
+                    });
+                }
+                img
+            }
+        };
+        if let Some(image) = image {
+            self.list.push(remedy_ui_paint::Item::Image {
+                image,
+                rect: remedy_ui_core::Rect::new(0.0, 0.0, size.width, size.height),
+                radii: remedy_ui_core::CornerRadii::ZERO,
+                sampling: remedy_ui_paint::Sampling::Linear,
+            });
+        }
+    }
+
     /// Draws this element again in the next frame, and asks for that frame: content that
     /// changes every frame (a game view, a live 3D preview) calls it from its painter each
     /// frame while it moves, so it follows the display's rate and stops when it stops asking.
@@ -470,6 +576,12 @@ pub(crate) struct ElData {
     /// Painted into a compositor layer of its own ([`El::isolate_paint`]), with this
     /// transform the compositor applies.
     pub(crate) isolate: Option<remedy_ui_paint::Affine>,
+    /// Compositor loops on its layer ([`El::ambient_loop`]).
+    pub(crate) loops: Vec<remedy_ui_compositor::AmbientLoop>,
+    /// Its painter animates with [`PaintCx::ambient`]: it gets a layer of its own.
+    pub(crate) ambient_layer: bool,
+    /// When its painter last got an ambient tick.
+    pub(crate) ambient_last: Option<std::time::Duration>,
     /// Its text is data, not a translatable string ([`El::data_text`]).
     pub(crate) data_text: bool,
     /// How keyboard users do what this element's pointer handling does.
@@ -674,6 +786,8 @@ pub(crate) struct Inner {
     pub(crate) error_hook: Option<crate::flow::ErrorHook>,
     /// This view's handler for effect panics in the reactive runtime.
     pub(crate) panic_handler: u64,
+    /// Ambient motion: the policy, its rate and what waits on it.
+    pub(crate) ambient: crate::ambient::AmbientState,
 }
 
 impl Drop for Inner {
@@ -724,6 +838,10 @@ impl Ui {
         let (effects, removed, watch) = {
             let mut i = self.0.borrow_mut();
             i.timers.clear();
+            i.ambient.parked.clear();
+            i.ambient.parked_paint.clear();
+            i.ambient.wakes.clear();
+            i.ambient.timer = None;
             i.history = crate::history::History::default();
             i.interceptor = None;
             i.wake = None;
@@ -873,6 +991,7 @@ impl Ui {
             failures_rev: remedy_ui_reactive::Signal::new(0),
             error_hook: None,
             panic_handler: 0,
+            ambient: crate::ambient::AmbientState::default(),
         })));
         crate::flow::install_failure_handling(&ui);
         // The window holds the app's content, then a click-through layer for overlays
@@ -1108,6 +1227,7 @@ impl Ui {
     pub fn set_reduced_motion(&self, on: bool) {
         let s = self.0.borrow().reduced_motion;
         s.set_if_changed(on);
+        self.refresh_ambient();
     }
 
     /// True when motion should be reduced: animations jump to their end, spinners hold still.
@@ -1180,6 +1300,7 @@ impl Ui {
         };
         if changed {
             self.request(Request::Frame);
+            self.refresh_ambient();
         }
     }
 
@@ -1645,6 +1766,9 @@ impl ElData {
             last_placed: None,
             scroll_follow: None,
             isolate: None,
+            loops: Vec::new(),
+            ambient_layer: false,
+            ambient_last: None,
             data_text: false,
             keyboard_alternative: None,
             hidden: false,
@@ -1980,6 +2104,21 @@ impl El {
     /// How children spread along the axis.
     pub fn justify(self, j: remedy_ui_layout::Justify) -> Self {
         self.layout(|l| l.justify = j)
+    }
+
+    /// Calls `f` for key presses while something inside the element has focus, before the
+    /// focused element sees them (the capture phase); `f` returns true when it handled the
+    /// key, and then the focused element never gets it. For app-wide shortcuts that must
+    /// work even while a text field has focus (a way back, a panic key); keep them to
+    /// chords a text field would not use, since the field loses them.
+    pub fn on_key_capture(self, f: impl Fn(&remedy_ui_input::KeyEvent) -> bool + 'static) -> Self {
+        let _ = self.ui.tree().on::<remedy_ui_input::KeyEvent>(self.id, Phase::Capture, move |cx, e| {
+            if f(e) {
+                cx.set_handled();
+                cx.stop_propagation();
+            }
+        });
+        self
     }
 
     /// Calls `f` for key presses while the element or something inside it has focus; `f`
