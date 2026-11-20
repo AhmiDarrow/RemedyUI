@@ -13,6 +13,7 @@ mod block;
 mod cache;
 mod composite;
 mod context;
+pub mod effects;
 mod external;
 #[allow(unsafe_code)]
 mod ffi;

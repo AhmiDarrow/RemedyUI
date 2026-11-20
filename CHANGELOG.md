@@ -10,6 +10,26 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Prism, the effects system** (`remedy-ui-effects`, `remedy-ui-media-effects`, the
+  `effects` feature, `remedy_ui::effects`; in `full`): `.rfx`, a language for animated,
+  procedural pictures (types float to mat4, functions, `if`, constant loops; passes at their
+  own resolution, blur, bloom, stateless particles with trails, feedback through `last`; noise,
+  colour, 2D and 3D signed-distance shapes, cameras and GGX lighting), compiled with
+  optimizations (inlining, unrolling, folding, shared work, per-frame hoisting) against
+  `Limits` (`Limits::untrusted` for themes and scripts) into programs for one fixed GPU kernel
+  (`remedy_ui_render_gpu::effects::GpuEffect`, GL 3.3 and WebGL2 included) and the CPU
+  interpreter (`CpuEffect`), which match. `effect_view(ui, Instance)` draws one in an element
+  under the ambient policy, with a still frame and a CPU quality ladder; parameters by name
+  (`EffectView::set`). 30 built-in effects (`library`, `LIBRARY`): fire, embers, glow,
+  light shafts, water, caustics, ripples, rain, snow, fog, clouds, volumetric clouds, aurora,
+  starfield, nebula, fireflies, sparkles, bokeh, lightning, trails, bubbles, heat shimmer,
+  paper, film grain, CRT overlay and screen, plasma, lava lamp, and raymarched 3D (orb,
+  crystal). Reference: `docs/effects/rfx.md`; design: `docs/design/16-effects.md` and
+  `17-3d.md`; `examples/effects_gallery`.
+- **Ambient motion budgets** held by `tests/ambient_budget.rs` on both renderers (see
+  `docs/design/09-performance-and-resources.md`). `CpuCompositor::present_frame` borrows the
+  kept frame; `CpuCompositor::last_composited`.
+
 - **Ambient motion with a budget**: animated backgrounds and decoration that cost nothing
   while unseen. `AmbientPolicy` (`App::set_ambient_policy`, `Ui::set_ambient_policy`):
   `AmbientMode::{Full, Light, Off}`, frames a second focused (30) and in the background (10, or
@@ -362,6 +382,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `set_symbol_fallbacks` and `DEFAULT_SYMBOL_FALLBACKS`.
 
 ### Changed
+
+- The CPU compositor composites only the damage: each damaged rectangle is recorded on its
+  own (tiles and clipped subtrees outside it left out) and rasterized into the kept frame.
+  Both compositors clip with clip paths instead of isolated clip layers. The GPU compositor
+  reuses a tile's texture when it is rastered again at the same size, and rasters a frame's
+  small tiles together in one render. 50 animated sprites: 2.4 to 0.9 ms a frame on the CPU.
 
 - A child's repaint no longer re-records its ancestors' paint (they were re-recorded and
   thrown away identical): an animated element inside a costly backdrop redraws only itself.

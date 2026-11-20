@@ -57,7 +57,9 @@ fn value_at(x: f32, y: f32, seed: u32, period: i32) -> f32 {
     let (x0, y0) = (x.floor(), y.floor());
     let (fx, fy) = (smooth(x - x0), smooth(y - y0));
     let (ix, iy) = (x0 as i32, y0 as i32);
-    let v = |dx: i32, dy: i32| (lattice(wrap(ix + dx, period), wrap(iy + dy, period), seed) >> 8) as f32 / (1u32 << 24) as f32;
+    let v = |dx: i32, dy: i32| {
+        (lattice(wrap(ix + dx, period), wrap(iy + dy, period), seed) >> 8) as f32 / (1u32 << 24) as f32
+    };
     let top = v(0, 0) + (v(1, 0) - v(0, 0)) * fx;
     let bottom = v(0, 1) + (v(1, 1) - v(0, 1)) * fx;
     top + (bottom - top) * fy
@@ -68,7 +70,9 @@ fn perlin_at(x: f32, y: f32, seed: u32, period: i32) -> f32 {
     let (ix, iy) = (x0 as i32, y0 as i32);
     let (rx, ry) = (x - x0, y - y0);
     let grad = |dx: i32, dy: i32| {
-        let a = (lattice(wrap(ix + dx, period), wrap(iy + dy, period), seed) >> 8) as f32 / (1u32 << 24) as f32 * TAU;
+        let a = (lattice(wrap(ix + dx, period), wrap(iy + dy, period), seed) >> 8) as f32
+            / (1u32 << 24) as f32
+            * TAU;
         let (s, c) = a.sin_cos();
         c * (rx - dx as f32) + s * (ry - dy as f32)
     };
@@ -186,10 +190,13 @@ impl NoiseSpec {
     }
 
     fn key(&self) -> u64 {
-        let mut h = u64::from(hash(self.width ^ hash(self.height ^ hash(self.cells ^ hash(self.octaves ^ hash(self.seed))))));
+        let mut h = u64::from(hash(
+            self.width ^ hash(self.height ^ hash(self.cells ^ hash(self.octaves ^ hash(self.seed)))),
+        ));
         for s in &self.ramp {
             let [r, g, b, a] = s.color.to_rgba8();
-            h = h.wrapping_mul(0x100_0000_01B3) ^ u64::from(hash(s.offset.to_bits() ^ u32::from_le_bytes([r, g, b, a])));
+            h = h.wrapping_mul(0x100_0000_01B3)
+                ^ u64::from(hash(s.offset.to_bits() ^ u32::from_le_bytes([r, g, b, a])));
         }
         h
     }
@@ -207,7 +214,12 @@ fn ramp_at(ramp: &[Stop], v: f32) -> Color {
             let span = (b.offset - a.offset).max(1e-6);
             let t = (v - a.offset) / span;
             let mix = |x: f32, y: f32| x + (y - x) * t;
-            return Color::new(mix(a.color.r, b.color.r), mix(a.color.g, b.color.g), mix(a.color.b, b.color.b), mix(a.color.a, b.color.a));
+            return Color::new(
+                mix(a.color.r, b.color.r),
+                mix(a.color.g, b.color.g),
+                mix(a.color.b, b.color.b),
+                mix(a.color.a, b.color.a),
+            );
         }
     }
     ramp.last().map_or(Color::TRANSPARENT, |s| s.color)
@@ -259,32 +271,36 @@ pub fn noise_image(spec: &NoiseSpec) -> Option<Image> {
 
 fn box_pass(src: &[u8], dst: &mut [u8], w: usize, h: usize, r: usize, horizontal: bool) {
     let (len, lines) = if horizontal { (w, h) } else { (h, w) };
+    if len == 0 {
+        return;
+    }
     let at = |line: usize, i: usize| if horizontal { (line * w + i) * 4 } else { (i * w + line) * 4 };
+    let texel =
+        |p: usize| src.get(p..p + 4).and_then(|s| <&[u8; 4]>::try_from(s).ok()).copied().unwrap_or([0; 4]);
     let n = (2 * r + 1) as u32;
     for line in 0..lines {
         let mut sum = [0u32; 4];
         // Edges extend with transparency, so a glow fades out instead of smearing.
         for i in 0..=r.min(len - 1) {
-            let p = at(line, i);
-            for c in 0..4 {
-                sum[c] += u32::from(src[p + c]);
+            for (s, v) in sum.iter_mut().zip(texel(at(line, i))) {
+                *s += u32::from(v);
             }
         }
         for i in 0..len {
             let p = at(line, i);
-            for c in 0..4 {
-                dst[p + c] = (sum[c] / n) as u8;
+            if let Some(out) = dst.get_mut(p..p + 4) {
+                for (o, s) in out.iter_mut().zip(sum) {
+                    *o = (s / n) as u8;
+                }
             }
             if i + r + 1 < len {
-                let q = at(line, i + r + 1);
-                for c in 0..4 {
-                    sum[c] += u32::from(src[q + c]);
+                for (s, v) in sum.iter_mut().zip(texel(at(line, i + r + 1))) {
+                    *s += u32::from(v);
                 }
             }
             if i >= r {
-                let q = at(line, i - r);
-                for c in 0..4 {
-                    sum[c] -= u32::from(src[q + c]);
+                for (s, v) in sum.iter_mut().zip(texel(at(line, i - r))) {
+                    *s = s.saturating_sub(u32::from(v));
                 }
             }
         }
@@ -369,7 +385,11 @@ pub fn light_cone(list: &mut DisplayList, apex: Point, angle: f32, length: f32, 
         let half = spread * width / 2.0;
         let mut p = Path::new();
         p.move_to(apex).line_to(ray(angle - half)).line_to(ray(angle + half)).close();
-        list.push(Item::FillPath { path: p, brush: Brush::Linear { start: apex, end, stops: fade(k) }, even_odd: false });
+        list.push(Item::FillPath {
+            path: p,
+            brush: Brush::Linear { start: apex, end, stops: fade(k) },
+            even_odd: false,
+        });
     }
     list.pop_layer();
 }
@@ -409,7 +429,13 @@ pub fn shimmer(list: &mut DisplayList, image: &Image, rect: Rect, t: f32, speed:
     list.push(Item::PushLayer { opacity: strength.clamp(0.0, 1.0), blend: Blend::Plus });
     scroll_tiled(list, image, rect, Vec2::new(speed.x * t, speed.y * t), tile);
     list.push(Item::PushLayer { opacity: 0.6, blend: Blend::Normal });
-    scroll_tiled(list, image, rect, Vec2::new(-speed.y * t * 0.7 + tile.x * 0.5, speed.x * t * 0.6 + tile.y * 0.3), tile);
+    scroll_tiled(
+        list,
+        image,
+        rect,
+        Vec2::new(-speed.y * t * 0.7 + tile.x * 0.5, speed.x * t * 0.6 + tile.y * 0.3),
+        tile,
+    );
     list.pop_layer();
     list.pop_layer();
 }
@@ -460,9 +486,11 @@ mod tests {
         assert_eq!(a.as_ref().map(|i| i.id), b.as_ref().map(|i| i.id), "cached: the same picture");
         let img = a.unwrap_or_else(|| unreachable!());
         // Tileable: the left column continues the right one.
-        let px = |x: usize, y: usize| img.pixels[(y * 64 + x) * 4 + 3];
-        let seam: i32 = (0..32).map(|y| (i32::from(px(0, y)) - i32::from(px(63, y))).abs()).max().unwrap_or(0);
-        let inner: i32 = (0..32).map(|y| (i32::from(px(30, y)) - i32::from(px(31, y))).abs()).max().unwrap_or(0);
+        let px = |x: usize, y: usize| img.pixels.get((y * 64 + x) * 4 + 3).copied().unwrap_or(0);
+        let seam: i32 =
+            (0..32).map(|y| (i32::from(px(0, y)) - i32::from(px(63, y))).abs()).max().unwrap_or(0);
+        let inner: i32 =
+            (0..32).map(|y| (i32::from(px(30, y)) - i32::from(px(31, y))).abs()).max().unwrap_or(0);
         assert!(seam <= inner.max(12) * 2, "seam {seam} vs inner {inner}");
         assert!(noise_image(&NoiseSpec::new(0, 4, 1, Color::WHITE)).is_none());
         let other = noise_image(&spec.clone().seed(6)).map(|i| i.id);
@@ -473,13 +501,14 @@ mod tests {
     fn blur_spreads_light_and_keeps_its_total_roughly() {
         let (w, h) = (32u32, 32u32);
         let mut px = vec![0u8; (w * h * 4) as usize];
-        for c in 0..4 {
-            px[((16 * w + 16) * 4) as usize + c] = 255;
+        let centre = ((16 * w + 16) * 4) as usize;
+        if let Some(p) = px.get_mut(centre..centre + 4) {
+            p.fill(255);
         }
         let img = Image::new(w, h, Arc::from(px));
         let b = blur(&img, 4);
         assert_eq!(blur(&img, 4).id, b.id, "made once");
-        let at = |x: u32, y: u32| b.pixels[((y * w + x) * 4 + 3) as usize];
+        let at = |x: u32, y: u32| b.pixels.get(((y * w + x) * 4 + 3) as usize).copied().unwrap_or(0);
         assert!(at(16, 16) < 255 && at(18, 16) > 0, "spread");
         assert_eq!(at(0, 0), 0, "far corners stay clear");
         assert_eq!(blur(&img, 0).id, img.id);

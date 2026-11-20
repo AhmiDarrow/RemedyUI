@@ -128,3 +128,43 @@ fn unchanged_frames_reuse_tiles_and_released_tiles_are_freed() {
     let _ = composited(&mut c, &mut cpu, 32);
     assert_eq!(cpu.tile_count(), 0, "every tile of the removed layers is freed");
 }
+
+/// A tree with a big patterned backdrop and a small square at `x`.
+fn moving(x: f32) -> LayerTree {
+    let mut back = DisplayList::new();
+    for i in 0..20 {
+        let c = Color::rgb8((i * 12) as u8, 80, 200 - (i * 9) as u8);
+        back.fill_rect(Rect::new(i as f32 * 10.0, 0.0, i as f32 * 10.0 + 10.0, 120.0), Brush::Solid(c));
+    }
+    let mut dot = DisplayList::new();
+    dot.fill_rounded(Rect::new(0.0, 0.0, 16.0, 16.0), CornerRadii::all(8.0), Brush::Solid(Color::WHITE));
+    let root = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 200.0, 120.0), back).with_child(Layer::new(
+        LayerId(2),
+        Rect::new(x, 40.0, x + 16.0, 56.0),
+        dot,
+    ));
+    LayerTree::new(vec![root])
+}
+
+#[test]
+fn composites_only_the_damage_and_matches_a_full_frame() {
+    let mut comp = Compositor::new(200, 120, 1.0, ScrollPhysics::CLAMPED);
+    let mut cpu = CpuCompositor::new();
+    for (k, x) in [10.0f32, 30.5, 61.0, 140.25, 141.0].into_iter().enumerate() {
+        comp.commit(moving(x));
+        let plan = comp.frame(Duration::from_millis(16 * k as u64));
+        let partial = cpu.present(&plan, 200, 120, Color::BLACK).unwrap_or_else(|e| unreachable!("{e:?}"));
+        if k > 0 {
+            assert!(plan.damage.area() < 200.0 * 120.0 * 0.3, "a small move damages a little");
+        }
+        // The same tree drawn whole from scratch.
+        let mut fresh_comp = Compositor::new(200, 120, 1.0, ScrollPhysics::CLAMPED);
+        fresh_comp.commit(moving(x));
+        let full_plan = fresh_comp.frame(Duration::ZERO);
+        let full = CpuCompositor::new()
+            .present(&full_plan, 200, 120, Color::BLACK)
+            .unwrap_or_else(|e| unreachable!("{e:?}"));
+        let worst = partial.pixels.iter().zip(&full.pixels).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
+        assert!(worst <= 1, "frame {k}: kept pixels plus redrawn damage equal a full frame (worst {worst})");
+    }
+}

@@ -14,6 +14,7 @@ categories.workspace = true
 [dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
+remedy-ui-effects = { path = "../remedy-ui-effects", version = "1.0.0-rc.1" }
 remedy-ui-host = { path = "../remedy-ui-host", version = "1.0.0-rc.1" }
 remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
 remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "1.0.0-rc.1" }

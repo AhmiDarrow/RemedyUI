@@ -1,0 +1,29 @@
+// Clouds: soft drifting clouds lit from one side, from domain-warped noise. Day skies,
+// harbour mornings, dreamy backgrounds. Transparent between clouds: put a sky under it.
+effect clouds(
+    color light = #ffffff,
+    color shade = #aab6cc,
+    float cover = 0.5 in 0..1,
+    float scale_px = 320.0 in 40..2000,
+    float speed = 0.02 in 0..0.5,
+    vec2 sun = (-0.6, -0.8),
+) {
+    fps 15;
+    scale 0.25;
+
+    fn density(p: vec2) -> float {
+        let q = p + vec2(time * speed, 0.0);
+        let w = vec2(fbm(q * 0.8 + vec2(3.1, 1.7), 3), fbm(q * 0.8 + vec2(8.2, 4.4), 3));
+        return smoothstep(1.0 - cover, 1.0 - cover + 0.35, fbm(q + w * 0.8, 5));
+    }
+
+    pass sky {
+        let p = px / scale_px;
+        let d = density(p);
+        // Light: how much thinner the cloud is towards the sun.
+        let toward = density(p - normalize(sun) * 0.06);
+        let lit = clamp(0.6 + (d - toward) * 3.0, 0.0, 1.0);
+        let col = mix(shade.rgb, light.rgb, lit);
+        out = vec4(col, d);
+    }
+}

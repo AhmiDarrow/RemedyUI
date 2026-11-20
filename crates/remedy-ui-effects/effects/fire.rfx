@@ -1,0 +1,41 @@
+// Fire: a flame rising from the bottom edge, with a hot core, licking tongues and embers.
+// Campfire, braziers, lanterns, fireplaces. Draw it over the logs, with `blend plus` or not.
+effect fire(
+    color core = #fff4c2,
+    color body = #ff8a1f,
+    color tip = #c22a0a,
+    float intensity = 1.0 in 0..2,
+    float speed = 1.0 in 0..4,
+    float width = 0.55 in 0.1..1,
+    float embers = 1.0 in 0..1,
+) {
+    fps 30;
+    scale 0.5;
+    still 2.0;
+
+    pass flame {
+        let p = vec2((uv.x - 0.5) / width, 1.0 - uv.y);
+        let t = time * speed;
+        // Noise that rises: sampled lower as time goes on.
+        let n = fbm(vec2(p.x * 3.0, p.y * 2.2 - t * 1.6), 5);
+        let lick = fbm(vec2(p.x * 6.0 + 3.1, p.y * 4.0 - t * 2.7), 3);
+        // The flame's outline: wide at the base, narrowing upwards, pushed by the noise.
+        let shape = 1.0 - length(vec2(p.x * (1.0 + p.y * 1.6), p.y * 0.85)) * 1.45;
+        let heat = clamp(shape + (n - 0.5) * 0.9 + (lick - 0.5) * 0.35 * p.y, 0.0, 1.0);
+        let hot = smoothstep(0.05, 0.85, heat);
+        let col = ramp4(hot, vec4(tip.rgb, 0.0), tip, body, core);
+        out = vec4(col.rgb, col.a * smoothstep(0.0, 0.25, heat) * clamp(intensity, 0.0, 1.0));
+    }
+
+    pass glow = bloom(flame, 0.55, 10.0, 0.9 * intensity);
+
+    particles sparks over glow (count: 90, life: 1.8, splat: soft, blend: plus) {
+        let x = size.x * (0.5 + (rand(1.0) - 0.5) * width * 0.6);
+        let rise = size.y * (0.25 + rand(2.0) * 0.55);
+        let sway = sin(age * (2.0 + rand(3.0) * 3.0) + rand(4.0) * tau) * 10.0 * progress;
+        pos = vec2(x + sway, size.y * 0.92 - rise * progress);
+        radius = mix(1.6, 0.6, progress) * (0.6 + rand(5.0));
+        color = vec4(mix(core.rgb, body.rgb, progress), (1.0 - progress) * embers);
+        trail = vec2(-sway * 0.1, 6.0 + rand(6.0) * 6.0);
+    }
+}

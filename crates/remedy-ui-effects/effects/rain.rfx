@@ -1,0 +1,32 @@
+// Rain: streaks falling at a slant in three depths, nearer ones longer, brighter and faster.
+// Over a window, a city, a harbour at night. Pair with `ripples` on water.
+effect rain(
+    color tint = #b9cfe6,
+    float amount = 0.6 in 0..1,
+    float slant = 0.15 in -1..1,
+    float speed = 1.0 in 0.2..3,
+    float intensity = 0.55 in 0..1,
+) {
+    fps 30;
+    scale 0.5;
+    blend plus;
+
+    fn layer(p: vec2, cols: float, len: float, fall: float, seed: float) -> float {
+        // Columns of drops; each column's drops offset by its hash.
+        let q = vec2(p.x + p.y * slant, p.y);
+        let col = floor(q.x * cols);
+        let h = hash2(vec2(col, seed));
+        let y = fract(q.y * 0.6 + time * fall * speed * (0.8 + h.x * 0.4) + h.y);
+        let x = fract(q.x * cols) - 0.5;
+        let streak = smoothstep(len, 0.0, y) * smoothstep(0.0, 0.02, y);
+        let thin = smoothstep(0.12, 0.0, abs(x));
+        return streak * thin * step(1.0 - amount, h.y);
+    }
+
+    pass drops {
+        let p = vec2(uv.x * aspect, uv.y);
+        let k = layer(p, 70.0, 0.05, 1.3, 1.0) * 0.45 + layer(p, 40.0, 0.09, 1.9, 2.0) * 0.7
+            + layer(p, 22.0, 0.16, 2.6, 3.0);
+        out = vec4(tint.rgb, clamp(k * intensity, 0.0, 1.0));
+    }
+}

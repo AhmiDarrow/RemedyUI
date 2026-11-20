@@ -2489,7 +2489,7 @@ impl Runner {
             match w.present.as_mut() {
                 Some(Present::Cpu(cpu)) => {
                     let started = remedy_ui_core::time::Instant::now();
-                    if changed && let Ok(frame) = cpu.present(&plan, pw, ph, background) {
+                    if changed && let Ok(frame) = cpu.present_frame(&plan, pw, ph, background) {
                         let pixels = Pixels { width: pw, height: ph, data: &frame.pixels };
                         let present = remedy_ui_trace::phase!("present").entered();
                         let _ = host.present_pixels(w.host, pixels, plan.damage.rects());

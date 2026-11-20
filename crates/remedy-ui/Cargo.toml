@@ -14,7 +14,7 @@ categories.workspace = true
 [features]
 default = ["gpu", "system-fonts", "widgets", "forms", "nav"]
 ## Draw with the GPU renderer, falling back to the CPU renderer when no GPU works.
-gpu = ["dep:remedy-ui-render-gpu"]
+gpu = ["dep:remedy-ui-render-gpu", "remedy-ui-media-effects?/gpu"]
 ## Dictionary line breaking for Thai, Lao, Khmer and Burmese (adds several MB of data).
 complex-scripts = ["remedy-ui-text/complex-scripts"]
 ## The inspector (F12 in any window, `Window::open_inspector`) and preview gallery.
@@ -42,6 +42,8 @@ extra = ["widgets", "viz", "dep:remedy-ui-widgets-extra"]
 ## and anchors, pixel-art sprites, orbits, path layouts, knobs and tuners, faders, timelines,
 ## big physical buttons and display boards.
 stage = ["widgets", "viz", "dep:remedy-ui-widgets-stage"]
+# Prism: .rfx effects (fire, water, glow, particles, 3D) as elements, on the GPU kernel or the CPU.
+effects = ["dep:remedy-ui-effects", "dep:remedy-ui-media-effects"]
 ## Images (`remedy_ui::image`): PNG, JPEG, GIF, WebP, BMP and ICO, decoded off the UI
 ## thread at the size shown, color-managed and shared while in use.
 image = ["dep:remedy-ui-media-image"]
@@ -108,7 +110,7 @@ headless = ["dep:remedy-ui-bridge-headless"]
 ## only the module's types (`WebConfig`, `Mount`) and its documentation, with no web code.
 web = ["dep:remedy-ui-bridge-web"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-rhai", "script-wasm", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "customize", "web", "macros", "isolated", "webstorage"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-rhai", "script-wasm", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "effects", "customize", "web", "macros", "isolated", "webstorage"]
 
 [dependencies]
 remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "1.0.0-rc.1" }
@@ -135,6 +137,8 @@ remedy-ui-viz = { path = "../remedy-ui-viz", version = "1.0.0-rc.1", optional = 
 remedy-ui-widgets-music = { path = "../remedy-ui-widgets-music", version = "1.0.0-rc.1", optional = true }
 remedy-ui-widgets-extra = { path = "../remedy-ui-widgets-extra", version = "1.0.0-rc.1", optional = true }
 remedy-ui-widgets-stage = { path = "../remedy-ui-widgets-stage", version = "1.0.0-rc.1", optional = true }
+remedy-ui-effects = { path = "../remedy-ui-effects", version = "1.0.0-rc.1", optional = true }
+remedy-ui-media-effects = { path = "../remedy-ui-media-effects", version = "1.0.0-rc.1", optional = true, default-features = false }
 remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "1.0.0-rc.1", optional = true }
 remedy-ui-media-svg = { path = "../remedy-ui-media-svg", version = "1.0.0-rc.1", optional = true }
 remedy-ui-doc-code = { path = "../remedy-ui-doc-code", version = "1.0.0-rc.1", optional = true }
@@ -183,6 +187,10 @@ remedy-ui-bridge-android = { path = "../remedy-ui-bridge-android", version = "1.
 
 [dev-dependencies]
 remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "1.0.0-rc.1" }
+remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
+remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "1.0.0-rc.1" }
+remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "1.0.0-rc.1" }
+png = { version = "=0.18.1" }
 
 [target.'cfg(windows)'.dev-dependencies]
 remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "1.0.0-rc.1" }

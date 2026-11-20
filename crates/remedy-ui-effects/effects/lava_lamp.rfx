@@ -1,0 +1,28 @@
+// Lava lamp: soft blobs rising, merging and parting, lit from inside. Smooth-minimum
+// blending of moving circles; a playful background for music or chat.
+effect lava_lamp(
+    color hot = #ff5e3a,
+    color cool = #ffb347,
+    color back = #2a0f3d,
+    float blobs = 1.0 in 0..1,
+    float speed = 0.2 in 0..2,
+) {
+    fps 30;
+    scale 0.5;
+
+    pass lamp {
+        let p = vec2(uv.x * aspect, uv.y);
+        var d = 10.0;
+        for i in 0..7 {
+            let h = hash3(vec2(i, 7.0));
+            let t = time * speed * (0.5 + h.x);
+            let c = vec2((0.2 + 0.6 * h.y) * aspect + sin(t * 1.3 + h.z * tau) * 0.08, 1.0 - fract(t * 0.25 + h.z) * 1.4 + 0.2);
+            d = smin(d, sd_circle(p - c, 0.07 + 0.08 * h.x * blobs), 0.12);
+        }
+        let inside = 1.0 - smoothstep(-0.01, 0.01, d);
+        let heat = clamp(-d * 6.0, 0.0, 1.0);
+        let blob = mix(cool.rgb, hot.rgb, heat);
+        let halo = exp(-max(d, 0.0) * 14.0) * 0.35;
+        out = vec4(mix(back.rgb + hot.rgb * halo, blob, inside), 1.0);
+    }
+}

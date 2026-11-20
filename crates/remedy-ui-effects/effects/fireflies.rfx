@@ -1,0 +1,30 @@
+// Fireflies: lights wandering on slow curves, each blinking on its own rhythm. Forests,
+// treehouses, summer nights.
+effect fireflies(
+    color tint = #d8ff7a,
+    float amount = 1.0 in 0..1,
+    float wander = 1.0 in 0..3,
+    float blink = 0.8 in 0..1,
+    float size_px = 2.2 in 0.5..8,
+) {
+    fps 30;
+    scale 1.0;
+    blend plus;
+
+    particles flies (count: 60, life: 20.0, splat: soft, blend: plus) {
+        let home = vec2(rand(1.0), 0.25 + rand(2.0) * 0.7) * size;
+        let t = age * 0.25 * wander;
+        let path = vec2(
+            fbm(vec2(t + rand(3.0) * 100.0, 1.3), 3) - 0.5,
+            fbm(vec2(t + rand(4.0) * 100.0, 7.7), 3) - 0.5
+        ) * 260.0 * wander;
+        pos = home + path;
+        // Blink: mostly dim, a soft glow every few seconds.
+        let phase = fract(age / (2.0 + rand(5.0) * 3.0) + rand(6.0));
+        let on = mix(1.0, smoothstep(0.0, 0.15, phase) * smoothstep(0.6, 0.25, phase), blink);
+        let fade = smoothstep(0.0, 0.05, progress) * smoothstep(1.0, 0.95, progress);
+        let alive = step(rand(7.0), amount);
+        radius = size_px * (0.8 + rand(8.0) * 0.5) * (1.0 + on * 2.5);
+        color = vec4(tint.rgb, on * fade * alive * 0.9);
+    }
+}
