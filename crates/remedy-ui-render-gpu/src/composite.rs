@@ -107,18 +107,26 @@ impl Recorder<'_> {
         let mut skip = 0u32;
         // What is open: true for a clip path, false for a layer.
         let mut open: Vec<bool> = Vec::new();
+        // What is culled against: inside a filter group, its whole region, so the group's
+        // source is the same whatever part of the frame is drawn.
+        let mut areas = vec![area];
         for (k, op) in ops.iter().enumerate() {
             if skip > 0 {
                 match op {
-                    CompositeOp::PushClip { .. } | CompositeOp::PushOpacity(_) => skip += 1,
-                    CompositeOp::PopClip | CompositeOp::PopOpacity => skip -= 1,
+                    CompositeOp::PushClip { .. }
+                    | CompositeOp::PushOpacity(_)
+                    | CompositeOp::PushFilter { .. } => skip += 1,
+                    CompositeOp::PopClip | CompositeOp::PopOpacity | CompositeOp::PopFilter => skip -= 1,
                     CompositeOp::Tile { .. } | CompositeOp::Backdrop { .. } => {}
                 }
                 continue;
             }
             match op {
                 CompositeOp::PushClip { transform, rect, .. }
-                    if transform.apply_rect(*rect).intersect(area).is_none_or(|r| r.is_empty()) =>
+                    if transform
+                        .apply_rect(*rect)
+                        .intersect(*areas.last().unwrap_or(&area))
+                        .is_none_or(|r| r.is_empty()) =>
                 {
                     skip = 1;
                 }
@@ -145,8 +153,41 @@ impl Recorder<'_> {
                     self.scene.push_opacity_layer(*o);
                     open.push(false);
                 }
+                CompositeOp::PushFilter { region, .. }
+                    if region.intersect(*areas.last().unwrap_or(&area)).is_none_or(|r| r.is_empty()) =>
+                {
+                    skip = 1;
+                }
+                CompositeOp::PushFilter { transform, filter, region } => {
+                    self.scene.set_transform(self.shift * kaffine(*transform));
+                    match remedy_ui_render_cpu::layer_filter(filter) {
+                        Some(f) => self.scene.push_filter_layer(f),
+                        None => self.scene.push_opacity_layer(1.0),
+                    }
+                    // The group's source, bounded by its region: the same picture to filter
+                    // in every rectangle that draws it.
+                    self.scene.set_transform(self.shift);
+                    self.scene.push_clip_rect(&krect(*region));
+                    // A filter group is a layer and a clip path, closed in that order.
+                    open.push(false);
+                    open.push(true);
+                    areas.push(*region);
+                }
+                CompositeOp::PopFilter => {
+                    self.scene.pop_clip();
+                    self.scene.pop_layer();
+                    open.pop();
+                    open.pop();
+                    if areas.len() > 1 {
+                        areas.pop();
+                    }
+                }
                 CompositeOp::Backdrop { transform, rect, radii, blur, opacity } => {
-                    if transform.apply_rect(*rect).intersect(area).is_none_or(|r| r.is_empty()) {
+                    if transform
+                        .apply_rect(*rect)
+                        .intersect(*areas.last().unwrap_or(&area))
+                        .is_none_or(|r| r.is_empty())
+                    {
                         continue;
                     }
                     let at = first + k;
@@ -188,7 +229,11 @@ impl Recorder<'_> {
                     self.scene.pop_layer();
                 }
                 CompositeOp::Tile { layer, key, transform, rect, raster_scale, area: part } => {
-                    if transform.apply_rect(*part).intersect(area).is_none_or(|r| r.is_empty()) {
+                    if transform
+                        .apply_rect(*part)
+                        .intersect(*areas.last().unwrap_or(&area))
+                        .is_none_or(|r| r.is_empty())
+                    {
                         continue;
                     }
                     let Some(tile) = self.tiles.0.get(&(*layer, *key)) else { continue };

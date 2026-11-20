@@ -71,6 +71,10 @@ pub struct Layer {
     pub ambient: Vec<crate::AmbientLoop>,
     /// Blurs what lies under the layer's box before its content draws.
     pub backdrop: Option<Backdrop>,
+    /// Filters on the layer and every layer under it, drawn as one picture (a blur, a drop
+    /// shadow of its shape), outermost first: what an element with a filter becomes when
+    /// some of what it draws is in layers of its own.
+    pub filters: Vec<remedy_ui_paint::Filter>,
 }
 
 impl Layer {
@@ -90,7 +94,14 @@ impl Layer {
             children: Vec::new(),
             ambient: Vec::new(),
             backdrop: None,
+            filters: Vec::new(),
         }
+    }
+
+    /// Draws the layer and its children through `filters`, outermost first.
+    pub fn with_filters(mut self, filters: Vec<remedy_ui_paint::Filter>) -> Self {
+        self.filters = filters;
+        self
     }
 
     /// Blurs what lies under the layer's box (rounded by `radii`) before its content.
