@@ -64,9 +64,12 @@ fn items(_ui: &Ui) -> Vec<Item> {
     out
 }
 
+/// Mounts library effect `name`. Its CPU budget is generous, so tests about frame rates hold
+/// in unoptimized builds too (the ladder has its own test).
 fn mount(ui: &Ui, name: &str) -> EffectView {
     let Some(e) = library(name) else { unreachable!("{name}") };
     let (el, view) = effect_view(ui, Instance::new(e));
+    view.set_cpu_budget(Duration::from_secs(10));
     ui.root().child(el);
     view
 }
@@ -137,6 +140,12 @@ fn a_slow_cpu_steps_down_to_a_still_frame() {
     let frames = view.stats().frames;
     run(&ui, &mut t, 60);
     assert!(view.stats().frames <= frames + 1, "held still");
+    // A new size measures again from the top.
+    view.set_cpu_budget(Duration::from_secs(10));
+    t += Duration::from_micros(16_667);
+    ui.set_frame_time(t);
+    let _ = ui.frame(Size::new(400.0, 260.0), 1.0);
+    assert_eq!(view.stats().level, 0, "{:?}", view.stats());
 }
 
 #[test]
