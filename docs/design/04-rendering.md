@@ -102,6 +102,17 @@ WebGL2 in a browser.
   themes: entries are finite and within ±`MAX_COLOR_MATRIX_ENTRY`, at most
   `MAX_FILTER_MATRIX_DEPTH` (4) matrix groups nest and at most `MAX_FILTER_MATRIX_GROUPS`
   (64) are drawn in one raster; past those a group is drawn without its matrix.
+- **Images drawn scaled down** come from mipmaps the shared `Painter` builds: an image
+  drawn smoothly (`Sampling::Linear`) at half its size or less, after every transform, is
+  drawn from the copy halved enough times to be drawn at more than half its own size (each
+  level a rounded 2 × 2 box average of premultiplied pixels), so bilinear sampling reads
+  every source pixel and a scaled-down photo or zoomed-out page does not shimmer. Levels are
+  built the first time they are needed (about 30 ms for a 16-megapixel image's first level,
+  once) and kept until the app drops the image; only the level drawn is uploaded to the GPU,
+  so a large image shown small costs its small size there. Nearest sampling (pixel art) is
+  never mipmapped. Image *elements* already decode at the size they are shown
+  ([15](15-widgets-and-media.md)); mipmaps cover images drawn smaller than they were decoded
+  (display lists, thumbnails of one decoded image, zooming out).
 - **Images and glyphs** are uploaded to the GPU on first use: glyphs and nearest-sampled
   images packed into RGBA atlas pages, filtered or large images in textures of their own.
   Uploads of images the app dropped are freed, and `clear_caches` drops them all (they are
@@ -225,7 +236,6 @@ Planned, not implemented; nothing above relies on them:
 - **Wide-gamut and HDR surfaces**, and colours tagged with their colour space.
 - **GPU video without copies**: importing decoder textures (D3D11/12, VA-API dma-buf,
   Android `HardwareBuffer`, IOSurface) instead of uploading planes.
-- **Mipmaps** for images drawn scaled down, and decoding images at the size they are shown.
 - **A multithreaded CPU raster** (vello_cpu's threads; its filters do not run with them yet).
 - **Printing and vector PDF**: translating display lists to PDF (selectable text, sharp
   paths) and printing through each platform's print dialog.

@@ -12,6 +12,7 @@
 
 mod composite;
 mod matrix;
+mod mip;
 mod record;
 mod surface;
 
@@ -111,6 +112,9 @@ pub struct Painter {
     next_glyph: u64,
     /// Colour-matrix groups open and drawn in the current raster.
     matrices: matrix::Budget,
+    /// Mipmaps of app images drawn scaled down, by the image's id, with its pixels (gone
+    /// when the app drops the image).
+    mips: HashMap<u64, (std::sync::Weak<[u8]>, mip::Levels)>,
 }
 
 impl std::fmt::Debug for Painter {
@@ -451,11 +455,15 @@ impl Painter {
             evicted_videos: Vec::new(),
             next_glyph: 0,
             matrices: matrix::Budget::default(),
+            mips: HashMap::new(),
         }
     }
 
     /// Drops cached images the app no longer holds. Runs at the start of every draw.
     fn sweep_images(&mut self) {
+        // An image's levels go with it; their own cache entries follow in the sweep below,
+        // so a renderer frees what it uploaded for them.
+        self.mips.retain(|_, (source, _)| source.strong_count() > 0);
         let before = self.images.len();
         let evicted = &mut self.evicted;
         self.images.retain(|id, (source, _)| {
@@ -498,6 +506,7 @@ impl Painter {
         self.glyphs.clear();
         self.evicted.extend(self.images.keys().copied());
         self.images.clear();
+        self.mips.clear();
         self.raster.clear();
     }
 
@@ -615,7 +624,7 @@ impl Painter {
                 }
                 Item::Glyphs(run) => self.glyph_run(s, run, t, scale, groups == 0),
                 Item::Image { image, rect, radii, sampling } => {
-                    self.image(s, image, *rect, *radii, *sampling)
+                    self.image(s, image, *rect, *radii, *sampling, t.scale_factor())
                 }
                 Item::Video { frame, rect, radii } => self.video(s, frame, *rect, *radii),
                 Item::Texture { texture, rect, radii } => texture_item(s, texture, *rect, *radii),
@@ -746,7 +755,25 @@ impl Painter {
         rect: Rect,
         radii: CornerRadii,
         sampling: Sampling,
+        scale: f32,
     ) {
+        // Drawn smoothly at less than half its size: from the mipmap level drawn at more
+        // than half its own.
+        let level = (sampling == Sampling::Linear)
+            .then(|| {
+                let sx = scale * rect.width().abs() / image.width.max(1) as f32;
+                let sy = scale * rect.height().abs() / image.height.max(1) as f32;
+                mip::level_for(sx.max(sy), mip::level_count(image.width, image.height))
+            })
+            .filter(|k| *k > 0)
+            .and_then(|k| {
+                let (_, levels) = self
+                    .mips
+                    .entry(image.id)
+                    .or_insert_with(|| (Arc::downgrade(&image.pixels), mip::Levels::default()));
+                levels.get(image, k)
+            });
+        let image = level.as_ref().unwrap_or(image);
         let pix = match self.images.get(&image.id) {
             Some((_, p)) => p.clone(),
             None => {
