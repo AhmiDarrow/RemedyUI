@@ -59,6 +59,9 @@ pub struct PresentChecks {
     pub compared: usize,
     /// Presents that copied in only what changed (the image kept an older frame).
     pub damaged: usize,
+    /// Presents whose image held nothing known (age `0`: new to the swapchain, after a
+    /// resize, or a backend that does not keep contents), so all of it was drawn.
+    pub unknown: usize,
     /// Presents whose image differed from the window's frame anywhere.
     pub mismatched: usize,
 }
@@ -356,6 +359,7 @@ impl GpuCompositor {
             let (shown, want) = (ctx.read_back(&frame.texture)?, ctx.read_back(kept)?);
             checks.compared += 1;
             checks.damaged += usize::from(changed.is_some());
+            checks.unknown += usize::from(age == 0);
             checks.mismatched += usize::from(shown.pixels != want.pixels);
         }
         match changed {

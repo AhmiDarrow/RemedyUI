@@ -150,5 +150,8 @@ fn presenting_only_what_changed_shows_the_whole_frame() {
     eprintln!("{}: {c:?}", probe.backend);
     assert!(c.compared >= 35, "the swapchain could be read back: {c:?}");
     assert_eq!(c.mismatched, 0, "every presented image equals the whole frame: {c:?}");
-    assert!(c.damaged >= 20, "most presents copied in only what changed: {c:?}");
+    // An image that holds nothing known (new to the swapchain, or after the resize) must be
+    // drawn whole; every other present copies in only what changed.
+    assert_eq!(c.damaged + c.unknown, c.compared, "a whole frame only where the image held nothing: {c:?}");
+    assert!(c.unknown <= 8, "only each image's first use (twice: at start and after the resize): {c:?}");
 }
