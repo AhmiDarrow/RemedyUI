@@ -336,7 +336,10 @@ impl TextSlot {
         }
         let options = {
             let mut v_ = ParagraphOptions::default();
-            v_.max_width = max_width;
+            // Half a pixel of slack: a box sized to its text's width (rounded up) must not
+            // wrap it again when the advances add up to exactly that width, which text that
+            // may break between any two characters (Chinese, Japanese) would.
+            v_.max_width = max_width.map(|w| w + 0.5);
             v_.scale = self.scale;
             v_.container = container(self.rtl);
             v_
