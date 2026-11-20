@@ -10,6 +10,25 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Stage widgets for whole alternative presentations** (`remedy-ui-widgets-stage`, the
+  `stage` feature, `remedy_ui::stage`; in `full`): the parts for scene-based, skeuomorphic and
+  playful layouts, all themed from tokens, accessible, keyboard operable, still under reduced
+  motion, animating only while seen and idle when nothing moves. `scene`: a stage of a design
+  size scaled to its box (`Fit::Contain`, `Cover`, `Stretch`, whole-number pixel scaling) with
+  art `Layer`s (behind or in front, optional pointer parallax) and children at named `Anchor`s
+  that stay on their spot as the window resizes (`StageTransform` maps design to box).
+  `sprite` and `pixel_art`: pixel art as code (`PixelArt`: a palette of `Ink`s and rows of
+  characters) or `SpriteSheet` cells, crisp at whole-number scales, with named states chosen
+  by a signal and frame animation. `orbit`: children on nested rings, optionally turning.
+  `path_layout`: children along a `Route` (polyline or smooth curve), spread or at fractions,
+  with the route drawn solid or dashed (`LineStyle`). `knob` and `tuner` (a line or arc dial
+  of `Station`s whose needle snaps and glides), `fader` (ticks, a level meter beside it),
+  `timeline` (items by time, virtualized, scrubbed by drag, wheel and keys, flowing as items
+  arrive, asking for history near the oldest), `big_button` and `big_toggle` (round arcade,
+  plate and switch-with-lamp looks; hold-to-talk through `held`), and `display_text` (LED or
+  split-flap boards that stay real text, with a marquee). The theme sheet styles `knob`,
+  `tuner`, `fader`, `big_button` (variants `accent`, `danger`, `ok`, `warn`), `display_text`
+  (`led`, `split_flap`) and `display_flap`.
 - **Missing system components, said plainly.** `MediaError::Missing(MissingDependency)`: which
   component is missing (GStreamer, a plugin set for a named element, a VA-API or NVIDIA driver,
   the screen-sharing portal, libpulse, an X server extension, Media Foundation on Windows N),

@@ -250,11 +250,14 @@ impl SpriteOptions {
     }
 }
 
+/// A frame's image and the palette colors it was made with.
+type Rendered = (Vec<Color>, Image);
+
 struct Shown {
     state: Cell<usize>,
     frame: Cell<usize>,
     since: Cell<Duration>,
-    cache: RefCell<HashMap<(usize, usize), (Vec<Color>, Image)>>,
+    cache: RefCell<HashMap<(usize, usize), Rendered>>,
 }
 
 /// Snaps a logical coordinate to the device pixel grid.

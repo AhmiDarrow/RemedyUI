@@ -33,17 +33,21 @@
 mod button;
 mod common;
 mod dial;
+mod display;
 mod fader;
 mod orbit;
 mod path;
 mod pixel;
 mod scene;
+mod timeline;
 
 pub use button::{BigButtonOptions, ButtonLook, big_button, big_toggle};
 pub use common::{Ink, LineStyle, Place};
+pub use display::{Board, DisplayOptions, Marquee, display_text};
 pub use dial::{KnobOptions, Station, TunerOptions, TunerShape, ValueText, knob, tuner};
 pub use fader::{FaderOptions, fader};
 pub use orbit::{Orbit, OrbitOptions, orbit};
 pub use path::{PathLayout, PathOptions, Route, Spread, path_layout};
 pub use pixel::{PixelArt, PixelScale, SpriteOptions, SpriteSheet, SpriteSource, pixel_art, sprite};
 pub use scene::{Anchor, Fit, Layer, Scene, SceneOptions, StageTransform, scene};
+pub use timeline::{NewestAt, Timeline, TimelineOptions, timeline};

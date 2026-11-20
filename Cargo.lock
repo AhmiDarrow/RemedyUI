@@ -4035,6 +4035,7 @@ dependencies = [
  "remedy-ui-widgets-forms",
  "remedy-ui-widgets-music",
  "remedy-ui-widgets-nav",
+ "remedy-ui-widgets-stage",
  "remedy-ui-widgets-term",
 ]
 
@@ -4969,6 +4970,27 @@ dependencies = [
  "remedy-ui-view",
  "remedy-ui-widgets-core",
  "serde_json",
+]
+
+[[package]]
+name = "remedy-ui-widgets-stage"
+version = "1.0.0-rc.1"
+dependencies = [
+ "remedy-ui-a11y",
+ "remedy-ui-compositor",
+ "remedy-ui-core",
+ "remedy-ui-devtools",
+ "remedy-ui-fonts",
+ "remedy-ui-input",
+ "remedy-ui-layout",
+ "remedy-ui-paint",
+ "remedy-ui-reactive",
+ "remedy-ui-render-cpu",
+ "remedy-ui-style",
+ "remedy-ui-text",
+ "remedy-ui-themes",
+ "remedy-ui-view",
+ "remedy-ui-viz",
 ]
 
 [[package]]

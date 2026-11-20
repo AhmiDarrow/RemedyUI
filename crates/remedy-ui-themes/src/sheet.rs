@@ -483,6 +483,21 @@ pub fn sheet(t: &Theme) -> StyleSheet {
     rule("big_button", Some("ok"), States::NONE, StylePatch::default().foreground(c.ok));
     rule("big_button", Some("warn"), States::NONE, StylePatch::default().foreground(c.warn));
     rule("big_button", None, States::DISABLED, disabled.clone());
+    let board = c.bg.mix_oklab(Color::BLACK, 0.6);
+    for (v, fg) in [(None, c.warn), (Some("led"), c.warn), (Some("split_flap"), c.text)] {
+        rule(
+            "display_text",
+            v,
+            States::NONE,
+            StylePatch::default()
+                .background(board)
+                .foreground(ensure_contrast(fg, board, 4.5))
+                .radius(r.small)
+                .text_size(t.type_scale.title)
+                .mono(true),
+        );
+    }
+    rule("display_flap", None, States::NONE, StylePatch::default().background(board.mix_oklab(Color::WHITE, 0.1)).radius(r.small));
     // Extras: the star color, the carousel's frame and dots, the wizard's markers and the swatches.
     rule("rating", None, States::NONE, StylePatch::default().foreground(c.warn));
     rule("qr_code", None, States::NONE, StylePatch::default().radius(r.small));

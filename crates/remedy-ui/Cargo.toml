@@ -38,6 +38,10 @@ viz = ["widgets", "dep:remedy-ui-viz"]
 music = ["widgets", "dep:remedy-ui-widgets-music"]
 ## Extra widgets (`remedy_ui::extra`): QR code, rating, carousel, setup wizard flow and swatch grid.
 extra = ["widgets", "viz", "dep:remedy-ui-widgets-extra"]
+## Stage widgets (`remedy_ui::stage`) for whole alternative presentations: scenes with art
+## and anchors, pixel-art sprites, orbits, path layouts, knobs and tuners, faders, timelines,
+## big physical buttons and display boards.
+stage = ["widgets", "viz", "dep:remedy-ui-widgets-stage"]
 ## Images (`remedy_ui::image`): PNG, JPEG, GIF, WebP, BMP and ICO, decoded off the UI
 ## thread at the size shown, color-managed and shared while in use.
 image = ["dep:remedy-ui-media-image"]
@@ -104,7 +108,7 @@ headless = ["dep:remedy-ui-bridge-headless"]
 ## only the module's types (`WebConfig`, `Mount`) and its documentation, with no web code.
 web = ["dep:remedy-ui-bridge-web"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-rhai", "script-wasm", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "customize", "web", "macros", "isolated", "webstorage"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-rhai", "script-wasm", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "customize", "web", "macros", "isolated", "webstorage"]
 
 [dependencies]
 remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "1.0.0-rc.1" }
@@ -130,6 +134,7 @@ remedy-ui-widgets-data = { path = "../remedy-ui-widgets-data", version = "1.0.0-
 remedy-ui-viz = { path = "../remedy-ui-viz", version = "1.0.0-rc.1", optional = true }
 remedy-ui-widgets-music = { path = "../remedy-ui-widgets-music", version = "1.0.0-rc.1", optional = true }
 remedy-ui-widgets-extra = { path = "../remedy-ui-widgets-extra", version = "1.0.0-rc.1", optional = true }
+remedy-ui-widgets-stage = { path = "../remedy-ui-widgets-stage", version = "1.0.0-rc.1", optional = true }
 remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "1.0.0-rc.1", optional = true }
 remedy-ui-media-svg = { path = "../remedy-ui-media-svg", version = "1.0.0-rc.1", optional = true }
 remedy-ui-doc-code = { path = "../remedy-ui-doc-code", version = "1.0.0-rc.1", optional = true }

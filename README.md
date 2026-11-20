@@ -108,6 +108,7 @@ Apps use the facade, `remedy-ui` (`run`, `App`, `Window`, and the packs behind f
 - `remedy-ui-widgets-data`: tables, icon grids, trees, property grids and chat lists, virtual at any size, with selection, editing and drag and drop
 - `remedy-ui-widgets-board` and `remedy-ui-script`: boards people arrange, with sandboxed scripted widgets behind one language-neutral interface: `remedy-ui-script-rhai` for widgets written in Rhai, `remedy-ui-script-wasm` for widgets compiled to WebAssembly; both measure their own speed on the device they run on
 - `remedy-ui-widgets-extra`: QR codes, rating, carousel, a setup wizard flow and swatch grids
+- `remedy-ui-widgets-stage`: parts for whole alternative presentations: scenes that scale art to fit with children at named anchors, pixel-art sprites written as code, orbits, path layouts, knobs and tuner dials, faders, timelines, big physical buttons and LED or split-flap boards
 - `remedy-ui-widgets-music`: fretboard, chord diagram, tab staff and note staff
 - `remedy-ui-widgets-term`: the terminal element: VT and xterm emulation with true color, the kitty keyboard protocol, sixel pictures, reflow, scrollback sized from the machine, selection, links, input methods and screen readers; the PTY stays in the app
 - `remedy-ui-viz`: the speaking ring, level meters, sparklines and bars
