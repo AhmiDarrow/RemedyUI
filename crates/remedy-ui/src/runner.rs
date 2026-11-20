@@ -554,6 +554,7 @@ enum Cmd {
     Foreground(Box<remedy_ui_host::ForegroundTask>, Box<dyn FnOnce(Result<(), Unsupported>)>),
     StopForeground,
     Share(Option<u64>, remedy_ui_host::ShareOptions, ShareDone),
+    Print(Option<u64>, String, String, Box<dyn FnOnce(Result<(), Unsupported>)>),
     Quit,
 }
 
@@ -1180,6 +1181,20 @@ impl App {
         done: impl FnOnce(remedy_ui_host::ShareOutcome) + 'static,
     ) {
         self.push(Cmd::Share(window.map(|w| w.key), share, Box::new(done)));
+    }
+
+    /// Prints `html` (a whole page, UTF-8) through the platform's print dialog, over `window`,
+    /// as a job named `title`: Windows' print dialog, Android's print manager (printers and
+    /// Save as PDF), the browser's print dialog in a page. `done` says whether the dialog
+    /// opened; what the person does there is the platform's.
+    pub fn print_html(
+        &self,
+        window: Option<&Window>,
+        title: impl Into<String>,
+        html: impl Into<String>,
+        done: impl FnOnce(Result<(), Unsupported>) + 'static,
+    ) {
+        self.push(Cmd::Print(window.map(|w| w.key), title.into(), html.into(), Box::new(done)));
     }
 
     /// Forgets saved geometry for `key`.
@@ -2013,6 +2028,10 @@ impl Runner {
                 }
                 Err(_) => done(false),
             },
+            Cmd::Print(key, title, html, done) => {
+                let w = key.and_then(|k| self.host_of(k));
+                done(host.print_html(w, &title, &html));
+            }
             Cmd::Share(key, share, done) => {
                 if share.is_empty() {
                     done(remedy_ui_host::ShareOutcome::Unsupported(Unsupported::new(

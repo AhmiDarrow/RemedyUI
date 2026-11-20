@@ -292,6 +292,11 @@ public final class Bridge
         Share.show(activity, handle, request, title, text, names, types, contents, mime, requireFiles);
     }
 
+    /** Opens the print dialog for an HTML page (UI thread). */
+    public void print(String title, String html) {
+        Print.show(activity, title, html);
+    }
+
     /** Opens the document picker (UI thread). */
     public void pick(long request, boolean save, boolean multiple, String[] extensions, String fileName,
             String title) {

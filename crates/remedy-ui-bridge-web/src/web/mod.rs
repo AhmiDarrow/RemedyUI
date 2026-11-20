@@ -8,6 +8,7 @@ mod host;
 mod input;
 pub(crate) mod instance;
 mod notify;
+mod print;
 mod settings;
 mod share;
 mod text;

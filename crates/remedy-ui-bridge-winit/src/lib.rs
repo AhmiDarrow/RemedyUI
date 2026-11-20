@@ -160,6 +160,12 @@ pub trait PlatformHooks: 'static {
         let _ = (window, share);
         Err(Unsupported::new("sharing", "this platform's bridge shows no share sheet"))
     }
+    /// Prints `html` through the platform's print dialog (see [`Host::print_html`]). By
+    /// default the platform cannot print.
+    fn print_html(&mut self, window: Option<&Window>, title: &str, html: &str) -> Result<(), Unsupported> {
+        let _ = (window, title, html);
+        Err(Unsupported::new("printing", "this platform's bridge has no print dialog"))
+    }
     /// Receives a handle that wakes the event loop, for platform services that report from
     /// other threads (a D-Bus tray).
     fn set_waker(&mut self, waker: Waker) {
@@ -848,6 +854,10 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
             self.win(first).map(|w| w.window.clone())
         });
         self.hooks.share(w.as_deref(), share)
+    }
+    fn print_html(&mut self, window: Option<WindowId>, title: &str, html: &str) -> Result<(), Unsupported> {
+        let w = window.and_then(|id| self.win(id)).map(|w| w.window.clone());
+        self.hooks.print_html(w.as_deref(), title, html)
     }
 
     fn start_foreground(&mut self, task: &ForegroundTask) -> Result<(), Unsupported> {

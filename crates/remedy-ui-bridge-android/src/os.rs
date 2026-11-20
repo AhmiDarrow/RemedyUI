@@ -616,6 +616,21 @@ impl Java {
         })
     }
 
+    /// Opens the print dialog for an HTML page.
+    pub(crate) fn print_html(&self, app: &AndroidApp, title: String, html: String) -> Result<(), String> {
+        self.on_bridge(app, "printing", move |env, b| {
+            let title = env.new_string(&title)?;
+            let html = env.new_string(&html)?;
+            env.call_method(
+                b,
+                "print",
+                "(Ljava/lang/String;Ljava/lang/String;)V",
+                &[JValue::Object(&title), JValue::Object(&html)],
+            )?;
+            Ok(())
+        })
+    }
+
     /// Opens the system's document picker; the choice comes back as [`Notice::Dialog`].
     #[allow(clippy::too_many_arguments, reason = "mirrors the Java call")]
     pub(crate) fn pick(

@@ -1351,6 +1351,13 @@ pub trait Host {
         let _ = (window, share);
         Err(Unsupported::new("sharing", "this platform has no share sheet"))
     }
+    /// Prints `html` (a whole page, UTF-8) through the platform's print dialog, over
+    /// `window`, under `title` (the job's name). The dialog opens and the call returns;
+    /// printing or cancelling happens there. By default the platform cannot print.
+    fn print_html(&mut self, window: Option<WindowId>, title: &str, html: &str) -> Result<(), Unsupported> {
+        let _ = (window, title, html);
+        Err(Unsupported::new("printing", "this platform has no print dialog"))
+    }
     /// Starts dragging `data` out of `window` to other apps (call while the pointer button
     /// that began the drag is held). Some platforms run the drag to its end inside the call;
     /// others return at once and report the end with [`HostEvent::DragEnded`].

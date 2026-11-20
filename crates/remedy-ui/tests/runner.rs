@@ -1917,3 +1917,24 @@ fn a_window_back_in_sight_is_presented_whole() {
     assert!(again > after, "presented again");
     assert!(area >= 320.0 * 200.0, "all of it ({area} pixels of damage)");
 }
+
+#[test]
+fn printed_pages_reach_the_print_dialog() {
+    let done: Rc<std::cell::RefCell<Vec<bool>>> = Rc::default();
+    let d2 = done.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let window = app.open(WindowSpec::new("Print").size(100.0, 100.0), |_, _| {});
+        let d = d2.clone();
+        app.print_html(Some(&window), "Soap Recipe", "<html><body>Olive 500 g</body></html>", move |r| {
+            d.borrow_mut().push(r.is_ok())
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let window = host.window_ids().first().copied();
+    assert_eq!(host.prints().len(), 1);
+    let first = host.prints().first();
+    assert_eq!(first.map(|(w, title, _)| (*w, title.as_str())), Some((window, "Soap Recipe")));
+    assert!(first.is_some_and(|(_, _, html)| html.contains("Olive 500 g")));
+    assert_eq!(*done.borrow(), [true]);
+}
