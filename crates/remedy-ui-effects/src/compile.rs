@@ -669,6 +669,23 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
                         ),
                     ));
                 }
+                let mut sampled: Vec<u16> = prog
+                    .code
+                    .iter()
+                    .filter(|i| i.op == Op::Sample && (16..48).contains(&i.imm))
+                    .map(|i| i.imm)
+                    .collect();
+                sampled.sort_unstable();
+                sampled.dedup();
+                if sampled.len() > MAX_SAMPLED_PASSES {
+                    return Err(Diagnostic::new(
+                        at,
+                        format!(
+                            "pass `{name}` samples {} other passes; the most is {MAX_SAMPLED_PASSES}",
+                            sampled.len()
+                        ),
+                    ));
+                }
                 let w = f64::from(prog.cost()) * f64::from(s * s);
                 (Stage { name, kind: StageKind::Shade(prog), scale: s }, w)
             }
@@ -721,6 +738,9 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
         cost,
     })
 }
+
+/// Earlier passes one pass may sample (the GPU kernel's texture bindings).
+pub const MAX_SAMPLED_PASSES: usize = 8;
 
 /// The weight of a blur pass per pixel (two passes of up to 33 taps).
 const BLUR_COST: f64 = 140.0;

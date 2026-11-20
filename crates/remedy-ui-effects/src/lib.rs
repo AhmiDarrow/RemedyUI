@@ -67,7 +67,11 @@ pub mod vm;
 
 use std::sync::{Arc, OnceLock};
 
-pub use cpu::{CpuEffect, FrameInput, Picture, Sprite, particles};
+pub use compile::MAX_SAMPLED_PASSES;
+pub use cpu::{
+    CpuEffect, FrameInput, Picture, Sprite, blur_radius, blur_weights, buffer_size, constants, particles,
+    uniforms,
+};
 pub use ir::{Effect, Param, ParamType};
 pub use library::{LIBRARY, library, library_source};
 pub use syntax::{Diagnostic, Span};
