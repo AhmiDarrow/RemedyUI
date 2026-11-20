@@ -11,6 +11,11 @@
 //! - Values: exact [`Decimal`] numbers and [`Date`], [`Time`] and [`Weekday`], with the
 //!   arithmetic forms and messages need; [`Date::today`] reads the user's local calendar.
 
+/// The service's own words (why typed text is not a number) in every language the engine
+/// ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
+/// [`remedy_ui_view::strings::add_messages`] under the name `services-i18n`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("services-i18n");
+
 mod calendar;
 mod catalog;
 mod decimal;

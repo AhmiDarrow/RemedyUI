@@ -20,7 +20,9 @@ use remedy_ui_widgets_core::{MenuItem, context_menu_at};
 
 use crate::{PendingCheck, SpellChecker, SpellError};
 
-/// The words in the spelling menu. Apps translate them; the defaults are English.
+/// The words in the spelling menu. The default is English; a field left with the default
+/// shows them in the window's language ([`MenuLabels::localized`]), and labels an app sets
+/// are shown as given.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct MenuLabels {
@@ -38,6 +40,18 @@ impl Default for MenuLabels {
             add_to_dictionary: "Add to dictionary".into(),
             ignore: "Ignore".into(),
             no_suggestions: "No suggestions".into(),
+        }
+    }
+}
+
+impl MenuLabels {
+    /// The menu's words in `locale`, from the engine's catalog ([`crate::STRINGS`]).
+    pub fn localized(locale: &str) -> Self {
+        let t = |id| crate::STRINGS.format_in(locale, id, &[]);
+        MenuLabels {
+            add_to_dictionary: t("spell-add-to-dictionary"),
+            ignore: t("spell-ignore"),
+            no_suggestions: t("spell-no-suggestions"),
         }
     }
 }
@@ -339,7 +353,13 @@ impl SpellHook {
     pub fn menu_items(&self, at: Option<Point>) -> Vec<MenuItem> {
         let (field, checker, labels, langs) = {
             let s = self.shared.borrow();
-            (s.field.clone(), s.checker.clone(), s.options.labels.clone(), languages(&s))
+            // The app's own words when it gave some; the window's language otherwise.
+            let labels = if s.options.labels == MenuLabels::default() {
+                MenuLabels::localized(&s.ui.locale())
+            } else {
+                s.options.labels.clone()
+            };
+            (s.field.clone(), s.checker.clone(), labels, languages(&s))
         };
         let mark = match at {
             Some(p) => field.decoration_at(p),

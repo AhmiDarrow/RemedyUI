@@ -169,8 +169,13 @@ pub struct LayoutStyle {
     pub justify: Justify,
     /// Positioning.
     pub position: Position,
-    /// Offsets for absolute positioning (logical).
+    /// Offsets for absolute positioning: logical (`start` is the right edge in a right-to-left
+    /// parent), unless `inset_physical`.
     pub inset: Insets,
+    /// The insets are physical: `start` is the left edge and `end` the right whatever the
+    /// direction, for a box placed at a point (an overlay at a window point, a selection
+    /// band at a content point) while its own content reads right to left.
+    pub inset_physical: bool,
     // (A side set to [`AUTO`] is decided by the box's size and its other sides.)
     /// Column tracks (grid).
     pub columns: Vec<Track>,
@@ -209,6 +214,7 @@ impl Default for LayoutStyle {
             justify: Justify::Start,
             position: Position::Relative,
             inset: Insets::ZERO,
+            inset_physical: false,
             columns: Vec::new(),
             rows: Vec::new(),
             grid_column: None,
@@ -297,14 +303,18 @@ fn rect_lpa(i: Insets) -> taffy::Rect<taffy::LengthPercentageAuto> {
 /// other sides, sized by its content.
 pub const AUTO: f32 = f32::NAN;
 
-/// `s` as a taffy style, with `rtl` the node's resolved direction.
 /// A grid item from its start line and span.
 fn placement((start, span): (i16, u16)) -> taffy::Line<taffy::GridPlacement> {
     taffy::Line { start: taffy::style_helpers::line(start), end: taffy::style_helpers::span(span.max(1)) }
 }
 
-pub(crate) fn to_taffy(s: &LayoutStyle, rtl: bool) -> taffy::Style {
+/// `s` as a taffy style: `rtl` is the node's resolved direction, which its padding, margins
+/// and children follow; `parent_rtl` its parent's, which its insets follow (as CSS resolves
+/// an absolute box's logical insets against its containing block), so a box placed at a
+/// window point stays there whatever direction its own content reads in.
+pub(crate) fn to_taffy(s: &LayoutStyle, rtl: bool, parent_rtl: bool) -> taffy::Style {
     let phys = |i: Insets| if rtl { i.mirrored() } else { i };
+    let inset_phys = |i: Insets| if parent_rtl && !s.inset_physical { i.mirrored() } else { i };
     taffy::Style {
         display: match s.display {
             Display::Flex => taffy::Display::Flex,
@@ -347,7 +357,7 @@ pub(crate) fn to_taffy(s: &LayoutStyle, rtl: bool) -> taffy::Style {
             Position::Relative => taffy::Position::Relative,
             Position::Absolute => taffy::Position::Absolute,
         },
-        inset: rect_lpa(phys(s.inset)),
+        inset: rect_lpa(inset_phys(s.inset)),
         grid_template_columns: s
             .columns
             .iter()

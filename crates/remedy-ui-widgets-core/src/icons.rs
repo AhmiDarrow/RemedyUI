@@ -858,8 +858,8 @@ mod tests {
         let ltr = xs(&strokes(Icon::ListNumber));
         let rtl = xs(&strokes_for(Icon::ListNumber, true));
         assert_eq!(ltr.len(), rtl.len());
-        let (one_ltr, one_rtl) = (&ltr[..3], &rtl[..3]);
-        for (a, b) in one_ltr.iter().zip(one_rtl) {
+        assert!(ltr.len() >= 3, "{ltr:?}");
+        for (a, b) in ltr.iter().take(3).zip(rtl.iter().take(3)) {
             assert!((b - a - 13.0).abs() < 1e-4, "the 1 is moved, not flipped");
         }
         assert!(rtl.iter().all(|x| (0.0..=24.0).contains(x)));

@@ -19,11 +19,13 @@ const TOOLTIP_WIDTH: f32 = 360.0;
 /// click-jacking: a click aimed at what was there before cannot land on them).
 const TRUSTED_DELAY: Duration = Duration::from_millis(700);
 
-/// An overlay pinned at a window point by its top-left corner, sized by its content.
+/// An overlay pinned at a window point by its top-left corner, sized by its content. Its
+/// content reads in the window's direction.
 pub fn place_at(el: El, p: Point) -> El {
     el.layout(move |l| {
         l.position = Position::Absolute;
         l.inset = Insets { top: p.y, start: p.x, end: AUTO, bottom: AUTO };
+        l.inset_physical = true;
     })
 }
 
@@ -136,6 +138,7 @@ pub(crate) fn place_fitted(
                 .clone()
                 .layout(move |l| {
                     l.inset = Insets { top: p.y, start: p.x, end: AUTO, bottom: AUTO };
+                    l.inset_physical = true;
                     l.max_width = Length::Px(widest);
                     if fit_height {
                         l.max_height = Length::Px(tallest);

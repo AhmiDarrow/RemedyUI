@@ -31,11 +31,31 @@ pub struct HistoryItem {
 }
 
 impl HistoryItem {
-    /// What an Undo menu item says: "Undo Turn on Noise suppression, by assistant".
+    /// What an Undo menu item says, in English: "Undo Turn on Noise suppression, by
+    /// assistant". Menus people see use [`HistoryItem::localized_undo_label`].
     pub fn undo_label(&self) -> String {
         match &self.by {
             Some(by) => format!("Undo {}, by {by}", self.label),
             None => format!("Undo {}", self.label),
+        }
+    }
+
+    /// What an Undo menu item says in the window's language (tracked: read inside a property
+    /// closure, it follows the locale): "Rückgängig: Turn on Noise suppression (von
+    /// assistant)" in German. The label and the name are shown as given.
+    pub fn localized_undo_label(&self, ui: &Ui) -> String {
+        self.undo_label_in(&ui.locale())
+    }
+
+    /// What an Undo menu item says in `locale` (not tracked); see
+    /// [`HistoryItem::localized_undo_label`].
+    pub fn undo_label_in(&self, locale: &str) -> String {
+        let label = ("label", crate::strings::StrArg::from(self.label.as_str()));
+        match &self.by {
+            Some(by) => {
+                crate::strings::STRINGS.format_in(locale, "undo-change-by", &[label, ("by", by.into())])
+            }
+            None => crate::strings::STRINGS.format_in(locale, "undo-change", &[label]),
         }
     }
 }
