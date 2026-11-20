@@ -192,3 +192,54 @@ fn filtered_groups_of_layers_draw_from_damage_like_a_full_frame() {
     let (Ok(full_cpu), Ok(last)) = (full_cpu, last) else { unreachable!("both draw") };
     assert_eq!(worst(&full_cpu, &last), 0);
 }
+
+#[test]
+#[ignore = "a measurement: cargo test --release -p remedy-ui-render-gpu --test damage -- --ignored --nocapture"]
+fn damage_only_compositing_costs_less_than_full_frames() {
+    let (w, h) = (1280u32, 800u32);
+    let tree = |x: f32| {
+        let mut back = DisplayList::new();
+        for i in 0..128 {
+            let c = Color::rgb8((i * 2) as u8, 90, 200 - i as u8);
+            back.fill_rect(Rect::new(i as f32 * 10.0, 0.0, i as f32 * 10.0 + 10.0, 800.0), Brush::Solid(c));
+        }
+        let mut dot = DisplayList::new();
+        dot.fill_rounded(Rect::new(0.0, 0.0, 24.0, 24.0), CornerRadii::all(12.0), Brush::Solid(Color::WHITE));
+        LayerTree::new(vec![
+            Layer::new(LayerId(1), Rect::new(0.0, 0.0, 1280.0, 800.0), back).with_child(Layer::new(
+                LayerId(2),
+                Rect::new(x, 300.0, x + 24.0, 324.0),
+                dot,
+            )),
+        ])
+    };
+    let mut comp = Compositor::new(w, h, 1.0, ScrollPhysics::CLAMPED);
+    let mut partial = gpu();
+    let mut full = gpu();
+    let target = full.renderer().create_target(w, h).unwrap_or_else(|e| unreachable!("{e}"));
+    let (mut t_partial, mut t_full) = (Duration::ZERO, Duration::ZERO);
+    for k in 0..40u64 {
+        comp.commit(tree(100.0 + k as f32 * 7.0));
+        let plan = comp.frame(Duration::from_millis(16 * k));
+        let s = std::time::Instant::now();
+        assert!(partial.present_to_frame(&plan, w, h, Color::BLACK).is_ok());
+        if k >= 5 {
+            t_partial += s.elapsed();
+        }
+        let s = std::time::Instant::now();
+        assert!(full.present(&plan, &target, Color::BLACK).is_ok());
+        let _ = full.renderer().read_back(&target);
+        if k >= 5 {
+            t_full += s.elapsed();
+        }
+    }
+    let (p, f) = (t_partial.as_secs_f64() * 1000.0 / 35.0, t_full.as_secs_f64() * 1000.0 / 35.0);
+    eprintln!(
+        "{}: {w}x{h}, a 24-pixel dot moving: damage-only {p:.2} ms a frame, full {f:.2} ms ({:.1}x), {} of {} pixels composited",
+        full.renderer().context().describe(),
+        f / p,
+        partial.last_composited(),
+        w * h
+    );
+    assert!(p < f, "damage-only is cheaper");
+}
