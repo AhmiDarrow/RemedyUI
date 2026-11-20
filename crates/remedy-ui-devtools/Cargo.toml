@@ -17,7 +17,9 @@ remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "1.0.0-rc.1" }
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
 remedy-ui-macros = { path = "../remedy-ui-macros", version = "1.0.0-rc.1" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
-remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1" }
+# Previews render every language: the script fallback faces too.
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["scripts"] }
+remedy-ui-fonts-cjk = { path = "../remedy-ui-fonts-cjk", version = "1.0.0-rc.1" }
 remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
 remedy-ui-layout = { path = "../remedy-ui-layout", version = "1.0.0-rc.1" }
 remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
