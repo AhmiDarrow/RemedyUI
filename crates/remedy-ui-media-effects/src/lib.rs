@@ -28,6 +28,9 @@
 //!   GPU the effect's GPU time is sampled every few frames with timestamp queries (where the
 //!   device has them) and held to [`EffectView::set_gpu_budget`] (2 ms by default): half
 //!   resolution, then a quarter at no more than 30 frames a second; it never stops moving.
+//! - **Static effects cost nothing after their first frame.** An effect whose picture does not
+//!   change with time ([`Effect::animated`] false: paper, a texture) is drawn once per size and
+//!   parameter change, like a still frame, and asks for no frames.
 //! - **Parameters** are set by name ([`EffectView::set`]), typed and clamped; each change
 //!   draws a new frame. Pictures bind to texture parameters ([`EffectView::set_texture`]).
 //!
@@ -292,8 +295,13 @@ fn paint(shared: &Shared, cx: &mut PaintCx<'_>, on_gpu: bool) {
     } else {
         LADDER.get(level).copied().unwrap_or((1.0, 0))
     };
-    let live =
-        if !gpu_path && level >= LADDER.len() { None } else { cx.ambient_at(effect.fps.min(fps_cap).max(1)) };
+    // A picture that does not change with time is drawn once, like a still frame: it asks for
+    // no frames at all.
+    let live = if !effect.animated || (!gpu_path && level >= LADDER.len()) {
+        None
+    } else {
+        cx.ambient_at(effect.fps.min(fps_cap).max(1))
+    };
     let rect = Rect::new(0.0, 0.0, cx.size.width, cx.size.height);
     if rect.is_empty() {
         return;

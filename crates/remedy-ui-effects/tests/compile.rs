@@ -352,3 +352,23 @@ fn over_budget_effects_name_the_passes_that_cost_most() {
     assert!(e.starts_with("4:2"), "located at the heavy pass: {e}");
     assert!(e.contains("most of it: `heavy`"), "{e}");
 }
+
+#[test]
+fn effects_know_whether_they_move() {
+    let still = compile("effect s(float k = 0.5) { pass p { out = vec3(noise(uv * 8.0) * k); } }");
+    assert!(still.is_ok_and(|e| !e.animated), "no time, no particles, no feedback: a still picture");
+    for src in [
+        "effect a { pass p { out = vec3(sin(time)); } }",
+        "effect b { const k = time * 2.0; pass p { out = vec3(k); } }",
+        "effect c { pass p { out = sample(last, uv); } }",
+        "effect d { particles s (count: 4) { pos = vec2(1.0); } }",
+    ] {
+        assert!(compile(src).is_ok_and(|e| e.animated), "{src} moves");
+    }
+    let still_ones: Vec<&str> = remedy_ui_effects::LIBRARY
+        .iter()
+        .filter(|(n, _)| remedy_ui_effects::library(n).is_some_and(|e| !e.animated))
+        .map(|(n, _)| *n)
+        .collect();
+    assert_eq!(still_ones, vec!["paper"], "the built-in effects that do not move");
+}

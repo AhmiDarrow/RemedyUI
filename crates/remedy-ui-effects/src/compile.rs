@@ -763,6 +763,14 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
             ),
         ));
     }
+    let reads_time = |p: &Program| p.code.iter().any(|i| i.op == Op::Input && i.imm == Input::Time as u16);
+    let animated = c.feedback
+        || reads_time(&uniforms)
+        || stages.iter().any(|s| match &s.kind {
+            StageKind::Shade(p) => reads_time(p),
+            StageKind::Particles { .. } => true,
+            StageKind::Blur { .. } => false,
+        });
     Ok(Effect {
         name: file.name.clone(),
         params: c.params,
@@ -774,6 +782,7 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
         blend,
         still,
         feedback: c.feedback,
+        animated,
         cost,
     })
 }
