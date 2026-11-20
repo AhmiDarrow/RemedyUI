@@ -1,0 +1,20 @@
+// Film grain: fine moving grain and a soft vignette, laid over anything. Blend normal at a
+// low strength (it darkens and lightens a little).
+effect film_grain(
+    float strength = 0.08 in 0..0.5,
+    float size_px = 1.5 in 1..6,
+    float vignette_amount = 0.6 in 0..2,
+) {
+    fps 24;
+    scale 1.0;
+
+    pass grain {
+        let frame = floor(time * 24.0);
+        let g = hash(vec3(floor(px / size_px), frame)) ;
+        let v = 1.0 - vignette(uv, vignette_amount);
+        // Dark grain as black with alpha, light grain as white with alpha.
+        let light = step(0.5, g);
+        let a = abs(g - 0.5) * 2.0 * strength + v * 0.5;
+        out = vec4(vec3(light * (1.0 - v)), clamp(a, 0.0, 1.0));
+    }
+}

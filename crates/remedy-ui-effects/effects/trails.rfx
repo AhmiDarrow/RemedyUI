@@ -1,0 +1,27 @@
+// Trails: glowing points circling on curves and leaving trails that fade like long
+// exposure. Uses `last`, the previous frame, so the trails build up over time.
+effect trails(
+    color a = #5cf2ff,
+    color b = #ff5cd6,
+    float decay = 0.92 in 0.5..0.99,
+    float speed = 0.6 in 0..4,
+) {
+    fps 30;
+    scale 0.5;
+    blend plus;
+
+    pass paint {
+        let prev = sample(last, uv);
+        var k = vec3(0.0);
+        for i in 0..5 {
+            let h = hash3(vec2(i, 1.0));
+            let t = time * speed * (0.6 + h.x * 0.8) + h.y * tau;
+            let c = vec2(0.5 + 0.35 * sin(t) * (0.6 + h.z * 0.4), 0.5 + 0.3 * sin(t * 1.7 + h.x * 3.0));
+            let d = length((uv - c) * vec2(aspect, 1.0));
+            k += mix(a.rgb, b.rgb, h.z) * exp(-d * 90.0);
+        }
+        let rgb = prev.rgb * prev.a * decay + k;
+        let alpha = clamp(max(rgb.r, max(rgb.g, rgb.b)), 0.0, 1.0);
+        out = vec4(rgb / max(alpha, 0.0001), alpha);
+    }
+}

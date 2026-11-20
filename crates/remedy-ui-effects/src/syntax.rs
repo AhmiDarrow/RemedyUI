@@ -704,6 +704,29 @@ impl Parser {
             Tok::Hex(c) => Ok(Expr::Color(c, at)),
             Tok::Sym("(") => {
                 let e = self.expr()?;
+                // `(a, b)`, `(a, b, c)`, `(a, b, c, d)`: a vector.
+                if self.is(",") {
+                    let mut items = vec![(None, e)];
+                    while self.eat(",") {
+                        if self.is(")") {
+                            break;
+                        }
+                        items.push((None, self.expr()?));
+                    }
+                    self.expect(")")?;
+                    let name = match items.len() {
+                        2 => "vec2",
+                        3 => "vec3",
+                        4 => "vec4",
+                        n => {
+                            return Err(Diagnostic::new(
+                                at,
+                                format!("a tuple of {n} values; vectors have 2 to 4"),
+                            ));
+                        }
+                    };
+                    return Ok(Expr::Call(name.into(), items, at));
+                }
                 self.expect(")")?;
                 Ok(e)
             }

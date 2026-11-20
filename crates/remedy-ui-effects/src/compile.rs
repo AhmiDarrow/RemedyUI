@@ -610,13 +610,13 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
         }
         if pending.len() + stages.len() > limits.max_stages {
             return Err(Diagnostic::new(
-                Span::default(),
+                Span { line: 1, col: 1 },
                 format!("more than {} passes (bloom counts as three)", limits.max_stages),
             ));
         }
     }
     if pending.is_empty() {
-        return Err(Diagnostic::new(Span::default(), "an effect needs at least one pass"));
+        return Err(Diagnostic::new(Span { line: 1, col: 1 }, "an effect needs at least one pass"));
     }
     // The output: the last stage, or the one named (moved last by copying it with a pass).
     if let Some((name, at)) = output {
@@ -697,7 +697,7 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
                 let work = u64::from(count) * u64::from(prog.cost() + 40);
                 if work > limits.max_particle_work {
                     return Err(Diagnostic::new(
-                        Span::default(),
+                        Span { line: 1, col: 1 },
                         format!(
                             "particles `{name}` cost {work} a frame; the most is {}",
                             limits.max_particle_work
@@ -714,7 +714,7 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
     let cost = (cost * f64::from(scale * scale)).ceil() as u32;
     if cost > limits.max_effect_cost {
         return Err(Diagnostic::new(
-            Span::default(),
+            Span { line: 1, col: 1 },
             format!(
                 "the effect costs {cost} an element pixel; the most is {} (lower `scale` or simplify)",
                 limits.max_effect_cost
@@ -722,7 +722,7 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
         ));
     }
     if uniforms.code.len() > limits.max_instructions {
-        return Err(Diagnostic::new(Span::default(), "too much per-frame work"));
+        return Err(Diagnostic::new(Span { line: 1, col: 1 }, "too much per-frame work"));
     }
     Ok(Effect {
         name: file.name.clone(),
@@ -846,8 +846,7 @@ impl Compiler<'_> {
             || self.textures.iter().any(|t| t == name)
             || self.consts.contains_key(name)
             || self.buffers.contains_key(name)
-            || INPUT_NAMES.iter().any(|(n, _)| *n == name)
-            || ["out", "last", "pi", "tau"].contains(&name)
+            || ["out", "last"].contains(&name)
         {
             return Err(Diagnostic::new(at, format!("`{name}` is already a name here")));
         }
@@ -1030,7 +1029,8 @@ impl Compiler<'_> {
         for (i, s) in body.iter().enumerate() {
             match s {
                 Stmt::Let { name, value, mutable, at } => {
-                    if name == "out" || INPUT_NAMES.iter().any(|(n, _)| n == name) {
+                    // Locals may shadow inputs (a local `light`, `seed`); not the outputs.
+                    if name == "out" || name == "last" {
                         return Err(Diagnostic::new(*at, format!("`{name}` is a built-in name")));
                     }
                     let v = self.expr(value, scope, ctx)?;
@@ -1622,7 +1622,7 @@ impl Compiler<'_> {
             }
             if next >= max {
                 return Err(Diagnostic::new(
-                    Span::default(),
+                    Span { line: 1, col: 1 },
                     format!("a program needs more than {max} registers; simplify it or split it into passes"),
                 ));
             }
@@ -1640,7 +1640,7 @@ impl Compiler<'_> {
                 return Ok(*r);
             }
             let Some(&slot) = slots.get(&id) else {
-                return Err(Diagnostic::new(Span::default(), "internal: a value has no register"));
+                return Err(Diagnostic::new(Span { line: 1, col: 1 }, "internal: a value has no register"));
             };
             let r = alloc(free)?;
             code.push(Instr { op: Op::Const, dst: r, src: [0; 4], imm: slot as u16 });
@@ -1730,22 +1730,6 @@ const INPUTS: &[(&str, Input, Ty, &[Ctx])] = &[
     ("life", Input::Life, Ty::F, &[Ctx::Particle]),
     ("progress", Input::Progress, Ty::F, &[Ctx::Particle]),
     ("count", Input::Count, Ty::F, &[Ctx::Particle]),
-];
-
-const INPUT_NAMES: &[(&str, ())] = &[
-    ("uv", ()),
-    ("px", ()),
-    ("texel", ()),
-    ("size", ()),
-    ("time", ()),
-    ("aspect", ()),
-    ("light", ()),
-    ("id", ()),
-    ("seed", ()),
-    ("age", ()),
-    ("life", ()),
-    ("progress", ()),
-    ("count", ()),
 ];
 
 /// What the built-in library sees of the compiler.

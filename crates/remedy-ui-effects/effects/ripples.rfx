@@ -1,0 +1,37 @@
+// Ripples: raindrops on still water. Rings start at random places and times and spread,
+// fading; each cell of the surface gets at most one drop at a time, so they never pile up.
+effect ripples(
+    color ring = #e8f6ff,
+    float cell_px = 70.0 in 10..400,
+    float rate = 0.6 in 0..4,
+    float speed = 40.0 in 5..200,
+    float intensity = 0.6 in 0..1,
+) {
+    fps 30;
+    scale 0.5;
+    blend plus;
+
+    pass rings {
+        let p = px / cell_px;
+        var k = 0.0;
+        // Each pixel looks at its cell and the eight around it: a ring may cross over.
+        for j in -1..2 {
+            for i in -1..2 {
+                let c = floor(p) + vec2(i, j);
+                let h = hash4(c);
+                // Each cell drops on its own schedule.
+                let period = 1.0 / max(rate * (0.4 + h.z), 0.01);
+                let t = mod(time + h.w * period, period);
+                let at = (c + vec2(0.15) + h.xy * 0.7) * cell_px;
+                let r = t * speed;
+                let d = length(px - at);
+                let life = clamp(1.0 - t * speed / (cell_px * 1.4), 0.0, 1.0);
+                // Two rings, the second trailing.
+                let w1 = exp(-pow((d - r) / 2.2, 2.0));
+                let w2 = exp(-pow((d - r * 0.62) / 1.8, 2.0)) * 0.5;
+                k += (w1 + w2) * life * life;
+            }
+        }
+        out = vec4(ring.rgb, clamp(k * intensity, 0.0, 1.0));
+    }
+}
