@@ -149,7 +149,12 @@ pub fn add_messages(catalog: &str, locale: &str, ftl: &str) -> Vec<String> {
         Err((r, e)) => (r, e.into_iter().map(|e| format!("{e:?}")).collect()),
     };
     ADDED.with(|a| {
-        a.borrow_mut().entry(catalog.to_owned()).or_default().entry(canonical(locale)).or_default().push(Rc::new(res))
+        a.borrow_mut()
+            .entry(catalog.to_owned())
+            .or_default()
+            .entry(canonical(locale))
+            .or_default()
+            .push(Rc::new(res))
     });
     CHAINS.with(|c| c.borrow_mut().clear());
     errors
@@ -321,7 +326,11 @@ impl Strings {
             let out = bundle.format_pattern(pattern, Some(&fargs), &mut errors).into_owned();
             // Isolation only matters where directions mix: text with nothing right to left
             // comes back without the marks, exactly as written.
-            return if out.chars().any(is_rtl_char) { out } else { out.replace(['\u{2068}', '\u{2069}'], "") };
+            return if out.chars().any(is_rtl_char) {
+                out
+            } else {
+                out.replace(['\u{2068}', '\u{2069}'], "")
+            };
         }
         format!("\u{27E8}{id}\u{27E9}")
     }
@@ -336,7 +345,8 @@ fn is_rtl_char(c: char) -> bool {
 fn plural_categories(locale: &str) -> BTreeSet<&'static str> {
     use intl_pluralrules::{PluralCategory, PluralRuleType, PluralRules};
     // The rules are per language (`ru`, `pt`), whatever the region.
-    let Some(lang) = maximized(locale).and_then(|l| l.language.as_str().parse::<LanguageIdentifier>().ok()) else {
+    let Some(lang) = maximized(locale).and_then(|l| l.language.as_str().parse::<LanguageIdentifier>().ok())
+    else {
         return BTreeSet::new();
     };
     let Ok(rules) = PluralRules::create(lang, PluralRuleType::CARDINAL) else { return BTreeSet::new() };
@@ -486,7 +496,10 @@ pub fn check(strings: &Strings) -> Vec<String> {
             problems.push(format!("{} {locale}: not translated (the same as the source)", strings.name));
         }
         if text.contains('\u{2068}') || text.contains('\u{2069}') {
-            problems.push(format!("{} {locale}: isolation marks are added when formatting, not written", strings.name));
+            problems.push(format!(
+                "{} {locale}: isolation marks are added when formatting, not written",
+                strings.name
+            ));
         }
         let plurals = plural_categories(locale);
         for (id, shape) in &source {
@@ -504,7 +517,9 @@ pub fn check(strings: &Strings) -> Vec<String> {
                 // A selector the source uses on this variable with plural categories is a
                 // plural selector: every category of this language must be there.
                 let plural = shape.selects.iter().any(|(v, k)| {
-                    v == var && k.iter().any(|k| ["zero", "one", "two", "few", "many", "other"].contains(&k.as_str()))
+                    v == var
+                        && k.iter()
+                            .any(|k| ["zero", "one", "two", "few", "many", "other"].contains(&k.as_str()))
                 });
                 if plural {
                     let missing: Vec<&&str> = plurals.iter().filter(|c| !keys.contains(**c)).collect();
@@ -550,14 +565,23 @@ mod tests {
     static T: Strings = Strings::new(
         "test",
         &[
-            ("en", "hello = Hello\nitems = { $n ->\n    [one] One item\n   *[other] { $n } items\n}\nnamed = Close { $title }\n"),
-            ("pt-BR", "hello = Olá\nitems = { $n ->\n    [one] Um item\n   *[other] { $n } itens\n}\nnamed = Fechar { $title }\n"),
+            (
+                "en",
+                "hello = Hello\nitems = { $n ->\n    [one] One item\n   *[other] { $n } items\n}\nnamed = Close { $title }\n",
+            ),
+            (
+                "pt-BR",
+                "hello = Olá\nitems = { $n ->\n    [one] Um item\n   *[other] { $n } itens\n}\nnamed = Fechar { $title }\n",
+            ),
             ("zh-Hans", "hello = 你好\nitems = { $n } 项\nnamed = 关闭 { $title }\n"),
             (
                 "ar",
                 "hello = مرحبا\nitems = { $n ->\n    [zero] لا عناصر\n    [one] عنصر واحد\n    [two] عنصران\n    [few] { $n } عناصر\n    [many] { $n } عنصرًا\n   *[other] { $n } عنصر\n}\nnamed = إغلاق { $title }\n",
             ),
-            ("ru", "hello = Привет\nitems = { $n ->\n    [one] { $n } элемент\n   *[other] { $n } элементов\n}\nnamed = Закрыть { $title }\n"),
+            (
+                "ru",
+                "hello = Привет\nitems = { $n ->\n    [one] { $n } элемент\n   *[other] { $n } элементов\n}\nnamed = Закрыть { $title }\n",
+            ),
         ],
     );
 
@@ -573,7 +597,9 @@ mod tests {
 
     #[test]
     fn plurals_follow_each_language() {
-        let n = |l: &str, n: u32| T.format_in(l, "items", &[("n", n.into())]).replace(['\u{2068}', '\u{2069}'], "");
+        let n = |l: &str, n: u32| {
+            T.format_in(l, "items", &[("n", n.into())]).replace(['\u{2068}', '\u{2069}'], "")
+        };
         assert_eq!(n("en", 1), "One item");
         assert_eq!(n("en", 0), "0 items");
         assert_eq!(n("ar", 0), "لا عناصر");
@@ -594,7 +620,10 @@ mod tests {
     fn numbers_take_the_locales_digits_when_a_formatter_is_set() {
         set_number_format(Some(Rc::new(|locale, v, _| {
             locale.starts_with("ar").then(|| {
-                format!("{v}").chars().map(|c| c.to_digit(10).map_or(c, |d| char::from_u32(0x660 + d).unwrap_or(c))).collect()
+                format!("{v}")
+                    .chars()
+                    .map(|c| c.to_digit(10).map_or(c, |d| char::from_u32(0x660 + d).unwrap_or(c)))
+                    .collect()
             })
         })));
         assert_eq!(T.format_in("ar", "items", &[("n", 5.into())]), "\u{2068}٥\u{2069} عناصر");

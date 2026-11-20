@@ -120,9 +120,7 @@ pub(crate) fn list_in(locale: &str, items: &[String]) -> String {
     match items {
         [] => String::new(),
         [one] => one.clone(),
-        [first, second] => {
-            tr_in(locale, "list-two", &[("first", first.into()), ("second", second.into())])
-        }
+        [first, second] => tr_in(locale, "list-two", &[("first", first.into()), ("second", second.into())]),
         [rest @ .., before, last] => {
             let mut out = tr_in(locale, "list-end", &[("first", before.into()), ("last", last.into())]);
             for item in rest.iter().rev() {
@@ -191,10 +189,13 @@ impl Words {
             let values: Vec<(&str, StrArg)> = args
                 .iter()
                 .map(|(k, v)| {
-                    (*k, match v {
-                        Part::Arg(a) => a.clone(),
-                        Part::Words(w) => StrArg::from(w.in_locale(locale)),
-                    })
+                    (
+                        *k,
+                        match v {
+                            Part::Arg(a) => a.clone(),
+                            Part::Words(w) => StrArg::from(w.in_locale(locale)),
+                        },
+                    )
                 })
                 .collect();
             tr_in(locale, id, &values)

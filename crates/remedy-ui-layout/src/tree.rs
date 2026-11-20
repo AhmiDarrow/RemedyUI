@@ -107,7 +107,8 @@ impl LayoutTree {
         measure: impl FnMut(MeasureInput) -> Size + 'static,
     ) -> Result<LayoutNode, LayoutError> {
         let rtl = style.direction == Direction::Rtl;
-        let id = self.taffy.new_leaf_with_context(to_taffy(style, rtl, rtl), Box::new(measure)).map_err(err)?;
+        let id =
+            self.taffy.new_leaf_with_context(to_taffy(style, rtl, rtl), Box::new(measure)).map_err(err)?;
         self.styles.insert(id, (style.clone(), rtl, rtl));
         Ok(LayoutNode(id))
     }

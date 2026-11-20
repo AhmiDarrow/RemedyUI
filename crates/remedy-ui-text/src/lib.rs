@@ -45,7 +45,8 @@ pub fn is_rtl_locale(locale: &str) -> bool {
     let mut parts = locale.split(['-', '_']);
     let lang = parts.next().unwrap_or("").to_ascii_lowercase();
     // A script subtag is four letters, right after the language.
-    if let Some(script) = parts.next().filter(|s| s.len() == 4 && s.chars().all(|c| c.is_ascii_alphabetic())) {
+    if let Some(script) = parts.next().filter(|s| s.len() == 4 && s.chars().all(|c| c.is_ascii_alphabetic()))
+    {
         return matches!(
             script.to_ascii_lowercase().as_str(),
             "arab" | "aran" | "hebr" | "syrc" | "thaa" | "nkoo" | "adlm" | "rohg" | "mand" | "samr" | "mend"
@@ -53,8 +54,24 @@ pub fn is_rtl_locale(locale: &str) -> bool {
     }
     matches!(
         lang.as_str(),
-        "ar" | "he" | "iw" | "fa" | "ur" | "ps" | "sd" | "ug" | "yi" | "dv" | "ckb" | "syr" | "ks" | "prs" | "arc"
-            | "nqo" | "lrc" | "mzn" | "glk"
+        "ar" | "he"
+            | "iw"
+            | "fa"
+            | "ur"
+            | "ps"
+            | "sd"
+            | "ug"
+            | "yi"
+            | "dv"
+            | "ckb"
+            | "syr"
+            | "ks"
+            | "prs"
+            | "arc"
+            | "nqo"
+            | "lrc"
+            | "mzn"
+            | "glk"
     )
 }
 

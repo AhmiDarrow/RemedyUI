@@ -569,10 +569,7 @@ impl Field {
         let caret = self
             .shown
             .as_ref()
-            .map(|(_, p, o)| {
-                p.caret(self.caret_position(usize::MAX), 1.0)
-                    .translate(o.to_vec2())
-            })
+            .map(|(_, p, o)| p.caret(self.caret_position(usize::MAX), 1.0).translate(o.to_vec2()))
             .unwrap_or(Rect::ZERO)
             .translate(bounds.min.to_vec2());
         match self.core() {
@@ -983,7 +980,10 @@ fn field_key(
                     let right = e.key == Key::ArrowRight;
                     let before = ed.selection();
                     if let Some((p, v)) = &visual {
-                        let shown = TextSelection { anchor: v.to_display(before.anchor), focus: v.to_display(before.focus) };
+                        let shown = TextSelection {
+                            anchor: v.to_display(before.anchor),
+                            focus: v.to_display(before.focus),
+                        };
                         let s = visual_step(p, shown, right, word, extend, side);
                         ed.set_selection(v.to_model(s.anchor), v.to_model(s.focus));
                     }
