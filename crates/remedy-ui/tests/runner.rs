@@ -1944,3 +1944,102 @@ fn printed_pages_reach_the_print_dialog() {
     assert!(first.is_some_and(|(_, _, html)| html.contains("Olive 500 g")));
     assert_eq!(*done.borrow(), [true]);
 }
+
+#[test]
+fn a_finger_swipe_scrolls_and_a_tap_still_clicks() {
+    let taps = Signal::new(0u32);
+    let list_el = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let l2 = list_el.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let l3 = l2.clone();
+        app.open(WindowSpec::new("Touch").size(200.0, 200.0), move |ui, _| {
+            let mut list = ui.el("scroll").scroll().column().layout(|l| {
+                l.grow = 1.0;
+                l.min_height = Length::Px(0.0);
+            });
+            for _ in 0..30 {
+                list = list.child(ui.el("button").height(40.0).on_click(move || taps.update(|t| *t += 1)));
+            }
+            *l3.borrow_mut() = Some(list.clone());
+            ui.root().child(list);
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    let ui = runner.app().windows().first().and_then(|w| w.ui()).unwrap_or_else(|| unreachable!("a window"));
+    let list = list_el.borrow().clone().unwrap_or_else(|| unreachable!("the list"));
+    let finger = |y: f32, phase: PointerPhase| {
+        press(100.0, y, phase).with_id(1).with_kind(remedy_ui::input::PointerKind::Touch)
+    };
+    // A swipe up over the buttons scrolls the list and clicks nothing.
+    host.send(HostEvent::Pointer(id, finger(150.0, PointerPhase::Down)));
+    for y in [140.0, 120.0, 100.0, 80.0, 60.0] {
+        host.send(HostEvent::Pointer(id, finger(y, PointerPhase::Move)));
+        host.run_frames(&mut runner, 1);
+    }
+    host.send(HostEvent::Pointer(id, finger(60.0, PointerPhase::Up)));
+    host.run_frames(&mut runner, 2);
+    assert!(ui.scroll_offset(list.id()).y >= 80.0, "offset {:?}", ui.scroll_offset(list.id()));
+    assert_eq!(taps.get(), 0, "a swipe is not a tap");
+    // A tap still clicks.
+    host.send(HostEvent::Pointer(id, finger(100.0, PointerPhase::Down)));
+    host.send(HostEvent::Pointer(id, finger(102.0, PointerPhase::Up)));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(taps.get(), 1);
+    // A long press is a right-click, not a tap.
+    let menus = Rc::new(Cell::new(0u32));
+    let m2 = menus.clone();
+    let _ = list.clone().on_pointer(move |e| {
+        if e.phase == PointerPhase::Down && e.buttons.contains(Buttons::SECONDARY) {
+            m2.set(m2.get() + 1);
+        }
+        false
+    });
+    host.send(HostEvent::Pointer(id, finger(100.0, PointerPhase::Down)));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(menus.get(), 0, "not yet");
+    host.advance(Duration::from_millis(600));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(menus.get(), 1, "the menu opens while the finger is still down");
+    host.send(HostEvent::Pointer(id, finger(100.0, PointerPhase::Up)));
+    host.run_frames(&mut runner, 1);
+    assert_eq!((menus.get(), taps.get()), (1, 1), "lifting after a long press is not a tap");
+}
+
+#[test]
+fn a_rising_keyboard_scrolls_the_focused_field_above_it() {
+    let field_el = Rc::new(std::cell::RefCell::new(None));
+    let f2 = field_el.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let f3 = f2.clone();
+        app.open(WindowSpec::new("Form").size(200.0, 400.0), move |ui, _| {
+            let mut list = ui.el("scroll").scroll().column().layout(|l| {
+                l.grow = 1.0;
+                l.min_height = Length::Px(0.0);
+            });
+            for _ in 0..8 {
+                list = list.child(ui.el("button").height(40.0));
+            }
+            let field = ui.text_field("text_input", FieldKind::Single).el().height(30.0);
+            *f3.borrow_mut() = Some(field.clone());
+            ui.root().child(list.child(field).child(ui.el("button").height(400.0)));
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    let field = field_el.borrow().clone().unwrap_or_else(|| unreachable!("the field"));
+    field.focus();
+    host.run_frames(&mut runner, 2);
+    let before = field.bounds().unwrap_or_default();
+    assert!(before.max.y <= 400.0 && before.min.y >= 300.0, "starts low on screen: {before:?}");
+    // The keyboard covers the bottom 200 px.
+    host.send(HostEvent::SafeArea(
+        id,
+        remedy_ui::host::SafeArea { top: 0.0, right: 0.0, bottom: 200.0, left: 0.0 },
+    ));
+    host.run_frames(&mut runner, 3);
+    let after = field.bounds().unwrap_or_default();
+    assert!(after.max.y <= 200.5, "above the keyboard: {after:?}");
+}

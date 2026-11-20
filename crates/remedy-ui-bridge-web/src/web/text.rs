@@ -155,6 +155,7 @@ impl TextInput {
             ],
         );
         let _ = el.set_attribute("enterkeyhint", if state.multiline { "enter" } else { "done" });
+        dom::attr(&el, "inputmode", state.numeric.then_some("decimal"));
         dom::attr(&el, "aria-label", label.as_deref());
         dom::attr(&el, "aria-multiline", state.multiline.then_some("true"));
         // Text changed under a composition would break it; the field catches up after.

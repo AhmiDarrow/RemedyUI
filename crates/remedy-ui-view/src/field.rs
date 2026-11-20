@@ -121,6 +121,8 @@ pub(crate) struct Field {
     editor: Editor,
     style: TextStyle,
     placeholder: String,
+    /// Holds a number: the input method shows its number pad.
+    numeric: bool,
     /// The pseudo-locale placeholders are shown in, if one is active.
     pseudo: Option<remedy_ui_text::Pseudo>,
     label: Option<String>,
@@ -582,6 +584,7 @@ impl Field {
                     v_.caret = caret;
                     v_.private = false;
                     v_.multiline = matches!(self.kind, FieldKind::Multi | FieldKind::Rich | FieldKind::Code);
+                    v_.numeric = self.numeric;
                     v_
                 }
             }
@@ -1221,6 +1224,7 @@ impl Ui {
             },
             style: TextStyle::default(),
             placeholder: String::new(),
+            numeric: false,
             pseudo: self.0.borrow().pseudo,
             label: None,
             reveal: false,
@@ -1391,6 +1395,12 @@ impl TextField {
     pub fn placeholder(self, text: impl Into<String>) -> Self {
         self.field.borrow_mut().placeholder = text.into();
         self.el.ui.mark(self.el.id, Dirty::PAINT);
+        self
+    }
+
+    /// Marks the field as holding a number, so touch keyboards show their number pad.
+    pub fn numeric(self) -> Self {
+        self.field.borrow_mut().numeric = true;
         self
     }
 
