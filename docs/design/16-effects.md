@@ -136,7 +136,9 @@ GPU numbers are an upper bound):
   filter layers on both renderers.
 - **Compute and stateful particles** (collisions, flocking): stateless particles cover ambient
   decoration; stateful ones need compute, which GL 3.3 and WebGL2 lack.
-- **`.rui` and RemedyLua bindings**: the element and `Instance` are shaped for them (parameters
-  by name and value, compile from a string with untrusted limits); the markup element and
-  script functions come with RemedyLua.
+- **RemedyLua bindings**: the element and `Instance` are shaped for them (parameters by name
+  and value, compile from a string with untrusted limits); the script functions come with
+  RemedyLua. `.rui` markup has the `effect` element (`remedy_ui::effects::register_markup`:
+  a built-in effect by name, one parameter driven by a number signal, children drawn over
+  it); markup offers only built-in effects, never effect source.
 - 3D beyond effects: [17-3d.md](17-3d.md).

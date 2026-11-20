@@ -22,7 +22,14 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `Layer::backdrop` (`Backdrop`, `Layer::with_backdrop`) and the composite
   `CompositeOp::Backdrop` (`CompositeOp::backdrop_root`, `backdrop_reach`). Drawn through
   vello's filter layers, so tiles stay seamless and both renderers blur alike.
-  `examples/glass_and_shadows` shows all four over a Prism aurora.
+  `examples/glass_and_shadows` shows all four over a Prism aurora. A filter takes children
+  that are compositor layers of their own: the element becomes a layer with
+  `Layer::filters`, composited through `CompositeOp::PushFilter` / `PopFilter`. Glass fades
+  with its element's opacity, and scroll containers can be glass.
+- **Prism in `.rui` markup**: `remedy_ui::effects::register_markup` adds the `effect`
+  element (`effect(name: "fire", param: "intensity", value: $heat) { … }`): a built-in
+  effect, one parameter driven by a number signal, children drawn over it
+  (`markup_element`, `MARKUP_PARAMS` for build-time markup).
 - **Prism diagnostics**: "did you mean" for a misspelled function, name, parameter, pass or
   type; an effect over its cost budget is reported at its costliest pass with the passes that
   cost most; particle and pass-count limits are reported where they are written.
@@ -439,10 +446,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   drawing the frame again on the CPU, so pictures hold Prism effects, video, `gpu_view`
   textures, blurs and glass. The effects gallery's `--snapshot` no longer needs `--cpu`.
 - Breaking (pre-1.0): `paint::Item` gains `PushFilter`, `PopFilter` and `Backdrop`, and
-  `compositor::CompositeOp` gains `Backdrop`; exhaustive matches on them need the new arms
+  `compositor::CompositeOp` gains `Backdrop`, `PushFilter` and `PopFilter`; exhaustive matches on them need the new arms
   (`PushFilter` closes with `PopFilter`, like `PushLayer`). `render_cpu::Surface` gains
-  `push_filter_layer` (vello's `push_filter_layer`). `Layer` gains a `backdrop` field (build
-  layers with `Layer::new`), and `ResolvedStyle` gains `shadow`, `blur`, `drop_shadow` and
+  `push_filter_layer` (vello's `push_filter_layer`). `Layer` gains `backdrop` and
+  `filters` fields (build layers with `Layer::new`), and `ResolvedStyle` gains `shadow`, `blur`, `drop_shadow` and
   `backdrop_blur`. `EffectStats::level` now counts the GPU's steps too.
 - `docs/design/04-rendering.md` describes what the renderers do, and lists what is planned
   under "Not yet in code" (layer squashing, a backend self-test and present watchdog, partial
@@ -521,6 +528,9 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- Animations at rest or finished sample their exact target (`Animation::sample`): colors
+  move in Oklab and came back a few millionths off, so a reduced-motion `animate_style`
+  never quite reached its color.
 - A snapshot of a window the GPU draws left out GPU content (Prism effects, `gpu_view`
   textures, video converted on the GPU): it was drawn again by a CPU renderer that cannot read
   GPU textures. It now reads back the GPU's own frame.

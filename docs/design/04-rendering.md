@@ -157,12 +157,16 @@ a tested tolerance.
   - `Style::shadow` (`box-shadow`): `Item::Shadow` under the box.
   - `Style::blur` (`filter: blur()`) and `Style::drop_shadow` (`filter: drop-shadow()`, a
     shadow of the shape of whatever the element draws): filter groups around the element's
-    drawing and the children drawn in its layer. Children that are layers of their own
-    (scroll containers, isolated or animated elements) are not filtered with it.
+    drawing and its children. When some of its children are layers of their own (scroll
+    containers, isolated or animated elements, glass), the element becomes a layer with
+    `Layer::filters` and the compositor draws the whole subtree through them
+    (`CompositeOp::PushFilter`/`PopFilter`); damage there grows by the filters' reach and
+    redraws the whole group, so damage frames stay exact.
   - `Style::backdrop_blur` (`backdrop-filter: blur()`): the element gets a layer with a
     backdrop; the compositor blurs every layer drawn before it under its box, back to the
-    innermost translucent layer around it (its backdrop root, as on the web). Scroll
-    containers do not take a backdrop.
+    innermost translucent layer or filter group around it (its backdrop root, as on the web).
+    The element's opacity fades its glass too. A scroll container's glass is its viewport
+    layer, which also takes the container's own background.
 
   Display lists drawn on their own have the same tools: `Item::PushFilter`/`PopFilter` and
   `Item::Backdrop` (which sees what the list drew before it).
@@ -204,7 +208,7 @@ Planned, not implemented; nothing above relies on them:
   Android `HardwareBuffer`, IOSurface) instead of uploading planes.
 - **Mipmaps** for images drawn scaled down, and decoding images at the size they are shown.
 - **A multithreaded CPU raster** (vello_cpu's threads; its filters do not run with them yet).
-- **Colour-matrix filters** (saturate, hue-rotate, grayscale) and filters on layers whose
-  children are layers of their own.
+- **Colour-matrix filters** (saturate, hue-rotate, grayscale): vello's filter graph does not
+  run colour matrices yet.
 - **Printing and vector PDF**: translating display lists to PDF (selectable text, sharp
   paths) and printing through each platform's print dialog.
