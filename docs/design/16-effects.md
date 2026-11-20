@@ -127,7 +127,8 @@ GPU numbers are an upper bound):
   pixels at their own scales; raymarched 3D (orb, crystal, volumetric clouds) are the GPU's,
   and step down on the CPU.
 - The eight added later (shimmer, mesh gradient, confetti, smoke, galaxy, code rain, frost,
-  retro grid) take 1.5–12 ms a frame at 320 × 200 on the CPU (release, the same container).
+  retro grid) take 0.4–12 ms a frame at 320 × 200 logical pixels on the CPU (release, the
+  same container; frost, galaxy and code rain are the costliest).
 - GPU and CPU agree: every instruction family bit for bit, every built-in effect within half a
   level on average.
 

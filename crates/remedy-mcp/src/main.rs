@@ -16,7 +16,7 @@ HTTP on loopback with --http.
 
 OPTIONS:
     --tools <groups>        Only these tool groups, comma-separated (default: every group in
-                            this build): docs, markup, scaffold, preview, testing, live, devtools
+                            this build): docs, markup, effects, scaffold, preview, testing, live, devtools
     --workspace <dir>       A folder tools may read and write (repeatable; default: the current
                             directory). Paths outside these folders are refused.
     --docs-root <dir>       Read the docs from this RemedyUI checkout now, instead of the docs

@@ -35,6 +35,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   (`Filter::limited`), wherever a renderer or compositor draws one, so a theme asking for a
   blur of a million pixels, infinity or NaN gets the bound and no huge buffers (tested on
   both renderers).
+- **Effect tools for people and agents**: `cargo remedy rfx check <file or name>
+  [--untrusted]` (each problem under its line, or the parameters and each pass's cost),
+  `rfx render … --png <file>` (a frame on the CPU reference renderer, with sizes, time and
+  parameter values) and `rfx library`; the same as the MCP tools `rfx_check`, `rfx_render`
+  (a PNG image) and `rfx_library`, from the new `effects` group of `remedy-tools`.
 - **Prism in `.rui` markup**: `remedy_ui::effects::register_markup` adds the `effect`
   element (`effect(name: "fire", param: "intensity", value: $heat) { … }`): a built-in
   effect, one parameter driven by a number signal, children drawn over it
