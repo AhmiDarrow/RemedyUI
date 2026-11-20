@@ -52,8 +52,12 @@ impl T {
         self.frame();
     }
 
+    /// The accessibility tree, without the isolation marks placeholders get in messages.
     fn tree(&self) -> String {
         format!("{:?}", self.ui.take_accessibility_update())
+            .replace("\\u{2068}", "")
+            .replace("\\u{2069}", "")
+            .replace(['\u{2068}', '\u{2069}'], "")
     }
 }
 
@@ -198,10 +202,10 @@ fn number_input_keeps_only_valid_rounded_values() {
     t.type_text("abc");
     assert_eq!(v.get(), d("12.35"), "bad text never reaches the value");
     let tree = t.tree();
-    assert!(tree.contains("Not a number") && tree.contains("SpinButton"), "{tree}");
+    assert!(tree.contains("Keine Zahl") && tree.contains("SpinButton"), "in the window's language: {tree}");
     t.type_text("600");
     assert_eq!(v.get(), d("12.35"), "out of range");
-    assert!(t.tree().contains("At most 500,00"));
+    assert!(t.tree().contains("Höchstens 500,00"));
     t.type_text("1.234,5");
     assert_eq!(v.get(), d("12.35"), "1234.5 is still out of range");
     t.type_text("2,5");
@@ -375,4 +379,38 @@ fn the_calendar_marks_today_on_the_local_calendar() {
         tree.contains("November 18, 2026, today") && !tree.contains("November 17, 2026, today"),
         "{tree}"
     );
+}
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+#[test]
+fn labels_follow_the_window_language() {
+    let t = T::new("en-US");
+    t.ui.connect_accessibility();
+    let c = Signal::new(Color::from_hex("#336699").unwrap_or(Color::BLACK));
+    t.ui.root().child(color_picker(&t.ui, "Accent", c, Some(Color::WHITE)));
+    let v = Signal::new(Date::new(2026, 11, 2).unwrap_or(Date { year: 2026, month: 11, day: 2 }));
+    t.ui.root().child(calendar(&t.ui, "Due", v, None, None));
+    let form = Form::new();
+    let name = Signal::new(String::new());
+    let _ = form.field("Name", name, |v: &String| {
+        if v.is_empty() { Err(remedy_ui_widgets_core::Rejection::new("Required")) } else { Ok(()) }
+    });
+    t.ui.root().child(form_status(&t.ui, &form));
+    assert!(!form.submit(|_| {}));
+    t.frame();
+    let tree = t.tree();
+    assert!(tree.contains("Saturation and brightness") && tree.contains("Next month"), "{tree}");
+    assert!(tree.contains("Contrast") && tree.contains("Fix 1 field to continue"), "{tree}");
+    t.ui.set_locale("de");
+    t.frame();
+    let tree = t.tree();
+    assert!(tree.contains("Sättigung und Helligkeit") && tree.contains("Nächster Monat"), "{tree}");
+    assert!(tree.contains("Kontrast") && tree.contains("Korrigieren Sie 1 Feld, um fortzufahren"), "{tree}");
+    assert!(!tree.contains("Next month"), "{tree}");
+    assert_eq!(contrast_grade_label(&t.ui, 2.0), "Nicht bestanden");
 }

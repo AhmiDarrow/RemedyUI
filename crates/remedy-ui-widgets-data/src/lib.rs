@@ -3,6 +3,33 @@
 //! Rows are virtual (only the rows near the viewport exist), large sorts run off the UI
 //! thread, and every widget is fully usable from the keyboard and screen readers.
 
+/// The data widgets' own words (counts, sort states, keyboard hints, status lines) in every
+/// language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
+/// [`remedy_ui_view::strings::add_messages`] under the name `widgets-data`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("widgets-data");
+
+/// Message `id` of this pack in the window's locale, kept current as the locale changes
+/// when read inside a property closure or binding.
+pub(crate) fn tr(ui: &remedy_ui_view::Ui, id: &'static str) -> String {
+    STRINGS.get(ui, id)
+}
+
+/// A closure for message `id`, for a label that follows the window's locale.
+pub(crate) fn tr_fn(ui: &remedy_ui_view::Ui, id: &'static str) -> impl Fn() -> String + 'static {
+    let ui = ui.clone();
+    move || tr(&ui, id)
+}
+
+/// Message `id` with placeholder values in the window's locale now, without following it
+/// (for something built once, or rebuilt as it changes).
+pub(crate) fn format_now(
+    ui: &remedy_ui_view::Ui,
+    id: &str,
+    args: &[(&str, remedy_ui_view::strings::StrArg)],
+) -> String {
+    STRINGS.format_in(&remedy_ui_reactive::untrack(|| ui.locale()), id, args)
+}
+
 mod chat;
 mod grid;
 mod model;

@@ -263,8 +263,11 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                 let width = width_of(c);
                 let editing_here = edit_now.as_ref().is_some_and(|(ek, cid)| *ek == k && *cid == col.id);
                 let content = if editing_here && let Some((get, set)) = &col.edit {
-                    let field =
-                        ui2.text_field("text_input", FieldKind::Single).label(format!("Edit {}", col.title));
+                    let field = ui2.text_field("text_input", FieldKind::Single).label(crate::format_now(
+                        &ui2,
+                        "table-edit",
+                        &[("column", col.title.as_str().into())],
+                    ));
                     field.set_value(&get(&row));
                     let (f2, set, row2) = (field.clone(), set.clone(), row.clone());
                     let commit = Rc::new(move || match set(&row2, f2.value()) {
@@ -392,7 +395,7 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                     }
                     true
                 })
-                .keyboard_alternative("Arrow keys move between rows; Space and Shift select");
+                .keyboard_alternative(crate::tr_fn(&ui2, "table-row-keys"));
             let mut el = el;
             let drag = drag_fn.borrow().clone();
             if let Some(make) = drag {
@@ -560,7 +563,7 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                     PointerPhase::Up | PointerPhase::Cancel => start.take().is_some(),
                     _ => false,
                 })
-                .keyboard_alternative("Ctrl+Left and Ctrl+Right on the heading resize the column");
+                .keyboard_alternative(crate::tr_fn(&ui2, "table-resize-keys"));
             let (id4, wo2, id5) = (id.clone(), width_of.clone(), id.clone());
             let keys = move |e: &KeyEvent| {
                 if !e.pressed {
@@ -594,10 +597,10 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                 }
             };
             let desc = match sorted {
-                Some(SortDirection::Ascending) => "sorted ascending",
-                Some(SortDirection::Descending) => "sorted descending",
-                None if sortable => "not sorted",
-                None => "",
+                Some(SortDirection::Ascending) => Some("table-sorted-ascending"),
+                Some(SortDirection::Descending) => Some("table-sorted-descending"),
+                None if sortable => Some("table-not-sorted"),
+                None => None,
             };
             // Reorder by dragging the heading sideways onto another column.
             let (d2, id6, ui3, hids) = (drag.clone(), id.clone(), ui2.clone(), heading_ids.clone());
@@ -647,13 +650,17 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                     }
                     _ => false,
                 })
-                .semantics(
-                    Semantics::new(Role::ColumnHeader)
-                        .label(col.title.clone())
-                        .description(desc)
-                        .action(Action::Click),
-                )
-                .keyboard_alternative("Alt+Shift+Left and Alt+Shift+Right move the column");
+                .semantics({
+                    let (u, title) = (ui2.clone(), col.title.clone());
+                    move || {
+                        let desc = desc.map(|id| crate::tr(&u, id)).unwrap_or_default();
+                        Semantics::new(Role::ColumnHeader)
+                            .label(title.clone())
+                            .description(desc)
+                            .action(Action::Click)
+                    }
+                })
+                .keyboard_alternative(crate::tr_fn(&ui2, "table-move-keys"));
             heading_ids.borrow_mut().insert(cell.id(), id);
             cell
         })
@@ -879,7 +886,7 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .layout(|l| l.min_height = remedy_ui_layout::Length::Px(0.0))
         .child(frozen_body)
         .child(main_body);
-    let n_rows = rows;
+    let (n_rows, u) = (rows, ui.clone());
     let l2 = label.clone();
     // Drops around the rows go to the table itself.
     let drop = state.drop.borrow().clone();
@@ -901,8 +908,11 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .child(sorter)
         .child(redraw)
         .semantics(move || {
-            Semantics::new(Role::Table)
-                .label(l2.clone())
-                .description(format!("{} rows", n_rows.with(Vec::len)))
+            let count = n_rows.with(Vec::len);
+            Semantics::new(Role::Table).label(l2.clone()).description(crate::STRINGS.format(
+                &u,
+                "table-count",
+                &[("count", count.into())],
+            ))
         })
 }

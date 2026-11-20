@@ -14,13 +14,24 @@
 //! which reads ICU4X compiled data; what an app does not use is not linked in.
 //! See `docs/design/15-widgets-and-media.md`.
 
+/// The form widgets' own words (status lines, error messages, screen reader names, keyboard
+/// hints) in every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a
+/// language, with [`remedy_ui_view::strings::add_messages`] under the name `widgets-forms`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("widgets-forms");
+
+/// Message `id` of this pack in the window's locale, kept current as the locale changes
+/// when read inside a property closure or binding.
+pub(crate) fn tr(ui: &remedy_ui_view::Ui, id: &'static str) -> String {
+    STRINGS.get(ui, id)
+}
+
 mod color;
 mod date;
 mod form;
 mod keys;
 mod number;
 
-pub use color::{Hsv, color_picker, contrast_grade};
+pub use color::{Hsv, color_picker, contrast_grade, contrast_grade_label};
 pub use date::{calendar, date_picker, time_picker};
 // The values and locale data the widgets work with, from the localization service.
 pub use form::{Form, FormField, Submission, SubmitState, form_field, form_status, form_view, submit_button};
