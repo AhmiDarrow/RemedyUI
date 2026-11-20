@@ -71,6 +71,9 @@ impl Surface for GpuScene<'_> {
     fn push_group(&mut self, blend: BlendMode, opacity: f32) {
         self.scene.push_layer(None, Some(blend), Some(opacity), None, None);
     }
+    fn push_filter_layer(&mut self, filter: vello_gpu::filter_effects::Filter) {
+        self.scene.push_filter_layer(filter);
+    }
     fn pop_layer(&mut self) {
         self.scene.pop_layer();
     }
@@ -358,12 +361,18 @@ impl GpuContext {
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let padded = row.div_ceil(align) * align;
         let device = &self.device;
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("RemedyUI readback"),
-            size: u64::from(padded) * u64::from(height),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let size = u64::from(padded) * u64::from(height);
+        // Held for the whole read back: two threads reading back take turns on the buffer.
+        let mut kept = self.readback.lock().map_err(|e| GpuError::Readback(e.to_string()))?;
+        let buffer = match kept.take() {
+            Some(b) if b.size() == size => b,
+            _ => device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("RemedyUI readback"),
+                size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            }),
+        };
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RemedyUI copy") });
         encoder.copy_texture_to_buffer(
@@ -400,15 +409,23 @@ impl GpuContext {
             .map_err(|e| GpuError::Readback(e.to_string()))?
             .map_err(|e| GpuError::Readback(e.to_string()))?;
         let mapped = buffer.slice(..).get_mapped_range().map_err(|e| GpuError::Readback(e.to_string()))?;
-        let mut pixels = Vec::with_capacity(row as usize * height as usize);
-        for y in 0..height as usize {
-            let start = y * padded as usize;
-            let line =
-                mapped.get(start..start + row as usize).ok_or(GpuError::Readback("short buffer".into()))?;
-            pixels.extend_from_slice(line);
-        }
+        let pixels = if padded == row {
+            // Rows without padding (any width a multiple of 64): one copy.
+            mapped.to_vec()
+        } else {
+            let mut pixels = Vec::with_capacity(row as usize * height as usize);
+            for y in 0..height as usize {
+                let start = y * padded as usize;
+                let line = mapped
+                    .get(start..start + row as usize)
+                    .ok_or(GpuError::Readback("short buffer".into()))?;
+                pixels.extend_from_slice(line);
+            }
+            pixels
+        };
         drop(mapped);
         buffer.unmap();
+        *kept = Some(buffer);
         Ok(Frame { width, height, pixels })
     }
 }
@@ -423,6 +440,25 @@ pub(crate) fn submit_scene(
     view: &wgpu::TextureView,
     bindings: &vello_gpu::TextureBindings,
 ) -> Result<(), GpuError> {
+    let clear = vello_gpu::ClearSettings::Viewport {
+        color: vello_gpu::color::AlphaColor::new([background.r, background.g, background.b, background.a]),
+    };
+    let mut options = vello_gpu::RenderOptions::default();
+    options.target_init = vello_gpu::TargetInit::Clear(clear);
+    submit_scene_with(ctx, vello, resources, scene, view, bindings, options)
+}
+
+/// Records and submits `scene` into `view` with `vello`, as `options` say (what is cleared
+/// first, where in the target the scene goes).
+pub(crate) fn submit_scene_with(
+    ctx: &GpuContext,
+    vello: &mut vello_gpu::Renderer,
+    resources: &mut vello_gpu::Resources,
+    scene: &Scene,
+    view: &wgpu::TextureView,
+    bindings: &vello_gpu::TextureBindings,
+    options: vello_gpu::RenderOptions<'_>,
+) -> Result<(), GpuError> {
     if ctx.is_lost() {
         return Err(GpuError::Lost);
     }
@@ -430,11 +466,6 @@ pub(crate) fn submit_scene(
     let mut encoder =
         ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RemedyUI frame") });
     let timing = ctx.timer.begin(&ctx.device, &mut encoder);
-    let clear = vello_gpu::ClearSettings::Viewport {
-        color: vello_gpu::color::AlphaColor::new([background.r, background.g, background.b, background.a]),
-    };
-    let mut options = vello_gpu::RenderOptions::default();
-    options.target_init = vello_gpu::TargetInit::Clear(clear);
     vello
         .render(
             scene,

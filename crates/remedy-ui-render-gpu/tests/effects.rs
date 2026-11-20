@@ -168,3 +168,35 @@ fn a_lost_device_is_an_error_not_a_crash() {
     let mut gpu = GpuEffect::new(&fresh);
     assert!(gpu.render(&fresh, &instance, &input, &out).is_ok());
 }
+
+#[test]
+fn the_gpu_time_of_an_effect_is_sampled_without_waiting() {
+    let ctx = ctx();
+    let Some(effect) = remedy_ui_effects::library("orb") else { unreachable!("orb compiles") };
+    let instance = Instance::new(effect.clone());
+    let mut gpu = GpuEffect::new(&ctx);
+    let input = FrameInput::new(160.0, 120.0, 1.0, 0.5);
+    let (w, h) = GpuEffect::output_size(&effect, &input);
+    let out = out_texture(&ctx, w, h);
+    let stamps = ctx.device.features().contains(wgpu::Features::TIMESTAMP_QUERY)
+        && ctx.device.adapter_info().backend != wgpu::Backend::Gl;
+    let mut measures = Vec::new();
+    for _ in 0..40 {
+        assert!(gpu.render(&ctx, &instance, &input, &out).is_ok());
+        // The app's frames go on; the GPU finishes in its own time.
+        let _ = ctx.device.poll(wgpu::PollType::Poll);
+        measures.extend(gpu.take_gpu_time());
+    }
+    let _ = ctx.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
+    assert!(gpu.render(&ctx, &instance, &input, &out).is_ok());
+    measures.extend(gpu.take_gpu_time());
+    eprintln!("{}: {} measures {measures:?}", ctx.describe(), measures.len());
+    if stamps {
+        assert!(!measures.is_empty(), "timestamps come back");
+        assert!(measures.len() <= 40 / 8 + 1, "sampled, not every frame");
+        assert!(measures.iter().all(|d| !d.is_zero()), "work takes time");
+    } else {
+        assert!(measures.is_empty(), "no timestamps on this device, no measures");
+    }
+    assert!(ctx.take_errors().is_empty(), "{:?}", ctx.take_errors());
+}

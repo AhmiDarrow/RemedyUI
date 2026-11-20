@@ -121,3 +121,22 @@ fn the_frame_clock_predicts_and_sleeps() {
     assert_eq!(c.next_deadline(), Some(ms(1350)));
     assert!(!c.take_due(ms(1300)));
 }
+
+#[test]
+fn colors_arrive_exactly_at_their_target() {
+    use remedy_ui_core::Color;
+    use remedy_ui_motion::{Animation, Easing, Motion};
+    use std::time::Duration;
+    let red = Color::rgb8(255, 0, 0);
+    let mut a = Animation::new(Color::rgb8(10, 120, 200));
+    a.animate_to(red, Motion::Instant, Duration::ZERO);
+    assert_eq!(a.sample(Duration::ZERO), red, "an instant move lands on the target itself");
+    let mut b = Animation::new(Color::WHITE);
+    b.animate_to(
+        red,
+        Motion::Tween { duration: Duration::from_millis(100), easing: Easing::Linear },
+        Duration::ZERO,
+    );
+    assert_ne!(b.sample(Duration::from_millis(50)), red);
+    assert_eq!(b.sample(Duration::from_millis(100)), red, "a finished tween is exactly its target");
+}

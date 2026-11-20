@@ -95,8 +95,12 @@ pub fn unpremultiply(c: [f32; 4]) -> [f32; 4] {
 
 /// The interpreter: registers for one batch, reused between runs.
 pub struct Vm {
-    regs: Vec<Reg>,
-    scratch: Box<[Reg; 4]>,
+    /// Boxed, so a result computed into `out` is put in place by swapping two pointers
+    /// (a register is 1 KiB; swapping it unboxed would copy it).
+    #[allow(clippy::vec_box)]
+    regs: Vec<Box<Reg>>,
+    /// Where each instruction writes, while its operands are read where they are.
+    out: Box<Reg>,
 }
 
 impl Default for Vm {
@@ -127,6 +131,17 @@ pub fn hash_cell(c: &[i32]) -> u32 {
         h = pcg(h ^ (x as u32));
     }
     h
+}
+
+/// The hashes of a lattice cell's corners along x then y: `hash_cell(&[x + dx, y + dy])`
+/// for `dx`, `dy` in 0 and 1, as `[[h00, h10], [h01, h11]]`, sharing the x step (six
+/// hashes instead of eight; the same values).
+#[inline]
+fn corners2(ix: i32, iy: i32) -> [[u32; 2]; 2] {
+    let x0 = pcg(0x9E37_79B9 ^ (ix as u32));
+    let x1 = pcg(0x9E37_79B9 ^ (ix.wrapping_add(1) as u32));
+    let (y0, y1) = (iy as u32, iy.wrapping_add(1) as u32);
+    [[pcg(x0 ^ y0), pcg(x1 ^ y0)], [pcg(x0 ^ y1), pcg(x1 ^ y1)]]
 }
 
 #[inline]
@@ -162,10 +177,11 @@ fn quintic(t: f32) -> f32 {
 pub fn value2(x: f32, y: f32) -> f32 {
     let (ix, iy) = (floor_i(x), floor_i(y));
     let (fx, fy) = (fract(x), fract(y));
-    let v = |dx: i32, dy: i32| unit(hash_cell(&[ix.wrapping_add(dx), iy.wrapping_add(dy)]));
+    let [[h00, h10], [h01, h11]] = corners2(ix, iy);
+    let (v00, v10, v01, v11) = (unit(h00), unit(h10), unit(h01), unit(h11));
     let (u, w) = (quintic(fx), quintic(fy));
-    let top = v(0, 0) + (v(1, 0) - v(0, 0)) * u;
-    let bottom = v(0, 1) + (v(1, 1) - v(0, 1)) * u;
+    let top = v00 + (v10 - v00) * u;
+    let bottom = v01 + (v11 - v01) * u;
     top + (bottom - top) * w
 }
 
@@ -173,8 +189,11 @@ pub fn value2(x: f32, y: f32) -> f32 {
 pub fn value3(x: f32, y: f32, z: f32) -> f32 {
     let (ix, iy, iz) = (floor_i(x), floor_i(y), floor_i(z));
     let (u, v, w) = (quintic(fract(x)), quintic(fract(y)), quintic(fract(z)));
-    let h = |dx: i32, dy: i32, dz: i32| {
-        unit(hash_cell(&[ix.wrapping_add(dx), iy.wrapping_add(dy), iz.wrapping_add(dz)]))
+    let xy = corners2(ix, iy);
+    let (z0, z1) = (iz as u32, iz.wrapping_add(1) as u32);
+    let h = |dx: usize, dy: usize, dz: usize| {
+        let c = xy.get(dy).and_then(|r| r.get(dx)).copied().unwrap_or(0);
+        unit(pcg(c ^ if dz == 0 { z0 } else { z1 }))
     };
     let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
     let z0 = lerp(lerp(h(0, 0, 0), h(1, 0, 0), u), lerp(h(0, 1, 0), h(1, 1, 0), u), v);
@@ -194,35 +213,41 @@ fn grad2(h: u32, x: f32, y: f32) -> f32 {
     gx * x + gy * y
 }
 
+/// The twelve edge directions of a cube, the gradients 3D gradient noise picks from.
+const GRAD3: [[f32; 3]; 12] = [
+    [1.0, 1.0, 0.0],
+    [-1.0, 1.0, 0.0],
+    [1.0, -1.0, 0.0],
+    [-1.0, -1.0, 0.0],
+    [1.0, 0.0, 1.0],
+    [-1.0, 0.0, 1.0],
+    [1.0, 0.0, -1.0],
+    [-1.0, 0.0, -1.0],
+    [0.0, 1.0, 1.0],
+    [0.0, -1.0, 1.0],
+    [0.0, 1.0, -1.0],
+    [0.0, -1.0, -1.0],
+];
+
+/// A table rather than a `match`: the hash is random, so a branch per direction would be
+/// mispredicted most of the time. (Multiplying by 1, -1 or 0 is exact; the noise's sum ends
+/// in `+ 0.5`, which drops the sign of a zero, so it is the same noise bit for bit.)
 #[inline]
 fn grad3(h: u32, x: f32, y: f32, z: f32) -> f32 {
-    // The twelve edge directions of a cube.
-    match h % 12 {
-        0 => x + y,
-        1 => -x + y,
-        2 => x - y,
-        3 => -x - y,
-        4 => x + z,
-        5 => -x + z,
-        6 => x - z,
-        7 => -x - z,
-        8 => y + z,
-        9 => -y + z,
-        10 => y - z,
-        _ => -y - z,
-    }
+    let [gx, gy, gz] = GRAD3.get((h % 12) as usize).copied().unwrap_or([1.0, 1.0, 0.0]);
+    gx * x + gy * y + gz * z
 }
 
 /// 2D gradient (Perlin) noise, 0 to 1.
 pub fn perlin2(x: f32, y: f32) -> f32 {
     let (ix, iy) = (floor_i(x), floor_i(y));
     let (fx, fy) = (fract(x), fract(y));
-    let g = |dx: i32, dy: i32| {
-        grad2(hash_cell(&[ix.wrapping_add(dx), iy.wrapping_add(dy)]), fx - dx as f32, fy - dy as f32)
-    };
+    let [[h00, h10], [h01, h11]] = corners2(ix, iy);
+    let (g00, g10) = (grad2(h00, fx, fy), grad2(h10, fx - 1.0, fy));
+    let (g01, g11) = (grad2(h01, fx, fy - 1.0), grad2(h11, fx - 1.0, fy - 1.0));
     let (u, v) = (quintic(fx), quintic(fy));
-    let top = g(0, 0) + (g(1, 0) - g(0, 0)) * u;
-    let bottom = g(0, 1) + (g(1, 1) - g(0, 1)) * u;
+    let top = g00 + (g10 - g00) * u;
+    let bottom = g01 + (g11 - g01) * u;
     ((top + (bottom - top) * v) * D + 0.5).clamp(0.0, 1.0)
 }
 
@@ -230,8 +255,11 @@ pub fn perlin2(x: f32, y: f32) -> f32 {
 pub fn perlin3(x: f32, y: f32, z: f32) -> f32 {
     let (ix, iy, iz) = (floor_i(x), floor_i(y), floor_i(z));
     let (fx, fy, fz) = (fract(x), fract(y), fract(z));
-    let g = |dx: i32, dy: i32, dz: i32| {
-        let h = hash_cell(&[ix.wrapping_add(dx), iy.wrapping_add(dy), iz.wrapping_add(dz)]);
+    let xy = corners2(ix, iy);
+    let (z0, z1) = (iz as u32, iz.wrapping_add(1) as u32);
+    let g = |dx: usize, dy: usize, dz: usize| {
+        let c = xy.get(dy).and_then(|r| r.get(dx)).copied().unwrap_or(0);
+        let h = pcg(c ^ if dz == 0 { z0 } else { z1 });
         grad3(h, fx - dx as f32, fy - dy as f32, fz - dz as f32)
     };
     let (u, v, w) = (quintic(fx), quintic(fy), quintic(fz));
@@ -473,7 +501,22 @@ fn wide(op: Op, d: &mut Reg, a: &Reg, b: &Reg, c: &Reg, n: usize) {
         Op::Sin => each(d, a, b, c, n, |x, _, _| x.sin()),
         Op::Cos => each(d, a, b, c, n, |x, _, _| x.cos()),
         Op::Smoothstep => each(d, a, b, c, n, |e0, e1, x| scalar(Op::Smoothstep, e0, e1, x)),
-        op => each(d, a, b, c, n, |x, y, z| scalar(op, x, y, z)),
+        // The rest: each with its own loop (`scalar` with a known op folds to that op's
+        // arithmetic), so no per-value dispatch.
+        op => {
+            macro_rules! loops {
+                ($($o:ident),*) => {
+                    match op {
+                        $(Op::$o => each(d, a, b, c, n, |x, y, z| scalar(Op::$o, x, y, z)),)*
+                        op => each(d, a, b, c, n, |x, y, z| scalar(op, x, y, z)),
+                    }
+                };
+            }
+            loops!(
+                Mod, Pow, Atan2, Step, Sign, Ceil, Fract, Round, Trunc, Sqrt, Exp, Exp2, Log, Log2, Tan,
+                Asin, Acos, Atan, Lt, Le, Gt, Ge, Eq, Ne, And, Or, Not
+            )
+        }
     }
 }
 
@@ -501,7 +544,7 @@ fn component_wise(op: Op) -> bool {
 impl Vm {
     /// An interpreter.
     pub fn new() -> Self {
-        Vm { regs: Vec::new(), scratch: Box::new([ZERO; 4]) }
+        Vm { regs: Vec::new(), out: Box::new(ZERO) }
     }
 
     /// Runs `program` for the first `n` lanes of a batch. `consts` is the program's constant
@@ -509,17 +552,25 @@ impl Vm {
     pub fn run(&mut self, program: &Program, consts: &[[f32; 4]], env: &dyn Env, n: usize) {
         let n = n.min(LANES);
         let want = usize::from(program.regs).max(1);
-        if self.regs.len() < want {
-            self.regs.resize(want, ZERO);
+        while self.regs.len() < want {
+            self.regs.push(Box::new(ZERO));
         }
+        let Vm { regs, out } = self;
         for ins in &program.code {
-            let arity = usize::from(ins.op.arity());
-            for (k, s) in self.scratch.iter_mut().enumerate().take(arity) {
-                let src = ins.src.get(k).copied().unwrap_or(0);
-                *s = self.regs.get(usize::from(src)).copied().unwrap_or(ZERO);
+            if usize::from(ins.dst) >= regs.len() {
+                continue;
             }
-            let Some(dst) = self.regs.get_mut(usize::from(ins.dst)) else { continue };
-            let [a, b, c, d] = &*self.scratch;
+            // Operands are read in place (no copies); the result goes to `out`, then takes
+            // the destination's place, so an operand may also be the destination.
+            let arity = usize::from(ins.op.arity());
+            let operand = |k: usize| -> &Reg {
+                match ins.src.get(k) {
+                    Some(r) if k < arity => regs.get(usize::from(*r)).map_or(&ZERO, |b| &**b),
+                    _ => &ZERO,
+                }
+            };
+            let (a, b, c, d) = (operand(0), operand(1), operand(2), operand(3));
+            let dst: &mut Reg = out;
             match ins.op {
                 Op::Const => {
                     let v = consts.get(usize::from(ins.imm)).copied().unwrap_or([0.0; 4]);
@@ -551,12 +602,15 @@ impl Vm {
                     }
                 }
             }
+            if let Some(slot) = regs.get_mut(usize::from(ins.dst)) {
+                std::mem::swap(slot, out);
+            }
         }
     }
 
     /// Register `r` after a run.
     pub fn reg(&self, r: u8) -> &Reg {
-        self.regs.get(usize::from(r)).unwrap_or(&ZERO)
+        self.regs.get(usize::from(r)).map_or(&ZERO, |b| &**b)
     }
 }
 
@@ -576,6 +630,83 @@ mod tests {
         }
         assert_eq!(perlin2(1.3, 2.7), perlin2(1.3, 2.7));
         assert_ne!(hash4([1.0, 2.0, 0.0, 0.0], 2), hash4([2.0, 1.0, 0.0, 0.0], 2));
+    }
+
+    /// The gradient as it was first written, a branch per direction.
+    fn grad3_branches(h: u32, x: f32, y: f32, z: f32) -> f32 {
+        match h % 12 {
+            0 => x + y,
+            1 => -x + y,
+            2 => x - y,
+            3 => -x - y,
+            4 => x + z,
+            5 => -x + z,
+            6 => x - z,
+            7 => -x - z,
+            8 => y + z,
+            9 => -y + z,
+            10 => y - z,
+            _ => -y - z,
+        }
+    }
+
+    /// The noises from the plain per-corner hash, as they were first written.
+    fn reference(kind: u8, x: f32, y: f32, z: f32) -> f32 {
+        let (ix, iy, iz) = (floor_i(x), floor_i(y), floor_i(z));
+        let (fx, fy, fz) = (fract(x), fract(y), fract(z));
+        let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+        let h2 = |dx: i32, dy: i32| hash_cell(&[ix.wrapping_add(dx), iy.wrapping_add(dy)]);
+        let h3 = |dx: i32, dy: i32, dz: i32| {
+            hash_cell(&[ix.wrapping_add(dx), iy.wrapping_add(dy), iz.wrapping_add(dz)])
+        };
+        let (u, v, w) = (quintic(fx), quintic(fy), quintic(fz));
+        match kind {
+            0 => {
+                let c = |dx, dy| unit(h2(dx, dy));
+                let top = c(0, 0) + (c(1, 0) - c(0, 0)) * u;
+                let bottom = c(0, 1) + (c(1, 1) - c(0, 1)) * u;
+                top + (bottom - top) * v
+            }
+            1 => {
+                let c = |dx, dy, dz| unit(h3(dx, dy, dz));
+                let z0 = lerp(lerp(c(0, 0, 0), c(1, 0, 0), u), lerp(c(0, 1, 0), c(1, 1, 0), u), v);
+                let z1 = lerp(lerp(c(0, 0, 1), c(1, 0, 1), u), lerp(c(0, 1, 1), c(1, 1, 1), u), v);
+                lerp(z0, z1, w)
+            }
+            2 => {
+                let g = |dx: i32, dy: i32| grad2(h2(dx, dy), fx - dx as f32, fy - dy as f32);
+                let top = g(0, 0) + (g(1, 0) - g(0, 0)) * u;
+                let bottom = g(0, 1) + (g(1, 1) - g(0, 1)) * u;
+                ((top + (bottom - top) * v) * D + 0.5).clamp(0.0, 1.0)
+            }
+            _ => {
+                let g = |dx: i32, dy: i32, dz: i32| {
+                    grad3_branches(h3(dx, dy, dz), fx - dx as f32, fy - dy as f32, fz - dz as f32)
+                };
+                let z0 = lerp(lerp(g(0, 0, 0), g(1, 0, 0), u), lerp(g(0, 1, 0), g(1, 1, 0), u), v);
+                let z1 = lerp(lerp(g(0, 0, 1), g(1, 0, 1), u), lerp(g(0, 1, 1), g(1, 1, 1), u), v);
+                (lerp(z0, z1, w) * 0.5 + 0.5).clamp(0.0, 1.0)
+            }
+        }
+    }
+
+    #[test]
+    fn shared_corner_hashes_give_the_same_noise() {
+        let edges = [0.0, -0.0, 1.0e-7, -1.0e-7, 0.999_999_9, -1.5, 1.0e9, -1.0e9, 2.147e9, -2.2e9];
+        let mut points: Vec<(f32, f32, f32)> = (0..4000)
+            .map(|i| (i as f32 * 0.173 - 300.0, i as f32 * -0.0917 + 41.3, i as f32 * 0.0311 - 7.7))
+            .collect();
+        for &a in &edges {
+            for &b in &edges {
+                points.push((a, b, a - b));
+            }
+        }
+        for (x, y, z) in points {
+            assert_eq!(value2(x, y).to_bits(), reference(0, x, y, z).to_bits(), "value2({x}, {y})");
+            assert_eq!(value3(x, y, z).to_bits(), reference(1, x, y, z).to_bits(), "value3({x}, {y}, {z})");
+            assert_eq!(perlin2(x, y).to_bits(), reference(2, x, y, z).to_bits(), "perlin2({x}, {y})");
+            assert_eq!(perlin3(x, y, z).to_bits(), reference(3, x, y, z).to_bits(), "perlin3({x}, {y}, {z})");
+        }
     }
 
     #[test]

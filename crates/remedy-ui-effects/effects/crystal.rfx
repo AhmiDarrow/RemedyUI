@@ -9,24 +9,47 @@ effect crystal(
     fps 30;
     scale 0.5;
 
-    fn map(p: vec3) -> float {
-        let q = rotate_x(rotate_y(p, time * spin), 0.4 + sin(time * spin * 0.7) * 0.3);
+    // The gem in its own (turning) space.
+    fn gem(q: vec3) -> float {
         return max(sd_octahedron(q, 1.2), sd_box3(q, vec3(0.62)));
+    }
+
+    fn turn(p: vec3) -> vec3 {
+        return rotate_x(rotate_y(p, time * spin), 0.4 + sin(time * spin * 0.7) * 0.3);
+    }
+
+    fn unturn(p: vec3) -> vec3 {
+        return rotate_y(rotate_x(p, -(0.4 + sin(time * spin * 0.7) * 0.3)), -time * spin);
     }
 
     pass gem {
         let eye = vec3(0.0, 0.0, -3.6);
         let rd = camera_ray(uv, eye, vec3(0.0), 0.8);
+        // March in the gem's space: turning the ray once is turning every point on it.
+        let eq = turn(eye);
+        let rq = turn(rd);
+        // Keep where the ray came closest to the gem, as an angle: a ray that grazes it
+        // covers part of its pixel, so the outline is smooth rather than stair-stepped.
         var t = 0.0;
-        for i in 0..40 { t += map(eye + rd * t); }
-        let p = eye + rd * t;
-        let hit = step(map(p), 0.01);
+        var closest = 1.0;
+        var at = 0.0;
+        for i in 0..40 {
+            let d = gem(eq + rq * t);
+            let a = d / max(t, 0.5);
+            if a < closest { closest = a; at = t; }
+            t += d;
+        }
+        let dist = gem(eq + rq * t);
+        // One pixel of the effect's picture (half the element's resolution), as an angle.
+        let pixel = 4.0 / (size.y * 2.37);
+        let hit = 1.0 - smoothstep(0.0, pixel, closest);
+        let q = eq + rq * at;
         let e = 0.004;
-        let n = normalize(vec3(
-            map(p + vec3(e, 0.0, 0.0)) - map(p - vec3(e, 0.0, 0.0)),
-            map(p + vec3(0.0, e, 0.0)) - map(p - vec3(0.0, e, 0.0)),
-            map(p + vec3(0.0, 0.0, e)) - map(p - vec3(0.0, 0.0, e))
-        ));
+        let n = unturn(normalize(vec3(
+            gem(q + vec3(e, 0.0, 0.0)) - gem(q - vec3(e, 0.0, 0.0)),
+            gem(q + vec3(0.0, e, 0.0)) - gem(q - vec3(0.0, e, 0.0)),
+            gem(q + vec3(0.0, 0.0, e)) - gem(q - vec3(0.0, 0.0, e))
+        )));
         let v = -rd;
         let l = normalize(vec3(0.5, 0.7, -0.6));
         let f = fresnel(dot(n, v), 0.08);
@@ -35,7 +58,7 @@ effect crystal(
         let inner = mix(glass.rgb, fire.rgb, 0.5 + 0.5 * sin(dot(n, vec3(4.0, 2.0, 3.0)) + time));
         let col = inner * (0.35 + lambert(n, l) * 0.6) + env * f + vec3(pow(max(dot(refl, l), 0.0), 40.0));
         // Edges glow: where neighbouring normals disagree.
-        let halo = exp(-max(map(eye + rd * t), 0.0) * 6.0) * (1.0 - hit) * 0.5;
+        let halo = exp(-max(dist, 0.0) * 6.0) * (1.0 - hit) * 0.5;
         out = vec4(mix(backdrop.rgb + glass.rgb * halo, aces(col), hit), 1.0);
     }
     pass sparkle = bloom(gem, 0.6, 10.0, 0.6);

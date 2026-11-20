@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use vello_cpu::filter_effects::Filter;
 use vello_cpu::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_cpu::peniko::{BlendMode, Fill};
 use vello_cpu::{ImageSource, PaintType, Pixmap, RenderContext, Tint};
@@ -51,6 +52,9 @@ pub trait Surface {
     fn push_clip_layer(&mut self, path: &BezPath);
     /// Starts a layer blended with `blend` at `opacity`.
     fn push_group(&mut self, blend: BlendMode, opacity: f32);
+    /// Starts a layer drawn through `filter` (a Gaussian blur, a drop shadow) in the current
+    /// transform's space, ended by [`pop_layer`](Self::pop_layer).
+    fn push_filter_layer(&mut self, filter: Filter);
     /// Ends the latest layer.
     fn pop_layer(&mut self);
     /// A paint source for premultiplied `pixmap`, `filtered` when it will be sampled
@@ -114,6 +118,9 @@ impl Surface for RenderContext {
     }
     fn push_group(&mut self, blend: BlendMode, opacity: f32) {
         RenderContext::push_layer(self, None, Some(blend), Some(opacity), None, None);
+    }
+    fn push_filter_layer(&mut self, filter: Filter) {
+        RenderContext::push_filter_layer(self, filter);
     }
     fn pop_layer(&mut self) {
         RenderContext::pop_layer(self);

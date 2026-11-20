@@ -124,6 +124,52 @@ fn constants_fold_and_frame_values_are_hoisted() {
 }
 
 #[test]
+fn whole_powers_become_products_with_the_same_pixels() {
+    let src = |k: &str| {
+        format!(
+            "effect x {{ scale 1.0; pass p {{ let v = uv.x * 2.0 - 1.0;
+                out = vec3({k}, {k}, {k}) * 0.5 + 0.5; }} }}"
+        )
+    };
+    for (n, by_hand) in [
+        ("2.0", "v * v"),
+        ("3.0", "v * v * v"),
+        ("4.0", "(v * v) * (v * v)"),
+        ("5.0", "(v * v) * (v * v) * v"),
+        ("8.0", "((v * v) * (v * v)) * ((v * v) * (v * v))"),
+    ] {
+        let lowered = compile(&src(&format!("pow(v, {n})"))).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(ops(shade(&lowered, 0), Op::Pow), 0, "pow(v, {n}) is still a pow");
+        let hand = compile(&src(by_hand)).unwrap_or_else(|e| unreachable!("{e}"));
+        // Odd powers keep the sign (v runs from -1 to 1 across the frame).
+        assert_eq!(render(lowered, 0.0), render(hand, 0.0), "pow(v, {n})");
+    }
+    // Other exponents stay a pow.
+    for other in ["pow(abs(v), 2.5)", "pow(v, 9.0)", "pow(v, -2.0)", "pow(abs(v), uv.y)"] {
+        let e = compile(&src(other)).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(ops(shade(&e, 0), Op::Pow), 1, "{other}");
+    }
+}
+
+#[test]
+fn a_product_used_once_by_a_sum_fuses_into_one_instruction() {
+    let fused = compile("effect x { scale 1.0; pass p { out = vec3(uv.x * uv.y + uv.x); } }")
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    let p = shade(&fused, 0);
+    assert_eq!((ops(p, Op::Fma), ops(p, Op::Mul), ops(p, Op::Add)), (1, 0, 0), "{:?}", p.code);
+    // A product used twice is computed once and kept.
+    let shared =
+        compile("effect x { scale 1.0; pass p { let m = uv.x * uv.y; out = vec3(m + uv.x, m, 0.0); } }")
+            .unwrap_or_else(|e| unreachable!("{e}"));
+    let p = shade(&shared, 0);
+    assert_eq!((ops(p, Op::Fma), ops(p, Op::Mul)), (0, 1), "{:?}", p.code);
+    // The same pixels as the two instructions.
+    let by_hand = compile("effect x { scale 1.0; pass p { out = vec3(fma(uv.x, uv.y, uv.x)); } }")
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert_eq!(render(fused, 0.0), render(by_hand, 0.0));
+}
+
+#[test]
 fn common_work_is_shared() {
     let e = compile("effect x { scale 1.0; pass p { out = vec3(noise(uv * 4.0) + noise(uv * 4.0)); } }")
         .unwrap_or_else(|e| unreachable!("{e}"));
@@ -300,4 +346,84 @@ fn the_same_source_compiles_the_same() {
     for (_, src) in remedy_ui_effects::LIBRARY {
         assert_eq!(compile(src), compile(src));
     }
+    // A branch that changes several variables (the merge once followed a hash map's order).
+    let src = "effect x { scale 1.0; pass p {
+        var a = 0.0; var b = 0.0; var c = 0.0; var d = 0.0; var e = 0.0; var f = 0.0;
+        if uv.x < 0.5 { a = 1.0; b = uv.y; c = 2.0; d = uv.x; e = 3.0; f = 4.0; }
+        out = vec3(a + b * c, d + e, f); } }";
+    let first = compile(src);
+    for _ in 0..16 {
+        assert_eq!(compile(src), first);
+    }
+}
+
+#[test]
+fn slips_of_the_keyboard_get_a_suggestion() {
+    let cases = [
+        ("effect x { pass p { out = fmb(uv, 3); } }", "`fmb` is not a function; did you mean `fbm`?"),
+        ("effect x { pass p { out = smoothstpe(0.0, 1.0, uv.x); } }", "did you mean `smoothstep`?"),
+        ("effect x { pass p { out = sd_circel(uv, 0.3); } }", "did you mean `sd_circle`?"),
+        (
+            "effect x(float glow = 1.0) { pass p { out = glwo; } }",
+            "`glwo` is not defined; did you mean `glow`?",
+        ),
+        ("effect x { pass p { let shade = 1.0; out = shdae; } }", "did you mean `shade`?"),
+        ("effect x { pass p { out = vec4(tiem); } }", "did you mean `time`?"),
+        ("effect x { pass base { out = 1.0; } pass b = blur(bsae, 2.0); }", "did you mean `base`?"),
+        ("effect x { pass base { out = 1.0; } output bsae; }", "did you mean `base`?"),
+        (
+            "effect x { fn f(v: flaot) -> float { return v; } pass p { out = f(1.0); } }",
+            "did you mean `float`?",
+        ),
+        (
+            "effect x { pass ripple { out = 1.0; } pass p { out = sample(rippel, uv); } }",
+            "did you mean `ripple`?",
+        ),
+    ];
+    for (src, says) in cases {
+        let e = err(src);
+        assert!(e.contains(says), "{src}\n  gave: {e}\n  wanted: {says}");
+    }
+    // Nothing near enough: no guess.
+    let e = err("effect x { pass p { out = wibblewobble(uv); } }");
+    assert!(e.contains("is not a function") && !e.contains("did you mean"), "{e}");
+}
+
+#[test]
+fn reports_show_the_line_and_where_on_it() {
+    let src = "effect x {\n    pass p {\n        out = vec4(fmb(uv, 3));\n    }\n}";
+    let Err(e) = Effect::compile(src) else { unreachable!("does not compile") };
+    let report = e.report(src);
+    let want = "error: `fmb` is not a function; did you mean `fbm`?\n --> 3:20\n  |\n3 |         out = vec4(fmb(uv, 3));\n  |                    ^\n";
+    assert_eq!(report, want);
+}
+
+#[test]
+fn over_budget_effects_name_the_passes_that_cost_most() {
+    // A cheap pass, then a heavy one: the error points at the heavy pass and names it.
+    let src = "effect x {\n scale 1.0;\n pass cheap { out = uv.x; }\n pass heavy { var a = 0.0; for i in 0..40 { a += fbm(uv * float(i + 1), 8); } out = a; }\n}";
+    let e = Effect::compile_with(src, &Limits::untrusted()).map_err(|e| e.to_string());
+    let Err(e) = e else { unreachable!("over the untrusted budget") };
+    assert!(e.starts_with("4:2"), "located at the heavy pass: {e}");
+    assert!(e.contains("most of it: `heavy`"), "{e}");
+}
+
+#[test]
+fn effects_know_whether_they_move() {
+    let still = compile("effect s(float k = 0.5) { pass p { out = vec3(noise(uv * 8.0) * k); } }");
+    assert!(still.is_ok_and(|e| !e.animated), "no time, no particles, no feedback: a still picture");
+    for src in [
+        "effect a { pass p { out = vec3(sin(time)); } }",
+        "effect b { const k = time * 2.0; pass p { out = vec3(k); } }",
+        "effect c { pass p { out = sample(last, uv); } }",
+        "effect d { particles s (count: 4) { pos = vec2(1.0); } }",
+    ] {
+        assert!(compile(src).is_ok_and(|e| e.animated), "{src} moves");
+    }
+    let still_ones: Vec<&str> = remedy_ui_effects::LIBRARY
+        .iter()
+        .filter(|(n, _)| remedy_ui_effects::library(n).is_some_and(|e| !e.animated))
+        .map(|(n, _)| *n)
+        .collect();
+    assert_eq!(still_ones, vec!["frost", "paper"], "the built-in effects that do not move");
 }

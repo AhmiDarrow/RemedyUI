@@ -1,0 +1,32 @@
+// Code rain: columns of flickering blocky glyphs falling at their own speeds, bright at the
+// head and fading behind: terminals, hacker scenes, a sci-fi console. Blend plus over dark.
+effect code_rain(
+    color tint = #5cff8a,
+    float cell_px = 14.0 in 6..60,
+    float speed = 1.0 in 0..4,
+    float density = 0.7 in 0..1,
+) {
+    fps 30;
+    scale 1.0;
+    blend plus;
+
+    pass rain {
+        let cw = vec2(cell_px * 0.6, cell_px);
+        let cell = floor(px / cw);
+        let h = hash3(vec2(cell.x, 17.0));
+        // Each column's drop: its own speed and start, wrapping a little past the bottom.
+        let rows = size.y / cell_px + 24.0;
+        let head = fract(time * speed * (0.15 + h.x * 0.25) + h.y) * rows;
+        let behind = head - cell.y;
+        let lit = step(0.0, behind) * exp(-behind * 0.07) * step(h.z, density);
+        // A 3 x 5 glyph that changes now and then.
+        let local = fract(px / cw);
+        let g = floor(local * vec2(3.0, 5.0));
+        let flick = floor(time * 5.0 + hash(cell) * 10.0);
+        let bit = step(0.4, hash(vec4(cell.x, cell.y, g.x + g.y * 3.0, flick)));
+        let inside = step(0.12, local.x) * step(local.x, 0.88) * step(0.08, local.y) * step(local.y, 0.92);
+        let near = exp(-abs(behind) * 1.5);
+        let k = lit * bit * inside;
+        out = vec4(mix(tint.rgb, vec3(1.0), clamp(near, 0.0, 1.0) * 0.8), clamp(k * (0.7 + near), 0.0, 1.0));
+    }
+}

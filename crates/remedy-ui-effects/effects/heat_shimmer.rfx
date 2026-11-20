@@ -9,11 +9,18 @@ effect heat_shimmer(
     fps 30;
     scale 1.0;
 
-    pass shimmer {
+    // The air's waver: smooth over tens of pixels, so half the resolution draws it the same
+    // at a quarter of the work. Stored around 0.5 in two channels.
+    pass air scale 0.5 {
         let n = vec2(
             fbm(vec2(px.x * 0.04, px.y * 0.02 + time * speed * 2.0), 3),
             fbm(vec2(px.x * 0.04 + 9.0, px.y * 0.02 + time * speed * 2.6), 3)
-        ) - vec2(0.5);
+        );
+        out = vec4(n, 0.0, 1.0);
+    }
+
+    pass shimmer {
+        let n = sample(air, uv).rg - vec2(0.5);
         let k = strength * mix(1.0, uv.y, rise) * 6.0;
         out = sample(art, uv + n * k / size);
     }

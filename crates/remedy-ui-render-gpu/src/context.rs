@@ -65,6 +65,10 @@ pub struct GpuContext {
     pub rung: Rung,
     lost: Arc<AtomicBool>,
     errors: Arc<Mutex<Vec<String>>>,
+    /// The staging buffer the latest read back used, kept for the next one of the same size
+    /// (snapshots, GPU content shown by the CPU renderer) and freed by
+    /// [`trim_memory`](GpuContext::trim_memory) when the system asks for memory back.
+    pub(crate) readback: Arc<Mutex<Option<wgpu::Buffer>>>,
     /// Textures the app renders and display lists place (`Item::Texture`).
     pub(crate) textures: crate::external::Registry,
     pub(crate) serial: u64,
@@ -73,6 +77,22 @@ pub struct GpuContext {
     /// WebGL2 device belongs to the canvas it was made for. `None` everywhere else.
     pub(crate) bound_canvas: Option<u32>,
 }
+
+/// The most GPU errors kept between calls to [`GpuContext::take_errors`]. An app that never
+/// asks must not grow without bound when one error repeats every frame.
+pub const MAX_KEPT_ERRORS: usize = 64;
+
+/// Keeps the first errors (the cause is usually among them), then one line saying more came.
+fn keep_error(v: &mut Vec<String>, e: String) {
+    if v.len() < MAX_KEPT_ERRORS {
+        v.push(e);
+    } else if v.len() == MAX_KEPT_ERRORS {
+        v.push(DROPPED_ERRORS.into());
+    }
+}
+
+/// The last of the errors kept when more came than [`MAX_KEPT_ERRORS`].
+const DROPPED_ERRORS: &str = "more GPU errors came and were dropped";
 
 /// The browser canvas id behind a window's handles, if it is one.
 pub(crate) fn canvas_id(handles: &dyn WindowHandles) -> Option<u32> {
@@ -130,7 +150,8 @@ impl GpuContext {
             (Rung::Primary, true) => wgpu::Backends::BROWSER_WEBGPU,
             // Browsers offer no software adapter to fall back to.
             (Rung::Software, true) => return Err(GpuError::NoAdapter),
-            (Rung::Primary | Rung::Software, false) => wgpu::Backends::PRIMARY,
+            // `WGPU_BACKEND=dx12` (or `vulkan`) picks one backend where a machine has both.
+            (Rung::Primary | Rung::Software, false) => wgpu::Backends::PRIMARY.with_env(),
             (Rung::Gl, _) => wgpu::Backends::GL,
         };
         let instance = wgpu::Instance::new(desc);
@@ -186,7 +207,7 @@ impl GpuContext {
         let sink = errors.clone();
         device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
             if let Ok(mut v) = sink.lock() {
-                v.push(e.to_string());
+                keep_error(&mut v, e.to_string());
             }
         }));
         static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -200,6 +221,7 @@ impl GpuContext {
             rung,
             lost,
             errors,
+            readback: Arc::default(),
             textures,
             serial,
             timer: Default::default(),
@@ -222,7 +244,16 @@ impl GpuContext {
         self.lost.store(true, Ordering::SeqCst);
     }
 
-    /// GPU validation errors recorded since the last call (an empty list in a healthy run).
+    /// Frees what this device keeps only to go faster next time (the read back's staging
+    /// buffer, 33 MB for a 4K frame), when the system asks for memory back.
+    pub fn trim_memory(&self) {
+        if let Ok(mut b) = self.readback.lock() {
+            *b = None;
+        }
+    }
+
+    /// GPU validation errors recorded since the last call (an empty list in a healthy run): the
+    /// first [`MAX_KEPT_ERRORS`], then a line saying more were dropped.
     pub fn take_errors(&self) -> Vec<String> {
         self.errors.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default()
     }
@@ -231,7 +262,7 @@ impl GpuContext {
     #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), allow(dead_code))]
     pub(crate) fn record_error(&self, e: String) {
         if let Ok(mut v) = self.errors.lock() {
-            v.push(e);
+            keep_error(&mut v, e);
         }
     }
 
@@ -239,5 +270,42 @@ impl GpuContext {
     pub fn describe(&self) -> String {
         let info = self.adapter.get_info();
         format!("{} ({:?}, {:?})", info.name, info.backend, self.rung)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_repeating_gpu_error_keeps_a_bounded_list() {
+        let mut v = Vec::new();
+        for i in 0..1000 {
+            super::keep_error(&mut v, format!("error {i}"));
+        }
+        assert_eq!(v.len(), super::MAX_KEPT_ERRORS + 1);
+        assert_eq!(v.first().map(String::as_str), Some("error 0"), "the first errors are kept");
+        assert_eq!(v.last().map(String::as_str), Some(super::DROPPED_ERRORS));
+    }
+
+    #[test]
+    fn memory_pressure_frees_the_read_back_buffer_and_reading_still_works() {
+        let Ok(ctx) = super::GpuContext::new(&crate::LadderOptions::default()) else {
+            unreachable!("every machine has at least the software rung")
+        };
+        let texture = ctx.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d { width: 64, height: 8, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let held = |c: &super::GpuContext| c.readback.lock().map(|b| b.is_some()).unwrap_or(false);
+        assert!(ctx.read_back(&texture).is_ok());
+        assert!(held(&ctx), "kept for the next read back");
+        ctx.trim_memory();
+        assert!(!held(&ctx), "freed when the system asks for memory");
+        assert!(ctx.read_back(&texture).is_ok_and(|f| f.pixels.len() == 64 * 8 * 4));
     }
 }

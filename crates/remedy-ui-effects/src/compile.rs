@@ -12,7 +12,16 @@ use crate::Limits;
 use crate::ir::{
     Effect, Input, Instr, Op, Param, ParamType, Particles, Program, Slot, Source, Splat, Stage, StageKind,
 };
-use crate::syntax::{BinOp, Diagnostic, Expr, File, FnDecl, Item, Span, Stmt};
+use crate::syntax::{BinOp, Diagnostic, Expr, File, FnDecl, Item, Span, Stmt, with_suggestion};
+
+/// Where an item starts.
+fn item_at(item: &Item) -> Span {
+    match item {
+        Item::Setting(_, _, at) | Item::Const(_, _, at) | Item::Output(_, at) => *at,
+        Item::Fn(f) => f.at,
+        Item::Pass { at, .. } | Item::Filter { at, .. } | Item::Particles { at, .. } => *at,
+    }
+}
 
 type R<T> = Result<T, Diagnostic>;
 
@@ -171,6 +180,16 @@ impl Graph {
         }
     }
 
+    /// `x` to the whole power `n` (at least 1), by squaring and multiplying.
+    fn power(&mut self, x: u32, n: u32, at: Span) -> R<u32> {
+        if n == 1 {
+            return Ok(x);
+        }
+        let sq = self.op(Op::Mul, 0, &[x, x], at)?;
+        let half = self.power(sq, n / 2, at)?;
+        if n % 2 == 1 { self.op(Op::Mul, 0, &[half, x], at) } else { Ok(half) }
+    }
+
     /// An operation, folded when every operand is known.
     fn op(&mut self, op: Op, imm: u16, args: &[u32], at: Span) -> R<u32> {
         let mut a = [NONE; 4];
@@ -195,6 +214,15 @@ impl Graph {
             Op::Add if is(self, a[0], 0.0) => return Ok(a[1]),
             Op::Add | Op::Sub if is(self, a[1], 0.0) => return Ok(a[0]),
             Op::Div if is(self, a[1], 1.0) => return Ok(a[0]),
+            Op::Pow if is(self, a[1], 1.0) => return Ok(a[0]),
+            // A small whole power is a product (squaring and multiplying): cheaper than
+            // `pow`'s exp(log), and the same value, since the interpreter's `pow` gives the
+            // sign of odd powers back, as a product does.
+            Op::Pow => {
+                if let Some(n) = (2..=8u32).find(|n| is(self, a[1], *n as f32)) {
+                    return self.power(a[0], n, at);
+                }
+            }
             _ => {}
         }
         self.add(NodeKey::Op(op, imm, a), at)
@@ -434,11 +462,13 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
                 };
                 let src_of = |c: &Compiler<'_>, e: Option<&(Option<String>, Expr)>| -> R<u8> {
                     match e {
-                        Some((_, Expr::Name(n, s))) => c
-                            .buffers
-                            .get(n)
-                            .copied()
-                            .ok_or_else(|| Diagnostic::new(*s, format!("`{n}` is not an earlier pass"))),
+                        Some((_, Expr::Name(n, s))) => c.buffers.get(n).copied().ok_or_else(|| {
+                            let known = c.buffers.keys().map(String::as_str);
+                            Diagnostic::new(
+                                *s,
+                                with_suggestion(format!("`{n}` is not an earlier pass"), n, known),
+                            )
+                        }),
                         _ => Err(Diagnostic::new(*cat, "the first argument is the pass to filter")),
                     }
                 };
@@ -457,6 +487,7 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
                             src,
                             radius: frame_roots.len() - 1,
                             scale: s,
+                            at: *at,
                         });
                     }
                     "bloom" => {
@@ -484,6 +515,7 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
                             src: bright_buf,
                             radius: frame_roots.len() - 1,
                             scale: s * 0.5,
+                            at: *at,
                         });
                         let combined = c.bloom_combine(src, bright_buf + 1, strength.0, *cat)?;
                         c.new_buffer(name, *at, base + 2)?;
@@ -505,12 +537,13 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
             Item::Particles { name, over, opts, body, at } => {
                 c.check_new_name(name, *at)?;
                 let src = match over {
-                    Some(o) => Some(
-                        c.buffers
-                            .get(o)
-                            .copied()
-                            .ok_or_else(|| Diagnostic::new(*at, format!("`{o}` is not an earlier pass")))?,
-                    ),
+                    Some(o) => Some(c.buffers.get(o).copied().ok_or_else(|| {
+                        let known = c.buffers.keys().map(String::as_str);
+                        Diagnostic::new(
+                            *at,
+                            with_suggestion(format!("`{o}` is not an earlier pass"), o, known),
+                        )
+                    })?),
                     None => None,
                 };
                 let mut count = 100u32;
@@ -604,13 +637,14 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
                     life: frame_roots.len() - 1,
                     splat,
                     blend: pblend,
+                    at: *at,
                 });
             }
             Item::Output(name, at) => output = Some((name.clone(), *at)),
         }
         if pending.len() + stages.len() > limits.max_stages {
             return Err(Diagnostic::new(
-                Span { line: 1, col: 1 },
+                item_at(item),
                 format!("more than {} passes (bloom counts as three)", limits.max_stages),
             ));
         }
@@ -620,8 +654,10 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
     }
     // The output: the last stage, or the one named (moved last by copying it with a pass).
     if let Some((name, at)) = output {
-        let idx =
-            *c.buffers.get(&name).ok_or_else(|| Diagnostic::new(at, format!("`{name}` is not a pass")))?;
+        let idx = *c.buffers.get(&name).ok_or_else(|| {
+            let known = c.buffers.keys().map(String::as_str);
+            Diagnostic::new(at, with_suggestion(format!("`{name}` is not a pass"), &name, known))
+        })?;
         if usize::from(idx) + 1 != pending.len() {
             let uv = c.g.add(NodeKey::Leaf(Leaf::Input(Input::Uv as u16)), at)?;
             let copy = c.g.op(Op::Sample, Source::Buffer(idx).encode(), &[uv], at)?;
@@ -645,7 +681,14 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
     let uniforms = c.codegen(&hoisted, &mut Vec::new(), true)?;
 
     let mut cost = 0.0f64;
+    // Each stage's share of the cost, for a located, itemised error when the effect is over.
+    let mut shares: Vec<(String, f64, Span)> = Vec::new();
     for (p, prog) in pending.into_iter().zip(programs) {
+        let at = match &p {
+            PendingStage::Shade { at, .. }
+            | PendingStage::Blur { at, .. }
+            | PendingStage::Particles { at, .. } => *at,
+        };
         let prog = prog.unwrap_or_default();
         let (stage, pixel_cost) = match p {
             PendingStage::Shade { name, scale: s, at, .. } => {
@@ -689,7 +732,7 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
                 let w = f64::from(prog.cost()) * f64::from(s * s);
                 (Stage { name, kind: StageKind::Shade(prog), scale: s }, w)
             }
-            PendingStage::Blur { name, src, radius, scale: s } => (
+            PendingStage::Blur { name, src, radius, scale: s, .. } => (
                 Stage { name, kind: StageKind::Blur { src, radius }, scale: s },
                 BLUR_COST * f64::from(s * s),
             ),
@@ -697,7 +740,7 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
                 let work = u64::from(count) * u64::from(prog.cost() + 40);
                 if work > limits.max_particle_work {
                     return Err(Diagnostic::new(
-                        Span { line: 1, col: 1 },
+                        at,
                         format!(
                             "particles `{name}` cost {work} a frame; the most is {}",
                             limits.max_particle_work
@@ -709,21 +752,44 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
             }
         };
         cost += pixel_cost;
+        shares.push((stage.name.clone(), pixel_cost * f64::from(scale * scale), at));
         stages.push(stage);
     }
     let cost = (cost * f64::from(scale * scale)).ceil() as u32;
     if cost > limits.max_effect_cost {
+        // Located at the costliest pass, naming the ones that cost most.
+        shares.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let at = shares.first().map_or(Span { line: 1, col: 1 }, |s| s.2);
+        let most: Vec<String> =
+            shares.iter().take(3).map(|(n, c, _)| format!("`{n}` {}", c.ceil() as u64)).collect();
         return Err(Diagnostic::new(
-            Span { line: 1, col: 1 },
+            at,
             format!(
-                "the effect costs {cost} an element pixel; the most is {} (lower `scale` or simplify)",
-                limits.max_effect_cost
+                "the effect costs {cost} an element pixel; the most is {} (most of it: {}; lower `scale`, \
+                 a pass's scale, or simplify)",
+                limits.max_effect_cost,
+                most.join(", ")
             ),
         ));
     }
     if uniforms.code.len() > limits.max_instructions {
-        return Err(Diagnostic::new(Span { line: 1, col: 1 }, "too much per-frame work"));
+        return Err(Diagnostic::new(
+            Span { line: 1, col: 1 },
+            format!(
+                "the per-frame values (constants, settings, particle lives) are {} instructions; the most is {}",
+                uniforms.code.len(),
+                limits.max_instructions
+            ),
+        ));
     }
+    let reads_time = |p: &Program| p.code.iter().any(|i| i.op == Op::Input && i.imm == Input::Time as u16);
+    let animated = c.feedback
+        || reads_time(&uniforms)
+        || stages.iter().any(|s| match &s.kind {
+            StageKind::Shade(p) => reads_time(p),
+            StageKind::Particles { .. } => true,
+            StageKind::Blur { .. } => false,
+        });
     Ok(Effect {
         name: file.name.clone(),
         params: c.params,
@@ -735,6 +801,7 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
         blend,
         still,
         feedback: c.feedback,
+        animated,
         cost,
     })
 }
@@ -757,6 +824,7 @@ enum PendingStage {
         src: u8,
         radius: usize,
         scale: f32,
+        at: Span,
     },
     Particles {
         name: String,
@@ -766,6 +834,7 @@ enum PendingStage {
         life: usize,
         splat: Splat,
         blend: Blend,
+        at: Span,
     },
 }
 
@@ -1107,9 +1176,12 @@ impl Compiler<'_> {
                     scope.push(HashMap::new());
                     self.stmts(otherwise, scope, ctx, None)?;
                     scope.pop();
-                    // Every variable either branch changed: select per variable.
+                    // Every variable either branch changed: select per variable, in name
+                    // order, so the same source always compiles to the same program.
                     for (lvl, (t, e)) in after_then.iter().zip(scope.iter_mut()).enumerate() {
-                        for (name, tb) in t {
+                        let mut names: Vec<(&String, &Binding)> = t.iter().collect();
+                        names.sort_unstable_by(|a, b| a.0.cmp(b.0));
+                        for (name, tb) in names {
                             let Some(eb) = e.get_mut(name) else { continue };
                             let orig = before.get(lvl).and_then(|m| m.get(name));
                             let same = |a: &Val, b: &Val| match (a, b) {
@@ -1295,7 +1367,17 @@ impl Compiler<'_> {
             }
             return Ok(Val::V(self.input(*input, at)?, *ty));
         }
-        Err(Diagnostic::new(at, format!("`{name}` is not defined")))
+        let mut known: Vec<&str> = Vec::new();
+        for frame in scope {
+            known.extend(frame.keys().map(String::as_str));
+        }
+        known.extend(self.consts.keys().map(String::as_str));
+        known.extend(self.params.iter().map(|p| p.name.as_str()));
+        known.extend(self.textures.iter().map(String::as_str));
+        known.extend(self.buffers.keys().map(String::as_str));
+        known.extend(["pi", "tau", "last"]);
+        known.extend(INPUTS.iter().map(|(n, ..)| *n));
+        Err(Diagnostic::new(at, with_suggestion(format!("`{name}` is not defined"), name, known)))
     }
 
     fn binary(&mut self, op: BinOp, a: Val, b: Val, at: Span) -> R<Val> {
@@ -1459,6 +1541,13 @@ impl Compiler<'_> {
         if let Some(f) = self.fns.get(name).cloned() {
             return self.inline(&f, args, at, scope, ctx);
         }
+        if !BUILTINS.contains(&name) {
+            let known = self.fns.keys().map(String::as_str).chain(BUILTINS.iter().copied());
+            return Err(Diagnostic::new(
+                at,
+                with_suggestion(format!("`{name}` is not a function"), name, known),
+            ));
+        }
         // Built-ins: arguments first (sample takes a source).
         let mut vals = Vec::new();
         for (_, a) in args {
@@ -1494,8 +1583,10 @@ impl Compiler<'_> {
         let mut frame = HashMap::new();
         for ((pname, pty), (_, e)) in f.args.iter().zip(args) {
             let v = self.expr(e, scope, ctx)?;
-            let want =
-                Ty::parse(pty).ok_or_else(|| Diagnostic::new(f.at, format!("`{pty}` is not a type")))?;
+            let want = Ty::parse(pty).ok_or_else(|| {
+                let known = ["float", "vec2", "vec3", "vec4", "color", "mat3", "mat4"];
+                Diagnostic::new(f.at, with_suggestion(format!("`{pty}` is not a type"), pty, known))
+            })?;
             let got = match &v {
                 Val::V(_, t) | Val::M(_, t) => *t,
                 Val::Src(_) | Val::Unset => {
@@ -1589,6 +1680,52 @@ impl Compiler<'_> {
                 }
             }
         }
+        // A multiply whose only use is an add becomes part of it: one `fma` instead of two
+        // instructions (the interpreter computes `a * b + c` unfused, so the value is the same).
+        let mut uses: HashMap<u32, usize> = HashMap::new();
+        for (id, n) in self.g.nodes.iter().enumerate() {
+            if need.get(id).copied().unwrap_or(false)
+                && let NodeKey::Op(_, _, args) = &n.key
+            {
+                for a in args.iter().filter(|a| **a != NONE) {
+                    *uses.entry(*a).or_default() += 1;
+                }
+            }
+        }
+        let mut fused: HashMap<u32, [u32; 4]> = HashMap::new();
+        for (id, n) in self.g.nodes.iter().enumerate() {
+            let id = id as u32;
+            if !need.get(id as usize).copied().unwrap_or(false) {
+                continue;
+            }
+            let NodeKey::Op(Op::Add, _, [x, y, ..]) = n.key else { continue };
+            let product = |m: u32| match self.g.nodes.get(m as usize).map(|n| &n.key) {
+                Some(NodeKey::Op(Op::Mul, 0, [a, b, ..]))
+                    if need.get(m as usize).copied().unwrap_or(false)
+                        && uses.get(&m) == Some(&1)
+                        && !roots.contains(&m) =>
+                {
+                    Some([*a, *b])
+                }
+                _ => None,
+            };
+            let (m, [a, b], other) = match (product(x), product(y)) {
+                (Some(ab), _) => (x, ab, y),
+                (None, Some(ab)) => (y, ab, x),
+                (None, None) => continue,
+            };
+            if let Some(f) = need.get_mut(m as usize) {
+                *f = false;
+            }
+            fused.insert(id, [a, b, other, NONE]);
+        }
+        let key_of = |id: u32| -> Option<NodeKey> {
+            let n = self.g.nodes.get(id as usize)?;
+            Some(match fused.get(&id) {
+                Some(args) => NodeKey::Op(Op::Fma, 0, *args),
+                None => n.key.clone(),
+            })
+        };
         // Constants that are roots still need a register: load them.
         let order: Vec<u32> = (0..self.g.nodes.len() as u32)
             .filter(|i| {
@@ -1599,7 +1736,7 @@ impl Compiler<'_> {
         // Last use of every value, for register reuse.
         let mut last: HashMap<u32, usize> = HashMap::new();
         for (pos, id) in order.iter().enumerate() {
-            if let Some(NodeKey::Op(_, _, args)) = self.g.nodes.get(*id as usize).map(|n| &n.key)
+            if let Some(NodeKey::Op(_, _, args)) = key_of(*id)
                 && need.get(*id as usize).copied().unwrap_or(false)
             {
                 for a in args.iter().filter(|a| **a != NONE) {
@@ -1648,14 +1785,14 @@ impl Compiler<'_> {
         };
         let mut const_regs: Vec<(u32, u8)> = Vec::new();
         for (pos, id) in order.iter().enumerate() {
-            let Some(node) = self.g.nodes.get(*id as usize) else { continue };
+            let Some(key) = key_of(*id) else { continue };
             if !need.get(*id as usize).copied().unwrap_or(false) {
                 // A constant root.
                 let r = load(*id, &mut code, &mut reg, &mut free, &mut alloc)?;
                 const_regs.push((*id, r));
                 continue;
             }
-            let ins = match &node.key {
+            let ins = match &key {
                 NodeKey::Leaf(Leaf::Input(i)) => {
                     let r = alloc(&mut free)?;
                     Instr { op: Op::Input, dst: r, src: [0; 4], imm: *i }

@@ -4,6 +4,7 @@
 //! - `cargo remedy docs <query>` / `docs read <path>` / `docs list`
 //! - `cargo remedy widgets [name] [--feature <f>]`
 //! - `cargo remedy rui check|compile <file>` / `rui elements`
+//! - `cargo remedy rfx check|render <file or built-in>` / `rfx library`
 //! - `cargo remedy preview <function> [--png <file>]` / `audit <function>`
 //! - `cargo remedy test [filter]` / `budgets [scene]`
 //! - `cargo remedy app connect|snapshot|act|command|undo`
@@ -12,6 +13,7 @@
 mod app;
 mod docs;
 mod preview;
+mod rfx;
 mod rui;
 mod testing;
 
@@ -19,7 +21,7 @@ use std::collections::BTreeMap;
 
 /// The commands this module answers.
 const COMMANDS: &[&str] =
-    &["docs", "widgets", "rui", "preview", "previews", "audit", "test", "budgets", "app", "devtools"];
+    &["docs", "widgets", "rui", "rfx", "preview", "previews", "audit", "test", "budgets", "app", "devtools"];
 
 /// Help for these commands, shown with cargo remedy's own.
 pub const HELP: &str = "\
@@ -31,6 +33,11 @@ DEVELOPER TOOLS (the same tools remedy-mcp offers agents; add --json for scripts
     cargo remedy rui check <file> [--elements <specs.json>]          check .rui markup
     cargo remedy rui compile <file> [--elements <specs.json>] [--out <file.rs>]
     cargo remedy rui elements                                        the built-in elements
+    cargo remedy rfx check <file.rfx|name> [--untrusted]             check a Prism effect: problems
+                                                                     under their lines, cost by pass
+    cargo remedy rfx render <file.rfx|name> --png <file> [--size <w>x<h>] [--scale <s>]
+                     [--time <t>] [--set name=v[,v..]]... [--background #rrggbb|none]
+    cargo remedy rfx library                                         the built-in effects
     cargo remedy preview <function> [--png <file>] [--size <w>x<h>] [--scale <s>]
                          [--theme dark|light|<palette>] [--locale <tag>] [--text-scale <s>]
                          [--app <dir>]                               render a preview
@@ -60,6 +67,7 @@ pub fn run(cmd: &str, args: &[String]) -> Result<(), String> {
         "docs" => docs::docs(&a),
         "widgets" => docs::widgets(&a),
         "rui" => rui::rui(&a),
+        "rfx" => rfx::rfx(&a),
         "preview" => preview::preview(&a, false),
         "audit" => preview::preview(&a, true),
         "previews" => preview::previews(&a),
@@ -72,7 +80,7 @@ pub fn run(cmd: &str, args: &[String]) -> Result<(), String> {
 }
 
 /// Flags that take no value.
-const SWITCHES: &[&str] = &["--json", "--release", "--include-ignored", "--list"];
+const SWITCHES: &[&str] = &["--json", "--release", "--include-ignored", "--list", "--untrusted"];
 
 /// Parsed arguments: positionals and `--flag value` pairs.
 #[derive(Debug, Default)]
@@ -80,6 +88,8 @@ pub struct Args {
     /// Positional arguments, in order.
     pub positional: Vec<String>,
     flags: BTreeMap<String, String>,
+    /// Every `--flag value` in order, for flags given more than once.
+    repeated: Vec<(String, String)>,
 }
 
 impl Args {
@@ -100,12 +110,18 @@ impl Args {
                 a.flags.insert(flag, String::new());
             } else {
                 let Some(v) = args.get(i + 1) else { return Err(format!("{arg} needs a value")) };
+                a.repeated.push((flag.clone(), v.clone()));
                 a.flags.insert(flag, v.clone());
                 i += 1;
             }
             i += 1;
         }
         Ok(a)
+    }
+
+    /// Every value given for `--flag`, in order.
+    pub fn all(&self, flag: &str) -> Vec<String> {
+        self.repeated.iter().filter(|(f, _)| f == flag).map(|(_, v)| v.clone()).collect()
     }
 
     /// The value of `--flag`.
