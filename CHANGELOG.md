@@ -10,6 +10,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Buffered ranges on the player's seek bar**: `Player::buffered()` (a signal of time ranges)
+  holds what can play without waiting: all of a local file; for a stream, what has arrived
+  where the decoder says (`Decoder::buffered`, a new provided method; GStreamer answers its
+  buffering query) joined with what the player has decoded ahead. The seek bar draws them
+  in a light tone behind the played part. `merge_ranges` sorts and joins ranges.
 - **Mipmaps for images drawn scaled down**, on both renderers alike: an image drawn smoothly
   at half its size or less is drawn from a halved copy (built once in the shared painter,
   freed with the image), so it no longer shimmers, and only the level drawn is uploaded to

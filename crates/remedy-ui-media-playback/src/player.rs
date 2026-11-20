@@ -104,6 +104,7 @@ struct Inner {
     error: Signal<Option<MediaError>>,
     audio_error: Signal<Option<MediaError>>,
     stats: Signal<PlaybackStats>,
+    buffered: Signal<Vec<std::ops::Range<Duration>>>,
     volume: Signal<f32>,
     muted: Signal<bool>,
     tracks: Signal<Vec<SubtitleTrack>>,
@@ -125,7 +126,7 @@ impl Inner {
     /// Takes the news from the player's thread into the signals.
     fn pull(&self) {
         self.shared.posted.store(false, Ordering::Release);
-        let (state, position, info, error, audio_error, stats, new_tracks, cues) = {
+        let (state, position, info, error, audio_error, stats, new_tracks, cues, buffered) = {
             let mut s = lock(&self.shared.status);
             (
                 s.state,
@@ -136,6 +137,7 @@ impl Inner {
                 s.stats,
                 std::mem::take(&mut s.new_tracks),
                 std::mem::take(&mut s.cues),
+                s.buffered.clone(),
             )
         };
         remedy_ui_reactive::batch(|| {
@@ -162,6 +164,7 @@ impl Inner {
             self.error.set_if_changed(error);
             self.audio_error.set_if_changed(audio_error);
             self.stats.set_if_changed(stats);
+            self.buffered.set_if_changed(buffered);
         });
     }
 
@@ -268,6 +271,7 @@ impl Player {
             error: Signal::new(failed),
             audio_error: Signal::new(None),
             stats: Signal::new(PlaybackStats::default()),
+            buffered: Signal::new(Vec::new()),
             volume: Signal::new(volume),
             muted: Signal::new(false),
             tracks: Signal::new(Vec::new()),
@@ -283,6 +287,13 @@ impl Player {
         p.0.send(Cmd::Volume(volume));
         p.0.send(Cmd::PauseUnseen(p.0.options.unseen == UnseenPolicy::PauseVideo));
         p
+    }
+
+    /// The stretches of the media that can play without waiting for the source, in order:
+    /// all of a local file; for a stream, what has arrived (where the platform's decoder
+    /// says) and what is decoded ahead of the playhead. The seek bar shows them. Tracked.
+    pub fn buffered(&self) -> Vec<std::ops::Range<Duration>> {
+        self.0.buffered.get()
     }
 
     /// Plays (from the start again, once ended).

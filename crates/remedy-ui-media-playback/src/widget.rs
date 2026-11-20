@@ -350,8 +350,9 @@ fn glyph_button(
     button
 }
 
-/// The seek bar: the played part in the accent color and a thumb at the playhead. Drag or
-/// click to move; arrows move 5 seconds, Page Up and Down a tenth, Home and End to the ends.
+/// The seek bar: the played part in the accent color, what can play without waiting
+/// ([`Player::buffered`]) in a lighter tone of the text color, and a thumb at the playhead.
+/// Drag or click to move; arrows move 5 seconds, Page Up and Down a tenth, Home and End to the ends.
 #[track_caller]
 fn seek_bar(ui: &Ui, player: &Player) -> El {
     let h = ui.theme().spacing.control_height;
@@ -393,6 +394,20 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
             CornerRadii::all(2.0),
             Brush::Solid(d.line),
         );
+        if let Some(len) = len() {
+            let at =
+                |d: Duration| x0 + (x1 - x0) * (d.as_secs_f64() / len.as_secs_f64()).clamp(0.0, 1.0) as f32;
+            for r in painted.buffered() {
+                let (a, b) = (at(r.start), at(r.end));
+                if b > a {
+                    cx.list.fill_rounded(
+                        Rect::new(a, mid - 2.0, b, mid + 2.0),
+                        CornerRadii::all(2.0),
+                        Brush::Solid(d.text.with_alpha(0.35)),
+                    );
+                }
+            }
+        }
         cx.list.fill_rounded(
             Rect::new(x0, mid - 2.0, x, mid + 2.0),
             CornerRadii::all(2.0),
@@ -435,6 +450,8 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
     })
     .bind(move || {
         let pos = p2.position();
+        // Repainted as more arrives.
+        let _ = p2.buffered();
         let len = length();
         let _ = b3.clone().disabled(len.is_none() || !p2.info().is_some_and(|i| i.seekable));
         let total = len.unwrap_or_default();
