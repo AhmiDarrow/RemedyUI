@@ -1933,8 +1933,8 @@ fn printed_pages_reach_the_print_dialog() {
     host.run_frames(&mut runner, 1);
     let window = host.window_ids().first().copied();
     assert_eq!(host.prints().len(), 1);
-    let (w, title, html) = &host.prints()[0];
-    assert_eq!((*w, title.as_str()), (window, "Soap Recipe"));
-    assert!(html.contains("Olive 500 g"));
+    let first = host.prints().first();
+    assert_eq!(first.map(|(w, title, _)| (*w, title.as_str())), Some((window, "Soap Recipe")));
+    assert!(first.is_some_and(|(_, _, html)| html.contains("Olive 500 g")));
     assert_eq!(*done.borrow(), [true]);
 }
