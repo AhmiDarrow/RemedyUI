@@ -12,33 +12,37 @@ effect orb(
     fps 30;
     scale 0.5;
 
+    // The scene in the orb's turning space. The turn is about the vertical axis, which
+    // keeps the sphere and the floor where they are, so the whole scene is marched and lit
+    // there: the ray turns once instead of every point on it.
     fn map(p: vec3) -> float {
-        let q = rotate_y(p, time * spin);
-        let n = fbm(q * 1.8 + vec3(0.0, time * 0.3, 0.0), 3);
+        let n = fbm(p * 1.8 + vec3(0.0, time * 0.3, 0.0), 3);
         let ball = sd_sphere(p, 1.0) - (n - 0.5) * wobble * 2.0;
         let floor_plane = p.y + 1.35;
         return min(ball, floor_plane);
     }
 
+    // The surface's normal from four samples on a tetrahedron (instead of six on the axes).
     fn normal(p: vec3) -> vec3 {
         let e = 0.003;
-        return normalize(vec3(
-            map(p + vec3(e, 0.0, 0.0)) - map(p - vec3(e, 0.0, 0.0)),
-            map(p + vec3(0.0, e, 0.0)) - map(p - vec3(0.0, e, 0.0)),
-            map(p + vec3(0.0, 0.0, e)) - map(p - vec3(0.0, 0.0, e))
-        ));
+        let a = vec3(1.0, -1.0, -1.0);
+        let b = vec3(-1.0, -1.0, 1.0);
+        let c = vec3(-1.0, 1.0, -1.0);
+        let d = vec3(1.0, 1.0, 1.0);
+        return normalize(a * map(p + a * e) + b * map(p + b * e) + c * map(p + c * e) + d * map(p + d * e));
     }
 
     pass scene {
-        let eye = vec3(sin(time * 0.1) * 0.6, 0.5, -3.4);
-        let rd = camera_ray(uv, eye, vec3(0.0, -0.1, 0.0), 0.9);
+        let eye_w = vec3(sin(time * 0.1) * 0.6, 0.5, -3.4);
+        let eye = rotate_y(eye_w, time * spin);
+        let rd = rotate_y(camera_ray(uv, eye_w, vec3(0.0, -0.1, 0.0), 0.9), time * spin);
         // March: fixed steps (no early exit, so every pixel costs the same).
         var t = 0.0;
         for i in 0..44 { t += map(eye + rd * t) * 0.95; }
         let p = eye + rd * t;
         let hit = step(map(p), 0.01) * step(t, 12.0);
         let n = normal(p);
-        let l = normalize(vec3(-0.6, 0.8, -0.5));
+        let l = rotate_y(normalize(vec3(-0.6, 0.8, -0.5)), time * spin);
         let v = -rd;
         // Soft shadow towards the light, and ambient occlusion along the normal.
         var sh = 1.0;

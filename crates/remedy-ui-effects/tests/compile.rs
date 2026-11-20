@@ -131,7 +131,13 @@ fn whole_powers_become_products_with_the_same_pixels() {
                 out = vec3({k}, {k}, {k}) * 0.5 + 0.5; }} }}"
         )
     };
-    for (n, by_hand) in [("2.0", "v * v"), ("3.0", "v * v * v"), ("4.0", "(v * v) * (v * v)")] {
+    for (n, by_hand) in [
+        ("2.0", "v * v"),
+        ("3.0", "v * v * v"),
+        ("4.0", "(v * v) * (v * v)"),
+        ("5.0", "(v * v) * (v * v) * v"),
+        ("8.0", "((v * v) * (v * v)) * ((v * v) * (v * v))"),
+    ] {
         let lowered = compile(&src(&format!("pow(v, {n})"))).unwrap_or_else(|e| unreachable!("{e}"));
         assert_eq!(ops(shade(&lowered, 0), Op::Pow), 0, "pow(v, {n}) is still a pow");
         let hand = compile(&src(by_hand)).unwrap_or_else(|e| unreachable!("{e}"));
@@ -139,8 +145,10 @@ fn whole_powers_become_products_with_the_same_pixels() {
         assert_eq!(render(lowered, 0.0), render(hand, 0.0), "pow(v, {n})");
     }
     // Other exponents stay a pow.
-    let e = compile(&src("pow(abs(v), 2.5)")).unwrap_or_else(|e| unreachable!("{e}"));
-    assert_eq!(ops(shade(&e, 0), Op::Pow), 1);
+    for other in ["pow(abs(v), 2.5)", "pow(v, 9.0)", "pow(v, -2.0)", "pow(abs(v), uv.y)"] {
+        let e = compile(&src(other)).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(ops(shade(&e, 0), Op::Pow), 1, "{other}");
+    }
 }
 
 #[test]

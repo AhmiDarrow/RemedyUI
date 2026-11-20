@@ -180,6 +180,16 @@ impl Graph {
         }
     }
 
+    /// `x` to the whole power `n` (at least 1), by squaring and multiplying.
+    fn power(&mut self, x: u32, n: u32, at: Span) -> R<u32> {
+        if n == 1 {
+            return Ok(x);
+        }
+        let sq = self.op(Op::Mul, 0, &[x, x], at)?;
+        let half = self.power(sq, n / 2, at)?;
+        if n % 2 == 1 { self.op(Op::Mul, 0, &[half, x], at) } else { Ok(half) }
+    }
+
     /// An operation, folded when every operand is known.
     fn op(&mut self, op: Op, imm: u16, args: &[u32], at: Span) -> R<u32> {
         let mut a = [NONE; 4];
@@ -205,16 +215,13 @@ impl Graph {
             Op::Add | Op::Sub if is(self, a[1], 0.0) => return Ok(a[0]),
             Op::Div if is(self, a[1], 1.0) => return Ok(a[0]),
             Op::Pow if is(self, a[1], 1.0) => return Ok(a[0]),
-            // A whole power is a product: cheaper than `pow`'s exp(log), and the same value
-            // (the interpreter's `pow` gives the sign of odd powers back, as a product does).
-            Op::Pow if is(self, a[1], 2.0) => return self.op(Op::Mul, 0, &[a[0], a[0]], at),
-            Op::Pow if is(self, a[1], 3.0) => {
-                let sq = self.op(Op::Mul, 0, &[a[0], a[0]], at)?;
-                return self.op(Op::Mul, 0, &[sq, a[0]], at);
-            }
-            Op::Pow if is(self, a[1], 4.0) => {
-                let sq = self.op(Op::Mul, 0, &[a[0], a[0]], at)?;
-                return self.op(Op::Mul, 0, &[sq, sq], at);
+            // A small whole power is a product (squaring and multiplying): cheaper than
+            // `pow`'s exp(log), and the same value, since the interpreter's `pow` gives the
+            // sign of odd powers back, as a product does.
+            Op::Pow => {
+                if let Some(n) = (2..=8u32).find(|n| is(self, a[1], *n as f32)) {
+                    return self.power(a[0], n, at);
+                }
             }
             _ => {}
         }
