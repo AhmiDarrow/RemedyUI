@@ -51,8 +51,8 @@ impl ToolGroup for Effects {
                 let input: RenderInput = args(a)?;
                 let out = render(&input, ws, None)?;
                 let mut text = format!(
-                    "{} x {} pixels at t = {} s, {:.2} ms on the CPU",
-                    out.width, out.height, out.time, out.cpu_ms
+                    "{} x {} pixels (the effect drew at {} x {}) at t = {} s, {:.2} ms on the CPU",
+                    out.width, out.height, out.effect_width, out.effect_height, out.time, out.cpu_ms
                 );
                 if !out.ignored.is_empty() {
                     text.push_str(&format!(

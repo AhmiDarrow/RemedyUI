@@ -59,10 +59,12 @@ pub fn rfx(a: &Args) -> Result<(), String> {
             }
             let out = render(&input, &ws, Some(&png)).map_err(err)?;
             let mut text = format!(
-                "wrote {} ({} x {} at t = {} s, {:.2} ms on the CPU)\n",
+                "wrote {} ({} x {}, drawn at {} x {}, at t = {} s, {:.2} ms on the CPU)\n",
                 out.png_file.clone().unwrap_or(png),
                 out.width,
                 out.height,
+                out.effect_width,
+                out.effect_height,
                 out.time,
                 out.cpu_ms
             );
