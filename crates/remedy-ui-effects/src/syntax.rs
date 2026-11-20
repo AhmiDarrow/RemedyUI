@@ -32,6 +32,95 @@ impl Diagnostic {
     pub(crate) fn new(at: Span, message: impl Into<String>) -> Self {
         Diagnostic { at, message: message.into() }
     }
+
+    /// The problem drawn under its line of `source`, as compilers show them:
+    ///
+    /// ```text
+    /// error: `fmb` is not a function; did you mean `fbm`?
+    ///  --> 4:17
+    ///   |
+    /// 4 |         let n = fmb(uv * 3.0, 4);
+    ///   |                 ^
+    /// ```
+    pub fn render(&self, source: &str) -> String {
+        let Span { line, col } = self.at;
+        let mut out = format!("error: {}\n", self.message);
+        let gutter = line.to_string().len();
+        let pad = " ".repeat(gutter);
+        out.push_str(&format!("{pad}--> {line}:{col}\n"));
+        if let Some(text) = source.lines().nth(line.saturating_sub(1) as usize) {
+            // Tabs count as one column, as the lexer counts them; keep them so the caret lines up.
+            let lead: String = text
+                .chars()
+                .take(col.saturating_sub(1) as usize)
+                .map(|c| if c == '\t' { '\t' } else { ' ' })
+                .collect();
+            out.push_str(&format!("{pad} |\n{line} | {text}\n{pad} | {lead}^\n"));
+        }
+        out
+    }
+}
+
+/// The candidate closest to `name` when it is near enough to be a slip of the keyboard: at
+/// most one edit for short names, two for longer ones (insertions, deletions, substitutions and
+/// swapped neighbours count one each).
+pub(crate) fn closest<'a>(name: &str, candidates: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    let limit = if name.chars().count() <= 4 { 1 } else { 2 };
+    candidates
+        .into_iter()
+        .filter(|c| *c != name)
+        .map(|c| (edit_distance(name, c), c))
+        .filter(|(d, _)| *d <= limit)
+        .min_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(b.1)))
+        .map(|(_, c)| c)
+}
+
+/// `message`, with "did you mean" when a candidate is close to `name`.
+pub(crate) fn with_suggestion<'a>(
+    message: String,
+    name: &str,
+    candidates: impl IntoIterator<Item = &'a str>,
+) -> String {
+    match closest(name, candidates) {
+        Some(c) => format!("{message}; did you mean `{c}`?"),
+        None => message,
+    }
+}
+
+/// Optimal string alignment distance between `a` and `b`.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a.len().abs_diff(b.len()) > 2 || a.len() > 64 || b.len() > 64 {
+        return usize::MAX;
+    }
+    let w = b.len() + 1;
+    let mut d = vec![0usize; (a.len() + 1) * w];
+    let at = |i: usize, j: usize| i * w + j;
+    for i in 0..=a.len() {
+        if let Some(c) = d.get_mut(at(i, 0)) {
+            *c = i;
+        }
+    }
+    for j in 0..=b.len() {
+        if let Some(c) = d.get_mut(at(0, j)) {
+            *c = j;
+        }
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let get = |d: &[usize], i, j| d.get(at(i, j)).copied().unwrap_or(usize::MAX - 1);
+            let cost = usize::from(a.get(i - 1) != b.get(j - 1));
+            let mut v = (get(&d, i - 1, j) + 1).min(get(&d, i, j - 1) + 1).min(get(&d, i - 1, j - 1) + cost);
+            if i > 1 && j > 1 && a.get(i - 1) == b.get(j - 2) && a.get(i - 2) == b.get(j - 1) {
+                v = v.min(get(&d, i - 2, j - 2) + 1);
+            }
+            if let Some(c) = d.get_mut(at(i, j)) {
+                *c = v;
+            }
+        }
+    }
+    d.get(at(a.len(), b.len())).copied().unwrap_or(usize::MAX)
 }
 
 #[derive(Clone, Debug, PartialEq)]
