@@ -22,6 +22,12 @@ pub mod syntax;
 pub use codegen::{Custom, build};
 pub use syntax::{Markup, Pos, RuiError};
 
+/// The words a person's layout notice shows, in every language the engine ships, from
+/// `i18n/*.ftl`. Apps reword them, or add a language, with
+/// [`remedy_ui_view::strings::add_messages`] under the name `rui`.
+#[cfg(feature = "runtime")]
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("rui");
+
 #[cfg(feature = "runtime")]
 mod interp;
 #[cfg(feature = "runtime")]

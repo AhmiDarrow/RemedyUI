@@ -440,3 +440,9 @@ fn spacing_words_are_the_themes_scale_half_steps_included() {
     let e = err("column(gap: s9) {}");
     assert!(e.help.as_deref().is_some_and(|h| h.contains("s0_5") && h.contains("s24")), "{e}");
 }
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&remedy_ui_rui::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+}

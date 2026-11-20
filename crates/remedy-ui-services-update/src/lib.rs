@@ -9,6 +9,11 @@
 //!
 //! The calls block; run them off the UI thread (`App::background`).
 
+/// The update strip's own words in every language the engine ships, from `i18n/*.ftl`. Apps
+/// reword them, or add a language, with [`remedy_ui_view::strings::add_messages`] under the
+/// name `services-update`; [`BannerText`] replaces them outright.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("services-update");
+
 use std::path::{Path, PathBuf};
 
 use base64::Engine;
@@ -530,16 +535,29 @@ pub struct BannerText {
 }
 
 impl Default for BannerText {
+    /// The English words.
     fn default() -> Self {
+        BannerText::localized("en")
+    }
+}
+
+impl BannerText {
+    /// The words in `locale` (a BCP 47 tag; the closest language the engine ships answers,
+    /// else English), from [`STRINGS`] with any rewording an app added under
+    /// `services-update`. [`update_banner`] shows these for the window's locale. A failure
+    /// still shows the error's own text.
+    pub fn localized(locale: &str) -> Self {
+        let say = |id: &str| STRINGS.format_in(locale, id, &[]);
         BannerText {
-            checking: "Checking for updates…".into(),
-            up_to_date: "You have the latest version.".into(),
-            available: "Version {version} is available.".into(),
-            downloading: "Downloading the update…".into(),
-            ready: "The update is ready.".into(),
-            install: "Install".into(),
-            restart: Some("Restart now".into()),
-            progress: "Downloading update".into(),
+            checking: say("banner-checking"),
+            up_to_date: say("banner-up-to-date"),
+            // The banner fills `{version}` itself.
+            available: STRINGS.format_in(locale, "banner-available", &[("version", "{version}".into())]),
+            downloading: say("banner-downloading"),
+            ready: say("banner-ready"),
+            install: say("banner-install"),
+            restart: Some(say("banner-restart")),
+            progress: say("banner-progress"),
             failure: std::rc::Rc::new(str::to_owned),
         }
     }
@@ -560,7 +578,7 @@ pub fn update_banner(
     on_install: impl Fn() + 'static,
     on_restart: impl Fn() + 'static,
 ) -> remedy_ui_view::El {
-    update_banner_with(ui, state, &BannerText::default(), on_install, on_restart)
+    update_banner_with(ui, state, &BannerText::localized(&ui.locale()), on_install, on_restart)
 }
 
 /// [`update_banner`] in the app's words ([`BannerText`]).

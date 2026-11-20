@@ -393,6 +393,25 @@ strings.
 For translations themselves, use Fluent message files through [`i18n`](crate::i18n)
 (feature `i18n`, on with `forms`); `cargo remedy new` sets this up.
 
+## The engine's own words
+
+The words RemedyUI shows itself (an icon button's "Close", the password field's "Show
+password", the spelling menu, the media player's controls, the board editor, the
+customization pages, the agent prompts, what screen readers hear) follow the window's locale
+with built-in translations. Your app does nothing for this: set the locale as above, and those
+words change with it. RemedyUI ships them in English, Spanish, Simplified Chinese, Hindi,
+Arabic, French, Brazilian Portuguese, Russian, Japanese, German and Bengali. A locale the
+engine does not ship takes the closest one it does (`es-MX` reads Spanish, `pt-PT` Brazilian
+Portuguese), then English.
+
+Each crate keeps its words in Fluent files (`i18n/<locale>.ftl`), compiled in as its
+`STRINGS` catalog. Reword a built-in message, or add a language, with
+`remedy_ui::view::strings::add_messages(catalog, locale, ftl)`. Structs of words such as
+`board::BoardLabels` keep English as their `Default`, give a locale's words with
+`localized`, and take your own wording through `translated`. The translations were written
+with machine help and wait for review by native speakers. `docs/I18N.md` has the details,
+including how to add a language to the engine.
+
 ## Spell checking
 
 Feature `spell` adds [`spell`](crate::spell): the platform's checker or Hunspell
