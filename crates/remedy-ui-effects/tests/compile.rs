@@ -152,6 +152,24 @@ fn whole_powers_become_products_with_the_same_pixels() {
 }
 
 #[test]
+fn a_product_used_once_by_a_sum_fuses_into_one_instruction() {
+    let fused = compile("effect x { scale 1.0; pass p { out = vec3(uv.x * uv.y + uv.x); } }")
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    let p = shade(&fused, 0);
+    assert_eq!((ops(p, Op::Fma), ops(p, Op::Mul), ops(p, Op::Add)), (1, 0, 0), "{:?}", p.code);
+    // A product used twice is computed once and kept.
+    let shared =
+        compile("effect x { scale 1.0; pass p { let m = uv.x * uv.y; out = vec3(m + uv.x, m, 0.0); } }")
+            .unwrap_or_else(|e| unreachable!("{e}"));
+    let p = shade(&shared, 0);
+    assert_eq!((ops(p, Op::Fma), ops(p, Op::Mul)), (0, 1), "{:?}", p.code);
+    // The same pixels as the two instructions.
+    let by_hand = compile("effect x { scale 1.0; pass p { out = vec3(fma(uv.x, uv.y, uv.x)); } }")
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert_eq!(render(fused, 0.0), render(by_hand, 0.0));
+}
+
+#[test]
 fn common_work_is_shared() {
     let e = compile("effect x { scale 1.0; pass p { out = vec3(noise(uv * 4.0) + noise(uv * 4.0)); } }")
         .unwrap_or_else(|e| unreachable!("{e}"));

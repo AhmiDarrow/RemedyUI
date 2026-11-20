@@ -47,10 +47,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   picture). `plasma` has a softer palette whose colours drift over time, `lightning`'s
   still frame (reduced motion, paused) shows a strike, and `fog` is denser by default with
   a haze above its banks. The compiler turns `pow(x, n)` for a whole `n` from 2 to 8 into
-  multiplies (the same pixels, cheaper than `pow`), in every effect, people's own included:
-  `ripples` costs 123 instead of 145. `crystal` marches in the gem's own turning space (390
-  to 254), `orb` too, with four-sample normals (2279 to 2119), and `volumetric_clouds`
-  probes its light with one octave less (548 to 489); each within a few levels of before,
+  multiplies (the same pixels, cheaper than `pow`), and a multiply used only by an add
+  into one `fma`, in every effect, people's own included: `ripples` costs 114 instead of
+  145, and most effects 3 to 10% less with identical pixels. `crystal` marches in the gem's own turning space (390
+  to 241), `orb` too, with four-sample normals (2279 to 2058), and `volumetric_clouds`
+  probes its light with one octave less (548 to 482); each within a few levels of before,
   on a handful of edge pixels.
 - **Prism in `.rui` markup**: `remedy_ui::effects::register_markup` adds the `effect`
   element (`effect(name: "fire", param: "intensity", value: $heat) { … }`): a built-in
