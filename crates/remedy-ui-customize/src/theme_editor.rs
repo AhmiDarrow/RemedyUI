@@ -208,9 +208,13 @@ fn color_row(ui: &Ui, c: &Customizations, token: &Token, status: Signal<String>)
     let toggle = toggle.bind(move || {
         let o = open.get();
         let name = trf(&u2b, "edit-named", &[("name", tk2.localized_label(&u2b).into())]);
-        let _ = t2b.clone().semantics(Semantics::new(Role::Button).label(name).action(Action::Click).action(
-            if o { Action::Collapse } else { Action::Expand },
-        ));
+        let _ = t2b.clone().semantics(
+            Semantics::new(Role::Button).label(name).action(Action::Click).action(if o {
+                Action::Collapse
+            } else {
+                Action::Expand
+            }),
+        );
     });
     let head = w::row(ui)
         .align(Align::Center)
@@ -708,10 +712,11 @@ fn files_section(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
             for family in fonts {
                 let (c7, u7, f7, u8, f8) = (c6.clone(), u.clone(), family.clone(), u.clone(), family.clone());
                 let on_press = move || report(&u7, status, c7.remove_theme_font(&u7, &f7));
-                let remove = w::button(&u, words(&u, "remove"), on_press).variant("quiet").semantics(move || {
-                    let name = trf(&u8, "remove-font-named", &[("family", f8.as_str().into())]);
-                    Semantics::new(Role::Button).label(name).action(Action::Click)
-                });
+                let remove =
+                    w::button(&u, words(&u, "remove"), on_press).variant("quiet").semantics(move || {
+                        let name = trf(&u8, "remove-font-named", &[("family", f8.as_str().into())]);
+                        Semantics::new(Role::Button).label(name).action(Action::Click)
+                    });
                 let row = w::row(&u)
                     .gap(unit * 2.0)
                     .align(Align::Center)

@@ -3,7 +3,8 @@
 //! either direction, and carets at a direction change sit on the side they belong to.
 
 use remedy_ui_text::{
-    Affinity, Direction, FontCollection, Paragraph, ParagraphOptions, RichText, TextEngine, TextPosition, TextStyle,
+    Affinity, Direction, FontCollection, Paragraph, ParagraphOptions, RichText, TextEngine, TextPosition,
+    TextStyle,
 };
 
 fn engine() -> TextEngine {
@@ -56,7 +57,8 @@ fn a_selection_across_a_direction_change_covers_both_runs() -> Result<(), Box<dy
 #[test]
 fn hit_testing_finds_characters_in_both_directions() -> Result<(), Box<dyn std::error::Error>> {
     let mut e = engine();
-    for (text, dir) in [("abc مرحبا def", Direction::Auto), ("مرحبا report الآن", Direction::Rtl)] {
+    for (text, dir) in [("abc مرحبا def", Direction::Auto), ("مرحبا report الآن", Direction::Rtl)]
+    {
         let p = layout(&mut e, text, dir);
         let y = p.height() / 2.0;
         for (i, c) in text.char_indices() {
@@ -91,7 +93,11 @@ fn right_to_left_paragraphs_start_at_the_right() {
     // A forced left-to-right paragraph still draws the Arabic run right to left inside it.
     let ltr = layout(&mut e, text, Direction::Ltr);
     assert!(!ltr.is_rtl());
-    assert!(ltr.glyph_runs().iter().all(|r| r.rtl || r.glyphs.is_empty() || text.get(r.range.clone()) == Some(" ")));
+    assert!(
+        ltr.glyph_runs()
+            .iter()
+            .all(|r| r.rtl || r.glyphs.is_empty() || text.get(r.range.clone()) == Some(" "))
+    );
 }
 
 #[test]

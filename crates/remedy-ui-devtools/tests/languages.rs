@@ -21,17 +21,43 @@ const LOCALES: &[&str] =
 /// punctuation after it into its own direction nor sets the line's direction.
 fn words(locale: &str) -> (&'static str, &'static str, &'static str) {
     match locale.split('-').next().unwrap_or("en") {
-        "es" => ("Ajustes de la llamada", "Las notificaciones llegan aunque la app esté cerrada.", "Llamar a «\u{2068}مريم\u{2069}» (3)"),
+        "es" => (
+            "Ajustes de la llamada",
+            "Las notificaciones llegan aunque la app esté cerrada.",
+            "Llamar a «\u{2068}مريم\u{2069}» (3)",
+        ),
         "zh" => ("通话设置", "即使应用已关闭，您也会收到通知。", "呼叫 “\u{2068}مريم\u{2069}”（3）"),
         "hi" => ("कॉल सेटिंग", "ऐप बंद होने पर भी सूचनाएँ आती हैं।", "“\u{2068}مريم\u{2069}” को कॉल करें (3)"),
-        "ar" => ("إعدادات المكالمة", "تصلك الإشعارات حتى عند إغلاق التطبيق.", "اتصل بـ «\u{2068}Maria\u{2069}» (3)"),
-        "fr" => ("Réglages d’appel", "Les notifications arrivent même quand l’app est fermée.", "Appeler « \u{2068}مريم\u{2069} » (3)"),
-        "pt" => ("Configurações de chamada", "As notificações chegam mesmo com o app fechado.", "Ligar para “\u{2068}مريم\u{2069}” (3)"),
-        "ru" => ("Настройки звонка", "Уведомления приходят, даже если приложение закрыто.", "Позвонить «\u{2068}مريم\u{2069}» (3)"),
+        "ar" => {
+            ("إعدادات المكالمة", "تصلك الإشعارات حتى عند إغلاق التطبيق.", "اتصل بـ «\u{2068}Maria\u{2069}» (3)")
+        }
+        "fr" => (
+            "Réglages d’appel",
+            "Les notifications arrivent même quand l’app est fermée.",
+            "Appeler « \u{2068}مريم\u{2069} » (3)",
+        ),
+        "pt" => (
+            "Configurações de chamada",
+            "As notificações chegam mesmo com o app fechado.",
+            "Ligar para “\u{2068}مريم\u{2069}” (3)",
+        ),
+        "ru" => (
+            "Настройки звонка",
+            "Уведомления приходят, даже если приложение закрыто.",
+            "Позвонить «\u{2068}مريم\u{2069}» (3)",
+        ),
         "ja" => ("通話の設定", "アプリを閉じていても通知が届きます。", "「\u{2068}مريم\u{2069}」に発信（3）"),
-        "de" => ("Anrufeinstellungen", "Benachrichtigungen kommen auch bei geschlossener App.", "„\u{2068}مريم\u{2069}“ anrufen (3)"),
+        "de" => (
+            "Anrufeinstellungen",
+            "Benachrichtigungen kommen auch bei geschlossener App.",
+            "„\u{2068}مريم\u{2069}“ anrufen (3)",
+        ),
         "bn" => ("কল সেটিংস", "অ্যাপ বন্ধ থাকলেও বিজ্ঞপ্তি আসে।", "“\u{2068}مريم\u{2069}”-কে কল করুন (3)"),
-        _ => ("Call settings", "Notifications arrive even when the app is closed.", "Call “\u{2068}مريم\u{2069}” (3)"),
+        _ => (
+            "Call settings",
+            "Notifications arrive even when the app is closed.",
+            "Call “\u{2068}مريم\u{2069}” (3)",
+        ),
     }
 }
 
@@ -94,9 +120,11 @@ fn mixed_lines(ui: &Ui) -> El {
         "«مرحبا» — „Hallo“ — 「こんにちは」 — “Olá”",
     ];
     let unit = ui.theme().spacing.unit;
-    lines.into_iter().fold(w::column(ui).gap(unit * 2.0).padding(Insets::all(unit * 4.0)).fill_width(), |c, l| {
-        c.child(w::text(ui, l))
-    })
+    lines
+        .into_iter()
+        .fold(w::column(ui).gap(unit * 2.0).padding(Insets::all(unit * 4.0)).fill_width(), |c, l| {
+            c.child(w::text(ui, l))
+        })
 }
 
 fn report(r: Result<(), GoldenError>) {
@@ -120,20 +148,29 @@ fn the_same_screen_in_every_top_language() {
 
 #[test]
 fn mixed_direction_lines_in_both_paragraph_directions() {
-    let p = Preview::new("languages-bidi", mixed_lines).themes(&["light"]).locales(&["en-US", "ar-EG"]).sizes(&[(420.0, 360.0)]);
+    let p = Preview::new("languages-bidi", mixed_lines)
+        .themes(&["light"])
+        .locales(&["en-US", "ar-EG"])
+        .sizes(&[(420.0, 360.0)]);
     report(check_golden(&p, &golden_dir()));
 }
 
 #[test]
 fn right_to_left_screens_are_mirror_images_in_layout() {
     // The back button sits at the start: the left in English, the right in Arabic.
-    let p = Preview::new("mirror", screen).themes(&["light"]).locales(&["en-US", "ar-EG"]).sizes(&[(360.0, 640.0)]);
+    let p = Preview::new("mirror", screen)
+        .themes(&["light"])
+        .locales(&["en-US", "ar-EG"])
+        .sizes(&[(360.0, 640.0)]);
     let shots: Vec<_> = p.variations().iter().map(|v| p.render(v)).collect();
     let (Some(en), Some(ar)) = (shots.first(), shots.get(1)) else { unreachable!("two renderings") };
     // The header row: ink near the left edge in English, near the right edge in Arabic.
     let ink = |s: &remedy_ui_devtools::Snapshot, x0: u32, x1: u32| {
         let bg = s.pixel(2, 2).unwrap_or([0; 4]);
-        (x0..x1).flat_map(|x| (20..60).map(move |y| (x, y))).filter(|(x, y)| s.pixel(*x, *y).is_some_and(|p| p != bg)).count()
+        (x0..x1)
+            .flat_map(|x| (20..60).map(move |y| (x, y)))
+            .filter(|(x, y)| s.pixel(*x, *y).is_some_and(|p| p != bg))
+            .count()
     };
     assert!(ink(en, 16, 40) > ink(en, 320, 344), "English: the back button at the left");
     assert!(ink(ar, 320, 344) > ink(ar, 16, 40), "Arabic: the back button at the right");
@@ -156,7 +193,9 @@ fn short_chinese_and_japanese_labels_stay_on_one_line() {
             let rows: Vec<u32> = (0..80)
                 .filter(|y| (44..120).any(|x| shot.pixel(x, *y).is_some_and(|q| q != bg && q[0] < 120)))
                 .collect();
-            let (Some(top), Some(bottom)) = (rows.first(), rows.last()) else { unreachable!("{locale}: no label") };
+            let (Some(top), Some(bottom)) = (rows.first(), rows.last()) else {
+                unreachable!("{locale}: no label")
+            };
             assert!(bottom - top < 24, "{locale}: the label is one line ({top}..{bottom})");
         }
     }

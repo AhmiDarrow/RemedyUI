@@ -8,9 +8,7 @@ use remedy_ui_view::{Align, El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_nav::{Tab, fuzzy_score, tabs, toolbar, toolbar_editor};
 
-use crate::theme_editor::{
-    follow_label, reset_button, reset_named, search, section, status_line, words,
-};
+use crate::theme_editor::{follow_label, reset_button, reset_named, search, section, status_line, words};
 use crate::{Area, Customizations, CustomizeError, shortcut_editor, theme_editor, tr, tr_now, trf};
 
 /// "`id`: what went wrong" in the window's locale now, for a status line.
