@@ -79,6 +79,9 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-motion", 3),
     ("remedy-ui-a11y", 3),
     ("remedy-ui-compositor", 3),
+    // Prism, the effects system: the .rfx language, its validator and the CPU kernels. Plain
+    // data and arithmetic over the display list's types; renderers and elements build on it.
+    ("remedy-ui-effects", 3),
     ("remedy-ui-secure", 3),
     // Scripted widgets: the language-neutral interface for untrusted code that describes
     // elements, with no UI of its own, and its engines (Rhai, WebAssembly).
@@ -220,6 +223,8 @@ const SIDEWAYS: &[(&str, &str)] = &[
     // Each script engine implements the language-neutral widget interface.
     ("remedy-ui-script-rhai", "remedy-ui-script"),
     ("remedy-ui-script-wasm", "remedy-ui-script"),
+    // Effects take pictures (textures) and blend modes from the display list.
+    ("remedy-ui-effects", "remedy-ui-paint"),
     // The compositor holds display lists and runs motion curves on its own thread.
     ("remedy-ui-compositor", "remedy-ui-paint"),
     ("remedy-ui-compositor", "remedy-ui-motion"),
