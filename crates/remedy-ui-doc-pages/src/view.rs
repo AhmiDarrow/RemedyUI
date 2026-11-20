@@ -548,22 +548,27 @@ impl PageView {
                 .map(|a| {
                     let said = a.describe_in(&locale);
                     if st.picked == Some(a.id) {
-                        remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "Selected: {annotation}"), &[("annotation", &said)])
+                        remedy_ui_view::words::fill(
+                            remedy_ui_view::words::word_or(&locale, "Selected: {annotation}"),
+                            &[("annotation", &said)],
+                        )
                     } else {
                         said
                     }
                 })
                 .collect();
             if !lines.is_empty() {
-                lines.insert(
-                    0,
-                    {
-                        let n = lines.len() as u64;
-                        let english = if n == 1 { "{count} annotation:" } else { "{count} annotations:" };
-                        let form = remedy_ui_view::words::counted(&locale, "{count} annotation:", "{count} annotations:", n);
-                        remedy_ui_view::words::fill(form.unwrap_or(english), &[("count", &n.to_string())])
-                    },
-                );
+                lines.insert(0, {
+                    let n = lines.len() as u64;
+                    let english = if n == 1 { "{count} annotation:" } else { "{count} annotations:" };
+                    let form = remedy_ui_view::words::counted(
+                        &locale,
+                        "{count} annotation:",
+                        "{count} annotations:",
+                        n,
+                    );
+                    remedy_ui_view::words::fill(form.unwrap_or(english), &[("count", &n.to_string())])
+                });
             }
             lines.join("\n")
         };
@@ -705,7 +710,12 @@ impl PageView {
         let locale = self.locale();
         let label = self.annotation(id).map_or_else(
             || remedy_ui_view::words::word_or(&locale, "Add annotation").to_owned(),
-            |a| remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "Add {kind}"), &[("kind", &a.kind_for_label(&locale))]),
+            |a| {
+                remedy_ui_view::words::fill(
+                    remedy_ui_view::words::word_or(&locale, "Add {kind}"),
+                    &[("kind", &a.kind_for_label(&locale))],
+                )
+            },
         );
         self.commit(label, before);
         id
@@ -720,7 +730,10 @@ impl PageView {
             let Some(a) = st.annots.iter_mut().find(|a| a.id == id) else { return false };
             f(a);
             a.id = id;
-            remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "Change {kind}"), &[("kind", &a.kind_for_label(&locale))])
+            remedy_ui_view::words::fill(
+                remedy_ui_view::words::word_or(&locale, "Change {kind}"),
+                &[("kind", &a.kind_for_label(&locale))],
+            )
         };
         self.commit(label, before);
         true
@@ -737,7 +750,10 @@ impl PageView {
             if st.picked == Some(id) {
                 st.picked = None;
             }
-            remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "Delete {kind}"), &[("kind", &a.kind_for_label(&locale))])
+            remedy_ui_view::words::fill(
+                remedy_ui_view::words::word_or(&locale, "Delete {kind}"),
+                &[("kind", &a.kind_for_label(&locale))],
+            )
         };
         self.commit(label, before);
         true
@@ -869,7 +885,10 @@ impl PageView {
                 a.marked_text = words;
                 a.id = st.next_annot;
                 st.next_annot += 1;
-                name = remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "Add {kind}"), &[("kind", &a.kind_for_label(&locale))]);
+                name = remedy_ui_view::words::fill(
+                    remedy_ui_view::words::word_or(&locale, "Add {kind}"),
+                    &[("kind", &a.kind_for_label(&locale))],
+                );
                 st.annots.push(a);
             }
             st.text.selection = None;
@@ -1112,7 +1131,12 @@ impl PageView {
                     let locale = self.locale();
                     let label = self.annotation(id).map_or_else(
                         || remedy_ui_view::words::word_or(&locale, "Move annotation").to_owned(),
-                        |a| remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "Move {kind}"), &[("kind", &a.kind_for_label(&locale))]),
+                        |a| {
+                            remedy_ui_view::words::fill(
+                                remedy_ui_view::words::word_or(&locale, "Move {kind}"),
+                                &[("kind", &a.kind_for_label(&locale))],
+                            )
+                        },
                     );
                     self.commit(label, before);
                 }
@@ -2082,11 +2106,10 @@ pub(crate) fn semantics(view: &PageView, label: &str) -> Semantics {
     let page = view.0.page.get() + 1;
     let zoom = (view.0.zoom.get() * 100.0).round();
     let locale = view.locale();
-    let value = remedy_ui_view::words::fill(remedy_ui_view::words::word_or(&locale, "Page {page} of {total}, {zoom}%"), &[
-        ("page", &page.to_string()),
-        ("total", &n.to_string()),
-        ("zoom", &zoom.to_string()),
-    ]);
+    let value = remedy_ui_view::words::fill(
+        remedy_ui_view::words::word_or(&locale, "Page {page} of {total}, {zoom}%"),
+        &[("page", &page.to_string()), ("total", &n.to_string()), ("zoom", &zoom.to_string())],
+    );
     Semantics::new(Role::Document).label(label).value(value)
 }
 

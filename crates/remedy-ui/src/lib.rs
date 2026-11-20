@@ -152,9 +152,6 @@ pub use remedy_ui_view::{CaughtError, Retry, Show, SuspenseBoundary, catch_error
 pub use remedy_ui_view::{El, FieldKind, PaintCx, TextField, Ui};
 #[cfg(feature = "viz")]
 pub use remedy_ui_viz as viz;
-/// The engine's own words (widget labels, accessible names, menu items) with built-in
-/// translations for the shipped locales; see the text guide's "The engine's own words".
-pub use remedy_ui_words as words;
 #[cfg(feature = "board")]
 pub use remedy_ui_widgets_board as board;
 #[cfg(feature = "widgets")]
@@ -173,6 +170,9 @@ pub use remedy_ui_widgets_nav as nav;
 pub use remedy_ui_widgets_stage as stage;
 #[cfg(feature = "term")]
 pub use remedy_ui_widgets_term as term;
+/// The engine's own words (widget labels, accessible names, menu items) with built-in
+/// translations for the shipped locales; see the text guide's "The engine's own words".
+pub use remedy_ui_words as words;
 
 /// Why the app could not run.
 #[derive(Clone, Debug, PartialEq, Eq)]

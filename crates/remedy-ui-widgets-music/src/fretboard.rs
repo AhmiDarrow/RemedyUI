@@ -380,12 +380,10 @@ pub fn describe_position_in(locale: &str, options: &FretboardOptions, pos: FretP
         fill(word_or(locale, "fret {fret}"), &[("fret", &pos.fret.to_string())])
     };
     match (open, note) {
-        (Some(o), Some(nt)) => fill(word_or(locale, "string {number} ({open}), {fret}, {note}"), &[
-            ("number", &number),
-            ("open", &o),
-            ("fret", &fret),
-            ("note", &nt),
-        ]),
+        (Some(o), Some(nt)) => fill(
+            word_or(locale, "string {number} ({open}), {fret}, {note}"),
+            &[("number", &number), ("open", &o), ("fret", &fret), ("note", &nt)],
+        ),
         _ => fill(word_or(locale, "string {number}, {fret}"), &[("number", &number), ("fret", &fret)]),
     }
 }
@@ -675,12 +673,13 @@ pub fn fretboard(
             if marks.iter().any(|m| m.pos == cur) {
                 value = fill(word_or(&locale, "{value}, marked"), &[("value", &value)]);
             }
-            let mut hint = word_or(&locale, "Arrow keys move over the neck, Enter picks, Escape clears.").to_owned();
+            let mut hint =
+                word_or(&locale, "Arrow keys move over the neck, Enter picks, Escape clears.").to_owned();
             if let Some(p) = picked {
-                hint = fill(word_or(&locale, "{hint} Picked: {position}."), &[
-                    ("hint", &hint),
-                    ("position", &describe_position_in(&locale, o, p)),
-                ]);
+                hint = fill(
+                    word_or(&locale, "{hint} Picked: {position}."),
+                    &[("hint", &hint), ("position", &describe_position_in(&locale, o, p))],
+                );
             }
             Semantics::new(Role::Grid)
                 .label(label.clone())
@@ -691,9 +690,12 @@ pub fn fretboard(
 }
 
 fn summary(locale: &str, options: &FretboardOptions, marks: &[FretMark]) -> String {
-    fill(word_or(locale, "{strings} strings, {frets} frets, {marked} marked"), &[
-        ("strings", &options.tuning.len().to_string()),
-        ("frets", &options.frets.to_string()),
-        ("marked", &marks.len().to_string()),
-    ])
+    fill(
+        word_or(locale, "{strings} strings, {frets} frets, {marked} marked"),
+        &[
+            ("strings", &options.tuning.len().to_string()),
+            ("frets", &options.frets.to_string()),
+            ("marked", &marks.len().to_string()),
+        ],
+    )
 }

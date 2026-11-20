@@ -86,9 +86,10 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     let uw = ui.clone();
     let message = message.bind(move || {
         let text = match (p.state(), p.error()) {
-            (PlaybackState::Failed, Some(e)) => {
-                Some(remedy_ui_view::words::fill(&uw.word("This can't be played: {error}"), &[("error", &e.to_string())]))
-            }
+            (PlaybackState::Failed, Some(e)) => Some(remedy_ui_view::words::fill(
+                &uw.word("This can't be played: {error}"),
+                &[("error", &e.to_string())],
+            )),
             (PlaybackState::Failed, None) => Some(uw.word("This can't be played.")),
             _ => None,
         };
@@ -153,7 +154,9 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         let pos = format_time(p.position());
         match p.duration() {
             Some(d) => format!("{pos} / {}", format_time(d)),
-            None if p.info().is_some() => remedy_ui_view::words::fill(&uw.word("{position} · Live"), &[("position", &pos)]),
+            None if p.info().is_some() => {
+                remedy_ui_view::words::fill(&uw.word("{position} · Live"), &[("position", &pos)])
+            }
             None => pos,
         }
     });
@@ -174,11 +177,14 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         move || p.set_muted(!p.is_muted()),
     );
     let level: Signal<f64> = Signal::new(f64::from(player.volume()));
-    let volume = ui
-        .el("player_volume")
-        .width(u * 14.0)
-        .layout(|l| l.shrink = 0.0)
-        .child(w::slider(ui, ui.word("Volume"), level, 0.0, 1.0, 0.05));
+    let volume = ui.el("player_volume").width(u * 14.0).layout(|l| l.shrink = 0.0).child(w::slider(
+        ui,
+        ui.word("Volume"),
+        level,
+        0.0,
+        1.0,
+        0.05,
+    ));
     let p = player.clone();
     let volume = volume.bind(move || p.set_volume(level.get() as f32));
     let p = player.clone();
@@ -192,7 +198,9 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             move || {
                 let tracks = p.subtitle_tracks();
                 match p.caption_track().and_then(|i| tracks.get(i)) {
-                    Some(t) => remedy_ui_view::words::fill(&u.word("Captions: {track}"), &[("track", &t.label)]),
+                    Some(t) => {
+                        remedy_ui_view::words::fill(&u.word("Captions: {track}"), &[("track", &t.label)])
+                    }
                     None => u.word("Captions: off"),
                 }
             }
@@ -408,7 +416,10 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
             Semantics::new(Role::Slider)
                 .label(seek_word.clone())
                 .numeric(pos.as_secs_f64(), 0.0, total.as_secs_f64())
-                .value(remedy_ui_view::words::fill(&seek_of, &[("position", &format_time(pos)), ("length", &format_time(total))]))
+                .value(remedy_ui_view::words::fill(
+                    &seek_of,
+                    &[("position", &format_time(pos)), ("length", &format_time(total))],
+                ))
                 .action(Action::Increment)
                 .action(Action::Decrement),
         );

@@ -1,10 +1,10 @@
 //! The toolbar and text editors, the notices, and the settings page that brings every editor
 //! together.
 
-use remedy_ui_view::words::fill;
 use remedy_ui_a11y::{Action, Role, Semantics};
 use remedy_ui_reactive::{Memo, Signal, untrack};
 use remedy_ui_services_i18n::MessageEntry;
+use remedy_ui_view::words::fill;
 use remedy_ui_view::{Align, El, Ui};
 use remedy_ui_widgets_core as w;
 use remedy_ui_widgets_nav::{Tab, fuzzy_score, tabs, toolbar, toolbar_editor};
@@ -34,22 +34,26 @@ pub fn notices_view(ui: &Ui, c: &Customizations) -> El {
             l2.clear();
             for n in notices {
                 let file = n.path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
-                let message = fill(&u.word("{area} could not be used ({file}): {problem}"), &[
-                    ("area", n.area.name_in(&u.locale())),
-                    ("file", &file),
-                    ("problem", &n.message),
-                ]);
+                let message = fill(
+                    &u.word("{area} could not be used ({file}): {problem}"),
+                    &[("area", n.area.name_in(&u.locale())), ("file", &file), ("problem", &n.message)],
+                );
                 let (c3, u3, n3, c4, n4) = (c2.clone(), u.clone(), n.clone(), c2.clone(), n.clone());
                 let reset = w::button(&u, u.word("Reset"), move || {
                     let _ = c3.reset_notice(&u3, &n3);
                 })
                 .variant("primary")
-                .semantics(Semantics::new(Role::Button).label(fill(&u.word("Reset {file}"), &[("file", &file)])).action(Action::Click));
-                let dismiss = w::button(&u, u.word("Dismiss"), move || c4.dismiss(&n4)).variant("quiet").semantics(
+                .semantics(
                     Semantics::new(Role::Button)
-                        .label(fill(&u.word("Dismiss the notice about {file}"), &[("file", &file)]))
+                        .label(fill(&u.word("Reset {file}"), &[("file", &file)]))
                         .action(Action::Click),
                 );
+                let dismiss =
+                    w::button(&u, u.word("Dismiss"), move || c4.dismiss(&n4)).variant("quiet").semantics(
+                        Semantics::new(Role::Button)
+                            .label(fill(&u.word("Dismiss the notice about {file}"), &[("file", &file)]))
+                            .action(Action::Click),
+                    );
                 let row = w::wrap(&u)
                     .gap(unit * 2.0)
                     .align(Align::Center)
@@ -167,7 +171,8 @@ fn text_row(ui: &Ui, c: &Customizations, source: &str, status: Signal<String>) -
         move || c4.text_override(&u4.locale(), &s4).is_some(),
         move || {
             if let Err(e) = c5.reset_text(&u5, &untrack(|| u5.locale()), &s5) {
-                status.set(fill(&u5.word("Could not reset that text: {error}"), &[("error", &e.to_string())]));
+                status
+                    .set(fill(&u5.word("Could not reset that text: {error}"), &[("error", &e.to_string())]));
             }
         },
     );
@@ -280,8 +285,10 @@ fn messages_section(ui: &Ui, c: &Customizations) -> El {
             .map(|(e, _, _)| e.id)
             .collect::<Vec<String>>()
     });
-    let list =
-        w::column(ui).gap(unit * 3.0).fill_width().semantics(Semantics::new(Role::List).label(ui.word("Messages")));
+    let list = w::column(ui)
+        .gap(unit * 3.0)
+        .fill_width()
+        .semantics(Semantics::new(Role::List).label(ui.word("Messages")));
     let (l2, u, c2) = (list.clone(), ui.clone(), c.clone());
     let list = list.bind(move || {
         let ids = listed.get();
@@ -313,11 +320,18 @@ fn messages_section(ui: &Ui, c: &Customizations) -> El {
 pub fn text_editor(ui: &Ui, c: &Customizations) -> El {
     let unit = ui.theme().spacing.unit;
     if !c.is_enabled(Area::Text) {
-        return w::empty_state(ui, ui.word("Text customization is off"), ui.word("This app does not let its text be changed."));
+        return w::empty_state(
+            ui,
+            ui.word("Text customization is off"),
+            ui.word("This app does not let its text be changed."),
+        );
     }
     let status = Signal::new(String::new());
     let query = Signal::new(String::new());
-    let folder = fill(&ui.word("Your message files are in {folder}"), &[("folder", &c.text_dir().display().to_string())]);
+    let folder = fill(
+        &ui.word("Your message files are in {folder}"),
+        &[("folder", &c.text_dir().display().to_string())],
+    );
     let c0 = c.clone();
     let reload = w::button(ui, ui.word("Read the files again"), move || c0.reload_text());
     let mut col = w::column(ui)
@@ -329,8 +343,10 @@ pub fn text_editor(ui: &Ui, c: &Customizations) -> El {
         .child(reload);
     if c.text_catalog().is_some() {
         let search = w::search(ui, ui.word("Search text"), move |q| query.set(q));
-        let list =
-            w::column(ui).gap(unit * 2.0).fill_width().semantics(Semantics::new(Role::List).label(ui.word("Strings")));
+        let list = w::column(ui)
+            .gap(unit * 2.0)
+            .fill_width()
+            .semantics(Semantics::new(Role::List).label(ui.word("Strings")));
         // The strings listed: rows are rebuilt only when these change, so a field keeps its
         // focus and its bindings while the person types.
         let c1 = c.clone();
@@ -384,7 +400,12 @@ fn layout_section(ui: &Ui, c: &Customizations, file: &str) -> El {
         v_.language = "rui".into();
         v_
     };
-    let (editor, field) = remedy_ui_doc_code::code_editor(ui, fill(&ui.word("Layout {file}"), &[("file", file)]), &source, options);
+    let (editor, field) = remedy_ui_doc_code::code_editor(
+        ui,
+        fill(&ui.word("Layout {file}"), &[("file", file)]),
+        &source,
+        options,
+    );
     // Checked as the person types: what is wrong, at which line and column.
     let (f2, c2, file2, u2) = (field.clone(), c.clone(), file.to_owned(), ui.clone());
     let check = move || match c2.check_layout(&file2, &f2.value()) {
@@ -410,7 +431,11 @@ fn layout_section(ui: &Ui, c: &Customizations, file: &str) -> El {
         Err(e) => status.set(fill(&u7.word("Not saved: {error}"), &[("error", &e.to_string())])),
     })
     .variant("primary")
-    .semantics(Semantics::new(Role::Button).label(fill(&ui.word("Save layout {file}"), &[("file", file)])).action(Action::Click));
+    .semantics(
+        Semantics::new(Role::Button)
+            .label(fill(&ui.word("Save layout {file}"), &[("file", file)]))
+            .action(Action::Click),
+    );
     let (c5, file5, c6, u6, file6) = (c.clone(), file.to_owned(), c.clone(), ui.clone(), file.to_owned());
     let reset = reset_button(
         ui,
@@ -447,7 +472,8 @@ pub fn layouts_editor(ui: &Ui, c: &Customizations) -> El {
         );
     }
     let status = Signal::new(String::new());
-    let folder = fill(&ui.word("Your layouts are in {folder}"), &[("folder", &c.layouts_dir().display().to_string())]);
+    let folder =
+        fill(&ui.word("Your layouts are in {folder}"), &[("folder", &c.layouts_dir().display().to_string())]);
     let mut col = w::column(ui)
         .gap(unit * 3.0)
         .fill_width()
@@ -511,7 +537,11 @@ pub fn settings_page(ui: &Ui, c: &Customizations) -> El {
                 Some("Toolbars") => toolbars_editor(&u, &c2),
                 Some("Text") => text_editor(&u, &c2),
                 Some("Layouts") => layouts_editor(&u, &c2),
-                _ => w::empty_state(&u, u.word("Nothing to customize"), u.word("This app has not turned customization on.")),
+                _ => w::empty_state(
+                    &u,
+                    u.word("Nothing to customize"),
+                    u.word("This app has not turned customization on."),
+                ),
             };
             let _ = ct2.clone().child(editor);
         });

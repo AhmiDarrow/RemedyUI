@@ -147,7 +147,10 @@ pub fn best_match(locale: &str) -> Option<&'static Locale> {
 fn tables() -> &'static [HashMap<String, String>] {
     static TABLES: OnceLock<Vec<HashMap<String, String>>> = OnceLock::new();
     TABLES.get_or_init(|| {
-        FILES.iter().map(|text| parse(text).map(|pairs| pairs.into_iter().collect()).unwrap_or_default()).collect()
+        FILES
+            .iter()
+            .map(|text| parse(text).map(|pairs| pairs.into_iter().collect()).unwrap_or_default())
+            .collect()
     })
 }
 
@@ -164,7 +167,12 @@ fn word_in<'t>(tables: &'t [HashMap<String, String>], locale: &str, english: &st
 }
 
 /// [`counted`] over `tables`.
-fn counted_in<'t>(tables: &'t [HashMap<String, String>], locale: &str, other: &str, n: u64) -> Option<&'t str> {
+fn counted_in<'t>(
+    tables: &'t [HashMap<String, String>],
+    locale: &str,
+    other: &str,
+    n: u64,
+) -> Option<&'t str> {
     let l = best_match(locale)?;
     Some(nth_form(lookup(tables, l, other)?, l.form(n)))
 }

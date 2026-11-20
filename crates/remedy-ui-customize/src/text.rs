@@ -81,9 +81,13 @@ impl Customizations {
         }
         let path = self.text_dir().join(format!("{file_locale}.json"));
         let key = format!("text:{file_locale}:{source}");
-        self.change(ui, fill(&ui.word("Change “{text}”"), &[("text", source)]), Some(key), &[Area::Text], |_| {
-            write_table(&path, &table)
-        })
+        self.change(
+            ui,
+            fill(&ui.word("Change “{text}”"), &[("text", source)]),
+            Some(key),
+            &[Area::Text],
+            |_| write_table(&path, &table),
+        )
     }
 
     /// Takes the person's text for `source` in `locale` away (undoable).
@@ -95,7 +99,13 @@ impl Customizations {
             return Ok(());
         }
         let path = self.text_dir().join(format!("{file_locale}.json"));
-        self.change(ui, fill(&ui.word("Reset “{text}”"), &[("text", source)]), None, &[Area::Text], |_| write_table(&path, &table))
+        self.change(
+            ui,
+            fill(&ui.word("Reset “{text}”"), &[("text", source)]),
+            None,
+            &[Area::Text],
+            |_| write_table(&path, &table),
+        )
     }
 
     /// Removes every message file the person wrote (undoable).
@@ -158,9 +168,13 @@ impl Customizations {
             set_entry(&file, entry).map_err(|e| CustomizeError::Invalid(e.to_string()))?
         };
         let key = format!("message:{}:{}", canonical_locale(locale), entry.id);
-        self.change(ui, fill(&ui.word("Change {name}"), &[("name", &entry.id)]), Some(key), &[Area::Text], |_| {
-            write_text(&path, &next)
-        })
+        self.change(
+            ui,
+            fill(&ui.word("Change {name}"), &[("name", &entry.id)]),
+            Some(key),
+            &[Area::Text],
+            |_| write_text(&path, &next),
+        )
     }
 
     /// Takes the person's version of message `id` in `locale` away (undoable).
@@ -174,7 +188,9 @@ impl Customizations {
             return Ok(());
         }
         let next = remove_entry(&file, id);
-        self.change(ui, fill(&ui.word("Reset {name}"), &[("name", id)]), None, &[Area::Text], |_| write_text(&path, &next))
+        self.change(ui, fill(&ui.word("Reset {name}"), &[("name", id)]), None, &[Area::Text], |_| {
+            write_text(&path, &next)
+        })
     }
 
     /// Reads the message files again (after the person edited them by hand).

@@ -313,18 +313,24 @@ fn contrast_panel(ui: &Ui, c: &Customizations) -> El {
         untrack(|| {
             l2.clear();
             if warnings.is_empty() {
-                let _ =
-                    l2.clone().child(w::text(&u, u.word("Every color pair meets WCAG contrast.")).variant("muted"));
+                let _ = l2
+                    .clone()
+                    .child(w::text(&u, u.word("Every color pair meets WCAG contrast.")).variant("muted"));
             }
             for wn in &warnings {
                 let locale = u.locale();
-                let text = fill(&u.word("{pair}: {ratio}:1, below the {needed}:1 it needs ({foreground} on {background})"), &[
-                    ("pair", &u.word(wn.pair)),
-                    ("ratio", &format!("{:.1}", wn.ratio)),
-                    ("needed", &format!("{:.1}", wn.needed)),
-                    ("foreground", &wn.foreground.label_in(&locale)),
-                    ("background", &wn.background.label_in(&locale)),
-                ]);
+                let text = fill(
+                    &u.word(
+                        "{pair}: {ratio}:1, below the {needed}:1 it needs ({foreground} on {background})",
+                    ),
+                    &[
+                        ("pair", &u.word(wn.pair)),
+                        ("ratio", &format!("{:.1}", wn.ratio)),
+                        ("needed", &format!("{:.1}", wn.needed)),
+                        ("foreground", &wn.foreground.label_in(&locale)),
+                        ("background", &wn.background.label_in(&locale)),
+                    ],
+                );
                 let _ = l2.clone().child(w::text(&u, text).variant("error"));
             }
         });
@@ -382,7 +388,8 @@ type Pending = Option<(Option<PathBuf>, String, Vec<Refusal>)>;
 /// Import and export.
 fn sharing(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
     let unit = ui.theme().spacing.unit;
-    let path = w::text_input(ui, ui.word("Theme file")).placeholder(ui.word("A path such as themes/ocean.json"));
+    let path =
+        w::text_input(ui, ui.word("Theme file")).placeholder(ui.word("A path such as themes/ocean.json"));
     let pending: Signal<Pending> = Signal::new(None);
     let import = {
         let (c, u) = (c.clone(), ui.clone());
@@ -410,10 +417,12 @@ fn sharing(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
                         "Imported the theme {name}, leaving out {count} parts",
                         n,
                     );
-                    status.set(fill(form.unwrap_or(english), &[("name", &r.name), ("count", &n.to_string())]));
+                    status
+                        .set(fill(form.unwrap_or(english), &[("name", &r.name), ("count", &n.to_string())]));
                 }
                 Err(CustomizeError::Refused(list)) => pending.set(Some((from, text, list))),
-                Err(e) => status.set(fill(&u.word("Could not import that theme: {error}"), &[("error", &e.to_string())])),
+                Err(e) => status
+                    .set(fill(&u.word("Could not import that theme: {error}"), &[("error", &e.to_string())])),
             }
         })
     };
@@ -421,17 +430,20 @@ fn sharing(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
         let (f, u) = (import.clone(), ui.clone());
         Rc::new(move |p: PathBuf| match std::fs::read_to_string(&p) {
             Ok(text) => f(Some(p), text, ImportPolicy::default()),
-            Err(e) => status.set(fill(&u.word("Could not read {file}: {error}"), &[
-                ("file", &p.display().to_string()),
-                ("error", &e.to_string()),
-            ])),
+            Err(e) => status.set(fill(
+                &u.word("Could not read {file}: {error}"),
+                &[("file", &p.display().to_string()), ("error", &e.to_string())],
+            )),
         })
     };
     let export_to = {
         let (c, u) = (c.clone(), ui.clone());
         Rc::new(move |p: PathBuf| match c.export_theme(&p) {
-            Ok(()) => status.set(fill(&u.word("Exported the theme to {file}"), &[("file", &p.display().to_string())])),
-            Err(e) => status.set(fill(&u.word("Could not export the theme: {error}"), &[("error", &e.to_string())])),
+            Ok(()) => status
+                .set(fill(&u.word("Exported the theme to {file}"), &[("file", &p.display().to_string())])),
+            Err(e) => {
+                status.set(fill(&u.word("Could not export the theme: {error}"), &[("error", &e.to_string())]))
+            }
         })
     };
     let (p1, r1, u1) = (path.clone(), read_and_import.clone(), ui.clone());
@@ -571,8 +583,8 @@ fn files_section(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
             None => u0.word("No background image"),
         }
     });
-    let image_path =
-        w::text_input(ui, ui.word("Background image file")).placeholder(ui.word("A path such as pictures/waves.png"));
+    let image_path = w::text_input(ui, ui.word("Background image file"))
+        .placeholder(ui.word("A path such as pictures/waves.png"));
     let (c1, u1, p1) = (c.clone(), ui.clone(), image_path.clone());
     let use_image = w::button(ui, ui.word("Use this image"), move || {
         let p = p1.value();
@@ -624,13 +636,15 @@ fn files_section(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
             }
             for family in fonts {
                 let (c7, u7, f7) = (c6.clone(), u.clone(), family.clone());
-                let remove = w::button(&u, u.word("Remove"), move || report(&u7, status, c7.remove_theme_font(&u7, &f7)))
-                    .variant("quiet")
-                    .semantics(
-                        Semantics::new(Role::Button)
-                            .label(fill(&u.word("Remove font {family}"), &[("family", &family)]))
-                            .action(Action::Click),
-                    );
+                let remove = w::button(&u, u.word("Remove"), move || {
+                    report(&u7, status, c7.remove_theme_font(&u7, &f7))
+                })
+                .variant("quiet")
+                .semantics(
+                    Semantics::new(Role::Button)
+                        .label(fill(&u.word("Remove font {family}"), &[("family", &family)]))
+                        .action(Action::Click),
+                );
                 let row = w::row(&u)
                     .gap(unit * 2.0)
                     .align(Align::Center)
@@ -640,8 +654,10 @@ fn files_section(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
             }
         });
     });
-    let font_path = w::text_input(ui, ui.word("Font file")).placeholder(ui.word("A path such as fonts/Ocean-Regular.ttf"));
-    let font_name = w::text_input(ui, ui.word("Font name")).placeholder(ui.word("What the font is called, such as Ocean"));
+    let font_path = w::text_input(ui, ui.word("Font file"))
+        .placeholder(ui.word("A path such as fonts/Ocean-Regular.ttf"));
+    let font_name = w::text_input(ui, ui.word("Font name"))
+        .placeholder(ui.word("What the font is called, such as Ocean"));
     let (c8, u8, fp, fname) = (c.clone(), ui.clone(), font_path.clone(), font_name.clone());
     let add = w::button(ui, ui.word("Add font"), move || {
         let (p, n) = (fp.value(), fname.value());
@@ -652,7 +668,10 @@ fn files_section(ui: &Ui, c: &Customizations, status: Signal<String>) -> El {
         }
     });
     w::section(ui, &ui.word("Files"))
-        .child(w::text(ui, ui.word("Images show behind every window, sized to it; fonts are checked before use.")))
+        .child(w::text(
+            ui,
+            ui.word("Images show behind every window, sized to it; fonts are checked before use."),
+        ))
         .child(w::row(ui).gap(unit * 2.0).align(Align::Center).child(shown.grow(1.0)).child(remove))
         .child(image_row)
         .child(list)

@@ -117,12 +117,18 @@ fn problem(ui: &Ui, text: &str, sym: &NumberSymbols, o: &NumberOptions) -> Resul
     if let Some(m) = o.min
         && v < m
     {
-        return Err(remedy_ui_view::words::fill(&ui.word("At least {number}"), &[("number", &o.format(sym, m))]));
+        return Err(remedy_ui_view::words::fill(
+            &ui.word("At least {number}"),
+            &[("number", &o.format(sym, m))],
+        ));
     }
     if let Some(m) = o.max
         && v > m
     {
-        return Err(remedy_ui_view::words::fill(&ui.word("At most {number}"), &[("number", &o.format(sym, m))]));
+        return Err(remedy_ui_view::words::fill(
+            &ui.word("At most {number}"),
+            &[("number", &o.format(sym, m))],
+        ));
     }
     Ok(v)
 }

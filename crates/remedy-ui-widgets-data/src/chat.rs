@@ -334,7 +334,8 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
     let u = ui.clone();
     let button = button.bind(move || {
         let n = unread.get();
-        let text = if n > 0 { u.counted("{count} new", "{count} new", n as u64) } else { u.word("Jump to latest") };
+        let text =
+            if n > 0 { u.counted("{count} new", "{count} new", n as u64) } else { u.word("Jump to latest") };
         if let Some(l) = b2.child_elements().into_iter().next() {
             let _ = l.text(remedy_ui_view::RichText::plain(text.clone()));
         }

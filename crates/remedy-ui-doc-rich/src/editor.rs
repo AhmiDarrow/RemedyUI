@@ -304,10 +304,9 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                 let on = f.read_rich(|e| (t.on)(e)).unwrap_or(false);
                 t.button.state(States::CHECKED, on);
                 t.button.state(States::SELECTED, on);
-                let _ = t
-                    .button
-                    .clone()
-                    .semantics(Semantics::new(Role::Button).label(t.label.clone()).checked(on).action(Action::Click));
+                let _ = t.button.clone().semantics(
+                    Semantics::new(Role::Button).label(t.label.clone()).checked(on).action(Action::Click),
+                );
             }
         }
     };
@@ -370,13 +369,11 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                 close(&open);
                 let Some(caret) = f.caret_rect() else { return };
                 let unit = ui.theme().spacing.unit;
-                let list = ui.el("menu").column().semantics(
-                    Semantics::new(Role::List).label(ui.counted(
-                        "{count} person to mention",
-                        "{count} people to mention",
-                        items.len() as u64,
-                    )),
-                );
+                let list = ui.el("menu").column().semantics(Semantics::new(Role::List).label(ui.counted(
+                    "{count} person to mention",
+                    "{count} people to mention",
+                    items.len() as u64,
+                )));
                 for (i, c) in items.iter().enumerate() {
                     let ins = insert.clone();
                     let row = ui

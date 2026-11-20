@@ -71,7 +71,11 @@ pub fn property_grid(ui: &Ui, label: impl Into<String>, groups: Vec<PropertyGrou
     let label = label.into();
     let unit = ui.theme().spacing.unit;
     let filter = Signal::new(String::new());
-    let search = w::search(ui, remedy_ui_view::words::fill(&ui.word("Filter {label}"), &[("label", &label)]), move |s| filter.set(s));
+    let search = w::search(
+        ui,
+        remedy_ui_view::words::fill(&ui.word("Filter {label}"), &[("label", &label)]),
+        move |s| filter.set(s),
+    );
     let mut body = ui.el("property_body").column().gap(unit).fill_width();
     let mut all_rows: Vec<(String, Option<String>)> = Vec::new();
     for g in groups {

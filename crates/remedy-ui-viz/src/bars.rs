@@ -183,14 +183,12 @@ pub fn bars<S: Samples + 'static>(
         }
         let tick = (high * 20.0).round() as i32;
         if heard.replace((count, tick)) != (count, tick) {
-            let _ = sem_el.clone().semantics(
-                Semantics::new(Role::Image)
-                    .label(label.clone())
-                    .value(remedy_ui_view::words::fill(&sem_el.ui().word("{count} bars, highest {percent} percent"), &[
-                        ("count", &count.to_string()),
-                        ("percent", &(tick * 5).to_string()),
-                    ])),
-            );
+            let _ = sem_el.clone().semantics(Semantics::new(Role::Image).label(label.clone()).value(
+                remedy_ui_view::words::fill(
+                    &sem_el.ui().word("{count} bars, highest {percent} percent"),
+                    &[("count", &count.to_string()), ("percent", &(tick * 5).to_string())],
+                ),
+            ));
         }
         ticker.kick();
     })

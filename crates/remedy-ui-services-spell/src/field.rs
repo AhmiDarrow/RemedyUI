@@ -59,8 +59,9 @@ impl MenuLabels {
     /// ([`remedy_ui_view::words`]); English where it has none. The spelling menu shows these
     /// for the window's locale when its labels are the defaults.
     pub fn for_locale(locale: &str) -> Self {
-        MenuLabels::default()
-            .translated(|en| remedy_ui_view::words::word(locale, en).map_or_else(|| en.to_owned(), str::to_owned))
+        MenuLabels::default().translated(|en| {
+            remedy_ui_view::words::word(locale, en).map_or_else(|| en.to_owned(), str::to_owned)
+        })
     }
 }
 

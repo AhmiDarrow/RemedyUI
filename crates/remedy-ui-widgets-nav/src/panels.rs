@@ -105,11 +105,10 @@ pub fn drawer(ui: &Ui, label: impl Into<String>, edge: Edge, open: Signal<bool>,
 pub fn sheet(ui: &Ui, title: impl Into<String>, open: Signal<bool>, content: El) -> El {
     let title = title.into();
     let unit = ui.theme().spacing.unit;
-    let head = w::row(ui)
-        .align(Align::Center)
-        .fill_width()
-        .child(w::heading(ui, 2, title.clone()).grow(1.0))
-        .child(w::icon_button(ui, Icon::Close, ui.word("Close"), move || open.set(false)).variant("quiet"));
+    let head =
+        w::row(ui).align(Align::Center).fill_width().child(w::heading(ui, 2, title.clone()).grow(1.0)).child(
+            w::icon_button(ui, Icon::Close, ui.word("Close"), move || open.set(false)).variant("quiet"),
+        );
     let body = w::column(ui).gap(unit * 3.0).fill_width().child(head).child(content);
     drawer(ui, title, Edge::Bottom, open, body)
 }
@@ -147,7 +146,8 @@ pub fn title_bar(ui: &Ui, title: Signal<String>, extra: Option<El>, actions: Tit
         let _ = t2.clone().text(remedy_ui_view::RichText::plain(title.get()));
     });
     let (a1, a2, a3, a4) = (a.clone(), a.clone(), a.clone(), a.clone());
-    let max = w::icon_button(ui, Icon::Maximize, ui.word("Maximize"), move || (a2.toggle_maximize)()).variant("quiet");
+    let max = w::icon_button(ui, Icon::Maximize, ui.word("Maximize"), move || (a2.toggle_maximize)())
+        .variant("quiet");
     let (m2, u, a5) = (max.clone(), ui.clone(), a.clone());
     let max = max.bind(move || {
         let on = (a5.is_maximized)();

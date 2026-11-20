@@ -166,9 +166,14 @@ pub fn code_view(ui: &Ui, label: impl Into<String>, source: Signal<String>, opti
                 let toggle = match &line.fold {
                     Some(_) => {
                         let n = line.number - 1;
-                        let label = if line.folded { ui.word("Unfold line {number}") } else { ui.word("Fold line {number}") };
+                        let label = if line.folded {
+                            ui.word("Unfold line {number}")
+                        } else {
+                            ui.word("Fold line {number}")
+                        };
                         let icon = if line.folded { w::Icon::ChevronRight } else { w::Icon::ChevronDown };
-                        let label = remedy_ui_view::words::fill(&label, &[("number", &line.number.to_string())]);
+                        let label =
+                            remedy_ui_view::words::fill(&label, &[("number", &line.number.to_string())]);
                         w::icon_button(&ui, icon, label, move || {
                             folded.update(|f| {
                                 if !f.remove(&n) {

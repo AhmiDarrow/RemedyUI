@@ -236,12 +236,15 @@ pub fn color_swatch_grid(
                 } else {
                     u.word("{name}, {color}, row {row} column {column}")
                 };
-                s = s.value(remedy_ui_view::words::fill(&template, &[
-                    ("name", &sw.name),
-                    ("color", &hex(sw.color)),
-                    ("row", &(cur / cols + 1).to_string()),
-                    ("column", &(cur % cols + 1).to_string()),
-                ]));
+                s = s.value(remedy_ui_view::words::fill(
+                    &template,
+                    &[
+                        ("name", &sw.name),
+                        ("color", &hex(sw.color)),
+                        ("row", &(cur / cols + 1).to_string()),
+                        ("column", &(cur % cols + 1).to_string()),
+                    ],
+                ));
             }
             s
         })

@@ -468,7 +468,8 @@ pub(crate) fn and_list(ui: &Ui, items: &[String]) -> String {
     match items {
         [] => String::new(),
         [one] => one.clone(),
-        [rest @ .., last] => fill(&ui.word("{list} and {last}"), &[("list", &rest.join(", ")), ("last", last)]),
+        [rest @ .., last] => {
+            fill(&ui.word("{list} and {last}"), &[("list", &rest.join(", ")), ("last", last)])
+        }
     }
 }
-

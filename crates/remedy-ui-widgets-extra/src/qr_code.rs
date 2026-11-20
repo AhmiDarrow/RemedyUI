@@ -165,10 +165,13 @@ pub fn qr_code(ui: &Ui, label: impl Into<String>, data: Signal<String>, options:
             Ok(code) => {
                 let total = (code.size() + 2 * quiet) as f32;
                 let said = options.description.clone().unwrap_or_else(|| {
-                    remedy_ui_view::words::fill(&u.word("QR code, version {version}, error correction {level}"), &[
-                        ("version", &code.version().to_string()),
-                        ("level", &code.ecc().letter().to_string()),
-                    ])
+                    remedy_ui_view::words::fill(
+                        &u.word("QR code, version {version}, error correction {level}"),
+                        &[
+                            ("version", &code.version().to_string()),
+                            ("level", &code.ecc().letter().to_string()),
+                        ],
+                    )
                 });
                 (total * module, Semantics::new(Role::Image).label(label.clone()).description(said))
             }

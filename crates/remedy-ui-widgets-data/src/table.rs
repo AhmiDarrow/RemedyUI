@@ -263,8 +263,9 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                 let width = width_of(c);
                 let editing_here = edit_now.as_ref().is_some_and(|(ek, cid)| *ek == k && *cid == col.id);
                 let content = if editing_here && let Some((get, set)) = &col.edit {
-                    let field =
-                        ui2.text_field("text_input", FieldKind::Single).label(remedy_ui_view::words::fill(&ui2.word("Edit {name}"), &[("name", &col.title)]));
+                    let field = ui2.text_field("text_input", FieldKind::Single).label(
+                        remedy_ui_view::words::fill(&ui2.word("Edit {name}"), &[("name", &col.title)]),
+                    );
                     field.set_value(&get(&row));
                     let (f2, set, row2) = (field.clone(), set.clone(), row.clone());
                     let commit = Rc::new(move || match set(&row2, f2.value()) {
@@ -902,8 +903,10 @@ pub fn table<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .child(sorter)
         .child(redraw)
         .semantics(move || {
-            Semantics::new(Role::Table)
-                .label(l2.clone())
-                .description(u.counted("{count} row", "{count} rows", n_rows.with(Vec::len) as u64))
+            Semantics::new(Role::Table).label(l2.clone()).description(u.counted(
+                "{count} row",
+                "{count} rows",
+                n_rows.with(Vec::len) as u64,
+            ))
         })
 }

@@ -74,9 +74,13 @@ impl Customizations {
         }
         let mut next = cmds.bindings();
         put(&cmds, &mut next, id, chords);
-        self.change(ui, fill(&ui.word("Change shortcuts for {label}"), &[("label", &label)]), None, &[Area::Shortcuts], |c| {
-            c.write_shortcuts(&next)
-        })
+        self.change(
+            ui,
+            fill(&ui.word("Change shortcuts for {label}"), &[("label", &label)]),
+            None,
+            &[Area::Shortcuts],
+            |c| c.write_shortcuts(&next),
+        )
     }
 
     /// Adds `chord` to `id`'s shortcuts (undoable). When other commands in its scope answer
@@ -118,10 +122,10 @@ impl Customizations {
         }
         let mut next = cmds.bindings();
         put(&cmds, &mut next, id, info.chords.into_iter().filter(|c| c != chord).collect());
-        let label = fill(&ui.word("Remove {shortcut} from {command}"), &[
-            ("shortcut", &chord.label(ui.platform())),
-            ("command", &info.label),
-        ]);
+        let label = fill(
+            &ui.word("Remove {shortcut} from {command}"),
+            &[("shortcut", &chord.label(ui.platform())), ("command", &info.label)],
+        );
         self.change(ui, label, None, &[Area::Shortcuts], |c| c.write_shortcuts(&next))
     }
 
@@ -138,9 +142,13 @@ impl Customizations {
             return Err(CustomizeError::Clashes(clashes));
         }
         let label = cmds.info(id).map_or_else(|| id.to_owned(), |i| i.label);
-        self.change(ui, fill(&ui.word("Reset shortcuts for {label}"), &[("label", &label)]), None, &[Area::Shortcuts], |c| {
-            c.write_shortcuts(&next)
-        })
+        self.change(
+            ui,
+            fill(&ui.word("Reset shortcuts for {label}"), &[("label", &label)]),
+            None,
+            &[Area::Shortcuts],
+            |c| c.write_shortcuts(&next),
+        )
     }
 
     /// Gives every command its default shortcuts back (undoable).

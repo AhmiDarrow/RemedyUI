@@ -339,10 +339,10 @@ pub fn level_meter(ui: &Ui, label: impl Into<String>, level: Signal<f32>, option
                 Semantics::new(Role::Progress)
                     .label(sem_label.clone())
                     .numeric(f64::from(tick) / 20.0, 0.0, 1.0)
-                    .value(remedy_ui_view::words::fill(&sem_el.ui().word("{percent} percent, {zone}"), &[
-                        ("percent", &pct.to_string()),
-                        ("zone", &sem_el.ui().word(zone.name())),
-                    ])),
+                    .value(remedy_ui_view::words::fill(
+                        &sem_el.ui().word("{percent} percent, {zone}"),
+                        &[("percent", &pct.to_string()), ("zone", &sem_el.ui().word(zone.name()))],
+                    )),
             );
         }
         ticker.kick();
@@ -350,7 +350,9 @@ pub fn level_meter(ui: &Ui, label: impl Into<String>, level: Signal<f32>, option
 
     match options.threshold {
         Some(threshold) => {
-            let name = options.threshold_label.unwrap_or_else(|| remedy_ui_view::words::fill(&ui.word("{label} threshold"), &[("label", &label)]));
+            let name = options.threshold_label.unwrap_or_else(|| {
+                remedy_ui_view::words::fill(&ui.word("{label} threshold"), &[("label", &label)])
+            });
             root.child(threshold_handle(ui, o, name, threshold, options.threshold_step))
         }
         None => root,
@@ -414,7 +416,10 @@ fn threshold_handle(ui: &Ui, o: Orientation, name: String, threshold: Signal<f32
                 Semantics::new(Role::Slider)
                     .label(name.clone())
                     .numeric(f64::from(v), 0.0, 1.0)
-                    .value(remedy_ui_view::words::fill(&sem_el.ui().word("{percent} percent"), &[("percent", &((v * 100.0).round() as i32).to_string())]))
+                    .value(remedy_ui_view::words::fill(
+                        &sem_el.ui().word("{percent} percent"),
+                        &[("percent", &((v * 100.0).round() as i32).to_string())],
+                    ))
                     .action(Action::Increment)
                     .action(Action::Decrement),
             );

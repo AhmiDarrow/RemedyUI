@@ -428,10 +428,10 @@ pub fn carousel(
                 .on_click(move || go(i))
                 .semantics(move || {
                     Semantics::new(Role::Button)
-                        .label(remedy_ui_view::words::fill(&page_word, &[
-                            ("number", &(i + 1).to_string()),
-                            ("total", &n.to_string()),
-                        ]))
+                        .label(remedy_ui_view::words::fill(
+                            &page_word,
+                            &[("number", &(i + 1).to_string()), ("total", &n.to_string())],
+                        ))
                         .selected(index.get() == i)
                         .action(Action::Click)
                 });
@@ -446,8 +446,11 @@ pub fn carousel(
         btn.bind(move || {
             let on = playing.get();
             let words = if on { u.word("Pause") } else { u.word("Play") };
-            let said =
-                if on { u.word("Pause automatic page changes") } else { u.word("Play automatic page changes") };
+            let said = if on {
+                u.word("Pause automatic page changes")
+            } else {
+                u.word("Play automatic page changes")
+            };
             let _ = b2.clone().semantics(Semantics::new(Role::Button).label(said).action(Action::Click));
             for c in b2.child_elements() {
                 let _ = c.text(RichText::plain(words.clone()));
@@ -569,7 +572,10 @@ pub fn carousel(
         let _ = bind_root.clone().semantics(
             Semantics::new(Role::Group)
                 .label(label.clone())
-                .value(remedy_ui_view::words::fill(&page_value, &[("number", &(idx + 1).to_string()), ("total", &n.to_string())]))
+                .value(remedy_ui_view::words::fill(
+                    &page_value,
+                    &[("number", &(idx + 1).to_string()), ("total", &n.to_string())],
+                ))
                 .live(Live::Polite)
                 .action(Action::Increment)
                 .action(Action::Decrement),

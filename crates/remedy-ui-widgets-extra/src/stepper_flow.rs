@@ -92,8 +92,9 @@ impl StepperLabels {
     /// ([`remedy_ui_view::words`]); English where it has none. [`stepper_flow`] shows these
     /// for the window's locale when it is given the defaults.
     pub fn for_locale(locale: &str) -> Self {
-        StepperLabels::default()
-            .translated(|en| remedy_ui_view::words::word(locale, en).map_or_else(|| en.to_owned(), str::to_owned))
+        StepperLabels::default().translated(|en| {
+            remedy_ui_view::words::word(locale, en).map_or_else(|| en.to_owned(), str::to_owned)
+        })
     }
 }
 
@@ -128,7 +129,8 @@ pub fn stepper_flow(
 ) -> El {
     let label = label.into();
     // The defaults are English: show the window's language instead.
-    let labels = if labels == StepperLabels::default() { StepperLabels::for_locale(&ui.locale()) } else { labels };
+    let labels =
+        if labels == StepperLabels::default() { StepperLabels::for_locale(&ui.locale()) } else { labels };
     let n = steps.len();
     let unit = ui.theme().spacing.unit;
     let last = n.saturating_sub(1);
@@ -152,7 +154,11 @@ pub fn stepper_flow(
 
     // Progress: how far through the flow, as a bar.
     let fraction: Signal<Option<f32>> = Signal::new(Some(0.0));
-    let bar = w::progress(ui, remedy_ui_view::words::fill(&ui.word("{label} progress"), &[("label", &label)]), fraction);
+    let bar = w::progress(
+        ui,
+        remedy_ui_view::words::fill(&ui.word("{label} progress"), &[("label", &label)]),
+        fraction,
+    );
 
     // The markers.
     let markers: Vec<El> = (0..n)
@@ -223,11 +229,11 @@ pub fn stepper_flow(
                         } else {
                             u.word("Step {number}: {title}, locked")
                         };
-                        let said = remedy_ui_view::words::fill(&template, &[("number", &(i + 1).to_string()), ("title", &t2)]);
-                        Semantics::new(Role::Button)
-                            .label(said)
-                            .selected(i == cur)
-                            .action(Action::Click)
+                        let said = remedy_ui_view::words::fill(
+                            &template,
+                            &[("number", &(i + 1).to_string()), ("title", &t2)],
+                        );
+                        Semantics::new(Role::Button).label(said).selected(i == cur).action(Action::Click)
                     }
                 })
         })

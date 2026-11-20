@@ -91,7 +91,8 @@ impl Reader<'_> {
                             let hi = self.hex4()?;
                             let code = if (0xD800..0xDC00).contains(&hi) {
                                 if self.bump() != Some('\\') || self.bump() != Some('u') {
-                                    return self.fail("a high surrogate must be followed by \\u and a low one");
+                                    return self
+                                        .fail("a high surrogate must be followed by \\u and a low one");
                                 }
                                 let lo = self.hex4()?;
                                 if !(0xDC00..0xE000).contains(&lo) {

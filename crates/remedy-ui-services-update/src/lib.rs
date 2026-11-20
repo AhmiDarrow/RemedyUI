@@ -552,7 +552,8 @@ impl BannerText {
     /// ([`remedy_ui_view::words`]); English where it has none. [`update_banner`] shows these
     /// for the window's locale. A failure still shows the error's own text.
     pub fn for_locale(locale: &str) -> Self {
-        let w = |en: &str| remedy_ui_view::words::word(locale, en).map_or_else(|| en.to_owned(), str::to_owned);
+        let w =
+            |en: &str| remedy_ui_view::words::word(locale, en).map_or_else(|| en.to_owned(), str::to_owned);
         let en = BannerText::default();
         BannerText {
             checking: w(&en.checking),

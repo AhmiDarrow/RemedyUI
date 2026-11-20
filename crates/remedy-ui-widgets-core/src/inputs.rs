@@ -55,7 +55,9 @@ pub fn secret_input(ui: &Ui, label: impl Into<String>) -> TextField {
 pub fn reveal_toggle(ui: &Ui, field: &TextField) -> El {
     let f = field.clone();
     let shown = remedy_ui_reactive::Signal::new(false);
-    let b = crate::icon_button(ui, crate::Icon::Eye, ui.word("Show password"), move || shown.update(|v| *v = !*v));
+    let b = crate::icon_button(ui, crate::Icon::Eye, ui.word("Show password"), move || {
+        shown.update(|v| *v = !*v)
+    });
     let b2 = b.clone();
     let u = ui.clone();
     b.bind(move || {
