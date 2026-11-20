@@ -51,3 +51,18 @@ overflow-checks = false
 
 [profile.release]
 overflow-checks = true
+
+# shortcut: a local wgpu checkout with present-with-damage (preserved surface contents, buffer
+# age, damaged present); points at crates.io wgpu once the change is released upstream.
+[patch.crates-io]
+wgpu = { path = "../../../../wgpu/wgpu" }
+wgpu-core = { path = "../../../../wgpu/wgpu-core" }
+wgpu-hal = { path = "../../../../wgpu/wgpu-hal" }
+wgpu-types = { path = "../../../../wgpu/wgpu-types" }
+wgpu-naga-bridge = { path = "../../../../wgpu/wgpu-naga-bridge" }
+naga = { path = "../../../../wgpu/naga" }
+naga-types = { path = "../../../../wgpu/naga-types" }
+wgpu-core-deps-apple = { path = "../../../../wgpu/wgpu-core/platform-deps/apple" }
+wgpu-core-deps-emscripten = { path = "../../../../wgpu/wgpu-core/platform-deps/emscripten" }
+wgpu-core-deps-wasm = { path = "../../../../wgpu/wgpu-core/platform-deps/wasm" }
+wgpu-core-deps-windows-linux-android = { path = "../../../../wgpu/wgpu-core/platform-deps/windows-linux-android" }
