@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "xtask"]
+exclude = ["vendor/vello_cpu"]
 
 [workspace.package]
 version = "1.0.0-rc.1"
@@ -51,3 +52,8 @@ overflow-checks = false
 
 [profile.release]
 overflow-checks = true
+
+# vello_cpu 0.4.0 with a fix for drop shadows thrown off the canvas's top or left edge; see
+# vendor/vello_cpu/PATCHED.md.
+[patch.crates-io]
+vello_cpu = { path = "vendor/vello_cpu" }
