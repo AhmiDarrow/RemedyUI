@@ -10,6 +10,28 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **The engine's own words follow the window's locale** (`remedy-ui-words`, re-exported as
+  `remedy_ui::words`, always on). Every word RemedyUI shows itself (icon names, the password
+  toggle, menus, the media player's controls, the board editor, the customization pages, the
+  agent prompts, accessible names and descriptions) goes through `Ui::word` /
+  `Ui::counted` (or `words::word_or` where only a locale is known) and shows its built-in
+  translation for the shipped locales: es, zh-Hans, hi, ar, fr, pt-BR, ru, ja, de and bn
+  (`words::shipped()`, with each `Locale`'s native name, direction and plural rule; the
+  translations themselves are still to be filled in). `words::best_match` matches by tag,
+  then language and script (Traditional Chinese tags get English, not Simplified), then
+  language; English and the pseudo-locales keep the English. Counted words pick their form
+  by the language's plural rule (`words::counted`, `words::pick`, `plural_form`).
+  `words/en.json` lists every word, in the `Catalog` JSON shape; a test keeps it equal to
+  what the sources say (`REMEDY_WRITE_WORDS=1 cargo test -p remedy-ui-words` rewrites it).
+  `StepperLabels`, `spell::MenuLabels`, `BoardLabels`, `ReactionLabels` and the update
+  banner's `BannerText` gain `for_locale` (and `translated` where they lacked it); their
+  `Default` stays English, and widgets given the defaults show the window's locale. Added
+  locale-taking variants of English helpers: `Icon::accessible_name_in`,
+  `HistoryItem::undo_label_in`, `Annotation::kind_name_in` / `describe_in`,
+  `FindState::status_in`, `Token::label_in`, `Area::name_in`, `Pitch::spoken_in`,
+  `Technique::spoken_in`, `describe_chord_in`, `describe_position_in`, `describe_event_in`,
+  `describe_tab_note_in`. `ReactionLabels` gains `plural_locale` and `count`.
+
 - **Ambient motion with a budget**: animated backgrounds and decoration that cost nothing
   while unseen. `AmbientPolicy` (`App::set_ambient_policy`, `Ui::set_ambient_policy`):
   `AmbientMode::{Full, Light, Off}`, frames a second focused (30) and in the background (10, or
