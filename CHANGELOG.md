@@ -545,6 +545,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - Animations at rest or finished sample their exact target (`Animation::sample`): colors
   move in Oklab and came back a few millionths off, so a reduced-motion `animate_style`
   never quite reached its color.
+- A display list with a pop too many (`PopLayer`, `PopClip`, `PopFilter` with nothing open)
+  or groups left open made the renderers panic ("some layers haven't been popped yet"); the
+  painter now skips unmatched pops and closes what a list leaves open. A fuzz test draws
+  random unbalanced lists, with absurd filter values, directly and through compositor tiles
+  on both renderers.
 - A snapshot of a window the GPU draws left out GPU content (Prism effects, `gpu_view`
   textures, video converted on the GPU): it was drawn again by a CPU renderer that cannot read
   GPU textures. It now reads back the GPU's own frame.

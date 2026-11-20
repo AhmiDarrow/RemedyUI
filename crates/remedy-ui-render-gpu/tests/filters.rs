@@ -188,3 +188,103 @@ fn hostile_filter_sizes_are_bounded_on_both_renderers() {
     }
     assert!(g.context().take_errors().is_empty());
 }
+
+/// A small deterministic generator (xorshift), so a failing list can be found again.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+    fn below(&mut self, n: u64) -> u64 {
+        self.next() % n.max(1)
+    }
+    fn f(&mut self, lo: f32, hi: f32) -> f32 {
+        lo + (self.below(10_000) as f32 / 10_000.0) * (hi - lo)
+    }
+    /// Now and then a value no one should send.
+    fn wild(&mut self, lo: f32, hi: f32) -> f32 {
+        match self.below(12) {
+            0 => f32::NAN,
+            1 => f32::INFINITY,
+            2 => -1.0e9,
+            3 => 1.0e9,
+            _ => self.f(lo, hi),
+        }
+    }
+}
+
+/// A random list: shapes among pushes and pops of every kind, in any order and number
+/// (unbalanced on purpose), with filters, glass and transforms, some of them absurd.
+fn random_list(rng: &mut Rng) -> DisplayList {
+    let mut l = DisplayList::new();
+    for _ in 0..rng.below(40) + 5 {
+        let c = Color::rgba8(
+            rng.below(256) as u8,
+            rng.below(256) as u8,
+            rng.below(256) as u8,
+            rng.below(256) as u8,
+        );
+        let (x, y) = (rng.f(-20.0, 100.0), rng.f(-20.0, 100.0));
+        let r = Rect::new(x, y, x + rng.f(1.0, 60.0), y + rng.f(1.0, 60.0));
+        match rng.below(14) {
+            0..=3 => l.fill_rounded(r, CornerRadii::all(rng.f(0.0, 12.0)), Brush::Solid(c)),
+            4 => l.push(Item::PushFilter(Filter::Blur { radius: rng.wild(0.0, 8.0) })),
+            5 => l.push(Item::PushFilter(Filter::DropShadow {
+                offset: Vec2::new(rng.wild(-10.0, 10.0), rng.wild(-10.0, 10.0)),
+                blur: rng.wild(0.0, 12.0),
+                color: c,
+            })),
+            6 => l.push(Item::PopFilter),
+            7 => l.push(Item::PushLayer { opacity: rng.f(0.0, 1.0), blend: remedy_ui_paint::Blend::Normal }),
+            8 => l.push(Item::PopLayer),
+            9 => l.push_clip(r, CornerRadii::all(rng.f(0.0, 8.0))),
+            10 => l.pop_clip(),
+            11 => l.push(Item::Backdrop {
+                rect: r,
+                radii: CornerRadii::all(rng.f(0.0, 8.0)),
+                blur: rng.wild(0.0, 8.0),
+            }),
+            12 => l.push(Item::PushTransform(remedy_ui_paint::Affine::translate(Vec2::new(
+                rng.f(-10.0, 10.0),
+                rng.f(-10.0, 10.0),
+            )))),
+            _ => l.push(Item::PopTransform),
+        }
+    }
+    l
+}
+
+#[test]
+fn random_unbalanced_lists_draw_without_failing_on_both_renderers() {
+    let mut rng = Rng(0x5eed_1234_abcd_0001);
+    let mut g = gpu();
+    let mut c = CpuRenderer::new();
+    let mut gc = GpuCompositor::new(gpu(), LadderOptions::default());
+    let mut cc = CpuCompositor::new();
+    let mut comp = Compositor::new(96, 96, 1.0, ScrollPhysics::CLAMPED);
+    for case in 0..60 {
+        let list = random_list(&mut rng);
+        let (Ok(a), Ok(b)) =
+            (c.render(&list, 96, 96, 1.0, Color::WHITE), g.render(&list, 96, 96, 1.0, Color::WHITE))
+        else {
+            unreachable!("case {case}: both render")
+        };
+        let (visible, _) = differing(&a, &b, 24);
+        assert!(
+            visible * 50 <= 96 * 96,
+            "case {case}: GPU and CPU agree ({visible} pixels differ)\n{list:?}"
+        );
+        // Through the compositor too: the list as a layer's content, tiled.
+        let mut layer = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 96.0, 96.0), list);
+        layer.content_version = case;
+        comp.commit(LayerTree::new(vec![layer]));
+        let plan = comp.frame(Duration::from_millis(16 * case));
+        assert!(cc.present(&plan, 96, 96, Color::WHITE).is_ok(), "case {case}: CPU composite");
+        assert!(gc.present_to_frame(&plan, 96, 96, Color::WHITE).is_ok(), "case {case}: GPU composite");
+    }
+    assert!(g.context().take_errors().is_empty(), "no GPU validation errors");
+}
