@@ -471,6 +471,18 @@ pub fn sheet(t: &Theme) -> StyleSheet {
     for w in ["fretboard", "tab_staff", "note_staff", "chord_diagram"] {
         rule(w, None, States::NONE, StylePatch::default().foreground(d.text).radius(r.small));
     }
+    // Stage (the stage pack): controls draw their value, needle and lamp in the accent; a big
+    // button's variant names its cap color; board text is lit in the warning color on a dark
+    // panel, whatever the theme's own background.
+    for w in ["knob", "tuner", "fader"] {
+        rule(w, None, States::NONE, StylePatch::default().foreground(c.accent).radius(r.small));
+    }
+    rule("big_button", None, States::NONE, StylePatch::default().foreground(c.accent));
+    rule("big_button", Some("accent"), States::NONE, StylePatch::default().foreground(c.accent));
+    rule("big_button", Some("danger"), States::NONE, StylePatch::default().foreground(c.danger));
+    rule("big_button", Some("ok"), States::NONE, StylePatch::default().foreground(c.ok));
+    rule("big_button", Some("warn"), States::NONE, StylePatch::default().foreground(c.warn));
+    rule("big_button", None, States::DISABLED, disabled.clone());
     // Extras: the star color, the carousel's frame and dots, the wizard's markers and the swatches.
     rule("rating", None, States::NONE, StylePatch::default().foreground(c.warn));
     rule("qr_code", None, States::NONE, StylePatch::default().radius(r.small));

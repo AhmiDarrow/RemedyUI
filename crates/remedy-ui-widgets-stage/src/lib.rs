@@ -30,13 +30,19 @@
 //! read and focused in the order the app gave them, not their position in the picture.
 //! See `docs/design/15-widgets-and-media.md`.
 
+mod button;
 mod common;
+mod dial;
+mod fader;
 mod orbit;
 mod path;
 mod pixel;
 mod scene;
 
+pub use button::{BigButtonOptions, ButtonLook, big_button, big_toggle};
 pub use common::{Ink, LineStyle, Place};
+pub use dial::{KnobOptions, Station, TunerOptions, TunerShape, ValueText, knob, tuner};
+pub use fader::{FaderOptions, fader};
 pub use orbit::{Orbit, OrbitOptions, orbit};
 pub use path::{PathLayout, PathOptions, Route, Spread, path_layout};
 pub use pixel::{PixelArt, PixelScale, SpriteOptions, SpriteSheet, SpriteSource, pixel_art, sprite};
