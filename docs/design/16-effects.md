@@ -47,6 +47,11 @@ particles, starfields, grain, CRT screens, raymarched 3D objects and volumes, de
   (made only of parameters, time and size) into one program run once a frame on the CPU, removes
   dead code and allocates registers. Higher-level functions (fbm, shapes, cameras, lighting)
   lower to instructions; many are written in `.rfx` itself (the prelude).
+- **Diagnostics** are located (`line:column`) and say what to do: a misspelled function,
+  name, parameter, pass or type gets "did you mean" when one is a keystroke or two away, and
+  an effect over its cost budget is reported at its costliest pass with the passes that cost
+  most. `CompileError::report(source)` draws each problem under its line with a caret, for
+  theme editors, the devtools and command lines.
 - **Stages**: a shade stage runs a program for every pixel of its buffer; a blur is a
   separable Gaussian (two passes, up to 32 taps a side); bloom lowers to a bright pass at half
   resolution, a blur and a combine; particles are simulated on the CPU (the program runs once
@@ -63,14 +68,27 @@ nothing else. Pipelines are made once per device; loading a theme or changing an
 compiles nothing. Effects render into buffers the element owns, copied into one of two
 registered textures the display list places (`Item::Texture`).
 
+Every eighth frame an effect brackets its passes with two timestamp queries (a query set kept
+per effect) and reads them back once the GPU is done, never waiting for it
+(`GpuEffect::take_gpu_time`). Devices without timestamp queries or compute passes (GL 3.3,
+WebGL2) measure nothing and pay nothing. A window snapshot of a GPU window reads back the
+frame the compositor keeps, so it shows the effects ([04](04-rendering.md)).
+
 ## The CPU path
 
 The interpreter runs one instruction over 64 pixels at a time (component-wise instructions
 are one tight loop per opcode, which the compiler vectorizes) and splits large buffers across
-threads (bit-identical to one thread). Every instruction is total. On a window the CPU
-renderer draws, the element measures each frame and steps down a ladder when over its budget
-(4 ms by default): half resolution, a quarter at no more than 15 fps, then the still frame; it
-climbs back when frames are cheap.
+threads (bit-identical to one thread). Every instruction is total.
+
+## Quality ladders
+
+On a window the CPU renderer draws, the element measures each frame and steps down a ladder
+when over its budget (`set_cpu_budget`, 4 ms by default): half resolution, a quarter at no more
+than 15 fps, then the still frame; it climbs back when frames are cheap. On the GPU it holds
+the sampled GPU time to `set_gpu_budget` (2 ms by default): half resolution, then a quarter at
+no more than 30 fps, and never the still frame; it climbs back after a run of cheap measures.
+Where the device takes no timestamps the GPU path relies on the static cost and the effect's
+scale. `EffectStats` reports the step and the latest GPU time.
 
 ## Safety
 
@@ -89,6 +107,11 @@ climbs back when frames are cheap.
   only coarse frame time in.
 - **Total arithmetic**: no NaN or infinity reaches a pixel; parameters are clamped to their
   ranges.
+- **Filters on element content are not Prism programs.** The blur, drop-shadow and backdrop
+  filters a style can ask for ([04](04-rendering.md)) are fixed engine operations: their cost
+  depends on the size of what they blur, never on its pixels, and nothing they compute flows
+  back to the theme, so reading what is behind an element opens no timing channel. Prism
+  programs still sample only their own inputs.
 
 ## Frames and budgets
 
@@ -108,11 +131,9 @@ GPU numbers are an upper bound):
 
 ## Not yet
 
-- **Filters on element content** (blur behind a panel, drop shadows of any shape, colour
-  matrices) need the compositor to hand an element's rendered layer to a kernel. vello's filter
-  effects (Gaussian blur, drop shadow) are a candidate for the first two.
-- **Per-effect GPU timing and a GPU-side ladder.** The GPU path relies on the static cost and
-  the effect's scale; sampled timestamp queries per effect pass would let it step down too.
+- **Colour-matrix filters on element content** (saturate, hue-rotate, grayscale). Blur, drop
+  shadows of any shape and backdrop blur exist ([04](04-rendering.md)); they run as vello
+  filter layers on both renderers.
 - **Compute and stateful particles** (collisions, flocking): stateless particles cover ambient
   decoration; stateful ones need compute, which GL 3.3 and WebGL2 lack.
 - **`.rui` and RemedyLua bindings**: the element and `Instance` are shaped for them (parameters

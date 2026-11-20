@@ -249,7 +249,18 @@ effects all fit the untrusted limits.
 - **Hoists** what only changes once a frame (parameters, `time`, `size` and anything made only
   from them) out of per-pixel code into one per-frame program run on the CPU.
 - Allocates registers, reusing them as values die.
-- Refuses what is over the limits, with `line:column: what`.
+- Refuses what is over the limits, with `line:column: what`. A misspelled function, name,
+  parameter, pass or type gets a suggestion (`` `fmb` is not a function; did you mean `fbm`? ``);
+  an effect over its cost budget is reported at its costliest pass, naming the passes that
+  cost most. `CompileError::report(source)` draws each problem under its line:
+
+  ```text
+  error: `fmb` is not a function; did you mean `fbm`?
+   --> 3:20
+    |
+  3 |         out = vec4(fmb(uv, 3));
+    |                    ^
+  ```
 
 ## Safety
 
