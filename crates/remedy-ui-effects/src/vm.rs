@@ -95,7 +95,9 @@ pub fn unpremultiply(c: [f32; 4]) -> [f32; 4] {
 
 /// The interpreter: registers for one batch, reused between runs.
 pub struct Vm {
-    /// Boxed, so a result computed into `out` is put in place by swapping two pointers.
+    /// Boxed, so a result computed into `out` is put in place by swapping two pointers
+    /// (a register is 1 KiB; swapping it unboxed would copy it).
+    #[allow(clippy::vec_box)]
     regs: Vec<Box<Reg>>,
     /// Where each instruction writes, while its operands are read where they are.
     out: Box<Reg>,
