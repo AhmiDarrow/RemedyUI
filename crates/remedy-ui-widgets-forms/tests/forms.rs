@@ -198,10 +198,11 @@ fn number_input_keeps_only_valid_rounded_values() {
     t.type_text("abc");
     assert_eq!(v.get(), d("12.35"), "bad text never reaches the value");
     let tree = t.tree();
-    assert!(tree.contains("Not a number") && tree.contains("SpinButton"), "{tree}");
+    // The window is German, so the field's own words are too.
+    assert!(tree.contains("Keine Zahl") && tree.contains("SpinButton"), "{tree}");
     t.type_text("600");
     assert_eq!(v.get(), d("12.35"), "out of range");
-    assert!(t.tree().contains("At most 500,00"));
+    assert!(t.tree().contains("Höchstens 500,00"));
     t.type_text("1.234,5");
     assert_eq!(v.get(), d("12.35"), "1234.5 is still out of range");
     t.type_text("2,5");
