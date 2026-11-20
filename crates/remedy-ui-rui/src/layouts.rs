@@ -222,7 +222,7 @@ impl Layout {
         let ui = &self.0.ui;
         let unit = ui.theme().spacing.unit;
         let me = self.clone();
-        let reset = w::button(ui, "Reset", move || {
+        let reset = w::button(ui, ui.word("Reset"), move || {
             let _ = me.reset();
         });
         w::row(ui)
@@ -233,7 +233,10 @@ impl Layout {
             .child(
                 w::text(
                     ui,
-                    format!("Your layout for {} could not load, so the original is shown: {e}", self.0.file),
+                    remedy_ui_view::words::fill(
+                        &ui.word("Your layout for {file} could not load, so the original is shown: {error}"),
+                        &[("file", &self.0.file), ("error", &e.to_string())],
+                    ),
                 )
                 .grow(1.0),
             )

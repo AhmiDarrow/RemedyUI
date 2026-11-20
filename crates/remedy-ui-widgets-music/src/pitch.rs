@@ -173,16 +173,26 @@ impl Pitch {
 
     /// The note as it is said: "C sharp 4", "B flat 2".
     pub fn spoken(self) -> String {
-        let acc = match self.alter {
-            0 => "",
-            1 => " sharp",
-            2 => " double sharp",
-            -1 => " flat",
-            -2 => " double flat",
-            a if a > 0 => " sharp",
-            _ => " flat",
+        self.spoken_in("en")
+    }
+
+    /// [`Pitch::spoken`] in `locale` (BCP 47), with RemedyUI's built-in words; English where
+    /// it has none. The letters stay letters.
+    pub fn spoken_in(self, locale: &str) -> String {
+        use remedy_ui_view::words::word_or;
+        let template = match self.alter {
+            0 => word_or(locale, "{letter} {octave}"),
+            1 => word_or(locale, "{letter} sharp {octave}"),
+            2 => word_or(locale, "{letter} double sharp {octave}"),
+            -1 => word_or(locale, "{letter} flat {octave}"),
+            -2 => word_or(locale, "{letter} double flat {octave}"),
+            a if a > 0 => word_or(locale, "{letter} sharp {octave}"),
+            _ => word_or(locale, "{letter} flat {octave}"),
         };
-        format!("{}{} {}", self.step.letter(), acc, self.octave)
+        remedy_ui_view::words::fill(template, &[
+            ("letter", &self.step.letter().to_string()),
+            ("octave", &self.octave.to_string()),
+        ])
     }
 }
 

@@ -1,6 +1,7 @@
 //! Editing notation: the changes the keyboard and pointer make, as plain functions on the
 //! measures so apps can use them too. Each returns whether anything changed.
 
+use remedy_ui_view::words::en;
 use std::rc::Rc;
 
 use remedy_ui_input::Key;
@@ -238,7 +239,7 @@ impl StaffEditor {
     /// for undo and reported.
     fn apply(
         &self,
-        label: &str,
+        label: &'static str,
         f: impl FnOnce(&mut Vec<StaffMeasure>, StaffCursor) -> Option<StaffCursor>,
     ) -> bool {
         let before = self.measures.get_untracked().unwrap_or_default();
@@ -249,7 +250,7 @@ impl StaffEditor {
         measures.set(after.clone());
         cursor.set(c1);
         self.ui.record_change(
-            label,
+            self.ui.word(label),
             None,
             move || {
                 measures.set(before.clone());
@@ -269,7 +270,7 @@ impl StaffEditor {
     /// Puts the pitch at staff `position` on the cursor's event.
     pub(crate) fn pitch_at(&self, position: i32, add: bool) -> bool {
         let (clef, key) = (self.options.clef, self.options.key);
-        self.apply("Set note", |ms, c| set_pitch_at(ms, c, position, clef, key, add).then_some(c))
+        self.apply(en("Set note"), |ms, c| set_pitch_at(ms, c, position, clef, key, add).then_some(c))
     }
 
     /// Handles an editing key; true if it was one.
@@ -288,25 +289,25 @@ impl StaffEditor {
                 }
                 if m.ctrl {
                     self.apply(
-                        if up { "Move note up an octave" } else { "Move note down an octave" },
+                        if up { en("Move note up an octave") } else { en("Move note down an octave") },
                         |ms, c| move_octaves(ms, c, d).then_some(c),
                     )
                 } else if m.shift {
-                    self.apply(if up { "Raise note a semitone" } else { "Lower note a semitone" }, |ms, c| {
+                    self.apply(if up { en("Raise note a semitone") } else { en("Lower note a semitone") }, |ms, c| {
                         move_semitones(ms, c, d, key).then_some(c)
                     })
                 } else {
-                    self.apply(if up { "Move note up" } else { "Move note down" }, |ms, c| {
+                    self.apply(if up { en("Move note up") } else { en("Move note down") }, |ms, c| {
                         move_steps(ms, c, d, key).then_some(c)
                     })
                 }
             }
             Key::Delete | Key::Backspace => {
                 if m.ctrl {
-                    return self.apply("Delete measure", remove_measure);
+                    return self.apply(en("Delete measure"), remove_measure);
                 }
                 if m.shift {
-                    return self.apply("Delete event", |ms, c| remove_event(ms, c));
+                    return self.apply(en("Delete event"), |ms, c| remove_event(ms, c));
                 }
                 // A note becomes a rest; a rest goes away.
                 let is_rest = self
@@ -319,13 +320,13 @@ impl StaffEditor {
                     })
                     .unwrap_or(false);
                 if is_rest {
-                    self.apply("Delete rest", |ms, c| remove_event(ms, c))
+                    self.apply(en("Delete rest"), |ms, c| remove_event(ms, c))
                 } else {
-                    self.apply("Make rest", |ms, c| make_rest(ms, c).then_some(c))
+                    self.apply(en("Make rest"), |ms, c| make_rest(ms, c).then_some(c))
                 }
             }
-            Key::Named(n) if n == "Insert" => self.apply("Insert rest", |ms, c| insert_rest_after(ms, c)),
-            Key::Enter if m.ctrl => self.apply("Insert measure", insert_measure_after),
+            Key::Named(n) if n == "Insert" => self.apply(en("Insert rest"), |ms, c| insert_rest_after(ms, c)),
+            Key::Enter if m.ctrl => self.apply(en("Insert measure"), insert_measure_after),
             Key::Character(ch) if !m.ctrl && !m.alt => {
                 let letter = match ch.as_str() {
                     "a" => Some(Step::A),
@@ -339,7 +340,7 @@ impl StaffEditor {
                 };
                 if let Some(step) = letter {
                     let add = m.shift;
-                    return self.apply(if add { "Add note to chord" } else { "Set note" }, |ms, c| {
+                    return self.apply(if add { en("Add note to chord") } else { en("Set note") }, |ms, c| {
                         set_letter(ms, c, step, clef, key, add).then_some(c)
                     });
                 }
@@ -353,17 +354,17 @@ impl StaffEditor {
                     _ => None,
                 };
                 if let Some(v) = value {
-                    return self.apply("Set length", |ms, c| set_value(ms, c, v).then_some(c));
+                    return self.apply(en("Set length"), |ms, c| set_value(ms, c, v).then_some(c));
                 }
                 match ch.as_str() {
-                    "+" | "#" => self.apply("Sharpen", |ms, c| alter(ms, c, 1).then_some(c)),
-                    "-" => self.apply("Flatten", |ms, c| alter(ms, c, -1).then_some(c)),
-                    "=" => self.apply("Make natural", |ms, c| alter(ms, c, 0).then_some(c)),
-                    "." => self.apply("Cycle dots", |ms, c| toggle_dot(ms, c).then_some(c)),
-                    "[" => self.apply("Shorten", |ms, c| change_value(ms, c, false).then_some(c)),
-                    "]" => self.apply("Lengthen", |ms, c| change_value(ms, c, true).then_some(c)),
-                    "r" => self.apply("Make rest", |ms, c| make_rest(ms, c).then_some(c)),
-                    "t" => self.apply("Tie", |ms, c| toggle_tie(ms, c).then_some(c)),
+                    "+" | "#" => self.apply(en("Sharpen"), |ms, c| alter(ms, c, 1).then_some(c)),
+                    "-" => self.apply(en("Flatten"), |ms, c| alter(ms, c, -1).then_some(c)),
+                    "=" => self.apply(en("Make natural"), |ms, c| alter(ms, c, 0).then_some(c)),
+                    "." => self.apply(en("Cycle dots"), |ms, c| toggle_dot(ms, c).then_some(c)),
+                    "[" => self.apply(en("Shorten"), |ms, c| change_value(ms, c, false).then_some(c)),
+                    "]" => self.apply(en("Lengthen"), |ms, c| change_value(ms, c, true).then_some(c)),
+                    "r" => self.apply(en("Make rest"), |ms, c| make_rest(ms, c).then_some(c)),
+                    "t" => self.apply(en("Tie"), |ms, c| toggle_tie(ms, c).then_some(c)),
                     _ => false,
                 }
             }

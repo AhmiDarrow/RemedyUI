@@ -54,8 +54,8 @@ pub fn key_capture(ui: &Ui, label: impl Into<String>, value: Signal<Option<Chord
             let rec = recording.get();
             let shown = match (&chord, rec) {
                 (Some(c), _) => c.label(u2.platform()),
-                (None, true) => "Press a shortcut…".to_owned(),
-                (None, false) => "None".to_owned(),
+                (None, true) => u2.word("Press a shortcut…"),
+                (None, false) => u2.word("None"),
             };
             let _ = text.clone().text(remedy_ui_view::RichText::plain(shown.clone()));
             e3.state(States::SELECTED, rec);
@@ -64,9 +64,9 @@ pub fn key_capture(ui: &Ui, label: impl Into<String>, value: Signal<Option<Chord
                     .label(l2.clone())
                     .value(shown)
                     .description(if rec {
-                        "Recording: press the keys, Escape to stop"
+                        u2.word("Recording: press the keys, Escape to stop")
                     } else {
-                        "Focus to record a shortcut"
+                        u2.word("Focus to record a shortcut")
                     })
                     .action(Action::Click)
                     .action(Action::Focus),

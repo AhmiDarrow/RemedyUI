@@ -411,7 +411,7 @@ pub fn timeline<T: Clone + 'static>(
     let _ = el.bind_named("semantics", move || {
         let back = s.back.get();
         let sem = Semantics::new(Role::List).label(label.clone());
-        let sem = if back > 0.0 { sem.description("Scrolled back") } else { sem };
+        let sem = if back > 0.0 { sem.description(s.el.ui().word("Scrolled back")) } else { sem };
         let _ = s.el.clone().semantics(sem);
     });
     Timeline { state }

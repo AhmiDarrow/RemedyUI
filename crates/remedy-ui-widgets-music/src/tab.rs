@@ -50,20 +50,27 @@ pub enum Technique {
 impl Technique {
     /// How it is said aloud.
     pub fn spoken(self) -> String {
+        self.spoken_in("en")
+    }
+
+    /// [`Technique::spoken`] in `locale` (BCP 47), with RemedyUI's built-in words; English
+    /// where it has none.
+    pub fn spoken_in(self, locale: &str) -> String {
+        use remedy_ui_view::words::{fill, word_or};
         match self {
             Technique::None => String::new(),
-            Technique::HammerOn => "hammer-on".into(),
-            Technique::PullOff => "pull-off".into(),
-            Technique::SlideUp => "slide up".into(),
-            Technique::SlideDown => "slide down".into(),
-            Technique::Bend(1) => "bend a half step".into(),
-            Technique::Bend(2) => "bend a whole step".into(),
-            Technique::Bend(n) => format!("bend {} steps", bend_text(n)),
-            Technique::Vibrato => "vibrato".into(),
-            Technique::Harmonic => "harmonic".into(),
-            Technique::PalmMute => "palm mute".into(),
-            Technique::Dead => "dead note".into(),
-            Technique::Tie => "tied".into(),
+            Technique::HammerOn => word_or(locale, "hammer-on").into(),
+            Technique::PullOff => word_or(locale, "pull-off").into(),
+            Technique::SlideUp => word_or(locale, "slide up").into(),
+            Technique::SlideDown => word_or(locale, "slide down").into(),
+            Technique::Bend(1) => word_or(locale, "bend a half step").into(),
+            Technique::Bend(2) => word_or(locale, "bend a whole step").into(),
+            Technique::Bend(n) => fill(word_or(locale, "bend {steps} steps"), &[("steps", &bend_text(n))]),
+            Technique::Vibrato => word_or(locale, "vibrato").into(),
+            Technique::Harmonic => word_or(locale, "harmonic").into(),
+            Technique::PalmMute => word_or(locale, "palm mute").into(),
+            Technique::Dead => word_or(locale, "dead note").into(),
+            Technique::Tie => word_or(locale, "tied").into(),
         }
     }
 
@@ -261,26 +268,38 @@ pub fn fret_text(n: &TabNote) -> String {
 
 /// How an event is said aloud on `string`: "string 3 fret 5 hammer-on", or "no note".
 pub fn describe_tab_note(e: &TabEvent, string: usize, strings: usize) -> String {
-    let number = strings.saturating_sub(string);
+    describe_tab_note_in("en", e, string, strings)
+}
+
+/// [`describe_tab_note`] in `locale` (BCP 47), with RemedyUI's built-in words; English where
+/// it has none.
+pub fn describe_tab_note_in(locale: &str, e: &TabEvent, string: usize, strings: usize) -> String {
+    use remedy_ui_view::words::{fill, word_or};
+    let number = strings.saturating_sub(string).to_string();
     if e.is_rest() {
-        return format!("{} rest", e.value.name());
+        return fill(word_or(locale, "{value} rest"), &[("value", word_or(locale, e.value.name()))]);
     }
     match e.notes.iter().find(|n| n.string == string) {
         Some(n) => {
             let fret = if n.technique == Technique::Dead {
-                "dead note".to_owned()
+                word_or(locale, "dead note").to_owned()
             } else if n.fret == 0 {
-                "open".to_owned()
+                word_or(locale, "open").to_owned()
             } else {
-                format!("fret {}", n.fret)
+                fill(word_or(locale, "fret {fret}"), &[("fret", &n.fret.to_string())])
             };
-            let t = match n.technique {
-                Technique::None | Technique::Dead => String::new(),
-                t => format!(", {}", t.spoken()),
-            };
-            format!("string {number}: {fret}{t}")
+            match n.technique {
+                Technique::None | Technique::Dead => {
+                    fill(word_or(locale, "string {number}: {fret}"), &[("number", &number), ("fret", &fret)])
+                }
+                t => fill(word_or(locale, "string {number}: {fret}, {technique}"), &[
+                    ("number", &number),
+                    ("fret", &fret),
+                    ("technique", &t.spoken_in(locale)),
+                ]),
+            }
         }
-        None => format!("string {number}: no note"),
+        None => fill(word_or(locale, "string {number}: no note"), &[("number", &number)]),
     }
 }
 
@@ -878,6 +897,7 @@ fn tab_staff_with(
     let pointer_editor = editor;
     let sem_label = label.clone();
     let sem_options = options.clone();
+    let u = ui.clone();
     el.focusable(true)
         .on_focus_change(move |f| focused.set_if_changed(f))
         .on_pointer(move |e| {
@@ -949,21 +969,28 @@ fn tab_staff_with(
             let ms = measures.get();
             let cur = cursor.get();
             let picked = selected.get();
+            use remedy_ui_view::words::{fill, word_or};
+            let locale = u.locale();
             let mut value = String::new();
             if let Some(ev) = ms.get(cur.measure).and_then(|m| m.events.get(cur.event)) {
                 let beat = beat_in(&ms, sem_options.time, cur.measure, cur.event);
-                value = format!(
-                    "measure {}, beat {beat}, {}",
-                    cur.measure + 1,
-                    describe_tab_note(ev, cur.string, strings)
-                );
+                value = fill(word_or(&locale, "measure {measure}, beat {beat}, {note}"), &[
+                    ("measure", &(cur.measure + 1).to_string()),
+                    ("beat", &beat.to_string()),
+                    ("note", &describe_tab_note_in(&locale, ev, cur.string, strings)),
+                ]);
                 if picked == Some(cur) {
-                    value.push_str(", picked");
+                    value = fill(word_or(&locale, "{value}, picked"), &[("value", &value)]);
                 }
             }
-            let mut said = format!("Tablature, {strings} strings, {} measures", ms.len());
+            let mut said = fill(word_or(&locale, "Tablature, {strings} strings, {measures} measures"), &[
+                ("strings", &strings.to_string()),
+                ("measures", &ms.len().to_string()),
+            ]);
             if editable {
-                said.push_str(". Editable: type a fret number, Delete removes the note.");
+                said = fill(word_or(&locale, "{summary}. Editable: type a fret number, Delete removes the note."), &[(
+                    "summary", &said,
+                )]);
             }
             Semantics::new(Role::Grid)
                 .label(sem_label.clone())

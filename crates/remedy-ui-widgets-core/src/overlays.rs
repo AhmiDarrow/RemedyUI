@@ -390,8 +390,8 @@ pub fn trusted_prompt(
             a(yes);
         }
     };
-    let deny = crate::button(ui, "Deny", answer(false)).disabled(true);
-    let allow = crate::button(ui, "Allow", answer(true)).variant("primary").disabled(true);
+    let deny = crate::button(ui, ui.word("Deny"), answer(false)).disabled(true);
+    let allow = crate::button(ui, ui.word("Allow"), answer(true)).variant("primary").disabled(true);
     let body = ui
         .el("dialog")
         .column()

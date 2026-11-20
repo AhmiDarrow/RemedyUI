@@ -1,6 +1,7 @@
 //! The person's toolbars and menus: per slot the app declares, the list of command ids it
 //! shows, in order. The file holds only the slots that differ from the app's defaults.
 
+use remedy_ui_view::words::fill;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -154,14 +155,14 @@ impl Customizations {
         if file.remove(id).is_none() {
             return Ok(());
         }
-        self.change(ui, format!("Reset {}", slot.label), None, &[Area::Toolbars], |c| c.write_toolbars(&file))
+        self.change(ui, fill(&ui.word("Reset {name}"), &[("name", &slot.label)]), None, &[Area::Toolbars], |c| c.write_toolbars(&file))
     }
 
     /// Gives every slot the app's commands back (undoable).
     pub fn reset_toolbars(&self, ui: &Ui) -> Result<(), CustomizeError> {
         self.toolbar_file_map()?;
         let path = self.toolbars_file();
-        self.change(ui, "Reset all toolbars", None, &[Area::Toolbars], |_| {
+        self.change(ui, ui.word("Reset all toolbars"), None, &[Area::Toolbars], |_| {
             files::remove(&path).map_err(|e| CustomizeError::io(&path, &e))
         })
     }
@@ -195,7 +196,7 @@ impl Customizations {
         } else {
             file.insert(slot.id.clone(), ids);
         }
-        self.change(ui, format!("Change {}", slot.label), None, &[Area::Toolbars], |c| {
+        self.change(ui, fill(&ui.word("Change {name}"), &[("name", &slot.label)]), None, &[Area::Toolbars], |c| {
             c.write_toolbars(&file)
         })
     }

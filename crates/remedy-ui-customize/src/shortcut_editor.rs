@@ -2,6 +2,7 @@
 //! the keyboard, clashes shown before anything changes and resolved by the person; reset per
 //! command and for all.
 
+use remedy_ui_view::words::fill;
 use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_input::{Chord, Clash};
 use remedy_ui_reactive::{Memo, Signal, untrack};
@@ -34,7 +35,10 @@ fn explain(ui: &Ui, cmds: &Commands, e: &CustomizeError) -> String {
                 .iter()
                 .map(|c| {
                     let who: Vec<String> = c.commands.iter().map(|id| label_of(cmds, id)).collect();
-                    format!("{} already runs {}", c.chord.label(ui.platform()), who.join(" and "))
+                    fill(&ui.word("{shortcut} already runs {commands}"), &[
+                        ("shortcut", &c.chord.label(ui.platform())),
+                        ("commands", &crate::and_list(ui, &who)),
+                    ])
                 })
                 .collect();
             parts.join("; ")
@@ -62,13 +66,13 @@ fn command_row(
         untrack(|| {
             ch2.clear();
             if chords.is_empty() {
-                let _ = ch2.clone().child(w::text(&u, "No shortcut").variant("muted"));
+                let _ = ch2.clone().child(w::text(&u, u.word("No shortcut")).variant("muted"));
             }
             for chord in chords {
                 let shown = chord.label(u.platform());
                 let (c3, u3, id3, cmds3) = (c2.clone(), u.clone(), id2.clone(), cmds2.clone());
                 let remove =
-                    w::icon_button(&u, Icon::Close, format!("Remove {shown} from {l2}"), move || {
+                    w::icon_button(&u, Icon::Close, fill(&u.word("Remove {shortcut} from {command}"), &[("shortcut", &shown), ("command", &l2)]), move || {
                         if let Err(e) = c3.remove_shortcut(&u3, &id3, &chord) {
                             status.set(explain(&u3, &cmds3, &e));
                         }
@@ -85,14 +89,17 @@ fn command_row(
     });
     // Recording a new one.
     let recorded: Signal<Option<Chord>> = Signal::new(None);
-    let capture = key_capture(ui, format!("Add a shortcut to {label}"), recorded);
+    let capture = key_capture(ui, fill(&ui.word("Add a shortcut to {command}"), &[("command", &label)]), recorded);
     let (c4, u4, id4, l4, cmds4) = (c.clone(), ui.clone(), id.to_owned(), label.clone(), cmds.clone());
     let capture = capture.width(unit * 40.0).bind(move || {
         let Some(chord) = recorded.get() else { return };
         untrack(|| {
             recorded.set(None);
             match c4.add_shortcut(&u4, &id4, chord.clone(), false) {
-                Ok(()) => status.set(format!("{} now runs {l4}", chord.label(u4.platform()))),
+                Ok(()) => status.set(fill(&u4.word("{shortcut} now runs {command}"), &[
+                    ("shortcut", &chord.label(u4.platform())),
+                    ("command", &l4),
+                ])),
                 Err(CustomizeError::Clashes(clashes)) => {
                     pending.set(Some(Pending { id: id4.clone(), label: l4.clone(), chord, clashes }))
                 }
@@ -104,7 +111,7 @@ fn command_row(
         (c.clone(), id.to_owned(), c.clone(), ui.clone(), id.to_owned(), cmds.clone());
     let reset = reset_button(
         ui,
-        &format!("shortcuts for {label}"),
+        &fill(&ui.word("shortcuts for {command}"), &[("command", &label)]),
         move || c5.is_rebound(&id5),
         move || {
             if let Err(e) = c6.reset_shortcut(&u6, &id6) {
@@ -147,18 +154,21 @@ fn clash_panel(
             let shown = p.chord.label(u.platform());
             let others: Vec<String> =
                 p.clashes.iter().flat_map(|cl| cl.commands.iter()).map(|id| label_of(&cmds2, id)).collect();
-            let others = others.join(" and ");
-            let message = format!("{shown} already runs {others}.");
+            let others = crate::and_list(&u, &others);
+            let message = fill(&u.word("{shortcut} already runs {commands}."), &[("shortcut", &shown), ("commands", &others)]);
             let (c3, u3, p3, cmds3) = (c2.clone(), u.clone(), p.clone(), cmds2.clone());
-            let take = w::button(&u, format!("Use {shown} for {}", p.label), move || {
+            let take = w::button(&u, fill(&u.word("Use {shortcut} for {command}"), &[("shortcut", &shown), ("command", &p.label)]), move || {
                 pending.set(None);
                 match c3.add_shortcut(&u3, &p3.id, p3.chord.clone(), true) {
-                    Ok(()) => status.set(format!("{} now runs {}", p3.chord.label(u3.platform()), p3.label)),
+                    Ok(()) => status.set(fill(&u3.word("{shortcut} now runs {command}"), &[
+                        ("shortcut", &p3.chord.label(u3.platform())),
+                        ("command", &p3.label),
+                    ])),
                     Err(e) => status.set(explain(&u3, &cmds3, &e)),
                 }
             })
             .variant("primary");
-            let keep = w::button(&u, format!("Keep it for {others}"), move || pending.set(None));
+            let keep = w::button(&u, fill(&u.word("Keep it for {commands}"), &[("commands", &others)]), move || pending.set(None));
             let box_ = w::column(&u)
                 .gap(unit)
                 .fill_width()
@@ -181,16 +191,16 @@ pub fn shortcut_editor(ui: &Ui, c: &Customizations) -> El {
     let Some(cmds) = c.commands() else {
         return w::empty_state(
             ui,
-            "Shortcut customization is off",
-            "This app does not let its shortcuts be changed.",
+            ui.word("Shortcut customization is off"),
+            ui.word("This app does not let its shortcuts be changed."),
         );
     };
     let query = Signal::new(String::new());
     let pending: Signal<Option<Pending>> = Signal::new(None);
     let status = Signal::new(String::new());
-    let search = w::search(ui, "Search commands", move |q| query.set(q));
+    let search = w::search(ui, ui.word("Search commands"), move |q| query.set(q));
     let list =
-        w::column(ui).gap(unit * 2.0).fill_width().semantics(Semantics::new(Role::List).label("Commands"));
+        w::column(ui).gap(unit * 2.0).fill_width().semantics(Semantics::new(Role::List).label(ui.word("Commands")));
     // The commands listed: rows are rebuilt only when these change, so a row keeps its
     // focus and its own bindings while shortcuts change.
     let cmds1 = cmds.clone();
@@ -216,7 +226,7 @@ pub fn shortcut_editor(ui: &Ui, c: &Customizations) -> El {
         untrack(|| {
             l2.clear();
             if ids.is_empty() {
-                let _ = l2.clone().child(w::text(&u, "No matching command").variant("muted"));
+                let _ = l2.clone().child(w::text(&u, u.word("No matching command")).variant("muted"));
             }
             for id in &ids {
                 let _ = l2.clone().child(command_row(&u, &c2, &cmds2, id, pending, status));
@@ -226,7 +236,7 @@ pub fn shortcut_editor(ui: &Ui, c: &Customizations) -> El {
     let (c3, u3, cmds3, c4) = (c.clone(), ui.clone(), cmds.clone(), c.clone());
     let reset_all = reset_button(
         ui,
-        "all shortcuts",
+        &ui.word("all shortcuts"),
         move || !c4.commands().is_some_and(|k| k.bindings().is_empty()),
         move || {
             if let Err(e) = c3.reset_shortcuts(&u3) {
@@ -234,15 +244,16 @@ pub fn shortcut_editor(ui: &Ui, c: &Customizations) -> El {
             }
         },
     );
+    let status_name = ui.word("Shortcut status");
     let status_line = w::text(ui, "")
         .variant("muted")
         .text(move || status.get())
-        .semantics(move || Semantics::new(Role::Status).label("Shortcut status").value(status.get()));
+        .semantics(move || Semantics::new(Role::Status).label(status_name.clone()).value(status.get()));
     w::column(ui)
         .gap(unit * 3.0)
         .fill_width()
-        .semantics(Semantics::new(Role::Group).label("Shortcut editor"))
-        .child(w::heading(ui, 2, "Shortcuts"))
+        .semantics(Semantics::new(Role::Group).label(ui.word("Shortcut editor")))
+        .child(w::heading(ui, 2, ui.word("Shortcuts")))
         .child(search)
         .child(clash_panel(ui, c, &cmds, pending, status))
         .child(list)

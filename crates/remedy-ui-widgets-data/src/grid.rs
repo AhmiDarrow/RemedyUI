@@ -537,6 +537,7 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         None => root,
     };
     let n_items = items;
+    let u = ui.clone();
     root.column()
         .grow(1.0)
         .fill_width()
@@ -548,7 +549,7 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .semantics(move || {
             Semantics::new(Role::List)
                 .label(label.clone())
-                .description(format!("{} items", n_items.with(Vec::len)))
+                .description(u.counted("{count} item", "{count} items", n_items.with(Vec::len) as u64))
         })
 }
 

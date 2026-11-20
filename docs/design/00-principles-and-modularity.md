@@ -41,7 +41,8 @@ L3  frame:         paint (display list, image and icon sources) · motion · a11
                    host (the platform-neutral host model every bridge implements)
 L2  engine:        tree · style · layout · text · input
 L1  state:         reactive
-L0  base:          core (geometry, color, ids, units; no dependencies)
+L0  base:          core (geometry, color, ids, units; no dependencies) · trace
+                   words (the engine's own words, their translations and plural rules; no dependencies)
 ```
 
 The allowed sideways edges inside L5:

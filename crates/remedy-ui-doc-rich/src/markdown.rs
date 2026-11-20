@@ -308,7 +308,7 @@ impl Builder<'_> {
                     .gap(self.unit * 3.0)
                     .child(self.ui.el("md_quote_bar").width(self.unit.max(2.0) * 0.75))
                     .child(body.clone())
-                    .semantics(Semantics::new(Role::Group).label("Quote"));
+                    .semantics(Semantics::new(Role::Group).label(self.ui.word("Quote")));
                 self.add(quote);
                 self.stack.push(Open::Blocks(body));
             }
@@ -483,7 +483,8 @@ impl Builder<'_> {
     fn end_code(&mut self) {
         let Some((code, lang)) = self.code.take() else { return };
         let code = code.strip_suffix('\n').unwrap_or(&code).to_owned();
-        let label = if lang.is_empty() { "Code".to_owned() } else { format!("Code, {lang}") };
+        let label =
+            if lang.is_empty() { self.ui.word("Code") } else { remedy_ui_view::words::fill(&self.ui.word("Code, {language}"), &[("language", &lang)]) };
         let text = self.ui.el("md_code").text(RichText::plain(code)).data_text().selectable(true).nowrap();
         let block = self
             .ui

@@ -134,7 +134,8 @@ impl std::fmt::Debug for Registry {
 }
 
 impl Registry {
-    /// The built-in kinds: text, links, reactions, in English.
+    /// The built-in kinds: text, links, reactions, in English. For the person's language use
+    /// [`Registry::with_builtins_in`] with [`BoardLabels::for_locale`](crate::BoardLabels::for_locale).
     pub fn with_builtins() -> Registry {
         Registry::with_builtins_in(&crate::BoardLabels::default())
     }

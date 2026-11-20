@@ -167,6 +167,7 @@ remedy-ui-style = { path = "../remedy-ui-style", version = "1.0.0-rc.1" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
 remedy-ui-tree = { path = "../remedy-ui-tree", version = "1.0.0-rc.1" }
 remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
+remedy-ui-words = { path = "../remedy-ui-words", version = "1.0.0-rc.1" }
 
 [target.'cfg(windows)'.dependencies]
 remedy-ui-bridge-windows = { path = "../remedy-ui-bridge-windows", version = "1.0.0-rc.1" }

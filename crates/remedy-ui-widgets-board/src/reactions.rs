@@ -44,10 +44,7 @@ pub fn spoken(r: &Reaction) -> String {
 
 /// What a reaction button says to a screen reader, in `labels`.
 pub fn spoken_in(r: &Reaction, labels: &ReactionLabels) -> String {
-    let n = match r.count {
-        1 => labels.one.clone(),
-        n => fill(&labels.many, &[("count", n.to_string())]),
-    };
+    let n = labels.count(u64::from(r.count));
     let template = if r.mine { &labels.spoken_mine } else { &labels.spoken };
     fill(template, &[("emoji", r.emoji.clone()), ("count", n)])
 }
@@ -60,7 +57,7 @@ pub fn reactions(
     offered: Vec<String>,
     on_toggle: impl Fn(&str) + 'static,
 ) -> El {
-    reactions_in(ui, shown, offered, &ReactionLabels::default(), on_toggle)
+    reactions_in(ui, shown, offered, &ReactionLabels::for_locale(&ui.locale()), on_toggle)
 }
 
 /// [`reactions()`] in the words of `labels`.

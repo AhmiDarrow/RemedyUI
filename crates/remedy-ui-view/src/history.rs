@@ -38,6 +38,19 @@ impl HistoryItem {
             None => format!("Undo {}", self.label),
         }
     }
+
+    /// [`HistoryItem::undo_label`] in `locale`, with the engine's built-in words
+    /// ([`words`](crate::words)); English where it has none. For an app's Undo menu item.
+    pub fn undo_label_in(&self, locale: &str) -> String {
+        use remedy_ui_words::{fill, word};
+        match &self.by {
+            Some(by) => fill(word(locale, "Undo {label}, by {by}").unwrap_or("Undo {label}, by {by}"), &[
+                ("label", &self.label),
+                ("by", by),
+            ]),
+            None => fill(word(locale, "Undo {label}").unwrap_or("Undo {label}"), &[("label", &self.label)]),
+        }
+    }
 }
 
 /// Both stacks of a window's history.

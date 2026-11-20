@@ -244,6 +244,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
         }
         false
     };
+    let ui_words = ui.clone();
     let do_move = {
         let (on_move, current, sel, cut) =
             (on_move.clone(), current.clone(), state.selection.clone(), state.cut);
@@ -254,9 +255,9 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
             let target_ok = ls.iter().any(|l| l.item.key == target && l.item.has_children);
             if into_self || !target_ok {
                 error.set(Some(if into_self {
-                    "An item cannot move into itself".into()
+                    ui_words.word("An item cannot move into itself")
                 } else {
-                    "Items can only move into a folder".into()
+                    ui_words.word("Items can only move into a folder")
                 }));
                 return;
             }
@@ -313,10 +314,10 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
             }
             row = row.child(w::text(&ui2, line.item.label.clone()).nowrap().grow(1.0));
             if line.loading {
-                row = row.child(w::text(&ui2, "Loading…").variant("muted").nowrap());
+                row = row.child(w::text(&ui2, ui2.word("Loading…")).variant("muted").nowrap());
             }
             let sem = {
-                let (k, sel, line) = (k.clone(), sel.clone(), line.clone());
+                let (k, sel, line, u) = (k.clone(), sel.clone(), line.clone(), ui2.clone());
                 move || {
                     let mut s = Semantics::new(Role::TreeItem)
                         .label(line.item.label.clone())
@@ -332,7 +333,7 @@ pub fn tree_view<K: Clone + Eq + Hash + 'static>(
                         });
                     }
                     if line.loading {
-                        s = s.description("Loading");
+                        s = s.description(u.word("Loading"));
                     }
                     s
                 }

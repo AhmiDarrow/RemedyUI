@@ -14,6 +14,7 @@
 //! Imported and chosen files are copied into the config folder's `theme-assets` folder, so
 //! the theme keeps working when the original moves, and they are part of the theme's undo.
 
+use remedy_ui_view::words::fill;
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -421,15 +422,15 @@ impl Customizations {
                 set_reference(&mut doc, &path, &name);
                 return self.write_with_assets(
                     ui,
-                    "Change the background image".into(),
+                    ui.word("Change the background image"),
                     doc,
                     Some((dir, path)),
                 );
             }
-            None => "Remove the background image",
+            None => ui.word("Remove the background image"),
         };
         crate::theme::remove_token(&mut doc, &path);
-        self.write_with_assets(ui, label.into(), doc, None)
+        self.write_with_assets(ui, label, doc, None)
     }
 
     /// Adds the font file at `file` to the theme as `family` (a copy goes into the theme's
@@ -460,7 +461,7 @@ impl Customizations {
             );
         }
         let dir = file.parent().map(Path::to_path_buf).unwrap_or_default();
-        self.write_with_assets(ui, format!("Add the font {family}"), doc, Some((dir, at)))
+        self.write_with_assets(ui, fill(&ui.word("Add the font {family}"), &[("family", family)]), doc, Some((dir, at)))
     }
 
     /// Takes the theme's font `family` away (and out of the font lists); undoable.
@@ -476,7 +477,7 @@ impl Customizations {
                 crate::theme::put_token(&mut doc, &token, &crate::TokenValue::Families(rest));
             }
         }
-        self.write_with_assets(ui, format!("Remove the font {family}"), doc, None)
+        self.write_with_assets(ui, fill(&ui.word("Remove the font {family}"), &[("family", family)]), doc, None)
     }
 
     /// The theme with the person's changes as the file says it (assets as references,

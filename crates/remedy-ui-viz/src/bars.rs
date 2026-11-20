@@ -186,7 +186,10 @@ pub fn bars<S: Samples + 'static>(
             let _ = sem_el.clone().semantics(
                 Semantics::new(Role::Image)
                     .label(label.clone())
-                    .value(format!("{count} bars, highest {} percent", tick * 5)),
+                    .value(remedy_ui_view::words::fill(&sem_el.ui().word("{count} bars, highest {percent} percent"), &[
+                        ("count", &count.to_string()),
+                        ("percent", &(tick * 5).to_string()),
+                    ])),
             );
         }
         ticker.kick();

@@ -11,6 +11,7 @@ use remedy_ui_layout::Length;
 use remedy_ui_paint::Brush;
 use remedy_ui_reactive::Signal;
 use remedy_ui_style::ensure_contrast;
+use remedy_ui_view::words::{fill, word_or};
 use remedy_ui_view::{El, TextPaint, Ui};
 
 use crate::pitch::{GUITAR, Pitch};
@@ -363,14 +364,29 @@ fn note_of(options: &FretboardOptions, pos: FretPos) -> Option<Pitch> {
 
 /// How a position is said: "string 3 (G3), fret 5, C4".
 pub fn describe_position(options: &FretboardOptions, pos: FretPos) -> String {
+    describe_position_in("en", options, pos)
+}
+
+/// [`describe_position`] in `locale` (BCP 47), with RemedyUI's built-in words; English where
+/// it has none.
+pub fn describe_position_in(locale: &str, options: &FretboardOptions, pos: FretPos) -> String {
     let n = options.tuning.len();
-    let number = n.saturating_sub(pos.string);
-    let open = options.tuning.get(pos.string).map(|m| Pitch::from_midi(*m, options.flats).spoken());
-    let note = note_of(options, pos).map(Pitch::spoken);
-    let fret = if pos.fret == 0 { "open".to_owned() } else { format!("fret {}", pos.fret) };
+    let number = n.saturating_sub(pos.string).to_string();
+    let open = options.tuning.get(pos.string).map(|m| Pitch::from_midi(*m, options.flats).spoken_in(locale));
+    let note = note_of(options, pos).map(|p| p.spoken_in(locale));
+    let fret = if pos.fret == 0 {
+        word_or(locale, "open").to_owned()
+    } else {
+        fill(word_or(locale, "fret {fret}"), &[("fret", &pos.fret.to_string())])
+    };
     match (open, note) {
-        (Some(o), Some(nt)) => format!("string {number} ({o}), {fret}, {nt}"),
-        _ => format!("string {number}, {fret}"),
+        (Some(o), Some(nt)) => fill(word_or(locale, "string {number} ({open}), {fret}, {note}"), &[
+            ("number", &number),
+            ("open", &o),
+            ("fret", &fret),
+            ("note", &nt),
+        ]),
+        _ => fill(word_or(locale, "string {number}, {fret}"), &[("number", &number), ("fret", &fret)]),
     }
 }
 
@@ -578,7 +594,7 @@ pub fn fretboard(
             let _ = sem_el.clone().semantics(
                 Semantics::new(Role::Image)
                     .label(label.clone())
-                    .value(summary(&opts, &marks))
+                    .value(summary(&sem_el.ui().locale(), &opts, &marks))
                     .read_only(true),
             );
             sem_el.repaint();
@@ -595,6 +611,7 @@ pub fn fretboard(
     let down = Rc::new(Cell::new(false));
     let key_opts = options.clone();
     let sem_opts = options.clone();
+    let u = ui.clone();
     el.focusable(true)
         .on_focus_change(move |f| focused.set_if_changed(f))
         .on_pointer(move |e| {
@@ -650,16 +667,20 @@ pub fn fretboard(
             let cur = cursor.get();
             let picked = selected.get();
             let marks = o.marks.as_ref().map(|m| m.get()).unwrap_or_default();
-            let mut value = describe_position(o, cur);
+            let locale = u.locale();
+            let mut value = describe_position_in(&locale, o, cur);
             if picked == Some(cur) {
-                value.push_str(", picked");
+                value = fill(word_or(&locale, "{value}, picked"), &[("value", &value)]);
             }
             if marks.iter().any(|m| m.pos == cur) {
-                value.push_str(", marked");
+                value = fill(word_or(&locale, "{value}, marked"), &[("value", &value)]);
             }
-            let mut hint = String::from("Arrow keys move over the neck, Enter picks, Escape clears.");
+            let mut hint = word_or(&locale, "Arrow keys move over the neck, Enter picks, Escape clears.").to_owned();
             if let Some(p) = picked {
-                hint.push_str(&format!(" Picked: {}.", describe_position(o, p)));
+                hint = fill(word_or(&locale, "{hint} Picked: {position}."), &[
+                    ("hint", &hint),
+                    ("position", &describe_position_in(&locale, o, p)),
+                ]);
             }
             Semantics::new(Role::Grid)
                 .label(label.clone())
@@ -669,6 +690,10 @@ pub fn fretboard(
         })
 }
 
-fn summary(options: &FretboardOptions, marks: &[FretMark]) -> String {
-    format!("{} strings, {} frets, {} marked", options.tuning.len(), options.frets, marks.len())
+fn summary(locale: &str, options: &FretboardOptions, marks: &[FretMark]) -> String {
+    fill(word_or(locale, "{strings} strings, {frets} frets, {marked} marked"), &[
+        ("strings", &options.tuning.len().to_string()),
+        ("frets", &options.frets.to_string()),
+        ("marked", &marks.len().to_string()),
+    ])
 }

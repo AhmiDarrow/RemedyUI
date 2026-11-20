@@ -581,6 +581,9 @@ fn area_label(
 /// likes, such as one panel for the board being arranged among several on a page. Its
 /// words are `cx.labels`, and picture settings use `cx.picture` and `cx.choose_picture`.
 pub fn board_panel(ui: &Ui, state: &BoardState, registry: Rc<Registry>, cx: &Context) -> El {
+    let mut cx = cx.clone();
+    cx.labels = BoardLabels::or_locale(&cx.labels, &ui.locale());
+    let cx = &cx;
     *state.words.borrow_mut() = cx.labels.clone();
     let unit = ui.theme().spacing.unit;
     let body = w::column(ui).gap(unit * 3.0).fill_width();
@@ -941,7 +944,8 @@ fn swap(b: &Board, one: &str, other: &str) -> Result<Board, BoardError> {
 
 /// A board: its areas and widgets, editable while `state.editing` is on, with its panel
 /// beside it unless [`BoardOptions::panel`] says otherwise. Its words are `cx.labels`.
-pub fn board(ui: &Ui, state: &BoardState, registry: Rc<Registry>, cx: Context) -> El {
+pub fn board(ui: &Ui, state: &BoardState, registry: Rc<Registry>, mut cx: Context) -> El {
+    cx.labels = BoardLabels::or_locale(&cx.labels, &ui.locale());
     *state.words.borrow_mut() = cx.labels.clone();
     let unit = ui.theme().spacing.unit;
     let grid = ui.el("board").fill_width();

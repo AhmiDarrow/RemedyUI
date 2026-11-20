@@ -64,6 +64,7 @@ pub struct StepperLabels {
 }
 
 impl Default for StepperLabels {
+    /// The English words.
     fn default() -> Self {
         StepperLabels {
             back: "Back".into(),
@@ -71,6 +72,28 @@ impl Default for StepperLabels {
             skip: "Skip".into(),
             finish: "Finish".into(),
         }
+    }
+}
+
+impl StepperLabels {
+    /// Every word passed through `translate`, which is given a word as it is now (the
+    /// English one, by default) and returns it in the person's language: a catalog keyed by
+    /// source text (such as `remedy_ui::i18n::Catalog`) or the app's own `t()`.
+    pub fn translated(&self, translate: impl Fn(&str) -> String) -> Self {
+        StepperLabels {
+            back: translate(&self.back),
+            next: translate(&self.next),
+            skip: translate(&self.skip),
+            finish: translate(&self.finish),
+        }
+    }
+
+    /// The words in `locale` (BCP 47), from RemedyUI's built-in translations
+    /// ([`remedy_ui_view::words`]); English where it has none. [`stepper_flow`] shows these
+    /// for the window's locale when it is given the defaults.
+    pub fn for_locale(locale: &str) -> Self {
+        StepperLabels::default()
+            .translated(|en| remedy_ui_view::words::word(locale, en).map_or_else(|| en.to_owned(), str::to_owned))
     }
 }
 
@@ -104,6 +127,8 @@ pub fn stepper_flow(
     on_finish: impl Fn() + 'static,
 ) -> El {
     let label = label.into();
+    // The defaults are English: show the window's language instead.
+    let labels = if labels == StepperLabels::default() { StepperLabels::for_locale(&ui.locale()) } else { labels };
     let n = steps.len();
     let unit = ui.theme().spacing.unit;
     let last = n.saturating_sub(1);
@@ -127,7 +152,7 @@ pub fn stepper_flow(
 
     // Progress: how far through the flow, as a bar.
     let fraction: Signal<Option<f32>> = Signal::new(Some(0.0));
-    let bar = w::progress(ui, format!("{label} progress"), fraction);
+    let bar = w::progress(ui, remedy_ui_view::words::fill(&ui.word("{label} progress"), &[("label", &label)]), fraction);
 
     // The markers.
     let markers: Vec<El> = (0..n)
@@ -135,6 +160,7 @@ pub fn stepper_flow(
             let steps2 = steps.clone();
             let title = steps.get(i).map(|s| s.title.clone()).unwrap_or_default();
             let t2 = title.clone();
+            let u = ui.clone();
             let go = goto.clone();
             let dot = ui.el("step_marker").width(unit * 7.0).height(unit * 7.0).paint(move |cx| {
                 let cur = current.get().min(last);
@@ -188,17 +214,18 @@ pub fn stepper_flow(
                     let steps3 = steps.clone();
                     move || {
                         let cur = at();
-                        let state = if i < cur {
-                            "completed"
+                        let template = if i < cur {
+                            u.word("Step {number}: {title}, completed")
                         } else if i == cur {
-                            "current"
+                            u.word("Step {number}: {title}, current")
                         } else if reachable(&steps3, cur, i) {
-                            "not started"
+                            u.word("Step {number}: {title}, not started")
                         } else {
-                            "locked"
+                            u.word("Step {number}: {title}, locked")
                         };
+                        let said = remedy_ui_view::words::fill(&template, &[("number", &(i + 1).to_string()), ("title", &t2)]);
                         Semantics::new(Role::Button)
-                            .label(format!("Step {}: {t2}, {state}", i + 1))
+                            .label(said)
                             .selected(i == cur)
                             .action(Action::Click)
                     }
@@ -269,6 +296,8 @@ pub fn stepper_flow(
         .child(w::divider(ui, false))
         .child(footer);
     let (b_root, b_steps) = (root.clone(), steps.clone());
+    let step_of = ui.word("Step {number} of {total}");
+    let step_of_titled = ui.word("Step {number} of {total}: {title}");
     let root = root.bind(move || {
         let cur = at();
         for (i, b) in bodies.iter().enumerate() {
@@ -298,8 +327,10 @@ pub fn stepper_flow(
         }
         fraction.set_if_changed(Some(if n == 0 { 0.0 } else { cur as f32 / n as f32 }));
         let title = b_steps.get(cur).map(|s| s.title.clone()).unwrap_or_default();
-        let said = format!("Step {} of {n}: {title}", cur + 1);
-        let _ = status.clone().text(RichText::plain(format!("Step {} of {n}", cur + 1)));
+        let args = [("number", (cur + 1).to_string()), ("total", n.to_string()), ("title", title)];
+        let args: Vec<(&str, &str)> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let said = remedy_ui_view::words::fill(&step_of_titled, &args);
+        let _ = status.clone().text(RichText::plain(remedy_ui_view::words::fill(&step_of, &args)));
         let _ = b_root
             .clone()
             .semantics(Semantics::new(Role::Group).label(label.clone()).value(said).live(Live::Polite));

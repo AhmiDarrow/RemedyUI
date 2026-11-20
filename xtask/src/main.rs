@@ -67,6 +67,9 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-core", 0),
     // Phase spans and the trace clock over `tracing`: every layer emits them.
     ("remedy-ui-trace", 0),
+    // The engine's own words and their translations: no dependencies, read by the view, the
+    // bridges and every pack.
+    ("remedy-ui-words", 0),
     ("remedy-ui-reactive", 1),
     // Proc macros run at build time; they sit with the state layer they generate code for.
     ("remedy-ui-macros", 1),

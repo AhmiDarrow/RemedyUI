@@ -75,6 +75,7 @@ pub fn page_view(ui: &Ui, view: &PageView, label: impl Into<String>) -> El {
     let label: String = label.into();
     let text = view.page_text();
     let current = view.current_page();
+    let page_word = ui.word("Page {number}");
     // The current page, for screen readers: its number and its text.
     let reader = ui
         .el("page_text")
@@ -84,7 +85,9 @@ pub fn page_view(ui: &Ui, view: &PageView, label: impl Into<String>) -> El {
         })
         .pass_through()
         .semantics(move || {
-            Semantics::new(Role::Page).label(format!("Page {}", current.get() + 1)).value(text.get())
+            Semantics::new(Role::Page)
+                .label(remedy_ui_view::words::fill(&page_word, &[("number", &(current.get() + 1).to_string())]))
+                .value(text.get())
         });
     let (a, b, c, d, f, g) =
         (view.clone(), view.clone(), view.clone(), view.clone(), view.clone(), view.clone());
@@ -133,7 +136,7 @@ pub fn thumbnails(ui: &Ui, view: &PageView) -> El {
     let n = view.page_count();
     let items = Signal::new((0..n).collect::<Vec<usize>>());
     let (ui2, v) = (ui.clone(), view.clone());
-    let rail = remedy_ui_widgets_core::virtual_list(ui, "Pages", items, THUMB_ROW, move |_, &page| {
+    let rail = remedy_ui_widgets_core::virtual_list(ui, ui.word("Pages"), items, THUMB_ROW, move |_, &page| {
         thumb_row(&ui2, &v, page)
     });
     let keys = view.clone();
@@ -186,6 +189,7 @@ pub fn thumbnails(ui: &Ui, view: &PageView) -> El {
 
 fn thumb_row(ui: &Ui, view: &PageView, page: usize) -> El {
     let v = view.clone();
+    let page_word = ui.word("Page {number}");
     let picture = ui
         .el("page_thumb_image")
         .width(THUMB_WIDTH)
@@ -208,7 +212,7 @@ fn thumb_row(ui: &Ui, view: &PageView, page: usize) -> El {
         .focusable(false)
         .semantics(move || {
             Semantics::new(Role::ListItem)
-                .label(format!("Page {}", page + 1))
+                .label(remedy_ui_view::words::fill(&page_word, &[("number", &(page + 1).to_string())]))
                 .selected(current.get() == page)
                 .action(Action::Click)
         });

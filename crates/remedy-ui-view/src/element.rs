@@ -1055,6 +1055,32 @@ impl Ui {
         l.get()
     }
 
+    /// One of the engine's own words in the window's locale: its built-in translation
+    /// ([`words`](crate::words)), or `english` itself for English, locales RemedyUI does not
+    /// ship and words not translated yet. Reads the locale tracked, so what shows it follows
+    /// a change. The pseudo-locales (`en-XA`, `ar-XB`) get the English, which they rewrite when
+    /// it is drawn.
+    ///
+    /// For the engine's widget packs; an app's own strings go through its catalogs
+    /// (`remedy_ui::i18n`). Each word is also in the inventory (`remedy-ui-words`'
+    /// `words/en.json`), which a test keeps in step with every `ui.word("…")` in the
+    /// workspace; a word passed by value is marked where it is written with
+    /// [`words::en`](crate::words::en).
+    pub fn word(&self, english: &'static str) -> String {
+        remedy_ui_words::word(&self.locale(), english).unwrap_or(english).to_owned()
+    }
+
+    /// One of the engine's counted words for a count of `n`, in the window's locale, with
+    /// `{count}` filled (other placeholders are left to fill with
+    /// [`words::fill`](crate::words::fill)). `one` and `other` are the English forms, shown
+    /// for 1 and for any other count where no translation applies. Reads the locale tracked,
+    /// like [`Ui::word`].
+    pub fn counted(&self, one: &'static str, other: &'static str, n: u64) -> String {
+        let english = if n == 1 { one } else { other };
+        let form = remedy_ui_words::counted(&self.locale(), one, other, n).unwrap_or(english);
+        remedy_ui_words::fill(form, &[("count", &n.to_string())])
+    }
+
     /// The window's size in logical pixels (tracked): overlays that must stay inside the
     /// window place themselves again when it changes. Zero before the first frame.
     pub fn window_size(&self) -> Size {

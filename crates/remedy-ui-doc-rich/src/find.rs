@@ -183,13 +183,22 @@ impl FindState {
 
     /// What the bar says: "3 of 12", "No matches", or nothing before a search.
     pub fn status(&self) -> String {
+        self.status_in("en")
+    }
+
+    /// [`FindState::status`] in `locale` (BCP 47), with RemedyUI's built-in words; English
+    /// where it has none.
+    pub fn status_in(&self, locale: &str) -> String {
         let n = self.count.get();
         if self.query.get().is_empty() {
             String::new()
         } else if n == 0 {
-            "No matches".to_owned()
+            remedy_ui_view::words::word_or(locale, "No matches").to_owned()
         } else {
-            format!("{} of {n}", self.current.get() + 1)
+            remedy_ui_view::words::fill(remedy_ui_view::words::word_or(locale, "{number} of {total}"), &[
+                ("number", &(self.current.get() + 1).to_string()),
+                ("total", &n.to_string()),
+            ])
         }
     }
 }
@@ -201,21 +210,22 @@ pub fn find_bar(ui: &Ui, state: &FindState, close: impl Fn() + 'static) -> El {
     let close: Rc<dyn Fn()> = Rc::new(close);
     let s = state.clone();
     let s2 = state.clone();
-    let field = w::text_input(ui, "Find")
-        .placeholder("Find")
+    let field = w::text_input(ui, ui.word("Find"))
+        .placeholder(ui.word("Find"))
         .on_submit_with(move |m| if m.shift { s.previous() } else { s.next() });
     let f2 = field.clone();
     let field = field.on_change(move || s2.search(&f2.value()));
     let st = state.clone();
-    let status = ui.el("label").variant("muted").data_text().nowrap().text(move || st.status()).semantics({
+    let (u, u2) = (ui.clone(), ui.clone());
+    let status = ui.el("label").variant("muted").data_text().nowrap().text(move || st.status_in(&u.locale())).semantics({
         let st = state.clone();
-        move || Semantics::new(Role::Status).label(st.status()).live(Live::Polite)
+        move || Semantics::new(Role::Status).label(st.status_in(&u2.locale())).live(Live::Polite)
     });
     let (p, n) = (state.clone(), state.clone());
-    let prev = w::icon_button(ui, Icon::ChevronUp, "Previous match", move || p.previous());
-    let next = w::icon_button(ui, Icon::ChevronDown, "Next match", move || n.next());
+    let prev = w::icon_button(ui, Icon::ChevronUp, ui.word("Previous match"), move || p.previous());
+    let next = w::icon_button(ui, Icon::ChevronDown, ui.word("Next match"), move || n.next());
     let (c, cl) = (state.clone(), close.clone());
-    let shut = w::icon_button(ui, Icon::Close, "Close find", move || {
+    let shut = w::icon_button(ui, Icon::Close, ui.word("Close find"), move || {
         c.clear();
         cl();
     });
@@ -231,7 +241,7 @@ pub fn find_bar(ui: &Ui, state: &FindState, close: impl Fn() + 'static) -> El {
         .child(prev)
         .child(next)
         .child(shut)
-        .semantics(Semantics::new(Role::Group).label("Find"))
+        .semantics(Semantics::new(Role::Group).label(ui.word("Find")))
         .on_key(move |e| {
             if !e.pressed {
                 return false;

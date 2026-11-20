@@ -2,6 +2,7 @@
 //! they changed (plus anything else the file carries, kept as it was), applied over the app's
 //! theme; shared theme files imported as untrusted data; contrast warnings.
 
+use remedy_ui_view::words::en;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -63,19 +64,20 @@ pub enum TokenValue {
     File(String),
 }
 
-/// The color roles every theme has, by token key, with what people call them.
+/// The color roles every theme has, by token key, with what people call them (in English;
+/// [`remedy_ui_view::words::word_or`] gives a locale's).
 pub const COLOR_ROLES: &[(&str, &str)] = &[
-    ("bg", "Background"),
-    ("panel", "Panels"),
-    ("card", "Cards"),
-    ("text", "Text"),
-    ("muted", "Muted text"),
-    ("accent", "Accent"),
-    ("on-accent", "Text on accent"),
-    ("danger", "Danger"),
-    ("warn", "Warning"),
-    ("ok", "Success"),
-    ("line", "Lines"),
+    ("bg", en("Background")),
+    ("panel", en("Panels")),
+    ("card", en("Cards")),
+    ("text", en("Text")),
+    ("muted", en("Muted text")),
+    ("accent", en("Accent")),
+    ("on-accent", en("Text on accent")),
+    ("danger", en("Danger")),
+    ("warn", en("Warning")),
+    ("ok", en("Success")),
+    ("line", en("Lines")),
 ];
 
 impl Token {
@@ -184,36 +186,43 @@ impl Token {
         }
     }
 
-    /// What people call it ("Accent", "Body text size").
+    /// What people call it ("Accent", "Body text size"), in English.
     pub fn label(&self) -> String {
+        self.label_in("en")
+    }
+
+    /// [`Token::label`] in `locale` (BCP 47), with RemedyUI's built-in words; English where it
+    /// has none.
+    pub fn label_in(&self, locale: &str) -> String {
+        use remedy_ui_view::words::{en, fill, word_or};
         let p: Vec<&str> = self.0.iter().map(String::as_str).collect();
         let s = match p.as_slice() {
-            ["$name"] => "Theme name",
-            ["color", "custom", name] => return format!("Color “{name}”"),
+            ["$name"] => en("Theme name"),
+            ["color", "custom", name] => return fill(word_or(locale, "Color “{name}”"), &[("name", name)]),
             ["color", role] => match COLOR_ROLES.iter().find(|(k, _)| k == role) {
                 Some((_, l)) => l,
-                None => return format!("Color “{role}”"),
+                None => return fill(word_or(locale, "Color “{name}”"), &[("name", role)]),
             },
-            ["font", "family"] => "Font",
-            ["font", "mono"] => "Monospace font",
-            ["size", "small"] => "Small text size",
-            ["size", "body"] => "Body text size",
-            ["size", "title"] => "Title size",
-            ["spacing", "unit"] => "Spacing unit",
-            ["spacing", "control-height"] => "Control height",
-            ["radius", "small"] => "Small corner radius",
-            ["radius", "medium"] => "Medium corner radius",
-            ["radius", "large"] => "Large corner radius",
-            ["stroke"] => "Line width",
-            ["motion", "quick"] => "Quick motion",
-            ["motion", "standard"] => "Standard motion",
-            ["motion", "emphasized"] => "Emphasized motion",
-            ["density"] => "Density",
-            ["asset", "background"] => "Background image",
-            ["asset", "font", name] => return format!("Font file “{name}”"),
+            ["font", "family"] => en("Font"),
+            ["font", "mono"] => en("Monospace font"),
+            ["size", "small"] => en("Small text size"),
+            ["size", "body"] => en("Body text size"),
+            ["size", "title"] => en("Title size"),
+            ["spacing", "unit"] => en("Spacing unit"),
+            ["spacing", "control-height"] => en("Control height"),
+            ["radius", "small"] => en("Small corner radius"),
+            ["radius", "medium"] => en("Medium corner radius"),
+            ["radius", "large"] => en("Large corner radius"),
+            ["stroke"] => en("Line width"),
+            ["motion", "quick"] => en("Quick motion"),
+            ["motion", "standard"] => en("Standard motion"),
+            ["motion", "emphasized"] => en("Emphasized motion"),
+            ["density"] => en("Density"),
+            ["asset", "background"] => en("Background image"),
+            ["asset", "font", name] => return fill(word_or(locale, "Font file “{name}”"), &[("name", name)]),
             _ => return self.dotted(),
         };
-        s.to_owned()
+        word_or(locale, s).to_owned()
     }
 
     /// Its value in `theme` (`None` for a token the theme does not have).
@@ -645,14 +654,14 @@ pub struct ContrastWarning {
 
 /// The color pairs a theme is read in, and the ratio each needs.
 const PAIRS: &[(&str, &str, &str, f32)] = &[
-    ("Text on the background", "text", "bg", 4.5),
-    ("Text on panels", "text", "panel", 4.5),
-    ("Text on cards", "text", "card", 4.5),
-    ("Muted text on the background", "muted", "bg", 4.5),
-    ("Muted text on panels", "muted", "panel", 4.5),
-    ("Muted text on cards", "muted", "card", 4.5),
-    ("Text on the accent", "on-accent", "accent", 4.5),
-    ("The accent on the background", "accent", "bg", 3.0),
+    (en("Text on the background"), "text", "bg", 4.5),
+    (en("Text on panels"), "text", "panel", 4.5),
+    (en("Text on cards"), "text", "card", 4.5),
+    (en("Muted text on the background"), "muted", "bg", 4.5),
+    (en("Muted text on panels"), "muted", "panel", 4.5),
+    (en("Muted text on cards"), "muted", "card", 4.5),
+    (en("Text on the accent"), "on-accent", "accent", 4.5),
+    (en("The accent on the background"), "accent", "bg", 3.0),
 ];
 
 /// The color pairs in `theme` below the contrast WCAG asks for (empty when all pass). Text
@@ -787,7 +796,7 @@ impl Customizations {
             set_leaf(&mut doc, token.path(), leaf_value);
         }
         remedy_ui_themes::from_tokens(&doc_text(&doc), &default).map_err(CustomizeError::Token)?;
-        let label = format!("Change {}", token.label());
+        let label = remedy_ui_view::words::fill(&ui.word("Change {name}"), &[("name", &token.label_in(&ui.locale()))]);
         self.change(ui, label, Some(format!("theme:{}", token.dotted())), &[Area::Theme], |c| {
             c.write_theme(&doc)
         })
@@ -800,14 +809,15 @@ impl Customizations {
             return Ok(());
         }
         remove_leaf(&mut doc, token.path());
-        self.change(ui, format!("Reset {}", token.label()), None, &[Area::Theme], |c| c.write_theme(&doc))
+        let label = remedy_ui_view::words::fill(&ui.word("Reset {name}"), &[("name", &token.label_in(&ui.locale()))]);
+        self.change(ui, label, None, &[Area::Theme], |c| c.write_theme(&doc))
     }
 
     /// Takes the whole theme back to the app's (undoable).
     pub fn reset_theme(&self, ui: &Ui) -> Result<(), CustomizeError> {
         self.theme_parts()?;
         let all = self.files_of(Area::Theme);
-        self.change(ui, "Reset theme", None, &[Area::Theme], |_| {
+        self.change(ui, ui.word("Reset theme"), None, &[Area::Theme], |_| {
             for p in &all {
                 files::remove(p).map_err(|e| CustomizeError::io(p, &e))?;
             }
@@ -881,7 +891,7 @@ impl Customizations {
         let mut file = diff_doc(&default, &theme, &map);
         let name = theme.name.clone();
         // Files are checked (and copied in) inside the change, so undo takes the copies too.
-        self.change(ui, format!("Import theme {name}"), None, &[Area::Theme], |c| {
+        self.change(ui, remedy_ui_view::words::fill(&ui.word("Import theme {name}"), &[("name", &name)]), None, &[Area::Theme], |c| {
             c.bring_assets(&mut file, base, None)?;
             c.write_theme(&file)
         })?;

@@ -2,6 +2,7 @@
 //! `layouts` folder of the config folder, through [`remedy_ui_rui::Layouts`]. Off until the
 //! app turns it on and builds its screens through [`Customizations::layout`].
 
+use remedy_ui_view::words::fill;
 use std::path::PathBuf;
 
 use remedy_ui_rui::{Layout, Layouts, RuiError, SaveError, Scope, WeakLayout, Widgets};
@@ -148,7 +149,7 @@ impl Customizations {
         if !path.exists() {
             return Ok(());
         }
-        self.change(ui, format!("Reset layout {file}"), None, &[Area::Layouts], |_| {
+        self.change(ui, fill(&ui.word("Reset layout {file}"), &[("file", file)]), None, &[Area::Layouts], |_| {
             files::remove(&path).map_err(|e| CustomizeError::io(&path, &e))
         })
     }
@@ -159,7 +160,7 @@ impl Customizations {
             return Err(CustomizeError::NotEnabled(Area::Layouts));
         }
         let all = self.files_of(Area::Layouts);
-        self.change(ui, "Reset all layouts", None, &[Area::Layouts], |_| {
+        self.change(ui, ui.word("Reset all layouts"), None, &[Area::Layouts], |_| {
             for p in &all {
                 files::remove(p).map_err(|e| CustomizeError::io(p, &e))?;
             }

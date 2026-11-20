@@ -195,7 +195,10 @@ pub fn carousel(
                 })
                 .child(page)
                 .hidden(i != start_index)
-                .semantics(Semantics::new(Role::Group).label(format!("Page {} of {n}", i + 1)))
+                .semantics(Semantics::new(Role::Group).label(remedy_ui_view::words::fill(
+                    &ui.word("Page {number} of {total}"),
+                    &[("number", &(i + 1).to_string()), ("total", &n.to_string())],
+                )))
         })
         .collect();
     let viewport = wrappers.iter().fold(viewport, |v, p| v.child(p.clone()));
@@ -387,16 +390,18 @@ pub fn carousel(
         }
     };
 
-    let prev_btn = with_hold(w::icon_button(ui, w::Icon::ChevronLeft, "Previous page", {
+    let prev_btn = with_hold(w::icon_button(ui, w::Icon::ChevronLeft, ui.word("Previous page"), {
         let step_by = step_by.clone();
         move || step_by(-1)
     }));
-    let next_btn = with_hold(w::icon_button(ui, w::Icon::ChevronRight, "Next page", {
+    let next_btn = with_hold(w::icon_button(ui, w::Icon::ChevronRight, ui.word("Next page"), {
         let step_by = step_by.clone();
         move || step_by(1)
     }));
+    let go_word = ui.word("Go to page {number} of {total}");
     let dots: Vec<El> = (0..n)
         .map(|i| {
+            let page_word = go_word.clone();
             let go = go.clone();
             let dot = ui.el("carousel_dot").width(unit * 3.0).height(unit * 3.0).paint(move |cx| {
                 let on = index.get() == i;
@@ -423,7 +428,10 @@ pub fn carousel(
                 .on_click(move || go(i))
                 .semantics(move || {
                     Semantics::new(Role::Button)
-                        .label(format!("Go to page {} of {n}", i + 1))
+                        .label(remedy_ui_view::words::fill(&page_word, &[
+                            ("number", &(i + 1).to_string()),
+                            ("total", &n.to_string()),
+                        ]))
                         .selected(index.get() == i)
                         .action(Action::Click)
                 });
@@ -431,19 +439,18 @@ pub fn carousel(
         })
         .collect();
     let pause_btn = options.autoplay.map(|_| {
-        let btn = with_hold(w::button(ui, "Pause", move || playing.update(|p| *p = !*p)));
+        let btn = with_hold(w::button(ui, ui.word("Pause"), move || playing.update(|p| *p = !*p)));
         let (b2, cancel, run) = (btn.clone(), cancel.clone(), run_schedule.clone());
         let first = Cell::new(true);
+        let u = ui.clone();
         btn.bind(move || {
             let on = playing.get();
-            let words = if on { "Pause" } else { "Play" };
-            let _ = b2.clone().semantics(
-                Semantics::new(Role::Button)
-                    .label(format!("{words} automatic page changes"))
-                    .action(Action::Click),
-            );
+            let words = if on { u.word("Pause") } else { u.word("Play") };
+            let said =
+                if on { u.word("Pause automatic page changes") } else { u.word("Play automatic page changes") };
+            let _ = b2.clone().semantics(Semantics::new(Role::Button).label(said).action(Action::Click));
             for c in b2.child_elements() {
-                let _ = c.text(RichText::plain(words));
+                let _ = c.text(RichText::plain(words.clone()));
             }
             // The carousel itself starts the first timer.
             if first.replace(false) {
@@ -540,6 +547,7 @@ pub fn carousel(
     let root = w::column(ui).gap(unit * 2.0).child(viewport.clone()).child(footer).focusable(true);
     let root = with_hold(root);
     let (bind_root, bind_prev, bind_next) = (root.clone(), prev_btn, next_btn);
+    let page_value = ui.word("Page {number} of {total}");
     let root = root.bind(move || {
         let idx = index.get().min(n.saturating_sub(1));
         if let Ok(mut m) = motion.try_borrow_mut() {
@@ -561,7 +569,7 @@ pub fn carousel(
         let _ = bind_root.clone().semantics(
             Semantics::new(Role::Group)
                 .label(label.clone())
-                .value(format!("Page {} of {n}", idx + 1))
+                .value(remedy_ui_view::words::fill(&page_value, &[("number", &(idx + 1).to_string()), ("total", &n.to_string())]))
                 .live(Live::Polite)
                 .action(Action::Increment)
                 .action(Action::Decrement),

@@ -104,7 +104,7 @@ impl TerminalOptions {
 impl Default for TerminalOptions {
     fn default() -> Self {
         TerminalOptions {
-            label: "Terminal".into(),
+            label: remedy_ui_view::words::en("Terminal").into(),
             scrollback: Scrollback::Auto,
             string_limit: None,
             families: None,
@@ -473,7 +473,9 @@ pub fn terminal(ui: &Ui, options: TerminalOptions) -> Terminal {
 impl Terminal {
     fn wire(&self, root: El, scroller: El, measure: El, announcer: El, tick: Signal<u64>) {
         let ui = &self.0.ui;
-        let label = self.0.options.label.clone();
+        // The default name is the engine's word; an app's own is its own.
+        let label = if self.0.options.label == "Terminal" { ui.word("Terminal") } else { self.0.options.label.clone() };
+        let u_words = ui.clone();
         let (title, screen) = (self.0.title, self.0.screen_text);
         let t = self.clone();
         let _ = measure.on_resize(move |_| {
@@ -499,7 +501,13 @@ impl Terminal {
             .on_focus_change(move |f| t4.focus(f))
             .on_text_input(caret, move |i| t6.text_input(i))
             .semantics(move || {
-                let name = title.with(|t| if t.is_empty() { label.clone() } else { format!("{label}: {t}") });
+                let name = title.with(|t| {
+                    if t.is_empty() {
+                        label.clone()
+                    } else {
+                        remedy_ui_view::words::fill(&u_words.word("{label}: {name}"), &[("label", &label), ("name", t)])
+                    }
+                });
                 Semantics::new(Role::MultilineTextInput).label(name).value(screen.get())
             });
         let t = self.clone();

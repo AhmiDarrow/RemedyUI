@@ -116,7 +116,7 @@ pub fn tabs(
                 if t.closable {
                     let (c1, c2, c3) = (close.clone(), id.clone(), id.clone());
                     let close_btn =
-                        w::icon_button(&u, Icon::Close, format!("Close {}", t.title), move || c1(&c2))
+                        w::icon_button(&u, Icon::Close, remedy_ui_view::words::fill(&u.word("Close {name}"), &[("name", &t.title)]), move || c1(&c2))
                             .variant("quiet")
                             .width(w::MIN_TARGET)
                             .height(w::MIN_TARGET);
@@ -225,12 +225,13 @@ pub fn nav_item(
         None => item,
     };
     let i2 = item.clone();
+    let u = ui.clone();
     item.bind(move || {
         let on = active();
         i2.state(States::SELECTED, on);
         let mut s = Semantics::new(Role::Tab).label(label.get()).selected(on).action(Action::Click);
         if let Some(c) = badge.map(|b| b.get()).filter(|c| *c > 0) {
-            s = s.description(format!("{c} new"));
+            s = s.description(u.counted("{count} new", "{count} new", u64::from(c)));
         }
         let _ = i2.clone().semantics(s);
     })
@@ -376,7 +377,7 @@ pub fn breadcrumbs(
                     w::text(&u, seg.clone())
                         .variant("strong")
                         .data_text()
-                        .semantics(Semantics::new(Role::Label).label(format!("{seg}, current")))
+                        .semantics(Semantics::new(Role::Label).label(remedy_ui_view::words::fill(&u.word("{name}, current"), &[("name", seg)])))
                 } else {
                     let f = on_select.clone();
                     w::link(&u, seg.clone(), move || f(i)).data_text()

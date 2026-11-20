@@ -1,6 +1,7 @@
 //! The toolbar and text editors, the notices, and the settings page that brings every editor
 //! together.
 
+use remedy_ui_view::words::fill;
 use remedy_ui_a11y::{Action, Role, Semantics};
 use remedy_ui_reactive::{Memo, Signal, untrack};
 use remedy_ui_services_i18n::MessageEntry;
@@ -12,11 +13,12 @@ use crate::theme_editor::reset_button;
 use crate::{Area, Customizations, shortcut_editor, theme_editor};
 
 /// A status line that assistive technology announces.
-fn status_line(ui: &Ui, name: &'static str, status: Signal<String>) -> El {
+fn status_line(ui: &Ui, name: &str, status: Signal<String>) -> El {
+    let name = name.to_owned();
     w::text(ui, "")
         .variant("muted")
         .text(move || status.get())
-        .semantics(move || Semantics::new(Role::Status).label(name).value(status.get()))
+        .semantics(move || Semantics::new(Role::Status).label(name.clone()).value(status.get()))
 }
 
 /// What could not be loaded or saved, each with its one-click reset and a dismiss button.
@@ -32,16 +34,20 @@ pub fn notices_view(ui: &Ui, c: &Customizations) -> El {
             l2.clear();
             for n in notices {
                 let file = n.path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
-                let message = format!("{} could not be used ({file}): {}", n.area.name(), n.message);
+                let message = fill(&u.word("{area} could not be used ({file}): {problem}"), &[
+                    ("area", n.area.name_in(&u.locale())),
+                    ("file", &file),
+                    ("problem", &n.message),
+                ]);
                 let (c3, u3, n3, c4, n4) = (c2.clone(), u.clone(), n.clone(), c2.clone(), n.clone());
-                let reset = w::button(&u, "Reset", move || {
+                let reset = w::button(&u, u.word("Reset"), move || {
                     let _ = c3.reset_notice(&u3, &n3);
                 })
                 .variant("primary")
-                .semantics(Semantics::new(Role::Button).label(format!("Reset {file}")).action(Action::Click));
-                let dismiss = w::button(&u, "Dismiss", move || c4.dismiss(&n4)).variant("quiet").semantics(
+                .semantics(Semantics::new(Role::Button).label(fill(&u.word("Reset {file}"), &[("file", &file)])).action(Action::Click));
+                let dismiss = w::button(&u, u.word("Dismiss"), move || c4.dismiss(&n4)).variant("quiet").semantics(
                     Semantics::new(Role::Button)
-                        .label(format!("Dismiss the notice about {file}"))
+                        .label(fill(&u.word("Dismiss the notice about {file}"), &[("file", &file)]))
                         .action(Action::Click),
                 );
                 let row = w::wrap(&u)
@@ -68,19 +74,19 @@ pub fn toolbars_editor(ui: &Ui, c: &Customizations) -> El {
     let Some(cmds) = c.toolbar_commands() else {
         return w::empty_state(
             ui,
-            "Toolbar customization is off",
-            "This app does not let its toolbars be changed.",
+            ui.word("Toolbar customization is off"),
+            ui.word("This app does not let its toolbars be changed."),
         );
     };
     let status = Signal::new(String::new());
     let mut col = w::column(ui)
         .gap(unit * 4.0)
         .fill_width()
-        .semantics(Semantics::new(Role::Group).label("Toolbar editor"))
-        .child(w::heading(ui, 2, "Toolbars and menus"));
+        .semantics(Semantics::new(Role::Group).label(ui.word("Toolbar editor")))
+        .child(w::heading(ui, 2, ui.word("Toolbars and menus")));
     let slots = c.toolbar_slots();
     if slots.is_empty() {
-        col = col.child(w::text(ui, "This app has no toolbars to change.").variant("muted"));
+        col = col.child(w::text(ui, ui.word("This app has no toolbars to change.")).variant("muted"));
     }
     for (id, label) in slots {
         let Some(slot) = c.toolbar(&id) else { continue };
@@ -91,7 +97,7 @@ pub fn toolbars_editor(ui: &Ui, c: &Customizations) -> El {
             move || c1.is_toolbar_customized(&id1),
             move || {
                 if let Err(e) = c2.reset_toolbar(&u2, &id2) {
-                    status.set(format!("Could not reset: {e}"));
+                    status.set(fill(&u2.word("Could not reset: {error}"), &[("error", &e.to_string())]));
                 }
             },
         );
@@ -110,17 +116,17 @@ pub fn toolbars_editor(ui: &Ui, c: &Customizations) -> El {
     let (c3, u3, c4) = (c.clone(), ui.clone(), c.clone());
     let reset_all = reset_button(
         ui,
-        "all toolbars",
+        &ui.word("all toolbars"),
         move || c4.toolbar_slots().iter().any(|(id, _)| c4.is_toolbar_customized(id)),
         move || {
             if let Err(e) = c3.reset_toolbars(&u3) {
-                status.set(format!("Could not reset: {e}"));
+                status.set(fill(&u3.word("Could not reset: {error}"), &[("error", &e.to_string())]));
             }
         },
     );
     col.child(w::row(ui).gap(unit * 2.0).align(Align::Center).child(reset_all).child(status_line(
         ui,
-        "Toolbar status",
+        &ui.word("Toolbar status"),
         status,
     )))
 }
@@ -132,7 +138,7 @@ fn text_row(ui: &Ui, c: &Customizations, source: &str, status: Signal<String>) -
     let (f2, c2, u2, s2) = (field.clone(), c.clone(), ui.clone(), source.to_owned());
     let field = field.on_change(move || {
         if let Err(e) = c2.set_text(&u2, &untrack(|| u2.locale()), &s2, &f2.value()) {
-            status.set(format!("Could not change that text: {e}"));
+            status.set(fill(&u2.word("Could not change that text: {error}"), &[("error", &e.to_string())]));
         }
     });
     let (el, f3, c3, u3, s3, cat3) =
@@ -157,11 +163,11 @@ fn text_row(ui: &Ui, c: &Customizations, source: &str, status: Signal<String>) -
         (c.clone(), source.to_owned(), ui.clone(), c.clone(), ui.clone(), source.to_owned());
     let reset = reset_button(
         ui,
-        &format!("“{source}”"),
+        &fill(&ui.word("“{text}”"), &[("text", source)]),
         move || c4.text_override(&u4.locale(), &s4).is_some(),
         move || {
             if let Err(e) = c5.reset_text(&u5, &untrack(|| u5.locale()), &s5) {
-                status.set(format!("Could not reset that text: {e}"));
+                status.set(fill(&u5.word("Could not reset that text: {error}"), &[("error", &e.to_string())]));
             }
         },
     );
@@ -210,7 +216,7 @@ fn message_row(ui: &Ui, c: &Customizations, id: &str) -> El {
         let (c, u, read) = (c.clone(), ui.clone(), read.clone());
         std::rc::Rc::new(move || match c.set_message(&u, &untrack(|| u.locale()), &read()) {
             Ok(()) => status.set(String::new()),
-            Err(e) => status.set(format!("Not saved: {e}")),
+            Err(e) => status.set(fill(&u.word("Not saved: {error}"), &[("error", &e.to_string())])),
         })
     };
     let mut col =
@@ -245,15 +251,15 @@ fn message_row(ui: &Ui, c: &Customizations, id: &str) -> El {
         move || message_now(&c3, &u3, &id3).is_some_and(|(_, _, mine)| mine),
         move || {
             if let Err(e) = c4.reset_message(&u4, &untrack(|| u4.locale()), &id4) {
-                status.set(format!("Could not reset: {e}"));
+                status.set(fill(&u4.word("Could not reset: {error}"), &[("error", &e.to_string())]));
             }
         },
     );
-    let id5 = id.to_owned();
+    let check_name = fill(&ui.word("{name} check"), &[("name", id)]);
     let check = w::text(ui, "")
         .variant("error")
         .text(move || status.get())
-        .semantics(move || Semantics::new(Role::Status).label(format!("{id5} check")).value(status.get()));
+        .semantics(move || Semantics::new(Role::Status).label(check_name.clone()).value(status.get()));
     col.child(w::row(ui).gap(unit * 2.0).align(Align::Center).child(reset).child(check))
 }
 
@@ -261,7 +267,7 @@ fn message_row(ui: &Ui, c: &Customizations, id: &str) -> El {
 fn messages_section(ui: &Ui, c: &Customizations) -> El {
     let unit = ui.theme().spacing.unit;
     let query = Signal::new(String::new());
-    let search = w::search(ui, "Search messages", move |q| query.set(q));
+    let search = w::search(ui, ui.word("Search messages"), move |q| query.set(q));
     let (c1, u1) = (c.clone(), ui.clone());
     let listed = Memo::new(move || {
         let q = query.get();
@@ -275,23 +281,23 @@ fn messages_section(ui: &Ui, c: &Customizations) -> El {
             .collect::<Vec<String>>()
     });
     let list =
-        w::column(ui).gap(unit * 3.0).fill_width().semantics(Semantics::new(Role::List).label("Messages"));
+        w::column(ui).gap(unit * 3.0).fill_width().semantics(Semantics::new(Role::List).label(ui.word("Messages")));
     let (l2, u, c2) = (list.clone(), ui.clone(), c.clone());
     let list = list.bind(move || {
         let ids = listed.get();
         untrack(|| {
             l2.clear();
             if ids.is_empty() {
-                let _ = l2.clone().child(w::text(&u, "No matching message").variant("muted"));
+                let _ = l2.clone().child(w::text(&u, u.word("No matching message")).variant("muted"));
             }
             for id in &ids {
                 let _ = l2.clone().child(message_row(&u, &c2, id));
             }
         });
     });
-    w::section(ui, "Messages")
+    w::section(ui, &ui.word("Messages"))
         .child(
-            w::text(ui, "Fluent messages: text, placeholders such as { $name }, and choices.")
+            w::text(ui, ui.word("Fluent messages: text, placeholders such as { $name }, and choices."))
                 .variant("muted"),
         )
         .child(search)
@@ -307,24 +313,24 @@ fn messages_section(ui: &Ui, c: &Customizations) -> El {
 pub fn text_editor(ui: &Ui, c: &Customizations) -> El {
     let unit = ui.theme().spacing.unit;
     if !c.is_enabled(Area::Text) {
-        return w::empty_state(ui, "Text customization is off", "This app does not let its text be changed.");
+        return w::empty_state(ui, ui.word("Text customization is off"), ui.word("This app does not let its text be changed."));
     }
     let status = Signal::new(String::new());
     let query = Signal::new(String::new());
-    let folder = format!("Your message files are in {}", c.text_dir().display());
+    let folder = fill(&ui.word("Your message files are in {folder}"), &[("folder", &c.text_dir().display().to_string())]);
     let c0 = c.clone();
-    let reload = w::button(ui, "Read the files again", move || c0.reload_text());
+    let reload = w::button(ui, ui.word("Read the files again"), move || c0.reload_text());
     let mut col = w::column(ui)
         .gap(unit * 3.0)
         .fill_width()
-        .semantics(Semantics::new(Role::Group).label("Text editor"))
-        .child(w::heading(ui, 2, "Text"))
+        .semantics(Semantics::new(Role::Group).label(ui.word("Text editor")))
+        .child(w::heading(ui, 2, ui.word("Text")))
         .child(w::text(ui, folder).variant("muted").data_text())
         .child(reload);
     if c.text_catalog().is_some() {
-        let search = w::search(ui, "Search text", move |q| query.set(q));
+        let search = w::search(ui, ui.word("Search text"), move |q| query.set(q));
         let list =
-            w::column(ui).gap(unit * 2.0).fill_width().semantics(Semantics::new(Role::List).label("Strings"));
+            w::column(ui).gap(unit * 2.0).fill_width().semantics(Semantics::new(Role::List).label(ui.word("Strings")));
         // The strings listed: rows are rebuilt only when these change, so a field keeps its
         // focus and its bindings while the person types.
         let c1 = c.clone();
@@ -339,7 +345,7 @@ pub fn text_editor(ui: &Ui, c: &Customizations) -> El {
             untrack(|| {
                 l2.clear();
                 if found.is_empty() {
-                    let _ = l2.clone().child(w::text(&u, "No matching text").variant("muted"));
+                    let _ = l2.clone().child(w::text(&u, u.word("No matching text")).variant("muted"));
                 }
                 for s in &found {
                     let _ = l2.clone().child(text_row(&u, &c2, s, status));
@@ -354,17 +360,17 @@ pub fn text_editor(ui: &Ui, c: &Customizations) -> El {
     let (c3, u3, c4) = (c.clone(), ui.clone(), c.clone());
     let reset_all = reset_button(
         ui,
-        "all text",
+        &ui.word("all text"),
         move || !c4.files_of_text_is_empty(),
         move || {
             if let Err(e) = c3.reset_texts(&u3) {
-                status.set(format!("Could not reset: {e}"));
+                status.set(fill(&u3.word("Could not reset: {error}"), &[("error", &e.to_string())]));
             }
         },
     );
     col.child(w::row(ui).gap(unit * 2.0).align(Align::Center).child(reset_all).child(status_line(
         ui,
-        "Text status",
+        &ui.word("Text status"),
         status,
     )))
 }
@@ -378,11 +384,11 @@ fn layout_section(ui: &Ui, c: &Customizations, file: &str) -> El {
         v_.language = "rui".into();
         v_
     };
-    let (editor, field) = remedy_ui_doc_code::code_editor(ui, format!("Layout {file}"), &source, options);
+    let (editor, field) = remedy_ui_doc_code::code_editor(ui, fill(&ui.word("Layout {file}"), &[("file", file)]), &source, options);
     // Checked as the person types: what is wrong, at which line and column.
-    let (f2, c2, file2) = (field.clone(), c.clone(), file.to_owned());
+    let (f2, c2, file2, u2) = (field.clone(), c.clone(), file.to_owned(), ui.clone());
     let check = move || match c2.check_layout(&file2, &f2.value()) {
-        Ok(()) => status.set("No problems: the layout can be saved.".into()),
+        Ok(()) => status.set(u2.word("No problems: the layout can be saved.")),
         Err(e) => status.set(e.to_string()),
     };
     check();
@@ -398,28 +404,29 @@ fn layout_section(ui: &Ui, c: &Customizations, file: &str) -> El {
             }
         });
     });
-    let (f4, c4, file4) = (field.clone(), c.clone(), file.to_owned());
-    let save = w::button(ui, "Save", move || match c4.save_layout(&file4, &f4.value()) {
-        Ok(()) => status.set("Saved. The screen shows your layout.".into()),
-        Err(e) => status.set(format!("Not saved: {e}")),
+    let (f4, c4, file4, u7) = (field.clone(), c.clone(), file.to_owned(), ui.clone());
+    let save = w::button(ui, ui.word("Save"), move || match c4.save_layout(&file4, &f4.value()) {
+        Ok(()) => status.set(u7.word("Saved. The screen shows your layout.")),
+        Err(e) => status.set(fill(&u7.word("Not saved: {error}"), &[("error", &e.to_string())])),
     })
     .variant("primary")
-    .semantics(Semantics::new(Role::Button).label(format!("Save layout {file}")).action(Action::Click));
+    .semantics(Semantics::new(Role::Button).label(fill(&ui.word("Save layout {file}"), &[("file", file)])).action(Action::Click));
     let (c5, file5, c6, u6, file6) = (c.clone(), file.to_owned(), c.clone(), ui.clone(), file.to_owned());
     let reset = reset_button(
         ui,
-        &format!("layout {file}"),
+        &fill(&ui.word("layout {file}"), &[("file", file)]),
         move || c5.is_layout_customized(&file5),
         move || {
             if let Err(e) = c6.reset_layout(&u6, &file6) {
-                status.set(format!("Could not reset: {e}"));
+                status.set(fill(&u6.word("Could not reset: {error}"), &[("error", &e.to_string())]));
             }
         },
     );
+    let status_name = ui.word("Layout check");
     let status_el = w::text(ui, "")
         .variant("muted")
         .text(move || status.get())
-        .semantics(move || Semantics::new(Role::Status).label("Layout check").value(status.get()));
+        .semantics(move || Semantics::new(Role::Status).label(status_name.clone()).value(status.get()));
     w::section(ui, file)
         .child(el)
         .child(status_el)
@@ -435,21 +442,21 @@ pub fn layouts_editor(ui: &Ui, c: &Customizations) -> El {
     if !c.is_enabled(Area::Layouts) {
         return w::empty_state(
             ui,
-            "Layout customization is off",
-            "This app does not let its screens be rearranged.",
+            ui.word("Layout customization is off"),
+            ui.word("This app does not let its screens be rearranged."),
         );
     }
     let status = Signal::new(String::new());
-    let folder = format!("Your layouts are in {}", c.layouts_dir().display());
+    let folder = fill(&ui.word("Your layouts are in {folder}"), &[("folder", &c.layouts_dir().display().to_string())]);
     let mut col = w::column(ui)
         .gap(unit * 3.0)
         .fill_width()
-        .semantics(Semantics::new(Role::Group).label("Layout editor"))
-        .child(w::heading(ui, 2, "Screen layouts"))
+        .semantics(Semantics::new(Role::Group).label(ui.word("Layout editor")))
+        .child(w::heading(ui, 2, ui.word("Screen layouts")))
         .child(w::text(ui, folder).variant("muted").data_text());
     let files = c.layout_files();
     if files.is_empty() {
-        col = col.child(w::text(ui, "No screen that can be rearranged is open.").variant("muted"));
+        col = col.child(w::text(ui, ui.word("No screen that can be rearranged is open.")).variant("muted"));
     }
     for f in &files {
         col = col.child(layout_section(ui, c, f));
@@ -457,17 +464,17 @@ pub fn layouts_editor(ui: &Ui, c: &Customizations) -> El {
     let (c3, u3, c4) = (c.clone(), ui.clone(), c.clone());
     let reset_all = reset_button(
         ui,
-        "all layouts",
+        &ui.word("all layouts"),
         move || c4.layout_files().iter().any(|f| c4.is_layout_customized(f)),
         move || {
             if let Err(e) = c3.reset_layouts(&u3) {
-                status.set(format!("Could not reset: {e}"));
+                status.set(fill(&u3.word("Could not reset: {error}"), &[("error", &e.to_string())]));
             }
         },
     );
     col.child(w::row(ui).gap(unit * 2.0).align(Align::Center).child(reset_all).child(status_line(
         ui,
-        "Layout status",
+        &ui.word("Layout status"),
         status,
     )))
 }
@@ -486,11 +493,12 @@ impl Customizations {
 pub fn settings_page(ui: &Ui, c: &Customizations) -> El {
     let unit = ui.theme().spacing.unit;
     let areas = c.areas();
-    let items: Vec<Tab> = areas.iter().map(|a| Tab::new(format!("{a:?}"), a.name())).collect();
+    let locale = ui.locale();
+    let items: Vec<Tab> = areas.iter().map(|a| Tab::new(format!("{a:?}"), a.name_in(&locale))).collect();
     let first = items.first().map(|t| t.id.clone());
     let items = Signal::new(items);
     let selected = Signal::new(first);
-    let strip = tabs(ui, "Customize", items, selected, |_| {});
+    let strip = tabs(ui, ui.word("Customize"), items, selected, |_| {});
     let content = w::column(ui).fill_width().grow(1.0);
     let (ct2, u, c2) = (content.clone(), ui.clone(), c.clone());
     let content = content.bind(move || {
@@ -503,30 +511,30 @@ pub fn settings_page(ui: &Ui, c: &Customizations) -> El {
                 Some("Toolbars") => toolbars_editor(&u, &c2),
                 Some("Text") => text_editor(&u, &c2),
                 Some("Layouts") => layouts_editor(&u, &c2),
-                _ => w::empty_state(&u, "Nothing to customize", "This app has not turned customization on."),
+                _ => w::empty_state(&u, u.word("Nothing to customize"), u.word("This app has not turned customization on.")),
             };
             let _ = ct2.clone().child(editor);
         });
     });
     let status = Signal::new(String::new());
     let (c3, u3) = (c.clone(), ui.clone());
-    let everything = w::button(ui, "Reset everything", move || match c3.reset_all(&u3) {
-        Ok(()) => status.set("Everything is back to the app's defaults. Undo brings it back.".into()),
-        Err(e) => status.set(format!("Could not reset: {e}")),
+    let everything = w::button(ui, ui.word("Reset everything"), move || match c3.reset_all(&u3) {
+        Ok(()) => status.set(u3.word("Everything is back to the app's defaults. Undo brings it back.")),
+        Err(e) => status.set(fill(&u3.word("Could not reset: {error}"), &[("error", &e.to_string())])),
     })
     .variant("danger")
-    .semantics(Semantics::new(Role::Button).label("Reset all customizations").action(Action::Click));
+    .semantics(Semantics::new(Role::Button).label(ui.word("Reset all customizations")).action(Action::Click));
     w::column(ui)
         .gap(unit * 3.0)
         .fill_width()
-        .semantics(Semantics::new(Role::Group).label("Customize"))
-        .child(w::heading(ui, 1, "Customize"))
+        .semantics(Semantics::new(Role::Group).label(ui.word("Customize")))
+        .child(w::heading(ui, 1, ui.word("Customize")))
         .child(notices_view(ui, c))
         .child(strip)
         .child(w::scroll(ui).child(content))
         .child(w::row(ui).gap(unit * 2.0).align(Align::Center).child(everything).child(status_line(
             ui,
-            "Customize status",
+            &ui.word("Customize status"),
             status,
         )))
 }

@@ -109,7 +109,7 @@ pub fn sheet(ui: &Ui, title: impl Into<String>, open: Signal<bool>, content: El)
         .align(Align::Center)
         .fill_width()
         .child(w::heading(ui, 2, title.clone()).grow(1.0))
-        .child(w::icon_button(ui, Icon::Close, "Close", move || open.set(false)).variant("quiet"));
+        .child(w::icon_button(ui, Icon::Close, ui.word("Close"), move || open.set(false)).variant("quiet"));
     let body = w::column(ui).gap(unit * 3.0).fill_width().child(head).child(content);
     drawer(ui, title, Edge::Bottom, open, body)
 }
@@ -147,11 +147,11 @@ pub fn title_bar(ui: &Ui, title: Signal<String>, extra: Option<El>, actions: Tit
         let _ = t2.clone().text(remedy_ui_view::RichText::plain(title.get()));
     });
     let (a1, a2, a3, a4) = (a.clone(), a.clone(), a.clone(), a.clone());
-    let max = w::icon_button(ui, Icon::Maximize, "Maximize", move || (a2.toggle_maximize)()).variant("quiet");
+    let max = w::icon_button(ui, Icon::Maximize, ui.word("Maximize"), move || (a2.toggle_maximize)()).variant("quiet");
     let (m2, u, a5) = (max.clone(), ui.clone(), a.clone());
     let max = max.bind(move || {
         let on = (a5.is_maximized)();
-        let label = if on { "Restore" } else { "Maximize" };
+        let label = if on { u.word("Restore") } else { u.word("Maximize") };
         untrack(|| {
             m2.clear();
             let _ = m2.clone().child(w::icon(
@@ -166,9 +166,9 @@ pub fn title_bar(ui: &Ui, title: Signal<String>, extra: Option<El>, actions: Tit
     });
     let buttons = w::row(ui)
         .gap(unit / 2.0)
-        .child(w::icon_button(ui, Icon::Minus, "Minimize", move || (a1.minimize)()).variant("quiet"))
+        .child(w::icon_button(ui, Icon::Minus, ui.word("Minimize"), move || (a1.minimize)()).variant("quiet"))
         .child(max)
-        .child(w::icon_button(ui, Icon::Close, "Close", move || (a3.close)()).variant("quiet"));
+        .child(w::icon_button(ui, Icon::Close, ui.word("Close"), move || (a3.close)()).variant("quiet"));
     let apple = ui.platform() == remedy_ui_input::Platform::Apple;
     let mut bar = ui
         .el("title_bar")
@@ -178,7 +178,7 @@ pub fn title_bar(ui: &Ui, title: Signal<String>, extra: Option<El>, actions: Tit
         .padding(Insets::symmetric(unit, unit * 2.0))
         .fill_width()
         .style(StylePatch::default())
-        .semantics(Semantics::new(Role::Group).label("Title bar"));
+        .semantics(Semantics::new(Role::Group).label(ui.word("Title bar")));
     if apple {
         bar = bar.child(buttons.clone());
     }

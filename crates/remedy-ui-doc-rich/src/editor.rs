@@ -2,6 +2,7 @@
 //! suggestions when someone types "@". The toolbar shows the formatting where the caret is;
 //! every button is reachable by keyboard and has its shortcut too.
 
+use remedy_ui_view::words::en;
 use std::cell::{Cell, RefCell};
 use std::ops::Range;
 use std::rc::Rc;
@@ -76,7 +77,7 @@ impl RichEditorOptions {
 impl Default for RichEditorOptions {
     fn default() -> Self {
         RichEditorOptions {
-            label: "Message".into(),
+            label: remedy_ui_view::words::en("Message").into(),
             placeholder: String::new(),
             submit_on_enter: false,
             toolbar: true,
@@ -99,7 +100,7 @@ type IsOn = Box<dyn Fn(&RichEditor) -> bool>;
 /// A toolbar button and what it shows as on.
 struct Tool {
     button: El,
-    label: &'static str,
+    label: String,
     on: IsOn,
 }
 
@@ -146,7 +147,8 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
     let unit = ui.theme().spacing.unit;
     let field = ui
         .text_field("text_input", FieldKind::Rich)
-        .label(options.label.clone())
+        // The default name is the engine's word; an app's own is its own.
+        .label(if options.label == "Message" { ui.word("Message") } else { options.label.clone() })
         .placeholder(options.placeholder.clone())
         .submit_on_enter(options.submit_on_enter);
     let field_el =
@@ -160,7 +162,8 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                act: Rc<dyn Fn(&mut RichEditor)>,
                on: Box<dyn Fn(&RichEditor) -> bool>| {
         let f = field.clone();
-        let button = w::icon_button(ui, icon, label, move || {
+        let label = ui.word(label);
+        let button = w::icon_button(ui, icon, label.clone(), move || {
             let act = act.clone();
             let _ = f.edit_rich(move |e| act(e));
             f.el().focus();
@@ -183,21 +186,21 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
     };
     let mut buttons = Vec::new();
     for (icon, label, m) in [
-        (Icon::Bold, "Bold", Mark::Bold),
-        (Icon::Italic, "Italic", Mark::Italic),
-        (Icon::Strike, "Strikethrough", Mark::Strike),
-        (Icon::Code, "Code", Mark::Code),
+        (Icon::Bold, en("Bold"), Mark::Bold),
+        (Icon::Italic, en("Italic"), Mark::Italic),
+        (Icon::Strike, en("Strikethrough"), Mark::Strike),
+        (Icon::Code, en("Code"), Mark::Code),
     ] {
         let (act, on) = mark(m);
         buttons.push(add(icon, label, act, on));
     }
     for (icon, label, b) in [
-        (Icon::Heading, "Heading", Block::Heading(2)),
-        (Icon::ListBullet, "Bulleted list", Block::Bullet(0)),
-        (Icon::ListNumber, "Numbered list", Block::Numbered(0)),
-        (Icon::ListTask, "Task list", Block::Task { done: false, level: 0 }),
-        (Icon::Quote, "Quote", Block::Quote),
-        (Icon::CodeBlock, "Code block", Block::Code),
+        (Icon::Heading, en("Heading"), Block::Heading(2)),
+        (Icon::ListBullet, en("Bulleted list"), Block::Bullet(0)),
+        (Icon::ListNumber, en("Numbered list"), Block::Numbered(0)),
+        (Icon::ListTask, en("Task list"), Block::Task { done: false, level: 0 }),
+        (Icon::Quote, en("Quote"), Block::Quote),
+        (Icon::CodeBlock, en("Code block"), Block::Code),
     ] {
         let (act, on) = block(b);
         buttons.push(add(icon, label, act, on));
@@ -212,7 +215,7 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                 old.remove();
             }
             let current = f.read_rich(|e| e.link_at_caret().map(|(_, u)| u)).flatten();
-            let address = w::text_input(&ui, "Link address").placeholder("https://");
+            let address = w::text_input(&ui, ui.word("Link address")).placeholder("https://");
             if let Some(u) = &current {
                 address.set_value(u);
                 address.select_all();
@@ -253,10 +256,10 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                 .child(
                     w::row(&ui)
                         .gap(unit * 2.0)
-                        .child(w::button(&ui, "Apply", move || apply()))
-                        .child(w::button(&ui, "Remove link", remove)),
+                        .child(w::button(&ui, ui.word("Apply"), move || apply()))
+                        .child(w::button(&ui, ui.word("Remove link"), remove)),
                 )
-                .semantics(Semantics::new(Role::Dialog).label("Link"));
+                .semantics(Semantics::new(Role::Dialog).label(ui.word("Link")));
             let layer = w::popover(&ui, anchor, content);
             address.el().focus();
             *link_open.borrow_mut() = Some(layer);
@@ -265,7 +268,7 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
     let link_button = {
         let (open, anchor) = (open_link_box.clone(), Rc::new(RefCell::new(None::<El>)));
         let a2 = anchor.clone();
-        let b = w::icon_button(ui, Icon::Link, "Link", move || {
+        let b = w::icon_button(ui, Icon::Link, ui.word("Link"), move || {
             if let Some(a) = a2.borrow().as_ref() {
                 open(a);
             }
@@ -273,7 +276,7 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
         *anchor.borrow_mut() = Some(b.clone());
         tools.borrow_mut().push(Tool {
             button: b.clone(),
-            label: "Link",
+            label: ui.word("Link"),
             on: Box::new(|e: &RichEditor| e.link_at_caret().is_some()),
         });
         b
@@ -288,7 +291,7 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
             .gap(unit * 0.5)
             .layout(|l| l.wrap = true)
             .children(buttons)
-            .semantics(Semantics::new(Role::Group).label("Formatting"));
+            .semantics(Semantics::new(Role::Group).label(ui.word("Formatting")));
         let _ = root.clone().child(bar);
     }
     let _ = root.clone().child(field_el.clone());
@@ -304,7 +307,7 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                 let _ = t
                     .button
                     .clone()
-                    .semantics(Semantics::new(Role::Button).label(t.label).checked(on).action(Action::Click));
+                    .semantics(Semantics::new(Role::Button).label(t.label.clone()).checked(on).action(Action::Click));
             }
         }
     };
@@ -368,7 +371,11 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                 let Some(caret) = f.caret_rect() else { return };
                 let unit = ui.theme().spacing.unit;
                 let list = ui.el("menu").column().semantics(
-                    Semantics::new(Role::List).label(format!("{} people to mention", items.len())),
+                    Semantics::new(Role::List).label(ui.counted(
+                        "{count} person to mention",
+                        "{count} people to mention",
+                        items.len() as u64,
+                    )),
                 );
                 for (i, c) in items.iter().enumerate() {
                     let ins = insert.clone();

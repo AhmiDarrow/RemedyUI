@@ -75,7 +75,7 @@ impl Default for RatingOptions {
             read_only: false,
             clearable: true,
             star_size: None,
-            unit: "stars".into(),
+            unit: remedy_ui_view::words::en("stars").into(),
         }
     }
 }
@@ -105,8 +105,10 @@ fn snap(v: f32, max: u32, half: bool) -> f32 {
     ((v / step).round() * step).clamp(0.0, max as f32)
 }
 
-fn spoken(v: f32, max: u32, unit: &str) -> String {
-    if v.fract() == 0.0 { format!("{v:.0} of {max} {unit}") } else { format!("{v:.1} of {max} {unit}") }
+/// "3 of 5 stars", in `template` ("{value} of {max} {unit}" in the window's language).
+fn spoken(template: &str, v: f32, max: u32, unit: &str) -> String {
+    let value = if v.fract() == 0.0 { format!("{v:.0}") } else { format!("{v:.1}") };
+    remedy_ui_view::words::fill(template, &[("value", &value), ("max", &max.to_string()), ("unit", unit)])
 }
 
 /// A row of stars showing `value` (0 to `max`), which people can change with the pointer
@@ -162,13 +164,15 @@ pub fn rating(ui: &Ui, label: impl Into<String>, value: Signal<f32>, options: Ra
     });
 
     let sem_el = el.clone();
-    let unit = options.unit.clone();
+    // The default unit is the engine's word; an app's own is its own.
+    let unit = if options.unit == "stars" { ui.word("stars") } else { options.unit.clone() };
+    let of = ui.word("{value} of {max} {unit}");
     let l2 = label.clone();
     if ro {
         return el.bind(move || {
             let v = value.get().clamp(0.0, max as f32);
             let _ = sem_el.clone().semantics(
-                Semantics::new(Role::Image).label(l2.clone()).value(spoken(v, max, &unit)).read_only(true),
+                Semantics::new(Role::Image).label(l2.clone()).value(spoken(&of, v, max, &unit)).read_only(true),
             );
             sem_el.repaint();
         });
@@ -249,7 +253,7 @@ pub fn rating(ui: &Ui, label: impl Into<String>, value: Signal<f32>, options: Ra
                 Semantics::new(Role::Slider)
                     .label(l2.clone())
                     .numeric(f64::from(v), 0.0, f64::from(max))
-                    .value(spoken(v, max, &unit))
+                    .value(spoken(&of, v, max, &unit))
                     .action(Action::Increment)
                     .action(Action::Decrement),
             );

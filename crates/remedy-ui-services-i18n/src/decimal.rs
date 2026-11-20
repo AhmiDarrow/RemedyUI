@@ -30,9 +30,9 @@ pub enum DecimalError {
 impl fmt::Display for DecimalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            DecimalError::Empty => "Enter a number",
-            DecimalError::Invalid => "Not a number",
-            DecimalError::Overflow => "Too many digits",
+            DecimalError::Empty => remedy_ui_view::words::en("Enter a number"),
+            DecimalError::Invalid => remedy_ui_view::words::en("Not a number"),
+            DecimalError::Overflow => remedy_ui_view::words::en("Too many digits"),
         })
     }
 }

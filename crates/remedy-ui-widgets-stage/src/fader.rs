@@ -303,7 +303,7 @@ pub fn fader(ui: &Ui, label: impl Into<String>, value: Signal<f64>, options: Fad
     let Some(level) = options.meter else { return el };
     let meter = level_meter(
         ui,
-        format!("{label} level"),
+        remedy_ui_view::words::fill(&ui.word("{label} level"), &[("label", &label)]),
         level,
         options.meter_options.orientation(options.orientation).length(length),
     );

@@ -51,6 +51,7 @@ mod theme;
 mod theme_editor;
 mod toolbars;
 
+use remedy_ui_view::words::fill;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -85,15 +86,22 @@ pub enum Area {
 }
 
 impl Area {
-    /// What people call it.
+    /// What people call it, in English ([`Area::name_in`] gives it in a locale).
     pub fn name(self) -> &'static str {
+        use remedy_ui_view::words::en;
         match self {
-            Area::Theme => "Theme",
-            Area::Shortcuts => "Shortcuts",
-            Area::Toolbars => "Toolbars and menus",
-            Area::Text => "Text",
-            Area::Layouts => "Screen layouts",
+            Area::Theme => en("Theme"),
+            Area::Shortcuts => en("Shortcuts"),
+            Area::Toolbars => en("Toolbars and menus"),
+            Area::Text => en("Text"),
+            Area::Layouts => en("Screen layouts"),
         }
+    }
+
+    /// [`Area::name`] in `locale` (BCP 47), with RemedyUI's built-in words; English where it
+    /// has none.
+    pub fn name_in(self, locale: &str) -> &'static str {
+        remedy_ui_view::words::word_or(locale, self.name())
     }
 
     const ALL: [Area; 5] = [Area::Theme, Area::Shortcuts, Area::Toolbars, Area::Text, Area::Layouts];
@@ -304,7 +312,7 @@ impl Customizations {
     pub fn reset_notice(&self, ui: &Ui, notice: &Notice) -> Result<(), CustomizeError> {
         let path = notice.path.clone();
         let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        self.change(ui, format!("Reset {name}"), None, &[notice.area], |_| {
+        self.change(ui, fill(&ui.word("Reset {name}"), &[("name", &name)]), None, &[notice.area], |_| {
             files::remove(&path).map_err(|e| CustomizeError::io(&path, &e))
         })
     }
@@ -313,7 +321,7 @@ impl Customizations {
     pub fn reset_all(&self, ui: &Ui) -> Result<(), CustomizeError> {
         let areas = self.areas();
         let all: Vec<PathBuf> = areas.iter().flat_map(|a| self.files_of(*a)).collect();
-        self.change(ui, "Reset all customizations", None, &areas, |_| {
+        self.change(ui, ui.word("Reset all customizations"), None, &areas, |_| {
             for p in &all {
                 files::remove(p).map_err(|e| CustomizeError::io(p, &e))?;
             }
@@ -454,3 +462,13 @@ impl Customizations {
         }
     }
 }
+
+/// `items` as a list in `ui`'s language: "A", "A and B", "A, B and C".
+pub(crate) fn and_list(ui: &Ui, items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => fill(&ui.word("{list} and {last}"), &[("list", &rest.join(", ")), ("last", last)]),
+    }
+}
+
