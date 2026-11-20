@@ -8,6 +8,8 @@ use crate::ToolGroup;
 mod devtools;
 #[cfg(feature = "docs")]
 mod docs;
+#[cfg(feature = "effects")]
+mod effects;
 #[cfg(feature = "live")]
 mod live;
 #[cfg(feature = "markup")]
@@ -31,6 +33,8 @@ pub(crate) fn make(g: Group) -> Option<Box<dyn ToolGroup>> {
         Group::Docs => Some(Box::new(docs::Docs)),
         #[cfg(feature = "markup")]
         Group::Markup => Some(Box::new(markup::Markup)),
+        #[cfg(feature = "effects")]
+        Group::Effects => Some(Box::new(effects::Effects)),
         #[cfg(feature = "scaffold")]
         Group::Scaffold => Some(Box::new(scaffold::Scaffold)),
         #[cfg(feature = "preview")]
