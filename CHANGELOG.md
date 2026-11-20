@@ -26,6 +26,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   that are compositor layers of their own: the element becomes a layer with
   `Layer::filters`, composited through `CompositeOp::PushFilter` / `PopFilter`. Glass fades
   with its element's opacity, and scroll containers can be glass.
+- **Eight more built-in Prism effects** (38 in all): `shimmer` (the sweep of light over a
+  loading placeholder), `mesh_gradient` (drifting pools of colour for backdrops), `confetti`,
+  `smoke`, `galaxy`, `code_rain`, `frost` (ice creeping in from the edges, by `amount`) and
+  `retro_grid`. All fit `Limits::untrusted`, have golden images, and match on the GPU kernel.
 - **Prism in `.rui` markup**: `remedy_ui::effects::register_markup` adds the `effect`
   element (`effect(name: "fire", param: "intensity", value: $heat) { … }`): a built-in
   effect, one parameter driven by a number signal, children drawn over it

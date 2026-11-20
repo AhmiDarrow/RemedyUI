@@ -1,0 +1,22 @@
+// Shimmer: the sweep of light across a placeholder while its content loads (skeleton
+// screens), soft and slow. Draw it in the placeholder's shape; it is opaque.
+effect shimmer(
+    color base = #e8e6e1,
+    color highlight = #f8f7f4,
+    float speed = 0.8 in 0..4,
+    float width = 0.22 in 0.02..1,
+    float tilt = 0.3 in -1.5..1.5,
+) {
+    fps 30;
+    scale 0.25;
+    still 0.6;
+
+    // The band crosses the box, waits off its edge, and comes again.
+    const sweep = fract(time * speed * 0.55) * 2.4 - 0.7;
+
+    pass band {
+        let d = uv.x + (uv.y - 0.5) * tilt / aspect - sweep;
+        let k = exp(-(d * d) / max(width * width * 0.2, 0.0001));
+        out = vec3(mix(base.rgb, highlight.rgb, k));
+    }
+}
