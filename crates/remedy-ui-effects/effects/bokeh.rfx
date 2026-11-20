@@ -1,0 +1,24 @@
+// Bokeh: big, soft, out-of-focus lights drifting slowly, as a city at night through a
+// lens. Calm backgrounds for night themes and lock screens.
+effect bokeh(
+    color a = #ffcc66,
+    color b = #ff6f91,
+    color c = #6fc3ff,
+    float amount = 1.0 in 0..1,
+    float size_px = 26.0 in 4..120,
+) {
+    fps 24;
+    scale 0.5;
+
+    particles lights (count: 40, life: 30.0, splat: disc, blend: plus) {
+        let start = vec2(rand(1.0), rand(2.0)) * size;
+        let drift = vec2(sin(age * 0.05 + rand(3.0) * tau), cos(age * 0.04 + rand(4.0) * tau)) * 40.0;
+        pos = start + drift;
+        let k = rand(5.0);
+        let col = k < 0.33 ? a.rgb : (k < 0.66 ? b.rgb : c.rgb);
+        radius = size_px * (0.5 + rand(6.0));
+        let fade = smoothstep(0.0, 0.1, progress) * smoothstep(1.0, 0.9, progress);
+        color = vec4(col, 0.16 * fade * step(rand(7.0), amount));
+    }
+    pass soft = blur(lights, 3.0);
+}

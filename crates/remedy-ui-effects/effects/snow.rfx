@@ -1,0 +1,22 @@
+// Snow: flakes drifting down and swaying, near ones larger and faster, a light wind. Winter
+// themes; over anything.
+effect snow(
+    color tint = #ffffff,
+    float wind = 0.2 in -2..2,
+    float amount = 1.0 in 0..1,
+    float flake = 2.4 in 0.5..8,
+) {
+    fps 30;
+    scale 1.0;
+
+    particles flakes (count: 260, life: 9.0, splat: disc, blend: normal) {
+        let depth = rand(1.0);
+        let fall = size.y * 1.15 * progress;
+        let sway = sin(age * (0.6 + rand(2.0)) + rand(3.0) * tau) * (8.0 + 16.0 * depth);
+        let drift = wind * 40.0 * age * (0.5 + depth);
+        let x = mod(rand(4.0) * size.x + sway + drift, size.x + 20.0) - 10.0;
+        pos = vec2(x, fall - size.y * 0.08);
+        radius = flake * mix(0.35, 1.0, depth);
+        color = vec4(tint.rgb, mix(0.35, 0.95, depth) * step(rand(5.0), amount));
+    }
+}

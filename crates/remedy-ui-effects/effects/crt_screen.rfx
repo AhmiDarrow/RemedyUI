@@ -1,0 +1,28 @@
+// CRT screen: a picture (bind it to `screen`) shown on a curved tube: barrel distortion,
+// colour fringes, scanlines, phosphor glow and bloom, a slow rolling bar and flicker. The
+// full arcade treatment for a theme's own art.
+effect crt_screen(
+    texture screen,
+    float curvature = 0.15 in 0..0.5,
+    float fringe = 1.2 in 0..4,
+    float scanlines = 0.4 in 0..1,
+    float glow = 0.6 in 0..2,
+) {
+    fps 30;
+    scale 1.0;
+
+    pass tube {
+        let q = barrel(uv, curvature);
+        let inside = step(0.0, q.x) * step(q.x, 1.0) * step(0.0, q.y) * step(q.y, 1.0);
+        let off = (q - vec2(0.5)) * fringe * texel / size.x * 4.0;
+        let r = sample(screen, q + off).r;
+        let g = sample(screen, q).g;
+        let b = sample(screen, q - off).b;
+        let line = 1.0 - scanlines * (0.5 + 0.5 * cos(px.y * pi));
+        let bar = 1.0 - 0.1 * exp(-pow((fract(q.y - time * 0.07) - 0.5) * 8.0, 2.0));
+        let fl = 1.0 - 0.03 * noise(vec2(time * 40.0, 0.5));
+        let edge = smoothstep(0.0, 0.02, min(min(q.x, 1.0 - q.x), min(q.y, 1.0 - q.y)));
+        out = vec4(vec3(r, g, b) * line * bar * fl * edge * inside, 1.0);
+    }
+    pass phosphor = bloom(tube, 0.45, 6.0, glow);
+}

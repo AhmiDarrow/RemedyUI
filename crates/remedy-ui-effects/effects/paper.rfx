@@ -1,0 +1,26 @@
+// Paper: a sheet's grain, fibres, gentle mottling and a hint of tooth, in a colour of your
+// choice. Static (one frame, cached): notebooks, letters, maps, sketchbooks.
+effect paper(
+    color tint = #f3ead6,
+    float fibres = 0.6 in 0..1,
+    float mottle = 0.5 in 0..1,
+    float tooth = 0.5 in 0..1,
+    float seed = 1.0 in 0..1000,
+) {
+    fps 1;
+    scale 1.0;
+
+    pass sheet {
+        let p = px + vec2(seed * 97.0, seed * 31.0);
+        // Mottling: large, soft variations of the pulp.
+        let m = fbm(p / 180.0, 4) - 0.5;
+        // Fibres: thin, long, scattered: noise stretched along random directions.
+        let f1 = ridged(rotate(p, 0.7) * vec2(0.012, 0.18), 3);
+        let f2 = ridged(rotate(p, -1.1) * vec2(0.015, 0.2) + vec2(40.0), 3);
+        let fib = pow(max(f1, f2), 6.0);
+        // Tooth: fine grain at the pixel scale.
+        let g = hash(p) - 0.5;
+        let shade = m * 0.08 * mottle - fib * 0.07 * fibres + g * 0.035 * tooth;
+        out = vec4(tint.rgb * (1.0 + shade), 1.0);
+    }
+}

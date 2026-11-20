@@ -1,0 +1,32 @@
+// Aurora: curtains of light folding slowly across a night sky, green at the hem, violet
+// above, with fine vertical rays. Blend plus over a sky.
+effect aurora(
+    color low = #3dffa8,
+    color high = #8a5cff,
+    float height = 0.45 in 0..1,
+    float intensity = 0.8 in 0..2,
+    float speed = 0.06 in 0..1,
+) {
+    fps 20;
+    scale 0.35;
+    blend plus;
+
+    fn curtain(x: float, y: float, offset: float, amp: float) -> float {
+        // The curtain's hem waves along x; the light hangs above it and fades upwards.
+        let hem = height + (fbm(vec2(x * 1.6 + offset, time * speed), 4) - 0.5) * amp;
+        let above = hem - y;
+        let body = smoothstep(-0.02, 0.03, above) * exp(-max(above, 0.0) * 4.5);
+        let rays = 0.55 + 0.45 * noise(vec2(x * 60.0 + offset * 10.0, time * speed * 4.0));
+        return body * rays;
+    }
+
+    pass sky {
+        let x = uv.x * aspect;
+        let a = curtain(x, uv.y, 0.0, 0.5);
+        let b = curtain(x + 3.0, uv.y + 0.08, 11.0, 0.6) * 0.6;
+        let k = a + b;
+        let col = mix(low.rgb, high.rgb, smoothstep(0.0, 0.35, height - uv.y + 0.1));
+        out = vec4(col, clamp(k * intensity, 0.0, 1.0));
+    }
+    pass soft = bloom(sky, 0.3, 14.0, 0.7);
+}

@@ -324,7 +324,14 @@ pub fn scalar(op: Op, a: f32, b: f32, c: f32) -> f32 {
         }
         Op::Min => a.min(b),
         Op::Max => a.max(b),
-        Op::Pow => finite(a.max(0.0).powf(b.clamp(-64.0, 64.0))),
+        Op::Pow => {
+            // |a|^b, negative when a is negative and b an odd whole number (as arithmetic
+            // has it); never NaN.
+            let b = b.clamp(-64.0, 64.0);
+            let m = finite(a.abs().powf(b));
+            let odd = b.fract() == 0.0 && (b * 0.5).fract() != 0.0;
+            if a < 0.0 && odd { -m } else { m }
+        }
         Op::Atan2 => a.atan2(b),
         Op::Step => b2f(b >= a),
         Op::Neg => -a,

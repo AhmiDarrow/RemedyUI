@@ -1,0 +1,29 @@
+// Embers: sparks rising from a fire on the warm air, swirling, cooling from white-gold to
+// red as they climb, with short motion trails. Put it over a fire or a forge.
+effect embers(
+    color hot = #fff0b0,
+    color cool = #ff4a12,
+    vec2 source = (0.5, 0.95),
+    float width = 0.25 in 0..1,
+    float height = 0.8 in 0.1..1.5,
+    float wind = 0.1 in -1..1,
+    float amount = 1.0 in 0..1,
+) {
+    fps 30;
+    scale 1.0;
+    blend plus;
+
+    particles sparks (count: 180, life: 3.2, splat: soft, blend: plus) {
+        let x0 = source.x * size.x + (rand(1.0) - 0.5) * width * size.x;
+        let climb = height * size.y * (0.6 + rand(2.0) * 0.4) * progress;
+        let swirl = sin(age * (1.5 + rand(3.0) * 2.5) + rand(4.0) * tau) * (8.0 + 18.0 * progress);
+        let push = wind * size.x * 0.3 * progress * progress;
+        pos = vec2(x0 + swirl + push, source.y * size.y - climb);
+        radius = mix(1.8, 0.6, progress) * (0.7 + rand(5.0) * 0.6);
+        let c = mix(hot.rgb, cool.rgb, smoothstep(0.0, 0.7, progress));
+        let alive = step(rand(6.0), amount);
+        color = vec4(c, (1.0 - progress) * alive * (0.6 + 0.4 * noise(vec2(age * 9.0, rand(7.0) * 50.0))));
+        // The trail points back along the climb.
+        trail = vec2(-cos(age * 2.0 + rand(4.0) * tau) * 3.0 - wind * 4.0, 5.0 + rand(8.0) * 7.0) * (1.0 - progress);
+    }
+}

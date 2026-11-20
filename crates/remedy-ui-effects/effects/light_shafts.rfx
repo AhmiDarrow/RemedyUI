@@ -1,0 +1,44 @@
+// Light shafts: god rays fanning from a light, slowly shifting, with dust drifting through
+// them. A window's sun, a lighthouse lamp, a stage spot, light through leaves or water.
+effect light_shafts(
+    color tint = #fff1c9,
+    vec2 origin = (0.2, -0.1),
+    float spread = 1.2 in 0.1..3.2,
+    float direction = 1.1 in -3.2..3.2,
+    float intensity = 0.7 in 0..2,
+    float rays = 9.0 in 2..40,
+    float speed = 0.15 in 0..2,
+    float dust = 1.0 in 0..1,
+) {
+    fps 20;
+    scale 0.35;
+    blend plus;
+
+    pass shafts {
+        let p = (uv - origin) * vec2(aspect, 1.0);
+        let r = length(p);
+        let a = atan2(p.y, p.x);
+        // How far inside the fan, 1 on its axis.
+        let off = abs(mod(a - direction + pi, tau) - pi);
+        let fan = smoothstep(spread * 0.5, 0.0, off);
+        // Rays: noise around the source, drifting; two scales for depth.
+        let n1 = noise(vec2(a * rays, time * speed));
+        let n2 = noise(vec2(a * rays * 2.7 + 13.0, time * speed * 1.7));
+        let beam = pow(n1 * 0.65 + n2 * 0.35, 2.2);
+        let falloff = exp(-r * 1.4) * smoothstep(0.0, 0.08, r);
+        let k = beam * fan * falloff * intensity * 1.6;
+        out = vec4(tint.rgb, clamp(k, 0.0, 1.0));
+    }
+
+    particles motes over shafts (count: 120, life: 9.0, splat: soft, blend: plus) {
+        let start = vec2(rand(1.0), rand(2.0)) * size;
+        let drift = vec2(sin(age * 0.4 + rand(3.0) * tau) * 14.0, -age * (3.0 + rand(4.0) * 5.0));
+        pos = start + drift;
+        // Motes show only inside the shafts' fan.
+        let p = (pos / size - origin) * vec2(aspect, 1.0);
+        let off = abs(mod(atan2(p.y, p.x) - direction + pi, tau) - pi);
+        let inside = smoothstep(spread * 0.5, 0.0, off) * exp(-length(p) * 1.2);
+        radius = 0.8 + rand(5.0) * 1.4;
+        color = vec4(tint.rgb, inside * dust * 0.8 * sin(progress * pi));
+    }
+}

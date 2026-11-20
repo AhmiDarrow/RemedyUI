@@ -274,7 +274,12 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
             case 7u: { r = select(fin4(A - B * floor(A / B)), vec4<f32>(0.0), B == vec4<f32>(0.0)); }
             case 8u: { r = min(A, B); }
             case 9u: { r = max(A, B); }
-            case 10u: { r = fin4(pow(max(A, vec4<f32>(0.0)), clamp(B, vec4<f32>(-64.0), vec4<f32>(64.0)))); }
+            case 10u: {
+                let e = clamp(B, vec4<f32>(-64.0), vec4<f32>(64.0));
+                let m = fin4(pow(abs(A), e));
+                let odd = (fract(e) == vec4<f32>(0.0)) & (fract(e * 0.5) != vec4<f32>(0.0));
+                r = select(m, -m, (A < vec4<f32>(0.0)) & odd);
+            }
             case 11u: { r = atan2(A, B); }
             case 12u: { r = b2f(B >= A); }
             case 13u: { r = -A; }

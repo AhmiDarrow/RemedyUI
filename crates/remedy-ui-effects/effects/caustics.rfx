@@ -1,0 +1,29 @@
+// Caustics: the moving web of light that water casts on what is under it. Blend plus over a
+// pool's floor, a fish tank, a terrarium's water, or across a wall near water.
+effect caustics(
+    color tint = #c9f6ff,
+    float scale_px = 90.0 in 10..600,
+    float speed = 0.35 in 0..3,
+    float intensity = 0.7 in 0..2,
+    float sharpness = 5.0 in 1..12,
+) {
+    fps 24;
+    scale 0.5;
+    blend plus;
+
+    pass light {
+        let p = px / scale_px;
+        let t = time * speed;
+        // Distort the cells with flowing noise so the web wobbles like refracted light.
+        let w = vec2(fbm(p * 0.7 + vec2(t, 0.0), 3), fbm(p * 0.7 + vec2(4.3, -t), 3)) - vec2(0.5);
+        let a = voronoi(p + w * 0.9 + vec2(t * 0.6, t * 0.2));
+        let b = voronoi(p * 1.35 - w * 0.7 + vec2(-t * 0.4, t * 0.5) + vec2(3.7, 8.1));
+        // Light gathers where cells meet (F2 - F1 small).
+        let ea = 1.0 - smoothstep(0.0, 0.35, a.y - a.x);
+        let eb = 1.0 - smoothstep(0.0, 0.35, b.y - b.x);
+        let k = pow(ea, sharpness) + pow(eb, sharpness) * 0.8;
+        // A little colour split at the brightest edges, as a prism would.
+        let rgb = tint.rgb * k + vec3(0.06, 0.0, 0.1) * pow(ea * eb, 2.0);
+        out = vec4(rgb, clamp(k * intensity, 0.0, 1.0));
+    }
+}

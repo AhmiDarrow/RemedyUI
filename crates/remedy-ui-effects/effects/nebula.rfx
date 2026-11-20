@@ -1,0 +1,29 @@
+// Nebula: glowing gas clouds in deep space, domain-warped and slowly turning, coloured by
+// a palette, with dust lanes and stars. Constellation, space, cosmic backgrounds.
+effect nebula(
+    color a = #ff4fa3,
+    color b = #4f7dff,
+    color dust = #05030c,
+    float intensity = 0.9 in 0..2,
+    float speed = 0.01 in 0..0.2,
+    float stars = 1.0 in 0..1,
+) {
+    fps 15;
+    scale 0.35;
+
+    pass gas {
+        let p = rotate(centered(uv) * 2.4, time * speed);
+        let w1 = vec2(fbm(p + vec2(1.7, 9.2), 4), fbm(p + vec2(8.3, 2.8), 4));
+        let w2 = vec2(fbm(p + w1 * 3.0 + vec2(time * speed * 2.0), 4), fbm(p + w1 * 3.0 + vec2(5.2, 1.3), 4));
+        let f = fbm(p + w2 * 2.5, 5);
+        let glow = pow(f, 2.2) * 2.4;
+        let col = mix(a.rgb, b.rgb, clamp(w2.x * 1.6 - 0.3, 0.0, 1.0)) * glow;
+        let lanes = smoothstep(0.45, 0.75, ridged(p * 1.7 + w1, 4));
+        var rgb = mix(col, dust.rgb, lanes * 0.6) * intensity;
+        // Stars: points on a fine grid, a few bright.
+        let c = floor(px / 3.0);
+        let h = hash3(c);
+        rgb += vec3(step(0.995, h.x) * (0.5 + h.y)) * stars;
+        out = vec4(rgb + dust.rgb, 1.0);
+    }
+}

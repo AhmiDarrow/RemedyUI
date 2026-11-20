@@ -22,7 +22,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
         };
-        let instance = Instance::new(effect.clone());
+        let mut instance = Instance::new(effect.clone());
+        // Texture parameters get a test picture: stripes, a circle and a gradient.
+        let (tw, th) = (256u32, 160u32);
+        let mut px = Vec::with_capacity((tw * th * 4) as usize);
+        for y in 0..th {
+            for x in 0..tw {
+                let stripe = if (x / 16 + y / 16) % 2 == 0 { 220u8 } else { 60 };
+                let (dx, dy) = (x as f32 - 128.0, y as f32 - 80.0);
+                let ring = (dx * dx + dy * dy).sqrt() < 50.0;
+                let r = if ring { 255 } else { stripe };
+                let g = if ring { 190 } else { (x * 255 / tw) as u8 };
+                let b = if ring { 60 } else { (y * 255 / th) as u8 };
+                px.extend([r, g, b, 255]);
+            }
+        }
+        let picture = remedy_ui_paint::Image::new(tw, th, px.into());
+        for name in effect.textures.clone() {
+            let _ = instance.set_texture(&name, Some(picture.clone()));
+        }
         let mut cpu = CpuEffect::new();
         for t in [0.0f32, 1.5, 3.0] {
             let started = std::time::Instant::now();
