@@ -13,7 +13,9 @@ use remedy_ui_host::{
     AccessibilityEvent, FileDialog, Host, HostEvent, Pixels, ResizeEdge, SystemSettings, TimerId, TrayEvent,
     TrayIcon, Unsupported, WindowIcon, WindowId, WindowOptions,
 };
-use remedy_ui_input::ScrollPhysics;
+use remedy_ui_input::{
+    Buttons, GestureSettings, PointerEvent, PointerKind, PointerPhase, ScrollPhysics, VelocityTracker,
+};
 use remedy_ui_render_cpu::CpuCompositor;
 use remedy_ui_style::{StyleSheet, Theme};
 use remedy_ui_text::{FontCollection, FontFile};
@@ -1676,12 +1678,105 @@ struct Win {
     /// When it was last drawn, and a frame held back by the app's frame-rate limit.
     last_frame: Option<Duration>,
     held: Option<TimerId>,
+    /// A finger that is not yet a tap or a scroll, or that is scrolling.
+    pan: Option<TouchPan>,
+}
+
+/// How long a finger rests before a press is a long press (Android's default).
+const LONG_PRESS: Duration = Duration::from_millis(500);
+
+/// A finger pressed on a window: held back from the view until it lifts (a tap) or moves
+/// past the slop (a scroll), so a swipe over a field neither focuses it nor clicks.
+struct TouchPan {
+    down: PointerEvent,
+    last: Point,
+    scrolling: bool,
+    layer: Option<LayerId>,
+    velocity: VelocityTracker,
+    /// Fires when the finger has rested long enough to be a long press.
+    hold: Option<TimerId>,
 }
 
 impl Win {
     /// Pixels per logical pixel of the window's content: the display's scale times the zoom.
     fn scale(&self) -> f32 {
         self.size.2 * self.zoom
+    }
+
+    /// Turns a touch into scrolling on the compositor, as a wheel is (the platforms give a
+    /// canvas no scrolling of its own). Returns the events the view gets instead.
+    fn touch(&mut self, e: PointerEvent) -> Vec<PointerEvent> {
+        let slop = GestureSettings::default().touch_slop;
+        let s = self.scale();
+        let Some(p) = self.pan.as_mut().filter(|p| p.down.id == e.id) else {
+            if e.phase == PointerPhase::Down && self.pan.is_none() {
+                let mut velocity = VelocityTracker::new();
+                velocity.add_event(&e);
+                self.pan = Some(TouchPan {
+                    last: e.position,
+                    down: e,
+                    scrolling: false,
+                    layer: None,
+                    velocity,
+                    hold: None,
+                });
+                return Vec::new();
+            }
+            return vec![e];
+        };
+        p.velocity.add_event(&e);
+        match e.phase {
+            PointerPhase::Move => {
+                let (dx, dy) = (e.position.x - p.down.position.x, e.position.y - p.down.position.y);
+                if !p.scrolling && dx * dx + dy * dy <= slop * slop {
+                    return Vec::new();
+                }
+                p.scrolling = true;
+                let d = Vec2::new((p.last.x - e.position.x) * s, (p.last.y - e.position.y) * s);
+                p.last = e.position;
+                let at = Point::new(e.position.x * s, e.position.y * s);
+                match self.comp.as_mut().and_then(|c| c.scroll_at(at, d)) {
+                    Some(l) => p.layer = Some(l),
+                    // Nothing under the finger scrolls sideways: a sideways drag is the view's
+                    // (a slider, a drag and drop).
+                    None if p.layer.is_none() && dx.abs() > dy.abs() => {
+                        let down = self.pan.take().map(|p| p.down);
+                        return down.into_iter().chain([e]).collect();
+                    }
+                    None => {}
+                }
+                Vec::new()
+            }
+            PointerPhase::Up => {
+                let p = self.pan.take();
+                match p {
+                    Some(TouchPan { scrolling: true, layer, velocity, .. }) => {
+                        let v = velocity.velocity();
+                        if let (Some(l), Some(c)) = (layer, self.comp.as_mut()) {
+                            c.fling(l, Vec2::new(-v.x, -v.y));
+                        }
+                        Vec::new()
+                    }
+                    Some(p) => vec![p.down, e],
+                    None => vec![e],
+                }
+            }
+            // The view never saw this finger go down.
+            _ => {
+                self.pan = None;
+                Vec::new()
+            }
+        }
+    }
+
+    /// A finger rested past [`LONG_PRESS`] without moving: the press becomes the touch
+    /// screen's right-click (a context menu opens under it), and the rest of the finger's
+    /// movement goes to the view.
+    fn long_press(&mut self, timer: TimerId) -> Option<PointerEvent> {
+        if self.pan.as_ref().is_none_or(|p| p.scrolling || p.hold != Some(timer)) {
+            return None;
+        }
+        self.pan.take().map(|p| p.down.with_buttons(Buttons::SECONDARY))
     }
 }
 
@@ -1914,6 +2009,7 @@ impl Runner {
                         zoom: 1.0,
                         last_frame: None,
                         held: None,
+                        pan: None,
                         host: id,
                         ui: ui.clone(),
                         comp: None,
@@ -2925,15 +3021,24 @@ impl remedy_ui_host::App for Runner {
             }
             HostEvent::Pointer(window, mut e) => {
                 self.activity(host);
-                if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
+                if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k)) {
                     if w.zoom != 1.0 {
                         e.position = unzoom(e.position, w.zoom);
                         for (p, _) in &mut e.coalesced {
                             *p = unzoom(*p, w.zoom);
                         }
                     }
-                    w.ui.pointer(&e);
-                    host.pointer_consumed(window, w.ui.pointer_consumed());
+                    let events = if e.kind == PointerKind::Touch { w.touch(e) } else { vec![e] };
+                    if let Some(p) = w.pan.as_mut().filter(|p| p.hold.is_none()) {
+                        p.hold = Some(host.set_timer(host.now() + LONG_PRESS));
+                    }
+                    if events.is_empty() {
+                        host.request_frame(window);
+                    }
+                    for e in &events {
+                        w.ui.pointer(e);
+                        host.pointer_consumed(window, w.ui.pointer_consumed());
+                    }
                 }
             }
             HostEvent::DragEnded(window, effect) => {
@@ -3184,6 +3289,12 @@ impl remedy_ui_host::App for Runner {
                         w.held = None;
                         host.request_frame(w.host);
                     }
+                } else if let Some((w, down)) =
+                    self.wins.values_mut().find_map(|w| w.long_press(id).map(|d| (w, d)))
+                {
+                    w.ui.pointer(&down);
+                    host.pointer_consumed(w.host, w.ui.pointer_consumed());
+                    host.request_frame(w.host);
                 } else if let Some(f) = self.timers.remove(&id) {
                     f();
                 } else if let Some((key, vid)) = self.view_timers.remove(&id)

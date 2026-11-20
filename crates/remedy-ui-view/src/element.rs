@@ -701,6 +701,8 @@ pub(crate) struct Inner {
     pub(crate) hovered: Vec<ElementId>,
     pub(crate) pressed: Option<ElementId>,
     pub(crate) focus_visible: bool,
+    /// The keyboard came up: the next frame scrolls the focused element back into view.
+    pub(crate) reveal_focus: bool,
     pub(crate) a11y: A11yTree,
     pub(crate) structure_changed: bool,
     /// A layer's transform changed: the next frame rebuilds layers without repainting.
@@ -962,6 +964,7 @@ impl Ui {
             hovered: Vec::new(),
             pressed: None,
             focus_visible: false,
+            reveal_focus: false,
             a11y: A11yTree::new(root_key(root)),
             structure_changed: true,
             layers_changed: false,
@@ -1326,8 +1329,13 @@ impl Ui {
             let i = self.0.borrow();
             (i.safe_area, i.overlays, i.trusted)
         };
-        if signal.get_untracked().ok() == Some(area) {
+        let old = signal.get_untracked().ok();
+        if old == Some(area) {
             return;
+        }
+        // A soft keyboard rising over the field being typed in.
+        if area.bottom > old.map_or(0.0, |o| o.bottom) {
+            self.0.borrow_mut().reveal_focus = true;
         }
         let root = self.tree().root();
         signal.set_if_changed(area);
@@ -2018,6 +2026,10 @@ impl El {
         // Removing from the tree disposes the elements' scopes, which runs the app's clean-ups
         // (a view closing the dialog it opened on the overlay): the view is not borrowed then.
         let _ = self.ui.tree().remove(self.id);
+        // Focus went with it (to an element around it, or nowhere): the view follows.
+        if self.ui.0.borrow().focus_shown != self.ui.tree().focused() {
+            crate::events::focus_changed(&self.ui);
+        }
         for e in effects {
             e.dispose();
         }

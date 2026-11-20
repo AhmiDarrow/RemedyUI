@@ -496,13 +496,14 @@ impl Java {
         caret: (f32, f32, f32),
         secret: bool,
         multiline: bool,
+        numeric: bool,
     ) -> Result<(), String> {
         self.on_bridge(app, "the text input session", move |env, b| {
             let t = env.new_string(&text)?;
             env.call_method(
                 b,
                 "textInput",
-                "(Ljava/lang/String;IIFFFZZ)V",
+                "(Ljava/lang/String;IIFFFZZZ)V",
                 &[
                     JValue::Object(&t),
                     JValue::Int(selection.0),
@@ -512,6 +513,7 @@ impl Java {
                     JValue::Float(caret.2),
                     JValue::Bool(u8::from(secret)),
                     JValue::Bool(u8::from(multiline)),
+                    JValue::Bool(u8::from(numeric)),
                 ],
             )?;
             Ok(())

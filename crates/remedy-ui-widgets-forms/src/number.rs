@@ -161,7 +161,7 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
     let label = label.into();
     let unit = ui.theme().spacing.unit;
     let o = std::rc::Rc::new(options);
-    let field = ui.text_field("text_input", FieldKind::Single).label(label.clone());
+    let field = ui.text_field("text_input", FieldKind::Single).numeric().label(label.clone());
     let error = Signal::new(None::<Problem>);
 
     let show = {
