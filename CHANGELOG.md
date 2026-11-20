@@ -40,6 +40,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `rfx render … --png <file>` (a frame on the CPU reference renderer, with sizes, time and
   parameter values) and `rfx library`; the same as the MCP tools `rfx_check`, `rfx_render`
   (a PNG image) and `rfx_library`, from the new `effects` group of `remedy-tools`.
+- **Prism effects polished and cheaper**: effects that do not move (`Effect::animated` false:
+  paper, frost) are drawn once per size and parameter change and ask for no frames.
+  `starfield` draws its soft dust band at a quarter of the resolution (cost 268 to 184, at
+  most a level of difference) and `heat_shimmer` its air at half (148 to 62, the same
+  picture). `plasma` has a softer palette whose colours drift over time, `lightning`'s
+  still frame (reduced motion, paused) shows a strike, and `fog` is denser by default with
+  a haze above its banks.
 - **Prism in `.rui` markup**: `remedy_ui::effects::register_markup` adds the `effect`
   element (`effect(name: "fire", param: "intensity", value: $heat) { … }`): a built-in
   effect, one parameter driven by a number signal, children drawn over it

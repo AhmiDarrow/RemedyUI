@@ -6,6 +6,7 @@ effect frost(
     float scale_px = 36.0 in 10..400,
 ) {
     fps 12;
+    // Frost does not move with time: drawn once per size and `amount`, then free.
     scale 0.5;
 
     pass rime {
@@ -14,7 +15,7 @@ effect frost(
         let v = voronoi(p);
         let f = voronoi(p * 2.7 + vec2(3.1, 1.7));
         let veins = (1.0 - smoothstep(0.0, 0.05, v.y - v.x)) * 0.7 + (1.0 - smoothstep(0.0, 0.08, f.y - f.x)) * 0.35;
-        let grain = fbm(p * 3.0 + vec2(time * 0.02), 4);
+        let grain = fbm(p * 3.0, 4);
         // Distance to the nearest edge, in the box's height.
         let e = min(min(uv.x, 1.0 - uv.x) * aspect, min(uv.y, 1.0 - uv.y));
         let reach = amount * 0.55;

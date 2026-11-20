@@ -370,5 +370,5 @@ fn effects_know_whether_they_move() {
         .filter(|(n, _)| remedy_ui_effects::library(n).is_some_and(|e| !e.animated))
         .map(|(n, _)| *n)
         .collect();
-    assert_eq!(still_ones, vec!["paper"], "the built-in effects that do not move");
+    assert_eq!(still_ones, vec!["frost", "paper"], "the built-in effects that do not move");
 }
