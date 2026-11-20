@@ -3966,7 +3966,9 @@ name = "remedy-tools"
 version = "1.0.0-rc.1"
 dependencies = [
  "flate2",
+ "png",
  "remedy-templates",
+ "remedy-ui-effects",
  "remedy-ui-rui",
  "schemars",
  "serde",

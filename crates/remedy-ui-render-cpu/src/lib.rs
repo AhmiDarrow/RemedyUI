@@ -508,7 +508,8 @@ impl Painter {
         area: Option<Rect>,
     ) {
         self.sweep_images();
-        self.draw_items(s, list.items(), base, area, 0, false);
+        // Groups the list leaves open are closed: a list is drawn as a whole, balanced.
+        self.draw_items(s, list.items(), base, area, 0, true);
         s.set_transform(kurbo::Affine::IDENTITY);
         s.reset_paint_transform();
     }
@@ -607,14 +608,18 @@ impl Painter {
                     s.push_clip_layer(&rounded(*rect, *radii));
                     open += 1;
                 }
+                // A pop with nothing open (a list with one pop too many) is skipped: the
+                // surface's own layers are not the list's to close.
+                Item::PopClip if open == 0 => {}
+                Item::PopLayer | Item::PopFilter if open == 0 => {}
                 Item::PopClip => {
                     s.pop_layer();
-                    open = open.saturating_sub(1);
+                    open -= 1;
                 }
                 Item::PopLayer | Item::PopFilter => {
                     groups = groups.saturating_sub(1);
                     s.pop_layer();
-                    open = open.saturating_sub(1);
+                    open -= 1;
                     if roots.len() > 1 {
                         roots.pop();
                     }
