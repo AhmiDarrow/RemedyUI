@@ -2,9 +2,52 @@
 
 use std::collections::HashMap;
 
-use remedy_ui_core::{Color, Insets};
+use remedy_ui_core::{Color, Insets, Vec2};
 
 use crate::states::States;
+
+/// A soft shadow: what a box casts (CSS `box-shadow`) or, as a filter, what the shape of an
+/// element's drawing casts (CSS `filter: drop-shadow()`). Lengths are logical pixels.
+///
+/// ```
+/// use remedy_ui_core::Color;
+/// use remedy_ui_style::Shadow;
+/// let s = Shadow::new(0.0, 4.0, 12.0, Color::rgba8(0, 0, 0, 90)).spread(1.0);
+/// assert!(s.is_visible());
+/// assert!(!Shadow::NONE.is_visible());
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Shadow {
+    /// How far it falls.
+    pub offset: Vec2,
+    /// The blur radius, as CSS gives it (twice the Gaussian's standard deviation).
+    pub blur: f32,
+    /// How much the box grows before it blurs (box shadows only).
+    pub spread: f32,
+    /// Its color; transparent draws nothing.
+    pub color: Color,
+}
+
+impl Shadow {
+    /// No shadow: what a rule sets to take one away.
+    pub const NONE: Shadow = Shadow { offset: Vec2::ZERO, blur: 0.0, spread: 0.0, color: Color::TRANSPARENT };
+
+    /// A shadow moved by (`x`, `y`), blurred by `blur`, in `color`.
+    pub fn new(x: f32, y: f32, blur: f32, color: Color) -> Shadow {
+        Shadow { offset: Vec2::new(x, y), blur, spread: 0.0, color }
+    }
+
+    /// The same shadow grown by `spread` before blurring.
+    pub fn spread(mut self, spread: f32) -> Shadow {
+        self.spread = spread;
+        self
+    }
+
+    /// True when it draws anything.
+    pub fn is_visible(&self) -> bool {
+        self.color.a > 0.0
+    }
+}
 
 /// Visual properties a style sets. Every field is optional so a patch changes only what it
 /// names.
@@ -49,6 +92,18 @@ pub struct StylePatch {
     pub outline_width: Option<f32>,
     /// The gap between the element's edge and its focus ring; negative draws it inside.
     pub outline_offset: Option<f32>,
+    /// The shadow the element's box casts (CSS `box-shadow`); [`Shadow::NONE`] for none.
+    pub shadow: Option<Shadow>,
+    /// Blurs the element and what it draws inside it (CSS `filter: blur()`): the Gaussian's
+    /// standard deviation in logical pixels; 0 for none.
+    pub blur: Option<f32>,
+    /// A shadow of the shape of everything the element draws, text and icons included (CSS
+    /// `filter: drop-shadow()`); [`Shadow::NONE`] for none. Its spread is not used.
+    pub drop_shadow: Option<Shadow>,
+    /// Frosted glass: blurs what the window shows behind the element's box (CSS
+    /// `backdrop-filter: blur()`), the standard deviation in logical pixels; 0 for none. The
+    /// element gets a compositor layer of its own.
+    pub backdrop_blur: Option<f32>,
 }
 
 impl StylePatch {
@@ -135,6 +190,30 @@ impl StylePatch {
         self
     }
 
+    /// Sets the shadow the box casts.
+    pub fn shadow(mut self, value: Shadow) -> Self {
+        self.shadow = Some(value);
+        self
+    }
+
+    /// Sets the blur of the element and its content.
+    pub fn blur(mut self, value: f32) -> Self {
+        self.blur = Some(value);
+        self
+    }
+
+    /// Sets the shadow of the shape of what the element draws.
+    pub fn drop_shadow(mut self, value: Shadow) -> Self {
+        self.drop_shadow = Some(value);
+        self
+    }
+
+    /// Sets the blur of what lies behind the element (frosted glass).
+    pub fn backdrop_blur(mut self, value: f32) -> Self {
+        self.backdrop_blur = Some(value);
+        self
+    }
+
     /// The engine's starting style under `theme`, before any rule: transparent boxes, body
     /// text in the theme's text color, and the theme's focus ring for keyboard focus (as
     /// `:focus-visible` does on the web) unless a rule shows focus another way.
@@ -153,6 +232,10 @@ impl StylePatch {
             outline: Some(theme.derive().focus),
             outline_width: Some(2.0),
             outline_offset: Some(2.0),
+            shadow: Some(Shadow::NONE),
+            blur: Some(0.0),
+            drop_shadow: Some(Shadow::NONE),
+            backdrop_blur: Some(0.0),
         }
     }
 
@@ -172,6 +255,10 @@ impl StylePatch {
             outline: other.outline.or(self.outline),
             outline_width: other.outline_width.or(self.outline_width),
             outline_offset: other.outline_offset.or(self.outline_offset),
+            shadow: other.shadow.or(self.shadow),
+            blur: other.blur.or(self.blur),
+            drop_shadow: other.drop_shadow.or(self.drop_shadow),
+            backdrop_blur: other.backdrop_blur.or(self.backdrop_blur),
         }
     }
 }
@@ -205,6 +292,14 @@ pub struct ResolvedStyle {
     pub outline_width: f32,
     /// The focus ring's gap from the edge (negative: inside).
     pub outline_offset: f32,
+    /// The shadow the box casts ([`Shadow::NONE`]: none).
+    pub shadow: Shadow,
+    /// The blur of the element and its content, a standard deviation (0: none).
+    pub blur: f32,
+    /// The shadow of the shape of what the element draws ([`Shadow::NONE`]: none).
+    pub drop_shadow: Shadow,
+    /// The blur of what lies behind the element, a standard deviation (0: none).
+    pub backdrop_blur: f32,
 }
 
 impl ResolvedStyle {
@@ -223,6 +318,10 @@ impl ResolvedStyle {
             outline: p.outline.unwrap_or(Color::TRANSPARENT),
             outline_width: p.outline_width.unwrap_or(0.0),
             outline_offset: p.outline_offset.unwrap_or(0.0),
+            shadow: p.shadow.unwrap_or(Shadow::NONE),
+            blur: p.blur.filter(|b| b.is_finite()).unwrap_or(0.0).max(0.0),
+            drop_shadow: p.drop_shadow.unwrap_or(Shadow::NONE),
+            backdrop_blur: p.backdrop_blur.filter(|b| b.is_finite()).unwrap_or(0.0).max(0.0),
         }
     }
 
