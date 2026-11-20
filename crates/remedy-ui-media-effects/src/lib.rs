@@ -107,6 +107,8 @@ struct State {
     cost: f64,
     cheap: u32,
     budget: Duration,
+    /// The element's size in device pixels when last painted: a new size measures again.
+    size: (u32, u32),
 }
 
 struct Shared {
@@ -203,6 +205,7 @@ pub fn effect_view(ui: &Ui, instance: Instance) -> (El, EffectView) {
             cost: 0.0,
             cheap: 0,
             budget: Duration::from_millis(4),
+            size: (0, 0),
         }),
         ui: ui.downgrade(),
         id: Cell::new(None),
@@ -246,6 +249,14 @@ fn paint(shared: &Shared, cx: &mut PaintCx<'_>, on_gpu: bool) {
     }
     let Ok(mut s) = shared.state.try_borrow_mut() else { return };
     let effect = s.instance.effect().clone();
+    // A new size is a new situation: the ladder measures again from the top.
+    let size = ((cx.size.width * cx.scale).round() as u32, (cx.size.height * cx.scale).round() as u32);
+    if s.size != size {
+        s.size = size;
+        s.stats.level = 0;
+        s.cost = 0.0;
+        s.cheap = 0;
+    }
     let level = usize::from(s.stats.level);
     let gpu_path = on_gpu && cfg!(feature = "gpu");
     // On the CPU the ladder may hold the effect still; on the GPU it runs at its own rate.
