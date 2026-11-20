@@ -2,88 +2,88 @@
 # Keyboard hints name keys as the keyboard prints them in the language (Esc, Umschalt…).
 
 ## Split panes, lamps, loading placeholders.
-resize-panes = Resize panes
-lamp-on = on
-lamp-off = off
-loading = Loading
+resize-panes = Bereichsgröße ändern
+lamp-on = an
+lamp-off = aus
+loading = Wird geladen
 
 ## Secret fields.
-show-password = Show password
-hide-password = Hide password
+show-password = Passwort anzeigen
+hide-password = Passwort ausblenden
 
 ## Menus and the menu bar.
 # The title for menus that do not fit in the menu bar (it shows "…").
-menu-more = More
-menu-bar-keys = F10 or Alt reaches the menu bar; Alt and a menu's underlined letter opens it
-menu-title-keys = F10, or Alt and its underlined letter, opens it
-escape-closes = Escape closes it
-context-menu-keys = Shift+F10 or the Menu key opens the same menu
+menu-more = Mehr
+menu-bar-keys = F10 oder Alt wechselt zur Menüleiste; Alt und der unterstrichene Buchstabe eines Menüs öffnen es
+menu-title-keys = F10 oder Alt und der unterstrichene Buchstabe öffnen es
+escape-closes = Esc schließt es
+context-menu-keys = Umschalt+F10 oder die Menütaste öffnet dasselbe Menü
 
 ## The trusted permission prompt.
-prompt-deny = Deny
-prompt-allow = Allow
+prompt-deny = Ablehnen
+prompt-allow = Zulassen
 
 ## Steppers: { $label } is what the stepper sets ("Copies").
-stepper-decrease = Decrease { $label }
-stepper-increase = Increase { $label }
+stepper-decrease = { $label } verringern
+stepper-increase = { $label } erhöhen
 
 ## What an icon stands for, read by screen readers where the icon alone is a button.
-icon-add = Add
-icon-remove = Remove
-icon-maximize = Maximize
-icon-restore = Restore
-icon-close = Close
-icon-done = Done
-icon-locked = Locked
-icon-unlocked = Unlocked
-icon-pin = Pin
-icon-delete = Delete
-icon-copy = Copy
-icon-show = Show
-icon-hide = Hide
-icon-expand = Expand
-icon-next = Next
-icon-previous = Previous
-icon-collapse = Collapse
-icon-menu = Menu
-icon-search = Search
+icon-add = Hinzufügen
+icon-remove = Entfernen
+icon-maximize = Maximieren
+icon-restore = Wiederherstellen
+icon-close = Schließen
+icon-done = Fertig
+icon-locked = Gesperrt
+icon-unlocked = Entsperrt
+icon-pin = Anheften
+icon-delete = Löschen
+icon-copy = Kopieren
+icon-show = Anzeigen
+icon-hide = Ausblenden
+icon-expand = Ausklappen
+icon-next = Weiter
+icon-previous = Vorherige
+icon-collapse = Einklappen
+icon-menu = Menü
+icon-search = Suchen
 icon-information = Information
-icon-warning = Warning
-icon-time = Time
-icon-key = Key
-icon-settings = Settings
-icon-note = Note
-icon-open-outside = Open outside the app
-icon-refresh = Refresh
-icon-folder = Folder
-icon-file = File
-icon-download = Download
-icon-upload = Upload
-icon-send = Send
-icon-back = Back
-icon-forward = Forward
-icon-up = Up
-icon-people = People
+icon-warning = Warnung
+icon-time = Uhrzeit
+icon-key = Schlüssel
+icon-settings = Einstellungen
+icon-note = Notiz
+icon-open-outside = Außerhalb der App öffnen
+icon-refresh = Aktualisieren
+icon-folder = Ordner
+icon-file = Datei
+icon-download = Herunterladen
+icon-upload = Hochladen
+icon-send = Senden
+icon-back = Zurück
+icon-forward = Vorwärts
+icon-up = Nach oben
+icon-people = Personen
 icon-computer = Computer
-icon-bold = Bold
-icon-italic = Italic
-icon-strikethrough = Strikethrough
+icon-bold = Fett
+icon-italic = Kursiv
+icon-strikethrough = Durchgestrichen
 icon-code = Code
 icon-link = Link
-icon-bulleted-list = Bulleted list
-icon-numbered-list = Numbered list
-icon-task-list = Task list
-icon-quote = Quote
-icon-code-block = Code block
-icon-heading = Heading
-icon-mention = Mention
-icon-play = Play
+icon-bulleted-list = Aufzählung
+icon-numbered-list = Nummerierte Liste
+icon-task-list = Aufgabenliste
+icon-quote = Zitat
+icon-code-block = Codeblock
+icon-heading = Überschrift
+icon-mention = Erwähnen
+icon-play = Wiedergeben
 icon-pause = Pause
-icon-volume = Volume
-icon-muted = Muted
-icon-full-screen = Full screen
-icon-exit-full-screen = Exit full screen
-icon-captions = Captions
-icon-home = Home
-icon-image = Image
-icon-selected = Selected
+icon-volume = Lautstärke
+icon-muted = Stummgeschaltet
+icon-full-screen = Vollbild
+icon-exit-full-screen = Vollbild beenden
+icon-captions = Untertitel
+icon-home = Startseite
+icon-image = Bild
+icon-selected = Ausgewählt

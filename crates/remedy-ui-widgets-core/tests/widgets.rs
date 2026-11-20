@@ -939,3 +939,33 @@ fn every_locale_has_every_message_with_its_plurals() {
     let problems = remedy_ui_view::strings::check(&w::STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
 }
+
+#[test]
+fn built_in_labels_follow_the_window_language() {
+    let mut t = T::new();
+    t.ui.connect_accessibility();
+    let v = Signal::new(1.0f64);
+    let st = w::stepper(&t.ui, "Copies", v, 0.0, 10.0, 1.0);
+    let secret = w::secret_input(&t.ui, "PIN");
+    let reveal = w::reveal_toggle(&t.ui, &secret);
+    t.ui.root().child(st).child(secret.el()).child(reveal);
+    t.frame();
+    let names = |t: &T| -> Vec<String> {
+        t.ui.reader_view()
+            .into_iter()
+            .filter_map(|n| n.name)
+            .map(|n| n.replace(['\u{2068}', '\u{2069}'], ""))
+            .collect()
+    };
+    let en = names(&t);
+    for want in ["Decrease Copies", "Increase Copies", "Show password"] {
+        assert!(en.iter().any(|n| n == want), "{want} in {en:?}");
+    }
+    t.ui.set_locale("de");
+    t.frame();
+    let de = names(&t);
+    for want in ["Copies verringern", "Copies erhöhen", "Passwort anzeigen"] {
+        assert!(de.iter().any(|n| n == want), "{want} in {de:?}");
+    }
+    assert_eq!(w::Icon::Close.localized_name(&t.ui), "Schließen");
+}

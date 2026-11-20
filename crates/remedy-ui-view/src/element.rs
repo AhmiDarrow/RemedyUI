@@ -1328,8 +1328,8 @@ impl Ui {
         }
         let root = self.tree().root();
         signal.set_if_changed(area);
-        // The window root adds the area to its padding when laid out (see the frame). It lays
-        // out left to right whatever the content's direction, so start is left here.
+        // The window root adds the area to its padding when laid out (see the frame). The
+        // area is physical: a cutout on the left is on the left in any language.
         let insets =
             remedy_ui_core::Insets { top: area.top, end: area.right, bottom: area.bottom, start: area.left };
         self.mark(root, Dirty::LAYOUT);
@@ -1338,6 +1338,7 @@ impl Ui {
             // their insets, stretched between them.
             let _ = El { ui: self.clone(), id: layer }.layout(|l| {
                 l.inset = insets;
+                l.inset_physical = true;
                 l.width = remedy_ui_layout::Length::Auto;
                 l.height = remedy_ui_layout::Length::Auto;
             });

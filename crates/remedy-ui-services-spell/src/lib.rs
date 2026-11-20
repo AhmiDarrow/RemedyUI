@@ -34,6 +34,11 @@
 //! # Ok::<(), remedy_ui_services_spell::SpellError>(())
 //! ```
 
+/// The spelling menu's own words in every language the engine ships, from `i18n/*.ftl`. Apps
+/// reword them, or add a language, with [`remedy_ui_view::strings::add_messages`] under the
+/// name `services-spell`, or give a field its own [`MenuLabels`].
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("services-spell");
+
 mod backend;
 mod checker;
 mod engine;

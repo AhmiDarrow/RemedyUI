@@ -229,3 +229,37 @@ fn absolute_rects_and_snapping() -> R {
     }
     Ok(())
 }
+
+#[test]
+fn absolute_insets_follow_the_parent_or_stay_physical() -> R {
+    let pinned = |dir: Direction, physical: bool| {
+        let mut v_ = LayoutStyle::fixed(20.0, 10.0);
+        v_.position = Position::Absolute;
+        v_.inset = Insets { top: 0.0, start: 30.0, end: AUTO, bottom: AUTO };
+        v_.direction = dir;
+        v_.inset_physical = physical;
+        v_
+    };
+    for (parent_rtl, child, physical, left) in [
+        // Start is the parent's start: its right edge in a right-to-left parent.
+        (true, Direction::Inherit, false, 150.0),
+        // A box with its own direction is still placed by its parent's (as CSS does).
+        (true, Direction::Ltr, false, 150.0),
+        (false, Direction::Rtl, false, 30.0),
+        // Physical insets: a window point stays where it is.
+        (true, Direction::Inherit, true, 30.0),
+        (true, Direction::Rtl, true, 30.0),
+    ] {
+        let mut t = LayoutTree::new();
+        let root = t.node(&{
+            let mut v_ = LayoutStyle::fixed(200.0, 100.0);
+            v_.direction = if parent_rtl { Direction::Rtl } else { Direction::Ltr };
+            v_
+        })?;
+        let c = t.node(&pinned(child, physical))?;
+        t.set_children(root, &[c])?;
+        t.compute(root, Some(200.0), Some(100.0))?;
+        assert_eq!(t.rect(c).map(|r| r.min.x), Some(left), "{parent_rtl} {child:?} {physical}");
+    }
+    Ok(())
+}

@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Size};
 use remedy_ui_input::{Buttons, Key, KeyEvent, PointerEvent, PointerPhase};
-use remedy_ui_services_spell::{SpellCheckField, SpellChecker, SpellError, SpellHook, SpellOptions};
+use remedy_ui_services_spell::{
+    MenuLabels, SpellCheckField, SpellChecker, SpellError, SpellHook, SpellOptions,
+};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{FieldKind, Request, TextField, Ui};
 use remedy_ui_widgets_core::MenuItem;
@@ -212,6 +214,40 @@ fn a_new_locale_changes_the_languages_and_checks_again() {
     h.recheck();
     t.until(|| !h.is_checking());
     assert!(h.misspellings().is_empty(), "both words are right in one language or the other");
+}
+
+#[test]
+fn the_menu_speaks_the_window_language_unless_the_app_gave_its_words() {
+    let mut t = T::new();
+    t.ui.set_locale("de-DE");
+    let c = checker();
+    let f = t.field("Fuchs zzyzx");
+    let h = hook(&f, &c);
+    t.until(|| !h.is_checking());
+    t.frame();
+    let at = over_mark(&f);
+    let items = labels(&h.menu_items(Some(at)));
+    assert_eq!(
+        items,
+        ["Keine Vorschläge".to_owned(), "Zum Wörterbuch hinzufügen".to_owned(), "Ignorieren".to_owned()]
+    );
+    // Words the app set are its own, whatever the language.
+    let mut own = MenuLabels::default();
+    own.ignore = "Skip".into();
+    let mut opts = options();
+    opts.labels = own;
+    let h2 = f.spell_check_with(&c, opts).unwrap_or_else(|| unreachable!("a plain field is checked"));
+    t.until(|| !h2.is_checking());
+    t.frame();
+    let items = labels(&h2.menu_items(Some(over_mark(&f))));
+    assert_eq!(items.last().map(String::as_str), Some("Skip"), "{items:?}");
+    assert_eq!(items.first().map(String::as_str), Some("No suggestions"), "{items:?}");
+}
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&remedy_ui_services_spell::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
 }
 
 fn span(start: usize, end: usize) -> std::ops::Range<usize> {

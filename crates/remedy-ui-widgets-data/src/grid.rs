@@ -408,6 +408,8 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                 let (x, y, wd, ht) = (r.min.x, r.min.y, r.width(), r.height());
                 let _ = band_el2.clone().hidden(false).width(wd).height(ht).layout(move |l| {
                     l.inset = Insets { top: y, start: x, end: AUTO, bottom: AUTO };
+                    // Content points: left is left in either direction.
+                    l.inset_physical = true;
                 });
                 // The band is in content coordinates; tiles start below the top padding.
                 let g = geo3.get();

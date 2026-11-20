@@ -41,6 +41,11 @@ pub mod testing;
 #[doc = include_str!("../../../README.md")]
 struct ReadmeDoctests;
 
+/// The runner's own words (what the place of content popped out to its own window says) in
+/// every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language,
+/// with [`remedy_ui_view::strings::add_messages`] under the name `remedy-ui`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("remedy-ui");
+
 pub use geometry::{GEOMETRY_KEY, GeometryStore};
 #[cfg(feature = "widgets")]
 pub use movable::{Movable, movable};
