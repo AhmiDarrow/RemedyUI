@@ -202,6 +202,76 @@ pub enum Blend {
     Plus,
 }
 
+/// A filter on everything drawn between [`Item::PushFilter`] and [`Item::PopFilter`], applied
+/// to the group as one picture after it is drawn, in the group's own space (a scaled window
+/// blurs by as many device pixels as it scales). Both renderers draw it with the same
+/// Gaussian; see [`Filter::outset`] for how far it reaches past what the group draws.
+#[derive(Clone, Copy, Debug, PartialEq)]
+// Exhaustive on purpose: part of the display list every renderer must draw completely, so a new kind is a major change.
+pub enum Filter {
+    /// A Gaussian blur of the group (CSS `filter: blur(radius)`): `radius` is the standard
+    /// deviation, and the blur reaches about three times as far.
+    Blur {
+        /// The standard deviation, in the group's space. 0 draws the group unchanged.
+        radius: f32,
+    },
+    /// A shadow of whatever shape the group draws (text, icons, paths, images with
+    /// transparency) under it (CSS `filter: drop-shadow(...)`): the group's coverage, blurred,
+    /// moved by `offset` and filled with `color`, then the group itself on top.
+    DropShadow {
+        /// How far the shadow falls, in the group's space.
+        offset: Vec2,
+        /// The blur radius as CSS gives it: twice the standard deviation.
+        blur: f32,
+        /// The shadow's color (its alpha scales the shadow).
+        color: Color,
+    },
+}
+
+impl Filter {
+    /// The Gaussian's standard deviation, in the group's space.
+    pub fn std_dev(&self) -> f32 {
+        let s = match self {
+            Filter::Blur { radius } => *radius,
+            Filter::DropShadow { blur, .. } => *blur / 2.0,
+        };
+        if s.is_finite() { s.max(0.0) } else { 0.0 }
+    }
+
+    /// How far past the group's own drawing the filter can draw: three standard deviations
+    /// (where a Gaussian has all but 0.3% of its weight) on each side, and the shadow's offset.
+    pub fn outset(&self, r: Rect) -> Rect {
+        let reach = (self.std_dev() * 3.0).ceil();
+        let grown = Rect::new(r.min.x - reach, r.min.y - reach, r.max.x + reach, r.max.y + reach);
+        match self {
+            Filter::Blur { .. } => grown,
+            Filter::DropShadow { offset, .. } if offset.x.is_finite() && offset.y.is_finite() => {
+                r.union(grown.translate(*offset))
+            }
+            Filter::DropShadow { .. } => grown,
+        }
+    }
+
+    /// The reverse of [`outset`](Self::outset): the area whose drawing the filter can carry
+    /// into `r` (a tile draws what is within it).
+    pub fn inset_source(&self, r: Rect) -> Rect {
+        let reach = (self.std_dev() * 3.0).ceil();
+        let grown = Rect::new(r.min.x - reach, r.min.y - reach, r.max.x + reach, r.max.y + reach);
+        match self {
+            Filter::Blur { .. } => grown,
+            Filter::DropShadow { offset, .. } if offset.x.is_finite() && offset.y.is_finite() => {
+                r.union(grown.translate(Vec2::new(-offset.x, -offset.y)))
+            }
+            Filter::DropShadow { .. } => grown,
+        }
+    }
+
+    /// True when the filter changes nothing (a blur of zero).
+    pub fn is_identity(&self) -> bool {
+        matches!(self, Filter::Blur { .. }) && self.std_dev() == 0.0
+    }
+}
+
 /// A run of glyphs to draw.
 #[derive(Clone, Debug)]
 pub struct GlyphRun {
@@ -357,6 +427,25 @@ pub enum Item {
     },
     /// Ends the last layer.
     PopLayer,
+    /// Starts a group drawn through `Filter` (a blur, a drop shadow of its shape), ended by
+    /// [`Item::PopFilter`].
+    PushFilter(Filter),
+    /// Ends the last filter group.
+    PopFilter,
+    /// Blurs what is already drawn under a rounded rectangle (CSS `backdrop-filter: blur()`):
+    /// frosted glass. It sees what was drawn before it since the start of the list or of the
+    /// innermost open [`Item::PushLayer`] or [`Item::PushFilter`] group around it (its
+    /// backdrop root, as on the web), and draws nothing elsewhere. Elements in a window get
+    /// theirs from the compositor instead ([`remedy_ui_compositor`]'s layer backdrops), which
+    /// sees every layer below; this item is for display lists drawn on their own.
+    Backdrop {
+        /// The glass.
+        rect: Rect,
+        /// Its corners.
+        radii: CornerRadii,
+        /// The blur's standard deviation (CSS `blur(radius)`).
+        blur: f32,
+    },
     /// Starts a transform.
     PushTransform(Affine),
     /// Ends the last transform.
@@ -372,7 +461,8 @@ impl Item {
             | Item::Border { rect, .. }
             | Item::Image { rect, .. }
             | Item::Video { rect, .. }
-            | Item::Texture { rect, .. } => Some(*rect),
+            | Item::Texture { rect, .. }
+            | Item::Backdrop { rect, .. } => Some(*rect),
             Item::Shadow { rect, offset, blur, spread, .. } => {
                 let grow = blur * 1.5 + spread;
                 Some(
@@ -390,6 +480,8 @@ impl Item {
             | Item::PopClip
             | Item::PushLayer { .. }
             | Item::PopLayer
+            | Item::PushFilter(_)
+            | Item::PopFilter
             | Item::PushTransform(_)
             | Item::PopTransform => None,
         }
@@ -463,12 +555,36 @@ impl DisplayList {
         self.push(Item::PopClip);
     }
 
+    /// Starts a filter group: what follows, until [`pop_filter`](Self::pop_filter), is drawn
+    /// through `filter`.
+    pub fn push_filter(&mut self, filter: Filter) {
+        self.push(Item::PushFilter(filter));
+    }
+
+    /// Ends a filter group.
+    pub fn pop_filter(&mut self) {
+        self.push(Item::PopFilter);
+    }
+
     /// The area the list can draw to, without transforms' rotation (transforms are applied
-    /// to bounds as boxes). `None` for a list that draws nothing.
+    /// to bounds as boxes). What a filter group draws is grown by how far its filter reaches
+    /// ([`Filter::outset`]). `None` for a list that draws nothing.
     pub fn bounds(&self) -> Option<Rect> {
         let mut out: Option<Rect> = None;
         let mut transforms = vec![Affine::IDENTITY];
         let mut clips: Vec<Rect> = Vec::new();
+        // Open filter groups: the filter, the transform it was pushed under, the clips then
+        // open, and the bounds of what it holds so far (in that transform's space).
+        let mut filters: Vec<(Filter, Affine, usize, Option<Rect>)> = Vec::new();
+        fn add(out: &mut Option<Rect>, r: Rect, clips: &[Rect]) {
+            let mut r = r;
+            for c in clips {
+                r = r.intersect(*c).unwrap_or(Rect::ZERO);
+            }
+            if !r.is_empty() {
+                *out = Some(out.map_or(r, |o| o.union(r)));
+            }
+        }
         for item in &self.items {
             let t = transforms.last().copied().unwrap_or(Affine::IDENTITY);
             let r = match item {
@@ -490,20 +606,67 @@ impl DisplayList {
                     }
                     None
                 }
+                Item::PushFilter(f) => {
+                    filters.push((*f, t, clips.len(), None));
+                    None
+                }
+                Item::PopFilter => {
+                    if let Some((f, ft, n, Some(inner))) = filters.pop() {
+                        // The group's drawing, grown in its own space, then clipped by the
+                        // clips around the group (not those inside it).
+                        let grown = ft.apply_rect(f.outset(inner));
+                        let open = clips.get(..n).unwrap_or(&clips);
+                        match filters.last_mut() {
+                            Some((_, pt, _, acc)) => {
+                                let r = pt.inverse().map_or(grown, |i| i.apply_rect(grown));
+                                *acc = Some(acc.map_or(r, |a| a.union(r)));
+                            }
+                            None => add(&mut out, grown, open),
+                        }
+                    }
+                    None
+                }
                 Item::PushLayer { .. } | Item::PopLayer => None,
                 drawn => drawn.bounds(),
             };
-            if let Some(r) = r {
-                let mut r = t.apply_rect(r);
-                for c in &clips {
-                    r = r.intersect(*c).unwrap_or(Rect::ZERO);
+            let Some(r) = r else { continue };
+            let r = t.apply_rect(r);
+            match filters.last_mut() {
+                // Inside a filter group: collected (clipped by the clips inside the group)
+                // in the group's space, and grown when the group closes.
+                Some((_, ft, n, acc)) => {
+                    let mut r = r;
+                    for c in clips.iter().skip(*n) {
+                        r = r.intersect(*c).unwrap_or(Rect::ZERO);
+                    }
+                    if !r.is_empty() {
+                        let r = ft.inverse().map_or(r, |i| i.apply_rect(r));
+                        *acc = Some(acc.map_or(r, |a| a.union(r)));
+                    }
                 }
-                if !r.is_empty() {
-                    out = Some(out.map_or(r, |o| o.union(r)));
+                None => add(&mut out, r, &clips),
+            }
+        }
+        // A group left open still draws.
+        while let Some((f, ft, n, inner)) = filters.pop() {
+            if let Some(inner) = inner {
+                let grown = ft.apply_rect(f.outset(inner));
+                match filters.last_mut() {
+                    Some((_, pt, _, acc)) => {
+                        let r = pt.inverse().map_or(grown, |i| i.apply_rect(grown));
+                        *acc = Some(acc.map_or(r, |a| a.union(r)));
+                    }
+                    None => add(&mut out, grown, clips.get(..n).unwrap_or(&clips)),
                 }
             }
         }
         out
+    }
+
+    /// True when the list holds a filter group or a backdrop: renderers then draw a tile with
+    /// room around it, so blurs cross tile edges seamlessly.
+    pub fn has_filters(&self) -> bool {
+        self.items.iter().any(|i| matches!(i, Item::PushFilter(_) | Item::Backdrop { .. }))
     }
 }
 

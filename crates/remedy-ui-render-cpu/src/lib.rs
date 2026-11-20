@@ -260,7 +260,6 @@ fn kstroke(s: &Stroke) -> kurbo::Stroke {
     k
 }
 
-/// Premultiplied RGBA8 pixels as a pixmap, or `None` if the sizes do not fit.
 /// A video stream the painter has drawn.
 struct VideoEntry {
     /// Its latest frame.
@@ -288,6 +287,50 @@ fn texture_item<S: Surface>(ctx: &mut S, texture: &ExternalTexture, rect: Rect, 
     ctx.fill_path(&rounded(rect, radii));
 }
 
+/// The vello filter for a display-list filter, or `None` when it changes nothing.
+pub(crate) fn vello_filter(f: &remedy_ui_paint::Filter) -> Option<vello_cpu::filter_effects::Filter> {
+    use vello_cpu::filter_effects::{EdgeMode, Filter, FilterPrimitive};
+    let sigma = f.std_dev();
+    let primitive = match f {
+        remedy_ui_paint::Filter::Blur { .. } if sigma == 0.0 => return None,
+        remedy_ui_paint::Filter::Blur { .. } => FilterPrimitive::GaussianBlur {
+            std_deviation_x: sigma,
+            std_deviation_y: sigma,
+            edge_mode: EdgeMode::None,
+        },
+        remedy_ui_paint::Filter::DropShadow { offset, color: c, .. } => FilterPrimitive::DropShadow {
+            dx: if offset.x.is_finite() { offset.x } else { 0.0 },
+            dy: if offset.y.is_finite() { offset.y } else { 0.0 },
+            std_deviation: sigma,
+            color: color(*c),
+            edge_mode: EdgeMode::None,
+        },
+    };
+    Some(Filter::from_primitive(primitive))
+}
+
+/// The filter a backdrop of standard deviation `blur` draws its glass with, or `None` for no
+/// blur. Both compositors use it, so they blur alike.
+pub fn backdrop_filter(blur: f32) -> Option<vello_cpu::filter_effects::Filter> {
+    vello_filter(&remedy_ui_paint::Filter::Blur { radius: blur })
+}
+
+/// How far, in device pixels, filter `f` pushed under transform `t` carries drawing.
+fn filter_reach(f: &remedy_ui_paint::Filter, t: Affine) -> f32 {
+    let k = t.scale_factor();
+    let off = match f {
+        remedy_ui_paint::Filter::DropShadow { offset, .. } => offset.x.abs().max(offset.y.abs()),
+        remedy_ui_paint::Filter::Blur { .. } => 0.0,
+    };
+    let r = ((f.std_dev() * 3.0 + if off.is_finite() { off } else { 0.0 }) * k).ceil() + 1.0;
+    if r.is_finite() { r } else { 0.0 }
+}
+
+fn grow(r: Rect, by: f32) -> Rect {
+    Rect::new(r.min.x - by, r.min.y - by, r.max.x + by, r.max.y + by)
+}
+
+/// Premultiplied RGBA8 pixels as a pixmap, or `None` if the sizes do not fit.
 fn pixmap_from(width: u32, height: u32, rgba: Vec<u8>) -> Option<Pixmap> {
     let (w, h) = (u16::try_from(width).ok()?, u16::try_from(height).ok()?);
     if rgba.len() != width as usize * height as usize * 4 || w == 0 || h == 0 {
@@ -440,7 +483,8 @@ impl Painter {
     }
 
     /// Draws `list` onto `s` through `base`, skipping items that fall wholly outside `area`
-    /// (device pixels; the target's size). A compositor tile draws only what crosses it.
+    /// (device pixels; the target's size). A compositor tile draws only what crosses it, and
+    /// what a filter can carry into it from around it.
     pub fn draw_within<S: Surface>(
         &mut self,
         s: &mut S,
@@ -449,14 +493,39 @@ impl Painter {
         area: Option<Rect>,
     ) {
         self.sweep_images();
+        self.draw_items(s, list.items(), base, area, 0, false);
+        s.set_transform(kurbo::Affine::IDENTITY);
+        s.reset_paint_transform();
+    }
+
+    /// Draws `items` through `base`. `outer_groups` is how many opacity, blend or filter
+    /// groups are open around them (LCD text inside one falls back to grayscale). With
+    /// `close`, groups the items leave open are closed at the end (a backdrop's replay).
+    fn draw_items<S: Surface>(
+        &mut self,
+        s: &mut S,
+        items: &[Item],
+        base: Affine,
+        area: Option<Rect>,
+        outer_groups: usize,
+        close: bool,
+    ) {
         let scale = base.scale_factor();
         let mut transforms = vec![base];
-        // Open opacity/blend groups: LCD text inside one falls back to grayscale.
-        let mut groups = 0usize;
-        for item in list.items() {
+        // Open opacity/blend/filter groups: LCD text inside one falls back to grayscale.
+        let mut groups = outer_groups;
+        // The culling area: inside a filter group, grown by what the filter carries in.
+        let mut areas = vec![area];
+        // Surface layers open (clips and groups), to close at the end of a replay.
+        let mut open = 0usize;
+        // Backdrop roots: where the innermost open group's content starts, and the transform
+        // it starts under.
+        let mut roots: Vec<(usize, Affine)> = vec![(0, base)];
+        for (i, item) in items.iter().enumerate() {
             let t = transforms.last().copied().unwrap_or(base);
+            let cull = areas.last().copied().flatten();
             // Culling is conservative: transformed bounds are boxes around the item.
-            if let (Some(area), Some(b)) = (area, item.bounds())
+            if let (Some(area), Some(b)) = (cull, item.bounds())
                 && t.apply_rect(b).intersect(area).is_none_or(|r| r.is_empty())
             {
                 continue;
@@ -519,11 +588,24 @@ impl Painter {
                 }
                 Item::Video { frame, rect, radii } => self.video(s, frame, *rect, *radii),
                 Item::Texture { texture, rect, radii } => texture_item(s, texture, *rect, *radii),
-                Item::PushClip { rect, radii } => s.push_clip_layer(&rounded(*rect, *radii)),
-                Item::PopClip => s.pop_layer(),
-                Item::PopLayer => {
+                Item::PushClip { rect, radii } => {
+                    s.push_clip_layer(&rounded(*rect, *radii));
+                    open += 1;
+                }
+                Item::PopClip => {
+                    s.pop_layer();
+                    open = open.saturating_sub(1);
+                }
+                Item::PopLayer | Item::PopFilter => {
                     groups = groups.saturating_sub(1);
                     s.pop_layer();
+                    open = open.saturating_sub(1);
+                    if roots.len() > 1 {
+                        roots.pop();
+                    }
+                    if matches!(item, Item::PopFilter) && areas.len() > 1 {
+                        areas.pop();
+                    }
                 }
                 Item::PushLayer { opacity, blend } => {
                     groups += 1;
@@ -534,6 +616,42 @@ impl Painter {
                         Blend::Plus => peniko::BlendMode::new(peniko::Mix::Normal, peniko::Compose::Plus),
                     };
                     s.push_group(mode, *opacity);
+                    open += 1;
+                    roots.push((i + 1, t));
+                }
+                Item::PushFilter(f) => {
+                    groups += 1;
+                    match vello_filter(f) {
+                        Some(vf) => s.push_filter_layer(vf),
+                        None => s.push_group(peniko::BlendMode::default(), 1.0),
+                    }
+                    open += 1;
+                    roots.push((i + 1, t));
+                    // What the group draws around the area can reach into it.
+                    let reach = filter_reach(f, t);
+                    areas.push(cull.map(|a| grow(a, reach)));
+                }
+                Item::Backdrop { rect, radii, blur } => {
+                    let sigma = if blur.is_finite() { blur.max(0.0) } else { 0.0 };
+                    let Some(&(start, root_t)) = roots.last() else { continue };
+                    if sigma == 0.0 && start == i {
+                        continue;
+                    }
+                    s.push_clip_layer(&rounded(*rect, *radii));
+                    let f = remedy_ui_paint::Filter::Blur { radius: sigma };
+                    match vello_filter(&f) {
+                        Some(vf) => s.push_filter_layer(vf),
+                        None => s.push_group(peniko::BlendMode::default(), 1.0),
+                    }
+                    // What lies under the glass, drawn again from the backdrop root, blurred.
+                    let reach = filter_reach(&f, t);
+                    let under = cull.map(|a| grow(a, reach));
+                    if let Some(prefix) = items.get(start..i) {
+                        self.draw_items(s, prefix, root_t, under, groups + 1, true);
+                    }
+                    s.set_transform(kaffine(t));
+                    s.pop_layer();
+                    s.pop_layer();
                 }
                 Item::PushTransform(a) => transforms.push(a.then(t)),
                 Item::PopTransform => {
@@ -543,8 +661,11 @@ impl Painter {
                 }
             }
         }
-        s.set_transform(kurbo::Affine::IDENTITY);
-        s.reset_paint_transform();
+        if close {
+            for _ in 0..open {
+                s.pop_layer();
+            }
+        }
     }
 
     fn image<S: Surface>(
