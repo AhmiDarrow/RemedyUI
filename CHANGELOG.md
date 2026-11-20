@@ -10,6 +10,30 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Ambient motion with a budget**: animated backgrounds and decoration that cost nothing
+  while unseen. `AmbientPolicy` (`App::set_ambient_policy`, `Ui::set_ambient_policy`):
+  `AmbientMode::{Full, Light, Off}`, frames a second focused (30) and in the background (10, or
+  0 to pause), on battery or power saver (`power_saving_fps`, 15), and following reduced
+  motion; minimized, hidden and covered windows never draw it. Painters animate with
+  `PaintCx::ambient()` / `ambient_at(fps)` (`Option<AmbientTick { t, dt, light }>`: `None`
+  draws a still frame) and get a compositor layer of their own; `PaintCx::request_frame_in`
+  asks for one repaint later. `El::ambient_loop(AmbientLoop::{spin, sway, drift, pulse,
+  breathe})` runs transform and opacity loops on the compositor with no UI-thread work
+  (`Layer::ambient`, `Compositor::set_ambient`, `FramePlan::wake_in`). Painters asking for
+  frames (`ambient`, `request_frame_in`, and now `request_next_frame`) keep no frames coming
+  while their element is scrolled out, clipped away or its window hidden, and resume when it
+  shows (`El::is_seen`, `El::resume_when`, `Ui::tick_interval(TickKind)`). `viz` tickers and
+  the stage widgets follow the policy (`Ticker::ambient`, live tickers slow in the background
+  and stop when hidden). `SystemSettings::power_saving` from Windows (`GetSystemPowerStatus`:
+  on battery or battery saver) and Linux (a discharging battery or the low-power platform
+  profile), read again when a window gains focus.
+- **`Blend::Plus`**: additive blending, so glows, light pools and beams add up like light.
+- **`remedy_ui::stage::fx`**: shader-free effects for scenes: `flicker`, `twinkle`,
+  `breathe` and `noise1` curves, `value_noise`, `perlin` and `fbm`, `noise_image` (a seeded,
+  tileable noise texture through a color ramp, made once and shared), `blur` (a cached
+  three-pass box blur), `glow` and `light_cone` (additive gradients), `scroll_tiled` and
+  `shimmer` (a cached texture moving with time).
+
 - **Stage widgets for whole alternative presentations** (`remedy-ui-widgets-stage`, the
   `stage` feature, `remedy_ui::stage`; in `full`): the parts for scene-based, skeuomorphic and
   playful layouts, all themed from tokens, accessible, keyboard operable, still under reduced
@@ -339,6 +363,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- A child's repaint no longer re-records its ancestors' paint (they were re-recorded and
+  thrown away identical): an animated element inside a costly backdrop redraws only itself.
 - Secondary text (`DerivedTokens::muted`: labels, help under controls, unselected options,
   table headings) is balanced to 7:1 instead of 4.5:1, on the background and on panels and
   cards, and body text (`DerivedTokens::text`) holds 7:1 on all three too: quieter than body

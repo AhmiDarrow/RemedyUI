@@ -197,6 +197,9 @@ pub enum Blend {
     Multiply,
     /// Screen.
     Screen,
+    /// Additive ("plus", linear dodge): adds its light to what is below. Glows, light pools
+    /// and beams stack the way light does, with no shader.
+    Plus,
 }
 
 /// A run of glyphs to draw.

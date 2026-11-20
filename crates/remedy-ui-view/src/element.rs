@@ -46,6 +46,12 @@ pub struct PaintCx<'a> {
     pub reduced_motion: bool,
     /// The window's text engine, for painters that place glyphs themselves.
     pub(crate) engine: &'a mut TextEngine,
+    /// The window's ambient rate now (`None`: paused).
+    pub(crate) ambient_rate: Option<crate::AmbientRate>,
+    /// When this element last got an ambient tick.
+    pub(crate) last_tick: Option<std::time::Duration>,
+    /// What the painter asked of the frame clock.
+    pub(crate) ask: crate::ambient::PaintAsk,
 }
 
 /// How [`PaintCx::text`] draws a line of text.
@@ -132,6 +138,10 @@ impl PaintCx<'_> {
                         time: self.time,
                         reduced_motion: self.reduced_motion,
                         engine: &mut *self.engine,
+                        // Cached art is a still picture: it never animates.
+                        ambient_rate: None,
+                        last_tick: None,
+                        ask: crate::ambient::PaintAsk::default(),
                     };
                     f(&mut inner);
                 }
@@ -566,6 +576,12 @@ pub(crate) struct ElData {
     /// Painted into a compositor layer of its own ([`El::isolate_paint`]), with this
     /// transform the compositor applies.
     pub(crate) isolate: Option<remedy_ui_paint::Affine>,
+    /// Compositor loops on its layer ([`El::ambient_loop`]).
+    pub(crate) loops: Vec<remedy_ui_compositor::AmbientLoop>,
+    /// Its painter animates with [`PaintCx::ambient`]: it gets a layer of its own.
+    pub(crate) ambient_layer: bool,
+    /// When its painter last got an ambient tick.
+    pub(crate) ambient_last: Option<std::time::Duration>,
     /// Its text is data, not a translatable string ([`El::data_text`]).
     pub(crate) data_text: bool,
     /// How keyboard users do what this element's pointer handling does.
@@ -770,6 +786,8 @@ pub(crate) struct Inner {
     pub(crate) error_hook: Option<crate::flow::ErrorHook>,
     /// This view's handler for effect panics in the reactive runtime.
     pub(crate) panic_handler: u64,
+    /// Ambient motion: the policy, its rate and what waits on it.
+    pub(crate) ambient: crate::ambient::AmbientState,
 }
 
 impl Drop for Inner {
@@ -820,6 +838,10 @@ impl Ui {
         let (effects, removed, watch) = {
             let mut i = self.0.borrow_mut();
             i.timers.clear();
+            i.ambient.parked.clear();
+            i.ambient.parked_paint.clear();
+            i.ambient.wakes.clear();
+            i.ambient.timer = None;
             i.history = crate::history::History::default();
             i.interceptor = None;
             i.wake = None;
@@ -969,6 +991,7 @@ impl Ui {
             failures_rev: remedy_ui_reactive::Signal::new(0),
             error_hook: None,
             panic_handler: 0,
+            ambient: crate::ambient::AmbientState::default(),
         })));
         crate::flow::install_failure_handling(&ui);
         // The window holds the app's content, then a click-through layer for overlays
@@ -1204,6 +1227,7 @@ impl Ui {
     pub fn set_reduced_motion(&self, on: bool) {
         let s = self.0.borrow().reduced_motion;
         s.set_if_changed(on);
+        self.refresh_ambient();
     }
 
     /// True when motion should be reduced: animations jump to their end, spinners hold still.
@@ -1276,6 +1300,7 @@ impl Ui {
         };
         if changed {
             self.request(Request::Frame);
+            self.refresh_ambient();
         }
     }
 
@@ -1741,6 +1766,9 @@ impl ElData {
             last_placed: None,
             scroll_follow: None,
             isolate: None,
+            loops: Vec::new(),
+            ambient_layer: false,
+            ambient_last: None,
             data_text: false,
             keyboard_alternative: None,
             hidden: false,

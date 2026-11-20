@@ -51,6 +51,9 @@ pub struct Layer {
     pub content_version: u64,
     /// Children, drawn after the content, in order.
     pub children: Vec<Arc<Layer>>,
+    /// Endless transform and opacity loops the compositor runs on this layer at the window's
+    /// ambient rate, with no new commits ([`AmbientLoop`](crate::AmbientLoop)).
+    pub ambient: Vec<crate::AmbientLoop>,
 }
 
 impl Layer {
@@ -67,6 +70,7 @@ impl Layer {
             content: Arc::new(content),
             content_version: 0,
             children: Vec::new(),
+            ambient: Vec::new(),
         }
     }
 

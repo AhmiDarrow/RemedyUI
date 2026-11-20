@@ -6,10 +6,7 @@ use std::time::Duration;
 
 use remedy_ui_core::time::Instant;
 
-use remedy_ui_view::El;
-
-/// How often a moving visual is redrawn (about 60 times a second).
-const STEP: Duration = Duration::from_millis(16);
+use remedy_ui_view::{El, TickKind};
 
 /// A value closer than this to its target counts as there.
 const SETTLE: f32 = 0.002;
@@ -183,6 +180,9 @@ pub struct Moved {
 struct Inner {
     el: El,
     clock: Clock,
+    kind: TickKind,
+    /// Never step more often than this (a sprite drawn at 8 frames a second).
+    min_interval: Cell<Duration>,
     running: Cell<bool>,
     last: Cell<Duration>,
     step: RefCell<Box<dyn FnMut(Duration) -> Moved>>,
@@ -191,7 +191,11 @@ struct Inner {
 /// Runs a step function on a timer, only while it asks for more.
 ///
 /// Nothing is scheduled while a visual is at rest: a silent ring costs nothing. The loop ends
-/// by itself when the element leaves the window.
+/// by itself when the element leaves the window. While its element is not seen (scrolled
+/// away, hidden, its window minimized) or its kind may not run, it parks and costs nothing
+/// until it may go on ([`El::resume_when`]). A live ticker ([`Ticker::new`]) steps about 60
+/// times a second with focus and slower in the background; an ambient one
+/// ([`Ticker::ambient`]) at the window's ambient rate ([`remedy_ui_view::AmbientPolicy`]).
 #[derive(Clone)]
 pub struct Ticker(Rc<Inner>);
 
@@ -199,9 +203,22 @@ impl Ticker {
     /// A ticker that repaints `el` after each step that changed something. `step` gets the
     /// time since its last call.
     pub fn new(el: &El, clock: Clock, step: impl FnMut(Duration) -> Moved + 'static) -> Self {
+        Self::of_kind(el, clock, TickKind::Live, step)
+    }
+
+    /// A ticker for decoration (a sprite's frames, an orbit, a marquee): it steps at the
+    /// window's ambient rate and stops while ambient motion is paused or off.
+    pub fn ambient(el: &El, clock: Clock, step: impl FnMut(Duration) -> Moved + 'static) -> Self {
+        Self::of_kind(el, clock, TickKind::Ambient, step)
+    }
+
+    /// A ticker of `kind`.
+    pub fn of_kind(el: &El, clock: Clock, kind: TickKind, step: impl FnMut(Duration) -> Moved + 'static) -> Self {
         Ticker(Rc::new(Inner {
             el: el.clone(),
             clock,
+            kind,
+            min_interval: Cell::new(Duration::ZERO),
             running: Cell::new(false),
             last: Cell::new(Duration::ZERO),
             step: RefCell::new(Box::new(step)),
@@ -217,6 +234,11 @@ impl Ticker {
         self.0.last.set(self.0.clock.now());
         run(self.0.clone());
     }
+
+    /// Steps at most once every `interval` (zero: as the window's rate allows).
+    pub fn set_min_interval(&self, interval: Duration) {
+        self.0.min_interval.set(interval);
+    }
 }
 
 fn run(inner: Rc<Inner>) {
@@ -225,6 +247,15 @@ fn run(inner: Rc<Inner>) {
         inner.running.set(false);
         return;
     }
+    let Some(interval) = ui.tick_interval(inner.kind).filter(|_| inner.el.is_seen()) else {
+        // Unseen or paused: wait without a timer; start again fresh when it may go on.
+        let again = inner.clone();
+        inner.el.resume_when(inner.kind, move || {
+            again.running.set(false);
+            Ticker(again).kick();
+        });
+        return;
+    };
     let now = inner.clock.now();
     let dt = now.saturating_sub(inner.last.replace(now));
     let moved = match inner.step.try_borrow_mut() {
@@ -236,7 +267,7 @@ fn run(inner: Rc<Inner>) {
     }
     if moved.pending {
         let next = inner.clone();
-        ui.after(STEP, move || run(next));
+        ui.after(interval.max(inner.min_interval.get()), move || run(next));
     } else {
         inner.running.set(false);
     }

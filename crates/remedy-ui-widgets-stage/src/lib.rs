@@ -21,6 +21,9 @@
 //!   plate key and a toggle switch with a lamp; hold-to-talk with [`BigButtonOptions::held`]
 //! - [`display_text`]: board lettering (LED dot matrix or split-flap) that stays real text,
 //!   with a marquee for text longer than the board
+//! - [`fx`]: shader-free effects for animated scenes: flicker and twinkle curves, seeded
+//!   noise textures made once, additive glows and light cones, cached blurs, scrolling water
+//!   shimmer
 //!
 //! Every widget takes its colors and sizes from the theme (art may name [`Ink`]s: theme roles
 //! or fixed colors), is described to assistive technology (controls are sliders, buttons or
@@ -59,6 +62,7 @@ mod common;
 mod dial;
 mod display;
 mod fader;
+pub mod fx;
 mod orbit;
 mod path;
 mod pixel;

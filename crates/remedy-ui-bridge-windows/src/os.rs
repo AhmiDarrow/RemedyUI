@@ -339,6 +339,7 @@ pub(crate) struct Settings {
     pub(crate) double_click: Duration,
     pub(crate) caret_blink: Option<Duration>,
     pub(crate) subpixel_text: Option<bool>,
+    pub(crate) power_saving: bool,
 }
 
 pub(crate) fn settings() -> Settings {
@@ -389,6 +390,7 @@ pub(crate) fn settings() -> Settings {
     .then(|| spi_u32(SPI_GETFONTSMOOTHINGORIENTATION) == Some(FE_FONTSMOOTHINGORIENTATIONBGR));
 
     Settings {
+        power_saving: power_saving(),
         dark,
         accent,
         high_contrast,
@@ -399,6 +401,17 @@ pub(crate) fn settings() -> Settings {
         double_click,
         caret_blink,
         subpixel_text,
+    }
+}
+
+/// On battery power, or battery saver is on.
+pub(crate) fn power_saving() -> bool {
+    use windows_sys::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+    // SAFETY: a plain out-parameter of the size Windows expects.
+    unsafe {
+        let mut s: SYSTEM_POWER_STATUS = std::mem::zeroed();
+        // ACLineStatus 0 is battery; SystemStatusFlag 1 is battery saver.
+        GetSystemPowerStatus(&mut s) != 0 && (s.ACLineStatus == 0 || s.SystemStatusFlag == 1)
     }
 }
 

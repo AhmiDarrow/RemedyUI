@@ -315,7 +315,8 @@ pub fn timeline<T: Clone + 'static>(
         s.refresh();
     });
     let s = state.clone();
-    let (el, motion) = Motion::attach(el, options.clock, move |dt| {
+    // The glide follows data, so it settles even while ambient motion is off.
+    let (el, motion) = Motion::attach_kind(el, options.clock, remedy_ui_view::TickKind::Live, move |dt| {
         let (from, to) = (s.shown_head.get(), s.head.get());
         // A glide in screen pixels, so it settles the same at any scale.
         let px = smooth((from - to) as f32 * s.scale as f32, 0.0, dt, Duration::from_millis(90), Duration::from_millis(90));
