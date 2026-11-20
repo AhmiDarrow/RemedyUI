@@ -11,9 +11,11 @@
 //! right-to-left before they paint.
 
 mod composite;
+mod record;
 mod surface;
 
 pub use composite::CpuCompositor;
+pub use record::{CompositeTarget, LayerFilter, record_ops};
 pub use surface::{ImageKey, Surface};
 
 use std::collections::HashMap;
@@ -316,8 +318,8 @@ pub(crate) fn vello_filter(
 
 /// The filter a backdrop of standard deviation `blur` draws its glass with, or `None` for no
 /// blur. Both compositors use it, so they blur alike.
-/// `scale` is how much the glass's transform scales lengths (the blur is bounded in device
-/// pixels, [`remedy_ui_paint::MAX_FILTER_STD_DEV`]).
+/// `scale` is how much the glass's transform scales lengths (the blur is bounded by
+/// [`remedy_ui_paint::MAX_FILTER_STD_DEV`]).
 pub fn backdrop_filter(blur: f32, scale: f32) -> Option<vello_cpu::filter_effects::Filter> {
     vello_filter(&remedy_ui_paint::Filter::Blur { radius: blur }, scale)
 }

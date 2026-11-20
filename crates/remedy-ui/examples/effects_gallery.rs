@@ -63,7 +63,9 @@ fn tile(ui: &Ui, name: &str) -> El {
 }
 
 fn app(app: &App, snapshot: Option<String>) {
-    let win = app.open(WindowSpec::new("Prism effects").size(1240.0, 960.0), |ui, _| {
+    // A snapshot shows only the window, so it opens big enough for every tile: 7 columns of 6 rows.
+    let (w, h) = if snapshot.is_some() { (1740.0, 1100.0) } else { (1240.0, 960.0) };
+    let win = app.open(WindowSpec::new("Prism effects").size(w, h), |ui, _| {
         let mut grid = w::wrap(ui).gap(10.0).padding(12.0);
         for (name, _) in LIBRARY {
             grid = grid.child(tile(ui, name));

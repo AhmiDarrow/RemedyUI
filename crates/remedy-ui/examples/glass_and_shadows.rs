@@ -85,6 +85,8 @@ fn app(app: &App, snapshot: Option<String>) {
         ui.root().child(back.grow(1.0));
     });
     if let Some(path) = snapshot {
+        // The aurora's still frame: snapshots from either renderer show the same moment.
+        app.set_reduce_motion(true);
         let a = app.clone();
         app.after(Duration::from_secs(2), move || {
             let a2 = a.clone();

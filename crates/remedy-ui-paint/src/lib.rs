@@ -228,20 +228,21 @@ pub enum Filter {
     },
 }
 
-/// The most a filter blurs, as a standard deviation in device pixels. A filter's buffers grow
-/// by about three times this on every side, so a stranger's theme asking for a blur of a
-/// million pixels gets this, not a buffer of a million pixels.
+/// The most a filter blurs, as a standard deviation in the filter's own units (device pixels
+/// at scale 1 or less). A filter's buffers grow by about three times this on every side, so a
+/// stranger's theme asking for a blur of a million pixels gets this, not a buffer of a million
+/// pixels. It is not divided by a high-DPI scale: a blur looks the same at 100% and 200%.
 pub const MAX_FILTER_STD_DEV: f32 = 64.0;
 /// The farthest a drop shadow falls, in device pixels, on each axis.
 pub const MAX_FILTER_OFFSET: f32 = 2048.0;
 
 impl Filter {
     /// The filter as renderers draw it under a transform scaling lengths by `scale`: its
-    /// blur at most [`MAX_FILTER_STD_DEV`] device pixels and its offset at most
-    /// [`MAX_FILTER_OFFSET`], whatever was asked.
+    /// blur at most [`MAX_FILTER_STD_DEV`] (in device pixels when `scale` is below 1) and its
+    /// offset at most [`MAX_FILTER_OFFSET`] device pixels, whatever was asked.
     pub fn limited(&self, scale: f32) -> Filter {
         let k = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
-        let sigma = self.std_dev().min(MAX_FILTER_STD_DEV / k);
+        let sigma = self.std_dev().min(MAX_FILTER_STD_DEV / k.min(1.0));
         match *self {
             Filter::Blur { .. } => Filter::Blur { radius: sigma },
             Filter::DropShadow { offset, color, .. } => {

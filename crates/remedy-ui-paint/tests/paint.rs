@@ -85,3 +85,15 @@ fn filter_groups_grow_by_their_reach() {
     assert!(Filter::Blur { radius: 0.0 }.is_identity());
     assert_eq!(Filter::Blur { radius: f32::NAN }.std_dev(), 0.0, "non-finite radii draw unblurred");
 }
+
+#[test]
+fn a_blur_looks_the_same_at_high_dpi() {
+    // A 40-pixel glass blur stays 40 at 200%, not clamped to half the cap.
+    let blur = Filter::Blur { radius: 40.0 };
+    assert_eq!(blur.limited(2.0).std_dev(), 40.0);
+    assert_eq!(blur.limited(1.0).std_dev(), 40.0);
+    // The cap still holds, in the filter's units; zoomed out it holds in device pixels.
+    let huge = Filter::Blur { radius: 1.0e9 };
+    assert_eq!(huge.limited(2.0).std_dev(), MAX_FILTER_STD_DEV);
+    assert_eq!(huge.limited(0.5).std_dev() * 0.5, MAX_FILTER_STD_DEV);
+}

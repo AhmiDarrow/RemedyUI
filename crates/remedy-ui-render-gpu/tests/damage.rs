@@ -67,8 +67,14 @@ fn worst(a: &Frame, b: &Frame) -> u8 {
 }
 
 /// Drives a compositor through the moves, giving each plan to `f`.
-fn frames(glass: bool, mut f: impl FnMut(usize, &FramePlan)) {
-    let mut comp = Compositor::new(W, H, 1.0, ScrollPhysics::CLAMPED);
+fn frames(glass: bool, f: impl FnMut(usize, &FramePlan)) {
+    frames_at(glass, 1.0, f);
+}
+
+/// [`frames`] in a window of `scale` device pixels per logical pixel (W × H logical).
+fn frames_at(glass: bool, scale: f32, mut f: impl FnMut(usize, &FramePlan)) {
+    let (w, h) = ((W as f32 * scale) as u32, (H as f32 * scale) as u32);
+    let mut comp = Compositor::new(w, h, scale, ScrollPhysics::CLAMPED);
     for (k, x) in [10.0f32, 30.5, 61.0, 96.0, 140.25, 141.0, 190.0, 260.0].into_iter().enumerate() {
         comp.commit(scene(x, glass));
         let plan = comp.frame(Duration::from_millis(16 * k as u64));
@@ -100,6 +106,32 @@ fn gpu_damage_frames_equal_full_redraws() {
                 0,
                 "frame {k} (glass {glass}): kept pixels plus redrawn damage equal a full frame"
             );
+        });
+        assert!(partial.renderer().context().take_errors().is_empty());
+    }
+}
+
+#[test]
+fn hidpi_damage_frames_equal_full_redraws_and_match_the_cpu() {
+    // 512-pixel tiles, glass on a grid twice the blur's reach, filters bounded at scale 2.
+    let (w, h) = (W * 2, H * 2);
+    for glass in [false, true] {
+        let mut partial = gpu();
+        let mut full = gpu();
+        let mut cpu = CpuCompositor::new();
+        frames_at(glass, 2.0, |k, plan| {
+            let a = partial.present_to_frame(plan, w, h, Color::BLACK);
+            let b = full.renderer().create_target(w, h).and_then(|t| {
+                full.present(plan, &t, Color::BLACK).and_then(|()| full.renderer().read_back(&t))
+            });
+            let c = cpu.present(plan, w, h, Color::BLACK);
+            let (Ok(a), Ok(b), Ok(c)) = (a, b, c) else { unreachable!("all draw") };
+            if k > 0 {
+                assert!(partial.last_composited() < u64::from(w * h), "frame {k} composites only its damage");
+            }
+            assert_eq!(worst(&a, &b), 0, "frame {k} (glass {glass}): damage-only equals a full frame at 2x");
+            let wc = worst(&a, &c);
+            assert!(wc <= 3, "frame {k} (glass {glass}): the GPU matches the CPU at 2x (worst {wc})");
         });
         assert!(partial.renderer().context().take_errors().is_empty());
     }
@@ -196,50 +228,113 @@ fn filtered_groups_of_layers_draw_from_damage_like_a_full_frame() {
 #[test]
 #[ignore = "a measurement: cargo test --release -p remedy-ui-render-gpu --test damage -- --ignored --nocapture"]
 fn damage_only_compositing_costs_less_than_full_frames() {
-    let (w, h) = (1280u32, 800u32);
+    // A 4K frame: compositing alone is timed (present, then wait for the GPU), with no read
+    // back, which at this size costs more than either composite and would hide the gain.
+    let (w, h) = (3840u32, 2160u32);
+    let (fw, fh) = (w as f32, h as f32);
     let tree = |x: f32| {
         let mut back = DisplayList::new();
-        for i in 0..128 {
-            let c = Color::rgb8((i * 2) as u8, 90, 200 - i as u8);
-            back.fill_rect(Rect::new(i as f32 * 10.0, 0.0, i as f32 * 10.0 + 10.0, 800.0), Brush::Solid(c));
+        for i in 0..384 {
+            let c = Color::rgb8((i / 2) as u8, 90, (200 - i / 2) as u8);
+            back.fill_rect(Rect::new(i as f32 * 10.0, 0.0, i as f32 * 10.0 + 10.0, fh), Brush::Solid(c));
         }
         let mut dot = DisplayList::new();
         dot.fill_rounded(Rect::new(0.0, 0.0, 24.0, 24.0), CornerRadii::all(12.0), Brush::Solid(Color::WHITE));
         LayerTree::new(vec![
-            Layer::new(LayerId(1), Rect::new(0.0, 0.0, 1280.0, 800.0), back).with_child(Layer::new(
+            Layer::new(LayerId(1), Rect::new(0.0, 0.0, fw, fh), back).with_child(Layer::new(
                 LayerId(2),
                 Rect::new(x, 300.0, x + 24.0, 324.0),
                 dot,
             )),
         ])
     };
+    let wait = |c: &GpuCompositor| {
+        let _ = c
+            .renderer()
+            .context()
+            .device
+            .poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
+    };
     let mut comp = Compositor::new(w, h, 1.0, ScrollPhysics::CLAMPED);
     let mut partial = gpu();
     let mut full = gpu();
     let target = full.renderer().create_target(w, h).unwrap_or_else(|e| unreachable!("{e}"));
     let (mut t_partial, mut t_full) = (Duration::ZERO, Duration::ZERO);
-    for k in 0..40u64 {
+    for k in 0..65u64 {
         comp.commit(tree(100.0 + k as f32 * 7.0));
         let plan = comp.frame(Duration::from_millis(16 * k));
         let s = std::time::Instant::now();
-        assert!(partial.present_to_frame(&plan, w, h, Color::BLACK).is_ok());
+        assert!(partial.present_to_kept(&plan, w, h, Color::BLACK).is_ok());
+        wait(&partial);
         if k >= 5 {
             t_partial += s.elapsed();
         }
         let s = std::time::Instant::now();
         assert!(full.present(&plan, &target, Color::BLACK).is_ok());
-        let _ = full.renderer().read_back(&target);
+        wait(&full);
         if k >= 5 {
             t_full += s.elapsed();
         }
     }
-    let (p, f) = (t_partial.as_secs_f64() * 1000.0 / 35.0, t_full.as_secs_f64() * 1000.0 / 35.0);
+    let (p, f) = (t_partial.as_secs_f64() * 1000.0 / 60.0, t_full.as_secs_f64() * 1000.0 / 60.0);
     eprintln!(
-        "{}: {w}x{h}, a 24-pixel dot moving: damage-only {p:.2} ms a frame, full {f:.2} ms ({:.1}x), {} of {} pixels composited",
+        "{}: {w}x{h}, a 24-pixel dot moving: damage-only {p:.3} ms a frame, full {f:.3} ms ({:.1}x), {} of {} pixels composited",
         full.renderer().context().describe(),
         f / p,
         partial.last_composited(),
         w * h
     );
-    assert!(p < f, "damage-only is cheaper");
+    assert!(p * 2.0 < f, "damage-only is at least twice as cheap at 4K ({p:.3} vs {f:.3} ms)");
+    // A 4K snapshot: the first read back makes the staging buffer, the rest reuse it.
+    let _ = full.renderer().read_back(&target);
+    let s = std::time::Instant::now();
+    for _ in 0..20 {
+        assert!(full.renderer().read_back(&target).is_ok());
+    }
+    eprintln!("4K read back: {:.2} ms", s.elapsed().as_secs_f64() * 1000.0 / 20.0);
+}
+
+#[test]
+#[ignore = "a measurement: cargo test --release -p remedy-ui-render-gpu --test damage -- --ignored --nocapture"]
+fn a_hidpi_4k_first_frame() {
+    // A 1920x1080 window at scale 2: 3840x2160 device pixels in 512-pixel tiles.
+    let (w, h, scale) = (3840u32, 2160u32, 2.0f32);
+    let mut back = DisplayList::new();
+    for i in 0..96 {
+        for j in 0..54 {
+            let c = Color::rgb8((i * 2) as u8, (j * 4) as u8, 160);
+            let r = Rect::new(
+                i as f32 * 20.0 + 2.0,
+                j as f32 * 20.0 + 2.0,
+                i as f32 * 20.0 + 18.0,
+                j as f32 * 20.0 + 18.0,
+            );
+            back.fill_rounded(r, CornerRadii::all(4.0), Brush::Solid(c));
+        }
+    }
+    let tree = LayerTree::new(vec![Layer::new(LayerId(1), Rect::new(0.0, 0.0, 1920.0, 1080.0), back)]);
+    let mut times = Vec::new();
+    for _ in 0..5 {
+        let mut comp = Compositor::new(w, h, scale, ScrollPhysics::CLAMPED);
+        comp.commit(tree.clone());
+        let plan = comp.frame(Duration::ZERO);
+        let mut g = gpu();
+        let s = std::time::Instant::now();
+        assert!(g.present_to_kept(&plan, w, h, Color::BLACK).is_ok());
+        let _ = g
+            .renderer()
+            .context()
+            .device
+            .poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
+        times.push(s.elapsed().as_secs_f64() * 1000.0);
+        assert!(g.renderer().context().take_errors().is_empty());
+        if times.len() == 1 {
+            eprintln!("{} tiles rastered", plan.raster.len());
+        }
+    }
+    times.sort_by(f64::total_cmp);
+    eprintln!(
+        "4K at scale 2, first frame: median {:.2} ms (of {times:?})",
+        times.get(2).copied().unwrap_or(0.0)
+    );
 }

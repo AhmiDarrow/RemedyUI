@@ -36,6 +36,9 @@ struct Probe {
     resized: bool,
     lost: bool,
     recovered: bool,
+    swapchain_lost: bool,
+    /// The window's center after a lost swapchain was rebuilt, with nothing changed since.
+    after_swapchain: Option<[u8; 4]>,
     deadline_hit: bool,
 }
 
@@ -106,7 +109,17 @@ impl App for Probe {
                         self.lost = true;
                         gpu.renderer().context().force_loss();
                     }
-                    n if n >= 5 => host.close_window(window),
+                    4 if !self.swapchain_lost => {
+                        self.swapchain_lost = true;
+                        s.lose_swapchain();
+                    }
+                    n if n >= 5 => {
+                        if let Some(Ok(f)) = gpu.read_surface(s) {
+                            let at = ((f.height / 2 * f.width + f.width / 2) * 4) as usize;
+                            self.after_swapchain = f.pixels.get(at..at + 4).and_then(|p| p.try_into().ok());
+                        }
+                        host.close_window(window)
+                    }
                     _ => {}
                 }
                 host.request_frame(window);
@@ -137,4 +150,6 @@ fn gpu_frames_reach_a_real_window_through_resize_and_device_loss() {
     assert!(probe.errors.is_empty(), "{:?}", probe.errors);
     assert!(probe.resized && probe.lost && probe.recovered);
     assert!(probe.shown >= 5, "frames shown: {}", probe.shown);
+    // The content survives a lost swapchain: its tiles are on the device, which lived.
+    assert_eq!(probe.after_swapchain, Some([40, 120, 70, 255]), "the card, not the white background");
 }
