@@ -35,7 +35,7 @@ intl_pluralrules = "=7.0.2"
 unic-langid = { version = "=0.9.6", features = ["likelysubtags"] }
 
 [dev-dependencies]
-remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui"] }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "scripts"] }
 
 [lints]
 workspace = true

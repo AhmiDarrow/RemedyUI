@@ -613,7 +613,7 @@ impl TextEngine {
             Direction::Rtl => BaseDirection::Rtl,
         });
         push_style(&mut b, base, base_stack, None, 0);
-        b.push_default(StyleProperty::Locale(self.language.clone()));
+        b.push_default(StyleProperty::Locale(self.language));
         run_styles.push(RunStyle { color: base.color, link: None, range: 0..content.len() });
         for ((i, seg), stack) in segments.iter().enumerate().zip(stacks) {
             let brush = u32::try_from(i + 1).unwrap_or(u32::MAX);
