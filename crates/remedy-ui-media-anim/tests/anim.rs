@@ -266,6 +266,11 @@ fn under_reduced_motion_the_first_frame_shows_with_a_play_button_that_keyboards_
     assert_eq!(button.info().map(|i| i.hidden), Some(false));
     let sem = semantics(&button);
     assert!(sem.contains("Play animation: Dancing cat") && sem.contains("Button"), "{sem}");
+    s.ui.set_locale("es");
+    s.frame();
+    assert!(semantics(&button).contains("Reproducir animación: Dancing cat"), "{}", semantics(&button));
+    s.ui.set_locale("en");
+    s.frame();
     assert!(button.info().is_some_and(|i| i.focusable), "reachable by keyboard");
     let problems = audit(&mut s);
     assert!(problems.is_empty(), "{problems:?}");
@@ -566,4 +571,10 @@ fn trimming_memory_lets_go_of_idle_frames_and_they_come_back_when_played() {
     s.fire();
     s.wait("moved on", |s| s.color() != was && s.timers.len() == 1);
     assert!(resident_frames() >= 3);
+}
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&remedy_ui_media_anim::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
 }

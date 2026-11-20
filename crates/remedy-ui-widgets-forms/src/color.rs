@@ -9,6 +9,8 @@ use remedy_ui_style::StylePatch;
 use remedy_ui_view::{Align, El, FieldKind, Ui};
 use remedy_ui_widgets_core as w;
 
+use remedy_ui_services_i18n::{Decimal, NumberSymbols};
+
 /// Hue (0..360), saturation, value and alpha (0..1).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Hsv {
@@ -58,7 +60,8 @@ impl Hsv {
     }
 }
 
-/// What WCAG says about a contrast ratio.
+/// What WCAG says about a contrast ratio, in English ([`contrast_grade_label`] in the
+/// window's language).
 pub fn contrast_grade(ratio: f32) -> &'static str {
     if ratio >= 7.0 {
         "AAA"
@@ -69,6 +72,30 @@ pub fn contrast_grade(ratio: f32) -> &'static str {
     } else {
         "Fails"
     }
+}
+
+/// What WCAG says about a contrast ratio, in the window's language (tracked).
+pub fn contrast_grade_label(ui: &Ui, ratio: f32) -> String {
+    crate::tr(ui, grade_id(ratio))
+}
+
+/// The message for a contrast ratio's grade.
+fn grade_id(ratio: f32) -> &'static str {
+    if ratio >= 7.0 {
+        "contrast-grade-aaa"
+    } else if ratio >= 4.5 {
+        "contrast-grade-aa"
+    } else if ratio >= 3.0 {
+        "contrast-grade-aa-large"
+    } else {
+        "contrast-grade-fails"
+    }
+}
+
+/// `v` with `places` fraction digits, written the window's locale's way (tracked).
+fn number(ui: &Ui, v: f32, places: u8) -> String {
+    let d = Decimal::from_f64(f64::from(v), places).unwrap_or_default();
+    NumberSymbols::for_locale(&ui.locale()).format(d, places)
 }
 
 fn hex(c: Color) -> String {
@@ -93,7 +120,7 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
 
     // Saturation × brightness.
     let area = ui.el("color_area").width(220.0).height(140.0).focusable(true);
-    let a2 = area.clone();
+    let (a2, u) = (area.clone(), ui.clone());
     let area = area
         .paint(move |cx| {
             let h = hsv.get();
@@ -164,20 +191,28 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
         .semantics(move || {
             let h = hsv.get();
             Semantics::new(Role::Slider)
-                .label("Saturation and brightness")
-                .value(format!("saturation {:.0}%, brightness {:.0}%", h.s * 100.0, h.v * 100.0))
+                .label(crate::tr(&u, "color-area"))
+                .value(crate::STRINGS.format(
+                    &u,
+                    "color-area-value",
+                    &[
+                        ("saturation", number(&u, h.s * 100.0, 0).into()),
+                        ("brightness", number(&u, h.v * 100.0, 0).into()),
+                    ],
+                ))
                 .action(Action::Focus)
         });
 
     // A horizontal strip for hue or opacity.
+    // `name` and `value` are messages; `value` takes the number as `$value`.
     let strip = |name: &'static str,
                  get: fn(Hsv) -> f32,
                  put: fn(Hsv, f32) -> Hsv,
                  max: f32,
                  step: f32,
-                 unit_s: &'static str| {
+                 value_id: &'static str| {
         let el = ui.el("color_strip").height(18.0).fill_width().focusable(true);
-        let e2 = el.clone();
+        let (e2, u) = (el.clone(), ui.clone());
         el.paint(move |cx| {
             let h = hsv.get();
             let r = Rect::new(0.0, 0.0, cx.size.width, cx.size.height);
@@ -262,18 +297,19 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
             let v = get(hsv.get());
             let shown = if max > 1.0 { v } else { v * 100.0 };
             Semantics::new(Role::Slider)
-                .label(name)
+                .label(crate::tr(&u, name))
                 .numeric(f64::from(shown), 0.0, f64::from(if max > 1.0 { max } else { 100.0 }))
-                .value(format!("{shown:.0}{unit_s}"))
+                .value(crate::STRINGS.format(&u, value_id, &[("value", number(&u, shown, 0).into())]))
                 .action(Action::Increment)
                 .action(Action::Decrement)
         })
     };
-    let hue = strip("Hue", |h| h.h, |h, v| Hsv { h: v.min(359.99), ..h }, 360.0, 1.0, "°");
-    let alpha = strip("Opacity", |h| h.a, |h, v| Hsv { a: v, ..h }, 1.0, 0.01, "%");
+    let hue =
+        strip("color-hue", |h| h.h, |h, v| Hsv { h: v.min(359.99), ..h }, 360.0, 1.0, "color-hue-value");
+    let alpha = strip("color-opacity", |h| h.a, |h, v| Hsv { a: v, ..h }, 1.0, 0.01, "color-opacity-value");
 
     // Hex field.
-    let field = ui.text_field("text_input", FieldKind::Single).label(format!("{label} hex"));
+    let field = ui.text_field("text_input", FieldKind::Single);
     let bad = Signal::new(false);
     let f2 = field.clone();
     let field = field.on_change(move || match Color::from_hex(f2.value().trim()) {
@@ -285,14 +321,20 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
         Err(_) => bad.set_if_changed(true),
     });
     let fe = field.el().width(120.0);
-    let fe2 = fe.clone();
+    let (fe2, f3, u, l3) = (fe.clone(), field.clone(), ui.clone(), label.clone());
+    // Its name follows the window's language.
+    let fe = fe.bind(move || {
+        let name = crate::STRINGS.format(&u, "color-hex", &[("label", l3.as_str().into())]);
+        let _ = f3.clone().label(name);
+    });
+    let fe2b = fe2.clone();
     let fe = fe.bind(move || {
         let c = value.get();
         let wrong = bad.get();
-        if !fe2.is_focused() {
+        if !fe2b.is_focused() {
             untrack(|| field.set_value(&hex(c)));
         }
-        fe2.state(remedy_ui_style::States::INVALID, wrong);
+        fe2b.state(remedy_ui_style::States::INVALID, wrong);
     });
 
     // Keep the HSV in step with outside changes to the color.
@@ -318,14 +360,18 @@ pub fn color_picker(ui: &Ui, label: impl Into<String>, value: Signal<Color>, aga
         .style(move || StylePatch::default().background(value.get()).radius(6.0));
     let mut info = w::column(ui).gap(unit).child(fe);
     if let Some(bg) = against {
+        let (u1, u2) = (ui.clone(), ui.clone());
         let readout = w::text(ui, "").text(move || {
-            let c = value.get();
-            let ratio = c.with_alpha(1.0).contrast(bg);
-            format!("Contrast {ratio:.1}:1 · {}", contrast_grade(ratio))
+            let ratio = value.get().with_alpha(1.0).contrast(bg);
+            let args =
+                [("ratio", number(&u1, ratio, 1).into()), ("grade", contrast_grade_label(&u1, ratio).into())];
+            remedy_ui_view::RichText::plain(crate::STRINGS.format(&u1, "color-contrast", &args))
         });
         info = info.child(readout.semantics(move || {
             let ratio = value.get().with_alpha(1.0).contrast(bg);
-            Semantics::new(Role::Status).label(format!("Contrast {ratio:.1} to 1, {}", contrast_grade(ratio)))
+            let args =
+                [("ratio", number(&u2, ratio, 1).into()), ("grade", contrast_grade_label(&u2, ratio).into())];
+            Semantics::new(Role::Status).label(crate::STRINGS.format(&u2, "color-contrast-spoken", &args))
         }));
     }
     let l2 = label.clone();

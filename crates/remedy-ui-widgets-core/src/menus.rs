@@ -422,7 +422,10 @@ impl Chain {
                 }
                 false
             })
-            .keyboard_alternative("Escape closes it");
+            .keyboard_alternative({
+                let u = ui.clone();
+                move || crate::tr(&u, "escape-closes")
+            });
         // The chain lives as long as its layer: dropping it with the layer frees its menus.
         let keep = chain.clone();
         let layer = layer.on_removed(move || {
@@ -587,8 +590,8 @@ impl Chain {
         }
         let submenu = item.is_submenu();
         if submenu {
-            let chevron = if self.rtl() { Icon::ChevronLeft } else { Icon::ChevronRight };
-            row = row.child(icon(ui, chevron, ui.theme().type_scale.small + 2.0));
+            // Mirrors on its own in a right-to-left menu, where submenus open to the left.
+            row = row.child(icon(ui, Icon::ChevronRight, ui.theme().type_scale.small + 2.0));
         }
         let (w1, w2, w3) = (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
         let row = row
@@ -1044,7 +1047,10 @@ pub fn context_menu_at(target: &El, items: impl Fn(Option<Point>) -> Vec<MenuIte
             false
         })
         // The same menu opens from the keyboard wherever focus is inside the target.
-        .keyboard_alternative("Shift+F10 or the Menu key opens the same menu")
+        .keyboard_alternative({
+            let u = target.ui().clone();
+            move || crate::tr(&u, "context-menu-keys")
+        })
 }
 
 #[cfg(test)]

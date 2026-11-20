@@ -63,7 +63,8 @@ pub struct LayoutTree {
     /// An auto-width root fills it the way a page body fills the window.
     viewports: std::collections::HashMap<NodeId, NodeId>,
     /// Each node's RemedyUI style and the direction it was last translated with.
-    styles: std::collections::HashMap<NodeId, (LayoutStyle, bool)>,
+    /// Each node's style, its resolved direction, and its parent's (which its insets follow).
+    styles: std::collections::HashMap<NodeId, (LayoutStyle, bool, bool)>,
 }
 
 impl std::fmt::Debug for LayoutTree {
@@ -94,8 +95,8 @@ impl LayoutTree {
     /// A container node.
     pub fn node(&mut self, style: &LayoutStyle) -> Result<LayoutNode, LayoutError> {
         let rtl = style.direction == Direction::Rtl;
-        let id = self.taffy.new_leaf(to_taffy(style, rtl)).map_err(err)?;
-        self.styles.insert(id, (style.clone(), rtl));
+        let id = self.taffy.new_leaf(to_taffy(style, rtl, rtl)).map_err(err)?;
+        self.styles.insert(id, (style.clone(), rtl, rtl));
         Ok(LayoutNode(id))
     }
 
@@ -106,16 +107,25 @@ impl LayoutTree {
         measure: impl FnMut(MeasureInput) -> Size + 'static,
     ) -> Result<LayoutNode, LayoutError> {
         let rtl = style.direction == Direction::Rtl;
-        let id = self.taffy.new_leaf_with_context(to_taffy(style, rtl), Box::new(measure)).map_err(err)?;
-        self.styles.insert(id, (style.clone(), rtl));
+        let id =
+            self.taffy.new_leaf_with_context(to_taffy(style, rtl, rtl), Box::new(measure)).map_err(err)?;
+        self.styles.insert(id, (style.clone(), rtl, rtl));
         Ok(LayoutNode(id))
     }
 
     /// Replaces a node's style.
     pub fn set_style(&mut self, node: LayoutNode, style: &LayoutStyle) -> Result<(), LayoutError> {
-        let rtl = self.styles.get(&node.0).map_or(style.direction == Direction::Rtl, |(_, r)| *r);
-        self.taffy.set_style(node.0, to_taffy(style, rtl)).map_err(err)?;
-        self.styles.insert(node.0, (style.clone(), rtl));
+        let (rtl, parent) =
+            self.styles.get(&node.0).map_or((style.direction == Direction::Rtl, false), |(_, r, p)| (*r, *p));
+        // A node given a direction of its own gets it now (and its subtree at the next
+        // resolve); one that inherits keeps what it resolved to.
+        let rtl = match style.direction {
+            Direction::Inherit => rtl,
+            Direction::Ltr => false,
+            Direction::Rtl => true,
+        };
+        self.taffy.set_style(node.0, to_taffy(style, rtl, parent)).map_err(err)?;
+        self.styles.insert(node.0, (style.clone(), rtl, parent));
         Ok(())
     }
 
@@ -124,15 +134,15 @@ impl LayoutTree {
     fn resolve_direction(&mut self, node: NodeId, parent_rtl: bool) -> Result<(), LayoutError> {
         let mut stack = vec![(node, parent_rtl)];
         while let Some((id, parent)) = stack.pop() {
-            let Some((style, was)) = self.styles.get(&id).cloned() else { continue };
+            let Some((style, was, was_parent)) = self.styles.get(&id).cloned() else { continue };
             let rtl = match style.direction {
                 Direction::Inherit => parent,
                 Direction::Ltr => false,
                 Direction::Rtl => true,
             };
-            if rtl != was {
-                self.taffy.set_style(id, to_taffy(&style, rtl)).map_err(err)?;
-                self.styles.insert(id, (style, rtl));
+            if rtl != was || parent != was_parent {
+                self.taffy.set_style(id, to_taffy(&style, rtl, parent)).map_err(err)?;
+                self.styles.insert(id, (style, rtl, parent));
             }
             for c in self.taffy.children(id).map_err(err)? {
                 stack.push((c, rtl));
@@ -245,7 +255,7 @@ impl LayoutTree {
 
     /// True when the node lays out right to left (its own or inherited direction).
     pub fn is_rtl(&self, node: LayoutNode) -> bool {
-        self.styles.get(&node.0).is_some_and(|(_, rtl)| *rtl)
+        self.styles.get(&node.0).is_some_and(|(_, rtl, _)| *rtl)
     }
 
     /// The node's box relative to its parent's top-left, in logical pixels.

@@ -361,16 +361,30 @@ fn note_of(options: &FretboardOptions, pos: FretPos) -> Option<Pitch> {
     Some(Pitch::from_midi(open + pos.fret as i32, options.flats))
 }
 
-/// How a position is said: "string 3 (G3), fret 5, C4".
+/// How a position is said in English: "string 3 (G 3), fret 5, C 4"
+/// ([`describe_position_in`] for another language).
 pub fn describe_position(options: &FretboardOptions, pos: FretPos) -> String {
+    describe_position_in(options, pos, "en")
+}
+
+/// How a position is said in `locale`: the string, its open note, the fret and the note.
+pub fn describe_position_in(options: &FretboardOptions, pos: FretPos, locale: &str) -> String {
     let n = options.tuning.len();
-    let number = n.saturating_sub(pos.string);
-    let open = options.tuning.get(pos.string).map(|m| Pitch::from_midi(*m, options.flats).spoken());
-    let note = note_of(options, pos).map(Pitch::spoken);
-    let fret = if pos.fret == 0 { "open".to_owned() } else { format!("fret {}", pos.fret) };
+    let string = ("string", n.saturating_sub(pos.string).into());
+    let open = options.tuning.get(pos.string).map(|m| Pitch::from_midi(*m, options.flats).spoken_in(locale));
+    let note = note_of(options, pos).map(|p| p.spoken_in(locale));
+    let fret = ("fret", pos.fret.into());
     match (open, note) {
-        (Some(o), Some(nt)) => format!("string {number} ({o}), {fret}, {nt}"),
-        _ => format!("string {number}, {fret}"),
+        (Some(o), Some(nt)) => {
+            let (o, nt) = (("tuning", o.into()), ("note", nt.into()));
+            if pos.fret == 0 {
+                crate::say(locale, "position-open", &[string, o, nt])
+            } else {
+                crate::say(locale, "position-fret", &[string, o, fret, nt])
+            }
+        }
+        _ if pos.fret == 0 => crate::say(locale, "position-open-short", &[string]),
+        _ => crate::say(locale, "position-fret-short", &[string, fret]),
     }
 }
 
@@ -571,14 +585,14 @@ pub fn fretboard(
             });
 
     if ro {
-        let sem_el = el.clone();
+        let (sem_el, u) = (el.clone(), ui.clone());
         let opts = options.clone();
         return el.bind(move || {
             let marks = opts.marks.as_ref().map(|m| m.get()).unwrap_or_default();
             let _ = sem_el.clone().semantics(
                 Semantics::new(Role::Image)
                     .label(label.clone())
-                    .value(summary(&opts, &marks))
+                    .value(summary(&opts, &marks, &u.locale()))
                     .read_only(true),
             );
             sem_el.repaint();
@@ -594,7 +608,7 @@ pub fn fretboard(
     };
     let down = Rc::new(Cell::new(false));
     let key_opts = options.clone();
-    let sem_opts = options.clone();
+    let (sem_opts, u) = (options.clone(), ui.clone());
     el.focusable(true)
         .on_focus_change(move |f| focused.set_if_changed(f))
         .on_pointer(move |e| {
@@ -650,17 +664,26 @@ pub fn fretboard(
             let cur = cursor.get();
             let picked = selected.get();
             let marks = o.marks.as_ref().map(|m| m.get()).unwrap_or_default();
-            let mut value = describe_position(o, cur);
-            if picked == Some(cur) {
-                value.push_str(", picked");
-            }
-            if marks.iter().any(|m| m.pos == cur) {
-                value.push_str(", marked");
-            }
-            let mut hint = String::from("Arrow keys move over the neck, Enter picks, Escape clears.");
-            if let Some(p) = picked {
-                hint.push_str(&format!(" Picked: {}.", describe_position(o, p)));
-            }
+            let locale = u.locale();
+            let value = describe_position_in(o, cur, &locale);
+            let state = match (picked == Some(cur), marks.iter().any(|m| m.pos == cur)) {
+                (true, true) => Some("cursor-picked-marked"),
+                (true, false) => Some("cursor-picked"),
+                (false, true) => Some("cursor-marked"),
+                (false, false) => None,
+            };
+            let value = match state {
+                Some(id) => crate::say(&locale, id, &[("what", value.into())]),
+                None => value,
+            };
+            let hint = match picked {
+                Some(p) => crate::say(
+                    &locale,
+                    "fretboard-hint-picked",
+                    &[("picked", describe_position_in(o, p, &locale).into())],
+                ),
+                None => crate::say(&locale, "fretboard-hint", &[]),
+            };
             Semantics::new(Role::Grid)
                 .label(label.clone())
                 .value(value)
@@ -669,6 +692,14 @@ pub fn fretboard(
         })
 }
 
-fn summary(options: &FretboardOptions, marks: &[FretMark]) -> String {
-    format!("{} strings, {} frets, {} marked", options.tuning.len(), options.frets, marks.len())
+fn summary(options: &FretboardOptions, marks: &[FretMark], locale: &str) -> String {
+    crate::say(
+        locale,
+        "fretboard-summary",
+        &[
+            ("strings", options.tuning.len().into()),
+            ("frets", options.frets.into()),
+            ("marked", marks.len().into()),
+        ],
+    )
 }

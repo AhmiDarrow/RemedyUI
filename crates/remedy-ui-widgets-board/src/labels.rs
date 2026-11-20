@@ -1,17 +1,25 @@
 //! The words a board says: every fixed string of its editor, its empty states, its built-in
-//! widgets and its reactions, in English by default, for apps to translate.
+//! widgets and its reactions. `Default` is English; `localized` takes them from the board's
+//! Fluent catalog (`i18n/*.ftl`, the eleven languages the engine ships), which is what a
+//! board left with the defaults speaks, in the window's locale; apps may give their own.
 //!
 //! Words with `{name}` placeholders are templates: the board fills them after translation,
-//! so a translation keeps the placeholders and may move them.
+//! so a translation keeps the placeholders and may move them. Counts that need plural
+//! forms (reactions) take the catalog's plural message while the words are the catalog's.
+
+use remedy_ui_view::Ui;
+use remedy_ui_view::strings::StrArg;
 
 use crate::model::BoardError;
 
 /// Defines a struct of words: each field a `String` with its English default, plus nested
-/// word structs, and `translated` that passes every word through a translator.
+/// word structs, `translated` that passes every word through a translator, and `localized`
+/// that takes every word from the catalog ([`crate::STRINGS`]): message `$prefix` and the
+/// field's name in kebab case.
 macro_rules! words {
     (
         $(#[$m:meta])*
-        $name:ident {
+        $name:ident $prefix:literal {
             $( $(#[$fm:meta])* $f:ident: $en:literal, )*
         }
         $( nested { $( $(#[$nm:meta])* $nf:ident: $nt:ty, )* } )?
@@ -22,6 +30,9 @@ macro_rules! words {
         pub struct $name {
             $( $(#[$fm])* pub $f: String, )*
             $( $( $(#[$nm])* pub $nf: $nt, )* )?
+            /// The catalog locale these words came from ([`Self::localized`]), while they
+            /// are its words; counts then take the language's plural forms.
+            catalog_locale: Option<String>,
         }
 
         impl Default for $name {
@@ -30,6 +41,7 @@ macro_rules! words {
                 $name {
                     $( $f: $en.to_owned(), )*
                     $( $( $nf: <$nt>::default(), )* )?
+                    catalog_locale: None,
                 }
             }
         }
@@ -43,7 +55,33 @@ macro_rules! words {
                 $name {
                     $( $f: translate(&self.$f), )*
                     $( $( $nf: self.$nf.translated(&translate), )* )?
+                    catalog_locale: None,
                 }
+            }
+
+            /// Every word in `locale` (a BCP 47 tag such as `de-DE`; the closest language
+            /// the engine ships answers, else English) from the board's catalog
+            /// ([`crate::STRINGS`], with any rewording an app added under `widgets-board`).
+            /// Templates keep their `{name}` placeholders for the board to fill, and while
+            /// the words are left as they come, counts take the language's plural forms.
+            /// A board whose [`crate::Context::labels`] are left at their default uses
+            /// these, for the window's locale.
+            pub fn localized(locale: &str) -> Self {
+                $name {
+                    $( $f: message(locale, $prefix, stringify!($f), $en), )*
+                    $( $( $nf: <$nt>::localized(locale), )* )?
+                    catalog_locale: Some(locale.to_owned()),
+                }
+            }
+
+            /// Every word with the id of its catalog message (the one [`Self::localized`]
+            /// reads, and [`remedy_ui_view::strings::add_messages`] rewords), nested words
+            /// included, in field order.
+            pub fn words(&self) -> Vec<(String, &str)> {
+                #[allow(unused_mut)]
+                let mut out = vec![$( (message_id($prefix, stringify!($f)), self.$f.as_str()), )*];
+                $( $( out.extend(self.$nf.words()); )* )?
+                out
             }
         }
     };
@@ -51,7 +89,7 @@ macro_rules! words {
 
 words! {
     /// The words of the reactions component ([`crate::reactions()`]).
-    ReactionLabels {
+    ReactionLabels "reaction-" {
         /// The group's name for screen readers.
         group: "Reactions",
         /// One reaction, as counted for screen readers.
@@ -69,7 +107,15 @@ words! {
 words! {
     /// Every word a board says: its editor and panel, its empty states, the messages of
     /// refused changes, the setting editors, the built-in widgets and the reactions. Set on
-    /// [`crate::Context::labels`]; `Default` is English.
+    /// [`crate::Context::labels`]; `Default` is English, and a board left with it speaks
+    /// the window's language ([`BoardLabels::localized`]).
+    ///
+    /// ```
+    /// # use remedy_ui_widgets_board::BoardLabels;
+    /// let de = BoardLabels::localized("de-DE");
+    /// assert_eq!(de.undo, "Rückgängig");
+    /// assert_eq!(de.list_remove, "{label} {number} entfernen");
+    /// ```
     ///
     /// ```
     /// # use remedy_ui_widgets_board::BoardLabels;
@@ -79,7 +125,7 @@ words! {
     /// });
     /// assert_eq!(fr.undo, "Annuler");
     /// ```
-    BoardLabels {
+    BoardLabels "" {
         /// The undo button.
         undo: "Undo",
         /// The redo button.
@@ -209,7 +255,66 @@ pub(crate) fn fill(template: &str, args: &[(&str, String)]) -> String {
     remedy_ui_services_i18n::fill(template, args)
 }
 
+/// `text` without the Unicode isolation marks Fluent wraps placeholders in: the board fills
+/// its own placeholders, as it does in words apps give it.
+fn unisolated(text: String) -> String {
+    if text.contains(['\u{2068}', '\u{2069}']) { text.replace(['\u{2068}', '\u{2069}'], "") } else { text }
+}
+
+/// The `{name}` placeholders of an English word.
+fn placeholders(en: &str) -> Vec<&str> {
+    en.split('{').skip(1).filter_map(|part| part.split_once('}').map(|(name, _)| name)).collect()
+}
+
+/// The catalog message of field `field` of a word struct: `prefix` and the field's name in
+/// kebab case.
+fn message_id(prefix: &str, field: &str) -> String {
+    format!("{prefix}{}", field.replace('_', "-"))
+}
+
+/// Field `field` of a word struct in `locale`: catalog message `prefix` + the field's name in
+/// kebab case, each placeholder of the English word `en` given as its own `{name}`, so the
+/// word comes back as a template with the board's placeholders where the language puts
+/// them.
+fn message(locale: &str, prefix: &str, field: &str, en: &str) -> String {
+    let id = message_id(prefix, field);
+    let names = placeholders(en);
+    let values: Vec<String> = names.iter().map(|n| format!("{{{n}}}")).collect();
+    let args: Vec<(&str, StrArg)> =
+        names.iter().zip(&values).map(|(n, v)| (*n, StrArg::Text(v.clone()))).collect();
+    unisolated(crate::STRINGS.format_in(locale, &id, &args))
+}
+
+impl ReactionLabels {
+    /// How many reactions, as `one` and `many` say, or in the plural forms of the catalog's
+    /// language while these are its words as [`ReactionLabels::localized`] gave them.
+    pub(crate) fn count(&self, n: u32) -> String {
+        if let Some(locale) = self.catalog_locale.as_deref() {
+            let fresh = ReactionLabels::localized(locale);
+            if fresh.one == self.one && fresh.many == self.many {
+                return unisolated(crate::STRINGS.format_in(
+                    locale,
+                    "reaction-count",
+                    &[("count", n.into())],
+                ));
+            }
+        }
+        match n {
+            1 => self.one.clone(),
+            n => fill(&self.many, &[("count", n.to_string())]),
+        }
+    }
+}
+
 impl BoardLabels {
+    /// The words a board built in `ui` says: these, unless they are the English defaults
+    /// ([`BoardLabels::default`], what [`crate::Context::local`] starts with), which give
+    /// way to [`BoardLabels::localized`] for the window's locale (read tracked, so a board
+    /// built again on a locale change speaks the new language).
+    pub(crate) fn for_window(&self, ui: &Ui) -> BoardLabels {
+        if *self == BoardLabels::default() { BoardLabels::localized(&ui.locale()) } else { self.clone() }
+    }
+
     /// Why a change was refused, in these words. `area` names an area by its id (its title,
     /// where it has one).
     pub fn error(&self, e: &BoardError, area: impl Fn(&str) -> String) -> String {
@@ -238,5 +343,30 @@ mod tests {
         let de = BoardLabels::default()
             .translated(|s| if s == "{count} reactions" { "{count} Reaktionen".into() } else { s.into() });
         assert_eq!(de.reactions.many, "{count} Reaktionen");
+    }
+
+    #[test]
+    fn catalog_words_count_with_the_languages_plurals() {
+        let ru = ReactionLabels::localized("ru");
+        assert_eq!(ru.count(1), "1 реакция");
+        assert_eq!(ru.count(3), "3 реакции");
+        assert_eq!(ru.count(5), "5 реакций");
+        assert_eq!(ru.count(21), "21 реакция");
+        let ar = ReactionLabels::localized("ar-EG");
+        assert_eq!(ar.count(0), "لا تفاعلات");
+        assert_eq!(ar.count(2), "تفاعلان");
+        assert_eq!(ar.count(11), "11 تفاعلًا");
+        // Reworded words are the app's: their own one and many count.
+        let mut mine = ReactionLabels::localized("ru");
+        mine.many = "реакций: {count}".into();
+        assert_eq!(mine.count(3), "реакций: 3");
+        let translated = ReactionLabels::localized("ru").translated(str::to_owned);
+        assert_eq!(translated.count(3), "Реакций: 3", "translated words are the app's too");
+        assert_eq!(ReactionLabels::default().count(1), "1 reaction");
+        assert_eq!(ReactionLabels::localized("en").count(0), "0 reactions");
+        assert_eq!(
+            BoardLabels::localized("ar").area_place,
+            "العمود {column}، الصف {row}، العرض {columns}، الارتفاع {rows}"
+        );
     }
 }

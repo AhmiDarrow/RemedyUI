@@ -174,6 +174,7 @@ pub fn color_swatch_grid(
     let key_el = root.clone();
     let sem_el = root.clone();
     let l2 = label.clone();
+    let u = ui.clone();
     root.on_focus_change(move |f| focused.set_if_changed(f))
         .on_key(move |e| {
             if !e.pressed {
@@ -230,14 +231,14 @@ pub fn color_swatch_grid(
             if let Some(sw) = list.get(cur) {
                 let cols = columns_of(&options, &sem_el);
                 let picked = selected.get() == Some(cur);
-                s = s.value(format!(
-                    "{}, {}, row {} column {}{}",
-                    sw.name,
-                    hex(sw.color),
-                    cur / cols + 1,
-                    cur % cols + 1,
-                    if picked { ", selected" } else { "" }
-                ));
+                let args = [
+                    ("name", sw.name.as_str().into()),
+                    ("hex", hex(sw.color).into()),
+                    ("row", (cur / cols + 1).into()),
+                    ("column", (cur % cols + 1).into()),
+                ];
+                let id = if picked { "swatch-cursor-selected" } else { "swatch-cursor" };
+                s = s.value(crate::STRINGS.format(&u, id, &args));
             }
             s
         })

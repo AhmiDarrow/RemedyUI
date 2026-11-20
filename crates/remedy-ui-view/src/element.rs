@@ -84,9 +84,8 @@ pub fn rasterize(list: &DisplayList, size: Size, scale: f32) -> Option<remedy_ui
         return None;
     }
     let (w, h) = (w as u32, h as u32);
-    let frame = CPU
-        .with(|r| r.borrow_mut().render(list, w, h, scale, remedy_ui_core::Color::TRANSPARENT))
-        .ok()?;
+    let frame =
+        CPU.with(|r| r.borrow_mut().render(list, w, h, scale, remedy_ui_core::Color::TRANSPARENT)).ok()?;
     Some(remedy_ui_paint::Image::new(frame.width, frame.height, std::sync::Arc::from(frame.pixels)))
 }
 
@@ -120,7 +119,9 @@ impl PaintCx<'_> {
         let size = self.size;
         let scale = if self.scale.is_finite() && self.scale > 0.0 { self.scale } else { 1.0 };
         let dims = ((size.width * 64.0).round() as u32, (size.height * 64.0).round() as u32, scale.to_bits());
-        let hit = CACHED.with(|c| c.borrow().get(&key).filter(|(w, h, s, _)| (*w, *h, *s) == dims).map(|(_, _, _, i)| i.clone()));
+        let hit = CACHED.with(|c| {
+            c.borrow().get(&key).filter(|(w, h, s, _)| (*w, *h, *s) == dims).map(|(_, _, _, i)| i.clone())
+        });
         let image = match hit {
             Some(i) => Some(i),
             None => {
@@ -335,7 +336,10 @@ impl TextSlot {
         }
         let options = {
             let mut v_ = ParagraphOptions::default();
-            v_.max_width = max_width;
+            // Half a pixel of slack: a box sized to its text's width (rounded up) must not
+            // wrap it again when the advances add up to exactly that width, which text that
+            // may break between any two characters (Chinese, Japanese) would.
+            v_.max_width = max_width.map(|w| w + 0.5);
             v_.scale = self.scale;
             v_.container = container(self.rtl);
             v_
@@ -562,6 +566,9 @@ pub(crate) struct ElData {
     pub(crate) drag_hover: Option<crate::dnd::DragHover>,
     /// A scroll container that also scrolls sideways.
     pub(crate) scroll_x: bool,
+    /// How far a right-to-left sideways scroll container's content overflows to the left:
+    /// its scroll offset where the content's start (its right edge) shows.
+    pub(crate) scroll_lead: f32,
     /// Told the element's new size after a frame where it changed.
     pub(crate) on_resize: Option<Rc<dyn Fn(Size)>>,
     pub(crate) last_size: Option<Size>,
@@ -760,6 +767,10 @@ pub(crate) struct Inner {
     pub(crate) refresh: remedy_ui_reactive::Signal<Option<std::time::Duration>>,
     /// The window is minimized or fully covered: nothing in it is seen.
     pub(crate) occluded: bool,
+    /// Where the window's layout direction comes from ([`Ui::set_direction`]).
+    pub(crate) direction: WindowDirection,
+    /// The window lays out right to left now ([`Ui::is_rtl`]).
+    pub(crate) rtl: remedy_ui_reactive::Signal<bool>,
     pub(crate) timers: HashMap<u64, Box<dyn FnOnce()>>,
     pub(crate) next_timer: u64,
     /// The native window this view draws into, for content the platform draws itself (an
@@ -892,6 +903,20 @@ pub struct El {
     pub(crate) id: ElementId,
 }
 
+/// Where a window's layout direction comes from ([`Ui::set_direction`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum WindowDirection {
+    /// From the window's locale: right to left for Arabic, Hebrew, Persian, Urdu and the
+    /// other right-to-left languages, left to right otherwise.
+    #[default]
+    Locale,
+    /// Always left to right.
+    LeftToRight,
+    /// Always right to left.
+    RightToLeft,
+}
+
 fn root_style() -> LayoutStyle {
     {
         let mut v_ = LayoutStyle::column();
@@ -977,6 +1002,8 @@ impl Ui {
             safe_area: remedy_ui_reactive::Signal::new(remedy_ui_host::SafeArea::default()),
             refresh: remedy_ui_reactive::Signal::new(None),
             occluded: false,
+            direction: WindowDirection::Locale,
+            rtl: remedy_ui_reactive::Signal::new(false),
             timers: HashMap::new(),
             next_timer: 0,
             window_handles: None,
@@ -1091,7 +1118,11 @@ impl Ui {
             let mut i = self.0.borrow_mut();
             let changed = i.pseudo != pseudo;
             i.pseudo = pseudo;
-            changed
+            // The text's language picks between fonts for the characters languages share
+            // (Japanese and Chinese forms) and language-specific shaping: text is laid out
+            // again when it changes.
+            let language = i.engine.borrow_mut().set_locale(&locale);
+            changed || language
         };
         if changed {
             let ids: Vec<ElementId> = {
@@ -1126,6 +1157,56 @@ impl Ui {
         }
         let l = self.0.borrow().locale;
         l.set_if_changed(locale);
+        self.apply_direction();
+    }
+
+    /// Chooses where the window's layout direction comes from: the locale (the default, so
+    /// Arabic, Hebrew, Persian and Urdu windows lay out right to left), or a fixed direction
+    /// a person chose (a setting that keeps an Arabic interface left to right, or tries a
+    /// right-to-left layout in English). Rows, padding, alignment, icons that point
+    /// somewhere, menus, overlays and scroll bars all follow it.
+    pub fn set_direction(&self, direction: WindowDirection) {
+        self.0.borrow_mut().direction = direction;
+        self.apply_direction();
+    }
+
+    /// Where the window's layout direction comes from ([`Ui::set_direction`]).
+    pub fn direction(&self) -> WindowDirection {
+        self.0.borrow().direction
+    }
+
+    /// Whether the window lays out right to left (tracked): from its locale unless
+    /// [`Ui::set_direction`] fixed it. Elements inside can still set their own direction.
+    pub fn is_rtl(&self) -> bool {
+        let s = self.0.borrow().rtl;
+        s.get()
+    }
+
+    /// Sets the window root's direction from the setting and the locale.
+    fn apply_direction(&self) {
+        let (setting, locale, signal, root) = {
+            let i = self.0.borrow();
+            (i.direction, i.locale.get_untracked().unwrap_or_default(), i.rtl, i.tree.root())
+        };
+        let rtl = match setting {
+            WindowDirection::Locale => remedy_ui_text::is_rtl_locale(&locale),
+            WindowDirection::LeftToRight => false,
+            WindowDirection::RightToLeft => true,
+        };
+        let want = if rtl { remedy_ui_layout::Direction::Rtl } else { remedy_ui_layout::Direction::Ltr };
+        let same = signal.get_untracked().ok() == Some(rtl)
+            && self.0.borrow().els.get(&root).is_some_and(|d| d.layout.direction == want);
+        if same {
+            return;
+        }
+        let window = El { ui: self.clone(), id: root };
+        let _ = window.layout(|l| l.direction = want);
+        // Painters that mirror (icons, scroll bars, sliders) draw again.
+        let ids: Vec<ElementId> = self.0.borrow().els.keys().copied().collect();
+        for id in ids {
+            self.mark(id, Dirty::PAINT | Dirty::SEMANTICS);
+        }
+        signal.set_if_changed(rtl);
     }
 
     /// Uses the system's double-click time (the runner sets it from system settings).
@@ -1250,8 +1331,8 @@ impl Ui {
         }
         let root = self.tree().root();
         signal.set_if_changed(area);
-        // The window root adds the area to its padding when laid out (see the frame). It lays
-        // out left to right whatever the content's direction, so start is left here.
+        // The window root adds the area to its padding when laid out (see the frame). The
+        // area is physical: a cutout on the left is on the left in any language.
         let insets =
             remedy_ui_core::Insets { top: area.top, end: area.right, bottom: area.bottom, start: area.left };
         self.mark(root, Dirty::LAYOUT);
@@ -1260,6 +1341,7 @@ impl Ui {
             // their insets, stretched between them.
             let _ = El { ui: self.clone(), id: layer }.layout(|l| {
                 l.inset = insets;
+                l.inset_physical = true;
                 l.width = remedy_ui_layout::Length::Auto;
                 l.height = remedy_ui_layout::Length::Auto;
             });
@@ -1758,6 +1840,7 @@ impl ElData {
             drop_target: None,
             drag_hover: None,
             scroll_x: false,
+            scroll_lead: 0.0,
             on_resize: None,
             last_size: None,
             on_visibility: None,
@@ -2300,12 +2383,25 @@ impl El {
     /// Says how keyboard users reach what this element's pointer handling does, for an
     /// element that is deliberately not focusable (a window-resize grip: the system's window
     /// menu). The accessibility check accepts pointer-only elements that say this.
-    pub fn keyboard_alternative(self, how: impl Into<String>) -> Self {
-        let how = how.into();
-        if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
-            d.keyboard_alternative = Some(how);
+    /// A closure or signal keeps it current (a translated hint follows the window's locale).
+    pub fn keyboard_alternative(self, how: impl IntoProp<String>) -> Self {
+        match how.into_prop() {
+            Prop::Value(how) => {
+                if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
+                    d.keyboard_alternative = Some(how);
+                }
+                self
+            }
+            dynamic => {
+                let (ui, id) = (self.ui.clone(), self.id);
+                self.bind_named("keyboard_alternative", move || {
+                    let how = dynamic.get();
+                    if let Some(d) = ui.0.borrow_mut().els.get_mut(&id) {
+                        d.keyboard_alternative = Some(how);
+                    }
+                })
+            }
         }
-        self
     }
 
     /// Calls `f` on a double click (two presses within the system's double-click time, on

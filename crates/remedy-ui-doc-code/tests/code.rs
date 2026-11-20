@@ -97,7 +97,7 @@ fn a_code_view_numbers_colors_and_folds() {
     assert_eq!(gutters.first().map(String::as_str), Some("1"));
     // Fold `fn main() {`: its body goes, the closing brace stays.
     let fold = find(&view, "icon_button").into_iter().next().unwrap_or_else(|| unreachable!("a fold button"));
-    let name = fold.info().and_then(|i| i.semantics).and_then(|s| s.name().map(str::to_owned));
+    let name = fold.info().and_then(|i| i.semantics).and_then(|s| s.name().map(plain));
     assert_eq!(name.as_deref(), Some("Fold line 2"));
     let _ = ui.tree().dispatch(fold.id(), &remedy_ui_view::Click { position: None });
     frame(&ui);
@@ -116,11 +116,20 @@ fn a_diff_view_marks_and_names_changes() {
     ui.root().child(ui.el("col").column().height(600.0).fill_width().child(view.clone()));
     frame(&ui);
     let rows = find(&view, "code_line");
-    let said: Vec<String> = rows
-        .iter()
-        .filter_map(|r| r.info().and_then(|i| i.semantics).and_then(|s| s.name().map(str::to_owned)))
-        .collect();
-    assert_eq!(said, ["Unchanged: a", "Removed: b", "Added: B", "Unchanged: c", "Added: d"]);
+    let said = || -> Vec<String> {
+        rows.iter()
+            .filter_map(|r| r.info().and_then(|i| i.semantics).and_then(|s| s.name().map(plain)))
+            .collect()
+    };
+    assert_eq!(said(), ["Unchanged: a", "Removed: b", "Added: B", "Unchanged: c", "Added: d"]);
+    ui.set_locale("de");
+    frame(&ui);
+    assert_eq!(
+        said(),
+        ["Unverändert: a", "Entfernt: b", "Hinzugefügt: B", "Unverändert: c", "Hinzugefügt: d"]
+    );
+    ui.set_locale("en");
+    frame(&ui);
     let variants: Vec<&str> = rows.iter().filter_map(|r| r.info().map(|i| i.variant)).collect();
     assert_eq!(variants, ["", "removed", "added", "", "added"]);
 }
@@ -198,4 +207,15 @@ fn the_code_editor_types_at_several_cursors_and_numbers_its_lines() {
     assert_eq!(numbers, ["1", "2", "3"]);
     let audit = remedy_ui_devtools::audit(&ui);
     assert!(audit.is_empty(), "{:#?}", audit.iter().map(|p| p.message()).collect::<Vec<_>>());
+}
+
+/// Text without the Unicode isolation marks the string catalogs put around placeholders.
+fn plain(s: &str) -> String {
+    s.replace(['\u{2068}', '\u{2069}'], "")
+}
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&remedy_ui_doc_code::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
 }

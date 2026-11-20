@@ -39,3 +39,24 @@ pub use pitch::*;
 pub use staff_edit::{StaffEdit, StaffEditHandler, StaffEditing};
 pub use tab::*;
 pub use tab_edit::{TabEdit, TabEditHandler, TabEditing};
+
+use remedy_ui_view::strings::StrArg;
+
+/// The pack's own words (what screen readers hear about notes, chords, strings and frets,
+/// and the undo history's names for edits) in every language the engine ships, from
+/// `i18n/*.ftl`. Apps reword them, or add a language, with
+/// [`remedy_ui_view::strings::add_messages`] under the name `widgets-music`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("widgets-music");
+
+/// Message `id` with placeholder values in `locale` (not tracked: widgets pass
+/// `ui.locale()`, which is). What this pack says is read by screen readers or names an undo
+/// step, and its placeholders are numbers, note letters and its own phrases, so the
+/// direction-isolation marks around them, which only matter on screen, are left out.
+pub(crate) fn say(locale: &str, id: &str, args: &[(&str, StrArg)]) -> String {
+    STRINGS.format_in(locale, id, args).replace(['\u{2068}', '\u{2069}'], "")
+}
+
+/// Items said as a list in `locale` ("C 4, E 4").
+pub(crate) fn list(locale: &str, items: &[String]) -> String {
+    items.join(&say(locale, "list-separator", &[]))
+}

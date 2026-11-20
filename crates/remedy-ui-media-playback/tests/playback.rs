@@ -235,10 +235,15 @@ fn find(el: &El, widget: &str) -> Vec<El> {
     out
 }
 
+/// Text without the Unicode isolation marks the string catalogs put around placeholders.
+fn plain(s: &str) -> String {
+    s.replace(['\u{2068}', '\u{2069}'], "")
+}
+
 fn named(el: &El, name: &str) -> Option<El> {
     let mut stack = vec![el.clone()];
     while let Some(e) = stack.pop() {
-        if e.info().and_then(|i| i.semantics).is_some_and(|s| s.name() == Some(name)) {
+        if e.info().and_then(|i| i.semantics).is_some_and(|s| s.name().map(plain).as_deref() == Some(name)) {
             return Some(e);
         }
         stack.extend(e.child_elements());
@@ -345,7 +350,7 @@ fn the_player_widget_is_operable_by_keyboard_and_passes_the_audit() {
     let seek = named(&view, "Seek").unwrap_or_else(|| unreachable!());
     let sem = seek.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!());
     assert_eq!(sem.role(), remedy_ui_a11y::Role::Slider);
-    assert_eq!(sem.value_text(), Some("0:00 of 0:03"));
+    assert_eq!(sem.value_text().map(plain).as_deref(), Some("0:00 of 0:03"));
 
     // The seek bar takes the arrows (5 s, clamped to the end) and Home.
     seek.focus();
@@ -394,6 +399,13 @@ fn a_player_that_cannot_open_shows_why() {
         .filter_map(|l| l.info().filter(|i| !i.hidden).and_then(|i| i.text))
         .collect();
     assert!(shown.iter().any(|t| t.starts_with("This can't be played")), "{shown:?}");
+    s.ui.set_locale("de");
+    s.pump();
+    let shown: Vec<String> = find(&view, "player_caption")
+        .iter()
+        .filter_map(|l| l.info().filter(|i| !i.hidden).and_then(|i| i.text))
+        .collect();
+    assert!(shown.iter().any(|t| t.starts_with("Dies kann nicht wiedergegeben werden")), "{shown:?}");
     s.idle(30);
     let problems = remedy_ui_devtools::audit(&s.ui);
     assert!(problems.is_empty(), "{problems:?}");
@@ -637,4 +649,10 @@ fn a_device_that_stops_playing_hands_the_clock_to_the_wall() {
     heard.store(1500, Ordering::SeqCst);
     s.wait("ended", |_| p.state() == PlaybackState::Ended);
     assert!(near(p.position(), 2.0, 0.001));
+}
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&remedy_ui_media_playback::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
 }

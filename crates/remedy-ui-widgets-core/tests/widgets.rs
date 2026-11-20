@@ -884,3 +884,88 @@ fn a_lamp_shows_the_color_of_its_kind_of_status() {
     assert_eq!(at(&news), theme.colors.accent.to_rgba8());
     assert_eq!(at(&off), theme.derive().line.to_rgba8(), "off is off, whatever its kind");
 }
+
+#[test]
+fn value_widgets_mirror_right_to_left() {
+    let mut t = T::new();
+    t.ui.set_locale("ar");
+    let v = Signal::new(5.0f64);
+    let sl = w::slider(&t.ui, "Volume", v, 0.0, 10.0, 1.0).width(200.0);
+    let f = Signal::new(0.5f32);
+    let split = w::split(
+        &t.ui,
+        remedy_ui_layout::Axis::Row,
+        t.ui.el("pane").height(20.0),
+        t.ui.el("pane").height(20.0),
+        f,
+    )
+    .width(200.0)
+    .height(20.0);
+    t.ui.root().child(sl.clone()).child(split.clone());
+    t.frame();
+    sl.focus();
+    // The thumb moves the way the arrow points: left is up, right to left.
+    t.key(Key::ArrowLeft);
+    assert_eq!(v.get(), 6.0);
+    t.key(Key::ArrowRight);
+    t.key(Key::ArrowRight);
+    assert_eq!(v.get(), 4.0);
+    // A press near the right edge is near the minimum.
+    t.frame();
+    let b = sl.bounds().unwrap_or_default();
+    let at = Point::new(b.max.x - 2.0, (b.min.y + b.max.y) / 2.0);
+    t.ui.pointer(&ptr(PointerPhase::Down, at, Buttons::PRIMARY));
+    t.ui.pointer(&ptr(PointerPhase::Up, at, Buttons::default()));
+    t.frame();
+    assert!(v.get() <= 0.5, "the right end is the minimum: {}", v.get());
+    // The split's first pane is at the right; Left moves the divider left, growing it.
+    if let Some(handle) = split.child_elements().get(1) {
+        handle.focus();
+    }
+    t.key(Key::ArrowLeft);
+    assert!(f.get() > 0.5, "{}", f.get());
+    // The same window left to right: arrows as before.
+    t.ui.set_locale("en");
+    t.frame();
+    sl.focus();
+    t.key(Key::ArrowLeft);
+    assert!(v.get() <= 0.5);
+    t.key(Key::ArrowRight);
+    assert_eq!(v.get(), 1.0);
+}
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&w::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+#[test]
+fn built_in_labels_follow_the_window_language() {
+    let mut t = T::new();
+    t.ui.connect_accessibility();
+    let v = Signal::new(1.0f64);
+    let st = w::stepper(&t.ui, "Copies", v, 0.0, 10.0, 1.0);
+    let secret = w::secret_input(&t.ui, "PIN");
+    let reveal = w::reveal_toggle(&t.ui, &secret);
+    t.ui.root().child(st).child(secret.el()).child(reveal);
+    t.frame();
+    let names = |t: &T| -> Vec<String> {
+        t.ui.reader_view()
+            .into_iter()
+            .filter_map(|n| n.name)
+            .map(|n| n.replace(['\u{2068}', '\u{2069}'], ""))
+            .collect()
+    };
+    let en = names(&t);
+    for want in ["Decrease Copies", "Increase Copies", "Show password"] {
+        assert!(en.iter().any(|n| n == want), "{want} in {en:?}");
+    }
+    t.ui.set_locale("de");
+    t.frame();
+    let de = names(&t);
+    for want in ["Copies verringern", "Copies erhöhen", "Passwort anzeigen"] {
+        assert!(de.iter().any(|n| n == want), "{want} in {de:?}");
+    }
+    assert_eq!(w::Icon::Close.localized_name(&t.ui), "Schließen");
+}

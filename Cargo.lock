@@ -4000,6 +4000,7 @@ dependencies = [
  "remedy-ui-embed-gpu",
  "remedy-ui-embed-webview",
  "remedy-ui-fonts",
+ "remedy-ui-fonts-cjk",
  "remedy-ui-host",
  "remedy-ui-input",
  "remedy-ui-layout",
@@ -4230,6 +4231,7 @@ dependencies = [
  "remedy-ui-compositor",
  "remedy-ui-core",
  "remedy-ui-fonts",
+ "remedy-ui-fonts-cjk",
  "remedy-ui-input",
  "remedy-ui-layout",
  "remedy-ui-macros",
@@ -4359,6 +4361,15 @@ name = "remedy-ui-fonts"
 version = "1.0.0-rc.1"
 dependencies = [
  "read-fonts 0.47.0",
+]
+
+[[package]]
+name = "remedy-ui-fonts-cjk"
+version = "1.0.0-rc.1"
+dependencies = [
+ "read-fonts 0.47.0",
+ "remedy-ui-fonts",
+ "wuff",
 ]
 
 [[package]]
@@ -4778,6 +4789,7 @@ dependencies = [
  "parley",
  "remedy-ui-core",
  "remedy-ui-fonts",
+ "remedy-ui-fonts-cjk",
  "ropey",
  "skrifa",
  "unicode-security",
@@ -4814,6 +4826,10 @@ dependencies = [
 name = "remedy-ui-view"
 version = "1.0.0-rc.1"
 dependencies = [
+ "fluent-bundle",
+ "fluent-syntax",
+ "intl-memoizer",
+ "intl_pluralrules",
  "remedy-ui-a11y",
  "remedy-ui-compositor",
  "remedy-ui-core",
@@ -4829,6 +4845,7 @@ dependencies = [
  "remedy-ui-text",
  "remedy-ui-trace",
  "remedy-ui-tree",
+ "unic-langid",
 ]
 
 [[package]]

@@ -12,7 +12,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["gpu", "system-fonts", "widgets", "forms", "nav"]
+default = ["gpu", "system-fonts", "script-fonts", "widgets", "forms", "nav"]
 ## Draw with the GPU renderer, falling back to the CPU renderer when no GPU works.
 gpu = ["dep:remedy-ui-render-gpu", "remedy-ui-media-effects?/gpu"]
 ## Dictionary line breaking for Thai, Lao, Khmer and Burmese (adds several MB of data).
@@ -22,6 +22,11 @@ devtools = ["dep:remedy-ui-devtools"]
 ## Font fallback reaches the system's fonts (Arabic, CJK, emoji and every script the
 ## bundled fonts lack).
 system-fonts = ["remedy-ui-text/system-fonts", "remedy-ui-devtools?/system-fonts"]
+## Bundled fallback faces for the scripts Remedy Sans UI does not write: Arabic, Devanagari,
+## Bengali, Simplified Chinese and Japanese (Noto Sans, about 10 MB), so an interface in any
+## of them never shows empty boxes, even where no such font is installed (the web, a
+## minimal Linux, a CI machine). Without it, those scripts need the system's fonts.
+script-fonts = ["remedy-ui-fonts/scripts", "dep:remedy-ui-fonts-cjk"]
 ## The core widgets and the Remedy themes (`remedy_ui::widgets`, `remedy_ui::themes`); apps
 ## start styled with the first Remedy palette.
 widgets = ["dep:remedy-ui-widgets-core", "dep:remedy-ui-themes"]
@@ -110,7 +115,7 @@ headless = ["dep:remedy-ui-bridge-headless"]
 ## only the module's types (`WebConfig`, `Mount`) and its documentation, with no web code.
 web = ["dep:remedy-ui-bridge-web"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-rhai", "script-wasm", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "effects", "customize", "web", "macros", "isolated", "webstorage"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "script-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-rhai", "script-wasm", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "effects", "customize", "web", "macros", "isolated", "webstorage"]
 
 [dependencies]
 remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "1.0.0-rc.1" }
@@ -120,6 +125,7 @@ remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1" }
+remedy-ui-fonts-cjk = { path = "../remedy-ui-fonts-cjk", version = "1.0.0-rc.1", optional = true }
 remedy-ui-host = { path = "../remedy-ui-host", version = "1.0.0-rc.1" }
 remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
 remedy-ui-layout = { path = "../remedy-ui-layout", version = "1.0.0-rc.1" }

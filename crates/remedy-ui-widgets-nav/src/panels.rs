@@ -72,7 +72,7 @@ pub fn drawer(ui: &Ui, label: impl Into<String>, edge: Edge, open: Signal<bool>,
                         }
                         false
                     })
-                    .keyboard_alternative("Escape closes the panel")
+                    .keyboard_alternative(crate::tr_fn(&u, "drawer-close-keys"))
                     .focusable(false)
                     .on_key(move |e| {
                         if e.pressed && e.key == Key::Escape {
@@ -105,11 +105,12 @@ pub fn drawer(ui: &Ui, label: impl Into<String>, edge: Edge, open: Signal<bool>,
 pub fn sheet(ui: &Ui, title: impl Into<String>, open: Signal<bool>, content: El) -> El {
     let title = title.into();
     let unit = ui.theme().spacing.unit;
+    let close = w::icon_button(ui, Icon::Close, crate::tr_fn(ui, "panel-close"), move || open.set(false));
     let head = w::row(ui)
         .align(Align::Center)
         .fill_width()
         .child(w::heading(ui, 2, title.clone()).grow(1.0))
-        .child(w::icon_button(ui, Icon::Close, "Close", move || open.set(false)).variant("quiet"));
+        .child(close.variant("quiet"));
     let body = w::column(ui).gap(unit * 3.0).fill_width().child(head).child(content);
     drawer(ui, title, Edge::Bottom, open, body)
 }
@@ -147,11 +148,14 @@ pub fn title_bar(ui: &Ui, title: Signal<String>, extra: Option<El>, actions: Tit
         let _ = t2.clone().text(remedy_ui_view::RichText::plain(title.get()));
     });
     let (a1, a2, a3, a4) = (a.clone(), a.clone(), a.clone(), a.clone());
-    let max = w::icon_button(ui, Icon::Maximize, "Maximize", move || (a2.toggle_maximize)()).variant("quiet");
+    let max = w::icon_button(ui, Icon::Maximize, crate::tr_fn(ui, "title-bar-maximize"), move || {
+        (a2.toggle_maximize)()
+    })
+    .variant("quiet");
     let (m2, u, a5) = (max.clone(), ui.clone(), a.clone());
     let max = max.bind(move || {
         let on = (a5.is_maximized)();
-        let label = if on { "Restore" } else { "Maximize" };
+        let label = crate::tr(&u, if on { "title-bar-restore" } else { "title-bar-maximize" });
         untrack(|| {
             m2.clear();
             let _ = m2.clone().child(w::icon(
@@ -166,9 +170,15 @@ pub fn title_bar(ui: &Ui, title: Signal<String>, extra: Option<El>, actions: Tit
     });
     let buttons = w::row(ui)
         .gap(unit / 2.0)
-        .child(w::icon_button(ui, Icon::Minus, "Minimize", move || (a1.minimize)()).variant("quiet"))
+        .child(
+            w::icon_button(ui, Icon::Minus, crate::tr_fn(ui, "title-bar-minimize"), move || (a1.minimize)())
+                .variant("quiet"),
+        )
         .child(max)
-        .child(w::icon_button(ui, Icon::Close, "Close", move || (a3.close)()).variant("quiet"));
+        .child(
+            w::icon_button(ui, Icon::Close, crate::tr_fn(ui, "title-bar-close"), move || (a3.close)())
+                .variant("quiet"),
+        );
     let apple = ui.platform() == remedy_ui_input::Platform::Apple;
     let mut bar = ui
         .el("title_bar")
@@ -178,7 +188,10 @@ pub fn title_bar(ui: &Ui, title: Signal<String>, extra: Option<El>, actions: Tit
         .padding(Insets::symmetric(unit, unit * 2.0))
         .fill_width()
         .style(StylePatch::default())
-        .semantics(Semantics::new(Role::Group).label("Title bar"));
+        .semantics({
+            let u = ui.clone();
+            move || Semantics::new(Role::Group).label(crate::tr(&u, "title-bar"))
+        });
     if apple {
         bar = bar.child(buttons.clone());
     }

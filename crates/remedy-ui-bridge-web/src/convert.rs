@@ -582,6 +582,28 @@ pub fn clamp_range(text: &str, r: &Range<usize>) -> Range<usize> {
     a.min(b)..a.max(b)
 }
 
+/// What a floating window's close button is called for screen readers, in the page's
+/// language (`navigator.language`, BCP 47). The bridge sits below the view and its message
+/// catalogs, so it keeps these few words itself: the same as the core widgets' close icon
+/// (`icon-close` in `remedy-ui-widgets-core`), for the languages the engine ships; English
+/// for any other.
+pub fn close_label(language: &str) -> &'static str {
+    let primary = language.split(['-', '_']).next().unwrap_or_default().to_ascii_lowercase();
+    match primary.as_str() {
+        "es" => "Cerrar",
+        "zh" => "关闭",
+        "hi" => "बंद करें",
+        "ar" => "إغلاق",
+        "fr" => "Fermer",
+        "pt" => "Fechar",
+        "ru" => "Закрыть",
+        "ja" => "閉じる",
+        "de" => "Schließen",
+        "bn" => "বন্ধ করুন",
+        _ => "Close",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -784,5 +806,15 @@ mod tests {
         assert_eq!(accept_list(&f), ".png,.jpg");
         assert_eq!(accept_list(&[("All".into(), vec!["*".into()])]), "");
         assert_eq!(clamp_range("añb", &(2..9)), 1..4, "inside the text, on character boundaries");
+    }
+
+    #[test]
+    fn the_close_button_is_named_in_the_page_language() {
+        assert_eq!(close_label("de-DE"), "Schließen");
+        assert_eq!(close_label("pt_BR"), "Fechar");
+        assert_eq!(close_label("ZH-hans-CN"), "关闭");
+        assert_eq!(close_label("en-US"), "Close");
+        assert_eq!(close_label(""), "Close");
+        assert_eq!(close_label("tlh"), "Close", "English where the engine has no words");
     }
 }

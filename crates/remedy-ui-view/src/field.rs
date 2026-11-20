@@ -12,7 +12,7 @@ use remedy_ui_paint::{Brush, DisplayList};
 use remedy_ui_style::{ResolvedStyle, Theme};
 use remedy_ui_text::{
     Block, CodeEditor, Mark, Paragraph, ParagraphOptions, RichDoc, RichEditor, RichLook, RichText, RichView,
-    SecretEditor, SecretString, TextEditor, TextEngine, TextPosition, TextStyle,
+    SecretEditor, SecretString, TextEditor, TextEngine, TextPosition, TextSelection, TextStyle,
 };
 use remedy_ui_tree::Dirty;
 
@@ -129,6 +129,10 @@ pub(crate) struct Field {
     scale: f32,
     /// The field lays out right to left: its text starts at the right edge.
     pub(crate) rtl: bool,
+    /// Which side of a direction change the caret is on, after the arrow keys put it at a
+    /// shown position where one index has two places (the end of an English word and the
+    /// start of the Arabic one after it): `(shown index, side)`, valid while the caret stays.
+    caret_side: Option<(usize, remedy_ui_text::Affinity)>,
     /// The paragraph shown, its width and where its top-left sat in the element.
     shown: Option<(f32, Rc<Paragraph>, Point)>,
     /// How far the text has scrolled inside the field's box, when it is taller (a multi-line
@@ -344,6 +348,13 @@ impl Field {
         }
     }
 
+    /// The caret as a position in the shown paragraph, on the side the arrow keys left it.
+    fn caret_position(&self, len: usize) -> TextPosition {
+        let index = self.caret_index().min(len);
+        let affinity = self.caret_side.filter(|(i, _)| *i == index).map(|(_, a)| a).unwrap_or_default();
+        TextPosition { index, affinity }
+    }
+
     fn caret_index(&self) -> usize {
         match &self.editor {
             Editor::Plain(e) => {
@@ -421,7 +432,7 @@ impl Field {
         let (text, comp) = self.display();
         // Text taller or wider than the box scrolls inside it: to the caret when it or the
         // text moved while focused, otherwise where it was, never past the text's ends.
-        let at = TextPosition { index: self.caret_index().min(text.len()), ..TextPosition::default() };
+        let at = self.caret_position(text.len());
         let c = p.caret(at, 1.5);
         let x0 = p.x_offset(content.width());
         // The caret's box can reach past the last line's: the text ends where either ends.
@@ -510,7 +521,7 @@ impl Field {
             }
         }
         if focused {
-            let at = TextPosition { index: self.caret_index().min(text.len()), ..TextPosition::default() };
+            let at = self.caret_position(text.len());
             let caret = p.caret(at, 1.5);
             list.fill_rect(caret.translate(o.to_vec2()), Brush::Solid(tokens.text));
             for c in self.extra_cursors() {
@@ -558,10 +569,7 @@ impl Field {
         let caret = self
             .shown
             .as_ref()
-            .map(|(_, p, o)| {
-                p.caret(TextPosition { index: self.caret_index(), ..TextPosition::default() }, 1.0)
-                    .translate(o.to_vec2())
-            })
+            .map(|(_, p, o)| p.caret(self.caret_position(usize::MAX), 1.0).translate(o.to_vec2()))
             .unwrap_or(Rect::ZERO)
             .translate(bounds.min.to_vec2());
         match self.core() {
@@ -670,17 +678,58 @@ pub(crate) enum KeyOutcome {
 }
 
 pub(crate) fn key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> KeyOutcome {
-    let out = field_key(f, e, now, platform);
+    let side = std::cell::Cell::new(f.caret_side);
+    let out = field_key(f, e, now, platform, &side);
+    f.caret_side = side.get();
     if !matches!(out, KeyOutcome::Ignored) {
         f.show_caret = true;
     }
     out
 }
 
-fn field_key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> KeyOutcome {
+/// One press of Left or Right through text as it is shown: the caret moves to the visual
+/// left or right (in Arabic or Hebrew, Right moves toward the start; through mixed text it
+/// steps across runs the way they are drawn), by a character or by a word. Without Shift a
+/// selection collapses to its left or right edge as drawn. `sel` and the result are in the
+/// paragraph's (display) positions.
+/// `side` is where the caret was left at a direction change, and where it is left now.
+fn visual_step(
+    p: &Paragraph,
+    sel: TextSelection,
+    right: bool,
+    word: bool,
+    extend: bool,
+    side: &std::cell::Cell<Option<(usize, remedy_ui_text::Affinity)>>,
+) -> TextSelection {
+    let at = |i: usize| {
+        let affinity = side.get().filter(|(s, _)| *s == i).map(|(_, a)| a).unwrap_or_default();
+        TextPosition { index: i, affinity }
+    };
+    if !sel.is_caret() && !extend {
+        let x = |i: usize| p.caret(at(i), 1.0).min.x;
+        let (a, f) = (x(sel.anchor), x(sel.focus));
+        let edge = if (a < f) == right { sel.focus } else { sel.anchor };
+        side.set(None);
+        return TextSelection::caret(edge);
+    }
+    let n = if word { p.move_word(at(sel.focus), right) } else { p.move_visual(at(sel.focus), right) };
+    side.set(Some((n.index, n.affinity)));
+    if extend { TextSelection { anchor: sel.anchor, focus: n.index } } else { TextSelection::caret(n.index) }
+}
+
+fn field_key(
+    f: &mut Field,
+    e: &KeyEvent,
+    now: u64,
+    platform: Platform,
+    side: &std::cell::Cell<Option<(usize, remedy_ui_text::Affinity)>>,
+) -> KeyOutcome {
     if !e.pressed || e.composing {
         return KeyOutcome::Ignored;
     }
+    // The paragraph as last drawn, for moving through it as it looks.
+    let shown = f.shown.as_ref().map(|(_, p, _)| p.clone());
+    let rtl = f.rtl;
     // Outside Apple platforms Alt (without Ctrl, which with Alt is AltGr) never edits text:
     // Alt+Left is "back", Alt+letters reach menus. On Apple platforms Option moves by word.
     if platform != Platform::Apple && e.modifiers.alt && !e.modifiers.ctrl && e.text.is_none() {
@@ -723,12 +772,18 @@ fn field_key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> KeyOu
                     ed.delete_forward(now);
                     edited()
                 }
-                Key::ArrowLeft | Key::ArrowRight if word => {
-                    ed.move_word(e.key == Key::ArrowRight, extend);
-                    handled()
-                }
                 Key::ArrowLeft | Key::ArrowRight => {
-                    ed.move_char(e.key == Key::ArrowRight, extend);
+                    let right = e.key == Key::ArrowRight;
+                    match &shown {
+                        // As drawn: the shown text is the editor's while nothing is composing.
+                        Some(p) if ed.composition().is_none() && !ed.is_empty() => {
+                            let s = visual_step(p, ed.selection(), right, word, extend, side);
+                            ed.set_selection(s.anchor, s.focus);
+                        }
+                        // Not drawn yet: by the field's direction.
+                        _ if word => ed.move_word(right != rtl, extend),
+                        _ => ed.move_char(right != rtl, extend),
+                    }
                     handled()
                 }
                 Key::Home | Key::End => {
@@ -837,6 +892,11 @@ fn field_key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> KeyOu
         }
         Editor::Rich(r) => {
             let digit = |d: &str| ch(d) || e.physical == format!("Digit{d}");
+            // The shown paragraph and its map to the document, while nothing is composing.
+            let visual = shown
+                .as_ref()
+                .filter(|_| r.ed.editor().composition().is_none())
+                .map(|p| (p.clone(), r.view().clone()));
             let ed = &mut r.ed;
             let out = match &e.key {
                 _ if cmd && ch("a") => {
@@ -916,12 +976,26 @@ fn field_key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> KeyOu
                     ed.delete_forward(now);
                     edited()
                 }
-                Key::ArrowLeft | Key::ArrowRight if word => {
-                    ed.move_word(e.key == Key::ArrowRight, extend);
-                    handled()
-                }
                 Key::ArrowLeft | Key::ArrowRight => {
-                    ed.move_char(e.key == Key::ArrowRight, extend);
+                    let right = e.key == Key::ArrowRight;
+                    let before = ed.selection();
+                    if let Some((p, v)) = &visual {
+                        let shown = TextSelection {
+                            anchor: v.to_display(before.anchor),
+                            focus: v.to_display(before.focus),
+                        };
+                        let s = visual_step(p, shown, right, word, extend, side);
+                        ed.set_selection(v.to_model(s.anchor), v.to_model(s.focus));
+                    }
+                    // Not drawn yet, or a step that stayed put (onto a list marker, which
+                    // belongs to its line's start): by the field's direction.
+                    if visual.is_none() || (ed.selection() == before && (before.is_caret() || extend)) {
+                        if word {
+                            ed.move_word(right != rtl, extend);
+                        } else {
+                            ed.move_char(right != rtl, extend);
+                        }
+                    }
                     handled()
                 }
                 Key::Home | Key::End => {
@@ -1152,6 +1226,7 @@ impl Ui {
             reveal: false,
             scale,
             rtl: false,
+            caret_side: None,
             shown: None,
             scroll: Vec2::ZERO,
             followed: (0, 0),
@@ -1563,7 +1638,7 @@ impl TextField {
         }
         let f = self.field.borrow();
         let (_, p, o) = f.shown.clone()?;
-        let at = TextPosition { index: f.caret_index(), ..TextPosition::default() };
+        let at = f.caret_position(usize::MAX);
         Some(p.caret(at, 1.0).translate(o.to_vec2()).translate(bounds.min.to_vec2()))
     }
 

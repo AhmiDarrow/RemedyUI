@@ -473,9 +473,24 @@ fn screen_readers_get_the_screen_and_hear_new_output_politely() {
     // The title names it.
     h.feed(b"\x1b]2;cargo build\x07");
     h.fire_timers();
-    let name = root.info().and_then(|i| i.semantics).and_then(|s| s.name().map(str::to_owned));
-    assert_eq!(name.as_deref(), Some("Terminal: cargo build"));
+    let name = || {
+        root.info()
+            .and_then(|i| i.semantics)
+            .and_then(|s| s.name().map(|n| n.replace(['\u{2068}', '\u{2069}'], "")))
+    };
+    assert_eq!(name().as_deref(), Some("Terminal: cargo build"));
     assert_eq!(h.term.title().get_untracked().ok().as_deref(), Some("cargo build"));
+    // The default name follows the window's language.
+    h.ui.set_locale("ru");
+    h.frame();
+    assert_eq!(name().as_deref(), Some("Терминал: cargo build"));
+}
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+    assert_eq!(TerminalOptions::localized("ja").label, "ターミナル");
 }
 
 #[test]

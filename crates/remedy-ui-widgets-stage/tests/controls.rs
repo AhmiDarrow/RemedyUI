@@ -162,7 +162,13 @@ fn a_fader_drags_by_its_cap_and_steps_with_keys() {
     let f = kids.first().cloned().unwrap_or_else(|| el.clone());
     let m = kids.last().cloned().unwrap_or_else(|| el.clone());
     assert_eq!(semantics(&f).role(), Role::Slider);
-    assert_eq!(semantics(&m).name(), Some("Maple level"));
+    let plain = |s: &str| s.replace(['\u{2068}', '\u{2069}'], "");
+    assert_eq!(semantics(&m).name().map(plain).as_deref(), Some("Maple level"));
+    ui.set_locale("de");
+    let _ = frame(&ui);
+    assert_eq!(semantics(&m).name().map(plain).as_deref(), Some("Pegel von Maple"));
+    ui.set_locale("en");
+    let _ = frame(&ui);
     let b = f.bounds().unwrap_or_default();
     let cap = ui.theme().spacing.unit * 4.0;
     // The cap sits at the bottom (value 0). Grabbing it a little above its center does not
@@ -262,4 +268,10 @@ fn a_lit_button_draws_brighter() {
     let bright = at(&shot);
     let sum = |p: [u8; 3]| p.iter().map(|v| u32::from(*v)).sum::<u32>();
     assert!(sum(bright) > sum(dark) + 30, "{dark:?} {bright:?}");
+}
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&remedy_ui_widgets_stage::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
 }

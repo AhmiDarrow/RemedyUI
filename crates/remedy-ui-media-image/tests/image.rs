@@ -210,6 +210,15 @@ fn an_image_that_cannot_be_shown_says_why() {
     let s = semantics(&el);
     assert!(s.contains("Not shown"), "{s}");
     assert_eq!(el.info().map(|i| i.variant), Some(""));
+    ui.set_locale("fr");
+    settle(&ui);
+    assert!(semantics(&el).contains("Non affichée"), "{}", semantics(&el));
+}
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&remedy_ui_media_image::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
 }
 
 #[test]

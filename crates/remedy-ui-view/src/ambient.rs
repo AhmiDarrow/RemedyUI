@@ -25,8 +25,8 @@ use std::time::Duration;
 use remedy_ui_core::{Point, Rect};
 use remedy_ui_tree::{Dirty, ElementId};
 
-use crate::element::{El, Inner, PaintCx, Ui};
 use crate::Request;
+use crate::element::{El, Inner, PaintCx, Ui};
 
 pub use remedy_ui_compositor::{AmbientLoop, LoopMotion, Wave};
 

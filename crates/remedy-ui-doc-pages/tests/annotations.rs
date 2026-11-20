@@ -378,3 +378,39 @@ fn the_app_loads_and_reads_annotations_and_screen_readers_hear_them() {
     assert!(problems.is_empty(), "{:?}", problems.iter().map(|p| p.message()).collect::<Vec<_>>());
     let _ = Vec2::ZERO;
 }
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&remedy_ui_doc_pages::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+#[test]
+fn screen_readers_and_undo_hear_the_windows_language() {
+    let mut w = win();
+    let mut hl = Annotation::new(
+        0,
+        AnnotationKind::Highlight { quads: vec![Rect::new(72.0, 90.0, 200.0, 104.0)] },
+        Color::WHITE,
+    );
+    hl.marked_text = "the quick brown fox".into();
+    hl.comment = "Cite this".into();
+    w.view.set_annotations(vec![hl]);
+    w.ui.set_locale("de");
+    w.frame();
+    let sem = w.el.info().and_then(|i| i.semantics);
+    let value = sem.and_then(|s| s.value_text().map(str::to_string)).unwrap_or_default();
+    assert!(value.starts_with("Seite 1 von "), "{value}");
+    let reader = w.el.child_elements().into_iter().next().and_then(|c| c.info()).and_then(|i| i.semantics);
+    assert_eq!(reader.as_ref().and_then(|s| s.name().map(str::to_string)).as_deref(), Some("Seite 1"));
+    let text = reader.and_then(|s| s.value_text().map(str::to_string)).unwrap_or_default();
+    assert!(
+        text.contains(
+            "1 Anmerkung:\nHervorhebung: \u{201e}the quick brown fox\u{201c}, Kommentar: Cite this"
+        ),
+        "{text}"
+    );
+    let id = w.view.annotations().get().first().map_or(0, |a| a.id);
+    assert!(w.view.remove_annotation(id));
+    assert_eq!(w.ui.next_undo().map(|h| h.label).as_deref(), Some("Hervorhebung löschen"));
+}

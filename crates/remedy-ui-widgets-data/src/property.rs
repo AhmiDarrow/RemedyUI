@@ -71,7 +71,9 @@ pub fn property_grid(ui: &Ui, label: impl Into<String>, groups: Vec<PropertyGrou
     let label = label.into();
     let unit = ui.theme().spacing.unit;
     let filter = Signal::new(String::new());
-    let search = w::search(ui, format!("Filter {label}"), move |s| filter.set(s));
+    // The search box's name is set as it is built, in the window's language then.
+    let name = crate::format_now(ui, "property-filter", &[("label", label.as_str().into())]);
+    let search = w::search(ui, name, move |s| filter.set(s));
     let mut body = ui.el("property_body").column().gap(unit).fill_width();
     let mut all_rows: Vec<(String, Option<String>)> = Vec::new();
     for g in groups {
@@ -156,7 +158,7 @@ pub fn property_grid(ui: &Ui, label: impl Into<String>, groups: Vec<PropertyGrou
         });
         body = body.child(section);
     }
-    let none = w::text(ui, "No properties match").variant("muted");
+    let none = w::text(ui, crate::tr_fn(ui, "property-none")).variant("muted");
     let n2 = none.clone();
     let none = none.bind(move || {
         let f = filter.get();

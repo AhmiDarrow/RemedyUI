@@ -1,0 +1,30 @@
+[package]
+name = "remedy-ui-fonts-cjk"
+description = "Noto Sans SC and Noto Sans JP for RemedyUI apps: fallback faces so Chinese and Japanese text never shows as empty boxes, each in its own forms of the characters they share."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "(MIT OR Apache-2.0) AND OFL-1.1"
+repository.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords = ["gui", "fonts", "cjk", "chinese", "japanese"]
+categories.workspace = true
+include = ["src/**", "fonts/**", "Cargo.toml", "README.md"]
+
+[features]
+default = ["sc", "jp"]
+# Noto Sans SC: Simplified Chinese (every hanzi of GB 2312 and some 6,000 more), Regular and Bold.
+sc = []
+# Noto Sans JP: Japanese (kana, every kanji of JIS X 0208 and more), Regular and Bold.
+jp = []
+
+[dependencies]
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", default-features = false }
+
+[dev-dependencies]
+read-fonts = { version = "=0.47.0", default-features = false, features = ["std"] }
+wuff = { version = "=0.2.10", default-features = false, features = ["brotli", "z"] }
+
+[lints]
+workspace = true

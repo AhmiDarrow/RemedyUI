@@ -130,7 +130,31 @@ pub enum Icon {
 }
 
 impl Icon {
-    /// What the icon shows, in English, for when the icon alone stands for something ("Home"
+    /// Whether the icon points along the reading direction, so a right-to-left window shows
+    /// it mirrored: back and forward arrows and chevrons (a "next" chevron points left in
+    /// Arabic), send, open-outside, quotes and lists (their bullets, numbers and boxes move
+    /// to the right, keeping their shape: a number or check mark is never drawn backwards).
+    /// Icons of things in the world (clocks, padlocks, media playback, search) stay as they
+    /// are. [`icon`] mirrors on its own; an icon that must point a physical way (a "move
+    /// left" control on a map) sets its element's direction to left to right.
+    pub fn mirrors_in_rtl(self) -> bool {
+        matches!(
+            self,
+            Icon::ChevronLeft
+                | Icon::ChevronRight
+                | Icon::ArrowLeft
+                | Icon::ArrowRight
+                | Icon::Send
+                | Icon::External
+                | Icon::ListBullet
+                | Icon::ListNumber
+                | Icon::ListTask
+                | Icon::Quote
+        )
+    }
+
+    /// What the icon shows, in English ([`Icon::localized_name`] in the window's language),
+    /// for when the icon alone stands for something ("Home"
     /// on a toolbar button, "Image" for a file's kind). Screen readers read it where the
     /// icon carries meaning; [`icon`] itself is decorative, so whatever holds the icon names
     /// it (an [`icon_button`](crate::icon_button)'s label, or this name translated).
@@ -195,6 +219,77 @@ impl Icon {
             Icon::Home => "Home",
             Icon::Image => "Image",
             Icon::Dot => "Selected",
+        }
+    }
+
+    /// What the icon shows in the window's language ([`Icon::accessible_name`] translated),
+    /// for an icon that alone stands for something.
+    pub fn localized_name(self, ui: &Ui) -> String {
+        crate::STRINGS.get(ui, self.message_id())
+    }
+
+    /// The icon's name's message in this pack's catalog ([`crate::STRINGS`]).
+    fn message_id(self) -> &'static str {
+        match self {
+            Icon::Plus => "icon-add",
+            Icon::Minus => "icon-remove",
+            Icon::Maximize => "icon-maximize",
+            Icon::Restore => "icon-restore",
+            Icon::Close => "icon-close",
+            Icon::Check => "icon-done",
+            Icon::Lock => "icon-locked",
+            Icon::Unlock => "icon-unlocked",
+            Icon::Pin => "icon-pin",
+            Icon::Trash => "icon-delete",
+            Icon::Copy => "icon-copy",
+            Icon::Eye => "icon-show",
+            Icon::EyeOff => "icon-hide",
+            Icon::ChevronDown => "icon-expand",
+            Icon::ChevronRight => "icon-next",
+            Icon::ChevronLeft => "icon-previous",
+            Icon::ChevronUp => "icon-collapse",
+            Icon::Menu => "icon-menu",
+            Icon::Search => "icon-search",
+            Icon::Info => "icon-information",
+            Icon::Alert => "icon-warning",
+            Icon::Clock => "icon-time",
+            Icon::Key => "icon-key",
+            Icon::Settings => "icon-settings",
+            Icon::Note => "icon-note",
+            Icon::External => "icon-open-outside",
+            Icon::Refresh => "icon-refresh",
+            Icon::Folder => "icon-folder",
+            Icon::File => "icon-file",
+            Icon::Download => "icon-download",
+            Icon::Upload => "icon-upload",
+            Icon::Send => "icon-send",
+            Icon::ArrowLeft => "icon-back",
+            Icon::ArrowRight => "icon-forward",
+            Icon::ArrowUp => "icon-up",
+            Icon::Users => "icon-people",
+            Icon::Monitor => "icon-computer",
+            Icon::Bold => "icon-bold",
+            Icon::Italic => "icon-italic",
+            Icon::Strike => "icon-strikethrough",
+            Icon::Code => "icon-code",
+            Icon::Link => "icon-link",
+            Icon::ListBullet => "icon-bulleted-list",
+            Icon::ListNumber => "icon-numbered-list",
+            Icon::ListTask => "icon-task-list",
+            Icon::Quote => "icon-quote",
+            Icon::CodeBlock => "icon-code-block",
+            Icon::Heading => "icon-heading",
+            Icon::At => "icon-mention",
+            Icon::Play => "icon-play",
+            Icon::Pause => "icon-pause",
+            Icon::Volume => "icon-volume",
+            Icon::VolumeMuted => "icon-muted",
+            Icon::Fullscreen => "icon-full-screen",
+            Icon::FullscreenExit => "icon-exit-full-screen",
+            Icon::Captions => "icon-captions",
+            Icon::Home => "icon-home",
+            Icon::Image => "icon-image",
+            Icon::Dot => "icon-selected",
         }
     }
 }
@@ -584,11 +679,66 @@ fn strokes(icon: Icon) -> Path {
     s
 }
 
-/// Draws `icon` into `cx` (its full size) in the element's text color.
+/// The icon's strokes as a right-to-left window shows them ([`Icon::mirrors_in_rtl`]).
+fn strokes_for(icon: Icon, rtl: bool) -> Path {
+    let path = strokes(icon);
+    if !rtl || !icon.mirrors_in_rtl() {
+        return path;
+    }
+    // Lists keep their markers' shapes (a "1" or a check mark is not drawn backwards): each
+    // marker moves to the other side whole, and only the lines beside it mirror.
+    let keep_markers = matches!(icon, Icon::ListNumber | Icon::ListTask);
+    let mut subpaths: Vec<Vec<remedy_ui_paint::PathEl>> = Vec::new();
+    for el in path.elements() {
+        if matches!(el, remedy_ui_paint::PathEl::MoveTo(_)) || subpaths.is_empty() {
+            subpaths.push(Vec::new());
+        }
+        if let Some(last) = subpaths.last_mut() {
+            last.push(*el);
+        }
+    }
+    let points = |el: &remedy_ui_paint::PathEl| -> Vec<Point> {
+        match *el {
+            remedy_ui_paint::PathEl::MoveTo(a) | remedy_ui_paint::PathEl::LineTo(a) => vec![a],
+            remedy_ui_paint::PathEl::QuadTo(a, b) => vec![a, b],
+            remedy_ui_paint::PathEl::CubicTo(a, b, c) => vec![a, b, c],
+            remedy_ui_paint::PathEl::Close => Vec::new(),
+        }
+    };
+    let mut out = Path::new();
+    for sub in subpaths {
+        let marker = keep_markers && sub.iter().flat_map(points).all(|q| q.x <= 9.0);
+        // Markers sit in 3..8 on the left; moved whole by 13 they sit in 16..21.
+        let t = |q: Point| if marker { p(q.x + 13.0, q.y) } else { p(24.0 - q.x, q.y) };
+        for el in sub {
+            match el {
+                remedy_ui_paint::PathEl::MoveTo(a) => {
+                    out.move_to(t(a));
+                }
+                remedy_ui_paint::PathEl::LineTo(a) => {
+                    out.line_to(t(a));
+                }
+                remedy_ui_paint::PathEl::QuadTo(a, b) => {
+                    out.quad_to(t(a), t(b));
+                }
+                remedy_ui_paint::PathEl::CubicTo(a, b, c) => {
+                    out.cubic_to(t(a), t(b), t(c));
+                }
+                remedy_ui_paint::PathEl::Close => {
+                    out.close();
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Draws `icon` into `cx` (its full size) in the element's text color, mirrored in a
+/// right-to-left layout when it points along the reading direction.
 pub(crate) fn draw(icon: Icon, cx: &mut PaintCx<'_>) {
     let k = cx.size.width.min(cx.size.height) / 24.0;
     let (ox, oy) = ((cx.size.width - 24.0 * k) / 2.0, (cx.size.height - 24.0 * k) / 2.0);
-    let path = strokes(icon);
+    let path = strokes_for(icon, cx.rtl);
     let mut scaled = Path::new();
     for el in path.elements() {
         let t = |q: Point| p(ox + q.x * k, oy + q.y * k);
@@ -684,7 +834,36 @@ pub fn canvas(ui: &Ui, paint: impl Fn(&mut PaintCx<'_>) + 'static) -> El {
 
 #[cfg(test)]
 mod tests {
-    use super::{Icon, strokes};
+    use super::{Icon, strokes, strokes_for};
+
+    #[test]
+    fn directional_icons_mirror_and_list_markers_keep_their_shape() {
+        let xs = |path: &remedy_ui_paint::Path| -> Vec<f32> {
+            path.elements()
+                .iter()
+                .filter_map(|e| match *e {
+                    remedy_ui_paint::PathEl::MoveTo(a) | remedy_ui_paint::PathEl::LineTo(a) => Some(a.x),
+                    _ => None,
+                })
+                .collect()
+        };
+        // A "next" chevron points left in a right-to-left window: exactly a "previous" one.
+        assert_eq!(xs(&strokes_for(Icon::ChevronRight, true)), xs(&strokes(Icon::ChevronLeft)));
+        assert_eq!(xs(&strokes_for(Icon::ChevronRight, false)), xs(&strokes(Icon::ChevronRight)));
+        // Things in the world do not mirror.
+        for icon in [Icon::Clock, Icon::Play, Icon::Search, Icon::Lock, Icon::Check] {
+            assert_eq!(xs(&strokes_for(icon, true)), xs(&strokes(icon)), "{icon:?}");
+        }
+        // The numbered list's "1" moves to the right side, drawn the same way round.
+        let ltr = xs(&strokes(Icon::ListNumber));
+        let rtl = xs(&strokes_for(Icon::ListNumber, true));
+        assert_eq!(ltr.len(), rtl.len());
+        assert!(ltr.len() >= 3, "{ltr:?}");
+        for (a, b) in ltr.iter().take(3).zip(rtl.iter().take(3)) {
+            assert!((b - a - 13.0).abs() < 1e-4, "the 1 is moved, not flipped");
+        }
+        assert!(rtl.iter().all(|x| (0.0..=24.0).contains(x)));
+    }
 
     const ALL: [Icon; 34] = [
         Icon::Plus,

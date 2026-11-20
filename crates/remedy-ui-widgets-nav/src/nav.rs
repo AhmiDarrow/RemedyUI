@@ -115,11 +115,13 @@ pub fn tabs(
                 tab.state(States::SELECTED, on);
                 if t.closable {
                     let (c1, c2, c3) = (close.clone(), id.clone(), id.clone());
-                    let close_btn =
-                        w::icon_button(&u, Icon::Close, format!("Close {}", t.title), move || c1(&c2))
-                            .variant("quiet")
-                            .width(w::MIN_TARGET)
-                            .height(w::MIN_TARGET);
+                    let (u1, title) = (u.clone(), t.title.clone());
+                    let name =
+                        move || crate::STRINGS.format(&u1, "tab-close", &[("title", title.as_str().into())]);
+                    let close_btn = w::icon_button(&u, Icon::Close, name, move || c1(&c2))
+                        .variant("quiet")
+                        .width(w::MIN_TARGET)
+                        .height(w::MIN_TARGET);
                     let c4 = close.clone();
                     tab = tab
                         .child(close_btn)
@@ -130,7 +132,7 @@ pub fn tabs(
                             }
                             false
                         })
-                        .keyboard_alternative("Delete closes the focused tab");
+                        .keyboard_alternative(crate::tr_fn(&u, "tab-close-keys"));
                     let (c5, c6) = (close.clone(), id.clone());
                     tab = tab.on_key(move |e| {
                         if e.pressed && e.key == Key::Delete {
@@ -224,13 +226,13 @@ pub fn nav_item(
         }
         None => item,
     };
-    let i2 = item.clone();
+    let (i2, u) = (item.clone(), ui.clone());
     item.bind(move || {
         let on = active();
         i2.state(States::SELECTED, on);
         let mut s = Semantics::new(Role::Tab).label(label.get()).selected(on).action(Action::Click);
         if let Some(c) = badge.map(|b| b.get()).filter(|c| *c > 0) {
-            s = s.description(format!("{c} new"));
+            s = s.description(crate::STRINGS.format(&u, "nav-badge-new", &[("count", c.into())]));
         }
         let _ = i2.clone().semantics(s);
     })
@@ -362,8 +364,14 @@ pub fn breadcrumbs(
                                 MenuItem::new(s, move || f(j))
                             })
                             .collect();
-                        let _ =
-                            b2.clone().child(sep(&u)).child(w::menu_button(&u, "…", items).variant("quiet"));
+                        // It shows "…"; its name says what it holds.
+                        let more =
+                            w::menu_button(&u, crate::tr_fn(&u, "breadcrumbs-more"), items).variant("quiet");
+                        if let Some(l) = more.child_elements().into_iter().next() {
+                            let _ = l.text(remedy_ui_view::RichText::plain("…".to_owned()));
+                        }
+                        w::tooltip(&more, crate::tr_fn(&u, "breadcrumbs-more"));
+                        let _ = b2.clone().child(sep(&u)).child(more);
                     }
                     continue;
                 }
@@ -373,10 +381,15 @@ pub fn breadcrumbs(
                 shown_any = true;
                 let last = i + 1 == n;
                 let el = if last {
-                    w::text(&u, seg.clone())
-                        .variant("strong")
-                        .data_text()
-                        .semantics(Semantics::new(Role::Label).label(format!("{seg}, current")))
+                    let (u1, seg1) = (u.clone(), seg.clone());
+                    w::text(&u, seg.clone()).variant("strong").data_text().semantics(move || {
+                        let name = crate::STRINGS.format(
+                            &u1,
+                            "breadcrumb-current",
+                            &[("segment", seg1.as_str().into())],
+                        );
+                        Semantics::new(Role::Label).label(name)
+                    })
                 } else {
                     let f = on_select.clone();
                     w::link(&u, seg.clone(), move || f(i)).data_text()

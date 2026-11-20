@@ -776,3 +776,23 @@ fn editing_waits_for_the_timer_and_survives_an_empty_piece() {
     assert!(t.measures.get_untracked().ok().is_some_and(|m| m.is_empty()));
     let _ = Duration::ZERO;
 }
+
+#[test]
+fn the_staff_speaks_and_names_edits_in_the_windows_language() {
+    let r = staff_rig(true, staff_measures(), NoteStaffOptions::default());
+    assert_eq!(value_text(&r.el), "measure 1, beat 1: E 4 quarter note");
+    let description = || {
+        r.el.info()
+            .and_then(|i| i.semantics)
+            .and_then(|s| s.description_text().map(str::to_owned))
+            .unwrap_or_default()
+    };
+    assert!(description().starts_with("treble clef, no sharps or flats, "), "{}", description());
+    r.ui.set_locale("de");
+    let _ = frame(&r.ui);
+    assert_eq!(value_text(&r.el), "Takt 1, Schlag 1: E 4, Viertelnote");
+    assert!(description().starts_with("Violinschlüssel, keine Vorzeichen, "), "{}", description());
+    key(&r.ui, Key::ArrowUp);
+    assert_eq!(r.edits.borrow().last().map(|e| e.label.clone()).as_deref(), Some("Note nach oben"));
+    assert_eq!(r.ui.history().last().map(|h| h.label.clone()).as_deref(), Some("Note nach oben"));
+}

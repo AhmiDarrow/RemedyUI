@@ -227,14 +227,36 @@ impl Preview {
     }
 }
 
+/// The bundled faces with the script fallback faces, read once per process: previews in
+/// every language draw the same on every machine.
 fn bundled_fonts() -> FontCollection {
+    use remedy_ui_text::FontFile;
+    static FACES: std::sync::OnceLock<Vec<FontFile>> = std::sync::OnceLock::new();
+    static CJK: std::sync::OnceLock<Vec<FontFile>> = std::sync::OnceLock::new();
+    let faces = FACES.get_or_init(|| {
+        remedy_ui_fonts::all().into_iter().filter_map(|f| FontFile::new(f.data).ok()).collect()
+    });
     #[cfg(feature = "system-fonts")]
     let mut f = FontCollection::with_system_fonts();
     #[cfg(not(feature = "system-fonts"))]
     let mut f = FontCollection::new();
-    for face in remedy_ui_fonts::all() {
-        let _ = f.add_static(face.data);
+    for file in faces {
+        let _ = f.add_file(file);
     }
+    for fb in remedy_ui_fonts::script_fallbacks() {
+        let _ = f.add_script_fallback(fb.script, fb.locale, fb.family);
+    }
+    let cjk = remedy_ui_fonts_cjk::script_fallbacks();
+    f.add_on_demand(
+        remedy_ui_fonts_cjk::needs,
+        || {
+            CJK.get_or_init(|| {
+                remedy_ui_fonts_cjk::all().into_iter().filter_map(|f| FontFile::new(f.data).ok()).collect()
+            })
+            .to_vec()
+        },
+        cjk.iter().map(|fb| (fb.script, fb.locale, fb.family)),
+    );
     f
 }
 

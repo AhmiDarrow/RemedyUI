@@ -303,7 +303,10 @@ pub fn fader(ui: &Ui, label: impl Into<String>, value: Signal<f64>, options: Fad
     let Some(level) = options.meter else { return el };
     let meter = level_meter(
         ui,
-        format!("{label} level"),
+        {
+            let u = ui.clone();
+            move || crate::STRINGS.format(&u, "fader-level", &[("label", label.as_str().into())])
+        },
         level,
         options.meter_options.orientation(options.orientation).length(length),
     );

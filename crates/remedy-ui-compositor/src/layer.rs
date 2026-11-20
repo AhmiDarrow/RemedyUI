@@ -42,6 +42,10 @@ pub struct Layer {
     pub clip: Option<CornerRadii>,
     /// Makes the layer a scroll container whose content has this size.
     pub scroll: Option<Size>,
+    /// The scroll offset at which a scroll container shows the start of its content: zero,
+    /// or in a right-to-left container whose content overflows to the left, how far it does.
+    /// The container opens there and stays anchored there as its content grows.
+    pub scroll_origin: Vec2,
     /// A scroll container that moves with another one on some axes, in the same frame
     /// (frozen table columns follow the body vertically; a header follows it horizontally).
     pub scroll_follow: Option<ScrollFollow>,
@@ -66,6 +70,7 @@ impl Layer {
             opacity: 1.0,
             clip: None,
             scroll: None,
+            scroll_origin: Vec2::ZERO,
             scroll_follow: None,
             content: Arc::new(content),
             content_version: 0,

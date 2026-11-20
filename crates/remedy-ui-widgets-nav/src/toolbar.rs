@@ -12,9 +12,14 @@ use remedy_ui_widgets_core::{self as w, Icon};
 
 use crate::commands::{CommandInfo, Commands};
 
-fn tip(c: &CommandInfo, platform: Platform) -> String {
+/// A command's tooltip in the window's language: its label, and its shortcut when it has one.
+fn tip(ui: &Ui, c: &CommandInfo, platform: Platform) -> String {
     match c.chords.first() {
-        Some(ch) => format!("{} ({})", c.label, ch.label(platform)),
+        Some(ch) => crate::STRINGS.format(
+            ui,
+            "command-tooltip",
+            &[("command", c.label.as_str().into()), ("shortcut", ch.label(platform).into())],
+        ),
         None => c.label.clone(),
     }
 }
@@ -47,7 +52,8 @@ pub fn toolbar(ui: &Ui, label: impl Into<String>, commands: &Commands, slot: Sig
                     Some(icon) => w::icon_button(&u, icon, c.label.clone(), run).variant("quiet"),
                     None => w::button(&u, c.label.clone(), run).variant("quiet"),
                 };
-                w::tooltip(&b, tip(&c, u.platform()));
+                let (u1, c1) = (u.clone(), c.clone());
+                w::tooltip(&b, move || tip(&u1, &c1, u1.platform()));
                 let _ = b2.clone().child(b.disabled(!c.enabled));
             }
         });
@@ -106,21 +112,34 @@ pub fn toolbar_editor(ui: &Ui, commands: &Commands, slot: Signal<Vec<String>>) -
                     .fill_width()
                     .child(sw.grow(1.0))
                     .child(
-                        w::icon_button(&u, Icon::ChevronUp, format!("Move {} earlier", c.label), move || {
-                            shift(-1, id2.clone())
-                        })
+                        w::icon_button(
+                            &u,
+                            Icon::ChevronUp,
+                            move_label(&u, "toolbar-move-earlier", &c.label),
+                            move || shift(-1, id2.clone()),
+                        )
                         .disabled(!shown.contains(&c.id)),
                     )
                     .child(
-                        w::icon_button(&u, Icon::ChevronDown, format!("Move {} later", c.label), move || {
-                            shift(1, id3.clone())
-                        })
+                        w::icon_button(
+                            &u,
+                            Icon::ChevronDown,
+                            move_label(&u, "toolbar-move-later", &c.label),
+                            move || shift(1, id3.clone()),
+                        )
                         .disabled(!shown.contains(&c.id)),
                     );
                 let _ = l2.clone().child(row);
             }
         });
     })
+}
+
+/// The name of a button that moves the command labeled `label` (message `id`), following the
+/// window's language.
+fn move_label(ui: &Ui, id: &'static str, label: &str) -> impl Fn() -> String + 'static {
+    let (ui, label) = (ui.clone(), label.to_owned());
+    move || crate::STRINGS.format(&ui, id, &[("command", label.as_str().into())])
 }
 
 /// How well `query` matches `text`: the query's characters in order, case-insensitively,
@@ -198,10 +217,11 @@ impl CommandPalette {
         let unit = ui.theme().spacing.unit;
         let query = Signal::new(String::new());
         let chosen = Signal::new(0usize);
+        // The palette is built when it opens, in the window's language then.
         let field = ui
             .text_field("text_input", FieldKind::Single)
-            .label("Search commands")
-            .placeholder("Type a command…");
+            .label(crate::tr(ui, "palette-search"))
+            .placeholder(crate::tr(ui, "palette-placeholder"));
         let f2 = field.clone();
         let field = field.on_change(move || {
             query.set(f2.value());
@@ -224,7 +244,7 @@ impl CommandPalette {
         let list = w::column(ui)
             .gap(unit / 2.0)
             .fill_width()
-            .semantics(Semantics::new(Role::List).label("Commands"));
+            .semantics(Semantics::new(Role::List).label(crate::tr(ui, "palette-commands")));
         let (l2, u, m2, me) = (list.clone(), ui.clone(), matches.clone(), self.clone());
         let list = list.bind(move || {
             let found = m2();
@@ -232,7 +252,8 @@ impl CommandPalette {
             untrack(|| {
                 l2.clear();
                 if found.is_empty() {
-                    let _ = l2.clone().child(w::text(&u, "No matching command").variant("muted"));
+                    let _ =
+                        l2.clone().child(w::text(&u, crate::tr_fn(&u, "palette-no-match")).variant("muted"));
                 }
                 for (i, c) in found.iter().enumerate() {
                     let (me2, id) = (me.clone(), c.id.clone());
@@ -288,7 +309,7 @@ impl CommandPalette {
                 l.max_height = remedy_ui_layout::Length::Px(360.0);
             }),
         );
-        let m = w::modal(ui, "Command palette", content, true);
+        let m = w::modal(ui, crate::tr(ui, "palette-title"), content, true);
         *self.open.borrow_mut() = Some(m);
         field_el.focus();
     }
