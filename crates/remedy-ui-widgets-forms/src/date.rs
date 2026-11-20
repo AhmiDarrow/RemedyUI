@@ -10,19 +10,10 @@ use remedy_ui_widgets_core::{self as w, Icon};
 
 use remedy_ui_services_i18n::{CalendarSymbols, Date, NumberSymbols, Time, month_grid};
 
-/// A chevron button pointing back or forward in reading order: mirrored in right-to-left
-/// locales, where "next" is to the left.
+/// A chevron button pointing back or forward in reading order: the icon mirrors on its own
+/// in right-to-left layouts, where "next" is to the left.
 fn step_button(ui: &Ui, forward: bool, label: &str, on_press: impl Fn() + 'static) -> El {
-    let b = w::icon_button(ui, Icon::ChevronRight, label, on_press);
-    let (b2, u) = (b.clone(), ui.clone());
-    b.bind(move || {
-        let rtl = remedy_ui_text::is_rtl_locale(&u.locale());
-        let glyph = if forward != rtl { Icon::ChevronRight } else { Icon::ChevronLeft };
-        untrack(|| {
-            b2.clear();
-            let _ = b2.clone().child(w::icon(&u, glyph, u.theme().type_scale.body + 3.0));
-        });
-    })
+    w::icon_button(ui, if forward { Icon::ChevronRight } else { Icon::ChevronLeft }, label, on_press)
 }
 
 /// A month calendar for choosing a day. Arrow keys move by day and week, Page Up and Page

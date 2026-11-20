@@ -135,6 +135,8 @@ impl Overrides {
 struct Scroller {
     x: ScrollAxis,
     y: ScrollAxis,
+    /// Where the content's start shows ([`Layer::scroll_origin`](crate::Layer)).
+    origin: Vec2,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -282,22 +284,36 @@ impl Compositor {
         let mut alive = HashMap::new();
         let mut follows = Vec::new();
         tree.for_each(|l| {
-            alive.insert(l.id, (l.scroll.is_some(), l.max_scroll()));
+            alive.insert(l.id, (l.scroll.is_some(), l.max_scroll(), l.scroll_origin));
             if let Some(f) = l.scroll_follow {
                 follows.push((l.id, f));
             }
         });
         self.follows = follows;
-        self.scrollers.retain(|id, _| alive.get(id).is_some_and(|(s, _)| *s));
-        for (&id, &(scrolls, max)) in &alive {
+        self.scrollers.retain(|id, _| alive.get(id).is_some_and(|(s, _, _)| *s));
+        for (&id, &(scrolls, max, origin)) in &alive {
             if !scrolls {
                 continue;
             }
             let physics = self.physics;
-            let s = self.scrollers.entry(id).or_insert(Scroller {
-                x: ScrollAxis::new(max.x, physics),
-                y: ScrollAxis::new(max.y, physics),
+            let s = self.scrollers.entry(id).or_insert_with(|| {
+                // A new container opens at the start of its content.
+                let mut s = Scroller {
+                    x: ScrollAxis::new(max.x, physics),
+                    y: ScrollAxis::new(max.y, physics),
+                    origin,
+                };
+                s.x.offset = origin.x.clamp(0.0, s.x.max);
+                s.y.offset = origin.y.clamp(0.0, s.y.max);
+                s
             });
+            // Content that grew past the start (to the left, right to left) keeps what was
+            // shown where it was.
+            if s.origin != origin {
+                s.x.offset = (s.x.offset + origin.x - s.origin.x).max(0.0);
+                s.y.offset = (s.y.offset + origin.y - s.origin.y).max(0.0);
+                s.origin = origin;
+            }
             s.x.max = max.x;
             s.y.max = max.y;
             s.x.offset = s.x.offset.min(max.x);

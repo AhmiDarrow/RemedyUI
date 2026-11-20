@@ -113,6 +113,9 @@ struct State {
     fit: Fit,
     scroll: Vec2,
     viewport: Size,
+    /// The interface around the viewer lays out right to left: the vertical scroll bar sits
+    /// at the left edge, where such interfaces put it (the pages themselves never mirror).
+    rtl: bool,
     dpr: f32,
     tiles: Tiles,
     text: TextState,
@@ -216,6 +219,7 @@ impl PageView {
                     fit: Fit::Width,
                     scroll: Vec2::ZERO,
                     viewport: Size::ZERO,
+                    rtl: false,
                     dpr: 1.0,
                     tiles: Tiles::new(),
                     text: TextState::default(),
@@ -1593,6 +1597,7 @@ impl PageView {
         let mut st = self.0.st.borrow_mut();
         let resized = st.viewport != cx.size;
         st.viewport = cx.size;
+        st.rtl = cx.rtl;
         st.dpr = if cx.scale > 0.0 { cx.scale } else { 1.0 };
         // A view that learns its size in this frame fits before it chooses tiles: tiles asked
         // for at the zoom it is about to leave would be wasted work (the resize callback, which
@@ -2000,14 +2005,18 @@ impl State {
         let c = self.layout.content_size(self.eff_zoom());
         let (vw, vh) = (self.viewport.width, self.viewport.height);
         let mut out = Vec::new();
+        // The vertical bar on the end side: the right, or the left right to left; the
+        // horizontal one runs beside it.
+        let (bar_x, run) =
+            if self.rtl { (2.0, (BAR + 4.0, vw - 2.0)) } else { (vw - BAR - 2.0, (2.0, vw - BAR - 4.0)) };
         if c.height > vh && vh > 0.0 {
-            let track = Rect::new(vw - BAR - 2.0, 2.0, vw - 2.0, vh - 2.0);
+            let track = Rect::new(bar_x, 2.0, bar_x + BAR, vh - 2.0);
             let len = (track.height() * vh / c.height).max(BAR_MIN).min(track.height());
             let y = track.min.y + (track.height() - len) * self.scroll.y / (c.height - vh);
             out.push((track, Rect::new(track.min.x, y, track.max.x, y + len)));
         }
         if c.width > vw && vw > 0.0 {
-            let track = Rect::new(2.0, vh - BAR - 2.0, vw - BAR - 4.0, vh - 2.0);
+            let track = Rect::new(run.0, vh - BAR - 2.0, run.1, vh - 2.0);
             let len = (track.width() * vw / c.width).max(BAR_MIN).min(track.width());
             let x = track.min.x + (track.width() - len) * self.scroll.x / (c.width - vw);
             out.push((track, Rect::new(x, track.min.y, x + len, track.max.y)));

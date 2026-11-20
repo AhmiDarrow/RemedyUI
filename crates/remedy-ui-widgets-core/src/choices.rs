@@ -58,7 +58,8 @@ pub fn switch(ui: &Ui, text: impl IntoProp<String>, value: Signal<bool>) -> El {
     let track = ui.el("switch").width(h * 1.8).height(h).paint(move |cx| {
         let on = cx.states.contains(States::CHECKED);
         let d = cx.size.height - 4.0;
-        let x = if on { cx.size.width - d - 2.0 } else { 2.0 };
+        // On is toward the end: the right, or the left right to left.
+        let x = if on != cx.rtl { cx.size.width - d - 2.0 } else { 2.0 };
         cx.list.fill_rounded(
             Rect::new(x, 2.0, x + d, 2.0 + d),
             CornerRadii::all(d / 2.0),

@@ -14,7 +14,8 @@ fn snap(v: f64, min: f64, max: f64, step: f64) -> f64 {
 }
 
 /// A horizontal slider over `min..=max` in steps of `step` (0 for continuous). Drag it, or
-/// use arrows (one step), Page Up/Down (a tenth) and Home/End.
+/// use arrows (one step), Page Up/Down (a tenth) and Home/End. Right to left, the minimum is
+/// at the right and the Left arrow increases the value, as it moves the thumb that way.
 #[track_caller]
 pub fn slider(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, max: f64, step: f64) -> El {
     let label = label.into();
@@ -24,12 +25,16 @@ pub fn slider(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, m
     let s2 = s.clone();
     let set_from_x = move |x: f32| {
         if let Some(b) = s2.bounds() {
-            let t = f64::from(((x - b.min.x) / b.width().max(1.0)).clamp(0.0, 1.0));
+            let mut t = f64::from(((x - b.min.x) / b.width().max(1.0)).clamp(0.0, 1.0));
+            if s2.is_rtl() {
+                t = 1.0 - t;
+            }
             value.set(snap(min + t * span, min, max, step));
         }
     };
     let painter_value = value;
     let s3 = s.clone();
+    let key_el = s.clone();
     let l2 = label.clone();
     s.paint(move |cx| {
         let t = ((painter_value.get_untracked().unwrap_or(min) - min) / span).clamp(0.0, 1.0) as f32;
@@ -37,14 +42,16 @@ pub fn slider(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, m
         let mid = cx.size.height / 2.0;
         let r = (cx.size.height * 0.3).max(5.0);
         let (x0, x1) = (r, cx.size.width - r);
-        let x = x0 + (x1 - x0) * t;
+        let x = if cx.rtl { x1 - (x1 - x0) * t } else { x0 + (x1 - x0) * t };
+        // The filled part runs from the minimum's end to the thumb.
+        let (f0, f1) = if cx.rtl { (x, x1) } else { (x0, x) };
         cx.list.fill_rounded(
             Rect::new(x0, mid - 2.0, x1, mid + 2.0),
             CornerRadii::all(2.0),
             Brush::Solid(d.line),
         );
         cx.list.fill_rounded(
-            Rect::new(x0, mid - 2.0, x, mid + 2.0),
+            Rect::new(f0, mid - 2.0, f1, mid + 2.0),
             CornerRadii::all(2.0),
             Brush::Solid(cx.theme.colors.accent),
         );
@@ -68,9 +75,14 @@ pub fn slider(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, m
         }
         let step_size = if step > 0.0 { step } else { span / 100.0 };
         let cur = value.get_untracked().unwrap_or(min);
+        let rtl = key_el.is_rtl();
         let next = match e.key {
-            Key::ArrowRight | Key::ArrowUp => cur + step_size,
-            Key::ArrowLeft | Key::ArrowDown => cur - step_size,
+            Key::ArrowUp => cur + step_size,
+            Key::ArrowDown => cur - step_size,
+            Key::ArrowRight if rtl => cur - step_size,
+            Key::ArrowLeft if rtl => cur + step_size,
+            Key::ArrowRight => cur + step_size,
+            Key::ArrowLeft => cur - step_size,
             Key::PageUp => cur + span / 10.0,
             Key::PageDown => cur - span / 10.0,
             Key::Home => min,

@@ -543,6 +543,7 @@ enum Cmd {
     ClearSecret,
     Theme(Box<Theme>),
     Locale(Option<String>),
+    Direction(remedy_ui_view::WindowDirection),
     Idle(Option<Duration>, Option<Rc<dyn Fn()>>),
     Forget(String),
     Tray(Option<TrayIcon>),
@@ -795,6 +796,14 @@ impl App {
     /// setting: the choice outlasts the system's settings changes.
     pub fn set_locale(&self, locale: Option<String>) {
         self.push(Cmd::Locale(locale));
+    }
+
+    /// Lays every window (and windows opened later) out the way `direction` says: from each
+    /// window's locale ([`WindowDirection::Locale`](remedy_ui_view::WindowDirection), the
+    /// default), or always left to right or right to left, for an app setting that lets
+    /// people choose. A window can still choose its own with [`Ui::set_direction`].
+    pub fn set_direction(&self, direction: remedy_ui_view::WindowDirection) {
+        self.push(Cmd::Direction(direction));
     }
 
     /// The language the app shows (BCP 47): its own ([`App::set_locale`]) or the system's;
@@ -1645,6 +1654,8 @@ pub struct Runner {
     settings: SystemSettings,
     /// The app's own locale, in place of the system's.
     locale: Option<String>,
+    /// Where every window's layout direction comes from ([`App::set_direction`]).
+    direction: remedy_ui_view::WindowDirection,
     idle: Option<(remedy_ui_secure::IdleTimer, Rc<dyn Fn()>)>,
     activity_reported: Option<Duration>,
     idle_timer: Option<TimerId>,
@@ -1720,6 +1731,7 @@ impl Runner {
             save_timer: None,
             settings: SystemSettings::default(),
             locale: None,
+            direction: remedy_ui_view::WindowDirection::Locale,
             idle: None,
             activity_reported: None,
             idle_timer: None,
@@ -1801,6 +1813,7 @@ impl Runner {
                 );
                 ui.set_edition(self.config.edition);
                 ui.set_platform(self.settings.platform);
+                ui.set_direction(self.direction);
                 ui.set_locale(self.locale.clone().unwrap_or_else(|| self.settings.locale.clone()));
                 ui.set_double_click_time(self.settings.double_click);
                 ui.set_local_time(host.local_time());
@@ -1990,6 +2003,13 @@ impl Runner {
                     host.request_frame(w.host);
                 }
                 self.publish_locale();
+            }
+            Cmd::Direction(direction) => {
+                self.direction = direction;
+                for w in self.wins.values() {
+                    w.ui.set_direction(direction);
+                    host.request_frame(w.host);
+                }
             }
             Cmd::Theme(theme) => {
                 let theme = *theme;

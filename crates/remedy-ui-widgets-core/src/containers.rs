@@ -121,6 +121,7 @@ pub fn split(ui: &Ui, axis: Axis, first: El, second: El, fraction: Signal<f32>) 
         });
     });
     let c2 = container.clone();
+    let key_el = container.clone();
     let handle = ui
         .el("split_handle")
         .layout(move |l| {
@@ -142,7 +143,10 @@ pub fn split(ui: &Ui, axis: Axis, first: El, second: El, fraction: Signal<f32>) 
                 && e.phase == remedy_ui_input::PointerPhase::Move
             {
                 if let Some(b) = c2.bounds() {
-                    let f = if horizontal {
+                    // The first pane is at the start: the right, right to left.
+                    let f = if horizontal && c2.is_rtl() {
+                        (b.max.x - e.position.x) / b.width()
+                    } else if horizontal {
                         (e.position.x - b.min.x) / b.width()
                     } else {
                         (e.position.y - b.min.y) / b.height()
@@ -154,9 +158,13 @@ pub fn split(ui: &Ui, axis: Axis, first: El, second: El, fraction: Signal<f32>) 
             false
         })
         .on_key(move |e| {
+            // The arrows move the divider the way they point.
+            let flip = if horizontal && key_el.is_rtl() { -1.0 } else { 1.0 };
             let step = match e.key {
-                remedy_ui_input::Key::ArrowLeft | remedy_ui_input::Key::ArrowUp => -0.02,
-                remedy_ui_input::Key::ArrowRight | remedy_ui_input::Key::ArrowDown => 0.02,
+                remedy_ui_input::Key::ArrowUp => -0.02,
+                remedy_ui_input::Key::ArrowDown => 0.02,
+                remedy_ui_input::Key::ArrowLeft => -0.02 * flip,
+                remedy_ui_input::Key::ArrowRight => 0.02 * flip,
                 _ => return false,
             };
             fraction.update(|f| *f = (*f + step).clamp(0.05, 0.95));

@@ -587,8 +587,8 @@ impl Chain {
         }
         let submenu = item.is_submenu();
         if submenu {
-            let chevron = if self.rtl() { Icon::ChevronLeft } else { Icon::ChevronRight };
-            row = row.child(icon(ui, chevron, ui.theme().type_scale.small + 2.0));
+            // Mirrors on its own in a right-to-left menu, where submenus open to the left.
+            row = row.child(icon(ui, Icon::ChevronRight, ui.theme().type_scale.small + 2.0));
         }
         let (w1, w2, w3) = (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
         let row = row
