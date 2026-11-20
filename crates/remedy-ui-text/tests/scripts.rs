@@ -149,3 +149,30 @@ fn the_cjk_faces_unpack_quickly_enough_to_read_once_at_startup() {
     // Generous for debug builds on slow CI machines; release builds take a fraction.
     assert!(took.as_secs_f32() < 30.0, "{took:?}");
 }
+
+/// With the system's fonts reachable too, the bundled faces still draw every script and the
+/// punctuation between them (a Japanese bracket beside an Arabic name), so what an app was
+/// checked with is what people see, whatever is installed.
+#[cfg(feature = "system-fonts")]
+#[test]
+fn bundled_faces_come_before_the_systems() {
+    let mut f = FontCollection::with_system_fonts();
+    for face in remedy_ui_fonts::all().into_iter().chain(remedy_ui_fonts_cjk::all()) {
+        let _ = f.add_static(face.data);
+    }
+    for fb in remedy_ui_fonts::script_fallbacks().into_iter().chain(remedy_ui_fonts_cjk::script_fallbacks()) {
+        assert!(f.add_script_fallback(fb.script, fb.locale, fb.family), "{fb:?}");
+    }
+    let bundled: Vec<&str> =
+        remedy_ui_fonts::all().into_iter().chain(remedy_ui_fonts_cjk::all()).map(|f| f.family).collect();
+    let mut e = TextEngine::new(f);
+    for (locale, text, _) in
+        LINES.iter().chain([&("ja", "「مريم」に発信（3）", ""), &("en", "Hello مرحبا नमस्ते নমস্কার 你好", "")])
+    {
+        let (runs, tofu) = shape(&mut e, locale, text, 400.0);
+        assert!(tofu.is_empty(), "{locale}: {runs:?}");
+        for (family, piece) in &runs {
+            assert!(bundled.contains(&family.as_str()), "{locale}: {piece:?} drawn in the system's {family}");
+        }
+    }
+}

@@ -80,11 +80,21 @@ pub struct FontCollection {
     parts: HashMap<String, Vec<String>>,
     /// The families tried for a character no other font had a glyph for.
     symbols: Vec<String>,
-    /// Families added as script fallbacks, which go before the system's.
+    /// Families added as script fallbacks, which go before the system's, in order.
     own_ids: Vec<parley::fontique::FamilyId>,
+    /// Each script (and language) given fallbacks: its own families, and the system's.
+    own_keys: Vec<OwnFallback>,
     /// Faces added when text first needs them ([`FontCollection::add_on_demand`]).
     on_demand: Vec<OnDemand>,
 }
+
+/// A script and language, the bundled families registered for it, and the system's.
+type OwnFallback = (
+    parley::fontique::Script,
+    Option<parley::fontique::Language>,
+    Vec<parley::fontique::FamilyId>,
+    Vec<parley::fontique::FamilyId>,
+);
 
 /// Faces a collection adds when text first needs them.
 struct OnDemand {
@@ -119,6 +129,7 @@ impl FontCollection {
             parts: HashMap::new(),
             symbols: DEFAULT_SYMBOL_FALLBACKS.iter().map(|f| (*f).to_string()).collect(),
             own_ids: Vec::new(),
+            own_keys: Vec::new(),
             on_demand: Vec::new(),
         }
     }
@@ -263,12 +274,42 @@ impl FontCollection {
             None => None,
         };
         let key = parley::fontique::FallbackKey::new(script, language.as_ref());
-        // Bundled families go first: a face the app ships is the one it was checked with.
-        let mut list: Vec<_> = self.fcx.collection.fallback_families(key).filter(|f| *f != id).collect();
-        let own = list.iter().take_while(|f| self.own_ids.contains(f)).count();
-        list.insert(own, id);
-        self.own_ids.push(id);
-        self.fcx.collection.set_fallbacks(key, list.into_iter())
+        if !self.own_ids.contains(&id) {
+            self.own_ids.push(id);
+        }
+        match self.own_keys.iter_mut().find(|k| k.0 == script && k.1 == language) {
+            Some(k) => {
+                if !k.2.contains(&id) {
+                    k.2.push(id);
+                }
+            }
+            None => {
+                // What the system lists for the script, kept after the bundled faces.
+                let system: Vec<_> = self
+                    .fcx
+                    .collection
+                    .fallback_families(key)
+                    .filter(|f| !self.own_ids.contains(f))
+                    .collect();
+                self.own_keys.push((script, language, vec![id], system));
+            }
+        }
+        // Every script's list: its own bundled faces, then every other bundled fallback face
+        // (punctuation and symbols shared by scripts ride with whatever run they are in: a
+        // Japanese bracket beside an Arabic name finds the Japanese face), then the system's.
+        // A face the app ships is the one it was checked with.
+        let mut ok = true;
+        for (script, language, mine, system) in &self.own_keys {
+            let key = parley::fontique::FallbackKey::new(*script, language.as_ref());
+            let list: Vec<_> = mine
+                .iter()
+                .chain(self.own_ids.iter().filter(|f| !mine.contains(f)))
+                .chain(system.iter())
+                .copied()
+                .collect();
+            ok &= self.fcx.collection.set_fallbacks(key, list.into_iter());
+        }
+        ok
     }
 
     /// Adds faces only when text first needs them: the first paragraph with a character
