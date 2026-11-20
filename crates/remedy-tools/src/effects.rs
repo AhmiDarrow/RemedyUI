@@ -5,7 +5,9 @@
 use std::collections::BTreeMap;
 
 use remedy_ui_effects::ir::{ParamType, StageKind};
-use remedy_ui_effects::{CompileError, CpuEffect, Effect, FrameInput, Instance, LIBRARY, Limits, Value};
+use remedy_ui_effects::{
+    CompileError, CpuEffect, Effect, FrameInput, Instance, LIBRARY, Limits, Picture, Value,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{Result, ToolError, Workspace};
@@ -193,10 +195,17 @@ impl RenderInput {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RenderOutput {
-    /// The PNG's size in pixels (the effect's own resolution: the element's times its scale).
+    /// The PNG's size in pixels: the element's device pixels (its logical size times the
+    /// scale), with the effect's picture stretched over it smoothly, as the element draws it.
+    /// At most 4096 on a side.
     pub width: u32,
     /// Height in pixels.
     pub height: u32,
+    /// The resolution the effect itself drew at (its `scale` statement and quality step make
+    /// it smaller than the element).
+    pub effect_width: u32,
+    /// Height the effect drew at.
+    pub effect_height: u32,
     /// The time drawn.
     pub time: f32,
     /// How long the CPU took, milliseconds (an upper bound for the GPU kernel).
@@ -396,6 +405,11 @@ pub fn render(input: &RenderInput, ws: &Workspace, png_file: Option<&str>) -> Re
         pic = cpu.render(&instance, &FrameInput::new(input.width, input.height, input.scale, t));
     }
     let cpu_ms = started.elapsed().as_secs_f64() * 1000.0 / f64::from(frames);
+    let (effect_width, effect_height) = (pic.width, pic.height);
+    // Stretched over the element's device pixels, as the element draws it.
+    let fit = (4096.0 / (input.width * input.scale).max(input.height * input.scale)).min(1.0);
+    let side = |v: f32| ((v * input.scale * fit).round() as u32).clamp(1, 4096);
+    let pic = stretch(&pic, side(input.width), side(input.height));
     // Premultiplied pixels, over the background (or unpremultiplied, kept transparent).
     let bg = match input.background.as_deref() {
         Some("none") => None,
@@ -434,8 +448,17 @@ pub fn render(input: &RenderInput, ws: &Workspace, png_file: Option<&str>) -> Re
         let mut w = enc.write_header().map_err(|e| ToolError::new(e.to_string()))?;
         w.write_image_data(&px).map_err(|e| ToolError::new(e.to_string()))?;
     }
-    let mut out =
-        RenderOutput { width: pic.width, height: pic.height, time, cpu_ms, ignored, png, png_file: None };
+    let mut out = RenderOutput {
+        width: pic.width,
+        height: pic.height,
+        effect_width,
+        effect_height,
+        time,
+        cpu_ms,
+        ignored,
+        png,
+        png_file: None,
+    };
     if let Some(p) = png_file {
         let target = ws.resolve(p)?;
         std::fs::write(&target, &out.png)
@@ -443,6 +466,35 @@ pub fn render(input: &RenderInput, ws: &Workspace, png_file: Option<&str>) -> Re
         out.png_file = Some(target.display().to_string());
     }
     Ok(out)
+}
+
+/// `pic` resized to `w` × `h` with bilinear filtering from pixel centres, clamped at the
+/// edges: what a GPU's linear sampler does when the element draws the effect.
+fn stretch(pic: &Picture, w: u32, h: u32) -> Picture {
+    if (pic.width, pic.height) == (w, h) || pic.width == 0 || pic.height == 0 {
+        return pic.clone();
+    }
+    let (sw, sh) = (pic.width as usize, pic.height as usize);
+    let at = |x: usize, y: usize, c: usize| -> f32 {
+        f32::from(pic.pixels.get((y.min(sh - 1) * sw + x.min(sw - 1)) * 4 + c).copied().unwrap_or(0))
+    };
+    let axis = |i: u32, to: u32, from: usize| {
+        let f = ((i as f32 + 0.5) * from as f32 / to as f32 - 0.5).clamp(0.0, from as f32 - 1.0);
+        (f.floor() as usize, f.fract())
+    };
+    let mut pixels = Vec::with_capacity(w as usize * h as usize * 4);
+    for y in 0..h {
+        let (y0, fy) = axis(y, h, sh);
+        for x in 0..w {
+            let (x0, fx) = axis(x, w, sw);
+            for c in 0..4 {
+                let top = at(x0, y0, c) * (1.0 - fx) + at(x0 + 1, y0, c) * fx;
+                let bottom = at(x0, y0 + 1, c) * (1.0 - fx) + at(x0 + 1, y0 + 1, c) * fx;
+                pixels.push((top * (1.0 - fy) + bottom * fy).round().clamp(0.0, 255.0) as u8);
+            }
+        }
+    }
+    Picture { width: w, height: h, pixels }
 }
 
 /// A test picture for texture parameters: a checkerboard tinted by gradients, and a disc.

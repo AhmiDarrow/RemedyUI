@@ -662,7 +662,9 @@ fn effects_are_checked_and_rendered_for_agents() {
         })
         .must("a PNG image");
     let reader = png::Decoder::new(std::io::Cursor::new(unbase64(&png_b64))).read_info().must("a PNG");
-    assert!(reader.info().width > 0 && reader.info().height > 0);
+    // The element's size (plasma draws at a lower resolution, stretched over it).
+    assert_eq!((reader.info().width, reader.info().height), (160, 100));
+    assert!(t.contains("the effect drew at") && !t.contains("drew at 160 x 100"), "{t}");
     // A file outside the workspace stays out of reach.
     let outside = mcp.call("rfx_check", json!({"path": plain(&workspace_root().join("README.md"))}));
     assert!(failed(&outside).contains("outside the workspace"));
