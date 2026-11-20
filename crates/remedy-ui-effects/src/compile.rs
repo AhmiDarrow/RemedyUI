@@ -324,7 +324,7 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
             None => [0.0; 4],
         };
         if let Some((lo, hi)) = p.range
-            && !(lo <= hi)
+            && !matches!(lo.partial_cmp(&hi), Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal))
         {
             return Err(Diagnostic::new(p.at, "the range's low end is above its high end"));
         }
@@ -1237,10 +1237,11 @@ impl Compiler<'_> {
                 }
                 let n = lanes.len();
                 // A single component is splatted (scalars fill every lane).
+                let first = lanes.first().copied().unwrap_or(0);
                 let pattern: Vec<u8> = if n == 1 {
-                    vec![lanes[0] as u8; 4]
+                    vec![first as u8; 4]
                 } else {
-                    (0..4).map(|i| *lanes.get(i).unwrap_or(&lanes[0]) as u8).collect()
+                    (0..4).map(|i| lanes.get(i).copied().unwrap_or(first) as u8).collect()
                 };
                 Ok(Val::V(self.g.op(Op::Swizzle, swz(&pattern), &[id], *at)?, Ty::vec(n)))
             }
@@ -1422,14 +1423,12 @@ impl Compiler<'_> {
                 let v = self.expr(a, scope, ctx)?;
                 comps.extend(self.components(&v, a.span())?);
             }
+            let first = comps.first().copied().unwrap_or(NONE);
             return match comps.len() {
-                1 if n > 1 => {
-                    let c = comps[0];
-                    Ok(Val::V(c, Ty::vec(n)))
-                }
+                1 if n > 1 => Ok(Val::V(first, Ty::vec(n))),
                 k if k == n => {
                     if n == 1 {
-                        Ok(Val::V(comps[0], Ty::F))
+                        Ok(Val::V(first, Ty::F))
                     } else {
                         Ok(Val::V(self.combine(&comps, at)?, Ty::vec(n)))
                     }

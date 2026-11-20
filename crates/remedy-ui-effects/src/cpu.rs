@@ -11,7 +11,7 @@ use remedy_ui_paint::Blend;
 
 use crate::Instance;
 use crate::ir::{Effect, Input, Program, Slot, Source, Splat, Stage, StageKind};
-use crate::vm::{Env, LANES, Reg, View, Vm, hash_cell, pcg};
+use crate::vm::{Env, LANES, Reg, View, Vm, hash_cell, lane_of, pcg};
 
 /// What a frame is drawn for.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -222,11 +222,12 @@ pub fn particles(
         let (pos, radius, color, trail) = (reg(0), reg(1), reg(2), reg(3));
         for l in 0..n {
             let fin = |x: f32| if x.is_finite() { x.clamp(-1.0e5, 1.0e5) } else { 0.0 };
+            let (p, r, c, t) = (lane_of(pos, l), lane_of(radius, l), lane_of(color, l), lane_of(trail, l));
             out.push(Sprite {
-                pos: [fin(pos[0][l]), fin(pos[1][l])],
-                radius: fin(radius[0][l]).clamp(0.0, 512.0),
-                color: [0, 1, 2, 3].map(|k| fin(color[k][l]).clamp(0.0, 1.0)),
-                trail: [fin(trail[0][l]).clamp(-1024.0, 1024.0), fin(trail[1][l]).clamp(-1024.0, 1024.0)],
+                pos: [fin(p[0]), fin(p[1])],
+                radius: fin(r[0]).clamp(0.0, 512.0),
+                color: c.map(|x| fin(x).clamp(0.0, 1.0)),
+                trail: [fin(t[0]).clamp(-1024.0, 1024.0), fin(t[1]).clamp(-1024.0, 1024.0)],
             });
         }
         first += n as u32;
@@ -273,13 +274,14 @@ pub fn segment_distance(p: [f32; 2], a: [f32; 2], b: [f32; 2]) -> f32 {
 
 /// Blends premultiplied `src` onto premultiplied `dst`.
 pub fn blend(mode: Blend, src: [f32; 4], dst: [f32; 4]) -> [f32; 4] {
+    let (sa, da) = (src[3], dst[3]);
     let mut out = [0.0; 4];
-    for (k, o) in out.iter_mut().enumerate() {
+    for ((o, s), d) in out.iter_mut().zip(src).zip(dst) {
         *o = match mode {
-            Blend::Plus => src[k] + dst[k],
-            Blend::Screen => src[k] + dst[k] - src[k] * dst[k],
-            Blend::Multiply => src[k] * dst[k] + src[k] * (1.0 - dst[3]) + dst[k] * (1.0 - src[3]),
-            Blend::Normal => src[k] + dst[k] * (1.0 - src[3]),
+            Blend::Plus => s + d,
+            Blend::Screen => s + d - s * d,
+            Blend::Multiply => s * d + s * (1.0 - da) + d * (1.0 - sa),
+            Blend::Normal => s + d * (1.0 - sa),
         }
         .clamp(0.0, 1.0);
     }
@@ -441,14 +443,13 @@ fn shade_rows(
             vm.run(program, consts, &env, n);
             let c = vm.reg(reg);
             for l in 0..n {
-                let a = c[3][l];
+                let [r, g, b, a] = lane_of(c, l);
                 let a = if a.is_finite() { a.clamp(0.0, 1.0) } else { 0.0 };
                 let i = (x0 as usize + l) * 4;
                 if let Some(px) = row.get_mut(i..i + 4) {
-                    px[0] = to_u8(c[0][l].clamp(0.0, 1.0) * a);
-                    px[1] = to_u8(c[1][l].clamp(0.0, 1.0) * a);
-                    px[2] = to_u8(c[2][l].clamp(0.0, 1.0) * a);
-                    px[3] = to_u8(a);
+                    for (p, v) in px.iter_mut().zip([r * a, g * a, b * a, a]) {
+                        *p = to_u8(if v.is_finite() { v.clamp(0.0, a.max(0.0)) } else { 0.0 });
+                    }
                 }
             }
             x0 += n as u32;
@@ -603,20 +604,14 @@ fn sample_premul(b: &Buffer, u: f32, v: f32) -> [f32; 4] {
         let xx = xx.clamp(0, i64::from(b.width) - 1);
         let yy = yy.clamp(0, i64::from(b.height) - 1);
         let i = ((yy * i64::from(b.width) + xx) * 4) as usize;
-        match b.pixels.get(i..i + 4) {
-            Some(p) => [p[0], p[1], p[2], p[3]].map(|c| f32::from(c) / 255.0),
+        match b.pixels.get(i..i + 4).and_then(|p| <&[u8; 4]>::try_from(p).ok()) {
+            Some(p) => p.map(|c| f32::from(c) / 255.0),
             None => [0.0; 4],
         }
     };
     let (ix, iy) = (x0 as i64, y0 as i64);
     let (a, bb, c, d) = (at(ix, iy), at(ix + 1, iy), at(ix, iy + 1), at(ix + 1, iy + 1));
-    let mut out = [0.0; 4];
-    for (k, o) in out.iter_mut().enumerate() {
-        let top = a[k] + (bb[k] - a[k]) * fx;
-        let bottom = c[k] + (d[k] - c[k]) * fx;
-        *o = top + (bottom - top) * fy;
-    }
-    out
+    crate::vm::bilerp(a, bb, c, d, fx, fy)
 }
 
 /// `src` drawn into `dst` (its size), bilinear.
@@ -712,8 +707,8 @@ fn splat(buf: &mut Buffer, s: &Sprite, k: f32, shape: Splat, mode: Blend) {
             let sa = alpha * cov;
             let src = [s.color[0] * sa, s.color[1] * sa, s.color[2] * sa, sa];
             let i = ((y * buf.width + x) * 4) as usize;
-            if let Some(px) = buf.pixels.get_mut(i..i + 4) {
-                let dst = [px[0], px[1], px[2], px[3]].map(|c| f32::from(c) / 255.0);
+            if let Some(px) = buf.pixels.get_mut(i..i + 4).and_then(|p| <&mut [u8; 4]>::try_from(p).ok()) {
+                let dst = px.map(|c| f32::from(c) / 255.0);
                 let o = blend(mode, src, dst);
                 for (p, v) in px.iter_mut().zip(o) {
                     *p = to_u8(v);

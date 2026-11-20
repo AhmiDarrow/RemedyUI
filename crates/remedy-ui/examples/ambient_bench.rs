@@ -97,11 +97,12 @@ fn counted(ui: &remedy_ui::Ui, drive: Drive) -> remedy_ui::El {
 fn step(app: &App, bench: Rc<RefCell<Bench>>) {
     let (secs, phase_done) = {
         let mut b = bench.borrow_mut();
-        let done = b.started.take().map(|(t0, cpu0, n0)| {
+        let phase = b.at.checked_sub(1).and_then(|i| PHASES.get(i)).copied();
+        let done = b.started.take().zip(phase).map(|((t0, cpu0, n0), phase)| {
             let wall = t0.elapsed().as_secs_f64();
             let fps = (PAINTED.load(Ordering::Relaxed) - n0) as f64 / wall;
             let core = cpu0.zip(cpu_time()).map(|(a, b)| (b.saturating_sub(a)).as_secs_f64() / wall * 100.0);
-            (PHASES[b.at - 1], fps, core)
+            (phase, fps, core)
         });
         (b.secs, done)
     };

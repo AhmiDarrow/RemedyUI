@@ -46,8 +46,8 @@ impl View<'_> {
             (x.clamp(0, w - 1), y.clamp(0, h - 1))
         };
         let i = ((y * w + x) * 4) as usize;
-        match self.pixels.get(i..i + 4) {
-            Some(p) => [p[0], p[1], p[2], p[3]].map(|c| f32::from(c) / 255.0),
+        match self.pixels.get(i..i + 4).and_then(|p| <&[u8; 4]>::try_from(p).ok()) {
+            Some(p) => p.map(|c| f32::from(c) / 255.0),
             None => [0.0; 4],
         }
     }
@@ -66,14 +66,26 @@ impl View<'_> {
         let b = self.texel(ix + 1, iy);
         let c = self.texel(ix, iy + 1);
         let d = self.texel(ix + 1, iy + 1);
-        let mut out = [0.0; 4];
-        for (k, o) in out.iter_mut().enumerate() {
-            let top = a[k] + (b[k] - a[k]) * fx;
-            let bottom = c[k] + (d[k] - c[k]) * fx;
-            *o = top + (bottom - top) * fy;
-        }
-        unpremultiply(out)
+        unpremultiply(bilerp(a, b, c, d, fx, fy))
     }
+}
+
+/// Bilinear blend of four texels: `a` `b` on top, `c` `d` below.
+pub(crate) fn bilerp(a: [f32; 4], b: [f32; 4], c: [f32; 4], d: [f32; 4], fx: f32, fy: f32) -> [f32; 4] {
+    let mut out = [0.0; 4];
+    for ((((o, a), b), c), d) in out.iter_mut().zip(a).zip(b).zip(c).zip(d) {
+        let top = a + (b - a) * fx;
+        let bottom = c + (d - c) * fx;
+        *o = top + (bottom - top) * fy;
+    }
+    out
+}
+
+/// Lane `l` of a register, as one value.
+#[inline]
+pub(crate) fn lane_of(r: &Reg, l: usize) -> [f32; 4] {
+    let at = |k: usize| r.get(k).and_then(|c| c.get(l)).copied().unwrap_or(0.0);
+    [at(0), at(1), at(2), at(3)]
 }
 
 /// Straight alpha from premultiplied.
@@ -522,8 +534,15 @@ impl Vm {
                 op if component_wise(op) => wide(op, dst, a, b, c, n),
                 op => {
                     for l in 0..n {
-                        let at = |r: &Reg| [r[0][l], r[1][l], r[2][l], r[3][l]];
-                        let out = lane(op, ins.imm, at(a), at(b), at(c), at(d), env);
+                        let out = lane(
+                            op,
+                            ins.imm,
+                            lane_of(a, l),
+                            lane_of(b, l),
+                            lane_of(c, l),
+                            lane_of(d, l),
+                            env,
+                        );
                         for (comp, v) in dst.iter_mut().zip(out) {
                             if let Some(slot) = comp.get_mut(l) {
                                 *slot = v;

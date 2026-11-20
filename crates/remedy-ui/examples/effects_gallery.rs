@@ -89,11 +89,15 @@ fn app(app: &App, snapshot: Option<String>) {
 fn save(path: &str, image: &remedy_ui::paint::Image) -> std::io::Result<()> {
     let px: Vec<u8> = image
         .pixels
-        .chunks(4)
+        .chunks_exact(4)
         .flat_map(|p| {
-            let a = u32::from(p[3]);
-            let un = |c: u8| if a == 0 { 0 } else { ((u32::from(c) * 255 + a / 2) / a).min(255) as u8 };
-            [un(p[0]), un(p[1]), un(p[2]), p[3]]
+            let [r, g, b, a] = <[u8; 4]>::try_from(p).unwrap_or([0; 4]);
+            let un = |c: u8| {
+                (u32::from(c) * 255 + u32::from(a) / 2)
+                    .checked_div(u32::from(a))
+                    .map_or(0, |v| v.min(255) as u8)
+            };
+            [un(r), un(g), un(b), a]
         })
         .collect();
     let file = std::io::BufWriter::new(std::fs::File::create(path)?);
