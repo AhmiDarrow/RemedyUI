@@ -190,6 +190,23 @@ impl std::fmt::Display for CompileError {
 
 impl std::error::Error for CompileError {}
 
+impl CompileError {
+    /// Every problem drawn under its line of `source` ([`Diagnostic::render`]): what a theme
+    /// editor, the devtools or a command line shows an author.
+    ///
+    /// ```
+    /// use remedy_ui_effects::Effect;
+    /// let src = "effect e {\n    pass p { out = vec4(fmb(uv, 3)); }\n}";
+    /// let Err(e) = Effect::compile(src) else { unreachable!("it does not compile") };
+    /// let report = e.report(src);
+    /// assert!(report.contains("did you mean `fbm`?"));
+    /// assert!(report.contains("2 |     pass p { out = vec4(fmb(uv, 3)); }"));
+    /// ```
+    pub fn report(&self, source: &str) -> String {
+        self.diagnostics.iter().map(|d| d.render(source)).collect::<Vec<_>>().join("\n")
+    }
+}
+
 impl From<Diagnostic> for CompileError {
     fn from(d: Diagnostic) -> Self {
         CompileError { diagnostics: vec![d] }

@@ -301,3 +301,54 @@ fn the_same_source_compiles_the_same() {
         assert_eq!(compile(src), compile(src));
     }
 }
+
+#[test]
+fn slips_of_the_keyboard_get_a_suggestion() {
+    let cases = [
+        ("effect x { pass p { out = fmb(uv, 3); } }", "`fmb` is not a function; did you mean `fbm`?"),
+        ("effect x { pass p { out = smoothstpe(0.0, 1.0, uv.x); } }", "did you mean `smoothstep`?"),
+        ("effect x { pass p { out = sd_circel(uv, 0.3); } }", "did you mean `sd_circle`?"),
+        (
+            "effect x(float glow = 1.0) { pass p { out = glwo; } }",
+            "`glwo` is not defined; did you mean `glow`?",
+        ),
+        ("effect x { pass p { let shade = 1.0; out = shdae; } }", "did you mean `shade`?"),
+        ("effect x { pass p { out = vec4(tiem); } }", "did you mean `time`?"),
+        ("effect x { pass base { out = 1.0; } pass b = blur(bsae, 2.0); }", "did you mean `base`?"),
+        ("effect x { pass base { out = 1.0; } output bsae; }", "did you mean `base`?"),
+        (
+            "effect x { fn f(v: flaot) -> float { return v; } pass p { out = f(1.0); } }",
+            "did you mean `float`?",
+        ),
+        (
+            "effect x { pass ripple { out = 1.0; } pass p { out = sample(rippel, uv); } }",
+            "did you mean `ripple`?",
+        ),
+    ];
+    for (src, says) in cases {
+        let e = err(src);
+        assert!(e.contains(says), "{src}\n  gave: {e}\n  wanted: {says}");
+    }
+    // Nothing near enough: no guess.
+    let e = err("effect x { pass p { out = wibblewobble(uv); } }");
+    assert!(e.contains("is not a function") && !e.contains("did you mean"), "{e}");
+}
+
+#[test]
+fn reports_show_the_line_and_where_on_it() {
+    let src = "effect x {\n    pass p {\n        out = vec4(fmb(uv, 3));\n    }\n}";
+    let Err(e) = Effect::compile(src) else { unreachable!("does not compile") };
+    let report = e.report(src);
+    let want = "error: `fmb` is not a function; did you mean `fbm`?\n --> 3:20\n  |\n3 |         out = vec4(fmb(uv, 3));\n  |                    ^\n";
+    assert_eq!(report, want);
+}
+
+#[test]
+fn over_budget_effects_name_the_passes_that_cost_most() {
+    // A cheap pass, then a heavy one: the error points at the heavy pass and names it.
+    let src = "effect x {\n scale 1.0;\n pass cheap { out = uv.x; }\n pass heavy { var a = 0.0; for i in 0..40 { a += fbm(uv * float(i + 1), 8); } out = a; }\n}";
+    let e = Effect::compile_with(src, &Limits::untrusted()).map_err(|e| e.to_string());
+    let Err(e) = e else { unreachable!("over the untrusted budget") };
+    assert!(e.starts_with("4:2"), "located at the heavy pass: {e}");
+    assert!(e.contains("most of it: `heavy`"), "{e}");
+}
