@@ -410,7 +410,11 @@ impl Walk<'_> {
             let size = rect.size();
             let mut ob = Builder::new(outer, Rect::from_origin_size(at, size));
             let mut ib = Builder::new(inner, Rect::from_origin_size(Point::ZERO, size));
-            self.body(&mut ib, id, Rect::from_origin_size(Point::ZERO, size), Point::ZERO, false, false);
+            // Glass fades with its element: the opacity goes on the layer holding the glass, so the
+            // compositor fades the blurred backdrop and the content as one.
+            let faded = glass > 0.0 && opacity < 1.0;
+            let paint = Paint { ring: false, shadow: false, opacity: !faded };
+            self.body(&mut ib, id, Rect::from_origin_size(Point::ZERO, size), Point::ZERO, paint);
             let mut layer = ib.finish_into(self.state);
             layer.transform = transform;
             layer.ambient = d.loops.clone();
@@ -419,6 +423,9 @@ impl Walk<'_> {
             let mut outer = ob.finish_into(self.state).clipped(radii);
             if glass > 0.0 {
                 outer = outer.with_backdrop(glass, radii);
+            }
+            if faded {
+                outer.opacity = opacity;
             }
             b.children.push(outer);
             b.push(Item::PushTransform(Affine::translate(rect.min.to_vec2())));
@@ -434,11 +441,11 @@ impl Walk<'_> {
                 .then(Affine::scale(s, s))
                 .then(Affine::translate(Vec2::new(c.x + offset.x, c.y + offset.y)));
             b.push(Item::PushTransform(t));
-            self.body(b, id, rect, at, true, true);
+            self.body(b, id, rect, at, Paint::ALL);
             b.pop(Item::PopTransform);
             return;
         }
-        self.body(b, id, rect, at, true, true);
+        self.body(b, id, rect, at, Paint::ALL);
     }
 
     /// The focus ring of `id` around `local`, when keyboard focus shows there.
@@ -454,10 +461,15 @@ impl Walk<'_> {
     }
 
     /// Paints `id` at `rect` (in its parent's space; `at` in `b`'s layer) and its subtree
-    /// into `b`, with its focus ring when `ring` and its box's shadow when `shadow`.
-    fn body(&mut self, b: &mut Builder, id: ElementId, rect: Rect, at: Point, ring: bool, shadow: bool) {
+    /// into `b`, with what `paint` says.
+    fn body(&mut self, b: &mut Builder, id: ElementId, rect: Rect, at: Point, paint: Paint) {
+        let Paint { ring, shadow, opacity: own_opacity } = paint;
         let Some(d) = self.inner.els.get(&id) else { return };
-        let opacity = d.resolved.opacity;
+        let opacity = if own_opacity { d.resolved.opacity } else { 1.0 };
+        // A scroll container with frosted glass: its own drawing goes in the viewport layer,
+        // over the glass the compositor puts under that layer, and that layer fades it all.
+        let glass_scroll = d.scroll && d.resolved.backdrop_blur > 0.0;
+        let opacity = if glass_scroll { 1.0 } else { opacity };
         b.push(Item::PushTransform(Affine::translate(rect.min.to_vec2())));
         if opacity < 1.0 {
             b.push(Item::PushLayer { opacity, blend: remedy_ui_paint::Blend::Normal });
@@ -471,7 +483,9 @@ impl Walk<'_> {
         if shadow && let Some(s) = box_shadow(&d.resolved, rect.size(), 1.0) {
             b.list.push(s);
         }
-        if let Some((_, chunk)) = &d.chunk {
+        if let Some((_, chunk)) = &d.chunk
+            && !glass_scroll
+        {
             b.list.extend(chunk);
         }
         let kids = self.inner.tree.children(id);
@@ -485,6 +499,9 @@ impl Walk<'_> {
             let width = if d.scroll_x { content.max.x.max(rect.width()) + lead } else { rect.width() };
             let content_size = Size::new(width, content.max.y.max(rect.height()));
             let mut vb = Builder::new(viewport, Rect::from_origin_size(at, rect.size()));
+            if glass_scroll && let Some((_, chunk)) = &d.chunk {
+                vb.list.extend(chunk);
+            }
             vb.scroll = Some(content_size);
             vb.origin = Vec2::new(lead, 0.0);
             vb.follow = d.scroll_follow.map(|(leader, x, y)| remedy_ui_compositor::ScrollFollow {
@@ -503,7 +520,11 @@ impl Walk<'_> {
                 cb.pop(Item::PopTransform);
             }
             vb.children.push(cb.finish_into(self.state));
-            let layer = vb.finish_into(self.state);
+            let mut layer = vb.finish_into(self.state);
+            if glass_scroll {
+                layer = layer.with_backdrop(d.resolved.backdrop_blur, CornerRadii::all(d.resolved.radius));
+                layer.opacity = if own_opacity { d.resolved.opacity } else { 1.0 };
+            }
             b.children.push(layer);
             self.state.scrollers.push((viewport, id));
         } else {
@@ -535,6 +556,21 @@ impl Walk<'_> {
         }
         b.pop(Item::PopTransform);
     }
+}
+
+/// What [`Walk::body`] draws besides the element and its children.
+#[derive(Clone, Copy)]
+struct Paint {
+    /// The focus ring.
+    ring: bool,
+    /// The box's shadow.
+    shadow: bool,
+    /// The element's own opacity (off when the layer holding it fades it).
+    opacity: bool,
+}
+
+impl Paint {
+    const ALL: Paint = Paint { ring: true, shadow: true, opacity: true };
 }
 
 /// The shadow a box styled `s` of `size` casts, faded by `opacity`, as a display item at the
