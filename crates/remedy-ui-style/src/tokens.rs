@@ -488,6 +488,14 @@ pub struct Style {
     pub outline_width: Option<Dp>,
     /// Gap between the edge and the focus ring.
     pub outline_offset: Option<Dp>,
+    /// The shadow the box casts (CSS `box-shadow`).
+    pub shadow: Option<crate::Shadow>,
+    /// Blur of the element and its content (CSS `filter: blur()`), a standard deviation.
+    pub blur: Option<f32>,
+    /// Shadow of the shape of what the element draws (CSS `filter: drop-shadow()`).
+    pub drop_shadow: Option<crate::Shadow>,
+    /// Blur of what lies behind the element (CSS `backdrop-filter: blur()`): frosted glass.
+    pub backdrop_blur: Option<f32>,
 }
 
 impl Style {
@@ -596,6 +604,34 @@ impl Style {
         self
     }
 
+    /// The shadow the box casts (CSS `box-shadow`): [`Shadow::new`](crate::Shadow::new).
+    pub fn shadow(mut self, s: crate::Shadow) -> Self {
+        self.shadow = Some(s);
+        self
+    }
+
+    /// Blurs the element and everything it draws inside it (CSS `filter: blur()`), by a
+    /// standard deviation of `radius` logical pixels.
+    pub fn blur(mut self, radius: f32) -> Self {
+        self.blur = Some(radius);
+        self
+    }
+
+    /// A shadow of the shape of everything the element draws, text and icons included (CSS
+    /// `filter: drop-shadow()`).
+    pub fn drop_shadow(mut self, s: crate::Shadow) -> Self {
+        self.drop_shadow = Some(s);
+        self
+    }
+
+    /// Frosted glass: blurs what the window shows behind the element's box (CSS
+    /// `backdrop-filter: blur()`) by a standard deviation of `radius` logical pixels. The
+    /// element gets a compositor layer of its own.
+    pub fn backdrop_blur(mut self, radius: f32) -> Self {
+        self.backdrop_blur = Some(radius);
+        self
+    }
+
     /// `other`'s set properties over these (padding merges side by side).
     pub fn merge(&self, other: &Style) -> Style {
         let (text_size, text_role) = if other.text_size.is_some() || other.text_role.is_some() {
@@ -621,6 +657,10 @@ impl Style {
             outline: other.outline.or(self.outline),
             outline_width: other.outline_width.or(self.outline_width),
             outline_offset: other.outline_offset.or(self.outline_offset),
+            shadow: other.shadow.or(self.shadow),
+            blur: other.blur.or(self.blur),
+            drop_shadow: other.drop_shadow.or(self.drop_shadow),
+            backdrop_blur: other.backdrop_blur.or(self.backdrop_blur),
         }
     }
 
@@ -672,6 +712,10 @@ impl Style {
             outline: c(self.outline),
             outline_width: dp(self.outline_width),
             outline_offset: dp(self.outline_offset),
+            shadow: self.shadow,
+            blur: self.blur,
+            drop_shadow: self.drop_shadow,
+            backdrop_blur: self.backdrop_blur,
         }
     }
 }
@@ -693,6 +737,10 @@ impl From<StylePatch> for Style {
             outline: p.outline.map(ColorRef::Value),
             outline_width: p.outline_width.map(Dp::Px),
             outline_offset: p.outline_offset.map(Dp::Px),
+            shadow: p.shadow,
+            blur: p.blur,
+            drop_shadow: p.drop_shadow,
+            backdrop_blur: p.backdrop_blur,
         }
     }
 }

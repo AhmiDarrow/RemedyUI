@@ -308,6 +308,7 @@ impl Builder {
             self.list.push(match item {
                 Item::PushClip { .. } => Item::PopClip,
                 Item::PushLayer { .. } => Item::PopLayer,
+                Item::PushFilter(_) => Item::PopFilter,
                 _ => Item::PopTransform,
             });
         }
@@ -328,6 +329,7 @@ impl Builder {
             self.list.push(match item {
                 Item::PushClip { .. } => Item::PopClip,
                 Item::PushLayer { .. } => Item::PopLayer,
+                Item::PushFilter(_) => Item::PopFilter,
                 _ => Item::PopTransform,
             });
         }
@@ -388,23 +390,37 @@ impl Walk<'_> {
         if opacity <= 0.0 || d.hidden {
             return;
         }
-        let isolate = d.isolate.or(d.ambient_layer.then_some(Affine::IDENTITY));
+        // Frosted glass needs a layer of its own: the compositor blurs what lies under it.
+        let glass = d.resolved.backdrop_blur;
+        let isolate = d
+            .isolate
+            .or(d.ambient_layer.then_some(Affine::IDENTITY))
+            .or((glass > 0.0).then_some(Affine::IDENTITY));
         if let Some(transform) = isolate.filter(|_| !d.scroll) {
             // A layer of its own: a clip at the element's box, and inside it the element's
-            // paint and children in a layer the compositor transforms. The focus ring goes
-            // around the box, outside the clip, in the layer below.
+            // paint and children in a layer the compositor transforms. The box's shadow and
+            // the focus ring go around the box, outside the clip, in the layer below.
+            if let Some(shadow) = box_shadow(&d.resolved, rect.size(), opacity) {
+                b.push(Item::PushTransform(Affine::translate(rect.min.to_vec2())));
+                b.list.push(shadow);
+                b.pop(Item::PopTransform);
+            }
             b.split(self.state);
             let (outer, inner) = isolate_ids(id);
             let size = rect.size();
             let mut ob = Builder::new(outer, Rect::from_origin_size(at, size));
             let mut ib = Builder::new(inner, Rect::from_origin_size(Point::ZERO, size));
-            self.body(&mut ib, id, Rect::from_origin_size(Point::ZERO, size), Point::ZERO, false);
+            self.body(&mut ib, id, Rect::from_origin_size(Point::ZERO, size), Point::ZERO, false, false);
             let mut layer = ib.finish_into(self.state);
             layer.transform = transform;
             layer.ambient = d.loops.clone();
             ob.children.push(layer);
             let radii = CornerRadii::all(d.resolved.radius);
-            b.children.push(ob.finish_into(self.state).clipped(radii));
+            let mut outer = ob.finish_into(self.state).clipped(radii);
+            if glass > 0.0 {
+                outer = outer.with_backdrop(glass, radii);
+            }
+            b.children.push(outer);
             b.push(Item::PushTransform(Affine::translate(rect.min.to_vec2())));
             self.focus_ring(b, id, Rect::from_origin_size(Point::ZERO, size));
             b.pop(Item::PopTransform);
@@ -418,11 +434,11 @@ impl Walk<'_> {
                 .then(Affine::scale(s, s))
                 .then(Affine::translate(Vec2::new(c.x + offset.x, c.y + offset.y)));
             b.push(Item::PushTransform(t));
-            self.body(b, id, rect, at, true);
+            self.body(b, id, rect, at, true, true);
             b.pop(Item::PopTransform);
             return;
         }
-        self.body(b, id, rect, at, true);
+        self.body(b, id, rect, at, true, true);
     }
 
     /// The focus ring of `id` around `local`, when keyboard focus shows there.
@@ -438,13 +454,22 @@ impl Walk<'_> {
     }
 
     /// Paints `id` at `rect` (in its parent's space; `at` in `b`'s layer) and its subtree
-    /// into `b`, with its focus ring when `ring`.
-    fn body(&mut self, b: &mut Builder, id: ElementId, rect: Rect, at: Point, ring: bool) {
+    /// into `b`, with its focus ring when `ring` and its box's shadow when `shadow`.
+    fn body(&mut self, b: &mut Builder, id: ElementId, rect: Rect, at: Point, ring: bool, shadow: bool) {
         let Some(d) = self.inner.els.get(&id) else { return };
         let opacity = d.resolved.opacity;
         b.push(Item::PushTransform(Affine::translate(rect.min.to_vec2())));
         if opacity < 1.0 {
             b.push(Item::PushLayer { opacity, blend: remedy_ui_paint::Blend::Normal });
+        }
+        // Filters take the element's drawing, its box shadow and its children (those drawn in
+        // its layer) as one picture: a drop shadow of the shape, then a blur.
+        let filters = filters(&d.resolved);
+        for f in &filters {
+            b.push(Item::PushFilter(*f));
+        }
+        if shadow && let Some(s) = box_shadow(&d.resolved, rect.size(), 1.0) {
+            b.list.push(s);
         }
         if let Some((_, chunk)) = &d.chunk {
             b.list.extend(chunk);
@@ -499,6 +524,9 @@ impl Walk<'_> {
             b.list.border(local, CornerRadii::all(radius), w, self.inner.theme.colors.accent);
         }
         // The focus ring goes over the element and its children, so nothing inside hides it.
+        for _ in &filters {
+            b.pop(Item::PopFilter);
+        }
         if ring {
             self.focus_ring(b, id, local);
         }
@@ -507,6 +535,38 @@ impl Walk<'_> {
         }
         b.pop(Item::PopTransform);
     }
+}
+
+/// The shadow a box styled `s` of `size` casts, faded by `opacity`, as a display item at the
+/// box's origin; `None` for none.
+fn box_shadow(s: &remedy_ui_style::ResolvedStyle, size: Size, opacity: f32) -> Option<Item> {
+    let sh = s.shadow;
+    if !sh.is_visible() || opacity <= 0.0 {
+        return None;
+    }
+    let mut color = sh.color;
+    color.a *= opacity.min(1.0);
+    Some(Item::Shadow {
+        rect: Rect::from_origin_size(Point::ZERO, size),
+        radii: CornerRadii::all(s.radius),
+        offset: sh.offset,
+        blur: if sh.blur.is_finite() { sh.blur.max(0.0) } else { 0.0 },
+        spread: if sh.spread.is_finite() { sh.spread } else { 0.0 },
+        color,
+    })
+}
+
+/// The filters an element styled `s` is drawn through, outermost first.
+fn filters(s: &remedy_ui_style::ResolvedStyle) -> Vec<remedy_ui_paint::Filter> {
+    let mut out = Vec::new();
+    let d = s.drop_shadow;
+    if d.is_visible() {
+        out.push(remedy_ui_paint::Filter::DropShadow { offset: d.offset, blur: d.blur, color: d.color });
+    }
+    if s.blur > 0.0 {
+        out.push(remedy_ui_paint::Filter::Blur { radius: s.blur });
+    }
+    out
 }
 
 impl Ui {
