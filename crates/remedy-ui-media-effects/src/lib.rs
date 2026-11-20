@@ -374,9 +374,9 @@ fn draw_gpu(s: &mut State, input: &FrameInput, rect: Rect) -> Option<Item> {
     }
     let back = 1 - g.front;
     let (texture, id) = g.buffers.get(back)?;
-    let ((), error) =
-        g.ctx.catch_errors(|| g.fx.render(&g.ctx, &s.instance, input, texture).ok().unwrap_or(()));
-    if error.is_some() {
+    let (rendered, error) = g.ctx.catch_errors(|| g.fx.render(&g.ctx, &s.instance, input, texture));
+    // A failed frame shows nothing new: the caller draws this one on the CPU.
+    if rendered.is_err() || error.is_some() {
         return None;
     }
     g.front = back;

@@ -63,10 +63,32 @@ lighthouse beam, a slow drift of clouds) runs under a budget, the **ambient poli
   changes uses `PaintCx::ambient()`, which schedules the element's next repaint at the rate,
   and gives the element a layer of its own so the repaint re-rasters only it; ancestors are not
   re-recorded.
-- **Measured** on the runner with the reference scene (a cached backdrop, 50 animated sprites,
-  a beam sweeping the window): an idle or minimized window draws no frame, the scene runs at
-  30 fps focused and 10 in the background. On the CPU renderer every present still composites
-  the whole window; compositing only the damage is the next step.
+- **Only the damage.** The CPU compositor records each damaged rectangle's part of the
+  composite (tiles and clipped subtrees outside it are left out) and rasterizes only it into
+  the kept frame; clips are clip paths, not isolated layers. The GPU compositor rasters a
+  frame's small tiles together in one render into an atlas and copies them out, reusing their
+  textures.
+- **Budgets**, held by `crates/remedy-ui/tests/ambient_budget.rs` on the runner over the
+  headless bridge with the reference scene (800 × 600, a cached backdrop of sky, 600 stars and
+  hills, 50 animated sprites, a beam sweeping the window):
+
+  | Case | Frames | Budget (release) | Measured (4-core CI container) |
+  |---|---|---|---|
+  | Idle window | none | 0 | 0 |
+  | 50 sprites, focused | 30 a second | < 4 % of a core | 2.6–3.0 % (0.86–1.0 ms a frame) |
+  | Scene with the beam, focused | 30 a second | < 20 % of a core | 11–12 % |
+  | Scene, background | 10 a second | < 0.6 × focused | 3.5–4.2 % |
+  | Scene, Light mode / power saving | 15 a second, light | — | 6 % |
+  | Minimized, Still, reduced motion, still on battery | none | < 5 ms in a second | 0 |
+  | UI thread per ambient frame | — | < 0.25 ms | 0.09–0.13 ms |
+  | GPU renderer, one ambient frame (llvmpipe) | — | < 60 ms; ≤ naive | 42 ms (naive 42 ms) |
+
+  An ambient frame repaints only the sprites, rasters only their tiles (25,000 pixels, against
+  667,000 for the naive scene) and composites only around them (15,000 pixels). The beam is a
+  compositor loop: it turns without rastering, but on the CPU it recomposites the window. The
+  GPU compositor still composites the whole window every frame (cheap on a GPU, the whole cost
+  on a software rasterizer); compositing only the damage there needs a persistent frame
+  texture copied to the swapchain, the next step.
 
 ## Large content
 

@@ -750,6 +750,10 @@ pub struct GpuEffect {
     images: HashMap<u64, wgpu::Texture>,
     /// Instructions run in the last frame, for tests and the overlay: (pixels, instructions).
     work: (u64, u64),
+    /// Uniform buffers reused frame after frame, in pass order.
+    pool: Vec<wgpu::Buffer>,
+    /// Particle instance buffers, by stage.
+    instances: Vec<(usize, wgpu::Buffer)>,
 }
 
 impl std::fmt::Debug for GpuEffect {
@@ -770,12 +774,15 @@ impl GpuEffect {
             last: None,
             images: HashMap::new(),
             work: (0, 0),
+            pool: Vec::new(),
+            instances: Vec::new(),
         }
     }
 
     /// The output's size in pixels for `input`.
     pub fn output_size(effect: &Effect, input: &FrameInput) -> (u32, u32) {
-        effect.stages.last().map_or((1, 1), |s| buffer_size(effect, s, input))
+        let input = remedy_ui_effects::fit(effect, input);
+        effect.stages.last().map_or((1, 1), |s| buffer_size(effect, s, &input))
     }
 
     /// Pixels shaded and instructions those pixels ran in the latest frame.
@@ -897,6 +904,7 @@ impl GpuEffect {
         self.prepare(ctx, &effect);
         let mut input = *input;
         input.max_side = input.max_side.min(ctx.device.limits().max_texture_dimension_2d);
+        let input = remedy_ui_effects::fit(&effect, &input);
         let uniforms = remedy_ui_effects::uniforms(&effect, instance, &input);
         let k = self.kernels.clone();
         let device = &ctx.device;
@@ -918,6 +926,9 @@ impl GpuEffect {
                 .collect();
             self.last = None;
         }
+        // Pictures no longer bound are let go of.
+        let bound: Vec<u64> = instance.textures().iter().flatten().map(|i| i.id).collect();
+        self.images.retain(|id, _| bound.contains(id));
         let textures: Vec<Option<wgpu::TextureView>> =
             instance.textures().iter().map(|t| t.as_ref().and_then(|i| self.image(ctx, i))).collect();
         let views: Vec<wgpu::TextureView> = self
@@ -930,13 +941,33 @@ impl GpuEffect {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RemedyUI effect") });
         let mut work = (0u64, 0u64);
+        // Uniform buffers come from a pool kept between frames: one per pass, written before
+        // this frame's commands run (queue writes are ordered with submissions).
+        let pool = std::cell::RefCell::new((std::mem::take(&mut self.pool), 0usize));
         let uniform_buffer = |bytes: &[u8]| {
-            let b = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("RemedyUI effect"),
-                size: bytes.len().max(16) as u64,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
+            let size = (bytes.len().max(16) as u64).next_multiple_of(16);
+            let mut p = pool.borrow_mut();
+            let (bufs, next) = &mut *p;
+            let b = match bufs.get(*next) {
+                Some(b) if b.size() >= size => b.clone(),
+                _ => {
+                    let b = device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("RemedyUI effect"),
+                        size: size.max(256),
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+                    if *next < bufs.len() {
+                        if let Some(slot) = bufs.get_mut(*next) {
+                            *slot = b.clone();
+                        }
+                    } else {
+                        bufs.push(b.clone());
+                    }
+                    b
+                }
+            };
+            *next += 1;
             ctx.queue.write_buffer(&b, 0, bytes);
             b
         };
@@ -1083,7 +1114,10 @@ impl GpuEffect {
                         Some(s) => blur_pass(&mut encoder, s, view, (w, h), [0.0, 0.0], &[1.0]),
                         None => drop(pass(&mut encoder, view, wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT))),
                     }
-                    let sprites = remedy_ui_effects::particles(&effect, stage, instance, &uniforms, &input);
+                    let mut sprites =
+                        remedy_ui_effects::particles(&effect, stage, instance, &uniforms, &input);
+                    let per_logical = w as f32 / input.width.max(1.0);
+                    remedy_ui_effects::cap_overdraw(&mut sprites, per_logical, u64::from(w) * u64::from(h));
                     if sprites.is_empty() {
                         continue;
                     }
@@ -1096,19 +1130,28 @@ impl GpuEffect {
                             ]
                         })
                         .collect();
-                    let instances = device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("RemedyUI effect particles"),
-                        size: (data.len() * 4) as u64,
-                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    });
+                    let need = (data.len() * 4) as u64;
+                    let slot = self.instances.iter().position(|b| b.0 == si && b.1.size() >= need);
+                    let instances = match slot.and_then(|i| self.instances.get(i)) {
+                        Some((_, b)) => b.clone(),
+                        None => {
+                            let b = device.create_buffer(&wgpu::BufferDescriptor {
+                                label: Some("RemedyUI effect particles"),
+                                size: need.next_power_of_two(),
+                                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                                mapped_at_creation: false,
+                            });
+                            self.instances.retain(|x| x.0 != si);
+                            self.instances.push((si, b.clone()));
+                            b
+                        }
+                    };
                     ctx.queue.write_buffer(&instances, 0, &bytes_f32(&data));
                     let splat = match emitter.splat {
                         Splat::Soft => 0.0,
                         Splat::Disc => 1.0,
                         _ => 2.0,
                     };
-                    let per_logical = w as f32 / input.width.max(1.0);
                     let viewu = uniform_buffer(&bytes_f32(&[w as f32, h as f32, per_logical, splat]));
                     let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("RemedyUI effect particles"),
@@ -1151,6 +1194,7 @@ impl GpuEffect {
             }
         }
         ctx.queue.submit([encoder.finish()]);
+        self.pool = pool.into_inner().0;
         self.work = work;
         Ok(())
     }
