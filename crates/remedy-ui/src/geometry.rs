@@ -4,14 +4,40 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use remedy_ui_core::{Point, Size};
+use remedy_ui_reactive::{JsonValue, Persist, PersistStore};
 
-/// Window positions and sizes by key, in a small text file in the app's data directory.
-/// Each line is `x y width height key`; keys may contain spaces. Written to a temporary file
-/// and renamed, so a crash never leaves a torn file.
-#[derive(Clone, Debug, Default, PartialEq)]
+/// The key window geometry is kept under in a [`PersistStore`]
+/// ([`GeometryStore::persisted_in`]).
+pub const GEOMETRY_KEY: &str = "remedy-ui.windows";
+
+/// Window positions and sizes by key. Natively a small text file in the app's data
+/// directory ([`GeometryStore::open`]): each line is `x y width height key`; keys may contain
+/// spaces; written to a temporary file and renamed, so a crash never leaves a torn file. In a
+/// browser page, where the app has no files, an entry of the app's [`PersistStore`] (its
+/// `localStorage`; [`GeometryStore::persisted_in`]), so floating windows come back where they
+/// were after a reload.
+#[derive(Clone, Debug, Default)]
 pub struct GeometryStore {
     path: Option<PathBuf>,
+    store: Option<PersistStore>,
     entries: BTreeMap<String, (Point, Size)>,
+}
+
+impl PartialEq for GeometryStore {
+    fn eq(&self, other: &Self) -> bool {
+        // Two stores are equal when they hold the same entries for the same place.
+        let place = |s: &GeometryStore| {
+            (
+                s.path.clone(),
+                s.store.as_ref().map(|p| (p.dir().to_path_buf(), p.storage_key_of(GEOMETRY_KEY))),
+            )
+        };
+        self.entries == other.entries && place(self) == place(other)
+    }
+}
+
+fn valid(x: f32, y: f32, w: f32, h: f32) -> bool {
+    [x, y, w, h].iter().all(|v| v.is_finite()) && w > 0.0 && h > 0.0
 }
 
 impl GeometryStore {
@@ -23,15 +49,34 @@ impl GeometryStore {
                 let mut parts = line.splitn(5, ' ');
                 let nums: Vec<f32> = parts.by_ref().take(4).filter_map(|p| p.parse().ok()).collect();
                 if let ([x, y, w, h], Some(key)) = (nums.as_slice(), parts.next())
-                    && [x, y, w, h].iter().all(|v| v.is_finite())
-                    && *w > 0.0
-                    && *h > 0.0
+                    && valid(*x, *y, *w, *h)
                 {
                     entries.insert(key.to_owned(), (Point::new(*x, *y), Size::new(*w, *h)));
                 }
             }
         }
-        GeometryStore { path: Some(path), entries }
+        GeometryStore { path: Some(path), store: None, entries }
+    }
+
+    /// A store kept in `store` under [`GEOMETRY_KEY`], loaded now (nothing saved, or an
+    /// unreadable entry, is an empty store). The entry is a JSON list of
+    /// `[key, x, y, width, height]`. This is how a browser page keeps window geometry; any
+    /// platform can use it.
+    pub fn persisted_in(store: &PersistStore) -> Self {
+        let mut entries = BTreeMap::new();
+        if let Ok(Some(JsonValue::Array(rows))) = store.load::<JsonValue>(&Persist::new(GEOMETRY_KEY)) {
+            for row in rows {
+                let JsonValue::Array(cells) = row else { continue };
+                let num = |i: usize| cells.get(i).and_then(JsonValue::as_f64).map(|v| v as f32);
+                if let (Some(JsonValue::String(key)), Some(x), Some(y), Some(w), Some(h)) =
+                    (cells.first(), num(1), num(2), num(3), num(4))
+                    && valid(x, y, w, h)
+                {
+                    entries.insert(key.clone(), (Point::new(x, y), Size::new(w, h)));
+                }
+            }
+        }
+        GeometryStore { path: None, store: Some(store.clone()), entries }
     }
 
     /// A store that keeps nothing on disk.
@@ -54,8 +99,25 @@ impl GeometryStore {
         self.entries.remove(key);
     }
 
-    /// Writes the file.
+    /// Writes the file, or the store's entry (after the store's debounce; see
+    /// [`PersistStore::flush`]). An in-memory store writes nothing.
     pub fn save(&self) -> std::io::Result<()> {
+        if let Some(store) = &self.store {
+            let rows: Vec<JsonValue> = self
+                .entries
+                .iter()
+                .map(|(k, (p, s))| {
+                    JsonValue::Array(vec![
+                        JsonValue::from(k.as_str()),
+                        JsonValue::from(p.x),
+                        JsonValue::from(p.y),
+                        JsonValue::from(s.width),
+                        JsonValue::from(s.height),
+                    ])
+                })
+                .collect();
+            return store.save(&Persist::new(GEOMETRY_KEY), &rows).map_err(std::io::Error::other);
+        }
         let Some(path) = &self.path else { return Ok(()) };
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -71,9 +133,28 @@ impl GeometryStore {
 }
 
 /// The directory an app named `name` keeps its data in: `%APPDATA%\name` on Windows,
-/// `~/Library/Application Support/name` on macOS, `$XDG_CONFIG_HOME/name` (or
-/// `~/.config/name`) elsewhere.
+/// `~/Library/Application Support/name` on macOS, the app's private internal storage on
+/// Android (`/data/user/<user>/<package>/files`, already the app's own, so without the name),
+/// `$XDG_CONFIG_HOME/name` (or `~/.config/name`) on Linux and the other Unixes. A browser page
+/// has no folder: `None` (its state is kept in `localStorage`, [`crate::App::persist_store`]).
 pub(crate) fn data_dir(name: &str) -> Option<PathBuf> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = name;
+        remedy_ui_bridge_android::data_dir()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        folder(name)
+    }
+}
+
+/// The platform's place for app data, by environment variables.
+#[cfg(not(target_os = "android"))]
+fn folder(name: &str) -> Option<PathBuf> {
+    if cfg!(all(target_arch = "wasm32", target_os = "unknown")) {
+        return None;
+    }
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     let base = if cfg!(windows) {
         env("APPDATA")

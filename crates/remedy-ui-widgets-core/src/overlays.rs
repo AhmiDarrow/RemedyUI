@@ -115,7 +115,11 @@ pub(crate) fn place_fitted(
     fit_height: bool,
     fit: impl Fn(Size, Size) -> Point + 'static,
 ) -> El {
-    let el = place_at(el, first).style(remedy_ui_style::StylePatch::default().opacity(0.0));
+    // Measured (hidden) from the window's start edge, where it has the whole width: at its
+    // anchor it would have only what is left of the window there, and text in it would wrap
+    // to that. Placed, it always has at least the width it was measured at.
+    let el =
+        place_at(el, Point::new(0.0, first.y)).style(remedy_ui_style::StylePatch::default().opacity(0.0));
     // Its own size once measured; placed again when it or the window changes size.
     let measured: Rc<Cell<Option<Size>>> = Rc::default();
     let place = {

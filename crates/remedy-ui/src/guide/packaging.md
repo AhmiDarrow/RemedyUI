@@ -12,10 +12,10 @@ in [`crate::guide::web`].
 
 ### Windows
 
-1. The icon from `remedy.toml` (a square PNG, 256 px or larger) becomes a multi-size `.ico`.
-   Without one, a default icon is used and the tool says so.
-2. With a resource compiler (`llvm-rc`, or `rc` from the Windows SDK), the icon and the
-   version information are compiled into the executable.
+1. The icon from `remedy.toml` (a square PNG, 256 px or larger, plus any sizes drawn by hand)
+   becomes a multi-size `.ico`. Without one, a default icon is used and the tool says so.
+2. The icon and the version information are written as a resource file and linked into the
+   executable (no resource compiler is needed).
 3. With a certificate thumbprint in `remedy.toml` and `signtool`, the executable and the
    installer are signed.
 4. Inno Setup builds a per-user installer, `<bin>_<version>_x64-setup.exe`: a Start menu
@@ -35,7 +35,12 @@ Setup are Windows tools.
   an XDG desktop entry and the icon, laid out under a prefix (`bin/`, `share/`), so unpacking
   it into `~/.local` installs it for the person.
 - **Android** (`--target android`): a signed APK with no Gradle: the app's library built with
-  the NDK's clang, a manifest for a native activity, then `aapt2`, `zipalign` and `apksigner`.
+  the NDK's clang, the Android bridge's Java (its compiled `classes.dex`), the app's icon as
+  the launcher icon (at every screen density, and as an adaptive icon: below), a manifest, then `aapt2`, `zipalign` and `apksigner`. The bridge's Java
+  includes its `SharedFiles` provider, which the manifest declares (not exported, per-file
+  grants, authority `<id>.remedy.share`): it serves the files
+  [`App::share`](crate::App::share) hands to the app the person chose, since other apps
+  cannot read an app's files by path, and Android makes providers only from the APK's own code.
   It needs `ANDROID_HOME` with the NDK and build-tools, and reads an `[android]` section of
   `remedy.toml` (below); without a keystore it signs with a debug key.
 - **macOS** (`--target macos`): `<name>.app` (its `Info.plist`, the executable and an `.icns`
@@ -63,6 +68,12 @@ publisher = "Sticky Notes authors"
 description = "Sticky Notes, built with RemedyUI"
 # A square PNG, 256 px or larger.
 icon = "assets/icon.png"
+# Optional: the icon as drawn at other sizes (pixel art, or small sizes simplified so they
+# stay legible). A size that was drawn is used as it is; others come from the next larger
+# drawing.
+icon_sizes = ["assets/icon-16.png", "assets/icon-32.png", "assets/icon-48.png"]
+# "smooth" (the default) blends pixels when scaling; "pixel" repeats them, for pixel art.
+icon_scaling = "smooth"
 
 [windows]
 # Sign with this certificate from your certificate store (its SHA-1 thumbprint).
@@ -80,14 +91,122 @@ key_alias = "release"
 # What the manifest declares: microphone, internet, notifications, camera, or full names
 # such as "android.permission.VIBRATE". Ask for run-time ones with `App::request_permission`.
 permissions = ["internet", "microphone"]
+# Ongoing work that keeps running out of sight (`App::start_foreground`): microphone,
+# media-playback, camera, data-sync. Declares the foreground service and its permissions.
+foreground = ["microphone", "media-playback"]
+# The adaptive icon: the picture in front (the icon without its backdrop; default: the icon),
+# what fills behind it (a color, or two for a gradient from top to bottom; default: the icon's
+# corner color when it is opaque, else white), and its one-color shape (a PNG whose alpha is
+# the shape) for themed icons and the status bar's notification icon (target_api 33 or
+# later). The three pictures are placed alike, so they line up.
+icon_foreground = "assets/icon-foreground.png"
+icon_background = ["#151b35", "#095249"]
+icon_monochrome = "assets/icon-monochrome.png"
 ```
+
+### Icons
+
+Every package takes its icons from `[app] icon` and `[app] icon_sizes`: the Windows `.ico`
+holds 16 to 256 px (and every drawn size), the Linux archive the `hicolor` theme's 256 px icon
+and every drawn size of the theme's, the macOS `.icns` 256, 512 and 1024 px, the web page 192
+and 512 px. Android gets the 48 dp launcher icon at every density (for Android 7 and older)
+and an adaptive icon (8 and later): its foreground is `[android] icon_foreground` (else the icon)
+filling the 72 dp middle that launchers show of the 108 dp layer (a round mask trims its
+corners), its background is `[android] icon_background` (a color or a gradient), and `[android] icon_monochrome` is the themed layer Android 13
+tints, which the status bar also shows for the app's notifications (without it the status
+bar shows the icon's own shape).
+
+The running app shows its icon in windows, the tray and notifications too:
+[`WindowSpec::icon`](crate::WindowSpec::icon) with a
+[`WindowIcon`](crate::host::WindowIcon) (`with_size` for drawn sizes, `pixel_art` for
+nearest-pixel scaling), [`TrayIcon::with_artwork`](crate::host::TrayIcon::with_artwork), and
+[`Notification::icon`](crate::host::Notification). An app built without
+`cargo remedy package` puts its icon and version information into its Windows executable with
+`remedy-ui-build` in its build script:
+
+```toml
+[build-dependencies]
+remedy-ui-build = "1"
+```
+
+```text
+// build.rs
+fn main() {
+    remedy_ui_build::WindowsResources::new()
+        .icon("assets/app.ico")
+        .product_name("Notes")
+        .compile()
+        .unwrap_or_else(|e| println!("cargo::warning={e}"));
+}
+```
+
+It writes the resource file itself, so no resource compiler is needed; while
+`cargo remedy package` builds, it stands aside for the package's own resources.
 
 ## Android
 
-Apps reach Android through the Android bridge, in a native activity with no Java of the
-app's own. The app's entry point is `remedy_ui::android::main!`, which compiles to nothing on
-other platforms. `cargo remedy new my-app --template android` makes one app for Android and
-the desktop, ready for `cargo remedy package --target android`.
+Apps reach Android through the Android bridge, with no Java of the app's own. The app's
+entry point is `remedy_ui::android::main!`, which compiles to nothing on other platforms.
+`cargo remedy new my-app --template android` makes one app for Android and the desktop,
+ready for `cargo remedy package --target android`.
+
+The APK carries the bridge's own Java (`classes.dex` from the `remedy-ui-bridge-android`
+release the app builds with, found with `cargo metadata`), and its manifest declares:
+
+- `dev.remedyui.android.RemedyActivity`, Android's `NativeActivity` loading the app's
+  library (`android.app.lib_name`), the launcher entry, the configuration changes the
+  engine follows in place, `adjustResize` for the keyboard and a theme without an action
+  bar. It also hears a notification being pressed while the app runs (`onNewIntent`, which
+  `NativeActivity` drops), so [`App::on_notification`](crate::App::on_notification) gets
+  `Activated` and the app comes forward;
+- `dev.remedyui.android.NotificationOpen`, a not-exported alias of the activity that the
+  app's notifications open, so no other app can claim one was pressed;
+- with `[android] foreground`, the `dev.remedyui.android.Foreground` service with those
+  foreground service types, plus `FOREGROUND_SERVICE`, the `FOREGROUND_SERVICE_<TYPE>`
+  permission of each type (Android 14 requires them), the microphone or camera permission
+  for those types and `POST_NOTIFICATIONS` (the work's notification). The app still asks
+  for the run-time ones with [`App::request_permission`](crate::App::request_permission).
+
+[`App::notify`](crate::App::notify) posts to the app's two channels, "Notifications"
+(alerting) and "Quiet notifications" (for [`Notification::silent`](crate::host::Notification::silent())),
+which the person can tune in the system settings; the status bar shows the app's icon in one
+color (Android 13's themed icon layer when the icon has one), and the notification's
+picture is its large icon. Android shows the first three buttons. On Android 13 and later
+ask with `Permission::Notifications` first; before 13 that answers at once whether the
+app's notifications are on. Buttons and swiping a notification away reach the app while it
+runs; pressing a notification works whether it runs or not (it starts the app, which hears
+the press after its setup).
+
+[`App::start_foreground`](crate::App::start_foreground) keeps the app running while it is out
+of sight for a [`ForegroundTask`](crate::host::ForegroundTask): a voice call is
+`ForegroundKind::Microphone` and `ForegroundKind::MediaPlayback`, shown by a notification
+with a "Hang up" button. Ask for the microphone first and start the work while the app is
+on screen: Android refuses microphone and camera work started from the background, and the
+call answers [`Unsupported`](crate::host::Unsupported) with what is missing. If Android
+ends the work later (the daily limit on data sync, Android 15),
+[`App::on_foreground_stopped`](crate::App::on_foreground_stopped) says why. On the desktop and
+the web apps keep running anyway, so the call answers `Ok` there and shows nothing.
+
+An app built into an APK by other means can keep a plain `android.app.NativeActivity` with
+`hasCode="false"`: the bridge then loads its Java from memory, notifications show and their
+buttons and dismissals are reported, but pressing a notification only opens the app:
+`NativeActivity` drops the intent that says which one, so `Activated` never arrives unless
+the press starts the app afresh (no task of the app left). Foreground work answers `Unsupported`.
+
+An Android app's data folder ([`App::data_dir`](crate::App::data_dir)) is the private
+internal storage Android gives it (`/data/user/<user>/<package>/files`, the bridge's
+`android::data_dir`): it is the app's own already, so no app name is added. Only the app
+reads it, it needs no permission, it is kept across updates, and it goes when the app is
+uninstalled or its data is cleared. Persisted signals, window geometry and the app's own
+documents ([`App::persist_store`](crate::App::persist_store)) live there, in `state/` and
+`windows.txt`, and are written when the app goes to the background, since Android may end a
+background app without warning.
+
+An APK built another way shares files only if its manifest declares the provider the same
+way and its `classes.dex` holds it (the bridge's `dex/classes.dex`, rebuilt by its
+`tools/build-dex.sh`, does); a plain `NativeActivity` APK with no code of its own has no
+provider, so [`App::share`](crate::App::share) there shares the title and text alone, or
+answers unsupported when the app requires the files.
 
 ## Updates
 

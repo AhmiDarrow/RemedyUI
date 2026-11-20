@@ -1,4 +1,5 @@
-//! RemedyUI in a browser: a button, a text field (input methods and soft keyboards), copy and
+//! RemedyUI in a browser: a button whose count is kept across reloads (in the page's
+//! `localStorage`), a text field (input methods and soft keyboards), copy and
 //! paste, a link, open and save dialogs with dropped files, the renderer, and the safe area
 //! shown on screen. Installable as a PWA.
 //!
@@ -60,7 +61,8 @@ mod demo {
     fn setup(app: &App) {
         let app2 = app.clone();
         app.open(WindowSpec::new("RemedyUI on the web"), move |ui, window| {
-            let taps = Signal::new(0u32);
+            // Kept in the page's localStorage: a reload brings the count back.
+            let taps = Signal::new(0u32).persist("taps");
             let typed = Signal::new(String::new());
             let status = Signal::new(String::from("Ready"));
             let field = w::text_input(ui, "Message");

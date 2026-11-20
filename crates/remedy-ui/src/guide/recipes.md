@@ -205,8 +205,8 @@ disabled there.
   pressed and shows the window when the notification itself is. Showing it again replaces
   it (same id), and where the platform has none the window alone does the reminding.
   Windows shows it as a toast (the engine registers the app's name for its toasts under the
-  current user), Linux through the desktop's notification server, a browser page through
-  the Notification API after
+  current user), Linux through the desktop's notification server, Android in its shade
+  (with the app's icon in the status bar), a browser page through the Notification API after
   [`App::request_permission`](crate::App::request_permission)`(Permission::Notifications, ..)`.
 
 The test reads the tray's tooltip and menu from the host, closes the window and sees it

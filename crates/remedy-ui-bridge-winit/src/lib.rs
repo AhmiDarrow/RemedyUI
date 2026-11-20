@@ -19,10 +19,10 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{
-    AccessibilityEvent, App, DialogStarted, DragData, DragEvent, DragStarted, DropEffect, FileDialog, Host,
-    HostEvent, ImeEvent, MemoryPressure, Notification, Permission, PermissionStarted, Pixels, ResizeEdge,
-    SafeArea, SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported, Waker, WindowHandles,
-    WindowIcon, WindowId, WindowOptions,
+    AccessibilityEvent, App, DialogStarted, DragData, DragEvent, DragStarted, DropEffect, FileDialog,
+    ForegroundTask, Host, HostEvent, ImeEvent, MemoryPressure, Notification, Permission, PermissionStarted,
+    Pixels, ResizeEdge, SafeArea, ShareOptions, ShareStarted, SystemSettings, TextInputState, TimerId,
+    TrayIcon, Unsupported, Waker, WindowHandles, WindowIcon, WindowId, WindowOptions,
 };
 use remedy_ui_input::{
     Buttons, KeyEvent, Modifiers, PinchEvent, PinchPhase, Platform, PointerEvent, PointerKind, PointerPhase,
@@ -83,6 +83,11 @@ pub trait PlatformHooks: 'static {
         let _ = (window, icon);
         Err(Unsupported::new("window icons", "windows on this platform have no icons of their own"))
     }
+    /// Called once per new window, before it is shown, with the options it was opened with,
+    /// for what winit's attributes cannot say on this platform (focus and taskbar on X11).
+    fn window_options(&mut self, window: &Window, options: &WindowOptions) {
+        let _ = (window, options);
+    }
     /// Called once per new window, before it is shown, for platform setup.
     fn window_created(&mut self, window: &Window) {
         let _ = window;
@@ -137,10 +142,36 @@ pub trait PlatformHooks: 'static {
         let _ = id;
         Err(Unsupported::new("system notifications", "this platform bridge has none"))
     }
+    /// Keeps the app running out of sight for `task` (Android's foreground service). Desktop
+    /// platforms keep apps running anyway: `Ok`, nothing to do.
+    fn start_foreground(&mut self, task: &ForegroundTask) -> Result<(), Unsupported> {
+        let _ = task;
+        Ok(())
+    }
+    /// Ends the work [`PlatformHooks::start_foreground`] started.
+    fn stop_foreground(&mut self) -> Result<(), Unsupported> {
+        Ok(())
+    }
+    /// Hands `share` to the platform's share sheet over `window` (the app's first window when
+    /// it named none). By default the platform has none; a platform whose sheet closes later
+    /// returns [`ShareStarted::Pending`] and reports through [`PlatformHooks::take_events`]
+    /// as [`HostEvent::Share`].
+    fn share(&mut self, window: Option<&Window>, share: &ShareOptions) -> Result<ShareStarted, Unsupported> {
+        let _ = (window, share);
+        Err(Unsupported::new("sharing", "this platform's bridge shows no share sheet"))
+    }
     /// Receives a handle that wakes the event loop, for platform services that report from
     /// other threads (a D-Bus tray).
     fn set_waker(&mut self, waker: Waker) {
         let _ = waker;
+    }
+    /// The longest the loop may sleep now, on platforms where winit drops wake-ups in some
+    /// state: winit's Android backend ignores them while the activity is paused (out of
+    /// sight), so the waker cannot reach the loop then, and what other threads report (a
+    /// notification's button, a background job's result) would wait until the app is seen
+    /// again. While this is `Some`, the loop wakes at least that often to take it.
+    fn wait_slice(&self) -> Option<Duration> {
+        None
     }
     /// Adjusts a new window's attributes before it is created (a platform that handles
     /// drops itself turns winit's file drops off).
@@ -297,6 +328,10 @@ struct Win {
     dragging: bool,
     /// CPU presents have drawn into the window's current surface.
     cpu_presented: bool,
+    /// The app asked for a frame since the last redraw. A redraw it did not ask for is the
+    /// system's: what the window showed was not kept (X11 exposing a window that was unmapped
+    /// or covered), so the app is told the window is in sight again and repaints all of it.
+    asked: std::cell::Cell<bool>,
 }
 
 struct State {
@@ -372,6 +407,7 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
             .with_resizable(options.resizable)
             .with_decorations(options.decorated)
             .with_transparent(options.transparent)
+            .with_active(options.activate)
             .with_visible(false)
             .with_window_level(if options.always_on_top {
                 WindowLevel::AlwaysOnTop
@@ -384,6 +420,11 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         if let Some(p) = options.position {
             attrs = attrs.with_position(LogicalPosition::new(f64::from(p.x), f64::from(p.y)));
         }
+        #[cfg(target_os = "windows")]
+        {
+            use winit::platform::windows::WindowAttributesExtWindows;
+            attrs = attrs.with_skip_taskbar(!options.taskbar);
+        }
         let attrs = self.hooks.window_attributes(attrs);
         let window =
             Arc::new(self.el.create_window(attrs).map_err(|e| Unsupported::new("windows", e.to_string()))?);
@@ -391,6 +432,7 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
             // A platform with one window (Android's activity) hands the same one out again.
             return Err(Unsupported::new("another window", "this platform shows one window at a time"));
         }
+        self.hooks.window_options(&window, options);
         self.hooks.window_created(&window);
         // Best effort, as capture protection: a platform without window icons shows the app's.
         if let Some(icon) = &options.icon {
@@ -436,6 +478,7 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
                     dragging: false,
                     cpu_presented: false,
                     preedit: String::new(),
+                    asked: std::cell::Cell::new(false),
                 },
             ),
         );
@@ -491,6 +534,15 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         if let Some(w) = self.win(window) {
             w.window.set_visible(visible);
         }
+    }
+
+    fn can_hide(&self, window: WindowId) -> bool {
+        use winit::raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
+        // winit's set_visible does nothing on Wayland: only the compositor unmaps a toplevel.
+        !self
+            .win(window)
+            .and_then(|w| w.window.display_handle().ok())
+            .is_some_and(|d| matches!(d.as_raw(), RawDisplayHandle::Wayland(_)))
     }
 
     fn window_position(&self, window: WindowId) -> Option<Point> {
@@ -599,6 +651,7 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
 
     fn request_frame(&mut self, window: WindowId) {
         if let Some(w) = self.win(window) {
+            w.asked.set(true);
             w.window.request_redraw();
         }
     }
@@ -786,6 +839,23 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
 
     fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
         self.hooks.withdraw_notification(id)
+    }
+    fn share(&mut self, window: Option<WindowId>, share: &ShareOptions) -> Result<ShareStarted, Unsupported> {
+        let named = window.and_then(|id| self.win(id)).map(|w| w.window.clone());
+        // A sheet belongs to a window; without one named, the app's oldest window.
+        let w = named.or_else(|| {
+            let first = self.state.ids.keys().min().copied()?;
+            self.win(first).map(|w| w.window.clone())
+        });
+        self.hooks.share(w.as_deref(), share)
+    }
+
+    fn start_foreground(&mut self, task: &ForegroundTask) -> Result<(), Unsupported> {
+        self.hooks.start_foreground(task)
+    }
+
+    fn stop_foreground(&mut self) -> Result<(), Unsupported> {
+        self.hooks.stop_foreground()
     }
 
     fn start_drag(
@@ -1048,7 +1118,12 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                 self.state.settings = s.clone();
                 self.deliver(el, HostEvent::Settings(s));
             }
-            WindowEvent::RedrawRequested => self.deliver(el, HostEvent::Frame { window: id, at: now }),
+            WindowEvent::RedrawRequested => {
+                if !w.asked.replace(false) {
+                    self.deliver(el, HostEvent::Occluded(id, false));
+                }
+                self.deliver(el, HostEvent::Frame { window: id, at: now });
+            }
             WindowEvent::CursorMoved { position, .. } => {
                 w.cursor = logical(position, scale);
                 self.pointer(el, wid, PointerPhase::Move);
@@ -1213,9 +1288,14 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
             self.deliver(el, e);
         }
         self.fire_timers(el);
-        let next = self.state.timers.values().min().copied();
-        el.set_control_flow(match next {
-            Some(at) => ControlFlow::WaitUntil(self.state.start + at),
+        let timer = self.state.timers.values().min().map(|at| self.state.start + *at);
+        let slice = self.hooks.wait_slice().map(|s| Instant::now() + s);
+        let until = match (timer, slice) {
+            (Some(t), Some(s)) => Some(t.min(s)),
+            (t, s) => t.or(s),
+        };
+        el.set_control_flow(match until {
+            Some(at) => ControlFlow::WaitUntil(at),
             None => ControlFlow::Wait,
         });
     }

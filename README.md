@@ -138,6 +138,7 @@ Apps use the facade, `remedy-ui` (`run`, `App`, `Window`, and the packs behind f
 - `remedy-ui-services-update`: signed updates from GitHub releases or a feed
 - `remedy-ui-services-i18n`: Fluent messages, source-keyed JSON catalogs, locale data and exact decimals
 - `remedy-ui-services-spell`: spell checking with the platform's checker or Hunspell dictionaries
+- `remedy-ui-services-webstorage`: imports what a web version saved: a web view's localStorage (WebView2, Android WebView), read-only and lossless
 - `remedy-ui-services-desktop`: starting with the session, showing files in the file manager, the user's known folders
 
 Checks: `cargo xtask check` (layer graph and unsafe boundary) and `cargo deny check`, alongside fmt, clippy, tests and docs.

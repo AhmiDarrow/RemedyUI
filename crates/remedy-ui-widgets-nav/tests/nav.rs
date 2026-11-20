@@ -234,6 +234,30 @@ fn drawers_trap_focus_close_on_escape_and_return_focus() {
 }
 
 #[test]
+fn drawers_close_on_a_press_outside_and_offer_no_dead_controls() {
+    let ui = ui();
+    let open = Signal::new(true);
+    let inner = w::text(&ui, "Rooms");
+    let holder = drawer(&ui, "Rooms", Edge::Start, open, w::column(&ui).child(inner.clone()));
+    let away = w::button(&ui, "Elsewhere", || {}).layout(|l| {
+        l.position = remedy_ui_layout::Position::Absolute;
+        l.inset = remedy_ui_core::Insets {
+            top: 10.0,
+            start: 700.0,
+            end: remedy_ui_layout::AUTO,
+            bottom: remedy_ui_layout::AUTO,
+        };
+    });
+    ui.root().child(holder).child(away.clone());
+    frame(&ui);
+    audit_clean(&ui);
+    press(&ui, &inner, Duration::from_secs(1));
+    assert!(open.get(), "a press inside the panel keeps it open");
+    press(&ui, &away, Duration::from_secs(3));
+    assert!(!open.get(), "a press on the scrim closes it");
+}
+
+#[test]
 fn title_bars_move_on_press_and_maximize_on_double_click() {
     let ui = ui();
     let (moves, maxes) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));

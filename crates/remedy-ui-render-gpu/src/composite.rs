@@ -48,6 +48,22 @@ fn krect(r: remedy_ui_core::Rect) -> kurbo::Rect {
     kurbo::Rect::new(f64::from(r.min.x), f64::from(r.min.y), f64::from(r.max.x), f64::from(r.max.y))
 }
 
+/// A graphics adapter as people read it ([`GpuCompositor::adapter`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AdapterSummary {
+    /// The device's name ("NVIDIA GeForce RTX 3080").
+    pub name: String,
+    /// The maker's PCI vendor id (0x10DE NVIDIA, 0x1002 AMD, 0x8086 Intel), 0 when unknown.
+    pub vendor: u32,
+    /// The driver's name and version, where the platform says.
+    pub driver: String,
+    /// The graphics API in use ("Vulkan", "Dx12", "Metal", "Gl").
+    pub api: String,
+    /// A software rasterizer (no graphics card).
+    pub software: bool,
+}
+
 impl GpuCompositor {
     /// A compositor on `renderer`. `ladder` is how a replacement device is found after a loss.
     pub fn new(renderer: GpuRenderer, ladder: LadderOptions) -> Self {
@@ -67,6 +83,23 @@ impl GpuCompositor {
     /// The renderer.
     pub fn renderer(&self) -> &GpuRenderer {
         &self.renderer
+    }
+
+    /// The graphics adapter drawing: its name, maker, driver and the graphics API used, for a
+    /// "drawing with" line in an app's settings or a bug report.
+    pub fn adapter(&self) -> AdapterSummary {
+        let i = self.renderer.context().adapter.get_info();
+        AdapterSummary {
+            name: i.name,
+            vendor: i.vendor,
+            driver: [i.driver, i.driver_info]
+                .into_iter()
+                .filter(|s| !s.trim().is_empty())
+                .collect::<Vec<_>>()
+                .join(" "),
+            api: format!("{:?}", i.backend),
+            software: i.device_type == wgpu::DeviceType::Cpu,
+        }
     }
 
     /// Bumped on every device rebuild; surfaces from an older device rebuild themselves.

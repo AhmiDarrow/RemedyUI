@@ -188,7 +188,8 @@ pub struct ThemeAssets {
 pub struct DerivedTokens {
     /// Body text, balanced to at least 7:1 on the background.
     pub text: Color,
-    /// Secondary text, balanced to at least 4.5:1 on the background.
+    /// Secondary text (labels, help under controls, unselected options), balanced to at
+    /// least 7:1 on the background, panels and cards: quieter than body text, never faint.
     pub muted: Color,
     /// Text on the accent, balanced to at least 4.5:1.
     pub on_accent: Color,
@@ -270,9 +271,17 @@ impl Theme {
             Density::Comfortable => self.spacing.control_height,
             Density::Spacious => self.spacing.control_height + 2.0 * self.spacing.unit,
         };
+        // Readable on every surface text sits on: cards, panels and the background. The
+        // background comes last, so when no color suits them all (light cards in a dark
+        // theme) the background, where most text sits, keeps it.
+        let readable = |fg: Color, ratio: f32| {
+            let surfaces = [c.card, c.panel, c.bg];
+            let once = surfaces.iter().fold(fg, |f, s| ensure_contrast(f, *s, ratio));
+            surfaces.iter().fold(once, |f, s| ensure_contrast(f, *s, ratio))
+        };
         DerivedTokens {
-            text: ensure_contrast(c.text, c.bg, CONTRAST_AAA),
-            muted: ensure_contrast(c.muted, c.bg, CONTRAST_AA),
+            text: readable(c.text, CONTRAST_AAA),
+            muted: readable(c.muted, CONTRAST_AAA),
             on_accent: ensure_contrast(c.on_accent, c.accent, CONTRAST_AA),
             hover: tint(c.card, 0.06),
             pressed: tint(c.card, 0.12),

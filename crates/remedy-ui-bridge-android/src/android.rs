@@ -10,8 +10,9 @@ use remedy_ui_bridge_winit::winit::window::{Window, WindowId as WinitId};
 use remedy_ui_bridge_winit::{PlatformHooks, RunError, UserEvent, WindowNotice};
 use remedy_ui_host::accesskit::{ActionHandler, ActionRequest, ActivationHandler, TreeUpdate};
 use remedy_ui_host::{
-    AccessibilityEvent, App, DialogStarted, DragData, DragStarted, DropEffect, FileDialog, HostEvent,
-    ImeEvent, Permission, PermissionStarted, SafeArea, SystemSettings, TrayIcon, Unsupported, Waker,
+    AccessibilityEvent, App, DialogStarted, DragData, DragStarted, DropEffect, FileDialog, ForegroundTask,
+    HostEvent, ImeEvent, Notification, NotificationResponse, Permission, PermissionStarted, SafeArea,
+    SystemSettings, TrayIcon, Unsupported, Waker,
 };
 use remedy_ui_input::Platform;
 
@@ -34,11 +35,17 @@ pub(crate) enum Notice {
     Dialog(u64, Vec<std::path::PathBuf>),
     /// The person answered the permission prompt for this request: true when granted.
     Permission(u64, bool),
+    /// The share chooser for this request closed.
+    Share(u64, remedy_ui_host::ShareOutcome),
     /// The drag out ended: 1 dropped and taken, 0 dropped nowhere or refused, -1 never started.
     DragEnded(i32),
     /// A screen reader set a text field's text; the field is the target of the focus request
     /// just before.
     SetText(String),
+    /// The person used one of the app's notifications.
+    Notification(u64, NotificationResponse),
+    /// Android ended the app's foreground work, or refused it once it ran: why.
+    ForegroundStopped(String),
 }
 
 /// State the Java half and the accessibility adapter reach from the UI thread.
@@ -46,6 +53,8 @@ pub(crate) enum Notice {
 struct Shared {
     notices: Mutex<Vec<Notice>>,
     waker: Mutex<Option<Waker>>,
+    /// The activity is paused (out of sight), when winit ignores wake-ups.
+    paused: std::sync::atomic::AtomicBool,
     bridge: Mutex<Option<GlobalRef>>,
 }
 
@@ -64,6 +73,16 @@ pub(crate) fn notify(n: Notice) {
     }
 }
 
+/// Records whether the activity is paused (from its lifecycle, on the UI thread).
+pub(crate) fn set_paused(paused: bool) {
+    shared().paused.store(paused, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// How often the loop looks for reports while the activity is paused: winit ignores wake-ups
+/// then. Short enough that a notification's button answers at once to the person; the
+/// process is frozen by Android anyway once it is cached and holds no foreground work.
+const PAUSED_WAIT_SLICE: std::time::Duration = std::time::Duration::from_millis(100);
+
 pub(crate) fn set_bridge(bridge: GlobalRef) {
     *shared().bridge.lock().unwrap_or_else(PoisonError::into_inner) = Some(bridge);
 }
@@ -79,7 +98,22 @@ static ACTIVITY: Mutex<Option<AndroidApp>> = Mutex::new(None);
 /// Hands the activity to the bridge. The [`main!`](crate::main) entry point calls this before
 /// the app's own entry; call it yourself only when writing `android_main` by hand.
 pub fn attach(app: AndroidApp) {
+    if let Some(dir) = app.internal_data_path() {
+        let _ = DATA_DIR.set(dir);
+    }
     *ACTIVITY.lock().unwrap_or_else(PoisonError::into_inner) = Some(app);
+}
+
+/// The app's private internal storage, kept from [`attach`] for as long as the process runs.
+static DATA_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
+
+/// The app's private data folder: the internal storage Android gives each app
+/// (`Context.getFilesDir()`, `/data/user/<user>/<package>/files`). Only the app reads and
+/// writes it, it needs no permission, it is kept across updates and removed when the app is
+/// uninstalled (or its data cleared). `None` before [`attach`], or when the activity reports
+/// none.
+pub fn data_dir() -> Option<std::path::PathBuf> {
+    DATA_DIR.get().cloned()
 }
 
 /// A string extra of the intent that launched the app (`am start --es name value`, or
@@ -135,6 +169,8 @@ pub struct AndroidHooks {
     next_dialog: u64,
     /// The next permission request's number.
     next_permission: u64,
+    /// The next share's number.
+    next_share: u64,
     /// A text-input session is open.
     text_session: bool,
     /// The element a screen reader last asked to focus (where its "set text" goes).
@@ -174,6 +210,7 @@ impl AndroidHooks {
             settings: None,
             next_dialog: 1,
             next_permission: 1,
+            next_share: 1,
             text_session: false,
             a11y_focus: None,
         }
@@ -235,6 +272,15 @@ impl AndroidHooks {
                 }
                 Notice::Permission(id, granted) => {
                     self.app_events.push(HostEvent::Permission(remedy_ui_host::PermissionId(id), granted));
+                }
+                Notice::Notification(id, response) => {
+                    self.app_events.push(HostEvent::Notification(id, response));
+                }
+                Notice::ForegroundStopped(why) => {
+                    self.app_events.push(HostEvent::ForegroundStopped(why));
+                }
+                Notice::Share(id, outcome) => {
+                    self.app_events.push(HostEvent::Share(remedy_ui_host::ShareId(id), outcome));
                 }
                 Notice::DragEnded(result) => {
                     if let Some(w) = self.window {
@@ -417,6 +463,16 @@ impl PlatformHooks for AndroidHooks {
     fn request_permission(&mut self, permission: Permission) -> Result<PermissionStarted, Unsupported> {
         let name = match permission {
             Permission::Microphone => "android.permission.RECORD_AUDIO",
+            // Granted at install before Android 13: nothing to ask, but the person may have
+            // turned the app's notifications off, which is the answer then.
+            Permission::Notifications if AndroidApp::sdk_version() < 33 => {
+                let on = self
+                    .java("notifications")?
+                    .notifications_enabled()
+                    .map_err(|e| Unsupported::new("notifications", e))?;
+                return Ok(PermissionStarted::Finished(on));
+            }
+            Permission::Notifications => "android.permission.POST_NOTIFICATIONS",
             _ => {
                 return Err(Unsupported::new(
                     "this permission",
@@ -430,6 +486,49 @@ impl PlatformHooks for AndroidHooks {
             .request_permission(&self.app, id, name)
             .map_err(|e| Unsupported::new("permission requests", e))?;
         Ok(PermissionStarted::Pending(remedy_ui_host::PermissionId(id)))
+    }
+
+    fn show_notification(&mut self, notification: &Notification) -> Result<(), Unsupported> {
+        self.java("system notifications")?
+            .show_notification(notification)
+            .map_err(|e| Unsupported::new("system notifications", e))
+    }
+
+    fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
+        self.java("system notifications")?
+            .withdraw_notification(id)
+            .map_err(|e| Unsupported::new("system notifications", e))
+    }
+
+    fn start_foreground(&mut self, task: &ForegroundTask) -> Result<(), Unsupported> {
+        let types = convert::foreground_types(&task.kinds).ok_or_else(|| {
+            Unsupported::new(
+                "foreground work",
+                "a kind of work this release of the Android bridge does not know",
+            )
+        })?;
+        if types == 0 {
+            return Err(Unsupported::new("foreground work", "name at least one kind of work"));
+        }
+        self.java("foreground work")?
+            .start_foreground(&task.notification, types)
+            .map_err(|e| Unsupported::new("foreground work", e))
+    }
+
+    fn stop_foreground(&mut self) -> Result<(), Unsupported> {
+        self.java("foreground work")?.stop_foreground().map_err(|e| Unsupported::new("foreground work", e))
+    }
+
+    fn share(
+        &mut self,
+        window: Option<&Window>,
+        share: &remedy_ui_host::ShareOptions,
+    ) -> Result<remedy_ui_host::ShareStarted, Unsupported> {
+        let _ = window;
+        let id = self.next_share;
+        self.next_share += 1;
+        self.java("sharing")?.share(&self.app, id, share).map_err(|e| Unsupported::new("sharing", e))?;
+        Ok(remedy_ui_host::ShareStarted::Pending(remedy_ui_host::ShareId(id)))
     }
 
     fn start_drag(
@@ -541,6 +640,10 @@ impl PlatformHooks for AndroidHooks {
 
     fn safe_area(&self, window: &Window) -> SafeArea {
         self.safe_area_at(window.scale_factor())
+    }
+
+    fn wait_slice(&self) -> Option<std::time::Duration> {
+        shared().paused.load(std::sync::atomic::Ordering::Relaxed).then_some(PAUSED_WAIT_SLICE)
     }
 
     fn take_events(&mut self) -> Vec<HostEvent> {

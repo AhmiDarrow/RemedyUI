@@ -159,6 +159,33 @@ fn choices_follow_their_signals() {
 }
 
 #[test]
+fn an_unavailable_segment_cannot_be_chosen() {
+    let mut t = T::new();
+    let seg = Signal::new(0usize);
+    let g = w::segmented_unavailable(
+        &t.ui,
+        "Who sees it",
+        &["This room", "One person", "Everyone"],
+        seg,
+        &[(1, "Nobody else is here.".to_owned())],
+    );
+    t.ui.root().child(g.clone());
+    t.frame();
+    let parts = g.child_elements();
+    let [room, one, everyone] = parts.as_slice() else { unreachable!("three options") };
+    t.click(one);
+    assert_eq!(seg.get(), 0, "a click on an unavailable option does nothing");
+    assert!(one.states().contains(remedy_ui_style::States::DISABLED));
+    room.focus();
+    t.key(Key::ArrowRight);
+    assert_eq!(seg.get(), 2, "the arrows step over it");
+    t.key(Key::ArrowLeft);
+    assert_eq!(seg.get(), 0);
+    t.click(everyone);
+    assert_eq!(seg.get(), 2, "the others still choose");
+}
+
+#[test]
 fn values_step_within_bounds() {
     let mut t = T::new();
     let v = Signal::new(5.0f64);
@@ -806,4 +833,54 @@ fn keyed_rows_fade_in_fade_out_and_glide_to_new_places() {
     assert_eq!(texts, ["Row 3", "Row 1"], "the leaving row went at once");
     let three = row_named(&col, "Row 3").unwrap_or_else(|| unreachable!("row 3"));
     assert_eq!(three.drawn_offset().0, remedy_ui_core::Vec2::ZERO, "no glide under reduced motion");
+}
+
+#[test]
+fn choices_with_nothing_chosen_take_arrows_and_letters() {
+    let mut t = T::new();
+    let options = vec!["Apple".to_owned(), "Banana".to_owned(), "Cherry".to_owned()];
+    // An index past the options: a stored value none of them is.
+    let picked = Signal::new(usize::MAX);
+    let sel = w::select(&t.ui, "Fruit", options, picked);
+    let parts = Signal::new(usize::MAX);
+    let seg = w::segmented(&t.ui, "Part", &["Left", "Right"], parts);
+    t.ui.root().child(w::column(&t.ui).child(sel.clone()).child(seg.clone()));
+    t.frame();
+    sel.focus();
+    assert!(t.key(Key::ArrowDown));
+    assert_eq!(picked.get_untracked().ok(), Some(0), "down starts at the first option");
+    picked.set(usize::MAX);
+    t.ui.key(&KeyEvent::press(Key::Character("c".into())).with_text(Some("c".into())));
+    t.frame();
+    assert_eq!(picked.get_untracked().ok(), Some(2), "a letter finds its option");
+    picked.set(usize::MAX);
+    t.ui.key(&KeyEvent::press(Key::Character("a".into())).with_text(Some("a".into())));
+    t.frame();
+    assert_eq!(picked.get_untracked().ok(), Some(0), "from the first option when none is chosen");
+    if let Some(first) = seg.child_elements().first() {
+        first.focus();
+    }
+    assert!(t.key(Key::ArrowLeft));
+    assert_eq!(parts.get_untracked().ok(), Some(1), "up or left starts at the last");
+}
+
+#[test]
+fn a_lamp_shows_the_color_of_its_kind_of_status() {
+    let mut t = T::new();
+    let theme = t.ui.theme();
+    let plain = w::lamp(&t.ui, "Connected", Signal::new(true));
+    let problem = w::lamp(&t.ui, "Problem", Signal::new(true)).variant("danger");
+    let news = w::lamp(&t.ui, "News", Signal::new(true)).variant("accent");
+    let off = w::lamp(&t.ui, "Off", Signal::new(false)).variant("danger");
+    t.ui.root().child(plain.clone()).child(problem.clone()).child(news.clone()).child(off.clone());
+    t.frame();
+    let at = |el: &El| {
+        let b = el.bounds().unwrap_or_default();
+        let (x, y) = ((b.min.x + b.width() / 2.0) as u32, (b.min.y + b.height() / 2.0) as u32);
+        t.frame.as_ref().and_then(|f| f.pixel(x, y)).unwrap_or([0; 4])
+    };
+    assert_eq!(at(&plain), theme.colors.ok.to_rgba8(), "a lamp without a kind is the ok color");
+    assert_eq!(at(&problem), theme.colors.danger.to_rgba8(), "a problem's lamp is the danger color");
+    assert_eq!(at(&news), theme.colors.accent.to_rgba8());
+    assert_eq!(at(&off), theme.derive().line.to_rgba8(), "off is off, whatever its kind");
 }

@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use remedy_ui_core::Color;
-use remedy_ui_host::{MemoryPressure, SystemSettings};
+use remedy_ui_host::{ForegroundKind, MemoryPressure, NotificationResponse, SystemSettings, TrayImage};
 use remedy_ui_input::Platform;
 
 /// `ComponentCallbacks2.onTrimMemory` levels.
@@ -112,9 +112,112 @@ pub fn bcp47(tag: &str) -> Option<String> {
     (!t.is_empty() && !t.eq_ignore_ascii_case("und")).then(|| t.to_owned())
 }
 
+/// `ServiceInfo.FOREGROUND_SERVICE_TYPE_*` for the kinds of foreground work: the bits the
+/// manifest declares and `startForeground` holds. `None` for a kind this bridge does not know.
+pub fn foreground_types(kinds: &[ForegroundKind]) -> Option<i32> {
+    kinds.iter().try_fold(0, |bits, k| {
+        Some(
+            bits | match k {
+                ForegroundKind::DataSync => 1,
+                ForegroundKind::MediaPlayback => 2,
+                ForegroundKind::Camera => 64,
+                ForegroundKind::Microphone => 128,
+                _ => return None,
+            },
+        )
+    })
+}
+
+/// A notification picture as Android's bitmap pixels: non-premultiplied ARGB, and its side.
+/// `None` when the picture's bytes do not match its size.
+pub fn argb_pixels(image: &TrayImage) -> Option<(Vec<i32>, i32)> {
+    let side = usize::try_from(image.size).ok()?;
+    if side == 0 || image.rgba.len() != side.checked_mul(side)?.checked_mul(4)? {
+        return None;
+    }
+    let pixels = image
+        .rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|p| {
+            let [r, g, b, a] = p.map(u32::from);
+            // Premultiplied to straight: each channel over alpha, rounded, at most 255.
+            let straight = |c: u32| (c * 255 + a / 2).checked_div(a).unwrap_or(0).min(255);
+            let argb = (a << 24) | (straight(r) << 16) | (straight(g) << 8) | straight(b);
+            i32::from_ne_bytes(argb.to_ne_bytes())
+        })
+        .collect();
+    Some((pixels, i32::try_from(side).ok()?))
+}
+
+/// What the Java half's notification report means: 0 pressed, 1 a button (`action`, its id),
+/// 2 dismissed.
+pub fn notification_response(kind: i32, action: Option<String>) -> Option<NotificationResponse> {
+    match kind {
+        0 => Some(NotificationResponse::Activated),
+        1 => action.map(NotificationResponse::Action),
+        2 => Some(NotificationResponse::Dismissed),
+        _ => None,
+    }
+}
+
+/// A Java exception's text as the reason a call failed: the message, without the exception's
+/// class name when the Java half threw it to explain itself.
+pub fn java_reason(text: &str) -> String {
+    for class in ["java.lang.IllegalStateException: ", "java.lang.IllegalArgumentException: "] {
+        if let Some(rest) = text.strip_prefix(class) {
+            return rest.to_owned();
+        }
+    }
+    text.to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn foreground_kinds_are_androids_service_types() {
+        assert_eq!(foreground_types(&[]), Some(0));
+        assert_eq!(foreground_types(&[ForegroundKind::Microphone, ForegroundKind::MediaPlayback]), Some(130));
+        assert_eq!(
+            foreground_types(&[ForegroundKind::Camera, ForegroundKind::DataSync, ForegroundKind::Camera]),
+            Some(65)
+        );
+    }
+
+    #[test]
+    fn notification_pictures_become_straight_argb() {
+        let image =
+            TrayImage { size: 2, rgba: vec![255, 0, 0, 255, 64, 32, 0, 128, 0, 0, 0, 0, 10, 10, 10, 10] };
+        let (px, side) = argb_pixels(&image).unwrap_or_default();
+        assert_eq!(side, 2);
+        let u: Vec<u32> = px.iter().map(|p| u32::from_ne_bytes(p.to_ne_bytes())).collect();
+        assert_eq!(u, vec![0xffff_0000, 0x8080_4000, 0, 0x0aff_ffff]);
+        assert_eq!(argb_pixels(&TrayImage { size: 3, rgba: vec![0; 4] }), None, "bytes must match the size");
+        assert_eq!(argb_pixels(&TrayImage { size: 0, rgba: Vec::new() }), None);
+    }
+
+    #[test]
+    fn notification_reports_decode() {
+        assert_eq!(notification_response(0, None), Some(NotificationResponse::Activated));
+        assert_eq!(
+            notification_response(1, Some("reply".into())),
+            Some(NotificationResponse::Action("reply".into()))
+        );
+        assert_eq!(notification_response(1, None), None, "a button names itself");
+        assert_eq!(notification_response(2, None), Some(NotificationResponse::Dismissed));
+        assert_eq!(notification_response(9, None), None);
+        assert_eq!(
+            java_reason("java.lang.IllegalStateException: notifications are off"),
+            "notifications are off"
+        );
+        assert_eq!(
+            java_reason("android.app.ForegroundServiceStartNotAllowedException: no"),
+            "android.app.ForegroundServiceStartNotAllowedException: no"
+        );
+    }
 
     #[test]
     fn trim_levels_ask_for_the_right_pressure() {

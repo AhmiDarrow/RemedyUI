@@ -1,17 +1,18 @@
 //! The Android APIs the bridge calls: Java through JNI on the activity, the bridge's own Java
-//! half (loaded from memory, so apps ship no Java), the C library's time zone and the system
-//! log. Every unsafe call of the bridge is here.
+//! half (the app's own code when the APK carries it, else loaded from memory, so apps on a
+//! plain native activity ship no Java), the C library's time zone and the system log. Every
+//! unsafe call of the bridge is here.
 
 use std::ffi::{CString, c_char, c_int, c_void};
 use std::sync::{Arc, OnceLock};
 
-use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
+use jni::objects::{GlobalRef, JClass, JObject, JObjectArray, JString, JValue};
 use jni::sys::{jint, jlong};
 use jni::{JNIEnv, JavaVM, NativeMethod};
 use winit::platform::android::activity::AndroidApp;
 
 use crate::android::{Notice, notify};
-use crate::convert::AndroidSettings;
+use crate::convert::{self, AndroidSettings};
 
 /// The bridge's Java half (`java/`, rebuilt by `tools/build-dex.sh`).
 static DEX: &[u8] = include_bytes!("../dex/classes.dex");
@@ -360,23 +361,17 @@ impl Java {
         })
     }
 
-    /// The bridge's Java class, loaded from the embedded dex with its native methods bound.
+    /// The bridge's Java class with its native methods bound: the app's own copy when its APK
+    /// carries the bridge's dex (`cargo remedy package`: RemedyActivity, the foreground
+    /// service and the notification classes then share it), else one loaded from the dex
+    /// embedded here.
     fn bridge_class(&self) -> Result<&'static GlobalRef, String> {
         static CLASS: OnceLock<GlobalRef> = OnceLock::new();
         if let Some(c) = CLASS.get() {
             return Ok(c);
         }
-        let class = self.call(|env, _| {
-            let loader_class = env.find_class("dalvik/system/InMemoryDexClassLoader")?;
-            // SAFETY: the buffer covers static bytes that live as long as the process; the
-            // class loader only reads them (it copies the dex while loading).
-            let buffer = unsafe { env.new_direct_byte_buffer(DEX.as_ptr().cast_mut(), DEX.len()) }?;
-            let none = JObject::null();
-            let loader = env.new_object(
-                loader_class,
-                "(Ljava/nio/ByteBuffer;Ljava/lang/ClassLoader;)V",
-                &[JValue::Object(&buffer), JValue::Object(&none)],
-            )?;
+        let packaged = self.call(|env, a| {
+            let loader = env.call_method(a, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?.l()?;
             let name = env.new_string(BRIDGE_CLASS)?;
             let class = env
                 .call_method(
@@ -387,68 +382,45 @@ impl Java {
                 )?
                 .l()?;
             let class = JClass::from(class);
-            env.register_native_methods(
-                &class,
-                &[
-                    NativeMethod {
-                        name: "trimMemory".into(),
-                        sig: "(JI)V".into(),
-                        fn_ptr: trim_memory as *mut c_void,
-                    },
-                    NativeMethod {
-                        name: "configurationChanged".into(),
-                        sig: "(J)V".into(),
-                        fn_ptr: configuration_changed as *mut c_void,
-                    },
-                    NativeMethod {
-                        name: "safeArea".into(),
-                        sig: "(JIIII)V".into(),
-                        fn_ptr: safe_area as *mut c_void,
-                    },
-                    NativeMethod {
-                        name: "imePreedit".into(),
-                        sig: "(JLjava/lang/String;I)V".into(),
-                        fn_ptr: ime_preedit as *mut c_void,
-                    },
-                    NativeMethod {
-                        name: "imeCommit".into(),
-                        sig: "(JLjava/lang/String;)V".into(),
-                        fn_ptr: ime_commit as *mut c_void,
-                    },
-                    NativeMethod {
-                        name: "imeDelete".into(),
-                        sig: "(JII)V".into(),
-                        fn_ptr: ime_delete as *mut c_void,
-                    },
-                    NativeMethod {
-                        name: "permissionDone".into(),
-                        sig: "(JJZ)V".into(),
-                        fn_ptr: permission_done as *mut c_void,
-                    },
-                    NativeMethod {
-                        name: "dialogDone".into(),
-                        sig: "(JJ[Ljava/lang/String;Ljava/lang/String;)V".into(),
-                        fn_ptr: dialog_done as *mut c_void,
-                    },
-                    NativeMethod {
-                        name: "documentSaved".into(),
-                        sig: "(Ljava/lang/String;Ljava/lang/String;)V".into(),
-                        fn_ptr: document_saved as *mut c_void,
-                    },
-                    NativeMethod {
-                        name: "dragEnded".into(),
-                        sig: "(JI)V".into(),
-                        fn_ptr: drag_ended as *mut c_void,
-                    },
-                    NativeMethod {
-                        name: "a11ySetText".into(),
-                        sig: "(JLjava/lang/String;)V".into(),
-                        fn_ptr: a11y_set_text as *mut c_void,
-                    },
-                ],
-            )?;
+            env.register_native_methods(&class, &natives())?;
             env.new_global_ref(class)
-        })?;
+        });
+        let class = match packaged {
+            Ok(c) => c,
+            Err(why) => {
+                // A plain native activity has no Java of the app's: expected. Anything else
+                // (an APK carrying another release's dex) is worth a line in the log.
+                if !why.contains("ClassNotFoundException") {
+                    log(&format!(
+                        "RemedyUI: the APK's bridge classes are unusable ({why}); loading the bridge's own"
+                    ));
+                }
+                self.call(|env, _| {
+                    let loader_class = env.find_class("dalvik/system/InMemoryDexClassLoader")?;
+                    // SAFETY: the buffer covers static bytes that live as long as the process;
+                    // the class loader only reads them (it copies the dex while loading).
+                    let buffer = unsafe { env.new_direct_byte_buffer(DEX.as_ptr().cast_mut(), DEX.len()) }?;
+                    let none = JObject::null();
+                    let loader = env.new_object(
+                        loader_class,
+                        "(Ljava/nio/ByteBuffer;Ljava/lang/ClassLoader;)V",
+                        &[JValue::Object(&buffer), JValue::Object(&none)],
+                    )?;
+                    let name = env.new_string(BRIDGE_CLASS)?;
+                    let class = env
+                        .call_method(
+                            &loader,
+                            "loadClass",
+                            "(Ljava/lang/String;)Ljava/lang/Class;",
+                            &[JValue::Object(&name)],
+                        )?
+                        .l()?;
+                    let class = JClass::from(class);
+                    env.register_native_methods(&class, &natives())?;
+                    env.new_global_ref(class)
+                })?
+            }
+        };
         Ok(CLASS.get_or_init(|| class))
     }
 
@@ -584,6 +556,66 @@ impl Java {
         })
     }
 
+    /// Opens the share chooser for `share`; how it ended comes back as [`Notice::Share`].
+    pub(crate) fn share(
+        &self,
+        app: &AndroidApp,
+        request: u64,
+        share: &remedy_ui_host::ShareOptions,
+    ) -> Result<(), String> {
+        let id = jlong::try_from(request).map_err(|e| e.to_string())?;
+        let title = share.title.clone();
+        let text = share.text.clone();
+        let names: Vec<String> = share.files.iter().map(remedy_ui_host::ShareFile::safe_name).collect();
+        let types: Vec<String> = share.files.iter().map(|f| f.mime_type().to_owned()).collect();
+        let contents: Vec<Vec<u8>> = share.files.iter().map(|f| f.bytes.clone()).collect();
+        let mime = share.mime_type();
+        let require = share.require_files;
+        self.on_bridge(app, "the share chooser", move |env, b| {
+            let r = (|| {
+                let names = string_array(env, &names)?;
+                let types = string_array(env, &types)?;
+                let len = jint::try_from(contents.len()).unwrap_or(jint::MAX);
+                let bytes = env.new_object_array(len, "[B", JObject::null())?;
+                for (i, c) in contents.iter().enumerate() {
+                    let jb = env.byte_array_from_slice(c)?;
+                    env.set_object_array_element(&bytes, jint::try_from(i).unwrap_or(0), &jb)?;
+                    env.delete_local_ref(jb)?;
+                }
+                let title = env.new_string(&title)?;
+                let text = env.new_string(&text)?;
+                let mime = env.new_string(&mime)?;
+                env.call_method(
+                    b,
+                    "share",
+                    "(JLjava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[[BLjava/lang/String;Z)V",
+                    &[
+                        JValue::Long(id),
+                        JValue::Object(&title),
+                        JValue::Object(&text),
+                        JValue::Object(&names),
+                        JValue::Object(&types),
+                        JValue::Object(&bytes),
+                        JValue::Object(&mime),
+                        JValue::Bool(u8::from(require)),
+                    ],
+                )?;
+                Ok(())
+            })();
+            if r.is_err() {
+                // The app is told, so it never waits on a chooser that did not open.
+                notify(Notice::Share(
+                    request,
+                    remedy_ui_host::ShareOutcome::Unsupported(remedy_ui_host::Unsupported::new(
+                        "sharing",
+                        "the share could not reach the chooser",
+                    )),
+                ));
+            }
+            r
+        })
+    }
+
     /// Opens the system's document picker; the choice comes back as [`Notice::Dialog`].
     #[allow(clippy::too_many_arguments, reason = "mirrors the Java call")]
     pub(crate) fn pick(
@@ -662,6 +694,118 @@ impl Java {
         })
     }
 
+    /// Calls one of the bridge class's static methods taking the activity, the handle and a
+    /// notification's parts (`extra` follows them); a Java exception is the error's text.
+    fn notification_call(
+        &self,
+        method: &str,
+        n: &remedy_ui_host::Notification,
+        extra: Option<jint>,
+    ) -> Result<(), String> {
+        let class = self.bridge_class()?;
+        let picture = n.icon.as_ref().and_then(convert::argb_pixels);
+        self.call(|env, a| {
+            let class: &JClass<'_> = class.as_obj().into();
+            let title = env.new_string(&n.title)?;
+            let body = env.new_string(&n.body)?;
+            let ids = strings(env, n.actions.iter().map(|x| x.id.as_str()))?;
+            let labels = strings(env, n.actions.iter().map(|x| x.label.as_str()))?;
+            let app = env.new_string(&n.app)?;
+            let (pixels, side) = match &picture {
+                Some((px, side)) => {
+                    let arr = env.new_int_array(jint::try_from(px.len()).unwrap_or(0))?;
+                    env.set_int_array_region(&arr, 0, px)?;
+                    (JObject::from(arr), *side)
+                }
+                None => (JObject::null(), 0),
+            };
+            let mut args = vec![
+                JValue::Object(a),
+                JValue::Long(HANDLE),
+                JValue::Long(bits(n.id)),
+                JValue::Object(&title),
+                JValue::Object(&body),
+                JValue::Object(&ids),
+                JValue::Object(&labels),
+                JValue::Bool(u8::from(n.silent)),
+                JValue::Object(&app),
+                JValue::Object(&pixels),
+                JValue::Int(side),
+            ];
+            let mut sig = String::from(
+                "(Landroid/app/Activity;JJLjava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;ZLjava/lang/String;[II",
+            );
+            if let Some(x) = extra {
+                args.push(JValue::Int(x));
+                sig.push('I');
+            }
+            sig.push_str(")V");
+            env.call_static_method(class, method, sig.as_str(), &args)?;
+            Ok(())
+        })
+        .map_err(|e| convert::java_reason(&e))
+    }
+
+    /// Shows or replaces a notification; fails when the person turned them off.
+    pub(crate) fn show_notification(&self, n: &remedy_ui_host::Notification) -> Result<(), String> {
+        self.notification_call("showNotification", n, None)
+    }
+
+    /// Takes a notification away.
+    pub(crate) fn withdraw_notification(&self, id: u64) -> Result<(), String> {
+        let class = self.bridge_class()?;
+        self.call(|env, a| {
+            let class: &JClass<'_> = class.as_obj().into();
+            env.call_static_method(
+                class,
+                "withdrawNotification",
+                "(Landroid/app/Activity;JJ)V",
+                &[JValue::Object(a), JValue::Long(HANDLE), JValue::Long(bits(id))],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Whether the app's notifications reach the person.
+    pub(crate) fn notifications_enabled(&self) -> Result<bool, String> {
+        let class = self.bridge_class()?;
+        self.call(|env, a| {
+            let class: &JClass<'_> = class.as_obj().into();
+            env.call_static_method(
+                class,
+                "notificationsEnabled",
+                "(Landroid/app/Activity;J)Z",
+                &[JValue::Object(a), JValue::Long(HANDLE)],
+            )?
+            .z()
+        })
+    }
+
+    /// Starts or changes the app's foreground service of `types`, shown by `n`; fails with
+    /// what Android would refuse.
+    pub(crate) fn start_foreground(
+        &self,
+        n: &remedy_ui_host::Notification,
+        types: i32,
+    ) -> Result<(), String> {
+        self.notification_call("startForeground", n, Some(types))
+    }
+
+    /// Ends the app's foreground service.
+    pub(crate) fn stop_foreground(&self) -> Result<(), String> {
+        let class = self.bridge_class()?;
+        self.call(|env, a| {
+            let class: &JClass<'_> = class.as_obj().into();
+            env.call_static_method(
+                class,
+                "stopForeground",
+                "(Landroid/app/Activity;)V",
+                &[JValue::Object(a)],
+            )?;
+            Ok(())
+        })
+    }
+
     /// Adds "set text" to text fields' accessibility nodes, once the adapter is in place.
     pub(crate) fn extend_accessibility(&self, app: &AndroidApp) -> Result<(), String> {
         self.on_bridge(app, "extending accessibility", |env, b| {
@@ -693,6 +837,51 @@ impl Java {
             Ok(accesskit_android::InjectingAdapter::new(env, &view, activation, action))
         })
     }
+}
+
+/// A 64-bit id as Java's `long`, bit for bit (Java prints it unsigned where it shows).
+fn bits(id: u64) -> jlong {
+    jlong::from_ne_bytes(id.to_ne_bytes())
+}
+
+/// A Java `String[]` of `items`.
+fn strings<'a, 'b>(
+    env: &mut JNIEnv<'a>,
+    items: impl ExactSizeIterator<Item = &'b str>,
+) -> JResult<jni::objects::JObjectArray<'a>> {
+    let arr =
+        env.new_object_array(jint::try_from(items.len()).unwrap_or(0), "java/lang/String", JObject::null())?;
+    for (i, item) in items.enumerate() {
+        let s = env.new_string(item)?;
+        env.set_object_array_element(&arr, jint::try_from(i).unwrap_or(0), s)?;
+    }
+    Ok(arr)
+}
+
+/// The native methods of the bridge's Java class.
+fn natives() -> Vec<NativeMethod> {
+    let m = |name: &str, sig: &str, f: *mut c_void| NativeMethod {
+        name: name.into(),
+        sig: sig.into(),
+        fn_ptr: f,
+    };
+    vec![
+        m("trimMemory", "(JI)V", trim_memory as *mut c_void),
+        m("configurationChanged", "(J)V", configuration_changed as *mut c_void),
+        m("safeArea", "(JIIII)V", safe_area as *mut c_void),
+        m("imePreedit", "(JLjava/lang/String;I)V", ime_preedit as *mut c_void),
+        m("imeCommit", "(JLjava/lang/String;)V", ime_commit as *mut c_void),
+        m("imeDelete", "(JII)V", ime_delete as *mut c_void),
+        m("permissionDone", "(JJZ)V", permission_done as *mut c_void),
+        m("shareDone", "(JJILjava/lang/String;)V", share_done as *mut c_void),
+        m("dialogDone", "(JJ[Ljava/lang/String;Ljava/lang/String;)V", dialog_done as *mut c_void),
+        m("documentSaved", "(Ljava/lang/String;Ljava/lang/String;)V", document_saved as *mut c_void),
+        m("dragEnded", "(JI)V", drag_ended as *mut c_void),
+        m("a11ySetText", "(JLjava/lang/String;)V", a11y_set_text as *mut c_void),
+        m("notificationEvent", "(JJILjava/lang/String;)V", notification_event as *mut c_void),
+        m("foregroundStopped", "(JLjava/lang/String;)V", foreground_stopped as *mut c_void),
+        m("activityPaused", "(JZ)V", activity_paused as *mut c_void),
+    ]
 }
 
 // Called by the Java half on the UI thread. They only queue and wake: nothing here may panic
@@ -785,6 +974,39 @@ extern "system" fn dialog_done(
     notify(Notice::Dialog(u64::try_from(request).unwrap_or(0), out));
 }
 
+/// A Java `String[]` of `list`.
+fn string_array<'l>(env: &mut JNIEnv<'l>, list: &[String]) -> JResult<JObjectArray<'l>> {
+    let len = jint::try_from(list.len()).unwrap_or(jint::MAX);
+    let array = env.new_object_array(len, "java/lang/String", JObject::null())?;
+    for (i, s) in list.iter().enumerate() {
+        let js = env.new_string(s)?;
+        env.set_object_array_element(&array, jint::try_from(i).unwrap_or(0), &js)?;
+        env.delete_local_ref(js)?;
+    }
+    Ok(array)
+}
+
+extern "system" fn share_done(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    _handle: jlong,
+    request: jlong,
+    outcome: jint,
+    error: JString<'_>,
+) {
+    let why = jstring(&mut env, &error);
+    let _ = env.exception_clear();
+    let outcome = match outcome {
+        0 => remedy_ui_host::ShareOutcome::Shared,
+        1 => remedy_ui_host::ShareOutcome::Cancelled,
+        _ => remedy_ui_host::ShareOutcome::Unsupported(remedy_ui_host::Unsupported::new(
+            "sharing",
+            why.unwrap_or_else(|| "the chooser failed".into()),
+        )),
+    };
+    notify(Notice::Share(u64::try_from(request).unwrap_or(0), outcome));
+}
+
 extern "system" fn permission_done(
     _env: JNIEnv<'_>,
     _class: JClass<'_>,
@@ -811,6 +1033,39 @@ extern "system" fn document_saved(
 extern "system" fn a11y_set_text(mut env: JNIEnv<'_>, _class: JClass<'_>, _handle: jlong, text: JString<'_>) {
     let text = jstring(&mut env, &text).unwrap_or_default();
     notify(Notice::SetText(text));
+}
+
+extern "system" fn notification_event(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    _handle: jlong,
+    id: jlong,
+    kind: jint,
+    action: JString<'_>,
+) {
+    let action = jstring(&mut env, &action);
+    if let Some(r) = convert::notification_response(kind, action) {
+        notify(Notice::Notification(u64::from_ne_bytes(id.to_ne_bytes()), r));
+    }
+}
+
+extern "system" fn foreground_stopped(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    _handle: jlong,
+    why: JString<'_>,
+) {
+    let why = jstring(&mut env, &why).unwrap_or_else(|| "Android ended the foreground work".into());
+    notify(Notice::ForegroundStopped(why));
+}
+
+extern "system" fn activity_paused(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    _handle: jlong,
+    paused: jni::sys::jboolean,
+) {
+    crate::android::set_paused(paused != 0);
 }
 
 extern "system" fn drag_ended(_env: JNIEnv<'_>, _class: JClass<'_>, _handle: jlong, effect: jint) {

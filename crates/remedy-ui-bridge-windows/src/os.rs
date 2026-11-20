@@ -4,6 +4,7 @@
 pub(crate) mod dnd;
 pub(crate) mod icon;
 pub(crate) mod instance;
+pub(crate) mod share;
 pub(crate) mod toast;
 pub(crate) mod tray;
 pub(crate) mod tsf;
@@ -26,8 +27,9 @@ use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, 
 use windows_sys::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetCaretBlinkTime, SPI_GETCLIENTAREAANIMATION, SPI_GETHIGHCONTRAST, SetWindowDisplayAffinity,
-    SystemParametersInfoW, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
+    FE_FONTSMOOTHINGCLEARTYPE, FE_FONTSMOOTHINGORIENTATIONBGR, GetCaretBlinkTime, SPI_GETCLIENTAREAANIMATION,
+    SPI_GETFONTSMOOTHING, SPI_GETFONTSMOOTHINGORIENTATION, SPI_GETFONTSMOOTHINGTYPE, SPI_GETHIGHCONTRAST,
+    SetWindowDisplayAffinity, SystemParametersInfoW, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
 };
 
 /// Joins the calling thread to a COM apartment for WinRT calls, keeping the one it is in (the
@@ -336,6 +338,7 @@ pub(crate) struct Settings {
     pub(crate) locale: Option<String>,
     pub(crate) double_click: Duration,
     pub(crate) caret_blink: Option<Duration>,
+    pub(crate) subpixel_text: Option<bool>,
 }
 
 pub(crate) fn settings() -> Settings {
@@ -375,6 +378,16 @@ pub(crate) fn settings() -> Settings {
     let blink = unsafe { GetCaretBlinkTime() };
     let caret_blink = (blink != u32::MAX && blink != 0).then(|| Duration::from_millis(u64::from(blink)));
 
+    // ClearType: smoothing on, of the ClearType kind, and the panel's subpixel order.
+    let spi_u32 = |action| {
+        let mut v = 0u32;
+        // SAFETY: these SPI_GET actions write one UINT (or BOOL) to the out-pointer.
+        (unsafe { SystemParametersInfoW(action, 0, (&raw mut v).cast(), 0) } != 0).then_some(v)
+    };
+    let subpixel_text = (spi_u32(SPI_GETFONTSMOOTHING).is_some_and(|on| on != 0)
+        && spi_u32(SPI_GETFONTSMOOTHINGTYPE) == Some(FE_FONTSMOOTHINGCLEARTYPE))
+    .then(|| spi_u32(SPI_GETFONTSMOOTHINGORIENTATION) == Some(FE_FONTSMOOTHINGORIENTATIONBGR));
+
     Settings {
         dark,
         accent,
@@ -385,6 +398,7 @@ pub(crate) fn settings() -> Settings {
         locale,
         double_click,
         caret_blink,
+        subpixel_text,
     }
 }
 

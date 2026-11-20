@@ -38,8 +38,11 @@ final class TextInput extends View {
         super(context);
         this.handle = handle;
         this.imm = (InputMethodManager) context.getSystemService(Context.INPUT_METHOD_SERVICE);
-        setFocusable(true);
-        setFocusableInTouchMode(true);
+        // Focusable only during a text session: as the window's one focusable view it would
+        // otherwise hold focus all the time, so the input method would take every hardware
+        // key (Back, keyboard shortcuts) and the app would never see them.
+        setFocusable(false);
+        setFocusableInTouchMode(false);
         setWillNotDraw(true);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
     }
@@ -74,6 +77,8 @@ final class TextInput extends View {
         }
         if (restart) {
             active = true;
+            setFocusable(true);
+            setFocusableInTouchMode(true);
             requestFocus();
             imm.restartInput(this);
             imm.showSoftInput(this, 0);
@@ -103,6 +108,10 @@ final class TextInput extends View {
         editable.clear();
         imm.hideSoftInputFromWindow(getWindowToken(), 0);
         clearFocus();
+        // Not focusable again until the next session, so focus does not come straight back
+        // to it and keys reach the app.
+        setFocusableInTouchMode(false);
+        setFocusable(false);
         imm.restartInput(this);
     }
 

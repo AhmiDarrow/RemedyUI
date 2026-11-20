@@ -73,7 +73,7 @@ impl Mf {
         com();
         // SAFETY: MFStartup counts calls; each successful one is matched by `Drop`.
         unsafe { MFStartup(MF_VERSION, MFSTARTUP_FULL) }
-            .map_err(|e| MediaError::Unsupported(format!("Media Foundation is not available: {e}")))?;
+            .map_err(|e| MediaError::Missing(crate::deps::media_foundation(&e.to_string())))?;
         Ok(Mf)
     }
 }

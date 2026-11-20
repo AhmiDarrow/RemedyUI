@@ -90,7 +90,7 @@ RemedyUI uses, and versioned with it:
   `reactive`, `view`, `style`, `text`, `layout`, `input`, `a11y`, `paint`, `themes`, the widget
   packs (`widgets`, `nav`, `data`, `forms`, `extra`, `music`, `term`), the document packs
   (`rich`, `code`, `pages`), media (`image`, `svg`, `anim`, `video`, `playback`, `isolated`),
-  `viz`, `customize`, `markup`, `i18n`, `spell`, `update`, `agents`, `devtools`,
+  `viz`, `customize`, `markup`, `i18n`, `spell`, `update`, `webstorage`, `agents`, `devtools`,
   `gpu_embed`, `webview`, `testing`, and `cargo-remedy`'s commands and `remedy.toml`.
 - **Engine crates** (`remedy-ui-host`, `-compositor`, `-render-cpu`, `-render-gpu`, the
   `-bridge-*` crates, `-trace`, `-tree`): published, semver-checked, and stable for what the

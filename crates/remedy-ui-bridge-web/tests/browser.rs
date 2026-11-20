@@ -2,13 +2,15 @@
 //! `tools/web-test.sh`): an app boots in the page, draws a frame that is read back from its
 //! canvas, takes pointer, key, input-method and paste input, mirrors its accessibility tree
 //! into ARIA elements that a click operates, carries a copy out through the browser's copy
-//! event, and draws on the GPU (WebGPU or WebGL2) when it asks for it.
+//! event, hands shares to `navigator.share` (a recording stand-in for the sheet, since a test's
+//! calls are no click), and draws on the GPU (WebGPU or WebGL2) when it asks for it.
 
 #![cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use remedy_ui::host::{ShareFile, ShareOptions, ShareOutcome};
 use remedy_ui::widgets as w;
 use remedy_ui::{App, AppConfig, RendererKind, WindowSpec};
 use wasm_bindgen::JsCast;
@@ -87,6 +89,28 @@ export function pixelAfterFrame(canvas, x, y) {
     resolve(Array.from(g.getImageData(x, y, 1, 1).data));
   }));
 }
+export function stubShare(files, fail) {
+  window.__shares = [];
+  const own = { configurable: true, writable: true };
+  Object.defineProperty(navigator, 'share', { ...own, value: (data) => {
+    window.__shares.push({
+      title: data.title ?? null,
+      text: data.text ?? null,
+      files: data.files ? data.files.map((f) => f.name + '|' + f.type + '|' + f.size) : null,
+    });
+    return fail ? Promise.reject(new DOMException('stubbed', fail)) : Promise.resolve();
+  } });
+  Object.defineProperty(navigator, 'canShare', { ...own, value: (data) => files || !data.files });
+  Object.defineProperty(navigator, 'userActivation', { ...own, value: { isActive: true } });
+}
+export function unstubShare() {
+  delete navigator.share;
+  delete navigator.canShare;
+  delete navigator.userActivation;
+}
+export function sharesSeen() {
+  return JSON.stringify(window.__shares || []);
+}
 export function context(canvas) {
   for (const kind of ['webgpu', 'webgl2']) {
     try { if (canvas.getContext(kind)) return kind; } catch (e) {}
@@ -110,6 +134,14 @@ extern "C" {
     #[wasm_bindgen(js_name = pixelAfterFrame)]
     fn pixel_after_frame(canvas: &web_sys::HtmlCanvasElement, x: u32, y: u32) -> js_sys::Promise;
     fn context(canvas: &web_sys::HtmlCanvasElement) -> String;
+    /// Replaces the browser's share sheet with one that records what it gets and answers
+    /// at once (with `fail` as the error's name when set), as if a click had just happened.
+    #[wasm_bindgen(js_name = stubShare)]
+    fn stub_share(files: bool, fail: Option<String>);
+    #[wasm_bindgen(js_name = unstubShare)]
+    fn unstub_share();
+    #[wasm_bindgen(js_name = sharesSeen)]
+    fn shares_seen() -> String;
 }
 
 async fn frames(n: u32) {
@@ -353,8 +385,67 @@ async fn an_app_runs_in_the_page() {
     key(&target, "keydown", "Escape", "Escape", false);
     key(&target, "keyup", "Escape", "Escape", false);
 
-    // Quitting takes the app out of the page.
+    // Sharing. The test's calls are no click, so the browser's own sheet refuses: either it
+    // has none (desktop Firefox, Chrome on Linux) or the page may not act for the person now.
     let app = seen.app.borrow().clone().must("the app");
+    let outcomes: Rc<RefCell<Vec<ShareOutcome>>> = Rc::default();
+    let share = |options: ShareOptions| {
+        let o = outcomes.clone();
+        app.share(None, options, move |outcome| o.borrow_mut().push(outcome));
+    };
+    let recipe = ShareOptions::new()
+        .title("Lavender")
+        .text("Lavender soap: 500 g oils")
+        .file(ShareFile::new("Lavender.alex-soap.json", "application/json", br#"{"oils":500}"#.to_vec()));
+    let has_sheet = js_sys::Reflect::has(&web_sys::window().must("a window").navigator(), &"share".into())
+        .unwrap_or(false);
+    share(recipe.clone());
+    assert!(until(30, || outcomes.borrow().len() == 1).await, "the share ended");
+    let refused = outcomes.borrow_mut().remove(0);
+    web_sys::console::log_1(
+        &format!("navigator.share present: {has_sheet}; outside a click: {refused:?}").into(),
+    );
+    let ShareOutcome::Unsupported(why) = refused else {
+        unreachable!("refused outside a click: {refused:?}")
+    };
+    assert!(why.reason.contains(if has_sheet { "click or key press" } else { "navigator.share" }), "{why}");
+    // A sheet that takes files gets them as File objects beside the title and text.
+    stub_share(true, None);
+    share(recipe.clone());
+    assert!(until(30, || outcomes.borrow().len() == 1).await, "the stubbed share ended");
+    assert_eq!(outcomes.borrow_mut().remove(0), ShareOutcome::Shared);
+    assert_eq!(
+        shares_seen(),
+        r#"[{"title":"Lavender","text":"Lavender soap: 500 g oils","files":["Lavender.alex-soap.json|application/json|12"]}]"#
+    );
+    // One that takes no files gets the text alone, unless the app requires the files.
+    stub_share(false, None);
+    share(recipe.clone());
+    share(recipe.clone().require_files(true));
+    assert!(until(30, || outcomes.borrow().len() == 2).await, "both shares ended");
+    // The refusal comes at once, the sheet's answer when its promise settles.
+    assert!(
+        matches!(outcomes.borrow().first(), Some(ShareOutcome::Unsupported(u)) if u.reason.contains("files"))
+    );
+    assert_eq!(outcomes.borrow().get(1), Some(&ShareOutcome::Shared));
+    assert_eq!(shares_seen(), r#"[{"title":"Lavender","text":"Lavender soap: 500 g oils","files":null}]"#);
+    outcomes.borrow_mut().clear();
+    // The person closing the sheet is a cancel; any other refusal says the browser's reason.
+    stub_share(true, Some("AbortError".into()));
+    share(recipe.clone());
+    assert!(until(30, || outcomes.borrow().len() == 1).await);
+    assert_eq!(outcomes.borrow_mut().remove(0), ShareOutcome::Cancelled);
+    stub_share(true, Some("NotAllowedError".into()));
+    share(recipe);
+    assert!(until(30, || outcomes.borrow().len() == 1).await);
+    let denied = outcomes.borrow_mut().remove(0);
+    assert!(
+        matches!(&denied, ShareOutcome::Unsupported(u) if u.reason.contains("NotAllowedError")),
+        "{denied:?}"
+    );
+    unstub_share();
+
+    // Quitting takes the app out of the page.
     app.quit();
     assert!(until(30, || !remedy_ui::web::is_running()).await, "quitting ends the app and empties the page");
     assert!(query("[data-remedy-window]").is_none(), "the window left the page");
@@ -392,4 +483,95 @@ async fn an_app_runs_in_the_page() {
     let app = seen.app.borrow().clone().must("the app");
     app.quit();
     assert!(until(30, || !remedy_ui::web::is_running()).await);
+}
+
+#[wasm_bindgen(inline_js = r#"
+export function storageGet(key) { return window.localStorage.getItem(key); }
+export function storageRemove(key) { window.localStorage.removeItem(key); }
+"#)]
+extern "C" {
+    #[wasm_bindgen(js_name = storageGet)]
+    fn storage_get(key: &str) -> Option<String>;
+    #[wasm_bindgen(js_name = storageRemove)]
+    fn storage_remove(key: &str);
+}
+
+type Persisting = Rc<RefCell<Option<(App, remedy_ui::reactive::Signal<String>)>>>;
+
+/// An app with a persisted draft, as Craft Calc keeps its open recipe.
+fn persisting_app(name: &str, seen: Persisting) {
+    let run = remedy_ui::run(AppConfig::new(name).cpu_only(), move |app: &App| {
+        let (s, a) = (seen.clone(), app.clone());
+        app.open(WindowSpec::new("Persist").persist_geometry("main"), move |ui, _| {
+            let draft = remedy_ui::reactive::Signal::new(String::new()).persist("draft");
+            *s.borrow_mut() = Some((a.clone(), draft));
+            let _ = ui.root().child(ui.el("label").text(move || draft.get()));
+        });
+    });
+    run.must("the app starts in the page");
+}
+
+#[wasm_bindgen_test]
+async fn persisted_state_and_documents_live_in_local_storage_across_runs() {
+    use remedy_ui::reactive::Persist;
+    const NAME: &str = "Browser persist test";
+    const DRAFT: &str = "remedy:Browser persist test:draft";
+    const RECIPES: &str = "remedy:Browser persist test:recipes";
+    for k in [DRAFT, RECIPES, "remedy:Browser persist test:remedy-ui.windows"] {
+        storage_remove(k);
+    }
+
+    // The first run: a persisted signal and a document are saved in the page's storage.
+    let seen: Persisting = Rc::default();
+    persisting_app(NAME, seen.clone());
+    assert!(until(120, || seen.borrow().is_some()).await, "the window was built");
+    let (app, draft) = seen.borrow().clone().must("the app");
+    assert_eq!(app.data_dir(), None, "a page has no folder");
+    let store = app.persist_store().must("a page has a persist store");
+    assert_eq!(store.storage_key_of("draft").as_deref(), Some(DRAFT));
+    draft.set("Castile soap".into());
+    assert!(
+        until(240, || storage_get(DRAFT).is_some_and(|v| v.contains("Castile soap"))).await,
+        "the debounced write reached localStorage between frames"
+    );
+    let saved = storage_get(DRAFT).must("the entry");
+    assert!(saved.contains("\"version\": 1"), "the same envelope as a file: {saved}");
+    let recipes = vec!["Castile".to_owned(), "Bastille".to_owned()];
+    store.save(&Persist::new("recipes"), &recipes).must("a document saves");
+    app.quit();
+    assert!(until(30, || !remedy_ui::web::is_running()).await);
+    assert!(storage_get(RECIPES).is_some(), "quitting wrote what was pending");
+    drop((app, draft, store));
+
+    // The next run, as after a reload: everything comes back from the page's storage.
+    let again: Persisting = Rc::default();
+    persisting_app(NAME, again.clone());
+    assert!(until(120, || again.borrow().is_some()).await, "the window was built again");
+    let (app, draft) = again.borrow().clone().must("the app");
+    assert_eq!(draft.get(), "Castile soap", "the persisted signal came back");
+    let store = app.persist_store().must("a page has a persist store");
+    let back: Option<Vec<String>> = store.load(&Persist::new("recipes")).must("the document reads back");
+    assert_eq!(back, Some(recipes));
+
+    // More than the browser lets an origin keep: the write fails and is reported.
+    let big = "x".repeat(16 * 1024 * 1024);
+    store.save(&Persist::new("too big"), &big).must("queued");
+    let flushed = store.flush();
+    let errors = store.take_errors();
+    assert!(flushed.is_err(), "the browser refused the write");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.starts_with("remedy:Browser persist test:too big")
+                && e.to_lowercase().contains("quota")),
+        "the refusal is reported: {errors:?}"
+    );
+    store.remove("too big").must("removed");
+    store.flush().must("nothing left to refuse");
+
+    app.quit();
+    assert!(until(30, || !remedy_ui::web::is_running()).await);
+    for k in [DRAFT, RECIPES, "remedy:Browser persist test:remedy-ui.windows"] {
+        storage_remove(k);
+    }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "remedy-ui-bridge-windows"
-description = "RemedyUI Windows bridge: the shared winit core plus Win32 for the clipboard, capture protection and system settings."
+description = "RemedyUI Windows bridge: the shared winit core plus Win32 for the clipboard, capture protection, the share window and system settings."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -17,8 +17,9 @@ remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "1.0.0-
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-host = { path = "../remedy-ui-host", version = "1.0.0-rc.1" }
 remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
-windows = { version = "=0.62.2", features = ["Win32_UI_TextServices", "Win32_System_Com", "Win32_System_Ole", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_Variant", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_System_SystemServices", "Win32_System_Com_StructuredStorage", "Win32_System_Registry", "Win32_System_Memory", "Win32_System_DataExchange", "Foundation", "UI_Notifications", "Data_Xml_Dom"] }
+windows = { version = "=0.62.2", features = ["Win32_UI_TextServices", "Win32_System_Com", "Win32_System_Ole", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_Variant", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_System_SystemServices", "Win32_System_Com_StructuredStorage", "Win32_System_Registry", "Win32_System_Memory", "Win32_System_DataExchange", "Foundation", "UI_Notifications", "Data_Xml_Dom", "ApplicationModel_DataTransfer", "Storage", "Storage_Streams"] }
 png = { version = "=0.18.1" }
+windows-collections = { version = "=0.3.2" }
 windows-core = { version = "=0.62.2" }
 rfd = { version = "=0.18.0", default-features = false }
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Registry", "Win32_Globalization", "Win32_Graphics_Dwm", "Win32_UI_Accessibility", "Win32_UI_Shell", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_System_Pipes", "Win32_Storage_FileSystem", "Win32_System_RemoteDesktop", "Win32_Security", "Win32_System_IO", "Win32_System_Time", "Win32_System_SystemInformation"] }

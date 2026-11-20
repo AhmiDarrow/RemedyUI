@@ -3,8 +3,10 @@
 // Android reports memory trims, configuration changes, setting changes and window insets only
 // to Java objects implementing its listener interfaces. This class implements them and hands
 // each report to the bridge's native code, which wakes the app's event loop. It is compiled
-// into dex/classes.dex (tools/build-dex.sh) and loaded from memory by the bridge, so apps ship
-// no Java of their own.
+// into dex/classes.dex (tools/build-dex.sh). APKs `cargo remedy package` makes carry that dex
+// as the app's code (RemedyActivity, the foreground service), and the bridge uses those
+// classes; an app on a plain NativeActivity ships no Java, and the bridge loads the same dex
+// from memory.
 
 package dev.remedyui.android;
 
@@ -58,6 +60,8 @@ public final class Bridge
 
     static native void permissionDone(long handle, long request, boolean granted);
 
+    static native void shareDone(long handle, long request, int outcome, String error);
+
     static native void dialogDone(long handle, long request, String[] paths, String error);
 
     static native void documentSaved(String path, String error);
@@ -65,6 +69,15 @@ public final class Bridge
     static native void dragEnded(long handle, int effect);
 
     static native void a11ySetText(long handle, String text);
+
+    /** A notification was pressed (kind 0), one of its buttons (1, with its id), dismissed (2). */
+    static native void notificationEvent(long handle, long id, int kind, String action);
+
+    /** The platform ended the app's foreground work, or refused it once it ran. */
+    static native void foregroundStopped(long handle, String why);
+
+    /** The activity was paused (true) or resumed: winit ignores the loop's wake-ups while paused. */
+    static native void activityPaused(long handle, boolean paused);
 
     private final TextInput input;
     private final Application.ActivityLifecycleCallbacks lifecycle;
@@ -94,10 +107,18 @@ public final class Bridge
                     public void onActivityStarted(Activity a) {}
 
                     @Override
-                    public void onActivityResumed(Activity a) {}
+                    public void onActivityResumed(Activity a) {
+                        if (a == Bridge.this.activity) {
+                            activityPaused(Bridge.this.handle, false);
+                        }
+                    }
 
                     @Override
-                    public void onActivityPaused(Activity a) {}
+                    public void onActivityPaused(Activity a) {
+                        if (a == Bridge.this.activity) {
+                            activityPaused(Bridge.this.handle, true);
+                        }
+                    }
 
                     @Override
                     public void onActivityStopped(Activity a) {}
@@ -106,6 +127,8 @@ public final class Bridge
                     public void onActivityDestroyed(Activity a) {}
                 };
         activity.getApplication().registerActivityLifecycleCallbacks(lifecycle);
+        // Opened by pressing one of the app's notifications: report it.
+        Notifier.get(activity, handle).report(activity.getIntent());
         // A native activity draws on the whole window's surface, under the system bars. Lay
         // the view out the same way (edge to edge, bars see-through), so the view's bounds,
         // where accessibility nodes are placed, match the surface, and the safe area tells
@@ -263,6 +286,12 @@ public final class Bridge
         Permissions.request(activity, handle, request, permission);
     }
 
+    /** Opens the share chooser (UI thread). */
+    public void share(long request, String title, String text, String[] names, String[] types, byte[][] contents,
+            String mime, boolean requireFiles) {
+        Share.show(activity, handle, request, title, text, names, types, contents, mime, requireFiles);
+    }
+
     /** Opens the document picker (UI thread). */
     public void pick(long request, boolean save, boolean multiple, String[] extensions, String fileName,
             String title) {
@@ -319,6 +348,43 @@ public final class Bridge
         }
     }
 
+    /**
+     * Shows or replaces notification `id` (any thread): title, body, buttons (ids and labels),
+     * quiet or alerting, the app's name, a picture (ARGB, size by size; null for none).
+     * Throws when the person turned notifications off.
+     */
+    public static void showNotification(Activity activity, long handle, long id, String title, String body,
+            String[] actionIds, String[] labels, boolean silent, String app, int[] argb, int size) {
+        Notifier n = Notifier.get(activity, handle);
+        n.show(id, n.build(id, title, body, actionIds, labels, silent, app, argb, size, false));
+    }
+
+    /** Takes notification `id` away (any thread). */
+    public static void withdrawNotification(Activity activity, long handle, long id) {
+        Notifier.get(activity, handle).withdraw(id);
+    }
+
+    /** Whether the app's notifications reach the person (any thread). */
+    public static boolean notificationsEnabled(Activity activity, long handle) {
+        return Notifier.get(activity, handle).enabled();
+    }
+
+    /**
+     * Starts or changes the app's foreground work of `types` (foreground service type bits),
+     * shown by notification `id` (any thread). Throws with what Android would refuse.
+     */
+    public static void startForeground(Activity activity, long handle, long id, String title, String body,
+            String[] actionIds, String[] labels, boolean silent, String app, int[] argb, int size, int types) {
+        Notifier n = Notifier.get(activity, handle);
+        Foreground.start(activity, handle, n.build(id, title, body, actionIds, labels, silent, app, argb, size, true),
+                types);
+    }
+
+    /** Ends the app's foreground work (any thread). */
+    public static void stopForeground(Activity activity) {
+        Foreground.stop(activity);
+    }
+
     /** The view the native activity draws in: where accessibility nodes live. */
     public static View contentView(Activity activity) {
         View root = activity.getWindow().getDecorView().findViewById(android.R.id.content);
@@ -330,6 +396,8 @@ public final class Bridge
 
     /** Stops listening. Runs on the UI thread. */
     public void close() {
+        Foreground.stop(activity);
+        Notifier.close();
         input.end();
         ((ViewGroup) decor.findViewById(android.R.id.content)).removeView(input);
         content.setOnDragListener(null);

@@ -648,6 +648,7 @@ dependencies = [
  "remedy-templates",
  "remedy-tools",
  "remedy-ui",
+ "remedy-ui-build",
  "serde",
  "serde_json",
  "syn 2.0.119",
@@ -4019,6 +4020,7 @@ dependencies = [
  "remedy-ui-services-i18n",
  "remedy-ui-services-spell",
  "remedy-ui-services-update",
+ "remedy-ui-services-webstorage",
  "remedy-ui-style",
  "remedy-ui-text",
  "remedy-ui-themes",
@@ -4150,6 +4152,7 @@ dependencies = [
  "remedy-ui-input",
  "rfd",
  "windows",
+ "windows-collections",
  "windows-core",
  "windows-sys 0.61.2",
 ]
@@ -4165,6 +4168,10 @@ dependencies = [
  "softbuffer",
  "winit",
 ]
+
+[[package]]
+name = "remedy-ui-build"
+version = "1.0.0-rc.1"
 
 [[package]]
 name = "remedy-ui-compositor"
@@ -4534,6 +4541,8 @@ dependencies = [
  "remedy-ui-trace",
  "serde",
  "serde_json",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -4705,6 +4714,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-services-webstorage"
+version = "1.0.0-rc.1"
+dependencies = [
+ "js-sys",
+ "snap",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
 name = "remedy-ui-style"
 version = "1.0.0-rc.1"
 dependencies = [
@@ -4817,12 +4837,14 @@ dependencies = [
  "remedy-ui-script",
  "remedy-ui-script-rhai",
  "remedy-ui-script-wasm",
+ "remedy-ui-services-i18n",
  "remedy-ui-style",
  "remedy-ui-text",
  "remedy-ui-themes",
  "remedy-ui-view",
  "remedy-ui-widgets-core",
  "remedy-ui-widgets-data",
+ "remedy-ui-widgets-forms",
  "serde",
  "serde_json",
  "wasm-bindgen-test",
@@ -5644,6 +5666,12 @@ checksum = "dd538fb6910ac1099850255cf94a94df6551fbdd602454387d0adb2d1ca6dead"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "snap"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "199905e6153d6405f9728fe44daace35f8f837bbf830bb6e85fbd5828709a886"
 
 [[package]]
 name = "socket2"

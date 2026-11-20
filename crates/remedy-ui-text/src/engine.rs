@@ -30,6 +30,34 @@ impl std::fmt::Display for FontError {
 
 impl std::error::Error for FontError {}
 
+/// The families a [`FontCollection`] reaches for a symbol that the chosen font and its
+/// script's fallback fonts lack, in order: the bundled Remedy Symbols (`remedy-ui-fonts`),
+/// then each platform's symbol, math and emoji fonts, then the system's emoji family. Families
+/// the collection does not have are skipped.
+///
+/// Font fallback goes by script, and symbols such as ✦ ◆ ⚠ ☰ ⌕ ⇄ belong to no script
+/// (Unicode's Common script): they take the script of the text around them, whose fallback
+/// fonts rarely have them. These families are where they live.
+pub const DEFAULT_SYMBOL_FALLBACKS: &[&str] = &[
+    "Remedy Symbols",
+    // Windows.
+    "Segoe UI Symbol",
+    "Segoe UI Emoji",
+    "Cambria Math",
+    // macOS and iOS.
+    "Apple Symbols",
+    "Apple Color Emoji",
+    // Linux and Android.
+    "Noto Sans Symbols 2",
+    "Noto Sans Symbols",
+    "Noto Sans Math",
+    "DejaVu Sans",
+    "Symbola",
+    "Noto Color Emoji",
+    // The system's own emoji family.
+    "emoji",
+];
+
 /// The fonts a [`TextEngine`] can use. Starts empty; apps add their bundled fonts (for
 /// example from `remedy-ui-fonts`, or their brand's own as TrueType, OpenType, WOFF or
 /// WOFF2) and, with the `system-fonts` feature, may let fallback reach the system's fonts.
@@ -38,6 +66,10 @@ impl std::error::Error for FontError {}
 /// some scripts (Inter's Latin, Cyrillic, Greek and Vietnamese subsets, which CSS joins with
 /// `unicode-range`). Added here, they join the same way: text in that family takes each
 /// character from whichever part covers it, before falling back to another family.
+///
+/// When a character still has no glyph after the style's families and its script's
+/// fallback fonts (a symbol from Unicode's Common script, typically), layout tries the
+/// [symbol fallbacks](Self::set_symbol_fallbacks) for that character.
 pub struct FontCollection {
     fcx: FontContext,
     /// The faces added by the app, by family (lowercase): what a further part of a family is
@@ -46,6 +78,8 @@ pub struct FontCollection {
     /// Further parts of a family (lowercase name) for faces it already had, each registered
     /// under a hidden name of its own and tried, in order, right after the family itself.
     parts: HashMap<String, Vec<String>>,
+    /// The families tried for a character no other font had a glyph for.
+    symbols: Vec<String>,
 }
 
 impl std::fmt::Debug for FontCollection {
@@ -72,6 +106,7 @@ impl FontCollection {
             fcx: FontContext { collection, source_cache: SourceCache::default() },
             own: HashMap::new(),
             parts: HashMap::new(),
+            symbols: DEFAULT_SYMBOL_FALLBACKS.iter().map(|f| (*f).to_string()).collect(),
         }
     }
 
@@ -80,6 +115,32 @@ impl FontCollection {
     pub fn with_system_fonts() -> Self {
         let collection = Collection::new(CollectionOptions { shared: false, system_fonts: true });
         FontCollection::over(collection)
+    }
+
+    /// The families tried, in order, for a character that has no glyph in the style's
+    /// families or its script's fallback fonts. Starts as [`DEFAULT_SYMBOL_FALLBACKS`].
+    pub fn symbol_fallbacks(&self) -> &[String] {
+        &self.symbols
+    }
+
+    /// Sets the families tried for a character that has no glyph in the style's families or
+    /// its script's fallback fonts: family names, or CSS generic names such as `emoji`.
+    /// An empty list turns this fallback off, leaving such characters as the font's
+    /// missing-glyph box.
+    ///
+    /// ```
+    /// use remedy_ui_text::FontCollection;
+    ///
+    /// let mut fonts = FontCollection::new();
+    /// fonts.set_symbol_fallbacks(["My Icons", "Remedy Symbols"]);
+    /// assert_eq!(fonts.symbol_fallbacks(), ["My Icons", "Remedy Symbols"]);
+    /// ```
+    pub fn set_symbol_fallbacks<I, S>(&mut self, families: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.symbols = families.into_iter().map(Into::into).collect();
     }
 
     /// Adds every face in a font file (a single font or a collection, TrueType or OpenType,
@@ -320,7 +381,9 @@ pub struct ParagraphOptions {
     /// its edges (the start of a right-to-left window is its right edge) whatever the
     /// paragraph's own direction; `Auto` aligns to the paragraph's direction.
     pub container: Direction,
-    /// Device pixels per logical pixel. Metrics are rounded for this scale when `snap` is on.
+    /// Device pixels per logical pixel. The paragraph is shaped at this scale (hinting and
+    /// rounding see device pixels) but every size and position it reports stays in logical
+    /// pixels; the scale changes only how they fall on the device's pixel grid.
     pub scale: f32,
     /// Round line metrics to whole device pixels, so hinted text sits on the pixel grid.
     pub snap: bool,
@@ -389,13 +452,56 @@ impl TextEngine {
     }
 
     /// Shapes and lays out `text` with `base` style and the spans and objects in `text`.
+    ///
+    /// Characters that come out without a glyph (a symbol none of the style's families or
+    /// its script's fallback fonts have) are laid out once more with the collection's
+    /// [symbol fallbacks](FontCollection::set_symbol_fallbacks) after the style's families,
+    /// for those characters only.
     pub fn layout(&mut self, text: &RichText, base: &TextStyle, options: ParagraphOptions) -> Paragraph {
         let segments = flatten(text, base);
-        let mut run_styles = Vec::with_capacity(segments.len());
+        let first = self.build(text, base, &segments, options, &[]);
+        if self.fonts.symbols.is_empty() {
+            return first;
+        }
+        let missing = first.missing_glyphs(text.as_str());
+        if missing.is_empty() {
+            return first;
+        }
+        let symbols = family_names(self.fonts.symbols.iter().map(String::as_str));
+        let overrides: Vec<(Range<usize>, Vec<FontFamilyName<'static>>)> = missing
+            .into_iter()
+            .map(|range| {
+                let style =
+                    segments.iter().find(|s| s.range.contains(&range.start)).map_or(base, |s| &s.style);
+                let mut families = self.fonts.stack(&style.families);
+                for f in &symbols {
+                    if !families.contains(f) {
+                        families.push(f.clone());
+                    }
+                }
+                (range, families)
+            })
+            .collect();
+        self.build(text, base, &segments, options, &overrides)
+    }
+
+    /// Shapes and lays out once; `families` replaces the family list on its ranges.
+    fn build(
+        &mut self,
+        text: &RichText,
+        base: &TextStyle,
+        segments: &[Segment],
+        options: ParagraphOptions,
+        families: &[(Range<usize>, Vec<FontFamilyName<'static>>)],
+    ) -> Paragraph {
+        let mut run_styles = Vec::with_capacity(segments.len() + 1);
         let content = text.as_str();
         let base_stack = self.fonts.stack(&base.families);
         let stacks: Vec<_> = segments.iter().map(|seg| self.fonts.stack(&seg.style.families)).collect();
-        let mut b = self.lcx.ranged_builder(&mut self.fonts.fcx, content, options.scale, options.snap);
+        // Parley shapes at the device scale: its sizes and positions come out in device
+        // pixels, and the paragraph turns them back into logical pixels at its edges.
+        let scale = device_scale(options.scale);
+        let mut b = self.lcx.ranged_builder(&mut self.fonts.fcx, content, scale, options.snap);
         b.set_base_direction(match options.direction {
             Direction::Auto => BaseDirection::Auto,
             Direction::Ltr => BaseDirection::Ltr,
@@ -408,14 +514,18 @@ impl TextEngine {
             push_style(&mut b, &seg.style, stack, Some(seg.range.clone()), brush);
             run_styles.push(RunStyle { color: seg.style.color, link: seg.link, range: seg.range.clone() });
         }
+        // Pushed after the spans, so they win on their ranges; every other property stays.
+        for (range, list) in families {
+            b.push(StyleProperty::FontFamily(FontFamily::List(Cow::Owned(list.clone()))), range.clone());
+        }
         for &(at, obj) in text.objects() {
             b.push_inline_box(InlineBox {
                 id: obj.id,
                 kind: InlineBoxKind::InFlow,
                 index: at,
-                width: obj.width,
-                height: obj.height,
-                baseline: obj.baseline,
+                width: obj.width * scale,
+                height: obj.height * scale,
+                baseline: obj.baseline.map(|b| b * scale),
                 vertical_align: Default::default(),
             });
         }
@@ -430,8 +540,8 @@ impl TextEngine {
         };
         // Parley aligns while it breaks lines: set the alignment first.
         layout.set_alignment(alignment, AlignmentOptions::default());
-        layout.break_all_lines(options.max_width);
-        Paragraph { layout, run_styles, align: alignment, wrap: options.max_width }
+        layout.break_all_lines(options.max_width.map(|w| w * scale));
+        Paragraph { layout, run_styles, align: alignment, wrap: options.max_width, scale }
     }
 }
 
@@ -472,6 +582,45 @@ fn flatten(text: &RichText, base: &TextStyle) -> Vec<Segment> {
     out
 }
 
+/// Family names for parley. CSS's generic names (`monospace`, `serif`, `sans-serif`,
+/// `system-ui`, `ui-monospace`, `emoji`, …) stand for the system's own choice; anything else
+/// names a family.
+fn family_names<'a>(names: impl Iterator<Item = &'a str>) -> Vec<FontFamilyName<'static>> {
+    names
+        .map(|f| match parley::fontique::GenericFamily::parse(f) {
+            Some(g) => FontFamilyName::Generic(g),
+            None => FontFamilyName::Named(Cow::Owned(f.to_string())),
+        })
+        .collect()
+}
+
+/// True for a character that is drawn: not white space, a control or a default-ignorable
+/// code point (joiners, variation selectors, bidi controls, tags…), which fonts need not map.
+fn is_drawn(c: char) -> bool {
+    !(c.is_whitespace()
+        || c.is_control()
+        || matches!(
+            c,
+            '\u{AD}'
+                | '\u{34F}'
+                | '\u{61C}'
+                | '\u{115F}'..='\u{1160}'
+                | '\u{17B4}'..='\u{17B5}'
+                | '\u{180B}'..='\u{180F}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2060}'..='\u{206F}'
+                | '\u{3164}'
+                | '\u{FE00}'..='\u{FE0F}'
+                | '\u{FEFF}'
+                | '\u{FFA0}'
+                | '\u{FFF0}'..='\u{FFF8}'
+                | '\u{1BCA0}'..='\u{1BCA3}'
+                | '\u{1D173}'..='\u{1D17A}'
+                | '\u{E0000}'..='\u{E0FFF}'
+        ))
+}
+
 fn push_style(
     b: &mut parley::RangedBuilder<'_, u32>,
     s: &TextStyle,
@@ -497,6 +646,9 @@ fn push_style(
         StyleProperty::Strikethrough(s.strikethrough),
         StyleProperty::FontFeatures(FontFeatures::List(Cow::Owned(features))),
         StyleProperty::Brush(brush),
+        // A word longer than its line (an invite, a link, a key) breaks onto the next line
+        // instead of running past the box it is in; text with spaces wraps as before.
+        StyleProperty::OverflowWrap(parley::OverflowWrap::BreakWord),
     ];
     for p in props {
         match &range {
@@ -611,13 +763,23 @@ pub struct GlyphRunInfo {
     pub strikethrough: Option<Rect>,
 }
 
-/// A laid-out paragraph: lines, glyph runs, inline objects, and caret geometry.
+/// A laid-out paragraph: lines, glyph runs, inline objects, and caret geometry, all in
+/// logical pixels whatever scale it was shaped at.
 pub struct Paragraph {
+    /// Shaped at `scale`: its sizes and positions are in device pixels.
     layout: Layout<u32>,
     run_styles: Vec<RunStyle>,
     align: Alignment,
-    /// The wrap width lines were aligned within (`None`: aligned within the longest line).
+    /// The wrap width lines were aligned within, in logical pixels (`None`: aligned within
+    /// the longest line).
     wrap: Option<f32>,
+    /// Device pixels per logical pixel the layout was shaped at.
+    scale: f32,
+}
+
+/// A usable device scale: positive and finite, else 1.
+fn device_scale(scale: f32) -> f32 {
+    if scale.is_finite() && scale > 0.0 { scale } else { 1.0 }
 }
 
 impl std::fmt::Debug for Paragraph {
@@ -640,15 +802,40 @@ fn from_affinity(a: Affinity) -> PAffinity {
     }
 }
 
-fn bbox(b: parley::BoundingBox) -> Rect {
-    Rect::new(b.x0 as f32, b.y0 as f32, b.x1 as f32, b.y1 as f32)
+/// A box of the layout (device pixels at `scale`) in logical pixels.
+fn bbox(b: parley::BoundingBox, scale: f32) -> Rect {
+    let s = f64::from(scale);
+    Rect::new((b.x0 / s) as f32, (b.y0 / s) as f32, (b.x1 / s) as f32, (b.y1 / s) as f32)
 }
 
 impl Paragraph {
+    /// The byte ranges of `text`'s clusters (this paragraph's text) that are drawn but came
+    /// out with the font's missing-glyph box (glyph 0), in order.
+    fn missing_glyphs(&self, text: &str) -> Vec<Range<usize>> {
+        let mut out: Vec<Range<usize>> = Vec::new();
+        for line in self.layout.lines() {
+            for item in line.items() {
+                let PositionedLayoutItem::GlyphRun(run) = item else { continue };
+                for cluster in run.run().clusters() {
+                    let range = cluster.text_range();
+                    if cluster.glyphs().any(|g| g.id == 0)
+                        && text.get(range.clone()).is_some_and(|s| s.chars().any(is_drawn))
+                    {
+                        out.push(range);
+                    }
+                }
+            }
+        }
+        // A run broken across lines is visited once per line.
+        out.sort_by_key(|r| (r.start, r.end));
+        out.dedup();
+        out
+    }
+
     /// Lays the paragraph out again at a new width, without shaping again.
     pub fn rewrap(&mut self, max_width: Option<f32>) {
         self.layout.set_alignment(self.align, AlignmentOptions::default());
-        self.layout.break_all_lines(max_width);
+        self.layout.break_all_lines(max_width.map(|w| w * self.scale));
         self.wrap = max_width;
     }
 
@@ -673,12 +860,12 @@ impl Paragraph {
 
     /// Width of the widest line.
     pub fn width(&self) -> f32 {
-        self.layout.width()
+        self.layout.width() / self.scale
     }
 
     /// Total height.
     pub fn height(&self) -> f32 {
-        self.layout.height()
+        self.layout.height() / self.scale
     }
 
     /// True when the paragraph's base direction is right to left.
@@ -688,7 +875,7 @@ impl Paragraph {
 
     /// The first line's baseline, from the top.
     pub fn first_baseline(&self) -> Option<f32> {
-        self.layout.first_baseline()
+        self.layout.first_baseline().map(|b| b / self.scale)
     }
 
     /// The lines, top to bottom.
@@ -697,13 +884,14 @@ impl Paragraph {
             .lines()
             .map(|line| {
                 let m = line.metrics();
+                let s = self.scale;
                 LineInfo {
                     range: line.text_range(),
-                    baseline: m.baseline,
-                    top: m.block_min_coord,
-                    bottom: m.block_max_coord,
-                    width: m.advance,
-                    left: m.offset,
+                    baseline: m.baseline / s,
+                    top: m.block_min_coord / s,
+                    bottom: m.block_max_coord / s,
+                    width: m.advance / s,
+                    left: m.offset / s,
                 }
             })
             .collect()
@@ -711,6 +899,7 @@ impl Paragraph {
 
     /// Glyph runs in drawing order, with positions from the paragraph's top-left.
     pub fn glyph_runs(&self) -> Vec<GlyphRunInfo> {
+        let s = self.scale;
         let mut out = Vec::new();
         for line in self.layout.lines() {
             for item in line.items() {
@@ -722,7 +911,8 @@ impl Paragraph {
                 let shaped = r.text_range();
                 let range = rs.range.start.max(shaped.start)..rs.range.end.min(shaped.end);
                 // Decorations: a line under the text and one through its middle, as thick as
-                // the size asks (at least a pixel), placed from the span's metrics.
+                // the size asks (at least a device pixel), placed from the span's metrics.
+                // Everything here is in the layout's device pixels until the run is made.
                 let size = r.font_size();
                 let metrics = run.span_metrics();
                 let thick = (size / 14.0).max(1.0);
@@ -730,7 +920,7 @@ impl Paragraph {
                 let bar = |offset: f32, d: &parley::layout::Decoration<u32>| {
                     let t = d.size.unwrap_or(thick);
                     let y = baseline - d.offset.unwrap_or(offset);
-                    Rect::new(x, y - t / 2.0, x + width, y + t / 2.0)
+                    Rect::new(x / s, (y - t / 2.0) / s, (x + width) / s, (y + t / 2.0) / s)
                 };
                 let below = -(metrics.descent.abs() * 0.4).max(thick);
                 let middle = if metrics.x_height > 0.0 { metrics.x_height / 2.0 } else { size * 0.25 };
@@ -738,14 +928,14 @@ impl Paragraph {
                 let strikethrough = style.strikethrough.as_ref().map(|d| bar(middle, d));
                 out.push(GlyphRunInfo {
                     font: RunFont { data: font.data.clone(), index: font.index },
-                    size: r.font_size(),
+                    size: r.font_size() / s,
                     color: rs.color,
                     link: rs.link,
                     rtl: r.is_rtl(),
                     range,
                     glyphs: run
                         .positioned_glyphs()
-                        .map(|g| PositionedGlyph { id: g.id, x: g.x, y: g.y })
+                        .map(|g| PositionedGlyph { id: g.id, x: g.x / s, y: g.y / s })
                         .collect(),
                     underline,
                     strikethrough,
@@ -761,7 +951,8 @@ impl Paragraph {
         for line in self.layout.lines() {
             for item in line.items() {
                 if let PositionedLayoutItem::InlineBox(b) = item {
-                    out.push((b.id, Rect::new(b.x, b.y, b.x + b.width, b.y + b.height)));
+                    let s = self.scale;
+                    out.push((b.id, Rect::new(b.x / s, b.y / s, (b.x + b.width) / s, (b.y + b.height) / s)));
                 }
             }
         }
@@ -770,7 +961,7 @@ impl Paragraph {
 
     /// The text position nearest `point` (from the paragraph's top-left).
     pub fn hit_test(&self, point: Point) -> TextPosition {
-        let c = Cursor::from_point(&self.layout, point.x, point.y);
+        let c = Cursor::from_point(&self.layout, point.x * self.scale, point.y * self.scale);
         TextPosition { index: c.index(), affinity: to_affinity(c.affinity()) }
     }
 
@@ -800,19 +991,23 @@ impl Paragraph {
     /// The caret's rectangle at `pos`, `width` logical pixels wide.
     pub fn caret(&self, pos: TextPosition, width: f32) -> Rect {
         let c = Cursor::from_byte_index(&self.layout, pos.index, from_affinity(pos.affinity));
-        bbox(c.geometry(&self.layout, width))
+        bbox(c.geometry(&self.layout, width * self.scale), self.scale)
     }
 
     /// Rectangles covering `range`, one or more per line, in visual order.
     pub fn selection_rects(&self, range: Range<usize>) -> Vec<Rect> {
         let anchor = Cursor::from_byte_index(&self.layout, range.start, PAffinity::Downstream);
         let focus = Cursor::from_byte_index(&self.layout, range.end, PAffinity::Upstream);
-        Selection::new(anchor, focus).geometry(&self.layout).into_iter().map(|(b, _)| bbox(b)).collect()
+        Selection::new(anchor, focus)
+            .geometry(&self.layout)
+            .into_iter()
+            .map(|(b, _)| bbox(b, self.scale))
+            .collect()
     }
 
     /// The word around `point`, as a byte range.
     pub fn word_at(&self, point: Point) -> Range<usize> {
-        Selection::word_from_point(&self.layout, point.x, point.y).text_range()
+        Selection::word_from_point(&self.layout, point.x * self.scale, point.y * self.scale).text_range()
     }
 
     /// The position one character to the visual right (or left) of `pos`, as the arrow keys

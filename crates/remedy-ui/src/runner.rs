@@ -39,6 +39,8 @@ pub struct AppConfig {
     pub fonts: Rc<dyn Fn() -> FontCollection>,
     /// Which renderer windows draw with.
     pub renderer: RendererChoice,
+    /// GPU windows present in step with the display ([`AppConfig::vsync`]); on by default.
+    pub vsync: bool,
     /// One instance per user session: a second launch hands its arguments to the first
     /// ([`App::on_second_instance`]) and exits.
     pub single_instance: bool,
@@ -90,6 +92,7 @@ impl AppConfig {
                 f
             }),
             renderer: RendererChoice::Auto,
+            vsync: true,
             single_instance: false,
             data_dir: None,
             edition: Edition::FIRST,
@@ -201,6 +204,29 @@ impl AppConfig {
         self.renderer = RendererChoice::Gpu;
         self
     }
+
+    /// Whether GPU windows wait for the display to show each frame (vertical sync, the
+    /// default: no tearing) or show it as soon as it is drawn (lower latency).
+    pub fn vsync(mut self, on: bool) -> Self {
+        self.vsync = on;
+        self
+    }
+}
+
+/// A graphics adapter as people read it ([`App::graphics_adapter`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct GraphicsAdapter {
+    /// The device's name ("NVIDIA GeForce RTX 3080").
+    pub name: String,
+    /// The maker's PCI vendor id (0x10DE NVIDIA, 0x1002 AMD, 0x8086 Intel), 0 when unknown.
+    pub vendor: u32,
+    /// The driver's name and version, where the platform says.
+    pub driver: String,
+    /// The graphics API in use ("Vulkan", "Dx12", "Metal", "Gl").
+    pub api: String,
+    /// A software rasterizer rather than a graphics card.
+    pub software: bool,
 }
 
 /// Which renderer draws an app's windows.
@@ -272,8 +298,12 @@ impl FrameCost {
 pub struct WindowSpec {
     /// Platform window options.
     pub options: WindowOptions,
-    /// Closing hides the window instead (a manager that lives in the tray).
+    /// Closing hides the window instead (a manager that lives in the tray); where windows
+    /// cannot hide ([`Window::can_hide`]: Wayland) it minimizes.
     pub hide_on_close: bool,
+    /// Closing minimizes the window instead (an app that keeps running while its tray icon
+    /// cannot be shown); wins over `hide_on_close`.
+    pub minimize_on_close: bool,
     /// Saves and restores position and size under this key.
     pub persist: Option<String>,
     /// The color behind everything (the theme's background when `None`).
@@ -293,6 +323,7 @@ impl WindowSpec {
                 v_
             },
             hide_on_close: false,
+            minimize_on_close: false,
             persist: None,
             background: None,
             privacy_cover: false,
@@ -329,9 +360,30 @@ impl WindowSpec {
         self
     }
 
-    /// Closing hides the window.
+    /// Whether showing the window gives it focus and brings it forward (the default); `false`
+    /// shows it behind the active window without taking focus, as for a window opened by an
+    /// automated test that must not interrupt the person at the machine.
+    pub fn activate(mut self, on: bool) -> Self {
+        self.options.activate = on;
+        self
+    }
+
+    /// Whether the window has a taskbar button (the default); `false` keeps it off the
+    /// taskbar and the window switcher.
+    pub fn in_taskbar(mut self, on: bool) -> Self {
+        self.options.taskbar = on;
+        self
+    }
+
+    /// Closing hides the window (minimizes it where windows cannot hide: Wayland).
     pub fn hide_on_close(mut self) -> Self {
         self.hide_on_close = true;
+        self
+    }
+
+    /// Closing minimizes the window (it keeps running in the taskbar).
+    pub fn minimize_on_close(mut self) -> Self {
+        self.minimize_on_close = true;
         self
     }
 
@@ -351,7 +403,8 @@ impl WindowSpec {
     /// show for it, instead of the app's (from the executable or the desktop entry). Shown on
     /// Windows, X11, Wayland compositors with the `xdg-toplevel-icon` protocol, and as the
     /// page's icon (or in a floating window's title bar) in a browser; macOS and Android show
-    /// the app's icon for every window.
+    /// the app's icon for every window. Artwork drawn at several sizes gives them all
+    /// ([`WindowIcon::with_size`]), and each platform shows the drawing of the size it needs.
     pub fn icon(mut self, icon: WindowIcon) -> Self {
         self.options.icon = Some(icon);
         self
@@ -371,6 +424,14 @@ impl WindowSpec {
 }
 
 type Build = Box<dyn FnOnce(&Ui, &Window)>;
+
+/// A signal the app or a window holds for as long as it lives (whether a tray icon is up,
+/// whether a window is maximized), made in a scope of its own: whatever reactive owner is
+/// current where it is first asked for (a window's build, a binding) must not dispose it
+/// when that owner runs again or ends.
+fn app_signal<T: 'static>(value: T) -> remedy_ui_reactive::Signal<T> {
+    remedy_ui_reactive::Scope::detached(|| remedy_ui_reactive::Signal::new(value)).0
+}
 /// A background job's result, typed back by its [`Job`].
 type JobResult = Box<dyn std::any::Any + Send>;
 /// What runs on the UI thread with a background job's result.
@@ -470,6 +531,10 @@ enum Cmd {
     Minimize(u64, bool),
     Maximize(u64, bool),
     Fullscreen(u64, bool),
+    Zoom(u64, f32),
+    HideOnClose(u64, bool),
+    ReduceMotion,
+    MinimizeOnClose(u64, bool),
     Capture(u64, bool),
     Icon(u64, Option<WindowIcon>),
     Timer(Duration, Box<dyn FnOnce()>),
@@ -481,16 +546,21 @@ enum Cmd {
     Idle(Option<Duration>, Option<Rc<dyn Fn()>>),
     Forget(String),
     Tray(Option<TrayIcon>),
-    Dialog(Option<u64>, FileDialog, Box<dyn FnOnce(Vec<std::path::PathBuf>)>),
+    Dialog(Option<u64>, FileDialog, DialogDone),
     OpenUrl(String, Box<dyn FnOnce(Result<(), Unsupported>)>),
     Permission(remedy_ui_host::Permission, PermissionDone),
     Notify(Box<remedy_ui_host::Notification>, Box<dyn FnOnce(Result<(), Unsupported>)>),
     Withdraw(u64),
+    Foreground(Box<remedy_ui_host::ForegroundTask>, Box<dyn FnOnce(Result<(), Unsupported>)>),
+    StopForeground,
+    Share(Option<u64>, remedy_ui_host::ShareOptions, ShareDone),
     Quit,
 }
 
 /// Builds a style sheet for a theme.
 type SheetBuilder = Rc<dyn Fn(&Theme) -> StyleSheet>;
+/// What a [`Window::snapshot`] calls with its picture.
+type SnapshotDone = Box<dyn FnOnce(Option<remedy_ui_paint::Image>)>;
 
 #[derive(Default)]
 struct Shared {
@@ -503,6 +573,15 @@ struct Shared {
     inspectors: HashMap<u64, Window>,
     next: u64,
     keep_running: bool,
+    /// At most this many frames a second per window ([`App::set_frame_rate_limit`]).
+    frame_limit: Option<u32>,
+    /// The GPU adapter, once made ([`App::graphics_adapter`]).
+    adapter: Option<GraphicsAdapter>,
+    /// The app reduces motion whatever the system says ([`App::set_reduce_motion`]).
+    reduce_motion: bool,
+    /// A tray icon is shown now: one was asked for and the platform took it.
+    /// (Made when first asked for.)
+    tray_up: Option<remedy_ui_reactive::Signal<bool>>,
     name: String,
     /// The data folder the app config chose, if it chose one.
     data_dir: Option<PathBuf>,
@@ -515,11 +594,21 @@ struct Shared {
     /// Why a window could not be opened.
     open_errors: HashMap<u64, String>,
     visible: HashMap<u64, bool>,
+    /// Whether each window has keyboard focus, as the host last said.
+    focused: HashMap<u64, bool>,
+    /// Told when a window gains or loses focus ([`Window::on_focus`]).
+    on_focus: HashMap<u64, Rc<dyn Fn(bool)>>,
+    /// Windows the platform cannot hide while they are open (Wayland's): hiding minimizes.
+    unhideable: HashSet<u64>,
     /// Wakes the host's loop for requests made between events.
     waker: Option<remedy_ui_host::Waker>,
     in_event: bool,
     on_tray: Option<Rc<dyn Fn(TrayEvent)>>,
     on_notification: Option<Rc<dyn Fn(u64, remedy_ui_host::NotificationResponse)>>,
+    on_foreground_stopped: Option<Rc<dyn Fn(String)>>,
+    /// Notification answers that came before [`App::on_notification`] was set: a press that
+    /// started the app arrives before its setup.
+    unheard_notifications: Vec<(u64, remedy_ui_host::NotificationResponse)>,
     next_job: u64,
     jobs: HashMap<u64, Job>,
     done: Arc<Mutex<Vec<(u64, JobResult)>>>,
@@ -539,10 +628,14 @@ struct Shared {
     maximized: HashMap<u64, remedy_ui_reactive::Signal<bool>>,
     /// Whether each window fills the screen, kept current from the host.
     fullscreen: HashMap<u64, remedy_ui_reactive::Signal<bool>>,
+    /// Each window's content zoom ([`Window::set_zoom`]).
+    zoom: HashMap<u64, f32>,
     on_geometry: HashMap<u64, Rc<dyn Fn(Point, Size)>>,
     /// Told when a window is shown or hidden ([`Window::on_visibility`]).
     on_visibility: HashMap<u64, Rc<dyn Fn(bool)>>,
     on_closed: HashMap<u64, Vec<Box<dyn FnOnce()>>>,
+    /// Waiting for a picture of the window's next frame ([`Window::snapshot`]).
+    snapshots: HashMap<u64, Vec<SnapshotDone>>,
     /// The effect keeping the tray in step with [`App::tray_dyn`], while it does.
     tray_effect: Option<remedy_ui_reactive::Effect>,
     /// Agents' access to each window that took them ([`Window::attach_agents`]).
@@ -596,6 +689,19 @@ impl App {
         }
     }
 
+    /// Records whether window `key` has keyboard focus, and tells its [`Window::on_focus`]
+    /// when that changed.
+    fn note_focus(&self, key: u64, on: bool) {
+        let cb = {
+            let mut s = self.0.borrow_mut();
+            let was = s.focused.insert(key, on);
+            (was != Some(on)).then(|| s.on_focus.get(&key).cloned()).flatten()
+        };
+        if let Some(cb) = cb {
+            cb(on);
+        }
+    }
+
     /// Records whether window `key` is shown, and tells its [`Window::on_visibility`] when
     /// that changed.
     fn note_visible(&self, key: u64, on: bool) {
@@ -621,8 +727,8 @@ impl App {
         let visible = spec.options.visible;
         self.0.borrow_mut().visible.insert(key, visible);
         self.0.borrow_mut().titles.insert(key, spec.options.title.clone());
-        self.0.borrow_mut().maximized.insert(key, remedy_ui_reactive::Signal::new(false));
-        self.0.borrow_mut().fullscreen.insert(key, remedy_ui_reactive::Signal::new(false));
+        self.0.borrow_mut().maximized.insert(key, app_signal(false));
+        self.0.borrow_mut().fullscreen.insert(key, app_signal(false));
         self.push(Cmd::Open(key, spec, Box::new(build)));
         Window { key, app: self.clone() }
     }
@@ -825,12 +931,49 @@ impl App {
         self.push(Cmd::Quit);
     }
 
+    /// True while a tray icon asked for with [`App::set_tray`] or [`App::tray_dyn`] is shown;
+    /// false before, after `None`, and where the platform or desktop has no tray (a Linux
+    /// desktop without a status notifier host, a browser). Tracked: a binding that reads it
+    /// runs again when it changes. A tray app checks it before hiding a window it could not
+    /// bring back otherwise.
+    pub fn tray_shown(&self) -> bool {
+        self.tray_signal().get()
+    }
+
+    fn tray_signal(&self) -> remedy_ui_reactive::Signal<bool> {
+        *self.0.borrow_mut().tray_up.get_or_insert_with(|| app_signal(false))
+    }
+
+    /// Reduces motion in every window even where the system does not ask for it (an app's
+    /// own "reduce motion" setting): animations jump to their end and spinners hold still,
+    /// as with the system setting. Off follows the system again.
+    pub fn set_reduce_motion(&self, on: bool) {
+        let was = std::mem::replace(&mut self.0.borrow_mut().reduce_motion, on);
+        if was != on {
+            self.push(Cmd::ReduceMotion);
+        }
+    }
+
+    /// Draws each window at most `fps` times a second (`None`: as often as it changes, up
+    /// to the display's rate), to save power or leave a game the processor and graphics card.
+    pub fn set_frame_rate_limit(&self, fps: Option<u32>) {
+        self.0.borrow_mut().frame_limit = fps.filter(|f| *f > 0);
+    }
+
+    /// The graphics adapter windows draw with on the GPU, once one has been made (`None`
+    /// before, without the `gpu` feature, or where only the CPU draws).
+    pub fn graphics_adapter(&self) -> Option<GraphicsAdapter> {
+        self.0.borrow().adapter.clone()
+    }
+
     /// Keeps the app running when its last window closes (tray apps).
     pub fn keep_running(&self, on: bool) {
         self.0.borrow_mut().keep_running = on;
     }
 
-    /// Shows (or updates) the tray icon; `None` removes it.
+    /// Shows (or updates) the tray icon; `None` removes it. On Linux it is a
+    /// StatusNotifierItem, or on X11 desktops without a StatusNotifier host an icon docked in
+    /// the XEmbed system tray.
     pub fn set_tray(&self, tray: Option<TrayIcon>) {
         if let Some(e) = self.0.borrow_mut().tray_effect.take() {
             e.dispose();
@@ -888,8 +1031,58 @@ impl App {
     }
 
     /// Called when the person uses a notification the app showed: its id and what they did.
+    /// Answers that came before it was set (pressing a notification that started the app,
+    /// on Android) reach `f` right after the call that sets it.
     pub fn on_notification(&self, f: impl Fn(u64, remedy_ui_host::NotificationResponse) + 'static) {
-        self.0.borrow_mut().on_notification = Some(Rc::new(f));
+        let f: Rc<dyn Fn(u64, remedy_ui_host::NotificationResponse)> = Rc::new(f);
+        let unheard = {
+            let mut s = self.0.borrow_mut();
+            s.on_notification = Some(f.clone());
+            std::mem::take(&mut s.unheard_notifications)
+        };
+        if !unheard.is_empty() {
+            self.after(Duration::ZERO, move || {
+                for (id, response) in unheard {
+                    f(id, response);
+                }
+            });
+        }
+    }
+
+    /// Keeps the app running while it is out of sight for ongoing work the person started (a
+    /// voice call, music, a recording, an upload), showing the task's notification while it
+    /// runs; then `done` with the outcome. Starting again while it runs changes the work and
+    /// its notification. The notification's buttons, pressing it and dismissing it reach
+    /// [`App::on_notification`] under its id.
+    ///
+    /// This is Android's foreground service: list each [`ForegroundKind`] the app uses in
+    /// `remedy.toml`'s `[android] foreground` (`cargo remedy package` declares the service
+    /// and its permissions), ask for [`Permission::Microphone`] or the camera first, and
+    /// start microphone or camera work while the app is on screen: Android refuses it from
+    /// the background ([`Unsupported`] says why). Desktop and web apps keep running out of
+    /// sight anyway, so there it answers `Ok` and shows nothing; show a notification with
+    /// [`App::notify`] where one is wanted there too.
+    ///
+    /// [`ForegroundKind`]: remedy_ui_host::ForegroundKind
+    /// [`Permission::Microphone`]: remedy_ui_host::Permission::Microphone
+    pub fn start_foreground(
+        &self,
+        task: remedy_ui_host::ForegroundTask,
+        done: impl FnOnce(Result<(), Unsupported>) + 'static,
+    ) {
+        self.push(Cmd::Foreground(Box::new(task), Box::new(done)));
+    }
+
+    /// Ends the work [`App::start_foreground`] started and takes its notification away.
+    pub fn stop_foreground(&self) {
+        self.push(Cmd::StopForeground);
+    }
+
+    /// Called when the platform ends the work [`App::start_foreground`] started, or could not
+    /// start it after all (the system's time limit for the kind ran out), with why. The app
+    /// should stop that work, or start it again once it can.
+    pub fn on_foreground_stopped(&self, f: impl Fn(String) + 'static) {
+        self.0.borrow_mut().on_foreground_stopped = Some(Rc::new(f));
     }
 
     /// Called when the tray icon is used.
@@ -910,6 +1103,19 @@ impl App {
         window: Option<&Window>,
         dialog: FileDialog,
         done: impl FnOnce(Vec<std::path::PathBuf>) + 'static,
+    ) {
+        self.try_file_dialog(window, dialog, move |r| done(r.unwrap_or_default()));
+    }
+
+    /// [`App::file_dialog`], telling a cancelled dialog (`Ok` with no paths) from a system
+    /// that has none to show ([`Unsupported`]: a Linux desktop without the file-chooser
+    /// portal, say), so the app can offer its own way to name a file (a field for a path)
+    /// instead of doing nothing.
+    pub fn try_file_dialog(
+        &self,
+        window: Option<&Window>,
+        dialog: FileDialog,
+        done: impl FnOnce(Result<Vec<std::path::PathBuf>, Unsupported>) + 'static,
     ) {
         self.push(Cmd::Dialog(window.map(|w| w.key), dialog, Box::new(done)));
     }
@@ -937,27 +1143,83 @@ impl App {
         self.push(Cmd::Permission(permission, Box::new(done)));
     }
 
+    /// Hands a title, a text and files to the platform's share sheet (over `window`), then
+    /// `done` with how it ended: [`ShareOutcome::Shared`] once the person chose where it goes,
+    /// [`ShareOutcome::Cancelled`] when they closed the sheet, and
+    /// [`ShareOutcome::Unsupported`] with the reason where the platform cannot share it, so
+    /// the app can fall back to a save dialog or the clipboard.
+    ///
+    /// Android shows its chooser (the files served to the chosen app from the app's cache,
+    /// through the provider `cargo remedy package` declares), Windows its share window, and a
+    /// browser page `navigator.share` (call it from a click or key press: browsers share only
+    /// in answer to one). Linux and macOS have no share sheet the bridges show.
+    ///
+    /// ```no_run
+    /// # use remedy_ui::App;
+    /// use remedy_ui::host::{ShareFile, ShareOptions, ShareOutcome};
+    /// # fn f(app: &App, json: Vec<u8>) {
+    /// let share = ShareOptions::new()
+    ///     .title("Lavender soap")
+    ///     .text("Lavender soap: 500 g oils, 5% superfat")
+    ///     .file(ShareFile::new("Lavender.alex-soap.json", "application/json", json));
+    /// app.share(None, share, |outcome| match outcome {
+    ///     ShareOutcome::Shared | ShareOutcome::Cancelled => {}
+    ///     ShareOutcome::Unsupported(why) => eprintln!("{why}; offering a save dialog instead"),
+    ///     _ => {}
+    /// });
+    /// # }
+    /// ```
+    ///
+    /// [`ShareOutcome::Shared`]: remedy_ui_host::ShareOutcome::Shared
+    /// [`ShareOutcome::Cancelled`]: remedy_ui_host::ShareOutcome::Cancelled
+    /// [`ShareOutcome::Unsupported`]: remedy_ui_host::ShareOutcome::Unsupported
+    pub fn share(
+        &self,
+        window: Option<&Window>,
+        share: remedy_ui_host::ShareOptions,
+        done: impl FnOnce(remedy_ui_host::ShareOutcome) + 'static,
+    ) {
+        self.push(Cmd::Share(window.map(|w| w.key), share, Box::new(done)));
+    }
+
     /// Forgets saved geometry for `key`.
     pub fn forget_geometry(&self, key: impl Into<String>) {
         self.push(Cmd::Forget(key.into()));
     }
 
-    /// Where the app keeps its data (created on first write).
+    /// Where the app keeps its data (created on first write): the folder
+    /// [`AppConfig::data_dir`] names, else the platform's place for it: `%APPDATA%\<name>` on
+    /// Windows, `~/Library/Application Support/<name>` on macOS, `$XDG_CONFIG_HOME/<name>`
+    /// (or `~/.config/<name>`) on Linux, and the app's private internal storage on Android
+    /// (`/data/user/<user>/<package>/files`, the app's own already, so without the name).
+    /// `None` in a browser page, which has no files: keep data there with
+    /// [`App::persist_store`], which works on every platform.
     pub fn data_dir(&self) -> Option<PathBuf> {
         let s = self.0.borrow();
         s.data_dir.clone().or_else(|| data_dir(&s.name))
     }
 
-    /// Where persisted signals ([`remedy_ui_reactive::Signal::persist`]) are saved: the
-    /// `state` folder of the app's data folder. Every window's content is built with it
-    /// provided as context, so `Signal::new(v).persist("key")` there saves and restores
-    /// itself. `None` when the platform gives the app no data folder or it cannot be made.
+    /// Where persisted signals ([`remedy_ui_reactive::Signal::persist`]) and the app's own
+    /// documents ([`PersistStore::save`](remedy_ui_reactive::PersistStore::save) and
+    /// [`load`](remedy_ui_reactive::PersistStore::load)) are kept: the `state` folder of the
+    /// app's data folder ([`App::data_dir`]), and in a browser page the page's `localStorage`
+    /// under `remedy:<name>:` ([`PersistStore::local_storage`](remedy_ui_reactive::PersistStore)).
+    /// Every window's content is built with it provided as context, so
+    /// `Signal::new(v).persist("key")` there saves and restores itself. It is flushed when the
+    /// app quits, is suspended, or goes out of sight (every window hidden or covered, a page's
+    /// tab hidden). `None` when the platform gives the app no place for data (no data folder,
+    /// or a page whose browser blocks its storage).
     pub fn persist_store(&self) -> Option<remedy_ui_reactive::PersistStore> {
         if let Some(s) = self.0.borrow().persist.clone() {
             return Some(s);
         }
-        let dir = self.data_dir()?.join("state");
-        let store = remedy_ui_reactive::PersistStore::open(dir).ok()?;
+        #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+        let store = {
+            let name = self.0.borrow().name.clone();
+            remedy_ui_reactive::PersistStore::local_storage(&name).ok()?
+        };
+        #[cfg(not(all(feature = "web", target_arch = "wasm32", target_os = "unknown")))]
+        let store = remedy_ui_reactive::PersistStore::open(self.data_dir()?.join("state")).ok()?;
         self.0.borrow_mut().persist = Some(store.clone());
         Some(store)
     }
@@ -1008,10 +1270,24 @@ impl Window {
         self.app.push(Cmd::Close(self.key));
     }
 
-    /// Shows or hides.
+    /// Shows or hides. Where the platform cannot hide an open window ([`Window::can_hide`]
+    /// is false: Wayland), hiding minimizes it instead and the window stays visible.
     pub fn set_visible(&self, on: bool) {
+        if !on && !self.can_hide() {
+            self.app.push(Cmd::Minimize(self.key, true));
+            return;
+        }
         self.app.note_visible(self.key, on);
         self.app.push(Cmd::Visible(self.key, on));
+    }
+
+    /// Whether the platform can take this window off the screen while it stays open. Wayland
+    /// cannot (a compositor offers no request for it), so there [`Window::set_visible`]`(false)`,
+    /// [`WindowSpec::hidden`] and closing a [`WindowSpec::hide_on_close`] window minimize it
+    /// instead, and it stays reported as shown. True until the window exists (a hide asked for
+    /// before then is handled the same way when it arrives).
+    pub fn can_hide(&self) -> bool {
+        !self.app.0.borrow().unhideable.contains(&self.key)
     }
 
     /// Shows the window, brings it to the front and focuses it.
@@ -1065,6 +1341,32 @@ impl Window {
         self.app.push(Cmd::Fullscreen(self.key, on));
     }
 
+    /// Draws the window's content `zoom` times larger (an app's interface size, Ctrl and +):
+    /// text, spacing, images and hit testing all follow, and the content lays out in the
+    /// smaller logical size that leaves. Clamped to 0.25 to 5; 1 is as designed.
+    pub fn set_zoom(&self, zoom: f32) {
+        let zoom = if zoom.is_finite() { zoom.clamp(0.25, 5.0) } else { 1.0 };
+        self.app.0.borrow_mut().zoom.insert(self.key, zoom);
+        self.app.push(Cmd::Zoom(self.key, zoom));
+    }
+
+    /// The window's content zoom ([`Window::set_zoom`]).
+    pub fn zoom(&self) -> f32 {
+        self.app.0.borrow().zoom.get(&self.key).copied().unwrap_or(1.0)
+    }
+
+    /// Whether closing the window hides it (as [`WindowSpec::hide_on_close`]) or closes it,
+    /// changed while it is open: an app's "keep running in the tray when closed" setting.
+    pub fn set_hide_on_close(&self, on: bool) {
+        self.app.push(Cmd::HideOnClose(self.key, on));
+    }
+
+    /// Whether closing the window minimizes it (as [`WindowSpec::minimize_on_close`]),
+    /// changed while it is open.
+    pub fn set_minimize_on_close(&self, on: bool) {
+        self.app.push(Cmd::MinimizeOnClose(self.key, on));
+    }
+
     /// True while the window fills its display, by the app or the user (tracked).
     pub fn is_fullscreen(&self) -> bool {
         let s = self.app.0.borrow().fullscreen.get(&self.key).copied();
@@ -1089,6 +1391,34 @@ impl Window {
     /// open). Only changes are reported; a later call replaces `f`.
     pub fn on_visibility(&self, f: impl Fn(bool) + 'static) {
         self.app.0.borrow_mut().on_visibility.insert(self.key, Rc::new(f));
+    }
+
+    /// True while the window has keyboard focus (the person is using it): false when another
+    /// app's window is in front, and while it is minimized or hidden. False until the
+    /// platform first says it is focused.
+    pub fn is_focused(&self) -> bool {
+        self.app.0.borrow().focused.get(&self.key).copied().unwrap_or(false)
+    }
+
+    /// Calls `f` with `true` when the window gains keyboard focus and `false` when it loses
+    /// it (another window comes in front, it is minimized or hidden): an app that alerts only
+    /// when the person is elsewhere. Only changes are reported; a later call replaces `f`.
+    pub fn on_focus(&self, f: impl Fn(bool) + 'static) {
+        self.app.0.borrow_mut().on_focus.insert(self.key, Rc::new(f));
+    }
+
+    /// Calls `done` with a picture of the window's next frame: the whole content at its size
+    /// in device pixels, premultiplied RGBA, drawn by the CPU renderer whichever renderer the
+    /// window uses (a picture tour, a bug report, a test on a real desktop). `None` when the
+    /// window is closed or the frame could not be drawn. A hidden window draws no frames, so
+    /// its picture comes once it is shown.
+    pub fn snapshot(&self, done: impl FnOnce(Option<remedy_ui_paint::Image>) + 'static) {
+        let Some(ui) = self.ui() else {
+            done(None);
+            return;
+        };
+        self.app.0.borrow_mut().snapshots.entry(self.key).or_default().push(Box::new(done));
+        ui.request_frame();
     }
 
     /// Runs `f` once when the window is gone, however it closed.
@@ -1201,8 +1531,9 @@ impl Window {
 }
 
 /// What runs with a file dialog's choice.
-type DialogDone = Box<dyn FnOnce(Vec<std::path::PathBuf>)>;
+type DialogDone = Box<dyn FnOnce(Result<Vec<std::path::PathBuf>, Unsupported>)>;
 type PermissionDone = Box<dyn FnOnce(bool)>;
+type ShareDone = Box<dyn FnOnce(remedy_ui_host::ShareOutcome)>;
 
 enum Present {
     Cpu(Box<CpuCompositor>),
@@ -1228,6 +1559,25 @@ struct Win {
     cost: FrameCost,
     scrollers: Vec<(LayerId, ElementId)>,
     cover: Option<remedy_ui_view::El>,
+    /// The window's content zoom (1 = as designed): everything is drawn this much larger,
+    /// and input positions are mapped back.
+    zoom: f32,
+    /// When it was last drawn, and a frame held back by the app's frame-rate limit.
+    last_frame: Option<Duration>,
+    held: Option<TimerId>,
+}
+
+impl Win {
+    /// Pixels per logical pixel of the window's content: the display's scale times the zoom.
+    fn scale(&self) -> f32 {
+        self.size.2 * self.zoom
+    }
+}
+
+/// `p`, a position the host reports in window logical pixels, in the content's logical
+/// pixels under `zoom`.
+fn unzoom(p: Point, zoom: f32) -> Point {
+    Point::new(p.x / zoom, p.y / zoom)
 }
 
 /// Drives an app on a host. [`run`](crate::run) uses it with the platform bridge; tests use
@@ -1239,6 +1589,8 @@ pub struct Runner {
     wins: HashMap<u64, Win>,
     by_host: HashMap<WindowId, u64>,
     timers: HashMap<TimerId, Box<dyn FnOnce()>>,
+    /// Frames held back by the frame-rate limit, by the window they are for.
+    frame_timers: HashMap<TimerId, u64>,
     /// Host timers standing for view timers: (window, view timer id).
     view_timers: HashMap<TimerId, (u64, u64)>,
     geometry: GeometryStore,
@@ -1257,6 +1609,8 @@ pub struct Runner {
     dialogs: HashMap<remedy_ui_host::DialogId, DialogDone>,
     /// Permission requests the platform answers later, and what to call with the answer.
     permissions: HashMap<remedy_ui_host::PermissionId, PermissionDone>,
+    /// Share sheets the platform closes later, and what to call with how they ended.
+    shares: HashMap<remedy_ui_host::ShareId, ShareDone>,
     secret: Option<(remedy_ui_secure::SensitiveCopy, TimerId)>,
     inbox: crate::instance::SharedInbox,
     #[cfg(feature = "gpu")]
@@ -1281,7 +1635,17 @@ impl Runner {
             .clone()
             .or_else(|| data_dir(&config.name))
             .map_or_else(GeometryStore::in_memory, |d| GeometryStore::open(d.join("windows.txt")));
-        Self::with_geometry(config, geometry, setup)
+        let runner = Self::with_geometry(config, geometry, setup);
+        // A page has no files: its windows' geometry is kept with its persisted state.
+        #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+        let runner = {
+            let mut runner = runner;
+            if let Some(store) = runner.app.persist_store() {
+                runner.geometry = GeometryStore::persisted_in(&store);
+            }
+            runner
+        };
+        runner
     }
 
     /// A runner keeping geometry in `geometry` (tests use an in-memory store).
@@ -1303,6 +1667,7 @@ impl Runner {
             wins: HashMap::new(),
             by_host: HashMap::new(),
             timers: HashMap::new(),
+            frame_timers: HashMap::new(),
             view_timers: HashMap::new(),
             geometry,
             save_timer: None,
@@ -1315,6 +1680,7 @@ impl Runner {
             suspended: false,
             dialogs: HashMap::new(),
             permissions: HashMap::new(),
+            shares: HashMap::new(),
             secret: None,
             inbox: Default::default(),
             #[cfg(feature = "gpu")]
@@ -1393,15 +1759,32 @@ impl Runner {
                 ui.set_local_time(host.local_time());
                 let app = self.app.clone();
                 ui.set_wake(Rc::new(move || app.wake_if_idle()));
-                ui.set_reduced_motion(self.settings.reduced_motion);
+                ui.set_reduced_motion(self.reduced_motion());
+                ui.set_system_subpixel(self.settings.subpixel_text);
                 // Content the platform draws itself (an embedded web view) parents to it.
                 ui.set_window_handles(host.window_handles(id).ok());
                 ui.set_refresh_interval(host.refresh_interval(id));
-                self.app.0.borrow_mut().uis.insert(key, ui.clone());
+                let unhideable = !host.can_hide(id);
+                {
+                    let mut s = self.app.0.borrow_mut();
+                    s.uis.insert(key, ui.clone());
+                    if unhideable {
+                        s.unhideable.insert(key);
+                    }
+                }
+                // A window asked to open hidden where windows cannot hide opens minimized:
+                // the platform shows it regardless.
+                if unhideable && !spec.options.visible {
+                    host.set_minimized(id, true);
+                    self.app.note_visible(key, true);
+                }
                 self.by_host.insert(id, key);
                 self.wins.insert(
                     key,
                     Win {
+                        zoom: 1.0,
+                        last_frame: None,
+                        held: None,
                         host: id,
                         ui: ui.clone(),
                         comp: None,
@@ -1437,9 +1820,20 @@ impl Runner {
             }
             Cmd::Visible(key, on) => {
                 if let Some(h) = self.host_of(key) {
-                    host.set_visible(h, on);
-                    if on {
-                        host.request_frame(h);
+                    if !on && !host.can_hide(h) {
+                        // Asked before the window existed (Window::can_hide could not tell
+                        // yet): minimize it, and it stays shown.
+                        host.set_minimized(h, true);
+                        self.app.note_visible(key, true);
+                    } else {
+                        host.set_visible(h, on);
+                        if on {
+                            // What it showed was not kept while it was hidden: all of it again.
+                            if let Some(c) = self.wins.get_mut(&key).and_then(|w| w.comp.as_mut()) {
+                                c.damage_all();
+                            }
+                            host.request_frame(h);
+                        }
                     }
                 }
             }
@@ -1478,6 +1872,30 @@ impl Runner {
                 if let Some(h) = self.host_of(key) {
                     host.set_maximized(h, on);
                     self.sync_maximized(host, key);
+                }
+            }
+            Cmd::Zoom(key, zoom) => {
+                if let Some(w) = self.wins.get_mut(&key)
+                    && (w.zoom - zoom).abs() > f32::EPSILON
+                {
+                    w.zoom = zoom;
+                    let (pw, ph, s) = (w.size.0, w.size.1, w.scale());
+                    if let Some(c) = w.comp.as_mut() {
+                        c.resize(pw, ph, s);
+                    }
+                    let h = w.host;
+                    host.request_frame(h);
+                }
+            }
+            Cmd::ReduceMotion => self.apply_reduced_motion(),
+            Cmd::HideOnClose(key, on) => {
+                if let Some(w) = self.wins.get_mut(&key) {
+                    w.spec.hide_on_close = on;
+                }
+            }
+            Cmd::MinimizeOnClose(key, on) => {
+                if let Some(w) = self.wins.get_mut(&key) {
+                    w.spec.minimize_on_close = on;
                 }
             }
             Cmd::Fullscreen(key, on) => {
@@ -1551,17 +1969,21 @@ impl Runner {
                 self.schedule_idle(host);
             }
             Cmd::Tray(t) => {
-                let _ = host.set_tray(t.as_ref());
+                // Whether an icon is up now ([`App::tray_shown`]).
+                // The host is always told, `None` included: that is what removes the icon.
+                let shown = host.set_tray(t.as_ref());
+                let up = t.is_some() && shown.is_ok();
+                self.app.tray_signal().set_if_changed(up);
             }
             Cmd::Dialog(key, dialog, done) => {
                 let w = key.and_then(|k| self.host_of(k));
                 match host.file_dialog(w, &dialog) {
-                    Ok(remedy_ui_host::DialogStarted::Finished(chosen)) => done(chosen),
+                    Ok(remedy_ui_host::DialogStarted::Finished(chosen)) => done(Ok(chosen)),
                     // The platform's picker answers later, with `HostEvent::FileDialog`.
                     Ok(remedy_ui_host::DialogStarted::Pending(id)) => {
                         self.dialogs.insert(id, done);
                     }
-                    Err(_) => done(Vec::new()),
+                    Err(e) => done(Err(e)),
                 }
             }
             Cmd::OpenUrl(url, done) => done(host.open_url(&url)),
@@ -1574,6 +1996,15 @@ impl Runner {
             Cmd::Withdraw(id) => {
                 let _ = host.withdraw_notification(id);
             }
+            Cmd::Foreground(mut task, done) => {
+                if task.notification.app.is_empty() {
+                    task.notification.app = self.app.0.borrow().name.clone();
+                }
+                done(host.start_foreground(&task));
+            }
+            Cmd::StopForeground => {
+                let _ = host.stop_foreground();
+            }
             Cmd::Permission(permission, done) => match host.request_permission(permission) {
                 Ok(remedy_ui_host::PermissionStarted::Finished(granted)) => done(granted),
                 // The platform's prompt answers later, with `HostEvent::Permission`.
@@ -1582,17 +2013,30 @@ impl Runner {
                 }
                 Err(_) => done(false),
             },
+            Cmd::Share(key, share, done) => {
+                if share.is_empty() {
+                    done(remedy_ui_host::ShareOutcome::Unsupported(Unsupported::new(
+                        "sharing",
+                        "there is nothing to share: no title, text or files",
+                    )));
+                    return;
+                }
+                let w = key.and_then(|k| self.host_of(k));
+                match host.share(w, &share) {
+                    Ok(remedy_ui_host::ShareStarted::Finished(outcome)) => done(outcome),
+                    // The platform's sheet closes later, with `HostEvent::Share`.
+                    Ok(remedy_ui_host::ShareStarted::Pending(id)) => {
+                        self.shares.insert(id, done);
+                    }
+                    Err(why) => done(remedy_ui_host::ShareOutcome::Unsupported(why)),
+                }
+            }
             Cmd::Forget(key) => {
                 self.geometry.remove(&key);
                 self.schedule_save(host);
             }
             Cmd::Quit => {
-                let _ = self.geometry.save();
-                // Persisted signals reach the disk before the app goes.
-                let store = self.app.0.borrow().persist.clone();
-                if let Some(s) = store {
-                    let _ = s.flush();
-                }
+                self.save_now(host, true);
                 host.exit();
             }
         }
@@ -1617,7 +2061,17 @@ impl Runner {
         for r in ui.take_requests() {
             match r {
                 Request::Frame => host.request_frame(h),
-                Request::TextInput(s) => host.set_text_input(h, s),
+                Request::TextInput(mut s) => {
+                    // The input method places its window in the host's pixels.
+                    if let (Some(st), Some(z)) =
+                        (s.as_mut(), self.wins.get(&key).map(|w| w.zoom).filter(|z| *z != 1.0))
+                    {
+                        let c = st.caret;
+                        st.caret =
+                            remedy_ui_core::Rect::new(c.min.x * z, c.min.y * z, c.max.x * z, c.max.y * z);
+                    }
+                    host.set_text_input(h, s)
+                }
                 Request::PreferGpu => {
                     #[cfg(feature = "gpu")]
                     if self.config.renderer == RendererChoice::Auto
@@ -1720,16 +2174,52 @@ impl Runner {
         }
     }
 
+    /// Motion is reduced: the system asks for it, or the app does ([`App::set_reduce_motion`]).
+    fn reduced_motion(&self) -> bool {
+        self.settings.reduced_motion || self.app.0.borrow().reduce_motion
+    }
+
+    /// Tells every window and its compositor whether motion is reduced now.
+    fn apply_reduced_motion(&mut self) {
+        let on = self.reduced_motion();
+        for w in self.wins.values_mut() {
+            w.ui.set_reduced_motion(on);
+            if let Some(c) = w.comp.as_mut() {
+                c.set_reduced_motion(on);
+            }
+        }
+    }
+
     /// The user asked to leave a window (its close button, or a back action nothing took):
-    /// hide it when the app keeps it, else close it.
+    /// minimize or hide it when the app keeps it, else close it.
     fn close_requested(&mut self, host: &mut dyn Host, window: WindowId) {
         let Some(&key) = self.by_host.get(&window) else { return };
-        let hide = self.wins.get(&key).is_some_and(|w| w.spec.hide_on_close);
-        if hide {
+        let (hide, minimize) =
+            self.wins.get(&key).map_or((false, false), |w| (w.spec.hide_on_close, w.spec.minimize_on_close));
+        // Where a window cannot leave the screen while open (Wayland), keeping it means
+        // minimizing it: a hide the platform ignores would leave it up but reported hidden.
+        if minimize || (hide && !host.can_hide(window)) {
+            host.set_minimized(window, true);
+        } else if hide {
             host.set_visible(window, false);
             self.app.note_visible(key, false);
         } else {
             host.close_window(window);
+        }
+    }
+
+    /// Writes window geometry and persisted state now: before the app quits, and when it may
+    /// be stopped without warning (suspended, or out of sight: a mobile system or a browser
+    /// can end a background app or a hidden tab at any time).
+    /// Geometry is written when a write is due (or `always`, when the app quits).
+    fn save_now(&mut self, host: &mut dyn Host, always: bool) {
+        let due = self.save_timer.take().inspect(|t| host.cancel_timer(*t)).is_some();
+        if due || always {
+            let _ = self.geometry.save();
+        }
+        let store = self.app.0.borrow().persist.clone();
+        if let Some(s) = store {
+            let _ = s.flush();
         }
     }
 
@@ -1832,9 +2322,28 @@ impl Runner {
         }
         #[cfg(feature = "gpu")]
         let renderer = self.config.renderer;
+        #[cfg(feature = "gpu")]
+        let vsync = self.config.vsync;
+        // The app's frame-rate limit: a frame asked for sooner waits for its turn.
+        let limit = self.app.0.borrow().frame_limit;
+        let now = host.now();
+        if let (Some(fps), Some(w)) = (limit, self.wins.get_mut(&key)) {
+            let gap = Duration::from_secs(1) / fps;
+            if let Some(last) = w.last_frame
+                && now < last + gap
+            {
+                if w.held.is_none() {
+                    let t = host.set_timer(last + gap);
+                    w.held = Some(t);
+                    self.frame_timers.insert(t, key);
+                }
+                return;
+            }
+        }
         let Some(w) = self.wins.get_mut(&key) else { return };
+        w.last_frame = Some(now);
         let _frame = remedy_ui_trace::phase!("frame", ui = w.ui.id()).entered();
-        let (pw, ph, s) = w.size;
+        let (pw, ph, s) = (w.size.0, w.size.1, w.scale());
         // Animations and painters sample the frame's presentation time.
         w.ui.set_frame_time(at);
         let f = w.ui.frame(Size::new(pw as f32 / s, ph as f32 / s), s);
@@ -1846,7 +2355,26 @@ impl Runner {
             comp.commit(l);
         }
         w.scrollers = f.scrollers;
+        // A picture asked for: this frame draws everything, and a CPU renderer of its own
+        // draws it once more into the picture.
+        let snaps = self.app.0.borrow_mut().snapshots.remove(&key).unwrap_or_default();
+        if !snaps.is_empty() {
+            comp.invalidate_tiles();
+        }
         let plan = comp.frame(at);
+        let picture = (!snaps.is_empty()).then(|| {
+            let background =
+                if w.spec.options.transparent { Color::TRANSPARENT } else { w.spec.background.unwrap_or(bg) };
+            CpuCompositor::new()
+                .present(&plan, pw, ph, background)
+                .ok()
+                .map(|f| remedy_ui_paint::Image::new(f.width, f.height, Arc::from(f.pixels)))
+        });
+        // Answered at once: the callbacks reach the app only through its handles, never this
+        // frame's state, and a later early return must not lose them.
+        for done in snaps {
+            done(picture.clone().flatten());
+        }
         for (layer, el) in &w.scrollers {
             if let Some(o) = comp.scroll_offset(*layer) {
                 w.ui.set_scroll_offset(*el, o);
@@ -1867,10 +2395,19 @@ impl Runner {
             #[cfg(feature = "gpu")]
             if gpu_wanted {
                 if let Some(gpu) = gpu_device(&mut self.gpu, &mut self.gpu_waiting, host, w.host) {
-                    let surface = host
-                        .window_handles(w.host)
-                        .ok()
-                        .and_then(|hd| gpu.create_surface(hd, pw, ph, w.spec.options.transparent).ok());
+                    let surface = host.window_handles(w.host).ok().and_then(|hd| {
+                        gpu.create_surface_paced(hd, pw, ph, w.spec.options.transparent, vsync).ok()
+                    });
+                    if self.app.0.borrow().adapter.is_none() {
+                        let a = gpu.adapter();
+                        self.app.0.borrow_mut().adapter = Some(GraphicsAdapter {
+                            name: a.name,
+                            vendor: a.vendor,
+                            driver: a.driver,
+                            api: a.api,
+                            software: a.software,
+                        });
+                    }
                     if let Some(sf) = surface {
                         w.present = Some(Present::Gpu(Box::new(sf)));
                     }
@@ -2110,15 +2647,11 @@ impl remedy_ui_host::App for Runner {
                     w.ui.set_platform(s.platform);
                     w.ui.set_locale(self.locale.clone().unwrap_or_else(|| s.locale.clone()));
                     w.ui.set_double_click_time(s.double_click);
-                    w.ui.set_reduced_motion(s.reduced_motion);
-                }
-                for w in self.wins.values_mut() {
-                    if let Some(c) = w.comp.as_mut() {
-                        c.set_reduced_motion(s.reduced_motion);
-                    }
+                    w.ui.set_system_subpixel(s.subpixel_text);
                 }
                 let appearance = (s.dark, s.high_contrast);
                 self.settings = s;
+                self.apply_reduced_motion();
                 let notify = {
                     let mut shared = self.app.0.borrow_mut();
                     let changed = shared.appearance != Some(appearance);
@@ -2132,7 +2665,7 @@ impl remedy_ui_host::App for Runner {
             }
             HostEvent::Resized { window, width, height, scale } => {
                 let Some(&key) = self.by_host.get(&window) else { return };
-                let reduced = self.settings.reduced_motion;
+                let reduced = self.reduced_motion();
                 let Some(w) = self.wins.get_mut(&key) else { return };
                 // A window with no area (minimized on Windows) shows nothing; it shows again
                 // when it has area. Platforms that say so (`Occluded`) are told separately.
@@ -2142,10 +2675,11 @@ impl remedy_ui_host::App for Runner {
                     w.ui.set_occluded(flat);
                 }
                 w.size = (width, height, scale);
+                let zoomed = w.scale();
                 match w.comp.as_mut() {
-                    Some(c) => c.resize(width, height, scale),
+                    Some(c) => c.resize(width, height, zoomed),
                     None => {
-                        let mut c = Compositor::new(width, height, scale, ScrollPhysics::CLAMPED);
+                        let mut c = Compositor::new(width, height, zoomed, ScrollPhysics::CLAMPED);
                         c.set_reduced_motion(reduced);
                         w.comp = Some(c);
                     }
@@ -2160,8 +2694,21 @@ impl remedy_ui_host::App for Runner {
                 self.remember_geometry(host, key);
             }
             HostEvent::Occluded(window, covered) => {
-                if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
+                if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k)) {
                     w.ui.set_occluded(covered);
+                    // Back in sight: the platform may not have kept what the window showed
+                    // (X11 without a compositor), so the next frame presents all of it.
+                    if !covered {
+                        if let Some(c) = w.comp.as_mut() {
+                            c.damage_all();
+                        }
+                        host.request_frame(window);
+                    }
+                }
+                // Out of sight altogether (a page's tab hidden, every window minimized): the
+                // system may end the app from here on, so what it keeps is written now.
+                if covered && self.wins.values().all(|w| w.ui.is_occluded()) {
+                    self.save_now(host, false);
                 }
             }
             HostEvent::Moved(window, _) => {
@@ -2177,9 +2724,15 @@ impl remedy_ui_host::App for Runner {
                     self.frame(host, key, at);
                 }
             }
-            HostEvent::Pointer(window, e) => {
+            HostEvent::Pointer(window, mut e) => {
                 self.activity(host);
                 if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
+                    if w.zoom != 1.0 {
+                        e.position = unzoom(e.position, w.zoom);
+                        for (p, _) in &mut e.coalesced {
+                            *p = unzoom(*p, w.zoom);
+                        }
+                    }
                     w.ui.pointer(&e);
                     host.pointer_consumed(window, w.ui.pointer_consumed());
                 }
@@ -2192,11 +2745,17 @@ impl remedy_ui_host::App for Runner {
                     host.request_frame(window);
                 }
             }
-            HostEvent::Drag(window, e) => {
+            HostEvent::Drag(window, mut e) => {
                 self.activity(host);
                 if let Some(key) = self.by_host.get(&window).copied()
-                    && let Some(ui) = self.wins.get(&key).map(|w| w.ui.clone())
+                    && let Some((ui, zoom)) = self.wins.get(&key).map(|w| (w.ui.clone(), w.zoom))
                 {
+                    match &mut e {
+                        remedy_ui_host::DragEvent::Enter { position: Some(p), .. }
+                        | remedy_ui_host::DragEvent::Drop { position: Some(p), .. }
+                        | remedy_ui_host::DragEvent::Over { position: p } => *p = unzoom(*p, zoom),
+                        _ => {}
+                    }
                     let effect = ui.drag_event(&e);
                     host.set_drop_effect(window, effect);
                     self.requests(host, key);
@@ -2205,6 +2764,12 @@ impl remedy_ui_host::App for Runner {
             }
             HostEvent::Wheel(window, e) => {
                 self.activity(host);
+                let mut e = e;
+                if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get(k)) {
+                    // The element under the pointer is found in the content's pixels; the
+                    // compositor below scrolls in the display's.
+                    e.position = unzoom(e.position, w.zoom);
+                }
                 // Elements that take the wheel themselves (zoomable documents, Ctrl+wheel)
                 // come first; otherwise it scrolls on the compositor.
                 let taken = self
@@ -2219,7 +2784,7 @@ impl remedy_ui_host::App for Runner {
                     }
                     host.request_frame(window);
                 } else if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k)) {
-                    let s = w.size.2;
+                    let s = w.scale();
                     if let Some(c) = w.comp.as_mut() {
                         c.scroll_at(
                             Point::new(e.position.x * s, e.position.y * s),
@@ -2229,11 +2794,12 @@ impl remedy_ui_host::App for Runner {
                     host.request_frame(window);
                 }
             }
-            HostEvent::Pinch(window, e) => {
+            HostEvent::Pinch(window, mut e) => {
                 self.activity(host);
                 if let Some(&key) = self.by_host.get(&window)
-                    && let Some(ui) = self.wins.get(&key).map(|w| w.ui.clone())
+                    && let Some((ui, zoom)) = self.wins.get(&key).map(|w| (w.ui.clone(), w.zoom))
                 {
+                    e.position = unzoom(e.position, zoom);
                     ui.pinch(&e);
                     self.requests(host, key);
                     host.request_frame(window);
@@ -2269,6 +2835,9 @@ impl remedy_ui_host::App for Runner {
                 }
             }
             HostEvent::Focused(window, focused) => {
+                if let Some(&key) = self.by_host.get(&window) {
+                    self.app.note_focus(key, focused);
+                }
                 if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k)) {
                     w.ui.set_window_focused(focused);
                     if w.spec.privacy_cover {
@@ -2296,12 +2865,17 @@ impl remedy_ui_host::App for Runner {
             HostEvent::CloseRequested(window) => self.close_requested(host, window),
             HostEvent::FileDialog(id, chosen) => {
                 if let Some(done) = self.dialogs.remove(&id) {
-                    done(chosen);
+                    done(Ok(chosen));
                 }
             }
             HostEvent::Permission(id, granted) => {
                 if let Some(done) = self.permissions.remove(&id) {
                     done(granted);
+                }
+            }
+            HostEvent::Share(id, outcome) => {
+                if let Some(done) = self.shares.remove(&id) {
+                    done(outcome);
                 }
             }
             HostEvent::SafeArea(window, area) => {
@@ -2321,6 +2895,8 @@ impl remedy_ui_host::App for Runner {
                     }
                     w.ui.set_occluded(true);
                 }
+                // A suspended app may be ended without another word.
+                self.save_now(host, false);
             }
             HostEvent::Destroyed(window) => {
                 if let Some(key) = self.by_host.remove(&window) {
@@ -2330,8 +2906,12 @@ impl remedy_ui_host::App for Runner {
                         s.open.remove(&key);
                         let ui = s.uis.remove(&key);
                         s.visible.remove(&key);
+                        s.unhideable.remove(&key);
                         s.on_geometry.remove(&key);
                         s.on_visibility.remove(&key);
+                        let snapshots = s.snapshots.remove(&key);
+                        s.focused.remove(&key);
+                        s.on_focus.remove(&key);
                         s.renderers.remove(&key);
                         s.titles.remove(&key);
                         s.maximized.remove(&key);
@@ -2339,9 +2919,13 @@ impl remedy_ui_host::App for Runner {
                         // An agent's access ends with its window.
                         #[cfg(feature = "agents")]
                         s.agents.remove(&key);
-                        (s.on_closed.remove(&key).unwrap_or_default(), ui)
+                        (s.on_closed.remove(&key).unwrap_or_default(), ui, snapshots)
                     };
-                    let (closed, ui) = closed;
+                    let (closed, ui, snapshots) = closed;
+                    // Pictures asked for and never drawn: the window is gone.
+                    for done in snapshots.unwrap_or_default() {
+                        done(None);
+                    }
                     for f in closed {
                         f();
                     }
@@ -2396,6 +2980,11 @@ impl remedy_ui_host::App for Runner {
                     {
                         let _ = host.clear_clipboard();
                     }
+                } else if let Some(key) = self.frame_timers.remove(&id) {
+                    if let Some(w) = self.wins.get_mut(&key) {
+                        w.held = None;
+                        host.request_frame(w.host);
+                    }
                 } else if let Some(f) = self.timers.remove(&id) {
                     f();
                 } else if let Some((key, vid)) = self.view_timers.remove(&id)
@@ -2424,8 +3013,15 @@ impl remedy_ui_host::App for Runner {
             }
             HostEvent::Notification(id, response) => {
                 let cb = self.app.0.borrow().on_notification.clone();
+                match cb {
+                    Some(cb) => cb(id, response),
+                    None => self.app.0.borrow_mut().unheard_notifications.push((id, response)),
+                }
+            }
+            HostEvent::ForegroundStopped(why) => {
+                let cb = self.app.0.borrow().on_foreground_stopped.clone();
                 if let Some(cb) = cb {
-                    cb(id, response);
+                    cb(why);
                 }
             }
             HostEvent::Tray(e) => {

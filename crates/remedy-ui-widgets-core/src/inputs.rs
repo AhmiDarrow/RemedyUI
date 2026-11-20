@@ -11,6 +11,7 @@ pub fn text_input(ui: &Ui, label: impl Into<String>) -> TextField {
 }
 
 /// A multi-line text input; Enter breaks the line.
+/// It grows with its text; given a height, longer text scrolls inside it to the caret.
 #[track_caller]
 pub fn text_area(ui: &Ui, label: impl Into<String>) -> TextField {
     ui.text_field("text_area", FieldKind::Multi).label(label).fill()

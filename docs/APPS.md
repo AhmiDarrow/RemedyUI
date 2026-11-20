@@ -21,6 +21,8 @@ RemedyUI is for every Remedy app. This map, from a survey of the apps as they st
 | **RemedyOS apps** | Files, Editor, Settings, Monitor, Ask, panels | Kernel-drawn C | core, nav, data, forms, doc-code, widgets-term, viz (Monitor), services via kernel wires | RemedyOS (developed on all) |
 | **FallenEarth** | RPG | Godot 4 | Out of scope. A game engine draws its own UI. RemedyUI could render menus into a Godot texture through the embedding path if wanted | — |
 
+Six of these apps (SecretSticky, SecretFolder, Alex's Craft Calc, GuitarRemedy, VoiceRemedy, RemedyAI desktop) keep their users' data in a web view's `localStorage` today. Each one's first RemedyUI run imports it with `services-webstorage` (read-only, lossless), so no update loses what people saved.
+
 The survey found no app that needs maps or calendars. Date and time pickers are in `widgets-forms` because settings and forms need them. Maps stay out of scope until an app needs them.
 
 ## What only one app needs

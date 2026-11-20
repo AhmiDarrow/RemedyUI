@@ -192,7 +192,7 @@ fn the_owner_arranges_with_the_keyboard_and_undoes() {
 
 fn the_owner_arranges(claps: Package) {
     let ui = ui();
-    let (b, welcome, side, note) = home();
+    let (b, _, side, note) = home();
     let state = BoardState::new(b);
     state.editing.set(true);
     ui.root().child(board(&ui, &state, registry(claps), context()));
@@ -211,7 +211,7 @@ fn the_owner_arranges(claps: Package) {
     // Moving onto the welcome area is refused and said.
     key(&ui, Key::ArrowUp, Modifiers::NONE);
     key(&ui, Key::ArrowLeft, Modifiers::NONE);
-    assert!(state.message.get_untracked().ok().flatten().is_some_and(|m| m.contains(&welcome)));
+    assert!(state.message.get_untracked().ok().flatten().is_some_and(|m| m.contains("Welcome")));
     // Undo goes back step by step.
     let ctrl = Modifiers { ctrl: true, ..Modifiers::NONE };
     key(&ui, Key::Character("z".into()), ctrl);
@@ -221,7 +221,7 @@ fn the_owner_arranges(claps: Package) {
         state.doc.get_untracked().ok().and_then(|b| b.area(&side).cloned()).unwrap_or_else(|| unreachable!());
     assert_eq!((a.col, a.row, a.cols), (8, 0, 4));
     // The panel edits the selected widget's settings, typing being one undo step.
-    named(&ui, "Text widget").focus();
+    named(&ui, "Hello, house widget").focus();
     frame(&ui);
     assert_eq!(state.selected.get_untracked().ok().flatten(), Some(Selection::Widget(note.clone())));
     let found = audit(&ui);
@@ -254,7 +254,7 @@ fn widgets_are_added_and_dragged(claps: Package) {
     let added = state.doc.get_untracked().ok().and_then(|b| b.area(&side).map(|a| a.widgets.len()));
     assert_eq!(added, Some(2), "a widget joined the selected area");
     // Drag the note onto the side area.
-    let from = named(&ui, "Text widget").bounds().unwrap_or_default().center();
+    let from = named(&ui, "Hello, house widget").bounds().unwrap_or_default().center();
     let to = named(&ui, "Around the house area").bounds().unwrap_or_default().center();
     pointer(&ui, from, PointerPhase::Down, Buttons::PRIMARY);
     pointer(&ui, Point::new(from.x + 20.0, from.y + 5.0), PointerPhase::Move, Buttons::PRIMARY);
@@ -396,4 +396,235 @@ fn a_peer_board_shows_as_sent(claps: Package) {
     state.doc.set(b);
     frame(&ui);
     assert!(!texts_like(&ui, "voice-room").is_empty());
+}
+
+fn find_named(ui: &Ui, name: &str) -> Option<El> {
+    all(ui).into_iter().find(|e| {
+        e.info().is_some_and(|i| {
+            !i.hidden && i.semantics.and_then(|s| s.name().map(str::to_owned)).as_deref() == Some(name)
+        })
+    })
+}
+
+/// The text field named `name`.
+fn field(ui: &Ui, name: &str) -> El {
+    all(ui)
+        .into_iter()
+        .find(|e| {
+            e.info().is_some_and(|i| {
+                i.field && i.semantics.and_then(|s| s.name().map(str::to_owned)).as_deref() == Some(name)
+            })
+        })
+        .unwrap_or_else(|| unreachable!("no field named {name:?}"))
+}
+
+fn type_text(ui: &Ui, text: &str) {
+    for c in text.chars() {
+        let s = c.to_string();
+        let _ = ui.key(&KeyEvent::press(Key::Character(s.clone())).with_text(Some(s)));
+    }
+}
+
+fn setting(state: &BoardState, id: &str, key: &str) -> Option<serde_json::Value> {
+    state.doc.get_untracked().ok().and_then(|b| b.widget(id).and_then(|w| w.settings.get(key).cloned()))
+}
+
+/// A kind with a setting of each newer kind: a moment, a labeled choice, a list, a picture.
+struct Event;
+
+impl WidgetKind for Event {
+    fn id(&self) -> &str {
+        "event"
+    }
+    fn name(&self) -> String {
+        "Event".into()
+    }
+    fn settings(&self) -> Vec<SettingSpec> {
+        let rooms = vec![("7".to_owned(), "Lobby".to_owned()), ("8".to_owned(), "Stage".to_owned())];
+        vec![
+            SettingSpec::new("when", "When", SettingKind::Time, serde_json::Value::Null),
+            SettingSpec::new("room", "Room", SettingKind::LabeledChoice(rooms), "7".into()),
+            SettingSpec::new("tags", "Tags", SettingKind::List, serde_json::json!(["music"])),
+            SettingSpec::new("art", "Poster", SettingKind::Picture, "".into()),
+        ]
+    }
+    fn build(&self, ui: &Ui, _id: &str, s: &serde_json::Map<String, serde_json::Value>, _cx: &Context) -> El {
+        remedy_ui_widgets_core::text(
+            ui,
+            format!("An event in room {}", s.get("room").cloned().unwrap_or_default()),
+        )
+    }
+}
+
+#[test]
+fn every_setting_kind_has_its_editor_and_typing_settles_once() {
+    let ui = ui();
+    let mut r = Registry::with_builtins();
+    r.add(Rc::new(Event));
+    let (b, area) = Board::default().add_area("Events", 12, 1).unwrap_or_else(|e| unreachable!("{e}"));
+    let (b, id) =
+        b.add_widget(&area, "event", serde_json::Map::new()).unwrap_or_else(|e| unreachable!("{e}"));
+    let state = BoardState::with_options(b, BoardOptions::default().settle_after(None));
+    state.editing.set(true);
+    let mut cx = context();
+    cx.picture =
+        Some(Rc::new(|ui: &Ui, src: &str| remedy_ui_widgets_core::text(ui, format!("Showing {src}"))));
+    cx.choose_picture = Some(Rc::new(|done: Box<dyn FnOnce(String)>| done("asset:9".into())));
+    ui.root().child(board(&ui, &state, Rc::new(r), cx));
+    state.selected.set(Some(Selection::Widget(id.clone())));
+    frame(&ui);
+    let found = audit(&ui);
+    assert!(found.is_empty(), "{found:#?}");
+    // The moment is not set until chosen; the choice shows its label, not its value.
+    assert!(has_text(&ui, "Not set") && find_named(&ui, "When: date").is_some());
+    assert!(has_text(&ui, "Lobby"), "{:?}", texts_like(&ui, "obby"));
+    // The app chooses and shows pictures.
+    click(&ui, &named(&ui, "Choose picture"));
+    assert_eq!(setting(&state, &id, "art"), Some("asset:9".into()));
+    assert!(has_text(&ui, "Showing asset:9"));
+    // Typing in a list item: one step, the field keeps focus, settled once it is left.
+    let settled_before = state.settled.get_untracked().ok();
+    let tags = field(&ui, "Tags 1");
+    tags.focus();
+    frame(&ui);
+    type_text(&ui, "!!");
+    frame(&ui);
+    let typed = setting(&state, &id, "tags");
+    assert!(typed.as_ref().is_some_and(|v| v.to_string().contains("!!")), "{typed:?}");
+    assert_eq!(ui.tree().focused(), Some(field(&ui, "Tags 1").id()), "the panel kept the field");
+    assert_eq!(state.settled.get_untracked().ok(), settled_before, "not settled while typing");
+    named(&ui, "Events area").focus();
+    frame(&ui);
+    assert_eq!(state.settled.get_untracked().ok(), state.doc.get_untracked().ok(), "settled when left");
+    // Adding an item focuses it; removing one takes it out.
+    state.selected.set(Some(Selection::Widget(id.clone())));
+    frame(&ui);
+    click(&ui, &named(&ui, "Add to Tags"));
+    assert_eq!(setting(&state, &id, "tags").and_then(|v| v.as_array().map(Vec::len)), Some(2));
+    assert_eq!(ui.tree().focused(), Some(field(&ui, "Tags 2").id()));
+    click(&ui, &named(&ui, "Remove Tags 1"));
+    assert_eq!(setting(&state, &id, "tags"), Some(serde_json::json!([""])));
+    // A set moment can be cleared; a stored choice no longer offered says so.
+    state.apply(state.current().set_setting(&id, "when", 1_795_093_500.into()));
+    state.apply(state.current().set_setting(&id, "room", "99".into()));
+    frame(&ui);
+    assert!(has_text(&ui, "99 (not available)"), "{:?}", texts_like(&ui, "99"));
+    click(&ui, &named(&ui, "Clear"));
+    assert_eq!(setting(&state, &id, "when"), Some(serde_json::Value::Null));
+    assert!(has_text(&ui, "Not set"));
+}
+
+#[test]
+fn typing_settles_after_a_pause() {
+    let ui = ui();
+    let (b, _, _, note) = home();
+    let state =
+        BoardState::with_options(b, BoardOptions::default().settle_after(Some(Duration::from_millis(300))));
+    state.editing.set(true);
+    ui.root().child(board(&ui, &state, registry(claps()[0].clone()), context()));
+    state.selected.set(Some(Selection::Widget(note.clone())));
+    frame(&ui);
+    let title = field(&ui, "Title");
+    title.focus();
+    frame(&ui);
+    let _ = ui.take_requests();
+    type_text(&ui, "!");
+    assert!(state.is_typing());
+    let timers: Vec<u64> = ui
+        .take_requests()
+        .into_iter()
+        .filter_map(|r| if let Request::Timer { id, .. } = r { Some(id) } else { None })
+        .collect();
+    assert!(!timers.is_empty(), "a settle timer waits");
+    for t in timers {
+        ui.fire_timer(t);
+    }
+    assert!(!state.is_typing(), "the pause finished the typing");
+    assert_eq!(state.settled.get_untracked().ok(), state.doc.get_untracked().ok());
+}
+
+#[test]
+fn the_board_speaks_the_apps_words() {
+    let words = BoardLabels::default().translated(|en| {
+        match en {
+            "Undo" => "Rückgängig",
+            "{name} area" => "Bereich {name}",
+            "Add widget" => "Widget hinzufügen",
+            "Nothing here yet." => "Noch nichts hier.",
+            "{name} widget" => "Widget {name}",
+            other => other,
+        }
+        .to_owned()
+    });
+    let ui = ui();
+    let (b, ..) = home();
+    let state = BoardState::new(b);
+    state.editing.set(true);
+    let mut cx = context();
+    cx.labels = words.clone();
+    let mut r = Registry::with_builtins_in(&words);
+    r.add(Rc::new(
+        ScriptKind::new("claps", claps()[0].clone(), &engines(), limits())
+            .unwrap_or_else(|e| unreachable!("{e}")),
+    ));
+    ui.root().child(board(&ui, &state, Rc::new(r), cx.clone()));
+    frame(&ui);
+    assert!(find_named(&ui, "Rückgängig").is_some());
+    assert!(find_named(&ui, "Bereich Welcome").is_some());
+    assert!(find_named(&ui, "Widget Hello, house").is_some());
+    click(&ui, &named(&ui, "Bereich Welcome"));
+    assert!(find_named(&ui, "Widget hinzufügen").is_some());
+    let ui = ui_empty(&cx);
+    assert!(has_text(&ui, "Noch nichts hier."));
+}
+
+fn ui_empty(cx: &Context) -> Ui {
+    let ui = ui();
+    let state = BoardState::new(Board::default());
+    ui.root().child(board(&ui, &state, Rc::new(Registry::with_builtins()), cx.clone()));
+    frame(&ui);
+    ui
+}
+
+#[test]
+fn fixed_rows_one_widget_areas_and_a_panel_apart() {
+    let ui = ui();
+    let (b, welcome, side, _) = home();
+    let options = BoardOptions::default().row_height(Some(120.0)).panel(Panel::Off);
+    let state = BoardState::with_options(b, options);
+    state.editing.set(true);
+    let mut r = Registry::with_builtins();
+    r.add(Rc::new(
+        ScriptKind::new("claps", claps()[0].clone(), &engines(), limits())
+            .unwrap_or_else(|e| unreachable!("{e}")),
+    ));
+    r.set_addable("links", false);
+    r.set_addable("reactions", false);
+    r.set_addable("claps", false);
+    let r = Rc::new(r);
+    ui.root().child(board(&ui, &state, r.clone(), context()));
+    frame(&ui);
+    assert!(find_named(&ui, "Undo").is_none(), "no panel with the board");
+    let h = named(&ui, "Welcome area").bounds().unwrap_or_default().height();
+    assert!((h - 120.0).abs() < 0.5, "a fixed row: {h}");
+    // The app's own panel, driven by selecting from outside.
+    ui.root().child(board_panel(&ui, &state, r.clone(), &context()));
+    state.selected.set(Some(Selection::Area(side.clone())));
+    frame(&ui);
+    // Only the kinds this viewer may add are offered: the one left is text.
+    click(&ui, &named(&ui, "Add widget"));
+    let kinds: Vec<String> = state
+        .doc
+        .get_untracked()
+        .ok()
+        .and_then(|b| b.area(&side).map(|a| a.widgets.iter().map(|w| w.kind.clone()).collect()))
+        .unwrap_or_default();
+    assert_eq!(kinds, ["reactions", "text"]);
+    // One widget an area: a full area is not offered more.
+    state.options.update(|o| o.one_widget_per_area = true);
+    state.selected.set(Some(Selection::Area(welcome.clone())));
+    frame(&ui);
+    assert!(find_named(&ui, "Add widget").is_none());
+    let found = audit(&ui);
+    assert!(found.is_empty(), "{found:#?}");
 }

@@ -10,7 +10,7 @@ Every widget is built only from public engine APIs: the same ones an app uses fo
 - **Actions:** `button` (primary, secondary, quiet, danger; icon slot; toggle), `icon_button` (label required), `menu_button`, `split_button`
 - **Choices:** `switch`, `check`, `radio_group`, `segmented`, `select` (type-ahead), `chip` / `chip_group`
 - **Values:** `slider` (horizontal, vertical, range, stepped, `on_commit`), `stepper`
-- **Input:** `text_input` (single and multi-line, filters, completion popup), `search`, `secret_input` ([08](08-security-and-privacy.md))
+- **Input:** `text_input` (single and multi-line, filters, completion popup), `search`, `secret_input` ([08](08-security-and-privacy.md)). A field grows with its text unless given a size; text larger than a sized field is clipped to the box and scrolls inside it, following the caret and the wheel
 - **Feedback:** `progress` (bar and ring; determinate and indeterminate), `spinner`, `lamp`, `badge`, `toast` (with action), `empty_state`, `skeleton`
 - **Overlays:** `tooltip`, `menu`, `context_menu`, `popover`, `modal`, `dialog`, `trusted_prompt`, `lock_screen`
 - **Media basics:** `image` (fit, radius, placeholder, error state), `avatar`, `icon` (vector)

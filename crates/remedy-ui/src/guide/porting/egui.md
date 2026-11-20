@@ -22,6 +22,8 @@ nothing changes, nothing runs.
 | `ScrollArea::show_rows` | [`crate::widgets::virtual_list`], with real row heights and anchoring |
 | `ctx.set_visuals(Visuals { .. })` | A [`crate::style::Theme`] of tokens and a [`crate::style::StyleSheet`] |
 | `egui::Window` | A real window: [`crate::App::open`] |
+| `ctx.set_zoom_factor` (Ctrl +, Ctrl −) | [`crate::Window::set_zoom`] |
+| `ViewportCommand::CancelClose` to hide to the tray | [`crate::WindowSpec::hide_on_close`], changed later with [`crate::Window::set_hide_on_close`] |
 | `Painter` in a custom widget | [`crate::El::paint`] or [`crate::widgets::canvas`] |
 | Keyboard shortcuts read with `ctx.input` | [`crate::nav::Commands`]: rebindable, shown in menus and the palette |
 | `ui.add_enabled(false, ..)` | `.disabled(true)`, or `.disabled(move \|\| ..)` to follow signals |

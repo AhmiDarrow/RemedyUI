@@ -20,7 +20,8 @@ remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
 
 [target.'cfg(target_os = "android")'.dependencies]
 remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "1.0.0-rc.1" }
-# NativeActivity: no Java in the app; the bridge's own Java half is loaded from memory.
+# A native activity: no Java of the app's own; the bridge's Java half comes in the APK (cargo remedy
+# package) or is loaded from memory.
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "android-native-activity"] }
 # The same JNI release as the accessibility adapter, so both share one Java VM binding.
 jni = { version = "=0.21.1" }

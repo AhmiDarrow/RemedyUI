@@ -31,11 +31,30 @@ browser cannot do.
   events. Open dialogs are file pickers whose files the page keeps in an in-page store
   ([`web::files`](crate::web::files)); saving downloads the file. Dropped files arrive
   the same way. Links open in a new tab with no access to the app's page.
+- **Sharing.** [`App::share`](crate::App::share) opens the browser's share sheet
+  (`navigator.share`) with the title, the text and the files as `File` objects where
+  `navigator.canShare` takes them, else the title and text alone (unless the app set
+  [`ShareOptions::require_files`](crate::host::ShareOptions::require_files)). The outcome
+  comes when the sheet closes: shared, cancelled (the person closed it), or
+  [`ShareOutcome::Unsupported`](crate::host::ShareOutcome::Unsupported) with the browser's
+  reason, so the app falls back to a download or the clipboard. Call it from a button's
+  handler: browsers share only in answer to a click or key press.
 - **Screen readers.** The window's semantics tree is mirrored into ARIA elements over the
   canvas, so screen readers read and operate the app as they do on the desktop.
 - **Settings**, followed live: dark or light, reduced motion and transparency, more contrast,
   text size, language, the accent color where the browser reveals it, and Apple's shortcut
   conventions on Apple devices.
+- **Keeping data.** A page has no files, so [`App::data_dir`](crate::App::data_dir) is
+  `None` there. [`App::persist_store`](crate::App::persist_store) is the page's
+  `localStorage` instead: persisted signals, window geometry and the app's own documents
+  ([`PersistStore::save`](crate::reactive::PersistStore::save) and
+  [`load`](crate::reactive::PersistStore::load)) are kept under `remedy:<app name>:<key>` in
+  the same versioned JSON as on the desktop, written between frames after the same debounce,
+  and written at once when the tab is hidden or the app quits. They survive reloads and
+  restarts and stay until the person clears the site's data. Browsers give an origin a few
+  megabytes of `localStorage`; a write it refuses is reported by
+  [`PersistStore::take_errors`](crate::reactive::PersistStore::take_errors). See
+  [`crate::guide::signals`] ("State that outlives the app").
 - **One instance.** [`AppConfig::single_instance`](crate::AppConfig::single_instance) holds
   across tabs: a second tab hands its launch arguments to the first.
 - **Media.** [`playback`](crate::playback) plays in the page, decoding with the browser's
@@ -134,7 +153,8 @@ so the app can say so or offer another way:
 | Dragging out of the page into other apps | Pages can receive drops, but not start drags that leave the browser |
 | Moving or sizing the page's own window | The browser owns its window |
 | Reading the clipboard outside a paste | Browsers allow it only during a paste, or with the person's permission |
-| File pickers and full screen outside a click or key | Browsers allow them only in answer to the person's own input |
+| File pickers, sharing and full screen outside a click or key | Browsers allow them only in answer to the person's own input |
+| Sharing in browsers without a share sheet | Desktop Firefox and Chrome on Linux have no `navigator.share`, and no browser shares from a page that is not secure (HTTPS or `localhost`) |
 | Signed updates ([`update`](crate::update)) | A web app updates through its service worker, which the build sets up |
 
 Test the app itself headless as on the desktop, with

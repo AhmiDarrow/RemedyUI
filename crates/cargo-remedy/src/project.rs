@@ -25,6 +25,23 @@ pub struct Project {
     pub description: String,
     /// The icon PNG (square, 256 px or more), if any.
     pub icon: Option<PathBuf>,
+    /// The icon as drawn at other sizes (`[app] icon_sizes`, square PNGs), used as they are
+    /// where those sizes are shown.
+    pub icon_sizes: Vec<PathBuf>,
+    /// Other sizes are made by the nearest pixel (`[app] icon_scaling = "pixel"`, for pixel
+    /// art) rather than by area averages (`"smooth"`, the default).
+    pub icon_pixel_art: bool,
+    /// The one-color shape of the icon (`[android] icon_monochrome`, a square PNG whose
+    /// alpha is the shape): Android 13's themed icons and the status bar's notification icon.
+    pub android_icon_monochrome: Option<PathBuf>,
+    /// The picture in front in Android's adaptive icon (`[android] icon_foreground`, a square
+    /// PNG placed like the icon): the icon without the backdrop it is drawn on, so the
+    /// launcher's mask cuts the backdrop and not the picture. By default the icon itself.
+    pub android_icon_foreground: Option<PathBuf>,
+    /// What fills Android's adaptive icon behind it (`[android] icon_background`): one
+    /// `#rrggbb` color, or two for a gradient from top to bottom; empty for the icon's corner
+    /// color when it is opaque, else white.
+    pub android_icon_background: Vec<String>,
     /// The code-signing certificate's thumbprint, if any.
     pub sign_thumbprint: Option<String>,
     /// The timestamp server for signatures.
@@ -44,6 +61,10 @@ pub struct Project {
     /// manifest names: `microphone`, `internet`, `notifications` and `camera` stand for
     /// theirs, and a full name (`android.permission.VIBRATE`) is taken as it is.
     pub android_permissions: Vec<String>,
+    /// The kinds of foreground work the app does (`[android] foreground`), as Android's
+    /// foreground service types (`microphone`, `mediaPlayback`, `camera`, `dataSync`): the
+    /// manifest declares the foreground service with them, and their permissions.
+    pub android_foreground: Vec<String>,
     /// The short name an installed page shows under its icon (`[web] short_name`; the name
     /// when unset).
     pub web_short_name: Option<String>,
@@ -97,6 +118,75 @@ fn android_permissions(t: &toml::Table) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+/// The files `[app] icon_sizes` lists.
+fn icon_sizes(t: &toml::Table) -> Result<Vec<String>, String> {
+    let Some(v) = t.get("app").and_then(|a| a.get("icon_sizes")) else { return Ok(Vec::new()) };
+    let bad = "remedy.toml: [app] icon_sizes must be a list of PNG files";
+    v.as_array()
+        .ok_or(bad)?
+        .iter()
+        .map(|i| i.as_str().map(str::to_owned).ok_or_else(|| bad.to_owned()))
+        .collect()
+}
+
+/// `[app] icon_scaling`: `"pixel"` is true, `"smooth"` (the default) false.
+fn icon_pixel_art(t: &toml::Table) -> Result<bool, String> {
+    match string(t, "app", "icon_scaling").as_deref() {
+        None | Some("smooth") => Ok(false),
+        Some("pixel") => Ok(true),
+        Some(o) => Err(format!("remedy.toml: [app] icon_scaling: `{o}` is not smooth or pixel")),
+    }
+}
+
+/// `[android] icon_background`: a `#rrggbb` color or a list of two (a gradient from top to
+/// bottom), each checked.
+fn android_icon_background(t: &toml::Table) -> Result<Vec<String>, String> {
+    let Some(v) = t.get("android").and_then(|a| a.get("icon_background")) else { return Ok(Vec::new()) };
+    let bad = "remedy.toml: [android] icon_background must be a #rrggbb color or a list of two";
+    let colors: Vec<&str> = match v {
+        toml::Value::String(c) => vec![c.as_str()],
+        toml::Value::Array(list) => list.iter().map(|c| c.as_str().ok_or(bad)).collect::<Result<_, _>>()?,
+        _ => return Err(bad.into()),
+    };
+    if colors.is_empty() || colors.len() > 2 {
+        return Err(bad.into());
+    }
+    colors
+        .into_iter()
+        .map(|c| {
+            let ok =
+                c.strip_prefix('#').is_some_and(|h| h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()));
+            if ok { Ok(c.to_ascii_lowercase()) } else { Err(format!("{bad}: `{c}` is not #rrggbb")) }
+        })
+        .collect()
+}
+
+/// The foreground service types `[android] foreground` lists (`microphone`, `media-playback`,
+/// `camera`, `data-sync`), as Android names them, in order and without repeats.
+fn android_foreground(t: &toml::Table) -> Result<Vec<String>, String> {
+    let Some(v) = t.get("android").and_then(|a| a.get("foreground")) else { return Ok(Vec::new()) };
+    let bad = "remedy.toml: [android] foreground must be a list of kinds";
+    let list = v.as_array().ok_or(bad)?;
+    let mut out: Vec<String> = Vec::new();
+    for item in list {
+        let kind = match item.as_str().ok_or(bad)? {
+            "microphone" => "microphone",
+            "media-playback" => "mediaPlayback",
+            "camera" => "camera",
+            "data-sync" => "dataSync",
+            k => {
+                return Err(format!(
+                    "remedy.toml: [android] foreground: `{k}` is not microphone, media-playback, camera or data-sync"
+                ));
+            }
+        };
+        if !out.iter().any(|o| o == kind) {
+            out.push(kind.to_owned());
+        }
+    }
+    Ok(out)
+}
+
 impl Project {
     /// Reads the app at `root`.
     pub fn load(root: &Path) -> Result<Project, String> {
@@ -106,7 +196,12 @@ impl Project {
             .parse()
             .map_err(|e| format!("{}: {e}", cargo_path.display()))?;
         let package = string(&cargo, "package", "name").ok_or("Cargo.toml has no [package] name")?;
-        let version = string(&cargo, "package", "version").unwrap_or_else(|| "0.1.0".into());
+        let metadata = metadata(root);
+        // A version inherited from the workspace (`version.workspace = true`) is Cargo's to
+        // resolve: read it back from `cargo metadata`.
+        let version = string(&cargo, "package", "version")
+            .or_else(|| metadata.as_ref().and_then(|m| package_version(m, &package)))
+            .unwrap_or_else(|| "0.1.0".into());
         let bin = cargo
             .get("bin")
             .and_then(|b| b.as_array())
@@ -124,7 +219,10 @@ impl Project {
             Ok(s) => s.parse().map_err(|e| format!("{}: {e}", remedy_path.display()))?,
             Err(_) => toml::Table::new(),
         };
-        let target_dir = target_dir(root).unwrap_or_else(|| root.join("target"));
+        let target_dir = metadata
+            .as_ref()
+            .and_then(|m| m.get("target_directory")?.as_str().map(PathBuf::from))
+            .unwrap_or_else(|| root.join("target"));
         let direct = |t: &toml::Value| t.get("dependencies").and_then(|d| d.get("remedy-ui")).is_some();
         let uses_remedy_ui = cargo.get("dependencies").and_then(|d| d.get("remedy-ui")).is_some()
             || cargo.get("target").and_then(|t| t.as_table()).is_some_and(|t| t.values().any(direct));
@@ -135,6 +233,11 @@ impl Project {
             publisher: string(&remedy, "app", "publisher").unwrap_or_else(|| package.clone()),
             description: string(&remedy, "app", "description").unwrap_or_default(),
             icon: string(&remedy, "app", "icon").map(|p| root.join(p)),
+            icon_sizes: icon_sizes(&remedy)?.into_iter().map(|p| root.join(p)).collect(),
+            icon_pixel_art: icon_pixel_art(&remedy)?,
+            android_icon_monochrome: string(&remedy, "android", "icon_monochrome").map(|p| root.join(p)),
+            android_icon_foreground: string(&remedy, "android", "icon_foreground").map(|p| root.join(p)),
+            android_icon_background: android_icon_background(&remedy)?,
             sign_thumbprint: string(&remedy, "windows", "sign_thumbprint"),
             timestamp_url: string(&remedy, "windows", "timestamp_url")
                 .unwrap_or_else(|| "http://timestamp.digicert.com".into()),
@@ -145,6 +248,7 @@ impl Project {
             android_keystore: string(&remedy, "android", "keystore").map(|k| root.join(k)),
             android_key_alias: string(&remedy, "android", "key_alias"),
             android_permissions: android_permissions(&remedy)?,
+            android_foreground: android_foreground(&remedy)?,
             web_short_name: string(&remedy, "web", "short_name"),
             web_theme: string(&remedy, "web", "theme_color").unwrap_or_else(|| DEFAULT_THEME_COLOR.into()),
             web_icon: string(&remedy, "web", "icon").map(|p| root.join(p)),
@@ -163,15 +267,26 @@ impl Project {
     }
 }
 
-/// Cargo's target directory for the package at `root`.
-fn target_dir(root: &Path) -> Option<PathBuf> {
+/// `cargo metadata` (without dependencies) for the package at `root`.
+fn metadata(root: &Path) -> Option<serde_json::Value> {
     let out = std::process::Command::new(cargo())
         .args(["metadata", "--format-version", "1", "--no-deps"])
         .current_dir(root)
         .output()
         .ok()?;
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
-    v.get("target_directory")?.as_str().map(PathBuf::from)
+    serde_json::from_slice(&out.stdout).ok()
+}
+
+/// The version `cargo metadata` gives the package named `name`.
+fn package_version(metadata: &serde_json::Value, name: &str) -> Option<String> {
+    metadata
+        .get("packages")?
+        .as_array()?
+        .iter()
+        .find(|p| p.get("name").and_then(|n| n.as_str()) == Some(name))?
+        .get("version")?
+        .as_str()
+        .map(str::to_owned)
 }
 
 /// The cargo that ran us, or `cargo`.
@@ -202,6 +317,11 @@ pub(crate) mod tests {
             publisher: "Me".into(),
             description: "Notes & more".into(),
             icon: None,
+            icon_sizes: Vec::new(),
+            icon_pixel_art: false,
+            android_icon_monochrome: None,
+            android_icon_foreground: None,
+            android_icon_background: Vec::new(),
             sign_thumbprint: None,
             timestamp_url: String::new(),
             android_target: "aarch64-linux-android".into(),
@@ -209,12 +329,44 @@ pub(crate) mod tests {
             android_target_api: 35,
             android_keystore: None,
             android_permissions: Vec::new(),
+            android_foreground: Vec::new(),
             android_key_alias: None,
             web_short_name: None,
             web_theme: DEFAULT_THEME_COLOR.into(),
             web_icon: None,
             uses_remedy_ui: true,
         }
+    }
+
+    #[test]
+    fn workspace_versions_come_from_cargo_metadata() {
+        let m = serde_json::json!({ "packages": [{ "name": "a", "version": "1.0.0" }, { "name": "b", "version": "0.3.0" }] });
+        assert_eq!(package_version(&m, "b").as_deref(), Some("0.3.0"));
+        assert_eq!(package_version(&m, "c"), None);
+    }
+
+    #[test]
+    fn icon_settings_are_read_and_checked() {
+        let parse = |s: &str| s.parse::<toml::Table>().unwrap_or_default();
+        let t = parse(
+            "[app]\nicon_sizes = [\"a.png\", \"b.png\"]\nicon_scaling = \"pixel\"\n[android]\nicon_background = [\"#AABBCC\", \"#000000\"]\n",
+        );
+        assert_eq!(icon_sizes(&t).unwrap_or_default(), ["a.png", "b.png"]);
+        assert_eq!(icon_pixel_art(&t), Ok(true));
+        assert_eq!(android_icon_background(&t).unwrap_or_default(), ["#aabbcc", "#000000"]);
+        assert_eq!(
+            android_icon_background(&parse("[android]\nicon_background = \"#123456\"\n")).unwrap_or_default(),
+            ["#123456"]
+        );
+        assert!(android_icon_background(&parse("[android]\nicon_background = \"blue\"\n")).is_err());
+        assert!(
+            android_icon_background(&parse(
+                "[android]\nicon_background = [\"#000000\", \"#111111\", \"#222222\"]\n"
+            ))
+            .is_err()
+        );
+        assert!(icon_pixel_art(&parse("[app]\nicon_scaling = \"blurry\"\n")).is_err());
+        assert_eq!(icon_pixel_art(&parse("")), Ok(false));
     }
 
     #[test]
@@ -236,5 +388,22 @@ pub(crate) mod tests {
         let bad: toml::Table = "[android]\npermissions = [\"mic\"]".parse().unwrap_or_default();
         assert!(android_permissions(&bad).is_err_and(|e| e.contains("`mic`")));
         assert_eq!(android_permissions(&toml::Table::new()), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn android_foreground_kinds_become_service_types_once() {
+        let t: toml::Table = r#"
+            [android]
+            foreground = ["microphone", "media-playback", "microphone", "data-sync", "camera"]
+        "#
+        .parse()
+        .unwrap_or_default();
+        assert_eq!(
+            android_foreground(&t),
+            Ok(vec!["microphone".to_owned(), "mediaPlayback".into(), "dataSync".into(), "camera".into()])
+        );
+        let bad: toml::Table = "[android]\nforeground = [\"location\"]".parse().unwrap_or_default();
+        assert!(android_foreground(&bad).is_err_and(|e| e.contains("`location`")));
+        assert_eq!(android_foreground(&toml::Table::new()), Ok(Vec::new()));
     }
 }

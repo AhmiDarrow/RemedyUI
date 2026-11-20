@@ -9,6 +9,7 @@ mod input;
 pub(crate) mod instance;
 mod notify;
 mod settings;
+mod share;
 mod text;
 mod window;
 
@@ -43,6 +44,7 @@ pub(crate) struct State {
     pub(crate) settings: SystemSettings,
     pub(crate) clip: clipboard::Clip,
     pub(crate) next_dialog: u64,
+    pub(crate) next_share: u64,
     /// The app asked to end; the loop tears down after the current event.
     pub(crate) exiting: bool,
     /// Ctrl is physically held (a Ctrl+wheel without it is a touchpad pinch).
@@ -241,6 +243,7 @@ pub(crate) fn start(config: WebConfig, app: Box<dyn App>) -> Result<(), RunError
                 settings: crate::convert::settings(&page),
                 clip: clipboard::Clip::default(),
                 next_dialog: 1,
+                next_share: 1,
                 exiting: false,
                 ctrl_down: false,
                 next_z: 1,

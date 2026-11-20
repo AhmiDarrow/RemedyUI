@@ -31,7 +31,7 @@ web page, it can still be embedded, behind an allow-list and one message channel
 | `pywebview.api.save(...)` / `window.expose` | A Rust function call |
 | `fetch()` or a Python thread | [`crate::App::background`] (cancel it through the [`crate::BackgroundJob`] it returns) |
 | `setTimeout` | [`crate::App::after`], [`crate::Ui::after`] |
-| `localStorage` | [`crate::reactive::Signal::persist`] for state; files in [`crate::App::data_dir`] for documents |
+| `localStorage` | [`crate::reactive::Signal::persist`] for state; files in [`crate::App::data_dir`] for documents; what the old app saved is imported once with [`crate::webstorage`] (see "Persisted state" in [`crate::guide::porting::react`]) |
 | `window.open` | Another native window: [`crate::App::open`] |
 | A remote web page shown in the app | [`crate::webview`]: the platform's web view, allow-listed |
 | WebGL canvas | [`crate::gpu_embed`]: the app's wgpu rendering as an element |

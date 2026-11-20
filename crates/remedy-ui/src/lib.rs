@@ -41,14 +41,14 @@ pub mod testing;
 #[doc = include_str!("../../../README.md")]
 struct ReadmeDoctests;
 
-pub use geometry::GeometryStore;
+pub use geometry::{GEOMETRY_KEY, GeometryStore};
 #[cfg(feature = "widgets")]
 pub use movable::{Movable, movable};
 /// Editions: which default behaviors the app follows ([`AppConfig::edition`]).
 pub use remedy_ui_core::Edition;
 pub use runner::{
     App, AppConfig, BackgroundJob, Cancelled, Completion, GPU_PROMOTE_FRAME_COST, GPU_PROMOTE_FRAME_STALL,
-    RendererChoice, RendererKind, Runner, Window, WindowSpec,
+    GraphicsAdapter, RendererChoice, RendererKind, Runner, Window, WindowSpec,
 };
 
 /// Semantics: roles, names, states and actions that screen readers, tests and agents read
@@ -134,6 +134,11 @@ pub use remedy_ui_services_i18n as i18n;
 pub use remedy_ui_services_spell as spell;
 #[cfg(feature = "update")]
 pub use remedy_ui_services_update as update;
+/// Importing the localStorage a web version of the app saved: a web view's store on disk
+/// (WebView2, Android System WebView), read losslessly and read-only, or the page's own in a
+/// browser.
+#[cfg(feature = "webstorage")]
+pub use remedy_ui_services_webstorage as webstorage;
 pub use remedy_ui_style as style;
 pub use remedy_ui_text as text;
 #[cfg(feature = "widgets")]

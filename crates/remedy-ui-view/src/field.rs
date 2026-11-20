@@ -5,7 +5,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use remedy_ui_a11y::{Role, Semantics};
-use remedy_ui_core::{Point, Rect};
+use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{ImeEvent, TextInputState};
 use remedy_ui_input::{Key, KeyEvent, Modifiers, Platform};
 use remedy_ui_paint::{Brush, DisplayList};
@@ -96,6 +96,26 @@ type KeyFilter = Rc<dyn Fn(&KeyEvent) -> bool>;
 /// The mask shown for each character of a secret.
 const MASK: char = '•';
 
+/// The scroll along one axis that shows `lo..hi` in a view `len` long, moving as little as
+/// it can from `at`.
+fn follow(at: f32, lo: f32, hi: f32, len: f32) -> f32 {
+    if hi - lo >= len || lo < at {
+        lo
+    } else if hi > at + len {
+        hi - len
+    } else {
+        at
+    }
+}
+
+/// A scroll kept within the text: no further than the text's end, never before its start.
+fn clamp_scroll(s: Vec2, text: Size, view: Size) -> Vec2 {
+    Vec2::new(
+        s.x.clamp(0.0, (text.width - view.width).max(0.0)),
+        s.y.clamp(0.0, (text.height - view.height).max(0.0)),
+    )
+}
+
 pub(crate) struct Field {
     kind: FieldKind,
     editor: Editor,
@@ -111,6 +131,17 @@ pub(crate) struct Field {
     pub(crate) rtl: bool,
     /// The paragraph shown, its width and where its top-left sat in the element.
     shown: Option<(f32, Rc<Paragraph>, Point)>,
+    /// How far the text has scrolled inside the field's box, when it is taller (a multi-line
+    /// field given a height) or wider (a single line longer than its field) than the box.
+    scroll: Vec2,
+    /// The caret and text version the scroll last brought into view: the view follows the
+    /// caret when either moves, and otherwise stays where the wheel left it.
+    followed: (usize, u64),
+    /// The person typed, moved or pasted: the next paint scrolls the caret into view even
+    /// where it did not move (End at the end after the wheel moved the text away).
+    show_caret: bool,
+    /// The text's size and the box's at the last paint (how far the wheel can scroll).
+    extent: (Size, Size),
     on_change: Option<Rc<dyn Fn()>>,
     on_submit: Option<Rc<dyn Fn(remedy_ui_input::Modifiers)>>,
     /// Called after every change to the text, by a person or by the app.
@@ -387,12 +418,36 @@ impl Field {
         focused: bool,
     ) {
         let p = self.paragraph(engine, content.width().max(1.0));
-        let o = Point::new(content.min.x + p.x_offset(content.width()), content.min.y);
+        let (text, comp) = self.display();
+        // Text taller or wider than the box scrolls inside it: to the caret when it or the
+        // text moved while focused, otherwise where it was, never past the text's ends.
+        let at = TextPosition { index: self.caret_index().min(text.len()), ..TextPosition::default() };
+        let c = p.caret(at, 1.5);
+        let x0 = p.x_offset(content.width());
+        // The caret's box can reach past the last line's: the text ends where either ends.
+        let size = Size::new(p.width().max(c.max.x + x0), p.height().max(c.max.y));
+        self.extent = (size, content.size());
+        let mark = (self.caret_index(), self.version);
+        if focused && (mark != self.followed || self.show_caret) {
+            self.scroll = Vec2::new(
+                follow(self.scroll.x, c.min.x + x0, c.max.x + x0, content.width()),
+                follow(self.scroll.y, c.min.y, c.max.y, content.height()),
+            );
+            self.followed = mark;
+            self.show_caret = false;
+        }
+        self.scroll = clamp_scroll(self.scroll, size, content.size());
+        let o = Point::new(
+            content.min.x + p.x_offset(content.width()) - self.scroll.x,
+            content.min.y - self.scroll.y,
+        );
         if let Some(shown) = self.shown.as_mut() {
             shown.2 = o;
         }
         let tokens = theme.derive();
-        let (text, comp) = self.display();
+        // Nothing of the text draws outside the box; the caret may sit on its side edges.
+        let clip = Rect::new(content.min.x - 2.0, content.min.y, content.max.x + 2.0, content.max.y);
+        list.push_clip(clip, remedy_ui_core::CornerRadii::ZERO);
         if focused {
             for r in p.selection_rects(self.display_selection()) {
                 list.fill_rect(r.translate(o.to_vec2()), Brush::Solid(tokens.selected));
@@ -463,6 +518,20 @@ impl Field {
                 list.fill_rect(p.caret(at, 1.5).translate(o.to_vec2()), Brush::Solid(tokens.text));
             }
         }
+        list.pop_clip();
+    }
+
+    /// Scrolls text that overflows the box by a wheel's `delta`. False when the text cannot
+    /// move that way (it fits, or is already at that end), so the scroll goes outward.
+    pub(crate) fn wheel(&mut self, delta: Vec2) -> bool {
+        let (text, view) = self.extent;
+        let max = Vec2::new((text.width - view.width).max(0.0), (text.height - view.height).max(0.0));
+        let can = |o: f32, m: f32, d: f32| (d > 0.0 && o < m) || (d < 0.0 && o > 0.0);
+        if !can(self.scroll.x, max.x, delta.x) && !can(self.scroll.y, max.y, delta.y) {
+            return false;
+        }
+        self.scroll = clamp_scroll(self.scroll + delta, text, view);
+        true
     }
 
     pub(crate) fn semantics(&self) -> Semantics {
@@ -601,6 +670,14 @@ pub(crate) enum KeyOutcome {
 }
 
 pub(crate) fn key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> KeyOutcome {
+    let out = field_key(f, e, now, platform);
+    if !matches!(out, KeyOutcome::Ignored) {
+        f.show_caret = true;
+    }
+    out
+}
+
+fn field_key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> KeyOutcome {
     if !e.pressed || e.composing {
         return KeyOutcome::Ignored;
     }
@@ -908,6 +985,7 @@ pub(crate) fn key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> 
 }
 
 pub(crate) fn ime(f: &mut Field, e: &ImeEvent, now: u64) -> bool {
+    f.show_caret = true;
     if let Editor::Code(c) = &mut f.editor {
         let ed = &mut c.ed;
         match e {
@@ -980,6 +1058,7 @@ pub(crate) fn ime(f: &mut Field, e: &ImeEvent, now: u64) -> bool {
 }
 
 pub(crate) fn paste(f: &mut Field, text: &str, now: u64) {
+    f.show_caret = true;
     let text = if matches!(f.kind, FieldKind::Multi | FieldKind::Rich | FieldKind::Code) {
         text.replace("\r\n", "\n").replace('\r', "\n")
     } else {
@@ -1014,6 +1093,7 @@ pub(crate) fn replace_all(f: &mut Field, text: &str, now: u64) -> bool {
 
 /// Pastes a rich document: into a rich field with its formatting, elsewhere as its text.
 pub(crate) fn paste_doc(f: &mut Field, doc: &RichDoc, now: u64) {
+    f.show_caret = true;
     match &mut f.editor {
         Editor::Rich(r) => {
             r.ed.paste(doc, now);
@@ -1073,6 +1153,10 @@ impl Ui {
             scale,
             rtl: false,
             shown: None,
+            scroll: Vec2::ZERO,
+            followed: (0, 0),
+            show_caret: false,
+            extent: (Size::ZERO, Size::ZERO),
             on_change: None,
             on_submit: None,
             observers: Vec::new(),
@@ -1113,6 +1197,21 @@ impl Ui {
                 }
             }
         }
+        // The wheel scrolls text that overflows the box; at an end it goes on outward.
+        let (weak, id, fw) = (self.downgrade(), el.id, Rc::downgrade(&field));
+        let el = el.on_wheel(move |e| {
+            let Some(f) = fw.upgrade() else { return false };
+            if e.modifiers.ctrl {
+                return false;
+            }
+            let delta =
+                if e.modifiers.shift && e.delta.x == 0.0 { Vec2::new(e.delta.y, 0.0) } else { e.delta };
+            let moved = f.borrow_mut().wheel(delta);
+            if moved && let Some(ui) = weak.upgrade() {
+                ui.mark(id, Dirty::PAINT);
+            }
+            moved
+        });
         el.ui.mark(el.id, Dirty::STYLE | Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
         TextField { el, field }
     }
@@ -1454,7 +1553,10 @@ impl TextField {
             let width = (bounds.width() - inset - style.padding.end - style.border_width).max(1.0);
             let mut f = self.field.borrow_mut();
             let p = f.paragraph(&mut engine.borrow_mut(), width);
-            let o = Point::new(inset + p.x_offset(width), style.padding.top + style.border_width);
+            let o = Point::new(
+                inset + p.x_offset(width) - f.scroll.x,
+                style.padding.top + style.border_width - f.scroll.y,
+            );
             if let Some(shown) = f.shown.as_mut() {
                 shown.2 = o;
             }

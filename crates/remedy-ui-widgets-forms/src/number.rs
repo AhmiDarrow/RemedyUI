@@ -21,6 +21,9 @@ pub struct NumberOptions {
     pub step: Decimal,
     /// Fraction digits kept and shown (values are rounded to it).
     pub precision: u8,
+    /// Fraction digits always shown; trailing zeros beyond them are dropped (`None`: all
+    /// `precision` digits are shown).
+    pub min_fraction_digits: Option<u8>,
     /// A unit written after the number ("g", "%", "ms").
     pub unit: Option<String>,
 }
@@ -49,18 +52,50 @@ impl NumberOptions {
         self.precision = value;
         self
     }
+
+    /// Sets `min_fraction_digits`: fraction digits always shown, with trailing zeros beyond them dropped.
+    pub fn min_fraction_digits(mut self, value: u8) -> Self {
+        self.min_fraction_digits = Some(value);
+        self
+    }
+
+    /// Writes `value` the locale's way: rounded to `precision`, and with trailing zeros
+    /// beyond `min_fraction_digits` dropped when that is set.
+    pub fn format(&self, sym: &NumberSymbols, value: Decimal) -> String {
+        let r = value.round(self.precision);
+        let places = match self.min_fraction_digits {
+            // `Decimal` keeps no trailing zeros, so its scale is the digits that matter.
+            Some(min) => r.scale().max(min).min(self.precision.max(min)),
+            None => self.precision,
+        };
+        sym.format(r, places)
+    }
 }
 
 impl Default for NumberOptions {
     fn default() -> Self {
-        NumberOptions { min: None, max: None, step: Decimal::ONE, precision: 0, unit: None }
+        NumberOptions {
+            min: None,
+            max: None,
+            step: Decimal::ONE,
+            precision: 0,
+            min_fraction_digits: None,
+            unit: None,
+        }
     }
 }
 
 impl NumberOptions {
     /// Values from `min` to `max` in steps of `step`, shown with `precision` fraction digits.
     pub fn range(min: Decimal, max: Decimal, step: Decimal, precision: u8) -> Self {
-        NumberOptions { min: Some(min), max: Some(max), step, precision, unit: None }
+        NumberOptions {
+            min: Some(min),
+            max: Some(max),
+            step,
+            precision,
+            min_fraction_digits: None,
+            unit: None,
+        }
     }
 
     /// Writes `unit` after the number.
@@ -77,12 +112,12 @@ fn problem(text: &str, sym: &NumberSymbols, o: &NumberOptions) -> Result<Decimal
     if let Some(m) = o.min
         && v < m
     {
-        return Err(format!("At least {}", sym.format(m, o.precision)));
+        return Err(format!("At least {}", o.format(sym, m)));
     }
     if let Some(m) = o.max
         && v > m
     {
-        return Err(format!("At most {}", sym.format(m, o.precision)));
+        return Err(format!("At most {}", o.format(sym, m)));
     }
     Ok(v)
 }
@@ -91,6 +126,8 @@ fn problem(text: &str, sym: &NumberSymbols, o: &NumberOptions) -> Result<Decimal
 /// signal only ever holds valid, rounded numbers. Up and Down step (Shift: ×10), Page Up and
 /// Page Down step ×10, and leaving the field or pressing Enter writes the value the
 /// locale's way (`1,234.5` in en, `1.234,5` in de).
+/// Free decimal entry: `NumberOptions::precision(10).min_fraction_digits(0)` keeps up to ten
+/// fraction digits exactly and shows `5` and `12.25`, not `5.0000000000`.
 #[track_caller]
 pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, options: NumberOptions) -> El {
     let label = label.into();
@@ -104,7 +141,7 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
         move || {
             let sym = NumberSymbols::for_locale(&untrack(|| u.locale()));
             if let Ok(v) = value.get_untracked() {
-                f.set_value(&sym.format(v, o.precision));
+                f.set_value(&o.format(&sym, v));
             }
             error.set_if_changed(None);
         }
@@ -167,7 +204,7 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
             let v = value.get();
             let bad = error.get();
             let sym = NumberSymbols::for_locale(&u2.locale());
-            let text = sym.format(v, o3.precision);
+            let text = o3.format(&sym, v);
             if !e2.is_focused() {
                 untrack(|| field.set_value(&text));
             }
@@ -213,4 +250,55 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
         });
     });
     w::column(ui).gap(unit / 2.0).fill_width().child(row).child(err)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn d(s: &str) -> Decimal {
+        Decimal::parse(s).unwrap_or_else(|e| unreachable!("{s}: {e}"))
+    }
+
+    fn shown(locale: &str, o: &NumberOptions, v: &str) -> String {
+        o.format(&NumberSymbols::for_locale(locale), d(v))
+    }
+
+    #[test]
+    fn default_shows_every_precision_digit() {
+        let o = NumberOptions::default().precision(10);
+        assert_eq!(shown("en", &o, "5"), "5.0000000000");
+        assert_eq!(shown("en", &o, "12.25"), "12.2500000000");
+    }
+
+    #[test]
+    fn trims_trailing_zeros_in_en() {
+        let o = NumberOptions::default().precision(10).min_fraction_digits(0);
+        assert_eq!(shown("en", &o, "5"), "5");
+        assert_eq!(shown("en", &o, "12.25"), "12.25");
+        assert_eq!(shown("en", &o, "0.1"), "0.1");
+        assert_eq!(shown("en", &o, "-3.5000"), "-3.5");
+        assert_eq!(shown("en", &o, "1234.5"), "1,234.5");
+        assert_eq!(shown("en", &o, "0.1234567891234"), "0.1234567891", "still rounded to precision");
+    }
+
+    #[test]
+    fn trims_trailing_zeros_in_de() {
+        let o = NumberOptions::default().precision(10).min_fraction_digits(0);
+        assert_eq!(shown("de", &o, "5"), "5");
+        assert_eq!(shown("de", &o, "12.25"), "12,25");
+        assert_eq!(shown("de", &o, "-3.5000"), "-3,5");
+        assert_eq!(shown("de", &o, "1234.5"), "1.234,5");
+    }
+
+    #[test]
+    fn minimum_digits_are_kept() {
+        let o = NumberOptions::default().precision(10).min_fraction_digits(2);
+        assert_eq!(shown("en", &o, "5"), "5.00");
+        assert_eq!(shown("en", &o, "12.25"), "12.25");
+        assert_eq!(shown("en", &o, "0.125"), "0.125");
+        assert_eq!(shown("de", &o, "1234.5"), "1.234,50");
+        let tight = NumberOptions::default().precision(1).min_fraction_digits(3);
+        assert_eq!(shown("en", &tight, "2"), "2.000", "a minimum above precision still pads");
+    }
 }

@@ -203,6 +203,9 @@ pub enum MediaError {
     /// The person, or the system's privacy settings, did not allow the device (a microphone
     /// the app may not hear).
     Denied(String),
+    /// A system component it needs is not installed, or is installed but cannot run here: which
+    /// one, what for, and the package to install ([`MissingDependency`](crate::deps::MissingDependency)).
+    Missing(crate::deps::MissingDependency),
 }
 
 impl std::fmt::Display for MediaError {
@@ -214,6 +217,7 @@ impl std::fmt::Display for MediaError {
             MediaError::Decode(r) => write!(f, "decoding failed: {r}"),
             MediaError::Device(r) => write!(f, "sound device: {r}"),
             MediaError::Denied(r) => write!(f, "not allowed: {r}"),
+            MediaError::Missing(d) => write!(f, "{d}"),
         }
     }
 }
@@ -295,6 +299,200 @@ pub trait MediaHost: Send + Sync {
         let _ = format;
         Err(MediaError::Unsupported(format!("{} has no sound input", self.name())))
     }
+    /// The decoder [`MediaHost::video_stream_decoder`] would use (its name, "vah264dec"):
+    /// the best one shown to run on this machine, for an app's "decodes with" line. The first
+    /// call may take a moment while decoders are tried; the answer is kept for the process.
+    fn video_stream_decoder_choice(&self, codec: VideoCodec, hardware: bool) -> Result<String, MediaError> {
+        let _ = (codec, hardware);
+        Err(MediaError::Unsupported(format!("{} cannot decode a video stream", self.name())))
+    }
+    /// A decoder for a compressed video stream that arrives piece by piece (a shared screen, a
+    /// camera call), rather than a file or address: pieces go in with
+    /// [`VideoStreamDecoder::push`] and pictures come out as soon as they are decoded.
+    /// `hardware` asks for the graphics card's decoder first, falling back to the processor's.
+    /// Hosts without one say [`MediaError::Unsupported`]; a missing or unusable decoder is
+    /// [`MediaError::Missing`], naming what to install.
+    fn video_stream_decoder(
+        &self,
+        codec: VideoCodec,
+        hardware: bool,
+    ) -> Result<Box<dyn VideoStreamDecoder>, MediaError> {
+        let _ = (codec, hardware);
+        Err(MediaError::Unsupported(format!("{} cannot decode a video stream", self.name())))
+    }
+    /// An encoder that turns pictures into a compressed video stream as they are made (a
+    /// shared screen): pictures go in with [`VideoStreamEncoder::encode`] and the stream's
+    /// pieces come out as soon as they are encoded. Hosts without one say
+    /// [`MediaError::Unsupported`] with what is missing.
+    fn video_stream_encoder(
+        &self,
+        options: &VideoEncoderOptions,
+    ) -> Result<Box<dyn VideoStreamEncoder>, MediaError> {
+        let _ = options;
+        Err(MediaError::Unsupported(format!("{} cannot encode a video stream", self.name())))
+    }
+    /// The encoder [`MediaHost::video_stream_encoder`] chooses for `codec` (`hardware`: the
+    /// graphics card's first), by name, after making sure it runs on this machine: for a
+    /// settings line saying what encodes. Hosts without one say [`MediaError::Unsupported`].
+    fn video_stream_encoder_choice(&self, codec: VideoCodec, hardware: bool) -> Result<String, MediaError> {
+        let _ = (codec, hardware);
+        Err(MediaError::Unsupported(format!("{} cannot encode a video stream", self.name())))
+    }
+    /// Pictures of a screen or window the system granted (on Linux, the PipeWire stream the
+    /// desktop's ScreenCast portal opened). Hosts that cannot read it say
+    /// [`MediaError::Unsupported`].
+    fn screen_stream(&self, source: ScreenSource) -> Result<Box<dyn ScreenStream>, MediaError> {
+        let _ = source;
+        Err(MediaError::Unsupported(format!("{} cannot read a screen stream", self.name())))
+    }
+    /// Sound the computer is playing, from every program except this one, in `format` (so a
+    /// shared screen's sound never carries this app's own sound, such as a call's voices).
+    /// Hosts that cannot leave this app out say [`MediaError::Unsupported`] rather than
+    /// capture it too.
+    fn output_capture(&self, format: AudioFormat) -> Result<Box<dyn AudioInput>, MediaError> {
+        let _ = format;
+        Err(MediaError::Unsupported(format!("{} cannot record what the computer plays", self.name())))
+    }
+}
+
+/// What a stream encoder makes ([`MediaHost::video_stream_encoder`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct VideoEncoderOptions {
+    /// The compressed format.
+    pub codec: VideoCodec,
+    /// Picture width in pixels (even).
+    pub width: u32,
+    /// Picture height in pixels (even).
+    pub height: u32,
+    /// Pictures a second.
+    pub fps: u32,
+    /// The target rate in kilobits a second.
+    pub kbps: u32,
+    /// Pictures from one key frame to the next; 0 picks three seconds' worth.
+    pub keyframe_interval: u32,
+    /// Try the graphics card's encoders first (falling back to the processor's).
+    pub hardware: bool,
+    /// The graphics card to prefer by its PCI vendor id (0x10de NVIDIA, 0x1002 AMD, 0x8086
+    /// Intel), or 0 for no preference.
+    pub vendor: u32,
+}
+
+impl VideoEncoderOptions {
+    /// H.264 at `width` by `height`, `fps` pictures a second and `kbps`, on the graphics card
+    /// where there is an encoder, key frames every three seconds.
+    pub fn new(width: u32, height: u32, fps: u32, kbps: u32) -> Self {
+        VideoEncoderOptions {
+            codec: VideoCodec::H264,
+            width,
+            height,
+            fps,
+            kbps,
+            keyframe_interval: 0,
+            hardware: true,
+            vendor: 0,
+        }
+    }
+
+    /// Whether to try the graphics card's encoders first.
+    pub fn hardware(mut self, on: bool) -> Self {
+        self.hardware = on;
+        self
+    }
+
+    /// The graphics card to prefer, by PCI vendor id.
+    pub fn vendor(mut self, vendor: u32) -> Self {
+        self.vendor = vendor;
+        self
+    }
+
+    /// Pictures from one key frame to the next (0: three seconds' worth).
+    pub fn keyframe_interval(mut self, pictures: u32) -> Self {
+        self.keyframe_interval = pictures;
+        self
+    }
+}
+
+/// One piece of an encoded stream: for H.264, one access unit as an Annex B byte stream, with
+/// the parameter sets (SPS and PPS) before every key frame, as [`VideoCodec::H264`] describes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EncodedPiece {
+    /// The piece can be decoded without any before it.
+    pub keyframe: bool,
+    /// The bytes.
+    pub data: Vec<u8>,
+}
+
+/// A video stream encoder ([`MediaHost::video_stream_encoder`]), used from one thread at a time.
+pub trait VideoStreamEncoder: Send {
+    /// The encoder's name ("vaapih264enc", "x264enc").
+    fn name(&self) -> &str;
+    /// True when the graphics card encodes.
+    fn is_hardware(&self) -> bool;
+    /// Makes the next picture a key frame. False when this encoder cannot be asked while it
+    /// runs (open a new one: it starts with a key frame).
+    fn request_keyframe(&mut self) -> bool;
+    /// Changes the target rate. False when this encoder cannot change it while it runs.
+    fn set_kbps(&mut self, kbps: u32) -> bool;
+    /// Encodes one picture, blue-green-red-unused (`width * height * 4` bytes, top row first),
+    /// and returns the pieces that are ready: usually this picture's, sometimes none yet (an
+    /// encoder that looks ahead) or an earlier one's as well.
+    fn encode(&mut self, bgrx: &[u8]) -> Result<Vec<EncodedPiece>, MediaError>;
+}
+
+/// A screen or window the system granted for capture ([`MediaHost::screen_stream`]).
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum ScreenSource {
+    /// A PipeWire stream: the connection the ScreenCast portal opened and the stream's node.
+    #[cfg(unix)]
+    PipeWire {
+        /// The connection (from the portal's `OpenPipeWireRemote`).
+        fd: std::os::fd::OwnedFd,
+        /// The stream's node id (from the portal's `Start`).
+        node: u32,
+    },
+}
+
+/// One captured picture, blue-green-red-unused, top row first.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScreenFrame {
+    /// Width in pixels.
+    pub width: u32,
+    /// Height in pixels.
+    pub height: u32,
+    /// `width * height * 4` bytes.
+    pub bgrx: Vec<u8>,
+}
+
+/// Pictures of a granted screen or window ([`MediaHost::screen_stream`]), as they change.
+pub trait ScreenStream: Send {
+    /// The newest picture since the last call, waiting up to `timeout` for one; `Ok(None)` when
+    /// the screen did not change in that time. The stream having ended (the person stopped it
+    /// in the system's own controls, the window closed) is [`MediaError::NotFound`].
+    fn next(&mut self, timeout: Duration) -> Result<Option<ScreenFrame>, MediaError>;
+}
+
+/// A compressed video format a stream decoder takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum VideoCodec {
+    /// H.264 (AVC) as an Annex B byte stream (start codes), one access unit per piece, with its
+    /// parameter sets (SPS and PPS) in the stream before each key frame.
+    H264,
+}
+
+/// A video stream decoder ([`MediaHost::video_stream_decoder`]). It is used from one thread at
+/// a time, which may differ from the thread that made it.
+pub trait VideoStreamDecoder: Send {
+    /// The decoder's name ("vaapih264dec", "avdec_h264").
+    fn name(&self) -> &str;
+    /// True when the graphics card decodes.
+    fn is_hardware(&self) -> bool;
+    /// Hands over one piece of the stream (for H.264, one access unit).
+    fn push(&mut self, data: &[u8]) -> Result<(), MediaError>;
+    /// The next decoded picture if one is ready, without waiting; `Ok(None)` when none is yet.
+    fn next(&mut self) -> Result<Option<Picture>, MediaError>;
 }
 
 /// Sound coming in from a microphone, as interleaved 32-bit float samples in the format it

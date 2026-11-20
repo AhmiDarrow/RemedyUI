@@ -62,10 +62,19 @@ pub enum AccessibilityEvent {
 /// (Windows; X11; Wayland compositors with the `xdg-toplevel-icon` protocol; a browser page's
 /// icon). Square, premultiplied RGBA8; give the largest size the artwork has (256 pixels is
 /// plenty) and each platform scales it to the sizes it shows.
+///
+/// Artwork drawn at several sizes (pixel art, or small sizes simplified so they stay
+/// legible) adds them with [`WindowIcon::with_size`]: a platform showing one of those sizes
+/// shows that drawing as it is, and scales the nearest larger one for any other size.
+/// [`WindowIcon::pixel_art`] scales by repeating pixels instead of blending them, so hard
+/// pixel edges stay hard.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowIcon {
     size: u32,
     rgba: Vec<u8>,
+    /// Other drawn sizes, smallest first, each `(size, premultiplied RGBA8)`; never `size`.
+    more: Vec<(u32, Vec<u8>)>,
+    pixel_art: bool,
 }
 
 impl WindowIcon {
@@ -73,20 +82,79 @@ impl WindowIcon {
     /// is not `size` × `size` pixels (or `size` is zero).
     pub fn new(size: u32, rgba: Vec<u8>) -> Option<Self> {
         let want = u64::from(size) * u64::from(size) * 4;
-        (size > 0 && rgba.len() as u64 == want).then_some(WindowIcon { size, rgba })
+        (size > 0 && rgba.len() as u64 == want).then_some(WindowIcon {
+            size,
+            rgba,
+            more: Vec::new(),
+            pixel_art: false,
+        })
     }
 
-    /// Width and height in pixels.
+    /// Adds the artwork as drawn at another size (with `other`'s own drawn sizes). The
+    /// largest drawing becomes [`WindowIcon::size`] and [`WindowIcon::rgba`]; a size given
+    /// twice keeps the later drawing.
+    #[must_use]
+    pub fn with_size(mut self, other: WindowIcon) -> Self {
+        let pixel_art = self.pixel_art || other.pixel_art;
+        let mut all = self.drawn_pixels();
+        for (size, rgba) in other.drawn_pixels() {
+            all.retain(|(s, _)| *s != size);
+            all.push((size, rgba));
+        }
+        all.sort_by_key(|(s, _)| *s);
+        if let Some((size, rgba)) = all.pop() {
+            self.size = size;
+            self.rgba = rgba;
+        }
+        self.more = all;
+        self.pixel_art = pixel_art;
+        self
+    }
+
+    /// Scales by repeating the nearest pixel instead of blending (for pixel art).
+    #[must_use]
+    pub fn pixel_art(mut self) -> Self {
+        self.pixel_art = true;
+        self
+    }
+
+    /// True when it scales by repeating pixels ([`WindowIcon::pixel_art`]).
+    pub fn is_pixel_art(&self) -> bool {
+        self.pixel_art
+    }
+
+    /// Width and height in pixels of the largest drawing.
     pub fn size(&self) -> u32 {
         self.size
     }
 
-    /// Premultiplied RGBA8, row by row.
+    /// Premultiplied RGBA8 of the largest drawing, row by row.
     pub fn rgba(&self) -> &[u8] {
         &self.rgba
     }
 
-    /// Straight (not premultiplied) RGBA8, as most platforms' icon formats take it.
+    /// Every drawn size, smallest first, each as an icon of its own (for platforms that take
+    /// a list of sizes and choose: X11's `_NET_WM_ICON`, a status notifier's pixmaps).
+    pub fn drawn(&self) -> Vec<WindowIcon> {
+        self.drawn_pixels()
+            .into_iter()
+            .map(|(size, rgba)| WindowIcon { size, rgba, more: Vec::new(), pixel_art: self.pixel_art })
+            .collect()
+    }
+
+    /// The sizes drawn, smallest first.
+    pub fn drawn_sizes(&self) -> Vec<u32> {
+        self.more.iter().map(|(s, _)| *s).chain([self.size]).collect()
+    }
+
+    fn drawn_pixels(&self) -> Vec<(u32, Vec<u8>)> {
+        let mut all = self.more.clone();
+        all.push((self.size, self.rgba.clone()));
+        all
+    }
+
+    /// Straight (not premultiplied) RGBA8 of the largest drawing, as most platforms' icon
+    /// formats take it.
     pub fn straight_rgba(&self) -> Vec<u8> {
         self.rgba
             .as_chunks::<4>()
@@ -102,53 +170,87 @@ impl WindowIcon {
             .collect()
     }
 
-    /// The icon resampled to `size` pixels square: each new pixel is the area-weighted
-    /// average of the pixels it covers (in premultiplied color, so edges keep no dark
-    /// fringe), for the exact sizes a platform shows.
+    /// The icon at `size` pixels square, for the exact sizes a platform shows: the drawing of
+    /// that size when there is one; otherwise the smallest larger drawing (the largest when
+    /// none is larger) resampled, each new pixel the area-weighted average of the pixels it
+    /// covers (in premultiplied color, so edges keep no dark fringe), or the nearest pixel for
+    /// [`WindowIcon::pixel_art`].
     pub fn scaled(&self, size: u32) -> WindowIcon {
-        if size == self.size || size == 0 {
+        if size == 0 {
             return self.clone();
         }
-        let (from, to) = (self.size as usize, size as usize);
-        let ratio = from as f64 / to as f64;
-        // For each output column (and row): the input pixels it covers, with their weights.
-        let spans: Vec<Vec<(usize, f64)>> = (0..to)
-            .map(|o| {
-                let (start, end) = (o as f64 * ratio, (o + 1) as f64 * ratio);
-                let mut cover = Vec::new();
-                let mut i = start.floor() as usize;
-                while (i as f64) < end && i < from {
-                    let w = (end.min(i as f64 + 1.0) - start.max(i as f64)).max(0.0);
-                    if w > 0.0 {
-                        cover.push((i, w));
-                    }
-                    i += 1;
+        let one =
+            |s: u32, rgba: Vec<u8>| WindowIcon { size: s, rgba, more: Vec::new(), pixel_art: self.pixel_art };
+        let (from, src) = self
+            .more
+            .iter()
+            .find(|(s, _)| *s >= size)
+            .map_or((self.size, self.rgba.as_slice()), |(s, px)| (*s, px.as_slice()));
+        if from == size {
+            return one(size, src.to_vec());
+        }
+        let rgba = if self.pixel_art { nearest(src, from, size) } else { area_average(src, from, size) };
+        one(size, rgba)
+    }
+}
+
+/// Square premultiplied RGBA8 `from` pixels wide, resampled to `to` by the nearest pixel
+/// (the source pixel under each new pixel's center).
+fn nearest(src: &[u8], from: u32, to: u32) -> Vec<u8> {
+    let (from, to) = (from as usize, to as usize);
+    let mut rgba = Vec::with_capacity(to * to * 4);
+    for y in 0..to {
+        let sy = ((2 * y + 1) * from / (2 * to)).min(from - 1);
+        for x in 0..to {
+            let sx = ((2 * x + 1) * from / (2 * to)).min(from - 1);
+            let at = (sy * from + sx) * 4;
+            rgba.extend_from_slice(src.get(at..at + 4).unwrap_or(&[0; 4]));
+        }
+    }
+    rgba
+}
+
+/// Square premultiplied RGBA8 `from` pixels wide, resampled to `to` by area-weighted averages.
+fn area_average(src: &[u8], from: u32, to: u32) -> Vec<u8> {
+    let (from, to) = (from as usize, to as usize);
+    let ratio = from as f64 / to as f64;
+    // For each output column (and row): the input pixels it covers, with their weights.
+    let spans: Vec<Vec<(usize, f64)>> = (0..to)
+        .map(|o| {
+            let (start, end) = (o as f64 * ratio, (o + 1) as f64 * ratio);
+            let mut cover = Vec::new();
+            let mut i = start.floor() as usize;
+            while (i as f64) < end && i < from {
+                let w = (end.min(i as f64 + 1.0) - start.max(i as f64)).max(0.0);
+                if w > 0.0 {
+                    cover.push((i, w));
                 }
-                cover
-            })
-            .collect();
-        let mut rgba = Vec::with_capacity(to * to * 4);
-        for ys in &spans {
-            for xs in &spans {
-                let mut sum = [0.0f64; 4];
-                let mut total = 0.0;
-                for &(y, wy) in ys {
-                    for &(x, wx) in xs {
-                        let at = (y * from + x) * 4;
-                        let w = wx * wy;
-                        for (c, s) in sum.iter_mut().enumerate() {
-                            *s += f64::from(self.rgba.get(at + c).copied().unwrap_or(0)) * w;
-                        }
-                        total += w;
+                i += 1;
+            }
+            cover
+        })
+        .collect();
+    let mut rgba = Vec::with_capacity(to * to * 4);
+    for ys in &spans {
+        for xs in &spans {
+            let mut sum = [0.0f64; 4];
+            let mut total = 0.0;
+            for &(y, wy) in ys {
+                for &(x, wx) in xs {
+                    let at = (y * from + x) * 4;
+                    let w = wx * wy;
+                    for (c, s) in sum.iter_mut().enumerate() {
+                        *s += f64::from(src.get(at + c).copied().unwrap_or(0)) * w;
                     }
-                }
-                for s in sum {
-                    rgba.push(if total > 0.0 { (s / total).round().clamp(0.0, 255.0) as u8 } else { 0 });
+                    total += w;
                 }
             }
+            for s in sum {
+                rgba.push(if total > 0.0 { (s / total).round().clamp(0.0, 255.0) as u8 } else { 0 });
+            }
         }
-        WindowIcon { size, rgba }
     }
+    rgba
 }
 
 /// An app's icon in the system tray (notification area, menu bar extras, status notifier).
@@ -161,12 +263,44 @@ pub struct TrayIcon {
     pub icon: TrayImage,
     /// The menu, top to bottom.
     pub menu: Vec<TrayItem>,
+    /// The icon as drawn at several sizes ([`WindowIcon::with_size`]); when set, the platform
+    /// takes the size it shows from it (a drawn one as it is) instead of scaling `icon`.
+    pub artwork: Option<WindowIcon>,
 }
 
 impl TrayIcon {
     /// `icon` with `tooltip` and `menu`.
     pub fn new(tooltip: impl Into<String>, icon: TrayImage, menu: Vec<TrayItem>) -> Self {
-        TrayIcon { tooltip: tooltip.into(), icon, menu }
+        TrayIcon { tooltip: tooltip.into(), icon, menu, artwork: None }
+    }
+
+    /// Shows `artwork` at the size the platform draws tray icons (see [`TrayIcon::artwork`]).
+    #[must_use]
+    pub fn with_artwork(mut self, artwork: WindowIcon) -> Self {
+        self.artwork = Some(artwork);
+        self
+    }
+
+    /// The icon at `size` pixels square: from [`TrayIcon::artwork`] when set (a drawn size as
+    /// it is), else `icon` resampled.
+    pub fn image_at(&self, size: u32) -> TrayImage {
+        let art = match &self.artwork {
+            Some(a) => a.scaled(size),
+            None => match WindowIcon::new(self.icon.size, self.icon.rgba.clone()) {
+                Some(i) => i.scaled(size),
+                None => return self.icon.clone(),
+            },
+        };
+        TrayImage { size: art.size, rgba: art.rgba }
+    }
+
+    /// Every size the icon is drawn at, smallest first (for platforms that take a list):
+    /// [`TrayIcon::artwork`]'s drawings, else `icon` alone.
+    pub fn images(&self) -> Vec<TrayImage> {
+        match &self.artwork {
+            Some(a) => a.drawn().into_iter().map(|i| TrayImage { size: i.size, rgba: i.rgba }).collect(),
+            None => vec![self.icon.clone()],
+        }
     }
 }
 
@@ -327,6 +461,54 @@ pub enum NotificationResponse {
     Dismissed,
 }
 
+/// What ongoing work keeps the app running while it is out of sight, on platforms that stop
+/// background apps (Android's foreground service types). Each kind the app uses must also be
+/// listed in `remedy.toml`'s `[android] foreground`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ForegroundKind {
+    /// Playing sound or video the person listens to (`mediaPlayback`): music, a voice call's
+    /// far side.
+    MediaPlayback,
+    /// Hearing the microphone (`microphone`): recording, a voice call. Android also needs
+    /// [`Permission::Microphone`] granted, and the app on screen when the work starts.
+    Microphone,
+    /// Using the camera (`camera`): a video call. Android also needs the camera permission
+    /// granted, and the app on screen when the work starts.
+    Camera,
+    /// Moving data the person asked for (`dataSync`): an upload, a backup, a download.
+    /// Android 15 limits it to six hours a day.
+    DataSync,
+}
+
+/// Ongoing work that must keep running while the app is out of sight (Android's foreground
+/// service): the kinds of work and the notification that shows it is under way while it
+/// runs. Desktop and web apps keep running anyway; there it changes nothing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ForegroundTask {
+    /// What the work does (at least one).
+    pub kinds: Vec<ForegroundKind>,
+    /// Shown while the work runs; its buttons, pressing it and dismissing it report through
+    /// [`HostEvent::Notification`] with its id.
+    pub notification: Notification,
+}
+
+impl ForegroundTask {
+    /// Work of `kind`, shown by `notification`.
+    pub fn new(kind: ForegroundKind, notification: Notification) -> Self {
+        ForegroundTask { kinds: vec![kind], notification }
+    }
+
+    /// Adds another kind of work (a voice call both plays and hears sound).
+    pub fn kind(mut self, kind: ForegroundKind) -> Self {
+        if !self.kinds.contains(&kind) {
+            self.kinds.push(kind);
+        }
+        self
+    }
+}
+
 /// A permission request's identity while the platform asks the person.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PermissionId(pub u64);
@@ -341,6 +523,192 @@ pub enum PermissionStarted {
     Finished(bool),
     /// The platform is asking the person; [`HostEvent::Permission`] reports the answer.
     Pending(PermissionId),
+}
+
+/// What to hand to the platform's share sheet: a title, a text, and files made in memory.
+///
+/// Made with [`ShareOptions::new`] and its setters:
+///
+/// ```
+/// use remedy_ui_host::{ShareFile, ShareOptions};
+/// let recipe = br#"{"name":"Lavender"}"#.to_vec();
+/// let share = ShareOptions::new()
+///     .title("Lavender soap")
+///     .text("Lavender soap: 500 g oils, 5% superfat")
+///     .file(ShareFile::new("lavender.alex-soap.json", "application/json", recipe));
+/// assert_eq!(share.files.len(), 1);
+/// ```
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ShareOptions {
+    /// The share's subject: what a mail gets as its subject and a sheet shows as its
+    /// heading. Empty for none.
+    pub title: String,
+    /// The text shared. Empty for none.
+    pub text: String,
+    /// Files, in the order given.
+    pub files: Vec<ShareFile>,
+    /// Where a platform can share text but not files (some browsers), refuse with
+    /// [`ShareOutcome::Unsupported`] instead of sharing the title and text alone. False by
+    /// default: the text goes, without the files.
+    pub require_files: bool,
+}
+
+impl ShareOptions {
+    /// Nothing to share yet.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the subject.
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
+    }
+
+    /// Sets the text.
+    pub fn text(mut self, text: impl Into<String>) -> Self {
+        self.text = text.into();
+        self
+    }
+
+    /// Adds a file.
+    pub fn file(mut self, file: ShareFile) -> Self {
+        self.files.push(file);
+        self
+    }
+
+    /// Replaces the files.
+    pub fn files(mut self, files: impl IntoIterator<Item = ShareFile>) -> Self {
+        self.files = files.into_iter().collect();
+        self
+    }
+
+    /// Refuses to share without the files where a platform cannot share files.
+    pub fn require_files(mut self, on: bool) -> Self {
+        self.require_files = on;
+        self
+    }
+
+    /// True when there is nothing to share: no title, text or files.
+    pub fn is_empty(&self) -> bool {
+        self.title.is_empty() && self.text.is_empty() && self.files.is_empty()
+    }
+
+    /// The MIME type a platform labels the whole share with: the files' type when they all
+    /// have one, their common family (`image/*`) when they share it, `*/*` for a mix, and
+    /// `text/plain` for text alone.
+    pub fn mime_type(&self) -> String {
+        let mut types = self.files.iter().map(ShareFile::mime_type);
+        let Some(first) = types.next() else { return "text/plain".to_owned() };
+        let family = |t: &str| t.split('/').next().unwrap_or_default().to_owned();
+        let mut all_same = true;
+        let mut same_family = true;
+        for t in types {
+            all_same &= t == first;
+            same_family &= family(t) == family(first);
+        }
+        if all_same {
+            first.to_owned()
+        } else if same_family {
+            format!("{}/*", family(first))
+        } else {
+            "*/*".to_owned()
+        }
+    }
+}
+
+/// A file to share, made in memory: the name the receiving app sees, its MIME type, and its
+/// contents.
+#[derive(Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ShareFile {
+    /// The file's name (`notes.txt`), without folders.
+    pub name: String,
+    /// Its MIME type (`application/json`); empty means `application/octet-stream`.
+    pub mime: String,
+    /// Its contents.
+    pub bytes: Vec<u8>,
+}
+
+impl ShareFile {
+    /// A file named `name` of type `mime` holding `bytes`.
+    pub fn new(name: impl Into<String>, mime: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
+        ShareFile { name: name.into(), mime: mime.into(), bytes: bytes.into() }
+    }
+
+    /// The MIME type, `application/octet-stream` when none was given.
+    pub fn mime_type(&self) -> &str {
+        let m = self.mime.trim();
+        if m.is_empty() || !m.contains('/') { "application/octet-stream" } else { m }
+    }
+
+    /// The name as a single file name every file system takes, for bridges that write the
+    /// file before handing it over: folders, separators, control characters and the
+    /// characters Windows refuses become `_`, and an empty or dot-only name becomes `file`.
+    pub fn safe_name(&self) -> String {
+        let mut name: String = self
+            .name
+            .chars()
+            .map(|c| if c.is_control() || "/\\:*?\"<>|".contains(c) { '_' } else { c })
+            .collect();
+        // Windows drops trailing dots and spaces, which would change the name.
+        while name.ends_with(['.', ' ']) {
+            name.pop();
+        }
+        let name = name.trim_start().to_owned();
+        let stem = name.split('.').next().unwrap_or_default().to_ascii_uppercase();
+        let reserved = ["CON", "PRN", "AUX", "NUL"].contains(&stem.as_str())
+            || (stem.len() == 4
+                && (stem.starts_with("COM") || stem.starts_with("LPT"))
+                && stem.ends_with(|c: char| c.is_ascii_digit()));
+        if name.is_empty() || name.chars().all(|c| c == '.') {
+            "file".to_owned()
+        } else if reserved {
+            format!("_{name}")
+        } else {
+            name
+        }
+    }
+}
+
+impl std::fmt::Debug for ShareFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShareFile")
+            .field("name", &self.name)
+            .field("mime", &self.mime)
+            .field("bytes", &self.bytes.len())
+            .finish()
+    }
+}
+
+/// How a share ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ShareOutcome {
+    /// The person chose where it goes. Android and Windows cannot tell whether the receiving
+    /// app then finished (a mail may still be discarded); a browser says so when the target
+    /// took it.
+    Shared,
+    /// The person closed the share sheet without choosing.
+    Cancelled,
+    /// This platform cannot share it, and why; the app falls back (a save dialog, the
+    /// clipboard).
+    Unsupported(Unsupported),
+}
+
+/// A share sheet's identity while it is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ShareId(pub u64);
+
+/// Where a share stands once [`Host::share`] returns.
+#[derive(Clone, Debug, PartialEq, Eq)]
+// Exhaustive on purpose: part of the host contract every bridge and runner must handle completely, so a new kind is a major change.
+pub enum ShareStarted {
+    /// It already ended.
+    Finished(ShareOutcome),
+    /// The share sheet is open; [`HostEvent::Share`] reports how it ended.
+    Pending(ShareId),
 }
 
 /// The edge or corner a resize drags.
@@ -425,6 +793,13 @@ pub struct WindowOptions {
     pub capture_protected: bool,
     /// The window's own icon; `None` shows the app's (from its executable or desktop entry).
     pub icon: Option<WindowIcon>,
+    /// Showing it gives it keyboard focus and brings it forward (true by default); false
+    /// shows it behind the active window without taking focus (Windows; X11 window managers
+    /// that follow `_NET_WM_USER_TIME`; macOS; ignored where windows always come forward).
+    pub activate: bool,
+    /// It has a taskbar button (true by default); false keeps it off the taskbar and the
+    /// window switcher's list (Windows; X11 window managers that follow `_NET_WM_STATE`).
+    pub taskbar: bool,
 }
 
 impl Default for WindowOptions {
@@ -441,6 +816,8 @@ impl Default for WindowOptions {
             visible: true,
             capture_protected: false,
             icon: None,
+            activate: true,
+            taskbar: true,
         }
     }
 }
@@ -469,6 +846,9 @@ pub struct SystemSettings {
     pub double_click: Duration,
     /// Caret blink interval; `None` when the user turned blinking off.
     pub caret_blink: Option<Duration>,
+    /// The system draws text with subpixel antialiasing (ClearType on Windows): `Some(bgr)`,
+    /// true where the panel's subpixels run blue, green, red; `None` for grayscale or unknown.
+    pub subpixel_text: Option<bool>,
 }
 
 impl Default for SystemSettings {
@@ -484,6 +864,7 @@ impl Default for SystemSettings {
             locale: String::from("en-US"),
             double_click: Duration::from_millis(500),
             caret_blink: Some(Duration::from_millis(530)),
+            subpixel_text: None,
         }
     }
 }
@@ -641,6 +1022,12 @@ pub enum HostEvent {
     Permission(PermissionId, bool),
     /// The person used a notification the app showed (by its [`Notification::id`]).
     Notification(u64, NotificationResponse),
+    /// The platform ended the work [`Host::start_foreground`] started, or could not start it
+    /// after all (the app was no longer on screen, the system's time limit for the kind ran
+    /// out): why, in words.
+    ForegroundStopped(String),
+    /// A share sheet [`Host::share`] left pending closed.
+    Share(ShareId, ShareOutcome),
     /// The app was launched again while running (single instance); these are the new
     /// launch's arguments.
     SecondInstance(Vec<String>),
@@ -801,6 +1188,13 @@ pub trait Host {
     fn set_size(&mut self, window: WindowId, size: Size) -> Result<(), Unsupported>;
     /// Shows or hides.
     fn set_visible(&mut self, window: WindowId, visible: bool);
+    /// Whether [`Host::set_visible`]`(window, false)` takes the open window off the screen.
+    /// False where the platform has no such request (Wayland: only the compositor unmaps a
+    /// toplevel); the engine then minimizes instead of hiding.
+    fn can_hide(&self, window: WindowId) -> bool {
+        let _ = window;
+        true
+    }
     /// The window's top-left on the desktop in logical pixels, where the platform reports it
     /// (Wayland does not).
     fn window_position(&self, window: WindowId) -> Option<Point>;
@@ -936,6 +1330,27 @@ pub trait Host {
         let _ = id;
         Err(Unsupported::new("system notifications", "this host has none"))
     }
+    /// Keeps the app running while it is out of sight for `task`, showing its notification
+    /// (Android's foreground service); starting again while it runs changes the work and the
+    /// notification. Hosts whose apps keep running anyway (desktops, browsers) answer `Ok`
+    /// and do nothing. If the platform stops the work later, [`HostEvent::ForegroundStopped`]
+    /// says why.
+    fn start_foreground(&mut self, task: &ForegroundTask) -> Result<(), Unsupported> {
+        let _ = task;
+        Ok(())
+    }
+    /// Ends the work [`Host::start_foreground`] started and takes its notification away.
+    fn stop_foreground(&mut self) -> Result<(), Unsupported> {
+        Ok(())
+    }
+    /// Hands `share` to the platform's share sheet, over `window`. Sheets that run inside the
+    /// call answer [`ShareStarted::Finished`]; the others return
+    /// [`ShareStarted::Pending`] and report with [`HostEvent::Share`]. By default the
+    /// platform has no share sheet.
+    fn share(&mut self, window: Option<WindowId>, share: &ShareOptions) -> Result<ShareStarted, Unsupported> {
+        let _ = (window, share);
+        Err(Unsupported::new("sharing", "this platform has no share sheet"))
+    }
     /// Starts dragging `data` out of `window` to other apps (call while the pointer button
     /// that began the drag is held). Some platforms run the drag to its end inside the call;
     /// others return at once and report the end with [`HostEvent::DragEnded`].
@@ -1011,6 +1426,56 @@ mod window_icon_tests {
         let odd = WindowIcon::new(3, vec![200; 36]).unwrap_or_else(|| unreachable!("3 × 3")).scaled(2);
         assert!(odd.rgba().iter().all(|&c| c == 200));
     }
+
+    #[test]
+    fn drawn_sizes_show_as_drawn_and_pixel_art_keeps_hard_edges() {
+        let flat = |size: u32, v: u8| {
+            WindowIcon::new(size, vec![v; (size * size * 4) as usize])
+                .unwrap_or_else(|| unreachable!("square"))
+        };
+        let icon = flat(64, 64).with_size(flat(16, 16)).with_size(flat(32, 32));
+        assert_eq!(icon.size(), 64, "the largest drawing leads");
+        assert_eq!(icon.drawn_sizes(), [16, 32, 64]);
+        assert_eq!(icon.drawn().iter().map(WindowIcon::size).collect::<Vec<_>>(), [16, 32, 64]);
+        assert!(icon.scaled(16).rgba().iter().all(|&c| c == 16), "a drawn size as it is");
+        assert!(icon.scaled(20).rgba().iter().all(|&c| c == 32), "the next larger drawing, scaled");
+        assert!(icon.scaled(128).rgba().iter().all(|&c| c == 64), "the largest when none is larger");
+        assert!(
+            icon.with_size(flat(16, 99)).scaled(16).rgba().iter().all(|&c| c == 99),
+            "the later drawing of a size wins"
+        );
+        // A 2 × 2 checkerboard: smooth scaling blends it, pixel art repeats its pixels.
+        let px = [[255, 255, 255, 255], [0, 0, 0, 255], [0, 0, 0, 255], [255, 255, 255, 255]];
+        let board = WindowIcon::new(2, px.concat()).unwrap_or_else(|| unreachable!("2 × 2"));
+        assert_eq!(board.scaled(1).rgba(), &[128, 128, 128, 255]);
+        let sharp = board.pixel_art().scaled(4);
+        assert!(sharp.is_pixel_art());
+        assert_eq!(
+            sharp.rgba().get(..8),
+            Some(&[255, 255, 255, 255, 255, 255, 255, 255][..]),
+            "the top-left pixel twice"
+        );
+        assert_eq!(sharp.rgba().get(8..12), Some(&[0, 0, 0, 255][..]));
+        assert!(sharp.rgba().iter().all(|&c| c == 0 || c == 255), "no blended pixels");
+    }
+
+    #[test]
+    fn tray_icons_take_their_size_from_the_artwork() {
+        let flat = |size: u32, v: u8| {
+            WindowIcon::new(size, vec![v; (size * size * 4) as usize])
+                .unwrap_or_else(|| unreachable!("square"))
+        };
+        let plain = super::TrayIcon::new(
+            "tip",
+            super::TrayImage { size: 32, rgba: vec![7; 32 * 32 * 4] },
+            Vec::new(),
+        );
+        assert_eq!(plain.image_at(16).size, 16);
+        assert_eq!(plain.images().len(), 1);
+        let art = plain.with_artwork(flat(16, 1).with_size(flat(24, 2)).with_size(flat(32, 3)));
+        assert!(art.image_at(24).rgba.iter().all(|&c| c == 2));
+        assert_eq!(art.images().iter().map(|i| i.size).collect::<Vec<_>>(), [16, 24, 32]);
+    }
 }
 
 #[cfg(test)]
@@ -1029,5 +1494,40 @@ mod local_time_tests {
         assert_eq!(west.local_days(), t.local_days());
         let before_1970 = LocalTime { unix_seconds: -1, utc_offset: 0 };
         assert_eq!(before_1970.local_days(), -1);
+    }
+}
+
+#[cfg(test)]
+mod share_tests {
+    use super::{ShareFile, ShareOptions};
+
+    #[test]
+    fn file_names_become_single_safe_names() {
+        let name = |n: &str| ShareFile::new(n, "", Vec::new()).safe_name();
+        assert_eq!(name("Lavender.alex-soap.json"), "Lavender.alex-soap.json");
+        assert_eq!(name("../../etc/passwd"), ".._.._etc_passwd");
+        assert_eq!(name("a\\b:c*?\"<>|\u{7}.txt"), "a_b_c_______.txt");
+        assert_eq!(name("notes. . "), "notes", "Windows would drop the trailing dots and spaces");
+        assert_eq!(name(""), "file");
+        assert_eq!(name(".."), "file");
+        assert_eq!(name("  "), "file");
+        assert_eq!(name("con.txt"), "_con.txt", "a device name on Windows");
+        assert_eq!(name("COM3"), "_COM3");
+        assert_eq!(name("Combo.txt"), "Combo.txt");
+        assert_eq!(name("Seife \u{1F9FC}.json"), "Seife \u{1F9FC}.json");
+    }
+
+    #[test]
+    fn a_share_is_labelled_with_its_files_common_type() {
+        let f = |t: &str| ShareFile::new("f", t, vec![1, 2]);
+        assert_eq!(ShareOptions::new().text("hi").mime_type(), "text/plain");
+        assert_eq!(ShareOptions::new().file(f("application/json")).mime_type(), "application/json");
+        assert_eq!(ShareOptions::new().file(f("")).mime_type(), "application/octet-stream");
+        assert_eq!(ShareOptions::new().files([f("image/png"), f("image/jpeg")]).mime_type(), "image/*");
+        assert_eq!(ShareOptions::new().files([f("image/png"), f("text/plain")]).mime_type(), "*/*");
+        assert!(ShareOptions::new().is_empty());
+        assert!(!ShareOptions::new().title("t").is_empty());
+        let debug = format!("{:?}", f("text/plain"));
+        assert!(debug.contains("bytes: 2"), "contents are not dumped into logs: {debug}");
     }
 }

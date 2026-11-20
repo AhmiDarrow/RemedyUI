@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_core::Insets;
-use remedy_ui_input::Key;
+use remedy_ui_input::{Key, PointerPhase};
 use remedy_ui_layout::{Length, Position};
 use remedy_ui_reactive::{Signal, untrack};
 use remedy_ui_style::StylePatch;
@@ -58,11 +58,21 @@ pub fn drawer(ui: &Ui, label: impl Into<String>, edge: Edge, open: Signal<bool>,
                         l.max_width = Length::Percent(0.9);
                     }),
                 };
-                // Clicks on the panel stay in it; clicks on the scrim close.
-                let panel = panel.on_click(|| {}).focusable(false);
+                // A press on the scrim, outside the panel, closes it. Read from the pointer
+                // rather than a click handler on the panel, so the panel is not a control
+                // assistive technology would be offered with nothing to do.
+                let inside = panel.clone();
                 let scrim = w::fill_window(u.el("scrim"))
                     .focus_scope()
-                    .on_click(move || open.set(false))
+                    .on_pointer(move |e| {
+                        let outside = !inside.bounds().is_some_and(|b| b.contains(e.position));
+                        if e.phase == PointerPhase::Down && outside {
+                            open.set(false);
+                            return true;
+                        }
+                        false
+                    })
+                    .keyboard_alternative("Escape closes the panel")
                     .focusable(false)
                     .on_key(move |e| {
                         if e.pressed && e.key == Key::Escape {

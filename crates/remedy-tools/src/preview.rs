@@ -515,8 +515,14 @@ pub fn render(input: &PreviewInput, ws: &Workspace, png_file: Option<&str>) -> R
     let _busy = BUSY.lock().unwrap_or_else(PoisonError::into_inner);
     let target = target_dir(&app)?;
     let safe: String = package.chars().map(|c| if c.is_alphanumeric() { c } else { '-' }).collect();
-    let bin = format!("remedy-preview-{safe}");
-    let harness = target.join("remedy-tools").join("preview").join(&safe);
+    // A harness for each previewed function: the in-process lock does not reach other
+    // processes (two MCP servers, `cargo remedy preview`), which would otherwise rewrite one
+    // shared main.rs under each other's builds and run each other's binaries.
+    let fnv = function
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+    let bin = format!("remedy-preview-{safe}-{fnv:016x}");
+    let harness = target.join("remedy-tools").join("preview").join(&safe).join(format!("{fnv:016x}"));
     std::fs::create_dir_all(&harness).map_err(|e| ToolError::new(format!("{}: {e}", harness.display())))?;
     let mut deps = toml::Table::new();
     let mut app_dep = toml::Table::new();

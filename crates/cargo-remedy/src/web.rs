@@ -181,19 +181,13 @@ fn icons(p: &Project, notes: &mut Vec<String>) -> Result<Icons, String> {
     {
         return std::fs::read(path).map(Icons::Svg).map_err(|e| format!("icon {}: {e}", path.display()));
     }
-    let png = match p.web_icon.as_ref().or(p.icon.as_ref()) {
-        Some(path) => {
-            let bytes = std::fs::read(path).map_err(|e| format!("icon {}: {e}", path.display()))?;
-            crate::ico::read_png(&bytes).map_err(|e| format!("icon {}: {e}", path.display()))?
-        }
-        None => {
-            notes.push("no icon in remedy.toml: used the default icon".into());
-            crate::ico::default_icon([61, 139, 95])
-        }
+    let set = match &p.web_icon {
+        Some(path) => crate::ico::IconSet::new(vec![crate::ico::read_png_file(path)?], p.icon_pixel_art)?,
+        None => crate::platforms::icon_set(p, notes)?,
     };
     Ok(Icons::Png {
-        small: crate::ico::write_png(&crate::ico::resize(&png, 192))?,
-        large: crate::ico::write_png(&crate::ico::resize(&png, 512))?,
+        small: crate::ico::write_png(&set.at(192))?,
+        large: crate::ico::write_png(&set.at(512))?,
     })
 }
 

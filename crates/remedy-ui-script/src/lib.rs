@@ -313,6 +313,18 @@ pub enum SettingKind {
     Color,
     /// A web link.
     Link,
+    /// A moment: a date and a time of day, stored as seconds since 1970-01-01T00:00:00Z (a
+    /// JSON number; null or missing when not set). Edited with a date picker and a time picker
+    /// in the viewer's local time.
+    Time,
+    /// One of these, each a stored value and the label people see: `(value, label)`. For
+    /// choices whose names are not what is saved, such as rooms or roles by id.
+    LabeledChoice(Vec<(String, String)>),
+    /// A list of values, stored as a JSON array of strings; edited one item a line.
+    List,
+    /// A picture, stored as a source string (a web address, or a reference the app
+    /// resolves, such as an asset id). The board's context shows and chooses pictures.
+    Picture,
 }
 
 /// A setting a widget declares: the board's property grid edits it.
@@ -357,8 +369,10 @@ fn invalid(e: impl Into<String>) -> ScriptError {
 
 /// Reads a widget's manifest from the protocol's JSON: `name` (a string, "Widget" when
 /// missing) and `settings` (a list of `{ key, label, kind, value, min, max, options }`;
-/// `kind` is `text`, `longtext`, `number`, `bool`, `choice`, `color` or `link`, and `value`
-/// is the setting's value until someone sets it, its default).
+/// `kind` is `text`, `longtext`, `number`, `bool`, `choice`, `color`, `link`, `time`, `list`
+/// or `picture`, and `value` is the setting's value until someone sets it, its default). A
+/// `choice`'s options are strings, or `{ value, label }` maps when what is saved is not what
+/// people see; a `time` is seconds since 1970 and a `list` an array of strings.
 pub fn manifest(v: &Value) -> Result<Manifest, ScriptError> {
     let Value::Object(m) = v else {
         return Err(invalid("it must describe itself as a map with a name and settings"));
@@ -403,26 +417,53 @@ fn setting(v: &Value) -> Result<SettingSpec, ScriptError> {
         "number" => SettingKind::Number { min: number(t, "min"), max: number(t, "max") },
         "bool" => SettingKind::Bool,
         "choice" => {
-            let opts: Vec<String> = t
-                .get("options")
-                .and_then(Value::as_array)
-                .map(|o| o.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-                .unwrap_or_default();
-            if opts.is_empty() {
+            let list = t.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
+            if list.is_empty() {
                 return Err(invalid(format!("the choice setting {key} has no options")));
             }
-            SettingKind::Choice(opts)
+            if list.iter().all(Value::is_string) {
+                SettingKind::Choice(list.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            } else {
+                let mut opts = Vec::new();
+                for o in &list {
+                    let pair = match o {
+                        Value::String(s) => Some((s.clone(), s.clone())),
+                        Value::Object(m) => string(m, "value").map(|v| {
+                            let label = string(m, "label").unwrap_or_else(|| v.clone());
+                            (v, label)
+                        }),
+                        _ => None,
+                    };
+                    opts.push(pair.ok_or_else(|| {
+                        invalid(format!(
+                            "an option of the choice setting {key} is not text or {{ value, label }}"
+                        ))
+                    })?);
+                }
+                SettingKind::LabeledChoice(opts)
+            }
         }
         "color" => SettingKind::Color,
         "link" => SettingKind::Link,
+        "time" => SettingKind::Time,
+        "list" => SettingKind::List,
+        "picture" => SettingKind::Picture,
         other => return Err(invalid(format!("the setting {key} has an unknown kind {other}"))),
     };
     let default = match t.get("value") {
         Some(d @ (Value::String(_) | Value::Number(_) | Value::Bool(_))) => d.clone(),
+        Some(Value::Array(items)) if kind == SettingKind::List => {
+            Value::Array(items.iter().filter(|i| i.is_string()).cloned().collect())
+        }
         _ => match &kind {
             SettingKind::Number { min, .. } => serde_json::json!(min.unwrap_or(0.0)),
             SettingKind::Bool => Value::Bool(false),
             SettingKind::Choice(o) => Value::String(o.first().cloned().unwrap_or_default()),
+            SettingKind::LabeledChoice(o) => {
+                Value::String(o.first().map(|(v, _)| v.clone()).unwrap_or_default())
+            }
+            SettingKind::Time => Value::Null,
+            SettingKind::List => Value::Array(Vec::new()),
             _ => Value::String(String::new()),
         },
     };
@@ -725,6 +766,33 @@ mod tests {
         ] {
             assert!(matches!(manifest(&bad), Err(ScriptError::Invalid(_))), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_manifest_reads_times_lists_pictures_and_labeled_choices() {
+        let m = manifest(&json!({
+            "settings": [
+                { "key": "when", "kind": "time" },
+                { "key": "tags", "kind": "list", "value": ["a", 3, "b"] },
+                { "key": "art", "kind": "picture" },
+                { "key": "room", "kind": "choice", "options": [{ "value": "7", "label": "Lobby" }, "8"] },
+            ]
+        }));
+        let Ok(m) = m else { unreachable!("{m:?}") };
+        let kinds: Vec<_> = m.settings.iter().map(|s| s.kind.clone()).collect();
+        assert_eq!(
+            kinds,
+            [
+                SettingKind::Time,
+                SettingKind::List,
+                SettingKind::Picture,
+                SettingKind::LabeledChoice(vec![("7".into(), "Lobby".into()), ("8".into(), "8".into())]),
+            ]
+        );
+        let defaults: Vec<_> = m.settings.iter().map(|s| s.default.clone()).collect();
+        assert_eq!(defaults, [Value::Null, json!(["a", "b"]), json!(""), json!("7")]);
+        let bad = json!({ "settings": [{ "key": "a", "kind": "choice", "options": [{ "label": "x" }] }] });
+        assert!(matches!(manifest(&bad), Err(ScriptError::Invalid(_))));
     }
 
     #[test]

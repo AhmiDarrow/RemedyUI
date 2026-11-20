@@ -69,7 +69,7 @@ fn widgets_read_well_in_every_theme_and_in_high_contrast() {
         };
         let label = resolve(t, "label", "", States::NONE);
         check("text", label.foreground, bg, 7.0);
-        check("muted text", resolve(t, "label", "muted", States::NONE).foreground, bg, 4.5);
+        check("muted text", resolve(t, "label", "muted", States::NONE).foreground, bg, 7.0);
         check("error text", resolve(t, "label", "error", States::NONE).foreground, bg, 4.5);
         let primary = resolve(t, "button", "primary", States::NONE);
         check("primary button", primary.foreground, primary.background, 4.5);

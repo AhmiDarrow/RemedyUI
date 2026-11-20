@@ -6,13 +6,14 @@ use std::cell::{Cell, RefCell};
 use remedy_ui_host::{TrayEvent, TrayIcon, TrayItem, Unsupported};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::UI::HiDpi::{GetDpiForSystem, GetSystemMetricsForDpi};
 use windows_sys::Win32::UI::Shell::{
     NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu, GetCursorPos,
     HICON, HWND_MESSAGE, MF_GRAYED, MF_SEPARATOR, MF_STRING, PostMessageW, RegisterClassExW,
-    RegisterWindowMessageW, SetForegroundWindow, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+    RegisterWindowMessageW, SM_CXSMICON, SetForegroundWindow, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON,
     TrackPopupMenu, WM_APP, WM_CONTEXTMENU, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WNDCLASSEXW,
 };
 
@@ -183,7 +184,11 @@ pub(crate) fn set(tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
         }
         return Ok(());
     };
-    let h = super::icon::hicon(t.icon.size, &t.icon.rgba, "the tray")?;
+    // The size the notification area shows at the system DPI, drawn or scaled from the art.
+    // SAFETY: plain system queries.
+    let px = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem().max(96)) };
+    let img = t.image_at(u32::try_from(px).unwrap_or(16).max(1));
+    let h = super::icon::hicon(img.size, &img.rgba, "the tray")?;
     data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     data.uCallbackMessage = CALLBACK;
     data.hIcon = h;

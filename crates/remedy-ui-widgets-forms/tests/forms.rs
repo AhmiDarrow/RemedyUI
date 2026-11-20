@@ -155,6 +155,37 @@ fn calendars_speak_the_locale() {
 }
 
 #[test]
+fn number_input_with_min_fraction_digits_shows_trimmed_text() {
+    let t = T::new("de-DE");
+    t.ui.connect_accessibility();
+    let v = Signal::new(d("5"));
+    let o = NumberOptions::default().precision(10).min_fraction_digits(0);
+    let el = number_input(&t.ui, "Lye", v, o);
+    t.ui.root().child(el.clone());
+    let f = field_in(&t, &el);
+    f.blur();
+    t.frame();
+    let tree = t.tree();
+    assert!(tree.contains("5") && !tree.contains("5,0"), "bound value, unfocused: {tree}");
+    v.set(d("12.2500000000"));
+    t.frame();
+    let tree = t.tree();
+    assert!(tree.contains("12,25") && !tree.contains("12,250"), "{tree}");
+    f.focus();
+    t.type_text("1.234,5000");
+    assert_eq!(v.get(), d("1234.5"));
+    t.key(Key::Enter);
+    t.frame();
+    let tree = t.tree();
+    assert!(tree.contains("1.234,5") && !tree.contains("1.234,50"), "after Enter: {tree}");
+    t.type_text("0,1234567891234");
+    f.blur();
+    t.frame();
+    assert_eq!(v.get(), d("0.1234567891"), "kept exactly to precision");
+    assert!(t.tree().contains("0,1234567891"));
+}
+
+#[test]
 fn number_input_keeps_only_valid_rounded_values() {
     let t = T::new("de-DE");
     t.ui.connect_accessibility();

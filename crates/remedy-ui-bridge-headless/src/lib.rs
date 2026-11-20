@@ -113,6 +113,7 @@ pub struct HeadlessHost {
     exited: bool,
     /// Whether windows can be kept out of screen capture (Wayland and X11 cannot).
     capture_supported: bool,
+    hides_windows: bool,
     focused: Option<WindowId>,
     interactions: Vec<(WindowId, Option<ResizeEdge>)>,
     tray: Option<TrayIcon>,
@@ -130,6 +131,11 @@ pub struct HeadlessHost {
     notifications: Vec<remedy_ui_host::Notification>,
     withdrawn: Vec<u64>,
     notifications_off: bool,
+    foreground: Option<remedy_ui_host::ForegroundTask>,
+    foreground_refused: Option<String>,
+    shares: Vec<(Option<WindowId>, remedy_ui_host::ShareOptions)>,
+    share_answers: VecDeque<remedy_ui_host::ShareOutcome>,
+    shares_answer_later: bool,
 }
 
 impl Default for HeadlessHost {
@@ -161,6 +167,7 @@ impl HeadlessHost {
             woken: Arc::new(AtomicBool::new(false)),
             exited: false,
             capture_supported: true,
+            hides_windows: true,
             focused: None,
             interactions: Vec::new(),
             tray: None,
@@ -178,6 +185,11 @@ impl HeadlessHost {
             notifications: Vec::new(),
             withdrawn: Vec::new(),
             notifications_off: false,
+            foreground: None,
+            foreground_refused: None,
+            shares: Vec::new(),
+            share_answers: VecDeque::new(),
+            shares_answer_later: false,
         }
     }
 
@@ -201,6 +213,10 @@ impl HeadlessHost {
 
     /// Queues an event as if the platform sent it.
     pub fn send(&mut self, event: HostEvent) {
+        if matches!(event, HostEvent::ForegroundStopped(_)) {
+            // The platform's side ended it.
+            self.foreground = None;
+        }
         self.queue.push_back(event);
     }
 
@@ -263,6 +279,12 @@ impl HeadlessHost {
     /// Wayland and X11 are, or one that can (the default).
     pub fn set_capture_supported(&mut self, on: bool) {
         self.capture_supported = on;
+    }
+
+    /// Acts like a system that cannot take an open window off the screen (`false`), as
+    /// Wayland is, or one that can (the default).
+    pub fn set_hides_windows(&mut self, on: bool) {
+        self.hides_windows = on;
     }
 
     /// Moves the clock forward.
@@ -400,6 +422,37 @@ impl HeadlessHost {
     /// Makes showing notifications fail, as when the person turned them off for the app.
     pub fn notifications_off(&mut self, off: bool) {
         self.notifications_off = off;
+    }
+
+    /// The work [`Host::start_foreground`] keeps running out of sight, while it runs (`None`
+    /// after [`Host::stop_foreground`]). End it from the platform's side with
+    /// [`HostEvent::ForegroundStopped`] through [`HeadlessHost::send`].
+    pub fn foreground(&self) -> Option<&remedy_ui_host::ForegroundTask> {
+        self.foreground.as_ref()
+    }
+
+    /// Makes starting foreground work fail with `reason` (`None` lets it start again), as
+    /// Android does when the app is out of sight or lacks a permission.
+    pub fn refuse_foreground(&mut self, reason: Option<&str>) {
+        self.foreground_refused = reason.map(str::to_owned);
+    }
+
+    /// Answers the next share: what the person does with the share sheet. Without a scripted
+    /// answer, a share is [`ShareOutcome::Shared`](remedy_ui_host::ShareOutcome::Shared).
+    pub fn answer_share(&mut self, outcome: remedy_ui_host::ShareOutcome) {
+        self.share_answers.push_back(outcome);
+    }
+
+    /// Makes share sheets stay open after [`Host::share`] returns, as Android's chooser does;
+    /// close one with [`HostEvent::Share`] through [`HeadlessHost::send`], naming it
+    /// `ShareId(n)` for the n-th share (counting from 1).
+    pub fn shares_answer_later(&mut self, on: bool) {
+        self.shares_answer_later = on;
+    }
+
+    /// What the app shared, and over which window, oldest first.
+    pub fn shares(&self) -> &[(Option<WindowId>, remedy_ui_host::ShareOptions)] {
+        &self.shares
     }
 
     /// The file dialogs the app opened, oldest first.
@@ -548,6 +601,11 @@ impl Host for HeadlessHost {
         if let Some(w) = self.window_mut(window) {
             w.options.visible = visible;
         }
+    }
+
+    fn can_hide(&self, window: WindowId) -> bool {
+        let _ = window;
+        self.hides_windows
     }
 
     fn window_position(&self, window: WindowId) -> Option<Point> {
@@ -761,6 +819,19 @@ impl Host for HeadlessHost {
         Ok(())
     }
 
+    fn start_foreground(&mut self, task: &remedy_ui_host::ForegroundTask) -> Result<(), Unsupported> {
+        if let Some(reason) = &self.foreground_refused {
+            return Err(Unsupported::new("foreground work", reason.clone()));
+        }
+        self.foreground = Some(task.clone());
+        Ok(())
+    }
+
+    fn stop_foreground(&mut self) -> Result<(), Unsupported> {
+        self.foreground = None;
+        Ok(())
+    }
+
     fn request_permission(
         &mut self,
         permission: remedy_ui_host::Permission,
@@ -771,6 +842,20 @@ impl Host for HeadlessHost {
             return Ok(remedy_ui_host::PermissionStarted::Pending(id));
         }
         Ok(remedy_ui_host::PermissionStarted::Finished(self.permission_answers.pop_front().unwrap_or(true)))
+    }
+
+    fn share(
+        &mut self,
+        window: Option<WindowId>,
+        share: &remedy_ui_host::ShareOptions,
+    ) -> Result<remedy_ui_host::ShareStarted, Unsupported> {
+        self.shares.push((window, share.clone()));
+        if self.shares_answer_later {
+            let id = remedy_ui_host::ShareId(u64::try_from(self.shares.len()).unwrap_or(u64::MAX));
+            return Ok(remedy_ui_host::ShareStarted::Pending(id));
+        }
+        let outcome = self.share_answers.pop_front().unwrap_or(remedy_ui_host::ShareOutcome::Shared);
+        Ok(remedy_ui_host::ShareStarted::Finished(outcome))
     }
 
     fn start_drag(

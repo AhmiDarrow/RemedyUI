@@ -445,6 +445,12 @@ pub fn sheet(t: &Theme) -> StyleSheet {
             .text_size(t.type_scale.small)
             .weight(700.0),
     );
+    // A status light's color while on; its variant says what kind of status it is.
+    rule("lamp", None, States::NONE, StylePatch::default().foreground(c.ok));
+    rule("lamp", Some("ok"), States::NONE, StylePatch::default().foreground(c.ok));
+    rule("lamp", Some("accent"), States::NONE, StylePatch::default().foreground(c.accent));
+    rule("lamp", Some("warn"), States::NONE, StylePatch::default().foreground(c.warn));
+    rule("lamp", Some("danger"), States::NONE, StylePatch::default().foreground(c.danger));
     rule(
         "progress",
         None,

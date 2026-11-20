@@ -3,7 +3,7 @@
 //! their own (FreeSpeak's voice and chat nodes); people add scripted ones.
 
 use std::cell::{Cell, RefCell};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use remedy_ui_reactive::{Scope, Signal, untrack};
@@ -19,6 +19,12 @@ use serde_json::{Map, Value};
 pub type ReactionsFn = Rc<dyn Fn(&str) -> Signal<Vec<crate::Reaction>>>;
 /// Toggles the viewer's reaction (widget id, emoji).
 pub type ReactFn = Rc<dyn Fn(&str, &str)>;
+/// Shows a picture from its source (a picture setting's value): the app resolves it (a web
+/// address, an asset the app keeps) into an element.
+pub type PictureFn = Rc<dyn Fn(&Ui, &str) -> El>;
+/// Opens the app's picture chooser; when the person picks one, the app calls the given
+/// function once with its source.
+pub type ChoosePictureFn = Rc<dyn Fn(Box<dyn FnOnce(String)>)>;
 
 /// What a board gives its widgets: data the app shares with them, and the doors out. Made
 /// with [`Context::local`]; its fields are then set as the app needs.
@@ -39,6 +45,15 @@ pub struct Context {
     /// The script engines this board accepts: a scripted widget in another language says
     /// it cannot run here.
     pub engines: Engines,
+    /// Every word the board says (English by default). Messages of refused changes follow
+    /// the words of the last board built with this context.
+    pub labels: crate::BoardLabels,
+    /// Shows pictures: picture settings preview their source with it. `None` (the default)
+    /// shows only the source.
+    pub picture: Option<PictureFn>,
+    /// The app's picture chooser: picture settings offer a button that opens it. `None` (the
+    /// default) leaves the source to be typed.
+    pub choose_picture: Option<ChoosePictureFn>,
 }
 
 impl Context {
@@ -66,13 +81,22 @@ impl Context {
             }),
             limits: Limits::default(),
             engines: Engines::new(),
+            labels: crate::BoardLabels::default(),
+            picture: None,
+            choose_picture: None,
         }
     }
 }
 
 impl std::fmt::Debug for Context {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Context").field("limits", &self.limits).field("engines", &self.engines).finish()
+        f.debug_struct("Context")
+            .field("limits", &self.limits)
+            .field("engines", &self.engines)
+            .field("labels", &self.labels)
+            .field("picture", &self.picture.is_some())
+            .field("choose_picture", &self.choose_picture.is_some())
+            .finish()
     }
 }
 
@@ -86,12 +110,21 @@ pub trait WidgetKind {
     fn settings(&self) -> Vec<SettingSpec>;
     /// Builds a placed widget `id` with `settings` (each missing one at its default).
     fn build(&self, ui: &Ui, id: &str, settings: &Map<String, Value>, cx: &Context) -> El;
+    /// What a placed widget with `settings` is called for assistive technology, such as its
+    /// title; an area holding only this widget and no title of its own is called this too.
+    /// `None` (the default) uses the kind's [`name`](WidgetKind::name).
+    fn label(&self, settings: &Map<String, Value>) -> Option<String> {
+        let _ = settings;
+        None
+    }
 }
 
-/// The kinds a board knows, by id.
+/// The kinds a board knows, by id. A kind can be known (boards that hold it show it) but
+/// not offered to add, such as a kind this viewer may not place.
 #[derive(Default, Clone)]
 pub struct Registry {
     kinds: BTreeMap<String, Rc<dyn WidgetKind>>,
+    not_addable: BTreeSet<String>,
 }
 
 impl std::fmt::Debug for Registry {
@@ -101,13 +134,41 @@ impl std::fmt::Debug for Registry {
 }
 
 impl Registry {
-    /// The built-in kinds: text, links, reactions.
+    /// The built-in kinds: text, links, reactions, in English.
     pub fn with_builtins() -> Registry {
+        Registry::with_builtins_in(&crate::BoardLabels::default())
+    }
+
+    /// The built-in kinds in the words of `labels`: their names, setting labels and the
+    /// defaults they start with.
+    pub fn with_builtins_in(labels: &crate::BoardLabels) -> Registry {
         let mut r = Registry::default();
-        r.add(Rc::new(TextKind));
-        r.add(Rc::new(LinksKind));
-        r.add(Rc::new(ReactionsKind));
+        let words = Rc::new(labels.clone());
+        r.add(Rc::new(TextKind(words.clone())));
+        r.add(Rc::new(LinksKind(words.clone())));
+        r.add(Rc::new(ReactionsKind(words)));
         r
+    }
+
+    /// Offers kind `id` in "Add widget" (`true`, as every kind starts) or not: a board that
+    /// holds one still shows it, but people cannot add more (a kind this viewer may not
+    /// place). Kinds added later start offered.
+    pub fn set_addable(&mut self, id: &str, addable: bool) {
+        if addable {
+            self.not_addable.remove(id);
+        } else {
+            self.not_addable.insert(id.to_owned());
+        }
+    }
+
+    /// Kind `id` is known and offered in "Add widget".
+    pub fn is_addable(&self, id: &str) -> bool {
+        self.kinds.contains_key(id) && !self.not_addable.contains(id)
+    }
+
+    /// The kinds offered in "Add widget", by name.
+    pub fn addable(&self) -> Vec<Rc<dyn WidgetKind>> {
+        self.all().into_iter().filter(|k| !self.not_addable.contains(k.id())).collect()
     }
 
     /// Adds (or replaces) a kind.
@@ -148,25 +209,33 @@ fn spec(key: &str, label: &str, kind: SettingKind, default: Value) -> SettingSpe
     SettingSpec::new(key, label, kind, default)
 }
 
+/// A placed widget's title setting, when it has one.
+fn title_label(settings: &Map<String, Value>, key: &str) -> Option<String> {
+    settings.get(key).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned)
+}
+
 /// A title and some text: news, rules, a welcome.
-struct TextKind;
+struct TextKind(Rc<crate::BoardLabels>);
 
 impl WidgetKind for TextKind {
     fn id(&self) -> &str {
         "text"
     }
     fn name(&self) -> String {
-        "Text".into()
+        self.0.text_name.clone()
     }
     fn settings(&self) -> Vec<SettingSpec> {
         vec![
-            spec("title", "Title", SettingKind::Text, "Welcome".into()),
-            spec("body", "Text", SettingKind::LongText, "Say hello to the house.".into()),
+            spec("title", &self.0.text_title, SettingKind::Text, self.0.text_title_default.clone().into()),
+            spec("body", &self.0.text_body, SettingKind::LongText, self.0.text_body_default.clone().into()),
         ]
+    }
+    fn label(&self, settings: &Map<String, Value>) -> Option<String> {
+        title_label(settings, "title")
     }
     fn build(&self, ui: &Ui, _id: &str, s: &Map<String, Value>, _cx: &Context) -> El {
         let unit = ui.theme().spacing.unit;
-        let title = s.get("title").and_then(Value::as_str).unwrap_or("Welcome").to_owned();
+        let title = s.get("title").and_then(Value::as_str).unwrap_or(&self.0.text_title_default).to_owned();
         let body = s.get("body").and_then(Value::as_str).unwrap_or_default().to_owned();
         let mut col = w::column(ui).gap(unit * 2.0).fill_width();
         if !title.is_empty() {
@@ -180,7 +249,7 @@ impl WidgetKind for TextKind {
 }
 
 /// A list of links, one `Label | https://…` a line.
-struct LinksKind;
+struct LinksKind(Rc<crate::BoardLabels>);
 
 /// The links in a links widget's text: `Label | url` or a bare url a line; only links the
 /// system may open (web pages and mail) are kept.
@@ -203,18 +272,16 @@ impl WidgetKind for LinksKind {
         "links"
     }
     fn name(&self) -> String {
-        "Links".into()
+        self.0.links_name.clone()
     }
     fn settings(&self) -> Vec<SettingSpec> {
         vec![
-            spec("title", "Title", SettingKind::Text, "Links".into()),
-            spec(
-                "links",
-                "Links (Label | https://…, one a line)",
-                SettingKind::LongText,
-                Value::String(String::new()),
-            ),
+            spec("title", &self.0.links_title, SettingKind::Text, self.0.links_title_default.clone().into()),
+            spec("links", &self.0.links_links, SettingKind::LongText, Value::String(String::new())),
         ]
+    }
+    fn label(&self, settings: &Map<String, Value>) -> Option<String> {
+        title_label(settings, "title")
     }
     fn build(&self, ui: &Ui, _id: &str, s: &Map<String, Value>, cx: &Context) -> El {
         let unit = ui.theme().spacing.unit;
@@ -225,7 +292,7 @@ impl WidgetKind for LinksKind {
         }
         let links = parse_links(&text_setting(s, "links"));
         if links.is_empty() {
-            col = col.child(w::text(ui, "No links yet.").variant("muted"));
+            col = col.child(w::text(ui, self.0.links_none.clone()).variant("muted"));
         }
         for (label, url) in links {
             let open = cx.open_link.clone();
@@ -236,20 +303,28 @@ impl WidgetKind for LinksKind {
 }
 
 /// Reactions on their own (a poll of feelings, a guestbook of emoji).
-struct ReactionsKind;
+struct ReactionsKind(Rc<crate::BoardLabels>);
 
 impl WidgetKind for ReactionsKind {
     fn id(&self) -> &str {
         "reactions"
     }
     fn name(&self) -> String {
-        "Reactions".into()
+        self.0.reactions_name.clone()
     }
     fn settings(&self) -> Vec<SettingSpec> {
         vec![
-            spec("title", "Question", SettingKind::Text, "How is everyone?".into()),
-            spec("choices", "Reactions to offer", SettingKind::Text, "👍 ❤️ 😂 🎉".into()),
+            spec(
+                "title",
+                &self.0.reactions_question,
+                SettingKind::Text,
+                self.0.reactions_question_default.clone().into(),
+            ),
+            spec("choices", &self.0.reactions_offered, SettingKind::Text, "👍 ❤️ 😂 🎉".into()),
         ]
+    }
+    fn label(&self, settings: &Map<String, Value>) -> Option<String> {
+        title_label(settings, "title")
     }
     fn build(&self, ui: &Ui, id: &str, s: &Map<String, Value>, cx: &Context) -> El {
         let unit = ui.theme().spacing.unit;
@@ -261,7 +336,9 @@ impl WidgetKind for ReactionsKind {
         if !title.is_empty() {
             col = col.child(w::text(ui, title));
         }
-        col.child(crate::reactions::reactions(ui, shown, offered, move |e| react(&wid, e)))
+        col.child(crate::reactions::reactions_in(ui, shown, offered, &cx.labels.reactions, move |e| {
+            react(&wid, e)
+        }))
     }
 }
 
@@ -331,9 +408,10 @@ impl WidgetKind for ScriptKind {
         });
         let (u2, u3, package, settings, cx) =
             (ui.clone(), ui.clone(), self.package.clone(), settings.clone(), cx.clone());
+        let words = Rc::new(cx.labels.clone());
         let el = catch_errors(
             ui,
-            move |err, retry| stopped_view(&u3, &err.message, retry),
+            move |err, retry| stopped_view(&u3, &words, &err.message, retry),
             move || script_view(&u2, &package, &settings, &cx, &stopped),
         );
         boundary.set(Some(el.id()));
@@ -384,13 +462,13 @@ fn script_view(
 }
 
 /// What a stopped widget shows: why, and a button that starts it again.
-fn stopped_view(ui: &Ui, why: &str, retry: Retry) -> El {
+fn stopped_view(ui: &Ui, words: &crate::BoardLabels, why: &str, retry: Retry) -> El {
     let unit = ui.theme().spacing.unit;
     w::column(ui)
         .gap(unit)
         .fill_width()
-        .child(w::text(ui, format!("This widget stopped: {why}")).variant("error"))
-        .child(w::button(ui, "Start again", move || retry.retry()))
+        .child(w::text(ui, crate::labels::fill(&words.stopped, &[("why", why.to_owned())])).variant("error"))
+        .child(w::button(ui, words.start_again.clone(), move || retry.retry()))
 }
 
 /// A loaded scripted widget, shared by the elements built from its description.
@@ -464,7 +542,7 @@ impl MarginY for El {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_links;
+    use super::{Registry, parse_links};
 
     #[test]
     fn links_keep_only_what_may_be_opened() {
@@ -478,5 +556,32 @@ mod tests {
                 ("mailto:a@b.c".to_owned(), "mailto:a@b.c".to_owned())
             ]
         );
+    }
+
+    #[test]
+    fn kinds_can_be_shown_but_not_offered() {
+        let mut r = Registry::with_builtins();
+        r.set_addable("links", false);
+        assert!(r.get("links").is_some(), "still known, so boards that hold it show it");
+        assert!(!r.is_addable("links") && r.is_addable("text") && !r.is_addable("rocket"));
+        let offered: Vec<String> = r.addable().iter().map(|k| k.id().to_owned()).collect();
+        assert_eq!(offered, ["reactions", "text"]);
+        r.set_addable("links", true);
+        assert_eq!(r.addable().len(), 3);
+    }
+
+    #[test]
+    fn built_in_kinds_speak_the_board_words() {
+        let words = crate::BoardLabels::default().translated(|en| {
+            match en {
+                "Text" => "Texte",
+                "Welcome" => "Bienvenue",
+                other => other,
+            }
+            .to_owned()
+        });
+        let r = Registry::with_builtins_in(&words);
+        assert_eq!(r.get("text").map(|k| k.name()), Some("Texte".to_owned()));
+        assert_eq!(r.defaults("text").get("title"), Some(&"Bienvenue".into()));
     }
 }

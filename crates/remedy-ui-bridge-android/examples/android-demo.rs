@@ -1,7 +1,8 @@
 //! RemedyUI on Android: a button, a text field (with the input method's composition), copy
-//! and paste, capture protection, a link, open and save dialogs, a drag out to other apps, and
-//! the safe area, with every host event and the renderer written to logcat (tag `RemedyUI`)
-//! so a test can follow what the bridge delivered.
+//! and paste, capture protection, a link, open and save dialogs, a share through the chooser,
+//! a drag out to other apps, the safe area, a notification with buttons and a picture, and a
+//! "call" kept running out of sight by a foreground service, with every host event and the
+//! renderer written to logcat (tag `RemedyUI`) so a test can follow what the bridge delivered.
 //!
 //! Launch options (`am start ... --es renderer cpu-first`): `cpu-first` starts the window on
 //! the CPU renderer, to drive the move to the GPU with the window's next surface.
@@ -14,7 +15,10 @@ mod demo {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use remedy_ui::host::{AccessibilityEvent, FileDialog, Host, HostEvent};
+    use remedy_ui::host::{
+        AccessibilityEvent, FileDialog, ForegroundKind, ForegroundTask, Host, HostEvent, Notification,
+        NotificationResponse, Permission, ShareFile, ShareOptions, TrayImage,
+    };
     use remedy_ui::reactive::Signal;
     use remedy_ui::view::{Drag, DragData};
     use remedy_ui::widgets as w;
@@ -125,8 +129,76 @@ mod demo {
         });
     }
 
+    /// The demo's message notification: two buttons and a picture.
+    const MESSAGE: u64 = 7;
+    /// The call's notification, shown by the foreground service.
+    const CALL: u64 = 8;
+
+    /// A green disc on clear ground, premultiplied RGBA, for the notification's picture.
+    fn disc(size: u32) -> TrayImage {
+        let mut rgba = Vec::with_capacity((size * size * 4) as usize);
+        let c = size as f32 / 2.0;
+        for y in 0..size {
+            for x in 0..size {
+                let d = ((x as f32 + 0.5 - c).powi(2) + (y as f32 + 0.5 - c).powi(2)).sqrt();
+                let a = (c - d).clamp(0.0, 1.0);
+                let px = [61.0 * a, 139.0 * a, 95.0 * a, 255.0 * a];
+                rgba.extend(px.map(|v| v.round() as u8));
+            }
+        }
+        TrayImage { size, rgba }
+    }
+
+    fn notify(app: &App) {
+        let n = Notification::new(MESSAGE, "RemedyUI demo", "A message for you")
+            .action("reply", "Reply")
+            .action("mark-read", "Mark read")
+            .icon(disc(96));
+        app.notify(n, |r| log(&format!("notify: {r:?}")));
+    }
+
+    fn start_call(app: &App) {
+        let app2 = app.clone();
+        // Microphone work needs the microphone first.
+        app.request_permission(Permission::Microphone, move |granted| {
+            log(&format!("microphone permission granted: {granted}"));
+            let task = ForegroundTask::new(
+                ForegroundKind::Microphone,
+                Notification::new(CALL, "Call in progress", "RemedyUI demo")
+                    .action("hang-up", "Hang up")
+                    .silent(true),
+            )
+            .kind(ForegroundKind::MediaPlayback);
+            app2.start_foreground(task, |r| log(&format!("start_foreground: {r:?}")));
+        });
+    }
+
+    /// Shares the message as text and as a small JSON file through the system's chooser.
+    fn share(app: &App, text: String) {
+        let json = format!("{{\"message\":{text:?}}}");
+        let share = ShareOptions::new()
+            .title("RemedyUI demo")
+            .text(format!("RemedyUI demo: {text}"))
+            .file(ShareFile::new("remedyui-shared.json", "application/json", json.into_bytes()));
+        app.share(None, share, |outcome| log(&format!("share ended: {outcome:?}")));
+    }
+
     fn setup(app: &App, acts: Acts) {
         let app2 = app.clone();
+        let app3 = app.clone();
+        app.on_notification(move |id, response| {
+            log(&format!("notification {id} answered: {response:?}"));
+            if id == CALL && response == NotificationResponse::Action("hang-up".into()) {
+                app3.stop_foreground();
+                log("call ended from its notification");
+            }
+            if id == MESSAGE && response == NotificationResponse::Action("mark-read".into()) {
+                app3.withdraw_notification(MESSAGE);
+                log("withdrew the message notification");
+            }
+        });
+        app.on_foreground_stopped(|why| log(&format!("foreground stopped by the platform: {why}")));
+        let (notify_app, allow_app, call_app, end_app) = (app.clone(), app.clone(), app.clone(), app.clone());
         app.open(WindowSpec::new("RemedyUI on Android"), move |ui, _window| {
             let taps = Signal::new(0u32);
             let typed = Signal::new(String::new());
@@ -141,7 +213,8 @@ mod demo {
             let a = acts.clone();
             let copy_field = field.clone();
             let save_field = field.clone();
-            let (open_app, save_app) = (app2.clone(), app2.clone());
+            let (open_app, save_app, share_app) = (app2.clone(), app2.clone(), app2.clone());
+            let share_field = field.clone();
             let ui2 = ui.clone();
             let col = w::column(ui)
                 .gap(12.0)
@@ -152,6 +225,25 @@ mod demo {
                     || Some(Drag::new(DragData::text("Dragged out of RemedyUI"))),
                     |effect| log(&format!("drag out ended: {effect:?}")),
                 ))
+                .child(
+                    w::row(ui)
+                        .gap(12.0)
+                        .child(w::button(ui, "Allow notifications", move || {
+                            allow_app.request_permission(Permission::Notifications, |granted| {
+                                log(&format!("notifications permission granted: {granted}"));
+                            });
+                        }))
+                        .child(w::button(ui, "Notify", move || notify(&notify_app))),
+                )
+                .child(
+                    w::row(ui)
+                        .gap(12.0)
+                        .child(w::button(ui, "Start call", move || start_call(&call_app)))
+                        .child(w::button(ui, "End call", move || {
+                            end_app.stop_foreground();
+                            log("stop_foreground asked");
+                        })),
+                )
                 .child(ui.el("label").text(move || format!("Taps: {}", taps.get())))
                 .child(w::button(ui, "Tap me", move || {
                     taps.update(|n| *n += 1);
@@ -194,7 +286,8 @@ mod demo {
                     w::row(ui)
                         .gap(12.0)
                         .child(w::button(ui, "Open file", move || open_file(&open_app)))
-                        .child(w::button(ui, "Save file", move || save_file(&save_app, save_field.value()))),
+                        .child(w::button(ui, "Save file", move || save_file(&save_app, save_field.value())))
+                        .child(w::button(ui, "Share", move || share(&share_app, share_field.value()))),
                 )
                 .child(ui.el("label").text(move || {
                     let s = ui2.safe_area();
