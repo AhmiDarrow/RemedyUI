@@ -111,12 +111,19 @@ pub fn stepper(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, 
     let label = label.into();
     let gap = ui.theme().spacing.unit;
     let shown = ui.el("label").nowrap().layout(|l| l.min_width = remedy_ui_layout::Length::Px(32.0));
-    let minus = crate::icon_button(ui, crate::Icon::Minus, format!("Decrease {label}"), move || {
-        value.update(|v| *v = snap(*v - step, min, max, step));
-    });
-    let plus = crate::icon_button(ui, crate::Icon::Plus, format!("Increase {label}"), move || {
-        value.update(|v| *v = snap(*v + step, min, max, step));
-    });
+    let (u1, l1, u2, l2) = (ui.clone(), label.clone(), ui.clone(), label.clone());
+    let minus = crate::icon_button(
+        ui,
+        crate::Icon::Minus,
+        move || crate::STRINGS.format(&u1, "stepper-decrease", &[("label", l1.as_str().into())]),
+        move || value.update(|v| *v = snap(*v - step, min, max, step)),
+    );
+    let plus = crate::icon_button(
+        ui,
+        crate::Icon::Plus,
+        move || crate::STRINGS.format(&u2, "stepper-increase", &[("label", l2.as_str().into())]),
+        move || value.update(|v| *v = snap(*v + step, min, max, step)),
+    );
     let row = ui
         .el("stepper")
         .row()

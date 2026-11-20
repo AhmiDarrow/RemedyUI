@@ -153,7 +153,8 @@ impl Icon {
         )
     }
 
-    /// What the icon shows, in English, for when the icon alone stands for something ("Home"
+    /// What the icon shows, in English ([`Icon::localized_name`] in the window's language),
+    /// for when the icon alone stands for something ("Home"
     /// on a toolbar button, "Image" for a file's kind). Screen readers read it where the
     /// icon carries meaning; [`icon`] itself is decorative, so whatever holds the icon names
     /// it (an [`icon_button`](crate::icon_button)'s label, or this name translated).
@@ -218,6 +219,77 @@ impl Icon {
             Icon::Home => "Home",
             Icon::Image => "Image",
             Icon::Dot => "Selected",
+        }
+    }
+
+    /// What the icon shows in the window's language ([`Icon::accessible_name`] translated),
+    /// for an icon that alone stands for something.
+    pub fn localized_name(self, ui: &Ui) -> String {
+        crate::STRINGS.get(ui, self.message_id())
+    }
+
+    /// The icon's name's message in this pack's catalog ([`crate::STRINGS`]).
+    fn message_id(self) -> &'static str {
+        match self {
+            Icon::Plus => "icon-add",
+            Icon::Minus => "icon-remove",
+            Icon::Maximize => "icon-maximize",
+            Icon::Restore => "icon-restore",
+            Icon::Close => "icon-close",
+            Icon::Check => "icon-done",
+            Icon::Lock => "icon-locked",
+            Icon::Unlock => "icon-unlocked",
+            Icon::Pin => "icon-pin",
+            Icon::Trash => "icon-delete",
+            Icon::Copy => "icon-copy",
+            Icon::Eye => "icon-show",
+            Icon::EyeOff => "icon-hide",
+            Icon::ChevronDown => "icon-expand",
+            Icon::ChevronRight => "icon-next",
+            Icon::ChevronLeft => "icon-previous",
+            Icon::ChevronUp => "icon-collapse",
+            Icon::Menu => "icon-menu",
+            Icon::Search => "icon-search",
+            Icon::Info => "icon-information",
+            Icon::Alert => "icon-warning",
+            Icon::Clock => "icon-time",
+            Icon::Key => "icon-key",
+            Icon::Settings => "icon-settings",
+            Icon::Note => "icon-note",
+            Icon::External => "icon-open-outside",
+            Icon::Refresh => "icon-refresh",
+            Icon::Folder => "icon-folder",
+            Icon::File => "icon-file",
+            Icon::Download => "icon-download",
+            Icon::Upload => "icon-upload",
+            Icon::Send => "icon-send",
+            Icon::ArrowLeft => "icon-back",
+            Icon::ArrowRight => "icon-forward",
+            Icon::ArrowUp => "icon-up",
+            Icon::Users => "icon-people",
+            Icon::Monitor => "icon-computer",
+            Icon::Bold => "icon-bold",
+            Icon::Italic => "icon-italic",
+            Icon::Strike => "icon-strikethrough",
+            Icon::Code => "icon-code",
+            Icon::Link => "icon-link",
+            Icon::ListBullet => "icon-bulleted-list",
+            Icon::ListNumber => "icon-numbered-list",
+            Icon::ListTask => "icon-task-list",
+            Icon::Quote => "icon-quote",
+            Icon::CodeBlock => "icon-code-block",
+            Icon::Heading => "icon-heading",
+            Icon::At => "icon-mention",
+            Icon::Play => "icon-play",
+            Icon::Pause => "icon-pause",
+            Icon::Volume => "icon-volume",
+            Icon::VolumeMuted => "icon-muted",
+            Icon::Fullscreen => "icon-full-screen",
+            Icon::FullscreenExit => "icon-exit-full-screen",
+            Icon::Captions => "icon-captions",
+            Icon::Home => "icon-home",
+            Icon::Image => "icon-image",
+            Icon::Dot => "icon-selected",
         }
     }
 }

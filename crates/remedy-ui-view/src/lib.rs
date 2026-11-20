@@ -30,6 +30,7 @@ pub mod motion;
 mod native;
 mod prop;
 mod select;
+pub mod strings;
 mod tokens;
 
 pub use ambient::{

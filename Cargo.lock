@@ -4798,6 +4798,10 @@ dependencies = [
 name = "remedy-ui-view"
 version = "1.0.0-rc.1"
 dependencies = [
+ "fluent-bundle",
+ "fluent-syntax",
+ "intl-memoizer",
+ "intl_pluralrules",
  "remedy-ui-a11y",
  "remedy-ui-compositor",
  "remedy-ui-core",
@@ -4813,6 +4817,7 @@ dependencies = [
  "remedy-ui-text",
  "remedy-ui-trace",
  "remedy-ui-tree",
+ "unic-langid",
 ]
 
 [[package]]

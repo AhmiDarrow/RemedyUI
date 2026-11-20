@@ -107,8 +107,11 @@ pub fn lamp(ui: &Ui, label: impl IntoProp<String>, on: Signal<bool>) -> El {
             Brush::Solid(color),
         );
     });
+    let u = ui.clone();
     l.semantics(move || {
-        Semantics::new(Role::Status).label(label.get()).value(if on.get() { "on" } else { "off" })
+        Semantics::new(Role::Status)
+            .label(label.get())
+            .value(crate::tr(&u, if on.get() { "lamp-on" } else { "lamp-off" }))
     })
 }
 
@@ -173,10 +176,11 @@ pub fn empty_state(ui: &Ui, title: impl IntoProp<String>, hint: impl IntoProp<St
 pub fn skeleton(ui: &Ui, width: f32, height: f32) -> El {
     let fill = ui.theme().derive().hover;
     let r = ui.theme().radii.small;
+    let u = ui.clone();
     ui.el("skeleton")
         .width(width)
         .height(height)
-        .semantics(Semantics::new(Role::Progress).label("Loading"))
+        .semantics(move || Semantics::new(Role::Progress).label(crate::tr(&u, "loading")))
         .paint(move |cx| {
             cx.list.fill_rounded(
                 Rect::new(0.0, 0.0, cx.size.width, cx.size.height),

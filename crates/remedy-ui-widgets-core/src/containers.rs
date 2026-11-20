@@ -122,6 +122,7 @@ pub fn split(ui: &Ui, axis: Axis, first: El, second: El, fraction: Signal<f32>) 
     });
     let c2 = container.clone();
     let key_el = container.clone();
+    let u = ui.clone();
     let handle = ui
         .el("split_handle")
         .layout(move |l| {
@@ -133,11 +134,13 @@ pub fn split(ui: &Ui, axis: Axis, first: El, second: El, fraction: Signal<f32>) 
             l.shrink = 0.0;
         })
         .focusable(true)
-        .semantics(Semantics::new(Role::Slider).label("Resize panes").numeric(
-            f64::from(fraction.get_untracked().unwrap_or(0.5)),
-            0.0,
-            1.0,
-        ))
+        .semantics(move || {
+            Semantics::new(Role::Slider).label(crate::tr(&u, "resize-panes")).numeric(
+                f64::from(fraction.get()),
+                0.0,
+                1.0,
+            )
+        })
         .on_pointer(move |e| {
             if e.buttons.contains(remedy_ui_input::Buttons::PRIMARY)
                 && e.phase == remedy_ui_input::PointerPhase::Move

@@ -933,3 +933,9 @@ fn value_widgets_mirror_right_to_left() {
     t.key(Key::ArrowRight);
     assert_eq!(v.get(), 1.0);
 }
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&w::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
