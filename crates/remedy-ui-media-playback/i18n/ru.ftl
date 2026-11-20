@@ -24,3 +24,12 @@ playback-full-screen = Во весь экран
 playback-exit-full-screen = Выйти из полноэкранного режима
 playback-seek = Позиция воспроизведения
 playback-seek-value = { $position } из { $duration }
+playback-next-up = Далее: { $title }
+playback-next-up-in = { $count ->
+    [one] Воспроизведение через { $count } секунду
+    [few] Воспроизведение через { $count } секунды
+    [many] Воспроизведение через { $count } секунд
+   *[other] Воспроизведение через { $count } секунды
+}
+playback-play-now = Воспроизвести сейчас
+playback-next-cancel = Отмена

@@ -42,6 +42,28 @@ pub struct PlayerOptions {
     pub find_subtitles: bool,
     /// The starting volume, 0 to 1.
     pub volume: f32,
+    /// How long the "up next" countdown runs once the media ends with a
+    /// [`next up`](Player::set_next_up) set, before the next plays in this player; `None`
+    /// never advances by itself (the person chooses). The countdown does not start while the
+    /// system asks for reduced motion.
+    pub next_up_delay: Option<Duration>,
+}
+
+/// What plays after the current media ends ([`Player::set_next_up`]).
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct NextUp {
+    /// The media.
+    pub source: MediaSource,
+    /// What to call it ("Episode 4: The Long Night"), shown and read out.
+    pub title: String,
+}
+
+impl NextUp {
+    /// `source`, called `title`.
+    pub fn new(source: MediaSource, title: impl Into<String>) -> Self {
+        NextUp { source, title: title.into() }
+    }
 }
 
 impl PlayerOptions {
@@ -68,11 +90,27 @@ impl PlayerOptions {
         self.volume = value;
         self
     }
+
+    /// Sets `next_up_delay`: how long the "up next" countdown runs; `None` never advances
+    /// by itself.
+    pub fn next_up_delay(mut self, value: Option<Duration>) -> Self {
+        self.next_up_delay = value;
+        self
+    }
 }
+
+/// How long the "up next" countdown runs by default.
+pub const NEXT_UP_DELAY: Duration = Duration::from_secs(5);
 
 impl Default for PlayerOptions {
     fn default() -> Self {
-        PlayerOptions { autoplay: false, unseen: UnseenPolicy::default(), find_subtitles: true, volume: 1.0 }
+        PlayerOptions {
+            autoplay: false,
+            unseen: UnseenPolicy::default(),
+            find_subtitles: true,
+            volume: 1.0,
+            next_up_delay: Some(NEXT_UP_DELAY),
+        }
     }
 }
 
@@ -95,8 +133,10 @@ type FullscreenHandler = Rc<dyn Fn(bool)>;
 struct Inner {
     id: u64,
     ui: remedy_ui_view::WeakUi,
-    tx: Option<engine::Control>,
-    shared: Arc<Shared>,
+    /// The engine playing the current media: replaced when the next one plays.
+    tx: RefCell<Option<engine::Control>>,
+    shared: RefCell<Arc<Shared>>,
+    host: Result<Arc<dyn MediaHost>, MediaError>,
     options: PlayerOptions,
     state: Signal<PlaybackState>,
     position: Signal<Duration>,
@@ -114,20 +154,35 @@ struct Inner {
     /// Where each embedded text track sits in `tracks`.
     embedded: RefCell<Vec<usize>>,
     autoplayed: Cell<bool>,
+    next_up: Signal<Option<NextUp>>,
+    /// Time left before the next plays, while the countdown runs.
+    countdown: Signal<Option<Duration>>,
+    /// The countdown's timer and when it ends.
+    timer: Cell<Option<u64>>,
+    deadline: Cell<Option<remedy_ui_core::time::Instant>>,
+    /// Play once opened (the next media, chosen or counted down to).
+    play_on_open: Cell<bool>,
+    /// The person stopped the countdown: it does not start again at this end.
+    declined: Cell<bool>,
+    /// What the engine was told, to tell the next one: the picture's sink and whether it is
+    /// seen.
+    sink: RefCell<Option<VideoSink>>,
+    visible: Cell<bool>,
 }
 
 impl Inner {
     fn send(&self, cmd: Cmd) {
-        if let Some(tx) = &self.tx {
+        if let Some(tx) = self.tx.borrow().as_ref() {
             tx.send(cmd);
         }
     }
 
     /// Takes the news from the player's thread into the signals.
     fn pull(&self) {
-        self.shared.posted.store(false, Ordering::Release);
+        let shared = self.shared.borrow().clone();
+        shared.posted.store(false, Ordering::Release);
         let (state, position, info, error, audio_error, stats, new_tracks, cues, buffered) = {
-            let mut s = lock(&self.shared.status);
+            let mut s = lock(&shared.status);
             (
                 s.state,
                 s.position,
@@ -166,6 +221,113 @@ impl Inner {
             self.stats.set_if_changed(stats);
             self.buffered.set_if_changed(buffered);
         });
+        // The end starts the countdown to what is next; leaving it (playing again, seeking
+        // back) stops it.
+        if state == PlaybackState::Ended {
+            self.count_down();
+        } else {
+            self.declined.set(false);
+            self.stop_countdown();
+        }
+    }
+
+    /// Starts the "up next" countdown, unless it runs, nothing is next, the app asked for no
+    /// countdown, or the system asks for reduced motion.
+    fn count_down(&self) {
+        if self.deadline.get().is_some()
+            || self.declined.get()
+            || self.next_up.get_untracked().ok().flatten().is_none()
+        {
+            return;
+        }
+        let Some(delay) = self.options.next_up_delay else { return };
+        let Some(ui) = self.ui.upgrade() else { return };
+        if ui.reduced_motion() {
+            return;
+        }
+        self.deadline.set(Some(remedy_ui_core::time::Instant::now() + delay));
+        self.tick();
+    }
+
+    /// One step of the countdown: shows the time left, or plays the next when it is up.
+    fn tick(&self) {
+        let Some(deadline) = self.deadline.get() else { return };
+        let left = deadline.saturating_duration_since(remedy_ui_core::time::Instant::now());
+        if left.is_zero() {
+            self.advance();
+            return;
+        }
+        self.countdown.set_if_changed(Some(left));
+        let Some(ui) = self.ui.upgrade() else { return };
+        let id = self.id;
+        // Woken at each whole second left, and at the end.
+        let step = match left.subsec_nanos() {
+            0 => Duration::from_secs(1),
+            n => Duration::from_nanos(u64::from(n)),
+        };
+        let timer = ui.after(step.min(left), move || {
+            if let Some(p) = PLAYERS.with(|p| p.borrow().get(&id).and_then(Weak::upgrade)) {
+                p.timer.set(None);
+                p.tick();
+            }
+        });
+        self.timer.set(Some(timer));
+    }
+
+    fn stop_countdown(&self) {
+        self.deadline.set(None);
+        if let Some(t) = self.timer.take()
+            && let Some(ui) = self.ui.upgrade()
+        {
+            ui.cancel_timer(t);
+        }
+        self.countdown.set_if_changed(None);
+    }
+
+    /// Plays what is next, in this player.
+    fn advance(&self) {
+        self.stop_countdown();
+        let Some(next) = self.next_up.get_untracked().ok().flatten() else { return };
+        self.next_up.set(None);
+        self.load(next.source);
+    }
+
+    /// Replaces the media with `source` and plays it once open: a new engine, every signal
+    /// about the media back to its start, the player's own settings (volume, picture, seen)
+    /// carried over.
+    fn load(&self, source: MediaSource) {
+        self.send(Cmd::Close);
+        let shared = Arc::new(Shared::default());
+        let started = launch(self.id, &self.host, source, self.options.find_subtitles, shared.clone());
+        *self.shared.borrow_mut() = shared;
+        let failed = match started {
+            Ok(tx) => {
+                *self.tx.borrow_mut() = Some(tx);
+                None
+            }
+            Err(e) => {
+                *self.tx.borrow_mut() = None;
+                Some(e)
+            }
+        };
+        remedy_ui_reactive::batch(|| {
+            self.state.set(if failed.is_some() { PlaybackState::Failed } else { PlaybackState::Opening });
+            self.error.set(failed);
+            self.position.set(Duration::ZERO);
+            self.info.set(None);
+            self.audio_error.set(None);
+            self.stats.set(PlaybackStats::default());
+            self.buffered.set(Vec::new());
+            self.tracks.set(Vec::new());
+            self.caption.set(None);
+        });
+        self.embedded.borrow_mut().clear();
+        self.play_on_open.set(true);
+        let muted = self.muted.get_untracked().unwrap_or(false);
+        self.send(Cmd::Volume(if muted { 0.0 } else { self.volume.get_untracked().unwrap_or(1.0) }));
+        self.send(Cmd::PauseUnseen(self.options.unseen == UnseenPolicy::PauseVideo));
+        self.send(Cmd::Sink(self.sink.borrow().clone()));
+        self.send(Cmd::Visible(self.visible.get()));
     }
 
     fn on_opened(&self, info: Option<&MediaInfo>) {
@@ -184,7 +346,10 @@ impl Inner {
             });
             *self.embedded.borrow_mut() = map;
         }
-        if self.options.autoplay && !self.autoplayed.replace(true) {
+        if self.play_on_open.replace(false) {
+            // Chosen, or counted down to: it plays, reduced motion or not.
+            self.send(Cmd::Play);
+        } else if self.options.autoplay && !self.autoplayed.replace(true) {
             let reduced = self.ui.upgrade().is_some_and(|u| u.reduced_motion());
             if !(reduced && info.video.is_some()) {
                 self.send(Cmd::Play);
@@ -196,6 +361,9 @@ impl Inner {
 impl Drop for Inner {
     fn drop(&mut self) {
         self.send(Cmd::Close);
+        if let (Some(t), Some(ui)) = (self.timer.take(), self.ui.upgrade()) {
+            ui.cancel_timer(t);
+        }
         let id = self.id;
         let _ = PLAYERS.try_with(|p| p.borrow_mut().remove(&id));
     }
@@ -246,15 +414,7 @@ impl Player {
         static IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let id = IDS.fetch_add(1, Ordering::Relaxed);
         let shared = Arc::new(Shared::default());
-        let waker = remedy_ui_reactive::waker();
-        let started = match (host, waker) {
-            (Ok(host), Ok(waker)) => {
-                let notify: engine::Notify = Box::new(move || waker.post(move || deliver(id)).is_ok());
-                engine::start(host, source, options.find_subtitles, shared.clone(), notify)
-            }
-            (Err(e), _) => Err(e),
-            (_, Err(e)) => Err(MediaError::Unsupported(format!("no UI thread to report to: {e}"))),
-        };
+        let started = launch(id, &host, source, options.find_subtitles, shared.clone());
         let (tx, failed) = match started {
             Ok(tx) => (Some(tx), None),
             Err(e) => (None, Some(e)),
@@ -263,8 +423,9 @@ impl Player {
         let inner = Rc::new(Inner {
             id,
             ui: ui.downgrade(),
-            tx,
-            shared,
+            tx: RefCell::new(tx),
+            shared: RefCell::new(shared),
+            host,
             state: Signal::new(if failed.is_some() { PlaybackState::Failed } else { PlaybackState::Opening }),
             position: Signal::new(Duration::ZERO),
             info: Signal::new(None),
@@ -280,6 +441,14 @@ impl Player {
             fullscreen_handlers: RefCell::new(Vec::new()),
             embedded: RefCell::new(Vec::new()),
             autoplayed: Cell::new(false),
+            next_up: Signal::new(None),
+            countdown: Signal::new(None),
+            timer: Cell::new(None),
+            deadline: Cell::new(None),
+            play_on_open: Cell::new(false),
+            declined: Cell::new(false),
+            sink: RefCell::new(None),
+            visible: Cell::new(true),
             options,
         });
         PLAYERS.with(|p| p.borrow_mut().insert(id, Rc::downgrade(&inner)));
@@ -477,12 +646,72 @@ impl Player {
 
     /// Shows pictures in `sink` (the [`player`](crate::player) widget attaches its surface).
     pub fn attach(&self, sink: Option<VideoSink>) {
+        *self.0.sink.borrow_mut() = sink.clone();
         self.0.send(Cmd::Sink(sink));
     }
 
     /// Tells the player whether it is seen (the widget does, from the engine's visibility).
     pub fn set_visible(&self, seen: bool) {
+        self.0.visible.set(seen);
         self.0.send(Cmd::Visible(seen));
+    }
+
+    /// Sets what plays after this media ends, in this player (`None`: nothing). At the end
+    /// a countdown of [`PlayerOptions::next_up_delay`] runs ([`countdown`](Self::countdown))
+    /// and then the next plays; the [`player`](crate::player) widget shows it as "Up next"
+    /// with Play now and Cancel. Setting it again while the countdown runs keeps the
+    /// countdown going, towards the new media.
+    pub fn set_next_up(&self, next: Option<NextUp>) {
+        let none = next.is_none();
+        self.0.next_up.set(next);
+        self.0.declined.set(false);
+        if none {
+            self.0.stop_countdown();
+        } else if self.0.state.get_untracked().ok() == Some(PlaybackState::Ended) {
+            self.0.count_down();
+        }
+    }
+
+    /// What plays after this media ends. Tracked.
+    pub fn next_up(&self) -> Option<NextUp> {
+        self.0.next_up.get()
+    }
+
+    /// The time left before the next media plays, while the countdown at the end runs.
+    /// Tracked.
+    pub fn countdown(&self) -> Option<Duration> {
+        self.0.countdown.get()
+    }
+
+    /// Stops the countdown; the next media stays set, to play when asked.
+    pub fn cancel_countdown(&self) {
+        self.0.declined.set(true);
+        self.0.stop_countdown();
+    }
+
+    /// Plays the next media now, in this player (nothing when none is set): the current one
+    /// stops, and every signal about the media starts over with the next.
+    pub fn play_next(&self) {
+        self.0.advance();
+    }
+}
+
+/// Starts an engine playing `source` for player `id`, reporting into `shared`.
+fn launch(
+    id: u64,
+    host: &Result<Arc<dyn MediaHost>, MediaError>,
+    source: MediaSource,
+    find_subtitles: bool,
+    shared: Arc<Shared>,
+) -> Result<engine::Control, MediaError> {
+    let waker = remedy_ui_reactive::waker();
+    match (host, waker) {
+        (Ok(host), Ok(waker)) => {
+            let notify: engine::Notify = Box::new(move || waker.post(move || deliver(id)).is_ok());
+            engine::start(host.clone(), source, find_subtitles, shared, notify)
+        }
+        (Err(e), _) => Err(e.clone()),
+        (_, Err(e)) => Err(MediaError::Unsupported(format!("no UI thread to report to: {e}"))),
     }
 }
 

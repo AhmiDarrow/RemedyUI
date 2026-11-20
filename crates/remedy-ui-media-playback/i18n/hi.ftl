@@ -24,3 +24,10 @@ playback-full-screen = फ़ुल स्क्रीन
 playback-exit-full-screen = फ़ुल स्क्रीन से बाहर निकलें
 playback-seek = प्लेबैक की स्थिति
 playback-seek-value = { $duration } में से { $position }
+playback-next-up = अगला: { $title }
+playback-next-up-in = { $count ->
+    [one] { $count } सेकंड में शुरू होगा
+   *[other] { $count } सेकंड में शुरू होगा
+}
+playback-play-now = अभी चलाएँ
+playback-next-cancel = रद्द करें

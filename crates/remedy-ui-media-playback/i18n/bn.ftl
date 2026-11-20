@@ -24,3 +24,10 @@ playback-full-screen = পূর্ণ স্ক্রিন
 playback-exit-full-screen = পূর্ণ স্ক্রিন থেকে বেরিয়ে আসুন
 playback-seek = প্লেব্যাকের অবস্থান
 playback-seek-value = { $duration }-এর মধ্যে { $position }
+playback-next-up = এরপর: { $title }
+playback-next-up-in = { $count ->
+    [one] { $count } সেকেন্ডে চালু হবে
+   *[other] { $count } সেকেন্ডে চালু হবে
+}
+playback-play-now = এখনই চালান
+playback-next-cancel = বাতিল

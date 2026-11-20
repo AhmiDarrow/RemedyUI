@@ -24,3 +24,14 @@ playback-full-screen = ملء الشاشة
 playback-exit-full-screen = الخروج من ملء الشاشة
 playback-seek = موضع التشغيل
 playback-seek-value = { $position } من { $duration }
+playback-next-up = التالي: { $title }
+playback-next-up-in = { $count ->
+    [zero] يبدأ التشغيل خلال { $count } ثانية
+    [one] يبدأ التشغيل خلال { $count } ثانية
+    [two] يبدأ التشغيل خلال ثانيتين
+    [few] يبدأ التشغيل خلال { $count } ثوانٍ
+    [many] يبدأ التشغيل خلال { $count } ثانية
+   *[other] يبدأ التشغيل خلال { $count } ثانية
+}
+playback-play-now = شغّل الآن
+playback-next-cancel = إلغاء
