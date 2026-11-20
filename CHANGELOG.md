@@ -571,6 +571,14 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- A display list nesting thousands of groups crashed the GPU renderer: vello's layer handling
+  recurses per level, so about 2000 nested `PushLayer`s overflowed a 2 MB thread stack
+  (deeply nested compositor layers did the same in the composite walk). Renderers now keep
+  at most `MAX_GROUP_DEPTH` (256) clips, opacity and blend groups, filters and glass layers
+  open at once, in `Painter` and in `record_ops` alike: a push past it opens nothing and its
+  pop closes nothing, so what it holds is drawn as if the group were not there, the groups
+  around it stay balanced, and glass that deep is not drawn. Lists that deep also draw much
+  faster on the CPU (tested on both renderers, directly and through the compositor).
 - Prism: an `if` that changed two or more variables merged them in a hash map's order, so
   the same source could compile to differently ordered (equally correct) programs. They now
   merge in name order.

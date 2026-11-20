@@ -235,6 +235,13 @@ pub enum Filter {
 pub const MAX_FILTER_STD_DEV: f32 = 64.0;
 /// The farthest a drop shadow falls, in device pixels, on each axis.
 pub const MAX_FILTER_OFFSET: f32 = 2048.0;
+/// The most groups (clips, opacity and blend layers, filters, and the layers glass draws
+/// through) a renderer keeps open at once. Renderers nest one surface layer per group, and the
+/// GPU's layer handling recurses per level, so a list from a stranger nesting thousands of
+/// groups would overflow the stack. A push past this opens nothing and its pop closes nothing:
+/// what it holds is drawn as if the group were not there (unclipped, unfaded, unfiltered),
+/// and glass that deep is not drawn. Real interfaces nest a few dozen.
+pub const MAX_GROUP_DEPTH: usize = 256;
 
 impl Filter {
     /// The filter as renderers draw it under a transform scaling lengths by `scale`: its
