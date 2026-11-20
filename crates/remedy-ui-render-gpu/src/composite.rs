@@ -636,6 +636,20 @@ impl GpuCompositor {
         height: u32,
         background: Color,
     ) -> Result<Frame, GpuError> {
+        self.present_to_kept(plan, width, height, background)?;
+        let Some(t) = &self.retained else { return Err(GpuError::BadSize) };
+        self.renderer.read_back(t)
+    }
+
+    /// [`present_to_frame`](Self::present_to_frame) without the read back: the frame stays
+    /// on the GPU (measuring compositing alone, or drawing ahead of a later snapshot).
+    pub fn present_to_kept(
+        &mut self,
+        plan: &FramePlan,
+        width: u32,
+        height: u32,
+        background: Color,
+    ) -> Result<(), GpuError> {
         let mut tiles = std::mem::take(&mut self.tiles);
         let mut retained = self.retained.take();
         let done = self.render_damage(
@@ -649,8 +663,6 @@ impl GpuCompositor {
         );
         self.tiles = tiles;
         self.retained = retained;
-        done?;
-        let Some(t) = &self.retained else { return Err(GpuError::BadSize) };
-        self.renderer.read_back(t)
+        done
     }
 }
