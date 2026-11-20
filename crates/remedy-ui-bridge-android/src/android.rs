@@ -531,6 +531,13 @@ impl PlatformHooks for AndroidHooks {
         Ok(remedy_ui_host::ShareStarted::Pending(remedy_ui_host::ShareId(id)))
     }
 
+    fn print_html(&mut self, window: Option<&Window>, title: &str, html: &str) -> Result<(), Unsupported> {
+        let _ = window;
+        self.java("printing")?
+            .print_html(&self.app, title.to_owned(), html.to_owned())
+            .map_err(|e| Unsupported::new("printing", e))
+    }
+
     fn start_drag(
         &mut self,
         window: &Window,

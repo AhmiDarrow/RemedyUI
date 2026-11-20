@@ -4,6 +4,7 @@
 pub(crate) mod dnd;
 pub(crate) mod icon;
 pub(crate) mod instance;
+pub(crate) mod print;
 pub(crate) mod share;
 pub(crate) mod toast;
 pub(crate) mod tray;
