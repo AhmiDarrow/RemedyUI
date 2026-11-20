@@ -71,6 +71,9 @@ impl Surface for GpuScene<'_> {
     fn push_group(&mut self, blend: BlendMode, opacity: f32) {
         self.scene.push_layer(None, Some(blend), Some(opacity), None, None);
     }
+    fn push_filter_layer(&mut self, filter: vello_gpu::filter_effects::Filter) {
+        self.scene.push_filter_layer(filter);
+    }
     fn pop_layer(&mut self) {
         self.scene.pop_layer();
     }
@@ -423,6 +426,25 @@ pub(crate) fn submit_scene(
     view: &wgpu::TextureView,
     bindings: &vello_gpu::TextureBindings,
 ) -> Result<(), GpuError> {
+    let clear = vello_gpu::ClearSettings::Viewport {
+        color: vello_gpu::color::AlphaColor::new([background.r, background.g, background.b, background.a]),
+    };
+    let mut options = vello_gpu::RenderOptions::default();
+    options.target_init = vello_gpu::TargetInit::Clear(clear);
+    submit_scene_with(ctx, vello, resources, scene, view, bindings, options)
+}
+
+/// Records and submits `scene` into `view` with `vello`, as `options` say (what is cleared
+/// first, where in the target the scene goes).
+pub(crate) fn submit_scene_with(
+    ctx: &GpuContext,
+    vello: &mut vello_gpu::Renderer,
+    resources: &mut vello_gpu::Resources,
+    scene: &Scene,
+    view: &wgpu::TextureView,
+    bindings: &vello_gpu::TextureBindings,
+    options: vello_gpu::RenderOptions<'_>,
+) -> Result<(), GpuError> {
     if ctx.is_lost() {
         return Err(GpuError::Lost);
     }
@@ -430,11 +452,6 @@ pub(crate) fn submit_scene(
     let mut encoder =
         ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RemedyUI frame") });
     let timing = ctx.timer.begin(&ctx.device, &mut encoder);
-    let clear = vello_gpu::ClearSettings::Viewport {
-        color: vello_gpu::color::AlphaColor::new([background.r, background.g, background.b, background.a]),
-    };
-    let mut options = vello_gpu::RenderOptions::default();
-    options.target_init = vello_gpu::TargetInit::Clear(clear);
     vello
         .render(
             scene,
