@@ -8,7 +8,9 @@ built-in themes, people's themes and RemedyLua scripts all use the same language
 kernels.
 
 - Crate: `remedy-ui-effects` (`remedy_ui::effects` with the `effects` feature).
-- Element: `effect_view(ui, Instance::new(effect))` (`remedy-ui-media-effects`).
+- Element: `effect_view(ui, Instance::new(effect))` (`remedy-ui-media-effects`); in `.rui`
+  markup, `effect(name: "fire", param: "intensity", value: $heat) { … }` once the app calls
+  `remedy_ui::effects::register_markup` (built-in effects only).
 - Library: 30 built-in effects in `crates/remedy-ui-effects/effects/*.rfx`, reachable by
   name with `library("fire")`. Read them as examples; anything they do, a theme can do too.
 - Design: [docs/design/16-effects.md](../design/16-effects.md).
