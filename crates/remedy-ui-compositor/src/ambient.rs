@@ -96,7 +96,8 @@ impl AmbientLoop {
 
     /// A full clockwise turn about `center` every `period` (a beam, a fan, a mill).
     pub fn spin(center: Point, period: Duration) -> Self {
-        AmbientLoop::new(LoopMotion::Rotate { center, from: 0.0, to: std::f32::consts::TAU }, period).wave(Wave::Saw)
+        AmbientLoop::new(LoopMotion::Rotate { center, from: 0.0, to: std::f32::consts::TAU }, period)
+            .wave(Wave::Saw)
     }
 
     /// Swings about `center` between `from` and `to` radians and back every `period` (a
@@ -160,7 +161,8 @@ impl AmbientLoop {
                     affine = affine.then(about(center, Affine::rotate(lerp(from, to))));
                 }
                 LoopMotion::Translate { from, to } => {
-                    affine = affine.then(Affine::translate(Vec2::new(lerp(from.x, to.x), lerp(from.y, to.y))));
+                    affine =
+                        affine.then(Affine::translate(Vec2::new(lerp(from.x, to.x), lerp(from.y, to.y))));
                 }
                 LoopMotion::Scale { center, from, to } => {
                     let s = lerp(from, to);

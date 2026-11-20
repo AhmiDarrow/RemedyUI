@@ -39,6 +39,8 @@ pub fn progress(ui: &Ui, label: impl IntoProp<String>, value: Signal<Option<f32>
                 (x.max(0.0), (x + 0.4 * w).min(w))
             }
         };
+        // Right to left, progress grows (and work sweeps) from the right.
+        let (x0, x1) = if cx.rtl { (w - x1, w - x0) } else { (x0, x1) };
         if x1 > x0 {
             let r = cx.style.radius.min(cx.size.height / 2.0);
             cx.list.fill_rounded(
