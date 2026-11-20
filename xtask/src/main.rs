@@ -132,6 +132,9 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-services-webstorage", 5),
     ("remedy-ui-themes", 5),
     ("remedy-ui-fonts", 5),
+    // Chinese and Japanese fallback faces: a crate of their own, larger than every other face
+    // together.
+    ("remedy-ui-fonts-cjk", 5),
     ("remedy-ui-devtools", 5),
     // The code-fluid layer: what people change about an app, and its editors.
     ("remedy-ui-customize", 5),
@@ -203,6 +206,9 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-devtools", "remedy-ui-widgets-forms"),
     ("remedy-ui-devtools", "remedy-ui-themes"),
     ("remedy-ui-devtools", "remedy-ui-fonts"),
+    ("remedy-ui-devtools", "remedy-ui-fonts-cjk"),
+    // The CJK faces are described the way the other bundled faces are.
+    ("remedy-ui-fonts-cjk", "remedy-ui-fonts"),
     // Customization edits the theme pack's tokens and restyles with its sheet; its editors
     // are built from widgets (the color picker and shortcut recorder from the form pack, the
     // toolbar editor from navigation, whose commands it rebinds); text overrides are a layer

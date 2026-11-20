@@ -1,6 +1,6 @@
 [package]
 name = "remedy-ui-fonts"
-description = "The Remedy font families for RemedyUI apps (Remedy Sans UI, Remedy Sans, AhmiPrint, AhmiPixel, Remedy Symbols), one feature per family."
+description = "The Remedy font families for RemedyUI apps (Remedy Sans UI, Remedy Sans, AhmiPrint, AhmiPixel, Remedy Symbols) and Noto fallback faces for Arabic, Devanagari and Bengali, one feature per family."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -20,6 +20,11 @@ ahmi-print = []
 ahmi-pixel = []
 # The fallback face for interface symbols (arrows, shapes, stars, checks, warning, menu, search).
 remedy-symbols = []
+# Fallback faces for the scripts Remedy Sans UI does not write (Noto Sans, OFL).
+noto-arabic = []
+noto-devanagari = []
+noto-bengali = []
+scripts = ["noto-arabic", "noto-devanagari", "noto-bengali"]
 
 [dependencies]
 

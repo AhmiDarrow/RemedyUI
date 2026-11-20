@@ -25,6 +25,68 @@ use crate::geometry::{GeometryStore, data_dir};
 /// How long window moves and resizes settle before geometry is written.
 const GEOMETRY_SAVE_DELAY: Duration = Duration::from_millis(400);
 
+/// The bundled faces, read once per process and shared by every window.
+fn bundled_faces() -> &'static [FontFile] {
+    static FACES: std::sync::OnceLock<Vec<FontFile>> = std::sync::OnceLock::new();
+    FACES.get_or_init(|| {
+        remedy_ui_fonts::all().into_iter().filter_map(|f| FontFile::new(f.data).ok()).collect()
+    })
+}
+
+/// The Chinese and Japanese faces, unpacked from WOFF2 once per process (a quarter of a
+/// second): on demand, when a window first shows such text, or ahead of time on a
+/// background thread when the app starts in Chinese or Japanese ([`warm_fonts_for`]).
+#[cfg(feature = "script-fonts")]
+fn cjk_faces() -> &'static [FontFile] {
+    static FACES: std::sync::OnceLock<Vec<FontFile>> = std::sync::OnceLock::new();
+    FACES.get_or_init(|| {
+        remedy_ui_fonts_cjk::all().into_iter().filter_map(|f| FontFile::new(f.data).ok()).collect()
+    })
+}
+
+/// Starts unpacking the faces `locale` needs on a background thread, so its first window
+/// finds them ready.
+fn warm_fonts_for(locale: &str) {
+    #[cfg(feature = "script-fonts")]
+    {
+        let lang = locale.split(['-', '_']).next().unwrap_or_default();
+        if matches!(lang, "zh" | "ja") && remedy_ui_core::exec::threads() {
+            let _ = std::thread::Builder::new().name("remedy-fonts".into()).spawn(|| {
+                let _ = cjk_faces();
+            });
+        }
+    }
+    #[cfg(not(feature = "script-fonts"))]
+    let _ = locale;
+}
+
+/// The fonts every window starts with ([`AppConfig::fonts`] by default): the bundled faces,
+/// with the script faces as fallbacks for their scripts (Arabic, Devanagari and Bengali;
+/// Chinese and Japanese by language, loaded when text first needs them), and the system's
+/// fonts after them with `system-fonts`.
+pub fn bundled_fonts() -> FontCollection {
+    #[cfg(feature = "system-fonts")]
+    let mut f = FontCollection::with_system_fonts();
+    #[cfg(not(feature = "system-fonts"))]
+    let mut f = FontCollection::new();
+    for file in bundled_faces() {
+        let _ = f.add_file(file);
+    }
+    for fb in remedy_ui_fonts::script_fallbacks() {
+        let _ = f.add_script_fallback(fb.script, fb.locale, fb.family);
+    }
+    #[cfg(feature = "script-fonts")]
+    {
+        let cjk = remedy_ui_fonts_cjk::script_fallbacks();
+        f.add_on_demand(
+            remedy_ui_fonts_cjk::needs,
+            || cjk_faces().to_vec(),
+            cjk.iter().map(|fb| (fb.script, fb.locale, fb.family)),
+        );
+    }
+    f
+}
+
 /// App-wide settings.
 #[derive(Clone)]
 #[non_exhaustive]
@@ -81,16 +143,7 @@ impl AppConfig {
             name: name.into(),
             theme,
             sheet,
-            fonts: Rc::new(|| {
-                #[cfg(feature = "system-fonts")]
-                let mut f = FontCollection::with_system_fonts();
-                #[cfg(not(feature = "system-fonts"))]
-                let mut f = FontCollection::new();
-                for face in remedy_ui_fonts::all() {
-                    let _ = f.add_static(face.data);
-                }
-                f
-            }),
+            fonts: Rc::new(bundled_fonts),
             renderer: RendererChoice::Auto,
             vsync: true,
             single_instance: false,
@@ -1806,6 +1859,8 @@ impl Runner {
                 if spec.options.capture_protected && host.set_capture_protected(id, true).is_ok() {
                     self.app.0.borrow_mut().protected.insert(key);
                 }
+                // A window in Chinese or Japanese needs its faces from its first frame.
+                warm_fonts_for(self.locale.as_deref().unwrap_or(&self.settings.locale));
                 let ui = Ui::new(
                     self.config.theme.clone(),
                     (self.config.sheet)(&self.config.theme),

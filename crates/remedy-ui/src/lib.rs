@@ -48,7 +48,7 @@ pub use movable::{Movable, movable};
 pub use remedy_ui_core::Edition;
 pub use runner::{
     App, AppConfig, BackgroundJob, Cancelled, Completion, GPU_PROMOTE_FRAME_COST, GPU_PROMOTE_FRAME_STALL,
-    GraphicsAdapter, RendererChoice, RendererKind, Runner, Window, WindowSpec,
+    GraphicsAdapter, RendererChoice, RendererKind, Runner, Window, WindowSpec, bundled_fonts,
 };
 
 /// Semantics: roles, names, states and actions that screen readers, tests and agents read

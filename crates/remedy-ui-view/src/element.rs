@@ -1115,7 +1115,11 @@ impl Ui {
             let mut i = self.0.borrow_mut();
             let changed = i.pseudo != pseudo;
             i.pseudo = pseudo;
-            changed
+            // The text's language picks between fonts for the characters languages share
+            // (Japanese and Chinese forms) and language-specific shaping: text is laid out
+            // again when it changes.
+            let language = i.engine.borrow_mut().set_locale(&locale);
+            changed || language
         };
         if changed {
             let ids: Vec<ElementId> = {

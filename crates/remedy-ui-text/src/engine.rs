@@ -80,6 +80,17 @@ pub struct FontCollection {
     parts: HashMap<String, Vec<String>>,
     /// The families tried for a character no other font had a glyph for.
     symbols: Vec<String>,
+    /// Families added as script fallbacks, which go before the system's.
+    own_ids: Vec<parley::fontique::FamilyId>,
+    /// Faces added when text first needs them ([`FontCollection::add_on_demand`]).
+    on_demand: Vec<OnDemand>,
+}
+
+/// Faces a collection adds when text first needs them.
+struct OnDemand {
+    needed: fn(char) -> bool,
+    load: Arc<dyn Fn() -> Vec<FontFile> + Send + Sync>,
+    fallbacks: Vec<(String, Option<String>, String)>,
 }
 
 impl std::fmt::Debug for FontCollection {
@@ -107,6 +118,8 @@ impl FontCollection {
             own: HashMap::new(),
             parts: HashMap::new(),
             symbols: DEFAULT_SYMBOL_FALLBACKS.iter().map(|f| (*f).to_string()).collect(),
+            own_ids: Vec::new(),
+            on_demand: Vec::new(),
         }
     }
 
@@ -224,6 +237,83 @@ impl FontCollection {
             let parts = if self.parts.is_empty() { None } else { self.parts.get(&f.to_lowercase()) };
             std::iter::once(f.as_str()).chain(parts.into_iter().flatten().map(String::as_str))
         })
+    }
+
+    /// Makes `family` a fallback for text in `script` (an ISO 15924 code such as `Arab`,
+    /// `Deva`, `Beng`, `Hani`, `Hira`, `Kana`), after the style's own families: what the
+    /// collection draws an Arabic word with when the interface face has no Arabic. With
+    /// `locale` (`ja`, `zh-CN`), the fallback is only for text in that language, which is
+    /// how Japanese and Chinese text pick their own forms of the characters they share;
+    /// without, it is the script's default. Fallbacks added here are tried in the order they
+    /// were added, before any the system lists for the script (with `system-fonts`): a face
+    /// the app ships is the one it was checked with. Returns false for a family the collection does not have, or a script or locale the
+    /// fallback table does not know.
+    ///
+    /// ```
+    /// # use remedy_ui_text::FontCollection;
+    /// let mut fonts = FontCollection::new();
+    /// assert!(!fonts.add_script_fallback("Arab", None, "Noto Sans Arabic"), "not added yet");
+    /// ```
+    pub fn add_script_fallback(&mut self, script: &str, locale: Option<&str>, family: &str) -> bool {
+        let Ok(script) = parley::fontique::Script::parse(script) else { return false };
+        let Some(id) = self.fcx.collection.family_id(family) else { return false };
+        let language = match locale.map(parley::fontique::Language::parse) {
+            Some(Ok(l)) => Some(l),
+            Some(Err(_)) => return false,
+            None => None,
+        };
+        let key = parley::fontique::FallbackKey::new(script, language.as_ref());
+        // Bundled families go first: a face the app ships is the one it was checked with.
+        let mut list: Vec<_> = self.fcx.collection.fallback_families(key).filter(|f| *f != id).collect();
+        let own = list.iter().take_while(|f| self.own_ids.contains(f)).count();
+        list.insert(own, id);
+        self.own_ids.push(id);
+        self.fcx.collection.set_fallbacks(key, list.into_iter())
+    }
+
+    /// Adds faces only when text first needs them: the first paragraph with a character
+    /// `needed` says yes to loads them (`load`, which should share one unpacked copy per
+    /// process, so later windows only register it) and makes them fallbacks for scripts as
+    /// [`FontCollection::add_script_fallback`] does, in `fallbacks`' order. For large faces
+    /// most windows never use: an app that never shows Chinese never unpacks a Chinese font.
+    pub fn add_on_demand<'a>(
+        &mut self,
+        needed: fn(char) -> bool,
+        load: impl Fn() -> Vec<FontFile> + Send + Sync + 'static,
+        fallbacks: impl IntoIterator<Item = (&'a str, Option<&'a str>, &'a str)>,
+    ) {
+        self.on_demand.push(OnDemand {
+            needed,
+            load: Arc::new(load),
+            fallbacks: fallbacks
+                .into_iter()
+                .map(|(s, l, f)| (s.to_owned(), l.map(str::to_owned), f.to_owned()))
+                .collect(),
+        });
+    }
+
+    /// Loads the on-demand faces `text` needs. Returns whether any were added.
+    fn load_needed(&mut self, text: &str) -> bool {
+        if self.on_demand.is_empty() {
+            return false;
+        }
+        let (now, later): (Vec<OnDemand>, Vec<OnDemand>) =
+            std::mem::take(&mut self.on_demand).into_iter().partition(|d| text.chars().any(d.needed));
+        self.on_demand = later;
+        for d in &now {
+            for file in (d.load)() {
+                let _ = self.add_file(&file);
+            }
+            for (script, locale, family) in &d.fallbacks {
+                let _ = self.add_script_fallback(script, locale.as_deref(), family);
+            }
+        }
+        !now.is_empty()
+    }
+
+    /// Whether faces are waiting to be loaded on demand ([`FontCollection::add_on_demand`]).
+    pub fn has_on_demand(&self) -> bool {
+        !self.on_demand.is_empty()
     }
 
     /// Every family name the collection can use.
@@ -359,6 +449,8 @@ struct RunStyle {
 pub struct TextEngine {
     fonts: FontCollection,
     lcx: LayoutContext<u32>,
+    /// The language text is in, unless a span says otherwise ([`TextEngine::set_locale`]).
+    language: Option<parley::fontique::Language>,
 }
 
 impl std::fmt::Debug for TextEngine {
@@ -443,7 +535,19 @@ impl Default for ParagraphOptions {
 impl TextEngine {
     /// An engine using `fonts`.
     pub fn new(fonts: FontCollection) -> Self {
-        TextEngine { fonts, lcx: LayoutContext::new() }
+        TextEngine { fonts, lcx: LayoutContext::new(), language: None }
+    }
+
+    /// The language text is in (a BCP 47 tag such as `ja` or `zh-Hans`; empty or invalid
+    /// for none): it chooses between fonts for characters several languages share (Japanese
+    /// and Chinese forms of the same character) and language-specific shaping (Urdu's and
+    /// Persian's forms of Arabic letters, Serbian Cyrillic). A window sets it from its locale.
+    /// Returns whether it changed (paragraphs laid out before should be laid out again).
+    pub fn set_locale(&mut self, locale: &str) -> bool {
+        let language = parley::fontique::Language::parse(locale).ok();
+        let changed = language != self.language;
+        self.language = language;
+        changed
     }
 
     /// The engine's fonts, to add more.
@@ -458,6 +562,7 @@ impl TextEngine {
     /// [symbol fallbacks](FontCollection::set_symbol_fallbacks) after the style's families,
     /// for those characters only.
     pub fn layout(&mut self, text: &RichText, base: &TextStyle, options: ParagraphOptions) -> Paragraph {
+        self.fonts.load_needed(text.as_str());
         let segments = flatten(text, base);
         let first = self.build(text, base, &segments, options, &[]);
         if self.fonts.symbols.is_empty() {
@@ -508,6 +613,7 @@ impl TextEngine {
             Direction::Rtl => BaseDirection::Rtl,
         });
         push_style(&mut b, base, base_stack, None, 0);
+        b.push_default(StyleProperty::Locale(self.language.clone()));
         run_styles.push(RunStyle { color: base.color, link: None, range: 0..content.len() });
         for ((i, seg), stack) in segments.iter().enumerate().zip(stacks) {
             let brush = u32::try_from(i + 1).unwrap_or(u32::MAX);
