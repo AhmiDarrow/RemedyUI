@@ -52,17 +52,18 @@ overflow-checks = false
 [profile.release]
 overflow-checks = true
 
-# shortcut: a local wgpu checkout with present-with-damage (preserved surface contents, buffer
-# age, damaged present); points at crates.io wgpu once the change is released upstream.
+# shortcut: wgpu with present-with-damage plus kept surface contents and buffer age, ported to
+# v30.0.2 (vello 0.4 needs wgpu 30). Upstream: gfx-rs/wgpu#10152 (merged after 30.0.2) and
+# gfx-rs/wgpu#11036; back to crates.io wgpu once both are released.
 [patch.crates-io]
-wgpu = { path = "../../../../wgpu/wgpu" }
-wgpu-core = { path = "../../../../wgpu/wgpu-core" }
-wgpu-hal = { path = "../../../../wgpu/wgpu-hal" }
-wgpu-types = { path = "../../../../wgpu/wgpu-types" }
-wgpu-naga-bridge = { path = "../../../../wgpu/wgpu-naga-bridge" }
-naga = { path = "../../../../wgpu/naga" }
-naga-types = { path = "../../../../wgpu/naga-types" }
-wgpu-core-deps-apple = { path = "../../../../wgpu/wgpu-core/platform-deps/apple" }
-wgpu-core-deps-emscripten = { path = "../../../../wgpu/wgpu-core/platform-deps/emscripten" }
-wgpu-core-deps-wasm = { path = "../../../../wgpu/wgpu-core/platform-deps/wasm" }
-wgpu-core-deps-windows-linux-android = { path = "../../../../wgpu/wgpu-core/platform-deps/windows-linux-android" }
+wgpu = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-core = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-hal = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-types = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-naga-bridge = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+naga = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+naga-types = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-core-deps-apple = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-core-deps-emscripten = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-core-deps-wasm = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-core-deps-windows-linux-android = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }

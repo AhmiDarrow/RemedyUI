@@ -2745,6 +2745,7 @@ dependencies = [
 [[package]]
 name = "naga"
 version = "30.0.2"
+source = "git+https://github.com/AhmiDarrow/wgpu?rev=a30dba29196796037ddcd7f25954a717109d5c28#a30dba29196796037ddcd7f25954a717109d5c28"
 dependencies = [
  "arrayvec",
  "bit-set 0.10.0",
@@ -2769,6 +2770,7 @@ dependencies = [
 [[package]]
 name = "naga-types"
 version = "30.0.2"
+source = "git+https://github.com/AhmiDarrow/wgpu?rev=a30dba29196796037ddcd7f25954a717109d5c28#a30dba29196796037ddcd7f25954a717109d5c28"
 dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
@@ -6974,6 +6976,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "30.0.2"
+source = "git+https://github.com/AhmiDarrow/wgpu?rev=a30dba29196796037ddcd7f25954a717109d5c28#a30dba29196796037ddcd7f25954a717109d5c28"
 dependencies = [
  "arrayvec",
  "bitflags 2.13.2",
@@ -7002,6 +7005,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "30.0.2"
+source = "git+https://github.com/AhmiDarrow/wgpu?rev=a30dba29196796037ddcd7f25954a717109d5c28#a30dba29196796037ddcd7f25954a717109d5c28"
 dependencies = [
  "arrayvec",
  "bit-set 0.10.0",
@@ -7035,6 +7039,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-apple"
 version = "30.0.2"
+source = "git+https://github.com/AhmiDarrow/wgpu?rev=a30dba29196796037ddcd7f25954a717109d5c28#a30dba29196796037ddcd7f25954a717109d5c28"
 dependencies = [
  "wgpu-hal",
 ]
@@ -7042,6 +7047,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-emscripten"
 version = "30.0.2"
+source = "git+https://github.com/AhmiDarrow/wgpu?rev=a30dba29196796037ddcd7f25954a717109d5c28#a30dba29196796037ddcd7f25954a717109d5c28"
 dependencies = [
  "wgpu-hal",
 ]
@@ -7049,6 +7055,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-wasm"
 version = "30.0.2"
+source = "git+https://github.com/AhmiDarrow/wgpu?rev=a30dba29196796037ddcd7f25954a717109d5c28#a30dba29196796037ddcd7f25954a717109d5c28"
 dependencies = [
  "wgpu-hal",
 ]
@@ -7056,6 +7063,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-windows-linux-android"
 version = "30.0.2"
+source = "git+https://github.com/AhmiDarrow/wgpu?rev=a30dba29196796037ddcd7f25954a717109d5c28#a30dba29196796037ddcd7f25954a717109d5c28"
 dependencies = [
  "wgpu-hal",
 ]
@@ -7063,6 +7071,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "30.0.2"
+source = "git+https://github.com/AhmiDarrow/wgpu?rev=a30dba29196796037ddcd7f25954a717109d5c28#a30dba29196796037ddcd7f25954a717109d5c28"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -7117,6 +7126,7 @@ dependencies = [
 [[package]]
 name = "wgpu-naga-bridge"
 version = "30.0.2"
+source = "git+https://github.com/AhmiDarrow/wgpu?rev=a30dba29196796037ddcd7f25954a717109d5c28#a30dba29196796037ddcd7f25954a717109d5c28"
 dependencies = [
  "naga",
  "wgpu-types",
@@ -7125,6 +7135,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "30.0.2"
+source = "git+https://github.com/AhmiDarrow/wgpu?rev=a30dba29196796037ddcd7f25954a717109d5c28#a30dba29196796037ddcd7f25954a717109d5c28"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
