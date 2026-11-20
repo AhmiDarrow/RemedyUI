@@ -119,3 +119,78 @@ fn backdrop_blur_makes_frosted_glass_on_a_layer_of_its_own() {
     let outside = frame.pixel(65, 100).unwrap_or([0; 4]);
     assert!(outside[0] < 5 || outside[0] > 250, "sharp outside it: {outside:?}");
 }
+
+/// Black and white stripes across the window, behind everything.
+fn stripes(ui: &Ui) -> remedy_ui_view::El {
+    ui.el("stripes")
+        .paint(|cx| {
+            for i in 0..20 {
+                let c = if i % 2 == 0 { Color::BLACK } else { Color::WHITE };
+                cx.list.fill_rect(
+                    remedy_ui_core::Rect::new(i as f32 * 10.0, 0.0, i as f32 * 10.0 + 10.0, 120.0),
+                    remedy_ui_paint::Brush::Solid(c),
+                );
+            }
+        })
+        .layout(|l| {
+            l.width = Length::Px(200.0);
+            l.height = Length::Px(120.0);
+            l.position = remedy_ui_layout::Position::Absolute;
+        })
+}
+
+/// How far the pixels in a row of the glass are from the average grey (sharp stripes: far).
+fn contrast(frame: &Frame, y: u32) -> u32 {
+    (40..100).map(|x| u32::from(frame.pixel(x, y).unwrap_or([0; 4])[0].abs_diff(128))).max().unwrap_or(0)
+}
+
+#[test]
+fn glass_fades_with_its_element() {
+    let ui = ui();
+    ui.root().child(stripes(&ui));
+    ui.root().padding(30.0).child(boxed(&ui, Style::new().backdrop_blur(6.0).opacity(0.0001)));
+    let (tree, frame) = draw(&ui);
+    let mut found = None;
+    tree.for_each(|l| {
+        if l.backdrop.is_some() {
+            found = Some(l.opacity);
+        }
+    });
+    assert!(found.is_some_and(|o| o < 0.01), "the glass's layer carries the opacity: {found:?}");
+    // Nearly transparent glass: the stripes show through almost as sharp as without it.
+    assert!(contrast(&frame, 50) > 120, "faded glass barely blurs: {}", contrast(&frame, 50));
+
+    let ui = self::ui();
+    ui.root().child(stripes(&ui));
+    ui.root().padding(30.0).child(boxed(&ui, Style::new().backdrop_blur(6.0)));
+    let (_, frame) = draw(&ui);
+    assert!(contrast(&frame, 50) < 60, "opaque glass blurs: {}", contrast(&frame, 50));
+}
+
+#[test]
+fn scroll_containers_can_be_frosted_glass() {
+    let ui = ui();
+    ui.root().child(stripes(&ui));
+    let list = ui
+        .el("list")
+        .scroll()
+        .style(Style::new().backdrop_blur(6.0).background(Color::rgba8(255, 0, 0, 40)))
+        .layout(|l| {
+            l.width = Length::Px(80.0);
+            l.height = Length::Px(40.0);
+        })
+        .child(ui.el("tall").layout(|l| l.height = Length::Px(200.0)));
+    ui.root().padding(30.0).child(list);
+    let (tree, frame) = draw(&ui);
+    let mut glass = None;
+    tree.for_each(|l| {
+        if l.backdrop.is_some() {
+            glass = Some((l.scroll.is_some(), l.content.items().len()));
+        }
+    });
+    let Some((scrolls, own)) = glass else { unreachable!("the scroll container's viewport is glass") };
+    assert!(scrolls && own > 0, "the viewport layer holds the glass and the container's own drawing");
+    assert!(contrast(&frame, 50) < 60, "blurred under it: {}", contrast(&frame, 50));
+    let tint = frame.pixel(60, 50).unwrap_or([0; 4]);
+    assert!(tint[0] > tint[2], "its background tints the glass: {tint:?}");
+}
