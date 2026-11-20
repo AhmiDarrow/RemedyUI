@@ -352,7 +352,7 @@ impl GpuCompositor {
         background: Color,
     ) -> Result<(), GpuError> {
         let mut tiles = std::mem::take(&mut self.tiles);
-        let prepared = self.prepare(&mut tiles, plan, target.width(), target.height());
+        let prepared = self.prepare(&mut tiles, plan, target.width(), target.height(), background);
         self.tiles = tiles;
         let (scene, bindings) = prepared?;
         self.renderer.submit(&scene, background, target, &bindings)
@@ -454,13 +454,15 @@ impl GpuCompositor {
     }
 
     /// Frees released tiles, rasters requested ones, and records the composite of a
-    /// `width` × `height` frame.
+    /// `width` × `height` frame over `background` (the target's clear color, which glass at
+    /// the frame's start blurs too).
     pub(crate) fn prepare(
         &mut self,
         tiles: &mut TileSet,
         plan: &FramePlan,
         width: u32,
         height: u32,
+        background: Color,
     ) -> Result<(Scene, vello_gpu::TextureBindings), GpuError> {
         if self.is_lost() {
             return Err(GpuError::Lost);
@@ -471,8 +473,7 @@ impl GpuCompositor {
         self.raster(tiles, plan)?;
         let (w, h) = size16(width, height)?;
         // The background is the target's clear color; a backdrop at the frame's start draws it.
-        let out =
-            compose(tiles, plan, Rect::new(0.0, 0.0, f32::from(w), f32::from(h)), w, h, Color::TRANSPARENT);
+        let out = compose(tiles, plan, Rect::new(0.0, 0.0, f32::from(w), f32::from(h)), w, h, background);
         self.measure(tiles);
         Ok(out)
     }

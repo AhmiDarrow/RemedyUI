@@ -293,14 +293,48 @@ fn no_pipeline_or_shader_is_created_after_start_up() {
         let f = r.render(&scene(), w, w, *scale, Color::WHITE);
         assert!(f.is_ok());
     }
-    let comp_plan = {
+    // Filters and glass: vello's filter pipelines are made with the renderer too.
+    let mut filters = DisplayList::new();
+    filters.push(Item::PushFilter(remedy_ui_paint::Filter::Blur { radius: 5.0 }));
+    filters.extend(&scene());
+    filters.push(Item::PopFilter);
+    filters.push(Item::PushFilter(remedy_ui_paint::Filter::DropShadow {
+        offset: Vec2::new(3.0, 4.0),
+        blur: 8.0,
+        color: Color::BLACK,
+    }));
+    filters.fill_rounded(
+        Rect::new(20.0, 20.0, 90.0, 60.0),
+        CornerRadii::all(8.0),
+        Brush::Solid(Color::WHITE),
+    );
+    filters.push(Item::PopFilter);
+    filters.push(Item::Backdrop {
+        rect: Rect::new(10.0, 10.0, 150.0, 120.0),
+        radii: CornerRadii::all(12.0),
+        blur: 7.0,
+    });
+    for scale in [1.0, 2.0] {
+        assert!(r.render(&filters, 240, 240, scale, Color::WHITE).is_ok());
+    }
+    let (comp_plan, glass_plan) = {
         let mut c = Compositor::new(260, 300, 1.0, ScrollPhysics::CLAMPED);
         c.commit(page());
-        c.frame(Duration::from_millis(0))
+        let first = c.frame(Duration::from_millis(0));
+        let mut tree = page();
+        if let Some(root) = tree.roots.first_mut().and_then(Arc::get_mut) {
+            let glass = Layer::new(LayerId(7), Rect::new(20.0, 20.0, 200.0, 120.0), DisplayList::new())
+                .with_backdrop(6.0, CornerRadii::all(10.0));
+            root.children.push(Arc::new(glass));
+        }
+        c.commit(tree);
+        (first, c.frame(Duration::from_millis(16)))
     };
     let ctx = r.context().clone();
     let mut g = GpuCompositor::new(r, LadderOptions::default());
     assert!(g.present_to_frame(&comp_plan, 260, 300, Color::WHITE).is_ok());
+    // A frame drawn from damage alone, with glass.
+    assert!(g.present_to_frame(&glass_plan, 260, 300, Color::WHITE).is_ok());
     let c = ctx.device.get_internal_counters();
     let after = (c.hal.render_pipelines.read(), c.hal.compute_pipelines.read(), c.hal.shader_modules.read());
     assert!(at_start.0 > 0, "counters are live: {at_start:?}");
