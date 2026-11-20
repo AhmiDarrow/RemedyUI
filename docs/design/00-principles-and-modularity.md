@@ -48,6 +48,7 @@ The allowed sideways edges inside L5:
 
 - every `widgets-*` pack, `doc-*` pack, `viz` and `embed-*` pack may depend on `widgets-core`
 - `widgets-music` may depend on `viz`
+- `widgets-stage` may depend on `viz`
 - `doc-rich` may depend on `doc-code`, behind its `code-blocks` feature, for colored code blocks
 - `media-anim` may depend on `media-image`
 - `media-playback` may depend on `media-video` (its pictures go to a video surface) and `widgets-core` (its transport bar)
@@ -69,6 +70,7 @@ Image and icon *sources* are a trait in `paint`, so `widgets-core` can show imag
 | `widgets-data` | Table, tree view, property grid, selection, sort and filter helpers | SecretFolder, Hearth, RemedyOS Files and Monitor |
 | `widgets-forms` | Number input, color picker, key capture, date and time pickers, form validation | Craft Calc, settings everywhere |
 | `widgets-extra` | QR code, rating, carousel, setup wizard, swatch grid | Portal and RemedyAI pairing, onboarding |
+| `widgets-stage` | Scenes with art and named anchors, pixel-art sprites, orbits, path layouts, knobs and tuners, faders, timelines, big physical buttons, display boards | FreeSpeak's themes, games and playful apps |
 | `widgets-music` | Fretboard, tab staff, chord diagram, note staff | GuitarRemedy, VoiceRemedy |
 | `widgets-term` | Terminal emulator element (the PTY stays in the app) | RemedyAI, RemedyOS |
 | `doc-rich` | Markdown, rich documents, `RichEditor`, find in page | FreeSpeak, wikis, notes |
