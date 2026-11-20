@@ -4577,6 +4577,7 @@ dependencies = [
  "remedy-ui-bridge-winit",
  "remedy-ui-compositor",
  "remedy-ui-core",
+ "remedy-ui-effects",
  "remedy-ui-fonts",
  "remedy-ui-host",
  "remedy-ui-input",
