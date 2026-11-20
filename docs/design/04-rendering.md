@@ -238,7 +238,14 @@ a tested tolerance.
 Planned, not implemented; nothing above relies on them:
 
 - **Merging and squashing layers**: adjacent siblings with no reason to be separate merged,
-  and layers that cover a tiny area squashed back into their parent.
+  and layers that cover a tiny area squashed back into their parent. Measured and not worth
+  it yet (`tests/layers.rs` in `remedy-ui-render-gpu`; release, 1280 × 800, CPU compositor
+  and llvmpipe): a small layer costs the compositor's plan about 0.8 µs a frame (1,000 icon
+  layers: 0.83 ms against 0.07 ms merged) and its first frame a texture each (GPU 104 ms
+  against 57 ms), but with one icon changing a frame, merged icons re-raster their shared tile
+  (CPU 9.1 ms, GPU 28 ms against 0.6 ms and 1.8 ms as layers). RemedyUI gives layers only for a
+  reason (scrolling, animation, glass, filters), so trees hold tens of them, where the cost
+  is a few tens of microseconds a frame.
 - **Partial presents on the GPU** (`Present1` dirty rects, `eglSwapBuffersWithDamage`,
   Wayland `damage_buffer`): wgpu does not offer them.
 - **Platform presenting details**: a DirectComposition flip-model swapchain with a
