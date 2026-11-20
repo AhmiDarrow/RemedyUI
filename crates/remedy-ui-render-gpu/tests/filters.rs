@@ -6,7 +6,7 @@ use std::time::Duration;
 use remedy_ui_compositor::{Compositor, Layer, LayerId, LayerTree};
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Vec2};
 use remedy_ui_input::ScrollPhysics;
-use remedy_ui_paint::{Brush, DisplayList, Filter, Item, Path};
+use remedy_ui_paint::{Blend, Brush, DisplayList, Filter, Item, Path};
 use remedy_ui_render_cpu::{CpuCompositor, CpuRenderer, Frame};
 use remedy_ui_render_gpu::*;
 
@@ -185,6 +185,60 @@ fn hostile_filter_sizes_are_bounded_on_both_renderers() {
         }
         let (visible, _) = differing(&a, &b, 8);
         assert!(visible * 1000 <= (320 * 240) as usize, "{blur}: GPU and CPU agree");
+    }
+    assert!(g.context().take_errors().is_empty());
+}
+
+#[test]
+fn shadows_thrown_off_the_top_or_left_edge_are_not_drawn_on_both_renderers() {
+    // A drop shadow thrown further up or left than its content's filter area is wide or tall
+    // lands wholly off the canvas: nothing of it shows. (vello_cpu 0.4.0 once drew it unshifted
+    // instead; found by `random_unbalanced_lists_draw_without_failing_on_both_renderers`.)
+    let card = |l: &mut DisplayList| {
+        l.fill_rounded(
+            Rect::new(-5.84, -15.488, 28.8195, 30.1691),
+            CornerRadii::all(8.16),
+            Brush::Solid(Color::rgba8(246, 193, 234, 207)),
+        );
+    };
+    let shadowed = |offset: Vec2| {
+        let mut l = DisplayList::new();
+        l.push(Item::PushFilter(Filter::DropShadow {
+            offset,
+            blur: 0.714,
+            color: Color::rgba8(125, 23, 239, 252),
+        }));
+        l.push(Item::PushLayer { opacity: 0.0531, blend: Blend::Normal });
+        l.push(Item::PopLayer);
+        card(&mut l);
+        // Left open: the painter closes the group at the end.
+        l
+    };
+    let mut plain = DisplayList::new();
+    card(&mut plain);
+    let mut g = gpu();
+    let mut c = CpuRenderer::new();
+    let Ok(want) = c.render(&plain, 96, 96, 1.0, Color::WHITE) else { unreachable!("renders") };
+    for offset in [Vec2::new(-1.0e9, -4.622), Vec2::new(-60.0, 3.0), Vec2::new(2.0, -2048.0)] {
+        let list = shadowed(offset);
+        let (Ok(a), Ok(b)) =
+            (c.render(&list, 96, 96, 1.0, Color::WHITE), g.render(&list, 96, 96, 1.0, Color::WHITE))
+        else {
+            unreachable!("both render")
+        };
+        assert_eq!(a.pixel(10, 10), Some([248, 205, 238, 255]), "{offset:?}: CPU, no shadow");
+        // Drawn through a filter layer, edges may round a little differently: no more.
+        assert_eq!(
+            differing(&a, &want, 2),
+            (0, differing(&a, &want, 2).1),
+            "{offset:?}: CPU draws no shadow"
+        );
+        assert_eq!(
+            differing(&b, &want, 2),
+            (0, differing(&b, &want, 2).1),
+            "{offset:?}: GPU draws no shadow"
+        );
+        assert_eq!(differing(&a, &b, 2), (0, differing(&a, &b, 2).1), "{offset:?}: GPU and CPU agree");
     }
     assert!(g.context().take_errors().is_empty());
 }
