@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use remedy_ui_rui::{Layout, Layouts, RuiError, SaveError, Scope, WeakLayout, Widgets};
 use remedy_ui_view::{El, Ui};
 
-use crate::{Area, Customizations, CustomizeError, Notice, files};
+use crate::{Area, Customizations, CustomizeError, Notice, Words, files, tr_in, tr_now};
 
 /// The layouts folder's name in the config folder.
 pub(crate) const LAYOUTS_DIR: &str = "layouts";
@@ -104,7 +104,7 @@ impl Customizations {
         self.live_screens()
             .into_iter()
             .find(|(s, _)| s.file == file)
-            .ok_or_else(|| CustomizeError::Invalid(format!("no screen {file} is shown")))
+            .ok_or_else(|| CustomizeError::Invalid(tr_in("en", "no-screen", &[("file", file.into())])))
     }
 
     /// The text of screen `file` as it stands: the person's version, else the app's (tracked).
@@ -148,7 +148,8 @@ impl Customizations {
         if !path.exists() {
             return Ok(());
         }
-        self.change(ui, format!("Reset layout {file}"), None, &[Area::Layouts], |_| {
+        let label = tr_now(ui, "reset-layout-named", &[("file", file.into())]);
+        self.change(ui, label, None, &[Area::Layouts], |_| {
             files::remove(&path).map_err(|e| CustomizeError::io(&path, &e))
         })
     }
@@ -159,7 +160,7 @@ impl Customizations {
             return Err(CustomizeError::NotEnabled(Area::Layouts));
         }
         let all = self.files_of(Area::Layouts);
-        self.change(ui, "Reset all layouts", None, &[Area::Layouts], |_| {
+        self.change(ui, tr_now(ui, "reset-all-layouts", &[]), None, &[Area::Layouts], |_| {
             for p in &all {
                 files::remove(p).map_err(|e| CustomizeError::io(p, &e))?;
             }
@@ -172,7 +173,7 @@ impl Customizations {
         let path = layout.path();
         let notices = layout
             .error()
-            .map(|e| Notice { area: Area::Layouts, path: path.clone(), message: e.to_string() })
+            .map(|e| Notice::new(Area::Layouts, path.clone(), Words::text(e.to_string())))
             .into_iter()
             .collect();
         self.set_notices(Area::Layouts, Some(&path), notices);

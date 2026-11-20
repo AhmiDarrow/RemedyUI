@@ -12,7 +12,7 @@ use remedy_ui_services_i18n::{
 use remedy_ui_view::Ui;
 use serde_json::Value;
 
-use crate::{Area, Customizations, CustomizeError, Notice, files};
+use crate::{Area, Customizations, CustomizeError, Notice, Words, files, tr_now};
 
 /// The override folder's name in the config folder.
 pub(crate) const TEXT_DIR: &str = "text";
@@ -80,9 +80,8 @@ impl Customizations {
         }
         let path = self.text_dir().join(format!("{file_locale}.json"));
         let key = format!("text:{file_locale}:{source}");
-        self.change(ui, format!("Change “{source}”"), Some(key), &[Area::Text], |_| {
-            write_table(&path, &table)
-        })
+        let label = tr_now(ui, "change-text", &[("text", source.into())]);
+        self.change(ui, label, Some(key), &[Area::Text], |_| write_table(&path, &table))
     }
 
     /// Takes the person's text for `source` in `locale` away (undoable).
@@ -94,7 +93,8 @@ impl Customizations {
             return Ok(());
         }
         let path = self.text_dir().join(format!("{file_locale}.json"));
-        self.change(ui, format!("Reset “{source}”"), None, &[Area::Text], |_| write_table(&path, &table))
+        let label = tr_now(ui, "reset-text", &[("text", source.into())]);
+        self.change(ui, label, None, &[Area::Text], |_| write_table(&path, &table))
     }
 
     /// Removes every message file the person wrote (undoable).
@@ -103,7 +103,7 @@ impl Customizations {
             return Err(CustomizeError::NotEnabled(Area::Text));
         }
         let all = self.files_of(Area::Text);
-        self.change(ui, "Reset all text", None, &[Area::Text], |_| {
+        self.change(ui, tr_now(ui, "reset-all-text", &[]), None, &[Area::Text], |_| {
             for p in &all {
                 files::remove(p).map_err(|e| CustomizeError::io(p, &e))?;
             }
@@ -157,9 +157,8 @@ impl Customizations {
             set_entry(&file, entry).map_err(|e| CustomizeError::Invalid(e.to_string()))?
         };
         let key = format!("message:{}:{}", canonical_locale(locale), entry.id);
-        self.change(ui, format!("Change {}", entry.id), Some(key), &[Area::Text], |_| {
-            write_text(&path, &next)
-        })
+        let label = tr_now(ui, "change-named", &[("name", (&entry.id).into())]);
+        self.change(ui, label, Some(key), &[Area::Text], |_| write_text(&path, &next))
     }
 
     /// Takes the person's version of message `id` in `locale` away (undoable).
@@ -173,7 +172,8 @@ impl Customizations {
             return Ok(());
         }
         let next = remove_entry(&file, id);
-        self.change(ui, format!("Reset {id}"), None, &[Area::Text], |_| write_text(&path, &next))
+        let label = tr_now(ui, "reset-named", &[("name", id.into())]);
+        self.change(ui, label, None, &[Area::Text], |_| write_text(&path, &next))
     }
 
     /// Reads the message files again (after the person edited them by hand).
@@ -190,26 +190,24 @@ impl Customizations {
         let mut notices = Vec::new();
         if let Some(c) = catalog {
             c.reload_overrides();
-            notices.extend(c.override_problems().into_iter().map(|p| Notice {
-                area: Area::Text,
-                path: p.path,
-                message: format!("skipped: {}", p.detail),
+            notices.extend(c.override_problems().into_iter().map(|p| {
+                Notice::new(Area::Text, p.path, Words::msg("text-skipped", vec![("detail", p.detail.into())]))
             }));
         }
         if let Some(m) = messages {
             m.reload();
             for p in m.problems() {
-                let (path, message) = match p {
+                let (path, words) = match p {
                     Problem::Syntax { source, detail } => (
                         PathBuf::from(source),
-                        format!("part of the file did not read, the rest is used: {detail}"),
+                        Words::msg("text-part-unread", vec![("detail", detail.into())]),
                     ),
-                    Problem::Io { path, detail } => (PathBuf::from(path), detail),
+                    Problem::Io { path, detail } => (PathBuf::from(path), Words::text(detail)),
                     // Missing messages and formatting problems are the app's, not the file's.
                     _ => continue,
                 };
                 if path.starts_with(&dir) && !notices.iter().any(|n: &Notice| n.path == path) {
-                    notices.push(Notice { area: Area::Text, path, message });
+                    notices.push(Notice::new(Area::Text, path, words));
                 }
             }
         }

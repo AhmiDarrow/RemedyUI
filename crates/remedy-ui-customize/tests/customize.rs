@@ -1073,3 +1073,83 @@ fn backgrounds_and_fonts_are_chosen_exported_and_reset() {
             && !dir.file("theme-assets").read_dir().is_ok_and(|mut d| d.next().is_some())
     );
 }
+
+// --- Languages -----------------------------------------------------------------------------
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+/// The value of the status named `name`.
+fn status_value(ui: &Ui, name: &str) -> String {
+    find_where(ui, name, |s| s.role() == remedy_ui_a11y::Role::Status)
+        .and_then(|e| e.composed_semantics())
+        .and_then(|s| s.value_text().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+#[test]
+fn the_page_follows_the_windows_language() {
+    let dir = TempDir::new("locale");
+    dir.write("theme.json", "not json");
+    let ui = window();
+    let c = custom(&dir);
+    c.attach(&ui);
+    let cmds = commands();
+    c.enable_shortcuts(&cmds);
+    let _ = ui.root().child(settings_page(&ui, &c));
+    frame(&ui);
+    assert!(find(&ui, "Customize").is_some());
+    assert!(find(&ui, "Contrast").is_some(), "the theme editor is open");
+
+    // German: headings, tabs, the open editor and the notice follow.
+    ui.set_locale("de-DE");
+    frame(&ui);
+    assert!(find(&ui, "Customize").is_none(), "nothing is left in English");
+    assert!(find(&ui, "Anpassen").is_some(), "the page's heading");
+    assert!(find(&ui, "Kontrast").is_some(), "the theme editor, built again");
+    assert_eq!(status_value(&ui, "Kontrast"), "Alle Farbpaare erfüllen den WCAG-Kontrast");
+    assert!(find(&ui, "Textgröße für Fließtext zurücksetzen").is_some(), "token names are translated");
+    let notice = c.notices().first().must("a notice").clone();
+    assert!(notice.message.starts_with("not a design tokens file"), "the API keeps English");
+    assert!(notice.localized_message(&ui).starts_with("keine Design-Token-Datei"), "{notice:?}");
+    assert!(act(&ui, "Tastenkürzel", Action::Click), "the tab, by its German title");
+    frame(&ui);
+    assert!(find(&ui, "Tastenkürzel-Editor").is_some());
+    assert!(find(&ui, "Tastenkürzel für Find hinzufügen").is_some());
+
+    // Arabic: the editor and its undo history name.
+    ui.set_locale("ar");
+    frame(&ui);
+    assert!(find(&ui, "تخصيص").is_some(), "the page's heading in Arabic");
+    assert!(find(&ui, "محرر اختصارات لوحة المفاتيح").is_some());
+    c.set_token(&ui, &Token::color("accent"), TokenValue::Color(Color::rgb8(0xff, 0x88, 0)))
+        .must("change the accent");
+    // The token's name is isolated inside the Arabic sentence, as every placeholder is.
+    let label = ui.history().first().map(|h| h.label.clone()).must("an undo entry");
+    assert_eq!(label, "تغيير \u{2068}اللون المميز\u{2069}");
+
+    // Back to English.
+    ui.set_locale("en");
+    frame(&ui);
+    assert!(find(&ui, "Shortcut editor").is_some());
+}
+
+#[test]
+fn a_standalone_editor_follows_the_windows_language() {
+    let dir = TempDir::new("locale-editor");
+    let ui = window();
+    let c = custom(&dir);
+    c.attach(&ui);
+    let _ = ui.root().child(theme_editor(&ui, &c));
+    frame(&ui);
+    assert!(find(&ui, "Theme editor").is_some());
+    ui.set_locale("ar-EG");
+    frame(&ui);
+    assert!(find(&ui, "محرر السمة").is_some(), "the group's name");
+    assert!(find(&ui, "الألوان").is_some(), "a section's heading");
+    assert!(find(&ui, "إعادة تعيين السمة").is_some(), "the theme's reset");
+    assert_eq!(status_value(&ui, "التباين"), "جميع أزواج الألوان تستوفي تباين WCAG");
+}

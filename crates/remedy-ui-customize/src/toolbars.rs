@@ -11,7 +11,7 @@ use remedy_ui_view::Ui;
 use remedy_ui_widgets_nav::Commands;
 use serde_json::Value;
 
-use crate::{Area, Customizations, CustomizeError, Notice, files};
+use crate::{Area, Customizations, CustomizeError, Notice, Words, files, tr_now};
 
 /// The toolbars file's name in the config folder.
 pub(crate) const TOOLBARS_FILE: &str = "toolbars.json";
@@ -37,20 +37,24 @@ pub(crate) struct ToolbarArea {
     pub(crate) file: BTreeMap<String, Vec<String>>,
 }
 
-fn parse(text: &str) -> Result<BTreeMap<String, Vec<String>>, String> {
-    let doc: Value = serde_json::from_str(text).map_err(|e| format!("not a toolbars file: {e}"))?;
+fn parse(text: &str) -> Result<BTreeMap<String, Vec<String>>, Words> {
+    let doc: Value = serde_json::from_str(text)
+        .map_err(|e| Words::msg("not-toolbars-file", vec![("detail", e.to_string().into())]))?;
     let Value::Object(map) = doc else {
-        return Err("a toolbars file is an object of slots to lists of command ids".into());
+        return Err(Words::msg("toolbars-not-object", Vec::new()));
     };
     let mut out = BTreeMap::new();
     for (slot, v) in map {
         let Some(items) = v.as_array() else {
-            return Err(format!("{slot}: a slot is a list of command ids such as [\"file.save\"]"));
+            return Err(Words::msg("toolbar-slot-not-list", vec![("slot", (&slot).into())]));
         };
         let ids = items
             .iter()
-            .map(|i| i.as_str().map(str::to_owned).ok_or_else(|| format!("{slot}: command ids are text")))
-            .collect::<Result<Vec<String>, String>>()?;
+            .map(|i| {
+                let not_text = || Words::msg("toolbar-ids-not-text", vec![("slot", (&slot).into())]);
+                i.as_str().map(str::to_owned).ok_or_else(not_text)
+            })
+            .collect::<Result<Vec<String>, Words>>()?;
         out.insert(slot, ids);
     }
     Ok(out)
@@ -154,14 +158,15 @@ impl Customizations {
         if file.remove(id).is_none() {
             return Ok(());
         }
-        self.change(ui, format!("Reset {}", slot.label), None, &[Area::Toolbars], |c| c.write_toolbars(&file))
+        let label = tr_now(ui, "reset-named", &[("name", (&slot.label).into())]);
+        self.change(ui, label, None, &[Area::Toolbars], |c| c.write_toolbars(&file))
     }
 
     /// Gives every slot the app's commands back (undoable).
     pub fn reset_toolbars(&self, ui: &Ui) -> Result<(), CustomizeError> {
         self.toolbar_file_map()?;
         let path = self.toolbars_file();
-        self.change(ui, "Reset all toolbars", None, &[Area::Toolbars], |_| {
+        self.change(ui, tr_now(ui, "reset-all-toolbars", &[]), None, &[Area::Toolbars], |_| {
             files::remove(&path).map_err(|e| CustomizeError::io(&path, &e))
         })
     }
@@ -195,9 +200,8 @@ impl Customizations {
         } else {
             file.insert(slot.id.clone(), ids);
         }
-        self.change(ui, format!("Change {}", slot.label), None, &[Area::Toolbars], |c| {
-            c.write_toolbars(&file)
-        })
+        let label = tr_now(ui, "change-named", &[("name", (&slot.label).into())]);
+        self.change(ui, label, None, &[Area::Toolbars], |c| c.write_toolbars(&file))
     }
 
     fn write_toolbars(&self, file: &BTreeMap<String, Vec<String>>) -> Result<(), CustomizeError> {
@@ -216,13 +220,13 @@ impl Customizations {
         let read = match files::read(&path) {
             Ok(None) => Ok(BTreeMap::new()),
             Ok(Some(bytes)) => String::from_utf8(bytes)
-                .map_err(|_| "the file is not UTF-8 text".to_owned())
+                .map_err(|_| Words::msg("notice-not-utf8", Vec::new()))
                 .and_then(|t| parse(&t)),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(Words::text(e.to_string())),
         };
         let (file, notices) = match read {
             Ok(f) => (f, Vec::new()),
-            Err(message) => (BTreeMap::new(), vec![Notice { area: Area::Toolbars, path, message }]),
+            Err(words) => (BTreeMap::new(), vec![Notice::new(Area::Toolbars, path, words)]),
         };
         let slots = {
             let mut area = self.0.toolbars.borrow_mut();
