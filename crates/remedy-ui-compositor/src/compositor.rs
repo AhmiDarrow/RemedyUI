@@ -130,8 +130,6 @@ impl CompositeOp {
 /// by halves on a grid that starts at the corner of what is drawn, so glass drawn from a
 /// rectangle starting elsewhere would come out a level or two different.
 const GLASS_GRID: f32 = 64.0;
-/// Past this many damaged rects a frame redraws one rect around them all.
-const MAX_REDRAW_RECTS: usize = 8;
 
 impl FramePlan {
     /// The rectangles a renderer that keeps the last frame draws again, in whole device pixels
@@ -142,7 +140,11 @@ impl FramePlan {
     /// ([`CompositeOp::PushFilter`]) start on a 64-pixel grid,
     /// so the glass comes out exactly as in a full frame. Both compositors use it, so a frame
     /// drawn from damage is the same frame on either.
-    pub fn redraw_rects(&self, width: u32, height: u32, kept: bool) -> Vec<Rect> {
+    ///
+    /// `render_cost` is what drawing one more rectangle costs a renderer, in the pixels it
+    /// could draw in that time: when one rectangle around them all costs less than drawing
+    /// them one by one, that one is drawn instead.
+    pub fn redraw_rects(&self, width: u32, height: u32, kept: bool, render_cost: f32) -> Vec<Rect> {
         let full = Rect::new(0.0, 0.0, width as f32, height as f32);
         if !kept || self.damage.area() >= full.size().area() * 0.6 {
             return vec![full];
@@ -160,8 +162,20 @@ impl FramePlan {
                 _ => None,
             })
             .collect();
+        // A rect that draws any of glass draws all it reads (a part of a blur is not the same
+        // as that part of the whole blur), starting on the grid. Merged rects can newly reach
+        // glass that no damage touched, so this holds for them too.
+        let touches = |r: Rect, g: &Rect| g.intersect(r).is_some_and(|i| !i.is_empty());
         let snap = |mut r: Rect| {
-            if glass.iter().any(|g| g.intersect(r).is_some_and(|i| !i.is_empty())) {
+            let touched = glass.iter().any(|g| touches(r, g));
+            loop {
+                let grown = glass.iter().filter(|g| touches(r, g)).fold(r, |r, g| r.union(*g));
+                if grown == r {
+                    break;
+                }
+                r = grown;
+            }
+            if touched {
                 r.min.x = (r.min.x / GLASS_GRID).floor() * GLASS_GRID;
                 r.min.y = (r.min.y / GLASS_GRID).floor() * GLASS_GRID;
             }
@@ -189,11 +203,15 @@ impl FramePlan {
             }
             rects = next;
         }
-        // Each rect is a render and a submit of its own: past a few, one rect around them all
-        // costs less (spinners, carets and badges scattered over a 4K window).
-        if rects.len() > MAX_REDRAW_RECTS {
-            let all = rects.iter().copied().reduce(Rect::union).unwrap_or(full);
-            return vec![snap(all).intersect(full).unwrap_or(full)];
+        // Each rect is a render of its own: one around them all is cheaper when the renders it
+        // saves cost more than the pixels it adds (spinners, carets and badges over a window).
+        if let Some(all) = rects.iter().copied().reduce(Rect::union) {
+            let all = snap(all).intersect(full).unwrap_or(full);
+            let apart: f32 = rects.iter().map(|r| r.size().area()).sum();
+            let saved = (rects.len() - 1) as f32 * render_cost;
+            if saved > all.size().area() - apart {
+                return vec![all];
+            }
         }
         rects
     }

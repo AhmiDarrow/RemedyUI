@@ -3,10 +3,10 @@
 
 use std::collections::HashMap;
 
-use remedy_ui_compositor::{CompositeOp, Compositor, FramePlan, LayerId, TileKey};
+use remedy_ui_compositor::{Compositor, FramePlan, LayerId, TileKey};
 use remedy_ui_core::{Color, Rect};
 use remedy_ui_paint::Affine;
-use remedy_ui_render_cpu::Frame;
+use remedy_ui_render_cpu::{CompositeTarget, Frame, record_ops};
 use vello_gpu::kurbo;
 use vello_gpu::peniko::{ImageQuality, ImageSampler};
 use vello_gpu::{ImageSource, Scene, TextureId, TextureRegion};
@@ -53,10 +53,16 @@ impl std::fmt::Debug for GpuCompositor {
     }
 }
 
+/// What one more damaged rectangle costs the GPU, in pixels it composites in the same time
+/// (a tuning constant): each is a scene, an encoding and a submit of its own. Measured on an
+/// RTX 3080 at 4K: about 0.12 ms a rectangle, while compositing costs about 0.13 ms a million
+/// pixels.
+const RENDER_COST_PIXELS: f32 = 1_000_000.0;
+
 /// The rectangles of `plan` to draw again ([`FramePlan::redraw_rects`]) as whole pixels
 /// `(x0, y0, x1, y1)` within a `w` × `h` frame.
 fn damage_rects(plan: &FramePlan, w: u16, h: u16, kept: bool) -> Vec<(u16, u16, u16, u16)> {
-    plan.redraw_rects(u32::from(w), u32::from(h), kept)
+    plan.redraw_rects(u32::from(w), u32::from(h), kept, RENDER_COST_PIXELS)
         .into_iter()
         .filter_map(|r| {
             let (x0, y0) = (r.min.x.max(0.0) as u16, r.min.y.max(0.0) as u16);
@@ -77,211 +83,69 @@ fn compose(
     h: u16,
     background: Color,
 ) -> (Scene, vello_gpu::TextureBindings) {
-    let mut rec = Recorder {
-        scene: Scene::new(w, h),
-        bindings: vello_gpu::TextureBindings::new(),
-        tiles,
-        shift: kurbo::Affine::translate((-f64::from(area.min.x), -f64::from(area.min.y))),
-        background,
-    };
-    rec.ops(&plan.ops, 0, area, false);
+    let mut rec = Recorder { scene: Scene::new(w, h), bindings: vello_gpu::TextureBindings::new(), tiles };
+    let shift = kurbo::Affine::translate((-f64::from(area.min.x), -f64::from(area.min.y)));
+    record_ops(&mut rec, &plan.ops, 0, area, false, shift, background);
     (rec.scene, rec.bindings)
 }
 
-/// Records composite ops into a scene.
+/// The GPU's [`CompositeTarget`]: a scene, the tiles it draws from, and the textures it binds.
 struct Recorder<'a> {
     scene: Scene,
     bindings: vello_gpu::TextureBindings,
     tiles: &'a TileSet,
-    /// Device pixels to the scene's pixels.
-    shift: kurbo::Affine,
-    background: Color,
 }
 
-impl Recorder<'_> {
-    /// Records the ops from index `first` that touch `area` (device pixels); with `close`,
-    /// layers they leave open are closed (a backdrop's replay). The same walk as the CPU
-    /// compositor's.
-    fn ops(&mut self, all: &[CompositeOp], first: usize, area: Rect, close: bool) {
-        let ops = all.get(first..).unwrap_or(&[]);
-        let mut skip = 0u32;
-        // What is open: true for a clip path, false for a layer.
-        let mut open: Vec<bool> = Vec::new();
-        // What is culled against: inside a filter group, its whole region, so the group's
-        // source is the same whatever part of the frame is drawn.
-        let mut areas = vec![area];
-        for (k, op) in ops.iter().enumerate() {
-            if skip > 0 {
-                match op {
-                    CompositeOp::PushClip { .. }
-                    | CompositeOp::PushOpacity(_)
-                    | CompositeOp::PushFilter { .. } => skip += 1,
-                    CompositeOp::PopClip | CompositeOp::PopOpacity | CompositeOp::PopFilter => skip -= 1,
-                    CompositeOp::Tile { .. } | CompositeOp::Backdrop { .. } => {}
-                }
-                continue;
-            }
-            match op {
-                CompositeOp::PushClip { transform, rect, .. }
-                    if transform
-                        .apply_rect(*rect)
-                        .intersect(*areas.last().unwrap_or(&area))
-                        .is_none_or(|r| r.is_empty()) =>
-                {
-                    skip = 1;
-                }
-                CompositeOp::PushClip { transform, rect, radii } => {
-                    // A clip path, not an isolated clip layer: clipping needs no layer of its
-                    // own, and one per clipped element made every composite that many groups.
-                    self.scene.set_transform(self.shift * kaffine(*transform));
-                    if *radii == remedy_ui_core::CornerRadii::ZERO {
-                        self.scene.push_clip_rect(&krect(*rect));
-                    } else {
-                        self.scene.push_clip_path(&remedy_ui_render_cpu::rounded_path(*rect, *radii));
-                    }
-                    open.push(true);
-                }
-                CompositeOp::PopClip => {
-                    self.scene.pop_clip();
-                    open.pop();
-                }
-                CompositeOp::PopOpacity => {
-                    self.scene.pop_layer();
-                    open.pop();
-                }
-                CompositeOp::PushOpacity(o) => {
-                    self.scene.push_opacity_layer(*o);
-                    open.push(false);
-                }
-                CompositeOp::PushFilter { region, .. }
-                    if region.intersect(*areas.last().unwrap_or(&area)).is_none_or(|r| r.is_empty()) =>
-                {
-                    skip = 1;
-                }
-                CompositeOp::PushFilter { transform, filter, region } => {
-                    self.scene.set_transform(self.shift * kaffine(*transform));
-                    match remedy_ui_render_cpu::layer_filter(filter, transform.scale_factor()) {
-                        Some(f) => self.scene.push_filter_layer(f),
-                        None => self.scene.push_opacity_layer(1.0),
-                    }
-                    // The group's source, bounded by its region: the same picture to filter
-                    // in every rectangle that draws it.
-                    self.scene.set_transform(self.shift);
-                    self.scene.push_clip_rect(&krect(*region));
-                    // A filter group is a layer and a clip path, closed in that order.
-                    open.push(false);
-                    open.push(true);
-                    areas.push(*region);
-                }
-                CompositeOp::PopFilter => {
-                    self.scene.pop_clip();
-                    self.scene.pop_layer();
-                    open.pop();
-                    open.pop();
-                    if areas.len() > 1 {
-                        areas.pop();
-                    }
-                }
-                CompositeOp::Backdrop { transform, rect, radii, blur, opacity } => {
-                    if transform
-                        .apply_rect(*rect)
-                        .intersect(*areas.last().unwrap_or(&area))
-                        .is_none_or(|r| r.is_empty())
-                    {
-                        continue;
-                    }
-                    let at = first + k;
-                    let root = CompositeOp::backdrop_root(all, at);
-                    // What the glass reads: its own box and the blur's reach around it, the
-                    // same whatever part of the frame is drawn, so the blur is too.
-                    let reach = CompositeOp::backdrop_reach(transform, *blur);
-                    let g = transform.apply_rect(*rect);
-                    let under = Rect::new(g.min.x - reach, g.min.y - reach, g.max.x + reach, g.max.y + reach);
-                    self.scene.set_transform(self.shift * kaffine(*transform));
-                    self.scene.push_clip_layer(&remedy_ui_render_cpu::rounded_path(*rect, *radii));
-                    if *opacity < 1.0 {
-                        self.scene.push_opacity_layer(*opacity);
-                    }
-                    match remedy_ui_render_cpu::backdrop_filter(*blur, transform.scale_factor()) {
-                        Some(f) => self.scene.push_filter_layer(f),
-                        None => self.scene.push_opacity_layer(1.0),
-                    }
-                    self.scene.set_transform(self.shift);
-                    self.scene.push_clip_rect(&krect(under));
-                    if root == 0 {
-                        // The frame's start: its background is under everything.
-                        self.scene.set_paint(vello_gpu::color::AlphaColor::<vello_gpu::color::Srgb>::new([
-                            self.background.r,
-                            self.background.g,
-                            self.background.b,
-                            self.background.a,
-                        ]));
-                        self.scene.fill_rect(&krect(under));
-                    }
-                    if let Some(prefix) = all.get(..at) {
-                        self.ops(prefix, root, under, true);
-                    }
-                    self.scene.pop_clip();
-                    self.scene.pop_layer();
-                    if *opacity < 1.0 {
-                        self.scene.pop_layer();
-                    }
-                    self.scene.pop_layer();
-                }
-                CompositeOp::Tile { layer, key, transform, rect, raster_scale, area: part } => {
-                    if transform
-                        .apply_rect(*part)
-                        .intersect(*areas.last().unwrap_or(&area))
-                        .is_none_or(|r| r.is_empty())
-                    {
-                        continue;
-                    }
-                    let Some(tile) = self.tiles.0.get(&(*layer, *key)) else { continue };
-                    self.bindings
-                        .insert(tile.id, tile.texture.create_view(&wgpu::TextureViewDescriptor::default()));
-                    let [a, b, c, d, e, f] = transform.0;
-                    let exact = b == 0.0
-                        && c == 0.0
-                        && a == *raster_scale
-                        && d == *raster_scale
-                        && e.fract() == 0.0
-                        && f.fract() == 0.0;
-                    self.scene.set_transform(self.shift * kaffine(*transform));
-                    self.scene.set_paint(vello_gpu::Image {
-                        image: ImageSource::external_texture(tile.id, TextureRegion::Full, true),
-                        sampler: ImageSampler {
-                            quality: if exact { ImageQuality::Low } else { ImageQuality::Medium },
-                            ..Default::default()
-                        },
-                    });
-                    let inv = 1.0 / f64::from(*raster_scale);
-                    self.scene.set_paint_transform(
-                        kurbo::Affine::translate((f64::from(rect.min.x), f64::from(rect.min.y)))
-                            * kurbo::Affine::scale(inv),
-                    );
-                    self.scene.fill_rect(&krect(*part));
-                    self.scene.reset_paint_transform();
-                }
-            }
-        }
-        if close {
-            for clip in open.into_iter().rev() {
-                if clip {
-                    self.scene.pop_clip();
-                } else {
-                    self.scene.pop_layer();
-                }
-            }
-        }
+impl CompositeTarget for Recorder<'_> {
+    fn set_transform(&mut self, transform: kurbo::Affine) {
+        self.scene.set_transform(transform);
     }
-}
-
-fn kaffine(a: Affine) -> kurbo::Affine {
-    kurbo::Affine::new(a.0.map(f64::from))
-}
-
-fn krect(r: remedy_ui_core::Rect) -> kurbo::Rect {
-    kurbo::Rect::new(f64::from(r.min.x), f64::from(r.min.y), f64::from(r.max.x), f64::from(r.max.y))
+    fn push_clip_rect(&mut self, rect: &kurbo::Rect) {
+        self.scene.push_clip_rect(rect);
+    }
+    fn push_clip_path(&mut self, path: &kurbo::BezPath) {
+        self.scene.push_clip_path(path);
+    }
+    fn pop_clip(&mut self) {
+        self.scene.pop_clip();
+    }
+    fn push_clip_layer(&mut self, path: &kurbo::BezPath) {
+        self.scene.push_clip_layer(path);
+    }
+    fn push_opacity_layer(&mut self, opacity: f32) {
+        self.scene.push_opacity_layer(opacity);
+    }
+    fn push_filter_layer(&mut self, filter: remedy_ui_render_cpu::LayerFilter) {
+        self.scene.push_filter_layer(filter);
+    }
+    fn pop_layer(&mut self) {
+        self.scene.pop_layer();
+    }
+    fn fill_color(&mut self, rect: &kurbo::Rect, c: Color) {
+        self.scene
+            .set_paint(vello_gpu::color::AlphaColor::<vello_gpu::color::Srgb>::new([c.r, c.g, c.b, c.a]));
+        self.scene.fill_rect(rect);
+    }
+    fn fill_tile(
+        &mut self,
+        tile: (LayerId, TileKey),
+        paint_transform: kurbo::Affine,
+        exact: bool,
+        part: &kurbo::Rect,
+    ) {
+        let Some(tile) = self.tiles.0.get(&tile) else { return };
+        self.bindings.insert(tile.id, tile.texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        self.scene.set_paint(vello_gpu::Image {
+            image: ImageSource::external_texture(tile.id, TextureRegion::Full, true),
+            sampler: ImageSampler {
+                quality: if exact { ImageQuality::Low } else { ImageQuality::Medium },
+                ..Default::default()
+            },
+        });
+        self.scene.set_paint_transform(paint_transform);
+        self.scene.fill_rect(part);
+        self.scene.reset_paint_transform();
+    }
 }
 
 /// A graphics adapter as people read it ([`GpuCompositor::adapter`]).
@@ -349,6 +213,14 @@ impl GpuCompositor {
     /// Tiles held.
     pub fn tile_count(&self) -> usize {
         self.tiles.0.len()
+    }
+
+    /// Frees what this compositor and its device keep only to go faster next time (the small
+    /// tiles' atlas, the read back's staging buffer), when the system asks for memory back.
+    /// Tiles go through the compositor's own [`Compositor::trim_memory`].
+    pub fn trim_memory(&mut self) {
+        self.atlas = None;
+        self.renderer.context().trim_memory();
     }
 
     /// True when the device is gone and [`recover`](Self::recover) must run before drawing.
