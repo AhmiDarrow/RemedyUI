@@ -393,6 +393,53 @@ strings.
 For translations themselves, use Fluent message files through [`i18n`](crate::i18n)
 (feature `i18n`, on with `forms`); `cargo remedy new` sets this up.
 
+## The engine's own words
+
+The words RemedyUI shows itself (an icon button's "Close", the password field's "Show
+password", the spelling menu, the media player's controls, the board editor, the
+customization pages) follow the window's locale with built-in translations, in
+[`words`](crate::words). Your app does nothing for this: set the locale as above, and those
+words change with it. RemedyUI ships them in Spanish, Simplified Chinese, Hindi, Arabic,
+French, Brazilian Portuguese, Russian, Japanese, German and Bengali
+([`words::shipped`](crate::words::shipped) lists them with their names in their own
+language, for a language menu). A locale is matched by tag, then by language and script, then
+by language: `es-MX` reads Spanish and `pt-PT` Brazilian Portuguese, while `zh-TW` and
+`zh-HK` read English rather than Simplified characters. English, the pseudo-locales and
+languages not shipped show the English, which the pseudo-locales then rewrite as above.
+
+```
+use remedy_ui::words;
+
+assert_eq!(words::best_match("fr-CA").map(|l| l.tag), Some("fr"));
+assert!(words::best_match("ar").is_some_and(|l| l.rtl));
+// Not translated: show the English.
+assert_eq!(words::word_or("en-GB", "Close"), "Close");
+```
+
+Words the engine reads while it builds a widget are those of the locale at that time (a
+window's locale is set before it is built); words read in a binding (the media player's Play
+and Pause, a form's status) follow a later change at once.
+
+Structs of words such as `spell::MenuLabels`, `extra::StepperLabels` and
+`board::BoardLabels` keep English as their `Default`; their `for_locale` gives the built-in
+words for a locale, and the widgets show those for the window's locale whenever they are
+given the defaults. For your own wording, pass the struct's `translated` your catalog. The
+files, `words/<tag>.json` in the `remedy-ui-words` crate, have the source-keyed shape of
+`i18n::Catalog`, so they can be loaded into one too (counted words hold their plural forms
+separated by `" || "`).
+
+**For contributors.** Engine code that shows a word calls `ui.word("…")` (or
+`ui.counted("{count} file", "{count} files", n)` for a count, and
+`words::word_or(locale, "…")` where it has only a locale). A test reads the workspace's
+sources for these calls and fails when `words/en.json` does not list exactly the words they
+say; after adding or changing one, rewrite the inventory with
+
+```text
+REMEDY_WRITE_WORDS=1 cargo test -p remedy-ui-words
+```
+
+and commit `en.json`. Translators then fill the new keys in each locale's file.
+
 ## Spell checking
 
 Feature `spell` adds [`spell`](crate::spell): the platform's checker or Hunspell
