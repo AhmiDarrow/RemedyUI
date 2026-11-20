@@ -32,12 +32,29 @@ mod rich_html;
 mod safety;
 mod style;
 
-/// True for locales written right to left (Arabic, Hebrew, Persian, Urdu, …).
+/// True for locales written right to left (Arabic, Hebrew, Persian, Urdu, …). A script
+/// subtag decides when there is one: `pa-Arab` (Punjabi in Shahmukhi) and `ks-Arab` are right
+/// to left, `ug-Latn` and `az-Latn` are not; otherwise the language's usual script does.
+///
+/// ```
+/// use remedy_ui_text::is_rtl_locale;
+/// assert!(is_rtl_locale("ar-EG") && is_rtl_locale("he") && is_rtl_locale("pa-Arab-PK"));
+/// assert!(!is_rtl_locale("en-US") && !is_rtl_locale("hi") && !is_rtl_locale("ug-Latn"));
+/// ```
 pub fn is_rtl_locale(locale: &str) -> bool {
-    let lang = locale.split(['-', '_']).next().unwrap_or("").to_ascii_lowercase();
+    let mut parts = locale.split(['-', '_']);
+    let lang = parts.next().unwrap_or("").to_ascii_lowercase();
+    // A script subtag is four letters, right after the language.
+    if let Some(script) = parts.next().filter(|s| s.len() == 4 && s.chars().all(|c| c.is_ascii_alphabetic())) {
+        return matches!(
+            script.to_ascii_lowercase().as_str(),
+            "arab" | "aran" | "hebr" | "syrc" | "thaa" | "nkoo" | "adlm" | "rohg" | "mand" | "samr" | "mend"
+        );
+    }
     matches!(
         lang.as_str(),
-        "ar" | "he" | "iw" | "fa" | "ur" | "ps" | "sd" | "ug" | "yi" | "dv" | "ckb" | "syr"
+        "ar" | "he" | "iw" | "fa" | "ur" | "ps" | "sd" | "ug" | "yi" | "dv" | "ckb" | "syr" | "ks" | "prs" | "arc"
+            | "nqo" | "lrc" | "mzn" | "glk"
     )
 }
 

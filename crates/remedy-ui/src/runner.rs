@@ -1741,6 +1741,14 @@ impl std::fmt::Debug for Runner {
 impl Runner {
     /// A runner for `config`; `setup` runs when the host is ready.
     pub fn new(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Self {
+        // The engine's own messages write numbers the locale's way (Arabic-Indic digits in
+        // Arabic, a comma for decimals in German), from the same data the app's do.
+        #[cfg(feature = "i18n")]
+        remedy_ui_view::strings::set_number_format(Some(std::rc::Rc::new(|locale, value, places| {
+            let max = places.map_or(remedy_ui_services_i18n::MAX_SCALE, |p| p.min(28) as u8);
+            let d = remedy_ui_services_i18n::Decimal::from_f64(value, max)?;
+            Some(remedy_ui_services_i18n::NumberSymbols::for_locale(locale).format(d, d.scale()))
+        })));
         let geometry = config
             .data_dir
             .clone()
