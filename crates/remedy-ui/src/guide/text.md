@@ -412,9 +412,15 @@ use remedy_ui::words;
 
 assert_eq!(words::best_match("fr-CA").map(|l| l.tag), Some("fr"));
 assert!(words::best_match("ar").is_some_and(|l| l.rtl));
+assert_eq!(words::word_or("de-AT", "Close"), "Schließen");
 // Not translated: show the English.
 assert_eq!(words::word_or("en-GB", "Close"), "Close");
 ```
+
+The translations were written with machine help and wait for review by native speakers;
+corrections to `words/<tag>.json` are welcome. A test keeps every shipped locale complete:
+every word translated, every `{placeholder}` kept, and every counted word with all the forms
+its language's plural rule needs.
 
 Words the engine reads while it builds a widget are those of the locale at that time (a
 window's locale is set before it is built); words read in a binding (the media player's Play
