@@ -293,22 +293,56 @@ pub fn beam_line(points: &[(f32, f32)], up: bool, space: f32, middle: f32) -> (f
     (y0, slope)
 }
 
-/// How an event is said aloud: "C sharp 4 quarter note", "half rest", "chord of C 4, E 4".
+/// How an event is said aloud in English: "C sharp 4 quarter note", "half rest", "whole chord
+/// of C 4, E 4" ([`describe_event_in`] for another language).
 pub fn describe_event(e: &StaffEvent) -> String {
-    let dots = match e.dots {
-        0 => "",
-        1 => "dotted ",
-        _ => "double dotted ",
-    };
-    let value = format!("{dots}{}", e.value.name());
+    describe_event_in(e, "en")
+}
+
+/// How an event is said aloud in `locale`.
+pub fn describe_event_in(e: &StaffEvent, locale: &str) -> String {
+    let (value, dots) = (value_id(e.value), dots_id(e.dots));
     if e.is_rest() {
-        format!("{value} rest")
-    } else if e.pitches.len() == 1 {
-        let tie = if e.tie { ", tied to the next" } else { "" };
-        format!("{} {value} note{tie}", e.pitches.first().map(|p| p.spoken()).unwrap_or_default())
+        return crate::say(locale, "event-rest", &[("value", value.into()), ("dots", dots.into())]);
+    }
+    let length = crate::say(locale, "note-length", &[("value", value.into()), ("dots", dots.into())]);
+    if e.pitches.len() == 1 {
+        let pitch = e.pitches.first().map(|p| p.spoken_in(locale)).unwrap_or_default();
+        let id = if e.tie { "event-note-tied" } else { "event-note" };
+        crate::say(locale, id, &[("pitch", pitch.into()), ("length", length.into())])
     } else {
-        let names: Vec<String> = e.pitches.iter().map(|p| p.spoken()).collect();
-        format!("{value} chord of {}", names.join(", "))
+        let names: Vec<String> = e.pitches.iter().map(|p| p.spoken_in(locale)).collect();
+        let pitches = crate::list(locale, &names);
+        crate::say(locale, "event-chord", &[("length", length.into()), ("pitches", pitches.into())])
+    }
+}
+
+/// A note value as the catalog's messages select on it.
+pub(crate) fn value_id(v: NoteValue) -> &'static str {
+    match v {
+        NoteValue::Whole => "whole",
+        NoteValue::Half => "half",
+        NoteValue::Quarter => "quarter",
+        NoteValue::Eighth => "eighth",
+        NoteValue::Sixteenth => "sixteenth",
+        NoteValue::ThirtySecond => "thirty-second",
+    }
+}
+
+/// A number of dots as the catalog's messages select on it.
+pub(crate) fn dots_id(dots: u8) -> &'static str {
+    match dots {
+        0 => "none",
+        1 => "dotted",
+        _ => "double-dotted",
+    }
+}
+
+/// A beat ("1", "2.5") as a number for a message, so it is written the locale's way.
+pub(crate) fn beat_arg(beat: String) -> remedy_ui_view::strings::StrArg {
+    match beat.parse::<f64>() {
+        Ok(b) => b.into(),
+        Err(_) => beat.into(),
     }
 }
 
@@ -929,7 +963,7 @@ fn note_staff_with(
         measures.get_untracked().map(|ms| ms.iter().map(|m| m.events.len()).collect()).unwrap_or_default()
     };
     let down = Rc::new(std::cell::Cell::new(false));
-    let sem_label = label.clone();
+    let (sem_label, u) = (label.clone(), el.ui().clone());
     el.focusable(true)
         .on_focus_change(move |f| focused.set_if_changed(f))
         .on_pointer(move |e| {
@@ -995,25 +1029,48 @@ fn note_staff_with(
             let ms = measures.get();
             let cur = cursor.get();
             let picked = selected.get();
+            let locale = u.locale();
             let key = match options.key {
-                0 => "no sharps or flats".to_owned(),
-                k if k > 0 => format!("{k} sharp{}", if k == 1 { "" } else { "s" }),
-                k => format!("{} flat{}", k.unsigned_abs(), if k == -1 { "" } else { "s" }),
+                0 => crate::say(&locale, "key-no-accidentals", &[]),
+                k if k > 0 => crate::say(&locale, "key-sharps", &[("count", i32::from(k).into())]),
+                k => crate::say(&locale, "key-flats", &[("count", u32::from(k.unsigned_abs()).into())]),
             };
-            let time = options.time.map(|(a, b)| format!(", {a}/{b} time")).unwrap_or_default();
             let mut value = String::new();
             if let Some(e) = ms.get(cur.measure).and_then(|m| m.events.get(cur.event)) {
                 let beat = beat_of(&ms, options.time, cur);
-                value = format!("measure {}, beat {beat}: {}", cur.measure + 1, describe_event(e));
+                value = crate::say(
+                    &locale,
+                    "staff-cursor",
+                    &[
+                        ("measure", (cur.measure + 1).into()),
+                        ("beat", beat_arg(beat)),
+                        ("event", describe_event_in(e, &locale).into()),
+                    ],
+                );
                 if picked == Some(cur) {
-                    value.push_str(", picked");
+                    value = crate::say(&locale, "cursor-picked", &[("what", value.into())]);
                 }
             }
-            let mut said = format!("{} clef, {key}{time}, {} measures", options.clef.name(), ms.len());
+            let clef = match options.clef {
+                Clef::Bass => "bass",
+                Clef::Alto => "alto",
+                Clef::Tenor => "tenor",
+                _ => "treble",
+            };
+            let mut args = vec![("clef", clef.into()), ("key", key.into()), ("measures", ms.len().into())];
+            let summary = match options.time {
+                Some((beats, unit)) => {
+                    args.push(("beats", beats.into()));
+                    args.push(("unit", unit.into()));
+                    crate::say(&locale, "staff-summary-time", &args)
+                }
+                None => crate::say(&locale, "staff-summary", &args),
+            };
+            let mut said = summary.clone();
             let mut sem =
                 Semantics::new(Role::Grid).label(sem_label.clone()).value(value).action(Action::Focus);
             if editable {
-                said.push_str(". Editable: letters set notes, Up and Down move them, digits set lengths.");
+                said = crate::say(&locale, "staff-editable", &[("summary", summary.into())]);
                 sem = sem.action(Action::Increment).action(Action::Decrement);
             }
             sem.description(said)

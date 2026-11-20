@@ -66,7 +66,20 @@ use remedy_ui_input::Key;
 use remedy_ui_layout::{Align, Length, Position};
 use remedy_ui_reactive::Signal;
 use remedy_ui_style::States;
+use remedy_ui_view::strings::StrArg;
 use remedy_ui_view::{El, Ui};
+
+/// The pack's own words (page names, annotation kinds, undo names, what screen readers
+/// hear) in every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a
+/// language, with [`remedy_ui_view::strings::add_messages`] under the name `doc-pages`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("doc-pages");
+
+/// Message `id` with placeholder values in `locale` (not tracked). What this pack says is
+/// read by screen readers or names an undo step, so the direction-isolation marks around
+/// placeholders, which only matter on screen, are left out.
+pub(crate) fn say(locale: &str, id: &str, args: &[(&str, StrArg)]) -> String {
+    STRINGS.format_in(locale, id, args).replace(['\u{2068}', '\u{2069}'], "")
+}
 
 /// Shows `view`'s pages: a focusable document named `label` that fills the space it is
 /// given.
@@ -75,6 +88,7 @@ pub fn page_view(ui: &Ui, view: &PageView, label: impl Into<String>) -> El {
     let label: String = label.into();
     let text = view.page_text();
     let current = view.current_page();
+    let u = ui.clone();
     // The current page, for screen readers: its number and its text.
     let reader = ui
         .el("page_text")
@@ -84,10 +98,14 @@ pub fn page_view(ui: &Ui, view: &PageView, label: impl Into<String>) -> El {
         })
         .pass_through()
         .semantics(move || {
-            Semantics::new(Role::Page).label(format!("Page {}", current.get() + 1)).value(text.get())
+            let page = current.get() + 1;
+            Semantics::new(Role::Page)
+                .label(say(&u.locale(), "page-number", &[("page", page.into())]))
+                .value(text.get())
         });
-    let (a, b, c, d, f, g) =
-        (view.clone(), view.clone(), view.clone(), view.clone(), view.clone(), view.clone());
+    let (a, b, c, d, f, g, h) =
+        (view.clone(), view.clone(), view.clone(), view.clone(), view.clone(), view.clone(), view.clone());
+    let (u, u2) = (ui.clone(), ui.clone());
     let el = ui
         .el("page_view")
         .focusable(true)
@@ -105,12 +123,17 @@ pub fn page_view(ui: &Ui, view: &PageView, label: impl Into<String>) -> El {
         // scale it on the compositor until they settle.
         .isolate_paint()
         .paint(view::painter(view))
-        .semantics(move || view::semantics(&a, &label))
+        .semantics(move || view::semantics(&a, &label, &u2.locale()))
         .on_resize(move |s| b.resized(s))
         .on_wheel(move |e| c.wheel(e))
         .on_pinch(move |e| d.pinch(e))
         .on_pointer(move |e| f.pointer(e))
         .on_key(move |k| g.key(k))
+        // The annotations on the page are read in the window's language.
+        .bind(move || {
+            let _ = u.locale();
+            remedy_ui_reactive::untrack(|| h.update_page_text());
+        })
         .child(reader);
     view.attach(ui.downgrade(), el.id());
     el
@@ -133,9 +156,11 @@ pub fn thumbnails(ui: &Ui, view: &PageView) -> El {
     let n = view.page_count();
     let items = Signal::new((0..n).collect::<Vec<usize>>());
     let (ui2, v) = (ui.clone(), view.clone());
-    let rail = remedy_ui_widgets_core::virtual_list(ui, "Pages", items, THUMB_ROW, move |_, &page| {
+    let rail = remedy_ui_widgets_core::virtual_list(ui, "", items, THUMB_ROW, move |_, &page| {
         thumb_row(&ui2, &v, page)
     });
+    let u = ui.clone();
+    let rail = rail.semantics(move || Semantics::new(Role::List).label(say(&u.locale(), "pages-list", &[])));
     let keys = view.clone();
     let rail = rail.focusable(true).on_key(move |k| {
         if !k.pressed {
@@ -194,6 +219,7 @@ fn thumb_row(ui: &Ui, view: &PageView, page: usize) -> El {
     let number = remedy_ui_widgets_core::text(ui, format!("{}", page + 1)).variant("small");
     let current = view.current_page();
     let go = view.clone();
+    let u = ui.clone();
     let row = ui
         .el("page_thumb")
         .column()
@@ -208,7 +234,7 @@ fn thumb_row(ui: &Ui, view: &PageView, page: usize) -> El {
         .focusable(false)
         .semantics(move || {
             Semantics::new(Role::ListItem)
-                .label(format!("Page {}", page + 1))
+                .label(say(&u.locale(), "page-number", &[("page", (page + 1).into())]))
                 .selected(current.get() == page)
                 .action(Action::Click)
         });

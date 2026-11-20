@@ -210,7 +210,7 @@ pub type StaffEditHandler = Rc<dyn Fn(&StaffEdit)>;
 /// What an edit of a staff reports.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StaffEdit {
-    /// What was done ("Move note up"), as the undo history names it.
+    /// What was done ("Move note up"), as the undo history names it (in the window's language).
     pub label: String,
     /// Where the cursor is after it.
     pub cursor: StaffCursor,
@@ -238,13 +238,16 @@ impl StaffEditor {
     /// for undo and reported.
     fn apply(
         &self,
-        label: &str,
+        id: &str,
         f: impl FnOnce(&mut Vec<StaffMeasure>, StaffCursor) -> Option<StaffCursor>,
     ) -> bool {
         let before = self.measures.get_untracked().unwrap_or_default();
         let c0 = self.cursor.get_untracked().unwrap_or_default();
         let mut after = before.clone();
         let Some(c1) = f(&mut after, c0) else { return false };
+        // The edit's name in the window's language, as the undo history keeps it.
+        let label = crate::say(&self.ui.locale(), id, &[]);
+        let label = label.as_str();
         let (measures, cursor) = (self.measures, self.cursor);
         measures.set(after.clone());
         cursor.set(c1);
@@ -269,7 +272,7 @@ impl StaffEditor {
     /// Puts the pitch at staff `position` on the cursor's event.
     pub(crate) fn pitch_at(&self, position: i32, add: bool) -> bool {
         let (clef, key) = (self.options.clef, self.options.key);
-        self.apply("Set note", |ms, c| set_pitch_at(ms, c, position, clef, key, add).then_some(c))
+        self.apply("edit-set-note", |ms, c| set_pitch_at(ms, c, position, clef, key, add).then_some(c))
     }
 
     /// Handles an editing key; true if it was one.
@@ -287,26 +290,25 @@ impl StaffEditor {
                     return false;
                 }
                 if m.ctrl {
-                    self.apply(
-                        if up { "Move note up an octave" } else { "Move note down an octave" },
-                        |ms, c| move_octaves(ms, c, d).then_some(c),
-                    )
+                    self.apply(if up { "edit-octave-up" } else { "edit-octave-down" }, |ms, c| {
+                        move_octaves(ms, c, d).then_some(c)
+                    })
                 } else if m.shift {
-                    self.apply(if up { "Raise note a semitone" } else { "Lower note a semitone" }, |ms, c| {
+                    self.apply(if up { "edit-semitone-up" } else { "edit-semitone-down" }, |ms, c| {
                         move_semitones(ms, c, d, key).then_some(c)
                     })
                 } else {
-                    self.apply(if up { "Move note up" } else { "Move note down" }, |ms, c| {
+                    self.apply(if up { "edit-step-up" } else { "edit-step-down" }, |ms, c| {
                         move_steps(ms, c, d, key).then_some(c)
                     })
                 }
             }
             Key::Delete | Key::Backspace => {
                 if m.ctrl {
-                    return self.apply("Delete measure", remove_measure);
+                    return self.apply("edit-delete-measure", remove_measure);
                 }
                 if m.shift {
-                    return self.apply("Delete event", |ms, c| remove_event(ms, c));
+                    return self.apply("edit-delete-event", |ms, c| remove_event(ms, c));
                 }
                 // A note becomes a rest; a rest goes away.
                 let is_rest = self
@@ -319,13 +321,15 @@ impl StaffEditor {
                     })
                     .unwrap_or(false);
                 if is_rest {
-                    self.apply("Delete rest", |ms, c| remove_event(ms, c))
+                    self.apply("edit-delete-rest", |ms, c| remove_event(ms, c))
                 } else {
-                    self.apply("Make rest", |ms, c| make_rest(ms, c).then_some(c))
+                    self.apply("edit-make-rest", |ms, c| make_rest(ms, c).then_some(c))
                 }
             }
-            Key::Named(n) if n == "Insert" => self.apply("Insert rest", |ms, c| insert_rest_after(ms, c)),
-            Key::Enter if m.ctrl => self.apply("Insert measure", insert_measure_after),
+            Key::Named(n) if n == "Insert" => {
+                self.apply("edit-insert-rest", |ms, c| insert_rest_after(ms, c))
+            }
+            Key::Enter if m.ctrl => self.apply("edit-insert-measure", insert_measure_after),
             Key::Character(ch) if !m.ctrl && !m.alt => {
                 let letter = match ch.as_str() {
                     "a" => Some(Step::A),
@@ -339,7 +343,7 @@ impl StaffEditor {
                 };
                 if let Some(step) = letter {
                     let add = m.shift;
-                    return self.apply(if add { "Add note to chord" } else { "Set note" }, |ms, c| {
+                    return self.apply(if add { "edit-add-to-chord" } else { "edit-set-note" }, |ms, c| {
                         set_letter(ms, c, step, clef, key, add).then_some(c)
                     });
                 }
@@ -353,17 +357,17 @@ impl StaffEditor {
                     _ => None,
                 };
                 if let Some(v) = value {
-                    return self.apply("Set length", |ms, c| set_value(ms, c, v).then_some(c));
+                    return self.apply("edit-set-length", |ms, c| set_value(ms, c, v).then_some(c));
                 }
                 match ch.as_str() {
-                    "+" | "#" => self.apply("Sharpen", |ms, c| alter(ms, c, 1).then_some(c)),
-                    "-" => self.apply("Flatten", |ms, c| alter(ms, c, -1).then_some(c)),
-                    "=" => self.apply("Make natural", |ms, c| alter(ms, c, 0).then_some(c)),
-                    "." => self.apply("Cycle dots", |ms, c| toggle_dot(ms, c).then_some(c)),
-                    "[" => self.apply("Shorten", |ms, c| change_value(ms, c, false).then_some(c)),
-                    "]" => self.apply("Lengthen", |ms, c| change_value(ms, c, true).then_some(c)),
-                    "r" => self.apply("Make rest", |ms, c| make_rest(ms, c).then_some(c)),
-                    "t" => self.apply("Tie", |ms, c| toggle_tie(ms, c).then_some(c)),
+                    "+" | "#" => self.apply("edit-sharpen", |ms, c| alter(ms, c, 1).then_some(c)),
+                    "-" => self.apply("edit-flatten", |ms, c| alter(ms, c, -1).then_some(c)),
+                    "=" => self.apply("edit-make-natural", |ms, c| alter(ms, c, 0).then_some(c)),
+                    "." => self.apply("edit-cycle-dots", |ms, c| toggle_dot(ms, c).then_some(c)),
+                    "[" => self.apply("edit-shorten", |ms, c| change_value(ms, c, false).then_some(c)),
+                    "]" => self.apply("edit-lengthen", |ms, c| change_value(ms, c, true).then_some(c)),
+                    "r" => self.apply("edit-make-rest", |ms, c| make_rest(ms, c).then_some(c)),
+                    "t" => self.apply("edit-tie", |ms, c| toggle_tie(ms, c).then_some(c)),
                     _ => false,
                 }
             }

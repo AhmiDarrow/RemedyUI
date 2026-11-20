@@ -29,7 +29,8 @@ pub type MentionSource = Rc<dyn Fn(&str) -> Vec<MentionCandidate>>;
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct RichEditorOptions {
-    /// The name screen readers read for it.
+    /// The name screen readers read for it. The default, "Message", is read in the window's
+    /// language.
     pub label: String,
     /// Grey text shown while it is empty.
     pub placeholder: String,
@@ -76,7 +77,7 @@ impl RichEditorOptions {
 impl Default for RichEditorOptions {
     fn default() -> Self {
         RichEditorOptions {
-            label: "Message".into(),
+            label: DEFAULT_LABEL.into(),
             placeholder: String::new(),
             submit_on_enter: false,
             toolbar: true,
@@ -91,6 +92,9 @@ impl std::fmt::Debug for RichEditorOptions {
     }
 }
 
+/// The default label: left as it is, the editor is named in the window's language.
+const DEFAULT_LABEL: &str = "Message";
+
 /// What a toolbar button does to the editor.
 type Act = Rc<dyn Fn(&mut RichEditor)>;
 /// Whether a toolbar button shows as on where the caret is.
@@ -99,6 +103,7 @@ type IsOn = Box<dyn Fn(&RichEditor) -> bool>;
 /// A toolbar button and what it shows as on.
 struct Tool {
     button: El,
+    /// Its name's message.
     label: &'static str,
     on: IsOn,
 }
@@ -149,6 +154,13 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
         .label(options.label.clone())
         .placeholder(options.placeholder.clone())
         .submit_on_enter(options.submit_on_enter);
+    if options.label == DEFAULT_LABEL {
+        // The app named it nothing: the default name follows the window's language.
+        let (f, u) = (field.clone(), ui.clone());
+        let _ = field.el().bind(move || {
+            let _ = f.clone().label(crate::tr(&u, "editor-label"));
+        });
+    }
     let field_el =
         field.el().fill_width().layout(|l| l.min_height = remedy_ui_layout::Length::Px(unit * 10.0));
     let root = ui.el("rich_editor").column().fill_width().gap(unit);
@@ -159,12 +171,17 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                label: &'static str,
                act: Rc<dyn Fn(&mut RichEditor)>,
                on: Box<dyn Fn(&RichEditor) -> bool>| {
-        let f = field.clone();
-        let button = w::icon_button(ui, icon, label, move || {
-            let act = act.clone();
-            let _ = f.edit_rich(move |e| act(e));
-            f.el().focus();
-        });
+        let (f, u) = (field.clone(), ui.clone());
+        let button = w::icon_button(
+            ui,
+            icon,
+            move || crate::tr(&u, label),
+            move || {
+                let act = act.clone();
+                let _ = f.edit_rich(move |e| act(e));
+                f.el().focus();
+            },
+        );
         tools.borrow_mut().push(Tool { button: button.clone(), label, on });
         button
     };
@@ -183,21 +200,21 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
     };
     let mut buttons = Vec::new();
     for (icon, label, m) in [
-        (Icon::Bold, "Bold", Mark::Bold),
-        (Icon::Italic, "Italic", Mark::Italic),
-        (Icon::Strike, "Strikethrough", Mark::Strike),
-        (Icon::Code, "Code", Mark::Code),
+        (Icon::Bold, "format-bold", Mark::Bold),
+        (Icon::Italic, "format-italic", Mark::Italic),
+        (Icon::Strike, "format-strikethrough", Mark::Strike),
+        (Icon::Code, "format-code", Mark::Code),
     ] {
         let (act, on) = mark(m);
         buttons.push(add(icon, label, act, on));
     }
     for (icon, label, b) in [
-        (Icon::Heading, "Heading", Block::Heading(2)),
-        (Icon::ListBullet, "Bulleted list", Block::Bullet(0)),
-        (Icon::ListNumber, "Numbered list", Block::Numbered(0)),
-        (Icon::ListTask, "Task list", Block::Task { done: false, level: 0 }),
-        (Icon::Quote, "Quote", Block::Quote),
-        (Icon::CodeBlock, "Code block", Block::Code),
+        (Icon::Heading, "format-heading", Block::Heading(2)),
+        (Icon::ListBullet, "format-bulleted-list", Block::Bullet(0)),
+        (Icon::ListNumber, "format-numbered-list", Block::Numbered(0)),
+        (Icon::ListTask, "format-task-list", Block::Task { done: false, level: 0 }),
+        (Icon::Quote, "format-quote", Block::Quote),
+        (Icon::CodeBlock, "format-code-block", Block::Code),
     ] {
         let (act, on) = block(b);
         buttons.push(add(icon, label, act, on));
@@ -212,7 +229,7 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                 old.remove();
             }
             let current = f.read_rich(|e| e.link_at_caret().map(|(_, u)| u)).flatten();
-            let address = w::text_input(&ui, "Link address").placeholder("https://");
+            let address = w::text_input(&ui, crate::tr(&ui, "link-address")).placeholder("https://");
             if let Some(u) = &current {
                 address.set_value(u);
                 address.select_all();
@@ -253,10 +270,10 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                 .child(
                     w::row(&ui)
                         .gap(unit * 2.0)
-                        .child(w::button(&ui, "Apply", move || apply()))
-                        .child(w::button(&ui, "Remove link", remove)),
+                        .child(w::button(&ui, crate::tr(&ui, "link-apply"), move || apply()))
+                        .child(w::button(&ui, crate::tr(&ui, "link-remove"), remove)),
                 )
-                .semantics(Semantics::new(Role::Dialog).label("Link"));
+                .semantics(Semantics::new(Role::Dialog).label(crate::tr(&ui, "link-dialog")));
             let layer = w::popover(&ui, anchor, content);
             address.el().focus();
             *link_open.borrow_mut() = Some(layer);
@@ -264,16 +281,21 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
     };
     let link_button = {
         let (open, anchor) = (open_link_box.clone(), Rc::new(RefCell::new(None::<El>)));
-        let a2 = anchor.clone();
-        let b = w::icon_button(ui, Icon::Link, "Link", move || {
-            if let Some(a) = a2.borrow().as_ref() {
-                open(a);
-            }
-        });
+        let (a2, u) = (anchor.clone(), ui.clone());
+        let b = w::icon_button(
+            ui,
+            Icon::Link,
+            move || crate::tr(&u, "format-link"),
+            move || {
+                if let Some(a) = a2.borrow().as_ref() {
+                    open(a);
+                }
+            },
+        );
         *anchor.borrow_mut() = Some(b.clone());
         tools.borrow_mut().push(Tool {
             button: b.clone(),
-            label: "Link",
+            label: "format-link",
             on: Box::new(|e: &RichEditor| e.link_at_caret().is_some()),
         });
         b
@@ -281,6 +303,7 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
     buttons.insert(4, link_button.clone());
 
     if options.toolbar {
+        let u = ui.clone();
         let bar = ui
             .el("rich_toolbar")
             .row()
@@ -288,23 +311,23 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
             .gap(unit * 0.5)
             .layout(|l| l.wrap = true)
             .children(buttons)
-            .semantics(Semantics::new(Role::Group).label("Formatting"));
+            .semantics(move || Semantics::new(Role::Group).label(crate::tr(&u, "formatting-toolbar")));
         let _ = root.clone().child(bar);
     }
     let _ = root.clone().child(field_el.clone());
 
     // Each button shows whether its formatting is on where the caret is.
     let refresh = {
-        let (tools, f) = (tools.clone(), field.clone());
+        let (tools, f, u) = (tools.clone(), field.clone(), ui.clone());
         move || {
             for t in tools.borrow().iter() {
                 let on = f.read_rich(|e| (t.on)(e)).unwrap_or(false);
                 t.button.state(States::CHECKED, on);
                 t.button.state(States::SELECTED, on);
-                let _ = t
-                    .button
-                    .clone()
-                    .semantics(Semantics::new(Role::Button).label(t.label).checked(on).action(Action::Click));
+                let (u, label) = (u.clone(), t.label);
+                let _ = t.button.clone().semantics(move || {
+                    Semantics::new(Role::Button).label(crate::tr(&u, label)).checked(on).action(Action::Click)
+                });
             }
         }
     };
@@ -367,9 +390,14 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                 close(&open);
                 let Some(caret) = f.caret_rect() else { return };
                 let unit = ui.theme().spacing.unit;
-                let list = ui.el("menu").column().semantics(
-                    Semantics::new(Role::List).label(format!("{} people to mention", items.len())),
-                );
+                let (u, count) = (ui.clone(), items.len());
+                let list = ui.el("menu").column().semantics(move || {
+                    Semantics::new(Role::List).label(crate::trf(
+                        &u,
+                        "mention-count",
+                        &[("count", count.into())],
+                    ))
+                });
                 for (i, c) in items.iter().enumerate() {
                     let ins = insert.clone();
                     let row = ui
@@ -385,7 +413,10 @@ pub fn rich_editor(ui: &Ui, options: RichEditorOptions) -> (El, TextField) {
                             }
                             false
                         })
-                        .keyboard_alternative("Up and Down choose, Enter or Tab mentions, Escape closes")
+                        .keyboard_alternative({
+                            let u = ui.clone();
+                            move || crate::tr(&u, "mention-keys")
+                        })
                         .semantics(
                             Semantics::new(Role::ListItem)
                                 .label(c.name.clone())

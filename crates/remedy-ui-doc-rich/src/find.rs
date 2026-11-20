@@ -181,15 +181,18 @@ impl FindState {
         self.scope.ui().clear_text_selection();
     }
 
-    /// What the bar says: "3 of 12", "No matches", or nothing before a search.
+    /// What the bar says, in the window's language: "3 of 12", "No matches", or nothing
+    /// before a search.
     pub fn status(&self) -> String {
         let n = self.count.get();
+        let ui = self.scope.ui();
         if self.query.get().is_empty() {
             String::new()
         } else if n == 0 {
-            "No matches".to_owned()
+            crate::tr(ui, "find-no-matches")
         } else {
-            format!("{} of {n}", self.current.get() + 1)
+            let at = self.current.get() + 1;
+            crate::trf(ui, "find-position", &[("current", at.into()), ("count", n.into())])
         }
     }
 }
@@ -201,9 +204,17 @@ pub fn find_bar(ui: &Ui, state: &FindState, close: impl Fn() + 'static) -> El {
     let close: Rc<dyn Fn()> = Rc::new(close);
     let s = state.clone();
     let s2 = state.clone();
-    let field = w::text_input(ui, "Find")
-        .placeholder("Find")
+    let field = w::text_input(ui, crate::tr(ui, "find-label"))
+        .placeholder(crate::tr(ui, "find-placeholder"))
         .on_submit_with(move |m| if m.shift { s.previous() } else { s.next() });
+    {
+        // The field's name and hint follow the window's language.
+        let (f, u) = (field.clone(), ui.clone());
+        let _ = field.el().bind(move || {
+            let _ =
+                f.clone().label(crate::tr(&u, "find-label")).placeholder(crate::tr(&u, "find-placeholder"));
+        });
+    }
     let f2 = field.clone();
     let field = field.on_change(move || s2.search(&f2.value()));
     let st = state.clone();
@@ -212,13 +223,20 @@ pub fn find_bar(ui: &Ui, state: &FindState, close: impl Fn() + 'static) -> El {
         move || Semantics::new(Role::Status).label(st.status()).live(Live::Polite)
     });
     let (p, n) = (state.clone(), state.clone());
-    let prev = w::icon_button(ui, Icon::ChevronUp, "Previous match", move || p.previous());
-    let next = w::icon_button(ui, Icon::ChevronDown, "Next match", move || n.next());
+    let (u1, u2, u3, u4) = (ui.clone(), ui.clone(), ui.clone(), ui.clone());
+    let prev =
+        w::icon_button(ui, Icon::ChevronUp, move || crate::tr(&u1, "find-previous"), move || p.previous());
+    let next = w::icon_button(ui, Icon::ChevronDown, move || crate::tr(&u2, "find-next"), move || n.next());
     let (c, cl) = (state.clone(), close.clone());
-    let shut = w::icon_button(ui, Icon::Close, "Close find", move || {
-        c.clear();
-        cl();
-    });
+    let shut = w::icon_button(
+        ui,
+        Icon::Close,
+        move || crate::tr(&u3, "find-close"),
+        move || {
+            c.clear();
+            cl();
+        },
+    );
     let unit = ui.theme().spacing.unit;
     let (k, kc) = (state.clone(), close);
     ui.el("find_bar")
@@ -231,7 +249,7 @@ pub fn find_bar(ui: &Ui, state: &FindState, close: impl Fn() + 'static) -> El {
         .child(prev)
         .child(next)
         .child(shut)
-        .semantics(Semantics::new(Role::Group).label("Find"))
+        .semantics(move || Semantics::new(Role::Group).label(crate::tr(&u4, "find-group")))
         .on_key(move |e| {
             if !e.pressed {
                 return false;

@@ -308,7 +308,10 @@ impl Builder<'_> {
                     .gap(self.unit * 3.0)
                     .child(self.ui.el("md_quote_bar").width(self.unit.max(2.0) * 0.75))
                     .child(body.clone())
-                    .semantics(Semantics::new(Role::Group).label("Quote"));
+                    .semantics({
+                        let u = self.ui.clone();
+                        move || Semantics::new(Role::Group).label(crate::tr(&u, "markdown-quote"))
+                    });
                 self.add(quote);
                 self.stack.push(Open::Blocks(body));
             }
@@ -483,7 +486,14 @@ impl Builder<'_> {
     fn end_code(&mut self) {
         let Some((code, lang)) = self.code.take() else { return };
         let code = code.strip_suffix('\n').unwrap_or(&code).to_owned();
-        let label = if lang.is_empty() { "Code".to_owned() } else { format!("Code, {lang}") };
+        let u = self.ui.clone();
+        let label = move || {
+            if lang.is_empty() {
+                crate::tr(&u, "markdown-code")
+            } else {
+                crate::trf(&u, "markdown-code-language", &[("language", lang.as_str().into())])
+            }
+        };
         let text = self.ui.el("md_code").text(RichText::plain(code)).data_text().selectable(true).nowrap();
         let block = self
             .ui
@@ -492,7 +502,7 @@ impl Builder<'_> {
             .scroll_x()
             .padding(Insets::ZERO)
             .child(text)
-            .semantics(Semantics::new(Role::Group).label(label));
+            .semantics(move || Semantics::new(Role::Group).label(label()));
         self.add(block);
     }
 }
