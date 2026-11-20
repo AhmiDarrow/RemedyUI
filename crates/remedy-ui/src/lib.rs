@@ -94,6 +94,64 @@ pub use remedy_ui_embed_gpu as gpu_embed;
 pub mod effects {
     pub use remedy_ui_effects::*;
     pub use remedy_ui_media_effects::*;
+
+    /// What the `effect` markup element takes ([`register_markup`]): `name`, a built-in effect
+    /// ([`LIBRARY`]); and, optionally, `param`, one of its parameters, driven live by `value`,
+    /// a number signal the app exposes.
+    #[cfg(feature = "markup")]
+    pub const MARKUP_PARAMS: &[crate::markup::spec::Param] = &[
+        crate::markup::spec::Param { name: "name", kind: crate::markup::spec::Kind::Word, required: true },
+        crate::markup::spec::Param { name: "param", kind: crate::markup::spec::Kind::Word, required: false },
+        crate::markup::spec::Param {
+            name: "value",
+            kind: crate::markup::spec::Kind::Number,
+            required: false,
+        },
+    ];
+
+    /// Builds the `effect` markup element from its call: the built-in effect `name` in an
+    /// element, under the window's ambient policy, with what the file put inside it drawn over
+    /// it. A name that is not a built-in effect draws nothing. Markup is data from anyone, so
+    /// only built-in effects are offered: no effect source reaches the compiler from a file.
+    /// For build-time markup, pass it as the custom element's path.
+    #[cfg(feature = "markup")]
+    pub fn markup_element(ui: &crate::Ui, call: crate::markup::Call) -> crate::El {
+        let effect = call.label("name").and_then(library);
+        let mut el = match effect {
+            Some(e) => {
+                let (el, view) = effect_view(ui, Instance::new(e));
+                match (call.label("param").map(str::to_owned), call.number("value")) {
+                    (Some(param), Some(value)) => el.bind_named("effect value", move || {
+                        let _ = view.set(&param, value.get() as f32);
+                    }),
+                    _ => el,
+                }
+            }
+            None => ui.el("effect"),
+        };
+        for c in call.children {
+            el = el.child(c);
+        }
+        el
+    }
+
+    /// Adds the `effect` element to what `.rui` files may use:
+    /// `effect(name: "fire", param: "intensity", value: $heat) { … }`.
+    ///
+    /// ```
+    /// use remedy_ui::markup::{Markup, Scope, Widgets, build_markup};
+    /// let mut widgets = Widgets::new();
+    /// remedy_ui::effects::register_markup(&mut widgets);
+    /// let m = Markup::parse("hero.rui", r#"effect(name: "aurora") { text(text: "Hello") }"#)
+    ///     .map_err(|e| e.to_string())?;
+    /// assert!(remedy_ui::markup::check(&m, &Scope::new(), &widgets).is_ok());
+    /// # let _ = build_markup;
+    /// # Ok::<(), String>(())
+    /// ```
+    #[cfg(feature = "markup")]
+    pub fn register_markup(widgets: &mut crate::markup::Widgets) {
+        widgets.register("effect", MARKUP_PARAMS, true, markup_element);
+    }
 }
 #[cfg(feature = "webview")]
 pub use remedy_ui_embed_webview as webview;
