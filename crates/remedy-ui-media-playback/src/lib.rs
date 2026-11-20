@@ -60,6 +60,7 @@ pub use host::{
     AudioFormat, AudioInput, AudioOutput, Decoder, EncodedPiece, MediaError, MediaHost, MediaInfo,
     MediaSource, Picture, PixelFormat, Plane, Sample, ScreenFrame, ScreenSource, ScreenStream, TextTrackInfo,
     VideoCodec, VideoEncoderOptions, VideoInfo, VideoStreamDecoder, VideoStreamEncoder, YuvMatrix,
+    merge_ranges,
 };
 pub use player::{Player, PlayerOptions, UnseenPolicy};
 pub use subtitles::{Cue, SubtitleFormat, SubtitleTrack, parse_subtitles};
