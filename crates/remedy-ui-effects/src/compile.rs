@@ -204,6 +204,18 @@ impl Graph {
             Op::Add if is(self, a[0], 0.0) => return Ok(a[1]),
             Op::Add | Op::Sub if is(self, a[1], 0.0) => return Ok(a[0]),
             Op::Div if is(self, a[1], 1.0) => return Ok(a[0]),
+            Op::Pow if is(self, a[1], 1.0) => return Ok(a[0]),
+            // A whole power is a product: cheaper than `pow`'s exp(log), and the same value
+            // (the interpreter's `pow` gives the sign of odd powers back, as a product does).
+            Op::Pow if is(self, a[1], 2.0) => return self.op(Op::Mul, 0, &[a[0], a[0]], at),
+            Op::Pow if is(self, a[1], 3.0) => {
+                let sq = self.op(Op::Mul, 0, &[a[0], a[0]], at)?;
+                return self.op(Op::Mul, 0, &[sq, a[0]], at);
+            }
+            Op::Pow if is(self, a[1], 4.0) => {
+                let sq = self.op(Op::Mul, 0, &[a[0], a[0]], at)?;
+                return self.op(Op::Mul, 0, &[sq, sq], at);
+            }
             _ => {}
         }
         self.add(NodeKey::Op(op, imm, a), at)

@@ -124,6 +124,26 @@ fn constants_fold_and_frame_values_are_hoisted() {
 }
 
 #[test]
+fn whole_powers_become_products_with_the_same_pixels() {
+    let src = |k: &str| {
+        format!(
+            "effect x {{ scale 1.0; pass p {{ let v = uv.x * 2.0 - 1.0;
+                out = vec3({k}, {k}, {k}) * 0.5 + 0.5; }} }}"
+        )
+    };
+    for (n, by_hand) in [("2.0", "v * v"), ("3.0", "v * v * v"), ("4.0", "(v * v) * (v * v)")] {
+        let lowered = compile(&src(&format!("pow(v, {n})"))).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(ops(shade(&lowered, 0), Op::Pow), 0, "pow(v, {n}) is still a pow");
+        let hand = compile(&src(by_hand)).unwrap_or_else(|e| unreachable!("{e}"));
+        // Odd powers keep the sign (v runs from -1 to 1 across the frame).
+        assert_eq!(render(lowered, 0.0), render(hand, 0.0), "pow(v, {n})");
+    }
+    // Other exponents stay a pow.
+    let e = compile(&src("pow(abs(v), 2.5)")).unwrap_or_else(|e| unreachable!("{e}"));
+    assert_eq!(ops(shade(&e, 0), Op::Pow), 1);
+}
+
+#[test]
 fn common_work_is_shared() {
     let e = compile("effect x { scale 1.0; pass p { out = vec3(noise(uv * 4.0) + noise(uv * 4.0)); } }")
         .unwrap_or_else(|e| unreachable!("{e}"));

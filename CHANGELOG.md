@@ -46,7 +46,9 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   most a level of difference) and `heat_shimmer` its air at half (148 to 62, the same
   picture). `plasma` has a softer palette whose colours drift over time, `lightning`'s
   still frame (reduced motion, paused) shows a strike, and `fog` is denser by default with
-  a haze above its banks.
+  a haze above its banks. The compiler turns `pow(x, 2.0)`, `3.0` and `4.0` into
+  multiplies (the same pixels, cheaper than `pow`), in every effect, people's own included:
+  `ripples` costs 123 instead of 145.
 - **Prism in `.rui` markup**: `remedy_ui::effects::register_markup` adds the `effect`
   element (`effect(name: "fire", param: "intensity", value: $heat) { … }`): a built-in
   effect, one parameter driven by a number signal, children drawn over it
