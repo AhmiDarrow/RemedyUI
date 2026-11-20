@@ -31,6 +31,7 @@ Crates form a strict layered graph. A crate may depend only on crates in lower l
 
 ```
 L7  tools:        remedy-tools (the developer tools' logic) · remedy-templates (app templates)
+                  remedy-ui-build (build scripts: the Windows executable's icon and version)
                   cargo-remedy (CLI) · remedy-mcp (MCP server for AI agents); none linked into apps
 L6  app-facing:   remedy-ui (facade, feature flags) · remedy-ui-rui (markup compiler and runtime) · remedy-ui-test
 L5  feature packs: widgets-* · media-* · doc-* · viz · embed-* · services-* · themes · fonts · devtools · customize
@@ -88,6 +89,7 @@ Image and icon *sources* are a trait in `paint`, so `widgets-core` can show imag
 | `fonts` | The Remedy font families, one feature per family | Every Remedy app |
 | `services-spell` | Platform spell checker bridge | Editors, chat |
 | `services-i18n` | Message formatting with plurals, locale formatting; locale data per locale at run time | Localized apps |
+| `services-webstorage` | Read-only import of a web view's localStorage (Chromium's LevelDB store) or the page's own | Apps moving off Tauri, Capacitor or a PWA |
 | `devtools` | Inspector, performance overlay, hot reload, previews; debug builds by default | Development |
 | `customize` | The code-fluid layer: the person's theme, shortcuts, toolbars and menus, and text as files, with undo, resets and the editors | Every Remedy app |
 

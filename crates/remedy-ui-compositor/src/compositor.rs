@@ -397,6 +397,13 @@ impl Compositor {
             || self.overrides.values().any(|o| !o.settled(now))
     }
 
+    /// Marks the whole window changed, keeping the rastered tiles: the next frame presents all
+    /// of it (the platform did not keep what the window showed, as when it comes back into
+    /// sight on X11).
+    pub fn damage_all(&mut self) {
+        self.full_damage = true;
+    }
+
     /// Forgets every rastered tile without releasing it (the renderer lost them, as with a
     /// lost GPU device): the next frame rasters what it shows again and redraws everything.
     pub fn invalidate_tiles(&mut self) {

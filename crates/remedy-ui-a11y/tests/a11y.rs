@@ -176,3 +176,18 @@ fn menus_reach_platforms_with_their_roles_states_and_keys() {
     assert!(is_control_role(Role::MenuItemRadio) && !is_control_role(Role::Separator));
     assert_eq!(role_name(Role::MenuBar), "menu bar");
 }
+
+#[test]
+fn a_toolbar_reaches_platforms_as_one() {
+    let mut t = A11yTree::new(1);
+    t.set(1, Semantics::new(Role::Window).label("Chat"));
+    t.set(2, Semantics::new(Role::Toolbar).label("Message actions"));
+    t.set(3, Semantics::new(Role::Button).label("Reply").action(Action::Click));
+    t.set_children(1, &[2]);
+    t.set_children(2, &[3]);
+    t.connect();
+    let u = t.take_update().unwrap_or_else(|| unreachable!("connected"));
+    assert_eq!(node(&u, 2).map(accesskit::Node::role), Some(accesskit::Role::Toolbar));
+    assert_eq!(role_name(Role::Toolbar), "toolbar");
+    assert!(!is_control_role(Role::Toolbar), "a container, not a control");
+}

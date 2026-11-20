@@ -197,13 +197,17 @@ impl Ui {
             self.0.borrow_mut().consumed = true;
             return true;
         }
-        // Hover follows the pointer; a press keeps its element hovered until release.
+        // Hover follows the pointer; a press keeps its element hovered until release. A
+        // lifted finger hovers nothing (touch screens have no hover between touches), so a
+        // tap leaves no hover look and no tooltip behind; a long press still shows them.
         let chain = self.chain(hit);
+        let lifted = e.phase == PointerPhase::Cancel
+            || (e.kind == remedy_ui_input::PointerKind::Touch && e.phase == PointerPhase::Up);
         let old = std::mem::take(&mut self.0.borrow_mut().hovered);
-        for id in old.iter().filter(|id| !chain.contains(id)) {
+        for id in old.iter().filter(|id| lifted || !chain.contains(id)) {
             self.set_state(*id, States::HOVER, false);
         }
-        if e.phase != PointerPhase::Cancel {
+        if !lifted {
             for id in &chain {
                 self.set_state(*id, States::HOVER, true);
             }
@@ -647,6 +651,34 @@ pub(crate) fn focus_changed(ui: &Ui) {
             ui.request(Request::TextInput(None));
         }
         None => {}
+    }
+    // Focus within: the elements holding the old focus and not the new lose it, those
+    // holding the new and not the old gain it (moving inside an element changes nothing).
+    if before != now {
+        let chain = |from: Option<ElementId>| {
+            let mut out = Vec::new();
+            let mut at = from;
+            while let Some(id) = at {
+                out.push(id);
+                at = tree.parent(id);
+            }
+            out
+        };
+        // The old chain as it was when focus came (an element removed with focus inside it
+        // has no parents left to walk).
+        let old = std::mem::take(&mut ui.0.borrow_mut().focus_chain);
+        let new = chain(now);
+        ui.0.borrow_mut().focus_chain = new.clone();
+        for id in old.iter().filter(|id| !new.contains(id)) {
+            ui.set_state(*id, States::FOCUS_WITHIN, false);
+            ui.mark(*id, Dirty::PAINT);
+            told.extend(ui.0.borrow().els.get(id).and_then(|d| d.focus_within.clone()).map(|f| (f, false)));
+        }
+        for id in new.iter().filter(|id| !old.contains(id)) {
+            ui.set_state(*id, States::FOCUS_WITHIN, true);
+            ui.mark(*id, Dirty::PAINT);
+            told.extend(ui.0.borrow().els.get(id).and_then(|d| d.focus_within.clone()).map(|f| (f, true)));
+        }
     }
     for (f, focused) in told {
         f(focused);

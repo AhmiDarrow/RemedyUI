@@ -59,6 +59,14 @@ pub enum Change {
     Appended(usize),
     /// `n` older ones at the start.
     Prepended(usize),
+    /// The oldest `dropped` gone from the start (a history kept to a length), and `appended`
+    /// new ones at the end.
+    Trimmed {
+        /// How many left the start.
+        dropped: usize,
+        /// How many came at the end.
+        appended: usize,
+    },
     /// Anything else (edits in place keep the same keys and count as `Same`).
     Replaced,
 }
@@ -75,6 +83,16 @@ pub fn change<K: PartialEq>(before: &[K], now: &[K]) -> Change {
         }
         if now.get(n..) == Some(before) {
             return Change::Prepended(n);
+        }
+    }
+    // The start dropped, maybe with new ones at the end: what stays of `before` begins `now`.
+    if let Some(first) = now.first()
+        && let Some(dropped) = before.iter().position(|k| k == first)
+        && dropped > 0
+    {
+        let kept = before.len() - dropped;
+        if now.len() >= kept && now.get(..kept) == before.get(dropped..) {
+            return Change::Trimmed { dropped, appended: now.len() - kept };
         }
     }
     Change::Replaced
@@ -265,6 +283,17 @@ pub fn chat_list<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                         }
                     }
                     Change::Prepended(n) => v.insert(0, n),
+                    Change::Trimmed { dropped, appended } => {
+                        // The view stays on what it showed (scrolling up through history
+                        // while old messages are let go does not jump to the top).
+                        v.remove(0..dropped);
+                        if appended > 0 {
+                            v.push(appended);
+                            if !v.is_stuck_to_end() {
+                                state.unread.update(|u| *u += appended);
+                            }
+                        }
+                    }
                     Change::Replaced => {
                         let stuck = v.is_stuck_to_end();
                         *v = VirtualList::new(now.len(), estimate, true);
@@ -369,7 +398,10 @@ mod tests {
         assert_eq!(change(&[1, 2, 3], &[1, 2, 3]), Change::Same);
         assert_eq!(change(&[1, 2, 3], &[1, 2, 3, 4, 5]), Change::Appended(2));
         assert_eq!(change(&[3, 4], &[1, 2, 3, 4]), Change::Prepended(2));
-        assert_eq!(change(&[1, 2], &[2, 3]), Change::Replaced);
+        assert_eq!(change(&[1, 2], &[2, 3]), Change::Trimmed { dropped: 1, appended: 1 });
+        assert_eq!(change(&[1, 2, 3, 4], &[3, 4]), Change::Trimmed { dropped: 2, appended: 0 });
+        assert_eq!(change(&[1, 2, 3], &[2, 1, 3]), Change::Replaced);
+        assert_eq!(change(&[1, 2], &[5, 6]), Change::Replaced);
         assert_eq!(change::<u8>(&[], &[1]), Change::Appended(1));
     }
 }

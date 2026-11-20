@@ -128,13 +128,31 @@ fn files_play_as_many_times_as_they_say() {
             s.frame();
             s.wait("the first frame", |s| s.color() == R);
             let mut seen = vec![s.color()];
-            // Fire until nothing is pending: the last frame of the last play stays up.
-            while !s.timers.is_empty() {
+            // Fire until nothing is pending: the last frame of the last play stays up. No timer
+            // is pending while the next frame decodes, so the end is no timer for a while, not
+            // one moment without one (a loaded machine decodes slowly).
+            let quiet = std::cell::Cell::new(None::<std::time::Instant>);
+            let ended = |s: &Screen| {
+                if !s.timers.is_empty() {
+                    quiet.set(None);
+                    return false;
+                }
+                let since = quiet.get().unwrap_or_else(std::time::Instant::now);
+                quiet.set(Some(since));
+                since.elapsed() >= Duration::from_millis(300)
+            };
+            loop {
+                s.wait("the next timer or the end", |s| !s.timers.is_empty() || ended(s));
+                if s.timers.is_empty() {
+                    break;
+                }
                 assert!(seen.len() < 20, "{name} never stops");
                 let before = s.color();
                 s.fire();
-                s.wait("a frame change", |s| s.color() != before || s.timers.is_empty());
-                seen.push(s.color());
+                s.wait("a frame change or the end", |s| s.color() != before || ended(s));
+                if s.color() != before {
+                    seen.push(s.color());
+                }
             }
             let want: Vec<[u8; 4]> = (0..plays).flat_map(|_| [R, G]).collect();
             assert_eq!(seen, want, "{name} with {loops} plays");

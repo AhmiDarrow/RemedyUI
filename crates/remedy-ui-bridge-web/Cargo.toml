@@ -1,6 +1,6 @@
 [package]
 name = "remedy-ui-bridge-web"
-description = "RemedyUI web bridge: apps in a browser page (PWAs). Canvas windows on the page's frame clock, pointer, wheel, pinch and key input, input methods through a hidden text field, the clipboard, links, file pickers and downloads, dropped files, an ARIA mirror of the accessibility tree, and the page's settings followed live."
+description = "RemedyUI web bridge: apps in a browser page (PWAs). Canvas windows on the page's frame clock, pointer, wheel, pinch and key input, input methods through a hidden text field, the clipboard, links, the share sheet, file pickers and downloads, dropped files, an ARIA mirror of the accessibility tree, and the page's settings followed live."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -46,6 +46,7 @@ web-sys = { version = "=0.3.107", features = [
     "EventTarget",
     "File",
     "FileList",
+    "FilePropertyBag",
     "FocusEvent",
     "FocusOptions",
     "HtmlAnchorElement",

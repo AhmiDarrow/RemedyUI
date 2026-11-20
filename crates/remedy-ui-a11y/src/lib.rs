@@ -71,6 +71,9 @@ pub enum Role {
     MenuItem,
     /// A row of menus along the top of a window (File, Edit, View).
     MenuBar,
+    /// A row of buttons for one thing's commands (a message's Reply, Copy, Delete; an
+    /// editor's Bold, Italic). Screen readers say "toolbar" and its label as they enter it.
+    Toolbar,
     /// A menu item that is checked or not (View ▸ Full Screen).
     MenuItemCheckBox,
     /// A menu item that is one of a set of choices, one of them checked (View ▸ Fit Width).
@@ -871,6 +874,7 @@ pub fn role_name(r: Role) -> String {
         Role::Menu => "menu".into(),
         Role::MenuItem => "menu item".into(),
         Role::MenuBar => "menu bar".into(),
+        Role::Toolbar => "toolbar".into(),
         Role::MenuItemCheckBox => "check menu item".into(),
         Role::MenuItemRadio => "radio menu item".into(),
         Role::Separator => "separator".into(),
@@ -920,6 +924,7 @@ fn role(r: Role) -> accesskit::Role {
         Role::Menu => R::Menu,
         Role::MenuItem => R::MenuItem,
         Role::MenuBar => R::MenuBar,
+        Role::Toolbar => R::Toolbar,
         Role::MenuItemCheckBox => R::MenuItemCheckBox,
         Role::MenuItemRadio => R::MenuItemRadio,
         // AccessKit's separator: UI Automation's Separator, AT-SPI's separator, ARIA's

@@ -475,3 +475,49 @@ app's own kinds, people write scripted widgets in Rhai or compile them to WebAss
 runs sandboxed, with no files, network or processes and with limits on time and memory, and
 returns a description of elements that the board builds as ordinary RemedyUI elements, themed
 and accessible like built-in ones.
+
+An app that builds on boards shapes them to its own model:
+
+- **Its words.** Every string a board says is in
+  [`board::BoardLabels`](crate::board::BoardLabels) on the context, English by default.
+  `BoardLabels::default().translated(|en| catalog.text(en))` sends them all through the
+  app's catalog; placeholders such as `{name}` are filled after translation. Built-in
+  widgets take the words with
+  [`Registry::with_builtins_in`](crate::board::Registry::with_builtins_in).
+- **How it behaves.** [`board::BoardOptions`](crate::board::BoardOptions) hold each area to
+  one widget, fix the row height, name areas the app's way, and move the panel out:
+  with `Panel::Off`, an app showing several boards on a page shows one
+  [`board::board_panel`](crate::board::board_panel) for the board being arranged, or drives
+  editing itself with `BoardState`'s operations and its `selected` signal.
+- **What people may add.** [`Registry::set_addable`](crate::board::Registry::set_addable)
+  keeps a kind on screen but out of "Add widget", for a viewer without the right to place it.
+- **Typed settings.** Besides text, numbers, switches and choices, a setting can be a moment
+  (`SettingKind::Time`, seconds since 1970, with the form pack's date and time pickers), a
+  choice whose labels differ from what is stored (`LabeledChoice`, such as rooms by id), a
+  list, or a picture the app shows and chooses (`Context::picture`,
+  `Context::choose_picture`).
+- **One change, not one a keystroke.** [`BoardState::settled`](crate::board::BoardState::settled)
+  follows the document, but typing in a setting reaches it once, when the typing finishes.
+  An app that sends each change to a server watches `settled` rather than `doc`:
+
+```
+# #[cfg(feature = "board")]
+# {
+use remedy_ui::board::{Board, BoardOptions, BoardState};
+
+let (doc, area) = Board::default().add_area("News", 12, 1)?;
+let (doc, note) = doc.add_widget(&area, "text", Default::default())?;
+let state = BoardState::with_options(doc, BoardOptions::default().one_widget_per_area(true));
+
+// Typing in a setting is one change for whoever watches `settled`.
+for text in ["H", "He", "Hello"] {
+    state.type_setting(&note, "title", text.into());
+}
+assert!(state.is_typing());
+state.finish_typing(); // as when the field loses focus
+let sent = state.settled.get();
+let title = sent.widget(&note).and_then(|w| w.settings.get("title")).cloned();
+assert_eq!(title, Some("Hello".into()));
+# }
+# Ok::<(), remedy_ui::board::BoardError>(())
+```

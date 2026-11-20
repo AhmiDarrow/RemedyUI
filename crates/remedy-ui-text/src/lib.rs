@@ -47,8 +47,8 @@ pub use editing::{
     Composition, SecretEditor, SecretString, TextChange, TextEditor, TextSelection, UNDO_PAUSE_MS,
 };
 pub use engine::{
-    Affinity, FontCollection, FontError, FontFile, GlyphRunInfo, LineInfo, Paragraph, ParagraphOptions,
-    PositionedGlyph, RunFont, TextEngine, TextPosition,
+    Affinity, DEFAULT_SYMBOL_FALLBACKS, FontCollection, FontError, FontFile, GlyphRunInfo, LineInfo,
+    Paragraph, ParagraphOptions, PositionedGlyph, RunFont, TextEngine, TextPosition,
 };
 pub use pseudo::Pseudo;
 pub use raster::{Antialias, GlyphImage, GlyphRasterizer, Hinting, SUBPIXEL_BINS, size_64, subpixel_bin};

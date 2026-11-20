@@ -90,14 +90,15 @@ pub fn spinner(ui: &Ui, label: impl IntoProp<String>) -> El {
         })
 }
 
-/// A status light: on (the theme's ok color) or off.
+/// A status light: on or off. On, it shows its text color from the style sheet: the
+/// theme's ok color, or with a variant `danger`, `warn` or `accent` that color (a problem
+/// band's light is red, not "all is well" green).
 #[track_caller]
 pub fn lamp(ui: &Ui, label: impl IntoProp<String>, on: Signal<bool>) -> El {
     let label = label.into_prop();
     let size = ui.theme().spacing.unit * 2.5;
     let l = ui.el("lamp").width(size).height(size).paint(move |cx| {
-        let c = &cx.theme.colors;
-        let color = if on.get() { c.ok } else { cx.theme.derive().line };
+        let color = if on.get() { cx.style.foreground } else { cx.theme.derive().line };
         cx.list.fill_rounded(
             Rect::new(0.0, 0.0, cx.size.width, cx.size.height),
             CornerRadii::all(cx.size.width / 2.0),

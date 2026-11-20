@@ -2,8 +2,8 @@
 //! Android and macOS ([`crate::platforms`]), or as an installable web page ([`crate::web`]).
 //!
 //! 1. The icon (from `remedy.toml`, or a default one) becomes a multi-size `.ico`.
-//! 2. With a resource compiler (`llvm-rc`, or `rc` from the Windows SDK), the icon and the
-//!    version information are compiled into the executable.
+//! 2. The icon and the version information are written as a resource file
+//!    ([`remedy_ui_build`], no resource compiler needed) and linked into the executable.
 //! 3. With a certificate thumbprint in `remedy.toml` and `signtool`, the executable and the
 //!    installer are signed.
 //! 4. Inno Setup builds a per-user installer (`<bin>_<version>_x64-setup.exe`): Start menu
@@ -65,50 +65,23 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut notes: Vec<String> = Vec::new();
 
     // 1. Icon.
-    let icon_png = match &p.icon {
-        Some(path) => {
-            let bytes = std::fs::read(path).map_err(|e| format!("icon {}: {e}", path.display()))?;
-            crate::ico::read_png(&bytes).map_err(|e| format!("icon {}: {e}", path.display()))?
-        }
-        None => {
-            notes.push("no icon in remedy.toml: used the default icon".into());
-            crate::ico::default_icon([61, 139, 95])
-        }
-    };
-    if icon_png.width < 256 || icon_png.height < 256 {
-        notes.push(format!(
-            "the icon is {}x{}; 256x256 or larger looks sharp everywhere",
-            icon_png.width, icon_png.height
-        ));
-    }
+    let icons = crate::platforms::icon_set(&p, &mut notes)?;
     let ico_path = work.join("app.ico");
-    std::fs::write(&ico_path, crate::ico::ico(&icon_png)?).map_err(|e| e.to_string())?;
+    std::fs::write(&ico_path, crate::ico::ico(&icons)?).map_err(|e| e.to_string())?;
 
-    // 2. Resources, and the release build.
-    let res = match find_rc() {
-        Some(rc) => {
-            let rc_path = work.join("app.rc");
-            std::fs::write(&rc_path, resource_script(&p, &ico_path)).map_err(|e| e.to_string())?;
-            let res_path = work.join("app.res");
-            let mut cmd = Command::new(&rc);
-            if rc.file_stem().is_some_and(|s| s.eq_ignore_ascii_case("llvm-rc")) {
-                cmd.arg("/FO").arg(&res_path).arg(&rc_path);
-            } else {
-                cmd.arg("/nologo").arg("/fo").arg(&res_path).arg(&rc_path);
-            }
-            status(&mut cmd)?;
-            Some(res_path)
-        }
-        None => {
-            notes.push("no resource compiler (llvm-rc or the Windows SDK's rc): the executable has no icon or version info".into());
-            None
-        }
-    };
+    // 2. Resources, and the release build. An app whose build script adds its own
+    // (`remedy_ui_build`) stands aside while this build runs.
+    let res_path = work.join("app.res");
+    std::fs::write(&res_path, resources(&p, std::fs::read(&ico_path).map_err(|e| e.to_string())?)?)
+        .map_err(|e| e.to_string())?;
     let mut build = Command::new(cargo());
-    build.current_dir(&p.root).args(["rustc", "--release", "--bin", &p.bin]);
-    if let Some(res) = &res {
-        build.arg("--").arg("-C").arg(format!("link-arg={}", res.display()));
-    }
+    build
+        .current_dir(&p.root)
+        .env(remedy_ui_build::PACKAGE_RESOURCES_ENV, "1")
+        .args(["rustc", "--release", "--bin", &p.bin])
+        .arg("--")
+        .arg("-C")
+        .arg(format!("link-arg={}", res_path.display()));
     status(&mut build)?;
     let exe = p.exe(true);
     let staged = work.join(exe.file_name().ok_or("no executable name")?);
@@ -191,53 +164,15 @@ pub fn sign_update(file: &Path, sk: &minisign::SecretKey) -> Result<PathBuf, Str
     Ok(sig_path)
 }
 
-fn version_numbers(v: &str) -> (u16, u16, u16) {
-    let core = v.split(['-', '+']).next().unwrap_or("0.0.0");
-    let mut it = core.split('.').map(|n| n.parse::<u16>().unwrap_or(0));
-    (it.next().unwrap_or(0), it.next().unwrap_or(0), it.next().unwrap_or(0))
-}
-
-fn rc_string(s: &str) -> String {
-    s.replace('"', "\"\"")
-}
-
-/// The resource script: the icon and the version information.
-pub fn resource_script(p: &Project, ico: &Path) -> String {
-    let (a, b, c) = version_numbers(&p.version);
-    let ico = ico.display().to_string().replace('\\', "/");
-    format!(
-        r#"1 ICON "{ico}"
-1 VERSIONINFO
-FILEVERSION {a},{b},{c},0
-PRODUCTVERSION {a},{b},{c},0
-FILEOS 0x40004
-FILETYPE 0x1
-BEGIN
-  BLOCK "StringFileInfo"
-  BEGIN
-    BLOCK "040904B0"
-    BEGIN
-      VALUE "CompanyName", "{publisher}"
-      VALUE "FileDescription", "{description}"
-      VALUE "FileVersion", "{version}"
-      VALUE "InternalName", "{bin}"
-      VALUE "OriginalFilename", "{bin}.exe"
-      VALUE "ProductName", "{name}"
-      VALUE "ProductVersion", "{version}"
-    END
-  END
-  BLOCK "VarFileInfo"
-  BEGIN
-    VALUE "Translation", 0x409, 1200
-  END
-END
-"#,
-        publisher = rc_string(&p.publisher),
-        description = rc_string(if p.description.is_empty() { &p.name } else { &p.description }),
-        version = rc_string(&p.version),
-        bin = rc_string(&p.bin),
-        name = rc_string(&p.name),
-    )
+/// The executable's resources: the icon and the version information.
+pub fn resources(p: &Project, ico: Vec<u8>) -> Result<Vec<u8>, String> {
+    remedy_ui_build::WindowsResources::empty(&p.version)
+        .icon_bytes(ico)
+        .company(&p.publisher)
+        .file_description(if p.description.is_empty() { &p.name } else { &p.description })
+        .executable(&p.bin)
+        .product_name(&p.name)
+        .to_res()
 }
 
 fn iss_string(s: &str) -> String {
@@ -329,10 +264,6 @@ fn find_sdk_tool(name: &str) -> Option<PathBuf> {
     versions.pop().map(|v| v.join("x64").join(name))
 }
 
-fn find_rc() -> Option<PathBuf> {
-    on_path("llvm-rc.exe").or_else(|| find_sdk_tool("rc.exe"))
-}
-
 fn find_iscc() -> Option<PathBuf> {
     if let Some(p) = on_path("iscc.exe").or_else(|| on_path("ISCC.exe")) {
         return Some(p);
@@ -363,6 +294,11 @@ mod tests {
             publisher: "Remedy".into(),
             description: String::new(),
             icon: None,
+            icon_sizes: Vec::new(),
+            icon_pixel_art: false,
+            android_icon_monochrome: None,
+            android_icon_foreground: None,
+            android_icon_background: Vec::new(),
             sign_thumbprint: None,
             timestamp_url: String::new(),
             lib_name: "notes".into(),
@@ -371,6 +307,7 @@ mod tests {
             android_target_api: 35,
             android_keystore: None,
             android_permissions: Vec::new(),
+            android_foreground: Vec::new(),
             android_key_alias: None,
             web_short_name: None,
             web_theme: crate::project::DEFAULT_THEME_COLOR.into(),
@@ -400,8 +337,15 @@ mod tests {
     #[test]
     fn scripts_quote_names_and_carry_the_version() {
         let p = project();
-        let rc = resource_script(&p, Path::new("C:/x/app.ico"));
-        assert!(rc.contains("FILEVERSION 1,2,3,0") && rc.contains("\"Notes, \"\"Plus\"\"\""), "{rc}");
+        let ico = crate::ico::ico(&crate::ico::IconSet::single(crate::ico::default_icon([1, 2, 3])))
+            .unwrap_or_default();
+        let res = resources(&p, ico).unwrap_or_default();
+        let text: String = res
+            .chunks(2)
+            .filter_map(|c| c.first().filter(|_| c.get(1) == Some(&0)))
+            .map(|b| char::from(*b))
+            .collect();
+        assert!(text.contains("Notes, \"Plus\"") && text.contains("1.2.3-beta.1"), "{text}");
         let iss = inno_script(
             &p,
             Path::new("C:/x/notes.exe"),
@@ -414,6 +358,5 @@ mod tests {
             iss.contains("{localappdata}") && iss.contains("{cm:LaunchProgram,Notes%2c \"Plus\"}"),
             "{iss}"
         );
-        assert_eq!(version_numbers("10.20.30+meta"), (10, 20, 30));
     }
 }

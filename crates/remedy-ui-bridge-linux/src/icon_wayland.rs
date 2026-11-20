@@ -87,7 +87,7 @@ impl Icons {
             return self.conn.flush().map_err(fail);
         };
         let mut sizes: Vec<u32> = self.state.sizes.iter().filter_map(|s| u32::try_from(*s).ok()).collect();
-        sizes.push(icon.size());
+        sizes.extend(icon.drawn_sizes());
         sizes.sort_unstable();
         sizes.dedup();
         let made = self.manager.create_icon(&self.qh, ());

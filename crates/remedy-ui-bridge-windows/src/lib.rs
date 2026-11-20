@@ -3,7 +3,8 @@
 //! The shared winit core (`remedy-ui-bridge-winit`) provides windows, input, frames, input
 //! methods, CPU presents and GPU surface handles; this crate adds what Windows does beyond it:
 //! the Win32 clipboard (sensitive copies kept out of clipboard history and cloud sync),
-//! capture protection (`SetWindowDisplayAffinity`), and system settings read from Windows
+//! capture protection (`SetWindowDisplayAffinity`), the share window (`DataTransferManager`),
+//! and system settings read from Windows
 //! (dark mode, accent, high contrast, text scale, animations, transparency, locale, double-click
 //! time and caret blink). All Win32 calls are in the `os` module. On other platforms this crate
 //! is empty.
@@ -24,8 +25,8 @@ mod hooks {
     use remedy_ui_bridge_winit::winit::window::{Window, WindowAttributes, WindowId};
     use remedy_ui_bridge_winit::{PlatformHooks, RunError};
     use remedy_ui_host::{
-        App, DragData, DragEvent, DragStarted, DropEffect, FileDialog, HostEvent, ImeEvent, SystemSettings,
-        TextInputState, TrayIcon, Unsupported, WindowIcon,
+        App, DragData, DragEvent, DragStarted, DropEffect, FileDialog, HostEvent, ImeEvent, ShareOptions,
+        ShareStarted, SystemSettings, TextInputState, TrayIcon, Unsupported, WindowIcon,
     };
     use remedy_ui_input::Platform;
 
@@ -48,6 +49,8 @@ mod hooks {
         toasts: os::toast::Toasts,
         /// The icons each window shows of its own, kept until replaced or the window closes.
         icons: std::collections::HashMap<isize, os::icon::WindowIcons>,
+        /// The share window's shares.
+        sharing: os::share::Sharing,
     }
 
     impl std::fmt::Debug for WindowsHooks {
@@ -102,6 +105,7 @@ mod hooks {
                 v_.locale = s.locale.unwrap_or(base.locale);
                 v_.double_click = s.double_click;
                 v_.caret_blink = s.caret_blink;
+                v_.subpixel_text = s.subpixel_text;
                 v_
             }
         }
@@ -142,11 +146,13 @@ mod hooks {
             let mut events: Vec<HostEvent> =
                 os::tray::take_events().into_iter().map(HostEvent::Tray).collect();
             events.extend(os::toast::take_events());
+            events.extend(self.sharing.take_events());
             events
         }
 
         fn set_waker(&mut self, waker: remedy_ui_host::Waker) {
-            os::toast::set_waker(waker);
+            os::toast::set_waker(waker.clone());
+            self.sharing.set_waker(waker);
         }
 
         fn show_notification(
@@ -158,6 +164,17 @@ mod hooks {
 
         fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
             self.toasts.withdraw(id)
+        }
+
+        fn share(
+            &mut self,
+            window: Option<&Window>,
+            share: &ShareOptions,
+        ) -> Result<ShareStarted, Unsupported> {
+            let w =
+                window.ok_or_else(|| Unsupported::new("sharing", "the share window needs an open window"))?;
+            let h = hwnd(w).ok_or_else(|| Unsupported::new("sharing", "not a Win32 window"))?;
+            self.sharing.share(h, share)
         }
 
         fn utc_offset(&self, unix_seconds: i64) -> Option<i32> {
@@ -290,6 +307,7 @@ mod hooks {
                 self.icons.remove(&h);
             }
             self.drops.remove(&h);
+            self.sharing.window_closed(h);
             if let Some(Ok(tsf)) = self.tsf.as_mut() {
                 tsf.close(h);
             }

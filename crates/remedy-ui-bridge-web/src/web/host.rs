@@ -7,13 +7,13 @@ use std::time::Duration;
 use remedy_ui_core::{Point, Rect, Size};
 use remedy_ui_host::{
     AccessibilityEvent, DialogStarted, DragData, DragStarted, DropEffect, FileDialog, Host, HostEvent,
-    LocalTime, Pixels, ResizeEdge, SafeArea, SystemSettings, TextInputState, TimerId, TrayIcon, Unsupported,
-    Waker, WindowHandles, WindowIcon, WindowId, WindowOptions,
+    LocalTime, Pixels, ResizeEdge, SafeArea, ShareOptions, ShareStarted, SystemSettings, TextInputState,
+    TimerId, TrayIcon, Unsupported, Waker, WindowHandles, WindowIcon, WindowId, WindowOptions,
 };
 use remedy_ui_input::Platform;
 
 use super::window::{Kind, Win};
-use super::{Driver, clipboard, dialog, driver, notify, now, post, settings};
+use super::{Driver, clipboard, dialog, driver, notify, now, post, settings, share};
 use crate::Mount;
 
 /// The host the app acts through while it handles an event.
@@ -291,6 +291,15 @@ impl Host for WebHost<'_> {
     ) -> Result<DialogStarted, Unsupported> {
         let _ = window;
         dialog::file_dialog(self.d, dialog)
+    }
+
+    fn share(
+        &mut self,
+        window: Option<WindowId>,
+        options: &ShareOptions,
+    ) -> Result<ShareStarted, Unsupported> {
+        let _ = window;
+        share::share(self.d, options)
     }
 
     fn start_drag(

@@ -317,8 +317,65 @@ remedy_ui::run(AppConfig::new("Notes"), |app: &App| {
 ```
 
 The app's windows are built with its [`PersistStore`](crate::reactive::PersistStore)
-provided as context ([`App::persist_store`](crate::App::persist_store): the `state` folder of
-the app's data folder, flushed when the app quits), which is where `persist` saves. A value
+provided as context ([`App::persist_store`](crate::App::persist_store)), which is where
+`persist` saves. It is flushed when the app quits, is suspended, or goes out of sight (every
+window hidden or covered, a page's tab hidden), since a phone or a browser may end an app
+from there without another word. Where it keeps things, by platform:
+
+| Platform | Where |
+|---|---|
+| Windows | `%APPDATA%\<app name>\state\<key>.json` |
+| macOS | `~/Library/Application Support/<app name>/state/<key>.json` |
+| Linux | `$XDG_CONFIG_HOME/<app name>/state/<key>.json` (or `~/.config/…`) |
+| Android | the app's private internal storage: `/data/user/<user>/<package>/files/state/<key>.json` |
+| Browser page | the origin's `localStorage`, key `remedy:<app name>:<key>` |
+
+The folder is the app's data folder ([`App::data_dir`](crate::App::data_dir), or the one
+[`AppConfig::data_dir`](crate::AppConfig::data_dir) names); keys with characters other than
+letters, digits, `.`, `-` and `_` are escaped in file names. A page has no folder (`data_dir`
+is `None` there), so its store keeps the same versioned JSON in `localStorage`, under a prefix
+per app (`~` and `:` in the app's name are written `~7e` and `~3a`) so apps sharing an origin
+keep apart. A browser keeps an origin's `localStorage` across reloads and restarts, and
+installed web apps keep theirs until the person clears the site's data; it holds a few
+megabytes per origin, and a write the browser refuses is reported by
+[`PersistStore::take_errors`](crate::reactive::PersistStore::take_errors) and
+[`flush`](crate::reactive::PersistStore::flush), with the value still seen by loads until a
+later write lands it.
+
+Window geometry ([`WindowSpec::persist_geometry`](crate::WindowSpec::persist_geometry)) is kept
+beside it, in `windows.txt` in the data folder, and in a page in the same store
+(`remedy:<app name>:remedy-ui.windows`), so floating windows come back where they were.
+
+### The app's own documents
+
+The store is also the one way to keep an app's own data that works on every platform,
+browser pages included: [`save`](crate::reactive::PersistStore::save) and
+[`load`](crate::reactive::PersistStore::load) take any serializable value under a key, with
+the same versions and migrations as persisted signals, and
+[`remove`](crate::reactive::PersistStore::remove) forgets one. A load sees a save at once,
+before the debounced write lands. A recipe calculator keeping its library:
+
+```no_run
+use remedy_ui::reactive::Persist;
+use remedy_ui::{App, AppConfig};
+
+// A recipe: its name and its oils in grams (an app's own types derive `serde`'s traits).
+type Recipe = (String, Vec<(String, f64)>);
+
+remedy_ui::run(AppConfig::new("Craft Calc"), |app: &App| {
+    let Some(store) = app.persist_store() else { return };
+    let library = Persist::new("recipes");
+    let mut recipes: Vec<Recipe> = store.load(&library).ok().flatten().unwrap_or_default();
+    recipes.push(("Castile".into(), vec![("Olive".into(), 1000.0)]));
+    // Written after the debounce, and before the app quits or goes to the background.
+    if let Err(e) = store.save(&library, &recipes) {
+        eprintln!("the library was not saved: {e}");
+    }
+})
+.ok();
+```
+
+A value
 whose shape changes over releases takes a [`Persist`](crate::reactive::Persist) with a
 version and a migration from older versions; a file from a newer version of the app is left
 alone. [`Signal::persist_in`](crate::reactive::Signal::persist_in) saves in a store the app

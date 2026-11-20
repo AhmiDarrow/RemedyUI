@@ -145,6 +145,50 @@ fn a_window_reports_being_hidden_by_its_close_button_and_shown_again() {
 }
 
 #[test]
+fn where_windows_cannot_hide_keeping_one_minimizes_it_and_says_it_is_still_shown() {
+    let seen: Rc<std::cell::RefCell<Vec<bool>>> = Rc::default();
+    let s2 = seen.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.keep_running(true);
+        let w = app.open(WindowSpec::new("Tray app").hide_on_close(), |_, _| {});
+        let s3 = s2.clone();
+        w.on_visibility(move |on| s3.borrow_mut().push(on));
+    });
+    let mut host = HeadlessHost::new();
+    host.set_hides_windows(false);
+    host.run_frames(&mut runner, 1);
+    let id = host.window_ids().first().copied().unwrap_or_else(|| unreachable!("a window"));
+    let w = runner.app().windows().into_iter().next().unwrap_or_else(|| unreachable!("open"));
+    assert!(!w.can_hide());
+    host.send(HostEvent::CloseRequested(id));
+    host.run_frames(&mut runner, 1);
+    let shown = |host: &HeadlessHost| host.window(id).map(|w| (w.options().visible, w.is_minimized()));
+    assert_eq!(shown(&host), Some((true, true)), "minimized, not hidden");
+    host.set_minimized(id, false);
+    w.set_visible(false);
+    host.run_frames(&mut runner, 1);
+    assert_eq!(shown(&host), Some((true, true)), "the app's hide minimizes too");
+    assert!(seen.borrow().is_empty(), "never reported hidden: it is still on the screen");
+}
+
+#[test]
+fn where_windows_cannot_hide_a_window_hidden_before_it_exists_opens_minimized() {
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), |app: &App| {
+        app.keep_running(true);
+        app.open(WindowSpec::new("Opened hidden").hidden(), |_, _| {});
+        let w = app.open(WindowSpec::new("Hidden at once"), |_, _| {});
+        w.set_visible(false);
+    });
+    let mut host = HeadlessHost::new();
+    host.set_hides_windows(false);
+    host.run_frames(&mut runner, 2);
+    for id in host.window_ids() {
+        assert!(host.window(id).is_some_and(|w| w.is_minimized()), "minimized");
+    }
+    assert!(runner.app().windows().iter().all(|w| w.is_visible()), "and reported shown");
+}
+
+#[test]
 fn keep_running_tray_apps_outlive_their_windows_and_timers_fire() {
     let fired = Rc::new(Cell::new(false));
     let f2 = fired.clone();
@@ -198,6 +242,94 @@ fn window_geometry_persists_across_runs() {
         Some((Some(Point::new(40.0, 50.0)), Size::new(345.0, 280.0)))
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// How a browser page keeps geometry (it has no files): in the app's persist store, here a
+/// folder one so the test runs natively.
+#[test]
+fn window_geometry_persists_in_a_persist_store_and_is_written_when_the_app_goes_out_of_sight() {
+    use remedy_ui::reactive::{Persist, PersistStore, Signal};
+    let dir = std::env::temp_dir().join(format!("remedy-ui-geometry-store-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let spec = || WindowSpec::new("Panel").size(300.0, 200.0).persist_geometry("panel");
+    let draft: Rc<Cell<Option<Signal<String>>>> = Rc::default();
+    {
+        // A long debounce: only the flush on going out of sight writes in time.
+        let Ok(store) = PersistStore::with_debounce(&dir, Duration::from_secs(600)) else {
+            unreachable!("a store in a temporary folder")
+        };
+        let d2 = draft.clone();
+        let mut runner = Runner::with_geometry(
+            config().data_dir(dir.join("unused")),
+            GeometryStore::persisted_in(&store),
+            move |app: &App| {
+                app.open(spec(), move |_, _| {
+                    d2.set(Some(Signal::new(String::new()).persist("draft")));
+                });
+            },
+        );
+        let mut host = HeadlessHost::new();
+        host.run_frames(&mut runner, 1);
+        let id = first(&host);
+        let _ = host.set_position(id, Point::new(12.0, 34.0));
+        host.user_resize(id, Size::new(320.0, 240.0));
+        host.run_frames(&mut runner, 40);
+        let set_at = std::time::Instant::now();
+        if let Some(d) = draft.get() {
+            d.set("lye calculation".into());
+        }
+        host.run_frames(&mut runner, 2);
+        let state = dir.join("unused").join("state");
+        let before = state.join("draft.json").exists();
+        host.send(HostEvent::Occluded(id, true));
+        host.run_frames(&mut runner, 1);
+        // Within the app store's debounce, only the write on going out of sight can save it.
+        let in_debounce = set_at.elapsed() < remedy_ui::reactive::DEFAULT_DEBOUNCE;
+        if in_debounce {
+            assert!(!before, "the persisted draft waits for its debounce");
+        }
+        assert!(state.join("draft.json").exists(), "going out of sight wrote the app's persisted state");
+        assert!(store.flush().is_ok(), "the geometry entry is written");
+        assert!(store.path_of(remedy_ui::GEOMETRY_KEY).exists());
+        use remedy_ui::reactive::JsonValue;
+        let Ok(Some(saved)) = store.load::<JsonValue>(&Persist::new(remedy_ui::GEOMETRY_KEY)) else {
+            unreachable!("the geometry entry reads back")
+        };
+        let row = ["panel".into(), 12.0.into(), 34.0.into(), 320.0.into(), 240.0.into()];
+        assert_eq!(saved, JsonValue::Array(vec![JsonValue::Array(row.to_vec())]));
+    }
+    let Ok(store) = PersistStore::open(&dir) else { unreachable!("the store opens again") };
+    let mut runner =
+        Runner::with_geometry(config(), GeometryStore::persisted_in(&store), move |app: &App| {
+            app.open(spec(), |_, _| {});
+        });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let id = first(&host);
+    assert_eq!(
+        host.window(id).map(|w| (w.options().position, w.options().size)),
+        Some((Some(Point::new(12.0, 34.0)), Size::new(320.0, 240.0)))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn quiet_windows_ask_the_host_for_no_focus_and_no_taskbar_button() {
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), |app: &App| {
+        app.open(WindowSpec::new("Quiet").activate(false).in_taskbar(false), |_, _| {});
+        app.open(WindowSpec::new("Plain"), |_, _| {});
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let flags = |title: &str| {
+        host.window_ids()
+            .into_iter()
+            .filter_map(|id| host.window(id))
+            .find(|w| w.options().title == title)
+            .map(|w| (w.options().activate, w.options().taskbar))
+    };
+    assert_eq!(flags("Quiet"), Some((false, false)));
+    assert_eq!(flags("Plain"), Some((true, true)), "windows take focus and a taskbar button by default");
 }
 
 #[test]
@@ -372,6 +504,68 @@ fn privacy_cover_hides_content_while_unfocused() {
     host.send(HostEvent::Focused(id, true));
     host.run_frames(&mut runner, 1);
     assert_eq!(px(&host, id, 10, 10), [255, 0, 0, 255], "shown again");
+}
+
+#[test]
+fn snapshots_picture_the_whole_next_frame() {
+    let got = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let win = Rc::new(std::cell::RefCell::new(None));
+    let w2 = win.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let w = app.open(WindowSpec::new("Tour").size(200.0, 100.0), |ui, _| {
+            ui.root().child(ui.el("button").layout(|l| {
+                l.width = Length::Px(60.0);
+                l.height = Length::Px(30.0);
+            }));
+        });
+        *w2.borrow_mut() = Some(w);
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    // Asked after the window has drawn: the picture still holds all of it, not only what changed.
+    for _ in 0..2 {
+        let g = got.clone();
+        if let Some(w) = win.borrow().as_ref() {
+            w.snapshot(move |pic| g.borrow_mut().push(pic));
+        }
+    }
+    host.run_frames(&mut runner, 1);
+    let pics = got.borrow();
+    assert_eq!(pics.len(), 2, "both answered by one frame");
+    let Some(Some(pic)) = pics.first() else { unreachable!("a picture") };
+    assert_eq!((pic.width, pic.height), (200, 100));
+    let id = first(&host);
+    let at = (10 * 200 + 10) * 4;
+    assert_eq!(
+        pic.pixels.get(at..at + 4),
+        Some(&px(&host, id, 10, 10)[..]),
+        "the button, as the window shows it"
+    );
+}
+
+#[test]
+fn windows_report_focus_changes_once_each() {
+    let seen = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let win = Rc::new(std::cell::RefCell::new(None));
+    let (s2, w2) = (seen.clone(), win.clone());
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let w = app.open(WindowSpec::new("Chat"), |_, _| {});
+        let s3 = s2.clone();
+        w.on_focus(move |on| s3.borrow_mut().push(on));
+        *w2.borrow_mut() = Some(w);
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let id = first(&host);
+    let focused = || win.borrow().as_ref().is_some_and(remedy_ui::Window::is_focused);
+    host.send(HostEvent::Focused(id, true));
+    host.run_frames(&mut runner, 1);
+    assert!(focused());
+    host.send(HostEvent::Focused(id, true));
+    host.send(HostEvent::Focused(id, false));
+    host.run_frames(&mut runner, 1);
+    assert!(!focused(), "another window came in front");
+    assert_eq!(*seen.borrow(), [true, false], "a repeat is not reported");
 }
 
 #[test]
@@ -1193,6 +1387,161 @@ fn notifications_carry_the_app_name_and_answers_reach_the_app() {
 }
 
 #[test]
+fn a_notification_press_that_started_the_app_reaches_it_after_setup() {
+    use remedy_ui::host::NotificationResponse;
+    let heard: Rc<std::cell::RefCell<Vec<(u64, NotificationResponse)>>> = Rc::default();
+    let h2 = heard.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Notes").size(100.0, 100.0), |_, _| {});
+        let h = h2.clone();
+        app.on_notification(move |id, r| h.borrow_mut().push((id, r)));
+    });
+    let mut host = HeadlessHost::new();
+    // Android reports the press that started the app before the app's setup runs.
+    host.send(HostEvent::Notification(7, NotificationResponse::Activated));
+    host.run_frames(&mut runner, 2);
+    assert_eq!(*heard.borrow(), vec![(7, NotificationResponse::Activated)], "kept until the app listens");
+    host.send(HostEvent::Notification(7, NotificationResponse::Dismissed));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(heard.borrow().len(), 2, "later ones arrive directly, once");
+}
+
+#[test]
+fn foreground_work_starts_stops_and_hears_when_the_platform_ends_it() {
+    use remedy_ui::host::{ForegroundKind, ForegroundTask, Notification, NotificationResponse};
+    let outcomes: Rc<std::cell::RefCell<Vec<bool>>> = Rc::default();
+    let stopped: Rc<std::cell::RefCell<Vec<String>>> = Rc::default();
+    let heard: Rc<std::cell::RefCell<Vec<(u64, NotificationResponse)>>> = Rc::default();
+    let (o2, s2, h2) = (outcomes.clone(), stopped.clone(), heard.clone());
+    let app_slot: Rc<std::cell::RefCell<Option<App>>> = Rc::default();
+    let a2 = app_slot.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Call").size(100.0, 100.0), |_, _| {});
+        let s = s2.clone();
+        app.on_foreground_stopped(move |why| s.borrow_mut().push(why));
+        let h = h2.clone();
+        app.on_notification(move |id, r| h.borrow_mut().push((id, r)));
+        let task = ForegroundTask::new(
+            ForegroundKind::Microphone,
+            Notification::new(40, "In a call", "Ada").action("hang-up", "Hang up"),
+        )
+        .kind(ForegroundKind::MediaPlayback)
+        .kind(ForegroundKind::Microphone);
+        let o = o2.clone();
+        app.start_foreground(task, move |r| o.borrow_mut().push(r.is_ok()));
+        *a2.borrow_mut() = Some(app.clone());
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*outcomes.borrow(), vec![true]);
+    let task = host.foreground().cloned().unwrap_or_else(|| unreachable!("started"));
+    assert_eq!(task.kinds, vec![ForegroundKind::Microphone, ForegroundKind::MediaPlayback], "each kind once");
+    assert!(!task.notification.app.is_empty(), "the engine names the app");
+    assert_eq!(task.notification.actions.len(), 1);
+
+    // Its notification's button reaches the app like any notification's.
+    host.send(HostEvent::Notification(40, NotificationResponse::Action("hang-up".into())));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*heard.borrow(), vec![(40, NotificationResponse::Action("hang-up".into()))]);
+
+    let app = app_slot.borrow().clone().unwrap_or_else(|| unreachable!("set up"));
+    app.stop_foreground();
+    host.run_frames(&mut runner, 1);
+    assert!(host.foreground().is_none(), "stopped");
+
+    // Refused (out of sight, a permission missing): the app hears it.
+    host.refuse_foreground(Some("start microphone work while the app is on screen"));
+    let o3 = outcomes.clone();
+    app.start_foreground(
+        ForegroundTask::new(ForegroundKind::Microphone, Notification::new(40, "In a call", "")),
+        move |r| {
+            o3.borrow_mut().push(r.is_ok());
+        },
+    );
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*outcomes.borrow(), vec![true, false]);
+    assert!(host.foreground().is_none());
+
+    // Started, then ended by the platform: the app is told why.
+    host.refuse_foreground(None);
+    app.start_foreground(
+        ForegroundTask::new(ForegroundKind::DataSync, Notification::new(41, "Uploading", "")),
+        |_| {},
+    );
+    host.run_frames(&mut runner, 1);
+    assert!(host.foreground().is_some());
+    host.send(HostEvent::ForegroundStopped("the time limit for data sync ran out".into()));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*stopped.borrow(), vec!["the time limit for data sync ran out".to_owned()]);
+    assert!(host.foreground().is_none());
+}
+
+#[test]
+fn shares_reach_the_sheet_and_how_they_ended_reaches_the_app() {
+    use remedy_ui::host::{ShareFile, ShareOptions, ShareOutcome, Unsupported};
+    let outcomes: Rc<std::cell::RefCell<Vec<ShareOutcome>>> = Rc::default();
+    let o2 = outcomes.clone();
+    let recipe = ShareOptions::new()
+        .title("Lavender")
+        .text("Lavender soap: 500 g oils")
+        .file(ShareFile::new("Lavender.alex-soap.json", "application/json", b"{}".to_vec()));
+    let r2 = recipe.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let window = app.open(WindowSpec::new("Share").size(100.0, 100.0), |_, _| {});
+        for share in [r2.clone(), r2.clone(), r2, ShareOptions::new()] {
+            let o = o2.clone();
+            app.share(Some(&window), share, move |outcome| o.borrow_mut().push(outcome));
+        }
+    });
+    let mut host = HeadlessHost::new();
+    host.answer_share(ShareOutcome::Cancelled);
+    let refused = Unsupported::new("sharing", "scripted");
+    host.answer_share(ShareOutcome::Unsupported(refused.clone()));
+    host.run_frames(&mut runner, 1);
+    let window = host.window_ids().first().copied();
+    assert!(window.is_some());
+    assert_eq!(host.shares().len(), 3, "an empty share never reaches the sheet");
+    assert!(host.shares().iter().all(|(w, s)| *w == window && *s == recipe), "{:?}", host.shares());
+    let got = outcomes.borrow().clone();
+    assert_eq!(
+        got.get(..3),
+        Some(&[ShareOutcome::Cancelled, ShareOutcome::Unsupported(refused), ShareOutcome::Shared][..])
+    );
+    assert!(
+        matches!(got.get(3), Some(ShareOutcome::Unsupported(u)) if u.reason.contains("nothing to share")),
+        "{got:?}"
+    );
+
+    // Android's chooser closes later, in any order.
+    outcomes.borrow_mut().clear();
+    let o3 = outcomes.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Share").size(100.0, 100.0), |_, _| {});
+        for n in 0..2 {
+            let o = o3.clone();
+            app.share(None, ShareOptions::new().text(format!("share {n}")), move |outcome| {
+                o.borrow_mut().push(outcome)
+            });
+        }
+    });
+    let mut host = HeadlessHost::new();
+    host.shares_answer_later(true);
+    host.run_frames(&mut runner, 1);
+    assert!(outcomes.borrow().is_empty(), "the sheets are still open");
+    assert_eq!(host.shares().iter().map(|(w, _)| *w).collect::<Vec<_>>(), vec![None, None]);
+    use remedy_ui::host::ShareId;
+    host.send(HostEvent::Share(ShareId(2), ShareOutcome::Shared));
+    host.send(HostEvent::Share(ShareId(1), ShareOutcome::Cancelled));
+    host.send(HostEvent::Share(ShareId(1), ShareOutcome::Shared));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(
+        *outcomes.borrow(),
+        vec![ShareOutcome::Shared, ShareOutcome::Cancelled],
+        "each outcome reaches its own share, once"
+    );
+}
+
+#[test]
 fn suspended_windows_draw_again_after_resume() {
     let mut runner = red_block_app();
     let mut host = HeadlessHost::new();
@@ -1341,4 +1690,230 @@ fn each_frame_runs_on_the_frame_clock() {
     let seen = times.borrow().clone();
     assert!(seen.len() >= 2, "painted every frame it asked for: {seen:?}");
     assert!(seen.windows(2).all(|w| matches!(w, [a, b] if b > a)), "the clock moves on each frame: {seen:?}");
+}
+
+#[test]
+fn a_zoomed_window_draws_larger_and_maps_clicks_back() {
+    let count = Signal::new(0u32);
+    let win: Rc<std::cell::RefCell<Option<remedy_ui::Window>>> = Rc::default();
+    let w2 = win.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let w = app.open(WindowSpec::new("Zoom").size(200.0, 100.0), move |ui, _| {
+            let button = ui
+                .el("button")
+                .layout(|l| {
+                    l.width = Length::Px(40.0);
+                    l.height = Length::Px(20.0);
+                })
+                .on_click(move || count.update(|c| *c += 1));
+            ui.root().child(button);
+        });
+        *w2.borrow_mut() = Some(w);
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    let before = px(&host, id, 60, 30);
+    assert_ne!(before, [255, 0, 0, 255], "outside the 40 × 20 button at 1×");
+    let Some(w) = win.borrow().clone() else { unreachable!("open") };
+    w.set_zoom(2.0);
+    assert_eq!(w.zoom(), 2.0);
+    host.run_frames(&mut runner, 2);
+    assert_eq!(px(&host, id, 60, 30), [255, 0, 0, 255], "the button is 80 × 40 at 2×");
+    let ui = w.ui();
+    assert_eq!(
+        ui.map(|u| u.window_size()),
+        Some(Size::new(100.0, 50.0)),
+        "content lays out in half the size"
+    );
+    // A click where the button is drawn reaches it.
+    host.send(HostEvent::Pointer(id, press(70.0, 30.0, PointerPhase::Down)));
+    host.send(HostEvent::Pointer(id, press(70.0, 30.0, PointerPhase::Up)));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(count.get(), 1);
+}
+
+#[test]
+fn a_tray_app_knows_its_icon_is_up_and_can_minimize_on_close_instead() {
+    use remedy_ui::host::{TrayIcon, TrayImage};
+    let app_seen: Rc<std::cell::RefCell<Option<App>>> = Rc::default();
+    let a2 = app_seen.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        *a2.borrow_mut() = Some(app.clone());
+        app.open(WindowSpec::new("Tray app").minimize_on_close(), |_, _| {});
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let app = app_seen.borrow().clone().unwrap_or_else(|| unreachable!("the app"));
+    assert!(!app.tray_shown(), "no icon asked for");
+    app.set_tray(Some(TrayIcon::new("Tray app", TrayImage { size: 2, rgba: vec![255; 16] }, Vec::new())));
+    host.run_frames(&mut runner, 1);
+    assert!(app.tray_shown(), "the host took the icon");
+    app.set_tray(None);
+    host.run_frames(&mut runner, 1);
+    assert!(!app.tray_shown());
+    let id = first(&host);
+    host.send(HostEvent::CloseRequested(id));
+    host.run_frames(&mut runner, 1);
+    assert!(
+        host.window(id).is_some_and(|w| w.is_minimized() && w.options().visible),
+        "minimized, not hidden or closed"
+    );
+}
+
+#[test]
+fn a_frame_rate_limit_holds_frames_back_until_their_turn() {
+    let n = Signal::new(0u32);
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.set_frame_rate_limit(Some(10));
+        app.open(WindowSpec::new("Ten a second"), move |ui, _| {
+            ui.root().child(ui.el("label").text(move || format!("{}", n.get())));
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    let before = host.window(id).map_or(0, |w| w.presents());
+    // A change every refresh for well under a tenth of a second: one frame at most.
+    for _ in 0..4 {
+        n.update(|v| *v += 1);
+        host.run_frames(&mut runner, 1);
+    }
+    let soon = host.window(id).map_or(0, |w| w.presents());
+    assert!(soon <= before + 1, "{before} -> {soon}");
+    // Its turn comes: the held frame is drawn.
+    host.run_frames(&mut runner, 10);
+    assert!(host.window(id).map_or(0, |w| w.presents()) > soon, "the last change is shown");
+}
+
+#[test]
+fn an_app_can_reduce_motion_where_the_system_does_not() {
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), |app: &App| {
+        app.open(WindowSpec::new("Calm"), |_, _| {});
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let reduced = |runner: &Runner| {
+        runner.app().windows().first().and_then(|w| w.ui()).is_some_and(|ui| ui.reduced_motion())
+    };
+    assert!(!reduced(&runner), "the system does not ask for it");
+    runner.app().set_reduce_motion(true);
+    host.run_frames(&mut runner, 1);
+    assert!(reduced(&runner), "the app's setting holds still");
+    runner.app().set_reduce_motion(false);
+    host.run_frames(&mut runner, 1);
+    assert!(!reduced(&runner), "off follows the system again");
+}
+
+#[test]
+fn a_file_dialog_tells_a_cancel_from_no_dialog() {
+    use remedy_ui::host::FileDialog;
+    let got: Rc<std::cell::RefCell<Option<bool>>> = Rc::default();
+    let g2 = got.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Files"), |_, _| {});
+        let g3 = g2.clone();
+        app.try_file_dialog(None, FileDialog::default(), move |r| {
+            *g3.borrow_mut() = Some(matches!(r, Ok(ref p) if p.is_empty()))
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    assert_eq!(*got.borrow(), Some(true), "cancelled: Ok with nothing chosen");
+}
+
+#[test]
+fn hide_on_close_can_change_while_the_window_is_open() {
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), |app: &App| {
+        let w = app.open(WindowSpec::new("Tray app"), |_, _| {});
+        w.set_hide_on_close(true);
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    let id = first(&host);
+    host.send(HostEvent::CloseRequested(id));
+    host.run_frames(&mut runner, 1);
+    assert!(host.window(id).is_some_and(|w| !w.options().visible), "hidden, not closed");
+    if let Some(w) = runner.app().windows().into_iter().next() {
+        w.set_hide_on_close(false);
+    }
+    host.run_frames(&mut runner, 1);
+    host.send(HostEvent::CloseRequested(id));
+    host.run_frames(&mut runner, 1);
+    assert!(host.window(id).is_none(), "closed once it no longer hides");
+}
+
+/// The app's own signals outlive the binding that first asked for them: `tray_shown` read
+/// first inside a binding (a window's build, an effect) must still be there after that
+/// binding runs again, and so must a window opened from inside one.
+#[test]
+fn app_signals_outlive_the_binding_that_first_asked_for_them() {
+    let tick = Signal::new(0u32);
+    let seen = Rc::new(Cell::new(0u32));
+    let s2 = seen.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.keep_running(true);
+        let app2 = app.clone();
+        app.open(WindowSpec::new("Tray app"), move |ui, _| {
+            let (app3, s3) = (app2.clone(), s2.clone());
+            let _ = ui.root().bind(move || {
+                tick.get();
+                // First asked for here, inside the binding.
+                let _ = app3.tray_shown();
+                s3.set(s3.get() + 1);
+                if s3.get() == 1 {
+                    // A window opened from inside the binding keeps its signals too.
+                    app3.open(WindowSpec::new("Inner"), |_, _| {});
+                }
+            });
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    for n in 1..=3 {
+        tick.set(n);
+        host.run_frames(&mut runner, 1);
+    }
+    assert!(seen.get() >= 4, "the binding ran again ({} runs)", seen.get());
+    assert!(!runner.app().tray_shown());
+    for w in runner.app().windows() {
+        assert!(!w.is_maximized(), "a window's own signals are still there");
+    }
+}
+
+/// A window shown again, or one the platform says is back in sight, is presented whole: the
+/// platform may not have kept what it showed (X11 forgets an unmapped window's pixels), and a
+/// present of only what changed would leave the rest blank.
+#[test]
+fn a_window_back_in_sight_is_presented_whole() {
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), |app: &App| {
+        app.keep_running(true);
+        app.open(WindowSpec::new("Tray app").size(320.0, 200.0), |ui, _| {
+            let _ = ui.root().child(remedy_ui::widgets::text(ui, "Hello"));
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 3);
+    let id = host.window_ids().first().copied().unwrap_or_else(|| unreachable!("a window"));
+    let whole = |host: &HeadlessHost| {
+        let w = host.window(id).unwrap_or_else(|| unreachable!("open"));
+        let area: f32 = w.last_damage().iter().map(|r| r.width() * r.height()).sum();
+        (area, w.presents())
+    };
+    let (_, before) = whole(&host);
+    // Shown again by the app (from the tray).
+    let w = runner.app().windows().into_iter().next().unwrap_or_else(|| unreachable!("open"));
+    w.set_visible(false);
+    host.run_frames(&mut runner, 1);
+    w.set_visible(true);
+    host.run_frames(&mut runner, 2);
+    let (area, after) = whole(&host);
+    assert!(after > before, "it was presented again");
+    assert!(area >= 320.0 * 200.0, "all of it ({area} pixels of damage)");
+    // Back in sight as the platform says (an X11 expose).
+    host.send(HostEvent::Occluded(id, false));
+    host.run_frames(&mut runner, 2);
+    let (area, again) = whole(&host);
+    assert!(again > after, "presented again");
+    assert!(area >= 320.0 * 200.0, "all of it ({area} pixels of damage)");
 }

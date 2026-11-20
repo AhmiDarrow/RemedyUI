@@ -9,8 +9,12 @@ use crate::host::{MediaError, MediaHost};
 mod android;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod gstreamer;
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod gstreamer_stream;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod pulse_capture;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 mod web;
 #[cfg(windows)]

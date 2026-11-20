@@ -40,8 +40,9 @@ impl El {
     /// This element's text, if it shows text.
     pub fn text_content(&self) -> Option<String> {
         let i = self.ui.0.borrow();
-        let slot = i.els.get(&self.id)?.text.as_ref()?;
-        Some(slot.borrow().text.as_str().to_owned())
+        let d = i.els.get(&self.id)?;
+        let slot = d.text.as_ref()?;
+        Some(crate::element::with_alts(&slot.borrow().text, &d.inline_images, None))
     }
 }
 
@@ -53,9 +54,11 @@ impl Ui {
         let parts: Vec<String> = ranges
             .iter()
             .filter_map(|(id, r)| {
-                let slot = i.els.get(id)?.text.as_ref()?;
+                let d = i.els.get(id)?;
+                let slot = d.text.as_ref()?;
                 let s = slot.borrow();
-                s.text.as_str().get(r.clone()).map(str::to_owned)
+                s.text.as_str().get(r.clone())?;
+                Some(crate::element::with_alts(&s.text, &d.inline_images, Some(r.clone())))
             })
             .filter(|p| !p.is_empty())
             .collect();

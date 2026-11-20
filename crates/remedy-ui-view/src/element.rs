@@ -141,6 +141,8 @@ pub(crate) struct TextSlot {
     pub(crate) text: RichText,
     pub(crate) style: TextStyle,
     pub(crate) wrap: bool,
+    /// On one line, cut short with "…" where it would run past its box ([`El::truncate`]).
+    pub(crate) truncate: bool,
     pub(crate) scale: f32,
     /// The element lays out right to left: start-aligned text goes to the right edge.
     pub(crate) rtl: bool,
@@ -150,6 +152,56 @@ pub(crate) struct TextSlot {
     pub(crate) data: bool,
     /// The paragraph at the last wrap width asked for.
     pub(crate) cache: Option<(ParagraphKey, Rc<Paragraph>)>,
+}
+
+/// A picture inside a paragraph: drawn where the text's inline object with the same `id`
+/// is laid out ([`remedy_ui_text::RichText::object`]), and read by screen readers, copied and
+/// searched as `alt` (a custom emoji's `:name:`, say).
+#[derive(Clone, Debug, PartialEq)]
+pub struct InlineImage {
+    /// The inline object it fills.
+    pub id: u64,
+    /// The picture, scaled into the object's box.
+    pub image: remedy_ui_paint::Image,
+    /// What it stands for in words.
+    pub alt: String,
+}
+
+impl InlineImage {
+    /// The picture `image` for inline object `id`, read as `alt`.
+    pub fn new(id: u64, image: remedy_ui_paint::Image, alt: impl Into<String>) -> Self {
+        InlineImage { id, image, alt: alt.into() }
+    }
+}
+
+/// `text` with each inline object's U+FFFC replaced by its picture's words, for readers,
+/// copying and searching.
+pub(crate) fn with_alts(
+    text: &RichText,
+    images: &[InlineImage],
+    range: Option<std::ops::Range<usize>>,
+) -> String {
+    let s = text.as_str();
+    let range = range.unwrap_or(0..s.len());
+    let Some(part) = s.get(range.clone()) else { return String::new() };
+    if images.is_empty() || text.objects().is_empty() {
+        return part.to_owned();
+    }
+    let mut out = String::with_capacity(part.len());
+    let mut at = range.start;
+    for (offset, obj) in text.objects() {
+        if *offset < range.start || *offset >= range.end {
+            continue;
+        }
+        out.push_str(&s[at..*offset]);
+        match images.iter().find(|i| i.id == obj.id) {
+            Some(i) => out.push_str(&i.alt),
+            None => out.push('\u{fffc}'),
+        }
+        at = offset + '\u{fffc}'.len_utf8();
+    }
+    out.push_str(&s[at.min(range.end)..range.end]);
+    out
 }
 
 /// The paragraph container direction for an element's layout direction.
@@ -167,8 +219,9 @@ impl TextSlot {
     }
 
     pub(crate) fn paragraph(&mut self, engine: &mut TextEngine, max_width: Option<f32>) -> Rc<Paragraph> {
+        let cut_at = if self.truncate && !self.wrap { max_width } else { None };
         let max_width = if self.wrap { max_width } else { None };
-        let key = (max_width.map(f32::to_bits), self.rtl);
+        let key = (max_width.or(cut_at).map(f32::to_bits), self.rtl);
         if let Some((k, p)) = &self.cache
             && *k == key
         {
@@ -189,10 +242,55 @@ impl TextSlot {
             }
             None => &self.text,
         };
-        let p = Rc::new(engine.layout(text, &self.style, options));
+        let mut p = engine.layout(text, &self.style, options);
+        if let Some(room) = cut_at
+            && p.width() > room + 0.5
+            && text.objects().is_empty()
+        {
+            p = shortened(engine, text, &self.style, options, room);
+        }
+        let p = Rc::new(p);
         self.cache = Some((key, p.clone()));
         p
     }
+}
+
+/// The longest start of `text` that fits `room` with "…" after it (just "…" when nothing
+/// does), keeping the start's styles.
+fn shortened(
+    engine: &mut TextEngine,
+    text: &RichText,
+    style: &TextStyle,
+    options: ParagraphOptions,
+    room: f32,
+) -> Paragraph {
+    let s = text.as_str();
+    let ends: Vec<usize> = s.char_indices().map(|(i, _)| i).skip(1).collect();
+    let cut = |end: usize| {
+        let mut r = RichText::plain(format!("{}\u{2026}", s[..end].trim_end()));
+        for span in text.spans() {
+            let (a, b) = (span.range.start.min(end), span.range.end.min(end));
+            if a < b {
+                r.add_span(a..b, span.patch.clone());
+            }
+        }
+        r
+    };
+    // Binary search over character boundaries for the last end that still fits.
+    let (mut lo, mut hi) = (0usize, ends.len());
+    let mut best = None;
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        let Some(&end) = ends.get(mid) else { break };
+        let p = engine.layout(&cut(end), style, options);
+        if p.width() <= room + 0.5 {
+            best = Some(p);
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    best.unwrap_or_else(|| engine.layout(&RichText::plain("\u{2026}"), style, options))
 }
 
 /// A tool that sees pointer input first ([`Ui::set_pointer_interceptor`]).
@@ -318,6 +416,8 @@ pub(crate) struct ElData {
     pub(crate) layout: LayoutStyle,
     pub(crate) node: LayoutNode,
     pub(crate) text: Option<Rc<RefCell<TextSlot>>>,
+    /// Pictures drawn in the text where its inline objects are ([`El::inline_images`]).
+    pub(crate) inline_images: Rc<Vec<InlineImage>>,
     pub(crate) field: Option<Rc<RefCell<Field>>>,
     pub(crate) painter: Option<Painter>,
     /// Watches the signals the painter read, to repaint when they change.
@@ -328,6 +428,8 @@ pub(crate) struct ElData {
     pub(crate) click: Option<Rc<dyn Fn()>>,
     pub(crate) hover: Option<Rc<dyn Fn(bool)>>,
     pub(crate) focus: Option<Rc<dyn Fn(bool)>>,
+    /// Told when focus comes onto it or inside it, and when it leaves all of it.
+    pub(crate) focus_within: Option<Rc<dyn Fn(bool)>>,
     /// Takes text from input methods and the clipboard without being a field
     /// ([`El::on_text_input`]).
     pub(crate) text_client: Option<crate::client::TextClient>,
@@ -412,6 +514,55 @@ impl Inner {
     }
 }
 
+/// How a window draws text ([`Ui::set_text_rendering`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct TextRendering {
+    /// Letters fitted to the pixel grid with the font's own hinting (crisper on low-density
+    /// screens); false draws them exactly as designed, a little softer.
+    pub sharp: bool,
+    /// The edges of letters.
+    pub antialias: TextAntialias,
+}
+
+impl Default for TextRendering {
+    fn default() -> Self {
+        TextRendering { sharp: true, antialias: TextAntialias::Grayscale }
+    }
+}
+
+impl TextRendering {
+    /// `sharp` letters with `antialias` edges.
+    pub fn new(sharp: bool, antialias: TextAntialias) -> Self {
+        TextRendering { sharp, antialias }
+    }
+
+    /// The hinting and coverage for a system that uses subpixel text as `system` says.
+    pub fn resolve(self, system: Option<bool>) -> (remedy_ui_text::Hinting, remedy_ui_text::Antialias) {
+        use remedy_ui_text::{Antialias, Hinting};
+        let hinting = if self.sharp { Hinting::Full } else { Hinting::None };
+        let aa = match self.antialias {
+            TextAntialias::Grayscale => Antialias::Grayscale,
+            TextAntialias::Subpixel => Antialias::Lcd { bgr: system.unwrap_or(false) },
+            TextAntialias::System => system.map_or(Antialias::Grayscale, |bgr| Antialias::Lcd { bgr }),
+        };
+        (hinting, aa)
+    }
+}
+
+/// The edges of letters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum TextAntialias {
+    /// As the system draws its own text (ClearType on Windows when it is on), else grayscale.
+    System,
+    /// One shade per pixel: right for rotated or unstriped screens and screenshots.
+    #[default]
+    Grayscale,
+    /// The red, green and blue stripes of each pixel for three times the detail across.
+    Subpixel,
+}
+
 pub(crate) struct Inner {
     /// Every text is shaped again on the next frame: the fonts or font families changed.
     pub(crate) reshape_text: bool,
@@ -440,6 +591,12 @@ pub(crate) struct Inner {
     pub(crate) field_session: Option<ElementId>,
     pub(crate) focus_shown: Option<ElementId>,
     pub(crate) platform: remedy_ui_input::Platform,
+    /// The focused element and its ancestors, as when focus last moved ([`El::on_focus_within`]).
+    pub(crate) focus_chain: Vec<ElementId>,
+    /// How text is drawn ([`Ui::set_text_rendering`]) and whether the system uses subpixel
+    /// text (`Some(bgr)`).
+    pub(crate) text_rendering: TextRendering,
+    pub(crate) system_subpixel: Option<bool>,
     /// The app's edition: which default behaviors this window follows.
     pub(crate) edition: remedy_ui_core::Edition,
     pub(crate) locale: remedy_ui_reactive::Signal<String>,
@@ -577,6 +734,7 @@ impl Ui {
                     d.click = None;
                     d.hover = None;
                     d.focus = None;
+                    d.focus_within = None;
                     d.painter = None;
                     d.on_resize = None;
                     d.on_scroll = None;
@@ -669,6 +827,9 @@ impl Ui {
             field_session: None,
             focus_shown: None,
             platform: remedy_ui_input::Platform::Standard,
+            focus_chain: Vec::new(),
+            text_rendering: TextRendering::default(),
+            system_subpixel: None,
             edition: remedy_ui_core::Edition::FIRST,
             locale: remedy_ui_reactive::Signal::new(String::from("en-US")),
             window_size: remedy_ui_reactive::Signal::new(Size::ZERO),
@@ -893,6 +1054,54 @@ impl Ui {
     /// Sets the edition this window follows (the runner sets the app's before building it).
     pub fn set_edition(&self, edition: remedy_ui_core::Edition) {
         self.0.borrow_mut().edition = edition;
+    }
+
+    /// How this window draws text: fitted to the pixel grid or as designed, and with grayscale
+    /// or subpixel edges (an app's "sharp text" and "text rendering" settings). Every text is
+    /// drawn again.
+    pub fn set_text_rendering(&self, rendering: TextRendering) {
+        let mut i = self.0.borrow_mut();
+        if i.text_rendering == rendering {
+            return;
+        }
+        i.text_rendering = rendering;
+        Self::repaint_all_text(&mut i);
+        drop(i);
+        self.request(Request::Frame);
+    }
+
+    /// How this window draws text.
+    pub fn text_rendering(&self) -> TextRendering {
+        self.0.borrow().text_rendering
+    }
+
+    /// Follows the system's subpixel text setting (`Some(bgr)`; the runner sets it), which
+    /// [`TextAntialias::System`] uses.
+    pub fn set_system_subpixel(&self, subpixel: Option<bool>) {
+        let mut i = self.0.borrow_mut();
+        if i.system_subpixel == subpixel {
+            return;
+        }
+        i.system_subpixel = subpixel;
+        if i.text_rendering.antialias != TextAntialias::Grayscale {
+            Self::repaint_all_text(&mut i);
+            drop(i);
+            self.request(Request::Frame);
+        }
+    }
+
+    fn repaint_all_text(i: &mut Inner) {
+        let ids: Vec<ElementId> =
+            i.els.iter().filter(|(_, d)| d.text.is_some() || d.field.is_some()).map(|(k, _)| *k).collect();
+        for id in ids {
+            i.tree.mark(id, Dirty::PAINT);
+        }
+    }
+
+    /// The hinting and edges glyphs are drawn with now.
+    pub(crate) fn glyph_style(&self) -> (remedy_ui_text::Hinting, remedy_ui_text::Antialias) {
+        let i = self.0.borrow();
+        i.text_rendering.resolve(i.system_subpixel)
     }
 
     /// Follows the system's reduced-motion setting (the runner sets it).
@@ -1405,6 +1614,7 @@ impl ElData {
             layout,
             node,
             text: None,
+            inline_images: Rc::default(),
             field: None,
             painter: None,
             paint_watch: None,
@@ -1414,6 +1624,7 @@ impl ElData {
             click: None,
             hover: None,
             focus: None,
+            focus_within: None,
             text_client: None,
             pointer: false,
             keeps_focus: false,
@@ -1595,9 +1806,11 @@ impl El {
                     i.pressed = None;
                 }
             }
-            let _ = i.tree.remove(self.id);
             i.structure_changed = true;
         }
+        // Removing from the tree disposes the elements' scopes, which runs the app's clean-ups
+        // (a view closing the dialog it opened on the overlay): the view is not borrowed then.
+        let _ = self.ui.tree().remove(self.id);
         for e in effects {
             e.dispose();
         }
@@ -1981,6 +2194,19 @@ impl El {
         self
     }
 
+    /// Calls `f(true)` when keyboard focus comes onto the element or anything inside it, and
+    /// `f(false)` when focus leaves it and everything inside (moving between its children
+    /// says nothing). The element also has [`States::FOCUS_WITHIN`](remedy_ui_style::States)
+    /// meanwhile, for styles. A row whose actions show on hover shows them on this too, so the
+    /// keyboard reaches them.
+    pub fn on_focus_within(self, f: impl Fn(bool) + 'static) -> Self {
+        let f: Rc<dyn Fn(bool)> = Rc::new(f);
+        if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
+            d.focus_within = Some(f);
+        }
+        self
+    }
+
     /// Calls `f(true)` when the pointer comes over the element and `f(false)` when it leaves.
     pub fn on_hover(self, f: impl Fn(bool) + 'static) -> Self {
         let f: Rc<dyn Fn(bool)> = Rc::new(f);
@@ -2007,6 +2233,12 @@ impl El {
 
     /// Draws `image` scaled into the element's content box, keeping its aspect ratio.
     pub fn image(self, image: remedy_ui_paint::Image) -> Self {
+        self.image_sampled(image, remedy_ui_paint::Sampling::Linear)
+    }
+
+    /// [`El::image`] with a choice of sampling: `Sampling::Nearest` repeats pixels when it
+    /// scales up, so pixel art keeps its hard edges.
+    pub fn image_sampled(self, image: remedy_ui_paint::Image, sampling: remedy_ui_paint::Sampling) -> Self {
         let (w, h) = (image.width.max(1) as f32, image.height.max(1) as f32);
         self.layout(|l| {
             if l.aspect_ratio.is_none() {
@@ -2022,7 +2254,7 @@ impl El {
                 image: image.clone(),
                 rect: remedy_ui_core::Rect::new(x, y, x + dw, y + dh),
                 radii: remedy_ui_core::CornerRadii::ZERO,
-                sampling: remedy_ui_paint::Sampling::Linear,
+                sampling,
             });
         })
     }
@@ -2082,6 +2314,7 @@ impl El {
                     text,
                     style: TextStyle::default(),
                     wrap: true,
+                    truncate: false,
                     scale: engine_scale,
                     rtl: false,
                     pseudo,
@@ -2110,6 +2343,16 @@ impl El {
         self.text(f)
     }
 
+    /// Pictures to draw inside the text, each where the inline object with its id is laid
+    /// out (custom emoji in a chat message, an icon in a sentence). Screen readers read, and
+    /// copying and selection give, each picture's `alt` in its place. Add the objects to the
+    /// [`RichText`] with [`RichText::object`] at the picture's size; the text wraps around them
+    /// as around any other character.
+    pub fn inline_images(self, images: Vec<InlineImage>) -> Self {
+        self.edit(Dirty::PAINT | Dirty::SEMANTICS, move |d| d.inline_images = Rc::new(images));
+        self
+    }
+
     /// Marks the element's text as data (a date or number the locale formatted, a name, a
     /// file name, what someone wrote) rather than a string the app translates. Pseudo-locales
     /// (`en-XA`, `ar-XB`) rewrite only translatable strings, so they leave it as it is.
@@ -2126,15 +2369,58 @@ impl El {
         self
     }
 
+    /// Keeps the text on one line and, where it is wider than its box, cuts it short with
+    /// "…" (a long name in a narrow list, a long error in a band). Its minimum width is the
+    /// "…" alone, so a row can shrink it; screen readers, copying and searching still get
+    /// the whole text. Show the whole text elsewhere too (a tooltip), since sighted readers
+    /// cannot. Call after setting the text.
+    pub fn truncate(self) -> Self {
+        {
+            let slot = self.text_slot();
+            let mut s = slot.borrow_mut();
+            s.wrap = false;
+            s.truncate = true;
+            s.cache = None;
+        }
+        self.edit(Dirty::LAYOUT, |_| {});
+        self
+    }
+
     /// Keeps the text on one line instead of wrapping.
     pub fn nowrap(self) -> Self {
-        if let Some(s) = self.ui.0.borrow().els.get(&self.id).and_then(|d| d.text.clone()) {
-            let mut s = s.borrow_mut();
+        {
+            let slot = self.text_slot();
+            let mut s = slot.borrow_mut();
             s.wrap = false;
             s.cache = None;
         }
         self.edit(Dirty::LAYOUT, |_| {});
         self
+    }
+
+    /// The element's text, made empty when it has none yet. A text bound to a signal or
+    /// closure inside a running binding (a view built by `show`) gets its first value only
+    /// when that binding is done: `nowrap` and `truncate` must outlast that wait.
+    fn text_slot(&self) -> Rc<RefCell<TextSlot>> {
+        let existing = |me: &El| me.ui.0.borrow().els.get(&me.id).and_then(|d| d.text.clone());
+        if let Some(s) = existing(self) {
+            return s;
+        }
+        self.set_text(RichText::plain(""));
+        existing(self).unwrap_or_else(|| {
+            // A removed element: its flags go nowhere, as its text would.
+            Rc::new(RefCell::new(TextSlot {
+                text: RichText::plain(""),
+                style: TextStyle::default(),
+                wrap: true,
+                truncate: false,
+                scale: 1.0,
+                rtl: false,
+                pseudo: None,
+                data: false,
+                cache: None,
+            }))
+        })
     }
 
     /// Replaces the layout node with one measured by `slot`'s paragraph.
@@ -2285,7 +2571,7 @@ impl El {
             local: d.local.clone(),
             bounds: tree.bounds(self.id),
             // What is shown: pseudo-locales rewrite it for people, readers and inspectors alike.
-            text: d.text.as_ref().map(|t| t.borrow().shown().as_str().to_owned()),
+            text: d.text.as_ref().map(|t| with_alts(&t.borrow().shown(), &d.inline_images, None)),
             semantics: Some(crate::frame::composed_semantics(
                 d,
                 i.layer_root(self.id),

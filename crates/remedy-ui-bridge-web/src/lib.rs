@@ -34,6 +34,10 @@
 //!   page's [`files`] store and answered later with their paths; save dialogs answer at once
 //!   and [`files::save`] downloads the bytes. Files dropped on a window arrive the same way.
 //!   Links open in a new tab without access to the app's page.
+//! - **Sharing.** `navigator.share` with the files as `File` objects where `navigator.canShare`
+//!   takes them, else the title and text alone (unless the app requires the files); a page
+//!   shares only in answer to a click or key press. The promise settling reports the outcome:
+//!   shared, cancelled (`AbortError`), or refused with the browser's reason.
 //! - **Accessibility.** The engine's AccessKit tree is mirrored into ARIA elements laid over
 //!   the canvas (roles, names, values, states, live regions, focus), so screen readers read
 //!   and operate the app; their clicks and focus moves come back as actions. AccessKit has no
@@ -46,7 +50,9 @@
 //! What a browser cannot do reports [`remedy_ui_host::Unsupported`] with the reason: tray
 //! icons, keeping windows out of screen capture, dragging out of the page, moving or sizing
 //! the page itself, reading the clipboard outside a paste without permission, and opening a
-//! file picker except in answer to a click or key.
+//! file picker or share sheet except in answer to a click or key, and sharing where the
+//! browser has no `navigator.share` (desktop Firefox, Chrome on Linux) or the page is not
+//! secure.
 //!
 //! On other platforms this crate holds its platform-neutral parts ([`convert`], the
 //! [`files`] store, [`WebConfig`] and [`Mount`], so app code can set where it mounts on every
@@ -55,6 +61,8 @@
 
 pub mod convert;
 pub mod files;
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), allow(dead_code))]
+mod share;
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 #[allow(unsafe_code)]

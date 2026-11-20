@@ -640,6 +640,14 @@ pub fn image(ui: &Ui, image: remedy_ui_paint::Image, alt: impl Into<String>) -> 
     ui.el("image").image(image).semantics(Semantics::new(Role::Image).label(alt.into()))
 }
 
+/// [`image`] for pixel art: scaled up by repeating pixels, never blurred.
+#[track_caller]
+pub fn pixel_image(ui: &Ui, image: remedy_ui_paint::Image, alt: impl Into<String>) -> El {
+    ui.el("image")
+        .image_sampled(image, remedy_ui_paint::Sampling::Nearest)
+        .semantics(Semantics::new(Role::Image).label(alt.into()))
+}
+
 /// A round badge with initials on a color: a person or an item without a picture.
 #[track_caller]
 pub fn avatar(ui: &Ui, name: &str, size: f32, color: remedy_ui_core::Color) -> El {

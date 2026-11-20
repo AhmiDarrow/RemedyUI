@@ -479,6 +479,80 @@ fn pseudo_locales_lengthen_app_text_but_not_typed_text() {
 }
 
 #[test]
+fn focus_within_is_told_once_on_entering_and_once_on_leaving() {
+    let ui = ui();
+    let seen: std::rc::Rc<std::cell::RefCell<Vec<bool>>> = std::rc::Rc::default();
+    let s2 = seen.clone();
+    let a = ui.el("button").focusable(true);
+    let b = ui.el("button").focusable(true);
+    let outside = ui.el("button").focusable(true);
+    let row = ui
+        .el("row")
+        .row()
+        .child(a.clone())
+        .child(b.clone())
+        .on_focus_within(move |on| s2.borrow_mut().push(on));
+    ui.root().child(row.clone()).child(outside.clone());
+    let _ = ui.frame(Size::new(300.0, 100.0), 1.0);
+    a.focus();
+    let _ = ui.frame(Size::new(300.0, 100.0), 1.0);
+    assert!(row.states().contains(remedy_ui_style::States::FOCUS_WITHIN));
+    b.focus();
+    let _ = ui.frame(Size::new(300.0, 100.0), 1.0);
+    assert_eq!(*seen.borrow(), [true], "moving inside says nothing");
+    outside.focus();
+    let _ = ui.frame(Size::new(300.0, 100.0), 1.0);
+    assert_eq!(*seen.borrow(), [true, false]);
+    assert!(!row.states().contains(remedy_ui_style::States::FOCUS_WITHIN));
+}
+
+#[test]
+fn text_rendering_follows_the_app_and_the_system() {
+    use remedy_ui_text::{Antialias, Hinting};
+    use remedy_ui_view::{TextAntialias, TextRendering};
+    let ui = ui();
+    assert_eq!(ui.text_rendering(), TextRendering::default(), "sharp and grayscale unless asked");
+    let system = TextRendering::new(true, TextAntialias::System);
+    assert_eq!(system.resolve(None), (Hinting::Full, Antialias::Grayscale), "no subpixel system: grayscale");
+    assert_eq!(
+        system.resolve(Some(true)),
+        (Hinting::Full, Antialias::Lcd { bgr: true }),
+        "as ClearType is set"
+    );
+    assert_eq!(
+        TextRendering::new(false, TextAntialias::Subpixel).resolve(None),
+        (Hinting::None, Antialias::Lcd { bgr: false })
+    );
+    ui.set_text_rendering(system);
+    ui.set_system_subpixel(Some(false));
+    ui.root().child(ui.el("label").text(remedy_ui_view::RichText::plain("Hello")));
+    let _ = ui.frame(Size::new(200.0, 100.0), 1.0);
+    assert_eq!(ui.text_rendering(), system);
+}
+
+#[test]
+fn truncated_text_is_cut_short_to_its_box_and_keeps_its_words() {
+    let ui = ui();
+    let words = "A long error message that cannot fit in a narrow band";
+    let label = ui.el("label").text(remedy_ui_view::RichText::plain(words)).truncate();
+    let free = ui.el("label").text(remedy_ui_view::RichText::plain(words)).nowrap();
+    ui.root()
+        .child(
+            ui.el("box")
+                .row()
+                .width(120.0)
+                .child(label.clone().grow(1.0).layout(|l| l.min_width = remedy_ui_layout::Length::Px(0.0))),
+        )
+        .child(ui.el("box").row().child(free.clone()));
+    let _ = ui.frame(Size::new(600.0, 200.0), 1.0);
+    let cut = label.bounds().map(|b| b.width()).unwrap_or(0.0);
+    let whole = free.bounds().map(|b| b.width()).unwrap_or(0.0);
+    assert!(cut <= 120.5, "fits its box: {cut}");
+    assert!(whole > 200.0, "the same words untruncated are wider: {whole}");
+    assert_eq!(label.info().and_then(|i| i.text).as_deref(), Some(words), "readers still get every word");
+}
+
+#[test]
 fn data_text_is_left_alone_by_pseudo_locales() {
     let ui = ui();
     let name = ui.el("label").text(remedy_ui_view::RichText::plain("Ada Lovelace")).nowrap().data_text();
@@ -1325,4 +1399,209 @@ fn fonts_added_later_and_new_families_reshape_every_text() {
     ui.set_theme(t, StyleSheet::new());
     let _ = ui.frame(size, 1.0);
     assert!(named > 0.0 && width(&label) < named, "shaped again: a family nobody has draws nothing here");
+}
+
+#[test]
+fn text_takes_the_same_logical_room_at_every_device_scale() {
+    // A phone at 420 dpi draws 2.625 device pixels per logical pixel; its text and the
+    // controls sized by it must not grow in logical pixels (they once grew by the scale again).
+    let ui = ui();
+    let label = ui.el("label").text(remedy_ui_view::RichText::plain("Body text")).nowrap();
+    let button = ui
+        .el("button")
+        .padding(Insets::all(6.0))
+        .child(ui.el("label").text(remedy_ui_view::RichText::plain("F1 Wiki")).nowrap());
+    let wrapped = ui.el("label").text(remedy_ui_view::RichText::plain(
+        "A level-one heading that a phone four hundred logical pixels wide fits on two lines",
+    ));
+    ui.root().child(label.clone()).child(ui.el("box").row().child(button.clone())).child(wrapped.clone());
+    let size = Size::new(400.0, 600.0);
+    let measure = |scale: f32| {
+        let _ = ui.frame(size, scale);
+        [&label, &button, &wrapped].map(|e| e.bounds().map(|b| (b.width(), b.height())).unwrap_or_default())
+    };
+    let one = measure(1.0);
+    assert!(one[0].1 > 10.0 && one[0].1 < 24.0, "a 14 px line: {:?}", one[0]);
+    for scale in [1.5, 2.0, 2.625, 3.0] {
+        let at = measure(scale);
+        for (a, b) in at.iter().zip(one.iter()) {
+            let tol = 1.0 + 2.0 / scale;
+            assert!((a.0 - b.0).abs() <= tol && (a.1 - b.1).abs() <= tol, "at {scale}: {a:?} vs {b:?}");
+        }
+    }
+}
+
+#[test]
+fn pictures_inside_text_are_drawn_in_their_objects_boxes_and_read_as_their_words() {
+    use remedy_ui_view::{InlineImage, InlineObject, RichText};
+    let ui = ui();
+    // A red 4 × 4 picture, shown 40 × 40 at the start of a sentence.
+    let red: std::sync::Arc<[u8]> = [255u8, 0, 0, 255].repeat(16).into();
+    let image = remedy_ui_paint::Image::new(4, 4, red);
+    let text = RichText::new()
+        .object(InlineObject { id: 7, width: 40.0, height: 40.0, baseline: None })
+        .text(" waves");
+    let para = ui.el("text").text(text).inline_images(vec![InlineImage::new(7, image, ":wave:")]);
+    ui.root().padding(Insets::all(10.0)).child(para.clone());
+    let mut s = Screen::new(ui.clone());
+    assert!(s.frame());
+    assert_eq!(s.px(30, 30), [255, 0, 0, 255], "the picture, in the object's box");
+    assert_eq!(
+        para.info().and_then(|i| i.text).as_deref(),
+        Some(":wave: waves"),
+        "screen readers hear its words"
+    );
+    assert_eq!(para.text_content().as_deref(), Some(":wave: waves"), "copying gives its words");
+    let label = para.info().and_then(|i| i.semantics).and_then(|s| s.name().map(str::to_owned));
+    assert_eq!(label.as_deref(), Some(":wave: waves"));
+}
+
+#[test]
+fn text_taller_or_wider_than_its_field_scrolls_inside_the_box() {
+    let ui = ui();
+    let area = ui.text_field("text_area", FieldKind::Multi);
+    let line = ui.text_field("text_input", FieldKind::Single);
+    ui.root()
+        .child(area.el().layout(|l| {
+            l.width = Length::Px(150.0);
+            l.height = Length::Px(40.0);
+        }))
+        .child(line.el().layout(|l| l.width = Length::Px(80.0)));
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    let lines: Vec<String> = (0..12).map(|n| format!("line {n}")).collect();
+    area.set_value(&lines.join("\n"));
+    area.el().focus();
+    let end = Modifiers { ctrl: true, ..Modifiers::NONE };
+    ui.key(&key(Key::End, None, end));
+    s.frame();
+    let b = area.el().bounds().unwrap_or_default();
+    let inside = |r: remedy_ui_core::Rect, b: remedy_ui_core::Rect| {
+        r.min.y >= b.min.y - 0.5
+            && r.max.y <= b.max.y + 0.5
+            && r.min.x >= b.min.x - 0.5
+            && r.max.x <= b.max.x + 2.5
+    };
+    let caret = area.caret_rect().unwrap_or_default();
+    assert!(inside(caret, b), "the caret at the end of twelve lines is in the 40px box: {caret:?} in {b:?}");
+    let top = area.index_at(Point::new(b.min.x + 4.0, b.min.y + 4.0)).unwrap_or(0);
+    assert!(top > 0, "the box shows the last lines, not the first");
+
+    // The wheel scrolls back up, and hands the scroll outward once at the top.
+    let mid = Point::new(b.min.x + 20.0, b.min.y + 20.0);
+    assert!(ui.wheel(&remedy_ui_input::WheelEvent::new(mid, Vec2::new(0.0, -1000.0))));
+    s.frame();
+    assert_eq!(area.index_at(Point::new(b.min.x + 1.0, b.min.y + 2.0)), Some(0), "back at the first line");
+    assert!(
+        !ui.wheel(&remedy_ui_input::WheelEvent::new(mid, Vec2::new(0.0, -10.0))),
+        "nothing above the top"
+    );
+    assert!(ui.wheel(&remedy_ui_input::WheelEvent::new(mid, Vec2::new(0.0, 10.0))), "more text below");
+
+    // Moving the caret brings it back into view.
+    ui.key(&key(Key::End, None, end));
+    s.frame();
+    assert!(inside(area.caret_rect().unwrap_or_default(), b));
+    ui.key(&key(Key::Home, None, end));
+    s.frame();
+    let caret = area.caret_rect().unwrap_or_default();
+    assert!(
+        inside(caret, b) && caret.min.y <= b.min.y + 8.0,
+        "the first line at the top: {caret:?} in {b:?}"
+    );
+
+    // A single line longer than its field scrolls sideways to the caret.
+    line.set_value("a single line much longer than the eighty pixels it is given");
+    line.el().focus();
+    ui.key(&key(Key::End, None, Modifiers::NONE));
+    s.frame();
+    let lb = line.el().bounds().unwrap_or_default();
+    let caret = line.caret_rect().unwrap_or_default();
+    assert!(inside(caret, lb), "the caret at the end of a long line is in its field: {caret:?} in {lb:?}");
+}
+
+#[test]
+fn a_clean_up_that_changes_the_view_runs_when_its_element_is_removed() {
+    // A view that opened a dialog on the overlay closes it when the view goes away.
+    let ui = ui();
+    let dialog = ui.el("dialog").width(40.0).height(20.0);
+    ui.root().child(dialog.clone());
+    let host = ui.el("host");
+    let closed = Rc::new(Cell::new(false));
+    let (d2, c2) = (dialog.clone(), closed.clone());
+    let host = host.bind(move || {
+        let (d, c) = (d2.clone(), c2.clone());
+        remedy_ui_reactive::on_cleanup(move || {
+            d.remove();
+            c.set(true);
+        });
+    });
+    let page = ui.el("page").child(host);
+    ui.root().child(page.clone());
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    assert!(ui.tree().contains(dialog.id()));
+    page.remove();
+    assert!(closed.get(), "the clean-up ran");
+    assert!(!ui.tree().contains(dialog.id()), "and the dialog is gone");
+    s.frame();
+}
+
+#[test]
+fn a_lifted_finger_hovers_nothing() {
+    let ui = ui();
+    let clicks = Rc::new(Cell::new(0));
+    let hovered = Rc::new(Cell::new(false));
+    let h2 = hovered.clone();
+    ui.root().child(button(&ui, clicks.clone()).on_hover(move |inside| h2.set(inside)));
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    let touch = |phase, down| pointer(phase, 10.0, 10.0, down).with_kind(remedy_ui_input::PointerKind::Touch);
+    ui.pointer(&touch(PointerPhase::Down, true));
+    s.frame();
+    assert!(hovered.get(), "a finger on the button hovers it (a long press shows its tooltip)");
+    assert_eq!(s.px(10, 10), [0, 0, 255, 255]);
+    ui.pointer(&touch(PointerPhase::Up, false));
+    assert_eq!(clicks.get(), 1, "the tap clicks");
+    s.frame();
+    assert!(!hovered.get(), "the lifted finger leaves no hover behind");
+    assert_eq!(s.px(10, 10), [255, 0, 0, 255], "and no hover look");
+    // A mouse keeps hovering after its release, as before.
+    ui.pointer(&pointer(PointerPhase::Down, 10.0, 10.0, true));
+    ui.pointer(&pointer(PointerPhase::Up, 10.0, 10.0, false));
+    s.frame();
+    assert!(hovered.get());
+    assert_eq!(clicks.get(), 2);
+}
+
+#[test]
+fn a_text_bound_inside_a_binding_stays_on_one_line_when_told_to() {
+    // A band built by a binding: its text is bound to a closure, so it gets its words only
+    // once the binding is done, after truncate and nowrap were called.
+    let ui = ui();
+    let words = Signal::new(String::from("invite error: this device is already a member of that space"));
+    let holder = ui.el("holder").layout(|l| l.width = Length::Px(120.0));
+    ui.root().child(holder.clone());
+    let made: Rc<std::cell::RefCell<Vec<remedy_ui_view::El>>> = Rc::default();
+    let (u, h, m) = (ui.clone(), holder.clone(), made.clone());
+    let _bind = remedy_ui_reactive::Effect::new(move || {
+        let cut = u.el("cut").text(move || words.get()).truncate();
+        let one = u.el("one").text(move || words.get()).nowrap();
+        let _ = h.clone().child(cut.clone()).child(one.clone());
+        m.borrow_mut().extend([cut, one]);
+    });
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    let line = ui.el("ref").text("x");
+    ui.root().child(line.clone());
+    s.frame();
+    let one_line = line.bounds().map_or(0.0, |b| b.height());
+    for el in made.borrow().iter() {
+        let b = el.bounds().unwrap_or_default();
+        assert!(b.height() <= one_line + 0.5, "one line, {} > {one_line}", b.height());
+    }
+    let Some(cut) = made.borrow().first().map(|e| e.bounds().unwrap_or_default()) else {
+        unreachable!("labels were made")
+    };
+    assert!(cut.width() <= 120.5, "the truncated one is cut to its box: {cut:?}");
 }

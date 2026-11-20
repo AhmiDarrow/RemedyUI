@@ -1,6 +1,6 @@
 [package]
 name = "remedy-ui-fonts"
-description = "The Remedy font families for RemedyUI apps (Remedy Sans UI, Remedy Sans, AhmiPrint, AhmiPixel), one feature per family."
+description = "The Remedy font families for RemedyUI apps (Remedy Sans UI, Remedy Sans, AhmiPrint, AhmiPixel, Remedy Symbols), one feature per family."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,11 +13,13 @@ categories.workspace = true
 include = ["src/**", "fonts/**", "Cargo.toml", "README.md"]
 
 [features]
-default = ["remedy-sans-ui"]
+default = ["remedy-sans-ui", "remedy-symbols"]
 remedy-sans-ui = []
 remedy-sans = []
 ahmi-print = []
 ahmi-pixel = []
+# The fallback face for interface symbols (arrows, shapes, stars, checks, warning, menu, search).
+remedy-symbols = []
 
 [dependencies]
 

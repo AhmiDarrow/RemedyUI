@@ -50,6 +50,7 @@ fn build(
     width: u32,
     height: u32,
     transparent: bool,
+    vsync: bool,
 ) -> Result<
     (wgpu::Surface<'static>, wgpu::SurfaceConfiguration, vello_gpu::Renderer, vello_gpu::Resources),
     GpuError,
@@ -74,8 +75,9 @@ fn build(
         .ok_or_else(|| GpuError::Surface("the adapter cannot present to this window".into()))?;
     config.format = format;
     config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
-    // Vsync: frames pace to the display, the compositor's begin-frame source.
-    config.present_mode = wgpu::PresentMode::AutoVsync;
+    // Vsync: frames pace to the display, the compositor's begin-frame source. Without it
+    // frames show as soon as they are drawn (lower latency; a fast scroll may tear).
+    config.present_mode = if vsync { wgpu::PresentMode::AutoVsync } else { wgpu::PresentMode::AutoNoVsync };
     if transparent && caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PreMultiplied) {
         config.alpha_mode = wgpu::CompositeAlphaMode::PreMultiplied;
     }
@@ -100,8 +102,21 @@ impl GpuCompositor {
         height: u32,
         transparent: bool,
     ) -> Result<GpuSurface, GpuError> {
+        self.create_surface_paced(handles, width, height, transparent, true)
+    }
+
+    /// [`GpuCompositor::create_surface`], presenting in step with the display (`vsync`) or
+    /// as soon as each frame is drawn.
+    pub fn create_surface_paced(
+        &self,
+        handles: Arc<dyn WindowHandles>,
+        width: u32,
+        height: u32,
+        transparent: bool,
+        vsync: bool,
+    ) -> Result<GpuSurface, GpuError> {
         let (surface, config, vello, resources) =
-            build(self.renderer().context(), &handles, width, height, transparent)?;
+            build(self.renderer().context(), &handles, width, height, transparent, vsync)?;
         Ok(GpuSurface {
             handles,
             surface: Some(surface),
@@ -134,12 +149,14 @@ impl GpuCompositor {
             // A window has one swapchain: the old one goes before the new one is made.
             surface.surface = None;
             let transparent = surface.config.alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied;
+            let vsync = surface.config.present_mode != wgpu::PresentMode::AutoNoVsync;
             let (s, c, v, r) = build(
                 self.renderer().context(),
                 &surface.handles,
                 surface.config.width,
                 surface.config.height,
                 transparent,
+                vsync,
             )?;
             (surface.surface, surface.config, surface.vello, surface.resources) = (Some(s), c, v, r);
             surface.tiles.0.clear();

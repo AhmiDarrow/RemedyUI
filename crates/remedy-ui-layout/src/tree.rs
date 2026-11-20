@@ -25,9 +25,11 @@ pub enum Available {
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct MeasureInput {
-    /// Width already decided by layout, if any.
+    /// Width already decided by layout, if any: the content box's, inside the padding and
+    /// border.
     pub known_width: Option<f32>,
-    /// Height already decided by layout, if any.
+    /// Height already decided by layout, if any: the content box's, inside the padding and
+    /// border.
     pub known_height: Option<f32>,
     /// Width on offer.
     pub available_width: Available,
@@ -217,9 +219,18 @@ impl LayoutTree {
                         .as_mut()
                     {
                         Some(m) => {
+                            // Taffy hands over a decided size as the border box, and the space
+                            // on offer as the content box. The content is measured inside the
+                            // padding and border, so a decided size goes over as the content
+                            // box too: on the axis where taffy knows the size, the space on
+                            // offer is exactly that size less the padding and border.
+                            let inner = |k: Option<f32>, a: AvailableSpace| match (k, a) {
+                                (Some(_), AvailableSpace::Definite(v)) => Some(v.max(0.0)),
+                                (k, _) => k,
+                            };
                             let s = m(MeasureInput {
-                                known_width: known.width,
-                                known_height: known.height,
+                                known_width: inner(known.width, avail.width),
+                                known_height: inner(known.height, avail.height),
                                 available_width: conv(avail.width),
                                 available_height: conv(avail.height),
                             });

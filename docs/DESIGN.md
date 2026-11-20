@@ -85,7 +85,7 @@ fn composer(send: impl Fn(String) + Copy + 'static) -> impl Element {
 | L4 host | `remedy-ui-render-gpu`, `remedy-ui-render-cpu`, `remedy-ui-bridge-{windows,macos,wayland,x11,android,remedyos,web,ios,headless}` |
 | L5 packs | `remedy-ui-widgets-{core,nav,data,forms,extra,music,term}`, `remedy-ui-doc-{rich,code,pages}`, `remedy-ui-media-{image,anim,svg,video,playback,isolated}`, `remedy-ui-viz`, `remedy-ui-embed-{webview,gpu}`, `remedy-ui-services-{desktop,update,spell,i18n}`, `remedy-ui-themes`, `remedy-ui-fonts`, `remedy-ui-devtools` |
 | L6 | `remedy-ui` (facade with profiles `minimal`, `app`, `full`), `remedy-ui-rui` (markup compiler, and the run-time loader behind its `runtime` feature), `remedy-ui-test`, `cargo-remedy` (CLI, not linked into apps) |
-| L7 | Developer tools, not linked into apps: `remedy-tools` (their logic, a feature per tool group), `remedy-templates` (the app templates), `cargo-remedy` (the command line) and `remedy-mcp` (the MCP server for AI agents); see [CLI.md](CLI.md) and [MCP.md](MCP.md) |
+| L7 | Developer tools, not linked into apps: `remedy-tools` (their logic, a feature per tool group), `remedy-templates` (the app templates), `remedy-ui-build` (build-script help: the Windows executable's icon and version), `cargo-remedy` (the command line) and `remedy-mcp` (the MCP server for AI agents); see [CLI.md](CLI.md) and [MCP.md](MCP.md) |
 
 A crate joins the workspace when its first real code and tests do. None exists as a placeholder.
 

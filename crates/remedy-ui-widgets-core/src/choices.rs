@@ -112,15 +112,33 @@ pub fn radio_group(ui: &Ui, label: impl Into<String>, options: &[&str], selected
 }
 
 fn arrows(e: &remedy_ui_input::KeyEvent, selected: Signal<usize>, n: usize) -> bool {
-    if !e.pressed || n == 0 {
+    arrows_skipping(e, selected, n, &[])
+}
+
+/// [`arrows`], stepping over the options in `skip` (shown but not choosable).
+fn arrows_skipping(e: &remedy_ui_input::KeyEvent, selected: Signal<usize>, n: usize, skip: &[usize]) -> bool {
+    if !e.pressed || n == 0 || skip.len() >= n {
         return false;
     }
-    let cur = selected.get_untracked().unwrap_or(0);
+    // Nothing chosen (an index past the options, as for a stored value none of them is):
+    // the arrows start at the first or the last option that can be chosen.
+    let cur = selected.get_untracked().ok().filter(|c| *c < n);
+    let open = |i: usize| !skip.contains(&i);
+    let step = |from: usize, forward: bool| {
+        let mut i = from;
+        for _ in 0..n {
+            i = if forward { (i + 1) % n } else { (i + n - 1) % n };
+            if open(i) {
+                return i;
+            }
+        }
+        from
+    };
     let next = match e.key {
-        Key::ArrowDown | Key::ArrowRight => (cur + 1) % n,
-        Key::ArrowUp | Key::ArrowLeft => (cur + n - 1) % n,
-        Key::Home => 0,
-        Key::End => n - 1,
+        Key::ArrowDown | Key::ArrowRight => step(cur.unwrap_or(n - 1), true),
+        Key::ArrowUp | Key::ArrowLeft => step(cur.unwrap_or(0), false),
+        Key::Home => step(n - 1, true),
+        Key::End => step(0, false),
         _ => return false,
     };
     selected.set(next);
@@ -130,29 +148,50 @@ fn arrows(e: &remedy_ui_input::KeyEvent, selected: Signal<usize>, n: usize) -> b
 /// Mutually exclusive options side by side (a few short choices, like time presets).
 #[track_caller]
 pub fn segmented(ui: &Ui, label: impl Into<String>, options: &[&str], selected: Signal<usize>) -> El {
+    segmented_unavailable(ui, label, options, selected, &[])
+}
+
+/// [`segmented`] with some options shown but not choosable now: each `(index, why)` in
+/// `unavailable` is drawn disabled, cannot be pressed or reached with the arrow keys, and
+/// says `why` on hover and to assistive technology (a share "to one person" when nobody
+/// else is here).
+#[track_caller]
+pub fn segmented_unavailable(
+    ui: &Ui,
+    label: impl Into<String>,
+    options: &[&str],
+    selected: Signal<usize>,
+    unavailable: &[(usize, String)],
+) -> El {
     let label = label.into();
     let n = options.len();
+    let skip: std::rc::Rc<[usize]> = unavailable.iter().map(|(i, _)| *i).collect();
     let bar = ui.el("segmented").row().semantics(Semantics::new(Role::TabList).label(label));
     options.iter().enumerate().fold(bar, |b, (i, opt)| {
         let text = (*opt).to_owned();
+        let why = unavailable.iter().find(|(u, _)| *u == i).map(|(_, w)| w.clone());
+        let off = why.is_some();
+        let sk = skip.clone();
         let seg = ui
             .el("segment")
             .row()
             .align(Align::Center)
             .child(ui.el("segment_label").text(remedy_ui_view::RichText::plain(text.clone())).nowrap())
-            .on_click(move || selected.set(i))
-            .on_key(move |e| arrows(e, selected, n));
+            .on_key(move |e| arrows_skipping(e, selected, n, &sk));
+        let seg = if off { seg.disabled(true) } else { seg.on_click(move || selected.set(i)) };
+        if let Some(why) = &why {
+            crate::tooltip(&seg, why.clone());
+        }
         let s2 = seg.clone();
         b.child(seg.bind(move || {
             let on = selected.get() == i;
             s2.state(States::SELECTED, on);
-            let _ = s2.clone().semantics(
-                Semantics::new(Role::Tab)
-                    .label(text.clone())
-                    .selected(on)
-                    .set_position(i + 1, n)
-                    .action(Action::Click),
-            );
+            let mut sem = Semantics::new(Role::Tab).label(text.clone()).selected(on).set_position(i + 1, n);
+            sem = match &why {
+                Some(w) => sem.disabled(true).description(w.clone()),
+                None => sem.action(Action::Click),
+            };
+            let _ = s2.clone().semantics(sem);
         }))
     })
 }
@@ -197,10 +236,11 @@ pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected:
         }
         // Type-ahead: the next option starting with the typed letter.
         if let Some(t) = e.text.as_ref().and_then(|t| t.chars().next()).filter(|c| c.is_alphanumeric()) {
-            let cur = selected.get_untracked().unwrap_or(0);
             let lower = t.to_lowercase().to_string();
-            let found = (1..=n)
-                .map(|k| (cur + k) % n)
+            // From the option after the chosen one; from the first when none is chosen.
+            let start = selected.get_untracked().ok().filter(|c| *c < n).map_or(0, |c| c + 1);
+            let found = (0..n)
+                .map(|k| (start + k) % n)
                 .find(|&i| typed.get(i).is_some_and(|o| o.to_lowercase().starts_with(&lower)));
             if let Some(i) = found {
                 selected.set(i);

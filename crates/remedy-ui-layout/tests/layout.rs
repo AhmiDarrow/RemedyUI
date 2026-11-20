@@ -175,6 +175,35 @@ fn measured_leaves_wrap_like_text() -> R {
 }
 
 #[test]
+fn padded_measured_leaves_wrap_inside_their_padding() -> R {
+    // The same "paragraph" with 20 px of padding a side, stretched to a 200 px column: it
+    // wraps in the 160 px inside the padding (3 lines), not in the 200 px box (2 lines).
+    let mut t = LayoutTree::new();
+    let root = t.node(&LayoutStyle::column())?;
+    let text = t.measured(
+        &{
+            let mut v_ = LayoutStyle::default();
+            v_.padding = Insets::all(20.0);
+            v_
+        },
+        |m: MeasureInput| {
+            let width = match (m.known_width, m.available_width) {
+                (Some(w), _) => w,
+                (None, Available::Px(w)) => w.min(400.0),
+                (None, Available::MinContent) => 60.0,
+                (None, Available::MaxContent) => 400.0,
+            };
+            let lines = (400.0 / width.max(1.0)).ceil();
+            remedy_ui_core::Size::new(width, lines * 30.0)
+        },
+    )?;
+    t.add_child(root, text)?;
+    t.compute(root, Some(200.0), None)?;
+    assert_eq!(t.rect(text).map(|r| (r.width(), r.height())), Some((200.0, 3.0 * 30.0 + 40.0)));
+    Ok(())
+}
+
+#[test]
 fn absolute_rects_and_snapping() -> R {
     let mut t = LayoutTree::new();
     let root = t.node(&{

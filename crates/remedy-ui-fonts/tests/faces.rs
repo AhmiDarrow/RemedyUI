@@ -11,9 +11,10 @@ fn every_face_matches_its_metadata() -> Result<(), Box<dyn std::error::Error>> {
         let os2 = font.os2()?;
         assert_eq!(os2.us_weight_class(), face.weight, "{} {}", face.family, face.weight);
         assert_eq!(os2.fs_type(), 0, "{} is installable and embeddable", face.family);
-        // Every face covers printable ASCII.
+        // Every text face covers printable ASCII; the symbols face has no letters on purpose.
         let cmap = font.cmap()?;
-        for c in ' '..='~' {
+        let text_face = face.family != "Remedy Symbols";
+        for c in (' '..='~').filter(|_| text_face) {
             assert!(cmap.map_codepoint(c).is_some(), "{} {} lacks {c:?}", face.family, face.weight);
         }
         // The family name in the font matches; non-RIBBI weights use the typographic name (16).
@@ -31,9 +32,35 @@ fn every_face_matches_its_metadata() -> Result<(), Box<dyn std::error::Error>> {
     feature = "remedy-sans-ui",
     feature = "remedy-sans",
     feature = "ahmi-print",
-    feature = "ahmi-pixel"
+    feature = "ahmi-pixel",
+    feature = "remedy-symbols"
 ))]
 #[test]
 fn all_features_give_all_faces() {
-    assert_eq!(remedy_ui_fonts::all().len(), 11);
+    assert_eq!(remedy_ui_fonts::all().len(), 12);
+}
+
+/// Remedy Symbols has every character `SYMBOL_CHARS` lists and nothing else but the space,
+/// and none of them is a letter or digit (so it never takes text from a script's own font).
+#[cfg(feature = "remedy-symbols")]
+#[test]
+fn symbols_face_has_exactly_its_listed_symbols() -> Result<(), Box<dyn std::error::Error>> {
+    let face = remedy_ui_fonts::REMEDY_SYMBOLS.first().ok_or("no symbols face")?;
+    let font = FontRef::new(face.data)?;
+    let cmap = font.cmap()?;
+    for c in remedy_ui_fonts::SYMBOL_CHARS.chars() {
+        assert!(cmap.map_codepoint(c).is_some_and(|g| g.to_u32() != 0), "Remedy Symbols lacks {c:?}");
+        assert!(!c.is_alphanumeric(), "{c:?} is a letter or digit");
+    }
+    let mut mapped: Vec<char> = Vec::new();
+    for c in (0u32..0x3_0000).filter_map(char::from_u32) {
+        if cmap.map_codepoint(c).is_some_and(|g| g.to_u32() != 0) {
+            mapped.push(c);
+        }
+    }
+    let listed: Vec<char> = std::iter::once(' ').chain(remedy_ui_fonts::SYMBOL_CHARS.chars()).collect();
+    assert_eq!(mapped, listed);
+    // A fallback face stays small.
+    assert!(face.data.len() < 16 * 1024, "{} bytes", face.data.len());
+    Ok(())
 }

@@ -409,6 +409,47 @@ fn start_tuner(app: &App, mic: Rc<RefCell<Option<Microphone>>>) {
 }
 ```
 
+### Listening with the screen off
+
+Android stops hearing the microphone, and may stop the app, once it leaves the screen. Work
+that must go on (a voice call, a recording) runs as foreground work:
+[`App::start_foreground`](crate::App::start_foreground) with a
+[`ForegroundTask`](crate::host::ForegroundTask) of `ForegroundKind::Microphone` (and
+`MediaPlayback` when it also plays the far side), shown by a notification whose buttons reach
+[`App::on_notification`](crate::App::on_notification). Start it while the app is on screen,
+after the microphone permission, and list the kinds in `remedy.toml`'s `[android] foreground`
+([`crate::guide::packaging`]). Desktop and web apps keep listening anyway, and there the call
+answers `Ok` and does nothing.
+
+```no_run
+use remedy_ui::App;
+use remedy_ui::host::{ForegroundKind, ForegroundTask, Notification, NotificationResponse, Permission};
+
+const CALL: u64 = 1;
+
+fn start_call(app: &App) {
+    let app2 = app.clone();
+    app.request_permission(Permission::Microphone, move |granted| {
+        if !granted {
+            return;
+        }
+        let shown = Notification::new(CALL, "In a call", "Ada").action("hang-up", "Hang up").silent(true);
+        let task = ForegroundTask::new(ForegroundKind::Microphone, shown).kind(ForegroundKind::MediaPlayback);
+        app2.start_foreground(task, |started| {
+            if let Err(why) = started {
+                eprintln!("the call cannot go on out of sight: {why}");
+            }
+        });
+    });
+    let app3 = app.clone();
+    app.on_notification(move |id, response| {
+        if id == CALL && response == NotificationResponse::Action("hang-up".into()) {
+            app3.stop_foreground(); // and end the call itself
+        }
+    });
+}
+```
+
 ## Decoding in a sandbox
 
 Images and animations come from strangers in chats and feeds. [`crate::isolated`] (feature

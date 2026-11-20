@@ -12,18 +12,29 @@
 //!   elements.
 //! - [`board`] and [`BoardState`]: one renderer for visitors and for the person arranging
 //!   it. Editing selects, drags and drops areas and widgets, does every move from the
-//!   keyboard too, undoes and redoes, and edits settings in a property grid.
+//!   keyboard too, undoes and redoes, and edits settings in a property grid (text, numbers,
+//!   switches, choices with labels apart from their values, moments, lists and pictures).
+//!   [`BoardOptions`] hold an area to one widget, fix the row height, move the panel out
+//!   ([`board_panel`], for several boards on a page) and say when typing has settled
+//!   ([`BoardState::settled`]: one change, not one a keystroke).
+//! - [`BoardLabels`]: every word a board says, English by default, for the app to translate.
 //! - [`reactions()`]: emoji reactions, a component for any widget or screen.
 
 mod board;
 mod kinds;
+mod labels;
 mod model;
 pub mod reactions;
+mod settings;
 
-pub use board::{BoardState, Selection, board};
-pub use kinds::{Context, Registry, ScriptKind, SharedWidget, WidgetKind, build_node, parse_links, value};
+pub use board::{AreaLabelFn, BoardOptions, BoardState, Panel, Selection, board, board_panel};
+pub use kinds::{
+    ChoosePictureFn, Context, PictureFn, Registry, ScriptKind, SharedWidget, WidgetKind, build_node,
+    parse_links, value,
+};
+pub use labels::{BoardLabels, ReactionLabels};
 pub use model::{Area, Board, BoardError, FORMAT, Placed};
-pub use reactions::{Reaction, reactions};
+pub use reactions::{Reaction, reactions, reactions_in};
 pub use remedy_ui_script::{
     Engines, Language, Limits, Package, ScriptEngine, ScriptError, SettingKind, SettingSpec,
 };

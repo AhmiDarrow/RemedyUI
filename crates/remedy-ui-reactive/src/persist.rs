@@ -1,13 +1,19 @@
 //! Persisted signals: state that survives a restart (window splits, scroll anchors, drafts,
 //! choices people made), saved to the app's data folder and restored when made.
 //!
-//! A [`PersistStore`] is a folder. A signal marked with [`Signal::persist`] (or
-//! [`Signal::persist_in`]) is restored from its file at once and saved after it changes.
-//! Saves are debounced (many changes in a short time make one write) and written off the UI
-//! thread, atomically: to a temporary file that is synced and then renamed over the old one,
-//! so a crash leaves the old value or the new one, never half of each. Each file holds a
-//! version and the value as JSON; an app that changes a value's shape raises the version and
-//! gives a migration from older versions.
+//! A [`PersistStore`] is a folder ([`PersistStore::open`]), or in a browser page the page's
+//! `localStorage` (`PersistStore::local_storage`, which a page has instead of files). A
+//! signal marked with [`Signal::persist`] (or [`Signal::persist_in`]) is restored from its
+//! entry at once and saved after it changes. Saves are debounced (many changes in a short
+//! time make one write) and written off the UI thread (in a page, between frames),
+//! atomically: a file is written to a temporary file that is synced and then renamed over the
+//! old one, and a `localStorage` entry is replaced whole, so a crash leaves the old value or
+//! the new one, never half of each. Each entry holds a version and the value as JSON; an app
+//! that changes a value's shape raises the version and gives a migration from older versions.
+//!
+//! The same store keeps an app's own documents: [`PersistStore::save`],
+//! [`PersistStore::load`] and [`PersistStore::remove`] take any serializable value under a
+//! key, with the same versions and migrations, on every platform.
 //!
 //! ```
 //! use remedy_ui_reactive::{Persist, PersistStore, Scope, Signal};
@@ -202,13 +208,173 @@ impl From<String> for Persist {
     }
 }
 
+/// Where a store keeps its entries: files in a folder, or a key-value store of strings (a
+/// browser page's `localStorage`). Loads read it on the UI thread; the writer writes it.
+trait Backend: Send + Sync {
+    /// The bytes saved under `key`, or `None` when nothing is.
+    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String>;
+    /// Saves `bytes` under `key`, replacing what was there whole.
+    fn write(&self, key: &str, bytes: &[u8]) -> Result<(), String>;
+    /// Forgets `key`; nothing saved under it is not an error.
+    fn remove(&self, key: &str) -> Result<(), String>;
+    /// Where `key` lives, for messages: its file name or storage key.
+    fn name_of(&self, key: &str) -> String;
+}
+
+/// Entries as files in a folder, written atomically.
+struct Folder(PathBuf);
+
+impl Backend for Folder {
+    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
+        match std::fs::read(self.0.join(file_name(key))) {
+            Ok(b) => Ok(Some(b)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    fn write(&self, key: &str, bytes: &[u8]) -> Result<(), String> {
+        write_atomic(&self.0, &file_name(key), bytes).map_err(|e| e.to_string())
+    }
+
+    fn remove(&self, key: &str) -> Result<(), String> {
+        match std::fs::remove_file(self.0.join(file_name(key))) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    fn name_of(&self, key: &str) -> String {
+        file_name(key)
+    }
+}
+
+/// A key-value store of strings that other code shares (a page's `localStorage`). Each
+/// call stands alone: a `set` either stores the whole value or fails.
+#[cfg(any(test, all(target_arch = "wasm32", target_os = "unknown")))]
+trait KeyValue: Send + Sync {
+    fn get(&self, key: &str) -> Result<Option<String>, String>;
+    fn set(&self, key: &str, value: &str) -> Result<(), String>;
+    fn delete(&self, key: &str) -> Result<(), String>;
+}
+
+/// A store's entries in a [`KeyValue`] store, each under the store's prefix.
+#[cfg(any(test, all(target_arch = "wasm32", target_os = "unknown")))]
+struct Keyed<K> {
+    prefix: String,
+    kv: K,
+}
+
+#[cfg(any(test, all(target_arch = "wasm32", target_os = "unknown")))]
+impl<K: KeyValue> Backend for Keyed<K> {
+    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
+        Ok(self.kv.get(&self.name_of(key))?.map(String::into_bytes))
+    }
+
+    fn write(&self, key: &str, bytes: &[u8]) -> Result<(), String> {
+        // Saved values are JSON, which is always UTF-8.
+        let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+        self.kv.set(&self.name_of(key), text)
+    }
+
+    fn remove(&self, key: &str) -> Result<(), String> {
+        self.kv.delete(&self.name_of(key))
+    }
+
+    fn name_of(&self, key: &str) -> String {
+        format!("{}{key}", self.prefix)
+    }
+}
+
+/// The prefix of app `app`'s entries in a page's storage: `remedy:<app>:`, with `~` and `:`
+/// in the name written as `~` and two hex digits, so no app's entries can be read as
+/// another's (the name holds no `:`, so one prefix never starts another).
+#[cfg(any(test, all(target_arch = "wasm32", target_os = "unknown")))]
+fn page_prefix(app: &str) -> String {
+    let mut out = String::from("remedy:");
+    for c in app.chars() {
+        match c {
+            '~' => out.push_str("~7e"),
+            ':' => out.push_str("~3a"),
+            c => out.push(c),
+        }
+    }
+    out.push(':');
+    out
+}
+
+/// The origin's `localStorage`: synchronous, kept across reloads and restarts, shared by the
+/// origin's pages. Reached afresh on each call, so the handle stays `Send`.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+struct LocalStorage;
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+impl LocalStorage {
+    fn storage() -> Result<web_sys::Storage, String> {
+        let window =
+            web_sys::window().ok_or("there is no browser window here (a worker has no localStorage)")?;
+        window
+            .local_storage()
+            .map_err(js_error)?
+            .ok_or_else(|| "the browser gives this page no localStorage".to_owned())
+    }
+}
+
+/// A browser exception in words: `QuotaExceededError: …` for a full storage.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn js_error(e: wasm_bindgen::JsValue) -> String {
+    use wasm_bindgen::JsCast as _;
+    if let Some(d) = e.dyn_ref::<web_sys::DomException>() {
+        format!("{}: {}", d.name(), d.message())
+    } else if let Some(s) = e.as_string() {
+        s
+    } else {
+        format!("{e:?}")
+    }
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+impl KeyValue for LocalStorage {
+    fn get(&self, key: &str) -> Result<Option<String>, String> {
+        Self::storage()?.get_item(key).map_err(js_error)
+    }
+
+    fn set(&self, key: &str, value: &str) -> Result<(), String> {
+        Self::storage()?.set_item(key, value).map_err(js_error)
+    }
+
+    fn delete(&self, key: &str) -> Result<(), String> {
+        Self::storage()?.remove_item(key).map_err(js_error)
+    }
+}
+
+/// Values saved but not yet written, by key (`None`: removed). The store and its writer
+/// share them, so a load sees what was saved before the write lands; the writer takes an
+/// entry out only once it is written and no newer value replaced it.
+type Unwritten = Arc<Mutex<BTreeMap<String, Option<Arc<[u8]>>>>>;
+
+fn same(a: Option<&Option<Arc<[u8]>>>, b: &Option<Arc<[u8]>>) -> bool {
+    match (a, b) {
+        (Some(Some(x)), Some(y)) => Arc::ptr_eq(x, y),
+        (Some(None), None) => true,
+        _ => false,
+    }
+}
+
 enum Msg {
-    Write(String, Vec<u8>),
+    /// Something was saved or removed: start the debounce if it is not running.
+    Changed,
     Flush(mpsc::Sender<Result<(), String>>),
 }
 
 struct Inner {
+    /// The folder, or empty for a page's storage.
     dir: PathBuf,
+    /// The prefix of the entries in a page's storage, or `None` for a folder.
+    prefix: Option<String>,
+    backend: Arc<dyn Backend>,
+    unwritten: Unwritten,
     tx: Mutex<Option<mpsc::Sender<Msg>>>,
     errors: Arc<Mutex<Vec<String>>>,
     /// The writer: a thread natively, a cooperative task in a browser page.
@@ -224,10 +390,16 @@ impl Drop for Inner {
     }
 }
 
-/// A folder of persisted values, with the writer that saves them. Cloning gives another
-/// handle. When the last one is dropped, the writer writes what is pending and stops on its
-/// own; code that must know the values are on disk (an app quitting) calls
+/// Persisted values, with the writer that saves them: a folder natively
+/// ([`PersistStore::open`]), the page's `localStorage` in a browser
+/// (`PersistStore::local_storage`, wasm32 only). Cloning gives another handle. When the last one is
+/// dropped, the writer writes what is pending and stops on its own; code that must know the
+/// values are saved (an app quitting or going to the background) calls
 /// [`PersistStore::flush`], which waits.
+///
+/// Besides persisted signals, [`PersistStore::load`], [`PersistStore::save`] and
+/// [`PersistStore::remove`] keep any serializable value under a key: an app's own documents
+/// (a list of recipes, a library) are kept this way on every platform.
 #[derive(Clone)]
 pub struct PersistStore {
     inner: Arc<Inner>,
@@ -235,7 +407,10 @@ pub struct PersistStore {
 
 impl std::fmt::Debug for PersistStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PersistStore({})", self.inner.dir.display())
+        match &self.inner.prefix {
+            Some(p) => write!(f, "PersistStore(localStorage {p}*)"),
+            None => write!(f, "PersistStore({})", self.inner.dir.display()),
+        }
     }
 }
 
@@ -265,25 +440,40 @@ fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&tmp, &path)
 }
 
-/// The writer's state: what waits to be written and since when.
+/// The writer's state: where it writes and since when changes wait.
 struct Writer {
-    dir: PathBuf,
+    backend: Arc<dyn Backend>,
+    unwritten: Unwritten,
     rx: mpsc::Receiver<Msg>,
     debounce: Duration,
     errors: Arc<Mutex<Vec<String>>>,
-    pending: BTreeMap<String, Vec<u8>>,
     deadline: Option<Instant>,
 }
 
 impl Writer {
+    /// Writes every unwritten value. One that fails stays unwritten (loads still see it, and
+    /// the next write tries again) and is reported.
     fn write_all(&mut self) -> Result<(), String> {
         self.deadline = None;
+        let snapshot = lock(&self.unwritten).clone();
         let mut first_error = None;
-        for (name, bytes) in std::mem::take(&mut self.pending) {
-            if let Err(e) = write_atomic(&self.dir, &name, &bytes) {
-                let msg = format!("{name}: {e}");
-                lock(&self.errors).push(msg.clone());
-                first_error.get_or_insert(msg);
+        for (key, value) in snapshot {
+            let done = match &value {
+                Some(bytes) => self.backend.write(&key, bytes),
+                None => self.backend.remove(&key),
+            };
+            match done {
+                Ok(()) => {
+                    let mut unwritten = lock(&self.unwritten);
+                    if same(unwritten.get(&key), &value) {
+                        unwritten.remove(&key);
+                    }
+                }
+                Err(e) => {
+                    let msg = format!("{}: {e}", self.backend.name_of(&key));
+                    lock(&self.errors).push(msg.clone());
+                    first_error.get_or_insert(msg);
+                }
             }
         }
         first_error.map_or(Ok(()), Err)
@@ -294,8 +484,7 @@ impl Writer {
     fn step(&mut self) -> Next {
         loop {
             match self.rx.try_recv() {
-                Ok(Msg::Write(name, bytes)) => {
-                    self.pending.insert(name, bytes);
+                Ok(Msg::Changed) => {
                     // The first change starts the wait; later ones join the same write.
                     let debounce = self.debounce;
                     self.deadline.get_or_insert_with(|| Instant::now() + debounce);
@@ -335,39 +524,94 @@ impl PersistStore {
     pub fn with_debounce(dir: impl Into<PathBuf>, debounce: Duration) -> std::io::Result<Self> {
         let dir = dir.into();
         std::fs::create_dir_all(&dir)?;
-        let (tx, rx) = mpsc::channel();
-        let errors: Arc<Mutex<Vec<String>>> = Arc::default();
-        let (d2, e2) = (dir.clone(), errors.clone());
-        let make =
-            move |_| Writer { dir: d2, rx, debounce, errors: e2, pending: BTreeMap::new(), deadline: None };
-        let worker = remedy_ui_core::exec::Worker::spawn_timed("remedy-persist", make, Writer::step)
-            .map_err(std::io::Error::other)?;
-        Ok(PersistStore { inner: Arc::new(Inner { dir, tx: Mutex::new(Some(tx)), errors, worker }) })
+        let backend = Arc::new(Folder(dir.clone()));
+        Self::start(dir, None, backend, debounce)
     }
 
-    /// The folder.
+    /// A store for app `app` in the page's `localStorage`, writing [`DEFAULT_DEBOUNCE`] after
+    /// a change. Each value is the same versioned JSON a folder store writes, under the key
+    /// `remedy:<app>:<key>` (`~` and `:` in the app's name are written as `~7e` and `~3a`), so
+    /// apps sharing an origin keep apart. Fails when the browser gives the page no
+    /// `localStorage` (storage blocked, or not in a page). A write the browser refuses (the
+    /// origin's storage is full) is reported by [`PersistStore::take_errors`] and
+    /// [`PersistStore::flush`].
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    pub fn local_storage(app: &str) -> std::io::Result<Self> {
+        Self::local_storage_with_debounce(app, DEFAULT_DEBOUNCE)
+    }
+
+    /// [`PersistStore::local_storage`] writing `debounce` after the first of a run of
+    /// changes.
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    pub fn local_storage_with_debounce(app: &str, debounce: Duration) -> std::io::Result<Self> {
+        LocalStorage::storage().map_err(std::io::Error::other)?;
+        let prefix = page_prefix(app);
+        let backend = Arc::new(Keyed { prefix: prefix.clone(), kv: LocalStorage });
+        Self::start(PathBuf::new(), Some(prefix), backend, debounce)
+    }
+
+    fn start(
+        dir: PathBuf,
+        prefix: Option<String>,
+        backend: Arc<dyn Backend>,
+        debounce: Duration,
+    ) -> std::io::Result<Self> {
+        let (tx, rx) = mpsc::channel();
+        let errors: Arc<Mutex<Vec<String>>> = Arc::default();
+        let unwritten: Unwritten = Arc::default();
+        let (b2, u2, e2) = (backend.clone(), unwritten.clone(), errors.clone());
+        let make = move |_| Writer { backend: b2, unwritten: u2, rx, debounce, errors: e2, deadline: None };
+        let worker = remedy_ui_core::exec::Worker::spawn_timed("remedy-persist", make, Writer::step)
+            .map_err(std::io::Error::other)?;
+        Ok(PersistStore {
+            inner: Arc::new(Inner {
+                dir,
+                prefix,
+                backend,
+                unwritten,
+                tx: Mutex::new(Some(tx)),
+                errors,
+                worker,
+            }),
+        })
+    }
+
+    /// The folder. Empty for a store in a page's `localStorage`, which has none.
     pub fn dir(&self) -> &Path {
         &self.inner.dir
     }
 
-    /// The file `key` is saved in.
+    /// The file `key` is saved in. Empty for a store in a page's `localStorage`, which keeps
+    /// no files ([`PersistStore::storage_key_of`] names its entry).
     pub fn path_of(&self, key: &str) -> PathBuf {
+        if self.inner.prefix.is_some() {
+            return PathBuf::new();
+        }
         self.inner.dir.join(file_name(key))
     }
 
+    /// The `localStorage` key `key` is saved under, for a store in a page
+    /// (`PersistStore::local_storage`, in a browser page); `None` for a folder store.
+    pub fn storage_key_of(&self, key: &str) -> Option<String> {
+        self.inner.prefix.as_ref().map(|p| format!("{p}{key}"))
+    }
+
     /// The value saved under `persist`'s key, brought up to its version: `Ok(None)` when
-    /// nothing is saved yet.
+    /// nothing is saved yet. A value saved and not yet written is seen at once.
     pub fn load<T: DeserializeOwned>(&self, persist: &Persist) -> Result<Option<T>, PersistError> {
         if persist.key.is_empty() {
             return Err(PersistError::EmptyKey);
         }
-        let bytes = match std::fs::read(self.path_of(&persist.key)) {
-            Ok(b) => b,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(PersistError::Io(e.to_string())),
+        let queued = lock(&self.inner.unwritten).get(&persist.key).cloned();
+        let parsed = match queued {
+            Some(Some(bytes)) => serde_json::from_slice::<JsonValue>(&bytes),
+            Some(None) => return Ok(None),
+            None => match self.inner.backend.read(&persist.key).map_err(PersistError::Io)? {
+                Some(bytes) => serde_json::from_slice::<JsonValue>(&bytes),
+                None => return Ok(None),
+            },
         };
-        let file: JsonValue =
-            serde_json::from_slice(&bytes).map_err(|e| PersistError::Format(e.to_string()))?;
+        let file = parsed.map_err(|e| PersistError::Format(e.to_string()))?;
         let found = file
             .get("version")
             .and_then(JsonValue::as_u64)
@@ -391,20 +635,38 @@ impl PersistStore {
         serde_json::from_value(value).map(Some).map_err(|e| PersistError::Format(e.to_string()))
     }
 
-    /// Saves `value` under `persist`'s key: after the debounce, off this thread.
+    /// Saves `value` under `persist`'s key: after the debounce, off this thread (in a page,
+    /// between frames). [`PersistStore::load`] sees it at once.
     pub fn save<T: Serialize + ?Sized>(&self, persist: &Persist, value: &T) -> Result<(), PersistError> {
         if persist.key.is_empty() {
             return Err(PersistError::EmptyKey);
         }
         let file = serde_json::json!({ "version": persist.version, "value": value });
         let bytes = serde_json::to_vec_pretty(&file).map_err(|e| PersistError::Format(e.to_string()))?;
-        let tx = lock(&self.inner.tx).clone();
-        let sent = tx.is_some_and(|tx| tx.send(Msg::Write(file_name(&persist.key), bytes)).is_ok());
+        self.queue(&persist.key, Some(bytes.into()))
+    }
+
+    /// Forgets the value saved under `key` (a document was deleted), with the same debounce
+    /// as a save. Nothing saved under it is not an error.
+    pub fn remove(&self, key: &str) -> Result<(), PersistError> {
+        if key.is_empty() {
+            return Err(PersistError::EmptyKey);
+        }
+        self.queue(key, None)
+    }
+
+    fn queue(&self, key: &str, value: Option<Arc<[u8]>>) -> Result<(), PersistError> {
+        let Some(tx) = lock(&self.inner.tx).clone() else {
+            return Err(PersistError::Io("the store's writer has stopped".into()));
+        };
+        lock(&self.inner.unwritten).insert(key.to_owned(), value);
+        let sent = tx.send(Msg::Changed).is_ok();
         self.inner.worker.notify();
         if sent { Ok(()) } else { Err(PersistError::Io("the store's writer has stopped".into())) }
     }
 
-    /// Writes everything pending now and waits for it.
+    /// Writes everything pending now and waits for it. Fails with the first write that
+    /// failed (all of them are in [`PersistStore::take_errors`]).
     pub fn flush(&self) -> std::io::Result<()> {
         let (reply, answer) = mpsc::channel();
         let tx = lock(&self.inner.tx).clone();
@@ -420,7 +682,8 @@ impl PersistStore {
         }
     }
 
-    /// Writes that failed in the background since the last call (file, then why).
+    /// Writes that failed in the background since the last call (the file or storage key,
+    /// then why).
     pub fn take_errors(&self) -> Vec<String> {
         std::mem::take(&mut *lock(&self.inner.errors))
     }
@@ -484,5 +747,214 @@ impl<T: Serialize + DeserializeOwned + 'static> Signal<T> {
             Some(e) => Err((self, e)),
             None => Ok(self),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The key-value backend (a page's `localStorage`) on an in-memory map, so its logic runs
+    //! natively; the browser side is only the three `Storage` calls.
+
+    use super::*;
+    use crate::signal::Scope;
+
+    /// A `localStorage` stand-in: a map of strings, with the browser's refusal of a full
+    /// storage when a test gives it room for only so many bytes.
+    #[derive(Default)]
+    struct MemoryKv {
+        map: Mutex<BTreeMap<String, String>>,
+        room: Mutex<Option<usize>>,
+    }
+
+    impl KeyValue for Arc<MemoryKv> {
+        fn get(&self, key: &str) -> Result<Option<String>, String> {
+            Ok(lock(&self.map).get(key).cloned())
+        }
+
+        fn set(&self, key: &str, value: &str) -> Result<(), String> {
+            let mut map = lock(&self.map);
+            if let Some(room) = *lock(&self.room) {
+                let others: usize =
+                    map.iter().filter(|(k, _)| k.as_str() != key).map(|(k, v)| k.len() + v.len()).sum();
+                if others + key.len() + value.len() > room {
+                    return Err("QuotaExceededError: the quota has been exceeded.".into());
+                }
+            }
+            map.insert(key.to_owned(), value.to_owned());
+            Ok(())
+        }
+
+        fn delete(&self, key: &str) -> Result<(), String> {
+            lock(&self.map).remove(key);
+            Ok(())
+        }
+    }
+
+    fn page_store(app: &str, kv: &Arc<MemoryKv>, debounce: Duration) -> PersistStore {
+        let prefix = page_prefix(app);
+        let backend = Arc::new(Keyed { prefix: prefix.clone(), kv: kv.clone() });
+        match PersistStore::start(PathBuf::new(), Some(prefix), backend, debounce) {
+            Ok(s) => s,
+            Err(e) => unreachable!("the writer starts: {e}"),
+        }
+    }
+
+    fn ok<T, E: std::fmt::Debug>(r: Result<T, E>) -> T {
+        match r {
+            Ok(v) => v,
+            Err(e) => unreachable!("{e:?}"),
+        }
+    }
+
+    #[test]
+    fn page_prefixes_keep_apps_apart() {
+        assert_eq!(page_prefix("Craft Calc"), "remedy:Craft Calc:");
+        assert_eq!(page_prefix("a:b~c"), "remedy:a~3ab~7ec:");
+        // App "a" with key "b:k" and app "a:b" with key "k" are different entries.
+        assert_ne!(format!("{}b:k", page_prefix("a")), format!("{}k", page_prefix("a:b")));
+    }
+
+    #[test]
+    fn a_page_store_keeps_values_under_the_apps_prefix_in_the_same_envelope() {
+        let kv = Arc::new(MemoryKv::default());
+        let store = page_store("Craft Calc", &kv, Duration::from_millis(20));
+        assert_eq!(store.storage_key_of("recipes").as_deref(), Some("remedy:Craft Calc:recipes"));
+        assert_eq!(store.path_of("recipes"), PathBuf::new(), "a page store has no files");
+        let recipes = vec![serde_json::json!({"name": "Castile", "oils": {"olive": 1000}})];
+        ok(store.save(&Persist::new("recipes"), &recipes));
+        ok(store.flush());
+        let saved = ok(lock(&kv.map).get("remedy:Craft Calc:recipes").cloned().ok_or("written"));
+        let file: JsonValue = ok(serde_json::from_str(&saved));
+        assert_eq!(file.get("version"), Some(&serde_json::json!(1)));
+        assert_eq!(file.pointer("/value/0/name"), Some(&serde_json::json!("Castile")));
+        // A new store over the same storage (the page reloaded) reads it back.
+        drop(store);
+        let again = page_store("Craft Calc", &kv, Duration::from_millis(20));
+        let back: Option<Vec<JsonValue>> = ok(again.load(&Persist::new("recipes")));
+        assert_eq!(back, Some(recipes));
+        // Another app on the same origin sees nothing of it.
+        let other = page_store("Notes", &kv, Duration::from_millis(20));
+        assert_eq!(ok(other.load::<Vec<JsonValue>>(&Persist::new("recipes"))), None);
+        assert!(again.take_errors().is_empty());
+    }
+
+    #[test]
+    fn a_persisted_signal_survives_a_reload_of_a_page_store() {
+        let kv = Arc::new(MemoryKv::default());
+        let store = page_store("Notes", &kv, Duration::from_millis(20));
+        let ((), scope) = Scope::new(|| {
+            let wrap =
+                Signal::new(true).persist_in(&store, Persist::new("editor.wrap")).unwrap_or_else(|(s, _)| s);
+            wrap.set(false);
+        });
+        crate::batch(|| {});
+        ok(store.flush());
+        scope.dispose();
+        drop(store);
+        let reloaded = page_store("Notes", &kv, Duration::from_millis(20));
+        let ((), _scope) = Scope::new(|| {
+            let wrap = Signal::new(true)
+                .persist_in(&reloaded, Persist::new("editor.wrap"))
+                .unwrap_or_else(|(s, _)| s);
+            assert!(!wrap.get(), "the saved value came back");
+        });
+    }
+
+    #[test]
+    fn page_values_migrate_and_newer_ones_are_left_alone() {
+        let kv = Arc::new(MemoryKv::default());
+        ok(kv.set("remedy:Calc:batch", r#"{"version": 1, "value": {"grams": 500}}"#));
+        ok(kv.set("remedy:Calc:future", r#"{"version": 3, "value": 1}"#));
+        let store = page_store("Calc", &kv, Duration::from_millis(20));
+        let persist = Persist::new("batch").version(2).migrate(|from, v| {
+            if from != 1 {
+                return Err(format!("unknown version {from}").into());
+            }
+            let g = v.get("grams").and_then(JsonValue::as_f64).ok_or("no grams")?;
+            Ok(serde_json::json!({ "kilograms": g / 1000.0 }))
+        });
+        let v: Option<JsonValue> = ok(store.load(&persist));
+        assert_eq!(v, Some(serde_json::json!({ "kilograms": 0.5 })));
+        assert_eq!(
+            store.load::<u32>(&Persist::new("future")),
+            Err(PersistError::Newer { found: 3, current: 1 })
+        );
+        ok(kv.set("remedy:Calc:broken", "{ not json"));
+        assert!(matches!(store.load::<u32>(&Persist::new("broken")), Err(PersistError::Format(_))));
+    }
+
+    #[test]
+    fn page_writes_are_debounced_and_loads_see_unwritten_values() {
+        let kv = Arc::new(MemoryKv::default());
+        let store = page_store("Calc", &kv, Duration::from_millis(400));
+        for i in 1..=50u32 {
+            ok(store.save(&Persist::new("count"), &i));
+        }
+        assert!(lock(&kv.map).is_empty(), "nothing is written before the debounce ends");
+        assert_eq!(ok(store.load::<u32>(&Persist::new("count"))), Some(50), "a load sees the last save");
+        let start = Instant::now();
+        while lock(&kv.map).is_empty() {
+            assert!(start.elapsed() < Duration::from_secs(20), "the debounced write never came");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let saved = ok(lock(&kv.map).get("remedy:Calc:count").cloned().ok_or("written"));
+        assert!(saved.contains("50"), "one write, of the last value: {saved}");
+        assert!(lock(&store.inner.unwritten).is_empty(), "written values leave the queue");
+    }
+
+    #[test]
+    fn removing_a_page_value_forgets_it() {
+        let kv = Arc::new(MemoryKv::default());
+        let store = page_store("Calc", &kv, Duration::from_millis(20));
+        ok(store.save(&Persist::new("draft"), "soap"));
+        ok(store.flush());
+        ok(store.remove("draft"));
+        assert_eq!(ok(store.load::<String>(&Persist::new("draft"))), None, "gone at once for loads");
+        ok(store.flush());
+        assert!(!lock(&kv.map).contains_key("remedy:Calc:draft"));
+        assert_eq!(store.remove(""), Err(PersistError::EmptyKey));
+    }
+
+    #[test]
+    fn a_full_page_storage_is_reported_and_the_value_kept_for_the_next_write() {
+        let kv = Arc::new(MemoryKv::default());
+        *lock(&kv.room) = Some(64);
+        let store = page_store("Calc", &kv, Duration::from_millis(20));
+        let big = "x".repeat(200);
+        ok(store.save(&Persist::new("library"), &big));
+        let Err(e) = store.flush() else { unreachable!("the browser refused the write") };
+        assert!(e.to_string().contains("QuotaExceededError"), "{e}");
+        let errors = store.take_errors();
+        assert!(
+            matches!(errors.as_slice(), [e] if e.starts_with("remedy:Calc:library: QuotaExceededError")),
+            "{errors:?}"
+        );
+        assert_eq!(
+            ok(store.load::<String>(&Persist::new("library"))),
+            Some(big.clone()),
+            "still there this session"
+        );
+        // Room is made (the app or the person cleared space): the next write lands it.
+        *lock(&kv.room) = None;
+        ok(store.flush());
+        assert!(lock(&kv.map).contains_key("remedy:Calc:library"));
+        assert!(store.take_errors().is_empty());
+    }
+
+    #[test]
+    fn a_folder_store_removes_files_and_sees_unwritten_values() {
+        let dir = std::env::temp_dir().join(format!("remedy-persist-unit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = ok(PersistStore::with_debounce(&dir, Duration::from_secs(60)));
+        assert_eq!(store.storage_key_of("a"), None);
+        ok(store.save(&Persist::new("a"), &1u8));
+        assert_eq!(ok(store.load::<u8>(&Persist::new("a"))), Some(1), "seen before the write");
+        assert!(!store.path_of("a").exists());
+        ok(store.flush());
+        assert!(store.path_of("a").exists());
+        ok(store.remove("a"));
+        ok(store.flush());
+        assert!(!store.path_of("a").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

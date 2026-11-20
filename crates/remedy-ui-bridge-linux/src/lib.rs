@@ -29,6 +29,9 @@ mod services;
 mod notify;
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod xtray;
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod dnd;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod dnd_wayland;
@@ -36,6 +39,8 @@ mod dnd_wayland;
 mod dnd_x11;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod icon_wayland;
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod x11_hints;
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod linux {
@@ -50,7 +55,7 @@ mod linux {
     use remedy_ui_core::Color;
     use remedy_ui_host::{
         App, DragData, DragEvent, DragStarted, DropEffect, FileDialog, HostEvent, SystemSettings, TrayIcon,
-        Unsupported, Waker, WindowIcon,
+        Unsupported, Waker, WindowIcon, WindowOptions,
     };
     use remedy_ui_input::Platform;
     use zbus::{OwnedVariant, Variant as Value};
@@ -251,6 +256,23 @@ mod linux {
             }
         }
 
+        fn window_options(&mut self, window: &Window, options: &WindowOptions) {
+            if options.activate && options.taskbar {
+                return;
+            }
+            let Ok(w) = window.window_handle() else { return };
+            let id = match w.as_raw() {
+                RawWindowHandle::Xlib(x) => u32::try_from(x.window).ok(),
+                RawWindowHandle::Xcb(x) => Some(x.window.get()),
+                // Wayland has no such requests: the compositor decides focus and its own lists.
+                _ => None,
+            };
+            if let Some(id) = id {
+                // Best effort, as the window manager may ignore the hints.
+                let _ = crate::x11_hints::quiet(id, options.activate, options.taskbar);
+            }
+        }
+
         fn window_created(&mut self, window: &Window) {
             let (Ok(d), Ok(w)) = (window.display_handle(), window.window_handle()) else { return };
             let (RawDisplayHandle::Wayland(d), RawWindowHandle::Wayland(w)) = (d.as_raw(), w.as_raw()) else {
@@ -381,6 +403,18 @@ mod linux {
 
         fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
             self.notifier.withdraw(id)
+        }
+
+        fn share(
+            &mut self,
+            window: Option<&Window>,
+            share: &remedy_ui_host::ShareOptions,
+        ) -> Result<remedy_ui_host::ShareStarted, Unsupported> {
+            let _ = (window, share);
+            Err(Unsupported::new(
+                "sharing",
+                "Linux desktops have no share sheet: the desktop portals offer none, and GNOME and KDE each keep their own",
+            ))
         }
 
         fn open_url(&mut self, url: &str) -> Result<(), Unsupported> {

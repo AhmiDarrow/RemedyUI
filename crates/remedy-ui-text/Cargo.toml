@@ -38,7 +38,7 @@ system-fonts = ["parley/system", "dep:fontique", "fontique/fontconfig-dlopen"]
 complex-scripts = ["parley/complex-scripts"]
 
 [dev-dependencies]
-remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "ahmi-print"] }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "ahmi-print", "remedy-symbols"] }
 
 [lints]
 workspace = true

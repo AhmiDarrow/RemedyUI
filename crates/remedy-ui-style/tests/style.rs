@@ -37,6 +37,10 @@ fn derived_tokens_follow_the_skin_rules() {
     assert!(d.dark);
     assert_eq!(d.sizes, [11.0, 12.0, 13.0, 15.0, 18.0, 24.0], "six sizes from three");
     assert!(d.text.contrast(theme.colors.bg) >= CONTRAST_AAA);
+    for surface in [theme.colors.bg, theme.colors.panel, theme.colors.card] {
+        assert!(d.muted.contrast(surface) >= CONTRAST_AAA, "secondary text reads easily on every surface");
+        assert!(d.text.contrast(surface) >= CONTRAST_AAA);
+    }
     assert!(d.on_accent.contrast(theme.colors.accent) >= CONTRAST_AA);
     assert_ne!(d.hover, theme.colors.card);
     assert_eq!(d.control_height, 28.0);

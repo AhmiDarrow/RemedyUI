@@ -1,0 +1,15 @@
+[package]
+name = "remedy-ui-build"
+description = "Build-script help for RemedyUI apps: the Windows executable's icon and version information, written as a resource file by the build script itself (no resource compiler needed)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords = ["gui", "remedy", "build", "windows", "icon"]
+categories = ["development-tools::build-utils", "gui"]
+
+[lints]
+workspace = true

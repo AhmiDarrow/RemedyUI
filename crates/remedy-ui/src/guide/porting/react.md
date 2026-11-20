@@ -31,13 +31,14 @@ DOM, no re-render and no diff: a state change updates exactly the bindings that 
 | Error boundaries | [`crate::catch_errors`] |
 | `<Suspense>` with React Query or SWR | [`crate::suspense`] around content reading a [`crate::reactive::Resource`] |
 | `createContext` / `useContext` | [`crate::El::provide`] and [`crate::reactive::use_context`] |
-| `localStorage` for UI state | [`crate::reactive::Signal::persist`] |
+| `localStorage` for UI state | [`crate::reactive::Signal::persist`]; what the web version saved is imported with [`crate::webstorage`] |
 | CSS transitions, Framer Motion | [`crate::El::animate`], [`crate::show`] transitions, [`crate::widgets::for_each_with`] |
 | Storybook | [`crate::devtools::preview`]: previews in every theme and locale, also golden-image tests |
 | `flex`, `grid` in CSS | [`crate::El::row`], [`crate::El::column`], [`crate::El::layout`] (flex and grid) |
 | React Router | [`crate::nav::NavStack`], [`crate::nav::tabs`], [`crate::nav::nav_rail`] |
 | `fetch` in an effect | [`crate::App::background`], which returns a [`crate::BackgroundJob`] to cancel |
 | Tauri `invoke` to Rust | A plain Rust call: the UI is Rust |
+| `navigator.share({ files, title, text })`, Capacitor's `Share` | [`crate::App::share`] with a [`crate::host::ShareOptions`] (files as name, MIME type and bytes); the callback's [`crate::host::ShareOutcome`] says shared, cancelled, or unsupported with the reason, where the app falls back to a save dialog or the clipboard |
 | React Testing Library `getByRole` | [`crate::testing::TestApp::find`] and [`crate::testing::TestApp::press`] |
 
 ## A component
@@ -341,6 +342,69 @@ restores the saved value and saves each change, debounced and off the UI thread,
 app's state folder ([`crate::App::persist_store`]). Window size and place have their own:
 [`crate::WindowSpec::persist_geometry`].
 
+### Bringing over what the web version saved
+
+An update must never lose what people saved. Whatever the Tauri, Capacitor or PWA version
+kept in `localStorage` (settings, recipes, notes) is still on the device, in the web view's
+own store, and the first run of the RemedyUI version imports it with the `webstorage`
+feature ([`crate::webstorage`]):
+
+- **Tauri on Windows** kept it in WebView2's store:
+  [`crate::webstorage::tauri_windows_dir`] with the bundle identifier from `tauri.conf.json`,
+  under the origin `http://tauri.localhost` (or `https://` with `useHttpsScheme`):
+  [`crate::webstorage::TAURI_WINDOWS_ORIGINS`].
+- **Capacitor on Android** kept it in the Android System WebView's store, in the app's data
+  folder: [`crate::webstorage::android_webview_dir`] (or
+  [`crate::webstorage::android_webview_dir_from_files_dir`] from the internal files folder),
+  under `https://localhost` or `http://localhost`: [`crate::webstorage::CAPACITOR_ORIGINS`].
+  The RemedyUI build must keep the same package name and signing key to see that folder.
+- **A PWA** that stays on its origin reads the page's own store with
+  `webstorage::browser_local_storage()` (on `wasm32`), which returns the same
+  [`crate::webstorage::LocalStorage`].
+
+The store is read in place and never changed, even while the old app is running, so the
+import can run again until it succeeds. Write what it found into the app's own files first,
+then remember that it is done:
+
+```rust,no_run
+use std::path::Path;
+
+use remedy_ui::webstorage::{self, ChromiumStorage, LocalStorage, WebStorageError};
+
+/// What the Tauri version saved on this machine, or `None` when it never ran here.
+fn saved_by_the_web_version() -> Result<Option<LocalStorage>, WebStorageError> {
+    let Some(dir) = webstorage::tauri_windows_dir("com.remedy.craftcalc") else { return Ok(None) };
+    match ChromiumStorage::read_dir(&dir) {
+        Ok(store) => store.first_of(&webstorage::TAURI_WINDOWS_ORIGINS),
+        Err(WebStorageError::NotFound { .. }) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Runs at start-up until one import succeeds.
+fn import_once(data_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let done = data_dir.join("web-storage-imported");
+    if done.exists() {
+        return Ok(());
+    }
+    // An error returns here before `done` is written: the next start tries again.
+    if let Some(saved) = saved_by_the_web_version()? {
+        if let Some(settings) = saved.get("craftcalc.settings") {
+            std::fs::write(data_dir.join("settings.json"), settings)?;
+        }
+        // ... every other key the web version used, into the app's own state.
+    }
+    std::fs::write(done, "")?;
+    Ok(())
+}
+# let _ = import_once;
+```
+
+Keys the web version wrote under other names in older releases are all in
+[`crate::webstorage::LocalStorage::items`], so the import can take them too, and
+[`crate::webstorage::ChromiumStorage::origins`] lists every origin in a store when it is not
+clear which one the app had.
+
 ## Styling: CSS becomes tokens and rules
 
 There is no CSS. Colors, sizes, spacing, radii and motion are tokens in a
@@ -391,7 +455,7 @@ A ref is the element itself. `El` is a handle: clone it into a closure and call
 A Tauri app sends `invoke("save_note", { … })` to Rust and awaits a promise. With RemedyUI
 the UI is Rust, so call the function. Slow work goes to [`crate::App::background`], which
 hands the result back on the UI thread. Tray icons, single instance, file dialogs, the
-clipboard and window control are methods on [`crate::App`] and [`crate::Window`].
+clipboard, sharing and window control are methods on [`crate::App`] and [`crate::Window`].
 
 ## Testing
 

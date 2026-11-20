@@ -40,27 +40,32 @@ type Pixmaps = Vec<(i32, i32, Vec<u8>)>;
 /// The `ToolTip` property: icon name, icon pixmaps, title, description.
 type ToolTip = (String, Pixmaps, String, String);
 
-/// ARGB32 in network byte order, as StatusNotifierItem pixmaps are.
+/// ARGB32 in network byte order, as StatusNotifierItem pixmaps are: every size the icon is
+/// drawn at, so the host picks the one it shows.
 fn pixmap(t: &TrayIcon) -> Pixmaps {
-    let s = i32::try_from(t.icon.size).unwrap_or(0);
-    let data = t
-        .icon
-        .rgba
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .flat_map(|&[r, g, b, a]| {
-            let un = |c: u8| {
-                if a == 0 {
-                    0
-                } else {
-                    ((u16::from(c) * 255 + u16::from(a) / 2) / u16::from(a)).min(255) as u8
-                }
-            };
-            [a, un(r), un(g), un(b)]
+    t.images()
+        .into_iter()
+        .map(|img| {
+            let s = i32::try_from(img.size).unwrap_or(0);
+            let data = img
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .flat_map(|&[r, g, b, a]| {
+                    let un = |c: u8| {
+                        if a == 0 {
+                            0
+                        } else {
+                            ((u16::from(c) * 255 + u16::from(a) / 2) / u16::from(a)).min(255) as u8
+                        }
+                    };
+                    [a, un(r), un(g), un(b)]
+                })
+                .collect();
+            (s, s, data)
         })
-        .collect();
-    vec![(s, s, data)]
+        .collect()
 }
 
 struct Item(State);
@@ -236,11 +241,13 @@ impl Menu {
     async fn layout_updated(emitter: &SignalEmitter<'_>, revision: u32, parent: i32) -> zbus::Result<()>;
 }
 
-/// The tray and its D-Bus connection.
+/// The tray: a StatusNotifierItem on its D-Bus connection, or, on X11 desktops without a
+/// StatusNotifier host, an icon docked in the XEmbed system tray.
 #[derive(Default)]
 pub(crate) struct Tray {
     state: State,
     conn: Option<zbus::Connection>,
+    xembed: Option<crate::xtray::XTray>,
 }
 
 impl Tray {
@@ -258,8 +265,14 @@ impl Tray {
             lock(&self.state).tray = None;
             // Dropping the connection releases our bus name; hosts remove the item.
             self.conn = None;
+            // Dropping the XEmbed icon destroys its window; the tray undocks it.
+            self.xembed = None;
             return Ok(());
         };
+        if let Some(x) = &self.xembed {
+            x.set(t);
+            return Ok(());
+        }
         {
             let mut g = lock(&self.state);
             g.tray = Some(t.clone());
@@ -294,9 +307,20 @@ impl Tray {
             )
             .await?;
             Ok::<_, zbus::Error>(conn)
-        })
-        .map_err(|e| Unsupported::new("the tray", format!("the desktop has no StatusNotifier host: {e}")))?;
-        self.conn = Some(conn);
+        });
+        match conn {
+            Ok(conn) => self.conn = Some(conn),
+            Err(sni) => {
+                let state = self.state.clone();
+                let x = crate::xtray::XTray::start(t, move |e| push(&state, e)).map_err(|x| {
+                    Unsupported::new(
+                        "the tray",
+                        format!("the desktop has no StatusNotifier host ({sni}), and {}", x.reason),
+                    )
+                })?;
+                self.xembed = Some(x);
+            }
+        }
         Ok(())
     }
 }

@@ -183,7 +183,7 @@ fn spans_are_clamped_to_character_boundaries() {
 }
 
 #[test]
-fn thai_breaks_inside_words_only_with_the_complex_scripts_feature() {
+fn thai_wraps_to_its_width_with_or_without_dictionaries() {
     // "Thai is a beautiful language" written, as Thai is, without spaces between words.
     let thai = "ภาษาไทยเป็นภาษาที่สวยงามมากภาษาไทยเป็นภาษาที่สวยงามมาก";
     let mut e = engine();
@@ -191,11 +191,11 @@ fn thai_breaks_inside_words_only_with_the_complex_scripts_feature() {
     let one_line = p.width();
     p.rewrap(Some(one_line / 4.0));
     let lines = p.lines().len();
-    if cfg!(feature = "complex-scripts") {
-        assert!(lines >= 3, "dictionary breaks: {lines} lines");
-    } else {
-        assert_eq!(lines, 1, "without dictionaries there is no break opportunity");
-    }
+    // With dictionaries Thai breaks between words; without them there is no break between
+    // words, and the line still breaks where it must (overflow-wrap) rather than running past
+    // its width.
+    assert!(lines >= 3, "{lines} lines");
+    assert!(p.width() <= one_line / 4.0 + 0.5, "inside the width: {} of {}", p.width(), one_line / 4.0);
     // Chinese breaks between ideographs either way.
     let zh = "汉字之间可以换行汉字之间可以换行汉字之间可以换行";
     let mut p = e.layout(&RichText::plain(zh), &TextStyle::default(), opts(None));
@@ -291,4 +291,95 @@ fn underlines_sit_below_the_text_and_strikes_through_its_middle() {
     let strike = run("struck").strikethrough.unwrap_or_else(|| unreachable!("a strike"));
     assert!(strike.max.y < line.baseline && strike.min.y > line.baseline - 20.0, "{strike:?}");
     assert!(run("struck").underline.is_none());
+}
+
+fn at_scale(width: Option<f32>, scale: f32) -> ParagraphOptions {
+    let mut o = opts(width);
+    o.scale = scale;
+    o
+}
+
+#[test]
+fn the_device_scale_leaves_every_metric_in_logical_pixels() {
+    // Android at 420 dpi is 2.625 device pixels per logical pixel; the paragraph must take the
+    // same logical room there as at 1, apart from rounding to the device's pixel grid.
+    let mut e = engine();
+    let style = TextStyle::default();
+    let text = RichText::plain("Body text at fourteen");
+    let one = e.layout(&text, &style, at_scale(None, 1.0));
+    for scale in [1.25, 2.0, 2.625, 3.5] {
+        let p = e.layout(&text, &style, at_scale(None, scale));
+        let tol = 1.0 + 1.0 / scale;
+        assert!((p.width() - one.width()).abs() <= tol, "{scale}: width {} vs {}", p.width(), one.width());
+        assert!(
+            (p.height() - one.height()).abs() <= tol,
+            "{scale}: height {} vs {}",
+            p.height(),
+            one.height()
+        );
+        let (b, b1) = (p.first_baseline().unwrap_or(0.0), one.first_baseline().unwrap_or(0.0));
+        assert!((b - b1).abs() <= tol, "{scale}: baseline {b} vs {b1}");
+        let lines = p.lines();
+        assert_eq!(lines.len(), 1, "{scale}");
+        for line in &lines {
+            assert!((line.bottom - line.top - one.height()).abs() <= tol, "{scale}: line {line:?}");
+        }
+        for run in p.glyph_runs() {
+            assert!(
+                (run.size - style.size).abs() < 0.01,
+                "{scale}: run drawn at {} not {}",
+                run.size,
+                style.size
+            );
+            let last = run.glyphs.last().map_or(0.0, |g| g.x);
+            assert!(last < p.width(), "{scale}: glyph at {last} outside {}", p.width());
+        }
+    }
+}
+
+#[test]
+fn wrapping_hit_testing_and_carets_take_logical_pixels_at_any_scale() {
+    let mut e = engine();
+    let text =
+        RichText::plain(PANGRAM).object(InlineObject { id: 3, width: 20.0, height: 10.0, baseline: None });
+    let one = e.layout(&text, &TextStyle::default(), at_scale(Some(160.0), 1.0));
+    let mut p = e.layout(&text, &TextStyle::default(), at_scale(Some(160.0), 2.625));
+    assert_eq!(p.lines().len(), one.lines().len(), "wrapped at the same logical width");
+    assert!(p.width() <= 160.5, "{}", p.width());
+    p.rewrap(Some(320.0));
+    assert!(p.width() > 160.5 && p.width() <= 320.5, "rewrap is logical too: {}", p.width());
+    let objects = p.inline_objects();
+    assert_eq!(objects.len(), 1);
+    for (_, obj) in objects {
+        assert!((obj.width() - 20.0).abs() < 0.5 && (obj.height() - 10.0).abs() < 0.5, "{obj:?}");
+    }
+    // A point in the second word is in the second word at any scale.
+    let at = p.hit_test(Point::new(
+        one.caret(TextPosition { index: 5, affinity: Affinity::Downstream }, 1.0).min.x,
+        5.0,
+    ));
+    assert!((4..=6).contains(&at.index), "{at:?}");
+    let caret = p.caret(TextPosition { index: 4, affinity: Affinity::Downstream }, 2.0);
+    assert!((caret.width() - 2.0).abs() < 0.01, "{caret:?}");
+    assert!(caret.height() < 30.0, "a 14 px line's caret: {caret:?}");
+    let sel = p.selection_rects(0..9);
+    assert!(sel.iter().all(|r| r.height() < 30.0 && r.max.x <= 320.5), "{sel:?}");
+}
+
+/// A word longer than the wrap width breaks onto more lines rather than running past it (an
+/// invite or a key pasted into a narrow field), while a short word still wraps whole.
+#[test]
+fn a_word_longer_than_its_line_breaks_inside_the_width() {
+    let mut e = engine();
+    let long = "freespeak-invite:RlNJTlYxAdVnw0mWdMxYcUCoNzSuYAIGhvM8bnCouqdDCYTfBUEcWnpoKcetKb52hmKubsvp";
+    let p =
+        e.layout(&RichText::plain(long), &TextStyle::default(), ParagraphOptions::default().max_width(120.0));
+    assert!(p.width() <= 120.5, "it stays inside: {}", p.width());
+    assert!(p.lines().len() > 2, "it took several lines: {}", p.lines().len());
+    let words = e.layout(
+        &RichText::plain("short words wrap whole"),
+        &TextStyle::default(),
+        ParagraphOptions::default().max_width(60.0),
+    );
+    assert!(words.width() <= 60.5);
 }

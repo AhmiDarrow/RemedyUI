@@ -1,7 +1,8 @@
 //! RemedyUI's Android bridge.
 //!
-//! An app runs in a native activity (`android.app.NativeActivity`, so the app ships no Java)
-//! on the shared winit core (`remedy-ui-bridge-winit`), which provides the window, touch and
+//! An app runs in a native activity (`dev.remedyui.android.RemedyActivity`, the bridge's own
+//! `NativeActivity`, in APKs `cargo remedy package` makes; a plain `android.app.NativeActivity`
+//! also works, with the limits below) on the shared winit core (`remedy-ui-bridge-winit`), which provides the window, touch and
 //! key input, frames, timers, wakes, CPU presents into the `ANativeWindow`'s buffers, the
 //! native handles wgpu draws on with Vulkan or GLES, and the lifecycle: surfaces are dropped
 //! when the activity goes to the background and the window is announced again, with its new
@@ -33,7 +34,22 @@
 //!   (animations off), high-contrast text, the Material You accent and the double-tap time;
 //! - screen readers (TalkBack) through AccessKit's Android adapter on the activity's view,
 //!   plus "set text" on text fields, which the adapter lacks;
+//! - system notifications (`Host::show_notification`): an alerting and a quiet channel, the
+//!   app's icon made monochrome for the status bar, the notification's picture, up to three
+//!   buttons, replacing and withdrawing by id; pressing one opens the app and reports
+//!   `Activated` (through a not-exported alias of the activity, so only the app's own
+//!   notifications can), buttons and dismissals report through a receiver the running app
+//!   registers (not exported, immutable intents, a token only the process knows).
+//!   `Permission::Notifications` asks on Android 13 and later and answers whether they are on
+//!   before;
+//! - foreground work (`Host::start_foreground`): the `dev.remedyui.android.Foreground`
+//!   service with the task's types and notification, after checking what Android would
+//!   refuse (the manifest's declaration and permissions, microphone and camera permissions,
+//!   the app on screen for microphone and camera work); what Android ends later arrives as
+//!   `HostEvent::ForegroundStopped`;
 //! - launch options from the starting intent (`launch_extra`);
+//! - the app's private data folder (`data_dir`), where `remedy_ui`'s `App::data_dir` and
+//!   persisted state live;
 //! - the system log (`log`), since Android discards a native app's standard output.
 //!
 //! What Android cannot do reports [`remedy_ui_host::Unsupported`]: the tray (Android has
@@ -46,10 +62,16 @@
 //! event loop per process; see `run`).
 //!
 //! The Java listeners Android reports through live in `java/`, compiled to `dex/classes.dex`
-//! by `tools/build-dex.sh` and loaded from memory at start. `tools/build-apk.sh` builds,
+//! by `tools/build-dex.sh`. `cargo remedy package` puts that dex in the APK as the app's code
+//! (the activity and the service must be classes the system can start), and the bridge uses
+//! those classes; on a plain `NativeActivity` with no code in the APK, it loads the same dex
+//! from memory. There pressing a notification opens the app without reporting `Activated`
+//! (`NativeActivity` drops the intent naming it, except for one that starts the app with no
+//! task of the app left), and foreground work reports `Unsupported`, since the manifest declares
+//! no service. `tools/build-apk.sh` builds,
 //! packages, signs and installs an app; see the `android-demo` example. `tools/emulator-check.sh`
-//! drives the demo on an emulator, and `tools/a11y-check/run.sh` acts on it as a screen
-//! reader does. On other platforms this crate holds only its platform-neutral conversions.
+//! drives the demo on an emulator, `tools/notify-check.sh` its notifications and foreground
+//! work, and `tools/a11y-check/run.sh` acts on it as a screen reader does. On other platforms this crate holds only its platform-neutral conversions.
 //!
 //! An app's entry point is [`main!`]:
 //!
@@ -69,7 +91,7 @@ mod android;
 mod os;
 
 #[cfg(target_os = "android")]
-pub use android::{AndroidHooks, attach, launch_extra, log, run};
+pub use android::{AndroidHooks, attach, data_dir, launch_extra, log, run};
 #[cfg(target_os = "android")]
 pub use remedy_ui_bridge_winit::RunError;
 #[cfg(target_os = "android")]

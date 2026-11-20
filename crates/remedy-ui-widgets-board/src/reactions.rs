@@ -6,6 +6,9 @@ use remedy_ui_reactive::{Signal, untrack};
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 
+pub use crate::labels::ReactionLabels;
+use crate::labels::fill;
+
 /// One emoji's reactions.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reaction {
@@ -34,23 +37,42 @@ pub fn toggle(list: &mut Vec<Reaction>, emoji: &str) {
     list.retain(|r| r.count > 0);
 }
 
-/// What a reaction button says to a screen reader.
+/// What a reaction button says to a screen reader, in English.
 pub fn spoken(r: &Reaction) -> String {
+    spoken_in(r, &ReactionLabels::default())
+}
+
+/// What a reaction button says to a screen reader, in `labels`.
+pub fn spoken_in(r: &Reaction, labels: &ReactionLabels) -> String {
     let n = match r.count {
-        1 => "1 reaction".to_owned(),
-        n => format!("{n} reactions"),
+        1 => labels.one.clone(),
+        n => fill(&labels.many, &[("count", n.to_string())]),
     };
-    if r.mine { format!("{}, {n}, including yours", r.emoji) } else { format!("{}, {n}", r.emoji) }
+    let template = if r.mine { &labels.spoken_mine } else { &labels.spoken };
+    fill(template, &[("emoji", r.emoji.clone()), ("count", n)])
 }
 
 /// The reactions `shown`, plus each of `offered` not chosen yet; pressing one calls
-/// `on_toggle` with its emoji.
+/// `on_toggle` with its emoji. In English; [`reactions_in`] takes the words.
 pub fn reactions(
     ui: &Ui,
     shown: Signal<Vec<Reaction>>,
     offered: Vec<String>,
     on_toggle: impl Fn(&str) + 'static,
 ) -> El {
+    reactions_in(ui, shown, offered, &ReactionLabels::default(), on_toggle)
+}
+
+/// [`reactions()`] in the words of `labels`.
+pub fn reactions_in(
+    ui: &Ui,
+    shown: Signal<Vec<Reaction>>,
+    offered: Vec<String>,
+    labels: &ReactionLabels,
+    on_toggle: impl Fn(&str) + 'static,
+) -> El {
+    let words = labels.clone();
+    let group = labels.group.clone();
     let unit = ui.theme().spacing.unit;
     let row = w::wrap(ui).gap(unit);
     let on_toggle = std::rc::Rc::new(on_toggle);
@@ -72,7 +94,7 @@ pub fn reactions(
                     .variant(if r.mine { "primary" } else { "quiet" })
                     .semantics(
                         Semantics::new(Role::Button)
-                            .label(spoken(&r))
+                            .label(spoken_in(&r, &words))
                             .checked(r.mine)
                             .action(A11yAction::Click),
                     );
@@ -80,12 +102,12 @@ pub fn reactions(
             }
         });
     })
-    .semantics(Semantics::new(Role::Group).label("Reactions"))
+    .semantics(Semantics::new(Role::Group).label(group))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Reaction, spoken, toggle};
+    use super::{Reaction, ReactionLabels, spoken, spoken_in, toggle};
 
     #[test]
     fn toggling_counts_the_viewer_in_and_out() {
@@ -101,6 +123,18 @@ mod tests {
         assert_eq!(
             spoken(&Reaction { emoji: "❤️".into(), count: 1, mine: true }),
             "❤️, 1 reaction, including yours"
+        );
+        let de = ReactionLabels::default().translated(|en| {
+            match en {
+                "{count} reactions" => "{count} Reaktionen",
+                "{emoji}, {count}" => "{count} mit {emoji}",
+                other => other,
+            }
+            .to_owned()
+        });
+        assert_eq!(
+            spoken_in(&Reaction { emoji: "👍".into(), count: 3, mine: false }, &de),
+            "3 Reaktionen mit 👍"
         );
     }
 }

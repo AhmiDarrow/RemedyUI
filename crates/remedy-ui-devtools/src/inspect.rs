@@ -339,7 +339,7 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
             || (i.focusable
                 && !matches!(
                     i.semantics.as_ref().map(Semantics::role),
-                    Some(Role::Group | Role::Grid | Role::Dialog)
+                    Some(Role::Group | Role::Toolbar | Role::Grid | Role::Dialog)
                 ));
         if interactive {
             let why = if !reader.contains(&el.node_id()) {

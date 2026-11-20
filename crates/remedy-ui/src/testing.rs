@@ -253,6 +253,52 @@ mod tests {
     }
 
     #[test]
+    fn a_share_button_hands_its_recipe_to_the_sheet_and_falls_back_when_refused() {
+        use remedy_ui_host::{ShareFile, ShareOptions, ShareOutcome, Unsupported};
+        let status = Signal::new(String::new());
+        let mut app = TestApp::new(AppConfig::new("Share"), move |app: &App| {
+            let app2 = app.clone();
+            app.open(WindowSpec::new("Recipe").size(480.0, 360.0), move |ui, window| {
+                let window = window.clone();
+                let share = w::button(ui, "Share", move || {
+                    let recipe = ShareOptions::new()
+                        .title("Lavender")
+                        .text("Lavender soap: 500 g oils, 5% superfat")
+                        .file(ShareFile::new(
+                            "Lavender.alex-soap.json",
+                            "application/json",
+                            br#"{"oils":500}"#.to_vec(),
+                        ));
+                    app2.share(Some(&window), recipe, move |outcome| {
+                        status.set(match outcome {
+                            ShareOutcome::Shared => "shared".to_owned(),
+                            ShareOutcome::Cancelled => "cancelled".to_owned(),
+                            ShareOutcome::Unsupported(why) => format!("save instead: {}", why.reason),
+                            _ => "unknown".to_owned(),
+                        })
+                    });
+                });
+                ui.root().child(share);
+            });
+        });
+        assert!(app.press(Role::Button, "Share"));
+        app.frames(1);
+        assert_eq!(status.get_untracked().ok().as_deref(), Some("shared"));
+        let Some((window, sent)) = app.host().shares().first() else {
+            unreachable!("the share reached the sheet")
+        };
+        assert!(window.is_some(), "over the app's window");
+        assert_eq!((sent.title.as_str(), sent.files.len()), ("Lavender", 1));
+        assert_eq!(sent.files.first().map(|f| f.bytes.as_slice()), Some(&br#"{"oils":500}"#[..]));
+
+        app.host().answer_share(ShareOutcome::Unsupported(Unsupported::new("sharing", "no sheet")));
+        assert!(app.press(Role::Button, "Share"));
+        app.frames(1);
+        assert_eq!(status.get_untracked().ok().as_deref(), Some("save instead: no sheet"));
+        assert_eq!(app.host().shares().len(), 2);
+    }
+
+    #[test]
     fn rows_are_found_by_the_name_screen_readers_get() {
         let opened = Signal::new(0u32);
         let mut app = TestApp::window(move |ui, _| {

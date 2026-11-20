@@ -13,7 +13,7 @@ out="${1:?usage: emulator-check.sh <evidence-dir>}"
 mkdir -p "$out"
 export MSYS_NO_PATHCONV=1
 adb="${ANDROID_HOME:?set ANDROID_HOME}/platform-tools/adb"
-app=dev.remedyui.demo/android.app.NativeActivity
+app=dev.remedyui.demo/${ACTIVITY_CLASS:-dev.remedyui.android.RemedyActivity}
 pause() { sleep "$1" 2>/dev/null || ping -n "$(($1 + 1))" 127.0.0.1 >/dev/null; }
 step() { echo "=== $*"; }
 shot() { "$adb" exec-out screencap -p > "$out/$1.png"; }
@@ -109,6 +109,13 @@ tap "Show roots"; pause 2
 tap "Downloads"; pause 3
 tap "SAVE"; pause 4
 "$adb" shell cat /sdcard/Download/remedyui-saved.txt
+
+step "share through the chooser (the file's name shows in its preview), then back out"
+tap "Share"; pause 4
+shot 7-share-chooser
+tree | grep -m1 "remedyui-shared.json" || echo "the chooser does not show the shared file"
+"$adb" shell input keyevent KEYCODE_BACK; pause 3
+"$adb" logcat -d | grep -m1 "share ended" || echo "the share did not end"
 
 step "screen-reader actions: click, focus, set text"
 here="$(cd "$(dirname "$0")" && pwd)"

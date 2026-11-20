@@ -11,7 +11,7 @@
 //! - Lists: [`for_each`], [`list`], [`virtual_list`]
 //! - Text: [`text`] (with a variant: `.variant("muted")`), [`heading`], [`link`]
 //! - Actions: [`button`], [`button_dyn`], [`icon_button`], [`toggle_button`], [`menu_button`]
-//! - Choices: [`check`], [`switch`], [`radio_group`], [`segmented`], [`select`], [`chip`]
+//! - Choices: [`check`], [`switch`], [`radio_group`], [`segmented`], [`segmented_unavailable`], [`select`], [`chip`]
 //! - Values: [`slider`], [`stepper`]
 //! - Input: [`text_input`], [`text_area`], [`search`], [`secret_input`] with
 //!   [`reveal_toggle`], [`field`]
@@ -55,10 +55,10 @@ mod values;
 #[allow(deprecated)]
 pub use actions::button_dyn;
 pub use actions::{button, icon_button, menu_button, toggle_button};
-pub use choices::{check, chip, radio_group, segmented, select, switch};
+pub use choices::{check, chip, radio_group, segmented, segmented_unavailable, select, switch};
 pub use containers::{card, column, divider, row, scroll, section, spacer, split, stack, wrap};
 pub use feedback::{badge, empty_state, lamp, progress, skeleton, spinner, toast};
-pub use icons::{Icon, avatar, canvas, icon, image};
+pub use icons::{Icon, avatar, canvas, icon, image, pixel_image};
 pub use inputs::{field, reveal_toggle, search, secret_input, text_area, text_input};
 pub use lists::{ListItems, ListTransitions, for_each, for_each_with, list, virtual_list};
 pub use menu_bar::menu_bar;

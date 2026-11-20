@@ -103,6 +103,18 @@ mod hooks {
             os::open_url(url)
         }
 
+        fn share(
+            &mut self,
+            window: Option<&Window>,
+            share: &remedy_ui_host::ShareOptions,
+        ) -> Result<remedy_ui_host::ShareStarted, Unsupported> {
+            let _ = (window, share);
+            Err(Unsupported::new(
+                "sharing",
+                "the macOS bridge does not show the system's share picker (NSSharingServicePicker)",
+            ))
+        }
+
         fn take_drag_ends(&mut self) -> Vec<(WindowId, DropEffect)> {
             os::dnd::take_ended()
         }

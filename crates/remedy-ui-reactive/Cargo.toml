@@ -13,13 +13,19 @@ categories.workspace = true
 
 [features]
 ## Persisted signals (`Signal::persist`): values saved as JSON in the app's data folder.
-persist = ["dep:serde", "dep:serde_json"]
+## In a browser page, values are kept in the page's `localStorage` (`PersistStore::local_storage`).
+persist = ["dep:serde", "dep:serde_json", "dep:wasm-bindgen", "dep:web-sys"]
 
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-trace = { path = "../remedy-ui-trace", version = "1.0.0-rc.1" }
 serde = { version = "=1.0.229", optional = true }
 serde_json = { version = "=1.0.154", optional = true }
+
+# A browser page keeps persisted values in its `localStorage`.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+wasm-bindgen = { version = "=0.2.130", optional = true }
+web-sys = { version = "=0.3.107", optional = true, features = ["DomException", "Storage", "Window"] }
 
 [dev-dependencies]
 remedy-ui-reactive = { path = ".", features = ["persist"] }

@@ -136,6 +136,19 @@ fn record(
             }
         }
         glyphs(&mut list, &p, Point::new(x, content.min.y), s.foreground);
+        // Pictures in the text, in their objects' boxes.
+        if !d.inline_images.is_empty() {
+            for (id, r) in p.inline_objects() {
+                if let Some(img) = d.inline_images.iter().find(|i| i.id == id) {
+                    list.push(remedy_ui_paint::Item::Image {
+                        image: img.image.clone(),
+                        rect: r.translate(remedy_ui_core::Vec2::new(x, content.min.y)),
+                        radii: CornerRadii::ZERO,
+                        sampling: remedy_ui_paint::Sampling::Linear,
+                    });
+                }
+            }
+        }
     }
     if let Some(field) = &d.field {
         let mut f = field.borrow_mut();
@@ -195,7 +208,11 @@ pub(crate) fn composed_semantics(
         },
         None if is_root => Semantics::new(Role::Window),
         None => match (&d.text, &d.field) {
-            (Some(t), _) => Semantics::new(Role::Label).label(t.borrow().shown().as_str()),
+            (Some(t), _) => Semantics::new(Role::Label).label(crate::element::with_alts(
+                &t.borrow().shown(),
+                &d.inline_images,
+                None,
+            )),
             (None, Some(f)) => match pseudo {
                 // The field's label is the app's; its value is what people typed.
                 Some(p) => f.borrow().semantics().map_text(|t| p.apply_str(t)),
@@ -216,7 +233,13 @@ pub(crate) fn composed_semantics(
     s
 }
 
+thread_local! {
+    /// The hinting and edges glyphs are drawn with in the frame being built.
+    static GLYPH_STYLE: std::cell::Cell<(Hinting, Antialias)> = const { std::cell::Cell::new((Hinting::Full, Antialias::Grayscale)) };
+}
+
 pub(crate) fn glyphs(list: &mut DisplayList, p: &Paragraph, origin: Point, default: Color) {
+    let (hinting, antialias) = GLYPH_STYLE.with(std::cell::Cell::get);
     for run in p.glyph_runs() {
         let color = if run.color == Color::BLACK { default } else { run.color };
         for bar in [run.underline, run.strikethrough].into_iter().flatten() {
@@ -227,8 +250,8 @@ pub(crate) fn glyphs(list: &mut DisplayList, p: &Paragraph, origin: Point, defau
             size: run.size,
             color,
             glyphs: run.glyphs.iter().map(|g| (g.id, Point::new(origin.x + g.x, origin.y + g.y))).collect(),
-            hinting: Hinting::Full,
-            antialias: Antialias::Grayscale,
+            hinting,
+            antialias,
         }));
     }
 }
@@ -469,6 +492,8 @@ impl Ui {
     /// Runs the pipeline for a window of `size` logical pixels at `scale` device pixels per
     /// logical pixel.
     pub fn frame(&self, size: Size, scale: f32) -> Frame {
+        let style = self.glyph_style();
+        GLYPH_STYLE.with(|g| g.set(style));
         // Animations move to this frame's time first, so what they changed is styled, laid
         // out and painted in this frame.
         let finished = self.tick_animations();

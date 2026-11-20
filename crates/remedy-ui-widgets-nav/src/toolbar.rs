@@ -31,7 +31,7 @@ pub fn toolbar(ui: &Ui, label: impl Into<String>, commands: &Commands, slot: Sig
         .row()
         .align(Align::Center)
         .gap(unit)
-        .semantics(Semantics::new(Role::Group).label(label));
+        .semantics(Semantics::new(Role::Toolbar).label(label));
     let (b2, u, cmds) = (bar.clone(), ui.clone(), commands.clone());
     bar.bind(move || {
         let ids = slot.get();

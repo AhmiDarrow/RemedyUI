@@ -30,6 +30,9 @@ impl States {
     pub const DRAGGING: States = States(1 << 8);
     /// Something dragged over it would be accepted if dropped.
     pub const DROP_TARGET: States = States(1 << 9);
+    /// Keyboard focus is on it or on something inside it (a message whose toolbar shows while
+    /// one of its buttons has focus).
+    pub const FOCUS_WITHIN: States = States(1 << 10);
 
     /// True when every flag in `other` is set.
     pub fn contains(self, other: States) -> bool {
@@ -73,6 +76,7 @@ impl fmt::Debug for States {
             (States::INVALID, "INVALID"),
             (States::DRAGGING, "DRAGGING"),
             (States::DROP_TARGET, "DROP_TARGET"),
+            (States::FOCUS_WITHIN, "FOCUS_WITHIN"),
         ];
         let set: Vec<&str> = names.iter().filter(|(s, _)| self.contains(*s)).map(|(_, n)| *n).collect();
         write!(f, "States({})", if set.is_empty() { "NONE".to_string() } else { set.join(" | ") })

@@ -4,8 +4,10 @@
 //!   entry and the icon in the `hicolor` theme, laid out under a prefix (`bin/`, `share/`), so
 //!   unpacking it into `~/.local` installs it for the user.
 //! - **Android**: a signed APK with no Gradle: the app's library built for the target with
-//!   the NDK's clang, a manifest for `NativeActivity`, `aapt2`, `zipalign` and `apksigner`
-//!   (the steps of `crates/remedy-ui-bridge-android/tools/build-apk.sh`, for any app).
+//!   the NDK's clang, the Android bridge's Java (its `dex/classes.dex`: the activity, the
+//!   notification classes and the foreground service), the app's icon, a manifest, `aapt2`,
+//!   `zipalign` and `apksigner` (the steps of `crates/remedy-ui-bridge-android/tools/build-apk.sh`,
+//!   for any app).
 //! - **macOS**: `<name>.app` (Info.plist, the executable, an `.icns` icon) in a zip. It is
 //!   built with Apple's linker, so it is packaged on a Mac or with a cross linker set up.
 
@@ -13,21 +15,112 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::ico::Rgba;
+use crate::ico::{IconSet, Rgba};
 use crate::project::{Project, cargo, status};
 
-/// The icon from `remedy.toml`, or the default one.
-pub fn icon(p: &Project, notes: &mut Vec<String>) -> Result<Rgba, String> {
-    match &p.icon {
-        Some(path) => {
-            let bytes = std::fs::read(path).map_err(|e| format!("icon {}: {e}", path.display()))?;
-            crate::ico::read_png(&bytes).map_err(|e| format!("icon {}: {e}", path.display()))
+/// The icon from `remedy.toml` (`[app] icon` and the sizes `[app] icon_sizes` draws), or the
+/// default one.
+pub fn icon_set(p: &Project, notes: &mut Vec<String>) -> Result<IconSet, String> {
+    let drawings: Vec<Rgba> = p
+        .icon
+        .iter()
+        .chain(&p.icon_sizes)
+        .map(|path| crate::ico::read_png_file(path))
+        .collect::<Result<_, _>>()?;
+    if drawings.is_empty() {
+        notes.push("no icon in remedy.toml: used the default icon".into());
+        return Ok(IconSet::single(crate::ico::default_icon([61, 139, 95])));
+    }
+    let set = IconSet::new(drawings, p.icon_pixel_art)?;
+    let largest = set.largest().width;
+    if largest < 256 {
+        notes.push(format!(
+            "the icon's largest drawing is {largest}x{largest}; 256x256 or larger looks sharp everywhere"
+        ));
+    }
+    Ok(set)
+}
+
+/// The sizes of the `hicolor` icon theme's fixed-size folders.
+const HICOLOR_SIZES: [u32; 9] = [16, 22, 24, 32, 48, 64, 128, 256, 512];
+
+/// Android's screen densities: the resource folder suffix and pixels per dp, in quarters
+/// (mdpi is 1 dp = 1 px).
+const DENSITIES: [(&str, u32); 5] = [("mdpi", 4), ("hdpi", 6), ("xhdpi", 8), ("xxhdpi", 12), ("xxxhdpi", 16)];
+
+/// The launcher icon's resources, as `(path under res/, contents)`: the icon at 48 dp for
+/// every density (Android before 8), and an adaptive icon (8 and later) whose foreground is
+/// `[android] icon_foreground` (else the icon) filling the 72 dp the launcher shows of the
+/// 108 dp layer, on `[android] icon_background` (a color or a gradient), with
+/// `[android] icon_monochrome` as its themed (Android 13) layer, which the status bar also
+/// shows for notifications. Pictures are placed alike, so the three line up.
+pub fn android_icon_resources(
+    p: &Project,
+    set: &IconSet,
+    target_api: u32,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let mono = match &p.android_icon_monochrome {
+        Some(path) if target_api >= 33 => {
+            let shape = crate::ico::read_png_file(path)?;
+            // White, with the drawing's alpha as the shape (Android tints it).
+            let data =
+                shape.data.chunks(4).flat_map(|c| [255, 255, 255, c.get(3).copied().unwrap_or(0)]).collect();
+            Some(IconSet::new(
+                vec![Rgba { width: shape.width, height: shape.height, data }],
+                set.is_pixel_art(),
+            )?)
         }
-        None => {
-            notes.push("no icon in remedy.toml: used the default icon".into());
-            Ok(crate::ico::default_icon([61, 139, 95]))
+        _ => None,
+    };
+    let front = match &p.android_icon_foreground {
+        Some(path) => IconSet::new(vec![crate::ico::read_png_file(path)?], set.is_pixel_art())?,
+        None => set.clone(),
+    };
+    for (density, quarter) in DENSITIES {
+        let px = |dp: u32| dp * quarter / 4;
+        out.push((format!("mipmap-{density}/ic_launcher.png"), crate::ico::write_png(&set.at(px(48)))?));
+        out.push((
+            format!("mipmap-{density}/ic_launcher_foreground.png"),
+            crate::ico::write_png(&front.centered(px(72), px(108)))?,
+        ));
+        if let Some(m) = &mono {
+            out.push((
+                format!("mipmap-{density}/ic_launcher_monochrome.png"),
+                crate::ico::write_png(&m.centered(px(72), px(108)))?,
+            ));
         }
     }
+    let fill = match p.android_icon_background.as_slice() {
+        [top, bottom] => format!(
+            "    <gradient android:angle=\"270\" android:startColor=\"{top}\" android:endColor=\"{bottom}\" />\n"
+        ),
+        [one, ..] => format!("    <solid android:color=\"{one}\" />\n"),
+        [] => format!(
+            "    <solid android:color=\"{}\" />\n",
+            set.corner_color().unwrap_or_else(|| "#ffffff".into())
+        ),
+    };
+    out.push((
+        "drawable/ic_launcher_background.xml".into(),
+        format!(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<shape xmlns:android=\"http://schemas.android.com/apk/res/android\" android:shape=\"rectangle\">\n{fill}</shape>\n"
+        )
+        .into_bytes(),
+    ));
+    let monochrome = if mono.is_some() {
+        "    <monochrome android:drawable=\"@mipmap/ic_launcher_monochrome\" />\n"
+    } else {
+        ""
+    };
+    out.push((
+        "mipmap-anydpi-v26/ic_launcher.xml".into(),
+        format!(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<adaptive-icon xmlns:android=\"http://schemas.android.com/apk/res/android\">\n    <background android:drawable=\"@drawable/ic_launcher_background\" />\n    <foreground android:drawable=\"@mipmap/ic_launcher_foreground\" />\n{monochrome}</adaptive-icon>\n"
+        )
+        .into_bytes(),
+    ));
+    Ok(out)
 }
 
 /// Builds the app's executable for `target` (`None`: this machine), returning its path.
@@ -129,7 +222,7 @@ pub fn linux(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<Pa
         notes.push("built with --target x86_64-unknown-linux-gnu: this needs a Linux linker for that target (CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER)".into());
     }
     let exe = build_bin(p, target)?;
-    let png = crate::ico::write_png(&icon(p, notes)?)?;
+    let set = icon_set(p, notes)?;
     let bytes = std::fs::read(&exe).map_err(|e| format!("{}: {e}", exe.display()))?;
     let base = format!("{}-{}-linux-x86_64", p.bin, p.version);
     let mut entries = vec![
@@ -139,12 +232,20 @@ pub fn linux(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<Pa
             data: desktop_entry(p).into_bytes(),
             executable: false,
         },
-        TarEntry {
-            path: format!("{base}/share/icons/hicolor/256x256/apps/{}.png", p.id),
-            data: png,
-            executable: false,
-        },
     ];
+    // The icon at 256 px, and at every other hicolor size the artwork was drawn at.
+    let mut sizes: Vec<u32> =
+        HICOLOR_SIZES.iter().copied().filter(|s| set.drawn_sizes().contains(s)).collect();
+    sizes.push(256);
+    sizes.sort_unstable();
+    sizes.dedup();
+    for size in sizes {
+        entries.push(TarEntry {
+            path: format!("{base}/share/icons/hicolor/{size}x{size}/apps/{}.png", p.id),
+            data: crate::ico::write_png(&set.at(size))?,
+            executable: false,
+        });
+    }
     for name in ["README.md", "LICENSE", "LICENSE-MIT", "LICENSE-APACHE"] {
         if let Ok(data) = std::fs::read(p.root.join(name)) {
             entries.push(TarEntry {
@@ -160,7 +261,44 @@ pub fn linux(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<Pa
     Ok(vec![out])
 }
 
-/// The Android manifest for a `NativeActivity` app.
+/// The permissions an Android app's manifest declares: `[android] permissions`, then what
+/// its `[android] foreground` work needs (the foreground service permissions, the runtime
+/// permission the kind of work uses, and notifications, which show the work), without
+/// repeats.
+pub fn android_permissions(p: &Project) -> Vec<String> {
+    let mut out: Vec<String> = p.android_permissions.clone();
+    let mut add = |name: &str| {
+        if !out.iter().any(|o| o == name) {
+            out.push(name.to_owned());
+        }
+    };
+    if !p.android_foreground.is_empty() {
+        add("android.permission.FOREGROUND_SERVICE");
+        add("android.permission.POST_NOTIFICATIONS");
+    }
+    for kind in &p.android_foreground {
+        match kind.as_str() {
+            "microphone" => {
+                add("android.permission.FOREGROUND_SERVICE_MICROPHONE");
+                add("android.permission.RECORD_AUDIO");
+            }
+            "mediaPlayback" => add("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"),
+            "camera" => {
+                add("android.permission.FOREGROUND_SERVICE_CAMERA");
+                add("android.permission.CAMERA");
+            }
+            "dataSync" => add("android.permission.FOREGROUND_SERVICE_DATA_SYNC"),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The Android manifest: the bridge's `RemedyActivity` (a `NativeActivity` that also hears
+/// notification presses) loading the app's library, the alias notifications open it through,
+/// the `SharedFiles` provider that serves the files the app shares to the app the person chose
+/// (Android makes providers only from the APK's own code, which is why the APK carries the
+/// bridge's dex), and the foreground service when the app does foreground work.
 pub fn android_manifest(
     p: &Project,
     lib_name: &str,
@@ -169,18 +307,29 @@ pub fn android_manifest(
     target_api: u32,
 ) -> String {
     let esc = |s: &str| s.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;");
-    let permissions: String = p
-        .android_permissions
+    let permissions: String = android_permissions(p)
         .iter()
         .map(|n| format!("    <uses-permission android:name=\"{}\" />\n", esc(n)))
         .collect();
+    let service = if p.android_foreground.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"        <!-- Ongoing work that keeps the app running out of sight (App::start_foreground). -->
+        <service android:name="dev.remedyui.android.Foreground"
+            android:exported="false"
+            android:foregroundServiceType="{}" />
+"#,
+            esc(&p.android_foreground.join("|"))
+        )
+    };
     format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="{id}" android:versionCode="{version_code}" android:versionName="{version}">
     <uses-sdk android:minSdkVersion="{min_api}" android:targetSdkVersion="{target_api}" />
-{permissions}    <application android:label="{label}" android:hasCode="false">
-        <activity android:name="android.app.NativeActivity"
+{permissions}    <application android:label="{label}" android:icon="@mipmap/ic_launcher" android:hasCode="true">
+        <activity android:name="dev.remedyui.android.RemedyActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|fontScale|locale|layoutDirection|density"
             android:windowSoftInputMode="adjustResize"
@@ -191,13 +340,54 @@ pub fn android_manifest(
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-    </application>
+        <!-- Pressing one of the app's notifications opens it through this alias: not exported,
+             so only the app's own notifications can say they were pressed. -->
+        <activity-alias android:name="dev.remedyui.android.NotificationOpen"
+            android:targetActivity="dev.remedyui.android.RemedyActivity"
+            android:exported="false" />
+        <!-- Serves shared files to the app the person chose, read-only, for that share. -->
+        <provider android:name="dev.remedyui.android.SharedFiles"
+            android:authorities="{id}.remedy.share"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+{service}    </application>
 </manifest>
 "#,
         id = esc(&p.id),
         version = esc(&p.version),
         label = esc(&p.name),
     )
+}
+
+/// The Android bridge's Java half, compiled (`dex/classes.dex` beside the bridge's
+/// Cargo.toml): the release of the bridge the app builds with, found with `cargo metadata`.
+fn bridge_dex(p: &Project, target: &str) -> Result<PathBuf, String> {
+    let out = Command::new(cargo())
+        .current_dir(&p.root)
+        .args(["metadata", "--format-version", "1", "--filter-platform", target])
+        .output()
+        .map_err(|e| format!("cannot run cargo metadata: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("cargo metadata failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    let v: serde_json::Value =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("cargo metadata: {e}"))?;
+    bridge_dex_in(&v)
+}
+
+/// The bridge's dex in `cargo metadata` output.
+fn bridge_dex_in(metadata: &serde_json::Value) -> Result<PathBuf, String> {
+    let manifest = metadata
+        .get("packages")
+        .and_then(|p| p.as_array())
+        .into_iter()
+        .flatten()
+        .find(|p| p.get("name").and_then(|n| n.as_str()) == Some("remedy-ui-bridge-android"))
+        .and_then(|p| p.get("manifest_path"))
+        .and_then(|m| m.as_str())
+        .ok_or("the app does not build with remedy-ui-bridge-android (through remedy-ui) for Android")?;
+    let dex = Path::new(manifest).parent().unwrap_or(Path::new(".")).join("dex").join("classes.dex");
+    if dex.is_file() { Ok(dex) } else { Err(format!("{} is missing", dex.display())) }
 }
 
 /// An Android version code from a semantic version: 1.2.3 is 10203.
@@ -272,6 +462,21 @@ pub fn android(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<
     let staged_so = lib_dir.join(format!("lib{lib_name}.so"));
     std::fs::copy(&so, &staged_so).map_err(|e| format!("{}: {e}", so.display()))?;
     status(Command::new(tool(&bin, "llvm-strip")).arg("--strip-debug").arg(&staged_so))?;
+    // The bridge's Java, as the app's code.
+    let dex = bridge_dex(p, &target)?;
+    std::fs::copy(&dex, stage.join("classes.dex")).map_err(|e| format!("{}: {e}", dex.display()))?;
+    // The launcher icon, also the source of the notifications' status bar icon.
+    let set = icon_set(p, notes)?;
+    if p.android_icon_monochrome.is_some() && target_api < 33 {
+        notes.push("[android] icon_monochrome needs target_api 33 or later: left out".into());
+    }
+    for (path, data) in android_icon_resources(p, &set, target_api)? {
+        let file = stage.join("res").join(path);
+        if let Some(dir) = file.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&file, data).map_err(|e| format!("{}: {e}", file.display()))?;
+    }
     let manifest = stage.join("AndroidManifest.xml");
     std::fs::write(&manifest, android_manifest(p, &lib_name, version_code(&p.version), min_api, target_api))
         .map_err(|e| e.to_string())?;
@@ -280,6 +485,15 @@ pub fn android(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<
     if !jar.exists() {
         return Err(format!("{} is missing: install the Android {target_api} platform", jar.display()));
     }
+    let compiled = stage.join("res.zip");
+    status(
+        Command::new(tool(&build_tools, "aapt2"))
+            .arg("compile")
+            .arg("--dir")
+            .arg(stage.join("res"))
+            .arg("-o")
+            .arg(&compiled),
+    )?;
     let base = stage.join("base.apk");
     status(
         Command::new(tool(&build_tools, "aapt2"))
@@ -289,12 +503,13 @@ pub fn android(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<
             .arg("-I")
             .arg(&jar)
             .arg("--manifest")
-            .arg(&manifest),
+            .arg(&manifest)
+            .arg(&compiled),
     )?;
     status(
         Command::new(tool(&build_tools, "aapt"))
             .current_dir(&stage)
-            .args(["add", "-f", "base.apk"])
+            .args(["add", "-f", "base.apk", "classes.dex"])
             .arg(format!("lib/{abi}/lib{lib_name}.so")),
     )?;
     let aligned = stage.join("aligned.apk");
@@ -377,17 +592,31 @@ pub fn info_plist(p: &Project) -> String {
     )
 }
 
-/// An `.icns` icon holding `png` (256 px or larger) as its 256 px image.
-pub fn icns(png: &[u8]) -> Vec<u8> {
-    let entry_len = 8 + png.len();
-    let total = 8 + entry_len;
+/// An `.icns` icon of PNG entries, each with its type (`ic08` 256 px, `ic09` 512, `ic10` 1024).
+pub fn icns_entries(entries: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
+    let total = 8 + entries.iter().map(|(_, png)| 8 + png.len()).sum::<usize>();
     let mut out = Vec::with_capacity(total);
     out.extend_from_slice(b"icns");
     out.extend_from_slice(&(total as u32).to_be_bytes());
-    out.extend_from_slice(b"ic08");
-    out.extend_from_slice(&(entry_len as u32).to_be_bytes());
-    out.extend_from_slice(png);
+    for (kind, png) in entries {
+        out.extend_from_slice(kind);
+        out.extend_from_slice(&((8 + png.len()) as u32).to_be_bytes());
+        out.extend_from_slice(png);
+    }
     out
+}
+
+/// The `.icns` entries for an icon set: 256 px, and 512 and 1024 px when the artwork is that
+/// large.
+fn mac_icon(set: &IconSet) -> Result<Vec<u8>, String> {
+    let largest = set.largest().width;
+    let mut entries = vec![(*b"ic08", crate::ico::write_png(&set.at(256))?)];
+    for (kind, size) in [(*b"ic09", 512), (*b"ic10", 1024)] {
+        if largest >= size {
+            entries.push((kind, crate::ico::write_png(&set.at(size))?));
+        }
+    }
+    Ok(icns_entries(&entries))
 }
 
 /// Packages for macOS; returns what it wrote.
@@ -397,7 +626,7 @@ pub fn macos(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<Pa
         notes.push("built with --target aarch64-apple-darwin: this needs Apple's linker (a Mac, or a cross linker set as CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER)".into());
     }
     let exe = build_bin(p, target)?;
-    let png = crate::ico::write_png(&icon(p, notes)?)?;
+    let mac = mac_icon(&icon_set(p, notes)?)?;
     let app = format!("{}.app", p.name);
     let file = std::fs::File::create(dist.join(format!("{}_{}_macos.zip", p.bin, p.version)))
         .map_err(|e| e.to_string())?;
@@ -414,7 +643,7 @@ pub fn macos(p: &Project, dist: &Path, notes: &mut Vec<String>) -> Result<Vec<Pa
     put(&mut zip, format!("{app}/Contents/Info.plist"), info_plist(p).as_bytes(), 0o644)?;
     let bytes = std::fs::read(&exe).map_err(|e| format!("{}: {e}", exe.display()))?;
     put(&mut zip, format!("{app}/Contents/MacOS/{}", p.bin), &bytes, 0o755)?;
-    put(&mut zip, format!("{app}/Contents/Resources/app.icns"), &icns(&png), 0o644)?;
+    put(&mut zip, format!("{app}/Contents/Resources/app.icns"), &mac, 0o644)?;
     zip.finish().map_err(|e| e.to_string())?;
     notes.push("unsigned: sign and notarize on a Mac (codesign, notarytool) before handing it out".into());
     Ok(vec![dist.join(format!("{}_{}_macos.zip", p.bin, p.version))])
@@ -436,6 +665,11 @@ mod tests {
             publisher: "Me".into(),
             description: "Notes & more".into(),
             icon: None,
+            icon_sizes: Vec::new(),
+            icon_pixel_art: false,
+            android_icon_monochrome: None,
+            android_icon_foreground: None,
+            android_icon_background: Vec::new(),
             sign_thumbprint: None,
             timestamp_url: String::new(),
             android_target: "aarch64-linux-android".into(),
@@ -444,11 +678,55 @@ mod tests {
             android_keystore: None,
             android_key_alias: None,
             android_permissions: Vec::new(),
+            android_foreground: Vec::new(),
             web_short_name: None,
             web_theme: crate::project::DEFAULT_THEME_COLOR.into(),
             web_icon: None,
             uses_remedy_ui: true,
         }
+    }
+
+    #[test]
+    fn android_icons_are_adaptive_with_a_themed_layer() {
+        let dir = std::env::temp_dir().join(format!("remedy-android-icon-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        // A 4 px opaque square on a dark corner, and its one-color shape.
+        let pic = Rgba { width: 4, height: 4, data: [10, 20, 30, 255].repeat(16) };
+        let shape = Rgba { width: 4, height: 4, data: [0, 0, 0, 200].repeat(16) };
+        let mono_path = dir.join("mono.png");
+        let _ = std::fs::write(&mono_path, crate::ico::write_png(&shape).unwrap_or_default());
+        let set = IconSet::new(vec![pic], true).unwrap_or_else(|e| unreachable!("{e}"));
+        let mut p = project();
+        p.android_icon_monochrome = Some(mono_path);
+        let files = android_icon_resources(&p, &set, 35).unwrap_or_default();
+        let get =
+            |name: &str| files.iter().find(|(n, _)| n == name).map(|(_, d)| d.clone()).unwrap_or_default();
+        let xml = String::from_utf8(get("mipmap-anydpi-v26/ic_launcher.xml")).unwrap_or_default();
+        assert!(xml.contains("@mipmap/ic_launcher_foreground") && xml.contains("<monochrome"), "{xml}");
+        let colors = String::from_utf8(get("drawable/ic_launcher_background.xml")).unwrap_or_default();
+        assert!(colors.contains("#0a141e"), "the icon's corner color: {colors}");
+        let legacy = crate::ico::read_png(&get("mipmap-xxxhdpi/ic_launcher.png")).ok();
+        assert_eq!(legacy.map(|i| i.width), Some(192), "48 dp at xxxhdpi");
+        let fg = crate::ico::read_png(&get("mipmap-mdpi/ic_launcher_foreground.png")).ok();
+        assert_eq!(fg.as_ref().map(|i| i.width), Some(108));
+        assert_eq!(fg.as_ref().and_then(|i| i.data.get(3).copied()), Some(0), "clear outside the 72 dp");
+        let mono = crate::ico::read_png(&get("mipmap-hdpi/ic_launcher_monochrome.png")).ok();
+        let middle = (81 * 162 + 81) * 4;
+        assert_eq!(
+            mono.and_then(|i| i.data.get(middle..middle + 4).map(<[u8]>::to_vec)),
+            Some(vec![255, 255, 255, 200])
+        );
+        // Before API 33 there is no themed layer; a set color wins over the corner.
+        p.android_icon_background = vec!["#123456".into(), "#654321".into()];
+        let old = android_icon_resources(&p, &set, 32).unwrap_or_default();
+        assert!(!old.iter().any(|(n, _)| n.contains("monochrome")));
+        let gradient = old.iter().find(|(n, _)| n == "drawable/ic_launcher_background.xml");
+        let gradient = gradient.map(|(_, d)| String::from_utf8_lossy(d).to_string()).unwrap_or_default();
+        assert!(
+            gradient.contains("startColor=\"#123456\"") && gradient.contains("endColor=\"#654321\""),
+            "{gradient}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -477,15 +755,103 @@ mod tests {
         assert!(m.contains(r#"package="app.remedy.my-notes""#) && m.contains(r#"android:value="my_notes""#));
         assert!(m.contains(r#"android:versionCode="10203""#));
         assert!(!m.contains("uses-permission"), "nothing is declared unasked");
+        assert!(m.contains(r#"android:hasCode="true""#), "the APK's dex holds the share provider");
+        assert!(
+            m.contains(r#"android:name="dev.remedyui.android.SharedFiles""#)
+                && m.contains(r#"android:authorities="app.remedy.my-notes.remedy.share""#)
+                && m.contains(r#"android:exported="false""#)
+                && m.contains(r#"android:grantUriPermissions="true""#),
+            "{m}"
+        );
+        // Every class the manifest names is in the bridge's dex the APK carries (a dex file
+        // names its classes).
+        let bridge =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../remedy-ui-bridge-android/dex/classes.dex");
+        let dex = std::fs::read(&bridge).unwrap_or_default();
+        assert!(dex.starts_with(b"dex\n"), "{}", bridge.display());
+        for class in ["SharedFiles", "RemedyActivity", "Foreground"] {
+            let name = format!("Ldev/remedyui/android/{class};");
+            assert!(dex.windows(name.len()).any(|w| w == name.as_bytes()), "{class} is missing from the dex");
+        }
         let mut asks = project();
         asks.android_permissions = vec!["android.permission.RECORD_AUDIO".into()];
         let m = android_manifest(&asks, "my_notes", 100, 26, 35);
         assert!(m.contains(r#"<uses-permission android:name="android.permission.RECORD_AUDIO" />"#), "{m}");
+        assert_eq!(m.matches("uses-permission").count(), 1);
+        assert!(!m.contains("<service"), "no foreground service unless asked for");
         assert_eq!(version_code("0.1.0"), 100);
         let plist = info_plist(&p);
         assert!(plist.contains("<string>My Notes</string>") && plist.contains("<string>my-notes</string>"));
-        let i = icns(b"PNG");
+        let i = icns_entries(&[(*b"ic08", b"PNG".to_vec())]);
         assert_eq!(i.get(..4), Some(&b"icns"[..]));
         assert_eq!(i.len(), 19);
+    }
+
+    #[test]
+    fn android_apps_run_in_the_bridges_activity_and_declare_their_foreground_work() {
+        let p = project();
+        let m = android_manifest(&p, "my_notes", 100, 26, 35);
+        // The bridge's own code, its activity keeping the native activity's settings.
+        assert!(m.contains(r#"android:hasCode="true""#) && !m.contains(r#"hasCode="false""#));
+        assert!(m.contains(r#"<activity android:name="dev.remedyui.android.RemedyActivity""#));
+        assert!(m.contains(r#"<meta-data android:name="android.app.lib_name" android:value="my_notes" />"#));
+        assert!(m.contains("android.intent.category.LAUNCHER"));
+        assert!(m.contains("orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|fontScale|locale|layoutDirection|density"));
+        assert!(m.contains(r#"android:windowSoftInputMode="adjustResize""#));
+        assert!(m.contains(r#"android:theme="@android:style/Theme.DeviceDefault.NoActionBar""#));
+        assert!(m.contains(r#"android:icon="@mipmap/ic_launcher""#));
+        // Notifications open it through an alias no other app may start.
+        let alias = m.split("<activity-alias").nth(1).unwrap_or_default();
+        assert!(alias.contains(r#"android:name="dev.remedyui.android.NotificationOpen""#), "{m}");
+        assert!(alias.contains(r#"android:targetActivity="dev.remedyui.android.RemedyActivity""#));
+        assert!(alias.contains(r#"android:exported="false""#));
+
+        let mut call = project();
+        call.android_permissions =
+            vec!["android.permission.RECORD_AUDIO".into(), "android.permission.INTERNET".into()];
+        call.android_foreground = vec!["microphone".into(), "mediaPlayback".into()];
+        let m = android_manifest(&call, "my_notes", 100, 26, 35);
+        assert!(m.contains(r#"<service android:name="dev.remedyui.android.Foreground""#), "{m}");
+        assert!(m.contains(r#"android:foregroundServiceType="microphone|mediaPlayback""#));
+        assert_eq!(
+            android_permissions(&call),
+            [
+                "android.permission.RECORD_AUDIO",
+                "android.permission.INTERNET",
+                "android.permission.FOREGROUND_SERVICE",
+                "android.permission.POST_NOTIFICATIONS",
+                "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+                "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+            ],
+            "each once, the app's own first"
+        );
+        assert_eq!(m.matches("<uses-permission").count(), 6);
+        let mut sync = project();
+        sync.android_foreground = vec!["dataSync".into(), "camera".into()];
+        assert_eq!(
+            android_permissions(&sync),
+            [
+                "android.permission.FOREGROUND_SERVICE",
+                "android.permission.POST_NOTIFICATIONS",
+                "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+                "android.permission.FOREGROUND_SERVICE_CAMERA",
+                "android.permission.CAMERA",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_bridges_dex_is_found_through_cargo_metadata() {
+        let here = env!("CARGO_MANIFEST_DIR");
+        let bridge = Path::new(here).join("../remedy-ui-bridge-android/Cargo.toml");
+        let meta = serde_json::json!({ "packages": [
+            { "name": "remedy-ui", "manifest_path": "/x/remedy-ui/Cargo.toml" },
+            { "name": "remedy-ui-bridge-android", "manifest_path": bridge.to_string_lossy() },
+        ]});
+        let dex = bridge_dex_in(&meta).unwrap_or_default();
+        assert!(dex.ends_with("dex/classes.dex") && dex.is_file(), "{}", dex.display());
+        let none =
+            serde_json::json!({ "packages": [{ "name": "remedy-ui", "manifest_path": "/x/Cargo.toml" }] });
+        assert!(bridge_dex_in(&none).is_err_and(|e| e.contains("remedy-ui-bridge-android")));
     }
 }

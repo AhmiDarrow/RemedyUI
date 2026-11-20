@@ -127,6 +127,8 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-services-update", 5),
     ("remedy-ui-services-spell", 5),
     ("remedy-ui-services-i18n", 5),
+    // Reads a web view's localStorage store (LevelDB) so apps moving off one keep their data.
+    ("remedy-ui-services-webstorage", 5),
     ("remedy-ui-themes", 5),
     ("remedy-ui-fonts", 5),
     ("remedy-ui-devtools", 5),
@@ -142,6 +144,9 @@ const LAYERS: &[(&str, u8)] = &[
     // The app templates, shared by `cargo remedy new` and remedy-tools' `new_app`. A crate of
     // their own: remedy-tools cannot depend on cargo-remedy, which depends on remedy-tools.
     ("remedy-templates", 7),
+    // Build-script help for apps (the Windows executable's icon and version); cargo-remedy
+    // writes the same resources when it packages.
+    ("remedy-ui-build", 7),
 ];
 
 /// Allowed dependencies inside one layer: (crate, dependency).
@@ -159,6 +164,10 @@ const SIDEWAYS: &[(&str, &str)] = &[
     // Boards are built from widgets, and edit settings in the property grid.
     ("remedy-ui-widgets-board", "remedy-ui-widgets-core"),
     ("remedy-ui-widgets-board", "remedy-ui-widgets-data"),
+    // Moment settings use the form pack's date and time pickers; the board's words are
+    // templates filled the localization service's way.
+    ("remedy-ui-widgets-board", "remedy-ui-widgets-forms"),
+    ("remedy-ui-widgets-board", "remedy-ui-services-i18n"),
     ("remedy-ui-doc-rich", "remedy-ui-widgets-core"),
     ("remedy-ui-doc-code", "remedy-ui-widgets-core"),
     ("remedy-ui-automation", "remedy-ui-widgets-core"),
@@ -222,6 +231,7 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-mcp", "remedy-tools"),
     ("cargo-remedy", "remedy-templates"),
     ("remedy-tools", "remedy-templates"),
+    ("cargo-remedy", "remedy-ui-build"),
 ];
 
 /// Crates that may hold unsafe code, each in one `os` or `ffi` module.

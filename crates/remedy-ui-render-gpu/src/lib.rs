@@ -23,7 +23,7 @@ mod surface;
 mod video;
 
 pub use cache::PipelineCacheStore;
-pub use composite::GpuCompositor;
+pub use composite::{AdapterSummary, GpuCompositor};
 pub use context::{GpuContext, LadderOptions, Rung};
 pub use renderer::{FORMAT, GpuRenderer};
 pub use surface::{GpuSurface, Presented};

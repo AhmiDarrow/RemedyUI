@@ -1,7 +1,7 @@
 //! The Remedy font families, as data for RemedyUI's text engine.
 //!
 //! Each family is a Cargo feature, so an app carries only the faces it uses. Remedy Sans UI
-//! is on by default. The fonts are the hinted TrueType builds from their own repositories and
+//! and Remedy Symbols are on by default. The fonts are the hinted TrueType builds from their own repositories and
 //! are licensed under the SIL Open Font License 1.1 (see `fonts/OFL-*.txt`); this crate's
 //! code is MIT OR Apache-2.0.
 //!
@@ -11,6 +11,14 @@
 //! | `remedy-sans` | Remedy Sans: the RemedyOS display face | Regular, Bold |
 //! | `ahmi-print` | AhmiPrint: hand-printed, with same-width figures | Regular, Bold |
 //! | `ahmi-pixel` | Ahmi Pixel: pixel face | Regular, Bold |
+//! | `remedy-symbols` (default) | Remedy Symbols: interface symbols the text faces lack, for fallback (9 KB) | Regular |
+//!
+//! Remedy Symbols covers arrows (← ↔ ↻ ⇄ ⇒ ⇥ ⟶ …), geometric shapes (■ □ ▲ ▶ ◆ ◇ ◈ ○ ◎ ● …),
+//! stars (★ ☆ ✦ ✧), check marks and crosses (✓ ✔ ✕ ✗ ✘), and interface signs (⚠ ☰ ≡ ⌕ ⌘ ⌂
+//! ⋮ ⋯ ⚙ ⏸ ⏹ ⏺ ⏏). It has no letters, so it never takes a script's text from that script's
+//! own font: the text engine reaches it for symbols the chosen font lacks (see
+//! `FontCollection::set_symbol_fallbacks` in `remedy-ui-text`). [`SYMBOL_CHARS`] lists every
+//! character it has.
 //!
 //! ```
 //! let faces = remedy_ui_fonts::all();
@@ -78,6 +86,15 @@ pub const AHMI_PRINT: &[Face] =
 pub const AHMI_PIXEL: &[Face] =
     &[face!("Ahmi Pixel", 400, "AhmiPixel-Regular.ttf"), face!("Ahmi Pixel", 700, "AhmiPixel-Bold.ttf")];
 
+/// Remedy Symbols, the fallback face for interface symbols.
+#[cfg(feature = "remedy-symbols")]
+pub const REMEDY_SYMBOLS: &[Face] = &[face!("Remedy Symbols", 400, "RemedySymbols-Regular.ttf")];
+
+/// Every character Remedy Symbols has, in code point order.
+#[cfg(feature = "remedy-symbols")]
+pub const SYMBOL_CHARS: &str =
+    "‣⁃←↑→↓↔↕↖↗↘↙↺↻⇄⇅⇆⇐⇒⇔⇤⇥≡⋮⋯⌂⌕⌘⏏⏴⏵⏶⏷⏸⏹⏺■□▪▫▬▭▲△▴▵▶▷▸▹►▼▽▾▿◀◁◂◃◄◆◇◈◉○◎●◦◯★☆☰⚙⚠✓✔✕✖✗✘✦✧⟵⟶⟷";
+
 /// Every face compiled into this build (the enabled features).
 pub fn all() -> Vec<&'static Face> {
     let mut out: Vec<&'static Face> = Vec::new();
@@ -89,5 +106,7 @@ pub fn all() -> Vec<&'static Face> {
     out.extend(AHMI_PRINT);
     #[cfg(feature = "ahmi-pixel")]
     out.extend(AHMI_PIXEL);
+    #[cfg(feature = "remedy-symbols")]
+    out.extend(REMEDY_SYMBOLS);
     out
 }

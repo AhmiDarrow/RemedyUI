@@ -558,8 +558,8 @@ fn pictures_follow_the_sound_clock_not_the_wall_clock() {
     p.seek(Duration::from_millis(2000));
     s.wait("at two seconds", |s| near(p.position(), 2.0, 0.001) && luma(&s.frame) == 60);
     heard.store(500, Ordering::SeqCst);
-    s.wait("two and a half seconds", |s| luma(&s.frame) == 70);
-    assert!(near(p.position(), 2.5, 0.001), "{:?}", p.position());
+    // The picture and the position arrive by separate posts: wait for both, as above.
+    s.wait("two and a half seconds", |s| luma(&s.frame) == 70 && near(p.position(), 2.5, 0.001));
     // Hidden, a player with pictures pauses; seen again, it plays on.
     let shown = s.ui.root().child_elements();
     let view = shown.first().cloned().unwrap_or_else(|| unreachable!());

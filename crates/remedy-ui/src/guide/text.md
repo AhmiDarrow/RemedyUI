@@ -5,8 +5,8 @@ system's fonts for scripts the bundled Remedy families lack (feature `system-fon
 default; feature `complex-scripts` adds dictionary line breaking for Thai, Lao, Khmer and
 Burmese). Glyphs are hinted and rasterized by the engine, in grayscale or LCD.
 
-This page covers showing text, rich text, editable fields, secrets, input methods, and the
-defenses against text that deceives.
+This page covers showing text, rich text, symbols, editable fields, secrets, input methods,
+and the defenses against text that deceives.
 
 The samples run in a window on the in-memory host with
 [`TestApp`](crate::testing::TestApp), the way an app's own tests do (see
@@ -96,8 +96,55 @@ assert_eq!(line.as_str(), "Saved to Documents just now");
 assert_eq!(line.spans().len(), 1);
 ```
 
+Pictures go inside a paragraph as inline objects: add one with
+[`RichText::object`](crate::view::RichText::object) at the picture's size, and give the element
+the picture for that object's id with [`El::inline_images`](crate::El::inline_images). The text
+wraps around it like a character; screen readers and copying read its `alt` (`:wave:`).
+
+```
+use std::sync::Arc;
+use remedy_ui::paint::Image;
+use remedy_ui::testing::TestApp;
+use remedy_ui::view::{InlineImage, InlineObject, RichText};
+
+let mut app = TestApp::window(|ui, _| {
+    let wave = Image::new(1, 1, Arc::from([255u8, 200, 0, 255].as_slice()));
+    let text = RichText::new()
+        .text("Hello ")
+        .object(InlineObject { id: 1, width: 18.0, height: 18.0, baseline: None });
+    ui.root().child(ui.el("text").text(text).inline_images(vec![InlineImage::new(1, wave, ":wave:")]));
+});
+let Some(ui) = app.ui() else { unreachable!("the window is open") };
+assert!(ui.reader_view().iter().any(|n| n.name.as_deref() == Some("Hello :wave:")));
+```
+
 Pass it to [`El::text`](crate::El::text). Markdown and a rich text editor are in the
 `rich` feature; see [`crate::guide::documents`].
+
+## Symbols
+
+Arrows, shapes, stars, check marks and interface signs (✦ ◆ ◇ ◈ ◎ ⚠ ☰ ⌕ ⇄ ✓ ★ ⏸ …) belong
+to no script (Unicode's Common script), so the script-based fallback above does not look for
+them. When a character comes out without a glyph, layout tries the collection's *symbol
+fallbacks* for that character: Remedy Symbols, a small face of interface symbols the Remedy
+text families lack (9 KB, in `remedy-ui-fonts`, on by default), then the platform's symbol,
+math and emoji fonts (Segoe UI Symbol on Windows, Apple Symbols on macOS, Noto Sans Symbols
+and DejaVu Sans on Linux and Android). So these symbols draw in a browser page and on systems
+with no symbol fonts too, and an app writes them as plain text, with no icon font of its own.
+
+[`FontCollection::set_symbol_fallbacks`](crate::text::FontCollection::set_symbol_fallbacks)
+changes the list (an app's own icon font first, say), and an empty list turns it off. Apps set
+it in [`AppConfig::fonts`](crate::AppConfig::fonts).
+
+```
+use remedy_ui::text::{FontCollection, DEFAULT_SYMBOL_FALLBACKS};
+
+let mut fonts = FontCollection::new();
+assert_eq!(fonts.symbol_fallbacks().first().map(String::as_str), Some("Remedy Symbols"));
+assert_eq!(fonts.symbol_fallbacks().len(), DEFAULT_SYMBOL_FALLBACKS.len());
+fonts.set_symbol_fallbacks(["My Icons", "Remedy Symbols"]);
+assert_eq!(fonts.symbol_fallbacks(), ["My Icons", "Remedy Symbols"]);
+```
 
 ## Editable fields
 
