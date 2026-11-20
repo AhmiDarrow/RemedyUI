@@ -16,8 +16,9 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   agent prompts, accessible names and descriptions) goes through `Ui::word` /
   `Ui::counted` (or `words::word_or` where only a locale is known) and shows its built-in
   translation for the shipped locales: es, zh-Hans, hi, ar, fr, pt-BR, ru, ja, de and bn
-  (`words::shipped()`, with each `Locale`'s native name, direction and plural rule; the
-  translations themselves are still to be filled in). `words::best_match` matches by tag,
+  (`words::shipped()`, with each `Locale`'s native name, direction and plural rule). All
+  ten are complete, machine-assisted and waiting for review by native speakers; a test keeps
+  every shipped locale complete, with every placeholder and every plural form. `words::best_match` matches by tag,
   then language and script (Traditional Chinese tags get English, not Simplified), then
   language; English and the pseudo-locales keep the English. Counted words pick their form
   by the language's plural rule (`words::counted`, `words::pick`, `plural_form`).
