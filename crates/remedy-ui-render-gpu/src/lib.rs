@@ -19,6 +19,7 @@ mod external;
 mod ffi;
 mod gputime;
 mod images;
+mod matrix;
 mod renderer;
 mod surface;
 mod video;

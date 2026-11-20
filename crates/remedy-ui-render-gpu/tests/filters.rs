@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use remedy_ui_compositor::{Compositor, Layer, LayerId, LayerTree};
-use remedy_ui_core::{Color, CornerRadii, Point, Rect, Vec2};
+use remedy_ui_core::{Color, ColorMatrix, CornerRadii, Point, Rect, Vec2};
 use remedy_ui_input::ScrollPhysics;
 use remedy_ui_paint::{Brush, DisplayList, Filter, Item, Path};
 use remedy_ui_render_cpu::{CpuCompositor, CpuRenderer, Frame};
@@ -219,9 +219,30 @@ impl Rng {
 
 /// A random list: shapes among pushes and pops of every kind, in any order and number
 /// (unbalanced on purpose), with filters, glass and transforms, some of them absurd.
-fn random_list(rng: &mut Rng) -> DisplayList {
+fn random_list(rng: &mut Rng, mats: &mut Rng) -> DisplayList {
     let mut l = DisplayList::new();
     for _ in 0..rng.below(40) + 5 {
+        // Colour-matrix groups opened and closed among the rest, from a stream of their own
+        // (the other items are the same lists as before matrices existed). Only matrices
+        // that never amplify: nested gains above 1 multiply the renderers' one-step rounding
+        // differences into visible ones, so agreement on those is checked over plain content
+        // (colour_matrices_match_between_gpu_and_cpu, hostile_colour_matrices_...).
+        match mats.below(10) {
+            0 | 1 => {
+                let a = mats.f(0.0, 1.0);
+                let matrix = match mats.below(6) {
+                    0 => ColorMatrix::grayscale(a),
+                    1 => ColorMatrix::invert(a),
+                    2 => ColorMatrix::saturate(a),
+                    3 => ColorMatrix::opacity(a),
+                    4 => ColorMatrix::brightness(a),
+                    _ => ColorMatrix::contrast(a),
+                };
+                l.push(Item::PushFilter(Filter::ColorMatrix { matrix }));
+            }
+            2 => l.push(Item::PopFilter),
+            _ => {}
+        }
         let c = Color::rgba8(
             rng.below(256) as u8,
             rng.below(256) as u8,
@@ -261,13 +282,14 @@ fn random_list(rng: &mut Rng) -> DisplayList {
 #[test]
 fn random_unbalanced_lists_draw_without_failing_on_both_renderers() {
     let mut rng = Rng(0x5eed_1234_abcd_0001);
+    let mut mats = Rng(0x5eed_c010_4a77_0002);
     let mut g = gpu();
     let mut c = CpuRenderer::new();
     let mut gc = GpuCompositor::new(gpu(), LadderOptions::default());
     let mut cc = CpuCompositor::new();
     let mut comp = Compositor::new(96, 96, 1.0, ScrollPhysics::CLAMPED);
     for case in 0..60 {
-        let list = random_list(&mut rng);
+        let list = random_list(&mut rng, &mut mats);
         let (Ok(a), Ok(b)) =
             (c.render(&list, 96, 96, 1.0, Color::WHITE), g.render(&list, 96, 96, 1.0, Color::WHITE))
         else {
@@ -287,4 +309,240 @@ fn random_unbalanced_lists_draw_without_failing_on_both_renderers() {
         assert!(gc.present_to_frame(&plan, 96, 96, Color::WHITE).is_ok(), "case {case}: GPU composite");
     }
     assert!(g.context().take_errors().is_empty(), "no GPU validation errors");
+}
+
+/// Stripes and a soft-edged card, run through colour matrices in every way a theme can:
+/// plain, chained, nested, over transparency, under a rotation, around a blur and glass.
+fn recoloured() -> DisplayList {
+    let mut l = DisplayList::new();
+    for i in 0..12 {
+        let c = Color::rgba8((i * 20) as u8, 200 - (i * 15) as u8, 60 + (i * 10) as u8, 255);
+        l.fill_rect(Rect::new(i as f32 * 20.0, 0.0, i as f32 * 20.0 + 20.0, 240.0), Brush::Solid(c));
+    }
+    l.push_filter(Filter::ColorMatrix { matrix: ColorMatrix::grayscale(1.0) });
+    l.fill_rounded(
+        Rect::new(10.0, 10.0, 110.0, 70.0),
+        CornerRadii::all(12.0),
+        Brush::Solid(Color::rgb8(220, 40, 30)),
+    );
+    l.fill_rounded(
+        Rect::new(40.0, 30.0, 90.0, 60.0),
+        CornerRadii::all(6.0),
+        Brush::Solid(Color::rgba8(30, 90, 250, 120)),
+    );
+    l.pop_filter();
+    // Saturate past 1 (out of range, clamped) nested in sepia.
+    l.push_filter(Filter::ColorMatrix { matrix: ColorMatrix::sepia(0.8) });
+    l.fill_rect(Rect::new(130.0, 10.0, 230.0, 70.0), Brush::Solid(Color::rgb8(40, 160, 200)));
+    l.push_filter(Filter::ColorMatrix { matrix: ColorMatrix::saturate(3.0) });
+    l.fill_rect(Rect::new(150.0, 20.0, 210.0, 60.0), Brush::Solid(Color::rgb8(120, 140, 90)));
+    l.pop_filter();
+    l.pop_filter();
+    // Inverted half-transparent content, rotated.
+    l.push(Item::PushTransform(
+        remedy_ui_paint::Affine::rotate(0.4).then(remedy_ui_paint::Affine::translate(Vec2::new(60.0, 90.0))),
+    ));
+    l.push_filter(Filter::ColorMatrix {
+        matrix: ColorMatrix::invert(1.0).then(&ColorMatrix::hue_rotate(90.0)),
+    });
+    l.fill_rounded(
+        Rect::new(0.0, 0.0, 80.0, 50.0),
+        CornerRadii::all(10.0),
+        Brush::Solid(Color::rgba8(250, 200, 20, 160)),
+    );
+    l.pop_filter();
+    l.push(Item::PopTransform);
+    // A blur inside a matrix, and glass inside one (its backdrop root is the group).
+    l.push_filter(Filter::ColorMatrix { matrix: ColorMatrix::hue_rotate(200.0) });
+    l.push_filter(Filter::Blur { radius: 3.0 });
+    l.fill_rect(Rect::new(140.0, 100.0, 200.0, 140.0), Brush::Solid(Color::rgb8(240, 30, 120)));
+    l.pop_filter();
+    l.fill_rect(Rect::new(20.0, 160.0, 220.0, 230.0), Brush::Solid(Color::rgb8(30, 120, 60)));
+    l.push(Item::Backdrop {
+        rect: Rect::new(40.0, 170.0, 200.0, 220.0),
+        radii: CornerRadii::all(8.0),
+        blur: 4.0,
+    });
+    l.pop_filter();
+    // A matrix that adds alpha: only where something was drawn.
+    let mut add = ColorMatrix::IDENTITY;
+    add.0[19] = 0.5;
+    l.push_filter(Filter::ColorMatrix { matrix: add });
+    l.fill_rect(Rect::new(200.0, 160.0, 230.0, 230.0), Brush::Solid(Color::rgba8(0, 0, 0, 40)));
+    l.pop_filter();
+    l
+}
+
+#[test]
+fn colour_matrices_match_between_gpu_and_cpu() {
+    let mut g = gpu();
+    let mut c = CpuRenderer::new();
+    for scale in [1.0f32, 2.0] {
+        let (w, h) = ((240.0 * scale) as u32, (240.0 * scale) as u32);
+        let list = recoloured();
+        let (Ok(a), Ok(b)) =
+            (c.render(&list, w, h, scale, Color::WHITE), g.render(&list, w, h, scale, Color::WHITE))
+        else {
+            unreachable!("both render")
+        };
+        let (visible, worst) = differing(&a, &b, 8);
+        eprintln!("{scale}x: {visible} of {} differ visibly, worst {worst}", w * h);
+        assert!(visible * 1000 <= (w * h) as usize, "{visible} pixels differ visibly at {scale}x");
+        assert!(worst <= 32, "no pixel differs grossly at {scale}x (worst {worst})");
+        // Inside a flat area the arithmetic itself agrees to a step of rounding.
+        let px = |f: &Frame| f.pixel((60.0 * scale) as u32, (20.0 * scale) as u32).unwrap_or([0; 4]);
+        let want = ColorMatrix::grayscale(1.0).apply_premultiplied([220, 40, 30, 255]);
+        assert_eq!(px(&a), want, "the CPU runs the reference arithmetic");
+        assert!(px(&b).iter().zip(want).all(|(p, q)| p.abs_diff(q) <= 1), "{:?} vs {want:?}", px(&b));
+    }
+    assert!(g.context().take_errors().is_empty(), "no GPU validation errors");
+}
+
+#[test]
+fn colour_matrices_are_seamless_across_tiles_and_layers() {
+    let (w, h) = (600, 520);
+    let mut content = DisplayList::new();
+    for y in [0.0f32, 250.0] {
+        for x in [0.0f32, 245.0] {
+            content.push(Item::PushTransform(remedy_ui_paint::Affine::translate(Vec2::new(x, y))));
+            content.extend(&recoloured());
+            content.push(Item::PopTransform);
+        }
+    }
+    // The same content as a layer's own list, and as a layer the compositor recolours (the
+    // path an element with a colour filter over layers of its own takes).
+    let inline =
+        LayerTree::new(vec![Layer::new(LayerId(1), Rect::new(0.0, 0.0, 600.0, 520.0), content.clone())]);
+    let matrix = ColorMatrix::sepia(0.5).then(&ColorMatrix::hue_rotate(-60.0));
+    let child = Layer::new(LayerId(3), Rect::new(0.0, 0.0, 600.0, 520.0), content.clone());
+    let outer = Layer::new(LayerId(2), Rect::new(0.0, 0.0, 600.0, 520.0), DisplayList::new())
+        .with_filters(vec![Filter::ColorMatrix { matrix }])
+        .with_child(child);
+    let filtered = LayerTree::new(vec![outer]);
+    let mut wrapped = DisplayList::new();
+    wrapped.push_filter(Filter::ColorMatrix { matrix });
+    wrapped.extend(&content);
+    wrapped.pop_filter();
+    for (tree, list) in [(inline, content.clone()), (filtered, wrapped)] {
+        let mut comp = Compositor::new(w, h, 1.0, ScrollPhysics::CLAMPED);
+        comp.commit(tree);
+        let plan = comp.frame(Duration::ZERO);
+        assert!(plan.raster.len() > 1, "the layer is tiled");
+        let direct = CpuRenderer::new().render(&list, w, h, 1.0, Color::WHITE);
+        let cpu = CpuCompositor::new().present(&plan, w, h, Color::WHITE);
+        let mut gc = GpuCompositor::new(gpu(), LadderOptions::default());
+        let g = gc.present_to_frame(&plan, w, h, Color::WHITE);
+        let (Ok(direct), Ok(cpu), Ok(g)) = (direct, cpu, g) else { unreachable!("all draw") };
+        let (n, worst) = differing(&direct, &cpu, 2);
+        eprintln!("tiles vs direct (cpu): {n} differ, worst {worst}");
+        assert!(
+            n * 1000 <= (w * h) as usize,
+            "CPU tiles match drawing the whole list at once ({n}, worst {worst})"
+        );
+        let (visible, worst) = differing(&cpu, &g, 8);
+        eprintln!("gpu vs cpu composite: {visible} differ visibly, worst {worst}");
+        assert!(visible * 1000 <= (w * h) as usize && worst <= 32);
+        assert!(gc.renderer().context().take_errors().is_empty(), "no GPU validation errors");
+    }
+}
+
+#[test]
+fn hostile_colour_matrices_are_bounded_on_both_renderers() {
+    // A theme nesting thousands of matrices, and putting one on thousands of siblings: drawn
+    // quickly with a bounded number of pictures, the same on both renderers.
+    let mut nested = DisplayList::new();
+    // (Deeper nesting of any group overflows vello_gpu's stack: a limit of its own, not the
+    // matrices'.)
+    for _ in 0..300 {
+        nested.push_filter(Filter::ColorMatrix { matrix: ColorMatrix::hue_rotate(7.0) });
+    }
+    nested.fill_rect(Rect::new(10.0, 10.0, 300.0, 200.0), Brush::Solid(Color::rgb8(200, 60, 20)));
+    let mut siblings = DisplayList::new();
+    for i in 0..5000 {
+        let (x, y) = ((i % 80) as f32 * 4.0, (i / 80) as f32 * 4.0);
+        siblings.push_filter(Filter::ColorMatrix { matrix: ColorMatrix::invert(1.0) });
+        siblings.fill_rect(Rect::new(x, y, x + 3.0, y + 3.0), Brush::Solid(Color::rgb8(20, 200, 90)));
+        siblings.pop_filter();
+    }
+    let mut wild = DisplayList::new();
+    wild.push_filter(Filter::ColorMatrix { matrix: ColorMatrix([f32::NAN; 20]) });
+    wild.push_filter(Filter::ColorMatrix { matrix: ColorMatrix([f32::INFINITY; 20]) });
+    wild.push_filter(Filter::ColorMatrix { matrix: ColorMatrix([-1.0e30; 20]) });
+    wild.fill_rect(Rect::new(10.0, 10.0, 300.0, 200.0), Brush::Solid(Color::rgb8(200, 60, 20)));
+    let mut g = gpu();
+    let mut c = CpuRenderer::new();
+    for (name, list) in [("nested", nested), ("siblings", siblings), ("wild", wild)] {
+        let started = std::time::Instant::now();
+        let (Ok(a), Ok(b)) =
+            (c.render(&list, 320, 240, 1.0, Color::WHITE), g.render(&list, 320, 240, 1.0, Color::WHITE))
+        else {
+            unreachable!("{name}: both render")
+        };
+        assert!(started.elapsed() < std::time::Duration::from_secs(30), "{name}: bounded work");
+        let (visible, worst) = differing(&a, &b, 8);
+        assert!(
+            visible * 1000 <= (320 * 240) as usize,
+            "{name}: GPU and CPU agree ({visible}, worst {worst})"
+        );
+    }
+    assert!(g.context().take_errors().is_empty());
+}
+
+#[test]
+#[ignore = "a measurement: cargo test --release -p remedy-ui-render-gpu --test filters -- --ignored --nocapture"]
+fn colour_matrix_cost() {
+    // A 512 x 512 tile of cards, drawn plain, with one matrix over a quarter of it, and with
+    // one over all of it: what a matrix group adds on each renderer.
+    let cards = |l: &mut DisplayList, x0: f32, y0: f32, n: usize| {
+        for i in 0..n {
+            let (x, y) = (x0 + (i % 8) as f32 * 32.0, y0 + (i / 8) as f32 * 32.0);
+            l.fill_rounded(
+                Rect::new(x, y, x + 28.0, y + 28.0),
+                CornerRadii::all(6.0),
+                Brush::Solid(Color::rgb8(200, (i * 3) as u8, 90)),
+            );
+        }
+    };
+    let plain = {
+        let mut l = DisplayList::new();
+        cards(&mut l, 0.0, 0.0, 256);
+        l
+    };
+    let quarter = {
+        let mut l = DisplayList::new();
+        l.push_filter(Filter::ColorMatrix { matrix: ColorMatrix::grayscale(1.0) });
+        cards(&mut l, 0.0, 0.0, 64);
+        l.pop_filter();
+        cards(&mut l, 0.0, 256.0, 128);
+        cards(&mut l, 256.0, 0.0, 64);
+        l
+    };
+    let all = {
+        let mut l = DisplayList::new();
+        l.push_filter(Filter::ColorMatrix { matrix: ColorMatrix::hue_rotate(90.0) });
+        cards(&mut l, 0.0, 0.0, 256);
+        l.pop_filter();
+        l
+    };
+    let mut g = gpu();
+    let mut c = CpuRenderer::new();
+    let target = g.create_target(512, 512).unwrap_or_else(|_| unreachable!("a target"));
+    let base = remedy_ui_paint::Affine::IDENTITY;
+    for (name, list) in [("plain", &plain), ("quarter", &quarter), ("all", &all)] {
+        let runs = 30;
+        let started = std::time::Instant::now();
+        for _ in 0..runs {
+            let _ = c.render(list, 512, 512, 1.0, Color::WHITE);
+        }
+        let cpu = started.elapsed() / runs;
+        let _ = g.draw(list, base, Color::WHITE, &target);
+        let _ = g.read_back(&target);
+        let started = std::time::Instant::now();
+        for _ in 0..runs {
+            let _ = g.draw(list, base, Color::WHITE, &target);
+        }
+        let _ = g.read_back(&target);
+        let gpu = started.elapsed() / runs;
+        eprintln!("{name}: cpu {cpu:?} gpu {gpu:?} ({})", g.context().adapter.get_info().name);
+    }
 }

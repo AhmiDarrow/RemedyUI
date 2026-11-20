@@ -23,8 +23,8 @@ element paint() ──▶ display list ──▶ layer tree ──commit──�
   `FillRect`, `Border`, `Shadow` (a soft shadow of a rounded rectangle), `FillPath`,
   `StrokePath`, `Glyphs`, `Image`, `Video`, `Texture` (a GPU texture on the renderer's
   device), `PushClip`/`PopClip`, `PushLayer`/`PopLayer` (opacity and blend groups),
-  `PushFilter`/`PopFilter` (a Gaussian blur, or a drop shadow of any shape, applied to a
-  group), `Backdrop` (frosted glass over what the list drew before it) and
+  `PushFilter`/`PopFilter` (a Gaussian blur, a drop shadow of any shape, or a colour
+  matrix, applied to a group), `Backdrop` (frosted glass over what the list drew before it) and
   `PushTransform`/`PopTransform`. Images, video frames and glyph runs are shared by
   reference (`Arc`), so a list is cheap to clone and send to the compositor thread.
 - **Paint chunks** are reused until their element is `PAINT`-dirty. A frame re-records only
@@ -88,6 +88,20 @@ WebGL2 in a browser.
   with no blur pass. Blur and drop-shadow filter groups and backdrops are vello filter layers
   (a multi-scale Gaussian), the same algorithm `vello_cpu` runs, so the two renderers agree
   within two levels.
+- **Colour matrices** (`Filter::ColorMatrix`) are RemedyUI's own pass, since vello's filter
+  graph runs none. The group is drawn into a picture of its own, in device pixels, covering
+  only what it draws inside the target (its corner on a 64-pixel grid, so blurs inside it
+  shrink on the same grid as anywhere else); each pixel is unpremultiplied, run through the
+  4 × 5 matrix, clamped and premultiplied again; the picture is placed back pixel for pixel.
+  The CPU runs `ColorMatrix::apply_premultiplied` itself; the GPU renders the picture with
+  vello and runs the same arithmetic in a small fragment pass made at start-up, so the two
+  agree to a step of rounding (a matrix that amplifies also amplifies the renderers' own
+  one-step differences in what it recolours). Pixels the group leaves transparent stay
+  transparent, so the result never depends on how the frame is cut into tiles or damage
+  rectangles. A matrix reaches no further than the group draws. Bounded for untrusted
+  themes: entries are finite and within ±`MAX_COLOR_MATRIX_ENTRY`, at most
+  `MAX_FILTER_MATRIX_DEPTH` (4) matrix groups nest and at most `MAX_FILTER_MATRIX_GROUPS`
+  (64) are drawn in one raster; past those a group is drawn without its matrix.
 - **Images and glyphs** are uploaded to the GPU on first use: glyphs and nearest-sampled
   images packed into RGBA atlas pages, filtered or large images in textures of their own.
   Uploads of images the app dropped are freed, and `clear_caches` drops them all (they are
@@ -162,6 +176,11 @@ a tested tolerance.
     `Layer::filters` and the compositor draws the whole subtree through them
     (`CompositeOp::PushFilter`/`PopFilter`); damage there grows by the filters' reach and
     redraws the whole group, so damage frames stay exact.
+  - `Style::saturate`, `hue_rotate`, `grayscale`, `sepia`, `brightness`, `contrast`,
+    `invert` (`filter: saturate()` and the rest) and `Style::color_matrix` (SVG
+    `feColorMatrix`): chained in order into one colour matrix, the innermost filter of the
+    element (applied before a blur or drop shadow, which keeps its own colour), drawn the
+    same two ways.
   - `Style::backdrop_blur` (`backdrop-filter: blur()`): the element gets a layer with a
     backdrop; the compositor blurs every layer drawn before it under its box, back to the
     innermost translucent layer or filter group around it (its backdrop root, as on the web).
@@ -208,7 +227,5 @@ Planned, not implemented; nothing above relies on them:
   Android `HardwareBuffer`, IOSurface) instead of uploading planes.
 - **Mipmaps** for images drawn scaled down, and decoding images at the size they are shown.
 - **A multithreaded CPU raster** (vello_cpu's threads; its filters do not run with them yet).
-- **Colour-matrix filters** (saturate, hue-rotate, grayscale): vello's filter graph does not
-  run colour matrices yet.
 - **Printing and vector PDF**: translating display lists to PDF (selectable text, sharp
   paths) and printing through each platform's print dialog.

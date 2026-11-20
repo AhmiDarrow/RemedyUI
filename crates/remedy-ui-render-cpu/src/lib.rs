@@ -11,6 +11,7 @@
 //! right-to-left before they paint.
 
 mod composite;
+mod matrix;
 mod record;
 mod surface;
 
@@ -108,6 +109,8 @@ pub struct Painter {
     /// Streams whose frames are all gone since the last [`Painter::take_evicted_videos`].
     evicted_videos: Vec<u64>,
     next_glyph: u64,
+    /// Colour-matrix groups open and drawn in the current raster.
+    matrices: matrix::Budget,
 }
 
 impl std::fmt::Debug for Painter {
@@ -312,6 +315,9 @@ pub(crate) fn vello_filter(
             color: color(*c),
             edge_mode: EdgeMode::None,
         },
+        // vello runs no colour matrices (its CPU filter graph panics on them): matrix groups
+        // are pictured and filtered by RemedyUI (`matrix.rs`), never handed to vello.
+        remedy_ui_paint::Filter::ColorMatrix { .. } => return None,
     };
     Some(Filter::from_primitive(primitive))
 }
@@ -337,7 +343,7 @@ fn filter_reach(f: &remedy_ui_paint::Filter, t: Affine) -> f32 {
     let f = &f.limited(k);
     let off = match f {
         remedy_ui_paint::Filter::DropShadow { offset, .. } => offset.x.abs().max(offset.y.abs()),
-        remedy_ui_paint::Filter::Blur { .. } => 0.0,
+        remedy_ui_paint::Filter::Blur { .. } | remedy_ui_paint::Filter::ColorMatrix { .. } => 0.0,
     };
     let r = ((f.std_dev() * 3.0 + if off.is_finite() { off } else { 0.0 }) * k).ceil() + 1.0;
     if r.is_finite() { r } else { 0.0 }
@@ -444,6 +450,7 @@ impl Painter {
             videos: HashMap::new(),
             evicted_videos: Vec::new(),
             next_glyph: 0,
+            matrices: matrix::Budget::default(),
         }
     }
 
@@ -510,6 +517,7 @@ impl Painter {
         area: Option<Rect>,
     ) {
         self.sweep_images();
+        self.matrices = matrix::Budget::default();
         // Groups the list leaves open are closed: a list is drawn as a whole, balanced.
         self.draw_items(s, list.items(), base, area, 0, true);
         s.set_transform(kurbo::Affine::IDENTITY);
@@ -539,7 +547,12 @@ impl Painter {
         // Backdrop roots: where the innermost open group's content starts, and the transform
         // it starts under.
         let mut roots: Vec<(usize, Affine)> = vec![(0, base)];
+        // Items before this were drawn already (a colour-matrix group, as one picture).
+        let mut resume = 0usize;
         for (i, item) in items.iter().enumerate() {
+            if i < resume {
+                continue;
+            }
             let t = transforms.last().copied().unwrap_or(base);
             let cull = areas.last().copied().flatten();
             // Culling is conservative: transformed bounds are boxes around the item.
@@ -640,6 +653,42 @@ impl Painter {
                     s.push_group(mode, *opacity);
                     open += 1;
                     roots.push((i + 1, t));
+                }
+                Item::PushFilter(remedy_ui_paint::Filter::ColorMatrix { matrix })
+                    if let Some(m) = self.matrices.admit(matrix) =>
+                {
+                    let end = matrix::group_end(items, i);
+                    let inner = items.get(i + 1..end).unwrap_or(&[]);
+                    let drawn = DisplayList::bounds_of(inner).map(|b| t.apply_rect(b));
+                    let drawn = match (drawn, cull) {
+                        (Some(d), Some(c)) => d.intersect(c),
+                        (d, _) => d,
+                    };
+                    let Some(rect) = drawn.and_then(|d| matrix::picture_rect(d, s.size())) else {
+                        // Nothing of it shows here.
+                        resume = end + 1;
+                        continue;
+                    };
+                    let [x, y, w, h] = rect;
+                    let shift = Affine::translate(remedy_ui_core::Vec2::new(-f32::from(x), -f32::from(y)));
+                    let (sub_base, sub_area) =
+                        (t.then(shift), Rect::new(0.0, 0.0, f32::from(w), f32::from(h)));
+                    self.matrices.depth += 1;
+                    self.matrices.drawn += 1;
+                    let ok = s.color_matrix_group(rect, &m, &mut |sub| {
+                        self.draw_items(sub, inner, sub_base, Some(sub_area), groups + 1, true);
+                    });
+                    self.matrices.depth -= 1;
+                    if ok {
+                        resume = end + 1;
+                    } else {
+                        // Drawn as a plain group, closed by its pop as any other.
+                        groups += 1;
+                        s.push_group(peniko::BlendMode::default(), 1.0);
+                        open += 1;
+                        roots.push((i + 1, t));
+                        areas.push(cull);
+                    }
                 }
                 Item::PushFilter(f) => {
                     groups += 1;

@@ -243,4 +243,24 @@ impl CompositeTarget for Recorder<'_> {
         self.ctx.fill_rect(part);
         self.ctx.reset_paint_transform();
     }
+    fn size(&self) -> (u16, u16) {
+        (self.ctx.width(), self.ctx.height())
+    }
+    fn color_matrix_group(
+        &mut self,
+        rect: [u16; 4],
+        matrix: &remedy_ui_core::ColorMatrix,
+        draw: &mut dyn FnMut(&mut Self),
+    ) -> bool {
+        let [_, _, w, h] = rect;
+        if w == 0 || h == 0 {
+            return true;
+        }
+        let outer = std::mem::replace(&mut *self.ctx, RenderContext::new(w, h));
+        draw(self);
+        let picture = std::mem::replace(&mut *self.ctx, outer);
+        let pix = crate::matrix::finish(picture, matrix);
+        crate::matrix::place(&mut *self.ctx, ImageSource::Pixmap(Arc::new(pix)), rect);
+        true
+    }
 }

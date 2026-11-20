@@ -20,7 +20,7 @@
 //! assert_eq!(patch.background, Some(theme.colors.accent));
 //! ```
 
-use remedy_ui_core::{Color, Insets};
+use remedy_ui_core::{Color, ColorMatrix, Insets};
 
 use crate::resolve::StylePatch;
 use crate::theme::Theme;
@@ -496,6 +496,9 @@ pub struct Style {
     pub drop_shadow: Option<crate::Shadow>,
     /// Blur of what lies behind the element (CSS `backdrop-filter: blur()`): frosted glass.
     pub backdrop_blur: Option<f32>,
+    /// A colour matrix on everything the element draws (CSS `saturate()`, `hue-rotate()`,
+    /// `grayscale()` and the rest): [`Style::saturate`] and its neighbours chain onto it.
+    pub color_matrix: Option<ColorMatrix>,
 }
 
 impl Style {
@@ -632,6 +635,49 @@ impl Style {
         self
     }
 
+    /// Runs everything the element draws, children included, through colour matrix `m`
+    /// (SVG `feColorMatrix`), after the matrices this style already applies. The element and
+    /// its children are drawn as one picture first, as with [`blur`](Self::blur).
+    pub fn color_matrix(mut self, m: ColorMatrix) -> Self {
+        self.color_matrix = Some(self.color_matrix.map_or(m, |c| c.then(&m)));
+        self
+    }
+
+    /// CSS `filter: saturate(amount)`: 0 grey, 1 unchanged, above 1 more vivid.
+    pub fn saturate(self, amount: f32) -> Self {
+        self.color_matrix(ColorMatrix::saturate(amount))
+    }
+
+    /// CSS `filter: grayscale(amount)`: 0 unchanged to 1 grey.
+    pub fn grayscale(self, amount: f32) -> Self {
+        self.color_matrix(ColorMatrix::grayscale(amount))
+    }
+
+    /// CSS `filter: hue-rotate(degrees)`.
+    pub fn hue_rotate(self, degrees: f32) -> Self {
+        self.color_matrix(ColorMatrix::hue_rotate(degrees))
+    }
+
+    /// CSS `filter: sepia(amount)`: 0 unchanged to 1 sepia.
+    pub fn sepia(self, amount: f32) -> Self {
+        self.color_matrix(ColorMatrix::sepia(amount))
+    }
+
+    /// CSS `filter: brightness(amount)`: 0 black, 1 unchanged, above 1 brighter.
+    pub fn brightness(self, amount: f32) -> Self {
+        self.color_matrix(ColorMatrix::brightness(amount))
+    }
+
+    /// CSS `filter: contrast(amount)`: 0 grey, 1 unchanged, above 1 harsher.
+    pub fn contrast(self, amount: f32) -> Self {
+        self.color_matrix(ColorMatrix::contrast(amount))
+    }
+
+    /// CSS `filter: invert(amount)`: 0 unchanged to 1 a negative.
+    pub fn invert(self, amount: f32) -> Self {
+        self.color_matrix(ColorMatrix::invert(amount))
+    }
+
     /// `other`'s set properties over these (padding merges side by side).
     pub fn merge(&self, other: &Style) -> Style {
         let (text_size, text_role) = if other.text_size.is_some() || other.text_role.is_some() {
@@ -661,6 +707,7 @@ impl Style {
             blur: other.blur.or(self.blur),
             drop_shadow: other.drop_shadow.or(self.drop_shadow),
             backdrop_blur: other.backdrop_blur.or(self.backdrop_blur),
+            color_matrix: other.color_matrix.or(self.color_matrix),
         }
     }
 
@@ -716,6 +763,7 @@ impl Style {
             blur: self.blur,
             drop_shadow: self.drop_shadow,
             backdrop_blur: self.backdrop_blur,
+            color_matrix: self.color_matrix,
         }
     }
 }
@@ -741,6 +789,7 @@ impl From<StylePatch> for Style {
             blur: p.blur,
             drop_shadow: p.drop_shadow,
             backdrop_blur: p.backdrop_blur,
+            color_matrix: p.color_matrix,
         }
     }
 }
