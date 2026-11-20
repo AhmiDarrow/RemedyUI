@@ -6,9 +6,10 @@
 //! window's locale ([`Strings::get`], [`Strings::format`]); the best match among the
 //! catalog's locales answers (`pt-PT` takes `pt-BR`, `zh-CN` takes `zh-Hans`), then English.
 //! Plurals follow each language's CLDR rules (Arabic has six forms, Russian four), numbers
-//! are written the locale's way ([`set_number_format`]), and placeholders are wrapped in
-//! Unicode isolation marks so a left-to-right file name keeps its order inside an Arabic
-//! sentence and the reverse.
+//! are written the locale's way ([`set_number_format`]), and where a message mixes
+//! directions its placeholders are wrapped in Unicode isolation marks, so a left-to-right
+//! file name keeps its order inside an Arabic sentence and the reverse (text with nothing
+//! right to left comes back without them).
 //!
 //! Apps add a language the engine does not ship, or reword a built-in message, with
 //! [`add_messages`]. [`check`] is what each crate's tests run: every locale has every
@@ -74,7 +75,7 @@ pub const LOCALES: &[&str] = &["en", "es", "zh-Hans", "hi", "ar", "fr", "pt-BR",
 ///         ("de", "files = { $count ->\n    [one] Eine Datei\n   *[other] { $count } Dateien\n}\n"),
 ///     ],
 /// );
-/// assert_eq!(STRINGS.format_in("de-AT", "files", &[("count", 3.into())]), "\u{2068}3\u{2069} Dateien");
+/// assert_eq!(STRINGS.format_in("de-AT", "files", &[("count", 3.into())]), "3 Dateien");
 /// assert_eq!(STRINGS.format_in("de", "files", &[("count", 1.into())]), "Eine Datei");
 /// // Each crate's tests check its catalog; this one ships two of the eleven locales.
 /// assert!(remedy_ui_view::strings::check(&STRINGS).iter().any(|p| p.contains("no ar file")));
@@ -317,10 +318,18 @@ impl Strings {
             };
             let Some(pattern) = pattern else { continue };
             let mut errors = Vec::new();
-            return bundle.format_pattern(pattern, Some(&fargs), &mut errors).into_owned();
+            let out = bundle.format_pattern(pattern, Some(&fargs), &mut errors).into_owned();
+            // Isolation only matters where directions mix: text with nothing right to left
+            // comes back without the marks, exactly as written.
+            return if out.chars().any(is_rtl_char) { out } else { out.replace(['\u{2068}', '\u{2069}'], "") };
         }
         format!("\u{27E8}{id}\u{27E9}")
     }
+}
+
+/// A character of a right-to-left script (Hebrew, Arabic, Syriac, Thaana, N'Ko, …).
+fn is_rtl_char(c: char) -> bool {
+    matches!(u32::from(c), 0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF | 0x10800..=0x10FFF | 0x1E800..=0x1EFFF)
 }
 
 /// The plural categories a language uses for whole numbers (`one`, `few`, `many`, …).
@@ -589,7 +598,7 @@ mod tests {
             })
         })));
         assert_eq!(T.format_in("ar", "items", &[("n", 5.into())]), "\u{2068}٥\u{2069} عناصر");
-        assert_eq!(T.format_in("en", "items", &[("n", 5.into())]), "\u{2068}5\u{2069} items");
+        assert_eq!(T.format_in("en", "items", &[("n", 5.into())]), "5 items");
         set_number_format(None);
     }
 
@@ -598,7 +607,7 @@ mod tests {
         let errors = add_messages("test", "tr", "hello = Merhaba\n");
         assert!(errors.is_empty());
         assert_eq!(T.format_in("tr", "hello", &[]), "Merhaba");
-        assert_eq!(T.format_in("tr", "named", &[("title", "x".into())]), "Close \u{2068}x\u{2069}", "the rest is English");
+        assert_eq!(T.format_in("tr", "named", &[("title", "x".into())]), "Close x", "the rest is English");
         add_messages("test", "en", "hello = Hi there\n");
         assert_eq!(T.format_in("en-GB", "hello", &[]), "Hi there");
     }
