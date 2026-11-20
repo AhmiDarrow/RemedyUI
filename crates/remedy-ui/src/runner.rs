@@ -1517,10 +1517,12 @@ impl Window {
     }
 
     /// Calls `done` with a picture of the window's next frame: the whole content at its size
-    /// in device pixels, premultiplied RGBA, drawn by the CPU renderer whichever renderer the
-    /// window uses (a picture tour, a bug report, a test on a real desktop). `None` when the
-    /// window is closed or the frame could not be drawn. A hidden window draws no frames, so
-    /// its picture comes once it is shown.
+    /// in device pixels, premultiplied RGBA (a picture tour, a bug report, a test on a real
+    /// desktop). A window the GPU draws reads back the frame it shows, so the picture holds
+    /// what the screen does: Prism effects, video, `gpu_view` textures, blurs and shadows. A
+    /// window the CPU draws draws its frame once more. `None` when the window is closed or the
+    /// frame could not be drawn. A hidden window draws no frames, so its picture comes once it
+    /// is shown.
     pub fn snapshot(&self, done: impl FnOnce(Option<remedy_ui_paint::Image>) + 'static) {
         let Some(ui) = self.ui() else {
             done(None);
@@ -2494,26 +2496,41 @@ impl Runner {
         }
         comp.set_ambient(w.ui.tick_interval(remedy_ui_view::TickKind::Ambient));
         w.scrollers = f.scrollers;
-        // A picture asked for: this frame draws everything, and a CPU renderer of its own
-        // draws it once more into the picture.
-        let snaps = self.app.0.borrow_mut().snapshots.remove(&key).unwrap_or_default();
-        if !snaps.is_empty() {
+        // A picture asked for. A window the GPU draws reads back the frame it keeps after this
+        // frame's present: what the screen shows, effects, video and app textures included.
+        // Otherwise this frame draws everything, and a CPU renderer of its own draws it once
+        // more into the picture.
+        let mut snaps = self.app.0.borrow_mut().snapshots.remove(&key).unwrap_or_default();
+        #[cfg(feature = "gpu")]
+        let on_gpu = matches!(w.present, Some(Present::Gpu(_)));
+        #[cfg(not(feature = "gpu"))]
+        let on_gpu = false;
+        if !snaps.is_empty() && !on_gpu {
             comp.invalidate_tiles();
         }
         let plan = comp.frame(at);
-        let picture = (!snaps.is_empty()).then(|| {
-            let background =
-                if w.spec.options.transparent { Color::TRANSPARENT } else { w.spec.background.unwrap_or(bg) };
-            CpuCompositor::new()
-                .present(&plan, pw, ph, background)
-                .ok()
-                .map(|f| remedy_ui_paint::Image::new(f.width, f.height, Arc::from(f.pixels)))
-        });
-        // Answered at once: the callbacks reach the app only through its handles, never this
-        // frame's state, and a later early return must not lose them.
-        for done in snaps {
-            done(picture.clone().flatten());
+        if !on_gpu {
+            let picture = (!snaps.is_empty()).then(|| {
+                let background = if w.spec.options.transparent {
+                    Color::TRANSPARENT
+                } else {
+                    w.spec.background.unwrap_or(bg)
+                };
+                CpuCompositor::new()
+                    .present(&plan, pw, ph, background)
+                    .ok()
+                    .map(|f| remedy_ui_paint::Image::new(f.width, f.height, Arc::from(f.pixels)))
+            });
+            // Answered at once: the callbacks reach the app only through its handles, never
+            // this frame's state, and a later early return must not lose them.
+            for done in snaps.drain(..) {
+                done(picture.clone().flatten());
+            }
         }
+        // Pictures still waiting are the GPU's, answered after the present below (or with
+        // nothing, if the window cannot draw).
+        #[cfg_attr(not(feature = "gpu"), allow(unused_mut))]
+        let mut gpu_snaps = snaps;
         for (layer, el) in &w.scrollers {
             if let Some(o) = comp.scroll_offset(*layer) {
                 w.ui.set_scroll_offset(*el, o);
@@ -2622,6 +2639,16 @@ impl Runner {
                                 }
                                 host.request_frame(other.host);
                             }
+                            // The kept frame went with the device: ask again next frame.
+                            if !gpu_snaps.is_empty() {
+                                self.app
+                                    .0
+                                    .borrow_mut()
+                                    .snapshots
+                                    .entry(key)
+                                    .or_default()
+                                    .append(&mut gpu_snaps);
+                            }
                             return;
                         }
                         let started = remedy_ui_core::time::Instant::now();
@@ -2650,6 +2677,21 @@ impl Runner {
                     }
                 }
                 None => {}
+            }
+        }
+        if !gpu_snaps.is_empty() {
+            #[cfg(feature = "gpu")]
+            let picture = match (self.gpu.as_ref(), self.wins.get(&key).and_then(|w| w.present.as_ref())) {
+                (Some(Some(gpu)), Some(Present::Gpu(surface))) => gpu
+                    .read_surface(surface)
+                    .and_then(Result::ok)
+                    .map(|f| remedy_ui_paint::Image::new(f.width, f.height, Arc::from(f.pixels))),
+                _ => None,
+            };
+            #[cfg(not(feature = "gpu"))]
+            let picture = None;
+            for done in gpu_snaps {
+                done(picture.clone());
             }
         }
         if again && let Some(w) = self.wins.get(&key) {

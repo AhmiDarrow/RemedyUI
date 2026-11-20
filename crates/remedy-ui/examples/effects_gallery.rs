@@ -6,9 +6,9 @@
 //! cargo run --release -p remedy-ui --example effects_gallery -- --snapshot gallery.png
 //! ```
 //!
-//! With `--snapshot <file>` it waits two seconds, saves a picture of the window and quits;
-//! `--cpu` keeps the window on the CPU renderer. (A window's snapshot is drawn by the CPU
-//! renderer, which cannot read GPU textures: snapshot with `--cpu` to see the effects.)
+//! With `--snapshot <file>` it waits two seconds, saves a picture of the window (read back
+//! from the GPU when the GPU draws it, effects included) and quits; `--cpu` keeps the window
+//! on the CPU renderer.
 
 use std::time::Duration;
 
@@ -74,10 +74,11 @@ fn app(app: &App, snapshot: Option<String>) {
         let a = app.clone();
         app.after(Duration::from_secs(2), move || {
             let a2 = a.clone();
+            let drawn_by = win.renderer();
             win.snapshot(move |image| {
                 if let Some(i) = image {
                     let _ = save(&path, &i);
-                    println!("saved {path}");
+                    println!("saved {path} (drawn by {drawn_by:?})");
                 }
                 a2.quit();
             });
