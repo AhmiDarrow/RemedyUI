@@ -44,6 +44,15 @@ pub struct GpuSurface {
     copies: bool,
 }
 
+impl GpuSurface {
+    /// Drops the swapchain as the platform does when it reports it lost (a display mode
+    /// change, a monitor unplugged); the next present builds another. For tests.
+    #[doc(hidden)]
+    pub fn lose_swapchain(&mut self) {
+        self.surface = None;
+    }
+}
+
 impl std::fmt::Debug for GpuSurface {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "GpuSurface({}x{} {:?})", self.config.width, self.config.height, self.config.format)
@@ -174,8 +183,13 @@ impl GpuCompositor {
             )?;
             (surface.surface, surface.config, surface.vello, surface.resources) = (Some(s), c, v, r);
             surface.copies = surface.config.usage.contains(wgpu::TextureUsages::COPY_DST);
-            surface.tiles.0.clear();
-            surface.frame = None;
+            // Tiles and the kept frame are device textures: a lost swapchain on a living
+            // device keeps them (the runner re-rasters only after a device change, so tiles
+            // dropped here would stay missing from the window).
+            if surface.generation != self.generation() {
+                surface.tiles.0.clear();
+                surface.frame = None;
+            }
             surface.generation = self.generation();
         }
         // The frame first: drawn even when the swapchain has no image to give now, so no

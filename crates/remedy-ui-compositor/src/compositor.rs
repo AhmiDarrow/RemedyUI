@@ -130,6 +130,8 @@ impl CompositeOp {
 /// by halves on a grid that starts at the corner of what is drawn, so glass drawn from a
 /// rectangle starting elsewhere would come out a level or two different.
 const GLASS_GRID: f32 = 64.0;
+/// Past this many damaged rects a frame redraws one rect around them all.
+const MAX_REDRAW_RECTS: usize = 8;
 
 impl FramePlan {
     /// The rectangles a renderer that keeps the last frame draws again, in whole device pixels
@@ -158,18 +160,42 @@ impl FramePlan {
                 _ => None,
             })
             .collect();
-        let mut out = Damage::new();
-        for r in self.damage.rects() {
-            let mut r = Rect::new(r.min.x - 1.0, r.min.y - 1.0, r.max.x + 1.0, r.max.y + 1.0);
+        let snap = |mut r: Rect| {
             if glass.iter().any(|g| g.intersect(r).is_some_and(|i| !i.is_empty())) {
                 r.min.x = (r.min.x / GLASS_GRID).floor() * GLASS_GRID;
                 r.min.y = (r.min.y / GLASS_GRID).floor() * GLASS_GRID;
             }
-            if let Some(r) = r.intersect(full) {
-                out.add(r);
+            r
+        };
+        let mut rects: Vec<Rect> = self
+            .damage
+            .rects()
+            .iter()
+            .map(|r| Rect::new(r.min.x - 1.0, r.min.y - 1.0, r.max.x + 1.0, r.max.y + 1.0))
+            .collect();
+        // Snapping and merging take turns until neither changes anything: a snapped rect that
+        // merges with an unsnapped neighbour can start off the grid again. Snapping only moves
+        // corners out, so this ends.
+        loop {
+            let mut out = Damage::new();
+            for &r in &rects {
+                if let Some(r) = snap(r).intersect(full) {
+                    out.add(r);
+                }
             }
+            let next = out.rects().to_vec();
+            if next == rects {
+                break;
+            }
+            rects = next;
         }
-        out.rects().to_vec()
+        // Each rect is a render and a submit of its own: past a few, one rect around them all
+        // costs less (spinners, carets and badges scattered over a 4K window).
+        if rects.len() > MAX_REDRAW_RECTS {
+            let all = rects.iter().copied().reduce(Rect::union).unwrap_or(full);
+            return vec![snap(all).intersect(full).unwrap_or(full)];
+        }
+        rects
     }
 }
 

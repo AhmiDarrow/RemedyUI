@@ -65,6 +65,9 @@ pub struct GpuContext {
     pub rung: Rung,
     lost: Arc<AtomicBool>,
     errors: Arc<Mutex<Vec<String>>>,
+    /// The staging buffer the latest read back used, kept for the next one of the same size
+    /// (a 4K frame is 33 MB: made again each time, its allocation costs more than the copy).
+    pub(crate) readback: Arc<Mutex<Option<wgpu::Buffer>>>,
     /// Textures the app renders and display lists place (`Item::Texture`).
     pub(crate) textures: crate::external::Registry,
     pub(crate) serial: u64,
@@ -72,6 +75,20 @@ pub struct GpuContext {
     /// The one window a browser's WebGL2 context draws on (its `data-raw-handle` id): a
     /// WebGL2 device belongs to the canvas it was made for. `None` everywhere else.
     pub(crate) bound_canvas: Option<u32>,
+}
+
+/// The most GPU errors kept between calls to [`GpuContext::take_errors`]. An app that never
+/// asks must not grow without bound when one error repeats every frame.
+pub const MAX_KEPT_ERRORS: usize = 64;
+
+/// Keeps the first errors (the cause is usually among them) and counts the rest in the last.
+fn keep_error(v: &mut Vec<String>, e: String) {
+    if v.len() < MAX_KEPT_ERRORS {
+        v.push(e);
+    } else if let Some(last) = v.last_mut() {
+        let dropped = last.strip_prefix("and ").and_then(|t| t.split(' ').next()?.parse::<u64>().ok());
+        *last = format!("and {} more GPU errors", dropped.map_or(2, |n| n + 1));
+    }
 }
 
 /// The browser canvas id behind a window's handles, if it is one.
@@ -187,7 +204,7 @@ impl GpuContext {
         let sink = errors.clone();
         device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
             if let Ok(mut v) = sink.lock() {
-                v.push(e.to_string());
+                keep_error(&mut v, e.to_string());
             }
         }));
         static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -201,6 +218,7 @@ impl GpuContext {
             rung,
             lost,
             errors,
+            readback: Arc::default(),
             textures,
             serial,
             timer: Default::default(),
@@ -223,7 +241,8 @@ impl GpuContext {
         self.lost.store(true, Ordering::SeqCst);
     }
 
-    /// GPU validation errors recorded since the last call (an empty list in a healthy run).
+    /// GPU validation errors recorded since the last call (an empty list in a healthy run): the
+    /// first [`MAX_KEPT_ERRORS`], then a count of those dropped.
     pub fn take_errors(&self) -> Vec<String> {
         self.errors.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default()
     }
@@ -232,7 +251,7 @@ impl GpuContext {
     #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), allow(dead_code))]
     pub(crate) fn record_error(&self, e: String) {
         if let Ok(mut v) = self.errors.lock() {
-            v.push(e);
+            keep_error(&mut v, e);
         }
     }
 
@@ -240,5 +259,19 @@ impl GpuContext {
     pub fn describe(&self) -> String {
         let info = self.adapter.get_info();
         format!("{} ({:?}, {:?})", info.name, info.backend, self.rung)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_repeating_gpu_error_keeps_a_bounded_list() {
+        let mut v = Vec::new();
+        for i in 0..1000 {
+            super::keep_error(&mut v, format!("error {i}"));
+        }
+        assert_eq!(v.len(), super::MAX_KEPT_ERRORS);
+        assert_eq!(v.first().map(String::as_str), Some("error 0"), "the first errors are kept");
+        assert_eq!(v.last().map(String::as_str), Some("and 937 more GPU errors"));
     }
 }
