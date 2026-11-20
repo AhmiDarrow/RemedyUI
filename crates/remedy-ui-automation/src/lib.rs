@@ -18,6 +18,12 @@
 //! [`Agents::handle`] answers requests in a small JSON protocol, for a transport (a local
 //! socket the app opens only while access is granted, or the RemedyOS semantics wire).
 
+/// The agent prompts' own words (asking for access, the indicator, the undo history's names
+/// for what agents did) in every language the engine ships, from `i18n/*.ftl`. Apps reword
+/// them, or add a language, with [`remedy_ui_view::strings::add_messages`] under the name
+/// `automation`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("automation");
+
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -337,20 +343,24 @@ impl Agents {
         lasts: Option<Duration>,
         answered: impl FnOnce(Option<String>) + 'static,
     ) -> El {
-        let what = match scope {
-            Scope::Read => "see what this window shows",
-            Scope::Act => "see and use this window",
-            Scope::ActWithConfirmation => "see this window and use it, asking you before each action",
-        };
+        let ui = &self.ui;
         let how_long = match lasts {
-            Some(d) if d.as_secs() >= 120 => format!(" for {} minutes", d.as_secs() / 60),
-            Some(d) => format!(" for {} seconds", d.as_secs().max(1)),
-            None => " until you stop it".to_owned(),
+            Some(d) if d.as_secs() >= 120 => {
+                STRINGS.format(ui, "agent-for-minutes", &[("count", (d.as_secs() / 60).into())])
+            }
+            Some(d) => STRINGS.format(ui, "agent-for-seconds", &[("count", d.as_secs().max(1).into())]),
+            None => STRINGS.get(ui, "agent-until-stopped"),
         };
-        let message = format!("{agent} asks to {what}{how_long}. Passwords and secrets stay hidden.");
+        let asks = match scope {
+            Scope::Read => "agent-asks-read",
+            Scope::Act => "agent-asks-act",
+            Scope::ActWithConfirmation => "agent-asks-confirm",
+        };
+        let message = STRINGS.format(ui, asks, &[("agent", agent.into()), ("how_long", how_long.into())]);
         let (me, name) = (self.clone(), agent.to_owned());
         let answered = RefCell::new(Some(answered));
-        w::trusted_prompt(&self.ui, format!("Allow {agent}?"), message, move |yes| {
+        let title = STRINGS.format(ui, "agent-allow", &[("agent", agent.into())]);
+        w::trusted_prompt(&self.ui, title, message, move |yes| {
             let Some(f) = answered.borrow_mut().take() else { return };
             f(yes.then(|| me.grant(&name, scope, lasts)));
         })
@@ -398,9 +408,9 @@ impl Agents {
         let ui = &self.ui;
         let unit = ui.theme().spacing.unit;
         let names: Vec<String> = grants.iter().map(|g| g.agent.clone()).collect();
-        let text = format!("{} can see this window", names.join(", "));
+        let text = STRINGS.format(ui, "agents-can-see", &[("agents", names.join(", ").into())]);
         let me = self.clone();
-        let stop = w::button(ui, "Stop", move || {
+        let stop = w::button(ui, STRINGS.get(ui, "agents-stop"), move || {
             for n in &names {
                 me.revoke(n);
             }
@@ -518,12 +528,12 @@ impl Agents {
             return Answer::Refused(Refused::NotOffered);
         }
         let name = sem.and_then(|s| s.name().map(str::to_owned)).unwrap_or_default();
-        let what = describe(&action, &name);
+        let what = describe(&self.ui, &action, &name);
         let me = self.clone();
         let agent = grant.agent.clone();
         let run = move || me.perform(&agent, &el, &action, &what);
         if grant.scope == Scope::ActWithConfirmation {
-            self.confirm(&grant.agent, &describe_question(&grant.agent, &name), run, done);
+            self.confirm(&grant.agent, &describe_question(&self.ui, &grant.agent, &name), run, done);
             return Answer::Asking;
         }
         match run() {
@@ -615,7 +625,11 @@ impl Agents {
         if info.destructive || grant.scope == Scope::ActWithConfirmation {
             self.confirm(
                 &grant.agent,
-                &format!("Let {} {}?", grant.agent, info.label.to_lowercase()),
+                &STRINGS.format(
+                    &self.ui,
+                    "agent-let-command",
+                    &[("agent", (&grant.agent).into()), ("command", info.label.to_lowercase().into())],
+                ),
                 run,
                 done,
             );
@@ -636,9 +650,14 @@ impl Agents {
         run: impl Fn() -> Result<(), Refused> + 'static,
         done: impl Fn(Result<(), Refused>) + 'static,
     ) {
-        let _ = w::trusted_prompt(&self.ui, format!("{agent} asks"), question, move |yes| {
-            done(if yes { run() } else { Err(Refused::Declined) });
-        });
+        let _ = w::trusted_prompt(
+            &self.ui,
+            STRINGS.format(&self.ui, "agent-asks", &[("agent", agent.into())]),
+            question,
+            move |yes| {
+                done(if yes { run() } else { Err(Refused::Declined) });
+            },
+        );
     }
 
     /// Answers one request in the JSON protocol: `request` is one JSON object, the answer one
@@ -683,19 +702,21 @@ fn to_json(a: &Answer) -> String {
 }
 
 /// What an action did, for the history: "Set Name to Alex", "Press Send".
-fn describe(action: &AgentAction, name: &str) -> String {
-    match action {
-        AgentAction::SetValue(v) => format!("Set {name} to {v}"),
-        AgentAction::Click => format!("Press {name}"),
-        AgentAction::Increment => format!("Raise {name}"),
-        AgentAction::Decrement => format!("Lower {name}"),
-        AgentAction::Focus => format!("Move to {name}"),
-        AgentAction::Expand => format!("Open {name}"),
-        AgentAction::Collapse => format!("Close {name}"),
-        AgentAction::ScrollIntoView => format!("Show {name}"),
-    }
+fn describe(ui: &Ui, action: &AgentAction, name: &str) -> String {
+    let id = match action {
+        AgentAction::SetValue(_) => "did-set",
+        AgentAction::Click => "did-press",
+        AgentAction::Increment => "did-raise",
+        AgentAction::Decrement => "did-lower",
+        AgentAction::Focus => "did-focus",
+        AgentAction::Expand => "did-expand",
+        AgentAction::Collapse => "did-collapse",
+        AgentAction::ScrollIntoView => "did-show",
+    };
+    let value = if let AgentAction::SetValue(v) = action { v.to_string() } else { String::new() };
+    STRINGS.format(ui, id, &[("name", name.into()), ("value", value.into())])
 }
 
-fn describe_question(agent: &str, name: &str) -> String {
-    format!("Let {agent} use \u{201c}{name}\u{201d}?")
+fn describe_question(ui: &Ui, agent: &str, name: &str) -> String {
+    STRINGS.format(ui, "agent-let-use", &[("agent", agent.into()), ("name", name.into())])
 }

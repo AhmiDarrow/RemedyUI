@@ -29,6 +29,22 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - **Ambient motion budgets** held by `tests/ambient_budget.rs` on both renderers (see
   `docs/design/09-performance-and-resources.md`). `CpuCompositor::present_frame` borrows the
   kept frame; `CpuCompositor::last_composited`.
+- **The top 10 languages** (see `docs/I18N.md`): English, Spanish, Simplified Chinese,
+  Hindi, Arabic, French, Brazilian Portuguese, Russian, Japanese, German and Bengali.
+  Every word the engine shows itself (widget labels, menus, keyboard hints, the media player,
+  the board editor, the customization pages, the agent prompts, the update strip, what screen
+  readers hear) is a Fluent message in its crate's `i18n/<locale>.ftl`, compiled in as that
+  crate's `STRINGS` (`remedy_ui_view::strings`: `Strings`, `engine_strings!`, `add_messages`,
+  `check`), following the window's locale live, with CLDR plurals, the locale's digits and
+  isolated placeholders. Word structs gain `localized(locale)` (`BoardLabels`,
+  `StepperLabels`, `spell::MenuLabels`, the update banner's `BannerText`). Windows lay out
+  right to left from their locale (`App::set_direction`, `Ui::set_direction`,
+  `WindowDirection`, `Ui::is_rtl`); directional icons and value controls mirror; RTL
+  sideways scrolling (`Layer::scroll_origin`); `LayoutStyle::inset_physical`. Text fields
+  move the caret visually through mixed-direction text. Bundled Noto faces for Arabic,
+  Devanagari and Bengali, and on-demand Noto Sans SC and JP (`remedy-ui-fonts-cjk`), behind
+  the default `script-fonts` feature. All translations are machine-assisted and await
+  review by native speakers.
 
 - **Ambient motion with a budget**: animated backgrounds and decoration that cost nothing
   while unseen. `AmbientPolicy` (`App::set_ambient_policy`, `Ui::set_ambient_policy`):

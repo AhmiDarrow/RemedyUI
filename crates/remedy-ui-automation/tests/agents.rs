@@ -400,3 +400,9 @@ fn agents_in_other_processes_connect_with_their_token_and_strangers_are_turned_a
     assert_eq!(t.ui.next_undo().and_then(|h| h.by).as_deref(), Some("assistant"));
     drop(listener);
 }
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&remedy_ui_automation::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+}

@@ -222,7 +222,7 @@ impl Layout {
         let ui = &self.0.ui;
         let unit = ui.theme().spacing.unit;
         let me = self.clone();
-        let reset = w::button(ui, "Reset", move || {
+        let reset = w::button(ui, crate::STRINGS.get(ui, "layout-reset"), move || {
             let _ = me.reset();
         });
         w::row(ui)
@@ -233,7 +233,11 @@ impl Layout {
             .child(
                 w::text(
                     ui,
-                    format!("Your layout for {} could not load, so the original is shown: {e}", self.0.file),
+                    crate::STRINGS.format(
+                        ui,
+                        "layout-failed",
+                        &[("file", (&self.0.file).into()), ("error", e.to_string().into())],
+                    ),
                 )
                 .grow(1.0),
             )
