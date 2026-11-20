@@ -628,3 +628,72 @@ fn fixed_rows_one_widget_areas_and_a_panel_apart() {
     let found = audit(&ui);
     assert!(found.is_empty(), "{found:#?}");
 }
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+/// The `{name}` placeholders of a word.
+fn placeholders(word: &str) -> std::collections::BTreeSet<String> {
+    word.split('{').skip(1).filter_map(|p| p.split_once('}').map(|(n, _)| n.to_owned())).collect()
+}
+
+#[test]
+fn localized_words_keep_every_placeholder() {
+    let en = BoardLabels::default();
+    let de = BoardLabels::localized("de-DE");
+    assert_ne!(de, en);
+    assert_eq!(de.undo, "Rückgängig");
+    assert_eq!(de.reactions.group, "Reaktionen", "nested words are localized too");
+    let words =
+        |l: &BoardLabels| -> Vec<String> { l.words().into_iter().map(|(_, w)| w.to_owned()).collect() };
+    let (en_words, de_words) = (words(&en), words(&de));
+    assert_eq!(en_words.len(), 63, "{en_words:?}");
+    assert_eq!(en.words().first().map(|(id, _)| id.as_str()), Some("undo"));
+    assert_eq!(en.words().last().map(|(id, _)| id.as_str()), Some("reaction-spoken-mine"));
+    for (e, d) in en_words.iter().zip(&de_words) {
+        assert_eq!(placeholders(e), placeholders(d), "{e:?} became {d:?}");
+        assert!(!d.contains(['\u{2068}', '\u{2069}', '\u{27E8}']), "{d:?}");
+    }
+    // In English the catalog says what the defaults say.
+    assert_eq!(words(&BoardLabels::localized("en")), en_words);
+    // Every locale keeps the placeholders too.
+    for l in remedy_ui_view::strings::LOCALES {
+        for (e, w) in en_words.iter().zip(&words(&BoardLabels::localized(l))) {
+            assert_eq!(placeholders(e), placeholders(w), "{l}: {e:?} became {w:?}");
+        }
+    }
+}
+
+#[test]
+fn a_board_speaks_the_windows_language_with_its_plurals() {
+    let ui = ui();
+    ui.set_locale("ar");
+    let (b, _) = Board::default().add_area("", 12, 1).unwrap_or_else(|e| unreachable!("{e}"));
+    let area = b.areas.first().map(|a| a.id.clone()).unwrap_or_default();
+    let (b, _) =
+        b.add_widget(&area, "reactions", serde_json::Map::new()).unwrap_or_else(|e| unreachable!("{e}"));
+    let state = BoardState::new(b);
+    ui.root().child(board(&ui, &state, Rc::new(Registry::with_builtins()), Context::local(|_| {})));
+    frame(&ui);
+    // The built-in widget's default question, and its reactions counted in Arabic.
+    assert!(has_text(&ui, "كيف حال الجميع؟"));
+    let _ = named(&ui, "التفاعلات");
+    click(&ui, &named(&ui, "🎉، لا تفاعلات"));
+    let _ = named(&ui, "🎉، تفاعل واحد، بما في ذلك تفاعلك");
+    // The locale changes: the board follows.
+    ui.set_locale("ru");
+    frame(&ui);
+    let _ = named(&ui, "🎉, 1 реакция, включая вашу");
+    // Words the app sets are used as they are, whatever the locale.
+    let ui = self::ui();
+    ui.set_locale("ru");
+    let state = BoardState::new(Board::default());
+    let mut cx = Context::local(|_| {});
+    cx.labels.empty_board_viewing = "Nobody home".into();
+    ui.root().child(board(&ui, &state, Rc::new(Registry::with_builtins()), cx));
+    frame(&ui);
+    assert!(has_text(&ui, "Nobody home") && has_text(&ui, "Empty board"));
+}

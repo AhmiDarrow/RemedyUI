@@ -17,8 +17,15 @@
 //!   [`BoardOptions`] hold an area to one widget, fix the row height, move the panel out
 //!   ([`board_panel`], for several boards on a page) and say when typing has settled
 //!   ([`BoardState::settled`]: one change, not one a keystroke).
-//! - [`BoardLabels`]: every word a board says, English by default, for the app to translate.
+//! - [`BoardLabels`]: every word a board says, in the window's language (the engine ships
+//!   eleven, see [`STRINGS`]) unless the app gives its own.
 //! - [`reactions()`]: emoji reactions, a component for any widget or screen.
+
+/// The board's own words (its editor, empty states, messages, setting editors, built-in
+/// widgets and reactions) in every language the engine ships, from `i18n/*.ftl`: what
+/// [`BoardLabels::localized`] reads. Apps reword them, or add a language, with
+/// [`remedy_ui_view::strings::add_messages`] under the name `widgets-board`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("widgets-board");
 
 mod board;
 mod kinds;

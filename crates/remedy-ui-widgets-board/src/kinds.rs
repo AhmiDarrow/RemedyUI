@@ -45,8 +45,10 @@ pub struct Context {
     /// The script engines this board accepts: a scripted widget in another language says
     /// it cannot run here.
     pub engines: Engines,
-    /// Every word the board says (English by default). Messages of refused changes follow
-    /// the words of the last board built with this context.
+    /// Every word the board says. Left at its default (English), the board speaks the
+    /// window's language instead ([`crate::BoardLabels::localized`] for [`Ui::locale`],
+    /// following it as it changes); words set here are used as they are. Messages of
+    /// refused changes follow the words of the last board built with this context.
     pub labels: crate::BoardLabels,
     /// Shows pictures: picture settings preview their source with it. `None` (the default)
     /// shows only the source.
@@ -125,6 +127,9 @@ pub trait WidgetKind {
 pub struct Registry {
     kinds: BTreeMap<String, Rc<dyn WidgetKind>>,
     not_addable: BTreeSet<String>,
+    /// Built-in kinds [`Registry::with_builtins`] added and nothing replaced since: they
+    /// speak the words of the board showing them.
+    plain_builtins: BTreeSet<String>,
 }
 
 impl std::fmt::Debug for Registry {
@@ -134,9 +139,29 @@ impl std::fmt::Debug for Registry {
 }
 
 impl Registry {
-    /// The built-in kinds: text, links, reactions, in English.
+    /// The built-in kinds: text, links, reactions, in English here; a board shows them in
+    /// its own words ([`Context::labels`], or the window's language when those are left at
+    /// their default), names, setting labels and defaults alike.
     pub fn with_builtins() -> Registry {
-        Registry::with_builtins_in(&crate::BoardLabels::default())
+        let mut r = Registry::with_builtins_in(&crate::BoardLabels::default());
+        r.plain_builtins = r.kinds.keys().cloned().collect();
+        r
+    }
+
+    /// This registry with the built-in kinds [`Registry::with_builtins`] added in `words`,
+    /// or `None` when it has none left to say them (or `words` are English).
+    pub(crate) fn speaking(&self, words: &crate::BoardLabels) -> Option<Registry> {
+        if self.plain_builtins.is_empty() || *words == crate::BoardLabels::default() {
+            return None;
+        }
+        let said = Registry::with_builtins_in(words);
+        let mut r = self.clone();
+        for id in &self.plain_builtins {
+            if let Some(k) = said.get(id) {
+                r.kinds.insert(id.clone(), k);
+            }
+        }
+        Some(r)
     }
 
     /// The built-in kinds in the words of `labels`: their names, setting labels and the
@@ -173,6 +198,7 @@ impl Registry {
 
     /// Adds (or replaces) a kind.
     pub fn add(&mut self, kind: Rc<dyn WidgetKind>) {
+        self.plain_builtins.remove(kind.id());
         self.kinds.insert(kind.id().to_owned(), kind);
     }
 

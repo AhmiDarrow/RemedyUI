@@ -44,23 +44,21 @@ pub fn spoken(r: &Reaction) -> String {
 
 /// What a reaction button says to a screen reader, in `labels`.
 pub fn spoken_in(r: &Reaction, labels: &ReactionLabels) -> String {
-    let n = match r.count {
-        1 => labels.one.clone(),
-        n => fill(&labels.many, &[("count", n.to_string())]),
-    };
+    let n = labels.count(r.count);
     let template = if r.mine { &labels.spoken_mine } else { &labels.spoken };
     fill(template, &[("emoji", r.emoji.clone()), ("count", n)])
 }
 
 /// The reactions `shown`, plus each of `offered` not chosen yet; pressing one calls
-/// `on_toggle` with its emoji. In English; [`reactions_in`] takes the words.
+/// `on_toggle` with its emoji. In the window's language ([`ReactionLabels::localized`] for
+/// its locale, following it as it changes); [`reactions_in`] takes the words.
 pub fn reactions(
     ui: &Ui,
     shown: Signal<Vec<Reaction>>,
     offered: Vec<String>,
     on_toggle: impl Fn(&str) + 'static,
 ) -> El {
-    reactions_in(ui, shown, offered, &ReactionLabels::default(), on_toggle)
+    reactions_with(ui, shown, offered, None, on_toggle)
 }
 
 /// [`reactions()`] in the words of `labels`.
@@ -71,14 +69,28 @@ pub fn reactions_in(
     labels: &ReactionLabels,
     on_toggle: impl Fn(&str) + 'static,
 ) -> El {
-    let words = labels.clone();
-    let group = labels.group.clone();
+    reactions_with(ui, shown, offered, Some(labels.clone()), on_toggle)
+}
+
+/// The reactions in `labels`, or (`None`) in the window's language.
+fn reactions_with(
+    ui: &Ui,
+    shown: Signal<Vec<Reaction>>,
+    offered: Vec<String>,
+    labels: Option<ReactionLabels>,
+    on_toggle: impl Fn(&str) + 'static,
+) -> El {
+    // Read in a binding, so the window's language is followed.
+    let (u1, fixed) = (ui.clone(), labels);
+    let words_now = move || fixed.clone().unwrap_or_else(|| ReactionLabels::localized(&u1.locale()));
+    let group_words = words_now.clone();
     let unit = ui.theme().spacing.unit;
     let row = w::wrap(ui).gap(unit);
     let on_toggle = std::rc::Rc::new(on_toggle);
     let (r2, u2) = (row.clone(), ui.clone());
     row.bind(move || {
         let list = shown.get();
+        let words = words_now();
         untrack(|| {
             r2.clear();
             let mut all: Vec<Reaction> = list.clone();
@@ -102,7 +114,7 @@ pub fn reactions_in(
             }
         });
     })
-    .semantics(Semantics::new(Role::Group).label(group))
+    .semantics(move || Semantics::new(Role::Group).label(group_words().group))
 }
 
 #[cfg(test)]
