@@ -226,7 +226,9 @@ fn build(ui: &Ui, label: Prop<String>, kind: Kind, options: BigButtonOptions) ->
     let el = el.bind(move || {
         let name = l2.get();
         let s = match &kind {
-            Kind::Toggle(on) if look == ButtonLook::Switch => Semantics::new(Role::Switch).label(name).checked(on.get()),
+            Kind::Toggle(on) if look == ButtonLook::Switch => {
+                Semantics::new(Role::Switch).label(name).checked(on.get())
+            }
             Kind::Toggle(on) => Semantics::new(Role::Button).label(name).checked(on.get()),
             Kind::Press(_) => Semantics::new(Role::Button).label(name),
         };
@@ -247,7 +249,14 @@ fn cap_color(cx: &PaintCx<'_>, lit: bool) -> Color {
 }
 
 fn glow(cx: &mut PaintCx<'_>, rect: Rect, radii: CornerRadii, color: Color, blur: f32) {
-    cx.list.push(Item::Shadow { rect, radii, offset: Vec2::ZERO, blur, spread: blur * 0.15, color: color.with_alpha(0.55) });
+    cx.list.push(Item::Shadow {
+        rect,
+        radii,
+        offset: Vec2::ZERO,
+        blur,
+        spread: blur * 0.15,
+        color: color.with_alpha(0.55),
+    });
 }
 
 fn label_on(cx: &mut PaintCx<'_>, text: &str, at: Point, fill: Color, size: f32) {
@@ -265,7 +274,11 @@ fn round(cx: &mut PaintCx<'_>, pressed: bool, lit: bool, text: &str) {
     let r = s / 2.0;
     let depth = (s * 0.05).max(2.0);
     // Bezel.
-    cx.list.push(Item::FillPath { path: Path::circle(c, r), brush: Brush::Solid(cx.theme.colors.panel), even_odd: false });
+    cx.list.push(Item::FillPath {
+        path: Path::circle(c, r),
+        brush: Brush::Solid(cx.theme.colors.panel),
+        even_odd: false,
+    });
     cx.list.push(Item::StrokePath {
         path: Path::circle(c, r - 0.5),
         stroke: remedy_ui_paint::Stroke::new(cx.theme.stroke.max(1.0)),
@@ -276,19 +289,34 @@ fn round(cx: &mut PaintCx<'_>, pressed: bool, lit: bool, text: &str) {
     let lift = if pressed { depth * 0.25 } else { depth };
     // The cap's side, then its face lifted above it.
     let side = Point::new(c.x, c.y + depth * 0.5);
-    cx.list.push(Item::FillPath { path: Path::circle(side, cap_r), brush: Brush::Solid(fill.mix_oklab(Color::BLACK, 0.35)), even_odd: false });
+    cx.list.push(Item::FillPath {
+        path: Path::circle(side, cap_r),
+        brush: Brush::Solid(fill.mix_oklab(Color::BLACK, 0.35)),
+        even_odd: false,
+    });
     let face = Point::new(c.x, side.y - lift);
     if lit {
-        glow(cx, Rect::new(face.x - cap_r, face.y - cap_r, face.x + cap_r, face.y + cap_r), CornerRadii::all(cap_r), cx.style.foreground, r * 0.5);
+        glow(
+            cx,
+            Rect::new(face.x - cap_r, face.y - cap_r, face.x + cap_r, face.y + cap_r),
+            CornerRadii::all(cap_r),
+            cx.style.foreground,
+            r * 0.5,
+        );
     }
-    cx.list.push(Item::FillPath { path: Path::circle(face, cap_r), brush: Brush::Solid(fill), even_odd: false });
+    cx.list.push(Item::FillPath {
+        path: Path::circle(face, cap_r),
+        brush: Brush::Solid(fill),
+        even_odd: false,
+    });
     // A highlight on the face's upper half.
     cx.list.push(Item::FillPath {
         path: Path::circle(Point::new(face.x, face.y - cap_r * 0.25), cap_r * 0.6),
         brush: Brush::Solid(Color::WHITE.with_alpha(if lit { 0.16 } else { 0.08 })),
         even_odd: false,
     });
-    let size = (cx.theme.type_scale.body * s / 80.0).clamp(cx.theme.type_scale.small, cx.theme.type_scale.title);
+    let size =
+        (cx.theme.type_scale.body * s / 80.0).clamp(cx.theme.type_scale.small, cx.theme.type_scale.title);
     label_on(cx, text, face, fill, size);
 }
 
@@ -319,15 +347,37 @@ fn switch(cx: &mut PaintCx<'_>, on: bool, lit: bool) {
     let lamp = Point::new(h * 0.5, h * 0.5);
     let lamp_color = if lit { cx.style.foreground } else { d.line };
     if lit {
-        glow(cx, Rect::new(lamp.x - lamp_r, lamp.y - lamp_r, lamp.x + lamp_r, lamp.y + lamp_r), CornerRadii::all(lamp_r), lamp_color, h * 0.5);
+        glow(
+            cx,
+            Rect::new(lamp.x - lamp_r, lamp.y - lamp_r, lamp.x + lamp_r, lamp.y + lamp_r),
+            CornerRadii::all(lamp_r),
+            lamp_color,
+            h * 0.5,
+        );
     }
-    cx.list.push(Item::FillPath { path: Path::circle(lamp, lamp_r), brush: Brush::Solid(lamp_color), even_odd: false });
+    cx.list.push(Item::FillPath {
+        path: Path::circle(lamp, lamp_r),
+        brush: Brush::Solid(lamp_color),
+        even_odd: false,
+    });
     let track = Rect::new(h * 1.2, 0.0, cx.size.width, h);
     let r = CornerRadii::all(h / 2.0);
-    cx.list.fill_rounded(track, r, Brush::Solid(if on { cx.style.foreground.mix_oklab(cx.theme.colors.bg, 0.55) } else { cx.theme.colors.bg }));
+    cx.list.fill_rounded(
+        track,
+        r,
+        Brush::Solid(if on {
+            cx.style.foreground.mix_oklab(cx.theme.colors.bg, 0.55)
+        } else {
+            cx.theme.colors.bg
+        }),
+    );
     cx.list.border(track, r, cx.theme.stroke.max(1.0), if on { cx.style.foreground } else { d.line });
     let kr = h * 0.36;
     let kx = if on { track.max.x - h / 2.0 } else { track.min.x + h / 2.0 };
     let knob = if on { cx.style.foreground } else { d.text };
-    cx.list.push(Item::FillPath { path: Path::circle(Point::new(kx, h / 2.0), kr), brush: Brush::Solid(knob), even_odd: false });
+    cx.list.push(Item::FillPath {
+        path: Path::circle(Point::new(kx, h / 2.0), kr),
+        brush: Brush::Solid(knob),
+        even_odd: false,
+    });
 }

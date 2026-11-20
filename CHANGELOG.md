@@ -579,6 +579,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   pop closes nothing, so what it holds is drawn as if the group were not there, the groups
   around it stay balanced, and glass that deep is not drawn. Lists that deep also draw much
   faster on the CPU (tested on both renderers, directly and through the compositor).
+- The compositor overflowed the stack on layer trees a few hundred layers deep: committing,
+  walking (`Compositor::frame`), `LayerTree::for_each`, `LayerTree::find` and dropping a
+  `Layer` each recursed once per level. They now use explicit stacks, so a tree of any depth
+  is walked and dropped on any thread (tested at 20,000 levels).
+- `cargo fmt --all --check` and `cargo clippy --workspace -- -D warnings` (Rust 1.97) are
+  clean again: unformatted files in the bridges, script, viz and stage and board widgets,
+  and a redundant `drop` in the themes' style sheet.
 - Prism: an `if` that changed two or more variables merged them in a hash map's order, so
   the same source could compile to differently ordered (equally correct) programs. They now
   merge in name order.
