@@ -122,21 +122,8 @@ impl CpuCompositor {
         // composite is recorded once for the whole window and only the damaged rectangles are
         // rasterized from it. A frame of a new size, the first frame, or damage over most of
         // the window draws it all.
-        let full = Rect::new(0.0, 0.0, f32::from(w), f32::from(h));
         let reuse = self.last.as_ref().is_some_and(|f| (f.width, f.height) == (width, height));
-        let rects: Vec<Rect> = if reuse && plan.damage.area() < full.size().area() * 0.6 {
-            // One pixel more around each: a filtered tile may touch the pixel past its box.
-            plan.damage
-                .rects()
-                .iter()
-                .filter_map(|r| {
-                    Rect::new(r.min.x - 1.0, r.min.y - 1.0, r.max.x + 1.0, r.max.y + 1.0).intersect(full)
-                })
-                .filter(|r| !r.is_empty())
-                .collect()
-        } else {
-            vec![full]
-        };
+        let rects = plan.redraw_rects(width, height, reuse);
         let mut frame = match self.last.take() {
             Some(f) if (f.width, f.height) == (width, height) => f.pixels,
             _ => vec![0u8; usize::from(w) * usize::from(h) * 4],
@@ -193,14 +180,38 @@ impl CpuCompositor {
         let mut ctx = self.ctx.take(w, h);
         ctx.set_paint(color(background));
         ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, f64::from(w), f64::from(h)));
+        let mut rec = Recorder { ctx: &mut ctx, tiles: &self.tiles, shift, background };
+        rec.ops(&plan.ops, 0, area, false);
+        ctx.flush();
+        ctx
+    }
+}
+
+/// Records composite ops into a render context.
+struct Recorder<'a> {
+    ctx: &'a mut RenderContext,
+    tiles: &'a HashMap<(LayerId, TileKey), Arc<Pixmap>>,
+    /// Device pixels to the context's pixels.
+    shift: kurbo::Affine,
+    background: Color,
+}
+
+impl Recorder<'_> {
+    /// Records `ops` (which start at index `first` of the plan's ops) that touch `area`. With
+    /// `close`, layers they leave open are closed (a backdrop's replay).
+    fn ops(&mut self, ops: &[CompositeOp], first: usize, area: Rect, close: bool) {
+        let all = ops;
+        let ops = all.get(first..).unwrap_or(&[]);
         // Inside a skipped subtree: how many pushes deep.
         let mut skip = 0u32;
-        for op in &plan.ops {
+        // What is open: true for a clip path, false for a layer.
+        let mut open: Vec<bool> = Vec::new();
+        for (k, op) in ops.iter().enumerate() {
             if skip > 0 {
                 match op {
                     CompositeOp::PushClip { .. } | CompositeOp::PushOpacity(_) => skip += 1,
                     CompositeOp::PopClip | CompositeOp::PopOpacity => skip -= 1,
-                    CompositeOp::Tile { .. } => {}
+                    CompositeOp::Tile { .. } | CompositeOp::Backdrop { .. } => {}
                 }
                 continue;
             }
@@ -213,16 +224,63 @@ impl CpuCompositor {
                 CompositeOp::PushClip { transform, rect, radii } => {
                     // A clip path, not a clip layer: clipping needs no isolated buffer, and a
                     // layer per clipped element made every composite cost as many groups.
-                    ctx.set_transform(shift * kaffine(*transform));
+                    self.ctx.set_transform(self.shift * kaffine(*transform));
                     if *radii == CornerRadii::ZERO {
-                        ctx.push_clip_rect(&crate::krect(*rect));
+                        self.ctx.push_clip_rect(&crate::krect(*rect));
                     } else {
-                        ctx.push_clip_path(&rounded(*rect, *radii));
+                        self.ctx.push_clip_path(&rounded(*rect, *radii));
                     }
+                    open.push(true);
                 }
-                CompositeOp::PopClip => ctx.pop_clip(),
-                CompositeOp::PopOpacity => ctx.pop_layer(),
-                CompositeOp::PushOpacity(o) => ctx.push_opacity_layer(*o),
+                CompositeOp::PopClip => {
+                    self.ctx.pop_clip();
+                    open.pop();
+                }
+                CompositeOp::PopOpacity => {
+                    self.ctx.pop_layer();
+                    open.pop();
+                }
+                CompositeOp::PushOpacity(o) => {
+                    self.ctx.push_opacity_layer(*o);
+                    open.push(false);
+                }
+                CompositeOp::Backdrop { transform, rect, radii, blur, opacity } => {
+                    if transform.apply_rect(*rect).intersect(area).is_none_or(|r| r.is_empty()) {
+                        continue;
+                    }
+                    let at = first + k;
+                    let root = CompositeOp::backdrop_root(all, at);
+                    // What the glass reads: its own box and the blur's reach around it, the
+                    // same whatever part of the frame is drawn, so the blur is too.
+                    let reach = CompositeOp::backdrop_reach(transform, *blur);
+                    let g = transform.apply_rect(*rect);
+                    let under = Rect::new(g.min.x - reach, g.min.y - reach, g.max.x + reach, g.max.y + reach);
+                    self.ctx.set_transform(self.shift * kaffine(*transform));
+                    self.ctx.push_clip_layer(&rounded(*rect, *radii));
+                    if *opacity < 1.0 {
+                        self.ctx.push_opacity_layer(*opacity);
+                    }
+                    match crate::vello_filter(&remedy_ui_paint::Filter::Blur { radius: *blur }) {
+                        Some(f) => self.ctx.push_filter_layer(f),
+                        None => self.ctx.push_opacity_layer(1.0),
+                    }
+                    self.ctx.set_transform(self.shift);
+                    self.ctx.push_clip_rect(&crate::krect(under));
+                    if root == 0 {
+                        // The frame's start: its background is under everything.
+                        self.ctx.set_paint(color(self.background));
+                        self.ctx.fill_rect(&crate::krect(under));
+                    }
+                    if let Some(prefix) = all.get(..at) {
+                        self.ops(prefix, root, under, true);
+                    }
+                    self.ctx.pop_clip();
+                    self.ctx.pop_layer();
+                    if *opacity < 1.0 {
+                        self.ctx.pop_layer();
+                    }
+                    self.ctx.pop_layer();
+                }
                 CompositeOp::Tile { layer, key, transform, rect, raster_scale, area: part } => {
                     if transform.apply_rect(*part).intersect(area).is_none_or(|r| r.is_empty()) {
                         continue;
@@ -237,8 +295,8 @@ impl CpuCompositor {
                         && d == *raster_scale
                         && e.fract() == 0.0
                         && f.fract() == 0.0;
-                    ctx.set_transform(shift * kaffine(*transform));
-                    ctx.set_paint(vello_cpu::Image {
+                    self.ctx.set_transform(self.shift * kaffine(*transform));
+                    self.ctx.set_paint(vello_cpu::Image {
                         image: ImageSource::Pixmap(pix.clone()),
                         sampler: ImageSampler {
                             quality: if exact { ImageQuality::Low } else { ImageQuality::Medium },
@@ -246,16 +304,23 @@ impl CpuCompositor {
                         },
                     });
                     let inv = 1.0 / f64::from(*raster_scale);
-                    ctx.set_paint_transform(
+                    self.ctx.set_paint_transform(
                         kurbo::Affine::translate((f64::from(rect.min.x), f64::from(rect.min.y)))
                             * kurbo::Affine::scale(inv),
                     );
-                    ctx.fill_rect(&crate::krect(*part));
-                    ctx.reset_paint_transform();
+                    self.ctx.fill_rect(&crate::krect(*part));
+                    self.ctx.reset_paint_transform();
                 }
             }
         }
-        ctx.flush();
-        ctx
+        if close {
+            for clip in open.into_iter().rev() {
+                if clip {
+                    self.ctx.pop_clip();
+                } else {
+                    self.ctx.pop_layer();
+                }
+            }
+        }
     }
 }

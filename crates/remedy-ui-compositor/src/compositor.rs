@@ -34,6 +34,22 @@ pub enum CompositeOp {
     PushOpacity(f32),
     /// Ends the latest group.
     PopOpacity,
+    /// Frosted glass: blurs what the ops since the backdrop root drew (the start of the frame,
+    /// or the innermost [`PushOpacity`](CompositeOp::PushOpacity) group still open, see
+    /// [`CompositeOp::backdrop_root`]) and draws it inside `rect` with `radii`, at `opacity`,
+    /// before the layer's content.
+    Backdrop {
+        /// Glass space to device pixels (the blur is in this space's units).
+        transform: Affine,
+        /// The glass.
+        rect: Rect,
+        /// Its corners.
+        radii: CornerRadii,
+        /// The blur's standard deviation.
+        blur: f32,
+        /// The glass layer's own opacity, which fades its backdrop with it.
+        opacity: f32,
+    },
     /// Draws a rastered tile: its pixels cover `rect` in the space `transform` maps to device
     /// pixels, and the part of it inside `area` is drawn. A tile of the current scale draws
     /// whole (`area == rect`); a tile of an earlier scale standing in during a zoom draws
@@ -52,6 +68,79 @@ pub enum CompositeOp {
         /// The part of `rect` to draw (content space).
         area: Rect,
     },
+}
+
+impl CompositeOp {
+    /// Where the picture a backdrop at `ops[at]` blurs starts: just after the innermost
+    /// [`PushOpacity`](CompositeOp::PushOpacity) still open there, or 0 (the start of the
+    /// frame, background included).
+    pub fn backdrop_root(ops: &[CompositeOp], at: usize) -> usize {
+        let mut open: Vec<(bool, usize)> = Vec::new();
+        for (i, op) in ops.iter().take(at).enumerate() {
+            match op {
+                CompositeOp::PushClip { .. } => open.push((false, i)),
+                CompositeOp::PushOpacity(_) => open.push((true, i)),
+                CompositeOp::PopClip | CompositeOp::PopOpacity => {
+                    open.pop();
+                }
+                CompositeOp::Tile { .. } | CompositeOp::Backdrop { .. } => {}
+            }
+        }
+        open.iter().rev().find(|(group, _)| *group).map_or(0, |(_, i)| i + 1)
+    }
+
+    /// How far past its glass a backdrop reads what is under it, in device pixels: three
+    /// standard deviations of its blur, scaled to the device, and one pixel more.
+    pub fn backdrop_reach(transform: &Affine, blur: f32) -> f32 {
+        let b = if blur.is_finite() { blur.max(0.0) } else { 0.0 };
+        let r = (b * 3.0 * transform.scale_factor()).ceil() + 1.0;
+        if r.is_finite() { r } else { 0.0 }
+    }
+}
+
+/// Rectangles redrawing glass start on this grid of device pixels: a blur shrinks its source
+/// by halves on a grid that starts at the corner of what is drawn, so glass drawn from a
+/// rectangle starting elsewhere would come out a level or two different.
+const GLASS_GRID: f32 = 64.0;
+
+impl FramePlan {
+    /// The rectangles a renderer that keeps the last frame draws again, in whole device pixels
+    /// of a `width` × `height` frame: the damage with a pixel more around each rectangle (a
+    /// filtered tile may touch the pixel past its box), or the whole frame when there is no
+    /// frame to keep (`kept` false: the first frame, a new size) or the damage covers most of
+    /// it. Rectangles that draw glass ([`CompositeOp::Backdrop`]) start on a 64-pixel grid,
+    /// so the glass comes out exactly as in a full frame. Both compositors use it, so a frame
+    /// drawn from damage is the same frame on either.
+    pub fn redraw_rects(&self, width: u32, height: u32, kept: bool) -> Vec<Rect> {
+        let full = Rect::new(0.0, 0.0, width as f32, height as f32);
+        if !kept || self.damage.area() >= full.size().area() * 0.6 {
+            return vec![full];
+        }
+        let glass: Vec<Rect> = self
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                CompositeOp::Backdrop { transform, rect, blur, .. } => {
+                    let g = transform.apply_rect(*rect);
+                    let r = CompositeOp::backdrop_reach(transform, *blur);
+                    Some(Rect::new(g.min.x - r, g.min.y - r, g.max.x + r, g.max.y + r))
+                }
+                _ => None,
+            })
+            .collect();
+        let mut out = Damage::new();
+        for r in self.damage.rects() {
+            let mut r = Rect::new(r.min.x - 1.0, r.min.y - 1.0, r.max.x + 1.0, r.max.y + 1.0);
+            if glass.iter().any(|g| g.intersect(r).is_some_and(|i| !i.is_empty())) {
+                r.min.x = (r.min.x / GLASS_GRID).floor() * GLASS_GRID;
+                r.min.y = (r.min.y / GLASS_GRID).floor() * GLASS_GRID;
+            }
+            if let Some(r) = r.intersect(full) {
+                out.add(r);
+            }
+        }
+        out.rects().to_vec()
+    }
 }
 
 /// A tile to raster before compositing this frame.
@@ -148,6 +237,7 @@ struct Drawn {
     order: usize,
     raster_scale: f32,
     bounds: Option<Rect>,
+    backdrop: Option<crate::layer::Backdrop>,
 }
 
 /// The compositor for one window. Single-threaded apps and tests drive it on the UI thread;
@@ -199,6 +289,8 @@ struct Walk<'a> {
     looping: bool,
     /// Prefetch tiles at a new scale left for a later frame.
     deferred: usize,
+    /// Backdrops on screen: the glass in device pixels and how far past it they read.
+    backdrops: Vec<(Rect, f32)>,
 }
 
 fn snap(a: Affine) -> Affine {
@@ -547,13 +639,14 @@ impl Compositor {
             deferred: 0,
             loop_t,
             looping: false,
+            backdrops: Vec::new(),
         };
         let base = Affine::scale(self.scale, self.scale);
         let roots = self.tree.roots.clone();
         for root in &roots {
             self.walk(root, base, self.scale, 1.0, viewport, &mut walk);
         }
-        let Walk { drawn, hits, replaced, deferred, looping, .. } = walk;
+        let Walk { drawn, hits, replaced, deferred, looping, backdrops, .. } = walk;
         plan.animating |= plan.pending > 0 || deferred > 0;
         plan.wake_in = if looping && !self.reduced_motion { self.ambient } else { None };
 
@@ -578,6 +671,31 @@ impl Compositor {
             }
         }
         damage.merge(&replaced);
+        // Glass shows what is under it, blurred: a change within its reach changes the glass.
+        // Glass over glass passes it on, so repeat until nothing more is added.
+        let mut added = vec![false; backdrops.len()];
+        loop {
+            let mut grew = false;
+            for ((glass, reach), done) in backdrops.iter().zip(added.iter_mut()) {
+                let reads = Rect::new(
+                    glass.min.x - reach,
+                    glass.min.y - reach,
+                    glass.max.x + reach,
+                    glass.max.y + reach,
+                );
+                if !*done && damage.rects().iter().any(|d| d.intersect(reads).is_some_and(|r| !r.is_empty()))
+                {
+                    // The glass and all it reads: a rectangle drawn again holds the blur's
+                    // whole source, so the glass comes out as in a full frame.
+                    damage.add(reads.intersect(viewport).unwrap_or(*glass));
+                    *done = true;
+                    grew = true;
+                }
+            }
+            if !grew {
+                break;
+            }
+        }
         damage.clip_to(viewport);
         plan.damage = damage;
         plan.released = std::mem::take(&mut self.released);
@@ -654,6 +772,23 @@ impl Compositor {
                 radii,
             });
         }
+        // The glass goes before the layer's own group: its root is the group around the layer,
+        // and the layer's opacity fades it.
+        let mut glass = None;
+        if let Some(b) = layer.backdrop
+            && let Some(device) = local_to_device.apply_rect(layer.local_box()).intersect(clip)
+            && !device.is_empty()
+        {
+            w.plan.ops.push(CompositeOp::Backdrop {
+                transform: local_to_device,
+                rect: layer.local_box(),
+                radii: b.radii,
+                blur: b.blur,
+                opacity,
+            });
+            w.backdrops.push((device, CompositeOp::backdrop_reach(&local_to_device, b.blur)));
+            glass = Some(device);
+        }
         let grouped = opacity < 1.0;
         if grouped {
             w.plan.ops.push(CompositeOp::PushOpacity(opacity));
@@ -673,6 +808,10 @@ impl Compositor {
                 self.tiles(layer, extent, visible, content_to_device, raster_scale, clip, w);
             }
         }
+        // The glass is part of what the layer draws: it appearing, moving or going is damage.
+        if let Some(g) = glass {
+            bounds = Some(bounds.map_or(g, |b: Rect| b.union(g)));
+        }
         w.drawn.insert(
             layer.id,
             Drawn {
@@ -683,6 +822,7 @@ impl Compositor {
                 order,
                 raster_scale,
                 bounds,
+                backdrop: layer.backdrop,
             },
         );
 
