@@ -130,7 +130,8 @@ impl GpuContext {
             (Rung::Primary, true) => wgpu::Backends::BROWSER_WEBGPU,
             // Browsers offer no software adapter to fall back to.
             (Rung::Software, true) => return Err(GpuError::NoAdapter),
-            (Rung::Primary | Rung::Software, false) => wgpu::Backends::PRIMARY,
+            // `WGPU_BACKEND=dx12` (or `vulkan`) picks one backend where a machine has both.
+            (Rung::Primary | Rung::Software, false) => wgpu::Backends::PRIMARY.with_env(),
             (Rung::Gl, _) => wgpu::Backends::GL,
         };
         let instance = wgpu::Instance::new(desc);
