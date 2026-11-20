@@ -124,6 +124,8 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-media-video", 5),
     ("remedy-ui-media-playback", 5),
     ("remedy-ui-media-isolated", 5),
+    // Prism effects as elements: the GPU kernel or the CPU renderer, under the ambient policy.
+    ("remedy-ui-media-effects", 5),
     ("remedy-ui-viz", 5),
     ("remedy-ui-embed-webview", 5),
     ("remedy-ui-embed-gpu", 5),

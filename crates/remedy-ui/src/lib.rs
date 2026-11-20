@@ -82,6 +82,14 @@ pub use remedy_ui_doc_pages as pages;
 pub use remedy_ui_doc_rich as rich;
 #[cfg(feature = "gpu-embed")]
 pub use remedy_ui_embed_gpu as gpu_embed;
+/// Prism, the effects system (feature `effects`): the `.rfx` language and its compiler
+/// ([`effects::Effect::compile`]), the built-in effect library ([`effects::library`]), and
+/// effects as elements ([`effects::effect_view`]) drawn by the GPU kernel or the CPU renderer.
+#[cfg(feature = "effects")]
+pub mod effects {
+    pub use remedy_ui_effects::*;
+    pub use remedy_ui_media_effects::*;
+}
 #[cfg(feature = "webview")]
 pub use remedy_ui_embed_webview as webview;
 pub use remedy_ui_host as host;
