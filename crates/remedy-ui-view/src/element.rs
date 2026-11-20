@@ -1982,6 +1982,21 @@ impl El {
         self.layout(|l| l.justify = j)
     }
 
+    /// Calls `f` for key presses while something inside the element has focus, before the
+    /// focused element sees them (the capture phase); `f` returns true when it handled the
+    /// key, and then the focused element never gets it. For app-wide shortcuts that must
+    /// work even while a text field has focus (a way back, a panic key); keep them to
+    /// chords a text field would not use, since the field loses them.
+    pub fn on_key_capture(self, f: impl Fn(&remedy_ui_input::KeyEvent) -> bool + 'static) -> Self {
+        let _ = self.ui.tree().on::<remedy_ui_input::KeyEvent>(self.id, Phase::Capture, move |cx, e| {
+            if f(e) {
+                cx.set_handled();
+                cx.stop_propagation();
+            }
+        });
+        self
+    }
+
     /// Calls `f` for key presses while the element or something inside it has focus; `f`
     /// returns true when it handled the key.
     pub fn on_key(self, f: impl Fn(&remedy_ui_input::KeyEvent) -> bool + 'static) -> Self {
