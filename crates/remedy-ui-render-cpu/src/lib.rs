@@ -124,6 +124,37 @@ impl Default for Painter {
 #[derive(Debug, Default)]
 pub struct CpuRenderer {
     painter: Painter,
+    /// A render context kept between rasters: making one allocates its strip and tile
+    /// buffers, which costs more than drawing a small tile.
+    ctx: Reused,
+}
+
+/// A [`RenderContext`] kept for reuse.
+#[derive(Default)]
+pub(crate) struct Reused(Option<RenderContext>);
+
+impl std::fmt::Debug for Reused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "Reused(context)" } else { "Reused(none)" })
+    }
+}
+
+impl Reused {
+    /// A context of `w` × `h`, reset, reusing the last one's memory.
+    pub(crate) fn take(&mut self, w: u16, h: u16) -> RenderContext {
+        match self.0.take() {
+            Some(mut c) => {
+                c.reset_and_resize(w, h);
+                c
+            }
+            None => RenderContext::new(w, h),
+        }
+    }
+
+    /// Keeps `ctx` for the next [`take`](Self::take).
+    pub(crate) fn keep(&mut self, ctx: RenderContext) {
+        self.0 = Some(ctx);
+    }
 }
 
 fn color(c: Color) -> AlphaColor<Srgb> {
@@ -328,7 +359,7 @@ impl CpuRenderer {
         background: Color,
     ) -> Result<Pixmap, RenderError> {
         let (w, h) = size16(width, height)?;
-        let mut ctx = RenderContext::new(w, h);
+        let mut ctx = self.ctx.take(w, h);
         ctx.set_paint(color(background));
         ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, f64::from(w), f64::from(h)));
         let area = Rect::new(0.0, 0.0, f32::from(w), f32::from(h));
@@ -337,6 +368,7 @@ impl CpuRenderer {
         let mut target = Pixmap::new(w, h);
         let mut resources = Resources::new();
         ctx.render(&mut target, &mut resources);
+        self.ctx.keep(ctx);
         Ok(target)
     }
 }

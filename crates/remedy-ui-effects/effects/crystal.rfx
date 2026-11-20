@@ -1,0 +1,42 @@
+// Crystal: a faceted gem turning in space, its facets catching a key light and glowing at
+// their edges, with a dispersion-like colour shift. A raymarched 3D centrepiece.
+effect crystal(
+    color glass = #9fe8ff,
+    color fire = #ff7ae0,
+    color backdrop = #070814,
+    float spin = 0.4 in 0..3,
+) {
+    fps 30;
+    scale 0.5;
+
+    fn map(p: vec3) -> float {
+        let q = rotate_x(rotate_y(p, time * spin), 0.4 + sin(time * spin * 0.7) * 0.3);
+        return max(sd_octahedron(q, 1.2), sd_box3(q, vec3(0.62)));
+    }
+
+    pass gem {
+        let eye = vec3(0.0, 0.0, -3.6);
+        let rd = camera_ray(uv, eye, vec3(0.0), 0.8);
+        var t = 0.0;
+        for i in 0..40 { t += map(eye + rd * t); }
+        let p = eye + rd * t;
+        let hit = step(map(p), 0.01);
+        let e = 0.004;
+        let n = normalize(vec3(
+            map(p + vec3(e, 0.0, 0.0)) - map(p - vec3(e, 0.0, 0.0)),
+            map(p + vec3(0.0, e, 0.0)) - map(p - vec3(0.0, e, 0.0)),
+            map(p + vec3(0.0, 0.0, e)) - map(p - vec3(0.0, 0.0, e))
+        ));
+        let v = -rd;
+        let l = normalize(vec3(0.5, 0.7, -0.6));
+        let f = fresnel(dot(n, v), 0.08);
+        let refl = reflect(rd, n);
+        let env = sky(refl, backdrop.rgb + vec3(0.1), glass.rgb);
+        let inner = mix(glass.rgb, fire.rgb, 0.5 + 0.5 * sin(dot(n, vec3(4.0, 2.0, 3.0)) + time));
+        let col = inner * (0.35 + lambert(n, l) * 0.6) + env * f + vec3(pow(max(dot(refl, l), 0.0), 40.0));
+        // Edges glow: where neighbouring normals disagree.
+        let halo = exp(-max(map(eye + rd * t), 0.0) * 6.0) * (1.0 - hit) * 0.5;
+        out = vec4(mix(backdrop.rgb + glass.rgb * halo, aces(col), hit), 1.0);
+    }
+    pass sparkle = bloom(gem, 0.6, 10.0, 0.6);
+}

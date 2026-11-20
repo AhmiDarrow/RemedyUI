@@ -23,6 +23,12 @@ pub(crate) struct Tile {
     id: TextureId,
 }
 
+/// Tiles at most this many pixels on a side are rastered together in an atlas.
+const ATLAS_TILE: u32 = 256;
+/// The atlas's width; its height grows to fit, up to [`ATLAS_HEIGHT`] a page.
+const ATLAS_WIDTH: u32 = 1024;
+const ATLAS_HEIGHT: u32 = 2048;
+
 /// Runs [`FramePlan`]s on the GPU. Keep one per window.
 pub struct GpuCompositor {
     renderer: GpuRenderer,
@@ -30,6 +36,8 @@ pub struct GpuCompositor {
     tiles: TileSet,
     next_id: u64,
     generation: u64,
+    /// The atlas small tiles are rastered in, kept between frames.
+    atlas: Option<wgpu::Texture>,
     /// Bytes of tiles and of uploaded images held, for tools.
     gauges: (remedy_ui_trace::gauges::Gauge, remedy_ui_trace::gauges::Gauge),
 }
@@ -73,6 +81,7 @@ impl GpuCompositor {
             tiles: TileSet::default(),
             next_id: 1,
             generation: 0,
+            atlas: None,
             gauges: (
                 remedy_ui_trace::gauges::Gauge::new("gpu tiles"),
                 remedy_ui_trace::gauges::Gauge::new("gpu images"),
@@ -139,6 +148,7 @@ impl GpuCompositor {
         let store = self.renderer_store();
         self.renderer = GpuRenderer::new(ctx, store);
         self.tiles.0.clear();
+        self.atlas = None;
         self.generation += 1;
         Ok(())
     }
@@ -191,13 +201,7 @@ impl GpuCompositor {
         for key in &plan.released {
             tiles.0.remove(key);
         }
-        for req in &plan.raster {
-            let texture = self.renderer.create_target(req.width, req.height)?;
-            self.renderer.draw(&req.content, req.raster_transform(), Color::TRANSPARENT, &texture)?;
-            let id = TextureId(self.next_id);
-            self.next_id += 1;
-            tiles.0.insert((req.layer, req.key), Tile { texture, id });
-        }
+        self.raster(tiles, plan)?;
 
         let (w, h) = size16(width, height)?;
         let mut scene = Scene::new(w, h);
@@ -205,10 +209,17 @@ impl GpuCompositor {
         for op in &plan.ops {
             match op {
                 CompositeOp::PushClip { transform, rect, radii } => {
+                    // A clip path, not an isolated clip layer: clipping needs no layer of its
+                    // own, and one per clipped element made every composite that many groups.
                     scene.set_transform(kaffine(*transform));
-                    scene.push_clip_layer(&remedy_ui_render_cpu::rounded_path(*rect, *radii));
+                    if *radii == remedy_ui_core::CornerRadii::ZERO {
+                        scene.push_clip_rect(&krect(*rect));
+                    } else {
+                        scene.push_clip_path(&remedy_ui_render_cpu::rounded_path(*rect, *radii));
+                    }
                 }
-                CompositeOp::PopClip | CompositeOp::PopOpacity => scene.pop_layer(),
+                CompositeOp::PopClip => scene.pop_clip(),
+                CompositeOp::PopOpacity => scene.pop_layer(),
                 CompositeOp::PushOpacity(o) => scene.push_opacity_layer(*o),
                 CompositeOp::Tile { layer, key, transform, rect, raster_scale, area } => {
                     let Some(tile) = tiles.0.get(&(*layer, *key)) else { continue };
@@ -241,6 +252,107 @@ impl GpuCompositor {
         }
         self.measure(tiles);
         Ok((scene, bindings))
+    }
+
+    /// Rasters the plan's tile requests. A tile drawn again at the same size keeps its texture.
+    /// Small tiles (an animated sprite's, a blinking caret's) are drawn together into one
+    /// atlas in a single render and copied out, since every render has a fixed cost that
+    /// dwarfs a small tile's pixels; large ones render on their own.
+    fn raster(&mut self, tiles: &mut TileSet, plan: &FramePlan) -> Result<(), GpuError> {
+        let mut small = Vec::new();
+        for req in &plan.raster {
+            // A texture of the right size: the tile's own when it has one.
+            let reuse = tiles
+                .0
+                .get(&(req.layer, req.key))
+                .is_some_and(|t| (t.texture.width(), t.texture.height()) == (req.width, req.height));
+            if !reuse {
+                let texture = self.renderer.create_target(req.width, req.height)?;
+                let id = TextureId(self.next_id);
+                self.next_id += 1;
+                tiles.0.insert((req.layer, req.key), Tile { texture, id });
+            }
+            if req.width <= ATLAS_TILE && req.height <= ATLAS_TILE {
+                small.push(req);
+            } else if let Some(tile) = tiles.0.get(&(req.layer, req.key)) {
+                self.renderer.draw(
+                    &req.content,
+                    req.raster_transform(),
+                    Color::TRANSPARENT,
+                    &tile.texture,
+                )?;
+            }
+        }
+        if small.len() < 2 {
+            for req in small {
+                if let Some(tile) = tiles.0.get(&(req.layer, req.key)) {
+                    self.renderer.draw(
+                        &req.content,
+                        req.raster_transform(),
+                        Color::TRANSPARENT,
+                        &tile.texture,
+                    )?;
+                }
+            }
+            return Ok(());
+        }
+        // Shelf packing into atlas pages ATLAS_WIDTH wide, a pixel apart.
+        let mut pages: Vec<Vec<(&remedy_ui_compositor::TileRequest, [u32; 4])>> = vec![Vec::new()];
+        let (mut x, mut y, mut shelf) = (0u32, 0u32, 0u32);
+        for req in small {
+            if x + req.width > ATLAS_WIDTH {
+                x = 0;
+                y += shelf + 1;
+                shelf = 0;
+            }
+            if y + req.height > ATLAS_HEIGHT {
+                pages.push(Vec::new());
+                (x, y, shelf) = (0, 0, 0);
+            }
+            if let Some(page) = pages.last_mut() {
+                page.push((req, [x, y, req.width, req.height]));
+            }
+            x += req.width + 1;
+            shelf = shelf.max(req.height);
+        }
+        for page in pages.iter().filter(|p| !p.is_empty()) {
+            let height = page.iter().map(|(_, [_, y, _, h])| y + h).max().unwrap_or(1).max(1);
+            let width = page.iter().map(|(_, [x, _, w, _])| x + w).max().unwrap_or(1).max(1);
+            let atlas = match self.atlas.take() {
+                Some(a) if a.width() >= width && a.height() >= height => a,
+                _ => {
+                    self.renderer.create_target(ATLAS_WIDTH, height.next_power_of_two().min(ATLAS_HEIGHT))?
+                }
+            };
+            let jobs: Vec<(&remedy_ui_paint::DisplayList, Affine, [u32; 4])> =
+                page.iter().map(|(r, slot)| (&*r.content, r.raster_transform(), *slot)).collect();
+            self.renderer.draw_many(&jobs, &atlas)?;
+            let device = &self.renderer.context().device;
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("RemedyUI tile atlas"),
+            });
+            for (req, [x, y, w, h]) in page {
+                let Some(tile) = tiles.0.get(&(req.layer, req.key)) else { continue };
+                encoder.copy_texture_to_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &atlas,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d { x: *x, y: *y, z: 0 },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &tile.texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::Extent3d { width: *w, height: *h, depth_or_array_layers: 1 },
+                );
+            }
+            self.renderer.context().queue.submit([encoder.finish()]);
+            self.atlas = Some(atlas);
+        }
+        Ok(())
     }
 
     /// Presents into a new texture and reads it back (tests and snapshots).

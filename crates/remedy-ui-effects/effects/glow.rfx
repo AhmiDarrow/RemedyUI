@@ -1,0 +1,27 @@
+// Glow: a soft pool of light that breathes and flickers a little. Lantern halos, lamp pools,
+// screen glow, a speaker's light. Blend plus over the scene so pools add like light.
+effect glow(
+    color tint = #ffc46b,
+    vec2 center = (0.5, 0.5),
+    float radius = 0.35 in 0.01..2,
+    float intensity = 0.9 in 0..2,
+    float breathe = 0.15 in 0..1,
+    float period = 3.0 in 0.2..30,
+    float flicker = 0.1 in 0..1,
+) {
+    fps 24;
+    scale 0.25;
+    blend plus;
+
+    const pulse = 1.0 - breathe * (0.5 + 0.5 * cos(time * tau / period));
+    const flick = 1.0 - flicker * noise(vec2(time * 7.0, 3.1));
+
+    pass light {
+        let d = length((uv - center) * vec2(aspect, 1.0)) / radius;
+        // A bright core and a long, soft tail: two falloffs, like a lamp in haze.
+        let core = exp(-d * d * 4.0);
+        let tail = 1.0 / (1.0 + d * d * 6.0);
+        let k = (core * 0.6 + tail * 0.4) * intensity * pulse * flick;
+        out = vec4(tint.rgb, clamp(k, 0.0, 1.0) * tint.a);
+    }
+}

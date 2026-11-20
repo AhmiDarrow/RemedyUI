@@ -1,0 +1,32 @@
+// Lightning: now and then a jagged bolt cracks down with a flash of the sky, then fades. A
+// storm theme's drama; `every` sets the average seconds between strikes.
+effect lightning(
+    color bolt = #e9e6ff,
+    color flash = #8d93c9,
+    float every = 6.0 in 1..60,
+    float intensity = 1.0 in 0..2,
+) {
+    fps 30;
+    scale 0.5;
+    blend plus;
+
+    pass strike {
+        let n = floor(time / every);
+        let h = hash3(vec2(n, 3.0));
+        let t = time - n * every - h.x * every * 0.6;
+        // Bright at once, flickering out over half a second.
+        let life = step(0.0, t) * exp(-max(t, 0.0) * 7.0) * (0.6 + 0.4 * step(0.5, noise(vec2(t * 40.0, n))));
+        // The bolt: a line down from a random top point, jagged by two scales of noise.
+        let x0 = 0.15 + h.y * 0.7;
+        let y = uv.y;
+        let jag = (fbm(vec2(y * 6.0, n * 7.3), 4) - 0.5) * 0.35 + (noise(vec2(y * 40.0, n)) - 0.5) * 0.03;
+        let x = x0 + jag * y * 1.4;
+        let d = abs(uv.x - x) * aspect;
+        let reach = step(y, 0.55 + h.z * 0.45);
+        let core = exp(-d * 260.0) * reach;
+        let glow = exp(-d * 18.0) * reach * 0.5;
+        let sky = (1.0 - uv.y) * 0.35;
+        let rgb = bolt.rgb * (core + glow) + flash.rgb * sky;
+        out = vec4(rgb, clamp((core + glow + sky) * life * intensity, 0.0, 1.0));
+    }
+}

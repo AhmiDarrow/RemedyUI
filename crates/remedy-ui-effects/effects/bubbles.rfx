@@ -1,0 +1,18 @@
+// Bubbles: rings rising and wobbling, catching a highlight: aquariums, underwater scenes,
+// fizzy drinks, a terrarium's pond.
+effect bubbles(
+    color tint = #d6f6ff,
+    float amount = 1.0 in 0..1,
+    float size_px = 5.0 in 1..30,
+    float speed = 1.0 in 0.1..4,
+) {
+    fps 30;
+    scale 1.0;
+
+    particles rings (count: 70, life: 7.0, splat: ring, blend: normal) {
+        let x = rand(1.0) * size.x + sin(age * (2.0 + rand(2.0) * 2.0) + rand(3.0) * tau) * 6.0;
+        pos = vec2(x, size.y * (1.05 - progress * 1.2 * speed));
+        radius = size_px * (0.5 + rand(4.0)) * (0.8 + progress * 0.4);
+        color = vec4(tint.rgb, 0.7 * smoothstep(0.0, 0.05, progress) * step(rand(5.0), amount));
+    }
+}

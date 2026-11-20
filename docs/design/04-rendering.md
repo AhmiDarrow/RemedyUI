@@ -88,15 +88,25 @@ It is used where no GPU backend passes its self-test: no driver, OpenGL older th
 
 ## Effects and custom shaders
 
-- **Built in:**
-  - Gaussian blur and drop shadow on layers.
-  - Backdrop blur (frosted glass), with a downsample/upsample chain limited to the damaged region.
-  - Color matrix: grayscale, tint, saturation.
-  - Gradient masks and blend modes, including additive (`Blend::Plus`) for light that stacks.
-  - Ambient loops: endless transform and opacity motion a layer carries (`AmbientLoop`), run by
-    the compositor at the window's ambient rate ([09](09-performance-and-resources.md)).
-- **App shaders** can be added as WGSL fragment effects. They are validated by `naga` before use, get only the inputs the effect declares (its texture, size, time and uniform values), and cannot read other textures or buffers. An effect that fails validation, or takes too long on the GPU, is disabled with a logged reason and the element draws without it.
-- **Untrusted content** (a theme or a mod) cannot ship shaders unless the user turns that on.
+- **Prism** ([16](16-effects.md), reference [rfx.md](../effects/rfx.md)) is how anything
+  draws procedural, animated pictures: fire, water and caustics, glow and bloom, light shafts,
+  particles, starfields, grain, CRT screens, raymarched 3D. Effects are `.rfx` data compiled
+  against cost limits into programs for one fixed GPU kernel (an interpreter RemedyUI ships,
+  so nothing compiles after start-up and nothing from a theme reaches the GPU) or, with the
+  same results, the CPU interpreter. Blur and bloom are Prism passes over an effect's own
+  buffers.
+- **Display-list effects**: gradients, blend modes including additive (`Blend::Plus`) for
+  light that stacks, and soft shadows of rounded rectangles (`Item::Shadow`).
+- **Ambient loops**: endless transform and opacity motion a layer carries (`AmbientLoop`),
+  run by the compositor at the window's ambient rate ([09](09-performance-and-resources.md)).
+- **Not yet in code** (planned): filters on an element's own content (Gaussian blur and drop
+  shadow of any shape, backdrop blur, colour matrices). They need the compositor to hand a
+  rendered layer to a kernel; vello's filter effects are a candidate for blur and shadows.
+  Until then, Prism effects cover blur and bloom of their own content, and `stage::fx::blur`
+  blurs a picture once.
+- **App shaders**: apps that need their own GPU work render it with `gpu_view` (the app's
+  wgpu on RemedyUI's device, [15](15-widgets-and-media.md)). Raw WGSL is never accepted from
+  untrusted content (a theme or a mod); Prism is the language for that.
 
 ## Rendering to images and printing
 

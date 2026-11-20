@@ -1,0 +1,30 @@
+// Sparkles: four-pointed glints that flash on and off at random places: magic, snow in
+// sunlight, a reward, a selected card. Blend plus.
+effect sparkles(
+    color tint = #fffbe8,
+    float cell_px = 60.0 in 10..400,
+    float rate = 0.8 in 0.05..5,
+    float size_px = 9.0 in 2..40,
+    float intensity = 1.0 in 0..2,
+) {
+    fps 30;
+    scale 1.0;
+    blend plus;
+
+    pass glints {
+        let c = floor(px / cell_px);
+        let h = hash4(c);
+        let at = (c + vec2(0.2) + h.xy * 0.6) * cell_px;
+        let q = px - at;
+        let period = 1.0 / rate * (0.6 + h.z);
+        let phase = fract(time / period + h.w);
+        // A quick flash: rises and falls in the first third of the period.
+        let f = sin(clamp(phase * 3.0, 0.0, 1.0) * pi);
+        let s = size_px * (0.6 + h.z * 0.8) * f;
+        // A four-pointed star: thin crossed rays plus a round core.
+        let rays = exp(-abs(q.x) * 6.0 / max(s * 0.12, 0.1)) * exp(-abs(q.y) / max(s, 0.1))
+            + exp(-abs(q.y) * 6.0 / max(s * 0.12, 0.1)) * exp(-abs(q.x) / max(s, 0.1));
+        let core = exp(-length(q) / max(s * 0.18, 0.1));
+        out = vec4(tint.rgb, clamp((rays * 0.8 + core) * f * intensity, 0.0, 1.0));
+    }
+}

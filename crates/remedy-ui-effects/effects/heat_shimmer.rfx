@@ -1,0 +1,20 @@
+// Heat shimmer: a picture (bind it to `art`) wavering as if seen through rising hot air,
+// strongest at the bottom. Above a fire, a road in summer, an engine.
+effect heat_shimmer(
+    texture art,
+    float strength = 1.0 in 0..4,
+    float speed = 1.0 in 0..4,
+    float rise = 0.6 in 0..1,
+) {
+    fps 30;
+    scale 1.0;
+
+    pass shimmer {
+        let n = vec2(
+            fbm(vec2(px.x * 0.04, px.y * 0.02 + time * speed * 2.0), 3),
+            fbm(vec2(px.x * 0.04 + 9.0, px.y * 0.02 + time * speed * 2.6), 3)
+        ) - vec2(0.5);
+        let k = strength * mix(1.0, uv.y, rise) * 6.0;
+        out = sample(art, uv + n * k / size);
+    }
+}

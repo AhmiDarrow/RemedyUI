@@ -3978,6 +3978,7 @@ dependencies = [
 name = "remedy-ui"
 version = "1.0.0-rc.1"
 dependencies = [
+ "png",
  "remedy-ui",
  "remedy-ui-a11y",
  "remedy-ui-automation",
@@ -3995,6 +3996,7 @@ dependencies = [
  "remedy-ui-doc-code",
  "remedy-ui-doc-pages",
  "remedy-ui-doc-rich",
+ "remedy-ui-effects",
  "remedy-ui-embed-gpu",
  "remedy-ui-embed-webview",
  "remedy-ui-fonts",
@@ -4003,6 +4005,7 @@ dependencies = [
  "remedy-ui-layout",
  "remedy-ui-macros",
  "remedy-ui-media-anim",
+ "remedy-ui-media-effects",
  "remedy-ui-media-image",
  "remedy-ui-media-isolated",
  "remedy-ui-media-playback",
@@ -4305,6 +4308,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-effects"
+version = "1.0.0-rc.1"
+dependencies = [
+ "png",
+ "remedy-ui-core",
+ "remedy-ui-paint",
+]
+
+[[package]]
 name = "remedy-ui-embed-gpu"
 version = "1.0.0-rc.1"
 dependencies = [
@@ -4405,6 +4417,21 @@ dependencies = [
  "remedy-ui-style",
  "remedy-ui-text",
  "remedy-ui-themes",
+ "remedy-ui-view",
+]
+
+[[package]]
+name = "remedy-ui-media-effects"
+version = "1.0.0-rc.1"
+dependencies = [
+ "remedy-ui-compositor",
+ "remedy-ui-core",
+ "remedy-ui-effects",
+ "remedy-ui-paint",
+ "remedy-ui-render-cpu",
+ "remedy-ui-render-gpu",
+ "remedy-ui-style",
+ "remedy-ui-text",
  "remedy-ui-view",
 ]
 
@@ -4568,6 +4595,7 @@ dependencies = [
  "remedy-ui-bridge-winit",
  "remedy-ui-compositor",
  "remedy-ui-core",
+ "remedy-ui-effects",
  "remedy-ui-fonts",
  "remedy-ui-host",
  "remedy-ui-input",
