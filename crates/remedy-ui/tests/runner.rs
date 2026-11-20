@@ -894,6 +894,12 @@ fn content_pops_out_to_its_own_window_and_comes_back_with_its_state() {
         texts(&main_ui).iter().any(|t| t.contains("in its own window")),
         "the place it left says where it went"
     );
+    // In the window's language, which it follows as it changes.
+    main_ui.set_locale("de");
+    host.run_frames(&mut runner, 1);
+    let de = texts(&main_ui);
+    assert!(de.iter().any(|t| t.contains("ist in einem eigenen Fenster")), "{de:?}");
+    assert!(de.iter().any(|t| t == "Zurückholen"), "{de:?}");
     // Closing its window brings it back, state and all.
     let w = m.window().unwrap_or_else(|| unreachable!());
     w.close();

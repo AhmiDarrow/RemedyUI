@@ -543,7 +543,7 @@ fn the_flow_reads_its_step_and_announces_changes() {
     assert_eq!(f.root.info().and_then(|i| i.semantics).map(|s| s.live_state()), Some(Live::Polite));
     let status = find(&f.root, "label")
         .into_iter()
-        .find(|l| l.info().and_then(|i| i.text).is_some_and(|t| t.starts_with("Step 1 of")));
+        .find(|l| l.info().and_then(|i| i.text).is_some_and(|t| plain(t).starts_with("Step 1 of")));
     assert!(status.is_some(), "the step number is on screen too");
 }
 
@@ -566,4 +566,21 @@ fn custom_button_words_are_used() {
     assert_eq!(name_of(&button_named(&root, "Zur\u{fc}ck")), "Zur\u{fc}ck");
     click(&ui, center(&button_named(&root, "Weiter")));
     assert!(!hidden(&button_named(&root, "Fertig")));
+}
+
+#[test]
+fn the_carousel_and_the_flow_follow_the_window_language() {
+    let c = car(3, false, Some(Duration::from_secs(5)));
+    c.ui.set_locale("de");
+    let _ = frame(&c.ui);
+    assert_eq!(value_text(&c.root), "Seite 1 von 3");
+    let _ = button_named(&c.root, "Vorherige Seite");
+    let _ = button_named(&c.root, "Automatischen Seitenwechsel anhalten");
+
+    let f = flow();
+    f.ui.set_locale("de");
+    let _ = frame(&f.ui);
+    assert_eq!(value_text(&f.root), "Schritt 1 von 4: Welcome");
+    let _ = button_named(&f.root, "Weiter");
+    assert_eq!(StepperLabels::localized("fr-CA").next, "Suivant");
 }

@@ -30,15 +30,18 @@ pub mod motion;
 mod native;
 mod prop;
 mod select;
+pub mod strings;
 mod tokens;
 
-pub use ambient::{AmbientLoop, AmbientMode, AmbientPolicy, AmbientRate, AmbientTick, LoopMotion, TickKind, Wave};
+pub use ambient::{
+    AmbientLoop, AmbientMode, AmbientPolicy, AmbientRate, AmbientTick, LoopMotion, TickKind, Wave,
+};
 pub use client::TextInput;
 pub use decoration::{Decoration, DecorationKind};
 pub use dnd::Drag;
 pub use element::{
-    clear_paint_cache, rasterize, DirtyObserver, DirtyRecord, El, ElementInfo, InlineImage, PaintCx, PointerInterceptor, TextAntialias,
-    TextPaint, TextRendering, Ui, WeakUi,
+    DirtyObserver, DirtyRecord, El, ElementInfo, InlineImage, PaintCx, PointerInterceptor, TextAntialias,
+    TextPaint, TextRendering, Ui, WeakUi, WindowDirection, clear_paint_cache, rasterize,
 };
 pub use events::{Click, MenuKey, MenuKeyHandler, PointerInput};
 pub use field::{CodeColors, FieldKind, TextField};

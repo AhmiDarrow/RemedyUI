@@ -150,34 +150,52 @@ impl Default for ChordOptions {
     }
 }
 
-/// How a chord is said aloud: each string from the lowest, barres, and where the diagram starts.
+/// How a chord is said aloud in English: each string from the lowest, barres, and where the
+/// diagram starts ([`describe_chord_in`] for another language).
 pub fn describe_chord(chord: &ChordShape) -> String {
+    describe_chord_in(chord, "en")
+}
+
+/// How a chord is said aloud in `locale`: each string from the lowest, barres, and where the
+/// diagram starts.
+pub fn describe_chord_in(chord: &ChordShape, locale: &str) -> String {
+    use crate::say;
     let n = chord.strings.len();
     let mut parts: Vec<String> = Vec::new();
     for (i, s) in chord.strings.iter().enumerate() {
-        let number = n - i;
+        let string = ("string", (n - i).into());
         parts.push(match s {
-            StringState::Muted => format!("string {number} muted"),
-            StringState::Open => format!("string {number} open"),
-            StringState::Fretted { fret, finger: Some(f) } => {
-                format!("string {number} fret {fret} finger {f}")
+            StringState::Muted => say(locale, "chord-string-muted", &[string]),
+            StringState::Open => say(locale, "chord-string-open", &[string]),
+            StringState::Fretted { fret, finger: Some(f) } => say(
+                locale,
+                "chord-string-fret-finger",
+                &[string, ("fret", (*fret).into()), ("finger", u32::from(*f).into())],
+            ),
+            StringState::Fretted { fret, finger: None } => {
+                say(locale, "chord-string-fret", &[string, ("fret", (*fret).into())])
             }
-            StringState::Fretted { fret, finger: None } => format!("string {number} fret {fret}"),
         });
     }
     for b in &chord.barres {
-        let finger = b.finger.map(|f| format!(" with finger {f}")).unwrap_or_default();
-        parts.push(format!(
-            "barre at fret {} across strings {} to {}{finger}",
-            b.fret,
-            n.saturating_sub(b.from),
-            n.saturating_sub(b.to)
-        ));
+        let args = [
+            ("fret", b.fret.into()),
+            ("from", n.saturating_sub(b.from).into()),
+            ("to", n.saturating_sub(b.to).into()),
+        ];
+        parts.push(match b.finger {
+            Some(f) => {
+                let mut args = args.to_vec();
+                args.push(("finger", u32::from(f).into()));
+                say(locale, "chord-barre-finger", &args)
+            }
+            None => say(locale, "chord-barre", &args),
+        });
     }
     if chord.base_fret > 1 {
-        parts.push(format!("diagram starts at fret {}", chord.base_fret));
+        parts.push(say(locale, "chord-starts-at", &[("fret", chord.base_fret.into())]));
     }
-    parts.join(", ")
+    crate::list(locale, &parts)
 }
 
 /// The size of a diagram in logical pixels for a chord and options, with spacing from the
@@ -367,7 +385,7 @@ pub fn chord_diagram(
             );
         }
     });
-    let sem_el = el.clone();
+    let (sem_el, u) = (el.clone(), ui.clone());
     el.bind(move || {
         let ch = chord.get();
         let (w, h) = diagram_size(&ch, &options, unit);
@@ -375,10 +393,14 @@ pub fn chord_diagram(
             l.width = Length::Px(w);
             l.height = Length::Px(h);
         });
-        let name = ch.name.clone().map_or_else(|| label.clone(), |n| format!("{label}: {n}"));
+        let locale = u.locale();
+        let name = ch.name.clone().map_or_else(
+            || label.clone(),
+            |n| crate::say(&locale, "chord-named", &[("label", label.as_str().into()), ("name", n.into())]),
+        );
         let _ = sem_el
             .clone()
-            .semantics(Semantics::new(Role::Image).label(name).description(describe_chord(&ch)));
+            .semantics(Semantics::new(Role::Image).label(name).description(describe_chord_in(&ch, &locale)));
         sem_el.repaint();
     })
 }

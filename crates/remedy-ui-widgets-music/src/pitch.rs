@@ -171,18 +171,33 @@ impl Pitch {
         s
     }
 
-    /// The note as it is said: "C sharp 4", "B flat 2".
+    /// The note as it is said in English: "C sharp 4", "B flat 2" ([`Pitch::spoken_in`] for
+    /// another language).
     pub fn spoken(self) -> String {
-        let acc = match self.alter {
-            0 => "",
-            1 => " sharp",
-            2 => " double sharp",
-            -1 => " flat",
-            -2 => " double flat",
-            a if a > 0 => " sharp",
-            _ => " flat",
+        self.spoken_in("en")
+    }
+
+    /// The note as it is said in `locale` ("C sharp 4"; "Cis 4" in German, "do dièse 4" in
+    /// French).
+    pub fn spoken_in(self, locale: &str) -> String {
+        let accidental = match self.alter {
+            0 => "natural",
+            1 => "sharp",
+            2 => "double-sharp",
+            -1 => "flat",
+            -2 => "double-flat",
+            a if a > 0 => "sharp",
+            _ => "flat",
         };
-        format!("{}{} {}", self.step.letter(), acc, self.octave)
+        crate::say(
+            locale,
+            "pitch",
+            &[
+                ("letter", self.step.letter().to_string().into()),
+                ("accidental", accidental.into()),
+                ("octave", i32::from(self.octave).into()),
+            ],
+        )
     }
 }
 

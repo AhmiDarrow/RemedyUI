@@ -41,6 +41,11 @@ pub mod testing;
 #[doc = include_str!("../../../README.md")]
 struct ReadmeDoctests;
 
+/// The runner's own words (what the place of content popped out to its own window says) in
+/// every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language,
+/// with [`remedy_ui_view::strings::add_messages`] under the name `remedy-ui`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("remedy-ui");
+
 pub use geometry::{GEOMETRY_KEY, GeometryStore};
 #[cfg(feature = "widgets")]
 pub use movable::{Movable, movable};
@@ -48,7 +53,7 @@ pub use movable::{Movable, movable};
 pub use remedy_ui_core::Edition;
 pub use runner::{
     App, AppConfig, BackgroundJob, Cancelled, Completion, GPU_PROMOTE_FRAME_COST, GPU_PROMOTE_FRAME_STALL,
-    GraphicsAdapter, RendererChoice, RendererKind, Runner, Window, WindowSpec,
+    GraphicsAdapter, RendererChoice, RendererKind, Runner, Window, WindowSpec, bundled_fonts,
 };
 
 /// Semantics: roles, names, states and actions that screen readers, tests and agents read
@@ -157,7 +162,7 @@ pub use remedy_ui_view as view;
 /// closure for its content, so a retry builds it again) and [`suspense`] (a placeholder
 /// while resources load), with what they return and hand to callbacks.
 pub use remedy_ui_view::{CaughtError, Retry, Show, SuspenseBoundary, catch_errors, show, suspense};
-pub use remedy_ui_view::{El, FieldKind, PaintCx, TextField, Ui};
+pub use remedy_ui_view::{El, FieldKind, PaintCx, TextField, Ui, WindowDirection};
 #[cfg(feature = "viz")]
 pub use remedy_ui_viz as viz;
 #[cfg(feature = "board")]

@@ -25,7 +25,8 @@ pub struct RatingOptions {
     pub clearable: bool,
     /// The width of one star. `None` takes six theme units.
     pub star_size: Option<f32>,
-    /// What the value is called when read out, such as "stars" or "hearts".
+    /// What the value is called when read out, such as "stars" or "hearts". The default,
+    /// "stars", is read in the window's language; another unit is read as given.
     pub unit: String,
 }
 
@@ -75,7 +76,7 @@ impl Default for RatingOptions {
             read_only: false,
             clearable: true,
             star_size: None,
-            unit: "stars".into(),
+            unit: DEFAULT_UNIT.into(),
         }
     }
 }
@@ -105,8 +106,21 @@ fn snap(v: f32, max: u32, half: bool) -> f32 {
     ((v / step).round() * step).clamp(0.0, max as f32)
 }
 
-fn spoken(v: f32, max: u32, unit: &str) -> String {
-    if v.fract() == 0.0 { format!("{v:.0} of {max} {unit}") } else { format!("{v:.1} of {max} {unit}") }
+/// The English default [`RatingOptions::unit`], which reads in the window's language.
+const DEFAULT_UNIT: &str = "stars";
+
+/// "3 of 5 stars" in the window's language (tracked). The default unit has a message of its
+/// own, so the word takes the right plural form; an app's own unit goes in as it is.
+fn spoken(ui: &Ui, v: f32, max: u32, unit: &str) -> String {
+    // Whole values read whole, the rest with one decimal (2.5).
+    let v = f64::from((v * 10.0).round()) / 10.0;
+    let args = [("value", v.into()), ("max", max.into())];
+    if unit == DEFAULT_UNIT {
+        crate::STRINGS.format(ui, "rating-value-stars", &args)
+    } else {
+        let [a, b] = args;
+        crate::STRINGS.format(ui, "rating-value", &[a, b, ("unit", unit.into())])
+    }
 }
 
 /// A row of stars showing `value` (0 to `max`), which people can change with the pointer
@@ -163,12 +177,16 @@ pub fn rating(ui: &Ui, label: impl Into<String>, value: Signal<f32>, options: Ra
 
     let sem_el = el.clone();
     let unit = options.unit.clone();
+    let u = ui.clone();
     let l2 = label.clone();
     if ro {
         return el.bind(move || {
             let v = value.get().clamp(0.0, max as f32);
             let _ = sem_el.clone().semantics(
-                Semantics::new(Role::Image).label(l2.clone()).value(spoken(v, max, &unit)).read_only(true),
+                Semantics::new(Role::Image)
+                    .label(l2.clone())
+                    .value(spoken(&u, v, max, &unit))
+                    .read_only(true),
             );
             sem_el.repaint();
         });
@@ -249,7 +267,7 @@ pub fn rating(ui: &Ui, label: impl Into<String>, value: Signal<f32>, options: Ra
                 Semantics::new(Role::Slider)
                     .label(l2.clone())
                     .numeric(f64::from(v), 0.0, f64::from(max))
-                    .value(spoken(v, max, &unit))
+                    .value(spoken(&u, v, max, &unit))
                     .action(Action::Increment)
                     .action(Action::Decrement),
             );

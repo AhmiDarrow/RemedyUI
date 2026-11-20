@@ -166,9 +166,11 @@ pub fn code_view(ui: &Ui, label: impl Into<String>, source: Signal<String>, opti
                 let toggle = match &line.fold {
                     Some(_) => {
                         let n = line.number - 1;
-                        let label = if line.folded { "Unfold" } else { "Fold" };
+                        let id = if line.folded { "code-unfold-line" } else { "code-fold-line" };
                         let icon = if line.folded { w::Icon::ChevronRight } else { w::Icon::ChevronDown };
-                        w::icon_button(&ui, icon, format!("{label} line {}", line.number), move || {
+                        let (u, number) = (ui.clone(), line.number);
+                        let label = move || crate::STRINGS.format(&u, id, &[("line", number.into())]);
+                        w::icon_button(&ui, icon, label, move || {
                             folded.update(|f| {
                                 if !f.remove(&n) {
                                     f.insert(n);
@@ -230,9 +232,9 @@ pub fn diff_view(ui: &Ui, label: impl Into<String>, old: &str, new: &str, langua
         move |_, (a, b, line): &DiffRow| {
             let unit = ui.theme().spacing.unit;
             let (variant, said) = match line.mark {
-                Some('+') => ("added", "Added"),
-                Some('-') => ("removed", "Removed"),
-                _ => ("", "Unchanged"),
+                Some('+') => ("added", "code-diff-added"),
+                Some('-') => ("removed", "code-diff-removed"),
+                _ => ("", "code-diff-unchanged"),
             };
             let mark = line.mark.map_or_else(|| " ".to_owned(), |c| c.to_string());
             let text = ui.el("code_text").text(line.text.clone()).selectable(true).data_text().nowrap();
@@ -245,11 +247,14 @@ pub fn diff_view(ui: &Ui, label: impl Into<String>, old: &str, new: &str, langua
                 .child(gutter(&ui, *b, digits))
                 .child(ui.el("code_mark").text(RichText::plain(mark)).nowrap())
                 .child(text)
-                .semantics(
-                    Semantics::new(Role::ListItem)
-                        .label(format!("{said}: {}", line.text.as_str()))
-                        .action(Action::Focus),
-                )
+                .semantics({
+                    let (u, code) = (ui.clone(), line.text.as_str().to_owned());
+                    move || {
+                        Semantics::new(Role::ListItem)
+                            .label(crate::STRINGS.format(&u, said, &[("text", code.as_str().into())]))
+                            .action(Action::Focus)
+                    }
+                })
         }
     });
     ui.el("code_view").column().fill_width().grow(1.0).child(list)

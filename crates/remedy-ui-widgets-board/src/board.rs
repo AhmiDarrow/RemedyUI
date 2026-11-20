@@ -575,29 +575,46 @@ fn area_label(
     }
 }
 
+/// What a panel was built for: the selection, in which words.
+type PanelFor = (Option<Selection>, BoardLabels);
+
+/// The context and registry a board built in `ui` speaks with: the context's words, or
+/// the window's language where they are left at their default (the locale is read tracked,
+/// so the binding that calls this builds again when it changes), and the registry's
+/// plain built-in kinds in those words.
+fn speaking(ui: &Ui, cx: &Context, registry: &Rc<Registry>) -> (Context, Rc<Registry>) {
+    let mut cx = cx.clone();
+    cx.labels = cx.labels.for_window(ui);
+    let registry = registry.speaking(&cx.labels).map_or_else(|| registry.clone(), Rc::new);
+    (cx, registry)
+}
+
 /// The editing panel of the board `state`: undo and redo, adding areas and widgets, and
 /// the selected area's place and title or the selected widget's settings. [`board`] shows
 /// it beside the grid ([`Panel::Beside`]); with [`Panel::Off`] an app shows it where it
 /// likes, such as one panel for the board being arranged among several on a page. Its
-/// words are `cx.labels`, and picture settings use `cx.picture` and `cx.choose_picture`.
+/// words are `cx.labels` (the window's language when left at their default), and picture
+/// settings use `cx.picture` and `cx.choose_picture`.
 pub fn board_panel(ui: &Ui, state: &BoardState, registry: Rc<Registry>, cx: &Context) -> El {
-    *state.words.borrow_mut() = cx.labels.clone();
     let unit = ui.theme().spacing.unit;
     let body = w::column(ui).gap(unit * 3.0).fill_width();
     let (b2, u2, st, reg, cx) = (body.clone(), ui.clone(), state.clone(), registry, cx.clone());
     let (sel, doc, opts) = (state.selected, state.doc, state.options);
     // What the panel was last built for: it keeps its fields while its own editors type.
-    let shown: Rc<RefCell<Option<Option<Selection>>>> = Rc::default();
+    let shown: Rc<RefCell<Option<PanelFor>>> = Rc::default();
     body.bind(move || {
         let selected = sel.get();
         let board = doc.get();
         let options = opts.get();
+        let (cx, reg) = speaking(&u2, &cx, &reg);
         untrack(|| {
+            st.words.borrow_mut().clone_from(&cx.labels);
             let made = st.panel_made.borrow_mut().take();
-            if made.as_ref() == Some(&board) && shown.borrow().as_ref() == Some(&selected) {
+            let now = (selected.clone(), cx.labels.clone());
+            if made.as_ref() == Some(&board) && shown.borrow().as_ref() == Some(&now) {
                 return;
             }
-            *shown.borrow_mut() = Some(selected.clone());
+            *shown.borrow_mut() = Some(now);
             b2.clear();
             build_panel(&u2, &b2, &st, &reg, &cx, &board, selected.as_ref(), &options);
             if let Some(el) = st.focus_el.borrow_mut().take() {
@@ -940,9 +957,9 @@ fn swap(b: &Board, one: &str, other: &str) -> Result<Board, BoardError> {
 }
 
 /// A board: its areas and widgets, editable while `state.editing` is on, with its panel
-/// beside it unless [`BoardOptions::panel`] says otherwise. Its words are `cx.labels`.
+/// beside it unless [`BoardOptions::panel`] says otherwise. Its words are `cx.labels`, or,
+/// left at their default, the window's language, following the locale as it changes.
 pub fn board(ui: &Ui, state: &BoardState, registry: Rc<Registry>, cx: Context) -> El {
-    *state.words.borrow_mut() = cx.labels.clone();
     let unit = ui.theme().spacing.unit;
     let grid = ui.el("board").fill_width();
     let (g2, u2, st, reg, cx2) = (grid.clone(), ui.clone(), state.clone(), registry.clone(), cx.clone());
@@ -951,7 +968,9 @@ pub fn board(ui: &Ui, state: &BoardState, registry: Rc<Registry>, cx: Context) -
         let b = doc.get();
         let edit = editing.get();
         let options = opts.get();
+        let (cx2, reg) = speaking(&u2, &cx2, &reg);
         untrack(|| {
+            st.words.borrow_mut().clone_from(&cx2.labels);
             // Keyboard focus inside the board comes back to the selected item after the rebuild.
             let focused_inside = u2.tree().focused().is_some_and(|f| {
                 let mut cur = Some(u2.element(f));

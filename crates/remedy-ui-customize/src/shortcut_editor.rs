@@ -5,13 +5,14 @@
 use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_input::{Chord, Clash};
 use remedy_ui_reactive::{Memo, Signal, untrack};
+use remedy_ui_view::strings::StrArg;
 use remedy_ui_view::{Align, El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 use remedy_ui_widgets_forms::key_capture;
 use remedy_ui_widgets_nav::{Commands, fuzzy_score};
 
-use crate::theme_editor::reset_button;
-use crate::{Customizations, CustomizeError};
+use crate::theme_editor::{reset_button, search, status_line, words};
+use crate::{Customizations, CustomizeError, clauses_in, list_in, locale_of, tr_in, tr_now, trf};
 
 /// A shortcut the person recorded that other commands already answer to.
 #[derive(Clone, Debug, PartialEq)]
@@ -26,20 +27,23 @@ fn label_of(cmds: &Commands, id: &str) -> String {
     untrack(|| cmds.info(id)).map_or_else(|| id.to_owned(), |i| i.label)
 }
 
-/// What a change that could not be made says.
+/// What a change that could not be made says, in the window's locale.
 fn explain(ui: &Ui, cmds: &Commands, e: &CustomizeError) -> String {
+    let locale = locale_of(ui);
     match e {
         CustomizeError::Clashes(list) => {
             let parts: Vec<String> = list
                 .iter()
                 .map(|c| {
                     let who: Vec<String> = c.commands.iter().map(|id| label_of(cmds, id)).collect();
-                    format!("{} already runs {}", c.chord.label(ui.platform()), who.join(" and "))
+                    let chord = ("chord", c.chord.label(ui.platform()).into());
+                    let commands = ("commands", list_in(&locale, &who).into());
+                    tr_in(&locale, "shortcut-already-runs", &[chord, commands])
                 })
                 .collect();
-            parts.join("; ")
+            clauses_in(&locale, &parts)
         }
-        other => other.to_string(),
+        other => other.message_in(&locale),
     }
 }
 
@@ -62,18 +66,24 @@ fn command_row(
         untrack(|| {
             ch2.clear();
             if chords.is_empty() {
-                let _ = ch2.clone().child(w::text(&u, "No shortcut").variant("muted"));
+                let _ = ch2.clone().child(w::text(&u, words(&u, "no-shortcut")).variant("muted"));
             }
             for chord in chords {
                 let shown = chord.label(u.platform());
                 let (c3, u3, id3, cmds3) = (c2.clone(), u.clone(), id2.clone(), cmds2.clone());
-                let remove =
-                    w::icon_button(&u, Icon::Close, format!("Remove {shown} from {l2}"), move || {
-                        if let Err(e) = c3.remove_shortcut(&u3, &id3, &chord) {
-                            status.set(explain(&u3, &cmds3, &e));
-                        }
-                    })
-                    .variant("quiet");
+                let name = {
+                    let (u, shown, label) = (u.clone(), shown.clone(), l2.clone());
+                    move || {
+                        let args = [("chord", shown.as_str().into()), ("command", label.as_str().into())];
+                        trf(&u, "shortcut-remove-named", &args)
+                    }
+                };
+                let remove = w::icon_button(&u, Icon::Close, name, move || {
+                    if let Err(e) = c3.remove_shortcut(&u3, &id3, &chord) {
+                        status.set(explain(&u3, &cmds3, &e));
+                    }
+                })
+                .variant("quiet");
                 let chip = w::row(&u)
                     .align(Align::Center)
                     .gap(unit / 2.0)
@@ -85,14 +95,18 @@ fn command_row(
     });
     // Recording a new one.
     let recorded: Signal<Option<Chord>> = Signal::new(None);
-    let capture = key_capture(ui, format!("Add a shortcut to {label}"), recorded);
+    let capture =
+        key_capture(ui, tr_now(ui, "shortcut-add-named", &[("command", label.as_str().into())]), recorded);
     let (c4, u4, id4, l4, cmds4) = (c.clone(), ui.clone(), id.to_owned(), label.clone(), cmds.clone());
     let capture = capture.width(unit * 40.0).bind(move || {
         let Some(chord) = recorded.get() else { return };
         untrack(|| {
             recorded.set(None);
             match c4.add_shortcut(&u4, &id4, chord.clone(), false) {
-                Ok(()) => status.set(format!("{} now runs {l4}", chord.label(u4.platform()))),
+                Ok(()) => {
+                    let chord = ("chord", chord.label(u4.platform()).into());
+                    status.set(tr_now(&u4, "shortcut-now-runs", &[chord, ("command", l4.as_str().into())]));
+                }
                 Err(CustomizeError::Clashes(clashes)) => {
                     pending.set(Some(Pending { id: id4.clone(), label: l4.clone(), chord, clashes }))
                 }
@@ -102,9 +116,13 @@ fn command_row(
     });
     let (c5, id5, c6, u6, id6, cmds6) =
         (c.clone(), id.to_owned(), c.clone(), ui.clone(), id.to_owned(), cmds.clone());
+    let reset_name = {
+        let (u, label) = (ui.clone(), label.clone());
+        move || trf(&u, "reset-shortcuts-named", &[("command", label.as_str().into())])
+    };
     let reset = reset_button(
         ui,
-        &format!("shortcuts for {label}"),
+        reset_name,
         move || c5.is_rebound(&id5),
         move || {
             if let Err(e) = c6.reset_shortcut(&u6, &id6) {
@@ -141,24 +159,34 @@ fn clash_panel(
     let (p2, u, c2, cmds2) = (panel.clone(), ui.clone(), c.clone(), cmds.clone());
     panel.bind(move || {
         let p = pending.get();
+        // The words in the window's locale (tracked: the panel follows it).
+        let locale = u.locale();
         untrack(|| {
             p2.clear();
             let Some(p) = p else { return };
             let shown = p.chord.label(u.platform());
             let others: Vec<String> =
                 p.clashes.iter().flat_map(|cl| cl.commands.iter()).map(|id| label_of(&cmds2, id)).collect();
-            let others = others.join(" and ");
-            let message = format!("{shown} already runs {others}.");
+            let others = list_in(&locale, &others);
+            let chord: (&str, StrArg) = ("chord", shown.as_str().into());
+            let commands = ("commands", StrArg::from(others.as_str()));
+            let message = tr_in(&locale, "shortcut-clash", &[chord.clone(), commands]);
+            let take_label = tr_in(&locale, "shortcut-take", &[chord, ("command", p.label.as_str().into())]);
+            let keep_label = tr_in(&locale, "shortcut-keep", &[("commands", others.as_str().into())]);
             let (c3, u3, p3, cmds3) = (c2.clone(), u.clone(), p.clone(), cmds2.clone());
-            let take = w::button(&u, format!("Use {shown} for {}", p.label), move || {
+            let take = w::button(&u, take_label, move || {
                 pending.set(None);
                 match c3.add_shortcut(&u3, &p3.id, p3.chord.clone(), true) {
-                    Ok(()) => status.set(format!("{} now runs {}", p3.chord.label(u3.platform()), p3.label)),
+                    Ok(()) => {
+                        let chord = ("chord", p3.chord.label(u3.platform()).into());
+                        let command = ("command", p3.label.as_str().into());
+                        status.set(tr_now(&u3, "shortcut-now-runs", &[chord, command]));
+                    }
                     Err(e) => status.set(explain(&u3, &cmds3, &e)),
                 }
             })
             .variant("primary");
-            let keep = w::button(&u, format!("Keep it for {others}"), move || pending.set(None));
+            let keep = w::button(&u, keep_label, move || pending.set(None));
             let box_ = w::column(&u)
                 .gap(unit)
                 .fill_width()
@@ -179,18 +207,17 @@ fn clash_panel(
 pub fn shortcut_editor(ui: &Ui, c: &Customizations) -> El {
     let unit = ui.theme().spacing.unit;
     let Some(cmds) = c.commands() else {
-        return w::empty_state(
-            ui,
-            "Shortcut customization is off",
-            "This app does not let its shortcuts be changed.",
-        );
+        return w::empty_state(ui, words(ui, "shortcuts-off"), words(ui, "shortcuts-off-hint"));
     };
     let query = Signal::new(String::new());
     let pending: Signal<Option<Pending>> = Signal::new(None);
     let status = Signal::new(String::new());
-    let search = w::search(ui, "Search commands", move |q| query.set(q));
-    let list =
-        w::column(ui).gap(unit * 2.0).fill_width().semantics(Semantics::new(Role::List).label("Commands"));
+    let search = search(ui, words(ui, "search-commands"), move |q| query.set(q));
+    let list_name = words(ui, "commands");
+    let list = w::column(ui)
+        .gap(unit * 2.0)
+        .fill_width()
+        .semantics(move || Semantics::new(Role::List).label(list_name()));
     // The commands listed: rows are rebuilt only when these change, so a row keeps its
     // focus and its own bindings while shortcuts change.
     let cmds1 = cmds.clone();
@@ -216,7 +243,7 @@ pub fn shortcut_editor(ui: &Ui, c: &Customizations) -> El {
         untrack(|| {
             l2.clear();
             if ids.is_empty() {
-                let _ = l2.clone().child(w::text(&u, "No matching command").variant("muted"));
+                let _ = l2.clone().child(w::text(&u, words(&u, "no-matching-command")).variant("muted"));
             }
             for id in &ids {
                 let _ = l2.clone().child(command_row(&u, &c2, &cmds2, id, pending, status));
@@ -226,7 +253,7 @@ pub fn shortcut_editor(ui: &Ui, c: &Customizations) -> El {
     let (c3, u3, cmds3, c4) = (c.clone(), ui.clone(), cmds.clone(), c.clone());
     let reset_all = reset_button(
         ui,
-        "all shortcuts",
+        words(ui, "reset-all-shortcuts"),
         move || !c4.commands().is_some_and(|k| k.bindings().is_empty()),
         move || {
             if let Err(e) = c3.reset_shortcuts(&u3) {
@@ -234,15 +261,13 @@ pub fn shortcut_editor(ui: &Ui, c: &Customizations) -> El {
             }
         },
     );
-    let status_line = w::text(ui, "")
-        .variant("muted")
-        .text(move || status.get())
-        .semantics(move || Semantics::new(Role::Status).label("Shortcut status").value(status.get()));
+    let status_line = status_line(ui, "shortcut-status", status);
+    let group = words(ui, "shortcut-editor");
     w::column(ui)
         .gap(unit * 3.0)
         .fill_width()
-        .semantics(Semantics::new(Role::Group).label("Shortcut editor"))
-        .child(w::heading(ui, 2, "Shortcuts"))
+        .semantics(move || Semantics::new(Role::Group).label(group()))
+        .child(w::heading(ui, 2, words(ui, "area-shortcuts")))
         .child(search)
         .child(clash_panel(ui, c, &cmds, pending, status))
         .child(list)

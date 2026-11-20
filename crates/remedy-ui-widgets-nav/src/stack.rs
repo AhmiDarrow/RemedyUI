@@ -68,7 +68,7 @@ impl NavStack {
             root: root.clone(),
         }));
         let m1 = me.clone();
-        let back = w::icon_button(ui, Icon::ChevronLeft, "Back", move || {
+        let back = w::icon_button(ui, Icon::ChevronLeft, crate::tr_fn(ui, "stack-back"), move || {
             m1.pop();
         });
         let b2 = back.clone();
@@ -95,7 +95,7 @@ impl NavStack {
                 }
                 false
             })
-            .keyboard_alternative("Alt+Left goes back");
+            .keyboard_alternative(crate::tr_fn(ui, "stack-back-keys"));
         me
     }
 

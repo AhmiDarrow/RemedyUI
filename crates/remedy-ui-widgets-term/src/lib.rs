@@ -12,6 +12,11 @@
 //!
 //! Layer 5: built only from public engine APIs and `widgets-core`.
 
+/// The terminal's own words (its default screen reader name, keyboard hints) in every
+/// language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
+/// [`remedy_ui_view::strings::add_messages`] under the name `widgets-term`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("widgets-term");
+
 mod boxdraw;
 mod cell;
 mod keys;

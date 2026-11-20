@@ -25,6 +25,68 @@ use crate::geometry::{GeometryStore, data_dir};
 /// How long window moves and resizes settle before geometry is written.
 const GEOMETRY_SAVE_DELAY: Duration = Duration::from_millis(400);
 
+/// The bundled faces, read once per process and shared by every window.
+fn bundled_faces() -> &'static [FontFile] {
+    static FACES: std::sync::OnceLock<Vec<FontFile>> = std::sync::OnceLock::new();
+    FACES.get_or_init(|| {
+        remedy_ui_fonts::all().into_iter().filter_map(|f| FontFile::new(f.data).ok()).collect()
+    })
+}
+
+/// The Chinese and Japanese faces, unpacked from WOFF2 once per process (a quarter of a
+/// second): on demand, when a window first shows such text, or ahead of time on a
+/// background thread when the app starts in Chinese or Japanese ([`warm_fonts_for`]).
+#[cfg(feature = "script-fonts")]
+fn cjk_faces() -> &'static [FontFile] {
+    static FACES: std::sync::OnceLock<Vec<FontFile>> = std::sync::OnceLock::new();
+    FACES.get_or_init(|| {
+        remedy_ui_fonts_cjk::all().into_iter().filter_map(|f| FontFile::new(f.data).ok()).collect()
+    })
+}
+
+/// Starts unpacking the faces `locale` needs on a background thread, so its first window
+/// finds them ready.
+fn warm_fonts_for(locale: &str) {
+    #[cfg(feature = "script-fonts")]
+    {
+        let lang = locale.split(['-', '_']).next().unwrap_or_default();
+        if matches!(lang, "zh" | "ja") && remedy_ui_core::exec::threads() {
+            let _ = std::thread::Builder::new().name("remedy-fonts".into()).spawn(|| {
+                let _ = cjk_faces();
+            });
+        }
+    }
+    #[cfg(not(feature = "script-fonts"))]
+    let _ = locale;
+}
+
+/// The fonts every window starts with ([`AppConfig::fonts`] by default): the bundled faces,
+/// with the script faces as fallbacks for their scripts (Arabic, Devanagari and Bengali;
+/// Chinese and Japanese by language, loaded when text first needs them), and the system's
+/// fonts after them with `system-fonts`.
+pub fn bundled_fonts() -> FontCollection {
+    #[cfg(feature = "system-fonts")]
+    let mut f = FontCollection::with_system_fonts();
+    #[cfg(not(feature = "system-fonts"))]
+    let mut f = FontCollection::new();
+    for file in bundled_faces() {
+        let _ = f.add_file(file);
+    }
+    for fb in remedy_ui_fonts::script_fallbacks() {
+        let _ = f.add_script_fallback(fb.script, fb.locale, fb.family);
+    }
+    #[cfg(feature = "script-fonts")]
+    {
+        let cjk = remedy_ui_fonts_cjk::script_fallbacks();
+        f.add_on_demand(
+            remedy_ui_fonts_cjk::needs,
+            || cjk_faces().to_vec(),
+            cjk.iter().map(|fb| (fb.script, fb.locale, fb.family)),
+        );
+    }
+    f
+}
+
 /// App-wide settings.
 #[derive(Clone)]
 #[non_exhaustive]
@@ -81,16 +143,7 @@ impl AppConfig {
             name: name.into(),
             theme,
             sheet,
-            fonts: Rc::new(|| {
-                #[cfg(feature = "system-fonts")]
-                let mut f = FontCollection::with_system_fonts();
-                #[cfg(not(feature = "system-fonts"))]
-                let mut f = FontCollection::new();
-                for face in remedy_ui_fonts::all() {
-                    let _ = f.add_static(face.data);
-                }
-                f
-            }),
+            fonts: Rc::new(bundled_fonts),
             renderer: RendererChoice::Auto,
             vsync: true,
             single_instance: false,
@@ -543,6 +596,7 @@ enum Cmd {
     ClearSecret,
     Theme(Box<Theme>),
     Locale(Option<String>),
+    Direction(remedy_ui_view::WindowDirection),
     Idle(Option<Duration>, Option<Rc<dyn Fn()>>),
     Forget(String),
     Tray(Option<TrayIcon>),
@@ -795,6 +849,14 @@ impl App {
     /// setting: the choice outlasts the system's settings changes.
     pub fn set_locale(&self, locale: Option<String>) {
         self.push(Cmd::Locale(locale));
+    }
+
+    /// Lays every window (and windows opened later) out the way `direction` says: from each
+    /// window's locale ([`WindowDirection::Locale`](remedy_ui_view::WindowDirection), the
+    /// default), or always left to right or right to left, for an app setting that lets
+    /// people choose. A window can still choose its own with [`Ui::set_direction`].
+    pub fn set_direction(&self, direction: remedy_ui_view::WindowDirection) {
+        self.push(Cmd::Direction(direction));
     }
 
     /// The language the app shows (BCP 47): its own ([`App::set_locale`]) or the system's;
@@ -1645,6 +1707,8 @@ pub struct Runner {
     settings: SystemSettings,
     /// The app's own locale, in place of the system's.
     locale: Option<String>,
+    /// Where every window's layout direction comes from ([`App::set_direction`]).
+    direction: remedy_ui_view::WindowDirection,
     idle: Option<(remedy_ui_secure::IdleTimer, Rc<dyn Fn()>)>,
     activity_reported: Option<Duration>,
     idle_timer: Option<TimerId>,
@@ -1677,6 +1741,14 @@ impl std::fmt::Debug for Runner {
 impl Runner {
     /// A runner for `config`; `setup` runs when the host is ready.
     pub fn new(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Self {
+        // The engine's own messages write numbers the locale's way (Arabic-Indic digits in
+        // Arabic, a comma for decimals in German), from the same data the app's do.
+        #[cfg(feature = "i18n")]
+        remedy_ui_view::strings::set_number_format(Some(std::rc::Rc::new(|locale, value, places| {
+            let max = places.map_or(remedy_ui_services_i18n::MAX_SCALE, |p| p.min(28) as u8);
+            let d = remedy_ui_services_i18n::Decimal::from_f64(value, max)?;
+            Some(remedy_ui_services_i18n::NumberSymbols::for_locale(locale).format(d, d.scale()))
+        })));
         let geometry = config
             .data_dir
             .clone()
@@ -1720,6 +1792,7 @@ impl Runner {
             save_timer: None,
             settings: SystemSettings::default(),
             locale: None,
+            direction: remedy_ui_view::WindowDirection::Locale,
             idle: None,
             activity_reported: None,
             idle_timer: None,
@@ -1794,6 +1867,8 @@ impl Runner {
                 if spec.options.capture_protected && host.set_capture_protected(id, true).is_ok() {
                     self.app.0.borrow_mut().protected.insert(key);
                 }
+                // A window in Chinese or Japanese needs its faces from its first frame.
+                warm_fonts_for(self.locale.as_deref().unwrap_or(&self.settings.locale));
                 let ui = Ui::new(
                     self.config.theme.clone(),
                     (self.config.sheet)(&self.config.theme),
@@ -1801,6 +1876,7 @@ impl Runner {
                 );
                 ui.set_edition(self.config.edition);
                 ui.set_platform(self.settings.platform);
+                ui.set_direction(self.direction);
                 ui.set_locale(self.locale.clone().unwrap_or_else(|| self.settings.locale.clone()));
                 ui.set_double_click_time(self.settings.double_click);
                 ui.set_local_time(host.local_time());
@@ -1990,6 +2066,13 @@ impl Runner {
                     host.request_frame(w.host);
                 }
                 self.publish_locale();
+            }
+            Cmd::Direction(direction) => {
+                self.direction = direction;
+                for w in self.wins.values() {
+                    w.ui.set_direction(direction);
+                    host.request_frame(w.host);
+                }
             }
             Cmd::Theme(theme) => {
                 let theme = *theme;

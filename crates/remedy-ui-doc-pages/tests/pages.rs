@@ -435,3 +435,22 @@ fn thumbnails_and_page_view_size_themselves_inside_plain_containers() {
     assert!((rb.height() - rest).abs() < 0.5, "the rail fills the height it is given: {}", rb.height());
     assert!((pb.height() - rest).abs() < 0.5, "the page view fills the height it is given: {}", pb.height());
 }
+
+#[test]
+fn the_vertical_scroll_bar_sits_on_the_end_side() {
+    // The page viewer's own scroll bars: the thumb starts at the top of its track.
+    let mut w = Win::new(doc(40), WINDOW);
+    assert!(w.settle(LONG));
+    let ltr = snapshot(&w);
+    let thumb = |f: &Frame, x: u32| f.pixel(x, 20).unwrap_or([0; 4]);
+    let right_ltr = thumb(&ltr, 795);
+    let left_ltr = thumb(&ltr, 5);
+    assert_ne!(right_ltr, left_ltr, "left to right, the thumb is at the right edge");
+    w.ui.set_locale("ar");
+    w.frame();
+    w.frame();
+    assert!(w.settle(LONG));
+    let rtl = snapshot(&w);
+    assert_eq!(thumb(&rtl, 5), right_ltr, "right to left, the same thumb at the left edge");
+    assert_eq!(thumb(&rtl, 795), left_ltr);
+}

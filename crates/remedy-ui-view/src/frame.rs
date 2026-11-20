@@ -268,6 +268,7 @@ struct Builder {
     id: LayerId,
     bounds: Rect,
     scroll: Option<Size>,
+    origin: Vec2,
     follow: Option<remedy_ui_compositor::ScrollFollow>,
     list: DisplayList,
     /// Push items open in `list`, re-opened when a segment starts.
@@ -282,6 +283,7 @@ impl Builder {
             id,
             bounds,
             scroll: None,
+            origin: Vec2::ZERO,
             follow: None,
             list: DisplayList::new(),
             open: Vec::new(),
@@ -347,6 +349,7 @@ impl Builder {
         layer.children = self.children.into_iter().map(Arc::new).collect();
         if let Some(c) = self.scroll {
             layer = layer.scrolling(c);
+            layer.scroll_origin = self.origin;
         }
         layer.scroll_follow = self.follow;
         layer
@@ -453,18 +456,26 @@ impl Walk<'_> {
             b.split(self.state);
             let (viewport, content_id) = scroll_ids(id);
             let content = kids.iter().filter_map(|k| self.rects.get(k)).fold(local, |u, r| u.union(*r));
-            let width = if d.scroll_x { content.max.x.max(rect.width()) } else { rect.width() };
+            let lead = d.scroll_lead;
+            let width = if d.scroll_x { content.max.x.max(rect.width()) + lead } else { rect.width() };
             let content_size = Size::new(width, content.max.y.max(rect.height()));
             let mut vb = Builder::new(viewport, Rect::from_origin_size(at, rect.size()));
             vb.scroll = Some(content_size);
+            vb.origin = Vec2::new(lead, 0.0);
             vb.follow = d.scroll_follow.map(|(leader, x, y)| remedy_ui_compositor::ScrollFollow {
                 leader: scroll_ids(leader).0,
                 x,
                 y,
             });
             let mut cb = Builder::new(content_id, Rect::from_origin_size(Point::ZERO, content_size));
+            if lead > 0.0 {
+                cb.push(Item::PushTransform(Affine::translate(Vec2::new(lead, 0.0))));
+            }
             for k in kids {
-                self.element(&mut cb, k, Point::ZERO);
+                self.element(&mut cb, k, Point::new(lead, 0.0));
+            }
+            if lead > 0.0 {
+                cb.pop(Item::PopTransform);
             }
             vb.children.push(cb.finish_into(self.state));
             let layer = vb.finish_into(self.state);
@@ -703,8 +714,30 @@ impl Ui {
             if i.frame.bounds_stale {
                 let _ = i.tree.set_bounds(id, Rect::from_origin_size(abs, r.size()));
             }
-            let child_scroll =
+            let mut child_scroll =
                 if d.scroll { i.scroll_offsets.get(&id).copied().unwrap_or(Vec2::ZERO) } else { Vec2::ZERO };
+            // Right to left, sideways-scrolling content starts at the right and overflows to
+            // the left: the compositor's offsets count from its far left edge, so the start
+            // shows at an offset as large as the overflow.
+            if d.scroll {
+                let lead = if d.scroll_x && i.layout.is_rtl(d.node) {
+                    i.tree
+                        .children(id)
+                        .iter()
+                        .filter_map(|k| i.els.get(k).and_then(|c| i.layout.rect(c.node)))
+                        .fold(0.0f32, |m, r| m.max(-r.min.x))
+                } else {
+                    0.0
+                };
+                child_scroll.x -= lead;
+                if (d.scroll_lead - lead).abs() > 0.01 {
+                    if let Some(dm) = i.els.get_mut(&id) {
+                        dm.scroll_lead = lead;
+                    }
+                    i.layers_changed = true;
+                    i.frame.bounds_stale = true;
+                }
+            }
             for k in i.tree.children(id).into_iter().rev() {
                 stack.push((k, abs, child_scroll));
             }

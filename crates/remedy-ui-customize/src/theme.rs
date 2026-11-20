@@ -10,7 +10,7 @@ use remedy_ui_style::{Density, Theme};
 use remedy_ui_view::Ui;
 use serde_json::{Map, Value, json};
 
-use crate::{Area, Customizations, CustomizeError, Notice, files};
+use crate::{Area, Customizations, CustomizeError, Notice, Words, files, locale_of, tr_in, tr_now};
 
 /// The theme file's name in the config folder.
 pub(crate) const THEME_FILE: &str = "theme.json";
@@ -63,7 +63,8 @@ pub enum TokenValue {
     File(String),
 }
 
-/// The color roles every theme has, by token key, with what people call them.
+/// The color roles every theme has, by token key, with what people call them (in English;
+/// [`Token::localized_label`] says it in the window's language).
 pub const COLOR_ROLES: &[(&str, &str)] = &[
     ("bg", "Background"),
     ("panel", "Panels"),
@@ -184,36 +185,49 @@ impl Token {
         }
     }
 
-    /// What people call it ("Accent", "Body text size").
+    /// What people call it ("Accent", "Body text size"), in English
+    /// ([`Token::localized_label`] in the window's language).
     pub fn label(&self) -> String {
+        self.label_in("en")
+    }
+
+    /// What people call it in the window's language (tracked: inside a property closure it
+    /// follows the locale).
+    pub fn localized_label(&self, ui: &Ui) -> String {
+        self.label_in(&ui.locale())
+    }
+
+    /// What people call it in `locale`.
+    pub(crate) fn label_in(&self, locale: &str) -> String {
         let p: Vec<&str> = self.0.iter().map(String::as_str).collect();
-        let s = match p.as_slice() {
-            ["$name"] => "Theme name",
-            ["color", "custom", name] => return format!("Color “{name}”"),
+        let named = |id: &str, name: &str| tr_in(locale, id, &[("name", name.into())]);
+        let id = match p.as_slice() {
+            ["$name"] => "token-theme-name",
+            ["color", "custom", name] => return named("token-color-custom", name),
             ["color", role] => match COLOR_ROLES.iter().find(|(k, _)| k == role) {
-                Some((_, l)) => l,
-                None => return format!("Color “{role}”"),
+                Some((k, _)) => return tr_in(locale, &format!("token-color-{k}"), &[]),
+                None => return named("token-color-custom", role),
             },
-            ["font", "family"] => "Font",
-            ["font", "mono"] => "Monospace font",
-            ["size", "small"] => "Small text size",
-            ["size", "body"] => "Body text size",
-            ["size", "title"] => "Title size",
-            ["spacing", "unit"] => "Spacing unit",
-            ["spacing", "control-height"] => "Control height",
-            ["radius", "small"] => "Small corner radius",
-            ["radius", "medium"] => "Medium corner radius",
-            ["radius", "large"] => "Large corner radius",
-            ["stroke"] => "Line width",
-            ["motion", "quick"] => "Quick motion",
-            ["motion", "standard"] => "Standard motion",
-            ["motion", "emphasized"] => "Emphasized motion",
-            ["density"] => "Density",
-            ["asset", "background"] => "Background image",
-            ["asset", "font", name] => return format!("Font file “{name}”"),
+            ["font", "family"] => "token-font",
+            ["font", "mono"] => "token-font-mono",
+            ["size", "small"] => "token-size-small",
+            ["size", "body"] => "token-size-body",
+            ["size", "title"] => "token-size-title",
+            ["spacing", "unit"] => "token-spacing-unit",
+            ["spacing", "control-height"] => "token-control-height",
+            ["radius", "small"] => "token-radius-small",
+            ["radius", "medium"] => "token-radius-medium",
+            ["radius", "large"] => "token-radius-large",
+            ["stroke"] => "token-stroke",
+            ["motion", "quick"] => "token-motion-quick",
+            ["motion", "standard"] => "token-motion-standard",
+            ["motion", "emphasized"] => "token-motion-emphasized",
+            ["density"] => "token-density",
+            ["asset", "background"] => "token-background-image",
+            ["asset", "font", name] => return named("token-font-file", name),
             _ => return self.dotted(),
         };
-        s.to_owned()
+        tr_in(locale, id, &[])
     }
 
     /// Its value in `theme` (`None` for a token the theme does not have).
@@ -503,13 +517,26 @@ pub struct Refusal {
     pub detail: String,
 }
 
+impl Refusal {
+    /// What it is, in the window's language (tracked: inside a property closure it follows
+    /// the locale). `Display` says it in English.
+    pub fn localized(&self, ui: &Ui) -> String {
+        self.message_in(&ui.locale())
+    }
+
+    pub(crate) fn message_in(&self, locale: &str) -> String {
+        let id = match self.kind {
+            RefusalKind::Shader => "refusal-shader",
+            RefusalKind::ExternalUrl => "refusal-link",
+            RefusalKind::Asset => "refusal-file",
+        };
+        tr_in(locale, id, &[("token", (&self.token).into()), ("detail", (&self.detail).into())])
+    }
+}
+
 impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.kind {
-            RefusalKind::Shader => write!(f, "{}: a shader ({})", self.token, self.detail),
-            RefusalKind::ExternalUrl => write!(f, "{}: an external link ({})", self.token, self.detail),
-            RefusalKind::Asset => write!(f, "{}: a file the theme brings ({})", self.token, self.detail),
-        }
+        f.write_str(&self.message_in("en"))
     }
 }
 
@@ -618,7 +645,7 @@ fn drop_at(v: &mut Value, path: &[&str]) {
 pub fn inspect_theme(json: &str) -> Result<Vec<Refusal>, CustomizeError> {
     let doc: Value = serde_json::from_str(json).map_err(|e| CustomizeError::Invalid(e.to_string()))?;
     if !doc.is_object() {
-        return Err(CustomizeError::Invalid("a theme file is a JSON object".into()));
+        return Err(CustomizeError::Invalid(tr_in("en", "theme-not-object", &[])));
     }
     let mut out = Vec::new();
     scan(&doc, &mut Vec::new(), &mut out);
@@ -631,7 +658,8 @@ pub fn inspect_theme(json: &str) -> Result<Vec<Refusal>, CustomizeError> {
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct ContrastWarning {
-    /// What the pair is ("Text on cards").
+    /// What the pair is ("Text on cards"), in English
+    /// ([`ContrastWarning::localized_pair`] in the window's language).
     pub pair: &'static str,
     /// The color on top.
     pub foreground: Token,
@@ -643,17 +671,46 @@ pub struct ContrastWarning {
     pub needed: f32,
 }
 
-/// The color pairs a theme is read in, and the ratio each needs.
-const PAIRS: &[(&str, &str, &str, f32)] = &[
-    ("Text on the background", "text", "bg", 4.5),
-    ("Text on panels", "text", "panel", 4.5),
-    ("Text on cards", "text", "card", 4.5),
-    ("Muted text on the background", "muted", "bg", 4.5),
-    ("Muted text on panels", "muted", "panel", 4.5),
-    ("Muted text on cards", "muted", "card", 4.5),
-    ("Text on the accent", "on-accent", "accent", 4.5),
-    ("The accent on the background", "accent", "bg", 3.0),
+/// The color pairs a theme is read in (in English, and their message), and the ratio each
+/// needs.
+const PAIRS: &[(&str, &str, &str, &str, f32)] = &[
+    ("Text on the background", "contrast-pair-text-bg", "text", "bg", 4.5),
+    ("Text on panels", "contrast-pair-text-panel", "text", "panel", 4.5),
+    ("Text on cards", "contrast-pair-text-card", "text", "card", 4.5),
+    ("Muted text on the background", "contrast-pair-muted-bg", "muted", "bg", 4.5),
+    ("Muted text on panels", "contrast-pair-muted-panel", "muted", "panel", 4.5),
+    ("Muted text on cards", "contrast-pair-muted-card", "muted", "card", 4.5),
+    ("Text on the accent", "contrast-pair-on-accent", "on-accent", "accent", 4.5),
+    ("The accent on the background", "contrast-pair-accent-bg", "accent", "bg", 3.0),
 ];
+
+impl ContrastWarning {
+    /// What the pair is in the window's language (tracked: inside a property closure it
+    /// follows the locale).
+    pub fn localized_pair(&self, ui: &Ui) -> String {
+        match PAIRS.iter().find(|p| p.0 == self.pair) {
+            Some((_, id, ..)) => crate::tr(ui, id),
+            None => self.pair.to_owned(),
+        }
+    }
+
+    /// The whole warning in the window's language (tracked): the pair, its contrast ratio,
+    /// the ratio it needs, and its two colors.
+    pub fn localized(&self, ui: &Ui) -> String {
+        let round = |v: f32| (f64::from(v) * 10.0).round() / 10.0;
+        crate::trf(
+            ui,
+            "contrast-warning",
+            &[
+                ("pair", self.localized_pair(ui).into()),
+                ("ratio", round(self.ratio).into()),
+                ("needed", round(self.needed).into()),
+                ("foreground", self.foreground.localized_label(ui).into()),
+                ("background", self.background.localized_label(ui).into()),
+            ],
+        )
+    }
+}
 
 /// The color pairs in `theme` below the contrast WCAG asks for (empty when all pass). Text
 /// colors are taken as the widgets draw them: the engine already moves text, muted text and
@@ -676,7 +733,7 @@ pub fn contrast_warnings(theme: &Theme) -> Vec<ContrastWarning> {
     };
     PAIRS
         .iter()
-        .filter_map(|(pair, fg, bg, needed)| {
+        .filter_map(|(pair, _, fg, bg, needed)| {
             let ratio = color(fg).contrast(color(bg));
             (ratio < *needed).then(|| ContrastWarning {
                 pair,
@@ -770,9 +827,10 @@ impl Customizations {
         let fits = token.kind() == value.kind()
             || (token.kind() == TokenKind::Font && matches!(value, TokenValue::File(_)));
         if !fits || token.kind() == TokenKind::Other {
-            return Err(CustomizeError::Invalid(format!(
-                "{} does not hold that kind of value",
-                token.dotted()
+            return Err(CustomizeError::Invalid(tr_now(
+                ui,
+                "error-wrong-kind",
+                &[("token", token.dotted().into())],
             )));
         }
         let (default, mut doc) = self.theme_parts()?;
@@ -787,7 +845,7 @@ impl Customizations {
             set_leaf(&mut doc, token.path(), leaf_value);
         }
         remedy_ui_themes::from_tokens(&doc_text(&doc), &default).map_err(CustomizeError::Token)?;
-        let label = format!("Change {}", token.label());
+        let label = tr_now(ui, "change-named", &[("name", token.label_in(&locale_of(ui)).into())]);
         self.change(ui, label, Some(format!("theme:{}", token.dotted())), &[Area::Theme], |c| {
             c.write_theme(&doc)
         })
@@ -800,14 +858,15 @@ impl Customizations {
             return Ok(());
         }
         remove_leaf(&mut doc, token.path());
-        self.change(ui, format!("Reset {}", token.label()), None, &[Area::Theme], |c| c.write_theme(&doc))
+        let label = tr_now(ui, "reset-named", &[("name", token.label_in(&locale_of(ui)).into())]);
+        self.change(ui, label, None, &[Area::Theme], |c| c.write_theme(&doc))
     }
 
     /// Takes the whole theme back to the app's (undoable).
     pub fn reset_theme(&self, ui: &Ui) -> Result<(), CustomizeError> {
         self.theme_parts()?;
         let all = self.files_of(Area::Theme);
-        self.change(ui, "Reset theme", None, &[Area::Theme], |_| {
+        self.change(ui, tr_now(ui, "reset-theme", &[]), None, &[Area::Theme], |_| {
             for p in &all {
                 files::remove(p).map_err(|e| CustomizeError::io(p, &e))?;
             }
@@ -838,8 +897,9 @@ impl Customizations {
         let (default, _) = self.theme_parts()?;
         let mut doc: Value =
             serde_json::from_str(json).map_err(|e| CustomizeError::Invalid(e.to_string()))?;
+        let not_object = || CustomizeError::Invalid(tr_now(ui, "theme-not-object", &[]));
         if !doc.is_object() {
-            return Err(CustomizeError::Invalid("a theme file is a JSON object".into()));
+            return Err(not_object());
         }
         let mut found = Vec::new();
         scan(&doc, &mut Vec::new(), &mut found);
@@ -874,15 +934,17 @@ impl Customizations {
             }
         }
         let Value::Object(map) = doc else {
-            return Err(CustomizeError::Invalid("a theme file is a JSON object".into()));
+            return Err(not_object());
         };
         let theme =
             remedy_ui_themes::from_tokens(&doc_text(&map), &default).map_err(CustomizeError::Token)?;
         let mut file = diff_doc(&default, &theme, &map);
         let name = theme.name.clone();
         // Files are checked (and copied in) inside the change, so undo takes the copies too.
-        self.change(ui, format!("Import theme {name}"), None, &[Area::Theme], |c| {
-            c.bring_assets(&mut file, base, None)?;
+        let label = tr_now(ui, "history-import-theme", &[("name", (&name).into())]);
+        let locale = locale_of(ui);
+        self.change(ui, label, None, &[Area::Theme], |c| {
+            c.bring_assets(&mut file, base, None, &locale)?;
             c.write_theme(&file)
         })?;
         Ok(ImportReport { name, dropped: if policy.drop_refused { refused } else { Vec::new() } })
@@ -963,27 +1025,30 @@ impl Customizations {
             Ok(None) => (Map::new(), default.clone()),
             Ok(Some(bytes)) => {
                 let parsed = String::from_utf8(bytes)
-                    .map_err(|_| "the file is not UTF-8 text".to_owned())
+                    .map_err(|_| Words::msg("notice-not-utf8", Vec::new()))
                     .and_then(|text| {
                         let doc = match serde_json::from_str::<Value>(&text) {
                             Ok(Value::Object(m)) => m,
-                            Ok(_) => return Err("a theme file is a JSON object".to_owned()),
-                            Err(e) => return Err(format!("not a design tokens file: {e}")),
+                            Ok(_) => return Err(Words::msg("theme-not-object", Vec::new())),
+                            Err(e) => {
+                                let detail = ("detail", e.to_string().into());
+                                return Err(Words::msg("not-design-tokens", vec![detail]));
+                            }
                         };
-                        let theme =
-                            remedy_ui_themes::from_tokens(&text, &default).map_err(|e| e.to_string())?;
+                        let theme = remedy_ui_themes::from_tokens(&text, &default)
+                            .map_err(|e| Words::text(e.to_string()))?;
                         Ok((doc, theme))
                     });
                 match parsed {
                     Ok(v) => v,
-                    Err(message) => {
-                        notices.push(Notice { area: Area::Theme, path: path.clone(), message });
+                    Err(words) => {
+                        notices.push(Notice::new(Area::Theme, path.clone(), words));
                         (Map::new(), default.clone())
                     }
                 }
             }
             Err(e) => {
-                notices.push(Notice { area: Area::Theme, path: path.clone(), message: e.to_string() });
+                notices.push(Notice::new(Area::Theme, path.clone(), Words::text(e.to_string())));
                 (Map::new(), default.clone())
             }
         };

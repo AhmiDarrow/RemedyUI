@@ -108,7 +108,13 @@ pub fn find(el: &El, widget: &str) -> Vec<El> {
 
 /// What screen readers get from an element.
 pub fn value_text(el: &El) -> String {
-    el.info().and_then(|i| i.semantics).and_then(|s| s.value_text().map(str::to_owned)).unwrap_or_default()
+    let said = el.info().and_then(|i| i.semantics).and_then(|s| s.value_text().map(str::to_owned));
+    plain(said.unwrap_or_default())
+}
+
+/// Text without the Unicode isolation marks the string catalogs put around placeholders.
+pub fn plain(s: impl Into<String>) -> String {
+    s.into().replace(['\u{2068}', '\u{2069}'], "")
 }
 
 /// Problems the accessibility audit finds, described.

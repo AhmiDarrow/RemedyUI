@@ -19,11 +19,13 @@ const TOOLTIP_WIDTH: f32 = 360.0;
 /// click-jacking: a click aimed at what was there before cannot land on them).
 const TRUSTED_DELAY: Duration = Duration::from_millis(700);
 
-/// An overlay pinned at a window point by its top-left corner, sized by its content.
+/// An overlay pinned at a window point by its top-left corner, sized by its content. Its
+/// content reads in the window's direction.
 pub fn place_at(el: El, p: Point) -> El {
     el.layout(move |l| {
         l.position = Position::Absolute;
         l.inset = Insets { top: p.y, start: p.x, end: AUTO, bottom: AUTO };
+        l.inset_physical = true;
     })
 }
 
@@ -136,6 +138,7 @@ pub(crate) fn place_fitted(
                 .clone()
                 .layout(move |l| {
                     l.inset = Insets { top: p.y, start: p.x, end: AUTO, bottom: AUTO };
+                    l.inset_physical = true;
                     l.max_width = Length::Px(widest);
                     if fit_height {
                         l.max_height = Length::Px(tallest);
@@ -229,7 +232,10 @@ pub(crate) fn dismissable(ui: &Ui, content: El) -> El {
             false
         })
         // A press outside closes it; from the keyboard, Escape does (focus stays inside).
-        .keyboard_alternative("Escape closes it")
+        .keyboard_alternative({
+            let u = ui.clone();
+            move || crate::tr(&u, "escape-closes")
+        })
         .child(content);
     ui.overlay(layer)
 }
@@ -390,8 +396,11 @@ pub fn trusted_prompt(
             a(yes);
         }
     };
-    let deny = crate::button(ui, "Deny", answer(false)).disabled(true);
-    let allow = crate::button(ui, "Allow", answer(true)).variant("primary").disabled(true);
+    let (u1, u2) = (ui.clone(), ui.clone());
+    let deny = crate::button(ui, move || crate::tr(&u1, "prompt-deny"), answer(false)).disabled(true);
+    let allow = crate::button(ui, move || crate::tr(&u2, "prompt-allow"), answer(true))
+        .variant("primary")
+        .disabled(true);
     let body = ui
         .el("dialog")
         .column()

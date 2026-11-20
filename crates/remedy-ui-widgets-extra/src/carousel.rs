@@ -175,7 +175,10 @@ pub fn carousel(
     let viewport = ui
         .el("carousel_viewport")
         .clip()
-        .keyboard_alternative("Arrow keys on the carousel, or the previous and next buttons")
+        .keyboard_alternative({
+            let u = ui.clone();
+            move || crate::tr(&u, "carousel-keys")
+        })
         .layout(|l| {
             l.display = Display::Grid;
             l.columns = vec![Track::Fr(1.0)];
@@ -195,7 +198,10 @@ pub fn carousel(
                 })
                 .child(page)
                 .hidden(i != start_index)
-                .semantics(Semantics::new(Role::Group).label(format!("Page {} of {n}", i + 1)))
+                .semantics({
+                    let u = ui.clone();
+                    move || Semantics::new(Role::Group).label(page_of(&u, i, n))
+                })
         })
         .collect();
     let viewport = wrappers.iter().fold(viewport, |v, p| v.child(p.clone()));
@@ -387,11 +393,11 @@ pub fn carousel(
         }
     };
 
-    let prev_btn = with_hold(w::icon_button(ui, w::Icon::ChevronLeft, "Previous page", {
+    let prev_btn = with_hold(w::icon_button(ui, w::Icon::ChevronLeft, tr_fn(ui, "carousel-previous"), {
         let step_by = step_by.clone();
         move || step_by(-1)
     }));
-    let next_btn = with_hold(w::icon_button(ui, w::Icon::ChevronRight, "Next page", {
+    let next_btn = with_hold(w::icon_button(ui, w::Icon::ChevronRight, tr_fn(ui, "carousel-next"), {
         let step_by = step_by.clone();
         move || step_by(1)
     }));
@@ -421,30 +427,42 @@ pub fn carousel(
                 })
                 .child(dot)
                 .on_click(move || go(i))
-                .semantics(move || {
-                    Semantics::new(Role::Button)
-                        .label(format!("Go to page {} of {n}", i + 1))
-                        .selected(index.get() == i)
-                        .action(Action::Click)
+                .semantics({
+                    let u = ui.clone();
+                    move || {
+                        Semantics::new(Role::Button)
+                            .label(crate::STRINGS.format(
+                                &u,
+                                "carousel-go-to-page",
+                                &[("page", (i + 1).into()), ("count", n.into())],
+                            ))
+                            .selected(index.get() == i)
+                            .action(Action::Click)
+                    }
                 });
             with_hold(target)
         })
         .collect();
     let pause_btn = options.autoplay.map(|_| {
-        let btn = with_hold(w::button(ui, "Pause", move || playing.update(|p| *p = !*p)));
+        let words = crate::tr(ui, "carousel-pause");
+        let btn = with_hold(w::button(ui, words, move || playing.update(|p| *p = !*p)));
         let (b2, cancel, run) = (btn.clone(), cancel.clone(), run_schedule.clone());
         let first = Cell::new(true);
+        let u = ui.clone();
+        // Its words follow the state and the window's language; the timer follows the state only.
         btn.bind(move || {
-            let on = playing.get();
-            let words = if on { "Pause" } else { "Play" };
-            let _ = b2.clone().semantics(
-                Semantics::new(Role::Button)
-                    .label(format!("{words} automatic page changes"))
-                    .action(Action::Click),
-            );
+            let (words, said) = if playing.get() {
+                (crate::tr(&u, "carousel-pause"), crate::tr(&u, "carousel-pause-autoplay"))
+            } else {
+                (crate::tr(&u, "carousel-play"), crate::tr(&u, "carousel-play-autoplay"))
+            };
+            let _ = b2.clone().semantics(Semantics::new(Role::Button).label(said).action(Action::Click));
             for c in b2.child_elements() {
-                let _ = c.text(RichText::plain(words));
+                let _ = c.text(RichText::plain(words.clone()));
             }
+        })
+        .bind(move || {
+            let on = playing.get();
             // The carousel itself starts the first timer.
             if first.replace(false) {
                 return;
@@ -539,7 +557,8 @@ pub fn carousel(
 
     let root = w::column(ui).gap(unit * 2.0).child(viewport.clone()).child(footer).focusable(true);
     let root = with_hold(root);
-    let (bind_root, bind_prev, bind_next) = (root.clone(), prev_btn, next_btn);
+    let (bind_prev, bind_next) = (prev_btn, next_btn);
+    let page_ui = ui.clone();
     let root = root.bind(move || {
         let idx = index.get().min(n.saturating_sub(1));
         if let Ok(mut m) = motion.try_borrow_mut() {
@@ -558,14 +577,15 @@ pub fn carousel(
         ticker.kick();
         cancel();
         run_schedule();
-        let _ = bind_root.clone().semantics(
-            Semantics::new(Role::Group)
-                .label(label.clone())
-                .value(format!("Page {} of {n}", idx + 1))
-                .live(Live::Polite)
-                .action(Action::Increment)
-                .action(Action::Decrement),
-        );
+    });
+    // What it reads follows the page and the window's language (apart from the motion above).
+    let root = root.semantics(move || {
+        Semantics::new(Role::Group)
+            .label(label.clone())
+            .value(page_of(&page_ui, index.get().min(n.saturating_sub(1)), n))
+            .live(Live::Polite)
+            .action(Action::Increment)
+            .action(Action::Decrement)
     });
 
     let key_el = root.clone();
@@ -593,4 +613,15 @@ pub fn carousel(
         true
     })
     .on_hover(hold)
+}
+
+/// "Page 2 of 5" for page `i` (from 0) of `n`, in the window's language (tracked).
+fn page_of(ui: &Ui, i: usize, n: usize) -> String {
+    crate::STRINGS.format(ui, "carousel-page-of", &[("page", (i + 1).into()), ("count", n.into())])
+}
+
+/// Message `id` as a closure that follows the window's language.
+fn tr_fn(ui: &Ui, id: &'static str) -> impl Fn() -> String + 'static {
+    let u = ui.clone();
+    move || crate::tr(&u, id)
 }

@@ -39,6 +39,28 @@ impl fmt::Display for DecimalError {
 
 impl std::error::Error for DecimalError {}
 
+impl DecimalError {
+    /// What a number field tells the person, in `locale` ("Geben Sie eine Zahl ein" in
+    /// German); [`Display`](fmt::Display) gives the English.
+    pub fn message_in(self, locale: &str) -> String {
+        crate::STRINGS.format_in(locale, self.message_id(), &[])
+    }
+
+    /// What a number field tells the person, in the window's language (tracked: read inside a
+    /// property closure, it follows the locale).
+    pub fn message(self, ui: &remedy_ui_view::Ui) -> String {
+        crate::STRINGS.get(ui, self.message_id())
+    }
+
+    fn message_id(self) -> &'static str {
+        match self {
+            DecimalError::Empty => "decimal-empty",
+            DecimalError::Invalid => "decimal-invalid",
+            DecimalError::Overflow => "decimal-overflow",
+        }
+    }
+}
+
 const fn pow10(n: u8) -> i128 {
     let mut v = 1i128;
     let mut i = 0;

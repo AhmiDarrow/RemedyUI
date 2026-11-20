@@ -68,6 +68,176 @@ pub use theme::{
 };
 pub use theme_editor::theme_editor;
 
+use remedy_ui_view::strings::StrArg;
+
+/// The Customize page's own words (headings, buttons, notices, undo history names, design
+/// token names) in every language the engine ships, from `i18n/*.ftl`. Apps reword them, or
+/// add a language, with [`remedy_ui_view::strings::add_messages`] under the name `customize`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("customize");
+
+/// Message `id` in the window's locale (tracked: inside a property closure it follows the
+/// locale).
+pub(crate) fn tr(ui: &Ui, id: &str) -> String {
+    tidy(STRINGS.get(ui, id))
+}
+
+/// Message `id` with placeholder values in the window's locale (tracked).
+pub(crate) fn trf(ui: &Ui, id: &str, args: &[(&str, StrArg)]) -> String {
+    tidy(STRINGS.format(ui, id, args))
+}
+
+/// The window's locale now (not tracked).
+pub(crate) fn locale_of(ui: &Ui) -> String {
+    remedy_ui_reactive::untrack(|| ui.locale())
+}
+
+/// Message `id` with placeholder values in the window's locale now (not tracked: for undo
+/// history names, errors and status lines, said once).
+pub(crate) fn tr_now(ui: &Ui, id: &str, args: &[(&str, StrArg)]) -> String {
+    tr_in(&locale_of(ui), id, args)
+}
+
+/// Message `id` with placeholder values in `locale` (not tracked).
+pub(crate) fn tr_in(locale: &str, id: &str, args: &[(&str, StrArg)]) -> String {
+    tidy(STRINGS.format_in(locale, id, args))
+}
+
+/// Whether `c` is written right to left (Hebrew, Arabic and the scripts near them).
+fn is_rtl(c: char) -> bool {
+    matches!(c, '\u{0590}'..='\u{08FF}' | '\u{FB1D}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}')
+        || matches!(c, '\u{10800}'..='\u{10FFF}' | '\u{1E800}'..='\u{1EFFF}')
+}
+
+/// A formatted message without the isolation marks around its placeholders when nothing in
+/// it is written right to left: they only matter where directions mix, and plain text
+/// stays plain (for names compared, searched and logged).
+fn tidy(s: String) -> String {
+    if s.chars().any(is_rtl) { s } else { s.replace(['\u{2068}', '\u{2069}'], "") }
+}
+
+/// `items` as a list in `locale`: "a", "a and b", "a, b and c".
+pub(crate) fn list_in(locale: &str, items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [first, second] => tr_in(locale, "list-two", &[("first", first.into()), ("second", second.into())]),
+        [rest @ .., before, last] => {
+            let mut out = tr_in(locale, "list-end", &[("first", before.into()), ("last", last.into())]);
+            for item in rest.iter().rev() {
+                out = tr_in(locale, "list-middle", &[("first", item.into()), ("rest", out.into())]);
+            }
+            out
+        }
+    }
+}
+
+/// Whole sentences about separate things, joined in `locale` ("…; …").
+pub(crate) fn clauses_in(locale: &str, items: &[String]) -> String {
+    let mut it = items.iter().rev();
+    let Some(last) = it.next() else { return String::new() };
+    it.fold(last.clone(), |rest, first| {
+        tr_in(locale, "clauses", &[("first", first.into()), ("rest", rest.into())])
+    })
+}
+
+/// Words for the person, in whatever language they are shown in: a message of this crate's
+/// catalog with its values (which may be words themselves), or text shown as it is (what
+/// a system or a parser said).
+#[derive(Clone)]
+pub(crate) struct Words(Rc<dyn Fn(&str) -> String>);
+
+/// A placeholder value of [`Words::msg`].
+pub(crate) enum Part {
+    Arg(StrArg),
+    Words(Words),
+}
+
+impl From<&str> for Part {
+    fn from(s: &str) -> Self {
+        Part::Arg(s.into())
+    }
+}
+
+impl From<String> for Part {
+    fn from(s: String) -> Self {
+        Part::Arg(s.into())
+    }
+}
+
+impl From<&String> for Part {
+    fn from(s: &String) -> Self {
+        Part::Arg(s.into())
+    }
+}
+
+impl From<usize> for Part {
+    fn from(n: usize) -> Self {
+        Part::Arg(n.into())
+    }
+}
+
+impl From<Words> for Part {
+    fn from(w: Words) -> Self {
+        Part::Words(w)
+    }
+}
+
+impl Words {
+    /// Message `id` of this crate's catalog with `args`.
+    pub(crate) fn msg(id: &'static str, args: Vec<(&'static str, Part)>) -> Words {
+        Words(Rc::new(move |locale| {
+            let values: Vec<(&str, StrArg)> = args
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        *k,
+                        match v {
+                            Part::Arg(a) => a.clone(),
+                            Part::Words(w) => StrArg::from(w.in_locale(locale)),
+                        },
+                    )
+                })
+                .collect();
+            tr_in(locale, id, &values)
+        }))
+    }
+
+    /// Text shown as it is, in every language (what a system or a parser said).
+    pub(crate) fn text(s: impl Into<String>) -> Words {
+        let s: String = s.into();
+        Words(Rc::new(move |_| s.clone()))
+    }
+
+    /// Words made by `f` for a locale.
+    pub(crate) fn new(f: impl Fn(&str) -> String + 'static) -> Words {
+        Words(Rc::new(f))
+    }
+
+    /// The words in `locale`.
+    pub(crate) fn in_locale(&self, locale: &str) -> String {
+        (self.0)(locale)
+    }
+
+    /// The words in English, for logs, `Display` and the English fields of the API.
+    pub(crate) fn english(&self) -> String {
+        self.in_locale("en")
+    }
+}
+
+impl std::fmt::Debug for Words {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.english())
+    }
+}
+
+impl PartialEq for Words {
+    fn eq(&self, other: &Words) -> bool {
+        Rc::ptr_eq(&self.0, &other.0) || self.english() == other.english()
+    }
+}
+
+impl Eq for Words {}
+
 /// A kind of customization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[non_exhaustive]
@@ -85,7 +255,7 @@ pub enum Area {
 }
 
 impl Area {
-    /// What people call it.
+    /// What people call it, in English ([`Area::localized_name`] in the window's language).
     pub fn name(self) -> &'static str {
         match self {
             Area::Theme => "Theme",
@@ -93,6 +263,22 @@ impl Area {
             Area::Toolbars => "Toolbars and menus",
             Area::Text => "Text",
             Area::Layouts => "Screen layouts",
+        }
+    }
+
+    /// What people call it in the window's language (tracked: inside a property closure it
+    /// follows the locale).
+    pub fn localized_name(self, ui: &Ui) -> String {
+        tr(ui, self.message_id())
+    }
+
+    fn message_id(self) -> &'static str {
+        match self {
+            Area::Theme => "area-theme",
+            Area::Shortcuts => "area-shortcuts",
+            Area::Toolbars => "area-toolbars",
+            Area::Text => "area-text",
+            Area::Layouts => "area-layouts",
         }
     }
 
@@ -108,8 +294,24 @@ pub struct Notice {
     pub area: Area,
     /// The file.
     pub path: PathBuf,
-    /// What went wrong, in words for the person.
+    /// What went wrong, in words for the person, in English
+    /// ([`Notice::localized_message`] in the window's language).
     pub message: String,
+    /// The same, in any language.
+    words: Words,
+}
+
+impl Notice {
+    /// A notice saying `words`.
+    pub(crate) fn new(area: Area, path: PathBuf, words: Words) -> Notice {
+        Notice { area, path, message: words.english(), words }
+    }
+
+    /// What went wrong in the window's language (tracked: inside a property closure it
+    /// follows the locale).
+    pub fn localized_message(&self, ui: &Ui) -> String {
+        self.words.in_locale(&ui.locale())
+    }
 }
 
 impl std::fmt::Display for Notice {
@@ -132,7 +334,8 @@ pub enum CustomizeError {
         /// What the system said.
         detail: String,
     },
-    /// Not a tokens, shortcuts or toolbars document, or a value of the wrong kind.
+    /// Not a tokens, shortcuts or toolbars document, or a value of the wrong kind. Said in the
+    /// language of the window the change was made in, with what a parser said as it said it.
     Invalid(String),
     /// A token's value is not what its place needs.
     Token(remedy_ui_themes::TokenError),
@@ -152,25 +355,66 @@ impl CustomizeError {
     }
 }
 
-impl std::fmt::Display for CustomizeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl CustomizeError {
+    /// What went wrong, in the window's language (tracked: inside a property closure it
+    /// follows the locale). `Display` says it in English.
+    pub fn localized(&self, ui: &Ui) -> String {
+        self.message_in(&ui.locale())
+    }
+
+    /// What went wrong, in `locale`.
+    pub(crate) fn message_in(&self, locale: &str) -> String {
         match self {
-            CustomizeError::NotEnabled(a) => write!(f, "{} customization is not on in this app", a.name()),
-            CustomizeError::Io { path, detail } => write!(f, "{}: {detail}", path.display()),
-            CustomizeError::Invalid(why) => f.write_str(why),
-            CustomizeError::Token(e) => write!(f, "{e}"),
+            CustomizeError::NotEnabled(a) => tr_in(
+                locale,
+                match a {
+                    Area::Theme => "error-not-enabled-theme",
+                    Area::Shortcuts => "error-not-enabled-shortcuts",
+                    Area::Toolbars => "error-not-enabled-toolbars",
+                    Area::Text => "error-not-enabled-text",
+                    Area::Layouts => "error-not-enabled-layouts",
+                },
+                &[],
+            ),
+            CustomizeError::Io { path, detail } => tr_in(
+                locale,
+                "error-io",
+                &[("path", path.display().to_string().into()), ("detail", detail.into())],
+            ),
+            CustomizeError::Invalid(why) => why.clone(),
+            CustomizeError::Token(e) => e.to_string(),
             CustomizeError::Clashes(c) => {
-                let parts: Vec<String> =
-                    c.iter().map(|c| format!("{} is used by {}", c.chord, c.commands.join(", "))).collect();
-                f.write_str(&parts.join("; "))
+                let parts: Vec<String> = c
+                    .iter()
+                    .map(|c| {
+                        let chord = ("chord", StrArg::from(c.chord.to_string()));
+                        let commands = ("commands", StrArg::from(list_in(locale, &c.commands)));
+                        tr_in(locale, "error-clash", &[chord, commands])
+                    })
+                    .collect();
+                clauses_in(locale, &parts)
             }
             CustomizeError::Refused(r) => {
-                let parts: Vec<String> = r.iter().map(Refusal::to_string).collect();
-                write!(f, "refused: {}", parts.join("; "))
+                let parts: Vec<String> = r.iter().map(|r| r.message_in(locale)).collect();
+                tr_in(locale, "error-refused", &[("parts", clauses_in(locale, &parts).into())])
             }
-            CustomizeError::UnknownCommand(id) => write!(f, "no command {id}"),
-            CustomizeError::UnknownSlot(id) => write!(f, "no toolbar {id}"),
+            CustomizeError::UnknownCommand(id) => {
+                tr_in(locale, "error-unknown-command", &[("id", id.into())])
+            }
+            CustomizeError::UnknownSlot(id) => tr_in(locale, "error-unknown-slot", &[("id", id.into())]),
         }
+    }
+
+    /// The error as words in any language (for a notice).
+    pub(crate) fn words(&self) -> Words {
+        let e = self.clone();
+        Words::new(move |l| e.message_in(l))
+    }
+}
+
+impl std::fmt::Display for CustomizeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message_in("en"))
     }
 }
 
@@ -304,7 +548,7 @@ impl Customizations {
     pub fn reset_notice(&self, ui: &Ui, notice: &Notice) -> Result<(), CustomizeError> {
         let path = notice.path.clone();
         let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        self.change(ui, format!("Reset {name}"), None, &[notice.area], |_| {
+        self.change(ui, tr_now(ui, "reset-named", &[("name", name.into())]), None, &[notice.area], |_| {
             files::remove(&path).map_err(|e| CustomizeError::io(&path, &e))
         })
     }
@@ -313,7 +557,7 @@ impl Customizations {
     pub fn reset_all(&self, ui: &Ui) -> Result<(), CustomizeError> {
         let areas = self.areas();
         let all: Vec<PathBuf> = areas.iter().flat_map(|a| self.files_of(*a)).collect();
-        self.change(ui, "Reset all customizations", None, &areas, |_| {
+        self.change(ui, tr_now(ui, "reset-all-customizations", &[]), None, &areas, |_| {
             for p in &all {
                 files::remove(p).map_err(|e| CustomizeError::io(p, &e))?;
             }
@@ -409,14 +653,14 @@ impl Customizations {
         let after = files::snapshot(&paths);
         self.reload(areas);
         if let Err(e) = written {
-            self.push_notice(Notice {
-                area: areas.first().copied().unwrap_or(Area::Theme),
-                path: match &e {
+            self.push_notice(Notice::new(
+                areas.first().copied().unwrap_or(Area::Theme),
+                match &e {
                     CustomizeError::Io { path, .. } => path.clone(),
                     _ => self.0.dir.clone(),
                 },
-                message: format!("could not save: {e}"),
-            });
+                Words::msg("notice-could-not-save", vec![("error", e.words().into())]),
+            ));
             return Err(e);
         }
         if before == after {
@@ -446,11 +690,11 @@ impl Customizations {
         let failed = files::restore(set);
         self.reload(areas);
         if let Err((path, e)) = failed {
-            self.push_notice(Notice {
-                area: areas.first().copied().unwrap_or(Area::Theme),
+            self.push_notice(Notice::new(
+                areas.first().copied().unwrap_or(Area::Theme),
                 path,
-                message: format!("could not restore: {e}"),
-            });
+                Words::msg("notice-could-not-restore", vec![("detail", e.to_string().into())]),
+            ));
         }
     }
 }

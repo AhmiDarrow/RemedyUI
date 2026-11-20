@@ -105,3 +105,25 @@ fn the_bar_passes_the_audit() {
     let found = audit(&b.ui);
     assert!(found.is_empty(), "{found:#?}");
 }
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&remedy_ui_doc_rich::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+#[test]
+fn the_bar_speaks_the_windows_language() {
+    let b = bar();
+    b.state.search("the");
+    frame(&b.ui);
+    assert_eq!(status(&b), "1 of 4");
+    b.ui.set_locale("de");
+    frame(&b.ui);
+    assert_eq!(status(&b), "1 von 4");
+    let names: Vec<String> = with_role(&b.bar, remedy_ui_a11y::Role::Button).iter().map(name).collect();
+    assert!(names.iter().any(|n| n == "Nächster Treffer"), "{names:?}");
+    b.state.search("zebra");
+    frame(&b.ui);
+    assert_eq!(status(&b), "Keine Treffer");
+}
