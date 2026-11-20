@@ -123,9 +123,11 @@ and hidden show the still frame (`still`), drawn once per size and parameter cha
 Costs measured (release, 4-core CI container; the GPU is llvmpipe, a software rasterizer, so
 GPU numbers are an upper bound):
 
-- The CPU interpreter: the 30 built-in effects take 0.3–30 ms a frame at 480 × 320 logical
+- The CPU interpreter: the 30 original built-in effects take 0.3–30 ms a frame at 480 × 320 logical
   pixels at their own scales; raymarched 3D (orb, crystal, volumetric clouds) are the GPU's,
   and step down on the CPU.
+- The eight added later (shimmer, mesh gradient, confetti, smoke, galaxy, code rain, frost,
+  retro grid) take 1.5–12 ms a frame at 320 × 200 on the CPU (release, the same container).
 - GPU and CPU agree: every instruction family bit for bit, every built-in effect within half a
   level on average.
 
