@@ -206,9 +206,65 @@ impl GpuRenderer {
             format: FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         }))
+    }
+
+    /// Draws several display lists onto `target` in one render, the way a compositor rasters
+    /// a frame's small tiles together: each job's list is drawn through its transform, moved
+    /// to its slot's corner (`[x, y, width, height]` in target pixels) and clipped to the
+    /// slot. One render instead of one per tile: each render has a fixed cost.
+    pub(crate) fn draw_many(
+        &mut self,
+        jobs: &[(&DisplayList, Affine, [u32; 4])],
+        target: &wgpu::Texture,
+    ) -> Result<(), GpuError> {
+        let (w, h) = size16(target.width(), target.height())?;
+        let gone: Vec<TextureId> = self
+            .externals
+            .iter()
+            .filter(|(reg, _)| !self.ctx.textures.contains(**reg))
+            .map(|(_, id)| *id)
+            .collect();
+        if !gone.is_empty() {
+            self.externals.retain(|reg, _| self.ctx.textures.contains(*reg));
+            self.images.unbind(&gone);
+        }
+        let mut scene = GpuScene {
+            scene: Scene::new(w, h),
+            images: &mut self.images,
+            videos: &mut self.videos,
+            externals: &mut self.externals,
+            ctx: &self.ctx,
+        };
+        for (list, base, [x, y, sw, sh]) in jobs {
+            let (x, y, sw, sh) = (*x as f32, *y as f32, *sw as f32, *sh as f32);
+            scene.scene.set_transform(kurbo::Affine::IDENTITY);
+            scene.scene.push_clip_rect(&kurbo::Rect::new(
+                f64::from(x),
+                f64::from(y),
+                f64::from(x + sw),
+                f64::from(y + sh),
+            ));
+            let moved = base.then(Affine::translate(remedy_ui_core::Vec2::new(x, y)));
+            let area = remedy_ui_core::Rect::new(x, y, x + sw, y + sh);
+            self.painter.draw_within(&mut scene, list, moved, Some(area));
+            scene.scene.pop_clip();
+        }
+        let scene = scene.scene;
+        let gone = self.painter.take_evicted();
+        if !gone.is_empty() {
+            self.images.evict(&gone);
+        }
+        let streams = self.painter.take_evicted_videos();
+        if !streams.is_empty() {
+            let ids = self.videos.evict(&streams);
+            self.images.unbind(&ids);
+        }
+        let bindings = self.images.bindings.clone();
+        self.submit(&scene, Color::TRANSPARENT, target, &bindings)
     }
 
     /// Draws `list` through `base` onto `target`, cleared to `background` first.

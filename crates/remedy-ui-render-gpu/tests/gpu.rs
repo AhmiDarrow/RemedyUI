@@ -450,3 +450,50 @@ fn a_streams_texture_is_reused_per_frame_and_freed_with_its_frames() {
     let _ = g.render(&DisplayList::new(), 64, 48, 1.0, Color::BLACK);
     assert_eq!(g.image_bytes(), before);
 }
+
+/// Many small layers whose content changes every frame (animated sprites): the GPU rasters
+/// them together in an atlas and copies each into its tile, reusing the tiles' textures. Each
+/// frame must still match the CPU compositor.
+#[test]
+fn small_tiles_rastered_together_match_the_cpu_every_frame() {
+    let (w, h) = (300, 200);
+    let sprites = |frame: u64| {
+        let mut back = DisplayList::new();
+        back.fill_rect(Rect::new(0.0, 0.0, 300.0, 200.0), Brush::Solid(Color::rgb8(20, 30, 60)));
+        let mut root = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 300.0, 200.0), back);
+        for i in 0..24u64 {
+            let mut dot = DisplayList::new();
+            let c = Color::rgb8((i * 10) as u8, (frame * 40 % 255) as u8, 200);
+            let r = 4.0 + ((i + frame) % 5) as f32;
+            dot.fill_rounded(
+                Rect::new(10.0 - r, 10.0 - r, 10.0 + r, 10.0 + r),
+                CornerRadii::all(r),
+                Brush::Solid(c),
+            );
+            let (x, y) = (10.0 + (i % 8) as f32 * 35.0, 20.0 + (i / 8) as f32 * 55.0);
+            let mut l = Layer::new(LayerId(10 + i), Rect::new(x, y, x + 20.0, y + 20.0), dot)
+                .clipped(CornerRadii::ZERO);
+            l.content_version = frame;
+            root = root.with_child(l);
+        }
+        LayerTree::new(vec![root])
+    };
+    let mut comp = Compositor::new(w, h, 1.0, ScrollPhysics::CLAMPED);
+    let mut cpu = CpuCompositor::new();
+    let mut g = GpuCompositor::new(gpu(), LadderOptions::default());
+    for frame in 0..4u64 {
+        comp.commit(sprites(frame));
+        let plan = comp.frame(Duration::from_millis(33 * frame));
+        if frame > 0 {
+            assert_eq!(plan.raster.len(), 24, "only the sprites raster again");
+        }
+        let (Ok(a), Ok(b)) =
+            (cpu.present(&plan, w, h, Color::BLACK), g.present_to_frame(&plan, w, h, Color::BLACK))
+        else {
+            unreachable!("both present")
+        };
+        assert_eq!(differing(&a, &b, 64), 0, "frame {frame}");
+        assert!(differing(&a, &b, 8) * 1000 <= (w * h) as usize, "frame {frame}");
+    }
+    assert!(g.renderer().context().take_errors().is_empty());
+}
