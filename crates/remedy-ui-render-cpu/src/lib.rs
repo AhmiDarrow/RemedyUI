@@ -288,8 +288,13 @@ fn texture_item<S: Surface>(ctx: &mut S, texture: &ExternalTexture, rect: Rect, 
 }
 
 /// The vello filter for a display-list filter, or `None` when it changes nothing.
-pub(crate) fn vello_filter(f: &remedy_ui_paint::Filter) -> Option<vello_cpu::filter_effects::Filter> {
+pub(crate) fn vello_filter(
+    f: &remedy_ui_paint::Filter,
+    scale: f32,
+) -> Option<vello_cpu::filter_effects::Filter> {
     use vello_cpu::filter_effects::{EdgeMode, Filter, FilterPrimitive};
+    // Bounded: a filter's buffers grow with its blur and offset.
+    let f = &f.limited(scale);
     let sigma = f.std_dev();
     let primitive = match f {
         remedy_ui_paint::Filter::Blur { .. } if sigma == 0.0 => return None,
@@ -311,19 +316,23 @@ pub(crate) fn vello_filter(f: &remedy_ui_paint::Filter) -> Option<vello_cpu::fil
 
 /// The filter a backdrop of standard deviation `blur` draws its glass with, or `None` for no
 /// blur. Both compositors use it, so they blur alike.
-pub fn backdrop_filter(blur: f32) -> Option<vello_cpu::filter_effects::Filter> {
-    vello_filter(&remedy_ui_paint::Filter::Blur { radius: blur })
+/// `scale` is how much the glass's transform scales lengths (the blur is bounded in device
+/// pixels, [`remedy_ui_paint::MAX_FILTER_STD_DEV`]).
+pub fn backdrop_filter(blur: f32, scale: f32) -> Option<vello_cpu::filter_effects::Filter> {
+    vello_filter(&remedy_ui_paint::Filter::Blur { radius: blur }, scale)
 }
 
 /// The vello filter a display-list filter is drawn with, or `None` when it changes nothing.
 /// Both compositors use it for layers' filters, so they filter alike.
-pub fn layer_filter(f: &remedy_ui_paint::Filter) -> Option<vello_cpu::filter_effects::Filter> {
-    vello_filter(f)
+/// `scale` is how much the layer's transform scales lengths.
+pub fn layer_filter(f: &remedy_ui_paint::Filter, scale: f32) -> Option<vello_cpu::filter_effects::Filter> {
+    vello_filter(f, scale)
 }
 
 /// How far, in device pixels, filter `f` pushed under transform `t` carries drawing.
 fn filter_reach(f: &remedy_ui_paint::Filter, t: Affine) -> f32 {
     let k = t.scale_factor();
+    let f = &f.limited(k);
     let off = match f {
         remedy_ui_paint::Filter::DropShadow { offset, .. } => offset.x.abs().max(offset.y.abs()),
         remedy_ui_paint::Filter::Blur { .. } => 0.0,
@@ -627,7 +636,7 @@ impl Painter {
                 }
                 Item::PushFilter(f) => {
                     groups += 1;
-                    match vello_filter(f) {
+                    match vello_filter(f, t.scale_factor()) {
                         Some(vf) => s.push_filter_layer(vf),
                         None => s.push_group(peniko::BlendMode::default(), 1.0),
                     }
@@ -645,7 +654,7 @@ impl Painter {
                     }
                     s.push_clip_layer(&rounded(*rect, *radii));
                     let f = remedy_ui_paint::Filter::Blur { radius: sigma };
-                    match vello_filter(&f) {
+                    match vello_filter(&f, t.scale_factor()) {
                         Some(vf) => s.push_filter_layer(vf),
                         None => s.push_group(peniko::BlendMode::default(), 1.0),
                     }

@@ -228,7 +228,31 @@ pub enum Filter {
     },
 }
 
+/// The most a filter blurs, as a standard deviation in device pixels. A filter's buffers grow
+/// by about three times this on every side, so a stranger's theme asking for a blur of a
+/// million pixels gets this, not a buffer of a million pixels.
+pub const MAX_FILTER_STD_DEV: f32 = 64.0;
+/// The farthest a drop shadow falls, in device pixels, on each axis.
+pub const MAX_FILTER_OFFSET: f32 = 2048.0;
+
 impl Filter {
+    /// The filter as renderers draw it under a transform scaling lengths by `scale`: its
+    /// blur at most [`MAX_FILTER_STD_DEV`] device pixels and its offset at most
+    /// [`MAX_FILTER_OFFSET`], whatever was asked.
+    pub fn limited(&self, scale: f32) -> Filter {
+        let k = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+        let sigma = self.std_dev().min(MAX_FILTER_STD_DEV / k);
+        match *self {
+            Filter::Blur { .. } => Filter::Blur { radius: sigma },
+            Filter::DropShadow { offset, color, .. } => {
+                let o = |v: f32| {
+                    if v.is_finite() { v.clamp(-MAX_FILTER_OFFSET / k, MAX_FILTER_OFFSET / k) } else { 0.0 }
+                };
+                Filter::DropShadow { offset: Vec2::new(o(offset.x), o(offset.y)), blur: sigma * 2.0, color }
+            }
+        }
+    }
+
     /// The Gaussian's standard deviation, in the group's space.
     pub fn std_dev(&self) -> f32 {
         let s = match self {

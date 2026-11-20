@@ -30,6 +30,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   loading placeholder), `mesh_gradient` (drifting pools of colour for backdrops), `confetti`,
   `smoke`, `galaxy`, `code_rain`, `frost` (ice creeping in from the edges, by `amount`) and
   `retro_grid`. All fit `Limits::untrusted`, have golden images, and match on the GPU kernel.
+- **Filters are bounded**: a filter's blur is at most `MAX_FILTER_STD_DEV` (64) device pixels
+  and a drop shadow's offset at most `MAX_FILTER_OFFSET` (2048) on each axis
+  (`Filter::limited`), wherever a renderer or compositor draws one, so a theme asking for a
+  blur of a million pixels, infinity or NaN gets the bound and no huge buffers (tested on
+  both renderers).
 - **Prism in `.rui` markup**: `remedy_ui::effects::register_markup` adds the `effect`
   element (`effect(name: "fire", param: "intensity", value: $heat) { … }`): a built-in
   effect, one parameter driven by a number signal, children drawn over it
