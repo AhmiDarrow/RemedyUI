@@ -225,3 +225,16 @@ fn a_slow_gpu_steps_down_resolution_but_keeps_moving() {
     run(&ui, &mut t, 400);
     assert!(view.stats().level < 2, "{:?}", view.stats());
 }
+
+#[test]
+fn an_effect_that_does_not_move_draws_once() {
+    let ui = ui();
+    let view = mount(&ui, "paper");
+    let mut t = Duration::ZERO;
+    run(&ui, &mut t, 60);
+    assert_eq!(view.stats().frames, 1, "paper is drawn once: {:?}", view.stats());
+    // A new parameter value draws it again, once.
+    assert!(view.set("mottle", 0.9).is_ok());
+    run(&ui, &mut t, 30);
+    assert_eq!(view.stats().frames, 2, "{:?}", view.stats());
+}
