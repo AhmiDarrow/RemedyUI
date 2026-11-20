@@ -22,6 +22,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `Layer::backdrop` (`Backdrop`, `Layer::with_backdrop`) and the composite
   `CompositeOp::Backdrop` (`CompositeOp::backdrop_root`, `backdrop_reach`). Drawn through
   vello's filter layers, so tiles stay seamless and both renderers blur alike.
+  `examples/glass_and_shadows` shows all four over a Prism aurora.
 - **Prism diagnostics**: "did you mean" for a misspelled function, name, parameter, pass or
   type; an effect over its cost budget is reported at its costliest pass with the passes that
   cost most; particle and pass-count limits are reported where they are written.
