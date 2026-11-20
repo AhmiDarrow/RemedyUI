@@ -107,6 +107,7 @@ impl CompositeOp {
     /// device pixels: three standard deviations and its offset, scaled to the device, and one
     /// pixel more.
     pub fn filter_reach(transform: &Affine, filter: &remedy_ui_paint::Filter) -> f32 {
+        let filter = &filter.limited(transform.scale_factor());
         let off = match filter {
             remedy_ui_paint::Filter::DropShadow { offset, .. } => offset.x.abs().max(offset.y.abs()),
             remedy_ui_paint::Filter::Blur { .. } => 0.0,
@@ -119,7 +120,7 @@ impl CompositeOp {
     /// How far past its glass a backdrop reads what is under it, in device pixels: three
     /// standard deviations of its blur, scaled to the device, and one pixel more.
     pub fn backdrop_reach(transform: &Affine, blur: f32) -> f32 {
-        let b = if blur.is_finite() { blur.max(0.0) } else { 0.0 };
+        let b = remedy_ui_paint::Filter::Blur { radius: blur }.limited(transform.scale_factor()).std_dev();
         let r = (b * 3.0 * transform.scale_factor()).ceil() + 1.0;
         if r.is_finite() { r } else { 0.0 }
     }

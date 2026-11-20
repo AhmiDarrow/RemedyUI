@@ -259,7 +259,7 @@ impl Recorder<'_> {
                 }
                 CompositeOp::PushFilter { transform, filter, region } => {
                     self.ctx.set_transform(self.shift * kaffine(*transform));
-                    match crate::vello_filter(filter) {
+                    match crate::vello_filter(filter, transform.scale_factor()) {
                         Some(f) => self.ctx.push_filter_layer(f),
                         None => self.ctx.push_opacity_layer(1.0),
                     }
@@ -301,7 +301,10 @@ impl Recorder<'_> {
                     if *opacity < 1.0 {
                         self.ctx.push_opacity_layer(*opacity);
                     }
-                    match crate::vello_filter(&remedy_ui_paint::Filter::Blur { radius: *blur }) {
+                    match crate::vello_filter(
+                        &remedy_ui_paint::Filter::Blur { radius: *blur },
+                        transform.scale_factor(),
+                    ) {
                         Some(f) => self.ctx.push_filter_layer(f),
                         None => self.ctx.push_opacity_layer(1.0),
                     }

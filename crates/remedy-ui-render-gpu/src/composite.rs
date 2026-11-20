@@ -160,7 +160,7 @@ impl Recorder<'_> {
                 }
                 CompositeOp::PushFilter { transform, filter, region } => {
                     self.scene.set_transform(self.shift * kaffine(*transform));
-                    match remedy_ui_render_cpu::layer_filter(filter) {
+                    match remedy_ui_render_cpu::layer_filter(filter, transform.scale_factor()) {
                         Some(f) => self.scene.push_filter_layer(f),
                         None => self.scene.push_opacity_layer(1.0),
                     }
@@ -202,7 +202,7 @@ impl Recorder<'_> {
                     if *opacity < 1.0 {
                         self.scene.push_opacity_layer(*opacity);
                     }
-                    match remedy_ui_render_cpu::backdrop_filter(*blur) {
+                    match remedy_ui_render_cpu::backdrop_filter(*blur, transform.scale_factor()) {
                         Some(f) => self.scene.push_filter_layer(f),
                         None => self.scene.push_opacity_layer(1.0),
                     }

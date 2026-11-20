@@ -148,3 +148,43 @@ fn dump_filters() {
         }
     }
 }
+
+#[test]
+fn hostile_filter_sizes_are_bounded_on_both_renderers() {
+    // A theme asking for absurd blurs and shadows: drawn at the bound, quickly, with no huge
+    // buffers, and exactly as the bound itself draws.
+    let list = |blur: f32, offset: f32| {
+        let mut l = DisplayList::new();
+        l.push_filter(Filter::Blur { radius: blur });
+        l.fill_rect(Rect::new(40.0, 40.0, 80.0, 80.0), Brush::Solid(Color::BLACK));
+        l.pop_filter();
+        l.push_filter(Filter::DropShadow { offset: Vec2::new(offset, offset), blur, color: Color::BLACK });
+        l.fill_rect(Rect::new(100.0, 40.0, 140.0, 80.0), Brush::Solid(Color::rgb8(200, 40, 40)));
+        l.pop_filter();
+        l.push(Item::Backdrop { rect: Rect::new(10.0, 10.0, 150.0, 110.0), radii: CornerRadii::ZERO, blur });
+        l
+    };
+    let scale = 2.0;
+    let bound = remedy_ui_paint::MAX_FILTER_STD_DEV / scale;
+    let mut g = gpu();
+    let mut c = CpuRenderer::new();
+    for (blur, offset) in [(1.0e9, 1.0e9), (f32::INFINITY, f32::NEG_INFINITY), (f32::NAN, f32::NAN)] {
+        let started = std::time::Instant::now();
+        let hostile = list(blur, offset);
+        let (Ok(a), Ok(b)) = (
+            c.render(&hostile, 320, 240, scale, Color::WHITE),
+            g.render(&hostile, 320, 240, scale, Color::WHITE),
+        ) else {
+            unreachable!("both render")
+        };
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "{blur}: bounded work");
+        if blur.is_finite() {
+            let capped = list(bound, remedy_ui_paint::MAX_FILTER_OFFSET / scale);
+            let Ok(want) = c.render(&capped, 320, 240, scale, Color::WHITE) else { unreachable!("renders") };
+            assert_eq!(differing(&a, &want, 0).0, 0, "{blur}: drawn exactly as the bound");
+        }
+        let (visible, _) = differing(&a, &b, 8);
+        assert!(visible * 1000 <= (320 * 240) as usize, "{blur}: GPU and CPU agree");
+    }
+    assert!(g.context().take_errors().is_empty());
+}
