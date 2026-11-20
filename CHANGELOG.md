@@ -60,6 +60,15 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   part of its pixel; 301 with it), `orb` too, with four-sample normals (2279 to
   2058), and `volumetric_clouds` probes its light with one octave less (548 to 482); each
   within a few levels of before, on a handful of edge pixels.
+- **Prism's CPU interpreter is faster with the same pixels** (every golden image unchanged,
+  noise checked bit for bit against the old code): instructions read their operands in
+  place instead of copying them (registers are boxed and swapped), each common operation
+  has its own loop, gradient noise shares the hashes of a cell's corners (14 per 3D noise
+  instead of 24) and picks its gradient from a table instead of a branch the random hash
+  mispredicted. Twelve of the costliest effects at 640x400 on four cores: 1064 to about
+  610 ms in all; `orb` 520 to 188, `crystal` 89 to about 45. The GPU kernel picks noise
+  gradients with selects instead of a `switch`, so neighbouring pixels no longer diverge
+  (not measured on a hardware GPU).
 - **Prism in `.rui` markup**: `remedy_ui::effects::register_markup` adds the `effect`
   element (`effect(name: "fire", param: "intensity", value: $heat) { … }`): a built-in
   effect, one parameter driven by a number signal, children drawn over it

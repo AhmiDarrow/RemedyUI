@@ -101,34 +101,28 @@ fn value3(p: vec3<f32>) -> f32 {
     let z1 = mix(mix(unit(h3(ix, iy, iz + 1u)), unit(h3(ix + 1u, iy, iz + 1u)), u), mix(unit(h3(ix, iy + 1u, iz + 1u)), unit(h3(ix + 1u, iy + 1u, iz + 1u)), u), v);
     return z0 + (z1 - z0) * w;
 }
+// The gradients are picked by bits of the hash with selects, not a switch: the hash is
+// random, so neighbouring pixels would take different cases and diverge. (The same
+// directions as the CPU's tables.)
 fn grad2(h: u32, x: f32, y: f32) -> f32 {
+    let k = h & 7u;
+    let s1 = select(-1.0, 1.0, (k & 1u) == 0u);
+    let s2 = select(-1.0, 1.0, (k & 2u) == 0u);
     let d = 0.70710677;
-    switch (h & 7u) {
-        case 0u: { return x; }
-        case 1u: { return -x; }
-        case 2u: { return y; }
-        case 3u: { return -y; }
-        case 4u: { return d * x + d * y; }
-        case 5u: { return -d * x + d * y; }
-        case 6u: { return d * x - d * y; }
-        default: { return -d * x - d * y; }
-    }
+    // 0-3: (±1, 0), (0, ±1); 4-7: (±d, ±d).
+    let gx = select(select(0.0, s1, k < 2u), s1 * d, k >= 4u);
+    let gy = select(select(0.0, s1, k >= 2u), s2 * d, k >= 4u);
+    return gx * x + gy * y;
 }
 fn grad3(h: u32, x: f32, y: f32, z: f32) -> f32 {
-    switch (h % 12u) {
-        case 0u: { return x + y; }
-        case 1u: { return -x + y; }
-        case 2u: { return x - y; }
-        case 3u: { return -x - y; }
-        case 4u: { return x + z; }
-        case 5u: { return -x + z; }
-        case 6u: { return x - z; }
-        case 7u: { return -x - z; }
-        case 8u: { return y + z; }
-        case 9u: { return -y + z; }
-        case 10u: { return y - z; }
-        default: { return -y - z; }
-    }
+    let k = h % 12u;
+    let s1 = select(-1.0, 1.0, (k & 1u) == 0u);
+    let s2 = select(-1.0, 1.0, (k & 2u) == 0u);
+    // 0-3: (±1, ±1, 0); 4-7: (±1, 0, ±1); 8-11: (0, ±1, ±1).
+    let gx = select(s1, 0.0, k >= 8u);
+    let gy = select(select(0.0, s2, k < 4u), s1, k >= 8u);
+    let gz = select(s2, 0.0, k < 4u);
+    return gx * x + gy * y + gz * z;
 }
 fn perlin2(p: vec2<f32>) -> f32 {
     let ix = cell(p.x); let iy = cell(p.y);
