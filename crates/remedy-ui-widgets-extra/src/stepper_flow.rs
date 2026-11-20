@@ -49,7 +49,9 @@ impl Step {
     }
 }
 
-/// The words on the flow's buttons.
+/// The words on the flow's buttons. The [`Default`] is English; words left at their English
+/// default are shown in the window's language (and follow it), and [`StepperLabels::localized`]
+/// gives them in a given locale.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct StepperLabels {
@@ -72,6 +74,27 @@ impl Default for StepperLabels {
             finish: "Finish".into(),
         }
     }
+}
+
+impl StepperLabels {
+    /// The flow's words in `locale` (`"de"`, `"pt-BR"`; the closest the engine ships, or
+    /// English), to change some and keep the rest.
+    pub fn localized(locale: &str) -> Self {
+        let get = |id| crate::STRINGS.format_in(locale, id, &[]);
+        StepperLabels {
+            back: get("stepper-back"),
+            next: get("stepper-next"),
+            skip: get("stepper-skip"),
+            finish: get("stepper-finish"),
+        }
+    }
+}
+
+/// A button's words: the app's own, or the message `id` in the window's language (followed as
+/// it changes) where the app kept the English `default`.
+fn button_words(ui: &Ui, given: &str, default: &str, id: &'static str) -> impl Fn() -> String + 'static {
+    let (u, given) = (ui.clone(), (given != default).then(|| given.to_owned()));
+    move || given.clone().unwrap_or_else(|| crate::tr(&u, id))
 }
 
 /// Whether leaving step `i` is allowed (its validity, if it has one).
@@ -127,7 +150,14 @@ pub fn stepper_flow(
 
     // Progress: how far through the flow, as a bar.
     let fraction: Signal<Option<f32>> = Signal::new(Some(0.0));
-    let bar = w::progress(ui, format!("{label} progress"), fraction);
+    let bar = w::progress(
+        ui,
+        {
+            let (u, label) = (ui.clone(), label.clone());
+            move || crate::STRINGS.format(&u, "stepper-progress", &[("label", label.as_str().into())])
+        },
+        fraction,
+    );
 
     // The markers.
     let markers: Vec<El> = (0..n)
@@ -185,20 +215,21 @@ pub fn stepper_flow(
                     }
                 })
                 .semantics({
-                    let steps3 = steps.clone();
+                    let (steps3, u) = (steps.clone(), ui.clone());
                     move || {
                         let cur = at();
-                        let state = if i < cur {
-                            "completed"
+                        let id = if i < cur {
+                            "stepper-marker-completed"
                         } else if i == cur {
-                            "current"
+                            "stepper-marker-current"
                         } else if reachable(&steps3, cur, i) {
-                            "not started"
+                            "stepper-marker-not-started"
                         } else {
-                            "locked"
+                            "stepper-marker-locked"
                         };
+                        let args = [("step", (i + 1).into()), ("title", t2.as_str().into())];
                         Semantics::new(Role::Button)
-                            .label(format!("Step {}: {t2}, {state}", i + 1))
+                            .label(crate::STRINGS.format(&u, id, &args))
                             .selected(i == cur)
                             .action(Action::Click)
                     }
@@ -225,13 +256,15 @@ pub fn stepper_flow(
     }
 
     // Back, Skip, Next and Finish.
+    let defaults = StepperLabels::default();
     let back = {
         let go = goto.clone();
-        w::button(ui, labels.back.clone(), move || go(at_untracked().saturating_sub(1)))
+        let words = button_words(ui, &labels.back, &defaults.back, "stepper-back");
+        w::button(ui, words, move || go(at_untracked().saturating_sub(1)))
     };
     let next = {
         let (go, steps) = (goto.clone(), steps.clone());
-        w::button(ui, labels.next.clone(), move || {
+        w::button(ui, button_words(ui, &labels.next, &defaults.next, "stepper-next"), move || {
             if passes(&steps, at_untracked()) {
                 go(at_untracked() + 1);
             }
@@ -240,11 +273,12 @@ pub fn stepper_flow(
     };
     let skip = {
         let go = goto.clone();
-        w::button(ui, labels.skip.clone(), move || go(at_untracked() + 1)).variant("quiet")
+        let words = button_words(ui, &labels.skip, &defaults.skip, "stepper-skip");
+        w::button(ui, words, move || go(at_untracked() + 1)).variant("quiet")
     };
     let finish = {
         let steps = steps.clone();
-        w::button(ui, labels.finish.clone(), move || {
+        w::button(ui, button_words(ui, &labels.finish, &defaults.finish, "stepper-finish"), move || {
             if passes(&steps, at_untracked()) {
                 on_finish();
             }
@@ -268,7 +302,7 @@ pub fn stepper_flow(
         .child(body)
         .child(w::divider(ui, false))
         .child(footer);
-    let (b_root, b_steps) = (root.clone(), steps.clone());
+    let (b_root, b_steps, t_steps) = (root.clone(), steps.clone(), steps.clone());
     let root = root.bind(move || {
         let cur = at();
         for (i, b) in bodies.iter().enumerate() {
@@ -297,9 +331,21 @@ pub fn stepper_flow(
             }
         }
         fraction.set_if_changed(Some(if n == 0 { 0.0 } else { cur as f32 / n as f32 }));
-        let title = b_steps.get(cur).map(|s| s.title.clone()).unwrap_or_default();
-        let said = format!("Step {} of {n}: {title}", cur + 1);
-        let _ = status.clone().text(RichText::plain(format!("Step {} of {n}", cur + 1)));
+    });
+    // What the flow says follows the step and the window's language.
+    let u = ui.clone();
+    let root = root.bind(move || {
+        let cur = at();
+        let title = t_steps.get(cur).map(|s| s.title.clone()).unwrap_or_default();
+        let (step, count) = ((cur + 1).into(), n.into());
+        let said = crate::STRINGS.format(
+            &u,
+            "stepper-step-of-titled",
+            &[("step", step), ("count", count), ("title", title.into())],
+        );
+        let shown =
+            crate::STRINGS.format(&u, "stepper-step-of", &[("step", (cur + 1).into()), ("count", n.into())]);
+        let _ = status.clone().text(RichText::plain(shown));
         let _ = b_root
             .clone()
             .semantics(Semantics::new(Role::Group).label(label.clone()).value(said).live(Live::Polite));

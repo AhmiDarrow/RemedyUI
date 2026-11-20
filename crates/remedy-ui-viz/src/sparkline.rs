@@ -175,9 +175,14 @@ pub fn sparkline<S: Samples + 'static>(
     // Screen readers hear the newest value, and only when it changes.
     let heard = Rc::new(RefCell::new(String::new()));
     let sem_el = el.clone();
+    let u = ui.clone();
     el.bind(move || {
         let latest = values.with(|s| s.len().checked_sub(1).and_then(|i| s.get(i)).filter(|v| v.is_finite()));
-        let text = latest.map_or_else(|| "no data".to_owned(), |v| format!("latest {v:.2}"));
+        // Two decimals always ("0.40"), so the value is written here rather than by the catalog.
+        let text = latest.map_or_else(
+            || crate::STRINGS.get(&u, "sparkline-no-data"),
+            |v| crate::STRINGS.format(&u, "sparkline-latest", &[("value", format!("{v:.2}").into())]),
+        );
         if *heard.borrow() != text {
             let _ = sem_el
                 .clone()

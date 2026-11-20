@@ -1,0 +1,40 @@
+# The media player's own words. Placeholders ({ $name }) must stay; their order may change.
+# The letters in brackets in tooltips (K, M, C, F) are the player's keys: they stay as they
+# are in every language.
+
+## Shown over the picture when the media cannot be played. { $detail } is the system's own
+## explanation, in English (a file name, a decoder's message, a package to install).
+playback-failed = This can't be played.
+playback-failed-unsupported = This can't be played here: { $detail }
+playback-failed-not-found = This can't be played because it wasn't found: { $detail }
+playback-failed-format = This can't be played because it isn't media this player understands: { $detail }
+playback-failed-decode = This can't be played because decoding failed: { $detail }
+playback-failed-device = This can't be played because of a problem with the sound device: { $detail }
+playback-failed-denied = This can't be played because access wasn't allowed: { $detail }
+# A system component is missing; { $detail } says which and how to install it.
+playback-failed-missing = This can't be played: { $detail }
+# While the media opens or waits for data.
+playback-loading = Loading
+
+## The transport bar. Names are read by screen readers; tips show on hover.
+playback-play-pause-tip = Play or pause (K)
+playback-play = Play
+playback-pause = Pause
+# The time shown, as "1:05 / 3:20". Times are written m:ss or h:mm:ss.
+playback-time = { $position } / { $duration }
+# The time shown for a live stream, which has no end.
+playback-time-live = { $position } · Live
+playback-mute-tip = Mute (M)
+playback-mute = Mute
+playback-unmute = Unmute
+playback-volume = Volume
+playback-captions-tip = Captions (C)
+# { $track } is the caption track's name ("English", "fr").
+playback-captions-track = Captions: { $track }
+playback-captions-off = Captions: off
+playback-full-screen-tip = Full screen (F)
+playback-full-screen = Full screen
+playback-exit-full-screen = Exit full screen
+# The seek bar's name, and its value ("0:42 of 3:20").
+playback-seek = Seek
+playback-seek-value = { $position } of { $duration }

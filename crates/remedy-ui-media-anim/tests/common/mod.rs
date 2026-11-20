@@ -191,7 +191,11 @@ pub fn find(el: &El, widget: &str) -> Vec<El> {
 }
 
 pub fn semantics(el: &El) -> String {
+    // Without the isolation marks the string catalogs put around placeholders.
     format!("{:?}", el.info().and_then(|i| i.semantics))
+        .replace(['\u{2068}', '\u{2069}'], "")
+        .replace("\\u{2068}", "")
+        .replace("\\u{2069}", "")
 }
 
 /// Problems the accessibility audit finds, described.

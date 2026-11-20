@@ -170,6 +170,10 @@ pub fn speaking_ring(
         strength: 0.0,
     }));
 
+    // What screen readers hear: the message of the state ("speaking", "silent", "muted"), read
+    // in the window's language.
+    let heard: Signal<&'static str> = Signal::new("ring-silent");
+    let u = ui.clone();
     let paint_state = state.clone();
     let el = ui
         .el("speaking_ring")
@@ -178,7 +182,9 @@ pub fn speaking_ring(
         .justify(remedy_ui_layout::Justify::Center)
         .padding(Insets::all(thickness + gap))
         .layout(|l| l.align_self = Some(Align::Start))
-        .semantics(Semantics::new(Role::Status).label(label.clone()).value("silent"))
+        .semantics(move || {
+            Semantics::new(Role::Status).label(label.clone()).value(crate::STRINGS.get(&u, heard.get()))
+        })
         .paint(move |cx| {
             let (strength, muted) = paint_state.try_borrow().map_or((0.0, false), |s| (s.strength, s.muted));
             let whole = Rect::new(0.0, 0.0, cx.size.width, cx.size.height);
@@ -198,8 +204,6 @@ pub fn speaking_ring(
 
     let step_state = state.clone();
     let step_el = el.clone();
-    let step_label = label.clone();
-    let label_for_mute = label;
     let speaking_out = options.speaking;
     let speaking_out_mute = options.speaking;
     let smoothing = options.smoothing;
@@ -218,13 +222,7 @@ pub fn speaking_ring(
         let flipped = open != was_open;
         drop(s);
         if flipped {
-            let _ = step_el.clone().semantics(
-                Semantics::new(Role::Status).label(step_label.clone()).value(if open {
-                    "speaking"
-                } else {
-                    "silent"
-                }),
-            );
+            heard.set_if_changed(if open { "ring-speaking" } else { "ring-silent" });
             if let Some(out) = speaking_out {
                 out.set_if_changed(open);
             }
@@ -235,7 +233,6 @@ pub fn speaking_ring(
     let muted = options.muted;
     let hang = options.hang;
     let mute_el = el.clone();
-    let mute_label = label_for_mute;
     el.bind(move || {
         let is_muted = muted.is_some_and(|m| m.get());
         // A muted person's level is not shown, whatever the microphone hears.
@@ -253,11 +250,8 @@ pub fn speaking_ring(
             }
         }
         if flipped {
-            let value = if is_muted { "muted" } else { "silent" };
-            let _ = mute_el
-                .clone()
-                .variant(if is_muted { "muted" } else { "" })
-                .semantics(Semantics::new(Role::Status).label(mute_label.clone()).value(value));
+            heard.set_if_changed(if is_muted { "ring-muted" } else { "ring-silent" });
+            let _ = mute_el.clone().variant(if is_muted { "muted" } else { "" });
             if is_muted && let Some(out) = speaking_out_mute {
                 out.set_if_changed(false);
             }

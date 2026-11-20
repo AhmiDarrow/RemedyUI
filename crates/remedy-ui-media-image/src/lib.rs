@@ -7,6 +7,11 @@
 //! - [`decode`]: the decoder on its own
 //! - [`set_router`]: decoding somewhere else (a sandboxed helper process)
 
+/// The image view's own words (what screen readers hear when an image cannot be shown) in
+/// every language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language,
+/// with [`remedy_ui_view::strings::add_messages`] under the name `media-image`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("media-image");
+
 mod decode;
 mod load;
 
@@ -154,14 +159,15 @@ pub fn image_with(ui: &Ui, source: Source, alt: impl Into<String>, fit: Fit, loa
         }
     });
 
-    let alt2 = alt.clone();
+    let (alt2, ui4) = (alt.clone(), ui.clone());
     let el = el.semantics(move || {
         if alt2.is_empty() {
             return Semantics::new(Role::Image).hidden(true);
         }
         let s = Semantics::new(Role::Image).label(alt2.clone());
         match failed.get() {
-            Some(why) => s.description(format!("Not shown: {why}")),
+            // The reason is the decoder's or loader's own (English) words.
+            Some(why) => s.description(STRINGS.format(&ui4, "image-not-shown", &[("reason", why.into())])),
             None => s,
         }
     });
