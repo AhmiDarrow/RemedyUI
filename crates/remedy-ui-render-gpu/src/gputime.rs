@@ -144,6 +144,11 @@ fn measured(f: &Pending) -> Option<u64> {
     (ns.is_finite() && ns >= 0.0).then_some(ns as u64)
 }
 
+/// True when `device` runs compute passes (not GL 3.3 or WebGL2).
+fn compute_passes(device: &wgpu::Device) -> bool {
+    !matches!(device.adapter_info().backend, wgpu::Backend::Gl)
+}
+
 /// An empty compute pass that only writes timestamps: a frame's work is bracketed without
 /// touching the passes the renderer records.
 fn stamp(encoder: &mut wgpu::CommandEncoder, queries: &wgpu::QuerySet, begin: Option<u32>, end: Option<u32>) {
@@ -156,4 +161,121 @@ fn stamp(encoder: &mut wgpu::CommandEncoder, queries: &wgpu::QuerySet, begin: Op
         }),
     });
     drop(pass);
+}
+
+const IDLE: u8 = 3;
+
+/// One effect's GPU time, sampled now and then: every [`SampledTimer::EVERY`]th frame is
+/// bracketed by two timestamps (from a query set kept for it), read back without waiting once
+/// the GPU is done, and kept as the latest measure. Costs nothing on frames it skips and
+/// nothing at all on devices without timestamp queries or compute passes (GL 3.3, WebGL2).
+pub(crate) struct SampledTimer {
+    queries: wgpu::QuerySet,
+    resolve: wgpu::Buffer,
+    readback: wgpu::Buffer,
+    state: Arc<AtomicU8>,
+    period_ns: f32,
+    frames: u32,
+    /// The measure not yet taken by [`SampledTimer::take`].
+    fresh: Option<std::time::Duration>,
+    /// This frame is being measured.
+    measuring: bool,
+}
+
+impl SampledTimer {
+    /// Frames between measures.
+    pub(crate) const EVERY: u32 = 8;
+
+    /// A timer on `device`, or `None` where the device cannot take timestamps.
+    pub(crate) fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Option<Self> {
+        // Timestamps are written by empty compute passes.
+        if !device.features().contains(wgpu::Features::TIMESTAMP_QUERY) || !compute_passes(device) {
+            return None;
+        }
+        let size = u64::from(STAMPS) * STAMP_BYTES;
+        Some(SampledTimer {
+            queries: device.create_query_set(&wgpu::QuerySetDescriptor {
+                label: Some("RemedyUI effect timestamps"),
+                ty: wgpu::QueryType::Timestamp,
+                count: STAMPS,
+            }),
+            resolve: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("RemedyUI effect timestamp resolve"),
+                size,
+                usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            }),
+            readback: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("RemedyUI effect timestamp readback"),
+                size,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            state: Arc::new(AtomicU8::new(IDLE)),
+            period_ns: queue.get_timestamp_period(),
+            frames: 0,
+            fresh: None,
+            measuring: false,
+        })
+    }
+
+    /// Picks up a measure that came back, and starts this frame's when it is time: writes the
+    /// first timestamp into `encoder`.
+    pub(crate) fn begin(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        match self.state.load(Ordering::SeqCst) {
+            READY => {
+                let view = self.readback.get_mapped_range(..).ok();
+                let ticks = view.and_then(|v| {
+                    let word = |i: usize| -> Option<u64> {
+                        let bytes: [u8; 8] = v.get(i * 8..i * 8 + 8)?.try_into().ok()?;
+                        Some(u64::from_le_bytes(bytes))
+                    };
+                    let (a, b) = (word(0)?, word(1)?);
+                    b.checked_sub(a)
+                });
+                self.readback.unmap();
+                if let Some(t) = ticks {
+                    let ns = (t as f64 * f64::from(self.period_ns)).round();
+                    if ns.is_finite() && ns >= 0.0 {
+                        self.fresh = Some(std::time::Duration::from_nanos(ns as u64));
+                    }
+                }
+                self.state.store(IDLE, Ordering::SeqCst);
+            }
+            FAILED => self.state.store(IDLE, Ordering::SeqCst),
+            _ => {}
+        }
+        self.frames = self.frames.wrapping_add(1);
+        self.measuring = self.state.load(Ordering::SeqCst) == IDLE && self.frames % Self::EVERY == 1;
+        if self.measuring {
+            stamp(encoder, &self.queries, Some(0), None);
+        }
+    }
+
+    /// Writes the last timestamp of a measured frame and copies both where the CPU reads them.
+    pub(crate) fn end(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        if !self.measuring {
+            return;
+        }
+        stamp(encoder, &self.queries, None, Some(1));
+        encoder.resolve_query_set(&self.queries, 0..STAMPS, &self.resolve, 0);
+        encoder.copy_buffer_to_buffer(&self.resolve, 0, &self.readback, 0, u64::from(STAMPS) * STAMP_BYTES);
+    }
+
+    /// The measured frame was submitted: read its timestamps back when the GPU is done.
+    pub(crate) fn submitted(&mut self) {
+        if !std::mem::take(&mut self.measuring) {
+            return;
+        }
+        self.state.store(WAITING, Ordering::SeqCst);
+        let flag = self.state.clone();
+        self.readback.map_async(wgpu::MapMode::Read, .., move |r| {
+            flag.store(if r.is_ok() { READY } else { FAILED }, Ordering::SeqCst);
+        });
+    }
+
+    /// The latest measure, once: `None` until a new one comes back.
+    pub(crate) fn take(&mut self) -> Option<std::time::Duration> {
+        self.fresh.take()
+    }
 }

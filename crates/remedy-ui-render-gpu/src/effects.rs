@@ -754,6 +754,8 @@ pub struct GpuEffect {
     pool: Vec<wgpu::Buffer>,
     /// Particle instance buffers, by stage.
     instances: Vec<(usize, wgpu::Buffer)>,
+    /// Samples the effect's GPU time now and then, where the device can.
+    timer: Option<crate::gputime::SampledTimer>,
 }
 
 impl std::fmt::Debug for GpuEffect {
@@ -776,7 +778,16 @@ impl GpuEffect {
             work: (0, 0),
             pool: Vec::new(),
             instances: Vec::new(),
+            timer: crate::gputime::SampledTimer::new(&ctx.device, &ctx.queue),
         }
+    }
+
+    /// The GPU time of a recent frame, measured every few frames with timestamp queries and
+    /// read back without waiting for the GPU: `Some` once per new measure, `None` between
+    /// measures and on devices without timestamp queries (GL 3.3, WebGL2). An element steps its
+    /// quality down when this stays over its budget.
+    pub fn take_gpu_time(&mut self) -> Option<std::time::Duration> {
+        self.timer.as_mut().and_then(crate::gputime::SampledTimer::take)
     }
 
     /// The output's size in pixels for `input`.
@@ -940,6 +951,9 @@ impl GpuEffect {
 
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RemedyUI effect") });
+        if let Some(t) = self.timer.as_mut() {
+            t.begin(&mut encoder);
+        }
         let mut work = (0u64, 0u64);
         // Uniform buffers come from a pool kept between frames: one per pass, written before
         // this frame's commands run (queue writes are ordered with submissions).
@@ -1193,7 +1207,13 @@ impl GpuEffect {
                 self.last = Some(keep);
             }
         }
+        if let Some(t) = self.timer.as_mut() {
+            t.end(&mut encoder);
+        }
         ctx.queue.submit([encoder.finish()]);
+        if let Some(t) = self.timer.as_mut() {
+            t.submitted();
+        }
         self.pool = pool.into_inner().0;
         self.work = work;
         Ok(())

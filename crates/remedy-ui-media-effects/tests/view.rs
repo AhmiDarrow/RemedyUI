@@ -193,3 +193,35 @@ fn the_gpu_path_places_a_texture() {
         assert_eq!(s.backend, Backend::Cpu);
     }
 }
+
+#[test]
+fn a_slow_gpu_steps_down_resolution_but_keeps_moving() {
+    let ui = ui();
+    ui.set_gpu_rendering(true);
+    let view = mount(&ui, "plasma");
+    view.set_gpu_budget(Duration::from_nanos(1));
+    let mut t = Duration::ZERO;
+    let mut sizes = Vec::new();
+    for _ in 0..40 {
+        run(&ui, &mut t, 2);
+        sizes.push(view.stats().pixels);
+    }
+    let s = view.stats();
+    if s.backend != Backend::Gpu || s.gpu_time.is_none() {
+        // No adapter, or one without timestamp queries (GL): nothing measured, nothing changes.
+        eprintln!("not measured here: {s:?}");
+        assert_eq!(s.level, 0);
+        return;
+    }
+    eprintln!("measured: {s:?}");
+    assert_eq!(s.level, 2, "over budget: a quarter of the resolution ({s:?})");
+    let (first, last) = (sizes.first().copied().unwrap_or_default(), s.pixels);
+    assert!(last.0 * 3 < first.0, "drawn smaller: {first:?} then {last:?}");
+    let frames = s.frames;
+    run(&ui, &mut t, 20);
+    assert!(view.stats().frames > frames, "the GPU never holds an effect still");
+    // A generous budget lets it climb back.
+    view.set_gpu_budget(Duration::from_secs(10));
+    run(&ui, &mut t, 400);
+    assert!(view.stats().level < 2, "{:?}", view.stats());
+}

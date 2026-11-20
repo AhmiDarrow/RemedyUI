@@ -21,10 +21,13 @@
 //!   in the effect), drawn once and kept.
 //! - **Both renderers.** On the GPU the effect runs on Prism's fixed kernel into textures the
 //!   element owns; on the CPU, on the interpreter, at the effect's resolution scale.
-//! - **A quality ladder on the CPU.** If frames take longer than the budget
+//! - **A quality ladder on both renderers.** If frames take longer than the budget
 //!   ([`EffectView::set_cpu_budget`], 4 ms by default), the element steps down: half
 //!   resolution, a quarter at no more than 15 frames a second, then the still frame. It steps
-//!   back up when frames are cheap again. Heavy effects also ask for the GPU renderer.
+//!   back up when frames are cheap again. Heavy effects also ask for the GPU renderer. On the
+//!   GPU the effect's GPU time is sampled every few frames with timestamp queries (where the
+//!   device has them) and held to [`EffectView::set_gpu_budget`] (2 ms by default): half
+//!   resolution, then a quarter at no more than 30 frames a second; it never stops moving.
 //! - **Parameters** are set by name ([`EffectView::set`]), typed and clamped; each change
 //!   draws a new frame. Pictures bind to texture parameters ([`EffectView::set_texture`]).
 //!
@@ -63,8 +66,11 @@ pub struct EffectStats {
     pub stills: u64,
     /// Where the latest frame was drawn.
     pub backend: Backend,
-    /// The CPU quality step: 0 full, 1 half resolution, 2 a quarter at 15 fps, 3 still.
+    /// The quality step: 0 full, 1 half resolution, 2 a quarter (at most 15 fps on the CPU,
+    /// 30 on the GPU), 3 still (the CPU only).
     pub level: u8,
+    /// The latest sampled GPU time of a frame, where the device measures it.
+    pub gpu_time: Option<Duration>,
     /// The latest frame's render time on the CPU (zero on the GPU, whose work is queued).
     pub last: Duration,
     /// Size of the latest picture, in pixels.
@@ -73,6 +79,8 @@ pub struct EffectStats {
 
 /// The CPU quality ladder: resolution multiplier and frame-rate cap for each step.
 const LADDER: [(f32, u32); 3] = [(1.0, u32::MAX), (0.5, u32::MAX), (0.25, 15)];
+/// The GPU quality ladder: the same steps, a gentler rate cap, and no still frame.
+const GPU_LADDER: [(f32, u32); 3] = [(1.0, u32::MAX), (0.5, u32::MAX), (0.25, 30)];
 /// Steps that are cheap for this long climb back up.
 const CLIMB_AFTER: u32 = 90;
 
@@ -107,6 +115,9 @@ struct State {
     cost: f64,
     cheap: u32,
     budget: Duration,
+    gpu_budget: Duration,
+    /// The renderer the ladder measured last: a change starts it again from the top.
+    measured_on: Backend,
     /// The element's size in device pixels when last painted: a new size measures again.
     size: (u32, u32),
 }
@@ -183,6 +194,12 @@ impl EffectView {
         self.0.state.borrow_mut().budget = budget;
     }
 
+    /// The most a frame's GPU time may be before the element lowers its quality on the GPU
+    /// (default 2 ms). Measured where the device has timestamp queries.
+    pub fn set_gpu_budget(&self, budget: Duration) {
+        self.0.state.borrow_mut().gpu_budget = budget;
+    }
+
     /// False once the element is gone.
     pub fn is_open(&self) -> bool {
         !self.0.closed.get()
@@ -205,6 +222,8 @@ pub fn effect_view(ui: &Ui, instance: Instance) -> (El, EffectView) {
             cost: 0.0,
             cheap: 0,
             budget: Duration::from_millis(4),
+            gpu_budget: Duration::from_millis(2),
+            measured_on: Backend::None,
             size: (0, 0),
         }),
         ui: ui.downgrade(),
@@ -257,11 +276,22 @@ fn paint(shared: &Shared, cx: &mut PaintCx<'_>, on_gpu: bool) {
         s.cost = 0.0;
         s.cheap = 0;
     }
-    let level = usize::from(s.stats.level);
     let gpu_path = on_gpu && cfg!(feature = "gpu");
-    // On the CPU the ladder may hold the effect still; on the GPU it runs at its own rate.
-    let (res, fps_cap) =
-        if gpu_path { (1.0, u32::MAX) } else { LADDER.get(level).copied().unwrap_or((1.0, 0)) };
+    // Each renderer has its own ladder: moving to the other starts from the top.
+    let side = if gpu_path { Backend::Gpu } else { Backend::Cpu };
+    if s.measured_on != side {
+        s.measured_on = side;
+        s.stats.level = 0;
+        s.cost = 0.0;
+        s.cheap = 0;
+    }
+    let level = usize::from(s.stats.level);
+    // On the CPU the ladder may hold the effect still; on the GPU it keeps moving.
+    let (res, fps_cap) = if gpu_path {
+        GPU_LADDER.get(level).copied().unwrap_or((0.25, 30))
+    } else {
+        LADDER.get(level).copied().unwrap_or((1.0, 0))
+    };
     let live =
         if !gpu_path && level >= LADDER.len() { None } else { cx.ambient_at(effect.fps.min(fps_cap).max(1)) };
     let rect = Rect::new(0.0, 0.0, cx.size.width, cx.size.height);
@@ -316,6 +346,11 @@ fn draw(s: &mut State, input: &FrameInput, rect: Rect, gpu_path: bool) -> Option
     if gpu_path && let Some(item) = draw_gpu(s, input, rect) {
         s.stats.backend = Backend::Gpu;
         s.stats.last = Duration::ZERO;
+        if let Some(t) = s.gpu.as_mut().and_then(|g| g.fx.take_gpu_time()) {
+            s.stats.gpu_time = Some(t);
+            let budget = s.gpu_budget.as_secs_f64();
+            ladder(s, t.as_secs_f64(), budget, GPU_LADDER.len() - 1);
+        }
         return Some(item);
     }
     let _ = gpu_path;
@@ -325,17 +360,25 @@ fn draw(s: &mut State, input: &FrameInput, rect: Rect, gpu_path: bool) -> Option
     s.stats.backend = Backend::Cpu;
     s.stats.last = took;
     s.stats.pixels = (pic.width, pic.height);
-    // The ladder: a moving average against the budget.
-    let secs = took.as_secs_f64();
-    s.cost = if s.cost == 0.0 { secs } else { s.cost * 0.8 + secs * 0.2 };
     let budget = s.budget.as_secs_f64();
-    if s.cost > budget && usize::from(s.stats.level) < LADDER.len() {
+    ladder(s, took.as_secs_f64(), budget, LADDER.len());
+    let image = Image::new(pic.width, pic.height, pic.pixels.into());
+    Some(Item::Image { image, rect, radii: CornerRadii::ZERO, sampling: Sampling::Linear })
+}
+
+/// The quality ladder: a moving average of frame cost `secs` against `budget`, stepping down
+/// (to at most `lowest`) when over and back up after a run of cheap measures.
+fn ladder(s: &mut State, secs: f64, budget: f64, lowest: usize) {
+    s.cost = if s.cost == 0.0 { secs } else { s.cost * 0.8 + secs * 0.2 };
+    if s.cost > budget && usize::from(s.stats.level) < lowest {
         s.stats.level += 1;
         s.cost = 0.0;
         s.cheap = 0;
     } else if s.cost < budget / 4.0 && s.stats.level > 0 {
         s.cheap += 1;
-        if s.cheap > CLIMB_AFTER {
+        // GPU measures come every few frames, so they climb after fewer of them.
+        let after = if s.measured_on == Backend::Gpu { CLIMB_AFTER / 8 } else { CLIMB_AFTER };
+        if s.cheap > after {
             s.stats.level -= 1;
             s.cheap = 0;
             s.cost = 0.0;
@@ -343,8 +386,6 @@ fn draw(s: &mut State, input: &FrameInput, rect: Rect, gpu_path: bool) -> Option
     } else {
         s.cheap = 0;
     }
-    let image = Image::new(pic.width, pic.height, pic.pixels.into());
-    Some(Item::Image { image, rect, radii: CornerRadii::ZERO, sampling: Sampling::Linear })
 }
 
 #[cfg(feature = "gpu")]
