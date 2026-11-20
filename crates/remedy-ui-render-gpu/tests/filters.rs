@@ -288,3 +288,95 @@ fn random_unbalanced_lists_draw_without_failing_on_both_renderers() {
     }
     assert!(g.context().take_errors().is_empty(), "no GPU validation errors");
 }
+
+/// The pixel at `(x, y)`.
+fn pixel(f: &Frame, x: u32, y: u32) -> [u8; 4] {
+    let at = (y * f.width + x) as usize;
+    f.pixels.as_chunks::<4>().0.get(at).copied().unwrap_or_default()
+}
+
+#[test]
+fn deeply_nested_groups_are_bounded_on_both_renderers() {
+    // A list from a stranger nesting thousands of groups: drawn within the depth bound, on a
+    // test thread's stack, quickly. What the groups past the bound hold is still drawn, and
+    // their pops close nothing, so the half-opacity group around them stays open until its own
+    // pop.
+    const N: usize = 3000;
+    const { assert!(N > 4 * remedy_ui_paint::MAX_GROUP_DEPTH) };
+    let blue = Color::rgb8(20, 60, 200);
+    let mut l = DisplayList::new();
+    l.push(Item::PushLayer { opacity: 0.5, blend: remedy_ui_paint::Blend::Normal });
+    for i in 0..N {
+        match i % 3 {
+            0 => l.push_clip(Rect::new(0.0, 0.0, 320.0, 240.0), CornerRadii::all(4.0)),
+            1 => l.push(Item::PushLayer { opacity: 1.0, blend: remedy_ui_paint::Blend::Normal }),
+            _ => l.push_filter(Filter::Blur { radius: 0.0 }),
+        }
+    }
+    l.fill_rect(Rect::new(10.0, 10.0, 100.0, 100.0), Brush::Solid(Color::BLACK));
+    for i in (0..N).rev() {
+        match i % 3 {
+            0 => l.pop_clip(),
+            1 => l.push(Item::PopLayer),
+            _ => l.pop_filter(),
+        }
+    }
+    l.fill_rect(Rect::new(110.0, 10.0, 200.0, 100.0), Brush::Solid(blue));
+    l.push(Item::PopLayer);
+    l.fill_rect(Rect::new(210.0, 10.0, 300.0, 100.0), Brush::Solid(blue));
+    let started = std::time::Instant::now();
+    let (Ok(c), Ok(g)) = (
+        CpuRenderer::new().render(&l, 320, 240, 1.0, Color::WHITE),
+        gpu().render(&l, 320, 240, 1.0, Color::WHITE),
+    ) else {
+        unreachable!("both render")
+    };
+    for (name, f) in [("cpu", &c), ("gpu", &g)] {
+        let near = |p: [u8; 4], q: [u8; 4]| p.iter().zip(q).all(|(a, b)| a.abs_diff(b) <= 2);
+        assert!(near(pixel(f, 50, 50), [127, 127, 127, 255]), "{name}: the deep fill, at half");
+        assert!(near(pixel(f, 150, 50), [137, 157, 227, 255]), "{name}: still in the half group");
+        assert!(near(pixel(f, 250, 50), [20, 60, 200, 255]), "{name}: after it, opaque");
+    }
+    assert_eq!(differing(&c, &g, 2).0, 0, "GPU matches CPU");
+
+    // The same depth through the compositor: nested layers, each clipped and faded. The
+    // compositor's own tree walk recurses per layer, so the plan is built on a large stack;
+    // the composite walk draws it on this one.
+    let plan = std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn(|| {
+            let full = Rect::new(0.0, 0.0, 320.0, 240.0);
+            let mut leaf = DisplayList::new();
+            leaf.fill_rect(Rect::new(10.0, 10.0, 100.0, 100.0), Brush::Solid(Color::BLACK));
+            let mut layer = Layer::new(LayerId(N as u64 + 1), full, leaf);
+            for i in 0..N / 2 {
+                let mut parent = Layer::new(LayerId(i as u64 + 1), full, DisplayList::new());
+                parent.opacity = if i == N / 2 - 1 { 0.5 } else { 0.999 };
+                parent.clip = Some(CornerRadii::ZERO);
+                parent.children.push(std::sync::Arc::new(layer));
+                layer = parent;
+            }
+            let mut comp = Compositor::new(320, 240, 1.0, ScrollPhysics::CLAMPED);
+            comp.commit(LayerTree::new(vec![layer]));
+            let plan = comp.frame(Duration::ZERO);
+            // Dropping the tree recurses too: it goes on this thread.
+            drop(comp);
+            plan
+        })
+        .map(|t| t.join());
+    let Ok(Ok(plan)) = plan else { unreachable!("the plan is built") };
+    let (Ok(c), Ok(g)) = (
+        CpuCompositor::new().present(&plan, 320, 240, Color::WHITE),
+        GpuCompositor::new(gpu(), LadderOptions::default()).present_to_frame(&plan, 320, 240, Color::WHITE),
+    ) else {
+        unreachable!("both composite")
+    };
+    for (name, f) in [("cpu", &c), ("gpu", &g)] {
+        let [r, gr, b, a] = pixel(f, 50, 50);
+        assert!(r == gr && gr == b && a == 255 && (100..=140).contains(&r), "{name}: drawn ({r})");
+    }
+    assert_eq!(differing(&c, &g, 2).0, 0, "GPU composite matches CPU");
+    let took = started.elapsed();
+    eprintln!("{N} nested groups, both renderers, both ways: {took:?}");
+    assert!(took < Duration::from_secs(60), "bounded work ({took:?})");
+}
