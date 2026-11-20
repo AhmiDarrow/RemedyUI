@@ -1677,6 +1677,52 @@ impl Compiler<'_> {
                 }
             }
         }
+        // A multiply whose only use is an add becomes part of it: one `fma` instead of two
+        // instructions (the interpreter computes `a * b + c` unfused, so the value is the same).
+        let mut uses: HashMap<u32, usize> = HashMap::new();
+        for (id, n) in self.g.nodes.iter().enumerate() {
+            if need.get(id).copied().unwrap_or(false)
+                && let NodeKey::Op(_, _, args) = &n.key
+            {
+                for a in args.iter().filter(|a| **a != NONE) {
+                    *uses.entry(*a).or_default() += 1;
+                }
+            }
+        }
+        let mut fused: HashMap<u32, [u32; 4]> = HashMap::new();
+        for (id, n) in self.g.nodes.iter().enumerate() {
+            let id = id as u32;
+            if !need.get(id as usize).copied().unwrap_or(false) {
+                continue;
+            }
+            let NodeKey::Op(Op::Add, _, [x, y, ..]) = n.key else { continue };
+            let product = |m: u32| match self.g.nodes.get(m as usize).map(|n| &n.key) {
+                Some(NodeKey::Op(Op::Mul, 0, [a, b, ..]))
+                    if need.get(m as usize).copied().unwrap_or(false)
+                        && uses.get(&m) == Some(&1)
+                        && !roots.contains(&m) =>
+                {
+                    Some([*a, *b])
+                }
+                _ => None,
+            };
+            let (m, [a, b], other) = match (product(x), product(y)) {
+                (Some(ab), _) => (x, ab, y),
+                (None, Some(ab)) => (y, ab, x),
+                (None, None) => continue,
+            };
+            if let Some(f) = need.get_mut(m as usize) {
+                *f = false;
+            }
+            fused.insert(id, [a, b, other, NONE]);
+        }
+        let key_of = |id: u32| -> Option<NodeKey> {
+            let n = self.g.nodes.get(id as usize)?;
+            Some(match fused.get(&id) {
+                Some(args) => NodeKey::Op(Op::Fma, 0, *args),
+                None => n.key.clone(),
+            })
+        };
         // Constants that are roots still need a register: load them.
         let order: Vec<u32> = (0..self.g.nodes.len() as u32)
             .filter(|i| {
@@ -1687,7 +1733,7 @@ impl Compiler<'_> {
         // Last use of every value, for register reuse.
         let mut last: HashMap<u32, usize> = HashMap::new();
         for (pos, id) in order.iter().enumerate() {
-            if let Some(NodeKey::Op(_, _, args)) = self.g.nodes.get(*id as usize).map(|n| &n.key)
+            if let Some(NodeKey::Op(_, _, args)) = key_of(*id)
                 && need.get(*id as usize).copied().unwrap_or(false)
             {
                 for a in args.iter().filter(|a| **a != NONE) {
@@ -1736,14 +1782,14 @@ impl Compiler<'_> {
         };
         let mut const_regs: Vec<(u32, u8)> = Vec::new();
         for (pos, id) in order.iter().enumerate() {
-            let Some(node) = self.g.nodes.get(*id as usize) else { continue };
+            let Some(key) = key_of(*id) else { continue };
             if !need.get(*id as usize).copied().unwrap_or(false) {
                 // A constant root.
                 let r = load(*id, &mut code, &mut reg, &mut free, &mut alloc)?;
                 const_regs.push((*id, r));
                 continue;
             }
-            let ins = match &node.key {
+            let ins = match &key {
                 NodeKey::Leaf(Leaf::Input(i)) => {
                     let r = alloc(&mut free)?;
                     Instr { op: Op::Input, dst: r, src: [0; 4], imm: *i }
