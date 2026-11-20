@@ -2,8 +2,8 @@
 // at different speeds. Harbours at dawn, forests, graveyards, mystery.
 effect fog(
     color tint = #d9e2ec,
-    float density = 0.6 in 0..1,
-    float height = 0.45 in 0..1,
+    float density = 0.75 in 0..1,
+    float height = 0.55 in 0..1,
     float speed = 0.03 in 0..0.5,
 ) {
     fps 15;
@@ -14,7 +14,10 @@ effect fog(
         let a = fbm(p * vec2(2.2, 5.0) + vec2(time * speed, 0.0), 4);
         let b = fbm(p * vec2(3.5, 8.0) + vec2(-time * speed * 1.7, 3.0), 3);
         let ground = smoothstep(1.0 - height, 1.0, uv.y);
-        let k = clamp((a * 0.65 + b * 0.35 - 0.3) * 1.8, 0.0, 1.0) * ground * density;
+        let banks = clamp((a * 0.65 + b * 0.35 - 0.26) * 1.9, 0.0, 1.0) * ground;
+        // A faint haze over the banks, thinning upwards.
+        let haze = smoothstep(0.0, 1.0, uv.y) * (0.12 + 0.1 * a);
+        let k = clamp(banks + haze, 0.0, 1.0) * density;
         out = vec4(tint.rgb, k);
     }
 }
