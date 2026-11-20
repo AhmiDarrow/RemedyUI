@@ -364,6 +364,11 @@ pub fn render(input: &RenderInput, ws: &Workspace, png_file: Option<&str>) -> Re
         return Err(ToolError::new("width and height are 1 to 4096 logical pixels, scale 0.25 to 4"));
     }
     let mut instance = Instance::new(effect.clone());
+    // Texture parameters show a test picture, so effects that transform one (a CRT screen,
+    // heat shimmer) can be judged.
+    for t in effect.textures.clone() {
+        let _ = instance.set_texture(&t, Some(test_picture()));
+    }
     let mut ignored = Vec::new();
     for (name, v) in &input.values {
         let value = match v.as_slice() {
@@ -438,6 +443,25 @@ pub fn render(input: &RenderInput, ws: &Workspace, png_file: Option<&str>) -> Re
         out.png_file = Some(target.display().to_string());
     }
     Ok(out)
+}
+
+/// A test picture for texture parameters: a checkerboard tinted by gradients, and a disc.
+fn test_picture() -> remedy_ui_paint::Image {
+    let (w, h) = (256u32, 160u32);
+    let mut px = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let check = if (x / 20 + y / 20) % 2 == 0 { 230u8 } else { 70 };
+            let (dx, dy) = (x as f32 - 128.0, y as f32 - 80.0);
+            let disc = (dx * dx + dy * dy).sqrt() < 46.0;
+            px.extend(if disc {
+                [255, 196, 70, 255]
+            } else {
+                [check, (x * 255 / w) as u8, (y * 255 / h) as u8, 255]
+            });
+        }
+    }
+    remedy_ui_paint::Image::new(w, h, px.into())
 }
 
 /// The built-in effects, with what each is and costs.

@@ -3969,6 +3969,7 @@ dependencies = [
  "png",
  "remedy-templates",
  "remedy-ui-effects",
+ "remedy-ui-paint",
  "remedy-ui-rui",
  "schemars",
  "serde",
