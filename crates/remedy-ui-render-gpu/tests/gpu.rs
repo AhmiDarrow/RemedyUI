@@ -344,24 +344,25 @@ fn no_pipeline_or_shader_is_created_after_start_up() {
 #[test]
 fn uploads_of_images_the_app_drops_are_freed() {
     let mut g = gpu();
-    // A filtered image large enough for a texture of its own, and a small nearest-sampled
-    // one that goes on an atlas page.
+    // A filtered image large enough for a texture of its own (drawn at its own size: drawn
+    // smaller it would upload a mipmap level instead), and a small nearest-sampled one that
+    // goes on an atlas page.
     let big = Image { id: 9_001, width: 300, height: 200, pixels: Arc::from(vec![200u8; 300 * 200 * 4]) };
     let small = Image { id: 9_002, width: 8, height: 8, pixels: Arc::from(vec![90u8; 8 * 8 * 4]) };
     let mut list = DisplayList::new();
     list.push(Item::Image {
         image: big.clone(),
-        rect: Rect::new(0.0, 0.0, 60.0, 40.0),
+        rect: Rect::new(0.0, 0.0, 300.0, 200.0),
         radii: CornerRadii::ZERO,
         sampling: Sampling::Linear,
     });
     list.push(Item::Image {
         image: small.clone(),
-        rect: Rect::new(60.0, 0.0, 68.0, 8.0),
+        rect: Rect::new(300.0, 0.0, 308.0, 8.0),
         radii: CornerRadii::ZERO,
         sampling: Sampling::Nearest,
     });
-    let _ = g.render(&list, 80, 40, 1.0, Color::WHITE);
+    let _ = g.render(&list, 320, 200, 1.0, Color::WHITE);
     let with_both = g.image_bytes();
     assert!(with_both >= 300 * 200 * 4, "{with_both}");
     drop(list);

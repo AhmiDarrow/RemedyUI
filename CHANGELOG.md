@@ -10,6 +10,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Mipmaps for images drawn scaled down**, on both renderers alike: an image drawn smoothly
+  at half its size or less is drawn from a halved copy (built once in the shared painter,
+  freed with the image), so it no longer shimmers, and only the level drawn is uploaded to
+  the GPU (a 1024² image shown at 64² uploads 16 KB, not 4 MB). Pixel art (nearest sampling)
+  is untouched.
 - **Colour-matrix filters** on any element and in display lists, on both renderers with
   matching results: `Style::saturate`, `hue_rotate`, `grayscale`, `sepia`, `brightness`,
   `contrast`, `invert` (the CSS filter functions) and `Style::color_matrix` (SVG
