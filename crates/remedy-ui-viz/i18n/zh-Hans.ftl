@@ -1,0 +1,11 @@
+bars-value = { $count } 个柱形，最高 { $percent }%
+meter-value-normal = { $percent }%，正常
+meter-value-loud = { $percent }%，偏响
+meter-value-clipping = { $percent }%，削波
+meter-threshold = { $label }阈值
+meter-percent = { $percent }%
+ring-speaking = 正在说话
+ring-silent = 未说话
+ring-muted = 已静音
+sparkline-no-data = 无数据
+sparkline-latest = 最新值 { $value }

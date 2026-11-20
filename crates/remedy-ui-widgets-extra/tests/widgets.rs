@@ -524,3 +524,27 @@ fn the_swatch_grid_mirrors_in_a_right_to_left_window() {
     key(&ui, Key::ArrowRight);
     assert!(value_text(&el).starts_with("Signal red"));
 }
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&remedy_ui_widgets_extra::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+#[test]
+fn a_rating_reads_in_the_window_language() {
+    let ui = ui();
+    let el = rating(&ui, "Quality", Signal::new(2.5f32), RatingOptions::default());
+    mount(&ui, &el);
+    ui.set_locale("de");
+    let _ = frame(&ui);
+    assert_eq!(value_text(&el), "2.5 von 5 Sternen");
+    ui.set_locale("ru");
+    let _ = frame(&ui);
+    assert_eq!(value_text(&el), "2.5 из 5 звёзд");
+    let hearts = rating(&ui, "Love", Signal::new(1.0f32), RatingOptions::default().unit("hearts".into()));
+    mount(&ui, &hearts);
+    ui.set_locale("en");
+    let _ = frame(&ui);
+    assert_eq!(value_text(&hearts), "1 of 5 hearts");
+}

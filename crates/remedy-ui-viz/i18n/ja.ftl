@@ -1,0 +1,11 @@
+bars-value = バー { $count } 本、最大 { $percent }%
+meter-value-normal = { $percent }%、正常
+meter-value-loud = { $percent }%、大音量
+meter-value-clipping = { $percent }%、クリッピング
+meter-threshold = { $label } のしきい値
+meter-percent = { $percent }%
+ring-speaking = 発言中
+ring-silent = 無音
+ring-muted = ミュート中
+sparkline-no-data = データなし
+sparkline-latest = 最新値 { $value }

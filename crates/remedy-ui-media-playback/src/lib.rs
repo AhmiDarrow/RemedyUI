@@ -33,6 +33,11 @@
 //! Layer 5. Calls into the platform live in the `os` module, the only place unsafe code is
 //! allowed.
 
+/// The player's own words (control names, tooltips, messages over the picture) in every
+/// language the engine ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
+/// [`remedy_ui_view::strings::add_messages`] under the name `media-playback`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("media-playback");
+
 mod capture;
 pub mod deps;
 mod engine;

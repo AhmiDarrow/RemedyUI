@@ -26,6 +26,11 @@
 //! frame plays the frames before the damage; one damaged before that cannot be shown.
 
 #[cfg(any(feature = "gif", feature = "apng", feature = "webp"))]
+/// The animation view's own words (its play button's names) in every language the engine
+/// ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
+/// [`remedy_ui_view::strings::add_messages`] under the name `media-anim`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("media-anim");
+
 mod canvas;
 mod formats;
 mod policy;
@@ -157,6 +162,7 @@ fn play_button(ui: &Ui, alt: &str, play: Signal<bool>) -> El {
         }
     });
     let backdrop = theme.colors.bg.with_alpha(0.8);
+    let u = ui.clone();
     ui.el("icon_button")
         .row()
         .align(Align::Center)
@@ -169,8 +175,13 @@ fn play_button(ui: &Ui, alt: &str, play: Signal<bool>) -> El {
         .child(glyph)
         .on_click(move || play.update(|p| *p = !*p))
         .semantics(move || {
-            let verb = if play.get() { "Pause animation" } else { "Play animation" };
-            let label = if name.is_empty() { verb.to_owned() } else { format!("{verb}: {name}") };
+            let playing = play.get();
+            let label = match (name.is_empty(), playing) {
+                (true, true) => STRINGS.get(&u, "anim-pause"),
+                (true, false) => STRINGS.get(&u, "anim-play"),
+                (false, true) => STRINGS.format(&u, "anim-pause-named", &[("name", name.as_str().into())]),
+                (false, false) => STRINGS.format(&u, "anim-play-named", &[("name", name.as_str().into())]),
+            };
             Semantics::new(Role::Button).label(label).action(Action::Click)
         })
 }

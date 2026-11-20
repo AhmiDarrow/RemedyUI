@@ -52,7 +52,8 @@ const REANNOUNCE_ROUNDS: u32 = 4;
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct TerminalOptions {
-    /// What screen readers call it ("Terminal", "Build output").
+    /// What screen readers call it ("Terminal", "Build output"). The default, "Terminal", is
+    /// read in the window's language.
     pub label: String,
     /// How much scrollback to keep.
     pub scrollback: Scrollback,
@@ -101,10 +102,22 @@ impl TerminalOptions {
     }
 }
 
+impl TerminalOptions {
+    /// The defaults, with the label in `locale` (`"de"`, `"pt-BR"`; the closest the engine
+    /// ships, or English) rather than following the window's language.
+    pub fn localized(locale: &str) -> Self {
+        let label = crate::STRINGS.format_in(locale, "terminal", &[]);
+        TerminalOptions { label, ..TerminalOptions::default() }
+    }
+}
+
+/// The English default [`TerminalOptions::label`], which reads in the window's language.
+const DEFAULT_LABEL: &str = "Terminal";
+
 impl Default for TerminalOptions {
     fn default() -> Self {
         TerminalOptions {
-            label: "Terminal".into(),
+            label: DEFAULT_LABEL.into(),
             scrollback: Scrollback::Auto,
             string_limit: None,
             families: None,
@@ -491,15 +504,31 @@ impl Terminal {
         let (t1, t2, t3, t4, t5, t6) =
             (self.clone(), self.clone(), self.clone(), self.clone(), self.clone(), self.clone());
         let caret = move || t5.caret_rect();
+        let sem_ui = ui.clone();
         let _ = root
-            .keyboard_alternative("Ctrl+Shift+A selects everything and Ctrl+Shift+C copies it")
+            .keyboard_alternative({
+                let u = ui.clone();
+                move || crate::STRINGS.get(&u, "terminal-keys")
+            })
             .on_key(move |e| t1.key(e))
             .on_pointer(move |e| t2.pointer(e))
             .on_wheel(move |e| t3.wheel(e))
             .on_focus_change(move |f| t4.focus(f))
             .on_text_input(caret, move |i| t6.text_input(i))
             .semantics(move || {
-                let name = title.with(|t| if t.is_empty() { label.clone() } else { format!("{label}: {t}") });
+                // The app's own label, or the default in the window's language.
+                let label = if label == DEFAULT_LABEL {
+                    crate::STRINGS.get(&sem_ui, "terminal")
+                } else {
+                    label.clone()
+                };
+                let t = title.get();
+                let name = if t.is_empty() {
+                    label
+                } else {
+                    let args = [("label", label.into()), ("title", t.into())];
+                    crate::STRINGS.format(&sem_ui, "terminal-titled", &args)
+                };
                 Semantics::new(Role::MultilineTextInput).label(name).value(screen.get())
             });
         let t = self.clone();

@@ -1,6 +1,6 @@
 //! Bars: a small group of bars, such as a spectrum.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use remedy_ui_a11y::{Role, Semantics};
@@ -167,8 +167,9 @@ pub fn bars<S: Samples + 'static>(
     });
 
     // Screen readers hear the highest bar in twentieths of the range.
-    let heard = Rc::new(Cell::new((usize::MAX, -1i32)));
+    let heard = Rc::new(RefCell::new((usize::MAX, -1i32, String::new())));
     let sem_el = el.clone();
+    let u = ui.clone();
     let range = options.range;
     el.bind(move || {
         let target = values.with(|s| fractions(s, range));
@@ -182,12 +183,15 @@ pub fn bars<S: Samples + 'static>(
             s.target = target;
         }
         let tick = (high * 20.0).round() as i32;
-        if heard.replace((count, tick)) != (count, tick) {
-            let _ = sem_el.clone().semantics(
-                Semantics::new(Role::Image)
-                    .label(label.clone())
-                    .value(format!("{count} bars, highest {} percent", tick * 5)),
+        // Said again when the window's language changes too.
+        let now = (count, tick, u.locale());
+        if heard.replace(now.clone()) != now {
+            let said = crate::STRINGS.format(
+                &u,
+                "bars-value",
+                &[("count", count.into()), ("percent", (tick * 5).into())],
             );
+            let _ = sem_el.clone().semantics(Semantics::new(Role::Image).label(label.clone()).value(said));
         }
         ticker.kick();
     })

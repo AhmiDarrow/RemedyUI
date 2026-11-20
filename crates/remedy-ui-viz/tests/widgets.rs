@@ -388,7 +388,7 @@ fn the_threshold_is_a_slider_the_keyboard_can_set() {
     assert!(info.focusable);
     let sem = info.semantics.unwrap_or_else(|| unreachable!("semantics"));
     assert_eq!(sem.role(), Role::Slider);
-    assert_eq!(sem.name(), Some("Microphone threshold"));
+    assert_eq!(sem.name().map(plain).as_deref(), Some("Microphone threshold"));
     assert_eq!(value_text(&h), "20 percent");
 
     let t = || threshold.get_untracked().unwrap_or(-1.0);
@@ -721,4 +721,30 @@ fn every_widget_is_named_for_screen_readers() {
         let sem = el.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!("semantics"));
         assert_eq!(sem.name(), Some(name));
     }
+}
+
+#[test]
+fn every_locale_has_every_message_with_its_plurals() {
+    let problems = remedy_ui_view::strings::check(&remedy_ui_viz::STRINGS);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+#[test]
+fn screen_readers_hear_the_window_language() {
+    let ui = ui();
+    ui.set_reduced_motion(true);
+    let clock = Clock::manual();
+    let (level, el) = meter(&ui, &clock, MeterOptions::default());
+    level.set(0.5);
+    let _ = frame(&ui);
+    ui.set_locale("de");
+    let _ = frame(&ui);
+    assert_eq!(value_text(&el), "50 %, normal");
+
+    let (_, _, ring) = ring(&ui, &clock);
+    let _ = frame(&ui);
+    assert_eq!(value_text(&ring), "still");
+    ui.set_locale("fr");
+    let _ = frame(&ui);
+    assert_eq!(value_text(&ring), "silencieux");
 }

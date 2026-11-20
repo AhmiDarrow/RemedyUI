@@ -418,7 +418,10 @@ pub fn scene(ui: &Ui, label: impl Into<String>, design: Size, options: SceneOpti
                 pointer.set_if_changed(Vec2::ZERO);
             }
         })
-        .keyboard_alternative("Parallax is decoration; nothing needs the pointer")
+        .keyboard_alternative({
+            let u = ui.clone();
+            move || crate::STRINGS.get(&u, "scene-parallax-keys")
+        })
         // Turning reduced motion on settles the layers.
         .bind_named("reduced_motion", move || {
             let _ = ui.reduced_motion();

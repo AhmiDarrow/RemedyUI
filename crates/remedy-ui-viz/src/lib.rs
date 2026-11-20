@@ -25,6 +25,11 @@
 //! # }
 //! ```
 
+/// The crate's own words (screen reader values: levels, zones, states) in every language the
+/// engine ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
+/// [`remedy_ui_view::strings::add_messages`] under the name `viz`.
+pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("viz");
+
 mod bars;
 mod drive;
 mod meter;

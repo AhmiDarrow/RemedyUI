@@ -12,7 +12,30 @@ use remedy_ui_reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 
-use crate::{PlaybackState, Player};
+use crate::{MediaError, PlaybackState, Player};
+
+/// Message `id` in the window's locale (tracked: read in a property closure, it follows the
+/// locale).
+fn tr(ui: &Ui, id: &str) -> String {
+    crate::STRINGS.get(ui, id)
+}
+
+/// What is shown over the picture when the media cannot be played, in `locale`. The detail
+/// after the explanation is the platform's own (English) words.
+fn failure(locale: &str, e: Option<MediaError>) -> String {
+    let (id, detail) = match e {
+        None => return crate::STRINGS.format_in(locale, "playback-failed", &[]),
+        Some(MediaError::Unsupported(r)) => ("playback-failed-unsupported", r),
+        Some(MediaError::NotFound(r)) => ("playback-failed-not-found", r),
+        Some(MediaError::Format(r)) => ("playback-failed-format", r),
+        Some(MediaError::Decode(r)) => ("playback-failed-decode", r),
+        Some(MediaError::Device(r)) => ("playback-failed-device", r),
+        Some(MediaError::Denied(r)) => ("playback-failed-denied", r),
+        // Which component to install, and how: for whoever looks after the machine.
+        Some(MediaError::Missing(d)) => ("playback-failed-missing", d.to_string()),
+    };
+    crate::STRINGS.format_in(locale, id, &[("detail", detail.into())])
+}
 
 /// `m:ss`, or `h:mm:ss` from an hour.
 pub fn format_time(d: Duration) -> String {
@@ -83,10 +106,10 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .semantics(Semantics::new(Role::Alert));
     let msg = message.clone();
     let p = player.clone();
+    let mu = ui.clone();
     let message = message.bind(move || {
-        let text = match (p.state(), p.error()) {
-            (PlaybackState::Failed, Some(e)) => Some(format!("This can't be played: {e}")),
-            (PlaybackState::Failed, None) => Some("This can't be played.".to_string()),
+        let text = match p.state() {
+            PlaybackState::Failed => Some(failure(&mu.locale(), p.error())),
             _ => None,
         };
         let _ = msg.clone().hidden(text.is_none());
@@ -103,7 +126,10 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: 0.0 };
         })
         .pass_through()
-        .child(w::spinner(ui, "Loading"));
+        .child(w::spinner(ui, {
+            let u = ui.clone();
+            move || tr(&u, "playback-loading")
+        }));
     // The picture fills the stage (letterboxed by the surface); the rest sits over it.
     let stage = ui
         .el("player_stage")
@@ -128,29 +154,32 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     let play = glyph_button(
         ui,
         [Icon::Play, Icon::Pause],
-        "Play or pause (K)",
+        "playback-play-pause-tip",
         {
             let p = player.clone();
             move || usize::from(matches!(p.state(), PlaybackState::Playing | PlaybackState::Buffering))
         },
         {
-            let p = player.clone();
+            let (p, u) = (player.clone(), ui.clone());
             move || {
-                if matches!(p.state(), PlaybackState::Playing | PlaybackState::Buffering) {
-                    "Pause".to_string()
-                } else {
-                    "Play".to_string()
-                }
+                let playing = matches!(p.state(), PlaybackState::Playing | PlaybackState::Buffering);
+                tr(&u, if playing { "playback-pause" } else { "playback-play" })
             }
         },
         move || p.toggle(),
     );
-    let p = player.clone();
+    let (p, tu) = (player.clone(), ui.clone());
     let time = ui.el("label").nowrap().layout(|l| l.shrink = 0.0).text(move || {
         let pos = format_time(p.position());
         match p.duration() {
-            Some(d) => format!("{pos} / {}", format_time(d)),
-            None if p.info().is_some() => format!("{pos} · Live"),
+            Some(d) => crate::STRINGS.format(
+                &tu,
+                "playback-time",
+                &[("position", pos.into()), ("duration", format_time(d).into())],
+            ),
+            None if p.info().is_some() => {
+                crate::STRINGS.format(&tu, "playback-time-live", &[("position", pos.into())])
+            }
             None => pos,
         }
     });
@@ -159,14 +188,14 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     let mute = glyph_button(
         ui,
         [Icon::Volume, Icon::VolumeMuted],
-        "Mute (M)",
+        "playback-mute-tip",
         {
             let p = player.clone();
             move || usize::from(p.is_muted())
         },
         {
-            let p = player.clone();
-            move || if p.is_muted() { "Unmute".to_string() } else { "Mute".to_string() }
+            let (p, u) = (player.clone(), ui.clone());
+            move || tr(&u, if p.is_muted() { "playback-unmute" } else { "playback-mute" })
         },
         move || p.set_muted(!p.is_muted()),
     );
@@ -175,22 +204,26 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .el("player_volume")
         .width(u * 14.0)
         .layout(|l| l.shrink = 0.0)
-        .child(w::slider(ui, "Volume", level, 0.0, 1.0, 0.05));
+        // The core slider takes its name once: in the window's language when the player is made.
+        .child(w::slider(ui, tr(ui, "playback-volume"), level, 0.0, 1.0, 0.05));
     let p = player.clone();
     let volume = volume.bind(move || p.set_volume(level.get() as f32));
     let p = player.clone();
     let captions = glyph_button(
         ui,
         [Icon::Captions, Icon::Captions],
-        "Captions (C)",
+        "playback-captions-tip",
         || 0,
         {
-            let p = player.clone();
+            let (p, u) = (player.clone(), ui.clone());
             move || {
                 let tracks = p.subtitle_tracks();
                 match p.caption_track().and_then(|i| tracks.get(i)) {
-                    Some(t) => format!("Captions: {}", t.label),
-                    None => "Captions: off".to_string(),
+                    Some(t) => {
+                        let track = [("track", t.label.as_str().into())];
+                        crate::STRINGS.format(&u, "playback-captions-track", &track)
+                    }
+                    None => tr(&u, "playback-captions-off"),
                 }
             }
         },
@@ -206,14 +239,16 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     let full = glyph_button(
         ui,
         [Icon::Fullscreen, Icon::FullscreenExit],
-        "Full screen (F)",
+        "playback-full-screen-tip",
         {
             let p = player.clone();
             move || usize::from(p.is_fullscreen())
         },
         {
-            let p = player.clone();
-            move || if p.is_fullscreen() { "Exit full screen".to_string() } else { "Full screen".to_string() }
+            let (p, u) = (player.clone(), ui.clone());
+            move || {
+                tr(&u, if p.is_fullscreen() { "playback-exit-full-screen" } else { "playback-full-screen" })
+            }
         },
         move || p.request_fullscreen(!p.is_fullscreen()),
     );
@@ -279,12 +314,13 @@ fn cycle_captions(p: &Player) {
     p.set_caption_track(next);
 }
 
-/// An icon button whose glyph (`glyphs[which()]`) and name follow the player.
+/// An icon button whose glyph (`glyphs[which()]`) and name follow the player, with the
+/// message `tip` as its tooltip.
 #[track_caller]
 fn glyph_button(
     ui: &Ui,
     glyphs: [Icon; 2],
-    tip: &str,
+    tip: &'static str,
     which: impl Fn() -> usize + 'static,
     name: impl Fn() -> String + 'static,
     on_press: impl Fn() + 'static,
@@ -309,7 +345,8 @@ fn glyph_button(
         })
         .on_click(on_press)
         .semantics(move || Semantics::new(Role::Button).label(name()).action(Action::Click));
-    w::tooltip(&button, tip);
+    let u = ui.clone();
+    w::tooltip(&button, move || tr(&u, tip));
     button
 }
 
@@ -338,6 +375,7 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
     let painted = player.clone();
     let b3 = bar.clone();
     let p2 = player.clone();
+    let u = ui.clone();
     let len2 = length.clone();
     bar.paint(move |cx| {
         let pos = painted.position();
@@ -400,11 +438,16 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
         let len = length();
         let _ = b3.clone().disabled(len.is_none() || !p2.info().is_some_and(|i| i.seekable));
         let total = len.unwrap_or_default();
+        let said = crate::STRINGS.format(
+            &u,
+            "playback-seek-value",
+            &[("position", format_time(pos).into()), ("duration", format_time(total).into())],
+        );
         let _ = b3.clone().semantics(
             Semantics::new(Role::Slider)
-                .label("Seek")
+                .label(tr(&u, "playback-seek"))
                 .numeric(pos.as_secs_f64(), 0.0, total.as_secs_f64())
-                .value(format!("{} of {}", format_time(pos), format_time(total)))
+                .value(said)
                 .action(Action::Increment)
                 .action(Action::Decrement),
         );
@@ -415,4 +458,19 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
 /// The thumb's radius on a bar `h` tall (as the core slider draws it).
 fn cx_radius(h: f32) -> f32 {
     (h * 0.3).max(5.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failures_are_explained_in_the_language_asked() {
+        let said = failure("de", Some(MediaError::NotFound("clip.mp4".into())));
+        assert_eq!(
+            said.replace(['\u{2068}', '\u{2069}'], ""),
+            "Dies kann nicht wiedergegeben werden, weil es nicht gefunden wurde: clip.mp4"
+        );
+        assert_eq!(failure("en", None), "This can't be played.");
+    }
 }

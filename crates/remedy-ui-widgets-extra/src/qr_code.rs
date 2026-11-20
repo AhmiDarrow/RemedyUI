@@ -98,6 +98,7 @@ pub fn qr_code(ui: &Ui, label: impl Into<String>, data: Signal<String>, options:
 
     let paint_cache = cache.clone();
     let paint_options = options.clone();
+    let paint_ui = ui.clone();
     let el = ui.el("qr_code").paint(move |cx| {
         let text = data.get();
         let (dark, light) = colors(cx.theme);
@@ -142,7 +143,7 @@ pub fn qr_code(ui: &Ui, label: impl Into<String>, data: Signal<String>, options:
                     Brush::Solid(cx.theme.colors.card),
                 );
                 cx.text(
-                    &e.to_string(),
+                    &problem(&paint_ui, e),
                     Point::new(cx.size.width / 2.0, cx.size.height / 2.0),
                     Vec2::new(0.5, 0.5),
                     TextPaint {
@@ -157,6 +158,7 @@ pub fn qr_code(ui: &Ui, label: impl Into<String>, data: Signal<String>, options:
     });
 
     let bound = el.clone();
+    let u = ui.clone();
     el.bind(move || {
         let text = data.get();
         let result = code_for(&cache, &text, &options);
@@ -164,13 +166,20 @@ pub fn qr_code(ui: &Ui, label: impl Into<String>, data: Signal<String>, options:
             Ok(code) => {
                 let total = (code.size() + 2 * quiet) as f32;
                 let said = options.description.clone().unwrap_or_else(|| {
-                    format!("QR code, version {}, error correction {}", code.version(), code.ecc().letter())
+                    crate::STRINGS.format(
+                        &u,
+                        "qr-described",
+                        &[
+                            ("version", code.version().into()),
+                            ("level", code.ecc().letter().to_string().into()),
+                        ],
+                    )
                 });
                 (total * module, Semantics::new(Role::Image).label(label.clone()).description(said))
             }
             Err(e) => (
                 fallback,
-                Semantics::new(Role::Image).label(label.clone()).description(e.to_string()).invalid(true),
+                Semantics::new(Role::Image).label(label.clone()).description(problem(&u, e)).invalid(true),
             ),
         };
         let _ = bound.clone().semantics(sem);
@@ -180,4 +189,15 @@ pub fn qr_code(ui: &Ui, label: impl Into<String>, data: Signal<String>, options:
         });
         bound.repaint();
     })
+}
+
+/// Why there is no code, for the people looking at it, in the window's language (tracked).
+fn problem(ui: &Ui, e: &QrError) -> String {
+    crate::tr(
+        ui,
+        match e {
+            QrError::TooLong => "qr-too-long",
+            QrError::BadOptions => "qr-bad-options",
+        },
+    )
 }

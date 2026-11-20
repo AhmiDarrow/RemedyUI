@@ -1,6 +1,6 @@
 //! The level meter: a bar with colored zones, a peak marker and a threshold the user sets.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -9,8 +9,8 @@ use remedy_ui_core::{CornerRadii, Insets, Rect, Size};
 use remedy_ui_input::{Buttons, Key, PointerPhase};
 use remedy_ui_layout::{Length, Position};
 use remedy_ui_paint::Brush;
-use remedy_ui_reactive::Signal;
-use remedy_ui_view::{El, Ui};
+use remedy_ui_reactive::{Signal, untrack};
+use remedy_ui_view::{El, IntoProp, Ui};
 
 use crate::drive::{Clock, Moved, Smoothing, Ticker};
 use crate::peak::PeakHold;
@@ -40,7 +40,7 @@ pub enum Zone {
 }
 
 impl Zone {
-    /// A word for screen readers.
+    /// A word for screen readers, in English (the meter says it in the window's language).
     pub fn name(self) -> &'static str {
         match self {
             Zone::Normal => "normal",
@@ -108,7 +108,8 @@ pub struct MeterOptions {
     /// A marker the user sets by dragging it or with the arrow keys (a voice-activation
     /// threshold). `None` shows no marker.
     pub threshold: Option<Signal<f32>>,
-    /// What screen readers call the threshold. `None` adds " threshold" to the meter's label.
+    /// What screen readers call the threshold. `None` calls it the meter's label's threshold
+    /// ("Microphone threshold"), in the window's language.
     pub threshold_label: Option<String>,
     /// How far an arrow key moves the threshold (a fraction of the scale).
     pub threshold_step: f32,
@@ -240,8 +241,8 @@ struct State {
 /// step), Page Up and Down (a tenth) and Home and End. Screen readers hear the level as a
 /// progress value with its zone, and the threshold as a slider.
 #[track_caller]
-pub fn level_meter(ui: &Ui, label: impl Into<String>, level: Signal<f32>, options: MeterOptions) -> El {
-    let label = label.into();
+pub fn level_meter(ui: &Ui, label: impl IntoProp<String>, level: Signal<f32>, options: MeterOptions) -> El {
+    let label = label.into_prop();
     let unit = ui.theme().spacing.unit;
     let thickness = options.thickness.unwrap_or(unit * 2.5).max(2.0);
     let o = options.orientation;
@@ -266,7 +267,7 @@ pub fn level_meter(ui: &Ui, label: impl Into<String>, level: Signal<f32>, option
         Orientation::Vertical => root.width(thickness).height(options.length.unwrap_or(unit * 30.0)),
     };
     let root = root
-        .semantics(Semantics::new(Role::Progress).label(label.clone()).numeric(0.0, 0.0, 1.0))
+        .semantics(Semantics::new(Role::Progress).label(untrack(|| label.get())).numeric(0.0, 0.0, 1.0))
         .paint(move |cx| {
             let (shown, peak) = paint_state.try_borrow().map_or((0.0, 0.0), |s| (s.shown, s.peak.peak()));
             let whole = Rect::new(0.0, 0.0, cx.size.width, cx.size.height);
@@ -319,9 +320,10 @@ pub fn level_meter(ui: &Ui, label: impl Into<String>, level: Signal<f32>, option
 
     // Screen readers hear the level in twentieths and when the zone changes, not 50 times a
     // second.
-    let heard = Rc::new(Cell::new((-1i32, Zone::Normal)));
+    let heard = Rc::new(RefCell::new((-1i32, Zone::Normal, String::new())));
     let sem_el = root.clone();
     let sem_label = label.clone();
+    let u = ui.clone();
     let root = root.bind(move || {
         let v = unit_level(level.get());
         if let Ok(mut s) = state.try_borrow_mut() {
@@ -333,13 +335,21 @@ pub fn level_meter(ui: &Ui, label: impl Into<String>, level: Signal<f32>, option
         }
         let tick = (v * 20.0).round() as i32;
         let zone = zones.zone(v);
-        if heard.replace((tick, zone)) != (tick, zone) {
-            let pct = tick * 5;
+        // Said again when the label or the window's language changes too.
+        let name = sem_label.get();
+        let now = (tick, zone, format!("{}\n{name}", u.locale()));
+        if heard.replace(now.clone()) != now {
+            let id = match zone {
+                Zone::Normal => "meter-value-normal",
+                Zone::Loud => "meter-value-loud",
+                Zone::Clipping => "meter-value-clipping",
+            };
+            let said = crate::STRINGS.format(&u, id, &[("percent", (tick * 5).into())]);
             let _ = sem_el.clone().semantics(
                 Semantics::new(Role::Progress)
-                    .label(sem_label.clone())
+                    .label(name)
                     .numeric(f64::from(tick) / 20.0, 0.0, 1.0)
-                    .value(format!("{pct} percent, {}", zone.name())),
+                    .value(said),
             );
         }
         ticker.kick();
@@ -347,7 +357,13 @@ pub fn level_meter(ui: &Ui, label: impl Into<String>, level: Signal<f32>, option
 
     match options.threshold {
         Some(threshold) => {
-            let name = options.threshold_label.unwrap_or_else(|| format!("{label} threshold"));
+            let u = ui.clone();
+            let given = options.threshold_label;
+            let name = move || {
+                given.clone().unwrap_or_else(|| {
+                    crate::STRINGS.format(&u, "meter-threshold", &[("label", label.get().into())])
+                })
+            };
             root.child(threshold_handle(ui, o, name, threshold, options.threshold_step))
         }
         None => root,
@@ -356,7 +372,14 @@ pub fn level_meter(ui: &Ui, label: impl Into<String>, level: Signal<f32>, option
 
 /// The element over the bar that holds the threshold: it draws the marker and takes the
 /// pointer and keyboard.
-fn threshold_handle(ui: &Ui, o: Orientation, name: String, threshold: Signal<f32>, step: f32) -> El {
+fn threshold_handle(
+    ui: &Ui,
+    o: Orientation,
+    name: impl Fn() -> String + 'static,
+    threshold: Signal<f32>,
+    step: f32,
+) -> El {
+    let u = ui.clone();
     let handle = ui.el("meter_threshold").focusable(true).layout(|l| {
         l.position = Position::Absolute;
         l.inset = Insets::ZERO;
@@ -407,11 +430,13 @@ fn threshold_handle(ui: &Ui, o: Orientation, name: String, threshold: Signal<f32
         })
         .bind(move || {
             let v = unit_level(threshold.get());
+            let percent =
+                crate::STRINGS.format(&u, "meter-percent", &[("percent", (v * 100.0).round().into())]);
             let _ = sem_el.clone().semantics(
                 Semantics::new(Role::Slider)
-                    .label(name.clone())
+                    .label(name())
                     .numeric(f64::from(v), 0.0, 1.0)
-                    .value(format!("{} percent", (v * 100.0).round() as i32))
+                    .value(percent)
                     .action(Action::Increment)
                     .action(Action::Decrement),
             );
