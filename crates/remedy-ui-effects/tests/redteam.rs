@@ -140,6 +140,9 @@ impl Rng {
 /// Mutates the library's sources (deleting, duplicating and swapping pieces, inserting
 /// tokens) and compiles each with untrusted limits: never a panic, never slow; whatever
 /// compiles renders a small frame without a panic either.
+///
+/// `PRISM_FUZZ_ROUNDS` and `PRISM_FUZZ_SEED` run it longer or elsewhere (a failure names
+/// its round; rerun with the same seed to see it again).
 #[test]
 fn mutated_sources_never_panic_or_hang() {
     let tokens = [
@@ -181,10 +184,14 @@ fn mutated_sources_never_panic_or_hang() {
         "//",
         "/*",
     ];
-    let mut rng = Rng(0x5eed_1234_abcd_ef01);
+    let env = |name: &str, default: u64| {
+        std::env::var(name).ok().and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(default)
+    };
+    let rounds = env("PRISM_FUZZ_ROUNDS", 1500);
+    let mut rng = Rng(env("PRISM_FUZZ_SEED", 0x5eed_1234_abcd_ef01).max(1));
     let started = Instant::now();
     let mut compiled = 0;
-    for round in 0..1500 {
+    for round in 0..rounds {
         let (_, base) = LIBRARY[rng.below(LIBRARY.len())];
         let mut chars: Vec<char> = base.chars().collect();
         for _ in 0..(1 + rng.below(4)) {
@@ -229,6 +236,6 @@ fn mutated_sources_never_panic_or_hang() {
             assert!(t0.elapsed() < Duration::from_secs(2), "round {round} rendered in {:?}", t0.elapsed());
         }
     }
-    println!("{compiled} of 1500 mutants compiled; {:?}", started.elapsed());
+    println!("{compiled} of {rounds} mutants compiled; {:?}", started.elapsed());
     assert!(compiled > 0, "some mutants still compile");
 }
