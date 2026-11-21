@@ -595,6 +595,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
     a subtree clears its hover chain once. Unoptimized, at 10,000 levels: building 9 s to
     0.13 s, the first frame 46 s to 1.1 s, removal 0.6 s to 0.06 s; the accessibility tree's
     test at 20,000 levels 196 s to 0.3 s.
+- `wasmi` 2.0.1, which runs compiled widgets (`script-wasm`), was yanked upstream: it is now
+  2.0.2, the patch release that replaced it, so `cargo deny check` passes again.
 - `cargo fmt --all --check` and `cargo clippy --workspace -- -D warnings` (Rust 1.97) are
   clean again: unformatted files in the bridges, script, viz and stage and board widgets,
   and a redundant `drop` in the themes' style sheet.
