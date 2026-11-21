@@ -160,7 +160,7 @@ struct Host {
     /// The reason a widget gave through `fail`.
     failed: Option<String>,
     /// The instance's memory, where host functions read what they are handed. (Kept here
-    /// rather than looked up through the caller's exports, which wasmi 2.0.1 gets wrong in
+    /// rather than looked up through the caller's exports, which wasmi 2.0.1 got wrong in
     /// unoptimized builds.)
     memory: Option<Memory>,
 }
