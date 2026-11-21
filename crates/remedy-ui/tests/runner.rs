@@ -2115,3 +2115,52 @@ fn an_element_hides_the_mouse_pointer_while_it_is_over_it() {
     host.run_frames(&mut runner, 1);
     assert!(!hidden(&host), "shown again where it rests");
 }
+
+fn keys_and_clicks_sent_to_a_live_window_reach_it_as_the_platforms_do() {
+    let count = Signal::new(0u32);
+    let typed = Rc::new(std::cell::RefCell::new(String::new()));
+    let win = Rc::new(std::cell::RefCell::new(None));
+    let (t2, w2) = (typed.clone(), win.clone());
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let w = app.open(WindowSpec::new("Harness").size(200.0, 100.0), move |ui, _| {
+            let button = ui
+                .el("button")
+                .layout(|l| {
+                    l.width = Length::Px(60.0);
+                    l.height = Length::Px(30.0);
+                })
+                .on_click(move || count.update(|c| *c += 1));
+            let field = ui.text_field("text_input", FieldKind::Single);
+            let f2 = field.clone();
+            let field = field.on_change(move || *t2.borrow_mut() = f2.value());
+            ui.root().child(button).child(field.el().layout(|l| l.width = Length::Px(150.0)));
+            field.el().focus();
+        });
+        *w2.borrow_mut() = Some(w);
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let w = win.borrow().clone().unwrap_or_else(|| unreachable!("the window"));
+    // Keys go where a keyboard's would: the focused field.
+    w.press_key(KeyEvent::press(Key::Character("h".into())).with_text(Some("h".into())));
+    w.press_key(KeyEvent::press(Key::Character("i".into())).with_text(Some("i".into())));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(typed.borrow().as_str(), "hi");
+    // A click on the button, by its place in the window.
+    w.click_at(Point::new(10.0, 10.0));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(count.get(), 1);
+    // The window's picture as a PNG.
+    let png = Rc::new(std::cell::RefCell::new(None));
+    let p2 = png.clone();
+    w.snapshot_png(move |bytes| *p2.borrow_mut() = bytes);
+    host.run_frames(&mut runner, 1);
+    let bytes = png.borrow_mut().take().unwrap_or_else(|| unreachable!("a PNG"));
+    let mut reader =
+        png::Decoder::new(std::io::Cursor::new(bytes)).read_info().unwrap_or_else(|e| unreachable!("{e}"));
+    let mut buf = vec![0; reader.output_buffer_size().unwrap_or(0)];
+    let info = reader.next_frame(&mut buf).unwrap_or_else(|e| unreachable!("{e}"));
+    assert_eq!((info.width, info.height), (200, 100));
+    let at = (10 * 200 + 10) * 4;
+    assert_eq!(buf.get(at..at + 4), Some(&px(&host, first(&host), 10, 10)[..]), "the button, opaque");
+}

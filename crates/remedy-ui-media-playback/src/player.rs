@@ -9,12 +9,12 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use remedy_ui_media_video::VideoSink;
-use remedy_ui_reactive::Signal;
+use remedy_ui_reactive::{Memo, Signal};
 use remedy_ui_view::{El, Ui};
 
 use crate::engine::{self, Cmd, PlaybackState, PlaybackStats, Shared, lock};
 use crate::host::{MediaError, MediaHost, MediaInfo, MediaSource};
-use crate::subtitles::{SubtitleFormat, SubtitleTrack, parse_subtitles};
+use crate::subtitles::{SubtitleFormat, SubtitleTrack, cue_reach, parse_subtitles, read_subtitle_file};
 
 /// What a player does while it cannot be seen (scrolled away, hidden, its window minimized
 /// or covered).
@@ -84,6 +84,9 @@ pub struct PlayerOptions {
     pub two_rows: bool,
     /// Starts in the compact layout ([`Player::set_compact`]).
     pub compact: bool,
+    /// Keeps the screen on while video plays here ([`Player::set_keep_awake`]); off by
+    /// default.
+    pub keep_awake: bool,
 }
 
 /// What the person chose in the widget's captions menu ([`Player::caption_pick`]).
@@ -288,6 +291,10 @@ pub struct RemoteStatus {
     /// The title of what the device starts next by itself (a media server's autoplay), while
     /// it starts it: the casting stage says so and the seek bar waits.
     pub next: Option<String>,
+    /// When the device made this report (`None`: just now). A playing device's position is
+    /// moved on from then, so a report that took a while to arrive shows where the device is
+    /// by now.
+    pub reported_at: Option<remedy_ui_core::time::Instant>,
 }
 
 impl RemoteStatus {
@@ -319,6 +326,19 @@ impl RemoteStatus {
     pub fn starting_next(mut self, title: impl Into<String>) -> Self {
         self.next = Some(title.into());
         self
+    }
+
+    /// Sets `reported_at`: when the device made the report.
+    pub fn reported_at(mut self, at: remedy_ui_core::time::Instant) -> Self {
+        self.reported_at = Some(at);
+        self
+    }
+
+    /// Sets `reported_at` to `age` ago: the report is that old (a server's poll answer that
+    /// says how long ago the TV last reported).
+    pub fn age(self, age: Duration) -> Self {
+        let now = remedy_ui_core::time::Instant::now();
+        self.reported_at(now.checked_sub(age).unwrap_or(now))
     }
 }
 
@@ -394,6 +414,7 @@ impl Default for RemoteStatus {
             volume: None,
             muted: false,
             next: None,
+            reported_at: None,
         }
     }
 }
@@ -433,6 +454,12 @@ impl PlayerOptions {
     /// Sets `next_up_lead`: how long before the end the "Up next" card shows.
     pub fn next_up_lead(mut self, value: Option<Duration>) -> Self {
         self.next_up_lead = value;
+        self
+    }
+
+    /// Sets `keep_awake`: the screen stays on while video plays here.
+    pub fn keep_awake(mut self, value: bool) -> Self {
+        self.keep_awake = value;
         self
     }
 
@@ -491,6 +518,7 @@ impl Default for PlayerOptions {
             speed_button: true,
             two_rows: false,
             compact: false,
+            keep_awake: false,
         }
     }
 }
@@ -542,6 +570,8 @@ struct Inner {
     volume: Signal<f32>,
     muted: Signal<bool>,
     tracks: Signal<Vec<SubtitleTrack>>,
+    /// Each track's `cue_reach`, so the caption showing is found by binary search.
+    cue_reach: Memo<Vec<Vec<Duration>>>,
     caption: Signal<Option<usize>>,
     /// Milliseconds every caption is shifted by: positive shows cues later.
     caption_delay: Signal<i64>,
@@ -634,7 +664,19 @@ struct Inner {
     awake: Signal<bool>,
     /// Theater was on when the player went compact, so leaving it brings it back (Portal's).
     theater_before_compact: Cell<bool>,
+    /// [`PlayerOptions::next_up_delay`] and [`next_up_lead`](PlayerOptions::next_up_lead),
+    /// changed while it plays ([`Player::set_next_up_delay`]).
+    next_up_delay: Signal<Option<Duration>>,
+    next_up_lead: Signal<Option<Duration>>,
+    /// Keeps the screen on while video plays here ([`Player::set_keep_awake`]).
+    keep_awake: Cell<bool>,
+    /// What holds the screen on, and the hold while it does.
+    awake_hold: RefCell<Option<AwakeHold>>,
+    awake: RefCell<Option<Box<dyn std::any::Any>>>,
 }
+
+/// Holds the screen on until what it returns is dropped ([`Player::set_awake_hold`]).
+type AwakeHold = Rc<dyn Fn() -> Option<Box<dyn std::any::Any>>>;
 
 impl Inner {
     fn send(&self, cmd: Cmd) {
@@ -687,6 +729,7 @@ impl Inner {
             self.stats.set_if_changed(stats);
             self.buffered.set_if_changed(buffered);
         });
+        self.sync_awake();
         // The end starts the countdown to what is next; leaving it (playing again, seeking
         // back) stops it.
         if state == PlaybackState::Ended {
@@ -707,7 +750,7 @@ impl Inner {
         {
             return;
         }
-        let Some(delay) = self.options.next_up_delay else { return };
+        let Some(delay) = self.next_up_delay.get_untracked().ok().flatten() else { return };
         let Some(ui) = self.ui.upgrade() else { return };
         if ui.reduced_motion() && !delay.is_zero() {
             return;
@@ -811,6 +854,52 @@ impl Inner {
         self.sync_suspend();
     }
 
+    /// Whether the screen should be held on now: asked for, video playing here and seen.
+    fn wants_awake(&self) -> bool {
+        self.keep_awake.get()
+            && self.visible.get()
+            && self.state.get_untracked().ok() == Some(PlaybackState::Playing)
+            && self.remote.with_untracked(Option::is_none).unwrap_or(false)
+            && self.info.with_untracked(|i| i.as_ref().is_some_and(|i| i.video.is_some())).unwrap_or(false)
+    }
+
+    /// Takes or lets go of the screen hold as [`wants_awake`](Self::wants_awake) says.
+    fn sync_awake(&self) {
+        let want = self.wants_awake();
+        if want == self.awake.borrow().is_some() {
+            return;
+        }
+        let hold = match want {
+            true => {
+                let f = self.awake_hold.borrow().clone();
+                match f {
+                    Some(f) => f(),
+                    None => {
+                        let reason =
+                            self.ui.upgrade().map(|ui| crate::STRINGS.get(&ui, "playback-keep-awake"));
+                        crate::awake::platform_hold(reason.as_deref().unwrap_or("Playing video"))
+                    }
+                }
+            }
+            false => None,
+        };
+        // A hold the platform refused leaves `awake` empty: asked again at the next change.
+        let old = std::mem::replace(&mut *self.awake.borrow_mut(), hold);
+        drop(old);
+    }
+
+    /// Where a remote device's position stops: the work's length, else the device's.
+    fn remote_end(&self) -> Option<Duration> {
+        let end = self.timeline.with_untracked(|t| t.and_then(|t| t.length)).ok().flatten();
+        end.or_else(|| self.remote_status.with_untracked(|s| s.length).ok().flatten())
+    }
+
+    /// [`remote_end`](Self::remote_end) for a report not yet shown.
+    fn remote_end_for(&self, status: &RemoteStatus) -> Option<Duration> {
+        let end = self.timeline.with_untracked(|t| t.and_then(|t| t.length)).ok().flatten();
+        end.or(status.length)
+    }
+
     fn is_starting(&self) -> bool {
         self.starting.with_untracked(Option::is_some).unwrap_or(false)
     }
@@ -864,9 +953,7 @@ impl Inner {
             if let Some(p) = PLAYERS.with(|p| p.borrow().get(&id).and_then(Weak::upgrade)) {
                 p.remote_timer.set(None);
                 if let Some((at, seen)) = p.remote_seen.get() {
-                    let end = p.timeline.with_untracked(|t| t.and_then(|t| t.length)).ok().flatten();
-                    let end = end.or_else(|| p.remote_status.with_untracked(|s| s.length).ok().flatten());
-                    let to = moved_on(at, seen.elapsed(), end);
+                    let to = moved_on(at, seen.elapsed(), p.remote_end());
                     if p.remote_status.with_untracked(|s| s.position).ok() != Some(to) {
                         p.remote_status.update(|s| s.position = to);
                     }
@@ -964,6 +1051,7 @@ impl Inner {
             self.end_cancel();
         });
         self.embedded.borrow_mut().clear();
+        self.sync_awake();
         self.carry_pick(pick, picked_label, !same_work);
         self.play_on_open.set(self.remote.with_untracked(Option::is_none).unwrap_or(true));
         let muted = self.muted.get_untracked().unwrap_or(false);
@@ -1058,6 +1146,7 @@ impl Inner {
 
 impl Drop for Inner {
     fn drop(&mut self) {
+        self.awake.get_mut().take();
         self.send(Cmd::Close);
         if let Some(ui) = self.ui.upgrade() {
             for t in [self.timer.take(), self.remote_timer.take()].into_iter().flatten() {
@@ -1136,6 +1225,8 @@ impl Player {
             None => (None, None),
         };
         let volume = options.volume.clamp(0.0, 1.0);
+        let tracks = Signal::new(Vec::<SubtitleTrack>::new());
+        let cue_reach = Memo::new(move || tracks.with(|t| t.iter().map(|tr| cue_reach(&tr.cues)).collect()));
         let inner = Rc::new(Inner {
             id,
             ui: ui.downgrade(),
@@ -1152,7 +1243,8 @@ impl Player {
             speed: Signal::new(1.0),
             volume: Signal::new(volume),
             muted: Signal::new(false),
-            tracks: Signal::new(Vec::new()),
+            tracks,
+            cue_reach,
             caption: Signal::new(None),
             caption_delay: Signal::new(0),
             fullscreen: Signal::new(false),
@@ -1209,6 +1301,11 @@ impl Player {
             title: Signal::new(None),
             awake: Signal::new(true),
             theater_before_compact: Cell::new(false),
+            next_up_delay: Signal::new(options.next_up_delay),
+            next_up_lead: Signal::new(options.next_up_lead),
+            keep_awake: Cell::new(options.keep_awake),
+            awake_hold: RefCell::new(None),
+            awake: RefCell::new(None),
             options,
         });
         PLAYERS.with(|p| p.borrow_mut().insert(id, Rc::downgrade(&inner)));
@@ -1722,7 +1819,9 @@ impl Player {
         self.0.tracks.get()
     }
 
-    /// Adds a caption track; returns its index.
+    /// Adds a caption track; returns its index. On a [timeline](Self::set_timeline) its cues
+    /// are in the work's time; [`add_subtitles_stream`](Self::add_subtitles_stream) takes them
+    /// in the stream's.
     pub fn add_subtitles(&self, track: SubtitleTrack) -> usize {
         let mut i = 0;
         self.0.tracks.update(|t| {
@@ -1736,11 +1835,25 @@ impl Player {
         i
     }
 
+    /// Adds a caption track timed to the stream rather than the work (subtitles a media server
+    /// cut to the stream it made from a resume or skip point); returns its index. On a
+    /// [timeline](Self::set_timeline) its cues are moved onto the work's time by the origin now,
+    /// so they stay right after a [`replace_source`](Self::replace_source) from elsewhere in
+    /// the work (another origin) and the app never adds the origin itself. Without a timeline,
+    /// as [`add_subtitles`](Self::add_subtitles).
+    pub fn add_subtitles_stream(&self, mut track: SubtitleTrack) -> usize {
+        let origin = remedy_ui_reactive::untrack(|| self.origin());
+        for c in &mut track.cues {
+            c.start += origin;
+            c.end += origin;
+        }
+        self.add_subtitles(track)
+    }
+
     /// Reads a subtitle file (WebVTT, SRT, ASS/SSA, by its extension or its contents) and adds
     /// it as a track named `label`.
     pub fn load_subtitles(&self, path: &Path, label: impl Into<String>) -> Result<usize, MediaError> {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| MediaError::NotFound(format!("{}: {e}", path.display())))?;
+        let text = read_subtitle_file(path)?;
         let format = path
             .extension()
             .and_then(|e| e.to_str())
@@ -1803,7 +1916,11 @@ impl Player {
         } else {
             at + Duration::from_millis(delay.unsigned_abs())
         };
-        self.0.tracks.with(|t| t.get(sel).and_then(|tr| tr.text_at(at)))
+        // The memo first: computing it reads the tracks.
+        self.0.cue_reach.with(|r| {
+            let r = r.get(sel)?;
+            self.0.tracks.with(|t| t.get(sel).and_then(|tr| tr.text_at_with(r, at)))
+        })
     }
 
     /// How far every caption track is shifted, in milliseconds: positive shows each cue
@@ -1871,7 +1988,7 @@ impl Player {
     /// Whether the "Up next" card is due before the end ([`PlayerOptions::next_up_lead`]):
     /// something is next, media over a minute long, within the lead of its end. Tracked.
     pub(crate) fn next_up_near(&self) -> bool {
-        let Some(lead) = self.0.options.next_up_lead else { return false };
+        let Some(lead) = self.0.next_up_lead.get() else { return false };
         if self.0.queue.with(Vec::is_empty) {
             return false;
         }
@@ -1883,7 +2000,7 @@ impl Player {
     /// Whether the app asked for the card before the end, as Portal's page does: then, while
     /// remote, no card shows at all (the device moves on by itself).
     pub(crate) fn next_up_early(&self) -> bool {
-        self.0.options.next_up_lead.is_some()
+        self.0.next_up_lead.with(Option::is_some)
     }
 
     /// Whether an app listens for theater requests. Tracked.
@@ -2117,6 +2234,7 @@ impl Player {
         self.0.remote_seen.set(None);
         self.0.remote.set(remote);
         self.0.sync_suspend();
+        self.0.sync_awake();
         self.0.schedule_remote_tick();
     }
 
@@ -2147,7 +2265,18 @@ impl Player {
     /// Between reports, a playing device's shown position moves on by the time since the last
     /// one, for at most 15 seconds and never past the length (as Portal's page does); a report
     /// older than when it is handed over is best moved on by its age first.
+    ///
+    /// A report that says when the device made it ([`RemoteStatus::reported_at`],
+    /// [`RemoteStatus::age`]) is moved on from then, at once.
     pub fn set_remote_status(&self, mut status: RemoteStatus) {
+        let now = remedy_ui_core::time::Instant::now();
+        let reported = status.reported_at.filter(|t| *t <= now).unwrap_or(now);
+        // Where the device made the report, and when: the shown position moves on from there.
+        let mut seen = (status.position, reported);
+        if status.state == PlaybackState::Playing && reported < now {
+            status.position =
+                moved_on(status.position, now.duration_since(reported), self.0.remote_end_for(&status));
+        }
         if let Some((to, at)) = self.0.remote_seek.get() {
             let landed = matches!(status.state, PlaybackState::Playing | PlaybackState::Paused)
                 && status.position.abs_diff(to) < SEEK_LANDED;
@@ -2155,10 +2284,12 @@ impl Player {
                 self.0.remote_seek.set(None);
             } else {
                 status.position = to;
+                seen = (to, now);
             }
         }
         self.0.remote_status.set_if_changed(status);
-        self.0.anchor_remote();
+        self.0.remote_seen.set(Some(seen));
+        self.0.schedule_remote_tick();
     }
 
     /// A handle that hands [`RemoteStatus`] news to this player from any thread.
@@ -2246,6 +2377,7 @@ impl Player {
     pub fn set_visible(&self, seen: bool) {
         self.0.visible.set(seen);
         self.0.send(Cmd::Visible(seen));
+        self.0.sync_awake();
     }
 
     /// Sets what plays after this media ends, in this player, in place of the whole
@@ -2294,6 +2426,79 @@ impl Player {
     pub fn cancel_countdown(&self) {
         self.0.declined.set(true);
         self.0.stop_countdown();
+    }
+
+    /// How long the countdown at the end runs ([`PlayerOptions::next_up_delay`]), as set now.
+    /// Tracked.
+    pub fn next_up_delay(&self) -> Option<Duration> {
+        self.0.next_up_delay.get()
+    }
+
+    /// Changes [`PlayerOptions::next_up_delay`] while the player runs (the person turns
+    /// autoplay off or on mid-episode). It takes effect at once: a countdown running counts to
+    /// the new length from when it began (playing the next now if that is past), `None` stops
+    /// it (the card stays, Play now still plays), and at the end a countdown starts if none
+    /// runs and the person did not cancel one.
+    pub fn set_next_up_delay(&self, delay: Option<Duration>) {
+        let old = self.0.next_up_delay.get_untracked().ok().flatten();
+        self.0.next_up_delay.set_if_changed(delay);
+        match (self.0.deadline.get(), old, delay) {
+            (Some(end), Some(old), Some(new)) => {
+                let began = end.checked_sub(old).unwrap_or(end);
+                self.0.stop_countdown();
+                self.0.deadline.set(Some(began + new));
+                self.0.tick();
+            }
+            (Some(_), _, None) => self.0.stop_countdown(),
+            _ if self.0.state.get_untracked().ok() == Some(PlaybackState::Ended) => self.0.count_down(),
+            _ => {}
+        }
+    }
+
+    /// How long before the end the "Up next" card shows ([`PlayerOptions::next_up_lead`]), as
+    /// set now. Tracked.
+    pub fn next_up_lead(&self) -> Option<Duration> {
+        self.0.next_up_lead.get()
+    }
+
+    /// Changes [`PlayerOptions::next_up_lead`] while the player runs; the widget's card follows
+    /// at once.
+    pub fn set_next_up_lead(&self, lead: Option<Duration>) {
+        self.0.next_up_lead.set_if_changed(lead);
+    }
+
+    /// Whether the player keeps the screen on while video plays here
+    /// ([`set_keep_awake`](Self::set_keep_awake)).
+    pub fn keep_awake(&self) -> bool {
+        self.0.keep_awake.get()
+    }
+
+    /// Keeps the screen on (or not) while video plays here, as a browser does for a playing
+    /// video: held while playing and seen, not while paused, ended, opening, failed, unseen,
+    /// remote (casting) or for sound only, and let go when the player is dropped. With the
+    /// `keep-awake` feature the hold is the system's (the desktop services' `power::inhibit`:
+    /// a power request on Windows, a power assertion on macOS, the session's screen saver on
+    /// Linux, the window's keep-screen-on flag on Android, the Screen Wake Lock in a browser);
+    /// without it nothing is held unless the app gives a hold of its own
+    /// ([`set_awake_hold`](Self::set_awake_hold)). A platform that refuses is asked again at
+    /// the next change.
+    pub fn set_keep_awake(&self, on: bool) {
+        self.0.keep_awake.set(on);
+        self.0.sync_awake();
+    }
+
+    /// Whether the player holds the screen on now ([`set_keep_awake`](Self::set_keep_awake)).
+    pub fn is_holding_awake(&self) -> bool {
+        self.0.awake.borrow().is_some()
+    }
+
+    /// Holds the screen on with `hold` in place of the system's: it is called when the hold
+    /// starts and returns a guard, dropped when it ends (`None`: refused). For tests, or an
+    /// app with a hold of its own.
+    pub fn set_awake_hold(&self, hold: impl Fn() -> Option<Box<dyn std::any::Any>> + 'static) {
+        self.0.awake.borrow_mut().take();
+        *self.0.awake_hold.borrow_mut() = Some(Rc::new(hold));
+        self.0.sync_awake();
     }
 
     /// Plays the next media now, in this player, taking it off the queue (nothing when the
@@ -2427,7 +2632,7 @@ pub(crate) fn sidecar_subtitles(media: &Path) -> Vec<SubtitleTrack> {
             None => (None, rest),
         };
         let Some(format) = SubtitleFormat::from_extension(ext) else { continue };
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(text) = read_subtitle_file(&path) else { continue };
         let cues = parse_subtitles(&text, format);
         if cues.is_empty() {
             continue;

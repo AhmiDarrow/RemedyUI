@@ -7,6 +7,7 @@ playback-failed-device = Не удаётся воспроизвести из-з�
 playback-failed-denied = Не удаётся воспроизвести, так как доступ не разрешён: { $detail }
 playback-failed-missing = Не удаётся воспроизвести: { $detail }
 playback-loading = Загрузка
+playback-keep-awake = Воспроизведение видео
 playback-play-pause-tip = Воспроизведение или пауза (K)
 playback-play = Воспроизвести
 playback-pause = Пауза

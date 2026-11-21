@@ -48,3 +48,6 @@ cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --
 cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web_cursor
 cargo test --manifest-path "$root/crates/remedy-ui-widgets-board/Cargo.toml" --target wasm32-unknown-unknown --test web
 cargo test --manifest-path "$root/crates/remedy-ui-services-desktop/Cargo.toml" --target wasm32-unknown-unknown --test media_session_web
+# The Screen Wake Lock: held, let go, asked again when the page shows; and a player's hold.
+cargo test --manifest-path "$root/crates/remedy-ui-services-desktop/Cargo.toml" --target wasm32-unknown-unknown --test keep_awake_web
+cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --features keep-awake --test web_keep_awake

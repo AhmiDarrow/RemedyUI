@@ -243,3 +243,46 @@ impl Drop for Session {
         self.call("close", "()V", |_| Ok(Vec::new()));
     }
 }
+
+/// How many holds keep the screen on: the window's flag is set by the first and cleared by
+/// the last.
+static SCREEN_HOLDS: Mutex<usize> = Mutex::new(0);
+
+fn keep_screen_on(java: &Java, on: bool) -> Result<(), String> {
+    with_env(&java.vm, |env| {
+        let class: &JClass<'_> = java.class.as_obj().into();
+        env.call_static_method(
+            class,
+            "keepScreenOn",
+            "(Landroid/content/Context;Z)V",
+            &[JValue::Object(java.context.as_obj()), JValue::Bool(u8::from(on))],
+        )?;
+        Ok(())
+    })
+}
+
+/// The activity's screen kept on (`FLAG_KEEP_SCREEN_ON`) while it lives.
+pub(crate) struct ScreenOn(&'static Java);
+
+impl ScreenOn {
+    pub(crate) fn hold() -> Result<ScreenOn, DesktopError> {
+        let java = java().map_err(|e| DesktopError::unsupported("keeping the screen on", e))?;
+        let mut n = SCREEN_HOLDS.lock().unwrap_or_else(PoisonError::into_inner);
+        if *n == 0 {
+            keep_screen_on(java, true)
+                .map_err(|e| DesktopError::platform(format!("keeping the screen on: {e}")))?;
+        }
+        *n += 1;
+        Ok(ScreenOn(java))
+    }
+}
+
+impl Drop for ScreenOn {
+    fn drop(&mut self) {
+        let mut n = SCREEN_HOLDS.lock().unwrap_or_else(PoisonError::into_inner);
+        *n = n.saturating_sub(1);
+        if *n == 0 {
+            let _ = keep_screen_on(self.0, false);
+        }
+    }
+}

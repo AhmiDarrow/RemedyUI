@@ -7,6 +7,7 @@ playback-failed-device = 声音设备出现问题，无法播放：{ $detail }
 playback-failed-denied = 未获得访问权限，无法播放：{ $detail }
 playback-failed-missing = 无法播放此内容：{ $detail }
 playback-loading = 正在加载
+playback-keep-awake = 正在播放视频
 playback-play-pause-tip = 播放或暂停 (K)
 playback-play = 播放
 playback-pause = 暂停
