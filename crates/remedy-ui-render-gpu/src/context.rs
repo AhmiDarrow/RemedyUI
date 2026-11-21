@@ -196,6 +196,14 @@ impl GpuContext {
             (Rung::Primary | Rung::Software, false) => wgpu::Backends::PRIMARY.with_env(),
             (Rung::Gl, _) => wgpu::Backends::GL,
         };
+        #[cfg(windows)]
+        if crate::ffi::d3d_debug::enabled() {
+            // Test runs only: every D3D12 check, on the GPU too, and any message fails the run.
+            desc.flags |= wgpu::InstanceFlags::advanced_debugging();
+            crate::ffi::d3d_debug::install();
+        }
+        // `WGPU_VALIDATION`, `WGPU_GPU_BASED_VALIDATION` and the rest still override.
+        desc.flags = desc.flags.with_env();
         let instance = wgpu::Instance::new(desc);
         // WebGL2 adapters come from a canvas's context; WebGPU and native adapters present
         // to any window. The WebGPU rung must not touch the canvas: a canvas that once gave
