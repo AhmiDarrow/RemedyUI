@@ -1310,3 +1310,167 @@ fn theater_mode_is_offered_once_the_app_listens_and_escape_leaves_it() {
     let problems = remedy_ui_devtools::audit(&s.ui);
     assert!(problems.is_empty(), "{problems:?}");
 }
+
+/// A TV the scripted app casts to: it notes every press.
+struct Tv(Arc<Mutex<Vec<String>>>);
+
+impl Tv {
+    fn note(&self, what: String) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).push(what);
+    }
+}
+
+impl RemoteControl for Tv {
+    fn play(&self) {
+        self.note("play".into());
+    }
+    fn pause(&self) {
+        self.note("pause".into());
+    }
+    fn seek(&self, to: Duration) {
+        self.note(format!("seek {}", to.as_secs()));
+    }
+    fn set_volume(&self, volume: f32) {
+        self.note(format!("volume {volume:.2}"));
+    }
+    fn set_muted(&self, muted: bool) {
+        self.note(format!("muted {muted}"));
+    }
+    fn set_captions(&self, track: Option<usize>) {
+        self.note(format!("captions {track:?}"));
+    }
+    fn next(&self) {
+        self.note("next".into());
+    }
+}
+
+#[test]
+fn casting_hands_every_control_to_the_remote_and_back() {
+    let mut s = Screen::new();
+    let (p, view) = scripted(&mut s);
+    p.seek(Duration::from_secs(1));
+    s.wait("the local seek", |_| near(p.position(), 1.0, 0.001));
+    let visible = |v: &El, name: &str| named(v, name).and_then(|b| b.info()).is_some_and(|i| !i.hidden);
+    // No app listening: no cast button.
+    assert!(!visible(&view, "Cast"));
+    let menus = Arc::new(Mutex::new(0));
+    let m = menus.clone();
+    p.on_cast(move |button| {
+        assert!(button.info().is_some(), "the button, to anchor a menu to");
+        *m.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+    });
+    s.pump();
+    assert!(visible(&view, "Cast"));
+    named(&view, "Cast").unwrap_or_else(|| unreachable!()).focus();
+    assert!(press(&s.ui, Key::Enter));
+    assert_eq!(*menus.lock().unwrap_or_else(|e| e.into_inner()), 1, "the app opens its menu");
+
+    // The app chose a TV.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let art = s.ui.el("label").text("Poster");
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone())).poster(art.clone())));
+    s.pump();
+    assert!(p.is_remote() && p.remote_name().as_deref() == Some("The Ris"));
+    assert!(visible(&view, "Connecting to The Ris"), "the stage says so");
+    assert!(visible(&view, "Casting"), "the button says it is casting");
+    let on_stage =
+        find(&view, "player_poster").iter().flat_map(El::child_elements).map(|e| e.id()).collect::<Vec<_>>();
+    assert_eq!(on_stage, [art.id()], "the poster on the stage");
+    let status = RemoteStatus {
+        state: PlaybackState::Paused,
+        position: Duration::from_secs(30),
+        length: Some(Duration::from_secs(100)),
+        volume: 0.5,
+        muted: false,
+    };
+    p.set_remote_status(status.clone());
+    s.pump();
+    let stage = named(&view, "Paused on The Ris").unwrap_or_else(|| unreachable!("the stage"));
+    let said = stage.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!());
+    assert_eq!(said.role(), remedy_ui_a11y::Role::Status);
+    assert_eq!(said.live_state(), remedy_ui_a11y::Live::Polite, "announced as it changes");
+    assert!(
+        texts(&view, "label").iter().any(|t| t == "0:30 / 1:40"),
+        "the TV's time: {:?}",
+        texts(&view, "label")
+    );
+    let seek = named(&view, "Seek").unwrap_or_else(|| unreachable!("a seek bar"));
+    let value = || {
+        named(&view, "Seek")
+            .and_then(|b| b.info())
+            .and_then(|i| i.semantics)
+            .and_then(|s| s.value_text().map(plain))
+    };
+    assert_eq!(value().as_deref(), Some("0:30 of 1:40"));
+    assert!(
+        seek.info().is_some_and(|i| !i.states.contains(remedy_ui_style::States::DISABLED)),
+        "seekable on the TV"
+    );
+
+    // Every control and key goes to the TV.
+    p.add_subtitles(SubtitleTrack { label: "English".into(), language: None, cues: Vec::new() });
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:"), "Next")));
+    s.pump();
+    seek.focus();
+    let shift = remedy_ui_input::Modifiers { shift: true, ..Default::default() };
+    assert!(press(&s.ui, Key::Character("k".into())));
+    assert_eq!(p.state(), PlaybackState::Playing, "shown at once");
+    assert!(press(&s.ui, Key::Space));
+    assert!(press(&s.ui, Key::Character("l".into())));
+    assert!(press(&s.ui, Key::Character("j".into())));
+    assert!(press(&s.ui, Key::ArrowRight));
+    assert!(press(&s.ui, Key::End));
+    assert!(press(&s.ui, Key::Character("m".into())));
+    assert!(press(&s.ui, Key::Character("c".into())));
+    assert!(s.ui.key(&KeyEvent::press(Key::Character("N".into())).with_modifiers(shift).with_text(None)));
+    named(&view, "Unmute").unwrap_or_else(|| unreachable!("the mute button says the TV is muted")).focus();
+    assert!(press(&s.ui, Key::Enter));
+    p.set_volume(0.8);
+    s.pump();
+    let pressed = log.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert_eq!(
+        pressed,
+        [
+            "play",
+            "pause",
+            "seek 40",
+            "seek 30",
+            "seek 35",
+            "seek 100",
+            "muted true",
+            "captions Some(0)",
+            "next",
+            "muted false",
+            "volume 0.80"
+        ]
+    );
+    assert_eq!(value().as_deref(), Some("1:40 of 1:40"));
+    assert_eq!(p.volume(), 0.8);
+    s.idle(30);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+
+    // The TV's word wins.
+    p.set_remote_status(RemoteStatus { state: PlaybackState::Buffering, ..status });
+    s.pump();
+    assert!(visible(&view, "Loading on The Ris"));
+    assert_eq!(value().as_deref(), Some("0:30 of 1:40"));
+
+    // Back here: the local media kept its place, and the controls are its own again.
+    let at = p.position();
+    p.set_remote(None);
+    s.pump();
+    assert_eq!(at, Duration::from_secs(30), "the app reads where the TV was");
+    assert!(
+        find(&view, "player_cast").iter().all(|c| c.info().is_some_and(|i| i.hidden)),
+        "the stage is gone"
+    );
+    assert!(visible(&view, "Cast"));
+    assert_eq!(p.state(), PlaybackState::Paused);
+    assert!(near(p.position(), 1.0, 0.001), "the local engine never moved: {:?}", p.position());
+    assert_eq!(p.volume(), 1.0);
+    seek.focus();
+    assert!(press(&s.ui, Key::Character("k".into())));
+    s.wait("local playing", |_| p.state() == PlaybackState::Playing);
+    assert_eq!(log.lock().unwrap_or_else(|e| e.into_inner()).len(), 11, "the TV heard nothing more");
+}

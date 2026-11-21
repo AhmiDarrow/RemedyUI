@@ -121,6 +121,10 @@ pub enum Icon {
     FullscreenExit,
     /// A wide frame: theater mode, the picture wide in the page.
     Theater,
+    /// A screen with waves from its corner: send the media to another screen (cast).
+    Cast,
+    /// The cast screen with a picture on it: the media is playing on another screen.
+    Casting,
     /// A box with lines of text: captions and subtitles.
     Captions,
     /// A house: the home screen or start page.
@@ -218,6 +222,8 @@ impl Icon {
             Icon::Fullscreen => "Full screen",
             Icon::FullscreenExit => "Exit full screen",
             Icon::Theater => "Theater mode",
+            Icon::Cast => "Cast",
+            Icon::Casting => "Casting",
             Icon::Captions => "Captions",
             Icon::Home => "Home",
             Icon::Image => "Image",
@@ -290,6 +296,8 @@ impl Icon {
             Icon::Fullscreen => "icon-full-screen",
             Icon::FullscreenExit => "icon-exit-full-screen",
             Icon::Theater => "icon-theater-mode",
+            Icon::Cast => "icon-cast",
+            Icon::Casting => "icon-casting",
             Icon::Captions => "icon-captions",
             Icon::Home => "icon-home",
             Icon::Image => "icon-image",
@@ -660,6 +668,18 @@ fn strokes(icon: Icon) -> Path {
             // Wider than the screen's corners, as the picture is in the page.
             rect(&mut s, 2.0, 7.0, 22.0, 17.0);
         }
+        Icon::Cast | Icon::Casting => {
+            // The screen, open at its lower left where the waves come from.
+            s.move_to(p(3.0, 9.0)).line_to(p(3.0, 4.0)).line_to(p(21.0, 4.0));
+            s.line_to(p(21.0, 20.0)).line_to(p(14.0, 20.0));
+            for r in [3.0, 7.0, 11.0] {
+                arc(&mut s, p(3.0, 20.0), r, -PI / 2.0, 0.0);
+            }
+            if icon == Icon::Casting {
+                // A picture on the screen.
+                s.move_to(p(7.0, 7.0)).line_to(p(18.0, 7.0)).line_to(p(18.0, 17.0)).line_to(p(15.0, 17.0));
+            }
+        }
         Icon::Dot => {
             // Rings drawn close together read as a filled dot at menu sizes.
             for r in [1.0, 2.0, 3.0, 4.0] {
@@ -935,6 +955,8 @@ mod tests {
             Icon::Fullscreen,
             Icon::FullscreenExit,
             Icon::Theater,
+            Icon::Cast,
+            Icon::Casting,
             Icon::Captions,
             Icon::Home,
             Icon::Image,
