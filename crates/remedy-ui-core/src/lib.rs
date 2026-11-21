@@ -16,6 +16,7 @@
 
 pub mod arena;
 pub mod color;
+pub mod color_matrix;
 pub mod edition;
 pub mod exec;
 pub mod geometry;
@@ -25,6 +26,7 @@ pub mod units;
 
 pub use arena::{Arena, Id};
 pub use color::Color;
+pub use color_matrix::ColorMatrix;
 pub use edition::{Edition, ParseEditionError};
 pub use geometry::{CornerRadii, Insets, Point, Rect, Size, Vec2};
 pub use units::Scale;

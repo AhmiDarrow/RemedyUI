@@ -38,3 +38,12 @@ playback-exit-full-screen = Exit full screen
 # The seek bar's name, and its value ("0:42 of 3:20").
 playback-seek = Seek
 playback-seek-value = { $position } of { $duration }
+
+## When the media ends with something set to play next. { $title } is its name.
+playback-next-up = Up next: { $title }
+playback-next-up-in = { $count ->
+    [one] Playing in { $count } second
+   *[other] Playing in { $count } seconds
+}
+playback-play-now = Play now
+playback-next-cancel = Cancel

@@ -23,8 +23,8 @@ element paint() ──▶ display list ──▶ layer tree ──commit──�
   `FillRect`, `Border`, `Shadow` (a soft shadow of a rounded rectangle), `FillPath`,
   `StrokePath`, `Glyphs`, `Image`, `Video`, `Texture` (a GPU texture on the renderer's
   device), `PushClip`/`PopClip`, `PushLayer`/`PopLayer` (opacity and blend groups),
-  `PushFilter`/`PopFilter` (a Gaussian blur, or a drop shadow of any shape, applied to a
-  group), `Backdrop` (frosted glass over what the list drew before it) and
+  `PushFilter`/`PopFilter` (a Gaussian blur, a drop shadow of any shape, or a colour
+  matrix, applied to a group), `Backdrop` (frosted glass over what the list drew before it) and
   `PushTransform`/`PopTransform`. Images, video frames and glyph runs are shared by
   reference (`Arc`), so a list is cheap to clone and send to the compositor thread.
 - **Paint chunks** are reused until their element is `PAINT`-dirty. A frame re-records only
@@ -100,6 +100,35 @@ WebGL2 in a browser.
   capacity limit: the compositor's own walks over the layer tree (the frame walk,
   `LayerTree::for_each` and `find`, dropping a tree) use explicit stacks and take trees of
   any depth.
+- **Glass is bounded**: each pane draws again what is under it, glass included, so a stack
+  of panes would double the cost with every pane. Glass seen through more than
+  `MAX_BACKDROP_DEPTH` (2) panes, and panes past `MAX_BACKDROP_REPLAYS` (128) in one raster,
+  are drawn without their frost, in display lists and in the compositor alike.
+- **Colour matrices** (`Filter::ColorMatrix`) are RemedyUI's own pass, since vello's filter
+  graph runs none. The group is drawn into a picture of its own, in device pixels, covering
+  only what it draws inside the target (its corner on a 64-pixel grid, so blurs inside it
+  shrink on the same grid as anywhere else); each pixel is unpremultiplied, run through the
+  4 × 5 matrix, clamped and premultiplied again; the picture is placed back pixel for pixel.
+  The CPU runs `ColorMatrix::apply_premultiplied` itself; the GPU renders the picture with
+  vello and runs the same arithmetic in a small fragment pass made at start-up, so the two
+  agree to a step of rounding (a matrix that amplifies also amplifies the renderers' own
+  one-step differences in what it recolours). Pixels the group leaves transparent stay
+  transparent, so the result never depends on how the frame is cut into tiles or damage
+  rectangles. A matrix reaches no further than the group draws. Bounded for untrusted
+  themes: entries are finite and within ±`MAX_COLOR_MATRIX_ENTRY`, at most
+  `MAX_FILTER_MATRIX_DEPTH` (4) matrix groups nest and at most `MAX_FILTER_MATRIX_GROUPS`
+  (64) are drawn in one raster; past those a group is drawn without its matrix.
+- **Images drawn scaled down** come from mipmaps the shared `Painter` builds: an image
+  drawn smoothly (`Sampling::Linear`) at half its size or less, after every transform, is
+  drawn from the copy halved enough times to be drawn at more than half its own size (each
+  level a rounded 2 × 2 box average of premultiplied pixels), so bilinear sampling reads
+  every source pixel and a scaled-down photo or zoomed-out page does not shimmer. Levels are
+  built the first time they are needed (about 30 ms for a 16-megapixel image's first level,
+  once) and kept until the app drops the image; only the level drawn is uploaded to the GPU,
+  so a large image shown small costs its small size there. Nearest sampling (pixel art) is
+  never mipmapped. Image *elements* already decode at the size they are shown
+  ([15](15-widgets-and-media.md)); mipmaps cover images drawn smaller than they were decoded
+  (display lists, thumbnails of one decoded image, zooming out).
 - **Images and glyphs** are uploaded to the GPU on first use: glyphs and nearest-sampled
   images packed into RGBA atlas pages, filtered or large images in textures of their own.
   Uploads of images the app dropped are freed, and `clear_caches` drops them all (they are
@@ -138,6 +167,14 @@ a tested tolerance.
 
 1. **The backend ladder.** The GPU renderer tries a hardware adapter through D3D12, Vulkan
    or Metal, then OpenGL 3.3 / GLES 3.0, then a software adapter (WARP, lavapipe, llvmpipe).
+   **A self-test frame** checks each rung's device before it is used (`health::self_test`,
+   on unless `LadderOptions::self_test` is off): a 64 × 64 scene of what interfaces draw
+   (fills, rounded edges, a gradient, an image, a blur, a colour matrix) drawn on the device
+   and on the CPU reference renderer must agree, with no validation errors and no loss, or
+   the ladder moves down a rung. The verdict is remembered per adapter, driver, backend and
+   engine version (`health::remember_in`, which the runner points at the app's data folder),
+   so it runs once per driver: about 120 ms on llvmpipe in a release build. Browsers cannot
+   read pixels back mid-frame, so there it is skipped.
 2. **Which renderer a window uses.** By default (`RendererChoice::Auto`) a window starts on
    the CPU renderer, which costs no GPU driver memory, and moves to the GPU once its frames
    take longer than 6 ms on average; heavy content (a Prism effect over its cost threshold)
@@ -145,6 +182,12 @@ a tested tolerance.
    on the GPU. Apps can choose GPU or CPU only.
 3. **Device loss.** The renderer re-creates the device, drops its uploads and tiles, and
    redraws the full frame from the retained layer tree. Apps are not involved.
+   **A present watchdog** (`health::PresentWatchdog`, a thread per compositor) watches every
+   GPU present: one running past `PRESENT_HANG` (3 s; Windows resets a GPU silent for 2 s) is
+   recorded as a hang at once, from the watchdog's thread, so a present that never returns
+   still demotes the backend at the next start. When it does return, the device is let go as
+   if lost and recovery walks the ladder past the hung backend (another API or adapter, the
+   software rung, or the CPU renderer).
 4. **A failure that recovery cannot fix** (no replacement device, a window whose GPU present
    fails) moves the window to the CPU renderer.
 
@@ -174,6 +217,11 @@ a tested tolerance.
     `Layer::filters` and the compositor draws the whole subtree through them
     (`CompositeOp::PushFilter`/`PopFilter`); damage there grows by the filters' reach and
     redraws the whole group, so damage frames stay exact.
+  - `Style::saturate`, `hue_rotate`, `grayscale`, `sepia`, `brightness`, `contrast`,
+    `invert` (`filter: saturate()` and the rest) and `Style::color_matrix` (SVG
+    `feColorMatrix`): chained in order into one colour matrix, the innermost filter of the
+    element (applied before a blur or drop shadow, which keeps its own colour), drawn the
+    same two ways.
   - `Style::backdrop_blur` (`backdrop-filter: blur()`): the element gets a layer with a
     backdrop; the compositor blurs every layer drawn before it under its box, back to the
     innermost translucent layer or filter group around it (its backdrop root, as on the web).
@@ -206,9 +254,14 @@ a tested tolerance.
 Planned, not implemented; nothing above relies on them:
 
 - **Merging and squashing layers**: adjacent siblings with no reason to be separate merged,
-  and layers that cover a tiny area squashed back into their parent.
-- **A start-up self-test frame** that checks a backend's pixels before using it, remembered
-  per GPU and driver version, and a **present watchdog** that demotes a backend that hangs.
+  and layers that cover a tiny area squashed back into their parent. Measured and not worth
+  it yet (`tests/layers.rs` in `remedy-ui-render-gpu`; release, 1280 × 800, CPU compositor
+  and llvmpipe): a small layer costs the compositor's plan about 0.8 µs a frame (1,000 icon
+  layers: 0.83 ms against 0.07 ms merged) and its first frame a texture each (GPU 104 ms
+  against 57 ms), but with one icon changing a frame, merged icons re-raster their shared tile
+  (CPU 9.1 ms, GPU 28 ms against 0.6 ms and 1.8 ms as layers). RemedyUI gives layers only for a
+  reason (scrolling, animation, glass, filters), so trees hold tens of them, where the cost
+  is a few tens of microseconds a frame.
 - **Partial presents on the GPU** (`Present1` dirty rects, `eglSwapBuffersWithDamage`,
   Wayland `damage_buffer`): wgpu does not offer them.
 - **Platform presenting details**: a DirectComposition flip-model swapchain with a
@@ -218,9 +271,6 @@ Planned, not implemented; nothing above relies on them:
 - **Wide-gamut and HDR surfaces**, and colours tagged with their colour space.
 - **GPU video without copies**: importing decoder textures (D3D11/12, VA-API dma-buf,
   Android `HardwareBuffer`, IOSurface) instead of uploading planes.
-- **Mipmaps** for images drawn scaled down, and decoding images at the size they are shown.
 - **A multithreaded CPU raster** (vello_cpu's threads; its filters do not run with them yet).
-- **Colour-matrix filters** (saturate, hue-rotate, grayscale): vello's filter graph does not
-  run colour matrices yet.
 - **Printing and vector PDF**: translating display lists to PDF (selectable text, sharp
   paths) and printing through each platform's print dialog.

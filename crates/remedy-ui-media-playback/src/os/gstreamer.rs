@@ -21,6 +21,9 @@ pub(crate) type GBoolean = c_int;
 pub(crate) type Ptr = *mut c_void;
 
 pub(crate) const GST_FORMAT_TIME: c_int = 3;
+/// Buffering ranges in hundred-thousandths of a percent of the whole (`GST_FORMAT_PERCENT`).
+const GST_FORMAT_PERCENT: c_int = 5;
+const GST_FORMAT_PERCENT_MAX: f64 = 1_000_000.0;
 pub(crate) const GST_STATE_NULL: c_int = 1;
 pub(crate) const GST_STATE_READY: c_int = 2;
 pub(crate) const GST_STATE_PAUSED: c_int = 3;
@@ -133,6 +136,12 @@ pub(crate) struct Gst {
     pub(crate) element_query: unsafe extern "C" fn(Ptr, Ptr) -> GBoolean,
     pub(crate) query_new_seeking: unsafe extern "C" fn(c_int) -> Ptr,
     pub(crate) query_parse_seeking: unsafe extern "C" fn(Ptr, *mut c_int, *mut GBoolean, *mut i64, *mut i64),
+    pub(crate) query_new_buffering: unsafe extern "C" fn(c_int) -> Ptr,
+    pub(crate) query_parse_buffering_range:
+        unsafe extern "C" fn(Ptr, *mut c_int, *mut i64, *mut i64, *mut i64),
+    pub(crate) query_get_n_buffering_ranges: unsafe extern "C" fn(Ptr) -> c_uint,
+    pub(crate) query_parse_nth_buffering_range:
+        unsafe extern "C" fn(Ptr, c_uint, *mut i64, *mut i64) -> GBoolean,
     pub(crate) bus_timed_pop_filtered: unsafe extern "C" fn(Ptr, u64, c_uint) -> Ptr,
     pub(crate) message_parse_error: unsafe extern "C" fn(Ptr, *mut *mut GError, *mut *mut c_char),
     pub(crate) object_ref: unsafe extern "C" fn(Ptr) -> Ptr,
@@ -208,6 +217,10 @@ impl Gst {
             element_query: sym!(gst, "gst_element_query"),
             query_new_seeking: sym!(gst, "gst_query_new_seeking"),
             query_parse_seeking: sym!(gst, "gst_query_parse_seeking"),
+            query_new_buffering: sym!(gst, "gst_query_new_buffering"),
+            query_parse_buffering_range: sym!(gst, "gst_query_parse_buffering_range"),
+            query_get_n_buffering_ranges: sym!(gst, "gst_query_get_n_buffering_ranges"),
+            query_parse_nth_buffering_range: sym!(gst, "gst_query_parse_nth_buffering_range"),
             bus_timed_pop_filtered: sym!(gst, "gst_bus_timed_pop_filtered"),
             message_parse_error: sym!(gst, "gst_message_parse_error"),
             object_ref: sym!(gst, "gst_object_ref"),
@@ -891,6 +904,57 @@ impl Decoder for GstDecoder {
             return Err(MediaError::Decode("GStreamer refused the seek".into()));
         }
         Ok(())
+    }
+
+    fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
+        let g = self.g;
+        let total = self.info.duration;
+        // SAFETY: a buffering query made, asked of the live pipeline, read through its
+        // documented accessors with out-pointers to locals, and released.
+        unsafe {
+            let q = (g.query_new_buffering)(GST_FORMAT_TIME);
+            if q.is_null() {
+                return None;
+            }
+            let mut out = None;
+            if (g.element_query)(self.playbin, q) != 0 {
+                let mut format: c_int = 0;
+                (g.query_parse_buffering_range)(
+                    q,
+                    &mut format,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                );
+                let at = |x: i64| -> Option<Duration> {
+                    match (format, total) {
+                        _ if x < 0 => None,
+                        (GST_FORMAT_TIME, _) => Some(Duration::from_nanos(x as u64)),
+                        (GST_FORMAT_PERCENT, Some(t)) => {
+                            Some(t.mul_f64((x as f64 / GST_FORMAT_PERCENT_MAX).clamp(0.0, 1.0)))
+                        }
+                        _ => None,
+                    }
+                };
+                let known = format == GST_FORMAT_TIME || (format == GST_FORMAT_PERCENT && total.is_some());
+                if known {
+                    // A pipeline reports a handful; a bound keeps a strange one from costing.
+                    let n = (g.query_get_n_buffering_ranges)(q).min(256);
+                    let mut ranges = Vec::new();
+                    for i in 0..n {
+                        let (mut a, mut b) = (0i64, 0i64);
+                        if (g.query_parse_nth_buffering_range)(q, i, &mut a, &mut b) != 0
+                            && let (Some(a), Some(b)) = (at(a), at(b))
+                        {
+                            ranges.push(a..b);
+                        }
+                    }
+                    out = Some(ranges);
+                }
+            }
+            (g.mini_object_unref)(q);
+            out
+        }
     }
 }
 

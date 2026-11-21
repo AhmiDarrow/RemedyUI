@@ -649,6 +649,10 @@ fn filters(s: &remedy_ui_style::ResolvedStyle) -> Vec<remedy_ui_paint::Filter> {
     if s.blur > 0.0 {
         out.push(remedy_ui_paint::Filter::Blur { radius: s.blur });
     }
+    // Innermost: the element's own colours change first, and a drop shadow keeps its colour.
+    if !s.color_matrix.is_identity() {
+        out.push(remedy_ui_paint::Filter::ColorMatrix { matrix: s.color_matrix });
+    }
     out
 }
 

@@ -45,6 +45,8 @@ pub struct GpuCompositor {
     composited: u64,
     /// Bytes of tiles and of uploaded images held, for tools.
     gauges: (remedy_ui_trace::gauges::Gauge, remedy_ui_trace::gauges::Gauge),
+    /// Watches presents: one that hangs lets this device go ([`crate::health`]).
+    watchdog: crate::health::PresentWatchdog,
 }
 
 impl std::fmt::Debug for GpuCompositor {
@@ -79,11 +81,17 @@ fn compose(
     tiles: &TileSet,
     plan: &FramePlan,
     area: Rect,
-    w: u16,
-    h: u16,
+    (w, h): (u16, u16),
     background: Color,
+    pictures: Pictures<'_>,
 ) -> (Scene, vello_gpu::TextureBindings) {
-    let mut rec = Recorder { scene: Scene::new(w, h), bindings: vello_gpu::TextureBindings::new(), tiles };
+    let mut rec = Recorder {
+        scene: Scene::new(w, h),
+        bindings: vello_gpu::TextureBindings::new(),
+        tiles,
+        pictures,
+        next_picture: u64::MAX - 1,
+    };
     let shift = kurbo::Affine::translate((-f64::from(area.min.x), -f64::from(area.min.y)));
     record_ops(&mut rec, &plan.ops, 0, area, false, shift, background);
     (rec.scene, rec.bindings)
@@ -94,6 +102,20 @@ struct Recorder<'a> {
     scene: Scene,
     bindings: vello_gpu::TextureBindings,
     tiles: &'a TileSet,
+    pictures: Pictures<'a>,
+    /// The id the next colour-matrix picture is bound under, counting down from the top
+    /// (tiles count up from 1).
+    next_picture: u64,
+}
+
+/// What renders a composite's colour-matrix groups to pictures: the renderer drawing the
+/// composite (whose target format is `format`) and the matrix pass.
+struct Pictures<'a> {
+    ctx: &'a GpuContext,
+    vello: &'a mut vello_gpu::Renderer,
+    resources: &'a mut vello_gpu::Resources,
+    matrix: &'a crate::matrix::MatrixPass,
+    format: wgpu::TextureFormat,
 }
 
 impl CompositeTarget for Recorder<'_> {
@@ -146,6 +168,34 @@ impl CompositeTarget for Recorder<'_> {
         self.scene.fill_rect(part);
         self.scene.reset_paint_transform();
     }
+    fn size(&self) -> (u16, u16) {
+        (self.scene.width(), self.scene.height())
+    }
+    fn color_matrix_group(
+        &mut self,
+        rect: [u16; 4],
+        matrix: &remedy_ui_core::ColorMatrix,
+        draw: &mut dyn FnMut(&mut Self),
+    ) -> bool {
+        let [_, _, w, h] = rect;
+        if w == 0 || h == 0 {
+            return true;
+        }
+        let outer = std::mem::replace(&mut self.scene, Scene::new(w, h));
+        draw(self);
+        let picture = std::mem::replace(&mut self.scene, outer);
+        let p = &mut self.pictures;
+        // A failure here is a lost device, which the frame reports when it is submitted.
+        if let Ok(texture) =
+            p.matrix.picture(p.ctx, p.vello, p.resources, &picture, p.format, &self.bindings, matrix)
+        {
+            let id = TextureId(self.next_picture);
+            self.next_picture -= 1;
+            self.bindings.insert(id, texture.create_view(&wgpu::TextureViewDescriptor::default()));
+            crate::matrix::place(&mut self.scene, id, rect);
+        }
+        true
+    }
 }
 
 /// A graphics adapter as people read it ([`GpuCompositor::adapter`]).
@@ -167,7 +217,9 @@ pub struct AdapterSummary {
 impl GpuCompositor {
     /// A compositor on `renderer`. `ladder` is how a replacement device is found after a loss.
     pub fn new(renderer: GpuRenderer, ladder: LadderOptions) -> Self {
+        let watchdog = crate::health::PresentWatchdog::new(renderer.context());
         GpuCompositor {
+            watchdog,
             renderer,
             ladder,
             tiles: TileSet::default(),
@@ -223,9 +275,24 @@ impl GpuCompositor {
         self.renderer.context().trim_memory();
     }
 
-    /// True when the device is gone and [`recover`](Self::recover) must run before drawing.
+    /// True when the device is gone and [`recover`](Self::recover) must run before drawing:
+    /// lost, or let go after a present hung ([`crate::health`]); recovering then walks the
+    /// ladder past the hung backend.
     pub fn is_lost(&self) -> bool {
         self.renderer.ctx.is_lost()
+    }
+
+    /// The present watchdog (tests shorten its threshold).
+    #[doc(hidden)]
+    pub fn watchdog(&self) -> &crate::health::PresentWatchdog {
+        &self.watchdog
+    }
+
+    /// After a present: a hang lets the device go, as a loss does.
+    pub(crate) fn after_present(&self) {
+        if self.watchdog.hung() && !self.renderer.ctx.is_lost() {
+            self.renderer.ctx.force_loss();
+        }
     }
 
     /// Rebuilds after a device loss: a new device from the ladder, new pipelines, and every
@@ -249,6 +316,7 @@ impl GpuCompositor {
         let ctx = GpuContext::shared(&self.ladder)?;
         let store = self.renderer_store();
         self.renderer = GpuRenderer::new(ctx, store);
+        self.watchdog = crate::health::PresentWatchdog::new(self.renderer.context());
         self.tiles.0.clear();
         self.atlas = None;
         self.retained = None;
@@ -269,10 +337,14 @@ impl GpuCompositor {
         background: Color,
     ) -> Result<(), GpuError> {
         let mut tiles = std::mem::take(&mut self.tiles);
-        let prepared = self.prepare(&mut tiles, plan, target.width(), target.height(), background);
+        let watchdog = self.watchdog.clone();
+        let done = watchdog.watch(|| {
+            let prepared = self.prepare(&mut tiles, plan, target.width(), target.height(), background);
+            prepared.and_then(|(scene, bindings)| self.renderer.submit(&scene, background, target, &bindings))
+        });
         self.tiles = tiles;
-        let (scene, bindings) = prepared?;
-        self.renderer.submit(&scene, background, target, &bindings)
+        self.after_present();
+        done
     }
 
     /// Pixels the latest [`present_to_frame`](Self::present_to_frame) or window present
@@ -349,7 +421,8 @@ impl GpuCompositor {
             };
             // A scene of the rectangle's own size, placed at its corner: the GPU draws only it.
             options.offset = (i32::from(x0), i32::from(y0));
-            let (scene, bindings) = compose(tiles, plan, area, rw, rh, background);
+            let pictures = Pictures { ctx: &ctx, vello, resources, matrix: &self.renderer.matrix, format };
+            let (scene, bindings) = compose(tiles, plan, area, (rw, rh), background, pictures);
             crate::renderer::submit_scene_with(&ctx, vello, resources, &scene, &view, &bindings, options)?;
         }
         self.measure(tiles);
@@ -391,7 +464,16 @@ impl GpuCompositor {
         self.raster(tiles, plan)?;
         let (w, h) = size16(width, height)?;
         // The background is the target's clear color; a backdrop at the frame's start draws it.
-        let out = compose(tiles, plan, Rect::new(0.0, 0.0, f32::from(w), f32::from(h)), w, h, background);
+        let r = &mut self.renderer;
+        let pictures = Pictures {
+            ctx: &r.ctx,
+            vello: &mut r.vello,
+            resources: &mut r.resources,
+            matrix: &r.matrix,
+            format: crate::FORMAT,
+        };
+        let area = Rect::new(0.0, 0.0, f32::from(w), f32::from(h));
+        let out = compose(tiles, plan, area, (w, h), background, pictures);
         self.measure(tiles);
         Ok(out)
     }
@@ -517,6 +599,19 @@ impl GpuCompositor {
     /// [`present_to_frame`](Self::present_to_frame) without the read back: the frame stays
     /// on the GPU (measuring compositing alone, or drawing ahead of a later snapshot).
     pub fn present_to_kept(
+        &mut self,
+        plan: &FramePlan,
+        width: u32,
+        height: u32,
+        background: Color,
+    ) -> Result<(), GpuError> {
+        let watchdog = self.watchdog.clone();
+        let done = watchdog.watch(|| self.present_to_kept_unwatched(plan, width, height, background));
+        self.after_present();
+        done
+    }
+
+    fn present_to_kept_unwatched(
         &mut self,
         plan: &FramePlan,
         width: u32,

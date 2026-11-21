@@ -7,6 +7,7 @@ use remedy_ui_core::{Color, CornerRadii, Rect};
 use remedy_ui_paint::{FilterBudget, MAX_GROUP_DEPTH};
 use vello_cpu::kurbo;
 
+use crate::matrix::{Budget, picture_rect};
 use crate::{kaffine, krect, rounded};
 
 /// The filter a layer is drawn through, as both renderers take it.
@@ -41,6 +42,20 @@ pub trait CompositeTarget {
         exact: bool,
         part: &kurbo::Rect,
     );
+    /// The size of what the walk draws into, in its pixels.
+    fn size(&self) -> (u16, u16);
+    /// Draws a colour-matrix group, as [`Surface::color_matrix_group`](crate::Surface)
+    /// does: what `draw` records (into this target, which inside it is a transparent
+    /// picture `rect`'s size) run through `matrix` and placed at `rect`. False, without
+    /// calling `draw`, when the target cannot.
+    fn color_matrix_group(
+        &mut self,
+        rect: [u16; 4],
+        matrix: &remedy_ui_core::ColorMatrix,
+        draw: &mut dyn FnMut(&mut Self),
+    ) -> bool
+    where
+        Self: Sized;
 }
 
 /// Records the ops of `all` from index `first` that touch `area` (device pixels) into
@@ -58,7 +73,26 @@ pub fn record_ops<T: CompositeTarget>(
     shift: kurbo::Affine,
     background: Color,
 ) {
-    walk(target, all, first, area, FilterBudget::FULL, close, shift, background, 0);
+    let mut matrices = Budget::default();
+    walk(target, all, first, area, FilterBudget::FULL, close, shift, background, 0, &mut matrices);
+}
+
+/// The index in `all` of the pop closing the filter group opened at `at`, or `all.len()`.
+fn filter_end(all: &[CompositeOp], at: usize) -> usize {
+    let mut depth = 0usize;
+    for (k, op) in all.iter().enumerate().skip(at + 1) {
+        match op {
+            CompositeOp::PushClip { .. } | CompositeOp::PushOpacity(_) | CompositeOp::PushFilter { .. } => {
+                depth += 1;
+            }
+            CompositeOp::PopFilter if depth == 0 => return k,
+            CompositeOp::PopClip | CompositeOp::PopOpacity | CompositeOp::PopFilter => {
+                depth = depth.saturating_sub(1);
+            }
+            CompositeOp::Tile { .. } | CompositeOp::Backdrop { .. } => {}
+        }
+    }
+    all.len()
 }
 
 /// The most clips and layers glass opens around its replay.
@@ -125,8 +159,12 @@ fn walk<T: CompositeTarget>(
     shift: kurbo::Affine,
     background: Color,
     depth: usize,
+    matrices: &mut Budget,
 ) {
     let ops = all.get(first..).unwrap_or(&[]);
+    // Ops before this (relative to `first`) were drawn already (a colour-matrix group, as
+    // one picture).
+    let mut resume = 0usize;
     // Inside a skipped subtree: how many pushes deep.
     let mut skip = 0u32;
     // What is open.
@@ -139,6 +177,9 @@ fn walk<T: CompositeTarget>(
         r.intersect(areas.last().map_or(area, |a| a.0)).is_none_or(|r| r.is_empty())
     };
     for (k, op) in ops.iter().enumerate() {
+        if k < resume {
+            continue;
+        }
         if skip > 0 {
             match op {
                 CompositeOp::PushClip { .. }
@@ -175,6 +216,58 @@ fn walk<T: CompositeTarget>(
             CompositeOp::PushFilter { region, .. } if misses(*region, &areas) => {
                 skip = 1;
             }
+            CompositeOp::PushFilter {
+                filter: remedy_ui_paint::Filter::ColorMatrix { matrix },
+                region,
+                ..
+            } if let Some(m) = matrices.admit(matrix) => {
+                let end = filter_end(all, first + k);
+                let left = areas.last().map_or(budget, |a| a.1);
+                // What of the group shows here, in the target's pixels.
+                let shown =
+                    region.intersect(areas.last().map_or(area, |a| a.0)).and_then(|r| r.intersect(area));
+                let to_target = |r: Rect| {
+                    let k = shift.transform_rect_bbox(krect(r));
+                    Rect::new(k.x0 as f32, k.y0 as f32, k.x1 as f32, k.y1 as f32)
+                };
+                let Some(rect) = shown.and_then(|r| picture_rect(to_target(r), target.size())) else {
+                    resume = end + 1 - first;
+                    continue;
+                };
+                let [x, y, w, h] = rect;
+                // The picture's pixels, in device pixels: where the group's ops are culled.
+                let picture = shift.inverse().transform_rect_bbox(kurbo::Rect::new(
+                    f64::from(x),
+                    f64::from(y),
+                    f64::from(x) + f64::from(w),
+                    f64::from(y) + f64::from(h),
+                ));
+                let sub_area =
+                    Rect::new(picture.x0 as f32, picture.y0 as f32, picture.x1 as f32, picture.y1 as f32);
+                let sub_shift = kurbo::Affine::translate((-f64::from(x), -f64::from(y))) * shift;
+                let group = all.get(..end).unwrap_or(all);
+                matrices.depth += 1;
+                matrices.drawn += 1;
+                // The picture is a target of its own: its layers start from none.
+                let ok = target.color_matrix_group(rect, &m, &mut |sub| {
+                    walk(sub, group, first + k + 1, sub_area, left, true, sub_shift, background, 0, matrices);
+                });
+                matrices.depth -= 1;
+                if ok {
+                    resume = end + 1 - first;
+                    continue;
+                }
+                // Drawn as a plain group, closed by its pop as any other.
+                if open.push(Open::Layer) {
+                    target.set_transform(shift);
+                    target.push_opacity_layer(1.0);
+                }
+                if open.push(Open::Clip) {
+                    target.set_transform(shift);
+                    target.push_clip_rect(&krect(*region));
+                }
+                areas.push((*region, left));
+            }
             CompositeOp::PushFilter { transform, filter, region } => {
                 // A filter group is a layer and a clip path, closed in that order. Past the
                 // depth bound it is neither, and its content is drawn unfiltered.
@@ -208,8 +301,12 @@ fn walk<T: CompositeTarget>(
             }
             CompositeOp::Backdrop { transform, rect, radii, blur, opacity } => {
                 // Glass opens up to three layers and a clip, and replays what is under it
-                // inside them: past the depth bound it is not drawn.
-                if misses(transform.apply_rect(*rect), &areas) || !open.fits(GLASS_DEPTH) {
+                // inside them: past the depth bound, or past the glass budget (each pane draws
+                // again what is under it, glass included), it is not drawn.
+                if misses(transform.apply_rect(*rect), &areas)
+                    || !open.fits(GLASS_DEPTH)
+                    || !matrices.admit_glass()
+                {
                     continue;
                 }
                 let at = first + k;
@@ -240,10 +337,12 @@ fn walk<T: CompositeTarget>(
                     target.fill_color(&krect(under), background);
                 }
                 // shortcut: glass under glass replays its own source again, so n overlapping
-                // panes in one backdrop root draw what is under the first 2^(n-1) times; drawing
-                // each root's picture once into a texture both renderers sample would make it
-                // linear, if stacks of glass become common.
+                // panes in one backdrop root would draw what is under the first 2^(n-1) times;
+                // the budget bounds that (glass seen through more than MAX_BACKDROP_DEPTH panes
+                // goes without its frost). Drawing each root's picture once into a texture both
+                // renderers sample would make it linear, if stacks of glass become common.
                 if let Some(prefix) = all.get(..at) {
+                    matrices.glass_depth += 1;
                     walk(
                         target,
                         prefix,
@@ -254,7 +353,9 @@ fn walk<T: CompositeTarget>(
                         shift,
                         background,
                         open.depth + GLASS_DEPTH,
+                        matrices,
                     );
+                    matrices.glass_depth -= 1;
                 }
                 target.pop_clip();
                 target.pop_layer();

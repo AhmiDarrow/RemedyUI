@@ -24,3 +24,7 @@ playback-full-screen = 全屏
 playback-exit-full-screen = 退出全屏
 playback-seek = 播放进度
 playback-seek-value = { $position }，共 { $duration }
+playback-next-up = 接下来：{ $title }
+playback-next-up-in = { $count } 秒后播放
+playback-play-now = 立即播放
+playback-next-cancel = 取消
