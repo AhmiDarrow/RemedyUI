@@ -18,7 +18,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_core::{CornerRadii, Rect};
 use remedy_ui_paint::{Brush, Item};
-pub use remedy_ui_paint::{PixelFormat, Plane, VideoFrame, YuvMatrix};
+pub use remedy_ui_paint::{
+    CpuPixels, GpuAdapter, GpuFrame, GpuPicture, GpuTexture, PixelFormat, Plane, VideoFrame, YuvMatrix,
+    gpu_video_adapter,
+};
 use remedy_ui_reactive::Signal;
 use remedy_ui_view::{El, Ui};
 
@@ -105,8 +108,10 @@ pub struct Picture {
     pub matrix: YuvMatrix,
     /// Full-range YUV rather than the video range.
     pub full_range: bool,
-    /// The bytes, shared without copying.
+    /// The bytes, shared without copying (empty when the picture is on the GPU).
     pub data: Arc<[u8]>,
+    /// The picture on the GPU, when the decoder hands it over there ([`Picture::on_gpu`]).
+    pub gpu: Option<GpuFrame>,
 }
 
 impl Picture {
@@ -122,6 +127,37 @@ impl Picture {
             matrix: f.matrix,
             full_range: f.full_range,
             data: f.data,
+            gpu: None,
+        }
+    }
+
+    /// A picture that lives on the GPU: the renderer samples `picture`'s texture where it can
+    /// open it and reads it back where it cannot.
+    pub fn on_gpu(
+        width: u32,
+        height: u32,
+        matrix: YuvMatrix,
+        full_range: bool,
+        picture: Arc<dyn GpuPicture>,
+    ) -> Self {
+        let f = VideoFrame::on_gpu(0, 0, width, height, picture);
+        Picture {
+            width,
+            height,
+            format: f.format,
+            planes: f.planes,
+            matrix,
+            full_range,
+            data: f.data,
+            gpu: f.gpu,
+        }
+    }
+
+    /// The memory it holds, in CPU or GPU memory: for budgets of pictures decoded ahead.
+    pub fn bytes(&self) -> usize {
+        match self.gpu {
+            Some(_) => (self.width as usize).saturating_mul(self.height as usize).saturating_mul(3) / 2,
+            None => self.data.len(),
         }
     }
 }
@@ -146,6 +182,7 @@ impl VideoSink {
             full_range: picture.full_range,
             planes: picture.planes,
             data: picture.data,
+            gpu: picture.gpu,
         };
         if !frame.is_valid() {
             s.dropped.fetch_add(1, Ordering::Relaxed);

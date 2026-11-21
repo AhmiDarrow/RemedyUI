@@ -654,6 +654,7 @@ fn picture(bytes: &[u8], l: Layout) -> Result<Picture, MediaError> {
         matrix: if l.height < 720 { YuvMatrix::Bt601 } else { YuvMatrix::Bt709 },
         full_range: false,
         data: Arc::from(data),
+        gpu: None,
     };
     let check = remedy_ui_paint::VideoFrame {
         stream: 0,
@@ -665,6 +666,7 @@ fn picture(bytes: &[u8], l: Layout) -> Result<Picture, MediaError> {
         full_range: p.full_range,
         planes: p.planes,
         data: p.data.clone(),
+        gpu: None,
     };
     if !check.is_valid() {
         return Err(MediaError::Decode("a decoded picture is smaller than its layout says".into()));
