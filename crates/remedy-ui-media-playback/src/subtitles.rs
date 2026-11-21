@@ -8,6 +8,52 @@ use crate::host::MediaError;
 /// The largest subtitle file read (a feature film's SRT is about 100 KB, a styled ASS a few MB).
 pub(crate) const MAX_SUBTITLE_BYTES: u64 = 16 << 20;
 
+/// Why the cues inside a media file or stream were refused: their text passed
+/// [`MAX_SUBTITLE_BYTES`], as a subtitle file may not.
+pub(crate) const CUES_TOO_BIG: &str = "the subtitles inside this media are over 16 MB";
+
+/// The longest single cue a stream may hand out: a cue is a line or two, so one this long is
+/// not captions.
+pub(crate) const MAX_STREAMED_CUE: usize = 1 << 20;
+
+/// Why a stream was refused: one of its cues was over [`MAX_STREAMED_CUE`].
+pub(crate) const CUE_TOO_BIG: &str = "a subtitle cue inside this stream is over 1 MB";
+
+/// Adds a stream's `new` cues to the ones it handed out before (`cues`, in start order). A
+/// cue already held (the stream read again after a seek back) is not added twice, and past
+/// [`MAX_SUBTITLE_BYTES`] the earliest go, so a stream that runs for days keeps a window of
+/// its latest captions.
+pub(crate) fn add_streamed_cues(cues: &mut Vec<Cue>, new: impl IntoIterator<Item = Cue>) {
+    let size = |c: &Cue| (c.text.len() + std::mem::size_of::<Cue>()) as u64;
+    for cue in new {
+        let at = cues.partition_point(|c| c.start <= cue.start);
+        if cues
+            .get(..at)
+            .unwrap_or_default()
+            .iter()
+            .rev()
+            .take_while(|c| c.start == cue.start)
+            .any(|c| *c == cue)
+        {
+            continue;
+        }
+        cues.insert(at, cue);
+    }
+    let mut total: u64 = cues.iter().map(size).sum();
+    let mut drop = 0;
+    while total > MAX_SUBTITLE_BYTES && drop < cues.len() {
+        total -= cues.get(drop).map_or(0, size);
+        drop += 1;
+    }
+    cues.drain(..drop);
+}
+
+/// Counts `text` against the cues read so far; true once they pass [`MAX_SUBTITLE_BYTES`].
+pub(crate) fn over_cue_budget(total: &mut u64, text: &str) -> bool {
+    *total = total.saturating_add(text.len() as u64);
+    *total > MAX_SUBTITLE_BYTES
+}
+
 /// Reads the subtitle file at `path` as text, refusing one over [`MAX_SUBTITLE_BYTES`].
 pub(crate) fn read_subtitle_file(path: &std::path::Path) -> Result<String, MediaError> {
     use std::io::Read;
@@ -720,6 +766,29 @@ mod tests {
         let scan = timed(&|| track.text_at(late));
         let indexed = timed(&|| track.text_at_with(&reach, late));
         eprintln!("20k cues, one lookup: scan {scan:?}, indexed {indexed:?}");
+    }
+
+    #[test]
+    fn a_streams_cues_keep_a_window_and_come_once() {
+        let cue = |s: u64, text: &str| Cue {
+            start: ms(s),
+            end: ms(s + 10),
+            text: text.into(),
+            ..Default::default()
+        };
+        let mut cues = Vec::new();
+        add_streamed_cues(&mut cues, [cue(20, "b"), cue(10, "a")]);
+        // Read again after a seek back: held already, so not added twice; a new one is.
+        add_streamed_cues(&mut cues, [cue(10, "a"), cue(20, "b"), cue(20, "b2")]);
+        let texts: Vec<_> = cues.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(texts, ["a", "b", "b2"]);
+        // Past the limit, the earliest go.
+        let big = "x".repeat(1 << 20);
+        add_streamed_cues(&mut cues, (100..120).map(|i| cue(i * 100, &big)));
+        let bytes: usize = cues.iter().map(|c| c.text.len() + std::mem::size_of::<Cue>()).sum();
+        assert!(bytes as u64 <= MAX_SUBTITLE_BYTES, "{bytes}");
+        assert_eq!(cues.first().map(|c| c.start), Some(ms(10_500)), "the 15 latest stay");
+        assert_eq!(cues.len(), 15);
     }
 
     #[test]

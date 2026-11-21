@@ -44,6 +44,11 @@ windows = { version = "=0.62.2", features = [
     # HLS playlists and segments (Media Foundation's HTTP byte stream is slow for big bodies).
     "Win32_Networking_WinHttp",
     "Win32_Security",
+    # The process's threads, their names and start modules, for the leak tests (tests/leaks.rs).
+    "Wdk_System_Threading",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Variant",
