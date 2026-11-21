@@ -38,6 +38,30 @@ playback-captions-tip = Captions (C)
 # { $track } is the caption track's name ("English", "fr").
 playback-captions-track = Captions: { $track }
 playback-captions-off = Captions: off
+# The captions button: its name, the words on it, and its menu ({ $track } is what shows).
+playback-captions-loading = Captions: loading
+playback-captions-auto = Captions: auto
+playback-captions-auto-track = Captions: auto, { $track }
+playback-captions-short-off = Off
+playback-captions-short-auto = Auto
+playback-captions-short-auto-track = Auto · { $track }
+playback-captions-short-loading = Loading…
+playback-captions-menu-off = Off
+playback-captions-menu-auto = Auto
+playback-captions-menu-auto-track = Auto · showing { $track }
+playback-captions-menu-loading = { $label } · loading…
+# The menu's timing steps; { $timing } is one of the words below ({ $seconds } a number).
+playback-captions-earlier = Earlier (−0.5 s) · { $timing }
+playback-captions-later = Later (+0.5 s) · { $timing }
+playback-captions-reset = Reset timing
+playback-timing-in-sync = in sync
+playback-timing-later = now { $seconds } s later
+playback-timing-earlier = now { $seconds } s earlier
+# Portal's skip buttons.
+playback-back-tip = Back 10 seconds (J)
+playback-back = Back 10 seconds
+playback-forward-tip = Forward 10 seconds (L)
+playback-forward = Forward 10 seconds
 playback-full-screen-tip = Full screen (F)
 playback-full-screen = Full screen
 playback-exit-full-screen = Exit full screen
