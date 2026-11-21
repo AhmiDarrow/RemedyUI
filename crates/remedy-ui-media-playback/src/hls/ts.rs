@@ -519,7 +519,7 @@ mod tests {
         assert_eq!(unwrap(3 * WRAP + 10, 20), 3 * WRAP + 20);
         assert_eq!(unwrap(10, WRAP - 10), WRAP - 10, "nothing goes below zero");
         // Nothing goes past the top (this overflowed).
-        assert_eq!(unwrap(u64::MAX - 5, 0), u64::MAX & !(WRAP - 1));
+        assert_eq!(unwrap(u64::MAX - 5, 0), !(WRAP - 1));
         assert_eq!(timestamp(&[0x21, 0x00, 0x07, 0xd8, 0x61]), 126_000);
     }
 
