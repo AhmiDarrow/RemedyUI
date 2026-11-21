@@ -83,6 +83,7 @@ icon-volume = 音量
 icon-muted = ミュート
 icon-full-screen = 全画面表示
 icon-exit-full-screen = 全画面表示を終了
+icon-theater-mode = シアターモード
 icon-captions = 字幕
 icon-home = ホーム
 icon-image = 画像

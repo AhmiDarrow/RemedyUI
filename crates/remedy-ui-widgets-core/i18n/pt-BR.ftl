@@ -83,6 +83,7 @@ icon-volume = Volume
 icon-muted = Sem som
 icon-full-screen = Tela cheia
 icon-exit-full-screen = Sair da tela cheia
+icon-theater-mode = Modo teatro
 icon-captions = Legendas
 icon-home = Início
 icon-image = Imagem
