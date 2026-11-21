@@ -312,12 +312,15 @@ impl GpuRenderer {
         if !gone.is_empty() {
             self.images.evict(&gone);
         }
+        // The bindings are taken before evicted streams are unbound: a stream the painter's
+        // sweep evicts may be one this same scene drew (its frame went before the next), and its
+        // texture lives on in the bindings until the scene is submitted.
+        let bindings = self.images.bindings.clone();
         let streams = self.painter.take_evicted_videos();
         if !streams.is_empty() {
             let ids = self.videos.evict(&streams);
             self.images.unbind(&ids);
         }
-        let bindings = self.images.bindings.clone();
         self.images.unbind(&pictures);
         self.submit(&scene, Color::TRANSPARENT, target, &bindings)
     }
@@ -360,12 +363,15 @@ impl GpuRenderer {
         if !gone.is_empty() {
             self.images.evict(&gone);
         }
+        // The bindings are taken before evicted streams are unbound: a stream the painter's
+        // sweep evicts may be one this same scene drew (its frame went before the next), and its
+        // texture lives on in the bindings until the scene is submitted.
+        let bindings = self.images.bindings.clone();
         let streams = self.painter.take_evicted_videos();
         if !streams.is_empty() {
             let ids = self.videos.evict(&streams);
             self.images.unbind(&ids);
         }
-        let bindings = self.images.bindings.clone();
         self.images.unbind(&pictures);
         self.submit(&scene, background, target, &bindings)
     }
