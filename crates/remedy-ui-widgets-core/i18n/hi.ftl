@@ -83,6 +83,7 @@ icon-volume = वॉल्यूम
 icon-muted = म्यूट है
 icon-full-screen = फ़ुल स्क्रीन
 icon-exit-full-screen = फ़ुल स्क्रीन से बाहर निकलें
+icon-theater-mode = थिएटर मोड
 icon-captions = कैप्शन
 icon-home = होम
 icon-image = इमेज

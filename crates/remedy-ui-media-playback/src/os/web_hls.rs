@@ -4,12 +4,15 @@
 //! or MP3 frames. Decoded samples come out through the MP4 path's output handling.
 
 use super::{
-    AudioDecoder, EncodedAudioChunk, EncodedVideoChunk, Shared, Slot, VideoDecoder, audio_output, has_global,
-    js_error, obj, video_output,
+    AudioDecoder, EncodedAudioChunk, EncodedVideoChunk, Shared, Slot, VideoDecoder, audio_output, call,
+    has_global, js_error, obj, video_output,
 };
-use crate::hls::{AudioCodec, AudioConfig, Elementary, Unit, VideoConfig};
-use crate::host::{MediaError, Sample};
+use crate::hls::{AudioCodec, AudioConfig, Elementary, Hls, Unit, VideoConfig};
+use crate::host::{Decoder, MediaError, MediaInfo, Sample};
 use js_sys::{Object, Promise, Uint8Array};
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
@@ -217,5 +220,187 @@ impl Drop for WebElementary {
         if let Some((d, _)) = &self.audio {
             let _ = d.close();
         }
+    }
+}
+
+/// What the page's fetches share with the decoder: the reader, and whether a fetch is under way.
+struct Reader {
+    hls: Hls,
+    fetching: bool,
+}
+
+/// An HLS source played in a page: the reader's wants fetched one at a time, its units fed to
+/// the browser's decoders while they are not busy.
+pub(super) struct HlsDecoder {
+    out: Shared,
+    reader: Rc<RefCell<Reader>>,
+    el: Option<WebElementary>,
+    /// A unit taken from the reader while its decoder was busy.
+    pending: Option<Unit>,
+    ending: bool,
+    info: MediaInfo,
+}
+
+// SAFETY: as for the MP4 decoder: one thread in a page without shared memory.
+unsafe impl Send for HlsDecoder {}
+
+/// Waits `d` on the page's timer.
+async fn sleep(d: Duration) {
+    if d.is_zero() {
+        return;
+    }
+    let ms = JsValue::from_f64(d.as_secs_f64() * 1000.0);
+    let p = Promise::new(&mut |resolve, _| {
+        let _ = call(&js_sys::global(), "setTimeout", &[resolve.into(), ms.clone()]);
+    });
+    let _ = JsFuture::from(p).await;
+}
+
+/// Fetches `url` whole.
+async fn fetch_all(url: &str) -> Result<Vec<u8>, MediaError> {
+    let not_found = |e: JsValue| MediaError::NotFound(js_error(url, &e));
+    let win = web_sys::window().ok_or_else(|| MediaError::Unsupported("no browser window".into()))?;
+    let resp: web_sys::Response =
+        JsFuture::from(win.fetch_with_str(url)).await.map_err(not_found)?.unchecked_into();
+    if !resp.ok() {
+        return Err(MediaError::NotFound(format!("{url}: the server answered {}", resp.status())));
+    }
+    let buf = JsFuture::from(resp.array_buffer().map_err(not_found)?).await.map_err(not_found)?;
+    Ok(Uint8Array::new(&buf).to_vec())
+}
+
+impl HlsDecoder {
+    pub(super) fn open(url: &str, out: Shared) -> HlsDecoder {
+        let reader = Rc::new(RefCell::new(Reader { hls: Hls::new(url), fetching: false }));
+        let mut dec =
+            HlsDecoder { out, reader, el: None, pending: None, ending: false, info: MediaInfo::default() };
+        dec.fetch();
+        dec
+    }
+
+    /// Starts fetching what the reader wants next, unless a fetch is under way.
+    fn fetch(&mut self) {
+        let want = {
+            let mut r = self.reader.borrow_mut();
+            if r.fetching {
+                return;
+            }
+            let Some(want) = r.hls.wanted() else { return };
+            r.fetching = true;
+            want
+        };
+        let (reader, out) = (self.reader.clone(), self.out.clone());
+        wasm_bindgen_futures::spawn_local(async move {
+            sleep(want.after).await;
+            let got = fetch_all(&want.url).await;
+            let mut r = reader.borrow_mut();
+            let delivered = r.hls.deliver(&want, got);
+            r.fetching = false;
+            drop(r);
+            match delivered {
+                Ok(()) => out.borrow_mut().wake(),
+                Err(e) => out.borrow_mut().fail(e),
+            }
+        });
+    }
+
+    /// Sets the decoders up once the reader knows the streams, feeds them, and fetches more.
+    fn pump(&mut self) -> Result<(), MediaError> {
+        if self.el.is_none() {
+            let r = self.reader.borrow();
+            if r.hls.started() {
+                let mut el = WebElementary::new(self.out.clone());
+                el.configure(r.hls.video(), r.hls.audio())?;
+                self.el = Some(el);
+            }
+        }
+        if self.el.is_some() {
+            // A growing playlist's length grows.
+            self.info = self.reader.borrow().hls.info();
+        }
+        if let Some(el) = self.el.as_mut() {
+            loop {
+                let unit = match self.pending.take() {
+                    Some(u) => u,
+                    None => match self.reader.borrow_mut().hls.next_unit() {
+                        Some(u) => u,
+                        None => break,
+                    },
+                };
+                if el.busy(&unit) {
+                    self.pending = Some(unit);
+                    break;
+                }
+                el.push(unit)?;
+            }
+            if self.pending.is_none() && !self.ending && self.reader.borrow().hls.ended() {
+                self.ending = true;
+                el.end()?;
+            }
+        }
+        self.fetch();
+        Ok(())
+    }
+}
+
+impl Decoder for HlsDecoder {
+    fn info(&self) -> &MediaInfo {
+        &self.info
+    }
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), MediaError>> {
+        self.out.borrow_mut().waker = Some(cx.waker().clone());
+        if let Err(e) = self.pump() {
+            return Poll::Ready(Err(e));
+        }
+        if let Some(e) = self.out.borrow_mut().error.take() {
+            return Poll::Ready(Err(e));
+        }
+        if self.el.is_some() { Poll::Ready(Ok(())) } else { Poll::Pending }
+    }
+
+    fn read(&mut self) -> Result<Option<Sample>, MediaError> {
+        // The browser decodes asynchronously; nothing can wait for it on the page's thread.
+        match self.poll_read(&mut Context::from_waker(std::task::Waker::noop())) {
+            Poll::Ready(r) => r,
+            Poll::Pending => Err(MediaError::Decode(
+                "the browser's decoder answers later; this decoder is read with poll_read".into(),
+            )),
+        }
+    }
+
+    fn poll_read(&mut self, cx: &mut Context<'_>) -> Poll<Result<Option<Sample>, MediaError>> {
+        self.out.borrow_mut().waker = Some(cx.waker().clone());
+        if let Some(el) = self.el.as_mut()
+            && let Some(s) = el.pull().transpose()
+        {
+            return Poll::Ready(s.map(Some));
+        }
+        if let Err(e) = self.pump() {
+            return Poll::Ready(Err(e));
+        }
+        match self.el.as_mut() {
+            Some(el) => match el.pull() {
+                Ok(Some(s)) => Poll::Ready(Ok(Some(s))),
+                Err(e) => Poll::Ready(Err(e)),
+                Ok(None) if self.ending && el.drained() => Poll::Ready(Ok(None)),
+                Ok(None) => Poll::Pending,
+            },
+            None => Poll::Pending,
+        }
+    }
+
+    fn seek(&mut self, to: Duration) -> Result<(), MediaError> {
+        let el = self.el.as_mut().ok_or_else(|| MediaError::Decode("the source is not open yet".into()))?;
+        self.reader.borrow_mut().hls.seek(to);
+        el.flush()?;
+        self.pending = None;
+        self.ending = false;
+        self.fetch();
+        Ok(())
+    }
+
+    fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
+        Some(self.reader.borrow().hls.buffered())
     }
 }

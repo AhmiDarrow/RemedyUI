@@ -83,6 +83,7 @@ icon-volume = مستوى الصوت
 icon-muted = الصوت مكتوم
 icon-full-screen = ملء الشاشة
 icon-exit-full-screen = إنهاء ملء الشاشة
+icon-theater-mode = وضع المسرح
 icon-captions = الترجمة المصاحبة
 icon-home = الصفحة الرئيسية
 icon-image = صورة

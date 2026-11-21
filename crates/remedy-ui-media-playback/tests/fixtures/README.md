@@ -54,13 +54,37 @@ ffmpeg -i clip.mp4 -i clip.vtt -map 0:v -map 0:a -map 1 -c:v libvpx -b:v 50k -c:
   -c:s webvtt -metadata:s:s:0 language=eng -map_metadata -1 -fflags +bitexact clip-subs.webm
 ```
 
-`hls/clip.m3u8` with `hls/clip0.ts`..`clip2.ts` is `clip.mp4` as HLS for the browser tests: an
-EVENT playlist (no master) of three one-second MPEG-TS segments, H.264 baseline with a key
-frame every second (each segment starts with one) and AAC-LC stereo at 48 kHz:
+`hls/` holds four small HLS streams cut from `clip.mp4` with ffmpeg 9.0.1: 1-second MPEG-TS
+segments, a key frame every 25 frames so each segment starts on one. `C` below stands for
+`-map_metadata -1 -fflags +bitexact -g 25 -keyint_min 25 -sc_threshold 0 -f hls -hls_time 1 -hls_flags independent_segments`.
+
+`hls/aac`: H.264 High and AAC-LC (48 kHz stereo), 3 segments:
 
 ```
-cd hls && ffmpeg -i ../clip.mp4 -c:v libx264 -profile:v baseline -g 25 -keyint_min 25 -sc_threshold 0 -bf 0 \
-  -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv -c:a aac -b:a 64k \
-  -map_metadata -1 -fflags +bitexact -f hls -hls_time 1 -hls_playlist_type event \
-  -hls_segment_filename 'clip%d.ts' clip.m3u8
+ffmpeg -i clip.mp4 -c:v libx264 -profile:v high -b:v 20k -c:a aac -b:a 24k $C \
+  -hls_playlist_type vod -hls_segment_filename hls/aac/seg%05d.ts hls/aac/index.m3u8
+```
+
+`hls/mp3`: H.264 Constrained Baseline and MP3 (44.1 kHz stereo), the first 2 seconds:
+
+```
+ffmpeg -i clip.mp4 -t 2 -c:v libx264 -profile:v baseline -b:v 20k -c:a libmp3lame -b:a 32k -ar 44100 $C \
+  -hls_playlist_type vod -hls_segment_filename hls/mp3/seg%05d.ts hls/mp3/index.m3u8
+```
+
+`hls/video`: H.264 Main without sound, an EVENT playlist, 3 segments:
+
+```
+ffmpeg -i clip.mp4 -an -c:v libx264 -profile:v main -b:v 20k $C \
+  -hls_playlist_type event -hls_segment_filename hls/video/seg%05d.ts hls/video/index.m3u8
+```
+
+`hls/wrap`: as `hls/aac` but 2 seconds, with the stream's clock moved so far in (as Portal's
+`-copyts` does, only further) that the 33-bit MPEG-TS clock wraps to zero 1.32 s in, inside the
+second segment:
+
+```
+ffmpeg -copyts -i clip.mp4 -t 2 -c:v libx264 -profile:v high -b:v 20k -c:a aac -b:a 24k \
+  -output_ts_offset 95441 $C -hls_playlist_type event \
+  -hls_segment_filename hls/wrap/seg%05d.ts hls/wrap/index.m3u8
 ```

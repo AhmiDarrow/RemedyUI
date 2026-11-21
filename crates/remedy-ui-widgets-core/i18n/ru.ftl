@@ -83,6 +83,7 @@ icon-volume = Громкость
 icon-muted = Звук выключен
 icon-full-screen = Во весь экран
 icon-exit-full-screen = Выйти из полноэкранного режима
+icon-theater-mode = Режим кинотеатра
 icon-captions = Субтитры
 icon-home = Главная
 icon-image = Изображение

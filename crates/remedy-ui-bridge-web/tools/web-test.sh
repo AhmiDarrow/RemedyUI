@@ -33,8 +33,14 @@ port_file="$(mktemp)"
 python3 "$root/crates/remedy-ui-media-playback/tools/slow-serve.py" \
     "$root/crates/remedy-ui-media-playback/tests/fixtures/clip.mp4" > "$port_file" &
 slow=$!
-trap 'kill $slow 2>/dev/null; rm -f "$port_file"' EXIT
-for _ in $(seq 50); do [ -s "$port_file" ] && break; sleep 0.1; done
+# And the HLS clip: a playlist and its segments, served as they are.
+hls_port_file="$(mktemp)"
+python3 "$root/crates/remedy-ui-media-playback/tools/serve-dir.py" \
+    "$root/crates/remedy-ui-media-playback/tests/fixtures/hls" > "$hls_port_file" &
+hls=$!
+trap 'kill $slow $hls 2>/dev/null; rm -f "$port_file" "$hls_port_file"' EXIT
+for _ in $(seq 50); do [ -s "$port_file" ] && [ -s "$hls_port_file" ] && break; sleep 0.1; done
+REMEDY_HLS_URL="http://127.0.0.1:$(cat "$hls_port_file")" \
 REMEDY_SLOW_CLIP_URL="http://127.0.0.1:$(cat "$port_file")/clip.mp4" \
     cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web
 cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web_gpu

@@ -1,5 +1,5 @@
 # The media player's own words. Placeholders ({ $name }) must stay; their order may change.
-# The letters in brackets in tooltips (K, M, C, F) are the player's keys: they stay as they
+# The letters in brackets in tooltips (K, M, C, F, T) are the player's keys: they stay as they
 # are in every language.
 
 ## Shown over the picture when the media cannot be played. { $detail } is the system's own
@@ -35,6 +35,9 @@ playback-captions-off = Captions: off
 playback-full-screen-tip = Full screen (F)
 playback-full-screen = Full screen
 playback-exit-full-screen = Exit full screen
+# Theater mode: the picture wide in the page. One name; screen readers say whether it is on.
+playback-theater-tip = Theater mode (T)
+playback-theater = Theater mode
 # The seek bar's name, and its value ("0:42 of 3:20").
 playback-seek = Seek
 playback-seek-value = { $position } of { $duration }
