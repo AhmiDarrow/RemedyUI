@@ -90,6 +90,9 @@ WebGL2 in a browser.
   within two levels. A drop shadow moved wholly outside the target is drawn without its
   shadow (it shows nothing there): vello_cpu draws one moved past the left or top edge under
   the shape, and vello_gpu sizes buffers to reach one, past the device's limit when nested.
+- **Nesting is bounded**: at most `MAX_GROUP_DEPTH` (256) clips, groups, filters and glass
+  are open at once while a list draws; pushes past it open nothing and their pops close
+  nothing (vello_gpu overflows its stack somewhere past 500, which would abort the process).
 - **Colour matrices** (`Filter::ColorMatrix`) are RemedyUI's own pass, since vello's filter
   graph runs none. The group is drawn into a picture of its own, in device pixels, covering
   only what it draws inside the target (its corner on a 64-pixel grid, so blurs inside it

@@ -112,6 +112,9 @@ pub struct Painter {
     next_glyph: u64,
     /// Colour-matrix groups open and drawn in the current raster.
     matrices: matrix::Budget,
+    /// Surface layers open in the current raster (clips, groups, filters, glass), against
+    /// [`remedy_ui_paint::MAX_GROUP_DEPTH`].
+    layers: usize,
     /// Mipmaps of app images drawn scaled down, by the image's id, with its pixels (gone
     /// when the app drops the image).
     mips: HashMap<u64, (std::sync::Weak<[u8]>, mip::Levels)>,
@@ -486,6 +489,7 @@ impl Painter {
             next_glyph: 0,
             matrices: matrix::Budget::default(),
             mips: HashMap::new(),
+            layers: 0,
         }
     }
 
@@ -557,6 +561,7 @@ impl Painter {
     ) {
         self.sweep_images();
         self.matrices = matrix::Budget::default();
+        self.layers = 0;
         // Groups the list leaves open are closed: a list is drawn as a whole, balanced.
         self.draw_items(s, list.items(), base, area, 0, true);
         s.set_transform(kurbo::Affine::IDENTITY);
@@ -588,6 +593,8 @@ impl Painter {
         let mut roots: Vec<(usize, Affine)> = vec![(0, base)];
         // Items before this were drawn already (a colour-matrix group, as one picture).
         let mut resume = 0usize;
+        // Pushes past MAX_GROUP_DEPTH, which opened nothing: their pops close nothing.
+        let mut skipped = 0usize;
         for (i, item) in items.iter().enumerate() {
             if i < resume {
                 continue;
@@ -658,9 +665,16 @@ impl Painter {
                 }
                 Item::Video { frame, rect, radii } => self.video(s, frame, *rect, *radii),
                 Item::Texture { texture, rect, radii } => texture_item(s, texture, *rect, *radii),
+                Item::PushClip { .. } | Item::PushLayer { .. } | Item::PushFilter(_)
+                    if self.layers >= remedy_ui_paint::MAX_GROUP_DEPTH =>
+                {
+                    skipped += 1;
+                }
+                Item::PopClip | Item::PopLayer | Item::PopFilter if skipped > 0 => skipped -= 1,
                 Item::PushClip { rect, radii } => {
                     s.push_clip_layer(&rounded(*rect, *radii));
                     open += 1;
+                    self.layers += 1;
                 }
                 // A pop with nothing open (a list with one pop too many) is skipped: the
                 // surface's own layers are not the list's to close.
@@ -669,11 +683,13 @@ impl Painter {
                 Item::PopClip => {
                     s.pop_layer();
                     open -= 1;
+                    self.layers = self.layers.saturating_sub(1);
                 }
                 Item::PopLayer | Item::PopFilter => {
                     groups = groups.saturating_sub(1);
                     s.pop_layer();
                     open -= 1;
+                    self.layers = self.layers.saturating_sub(1);
                     if roots.len() > 1 {
                         roots.pop();
                     }
@@ -691,6 +707,7 @@ impl Painter {
                     };
                     s.push_group(mode, *opacity);
                     open += 1;
+                    self.layers += 1;
                     roots.push((i + 1, t));
                 }
                 Item::PushFilter(remedy_ui_paint::Filter::ColorMatrix { matrix })
@@ -724,6 +741,7 @@ impl Painter {
                         groups += 1;
                         s.push_group(peniko::BlendMode::default(), 1.0);
                         open += 1;
+                        self.layers += 1;
                         roots.push((i + 1, t));
                         areas.push(cull);
                     }
@@ -745,6 +763,7 @@ impl Painter {
                         None => s.push_group(peniko::BlendMode::default(), 1.0),
                     }
                     open += 1;
+                    self.layers += 1;
                     roots.push((i + 1, t));
                     // What the group draws around the area can reach into it.
                     let reach = filter_reach(f, t);
@@ -753,9 +772,11 @@ impl Painter {
                 Item::Backdrop { rect, radii, blur } => {
                     let sigma = if blur.is_finite() { blur.max(0.0) } else { 0.0 };
                     let Some(&(start, root_t)) = roots.last() else { continue };
-                    if sigma == 0.0 && start == i {
+                    // Glass opens two layers, and replays what is under it inside them.
+                    if (sigma == 0.0 && start == i) || self.layers + 2 > remedy_ui_paint::MAX_GROUP_DEPTH {
                         continue;
                     }
+                    self.layers += 2;
                     s.push_clip_layer(&rounded(*rect, *radii));
                     let f = remedy_ui_paint::Filter::Blur { radius: sigma };
                     match vello_filter(&f, t.scale_factor()) {
@@ -771,6 +792,7 @@ impl Painter {
                     s.set_transform(kaffine(t));
                     s.pop_layer();
                     s.pop_layer();
+                    self.layers -= 2;
                 }
                 Item::PushTransform(a) => transforms.push(a.then(t)),
                 Item::PopTransform => {
@@ -784,6 +806,7 @@ impl Painter {
             for _ in 0..open {
                 s.pop_layer();
             }
+            self.layers = self.layers.saturating_sub(open);
         }
     }
 

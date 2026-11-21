@@ -451,9 +451,7 @@ fn hostile_colour_matrices_are_bounded_on_both_renderers() {
     // A theme nesting thousands of matrices, and putting one on thousands of siblings: drawn
     // quickly with a bounded number of pictures, the same on both renderers.
     let mut nested = DisplayList::new();
-    // (Deeper nesting of any group overflows vello_gpu's stack: a limit of its own, not the
-    // matrices'.)
-    for _ in 0..300 {
+    for _ in 0..2000 {
         nested.push_filter(Filter::ColorMatrix { matrix: ColorMatrix::hue_rotate(7.0) });
     }
     nested.fill_rect(Rect::new(10.0, 10.0, 300.0, 200.0), Brush::Solid(Color::rgb8(200, 60, 20)));
@@ -654,6 +652,48 @@ fn shadows_beyond_the_left_or_top_edge_are_not_drawn_unmoved() {
         let (n, worst) = differing(&a, &b, 8);
         assert_eq!(n, 0, "matrix {matrix}: the renderers agree (worst {worst})");
         assert!(a.pixel(50, 70).is_some_and(|p| p != [255; 4]), "matrix {matrix}: the shape is drawn");
+    }
+    assert!(g.context().take_errors().is_empty());
+}
+
+#[test]
+fn deeply_nested_groups_are_bounded_on_both_renderers() {
+    // vello_gpu overflowed its stack (aborting the process) somewhere past 500 nested
+    // layers. Past MAX_GROUP_DEPTH nothing more opens; what is inside is still drawn.
+    let mut g = gpu();
+    let mut c = CpuRenderer::new();
+    for kind in 0..3 {
+        let mut l = DisplayList::new();
+        for k in 0..3000 {
+            match (kind, k % 3) {
+                (0, _) => l.push(Item::PushLayer { opacity: 1.0, blend: remedy_ui_paint::Blend::Normal }),
+                (1, _) => l.push_filter(Filter::Blur { radius: 0.0 }),
+                (_, 0) => l.push_clip(Rect::new(0.0, 0.0, 200.0, 200.0), CornerRadii::ZERO),
+                (_, 1) => l.push(Item::PushLayer { opacity: 1.0, blend: remedy_ui_paint::Blend::Normal }),
+                _ => l.push_filter(Filter::DropShadow {
+                    offset: Vec2::new(2.0, 2.0),
+                    blur: 0.0,
+                    color: Color::TRANSPARENT,
+                }),
+            }
+        }
+        l.fill_rect(Rect::new(10.0, 10.0, 60.0, 60.0), Brush::Solid(Color::rgb8(200, 60, 20)));
+        // Popped again, half of them, then something drawn at the outer levels.
+        for _ in 0..1500 {
+            l.push(Item::PopLayer);
+        }
+        l.fill_rect(Rect::new(70.0, 10.0, 90.0, 30.0), Brush::Solid(Color::rgb8(20, 60, 200)));
+        let started = std::time::Instant::now();
+        let (Ok(a), Ok(b)) =
+            (c.render(&l, 96, 96, 1.0, Color::WHITE), g.render(&l, 96, 96, 1.0, Color::WHITE))
+        else {
+            unreachable!("kind {kind}: both render")
+        };
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "kind {kind}: bounded work");
+        assert_eq!(a.pixel(30, 30), Some([200, 60, 20, 255]), "kind {kind}: the innermost drawing shows");
+        assert_eq!(a.pixel(80, 20), Some([20, 60, 200, 255]), "kind {kind}: so does the outer");
+        let (n, worst) = differing(&a, &b, 8);
+        assert_eq!(n, 0, "kind {kind}: the renderers agree (worst {worst})");
     }
     assert!(g.context().take_errors().is_empty());
 }
