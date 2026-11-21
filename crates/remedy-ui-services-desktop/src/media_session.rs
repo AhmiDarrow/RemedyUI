@@ -91,6 +91,8 @@ pub enum MediaCommand {
     SeekBy(f64),
     /// Move to this position.
     SeekTo(Duration),
+    /// Set the volume, 0 to 1 (Linux's MPRIS controls have a volume).
+    SetVolume(f64),
 }
 
 /// Something that shows what plays: the platform's controls ([`MediaSession`]), or a stand-in
@@ -102,6 +104,10 @@ pub trait NowPlayingSink {
     fn set_playback(&self, state: MediaState, position: Duration, length: Option<Duration>);
     /// Offers the Next button.
     fn set_can_next(&self, can: bool);
+    /// Shows the volume, 0 to 1, where the controls show one (MPRIS); nothing elsewhere.
+    fn set_volume(&self, volume: f64) {
+        let _ = volume;
+    }
 }
 
 pub(crate) type Handler = Box<dyn Fn(MediaCommand) + Send + Sync>;
@@ -140,6 +146,12 @@ impl NowPlayingSink for MediaSession {
 
     fn set_can_next(&self, can: bool) {
         self.inner.can_next(can);
+    }
+
+    fn set_volume(&self, volume: f64) {
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+        self.inner.volume(volume);
+        let _ = volume;
     }
 }
 

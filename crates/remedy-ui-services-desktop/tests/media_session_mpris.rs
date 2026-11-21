@@ -135,6 +135,22 @@ fn mpris_shows_what_plays_and_passes_its_buttons_on() {
     assert_eq!(text(get(&conn, &name, PLAYER, "PlaybackStatus")), "Paused");
     assert_eq!(number(get(&conn, &name, PLAYER, "Position")), 80_000_000);
 
+    // The volume: what the player says reads back, and setting it asks the player.
+    let volume = |c: &Connection| f64::try_from(get(c, &name, PLAYER, "Volume")).unwrap_or(-1.0);
+    assert_eq!(volume(&conn), 1.0, "full until the player says");
+    session.set_volume(0.25);
+    assert_eq!(volume(&conn), 0.25);
+    for (asked, want) in [(0.5, 0.5), (-3.0, 0.0), (7.0, 1.0)] {
+        zbus::block_on(async {
+            let props = Some("org.freedesktop.DBus.Properties");
+            let v = zbus::Variant::from(asked);
+            conn.call_method(Some(name.as_str()), PATH, props, "Set", &(PLAYER, "Volume", v)).await
+        })
+        .unwrap_or_else(|e| unreachable!("Set Volume: {e}"));
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).ok(), Some(MediaCommand::SetVolume(want)));
+    }
+    assert_eq!(volume(&conn), 0.25, "the shown volume waits for the player");
+
     session.set_can_next(false);
     assert!(!flag(get(&conn, &name, PLAYER, "CanGoNext")));
 

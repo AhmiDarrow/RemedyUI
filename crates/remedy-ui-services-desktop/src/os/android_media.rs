@@ -150,12 +150,27 @@ impl Session {
         sig: &str,
         args: impl for<'a> FnOnce(&mut JNIEnv<'a>) -> jni::errors::Result<Vec<Arg<'a>>>,
     ) {
-        let _ = with_env(&self.java.vm, |env| {
+        let r = with_env(&self.java.vm, |env| {
             let owned = args(env)?;
             let values: Vec<JValue<'_, '_>> = owned.iter().map(Arg::value).collect();
             env.call_method(self.controls.as_obj(), method, sig, &values)?;
             Ok(())
         });
+        // The sink has no error to return: a failure goes to the system log.
+        if let Err(why) = r {
+            let _ = with_env(&self.java.vm, |env| {
+                let tag = env.new_string("RemedyUI")?;
+                let text = env.new_string(format!("media controls: {method} failed: {why}"))?;
+                let args = [JValue::Object(&tag), JValue::Object(&text)];
+                env.call_static_method(
+                    "android/util/Log",
+                    "w",
+                    "(Ljava/lang/String;Ljava/lang/String;)I",
+                    &args,
+                )?;
+                Ok(())
+            });
+        }
     }
 
     pub(crate) fn now_playing(&self, now: Option<&NowPlaying>) {

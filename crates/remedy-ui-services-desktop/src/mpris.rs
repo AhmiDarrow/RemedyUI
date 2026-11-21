@@ -32,6 +32,8 @@ struct State {
     at: Option<Instant>,
     length: Option<Duration>,
     can_next: bool,
+    /// 0 to 1; `None` until the player says (shown as full).
+    volume: Option<f64>,
 }
 
 impl State {
@@ -224,7 +226,16 @@ impl Player {
 
     #[zbus(property)]
     fn volume(&self) -> f64 {
-        1.0
+        lock(&self.state).volume.unwrap_or(1.0)
+    }
+
+    /// Asks the player; the new volume shows once it says (`Session::volume`). Below 0 is 0,
+    /// as MPRIS says; above 1 is 1 (the player goes no louder).
+    #[zbus(property)]
+    fn set_volume(&self, volume: f64) {
+        if volume.is_finite() {
+            (self.handler)(MediaCommand::SetVolume(volume.clamp(0.0, 1.0)));
+        }
     }
 
     #[zbus(property)]
@@ -304,6 +315,7 @@ impl Session {
                         "Metadata" => OwnedVariant::from(s.metadata()),
                         "PlaybackStatus" => OwnedVariant::from(Str::from_static(s.status())),
                         "CanGoNext" => OwnedVariant::from(s.can_next),
+                        "Volume" => OwnedVariant::from(s.volume.unwrap_or(1.0)),
                         "CanSeek" => OwnedVariant::from(s.now.is_some() && s.length.is_some()),
                         "CanPlay" | "CanPause" | "CanGoPrevious" => OwnedVariant::from(s.now.is_some()),
                         _ => return None,
@@ -383,6 +395,13 @@ impl Session {
                 let emitter = SignalEmitter::new(&self.conn, PATH)?;
                 Player::seeked(&emitter, micros(position)).await
             });
+        }
+    }
+
+    pub(crate) fn volume(&self, volume: f64) {
+        let v = Some(volume.clamp(0.0, 1.0));
+        if std::mem::replace(&mut lock(&self.state).volume, v) != v {
+            self.changed(&["Volume"]);
         }
     }
 
