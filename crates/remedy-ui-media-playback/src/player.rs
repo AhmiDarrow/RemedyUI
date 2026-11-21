@@ -1911,6 +1911,21 @@ impl Player {
     /// tracks the media carries are read in the stream's time and the rest in the work's.
     /// Tracked.
     pub fn caption_text(&self) -> Option<String> {
+        let cues = self.caption_cues();
+        if cues.is_empty() {
+            return None;
+        }
+        Some(cues.iter().map(|c| c.text.as_str()).collect::<Vec<_>>().join("\n"))
+    }
+
+    /// The cues showing now, in start order, each with where it goes
+    /// ([`Cue::settings`](crate::Cue::settings)); as [`caption_text`](Self::caption_text)
+    /// finds them. Tracked.
+    pub fn caption_cues(&self) -> Vec<crate::Cue> {
+        self.find_cues().unwrap_or_default()
+    }
+
+    fn find_cues(&self) -> Option<Vec<crate::Cue>> {
         let sel = self.0.caption.get()?;
         let at = self.0.position.get();
         let at = if self.0.embedded.borrow().contains(&sel) { at } else { at + self.origin() };
@@ -1924,7 +1939,7 @@ impl Player {
         // The memo first: computing it reads the tracks.
         self.0.cue_reach.with(|r| {
             let r = r.get(sel)?;
-            self.0.tracks.with(|t| t.get(sel).and_then(|tr| tr.text_at_with(r, at)))
+            self.0.tracks.with(|t| t.get(sel).map(|tr| tr.cues_at_with(r, at).into_iter().cloned().collect()))
         })
     }
 

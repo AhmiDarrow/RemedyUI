@@ -244,7 +244,7 @@ impl Feed {
                         self.eof = true;
                         return;
                     }
-                    self.cues.push((track, Cue { start: at, end: until, text }));
+                    self.cues.push((track, Cue { start: at, end: until, text, ..Default::default() }));
                 }
             }
         }
