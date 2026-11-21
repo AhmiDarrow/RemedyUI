@@ -1218,3 +1218,95 @@ fn at_another_speed_the_end_of_the_sound_is_played_too() {
         assert!(got + 20 >= want && got <= want + 20, "{speed}x: {got} of {want} frames reached the device");
     }
 }
+
+/// A wall-clock scripted player, paused at the start, in a player widget.
+fn scripted(s: &mut Screen) -> (Player, El) {
+    let host = Arc::new(Scripted {
+        heard: Arc::new(AtomicU64::new(0)),
+        buffer: Duration::from_millis(200),
+        device: false,
+        seconds: 3,
+    });
+    let p = Player::open(&s.ui, host, MediaSource::url("script:"), PlayerOptions::default());
+    let view = player(&s.ui, &p, "Scripted");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    (p, view)
+}
+
+#[test]
+fn a_caption_delay_shifts_cues_later_or_earlier_across_seeks() {
+    let mut s = Screen::new();
+    let (p, _view) = scripted(&mut s);
+    let cues = parse_subtitles("WEBVTT\n\n00:01.000 --> 00:01.500\nOne\n", SubtitleFormat::WebVtt);
+    let track = SubtitleTrack { label: "Downloaded".into(), language: None, cues };
+    p.set_caption_track(Some(p.add_subtitles(track)));
+    let at = |s: &mut Screen, ms: u64| {
+        p.seek(Duration::from_millis(ms));
+        s.wait("the seek", |_| near(p.position(), ms as f64 / 1000.0, 0.001));
+        p.caption_text()
+    };
+    assert_eq!(at(&mut s, 1200).as_deref(), Some("One"));
+    // Later: the cue shows from 1.5 s to 2 s.
+    p.set_caption_delay(500);
+    assert_eq!(p.caption_delay(), 500);
+    assert_eq!(p.caption_text(), None, "not yet at 1.2 s");
+    assert_eq!(at(&mut s, 1700).as_deref(), Some("One"));
+    assert_eq!(at(&mut s, 300), None);
+    // Earlier: from 0.5 s to 1 s.
+    p.set_caption_delay(-500);
+    assert_eq!(at(&mut s, 600).as_deref(), Some("One"));
+    assert_eq!(at(&mut s, 1200), None);
+    // The next media's subtitles are other files: the shift starts over.
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:"), "Next")));
+    p.play_next();
+    assert_eq!(p.caption_delay(), 0);
+}
+
+#[test]
+fn theater_mode_is_offered_once_the_app_listens_and_escape_leaves_it() {
+    let mut s = Screen::new();
+    let (p, view) = scripted(&mut s);
+    named(&view, "Seek").unwrap_or_else(|| unreachable!("a seek bar")).focus();
+    s.idle(30);
+    // No app listening: no button, and T does nothing.
+    let hidden = |v: &El| named(v, "Theater mode").and_then(|b| b.info()).is_none_or(|i| i.hidden);
+    assert!(hidden(&view));
+    assert!(!press(&s.ui, Key::Character("t".into())));
+    assert!(!p.is_theater());
+
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let a = asked.clone();
+    p.on_theater(move |on| a.lock().unwrap_or_else(|e| e.into_inner()).push(on));
+    s.pump();
+    assert!(!hidden(&view));
+    let pressed = |v: &El| {
+        named(v, "Theater mode")
+            .and_then(|b| b.info())
+            .and_then(|i| i.semantics)
+            .and_then(|s| s.checked_state())
+    };
+    assert_eq!(pressed(&view), Some(false));
+    // T asks for it; the button shows it pressed.
+    assert!(press(&s.ui, Key::Character("t".into())));
+    s.pump();
+    assert!(p.is_theater());
+    assert_eq!(pressed(&view), Some(true));
+    // Escape leaves full screen first, then theater mode.
+    assert!(press(&s.ui, Key::Character("f".into())));
+    assert!(press(&s.ui, Key::Escape));
+    assert!(!p.is_fullscreen() && p.is_theater());
+    assert!(press(&s.ui, Key::Escape));
+    assert!(!p.is_theater());
+    assert!(!press(&s.ui, Key::Escape), "nothing left to leave");
+    // The button toggles it too.
+    named(&view, "Theater mode").unwrap_or_else(|| unreachable!()).focus();
+    assert!(press(&s.ui, Key::Space));
+    s.pump();
+    assert!(p.is_theater());
+    assert_eq!(*asked.lock().unwrap_or_else(|e| e.into_inner()), [true, false, true]);
+
+    s.idle(30);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+}

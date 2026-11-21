@@ -5,7 +5,8 @@
 //!   position, length, volume, captions and errors are signals.
 //! - [`player()`]: the widget: the picture with captions over it and a transport bar (play
 //!   and pause, time, a keyboard-operable seek bar, mute and volume, captions, a full-screen
-//!   request).
+//!   request, and a theater-mode request for apps that lay one out). Captions can be shifted
+//!   earlier or later ([`Player::set_caption_delay`]) when a subtitle file is out of step.
 //! - [`MediaHost`]: where decoding and sound come from. [`platform_host`] gives the
 //!   platform's: Media Foundation and WASAPI on Windows; the system's GStreamer on Linux,
 //!   loaded at run time and never bundled; AVFoundation and Audio Queues on macOS;
@@ -46,7 +47,7 @@ pub mod deps;
 mod engine;
 mod host;
 // HLS (`.m3u8` of MPEG-TS) taken apart here; the platform decodes the compressed streams.
-#[allow(dead_code)] // shortcut: until the platform hosts open HLS through it
+#[cfg_attr(not(windows), allow(dead_code))] // shortcut: until the other platform hosts open HLS through it
 mod hls;
 // Matroska and WebM text subtitles, read from local files on every platform (the
 // platforms' readers do not hand them out).

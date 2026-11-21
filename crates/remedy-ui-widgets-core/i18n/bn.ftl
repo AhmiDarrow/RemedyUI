@@ -83,6 +83,7 @@ icon-volume = ভলিউম
 icon-muted = নিঃশব্দ
 icon-full-screen = পূর্ণ স্ক্রিন
 icon-exit-full-screen = পূর্ণ স্ক্রিন থেকে বের হন
+icon-theater-mode = থিয়েটার মোড
 icon-captions = ক্যাপশন
 icon-home = হোম
 icon-image = ছবি
