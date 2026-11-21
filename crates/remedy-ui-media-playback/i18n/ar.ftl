@@ -12,6 +12,7 @@ playback-play = تشغيل
 playback-pause = إيقاف مؤقت
 playback-time = { $position } / { $duration }
 playback-time-live = { $position } · بث مباشر
+playback-skipping = جارٍ الانتقال إلى { $position }
 playback-mute-tip = كتم الصوت (M)
 playback-mute = كتم الصوت
 playback-unmute = إلغاء كتم الصوت

@@ -203,8 +203,11 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     let p = player.clone();
     let mu = ui.clone();
     let message = message.bind(move || {
-        let text = match p.state() {
-            PlaybackState::Failed if !p.is_remote() => Some(failure(&mu.locale(), p.error())),
+        let text = match (p.state(), p.skipping()) {
+            (PlaybackState::Failed, _) if !p.is_remote() => Some(failure(&mu.locale(), p.error())),
+            (_, Some(at)) if !p.is_remote() => {
+                Some(crate::STRINGS.format(&mu, "playback-skipping", &[("position", format_time(at).into())]))
+            }
             _ => None,
         };
         let _ = msg.clone().hidden(text.is_none());
@@ -867,8 +870,9 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
         // Repainted as more arrives.
         let _ = p2.buffered();
         let len = length();
-        let seekable = p2.is_remote() || p2.info().is_some_and(|i| i.seekable);
-        let _ = b3.clone().disabled(len.is_none() || !seekable);
+        // On a timeline a seek the stream cannot take goes to the app; skipping, none does.
+        let seekable = p2.is_remote() || p2.timeline().is_some() || p2.info().is_some_and(|i| i.seekable);
+        let _ = b3.clone().disabled(len.is_none() || !seekable || p2.skipping().is_some());
         let total = len.unwrap_or_default();
         let said = crate::STRINGS.format(
             &u,

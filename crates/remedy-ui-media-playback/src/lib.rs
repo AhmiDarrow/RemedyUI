@@ -11,7 +11,13 @@
 //!   anchor its own menu of devices to; [`Player::set_remote`] puts the player in remote mode,
 //!   where the local media pauses in place, a casting stage replaces the picture, and every
 //!   control and key acts on the app's [`RemoteControl`] while the bar shows the
-//!   [`RemoteStatus`] the app feeds in.
+//!   [`RemoteStatus`] the app feeds in, moved on between reports while the device plays.
+//! - A [`Timeline`] ([`Player::set_timeline`]) puts a stream that holds part of a longer work
+//!   (a film a media server converts from a resume or skip point) on the work's time: every
+//!   position shown or taken is the work's, the seek bar spans its length, and a seek outside
+//!   what the stream holds goes to the app ([`Player::on_seek_outside`]) while the player
+//!   shows it is skipping, until the app hands over a new stream
+//!   ([`Player::replace_source`]).
 //! - [`MediaHost`]: where decoding and sound come from. [`platform_host`] gives the
 //!   platform's: Media Foundation and WASAPI on Windows; the system's GStreamer on Linux,
 //!   loaded at run time and never bundled; AVFoundation and Audio Queues on macOS;
@@ -88,7 +94,7 @@ pub use host::{
 };
 pub use player::{
     KeyScheme, NEXT_UP_DELAY, NextUp, Player, PlayerOptions, Remote, RemoteControl, RemoteStatus,
-    RemoteStatusSender, UnseenPolicy,
+    RemoteStatusSender, Timeline, UnseenPolicy,
 };
 pub use stretch::{MAX_SPEED, MIN_SPEED, SPEEDS, clamp_speed};
 pub use subtitles::{Cue, SubtitleFormat, SubtitleTrack, parse_subtitles};
