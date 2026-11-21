@@ -456,13 +456,25 @@ fn pictures_in_dma_bufs_match_pictures_in_cpu_memory() {
         };
         assert!(planes.iter().take(2).all(|p| p.fd >= 0 && (p.stride as usize).is_multiple_of(ROW_ALIGN)));
     }
-    // Drawn by the GPU renderer, sampled in place: the same pixels as the copied picture.
+    drawn_in_place_like_the_copies(&mut g, &cpu, &gpu, mapped);
+}
+
+/// Each of `gpu`'s pictures, drawn by `g` (the renderer that imports them), shows what the
+/// copied picture at the same place in `cpu` shows (drawn by a renderer of its own), sampled
+/// in place, with the clip's colours at its times, no GPU errors and no picture mapped since
+/// `mapped`; read back, the bytes match too.
+fn drawn_in_place_like_the_copies(
+    g: &mut GpuRenderer,
+    cpu: &[(Duration, VideoFrame)],
+    gpu: &[(Duration, VideoFrame)],
+    mapped: u64,
+) {
     let mut w = GpuRenderer::new(
         GpuContext::new(&LadderOptions::default()).unwrap_or_else(|e| unreachable!("GPU: {e}")),
         None,
     );
-    for (i, ((at, c), (_, f))) in cpu.iter().zip(&gpu).enumerate() {
-        let shown = draw(&mut g, f);
+    for (i, ((at, c), (_, f))) in cpu.iter().zip(gpu).enumerate() {
+        let shown = draw(g, f);
         // In place: only the converted picture is held, no plane textures to upload into.
         assert_eq!(g.image_bytes(), u64::from(f.width * f.height * 4), "at {at:?}");
         let copied = draw(&mut w, c);
@@ -477,18 +489,76 @@ fn pictures_in_dma_bufs_match_pictures_in_cpu_memory() {
     assert!(errors.is_empty(), "the renderer recorded errors: {errors:?}");
     // Decoded, imported and drawn without a single picture mapped on the CPU.
     assert_eq!(MAPPED.load(Ordering::Relaxed), mapped, "a decoded picture was mapped on the CPU");
-    // Read back (as the CPU renderer would), the bytes are the copied picture's.
-    for ((at, c), (_, f)) in cpu.iter().zip(&gpu).step_by(10) {
-        let (a, b) = (c.to_rgba().unwrap_or_default(), f.to_rgba().unwrap_or_default());
-        assert!(worst(&a, &b) <= 2, "read back at {at:?}, the colours match");
+    // Read back (as the CPU renderer would), the bytes are the copied picture's; only a
+    // linear layout can be read back.
+    for ((at, c), (_, f)) in cpu.iter().zip(gpu).step_by(10) {
+        let linear = matches!(
+            f.gpu.as_ref().map(|g| g.0.texture()),
+            Some(remedy_ui_paint::GpuTexture::DmaBuf {
+                modifier: remedy_ui_paint::DRM_FORMAT_MOD_LINEAR,
+                ..
+            })
+        );
+        if linear {
+            let (a, b) = (c.to_rgba().unwrap_or_default(), f.to_rgba().unwrap_or_default());
+            assert!(worst(&a, &b) <= 2, "read back at {at:?}, the colours match");
+        }
     }
+}
+
+/// On a machine with a hardware decoder that hands over DMA-BUFs (VA-API's `vah264dec`, a
+/// V4L2 decoder, `nvidia-vaapi-driver` behind VA-API) and a Vulkan driver that imports them,
+/// the decoder's own buffers (no stand-in) are imported and drawn like the copied pictures,
+/// through a seek, never mapped. Run by hand: `tools/dmabuf-hardware-check.sh` does it.
+#[test]
+#[ignore = "needs a hardware decoder that hands over DMA-BUFs and a Vulkan driver that imports them"]
+fn hardware_decoder_pictures_match_pictures_in_cpu_memory() {
+    if !in_child("os::gst_dmabuf::tests::hardware_decoder_pictures_match_pictures_in_cpu_memory", &[]) {
+        return;
+    }
+    let Ok(_) = gst() else { unreachable!("GStreamer did not load") };
+    let source = MediaSource::file(clip());
+    let seek = Duration::from_millis(1500);
+    assert_eq!(remedy_ui_paint::gpu_video_adapter(), None);
+    let cpu = pictures(&source, false, seek);
+    assert_eq!(cpu.len(), 75 + 12);
+    let Some(mut g) = importing_renderer() else {
+        unreachable!("this Vulkan device does not import DMA-BUFs (see the log above)")
+    };
+    let mapped = MAPPED.load(Ordering::Relaxed);
+    let gpu = pictures(&source, false, seek);
+    assert_eq!(gpu.len(), cpu.len(), "as many pictures");
+    let shared = gpu.iter().filter(|(_, f)| f.gpu.is_some()).count();
+    assert!(
+        shared == gpu.len(),
+        "{shared} of {} pictures came in DMA-BUFs: the decoder GStreamer chose hands over CPU memory \
+         (see the line logged above, and which decoder `GST_DEBUG=decodebin:4` picks)",
+        gpu.len()
+    );
+    for ((at_c, c), (at_g, f)) in cpu.iter().zip(&gpu) {
+        assert_eq!(at_c, at_g, "at the same times");
+        assert_eq!((c.width, c.height), (f.width, f.height));
+        assert!(f.data.is_empty());
+    }
+    if let Some(remedy_ui_paint::GpuTexture::DmaBuf { planes, plane_count, modifier, .. }) =
+        gpu.first().and_then(|(_, f)| f.gpu.as_ref()).map(|g| g.0.texture())
+    {
+        eprintln!(
+            "the decoder's pictures: {plane_count} planes, modifier {modifier:#018x}, strides {:?}, \
+             {} buffer(s)",
+            planes.iter().take(plane_count as usize).map(|p| p.stride).collect::<Vec<_>>(),
+            if planes.first().map(|p| p.fd) == planes.get(1).map(|p| p.fd) { "one" } else { "separate" },
+        );
+    }
+    drawn_in_place_like_the_copies(&mut g, &cpu, &gpu, mapped);
 }
 
 /// Per picture: process CPU time and wall time to decode it and draw it on the GPU (waiting
 /// for the GPU), on the copy path or the DMA-BUF path. `REMEDY_BENCH_CLIP` names the clip and
-/// `REMEDY_BENCH_PATH` the path (`copy` or `dmabuf`); each runs in a process of its own. The
-/// DMA-BUF path's stand-in decoder copies every picture into its buffer on the CPU, which a
-/// hardware decoder does not: that time is measured and reported apart.
+/// `REMEDY_BENCH_PATH` the path: `copy`, `dmabuf` (DMA-BUFs from the stand-in decoder, which
+/// copies every picture into its buffer on the CPU as a hardware decoder does not; that time
+/// is measured and reported apart) or `hardware` (DMA-BUFs from whichever decoder GStreamer
+/// picks, no stand-in). Each runs in a process of its own.
 #[test]
 #[ignore = "a measurement: run by hand with a long clip"]
 fn measure_a_clip() {
@@ -502,11 +572,12 @@ fn measure_a_clip() {
     }
     let g_ = gst().unwrap_or_else(|e| unreachable!("{e}"));
     let Some(mut g) = importing_renderer() else { return };
-    let dma = path == "dmabuf";
+    let dma = path == "dmabuf" || path == "hardware";
     if !dma {
         remedy_ui_paint::set_gpu_video_adapter(None);
     }
-    let mut dec = GstDecoder::open_with(g_, &MediaSource::file(&clip), dma.then(stand_in))
+    let producer = (path == "dmabuf").then(stand_in);
+    let mut dec = GstDecoder::open_with(g_, &MediaSource::file(&clip), producer)
         .unwrap_or_else(|e| unreachable!("open: {e}"));
     let v = dec.info().video.clone().unwrap_or_else(|| unreachable!("a picture"));
     let target = g.create_target(v.width, v.height).unwrap_or_else(|e| unreachable!("target: {e}"));
