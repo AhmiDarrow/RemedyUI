@@ -162,6 +162,48 @@ pub(crate) fn timed_out(url: &str, why: &str) -> MediaError {
     MediaError::NotFound(format!("{url}: {why} {TIMED_OUT}"))
 }
 
+/// The path a `file:` URL names (`file:///C:/a%20b/c.ts` or `file:///tmp/a%20b/c.ts`, as
+/// [`MediaSource::to_url`] makes, or with a segment name joined on unescaped); `None` for
+/// other schemes.
+///
+/// shortcut: a literal `%` in an unescaped segment name is read as an escape; parse the
+/// playlist's names apart from the base if that ever matters.
+///
+/// [`MediaSource::to_url`]: crate::host::MediaSource::to_url
+pub(crate) fn file_path(url: &str) -> Option<String> {
+    let rest = url.get(..5).filter(|s| s.eq_ignore_ascii_case("file:")).and(url.get(5..))?;
+    let rest = rest.split(['?', '#']).next().unwrap_or(rest);
+    // On Windows `file:///C:/…` and `file://localhost/C:/…` are drive paths and
+    // `file://server/share/…` a UNC one (kept as `//server/share/…`); elsewhere `file:///tmp/…`
+    // and `file://localhost/tmp/…` are `/tmp/…`.
+    let path = if cfg!(windows) {
+        rest.strip_prefix("///").or_else(|| rest.strip_prefix("//localhost/"))
+    } else {
+        rest.strip_prefix("//localhost").filter(|p| p.starts_with('/')).or_else(|| rest.strip_prefix("//"))
+    };
+    Some(unescape(path.unwrap_or(rest)))
+}
+
+fn unescape(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while let Some(&c) = b.get(i) {
+        let hex = b.get(i + 1..i + 3).and_then(|h| std::str::from_utf8(h).ok());
+        match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+            Some(v) if c == b'%' => {
+                out.push(v);
+                i += 3;
+            }
+            _ => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 fn is_timeout(e: &MediaError) -> bool {
     matches!(e, MediaError::NotFound(m) if m.ends_with(TIMED_OUT))
 }

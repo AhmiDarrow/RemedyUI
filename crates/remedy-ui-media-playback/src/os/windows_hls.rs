@@ -34,7 +34,8 @@ use super::super::d3d11::Gpu;
 use super::{Layout, Mf, MfDecoder, com, copy_path, format_error, from_hns, hns, video_layout};
 use crate::capture::Converter;
 use crate::hls::{
-    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, QUIET, Unit, VideoConfig, timed_out,
+    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, QUIET, Unit, VideoConfig, file_path,
+    timed_out,
 };
 use crate::host::{AudioFormat, MediaError, Picture, Sample};
 
@@ -524,42 +525,6 @@ impl Elementary for MftElementary {
     fn audio_format(&self) -> Option<AudioFormat> {
         self.audio.as_ref().map(|a| a.format)
     }
-}
-
-/// The path a `file:` URL names (`file:///C:/a%20b/c.ts`, as [`MediaSource::to_url`] makes,
-/// or with a segment name joined on unescaped); `None` for other schemes.
-///
-/// shortcut: a literal `%` in an unescaped segment name is read as an escape; parse the
-/// playlist's names apart from the base if that ever matters.
-///
-/// [`MediaSource::to_url`]: crate::host::MediaSource::to_url
-fn file_path(url: &str) -> Option<String> {
-    let rest = url.get(..5).filter(|s| s.eq_ignore_ascii_case("file:")).and(url.get(5..))?;
-    let rest = rest.split(['?', '#']).next().unwrap_or(rest);
-    // `file:///C:/…` and `file://localhost/C:/…` are drive paths; `file://server/share/…` a
-    // UNC one (kept as `//server/share/…`).
-    let path = rest.strip_prefix("///").or_else(|| rest.strip_prefix("//localhost/")).unwrap_or(rest);
-    Some(unescape(path))
-}
-
-fn unescape(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while let Some(&c) = b.get(i) {
-        let hex = b.get(i + 1..i + 3).and_then(|h| std::str::from_utf8(h).ok());
-        match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
-            Some(v) if c == b'%' => {
-                out.push(v);
-                i += 3;
-            }
-            _ => {
-                out.push(c);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// One WinHTTP handle, closed when dropped.
