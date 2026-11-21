@@ -80,6 +80,9 @@ struct Ndk {
     extractor_get_sample_time: unsafe extern "C" fn(Ptr) -> i64,
     extractor_advance: unsafe extern "C" fn(Ptr) -> bool,
     extractor_seek_to: unsafe extern "C" fn(Ptr, i64, i32) -> Status,
+    /// How far ahead of the read position the extractor holds a network source, in
+    /// microseconds, or -1 (API 21; `None` where the library lacks it).
+    extractor_get_cached_duration: Option<unsafe extern "C" fn(Ptr) -> i64>,
     format_delete: unsafe extern "C" fn(Ptr) -> Status,
     format_get_int32: unsafe extern "C" fn(Ptr, *const c_char, *mut i32) -> bool,
     format_get_int64: unsafe extern "C" fn(Ptr, *const c_char, *mut i64) -> bool,
@@ -201,6 +204,10 @@ impl Ndk {
             extractor_get_sample_time: sym!(l, "AMediaExtractor_getSampleTime"),
             extractor_advance: sym!(l, "AMediaExtractor_advance"),
             extractor_seek_to: sym!(l, "AMediaExtractor_seekTo"),
+            // SAFETY: as for `sym!`; optional, so a missing one is `None`.
+            extractor_get_cached_duration: unsafe { l.get(b"AMediaExtractor_getCachedDuration\0") }
+                .ok()
+                .map(|f| *f),
             format_delete: sym!(l, "AMediaFormat_delete"),
             format_get_int32: sym!(l, "AMediaFormat_getInt32"),
             format_get_int64: sym!(l, "AMediaFormat_getInt64"),
@@ -293,6 +300,76 @@ impl AAudio {
     }
 }
 
+/// Whether this thread is attached to the process's Java VM, attaching it until it ends. The
+/// NDK's HTTP data source calls into Java on whichever thread uses the extractor (and ART
+/// aborts a thread that does so unattached); the player's decoding threads are its own.
+/// False without a VM (a bare native process).
+fn on_java() -> bool {
+    thread_local! {
+        // Dropped as the thread ends, before ART's own check that it detached.
+        static JAVA: Option<JavaThread> = JavaThread::attach();
+    }
+    JAVA.with(Option::is_some)
+}
+
+/// This thread's attachment to the Java VM (detached on drop if it was not attached before).
+struct JavaThread {
+    vm: Ptr,
+    detach: bool,
+}
+
+/// `JNIInvokeInterface`'s functions, by index.
+const JNI_DETACH: usize = 5;
+const JNI_GET_ENV: usize = 6;
+const JNI_ATTACH_DAEMON: usize = 7;
+const JNI_VERSION_1_6: i32 = 0x0001_0006;
+
+impl JavaThread {
+    fn attach() -> Option<JavaThread> {
+        type GetVms = unsafe extern "C" fn(*mut Ptr, i32, *mut i32) -> i32;
+        static GET: OnceLock<Option<(Library, GetVms)>> = OnceLock::new();
+        let (_, get) = GET
+            .get_or_init(|| {
+                let l = load("libnativehelper.so").ok()?;
+                // SAFETY: the JNI invocation API's function, by its C signature.
+                let f = unsafe { l.get::<GetVms>(b"JNI_GetCreatedJavaVMs") }.ok().map(|f| *f)?;
+                Some((l, f))
+            })
+            .as_ref()?;
+        let (mut vm, mut n) = (std::ptr::null_mut(), 0);
+        // SAFETY: room for one VM pointer; the VM and its function table live as long as the
+        // process, and each is called by its JNI signature.
+        unsafe {
+            if get(&mut vm, 1, &mut n) != 0 || n < 1 || vm.is_null() {
+                return None;
+            }
+            let table = *vm.cast::<*const Ptr>();
+            let get_env: unsafe extern "C" fn(Ptr, *mut Ptr, i32) -> i32 =
+                std::mem::transmute(*table.add(JNI_GET_ENV));
+            let mut env = std::ptr::null_mut();
+            if get_env(vm, &mut env, JNI_VERSION_1_6) == 0 {
+                return Some(JavaThread { vm, detach: false });
+            }
+            let attach: unsafe extern "C" fn(Ptr, *mut Ptr, Ptr) -> i32 =
+                std::mem::transmute(*table.add(JNI_ATTACH_DAEMON));
+            (attach(vm, &mut env, std::ptr::null_mut()) == 0).then_some(JavaThread { vm, detach: true })
+        }
+    }
+}
+
+impl Drop for JavaThread {
+    fn drop(&mut self) {
+        if self.detach {
+            // SAFETY: as in `attach`; this thread was attached there and holds no Java frames.
+            unsafe {
+                let table = *self.vm.cast::<*const Ptr>();
+                let detach: unsafe extern "C" fn(Ptr) -> i32 = std::mem::transmute(*table.add(JNI_DETACH));
+                detach(self.vm);
+            }
+        }
+    }
+}
+
 fn ndk() -> Result<&'static Ndk, MediaError> {
     static NDK: OnceLock<Result<Ndk, String>> = OnceLock::new();
     NDK.get_or_init(Ndk::load)
@@ -369,6 +446,10 @@ struct NdkDecoder {
     reader: Option<Arc<Reader>>,
     /// The file the extractor reads through its descriptor, kept open while it does.
     _file: Option<std::fs::File>,
+    /// The source is a stream the extractor downloads (not a file).
+    network: bool,
+    /// The furthest the stream's cache has said it reaches since the last seek.
+    cached_end: Duration,
 }
 
 /// An `AImageReader`, deleted once the decoder and every picture from it are gone.
@@ -488,6 +569,8 @@ impl NdkDecoder {
                 info: MediaInfo::default(),
                 reader: None,
                 _file: None,
+                network: file.is_none(),
+                cached_end: Duration::ZERO,
             };
             let status = match &file {
                 Some(f) => {
@@ -496,7 +579,14 @@ impl NdkDecoder {
                     let len = i64::try_from(len).unwrap_or(i64::MAX);
                     (ndk.extractor_set_data_source_fd)(extractor, f.as_raw_fd(), 0, len)
                 }
-                None => (ndk.extractor_set_data_source)(extractor, location.as_ptr()),
+                None => {
+                    if !on_java() {
+                        return Err(MediaError::Unsupported(
+                            "streaming needs the app's Java VM (the NDK reads HTTP through Java)".into(),
+                        ));
+                    }
+                    (ndk.extractor_set_data_source)(extractor, location.as_ptr())
+                }
             };
             d._file = file;
             if status != AMEDIA_OK {
@@ -590,6 +680,13 @@ impl NdkDecoder {
                 return None;
             }
             Some(codec)
+        }
+    }
+
+    /// Attaches this thread to Java when the extractor reads a stream (see [`on_java`]).
+    fn on_java(&self) {
+        if self.network {
+            on_java();
         }
     }
 
@@ -899,6 +996,7 @@ impl Decoder for NdkDecoder {
     }
 
     fn read(&mut self) -> Result<Option<Sample>, MediaError> {
+        self.on_java();
         loop {
             if let Some(s) = self.pending.pop_front() {
                 return Ok(Some(s));
@@ -921,6 +1019,7 @@ impl Decoder for NdkDecoder {
     }
 
     fn seek(&mut self, to: Duration) -> Result<(), MediaError> {
+        self.on_java();
         let ndk = self.ndk;
         self.pending.clear();
         let us = i64::try_from(to.as_micros()).unwrap_or(i64::MAX);
@@ -936,12 +1035,38 @@ impl Decoder for NdkDecoder {
             }
         }
         self.extractor_done = false;
+        self.cached_end = Duration::ZERO;
         Ok(())
+    }
+
+    fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
+        // A network source's cache, from where the extractor reads next on: what it has
+        // downloaded ahead. A file holds it all (the player counts it whole).
+        let cached = self.ndk.extractor_get_cached_duration.filter(|_| self.network && on_java())?;
+        // SAFETY: queries of a live extractor.
+        let (ahead, at) =
+            unsafe { (cached(self.extractor), (self.ndk.extractor_get_sample_time)(self.extractor)) };
+        if ahead < 0 {
+            // Not a source with a cache it can say about.
+            return None;
+        }
+        if at < 0 {
+            // Read to the end: the extractor no longer says (the player counts the rest as
+            // held once it has decoded to the end).
+            return None;
+        }
+        let us = |x: i64| Duration::from_micros(u64::try_from(x).unwrap_or(0));
+        // Its estimate (cached bytes over the bitrate) wobbles, back by a second at times, and
+        // runs past the end once all has arrived: what has arrived since the last seek stays.
+        let end = us(at.saturating_add(ahead)).max(self.cached_end);
+        self.cached_end = self.info.duration.map_or(end, |d| end.min(d));
+        Some(vec![us(at)..self.cached_end])
     }
 }
 
 impl Drop for NdkDecoder {
     fn drop(&mut self) {
+        self.on_java();
         let ndk = self.ndk;
         // SAFETY: stopping and deleting what `open` made.
         unsafe {
