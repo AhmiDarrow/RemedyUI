@@ -7,6 +7,14 @@
 //!
 //! When a renderer takes pictures on the GPU, the video sink asks for DMA-BUFs first and
 //! hands them over unmapped (`gst_dmabuf.rs`).
+//!
+//! WSL cannot use the DMA-BUF path on the real GPU: Mesa's `dzn` (Vulkan on D3D12, which
+//! Ubuntu does not ship) has none of `VK_EXT_external_memory_dma_buf`,
+//! `VK_EXT_image_drm_format_modifier` or `VK_EXT_queue_family_foreign` (only opaque fds of
+//! D3D12 heaps), WSL has no `/dev/dri` for VA-API, and NVDEC (`nvh264dec`) hands out CUDA or
+//! GL memory. Vulkan there is llvmpipe, and with no decoder handing out DMA-BUFs pictures
+//! are copied through CPU memory; the log says so once ("the decoder hands over its pictures
+//! in CPU memory, not DMA-BUFs").
 
 use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_void};
 use std::sync::{Arc, OnceLock};
