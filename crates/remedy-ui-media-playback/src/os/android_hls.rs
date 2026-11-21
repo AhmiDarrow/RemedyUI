@@ -486,7 +486,8 @@ fn http(url: &str, rest: &str, hops: u32, stop: &AtomicBool) -> Result<Vec<u8>, 
     let watched = s.try_clone().map_err(|e| io_error(url, &e, "no answer"))?;
     let (done, finished) = std::sync::mpsc::channel::<()>();
     std::thread::scope(|scope| {
-        scope.spawn(move || {
+        // Named, so the leak tests count it; without it the socket's own timeouts still end the call.
+        let _ = std::thread::Builder::new().name("remedy-hls-stop".into()).spawn_scoped(scope, move || {
             while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = finished.recv_timeout(WATCH) {
                 if stop.load(Ordering::Relaxed) {
                     let _ = watched.shutdown(std::net::Shutdown::Both);

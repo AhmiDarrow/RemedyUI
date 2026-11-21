@@ -238,6 +238,12 @@ impl Feed {
             }
             Sample::Text { track, at, until, text } => {
                 if until > at && !self.skip_text {
+                    // The player keeps a window of a stream's cues; one cue this long is no caption.
+                    if text.len() > crate::subtitles::MAX_STREAMED_CUE {
+                        self.error = Some(MediaError::Format(crate::subtitles::CUE_TOO_BIG.into()));
+                        self.eof = true;
+                        return;
+                    }
                     self.cues.push((track, Cue { start: at, end: until, text }));
                 }
             }
@@ -381,11 +387,22 @@ fn decode_step(st: &mut Decoding) -> Next {
 pub(crate) struct Control {
     tx: Sender<Cmd>,
     worker: Worker,
+    /// Set on closing: an open still under way (an HLS stream's fetches) gives up.
+    stop: Arc<AtomicBool>,
+}
+
+impl Drop for Control {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
 }
 
 impl Control {
     /// Sends a command and wakes the worker to take it.
     pub(crate) fn send(&self, cmd: Cmd) {
+        if matches!(cmd, Cmd::Close) {
+            self.stop.store(true, Ordering::Relaxed);
+        }
         if self.tx.send(cmd).is_ok() {
             self.worker.notify();
         }
@@ -402,17 +419,19 @@ pub(crate) fn start(
 ) -> Result<Control, MediaError> {
     let (tx, rx) = std::sync::mpsc::channel();
     let wake = tx.clone();
+    let stop = Arc::new(AtomicBool::new(false));
+    let stopping = stop.clone();
     let worker = Worker::spawn_timed(
         "remedy-player",
         move |bell| {
             let mut presenter = Presenter::new(host, rx, shared, notify);
-            presenter.open(&source, find_subtitles, wake, bell);
+            presenter.open(&source, find_subtitles, wake, bell, &stopping);
             presenter
         },
         Presenter::turn,
     )
     .map_err(|e| MediaError::Decode(format!("could not start the player's worker: {e}")))?;
-    Ok(Control { tx, worker })
+    Ok(Control { tx, worker, stop })
 }
 
 struct Presenter {
@@ -529,7 +548,14 @@ impl Presenter {
         }
     }
 
-    fn open(&mut self, source: &MediaSource, find_subtitles: bool, wake: Sender<Cmd>, own: Bell) {
+    fn open(
+        &mut self,
+        source: &MediaSource,
+        find_subtitles: bool,
+        wake: Sender<Cmd>,
+        own: Bell,
+        stop: &Arc<AtomicBool>,
+    ) {
         if find_subtitles && let Some(path) = source.local_path() {
             let found = crate::player::sidecar_subtitles(path);
             if !found.is_empty() {
@@ -539,7 +565,7 @@ impl Presenter {
         self.wake = Some(wake);
         self.own = Some(own);
         self.local = source.local_path().is_some();
-        match self.host.open(source) {
+        match crate::hls::opening_until(stop, || self.host.open(source)) {
             Ok(dec) => {
                 // Timed text inside an MP4, and text subtitles inside Matroska and WebM, are
                 // read from the file, whole, on every platform: Media Foundation,
@@ -548,10 +574,18 @@ impl Presenter {
                 // its end, for a player reading just ahead of the clock). The decoder's copy
                 // of the same tracks is then left out.
                 if let Some(path) = source.local_path() {
-                    let mut found = crate::mp4::text_tracks(path);
-                    if found.is_empty() {
-                        found = crate::mkv::text_tracks(path);
-                    }
+                    let found = crate::mp4::text_tracks(path).and_then(|found| match found.is_empty() {
+                        true => crate::mkv::text_tracks(path),
+                        false => Ok(found),
+                    });
+                    let found = match found {
+                        Ok(found) => found,
+                        Err(e) => {
+                            self.failed = Some(e);
+                            self.publish(Duration::ZERO, true);
+                            return;
+                        }
+                    };
                     if !found.is_empty() {
                         self.own_text = true;
                         lock(&self.shared.status).new_tracks.extend(found);
@@ -1177,7 +1211,20 @@ impl Presenter {
     }
 
     fn check_end(&mut self, t: Duration) {
-        if !self.playing || self.ended {
+        if self.ended || self.failed.is_some() {
+            return;
+        }
+        if !self.playing {
+            // Paused, nothing plays the decoded queue out: a decoder that failed (a seek
+            // refused) fails the player now, as playing to the error would.
+            let error = {
+                let f = lock(&self.feed.feed);
+                f.error.clone().filter(|_| f.eof)
+            };
+            if let Some(e) = error {
+                self.failed = Some(e);
+                self.publish(t, true);
+            }
             return;
         }
         let f = lock(&self.feed.feed);

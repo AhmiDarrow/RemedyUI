@@ -653,7 +653,8 @@ impl Fetch for HttpFetch {
             limit.store(quiet.as_millis() as u64, Ordering::Relaxed);
         };
         let got = std::thread::scope(|s| {
-            s.spawn(|| {
+            // Named, so the leak tests count it; without it WinHTTP's timeouts still end the call.
+            let _ = std::thread::Builder::new().name("remedy-hls-watchdog".into()).spawn_scoped(s, || {
                 let mut open = watched.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 while open.is_some() {
                     let since = started.elapsed().as_millis() as u64;
