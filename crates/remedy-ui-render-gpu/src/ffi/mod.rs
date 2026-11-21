@@ -25,6 +25,10 @@ pub(crate) mod video;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 pub(crate) mod dmabuf;
 
+/// Windows: the Direct3D debug layers for test runs, behind `REMEDY_D3D_DEBUG`.
+#[cfg(windows)]
+pub(crate) mod d3d_debug;
+
 /// Windows: a swapchain of RemedyUI's own on wgpu's D3D12 device, presenting only what changed.
 #[cfg(windows)]
 pub(crate) mod dxgi;
