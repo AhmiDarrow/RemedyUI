@@ -911,6 +911,9 @@ impl MediaHost for Clips {
         "clips"
     }
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
+        if source.to_url() == "script:gone" {
+            return Err(MediaError::NotFound("script:gone".into()));
+        }
         let seconds = source.to_url().trim_start_matches("script:").parse().unwrap_or(1);
         Scripted {
             heard: Arc::new(AtomicU64::new(0)),
@@ -2533,4 +2536,179 @@ fn cancel_while_skipping_asks_the_app_which_keeps_the_stream() {
     assert!(!shown_enabled(&cancel).0);
     assert_eq!(alert(&view), None);
     assert!(!seek_disabled(&view), "the current stream stays, usable");
+}
+
+/// A player on `source` (from [`Clips`]) on a timeline from 30 s, and the positions (whole
+/// seconds) its retries asked from.
+fn retrying(s: &mut Screen, source: &str) -> (Player, El, Arc<Mutex<Vec<u64>>>) {
+    let options = PlayerOptions::default().timeline(Timeline::new(Duration::from_secs(30)).length(FILM));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url(source), options);
+    let view = player(&s.ui, &p, "Episode 1");
+    s.ui.root().child(view.clone());
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let a = asked.clone();
+    p.on_retry(move |at| a.lock().unwrap_or_else(|e| e.into_inner()).push(at.as_secs()));
+    (p, view, asked)
+}
+
+fn spinner_shown(view: &El) -> bool {
+    find(view, "player_busy").iter().any(|b| b.info().is_some_and(|i| !i.hidden))
+}
+
+#[test]
+fn after_a_failure_play_k_space_and_a_click_ask_the_app_to_try_again() {
+    let mut s = Screen::new();
+    let (p, view, asked) = retrying(&mut s, "script:gone");
+    let asked_for = || asked.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    s.wait("failed", |_| p.state() == PlaybackState::Failed);
+    s.pump();
+    let said = alert(&view).unwrap_or_default();
+    assert!(
+        said.starts_with("This can't be played") && said.ends_with(" Press Play to try again."),
+        "{said}"
+    );
+    // The play button keeps its name, as on Portal's page.
+    let play = el(&view, "Play");
+    play.focus();
+    assert!(letter(&s.ui, "k", false));
+    assert_eq!(asked_for(), [30], "from the last position, in film time");
+    assert!(press(&s.ui, Key::Space));
+    assert!(press(&s.ui, Key::Enter));
+    assert_eq!(asked_for(), [30, 30, 30]);
+    // A click on the picture, in the classic scheme too.
+    let stage = find(&view, "player_stage").remove(0);
+    presses(&mut s, &stage, &[1000], remedy_ui_input::PointerKind::Mouse);
+    s.idle(300);
+    assert_eq!(asked_for(), [30, 30, 30, 30]);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+    // The app answers with a stream, which plays.
+    p.replace_source(MediaSource::url("script:20"), Timeline::new(Duration::from_secs(30)).length(FILM));
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    assert_eq!(alert(&view), None);
+}
+
+#[test]
+fn with_no_app_listening_a_failure_stays_as_it_was() {
+    let mut s = Screen::new();
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:gone"), PlayerOptions::default());
+    let view = player(&s.ui, &p, "Episode 1");
+    s.ui.root().child(view.clone());
+    s.wait("failed", |_| p.state() == PlaybackState::Failed);
+    s.pump();
+    let said = alert(&view).unwrap_or_default();
+    assert!(said.starts_with("This can't be played") && !said.contains("try again"), "{said}");
+    el(&view, "Play").focus();
+    assert!(letter(&s.ui, "k", false));
+    p.play();
+    s.idle(100);
+    assert_eq!(p.state(), PlaybackState::Failed);
+}
+
+#[test]
+fn play_while_opening_plays_once_open_even_under_reduced_motion() {
+    let mut s = Screen::new();
+    s.ui.set_reduced_motion(true);
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:20"), PlayerOptions::default());
+    let view = player(&s.ui, &p, "Picked");
+    s.ui.root().child(view);
+    assert_eq!(p.state(), PlaybackState::Opening);
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    // Pause while opening takes it back.
+    p.replace_source(MediaSource::url("script:20"), Timeline::new(Duration::ZERO));
+    p.pause();
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    s.idle(100);
+    assert_eq!(p.state(), PlaybackState::Paused);
+}
+
+#[test]
+fn the_apps_status_shows_over_the_picture_politely_with_a_spinner_while_busy() {
+    let mut s = Screen::new();
+    let (p, view, _) = retrying(&mut s, "script:20");
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    let cancel = stage_cancel(&view).unwrap_or_else(|| unreachable!("a stage Cancel"));
+    // A message: the words alone, the bar usable.
+    p.set_status(Some(StageStatus::new("The stream did not arrive.")));
+    s.pump();
+    assert!(announced(&view, "The stream did not arrive."), "polite, as Portal's page");
+    assert_eq!(alert(&view), None, "not an alert");
+    assert!(!spinner_shown(&view) && !seek_disabled(&view));
+    // Busy, as Portal's "preparing": spinner, bar disabled, play and seeks do nothing; no
+    // Cancel until offered.
+    p.set_status(Some(StageStatus::new("Preparing the video.").busy(true)));
+    s.pump();
+    assert!(announced(&view, "Preparing the video."));
+    assert!(spinner_shown(&view) && seek_disabled(&view));
+    assert!(!shown_enabled(&cancel).0);
+    p.play();
+    p.seek(Duration::from_secs(40));
+    s.idle(100);
+    assert_eq!(p.state(), PlaybackState::Paused);
+    assert_eq!(p.position(), Duration::from_secs(30));
+    // Offered, Cancel shows; pressed, it asks the app and says so.
+    let cancels = Arc::new(Mutex::new(0));
+    let c = cancels.clone();
+    p.on_cancel(move || *c.lock().unwrap_or_else(|e| e.into_inner()) += 1);
+    p.offer_cancel(true);
+    s.pump();
+    assert_eq!(shown_enabled(&cancel), (true, true));
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+    cancel.focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert_eq!(*cancels.lock().unwrap_or_else(|e| e.into_inner()), 1);
+    assert_eq!(shown_enabled(&cancel), (true, false));
+    assert!(announced(&view, "Canceling."));
+    // The app ends its work.
+    p.set_status(None);
+    s.pump();
+    assert!(!shown_enabled(&cancel).0 && !spinner_shown(&view) && !seek_disabled(&view));
+    assert!(texts(&view, "player_caption").is_empty());
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+}
+
+#[test]
+fn the_app_fails_with_its_own_words_and_play_tries_again_from_there() {
+    let mut s = Screen::new();
+    let (p, view, asked) = retrying(&mut s, "script:20");
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.play();
+    s.wait("a second in", |_| p.position() >= Duration::from_secs(31));
+    p.fail("The stream stopped loading.");
+    s.pump();
+    assert_eq!(p.state(), PlaybackState::Failed);
+    assert_eq!(alert(&view).as_deref(), Some("The stream stopped loading. Press Play to try again."));
+    let at = p.position().as_secs();
+    assert!(at >= 31, "{at}");
+    s.ui.set_locale("de");
+    s.pump();
+    assert_eq!(
+        alert(&view).as_deref(),
+        Some("The stream stopped loading. Zum erneuten Versuch „Wiedergeben“ drücken.")
+    );
+    s.ui.set_locale("en");
+    s.pump();
+    // Play asks the app, which says what it is doing; the failure gives way to it.
+    let q = p.clone();
+    p.on_retry(move |_| q.set_status(Some(StageStatus::new("Asking the add-on to play this.").busy(true))));
+    p.play();
+    assert_eq!(*asked.lock().unwrap_or_else(|e| e.into_inner()), [at]);
+    s.pump();
+    assert!(announced(&view, "Asking the add-on to play this.") && spinner_shown(&view));
+    p.play();
+    assert_eq!(asked.lock().unwrap_or_else(|e| e.into_inner()).len(), 1, "busy: play waits");
+    // It fails again, then a stream comes.
+    p.fail("The stream did not arrive.");
+    s.pump();
+    assert!(!spinner_shown(&view) && p.status().is_none());
+    assert_eq!(alert(&view).as_deref(), Some("The stream did not arrive. Press Play to try again."));
+    p.replace_source(MediaSource::url("script:20"), Timeline::new(Duration::from_secs(at)).length(FILM));
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    assert_eq!(alert(&view), None);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
 }

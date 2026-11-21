@@ -139,6 +139,31 @@ impl NextUp {
     }
 }
 
+/// What the app is doing, said over the picture ([`Player::set_status`]): Portal's "Asking
+/// the add-on to play this.", "Preparing the video." while it switches the quality.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct StageStatus {
+    /// The words, shown and announced politely.
+    pub text: String,
+    /// The app is working: a spinner shows, the seek bar is disabled, and play and seeks do
+    /// nothing until it is done. Not busy, the words alone show (a message).
+    pub busy: bool,
+}
+
+impl StageStatus {
+    /// `text`, not busy: `StageStatus::new("Preparing the video.").busy(true)`.
+    pub fn new(text: impl Into<String>) -> Self {
+        StageStatus { text: text.into(), busy: false }
+    }
+
+    /// Sets `busy`.
+    pub fn busy(mut self, value: bool) -> Self {
+        self.busy = value;
+        self
+    }
+}
+
 /// What a player in remote mode ([`Player::set_remote`]) passes each press on to: the app
 /// implements it and tells the device (a TV it casts to, through its own server or session).
 /// The player shows each change straight away; the app's next
@@ -407,6 +432,8 @@ type SeekOutsideHandler = Rc<dyn Fn(Duration)>;
 type NextNeededHandler = Rc<dyn Fn(&NextUp)>;
 /// Hears Cancel pressed while the app works.
 type CancelHandler = Rc<dyn Fn()>;
+/// Hears Play pressed after a failure.
+type RetryHandler = Rc<dyn Fn(Duration)>;
 
 struct Inner {
     id: u64,
@@ -483,6 +510,11 @@ struct Inner {
     /// Cancel was pressed: the app is stopping its work.
     canceling: Signal<bool>,
     cancel_handlers: RefCell<Vec<CancelHandler>>,
+    /// What the app says it is doing, over the picture.
+    status: Signal<Option<StageStatus>>,
+    /// Why the app stopped playback ([`Player::fail`]), until a new source.
+    app_failure: Signal<Option<String>>,
+    retry_handlers: RefCell<Vec<RetryHandler>>,
     /// What the engine was told, to tell the next one: the picture's sink and whether it is
     /// seen.
     sink: RefCell<Option<VideoSink>>,
@@ -648,6 +680,15 @@ impl Inner {
         self.starting.with_untracked(Option::is_some).unwrap_or(false)
     }
 
+    fn busy_untracked(&self) -> bool {
+        self.status.with_untracked(|s| s.as_ref().is_some_and(|s| s.busy)).unwrap_or(false)
+    }
+
+    fn failed_untracked(&self) -> bool {
+        self.app_failure.with_untracked(Option::is_some).unwrap_or(false)
+            || self.state.get_untracked().ok() == Some(PlaybackState::Failed)
+    }
+
     /// Moves a playing device's shown position on in a while, and again after, until news
     /// comes or its last report is [stale](REMOTE_STALE).
     fn schedule_remote_tick(&self) {
@@ -752,6 +793,9 @@ impl Inner {
             self.starting.set_if_changed(None);
             self.starting_detail.set_if_changed(None);
             self.next_error.set_if_changed(None);
+            // As Portal's page attaching a stream: its words go.
+            self.status.set_if_changed(None);
+            self.app_failure.set_if_changed(None);
             self.end_cancel();
         });
         self.embedded.borrow_mut().clear();
@@ -910,6 +954,9 @@ impl Player {
             cancel_offered: Signal::new(false),
             canceling: Signal::new(false),
             cancel_handlers: RefCell::new(Vec::new()),
+            status: Signal::new(None),
+            app_failure: Signal::new(None),
+            retry_handlers: RefCell::new(Vec::new()),
             sink: RefCell::new(None),
             visible: Cell::new(true),
             options,
@@ -980,21 +1027,23 @@ impl Player {
     }
 
     /// Offers a Cancel button (or takes it away) while the app works on
-    /// [starting the next](Self::starting_next) or a [skip](Self::skipping), when that work
+    /// [starting the next](Self::starting_next), a [skip](Self::skipping) or what a
+    /// [busy status](Self::set_status) says, when that work
     /// can be stopped now: as Portal's page does while the add-on, which says whether it may
     /// be stopped, finds sources. It shows under the spinner in the middle of the picture,
     /// in the tab order; pressing it calls [`on_cancel`](Self::on_cancel), disables it and
     /// says "Canceling." until the app ends the work ([`cancel_next`](Self::cancel_next),
-    /// [`next_failed`](Self::next_failed), [`cancel_skip`](Self::cancel_skip) or a new
-    /// source). Each new start or skip begins without one.
+    /// [`next_failed`](Self::next_failed), [`cancel_skip`](Self::cancel_skip),
+    /// [`set_status(None)`](Self::set_status), [`fail`](Self::fail) or a new source). Each new
+    /// start or skip begins without one.
     pub fn offer_cancel(&self, on: bool) {
         self.0.cancel_offered.set_if_changed(on);
     }
 
     /// Calls `f` when Cancel ([`offer_cancel`](Self::offer_cancel)) is pressed: the app stops
     /// its server's work (Portal answers the add-on's prompt with cancel) and then ends it
-    /// here. [`starting_next`](Self::starting_next) and [`skipping`](Self::skipping) say
-    /// which work it was.
+    /// here. [`starting_next`](Self::starting_next), [`skipping`](Self::skipping) and
+    /// [`status`](Self::status) say which work it was.
     pub fn on_cancel(&self, f: impl Fn() + 'static) {
         self.0.cancel_handlers.borrow_mut().push(Rc::new(f));
     }
@@ -1003,7 +1052,9 @@ impl Player {
     pub(crate) fn cancel_shown(&self) -> bool {
         self.0.cancel_offered.get()
             && !self.is_remote()
-            && (self.0.starting.with(Option::is_some) || self.0.skipping.with(Option::is_some))
+            && (self.0.starting.with(Option::is_some)
+                || self.0.skipping.with(Option::is_some)
+                || self.0.status.with(|s| s.as_ref().is_some_and(|s| s.busy)))
     }
 
     /// Whether Cancel was pressed and the app is stopping its work. Tracked.
@@ -1078,10 +1129,21 @@ impl Player {
                 self.0.remote_status.update(|s| s.state = PlaybackState::Playing);
                 self.0.anchor_remote();
             }
-            // The next is starting: nothing here to play.
-            None if self.0.is_starting() => {}
+            // The next is starting, or the app is busy: nothing here to play.
+            None if self.0.is_starting() || self.0.busy_untracked() => {}
+            None if self.0.failed_untracked() => {
+                let at = remedy_ui_reactive::untrack(|| self.position());
+                let handlers = self.0.retry_handlers.borrow().clone();
+                for h in handlers {
+                    h(at);
+                }
+            }
             None => {
                 self.0.next_error.set_if_changed(None);
+                // Still opening: it plays once open (the engine takes Play only then).
+                if self.0.info.with_untracked(Option::is_none).unwrap_or(true) {
+                    self.0.play_on_open.set(true);
+                }
                 self.0.send(Cmd::Play);
             }
         }
@@ -1095,8 +1157,72 @@ impl Player {
                 self.0.remote_status.update(|s| s.state = PlaybackState::Paused);
                 self.0.anchor_remote();
             }
-            None => self.0.send(Cmd::Pause),
+            None => {
+                self.0.play_on_open.set(false);
+                self.0.send(Cmd::Pause);
+            }
         }
+    }
+
+    /// Calls `f` with the last position (in the work's time on a
+    /// [timeline](Self::set_timeline)) when play is pressed after playback
+    /// [failed](PlaybackState::Failed) here (not remote): the play button, K, Space, or a click
+    /// on the picture, as Portal's page asks its server again on Play. The failure then says
+    /// "… Press Play to try again." The app answers with
+    /// [`replace_source`](Self::replace_source) (or [`start_next`](Self::start_next)), or
+    /// [`fail`](Self::fail)s again; meanwhile it may [`set_status`](Self::set_status). With no
+    /// app listening, play does nothing after a failure.
+    pub fn on_retry(&self, f: impl Fn(Duration) + 'static) {
+        self.0.retry_handlers.borrow_mut().push(Rc::new(f));
+    }
+
+    /// Whether play after a failure goes to the app ([`on_retry`](Self::on_retry)).
+    pub(crate) fn retries(&self) -> bool {
+        !self.0.retry_handlers.borrow().is_empty()
+    }
+
+    /// Says what the app is doing over the picture (`None` takes it away): Portal's resolve
+    /// phases, "Preparing the video." while it switches quality or sound, or a message such
+    /// as "The stream did not arrive.". It is announced politely as it changes and shows in
+    /// place of the player's own words (a failure, skipping, starting the next). While
+    /// [busy](StageStatus::busy) a spinner shows, the seek bar is disabled, play and seeks do
+    /// nothing, and Cancel shows when the app [offers it](Self::offer_cancel). Only here, not
+    /// in remote mode; a new source takes it away. Taking it away ends an offered Cancel.
+    pub fn set_status(&self, status: Option<StageStatus>) {
+        if status.is_none() {
+            self.0.end_cancel();
+        }
+        self.0.status.set_if_changed(status);
+    }
+
+    /// What the app last said it is doing ([`set_status`](Self::set_status)). Tracked.
+    pub fn status(&self) -> Option<StageStatus> {
+        self.0.status.get()
+    }
+
+    /// Stops playback with the app's words (Portal's "The stream stopped loading.", its
+    /// server's reason a stream died): the player stops fetching and is
+    /// [failed](PlaybackState::Failed), `message` over the picture (with "Press Play to try
+    /// again." when the app [retries](Self::on_retry)) and announced as an alert. Skipping,
+    /// starting the next and the app's status end. A new source clears it.
+    pub fn fail(&self, message: impl Into<String>) {
+        self.0.send(Cmd::Close);
+        *self.0.tx.borrow_mut() = None;
+        self.0.queued_skip.set(None);
+        self.0.play_on_open.set(false);
+        remedy_ui_reactive::batch(|| {
+            self.0.end_cancel();
+            self.0.skipping.set_if_changed(None);
+            self.0.starting.set_if_changed(None);
+            self.0.starting_detail.set_if_changed(None);
+            self.0.status.set_if_changed(None);
+            self.0.app_failure.set(Some(message.into()));
+        });
+    }
+
+    /// The app's words for a failure ([`fail`](Self::fail)). Tracked.
+    pub(crate) fn app_failure(&self) -> Option<String> {
+        self.0.app_failure.get()
     }
 
     /// Plays when paused or ended, pauses when playing.
@@ -1131,7 +1257,7 @@ impl Player {
             self.0.anchor_remote();
             return;
         }
-        if self.0.is_starting() {
+        if self.0.is_starting() || self.0.busy_untracked() {
             return;
         }
         let Some(timeline) = timeline else { return self.seek_stream(to) };
@@ -1192,6 +1318,8 @@ impl Player {
     pub fn state(&self) -> PlaybackState {
         match self.is_remote() {
             true => self.0.remote_status.with(|s| s.state),
+            // The app stopped it ([`fail`](Self::fail)).
+            false if self.0.app_failure.with(Option::is_some) => PlaybackState::Failed,
             false => self.0.state.get(),
         }
     }
