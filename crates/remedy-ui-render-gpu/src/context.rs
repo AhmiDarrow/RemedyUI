@@ -244,7 +244,7 @@ impl GpuContext {
             all(unix, not(any(target_os = "macos", target_os = "ios"))),
             all(windows, feature = "windows-vulkan")
         )))]
-        let opened: Option<Result<(wgpu::Device, wgpu::Queue), wgpu::RequestDeviceError>> = None;
+        let opened: Option<Result<(wgpu::Device, wgpu::Queue), String>> = None;
         let incremental_present = matches!(opened, Some(Ok(_)));
         // A device that offers the extension but would not open with it is reported (below),
         // never passed over quietly: presents would then report the whole window.
