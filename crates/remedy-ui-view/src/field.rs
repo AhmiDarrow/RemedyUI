@@ -137,6 +137,9 @@ pub(crate) struct Field {
     caret_side: Option<(usize, remedy_ui_text::Affinity)>,
     /// The paragraph shown, its width and where its top-left sat in the element.
     shown: Option<(f32, Rc<Paragraph>, Point)>,
+    /// The paragraph laid out last, kept after the text changes: a huge paragraph laid out
+    /// lazily is laid out again from it, keeping what the edit did not touch.
+    last: Option<Rc<Paragraph>>,
     /// How far the text has scrolled inside the field's box, when it is taller (a multi-line
     /// field given a height) or wider (a single line longer than its field) than the box.
     scroll: Vec2,
@@ -416,7 +419,14 @@ impl Field {
             v_
         };
         let shown = if text.is_empty() { RichText::plain(" ") } else { text };
-        let p = Rc::new(engine.layout(&shown, &self.style, options));
+        let p = match self.last.take() {
+            Some(before) if before.is_lazy() => {
+                engine.layout_after_edit(&before, &shown, &self.style, options)
+            }
+            _ => engine.layout(&shown, &self.style, options),
+        };
+        let p = Rc::new(p);
+        self.last = Some(p.clone());
         self.shown = Some((width, p.clone(), Point::ZERO));
         p
     }
@@ -492,6 +502,11 @@ impl Field {
                     tokens.muted,
                 );
             }
+        } else if p.is_lazy() {
+            // A huge paragraph draws the lines in the box and a box's height more each way.
+            let margin = content.height().max(600.0);
+            let band = self.scroll.y - margin..self.scroll.y + content.height() + margin;
+            frame::glyphs_in(list, &p, o, s.foreground, band);
         } else {
             frame::glyphs(list, &p, o, s.foreground);
         }
@@ -1232,6 +1247,7 @@ impl Ui {
             rtl: false,
             caret_side: None,
             shown: None,
+            last: None,
             scroll: Vec2::ZERO,
             followed: (0, 0),
             show_caret: false,

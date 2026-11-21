@@ -1,7 +1,8 @@
 //! Linux and macOS: the helper is the app started again with a Unix socket as its standard
 //! input; shared memory regions are file descriptors passed over it (`SCM_RIGHTS`), mapped
 //! for one request. The helper shuts itself in (seccomp-bpf and Landlock on Linux, Seatbelt
-//! on macOS) before it reads anything.
+//! on macOS) before it reads anything. On Android the helper is an isolated service
+//! process instead (`android.rs` starts it), over the same socket and regions.
 //!
 //! Invariants: every descriptor is an `OwnedFd` from creation, so it is closed once. A
 //! mapping lives exactly as long as the `Shm` or `Mapped` holding it, and its length is the
@@ -12,12 +13,18 @@
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::net::UnixStream;
+#[cfg(not(target_os = "android"))]
 use std::os::unix::process::ExitStatusExt;
+#[cfg(not(target_os = "android"))]
 use std::path::Path;
+#[cfg(not(target_os = "android"))]
 use std::process::{ChildStderr, Command, Stdio};
 use std::ptr::null_mut;
+#[cfg(not(target_os = "android"))]
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "android")]
+use super::android as platform;
 use super::frame::{MAX_REGIONS, Region, header, lead, regions, regions_len};
 #[cfg(target_os = "linux")]
 use super::linux as platform;
@@ -26,6 +33,8 @@ use super::macos as platform;
 use crate::Layer;
 
 pub(crate) use platform::LIMITS_MEMORY;
+#[cfg(target_os = "android")]
+pub(crate) use platform::{Child, Killer};
 
 fn check(r: libc::c_int) -> io::Result<libc::c_int> {
     if r < 0 { Err(io::Error::last_os_error()) } else { Ok(r) }
@@ -107,17 +116,17 @@ impl Drop for Shm {
 
 // ---------- the channel ----------
 
-fn socketpair() -> io::Result<(OwnedFd, OwnedFd)> {
+pub(super) fn socketpair() -> io::Result<(OwnedFd, OwnedFd)> {
     let mut fds = [0 as libc::c_int; 2];
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let kind = libc::SOCK_STREAM | libc::SOCK_CLOEXEC;
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     let kind = libc::SOCK_STREAM;
     // SAFETY: `fds` has room for the two descriptors.
     check(unsafe { libc::socketpair(libc::AF_UNIX, kind, 0, fds.as_mut_ptr()) })?;
     let [a, b] = fds;
     let (a, b) = (owned_fd(a)?, owned_fd(b)?);
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     for fd in [&a, &b] {
         // SAFETY: plain descriptor flag and socket option changes on our own sockets.
         unsafe {
@@ -135,9 +144,9 @@ fn socketpair() -> io::Result<(OwnedFd, OwnedFd)> {
     Ok((a, b))
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 const SEND_FLAGS: libc::c_int = libc::MSG_NOSIGNAL;
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 const SEND_FLAGS: libc::c_int = 0;
 
 /// Sends `bytes` with `fds` attached to the first of them.
@@ -182,9 +191,9 @@ fn recv_lead(sock: &UnixStream) -> io::Result<([u8; 3], Vec<OwnedFd>)> {
     msg.msg_iovlen = 1;
     msg.msg_control = control.as_mut_ptr().cast();
     msg.msg_controllen = space as _;
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let flags = libc::MSG_CMSG_CLOEXEC;
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     let flags = 0;
     let got = loop {
         // SAFETY: `msg` points at `lead_bytes` and `control`, both alive for the call.
@@ -223,12 +232,39 @@ fn recv_lead(sock: &UnixStream) -> io::Result<([u8; 3], Vec<OwnedFd>)> {
     Ok((lead_bytes, fds))
 }
 
+/// Sends one request frame with `shared` regions' descriptors beside it.
+pub(super) fn send_frame(sock: &UnixStream, payload: &[u8], shared: &[(&Shm, bool)]) -> io::Result<()> {
+    let described: Vec<Region> = shared
+        .iter()
+        .map(|(s, writable)| Region { handle: 0, len: s.len() as u64, writable: *writable })
+        .collect();
+    let fds: Vec<RawFd> = shared.iter().map(|(s, _)| s.fd.as_raw_fd()).collect();
+    let mut frame = header(payload.len(), &described)?;
+    frame.extend_from_slice(payload);
+    send_with_fds(sock, &frame, &fds)
+}
+
+/// Reads one reply frame (which carries no regions).
+pub(super) fn recv_frame(sock: &UnixStream) -> io::Result<Vec<u8>> {
+    let mut lead_bytes = [0u8; 3];
+    (&*sock).read_exact(&mut lead_bytes)?;
+    let (len, n) = lead(lead_bytes)?;
+    if n != 0 {
+        return Err(io::Error::other("the helper sent regions"));
+    }
+    let mut payload = vec![0u8; len];
+    (&*sock).read_exact(&mut payload)?;
+    Ok(payload)
+}
+
 // ---------- the helper, seen from the app ----------
 
 /// Stops a helper from any thread (only while it is unreaped; see the watchdog).
+#[cfg(not(target_os = "android"))]
 #[derive(Clone)]
 pub(crate) struct Killer(libc::pid_t);
 
+#[cfg(not(target_os = "android"))]
 impl Killer {
     pub(crate) fn kill(&self) {
         // SAFETY: signals our own unreaped child.
@@ -245,6 +281,7 @@ impl Killer {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 pub(crate) struct Child {
     proc: std::process::Child,
     sock: UnixStream,
@@ -253,6 +290,7 @@ pub(crate) struct Child {
     reaped: bool,
 }
 
+#[cfg(not(target_os = "android"))]
 impl Child {
     pub(crate) fn spawn(exe: &Path) -> io::Result<Child> {
         let (host, child) = socketpair()?;
@@ -272,26 +310,11 @@ impl Child {
     }
 
     pub(crate) fn send(&mut self, payload: &[u8], shared: &[(&Shm, bool)]) -> io::Result<()> {
-        let described: Vec<Region> = shared
-            .iter()
-            .map(|(s, writable)| Region { handle: 0, len: s.len() as u64, writable: *writable })
-            .collect();
-        let fds: Vec<RawFd> = shared.iter().map(|(s, _)| s.fd.as_raw_fd()).collect();
-        let mut frame = header(payload.len(), &described)?;
-        frame.extend_from_slice(payload);
-        send_with_fds(&self.sock, &frame, &fds)
+        send_frame(&self.sock, payload, shared)
     }
 
     pub(crate) fn recv(&mut self) -> io::Result<Vec<u8>> {
-        let mut lead_bytes = [0u8; 3];
-        (&self.sock).read_exact(&mut lead_bytes)?;
-        let (len, n) = lead(lead_bytes)?;
-        if n != 0 {
-            return Err(io::Error::other("the helper sent regions"));
-        }
-        let mut payload = vec![0u8; len];
-        (&self.sock).read_exact(&mut payload)?;
-        Ok(payload)
+        recv_frame(&self.sock)
     }
 
     /// Nothing to take back: the helper closes the descriptors it was handed.
@@ -356,6 +379,7 @@ impl Child {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 impl Drop for Child {
     fn drop(&mut self) {
         if !self.reaped {
@@ -411,6 +435,8 @@ impl Parent {
     }
 
     pub(crate) fn recv(&mut self) -> io::Result<(Vec<u8>, Vec<Mapped>)> {
+        #[cfg(target_os = "android")]
+        platform::limit_self(&self.sock)?;
         let (lead_bytes, fds) = recv_lead(&self.sock)?;
         let (len, n) = lead(lead_bytes)?;
         if fds.len() != n {
@@ -441,6 +467,7 @@ impl Parent {
 /// Limits the helper shares on Linux and macOS: no core dumps (they would hold images), and
 /// no more open files than standard input, output and error plus one request's regions, so
 /// regions cannot be hoarded.
+#[cfg(not(target_os = "android"))]
 pub(super) fn common_limits() -> Result<(), String> {
     let set = |res, n: libc::rlim_t| {
         let lim = libc::rlimit { rlim_cur: n, rlim_max: n };
@@ -455,6 +482,7 @@ pub(super) fn common_limits() -> Result<(), String> {
 }
 
 /// Closes every descriptor but standard input, output and error.
+#[cfg(not(target_os = "android"))]
 pub(super) fn close_inherited() {
     #[cfg(target_os = "linux")]
     {
@@ -476,7 +504,9 @@ pub(super) fn close_inherited() {
 /// Nothing is registered with the system on Unix.
 pub(crate) fn forget() {}
 
+/// On Android the helper shares its process with the Java runtime, whose descriptors stay.
 pub(crate) fn lock_down() -> Result<Vec<Layer>, String> {
+    #[cfg(not(target_os = "android"))]
     close_inherited();
     platform::lock_down()
 }

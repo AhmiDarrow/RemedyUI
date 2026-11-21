@@ -419,6 +419,7 @@ impl AvDecoder {
                 matrix: if h < 720 { YuvMatrix::Bt601 } else { YuvMatrix::Bt709 },
                 full_range,
                 data: Arc::from(data),
+                gpu: None,
             })
         }
     }

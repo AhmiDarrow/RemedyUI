@@ -74,6 +74,10 @@ pub struct GpuContext {
     /// The device.
     pub device: wgpu::Device,
     /// Its queue.
+    ///
+    /// Submit to it only from the thread that presents windows (the UI thread): on Vulkan a
+    /// window's own swapchain presents on this queue outside wgpu's lock, so a submission
+    /// from another thread at the same time is undefined behaviour.
     pub queue: wgpu::Queue,
     /// The rung it came from.
     pub rung: Rung,
@@ -225,8 +229,11 @@ impl GpuContext {
         drop(surface);
         // Timestamps are asked for where the adapter has them: devtools traces put the GPU's
         // measured frame time on their timeline (nothing is written unless a trace records).
-        let features =
-            adapter.features() & (wgpu::Features::PIPELINE_CACHE | wgpu::Features::TIMESTAMP_QUERY);
+        // NV12 textures let decoded pictures be sampled where the decoder left them.
+        let features = adapter.features()
+            & (wgpu::Features::PIPELINE_CACHE
+                | wgpu::Features::TIMESTAMP_QUERY
+                | wgpu::Features::TEXTURE_FORMAT_NV12);
         let desc = wgpu::DeviceDescriptor {
             label: Some("RemedyUI"),
             required_features: features,
@@ -234,7 +241,8 @@ impl GpuContext {
             ..Default::default()
         };
         // On Vulkan the device also gets `VK_KHR_incremental_present` where it has it, so a
-        // window's own swapchain can report only what changed.
+        // window's own swapchain can report only what changed (and on Android what importing
+        // decoded pictures needs).
         #[cfg(any(
             all(unix, not(any(target_os = "macos", target_os = "ios"))),
             all(windows, feature = "windows-vulkan")
@@ -244,16 +252,16 @@ impl GpuContext {
             all(unix, not(any(target_os = "macos", target_os = "ios"))),
             all(windows, feature = "windows-vulkan")
         )))]
-        let opened: Option<Result<(wgpu::Device, wgpu::Queue), String>> = None;
-        let incremental_present = matches!(opened, Some(Ok(_)));
+        let opened: Option<Result<(wgpu::Device, wgpu::Queue, bool), String>> = None;
+        let incremental_present = matches!(opened, Some(Ok((_, _, true))));
         // A device that offers the extension but would not open with it is reported (below),
         // never passed over quietly: presents would then report the whole window.
         let mut open_failure = None;
         let (device, queue) = match opened {
-            Some(Ok(pair)) => pair,
+            Some(Ok((d, q, _))) => (d, q),
             other => {
                 if let Some(Err(e)) = other {
-                    open_failure = Some(format!("opening the Vulkan device with incremental presents: {e}"));
+                    open_failure = Some(format!("opening the Vulkan device with its extensions: {e}"));
                 }
                 adapter.request_device(&desc).await.map_err(|e| GpuError::Device(e.to_string()))?
             }
@@ -270,6 +278,8 @@ impl GpuContext {
                 keep_error(&mut v, e.to_string());
             }
         }));
+        // Decoders hand this device's adapter pictures on the GPU from now on.
+        crate::ffi::video::announce(&device);
         static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
         let textures = crate::external::Registry::default();
@@ -295,6 +305,16 @@ impl GpuContext {
     /// [`force_loss`]: GpuContext::force_loss
     pub fn is_lost(&self) -> bool {
         self.lost.load(Ordering::SeqCst)
+    }
+
+    /// Records that the device is lost, found by a call outside wgpu (a window's own
+    /// swapchain): the next frame recovers, as after a loss wgpu reports.
+    #[cfg_attr(
+        not(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios"))))),
+        allow(dead_code)
+    )]
+    pub(crate) fn mark_lost(&self) {
+        self.lost.store(true, Ordering::SeqCst);
     }
 
     /// Destroys the device as a driver reset would, to exercise recovery.

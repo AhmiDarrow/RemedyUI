@@ -251,7 +251,7 @@ fn picture(frame: &VideoFrame, layout: &JsValue, bytes: Vec<u8>) -> Result<Pictu
             )));
         }
     };
-    Ok(Picture { width, height, format, planes, matrix, full_range, data: Arc::from(data) })
+    Ok(Picture { width, height, format, planes, matrix, full_range, data: Arc::from(data), gpu: None })
 }
 
 fn video_output(out: &Shared, frame: VideoFrame) {

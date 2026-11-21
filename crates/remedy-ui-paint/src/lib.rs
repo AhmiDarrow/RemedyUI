@@ -22,7 +22,10 @@ mod video;
 
 pub use path::{Path, PathEl, Stroke, StrokeCap, StrokeJoin};
 pub use remedy_ui_core::ColorMatrix;
-pub use video::{Coefficients, PixelFormat, Plane, VideoFrame, YuvMatrix};
+pub use video::{
+    Coefficients, CpuPixels, GpuAdapter, GpuFrame, GpuPicture, GpuTexture, PixelFormat, Plane, VideoFrame,
+    YuvMatrix, gpu_video_adapter, set_gpu_video_adapter,
+};
 
 use std::sync::Arc;
 

@@ -12,28 +12,25 @@ mod windows;
 #[cfg(windows)]
 pub(crate) use windows::*;
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "android"))]
 mod unix;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "android"))]
 pub(crate) use unix::*;
 
+#[cfg(target_os = "android")]
+mod android;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))]
 pub(crate) use frame::*;
 
 /// Why there is no helper on this platform.
-#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos", target_os = "android")))]
 pub(crate) fn unsupported_reason() -> String {
-    if cfg!(target_os = "android") {
-        "on Android a decoder is isolated in an isolated service process \
-         (android:isolatedProcess), which the Android bridge has to declare and start; \
-         this crate cannot start one"
-            .into()
-    } else if cfg!(target_os = "ios") {
+    if cfg!(target_os = "ios") {
         "iOS does not let apps start helper processes".into()
     } else {
         "this platform has no helper sandbox here (RemedyOS isolation domains come with its \
@@ -42,7 +39,7 @@ pub(crate) fn unsupported_reason() -> String {
     }
 }
 
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))]
 mod frame {
     use std::io;
 
@@ -123,6 +120,7 @@ mod frame {
                 Layer::NetworkNamespace => 1 << 5,
                 Layer::ResourceLimits => 1 << 6,
                 Layer::AppSandbox => 1 << 7,
+                Layer::IsolatedProcess => 1 << 8,
             }
         })
     }
@@ -139,6 +137,7 @@ mod frame {
             (1 << 5, Layer::NetworkNamespace),
             (1 << 6, Layer::ResourceLimits),
             (1 << 7, Layer::AppSandbox),
+            (1 << 8, Layer::IsolatedProcess),
         ];
         for (bit, layer) in named {
             if bits & bit != 0 {

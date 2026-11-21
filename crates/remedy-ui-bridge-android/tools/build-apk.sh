@@ -17,8 +17,9 @@
 #   ACTIVITY         remedy (default): the APK carries the bridge's Java (dex/classes.dex) and
 #                    runs in dev.remedyui.android.RemedyActivity, with the notification alias
 #                    and a foreground service (microphone and media playback), as `cargo remedy
-#                    package` makes it, and the SharedFiles provider App::share serves files
-#                    through; native: a plain android.app.NativeActivity with no code in the
+#                    package` makes it, the SharedFiles provider App::share serves files
+#                    through, and the isolated Decoder service remedy-ui-media-isolated's
+#                    helpers run in; native: a plain android.app.NativeActivity with no code in the
 #                    APK, the bridge loading its Java from memory (no provider: shares carry
 #                    their title and text only)
 #   APP_ICON         a square PNG for the launcher (and the notifications' status bar icon);
@@ -97,7 +98,12 @@ case "$activity_mode" in
         <provider android:name="dev.remedyui.android.SharedFiles"
             android:authorities="'"$app_id"'.remedy.share"
             android:exported="false"
-            android:grantUriPermissions="true" />'
+            android:grantUriPermissions="true" />
+        <!-- Decodes images in processes of their own with no permissions
+             (remedy-ui-media-isolated). -->
+        <service android:name="dev.remedyui.android.Decoder"
+            android:isolatedProcess="true"
+            android:exported="false" />'
         ;;
     native)
         activity=android.app.NativeActivity

@@ -350,6 +350,11 @@ pub fn android_manifest(
             android:authorities="{id}.remedy.share"
             android:exported="false"
             android:grantUriPermissions="true" />
+        <!-- Decodes images in processes of their own with no permissions (isolated decoding,
+             remedy-ui-media-isolated); unused unless the app enables it. -->
+        <service android:name="dev.remedyui.android.Decoder"
+            android:isolatedProcess="true"
+            android:exported="false" />
 {service}    </application>
 </manifest>
 "#,
@@ -784,7 +789,12 @@ mod tests {
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../remedy-ui-bridge-android/dex/classes.dex");
         let dex = std::fs::read(&bridge).unwrap_or_default();
         assert!(dex.starts_with(b"dex\n"), "{}", bridge.display());
-        for class in ["SharedFiles", "RemedyActivity", "Foreground"] {
+        assert!(
+            m.contains(r#"<service android:name="dev.remedyui.android.Decoder""#)
+                && m.contains(r#"android:isolatedProcess="true""#),
+            "{m}"
+        );
+        for class in ["SharedFiles", "RemedyActivity", "Foreground", "Decoder"] {
             let name = format!("Ldev/remedyui/android/{class};");
             assert!(dex.windows(name.len()).any(|w| w == name.as_bytes()), "{class} is missing from the dex");
         }
@@ -793,7 +803,7 @@ mod tests {
         let m = android_manifest(&asks, "my_notes", 100, 26, 35);
         assert!(m.contains(r#"<uses-permission android:name="android.permission.RECORD_AUDIO" />"#), "{m}");
         assert_eq!(m.matches("uses-permission").count(), 1);
-        assert!(!m.contains("<service"), "no foreground service unless asked for");
+        assert!(!m.contains("dev.remedyui.android.Foreground"), "no foreground service unless asked for");
         assert_eq!(version_code("0.1.0"), 100);
         let plist = info_plist(&p);
         assert!(plist.contains("<string>My Notes</string>") && plist.contains("<string>my-notes</string>"));

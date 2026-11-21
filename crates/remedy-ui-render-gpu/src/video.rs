@@ -71,6 +71,8 @@ struct Stream {
     target: wgpu::Texture,
     id: TextureId,
     params: wgpu::Buffer,
+    /// Pictures on the GPU opened on this device, and those still being read.
+    shared: crate::ffi::video::Shared,
 }
 
 /// A stream's picture this frame: its texture id, a view to bind when the texture is new, and
@@ -94,6 +96,50 @@ fn plane_format(format: PixelFormat, i: usize) -> wgpu::TextureFormat {
         (PixelFormat::Nv12, 1) => wgpu::TextureFormat::Rg8Unorm,
         _ => wgpu::TextureFormat::R8Unorm,
     }
+}
+
+fn mk_texture(
+    device: &wgpu::Device,
+    w: u32,
+    h: u32,
+    format: wgpu::TextureFormat,
+    usage: wgpu::TextureUsages,
+    label: &str,
+) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage,
+        view_formats: &[],
+    })
+}
+
+/// Uploads each plane straight from the frame's bytes, its stride as is.
+fn upload(queue: &wgpu::Queue, frame: &VideoFrame, planes: &[wgpu::Texture]) -> Option<()> {
+    let sizes = frame.format.plane_sizes(frame.width, frame.height);
+    for (i, ((w, h, _), t)) in sizes.into_iter().zip(planes).enumerate() {
+        let p = frame.planes.get(i).copied().unwrap_or_default();
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: t,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &frame.data,
+            wgpu::TexelCopyBufferLayout {
+                offset: p.offset as u64,
+                bytes_per_row: Some(u32::try_from(p.stride).ok()?),
+                rows_per_image: Some(h),
+            },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        );
+    }
+    Some(())
 }
 
 impl GpuVideos {
@@ -186,34 +232,8 @@ impl GpuVideos {
         let mut replaced = None;
         if !reuse {
             replaced = self.streams.get(&frame.stream).map(|s| s.id);
-            let mk = |w: u32, h: u32, format, usage, label| {
-                device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some(label),
-                    size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format,
-                    usage,
-                    view_formats: &[],
-                })
-            };
-            let planes = frame
-                .format
-                .plane_sizes(frame.width, frame.height)
-                .into_iter()
-                .enumerate()
-                .map(|(i, (w, h, _))| {
-                    mk(
-                        w,
-                        h,
-                        plane_format(frame.format, i),
-                        wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                        "RemedyUI video plane",
-                    )
-                })
-                .collect();
-            let target = mk(
+            let target = mk_texture(
+                device,
                 frame.width,
                 frame.height,
                 FORMAT,
@@ -230,34 +250,67 @@ impl GpuVideos {
             new_view = Some(target.create_view(&wgpu::TextureViewDescriptor::default()));
             self.streams.insert(
                 frame.stream,
-                Stream { frame: u64::MAX, size, format: frame.format, planes, target, id, params },
+                Stream {
+                    frame: u64::MAX,
+                    size,
+                    format: frame.format,
+                    planes: Vec::new(),
+                    target,
+                    id,
+                    params,
+                    shared: crate::ffi::video::Shared::default(),
+                },
             );
         }
         let s = self.streams.get_mut(&frame.stream)?;
         if s.frame != frame.id {
             s.frame = frame.id;
-            // Upload each plane straight from the frame's bytes, its stride as is.
-            for (i, ((w, h, b), t)) in
-                frame.format.plane_sizes(frame.width, frame.height).into_iter().zip(&s.planes).enumerate()
-            {
-                let p = frame.planes.get(i).copied().unwrap_or_default();
-                let _ = b;
-                queue.write_texture(
-                    wgpu::TexelCopyTextureInfo {
-                        texture: t,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    &frame.data,
-                    wgpu::TexelCopyBufferLayout {
-                        offset: p.offset as u64,
-                        bytes_per_row: Some(u32::try_from(p.stride).ok()?),
-                        rows_per_image: Some(h),
-                    },
-                    wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
-                );
+            // Android: a picture on the GPU is drawn into the target by a pass of the platform's.
+            #[cfg(target_os = "android")]
+            if frame.gpu.as_ref().is_some_and(|g| {
+                s.shared.convert(device, queue, g, frame.matrix, frame.full_range, &s.target)
+            }) {
+                return Some(Shown { id: s.id, new_view, replaced });
             }
+            // A picture on the GPU is sampled where it is when this device can open it.
+            let opened = frame.gpu.as_ref().and_then(|g| s.shared.open(device, g));
+            let views: Vec<wgpu::TextureView> = match &opened {
+                Some(t) => [wgpu::TextureAspect::Plane0, wgpu::TextureAspect::Plane1]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, aspect)| {
+                        t.create_view(&wgpu::TextureViewDescriptor {
+                            format: Some(plane_format(PixelFormat::Nv12, i)),
+                            aspect,
+                            ..Default::default()
+                        })
+                    })
+                    .collect(),
+                None => {
+                    // Otherwise its bytes are uploaded, read back first when it is on the GPU.
+                    let cpu = frame.in_cpu_memory()?;
+                    if s.planes.is_empty() {
+                        s.planes = cpu
+                            .format
+                            .plane_sizes(cpu.width, cpu.height)
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, (w, h, _))| {
+                                mk_texture(
+                                    device,
+                                    w,
+                                    h,
+                                    plane_format(cpu.format, i),
+                                    wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                                    "RemedyUI video plane",
+                                )
+                            })
+                            .collect();
+                    }
+                    upload(queue, &cpu, &s.planes)?;
+                    s.planes.iter().map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())).collect()
+                }
+            };
             let k = Coefficients::new(frame.matrix, frame.full_range);
             let kind: u32 = match frame.format {
                 PixelFormat::Rgba => 0,
@@ -270,8 +323,6 @@ impl GpuVideos {
                 params.extend(v.to_le_bytes());
             }
             queue.write_buffer(&s.params, 0, &params);
-            let views: Vec<wgpu::TextureView> =
-                s.planes.iter().map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())).collect();
             // Unused bindings take the first plane (the shader never reads them).
             let view = |i: usize| views.get(i).or(views.first());
             let (v0, v1, v2) = (view(0)?, view(1)?, view(2)?);
@@ -309,8 +360,14 @@ impl GpuVideos {
                 pass.set_bind_group(0, &group, &[]);
                 pass.draw(0..3, 0..1);
             }
-            // Submitted now: the queue runs it before the frame that samples the result.
-            queue.submit([enc.finish()]);
+            // Submitted now: the queue runs it before the frame that samples the result. A
+            // shared picture's submission also waits for the decoder and hands it back after.
+            match (&frame.gpu, opened) {
+                (Some(g), Some(t)) => s.shared.submit(queue, enc.finish(), g, t),
+                _ => {
+                    queue.submit([enc.finish()]);
+                }
+            }
         }
         Some(Shown { id: s.id, new_view, replaced })
     }
@@ -331,8 +388,16 @@ impl GpuVideos {
             .values()
             .map(|s| {
                 let (w, h) = (u64::from(s.size.0), u64::from(s.size.1));
-                // The converted picture plus planes that average 1.5 bytes a pixel (4 for RGBA).
-                w * h * 4 + if s.format == PixelFormat::Rgba { w * h * 4 } else { w * h * 3 / 2 }
+                // The converted picture plus planes that average 1.5 bytes a pixel (4 for RGBA),
+                // made only when pictures are uploaded rather than sampled where they are.
+                let planes = if s.planes.is_empty() {
+                    0
+                } else if s.format == PixelFormat::Rgba {
+                    w * h * 4
+                } else {
+                    w * h * 3 / 2
+                };
+                w * h * 4 + planes
             })
             .sum()
     }

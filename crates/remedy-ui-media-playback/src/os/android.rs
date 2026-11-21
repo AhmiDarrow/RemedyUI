@@ -2,6 +2,11 @@
 //! hardware ones included) decode, and AAudio plays the sound. Both libraries
 //! (`libmediandk.so`, API 21, and `libaaudio.so`, API 26) are opened at run time, so an app
 //! still starts on a device without them and gets `Unsupported` with the reason.
+//!
+//! When a GPU renderer takes pictures on the GPU ([`remedy_ui_paint::gpu_video_adapter`]), the
+//! video decoder renders into an `AImageReader` (opaque format, sampled by the GPU, API 26)
+//! instead, and each picture is the reader's image: its `AHardwareBuffer` goes to the renderer
+//! as it is, never through CPU memory.
 
 use std::collections::VecDeque;
 use std::ffi::{CStr, CString, c_char, c_void};
@@ -9,6 +14,8 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use libloading::Library;
+
+use remedy_ui_paint::{CpuPixels, GpuPicture, GpuTexture};
 
 use crate::host::{
     AudioFormat, AudioInput, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Picture,
@@ -41,6 +48,15 @@ const CLOCK_MONOTONIC: i32 = 1;
 
 /// How long one wait for a codec buffer lasts before the decoder looks at its other work.
 const CODEC_WAIT_US: i64 = 10_000;
+/// `AIMAGE_FORMAT_PRIVATE` and `AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE`.
+const IMAGE_FORMAT_PRIVATE: i32 = 0x22;
+const USAGE_GPU_SAMPLED_IMAGE: u64 = 0x100;
+const IMGREADER_NO_BUFFER_AVAILABLE: Status = -30001;
+/// Images a reader lends at once: the pictures decoded ahead and the one shown. The codec has
+/// buffers of its own besides (a reader's queue has 64 slots in all).
+const READER_IMAGES: i32 = 32;
+/// How long a rendered picture may take to reach the reader.
+const IMAGE_WAIT: Duration = Duration::from_secs(1);
 
 #[repr(C)]
 #[derive(Default)]
@@ -85,7 +101,24 @@ struct Ndk {
     codec_get_output_buffer: unsafe extern "C" fn(Ptr, usize, *mut usize) -> *mut u8,
     codec_get_output_format: unsafe extern "C" fn(Ptr) -> Ptr,
     codec_release_output_buffer: unsafe extern "C" fn(Ptr, usize, bool) -> Status,
+    /// Android 8 and later.
+    images: Option<Images>,
     _lib: Library,
+}
+
+/// `AImageReader` and `AImage` (in the same library).
+struct Images {
+    reader_new_with_usage: unsafe extern "C" fn(i32, i32, i32, u64, i32, *mut Ptr) -> Status,
+    reader_get_window: unsafe extern "C" fn(Ptr, *mut Ptr) -> Status,
+    /// Waits on the image's acquire fence, so the picture is complete when it returns.
+    reader_acquire_next_image: unsafe extern "C" fn(Ptr, *mut Ptr) -> Status,
+    reader_delete: unsafe extern "C" fn(Ptr),
+    image_get_hardware_buffer: unsafe extern "C" fn(Ptr, *mut Ptr) -> Status,
+    image_get_width: unsafe extern "C" fn(Ptr, *mut i32) -> Status,
+    image_get_height: unsafe extern "C" fn(Ptr, *mut i32) -> Status,
+    /// Left, top, right, bottom.
+    image_get_crop_rect: unsafe extern "C" fn(Ptr, *mut [i32; 4]) -> Status,
+    image_delete: unsafe extern "C" fn(Ptr),
 }
 
 struct AAudio {
@@ -134,6 +167,22 @@ macro_rules! sym {
     };
 }
 
+impl Images {
+    fn load(l: &Library) -> Result<Images, String> {
+        Ok(Images {
+            reader_new_with_usage: sym!(l, "AImageReader_newWithUsage"),
+            reader_get_window: sym!(l, "AImageReader_getWindow"),
+            reader_acquire_next_image: sym!(l, "AImageReader_acquireNextImage"),
+            reader_delete: sym!(l, "AImageReader_delete"),
+            image_get_hardware_buffer: sym!(l, "AImage_getHardwareBuffer"),
+            image_get_width: sym!(l, "AImage_getWidth"),
+            image_get_height: sym!(l, "AImage_getHeight"),
+            image_get_crop_rect: sym!(l, "AImage_getCropRect"),
+            image_delete: sym!(l, "AImage_delete"),
+        })
+    }
+}
+
 fn load(name: &str) -> Result<Library, String> {
     // SAFETY: loading a system library of the platform.
     unsafe { Library::new(name) }.map_err(|e| e.to_string())
@@ -177,6 +226,7 @@ impl Ndk {
             codec_get_output_buffer: sym!(l, "AMediaCodec_getOutputBuffer"),
             codec_get_output_format: sym!(l, "AMediaCodec_getOutputFormat"),
             codec_release_output_buffer: sym!(l, "AMediaCodec_releaseOutputBuffer"),
+            images: Images::load(&l).ok(),
             _lib: l,
         })
     }
@@ -322,10 +372,70 @@ struct NdkDecoder {
     extractor_done: bool,
     pending: VecDeque<Sample>,
     info: MediaInfo,
+    /// The reader the video decoder renders into, when pictures stay on the GPU.
+    reader: Option<Arc<Reader>>,
     /// The file the extractor reads through its descriptor, kept open while it does.
     _file: Option<std::fs::File>,
     /// The source is a stream the extractor downloads (not a file).
     network: bool,
+}
+
+/// An `AImageReader`, deleted once the decoder and every picture from it are gone.
+struct Reader {
+    images: &'static Images,
+    raw: Ptr,
+}
+
+// SAFETY: `AImageReader` calls may come from any thread; the decoder acquires, pictures delete.
+unsafe impl Send for Reader {}
+// SAFETY: as above.
+unsafe impl Sync for Reader {}
+
+impl Drop for Reader {
+    fn drop(&mut self) {
+        // SAFETY: deleting the reader `Reader::new` made, after its codec and images.
+        unsafe { (self.images.reader_delete)(self.raw) }
+    }
+}
+
+/// One picture: a reader's image, given back when the last renderer lets go of it.
+struct Image {
+    reader: Arc<Reader>,
+    raw: Ptr,
+    texture: GpuTexture,
+}
+
+// SAFETY: an `AImage` is deleted once, from whichever thread drops the last picture.
+unsafe impl Send for Image {}
+// SAFETY: only its plain description is read while it is shared.
+unsafe impl Sync for Image {}
+
+impl Drop for Image {
+    fn drop(&mut self) {
+        // SAFETY: the image is acquired from `reader`, alive (this holds it), and deleted once.
+        unsafe { (self.reader.images.image_delete)(self.raw) }
+    }
+}
+
+impl GpuPicture for Image {
+    fn texture(&self) -> GpuTexture {
+        self.texture
+    }
+
+    fn read_back(&self) -> Option<CpuPixels> {
+        // shortcut: an opaque-format buffer cannot be mapped by the CPU, so the CPU renderer
+        // shows nothing for it; upgrade to a GPU copy into a readable buffer if one needs it.
+        None
+    }
+}
+
+/// Says once, in the log, why pictures go through CPU memory although a renderer takes them on
+/// the GPU. Playback is the same, only slower.
+fn copy_path(why: &str) {
+    static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        eprintln!("remedy-ui-media-playback: video pictures are copied through CPU memory: {why}");
+    }
 }
 
 // SAFETY: the extractor and codecs are used from one thread at a time.
@@ -385,6 +495,7 @@ impl NdkDecoder {
                 extractor_done: false,
                 pending: VecDeque::new(),
                 info: MediaInfo::default(),
+                reader: None,
                 _file: None,
                 network: file.is_none(),
             };
@@ -415,9 +526,23 @@ impl NdkDecoder {
                     duration = Some(duration.map_or(us, |d: i64| d.max(us)));
                 }
                 if mime.starts_with("video/") && d.video.is_none() {
-                    if let Some(codec) = d.decoder(&mime, f) {
+                    let (w, h) = (ndk.int(f, c"width").unwrap_or(0), ndk.int(f, c"height").unwrap_or(0));
+                    // On the GPU when a renderer takes pictures there, else copied.
+                    let mut codec = None;
+                    if remedy_ui_paint::gpu_video_adapter().is_some() {
+                        match Reader::new(ndk, w, h) {
+                            Ok((reader, window)) => {
+                                codec = d.decoder(&mime, f, window);
+                                match codec {
+                                    Some(_) => d.reader = Some(Arc::new(reader)),
+                                    None => copy_path("the decoder would not render into an image reader"),
+                                }
+                            }
+                            Err(why) => copy_path(&why),
+                        }
+                    }
+                    if let Some(codec) = codec.or_else(|| d.decoder(&mime, f, std::ptr::null_mut())) {
                         let fps = ndk.int(f, c"frame-rate").filter(|r| *r > 0).map(f64::from);
-                        let (w, h) = (ndk.int(f, c"width").unwrap_or(0), ndk.int(f, c"height").unwrap_or(0));
                         d.info.video = Some(VideoInfo {
                             width: w.max(0) as u32,
                             height: h.max(0) as u32,
@@ -429,7 +554,7 @@ impl NdkDecoder {
                 } else if mime.starts_with("audio/") && d.audio.is_none() {
                     // Ask for float samples (honored from Android 9; 16-bit ones are converted).
                     (ndk.format_set_int32)(f, c"pcm-encoding".as_ptr(), PCM_FLOAT);
-                    if let Some(codec) = d.decoder(&mime, f) {
+                    if let Some(codec) = d.decoder(&mime, f, std::ptr::null_mut()) {
                         let rate = ndk.int(f, c"sample-rate").unwrap_or(0);
                         let ch = ndk.int(f, c"channel-count").unwrap_or(0);
                         if rate > 0 && ch > 0 {
@@ -456,8 +581,9 @@ impl NdkDecoder {
         }
     }
 
-    /// A started decoder for `mime` configured from the track's format, or `None`.
-    fn decoder(&self, mime: &str, format: Ptr) -> Option<Ptr> {
+    /// A started decoder for `mime` configured from the track's format, rendering into
+    /// `window` when it is not null, or `None`.
+    fn decoder(&self, mime: &str, format: Ptr, window: Ptr) -> Option<Ptr> {
         let ndk = self.ndk;
         let m = CString::new(mime).ok()?;
         // SAFETY: creating, configuring and starting a decoder; it is deleted on failure.
@@ -467,7 +593,7 @@ impl NdkDecoder {
                 return None;
             }
             let null = std::ptr::null_mut();
-            if (ndk.codec_configure)(codec, format, null, null, 0) != AMEDIA_OK
+            if (ndk.codec_configure)(codec, format, window, null, 0) != AMEDIA_OK
                 || (ndk.codec_start)(codec) != AMEDIA_OK
             {
                 (ndk.codec_delete)(codec);
@@ -559,7 +685,10 @@ impl NdkDecoder {
                     let f = (ndk.codec_get_output_format)(codec);
                     if !f.is_null() {
                         if video {
-                            self.layout = Some(picture_layout(ndk, f)?);
+                            // Pictures in a reader describe themselves.
+                            if self.reader.is_none() {
+                                self.layout = Some(picture_layout(ndk, f)?);
+                            }
                         } else {
                             self.pcm_float = ndk.int(f, c"pcm-encoding").unwrap_or(PCM_16) == PCM_FLOAT;
                             if let Some(ch) = ndk.int(f, c"channel-count").filter(|c| *c > 0) {
@@ -574,6 +703,23 @@ impl NdkDecoder {
                     continue;
                 }
                 let idx = i as usize;
+                if video && let Some(reader) = &self.reader {
+                    let eos = info.flags & BUFFER_FLAG_END_OF_STREAM != 0;
+                    let at = Duration::from_micros(info.presentation_time_us.max(0) as u64);
+                    // A picture only when the reader has an image to lend: with every one
+                    // held, this one is dropped rather than the codec stalled.
+                    let room = Arc::strong_count(reader) <= READER_IMAGES as usize;
+                    let render = room && !(eos && info.size <= 0);
+                    (ndk.codec_release_output_buffer)(codec, idx, render);
+                    if render {
+                        let picture = reader.next()?;
+                        self.pending.push_back(Sample::Video { at, duration: None, picture });
+                    }
+                    if eos && let Some(t) = self.video.as_mut() {
+                        t.output_done = true;
+                    }
+                    continue;
+                }
                 let mut size = 0usize;
                 let base = (ndk.codec_get_output_buffer)(codec, idx, &mut size);
                 let start = usize::try_from(info.offset).unwrap_or(0);
@@ -627,6 +773,79 @@ impl NdkDecoder {
     }
 }
 
+impl Reader {
+    /// A reader of `w` × `h` opaque pictures the GPU samples, and its window for the codec.
+    fn new(ndk: &'static Ndk, w: i32, h: i32) -> Result<(Reader, Ptr), String> {
+        let images = ndk.images.as_ref().ok_or("no image reader before Android 8")?;
+        let (mut raw, mut window) = (std::ptr::null_mut(), std::ptr::null_mut());
+        // SAFETY: making a reader and reading its window (owned by the reader) into locals.
+        unsafe {
+            let s = (images.reader_new_with_usage)(
+                w.max(1),
+                h.max(1),
+                IMAGE_FORMAT_PRIVATE,
+                USAGE_GPU_SAMPLED_IMAGE,
+                READER_IMAGES,
+                &mut raw,
+            );
+            if s != AMEDIA_OK || raw.is_null() {
+                return Err(format!("no image reader for {w}x{h} pictures ({s})"));
+            }
+            let reader = Reader { images, raw };
+            if (images.reader_get_window)(raw, &mut window) != AMEDIA_OK || window.is_null() {
+                return Err("the image reader has no window".into());
+            }
+            Ok((reader, window))
+        }
+    }
+
+    /// The picture just rendered into the reader, once it arrives (complete: acquiring waits
+    /// on its fence).
+    fn next(self: &Arc<Reader>) -> Result<Picture, MediaError> {
+        let im = self.images;
+        let start = std::time::Instant::now();
+        let mut raw = std::ptr::null_mut();
+        // SAFETY: acquiring from a live reader and reading the image's description into
+        // locals; the image is deleted by `Image`, which is made before anything can fail.
+        unsafe {
+            loop {
+                match (im.reader_acquire_next_image)(self.raw, &mut raw) {
+                    AMEDIA_OK if !raw.is_null() => break,
+                    IMGREADER_NO_BUFFER_AVAILABLE if start.elapsed() < IMAGE_WAIT => {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    s => return Err(MediaError::Decode(format!("no decoded image arrived ({s})"))),
+                }
+            }
+            let mut image = Image {
+                reader: self.clone(),
+                raw,
+                texture: GpuTexture::HardwareBuffer { buffer: 0, width: 0, height: 0, left: 0, top: 0 },
+            };
+            let (mut buffer, mut w, mut h, mut crop) = (std::ptr::null_mut(), 0, 0, [0i32; 4]);
+            if (im.image_get_hardware_buffer)(raw, &mut buffer) != AMEDIA_OK
+                || buffer.is_null()
+                || (im.image_get_width)(raw, &mut w) != AMEDIA_OK
+                || (im.image_get_height)(raw, &mut h) != AMEDIA_OK
+                || (im.image_get_crop_rect)(raw, &mut crop) != AMEDIA_OK
+            {
+                return Err(MediaError::Decode("a decoded image has no buffer".into()));
+            }
+            let (w, h) = (w.max(0) as u32, h.max(0) as u32);
+            let [left, top, right, bottom] = crop.map(|v| v.max(0) as u32);
+            let (left, top) = (left & !1, top & !1);
+            let (width, height) = (right.min(w).saturating_sub(left), bottom.min(h).saturating_sub(top));
+            if width == 0 || height == 0 {
+                return Err(MediaError::Format("the decoder gave pictures with no size".into()));
+            }
+            image.texture =
+                GpuTexture::HardwareBuffer { buffer: buffer as usize, width: w, height: h, left, top };
+            let matrix = if height < 720 { YuvMatrix::Bt601 } else { YuvMatrix::Bt709 };
+            Ok(Picture::on_gpu(width, height, matrix, false, Arc::new(image)))
+        }
+    }
+}
+
 /// Copies a decoded picture out of a codec buffer, keeping its rows and planes.
 fn picture(bytes: &[u8], l: Layout) -> Result<Picture, MediaError> {
     let luma = l.stride * l.slice_height;
@@ -664,6 +883,7 @@ fn picture(bytes: &[u8], l: Layout) -> Result<Picture, MediaError> {
         matrix: if l.height < 720 { YuvMatrix::Bt601 } else { YuvMatrix::Bt709 },
         full_range: false,
         data: Arc::from(data),
+        gpu: None,
     };
     let check = remedy_ui_paint::VideoFrame {
         stream: 0,
@@ -675,6 +895,7 @@ fn picture(bytes: &[u8], l: Layout) -> Result<Picture, MediaError> {
         full_range: p.full_range,
         planes: p.planes,
         data: p.data.clone(),
+        gpu: None,
     };
     if !check.is_valid() {
         return Err(MediaError::Decode("a decoded picture is smaller than its layout says".into()));
