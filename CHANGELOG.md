@@ -10,6 +10,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **The "Up next" card can show before the end** (`PlayerOptions::next_up_lead`), as on
+  Portal's page: the last N seconds of media over a minute long, in film time on a timeline;
+  Cancel puts it away for that next, and while casting no card shows (the TV moves on by
+  itself). A zero `next_up_delay` plays the next at once at the end, also under reduced
+  motion. The card's title and countdown are now announced politely. The default is unchanged.
+
 - **A player timeline for streams that hold part of a film** (`Timeline`,
   `Player::set_timeline`, `PlayerOptions::timeline`, `NextUp::timeline`). With an origin (the
   film's time at the stream's 0) and the film's length, position, duration, seeks, buffered

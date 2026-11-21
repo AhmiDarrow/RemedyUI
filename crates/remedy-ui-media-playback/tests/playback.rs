@@ -955,6 +955,7 @@ fn next_up_counts_down_at_the_end_and_plays_in_the_same_player() {
     let shown = texts(&view, "label");
     assert!(shown.iter().any(|t| t == "Up next: The long one"), "{shown:?}");
     assert!(shown.iter().any(|t| t == "Playing in 2 seconds"), "{shown:?}");
+    assert!(announced(&view, "Up next: The long one") && announced(&view, "Playing in 2 seconds"));
     s.wait("one second left", |_| texts(&view, "label").iter().any(|t| t == "Playing in 1 second"));
     let problems = remedy_ui_devtools::audit(&s.ui);
     assert!(problems.is_empty(), "the card passes the audit: {problems:?}");
@@ -2170,4 +2171,99 @@ fn without_a_timeline_seeks_are_the_streams_own_and_not_whole_seconds() {
     s.wait("1.5 s", |_| p.position() == Duration::from_millis(1500));
     assert_eq!(p.duration(), Some(Duration::from_secs(3)));
     assert!(p.buffered().first().is_some_and(|r| r.start < Duration::from_millis(1500)));
+}
+
+/// Whether `text` shows on the view as a status announced politely.
+fn announced(view: &El, text: &str) -> bool {
+    named(view, text).and_then(|e| e.info()).and_then(|i| i.semantics).is_some_and(|s| {
+        s.role() == remedy_ui_a11y::Role::Status && s.live_state() == remedy_ui_a11y::Live::Polite
+    })
+}
+
+/// Portal's way: the card 20 s before the end, and the next at once at the end.
+fn portal_next(s: &mut Screen, source: &str, timeline: Option<Timeline>) -> (Player, El) {
+    let mut options = PlayerOptions::default()
+        .next_up_lead(Some(Duration::from_secs(20)))
+        .next_up_delay(Some(Duration::ZERO));
+    if let Some(t) = timeline {
+        options = options.timeline(t);
+    }
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url(source), options);
+    let view = player(&s.ui, &p, "Episode 1");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:2"), "Episode 2")));
+    (p, view)
+}
+
+#[test]
+fn the_card_shows_before_the_end_when_asked_and_the_next_plays_at_once_at_the_end() {
+    let mut s = Screen::new();
+    let (p, view) = portal_next(&mut s, "script:70", None);
+    p.seek(Duration::from_secs(40));
+    s.wait("40 s", |_| p.position() == Duration::from_secs(40));
+    assert!(!card_shown(&view), "30 s left: not yet");
+    p.seek(Duration::from_secs(55));
+    s.wait("the card, 15 s before the end", |_| card_shown(&view));
+    assert!(announced(&view, "Up next: Episode 2"), "the card is announced");
+    // Cancel puts it away for this next; the end still plays it.
+    named(&view, "Cancel").unwrap_or_else(|| unreachable!("a cancel button")).focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert!(!card_shown(&view));
+    p.seek(Duration::from_secs(60));
+    s.idle(50);
+    assert!(!card_shown(&view), "still away for this next");
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:2"), "Episode 3")));
+    s.wait("back for a new next", |_| card_shown(&view));
+    p.seek(Duration::from_millis(69_500));
+    p.play();
+    s.wait("the next playing at once", |_| {
+        p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(2))
+    });
+    assert!(!card_shown(&view), "a two-second clip is too short for the card");
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+#[test]
+fn on_a_timeline_the_card_counts_the_films_time_left() {
+    let mut s = Screen::new();
+    // A 20-second stream from 396.7 s of a film that ends at 420 s: the stream has 20 s
+    // left, the film 23.3 s.
+    let t = Timeline::new(ORIGIN).length(Duration::from_secs(420));
+    let (p, view) = portal_next(&mut s, "script:20", Some(t));
+    s.idle(50);
+    assert!(!card_shown(&view), "23.3 s of the film left");
+    p.seek(Duration::from_secs(401));
+    s.wait("19 s of the film left", |_| card_shown(&view));
+}
+
+#[test]
+fn while_casting_portals_way_shows_no_card_and_the_default_still_does_at_the_end() {
+    let mut s = Screen::new();
+    let (p, view) = portal_next(&mut s, "script:70", None);
+    p.set_remote(Some(Remote::new("The Ris", Tv(Arc::new(Mutex::new(Vec::new()))))));
+    let at = Duration::from_secs;
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Playing, at(60)).length(at(70)));
+    s.idle(50);
+    assert!(!card_shown(&view), "the TV moves on by itself");
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Ended, at(70)).length(at(70)));
+    s.idle(50);
+    assert!(!card_shown(&view));
+    // The default: no card before the end, and one at the TV's end.
+    let mut s = Screen::new();
+    let options = PlayerOptions::default().next_up_delay(Some(Duration::from_millis(300)));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:70"), options);
+    let view = player(&s.ui, &p, "Episode 1");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:2"), "Episode 2")));
+    p.seek(at(65));
+    s.wait("65 s", |_| p.position() == at(65));
+    s.idle(50);
+    assert!(!card_shown(&view), "the default shows the card only at the end");
+    p.set_remote(Some(Remote::new("The Ris", Tv(Arc::new(Mutex::new(Vec::new()))))));
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Ended, at(70)).length(at(70)));
+    s.wait("the card at the TV's end", |_| card_shown(&view));
 }
