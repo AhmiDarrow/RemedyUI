@@ -51,3 +51,19 @@ overflow-checks = false
 
 [profile.release]
 overflow-checks = true
+
+# shortcut: wgpu with present-with-damage plus kept surface contents and buffer age, ported to
+# v30.0.2 (vello 0.4 needs wgpu 30). Upstream: gfx-rs/wgpu#10152 (merged after 30.0.2) and
+# gfx-rs/wgpu#11036; back to crates.io wgpu once both are released.
+[patch.crates-io]
+wgpu = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-core = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-hal = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-types = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-naga-bridge = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+naga = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+naga-types = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-core-deps-apple = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-core-deps-emscripten = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-core-deps-wasm = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
+wgpu-core-deps-windows-linux-android = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
