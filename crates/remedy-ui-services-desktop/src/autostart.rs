@@ -117,7 +117,7 @@ pub fn launch_agent(e: &Entry) -> String {
 }
 
 /// Quotes an argument for a desktop entry's `Exec` key.
-fn exec_quote(s: &str) -> String {
+pub(crate) fn exec_quote(s: &str) -> String {
     if s.chars().all(|c| c.is_ascii_alphanumeric() || "-_./=:".contains(c)) {
         return s.to_owned();
     }

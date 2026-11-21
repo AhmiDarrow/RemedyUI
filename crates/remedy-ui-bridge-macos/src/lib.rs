@@ -5,7 +5,9 @@
 //! crate adds the general pasteboard (sensitive copies marked concealed and transient, so
 //! clipboard managers skip them), window sharing protection (`NSWindowSharingNone`), and
 //! system settings: appearance, accent color, increased contrast, reduced motion and
-//! transparency, locale and double-click interval. All AppKit calls are in the `os` module.
+//! transparency, locale and double-click interval; notifications (User Notifications), the
+//! Dock tile's badge, and links in the app's URL schemes (the "get URL" Apple event), which
+//! reach the app as a later launch's arguments. All AppKit calls are in the `os` module.
 //! On other platforms this crate is empty.
 
 #[cfg(target_os = "macos")]
@@ -79,7 +81,31 @@ mod hooks {
 
         fn set_waker(&mut self, waker: Waker) {
             os::tray::set_waker(waker.clone());
+            os::notify::set_waker(waker.clone());
+            os::url::set_waker(waker.clone());
             os::dnd::set_waker(waker);
+            // Again now the app has finished launching, in case AppKit installed its own.
+            os::url::listen();
+        }
+
+        fn show_notification(
+            &mut self,
+            notification: &remedy_ui_host::Notification,
+        ) -> Result<(), Unsupported> {
+            os::notify::show(notification)
+        }
+
+        fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
+            os::notify::withdraw(id)
+        }
+
+        fn set_badge(
+            &mut self,
+            _windows: &[&Window],
+            _app_id: &str,
+            badge: Option<remedy_ui_host::Badge>,
+        ) -> Result<(), Unsupported> {
+            os::set_badge(badge.map(remedy_ui_host::Badge::label).as_deref())
         }
 
         fn start_drag(
@@ -120,7 +146,12 @@ mod hooks {
         }
 
         fn take_events(&mut self) -> Vec<HostEvent> {
-            os::tray::take_events().into_iter().map(HostEvent::Tray).collect()
+            let mut events: Vec<HostEvent> =
+                os::tray::take_events().into_iter().map(HostEvent::Tray).collect();
+            events.extend(os::notify::take_events());
+            // A link in one of the app's schemes reaches it like a later launch's arguments.
+            events.extend(os::url::take().into_iter().map(|url| HostEvent::SecondInstance(vec![url])));
+            events
         }
 
         fn utc_offset(&self, unix_seconds: i64) -> Option<i32> {
@@ -185,6 +216,8 @@ mod hooks {
 
     /// Runs `app` on the main thread's event loop until it exits.
     pub fn run(app: impl App) -> Result<(), RunError> {
+        // Before the app finishes launching, so the link that launched it is heard.
+        os::url::listen();
         remedy_ui_bridge_winit::run(app, MacHooks)
     }
 }

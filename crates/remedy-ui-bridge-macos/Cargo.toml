@@ -20,6 +20,8 @@ remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
 objc2 = { version = "=0.6.5" }
 objc2-app-kit = { version = "=0.3.2" }
 objc2-foundation = { version = "=0.3.2" }
+objc2-user-notifications = { version = "=0.3.2", default-features = false, features = ["std", "block2", "bitflags", "UNError", "UNNotification", "UNNotificationAttachment", "UNNotificationAction", "UNNotificationCategory", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
+block2 = { version = "=0.6.2" }
 rfd = { version = "=0.18.0", default-features = false }
 
 [lints]

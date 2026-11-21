@@ -51,6 +51,8 @@ mod hooks {
         icons: std::collections::HashMap<isize, os::icon::WindowIcons>,
         /// The share window's shares.
         sharing: os::share::Sharing,
+        /// The badge every taskbar button shows, for windows opened later too.
+        badge: Option<remedy_ui_host::Badge>,
     }
 
     impl std::fmt::Debug for WindowsHooks {
@@ -141,6 +143,17 @@ mod hooks {
 
         fn open_url(&mut self, url: &str) -> Result<(), Unsupported> {
             os::open_url(url)
+        }
+
+        fn set_badge(
+            &mut self,
+            windows: &[&Window],
+            _app_id: &str,
+            badge: Option<remedy_ui_host::Badge>,
+        ) -> Result<(), Unsupported> {
+            self.badge = badge;
+            let hwnds: Vec<isize> = windows.iter().filter_map(|w| hwnd(w)).collect();
+            os::badge::set(&hwnds, badge)
         }
 
         fn take_events(&mut self) -> Vec<HostEvent> {
@@ -278,6 +291,9 @@ mod hooks {
 
         fn window_created(&mut self, window: &Window) {
             let Some(h) = hwnd(window) else { return };
+            if self.badge.is_some() {
+                let _ = os::badge::set(&[h], self.badge);
+            }
             match os::dnd::register(h, window.scale_factor() as f32, self.drag_queue.clone()) {
                 Ok(r) => {
                     self.drops.insert(h, (window.id(), r));

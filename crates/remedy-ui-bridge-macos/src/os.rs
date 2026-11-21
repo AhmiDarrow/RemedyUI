@@ -1,7 +1,9 @@
 //! AppKit calls: the only unsafe code in the macOS bridge.
 
 pub(crate) mod dnd;
+pub(crate) mod notify;
 pub(crate) mod tray;
+pub(crate) mod url;
 
 use std::time::Duration;
 
@@ -137,4 +139,13 @@ pub(crate) fn utc_offset(unix_seconds: i64) -> Option<i32> {
     let date = objc2_foundation::NSDate::dateWithTimeIntervalSince1970(unix_seconds as f64);
     let zone = objc2_foundation::NSTimeZone::localTimeZone();
     i32::try_from(zone.secondsFromGMTForDate(&date)).ok()
+}
+
+/// Shows `label` on the app's Dock tile, or takes the badge away.
+pub(crate) fn set_badge(label: Option<&str>) -> Result<(), Unsupported> {
+    let mtm =
+        MainThreadMarker::new().ok_or_else(|| Unsupported::new("app badges", "not on the main thread"))?;
+    let tile = NSApplication::sharedApplication(mtm).dockTile();
+    tile.setBadgeLabel(label.map(NSString::from_str).as_deref());
+    Ok(())
 }

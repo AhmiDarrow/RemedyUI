@@ -18,7 +18,7 @@ pub fn reveal(path: &Path) -> Result<(), DesktopError> {
 }
 
 /// Windows' canonical paths start with `\\?\`, which the shell does not parse.
-fn strip_verbatim(p: &Path) -> std::path::PathBuf {
+pub(crate) fn strip_verbatim(p: &Path) -> std::path::PathBuf {
     let s = p.to_string_lossy();
     match s.strip_prefix(r"\\?\UNC\") {
         Some(rest) => format!(r"\\{rest}").into(),
