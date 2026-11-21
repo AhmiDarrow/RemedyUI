@@ -15,9 +15,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),
   except that a focused text field keeps every key, a focused slider its own, a focused
   button Space and Enter, and nothing reaches the player while a menu or dialog has focus or
-  is open; keys with Ctrl, Alt or the system key held never do. `Player::handle_key` applies
-  the same key map to one key and says whether it took it; the `player` widget uses it too,
-  so there is one key map.
+  is open; keys with Ctrl, Alt or the system key held never do. It acts only while the
+  player shows (a `player` widget or `player_picture` of it is seen, compact and remote
+  included), as Portal's keys only while its dock is open, so the app need not switch it.
+  `Player::handle_key` applies the same key map to one key and says whether it took it; the
+  `player` widget uses it too, so there is one key map. Each key either hears wakes the
+  full-screen controls, as a key inside the player does (Portal's `wake()`).
 - **Going compact closes the player's menus** in `media-playback`, as Portal's mini player
   does: `Player::set_compact(true)` closes the captions menu and any menu the app opened
   anchored to the player's buttons (the cast menu from `on_cast`). Full screen leaves them
@@ -904,6 +907,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- The `remedy-ui` runner tests build for wasm32 again: the PNG check of
+  `Window::snapshot_png`, which comes with the `devtools` feature, runs only with it.
 - A cancelled pointer (`PointerPhase::Cancel`) over a pressed element panicked in the view.
 - The media player could end before the last of the sound was played on a busy machine:
   the end was declared once the decoded sound was taken, while the time stretcher still held

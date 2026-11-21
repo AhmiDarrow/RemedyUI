@@ -754,6 +754,8 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     let p = player.clone();
     let root = ui.el("player");
     let (me, home, cursor, menus) = (root.clone(), root.clone(), root.clone(), root.clone());
+    static WIDGETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let widget_id = WIDGETS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     root.column()
         .grow(1.0)
         .semantics(Semantics::new(Role::Group).label(label))
@@ -801,6 +803,25 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
                 }
                 false
             }
+        })
+        // Keys from the rest of the window (`Player::keys_from`) wake the controls too.
+        .bind({
+            let (p, rest, was) = (player.clone(), rest.clone(), std::cell::Cell::new(None));
+            move || {
+                let n = p.key_wakes();
+                if was.replace(Some(n)).is_some_and(|w| w != n) {
+                    remedy_ui_reactive::untrack(|| rest.wake());
+                }
+            }
+        })
+        // Seen or not, for `Player::keys_from` (Portal's keys only while its dock is open).
+        .on_visibility({
+            let p = player.clone();
+            move |seen| p.widget_seen(widget_id, Some(seen))
+        })
+        .on_removed({
+            let p = player.clone();
+            move || p.widget_seen(widget_id, None)
         })
         .on_key(move |e| {
             if e.pressed {

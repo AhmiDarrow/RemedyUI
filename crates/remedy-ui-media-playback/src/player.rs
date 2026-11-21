@@ -664,6 +664,10 @@ struct Inner {
     title: Signal<Option<String>>,
     /// In full screen, the controls are showing (not faded after a rest).
     controls_awake: Signal<bool>,
+    /// Bumped by each key [Player::handle_key] hears: the widget wakes its controls.
+    key_wakes: Signal<u64>,
+    /// Each [player](crate::player) widget: its number and whether it is seen.
+    widgets: RefCell<Vec<(u64, bool)>>,
     /// Theater was on when the player went compact, so leaving it brings it back (Portal's).
     theater_before_compact: Cell<bool>,
     /// [`PlayerOptions::next_up_delay`] and [`next_up_lead`](PlayerOptions::next_up_lead),
@@ -1305,6 +1309,8 @@ impl Player {
             compact: Signal::new(options.compact),
             title: Signal::new(None),
             controls_awake: Signal::new(true),
+            key_wakes: Signal::new(0),
+            widgets: RefCell::new(Vec::new()),
             theater_before_compact: Cell::new(false),
             next_up_delay: Signal::new(options.next_up_delay),
             next_up_lead: Signal::new(options.next_up_lead),
@@ -2028,9 +2034,32 @@ impl Player {
     /// [`player`](crate::player) widget does for keys from inside it (K, J, L, M, C, F, T,
     /// Escape, > and <, N; the arrows and Space in [`KeyScheme::Arrows`]; the media keys), in
     /// [remote mode](Self::set_remote) on the device. True when the key was the player's;
-    /// keys with Ctrl, Alt or the system key held never are.
+    /// keys with Ctrl, Alt or the system key held never are. Each key pressed wakes the
+    /// full-screen controls, as a key inside the widget does.
     pub fn handle_key(&self, e: &remedy_ui_input::KeyEvent) -> bool {
+        if e.pressed {
+            self.0.key_wakes.update(|n| *n += 1);
+        }
         crate::widget::apply_key(self, e, true)
+    }
+
+    /// Bumped by each key [`handle_key`](Self::handle_key) hears. Tracked.
+    pub(crate) fn key_wakes(&self) -> u64 {
+        self.0.key_wakes.get()
+    }
+
+    /// Tells the player whether its widget `id` is seen (`None`: removed).
+    pub(crate) fn widget_seen(&self, id: u64, seen: Option<bool>) {
+        let mut w = self.0.widgets.borrow_mut();
+        w.retain(|(i, _)| *i != id);
+        if let Some(on) = seen {
+            w.push((id, on));
+        }
+    }
+
+    /// Whether the player shows anywhere: a widget or a picture of it is seen.
+    fn showing(&self) -> bool {
+        self.0.widgets.borrow().iter().any(|w| w.1) || self.0.pictures.borrow().iter().any(|p| p.2)
     }
 
     /// Hears the player's keys wherever focus is inside `el` (the window's
@@ -2038,11 +2067,13 @@ impl Player {
     /// (Self::handle_key) for each key nothing focused took, except that a focused text field
     /// keeps every key, a focused slider its own (the arrows, Home, End, Page Up and Down), a
     /// focused button or other control Space and Enter, and nothing reaches the player while
-    /// focus is in a menu or dialog or one is open. Keys inside the player widget reach it
-    /// first.
+    /// focus is in a menu or dialog or one is open. Only while the player shows (a
+    /// [`player`](crate::player) widget or [`player_picture`](crate::player_picture) of it
+    /// is seen), as Portal's page only while its dock is open. Keys inside the player widget
+    /// reach it first.
     pub fn keys_from(&self, el: &El) {
         let (p, ui) = (self.clone(), el.ui().clone());
-        let _ = el.clone().on_key(move |e| !focus_keeps(&ui, e) && p.handle_key(e));
+        let _ = el.clone().on_key(move |e| p.showing() && !focus_keeps(&ui, e) && p.handle_key(e));
     }
 
     /// What the person picked in the widget's captions menu (or C, or the app). Tracked.
