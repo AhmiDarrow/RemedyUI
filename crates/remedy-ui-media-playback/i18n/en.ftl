@@ -65,6 +65,7 @@ playback-back = Back 10 seconds
 playback-forward-tip = Forward 10 seconds (L)
 playback-forward = Forward 10 seconds
 playback-full-screen-tip = Full screen (F)
+playback-wake-tip = Any key shows the controls
 playback-full-screen = Full screen
 playback-exit-full-screen = Exit full screen
 # Theater mode: the picture wide in the page. One name; screen readers say whether it is on.

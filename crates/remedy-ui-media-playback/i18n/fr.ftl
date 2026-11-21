@@ -47,6 +47,7 @@ playback-back = Reculer de 10 secondes
 playback-forward-tip = Avancer de 10 secondes (L)
 playback-forward = Avancer de 10 secondes
 playback-full-screen-tip = Plein écran (F)
+playback-wake-tip = Toute touche affiche les commandes
 playback-full-screen = Plein écran
 playback-exit-full-screen = Quitter le plein écran
 playback-theater-tip = Mode cinéma (T)

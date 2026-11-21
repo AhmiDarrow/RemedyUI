@@ -2081,6 +2081,42 @@ fn the_badge_names_the_app_and_links_reach_on_url() {
 }
 
 #[test]
+fn an_element_hides_the_mouse_pointer_while_it_is_over_it() {
+    let hide = Signal::new(true);
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.open(WindowSpec::new("Movie").size(200.0, 100.0), move |ui, _| {
+            let picture = ui.el("box").layout(|l| {
+                l.width = Length::Px(100.0);
+                l.height = Length::Px(100.0);
+            });
+            let p = picture.clone();
+            let picture = picture.bind(move || {
+                let _ = p.clone().cursor_hidden(hide.get());
+            });
+            ui.root().row().child(picture);
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    let hidden = |host: &HeadlessHost| host.window(id).is_some_and(|w| w.is_cursor_hidden());
+    assert!(!hidden(&host), "not until the pointer is over it");
+    host.send(HostEvent::Pointer(id, press(50.0, 50.0, PointerPhase::Move)));
+    host.run_frames(&mut runner, 1);
+    assert!(hidden(&host), "over it");
+    host.send(HostEvent::Pointer(id, press(150.0, 50.0, PointerPhase::Move)));
+    host.run_frames(&mut runner, 1);
+    assert!(!hidden(&host), "beside it");
+    host.send(HostEvent::Pointer(id, press(50.0, 50.0, PointerPhase::Move)));
+    host.run_frames(&mut runner, 1);
+    assert!(hidden(&host));
+    // The element shows it again with no pointer movement (a timer, a signal).
+    hide.set(false);
+    host.run_frames(&mut runner, 1);
+    assert!(!hidden(&host), "shown again where it rests");
+}
+
+#[test]
 fn keys_and_clicks_sent_to_a_live_window_reach_it_as_the_platforms_do() {
     let count = Signal::new(0u32);
     let typed = Rc::new(std::cell::RefCell::new(String::new()));

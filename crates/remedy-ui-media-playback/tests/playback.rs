@@ -347,6 +347,18 @@ impl Screen {
         }
     }
 
+    /// Brings every timer the window asked for `by` nearer (as if that long passed), and
+    /// pumps: a rest of seconds without waiting for it.
+    fn advance(&mut self, by: Duration) {
+        self.pump();
+        let now = Instant::now();
+        for (_, at) in &mut self.timers {
+            *at = at.checked_sub(by).unwrap_or(now);
+        }
+        self.pump();
+        self.pump();
+    }
+
     fn hue(&self) -> char {
         self.frame.as_ref().map_or('-', frame_hue)
     }
@@ -3471,6 +3483,312 @@ fn a_second_picture_keeps_the_player_seen_while_the_first_is_hidden() {
     pip.remove();
     s.idle(100);
     assert_eq!(p.state(), PlaybackState::Playing);
+}
+
+/// The first element `widget` makes inside `view`.
+fn part(view: &El, widget: &str) -> El {
+    find(view, widget).into_iter().next().unwrap_or_else(|| unreachable!("{widget}"))
+}
+
+fn middle(e: &El) -> remedy_ui_core::Point {
+    let b = e.bounds().unwrap_or_default();
+    remedy_ui_core::Point::new((b.min.x + b.max.x) / 2.0, (b.min.y + b.max.y) / 2.0)
+}
+
+/// A scripted minute playing full screen, with a title and a caption on all the while, the
+/// pointer resting over the picture.
+fn full_screen(s: &mut Screen) -> (Player, El) {
+    full_screen_with(s, 60, PlayerOptions::default().two_rows(true))
+}
+
+fn full_screen_with(s: &mut Screen, seconds: u64, options: PlayerOptions) -> (Player, El) {
+    let (p, view) = scripted_with(s, seconds, options);
+    let cues = parse_subtitles("WEBVTT\n\n00:00.000 --> 01:00.000\nAll along\n", SubtitleFormat::WebVtt);
+    let track = SubtitleTrack { label: "English".into(), language: None, cues };
+    p.set_caption_track(Some(p.add_subtitles(track)));
+    p.set_title(Some("Episode 4".into()));
+    p.request_fullscreen(true);
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    s.pump();
+    let at = middle(&part(&view, "player_stage"));
+    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, at));
+    s.pump();
+    (p, view)
+}
+
+fn rested(s: &mut Screen) {
+    s.advance(Duration::from_millis(2700));
+}
+
+#[test]
+fn full_screen_controls_rest_after_a_pause_in_activity_and_any_input_wakes_them() {
+    let mut s = Screen::new();
+    let (p, view) = full_screen(&mut s);
+    let (chrome, title) = (part(&view, "player_chrome"), part(&view, "player_title"));
+    assert!(p.controls_shown() && !s.ui.cursor_hidden());
+    assert!(title.info().is_some_and(|i| !i.hidden && i.text.is_none()), "the title line shows");
+    assert!(
+        find(&title, "label").iter().any(|l| l.info().and_then(|i| i.text).as_deref() == Some("Episode 4"))
+    );
+    // The bar floats over the picture: the stage reaches the bottom of the player.
+    let (stage, bar) =
+        (part(&view, "player_stage").bounds().unwrap_or_default(), chrome.bounds().unwrap_or_default());
+    assert!(bar.min.y < stage.max.y && bar.max.y >= stage.max.y - 1.0, "{bar:?} over {stage:?}");
+    // The captions sit above the bar while it shows.
+    let caption = part(&view, "player_caption");
+    assert!(caption.bounds().unwrap_or_default().max.y <= bar.min.y + 0.5, "captions above the bar");
+
+    s.advance(Duration::from_millis(2400));
+    assert!(p.controls_shown(), "not before 2.6 s");
+    s.advance(Duration::from_millis(300));
+    assert!(!p.controls_shown(), "rested");
+    assert!(s.ui.cursor_hidden(), "the pointer hides with them");
+    s.pump();
+    assert!(caption.bounds().unwrap_or_default().max.y > bar.min.y, "the captions come back down");
+    assert_eq!(p.state(), PlaybackState::Playing);
+
+    // The pointer moving wakes them.
+    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, middle(&chrome)));
+    s.pump();
+    assert!(p.controls_shown() && !s.ui.cursor_hidden());
+    s.ui.pointer(&remedy_ui_input::PointerEvent::new(
+        remedy_ui_input::PointerPhase::Move,
+        middle(&part(&view, "player_stage")),
+    ));
+    rested(&mut s);
+    assert!(!p.controls_shown());
+    // So does a key, even one the player does nothing with.
+    let _ = press(&s.ui, Key::Character("x".into()));
+    s.pump();
+    assert!(p.controls_shown());
+    rested(&mut s);
+    // A tap on the rested picture brings them back and does not pause (Portal's would).
+    presses(&mut s, &part(&view, "player_stage"), &[5000], remedy_ui_input::PointerKind::Touch);
+    assert!(p.controls_shown());
+    s.idle(300);
+    assert_eq!(p.state(), PlaybackState::Playing, "a tap that only woke the controls");
+    rested(&mut s);
+    // A press on the rested bar wakes it rather than pressing what cannot be seen.
+    let play = named(&view, "Pause").unwrap_or_else(|| unreachable!("Pause"));
+    presses(&mut s, &play, &[9000], remedy_ui_input::PointerKind::Mouse);
+    assert!(p.controls_shown());
+    assert_eq!(p.state(), PlaybackState::Playing, "the hidden Pause was not pressed");
+
+    // Out of full screen they always show, and the pointer too.
+    rested(&mut s);
+    p.request_fullscreen(false);
+    s.pump();
+    assert!(p.controls_shown() && !s.ui.cursor_hidden());
+    assert!(title.info().is_some_and(|i| i.hidden), "no title line out of full screen");
+}
+
+#[test]
+fn full_screen_controls_stay_while_something_holds_them() {
+    let mut s = Screen::new();
+    let (p, view) = full_screen(&mut s);
+    let long = Duration::from_secs(8);
+    // Paused.
+    p.pause();
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    s.advance(long);
+    assert!(p.controls_shown(), "paused");
+    // Playing again (with no input: a media key) gives a whole rest, then they fade.
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    s.advance(Duration::from_millis(2400));
+    assert!(p.controls_shown(), "a whole rest after the hold ends");
+    s.advance(Duration::from_millis(300));
+    assert!(!p.controls_shown());
+    // The app's status (busy or not) shows them at once and holds them.
+    p.set_status(Some(StageStatus::new("Finding a better stream").busy(true)));
+    s.pump();
+    assert!(p.controls_shown(), "shown when the app speaks");
+    s.advance(long);
+    assert!(p.controls_shown());
+    p.set_status(None);
+    s.pump();
+    rested(&mut s);
+    assert!(!p.controls_shown());
+    // The pointer over the bar.
+    let chrome = part(&view, "player_chrome");
+    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, middle(&chrome)));
+    s.advance(long);
+    assert!(p.controls_shown(), "hovered");
+    // Scrubbing.
+    s.ui.pointer(&on_bar(&view, remedy_ui_input::PointerPhase::Down, 0.5, true));
+    s.ui.pointer(&on_bar(&view, remedy_ui_input::PointerPhase::Move, 0.6, true));
+    assert!(p.scrubbing().is_some());
+    s.ui.pointer(
+        &remedy_ui_input::PointerEvent::new(
+            remedy_ui_input::PointerPhase::Move,
+            middle(&part(&view, "player_stage")),
+        )
+        .with_buttons(remedy_ui_input::Buttons::PRIMARY),
+    );
+    s.advance(long);
+    assert!(p.controls_shown(), "scrubbing");
+    s.ui.pointer(&on_bar(&view, remedy_ui_input::PointerPhase::Up, 0.6, false));
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    s.ui.pointer(&remedy_ui_input::PointerEvent::new(
+        remedy_ui_input::PointerPhase::Move,
+        middle(&part(&view, "player_stage")),
+    ));
+    s.pump();
+    // Keyboard focus in the bar: Tab there, and it stays.
+    rested(&mut s);
+    assert!(!p.controls_shown());
+    let mut tabs = 0;
+    while !find(&chrome, "button").iter().any(El::is_focused) && tabs < 20 {
+        let _ = press(&s.ui, Key::Tab);
+        tabs += 1;
+    }
+    s.pump();
+    assert!(p.controls_shown(), "focus coming into the bar wakes it");
+    s.advance(long);
+    assert!(p.controls_shown(), "keyboard focus holds it");
+    // The captions menu open.
+    let captions = find(&chrome, "button")
+        .into_iter()
+        .find(|b| {
+            b.info()
+                .and_then(|i| i.semantics)
+                .and_then(|s| s.name().map(plain))
+                .is_some_and(|n| n.starts_with("Captions"))
+        })
+        .unwrap_or_else(|| unreachable!("the captions button"));
+    captions.focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    s.advance(long);
+    assert!(p.controls_shown(), "a menu open");
+}
+
+#[test]
+fn the_rest_fades_without_motion_under_reduced_motion_and_keeps_the_controls_reachable() {
+    for reduced in [false, true] {
+        let mut s = Screen::new();
+        s.ui.set_reduced_motion(reduced);
+        let (p, view) = full_screen(&mut s);
+        let chrome = part(&view, "player_chrome");
+        let opacity = |e: &El| e.info().map_or(1.0, |i| i.style.opacity);
+        rested(&mut s);
+        assert!(!p.controls_shown());
+        match reduced {
+            true => assert_eq!(opacity(&chrome), 0.0, "hidden at once"),
+            false => assert!(opacity(&chrome) > 0.0, "fading"),
+        }
+        s.idle(400);
+        assert_eq!(opacity(&chrome), 0.0);
+        // Faded, nothing changed for a screen reader: the controls are there, named, not
+        // hidden, and the audit finds nothing.
+        let pause = named(&view, "Pause").unwrap_or_else(|| unreachable!("Pause"));
+        assert!(pause.info().is_some_and(|i| !i.hidden && i.focusable));
+        let problems = remedy_ui_devtools::audit(&s.ui);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert!(!p.controls_shown(), "the audit is no activity");
+        // Focus moving there from the keyboard brings them back.
+        pause.focus();
+        s.pump();
+        assert!(p.controls_shown());
+        s.idle(400);
+        assert_eq!(opacity(&chrome), 1.0);
+    }
+}
+
+#[test]
+fn in_full_screen_up_next_floats_over_the_picture_and_keeps_its_keys() {
+    let mut s = Screen::new();
+    let options = PlayerOptions::default().two_rows(true).next_up_lead(Some(Duration::from_secs(20)));
+    let (p, view) = full_screen_with(&mut s, 90, options);
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:"), "Episode 5")));
+    s.pump();
+    let (card, chrome, stage) =
+        (part(&view, "player_next"), part(&view, "player_chrome"), part(&view, "player_stage"));
+    assert!(card.info().is_some_and(|i| i.hidden), "not yet");
+    rested(&mut s);
+    assert!(!p.controls_shown());
+    // The last 20 seconds: the card comes up over the picture and shows the controls with it.
+    p.seek(Duration::from_secs(75));
+    s.wait("the card", |_| card.info().is_some_and(|i| !i.hidden));
+    s.pump();
+    s.pump();
+    assert!(p.controls_shown(), "the card coming up wakes the controls");
+    let (c, b, st) = (
+        card.bounds().unwrap_or_default(),
+        chrome.bounds().unwrap_or_default(),
+        stage.bounds().unwrap_or_default(),
+    );
+    assert!(c.max.y <= b.min.y + 0.5, "above the bar: {c:?} {b:?}");
+    assert!(c.min.y >= st.min.y && c.max.y <= st.max.y, "over the picture: {c:?} {st:?}");
+    assert!(st.max.x - c.max.x < 20.0 && c.min.x > st.min.x + 20.0, "at the end side: {c:?}");
+    // It does not fade with the bar, nor move. (The pointer away from it: over the card it
+    // holds the controls.)
+    let away = remedy_ui_core::Point::new(st.min.x + 10.0, st.min.y + st.height() / 2.0);
+    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, away));
+    rested(&mut s);
+    s.idle(400);
+    assert!(!p.controls_shown());
+    assert_eq!(card.info().map(|i| (i.hidden, i.style.opacity)), Some((false, 1.0)));
+    assert_eq!(card.bounds().unwrap_or_default(), c, "it stays where it was");
+    // Under the pointer it holds the controls.
+    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, middle(&card)));
+    s.advance(Duration::from_secs(8));
+    assert!(p.controls_shown(), "hovered");
+    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, away));
+    rested(&mut s);
+    assert!(!p.controls_shown());
+    // The keyboard reaches it, which wakes the controls; screen readers read it.
+    let now = named(&view, "Play now").unwrap_or_else(|| unreachable!("Play now"));
+    let mut tabs = 0;
+    while !now.is_focused() && tabs < 30 {
+        let _ = press(&s.ui, Key::Tab);
+        tabs += 1;
+    }
+    s.pump();
+    assert!(now.is_focused() && p.controls_shown());
+    assert!(
+        s.ui.reader_view()
+            .iter()
+            .any(|n| n.name.as_deref().map(plain).as_deref() == Some("Up next: Episode 5"))
+    );
+    // Once the controls have faded in.
+    s.idle(400);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+    // Out of full screen it is back under the picture.
+    p.request_fullscreen(false);
+    s.pump();
+    s.pump();
+    let (c, st) = (card.bounds().unwrap_or_default(), stage.bounds().unwrap_or_default());
+    assert!(c.min.y >= st.max.y - 0.5, "under the picture: {c:?} {st:?}");
+}
+
+#[test]
+fn caption_lines_are_centred_each_in_its_own_box() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 3, PlayerOptions::default());
+    let vtt = "WEBVTT\n\n00:00.000 --> 00:03.000\nA long first line of the caption\nShort\n";
+    let cues = parse_subtitles(vtt, SubtitleFormat::WebVtt);
+    p.set_caption_track(Some(p.add_subtitles(SubtitleTrack {
+        label: "English".into(),
+        language: None,
+        cues,
+    })));
+    s.pump();
+    s.pump();
+    let lines = find(&part(&view, "player_captions"), "player_caption");
+    let texts: Vec<_> = lines.iter().filter_map(|l| l.info().and_then(|i| i.text)).collect();
+    assert_eq!(texts, ["A long first line of the caption", "Short"]);
+    let stage = part(&view, "player_stage").bounds().unwrap_or_default();
+    let mid = (stage.min.x + stage.max.x) / 2.0;
+    for l in &lines {
+        let b = l.bounds().unwrap_or_default();
+        assert!(((b.min.x + b.max.x) / 2.0 - mid).abs() < 1.0, "centred: {b:?} in {stage:?}");
+    }
+    let width = |i: usize| lines.get(i).and_then(El::bounds).unwrap_or_default().width();
+    let (a, b) = (width(0), width(1));
+    assert!(b < a, "each line its own box");
 }
 
 #[test]
