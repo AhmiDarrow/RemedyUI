@@ -34,6 +34,7 @@ playback-cast-paused = { $device } पर रुका है
 playback-cast-buffering = { $device } पर लोड हो रहा है
 playback-cast-ended = { $device } पर समाप्त
 playback-cast-failed = { $device } पर नहीं चल सकता
+playback-cast-next = { $device } पर { $title } शुरू हो रहा है
 playback-seek = प्लेबैक की स्थिति
 playback-seek-value = { $duration } में से { $position }
 playback-next-up = अगला: { $title }

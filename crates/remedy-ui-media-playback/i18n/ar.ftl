@@ -34,6 +34,7 @@ playback-cast-paused = متوقف مؤقتًا على { $device }
 playback-cast-buffering = جارٍ التحميل على { $device }
 playback-cast-ended = انتهى على { $device }
 playback-cast-failed = يتعذّر التشغيل على { $device }
+playback-cast-next = جارٍ بدء { $title } على { $device }
 playback-seek = موضع التشغيل
 playback-seek-value = { $position } من { $duration }
 playback-next-up = التالي: { $title }

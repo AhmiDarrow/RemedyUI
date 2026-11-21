@@ -34,6 +34,7 @@ playback-cast-paused = { $device }-এ বিরতি দেওয়া হয
 playback-cast-buffering = { $device }-এ লোড হচ্ছে
 playback-cast-ended = { $device }-এ শেষ হয়েছে
 playback-cast-failed = { $device }-এ চালানো যাচ্ছে না
+playback-cast-next = { $device }-এ { $title } শুরু হচ্ছে
 playback-seek = প্লেব্যাকের অবস্থান
 playback-seek-value = { $duration }-এর মধ্যে { $position }
 playback-next-up = এরপর: { $title }

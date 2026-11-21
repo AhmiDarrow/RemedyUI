@@ -50,6 +50,7 @@ playback-cast-paused = Paused on { $device }
 playback-cast-buffering = Loading on { $device }
 playback-cast-ended = Finished on { $device }
 playback-cast-failed = Can't play on { $device }
+playback-cast-next = Starting { $title } on { $device }
 # The seek bar's name, and its value ("0:42 of 3:20").
 playback-seek = Seek
 playback-seek-value = { $position } of { $duration }

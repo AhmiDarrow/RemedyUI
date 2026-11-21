@@ -34,6 +34,7 @@ playback-cast-paused = 已在 { $device } 上暂停
 playback-cast-buffering = 正在 { $device } 上加载
 playback-cast-ended = 已在 { $device } 上播完
 playback-cast-failed = 无法在 { $device } 上播放
+playback-cast-next = 正在 { $device } 上启动 { $title }
 playback-seek = 播放进度
 playback-seek-value = { $position }，共 { $duration }
 playback-next-up = 接下来：{ $title }

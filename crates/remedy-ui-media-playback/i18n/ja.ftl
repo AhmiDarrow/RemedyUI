@@ -34,6 +34,7 @@ playback-cast-paused = { $device } で一時停止中
 playback-cast-buffering = { $device } で読み込み中
 playback-cast-ended = { $device } で再生が終わりました
 playback-cast-failed = { $device } で再生できません
+playback-cast-next = { $device } で { $title } を開始しています
 playback-seek = 再生位置
 playback-seek-value = { $duration } 中 { $position }
 playback-next-up = 次に再生: { $title }
