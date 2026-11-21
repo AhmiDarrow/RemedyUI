@@ -152,7 +152,7 @@ fn parse_blocks(text: &str, format: SubtitleFormat) -> Vec<Cue> {
 
 /// Removes `<i>`, `<c.class>`, `<v Name>` and similar tags, SRT's `{\an8}` positioning, and
 /// decodes the entities WebVTT allows.
-fn clean_markup(line: &str) -> String {
+pub(crate) fn clean_markup(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars().peekable();
     while let Some(c) = chars.next() {
@@ -223,7 +223,7 @@ fn parse_ass(text: &str) -> Vec<Cue> {
 
 /// An ASS text field as plain text: `{…}` override blocks removed, `\N` and `\n` as line
 /// breaks, `\h` as a no-break space.
-fn ass_text(t: &str) -> String {
+pub(crate) fn ass_text(t: &str) -> String {
     let mut out = String::with_capacity(t.len());
     let mut chars = t.chars().peekable();
     while let Some(c) = chars.next() {

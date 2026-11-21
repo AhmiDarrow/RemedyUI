@@ -19,9 +19,8 @@
 //!   (every privilege removed, administrator groups deny-only), in a job object (no child
 //!   processes, no desktop, clipboard or UI handles, a memory limit for each image, killed with
 //!   the app). The helper checks it is in an AppContainer before it reads anything, and quits
-//!   if not. The socket driver itself can still be opened (closing that needs the
-//!   undocumented token calls Chromium uses); anything sent through it is dropped by
-//!   AppContainer network isolation.
+//!   if not. Before that it gives up bypass-traverse checking, the last privilege, as
+//!   Chromium's lockdown token does, so the socket driver cannot be opened either.
 //! - **Linux**: a seccomp-bpf allow-list (no opening files, no sockets, no new processes or
 //!   programs, no executable memory, no changing its own limits), Landlock with no file
 //!   system access (and no TCP from Landlock ABI 4), a fresh network namespace where the
@@ -105,7 +104,8 @@ pub enum Layer {
     /// files, the network, devices or other programs' named objects, nor to the objects every
     /// AppContainer may use (Windows Sockets cannot start).
     AppContainer,
-    /// Windows: a restricted token: every privilege removed, administrator groups deny-only.
+    /// Windows: a restricted token: every privilege removed (bypass-traverse checking too, so
+    /// devices such as the socket driver check every open), administrator groups deny-only.
     RestrictedToken,
     /// Windows: a job object: no child processes, no desktop, clipboard or UI handles, a
     /// memory limit for each image, and killed when the app goes.
