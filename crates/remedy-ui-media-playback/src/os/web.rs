@@ -396,11 +396,11 @@ fn open(data: Rc<[u8]>, out: &Shared) -> Result<Open, MediaError> {
                 let frame_rate = (secs > 0.0).then(|| t.samples.len() as f64 / secs);
                 Some(VideoInfo { width, height, frame_rate })
             }
-            Kind::Audio { .. } => None,
+            Kind::Audio { .. } | Kind::Text { .. } => None,
         }),
         audio: audio.as_ref().and_then(|(i, ..)| mp4.tracks.get(*i)).and_then(|t| match t.kind {
             Kind::Audio { sample_rate, channels } => Some(AudioFormat { sample_rate, channels }),
-            Kind::Video { .. } => None,
+            Kind::Video { .. } | Kind::Text { .. } => None,
         }),
         text_tracks: Vec::new(),
     };

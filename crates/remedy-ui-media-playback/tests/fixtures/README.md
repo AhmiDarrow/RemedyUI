@@ -16,3 +16,11 @@ ffmpeg -f lavfi -i "color=c=red:s=176x100:r=25:d=1" -f lavfi -i "color=c=lime:s=
   -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv -c:a aac -b:a 64k \
   -movflags +faststart -map_metadata -1 -fflags +bitexact clip.mp4
 ```
+
+`clip-subs.mp4` is `clip.mp4` with `clip.vtt` carried inside it as an English MPEG-4 timed-text
+(`tx3g`) track:
+
+```
+ffmpeg -i clip.mp4 -i clip.vtt -map 0 -map 1 -c copy -c:s mov_text -metadata:s:s:0 language=eng \
+  -movflags +faststart -map_metadata -1 -fflags +bitexact clip-subs.mp4
+```

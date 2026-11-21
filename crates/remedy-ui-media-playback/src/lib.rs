@@ -42,8 +42,9 @@ mod capture;
 pub mod deps;
 mod engine;
 mod host;
-// The MP4 reader feeds the browser's decoders (and is tested everywhere).
-#[cfg(any(test, all(target_arch = "wasm32", target_os = "unknown")))]
+// The MP4 reader feeds the browser's decoders, and reads MP4 timed text everywhere (the
+// platforms' readers do not hand it out).
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), allow(dead_code))]
 mod mp4;
 #[allow(unsafe_code)]
 mod os;

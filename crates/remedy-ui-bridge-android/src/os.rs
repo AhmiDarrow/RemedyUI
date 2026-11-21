@@ -488,6 +488,7 @@ impl Java {
 
     /// Starts or updates the input method session: the field's text around the caret, its
     /// selection in UTF-16 units, and the caret's left edge, top and bottom in window pixels.
+    #[allow(clippy::too_many_arguments, reason = "mirrors the Java call")]
     pub(crate) fn text_input(
         &self,
         app: &AndroidApp,
