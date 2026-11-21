@@ -11,6 +11,7 @@ use std::ffi::{CStr, CString, c_char};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use super::{
@@ -609,6 +610,8 @@ const EXCEPTION_OCCURRED: usize = 15;
 const EXCEPTION_CLEAR: usize = 17;
 const PUSH_LOCAL_FRAME: usize = 19;
 const POP_LOCAL_FRAME: usize = 20;
+const NEW_GLOBAL_REF: usize = 21;
+const DELETE_GLOBAL_REF: usize = 22;
 const NEW_OBJECT_A: usize = 30;
 const IS_INSTANCE_OF: usize = 32;
 const GET_METHOD_ID: usize = 33;
@@ -723,7 +726,6 @@ impl Jni {
         // is copied out no further than `read` said it filled.
         unsafe {
             let obj = self.f::<Call<Ptr>>(CALL_OBJECT_METHOD_A);
-            let int = self.f::<Call<i32>>(CALL_INT_METHOD_A);
             let void = self.f::<Call<()>>(CALL_VOID_METHOD_A);
             let s =
                 self.f::<unsafe extern "C" fn(Ptr, *const c_char) -> Ptr>(NEW_STRING_UTF)(env, curl.as_ptr());
@@ -744,16 +746,34 @@ impl Jni {
             let set_read = self.method(http, c"setReadTimeout", c"(I)V")?;
             let disconnect = self.method(http, c"disconnect", c"()V")?;
             void(env, conn, set_connect, [ms(FIRST_BYTE)].as_ptr());
-            // shortcut: the read timeout is QUIET from the start (it cannot be changed once
-            // connected), so an answer slower than that is a timeout too; a second connection
-            // timeout for the headers would need a watchdog thread.
-            void(env, conn, set_read, [ms(QUIET)].as_ptr());
+            // Java's own read timeout cannot change once connected: it only backs the watchdog up.
+            void(env, conn, set_read, [ms(FIRST_BYTE)].as_ptr());
             self.check(url)?;
+            let dog = Watchdog::start(self, conn, disconnect)?;
+            let got = self.read_all(url, conn, &dog);
+            void(env, conn, disconnect, std::ptr::null());
+            self.clear();
+            let gave_up = dog.stop(self);
+            match (got, gave_up) {
+                (Err(_), Some(why)) => Err(timed_out(url, why)),
+                (got, _) => got,
+            }
+        }
+    }
+
+    /// The answer's body: the connection's status, then its bytes, telling `dog` of each.
+    unsafe fn read_all(&self, url: &str, conn: Ptr, dog: &Watchdog) -> Result<Vec<u8>, MediaError> {
+        let env = self.0;
+        let http = c"java/net/HttpURLConnection";
+        // SAFETY: as in `get`.
+        unsafe {
+            let obj = self.f::<Call<Ptr>>(CALL_OBJECT_METHOD_A);
+            let int = self.f::<Call<i32>>(CALL_INT_METHOD_A);
+            let void = self.f::<Call<()>>(CALL_VOID_METHOD_A);
             let code = int(env, conn, self.method(http, c"getResponseCode", c"()I")?, std::ptr::null());
             self.check(url)?;
+            dog.progress(QUIET);
             if !(200..300).contains(&code) {
-                void(env, conn, disconnect, std::ptr::null());
-                self.clear();
                 return Err(MediaError::NotFound(format!("{url}: HTTP {code}")));
             }
             let input = obj(
@@ -769,25 +789,120 @@ impl Jni {
             let buf = self.f::<unsafe extern "C" fn(Ptr, i32) -> Ptr>(NEW_BYTE_ARRAY)(env, CHUNK);
             self.check(url)?;
             let region = self.f::<unsafe extern "C" fn(Ptr, Ptr, i32, i32, *mut i8)>(GET_BYTE_ARRAY_REGION);
-            let started = Instant::now();
             let mut out = Vec::new();
             let result = loop {
-                if started.elapsed() > LOAD {
-                    break Err(timed_out(url, "the download took too long"));
-                }
                 let n = int(env, input, read, [buf as u64].as_ptr());
                 if let Err(e) = self.check(url) {
                     break Err(e);
                 }
                 let Ok(len) = usize::try_from(n) else { break Ok(()) };
+                dog.progress(QUIET);
                 let at = out.len();
                 out.resize(at + len, 0);
                 region(env, buf, 0, n.min(CHUNK), out.as_mut_ptr().add(at).cast());
             };
             void(env, input, close, std::ptr::null());
-            void(env, conn, disconnect, std::ptr::null());
             self.clear();
             result.map(|()| out)
         }
+    }
+}
+
+/// Ends a Java fetch that waits too long: no answer for [`FIRST_BYTE`], no byte for [`QUIET`]
+/// once it answered, or [`LOAD`] in all. A thread of its own calls the connection's
+/// `disconnect()`, which ends the call waiting on it, as the WinHTTP watchdog does on Windows
+/// (Java's own read timeout cannot change once connected).
+struct Watchdog {
+    progress: Arc<Progress>,
+    /// Dropped to end the thread at once.
+    stop: Option<std::sync::mpsc::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    /// A global reference to the connection, for the watchdog's thread.
+    conn: Ptr,
+}
+
+struct Progress {
+    start: Instant,
+    /// Milliseconds after `start` that something last came, and how long it may then be quiet.
+    last: AtomicU64,
+    limit: AtomicU64,
+    gave_up: AtomicBool,
+}
+
+/// How often the watchdog looks.
+const WATCH: Duration = Duration::from_millis(50);
+
+impl Watchdog {
+    unsafe fn start(j: &Jni, conn: Ptr, disconnect: Ptr) -> Result<Watchdog, MediaError> {
+        // SAFETY: a global reference (usable from any thread) to a live local one.
+        let global = unsafe { j.f::<unsafe extern "C" fn(Ptr, Ptr) -> Ptr>(NEW_GLOBAL_REF)(j.0, conn) };
+        if global.is_null() {
+            return Err(MediaError::NotFound("no room for a Java reference".into()));
+        }
+        let progress = Arc::new(Progress {
+            start: Instant::now(),
+            last: AtomicU64::new(0),
+            limit: AtomicU64::new(FIRST_BYTE.as_millis() as u64),
+            gave_up: AtomicBool::new(false),
+        });
+        let (stop, stopped) = std::sync::mpsc::channel::<()>();
+        let p = progress.clone();
+        let (conn_ref, method) = (global as usize, disconnect as usize);
+        let thread = std::thread::Builder::new()
+            .name("remedy-hls-watchdog".into())
+            .spawn(move || {
+                while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(WATCH) {
+                    let since = p.start.elapsed().as_millis() as u64;
+                    let quiet = since.saturating_sub(p.last.load(Ordering::Relaxed));
+                    if since <= LOAD.as_millis() as u64 && quiet <= p.limit.load(Ordering::Relaxed) {
+                        continue;
+                    }
+                    p.gave_up.store(true, Ordering::Relaxed);
+                    if let Some(env) = java_env() {
+                        let j = Jni(env);
+                        // SAFETY: `disconnect()` on the connection the global reference holds
+                        // (deleted only after this thread is joined), from this attached thread.
+                        unsafe {
+                            j.f::<Call<()>>(CALL_VOID_METHOD_A)(
+                                env,
+                                conn_ref as Ptr,
+                                method as Ptr,
+                                std::ptr::null(),
+                            );
+                            j.clear();
+                        }
+                    }
+                    return;
+                }
+            })
+            .map_err(|e| MediaError::NotFound(format!("could not start the fetch's watchdog: {e}")))?;
+        Ok(Watchdog { progress, stop: Some(stop), thread: Some(thread), conn: global })
+    }
+
+    /// Something came: the watch starts again, allowing `quiet` until the next.
+    fn progress(&self, quiet: Duration) {
+        let p = &self.progress;
+        p.last.store(p.start.elapsed().as_millis() as u64, Ordering::Relaxed);
+        p.limit.store(quiet.as_millis() as u64, Ordering::Relaxed);
+    }
+
+    /// Ends the watch; why it gave up, if it did.
+    fn stop(mut self, j: &Jni) -> Option<&'static str> {
+        self.stop.take();
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+        // SAFETY: the watchdog's thread is done with the global reference.
+        unsafe { j.f::<unsafe extern "C" fn(Ptr, Ptr)>(DELETE_GLOBAL_REF)(j.0, self.conn) };
+        let p = &self.progress;
+        p.gave_up.load(Ordering::Relaxed).then(|| {
+            if p.start.elapsed() > LOAD {
+                "the download took too long"
+            } else if p.limit.load(Ordering::Relaxed) == QUIET.as_millis() as u64 {
+                "nothing arrived"
+            } else {
+                "no answer"
+            }
+        })
     }
 }
