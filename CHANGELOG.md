@@ -612,6 +612,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **Stacked glass could stall a frame for minutes.** Each pane of glass draws again what is
+  under it, glass included, so every pane doubled the cost (16 stacked panes took 40 s on the
+  CPU). Glass seen through more than `MAX_BACKDROP_DEPTH` (2) panes, and panes past
+  `MAX_BACKDROP_REPLAYS` (128) in a raster, are now drawn without their frost, on both
+  renderers and in the compositor: 40 stacked panes draw in milliseconds.
 - **Deeply nested groups aborted the process on the GPU.** vello_gpu overflowed its stack
   somewhere past 500 nested layers, clips or filters, so a display list nesting thousands (a
   hostile theme's) crashed the app. Renderers now keep at most `MAX_GROUP_DEPTH` (256) open:

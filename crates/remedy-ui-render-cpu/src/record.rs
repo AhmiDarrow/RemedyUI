@@ -248,7 +248,9 @@ fn walk<T: CompositeTarget>(
                 }
             }
             CompositeOp::Backdrop { transform, rect, radii, blur, opacity } => {
-                if misses(transform.apply_rect(*rect), &areas) {
+                // Glass past the replay budget is drawn without its frost (see Budget): each
+                // pane draws again what is under it, glass included.
+                if misses(transform.apply_rect(*rect), &areas) || !budget.admit_glass() {
                     continue;
                 }
                 let at = first + k;
@@ -274,11 +276,14 @@ fn walk<T: CompositeTarget>(
                     target.fill_color(&krect(under), background);
                 }
                 // shortcut: glass under glass replays its own source again, so n overlapping
-                // panes in one backdrop root draw what is under the first 2^(n-1) times; drawing
-                // each root's picture once into a texture both renderers sample would make it
-                // linear, if stacks of glass become common.
+                // panes in one backdrop root would draw what is under the first 2^(n-1) times;
+                // the budget bounds that (glass seen through more than MAX_BACKDROP_DEPTH panes
+                // goes without its frost). Drawing each root's picture once into a texture both
+                // renderers sample would make it linear, if stacks of glass become common.
                 if let Some(prefix) = all.get(..at) {
+                    budget.glass_depth += 1;
                     walk(target, prefix, root, under, true, shift, background, budget);
+                    budget.glass_depth -= 1;
                 }
                 target.pop_clip();
                 target.pop_layer();

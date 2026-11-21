@@ -251,6 +251,14 @@ pub const MAX_FILTER_OFFSET: f32 = 2048.0;
 /// close nothing. vello_gpu overflows its stack somewhere past 500 nested layers, which
 /// aborts the process; the CPU renderer slows by the nesting.
 pub const MAX_GROUP_DEPTH: usize = 256;
+/// How deep glass seen through glass is drawn: glass ([`Item::Backdrop`]) draws again what
+/// is under it, and glass under glass draws again what is under that, so a stack of panes
+/// would cost twice as much for every pane. Past this depth a pane seen through others is
+/// drawn without its frost.
+pub const MAX_BACKDROP_DEPTH: usize = 2;
+/// The most panes of glass drawn with their frost in one raster (a tile, a frame); the rest
+/// are drawn without it, so a theme stacking glass cannot stall a frame.
+pub const MAX_BACKDROP_REPLAYS: usize = 128;
 /// The most colour-matrix groups ([`Filter::ColorMatrix`]) renderers draw nested inside one
 /// another. Each open one holds a picture of its own, so a theme nesting a thousand of them
 /// does not hold a thousand pictures: groups deeper than this are drawn without their matrix.

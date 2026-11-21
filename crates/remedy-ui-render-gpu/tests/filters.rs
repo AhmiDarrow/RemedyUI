@@ -697,3 +697,75 @@ fn deeply_nested_groups_are_bounded_on_both_renderers() {
     }
     assert!(g.context().take_errors().is_empty());
 }
+
+#[test]
+fn stacked_glass_costs_a_bounded_amount_on_both_renderers() {
+    // Each pane draws again what is under it, glass included: 16 stacked panes took 40 s on
+    // the CPU, doubling with each pane. Now glass seen through more than MAX_BACKDROP_DEPTH
+    // panes, or past MAX_BACKDROP_REPLAYS panes in a raster, goes without its frost.
+    let mut l = DisplayList::new();
+    for i in 0..8 {
+        let c = if i % 2 == 0 { Color::rgb8(220, 60, 40) } else { Color::rgb8(30, 90, 200) };
+        l.fill_rect(Rect::new(i as f32 * 12.0, 0.0, i as f32 * 12.0 + 12.0, 96.0), Brush::Solid(c));
+    }
+    for k in 0..40 {
+        let o = (k % 10) as f32;
+        l.push(Item::Backdrop {
+            rect: Rect::new(4.0 + o, 4.0 + o, 80.0 + o, 80.0),
+            radii: CornerRadii::all(6.0),
+            blur: 3.0,
+        });
+        l.fill_rounded(
+            Rect::new(4.0 + o, 4.0 + o, 80.0 + o, 80.0),
+            CornerRadii::all(6.0),
+            Brush::Solid(Color::rgba8(255, 255, 255, 12)),
+        );
+    }
+    let mut g = gpu();
+    let mut c = CpuRenderer::new();
+    let started = std::time::Instant::now();
+    let (Ok(a), Ok(b)) = (c.render(&l, 96, 96, 1.0, Color::WHITE), g.render(&l, 96, 96, 1.0, Color::WHITE))
+    else {
+        unreachable!("both render")
+    };
+    assert!(started.elapsed() < std::time::Duration::from_secs(30), "bounded: {:?}", started.elapsed());
+    // Forty blurs stacked add up the renderers' small per-blur differences: held to the
+    // random-list test's tolerance.
+    let (visible, worst) = differing(&a, &b, 24);
+    assert!(visible * 50 <= 96 * 96, "the renderers agree ({visible}, worst {worst})");
+    // The same panes as glass layers the compositor draws.
+    let mut back = DisplayList::new();
+    for i in 0..8 {
+        let c = if i % 2 == 0 { Color::rgb8(220, 60, 40) } else { Color::rgb8(30, 90, 200) };
+        back.fill_rect(Rect::new(i as f32 * 12.0, 0.0, i as f32 * 12.0 + 12.0, 96.0), Brush::Solid(c));
+    }
+    let mut root = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 96.0, 96.0), back);
+    for k in 0..40u64 {
+        let o = (k % 10) as f32;
+        let mut pane = DisplayList::new();
+        pane.fill_rounded(
+            Rect::new(0.0, 0.0, 76.0, 76.0 - o),
+            CornerRadii::all(6.0),
+            Brush::Solid(Color::rgba8(255, 255, 255, 12)),
+        );
+        root = root.with_child(
+            Layer::new(LayerId(10 + k), Rect::new(4.0 + o, 4.0 + o, 80.0 + o, 80.0), pane)
+                .with_backdrop(3.0, CornerRadii::all(6.0)),
+        );
+    }
+    let mut comp = Compositor::new(96, 96, 1.0, ScrollPhysics::CLAMPED);
+    comp.commit(LayerTree::new(vec![root]));
+    let plan = comp.frame(Duration::ZERO);
+    let started = std::time::Instant::now();
+    let mut gc = GpuCompositor::new(gpu(), LadderOptions::default());
+    let (Ok(a), Ok(b)) = (
+        CpuCompositor::new().present(&plan, 96, 96, Color::WHITE),
+        gc.present_to_frame(&plan, 96, 96, Color::WHITE),
+    ) else {
+        unreachable!("both composite")
+    };
+    assert!(started.elapsed() < std::time::Duration::from_secs(30), "bounded: {:?}", started.elapsed());
+    let (visible, worst) = differing(&a, &b, 24);
+    assert!(visible * 50 <= 96 * 96, "the composites agree ({visible}, worst {worst})");
+    assert!(g.context().take_errors().is_empty());
+}

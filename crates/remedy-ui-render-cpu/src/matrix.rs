@@ -23,9 +23,24 @@ const GRID: f32 = 64.0;
 pub(crate) struct Budget {
     pub(crate) depth: usize,
     pub(crate) drawn: usize,
+    /// Glass: how deep in replays of what is under glass, and how many replays so far,
+    /// against [`MAX_BACKDROP_DEPTH`](remedy_ui_paint::MAX_BACKDROP_DEPTH) and
+    /// [`MAX_BACKDROP_REPLAYS`](remedy_ui_paint::MAX_BACKDROP_REPLAYS).
+    pub(crate) glass_depth: usize,
+    pub(crate) glass_drawn: usize,
 }
 
 impl Budget {
+    /// True (counting it) when one more pane of glass may draw again what is under it.
+    pub(crate) fn admit_glass(&mut self) -> bool {
+        let ok = self.glass_depth < remedy_ui_paint::MAX_BACKDROP_DEPTH
+            && self.glass_drawn < remedy_ui_paint::MAX_BACKDROP_REPLAYS;
+        if ok {
+            self.glass_drawn += 1;
+        }
+        ok
+    }
+
     /// The matrix a group is drawn through, or `None` when it is drawn as a plain group: the
     /// identity, or past the limits.
     pub(crate) fn admit(&self, matrix: &ColorMatrix) -> Option<ColorMatrix> {
