@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use remedy_ui_media_video::VideoSink;
 use remedy_ui_reactive::Signal;
-use remedy_ui_view::Ui;
+use remedy_ui_view::{El, Ui};
 
 use crate::engine::{self, Cmd, PlaybackState, PlaybackStats, Shared, lock};
 use crate::host::{MediaError, MediaHost, MediaInfo, MediaSource};
@@ -64,6 +64,86 @@ impl NextUp {
     /// `source`, called `title`.
     pub fn new(source: MediaSource, title: impl Into<String>) -> Self {
         NextUp { source, title: title.into() }
+    }
+}
+
+/// What a player in remote mode ([`Player::set_remote`]) passes each press on to: the app
+/// implements it and tells the device (a TV it casts to, through its own server or session).
+/// The player shows each change straight away; the app's next
+/// [`set_remote_status`](Player::set_remote_status) says what the device really did.
+pub trait RemoteControl {
+    /// Play.
+    fn play(&self);
+    /// Pause.
+    fn pause(&self);
+    /// Move to `to`.
+    fn seek(&self, to: Duration);
+    /// Set the volume, 0 to 1.
+    fn set_volume(&self, volume: f32);
+    /// Mute or unmute.
+    fn set_muted(&self, muted: bool);
+    /// Show captions from the player's track `track` (an index into
+    /// [`Player::subtitle_tracks`]), or none.
+    fn set_captions(&self, track: Option<usize>);
+    /// Play what is next (Shift+N, or Play now on the "Up next" card).
+    fn next(&self);
+}
+
+/// The device a player controls in place of playing itself ([`Player::set_remote`]).
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct Remote {
+    /// The device's name ("The Ris", "Living room TV"), shown and read out.
+    pub name: String,
+    /// What the player's controls act on.
+    pub control: Rc<dyn RemoteControl>,
+    /// Shown on the casting stage in place of the picture (the media's poster), if any.
+    pub poster: Option<El>,
+}
+
+impl Remote {
+    /// The device called `name`, driven through `control`.
+    pub fn new(name: impl Into<String>, control: impl RemoteControl + 'static) -> Self {
+        Remote { name: name.into(), control: Rc::new(control), poster: None }
+    }
+
+    /// Shows `poster` on the casting stage.
+    pub fn poster(mut self, poster: El) -> Self {
+        self.poster = Some(poster);
+        self
+    }
+}
+
+impl std::fmt::Debug for Remote {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Remote").field("name", &self.name).finish_non_exhaustive()
+    }
+}
+
+/// What the remote device is doing, as the app last heard ([`Player::set_remote_status`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemoteStatus {
+    /// Playing, paused, buffering; [`PlaybackState::Opening`] while it connects.
+    pub state: PlaybackState,
+    /// Where it is in the media.
+    pub position: Duration,
+    /// How long the media lasts, once the device knows.
+    pub length: Option<Duration>,
+    /// Its volume, 0 to 1.
+    pub volume: f32,
+    /// Whether it is muted.
+    pub muted: bool,
+}
+
+impl Default for RemoteStatus {
+    fn default() -> Self {
+        RemoteStatus {
+            state: PlaybackState::Opening,
+            position: Duration::ZERO,
+            length: None,
+            volume: 1.0,
+            muted: false,
+        }
     }
 }
 
@@ -130,6 +210,8 @@ fn deliver(id: u64) {
 
 /// Hears a full-screen or theater request.
 type FullscreenHandler = Rc<dyn Fn(bool)>;
+/// Hears a press on the cast button.
+type CastHandler = Rc<dyn Fn(&El)>;
 
 struct Inner {
     id: u64,
@@ -159,6 +241,12 @@ struct Inner {
     theater_handlers: RefCell<Vec<FullscreenHandler>>,
     /// An app heard theater requests ([`Player::on_theater`]): the widget offers them.
     theater_offered: Signal<bool>,
+    cast_handlers: RefCell<Vec<CastHandler>>,
+    /// An app opens a device menu ([`Player::on_cast`]): the widget shows the cast button.
+    cast_offered: Signal<bool>,
+    /// The device the controls act on, in remote mode.
+    remote: Signal<Option<Remote>>,
+    remote_status: Signal<RemoteStatus>,
     /// Where each embedded text track sits in `tracks`.
     embedded: RefCell<Vec<usize>>,
     autoplayed: Cell<bool>,
@@ -472,6 +560,10 @@ impl Player {
             theater: Signal::new(false),
             theater_handlers: RefCell::new(Vec::new()),
             theater_offered: Signal::new(false),
+            cast_handlers: RefCell::new(Vec::new()),
+            cast_offered: Signal::new(false),
+            remote: Signal::new(None),
+            remote_status: Signal::new(RemoteStatus::default()),
             embedded: RefCell::new(Vec::new()),
             autoplayed: Cell::new(false),
             queue: Signal::new(Vec::new()),
@@ -527,26 +619,50 @@ impl Player {
         }
     }
 
-    /// Plays (from the start again, once ended).
+    /// Plays (from the start again, once ended). In remote mode, tells the device.
     pub fn play(&self) {
-        self.0.send(Cmd::Play);
+        match self.control() {
+            Some(c) => {
+                c.play();
+                self.0.remote_status.update(|s| s.state = PlaybackState::Playing);
+            }
+            None => self.0.send(Cmd::Play),
+        }
     }
 
-    /// Pauses.
+    /// Pauses. In remote mode, tells the device.
     pub fn pause(&self) {
-        self.0.send(Cmd::Pause);
+        match self.control() {
+            Some(c) => {
+                c.pause();
+                self.0.remote_status.update(|s| s.state = PlaybackState::Paused);
+            }
+            None => self.0.send(Cmd::Pause),
+        }
     }
 
     /// Plays when paused or ended, pauses when playing.
     pub fn toggle(&self) {
-        match self.0.state.get_untracked().unwrap_or_default() {
+        let state = match self.control() {
+            Some(_) => self.0.remote_status.with_untracked(|s| s.state).unwrap_or_default(),
+            None => self.0.state.get_untracked().unwrap_or_default(),
+        };
+        match state {
             PlaybackState::Playing | PlaybackState::Buffering => self.pause(),
             _ => self.play(),
         }
     }
 
     /// Moves to `to` (clamped to the media's length). Does nothing in media that cannot seek.
+    /// In remote mode, tells the device.
     pub fn seek(&self, to: Duration) {
+        if let Some(c) = self.control() {
+            let to =
+                self.0.remote_status.with_untracked(|s| s.length).ok().flatten().map_or(to, |d| to.min(d));
+            c.seek(to);
+            self.0.remote_status.update(|s| s.position = to);
+            return;
+        }
         let to = self.duration_untracked().map_or(to, |d| to.min(d));
         if self.info_untracked().is_some_and(|i| i.seekable) {
             self.0.position.set(to);
@@ -556,25 +672,38 @@ impl Player {
 
     /// Moves `seconds` forward (or back, when negative) from the current position.
     pub fn seek_by(&self, seconds: f64) {
-        let now = self.0.position.get_untracked().unwrap_or_default().as_secs_f64();
-        let to = (now + seconds).max(0.0);
+        let now = match self.control() {
+            Some(_) => self.0.remote_status.with_untracked(|s| s.position).unwrap_or_default(),
+            None => self.0.position.get_untracked().unwrap_or_default(),
+        };
+        let to = (now.as_secs_f64() + seconds).max(0.0);
         self.seek(Duration::try_from_secs_f64(to).unwrap_or_default());
     }
 
-    /// What it is doing. Tracked.
+    /// What it is doing (in remote mode, the device). Tracked.
     pub fn state(&self) -> PlaybackState {
-        self.0.state.get()
+        match self.is_remote() {
+            true => self.0.remote_status.with(|s| s.state),
+            false => self.0.state.get(),
+        }
     }
 
-    /// Where it is in the media. Tracked: changes as it plays (with each picture shown, and
-    /// ten times a second for sound alone).
+    /// Where it is in the media (in remote mode, the device). Tracked: changes as it plays
+    /// (with each picture shown, and ten times a second for sound alone).
     pub fn position(&self) -> Duration {
-        self.0.position.get()
+        match self.is_remote() {
+            true => self.0.remote_status.with(|s| s.position),
+            false => self.0.position.get(),
+        }
     }
 
-    /// How long the media lasts, once known; `None` for live streams. Tracked.
+    /// How long the media lasts, once known (in remote mode, as the device says); `None`
+    /// for live streams. Tracked.
     pub fn duration(&self) -> Option<Duration> {
-        self.0.info.with(|i| i.as_ref().and_then(|i| i.duration))
+        match self.is_remote() {
+            true => self.0.remote_status.with(|s| s.length),
+            false => self.0.info.with(|i| i.as_ref().and_then(|i| i.duration)),
+        }
     }
 
     fn duration_untracked(&self) -> Option<Duration> {
@@ -606,25 +735,44 @@ impl Player {
         self.0.stats.get()
     }
 
-    /// The volume, 0 to 1. Tracked.
+    /// The volume, 0 to 1 (in remote mode, the device's). Tracked.
     pub fn volume(&self) -> f32 {
-        self.0.volume.get()
+        match self.is_remote() {
+            true => self.0.remote_status.with(|s| s.volume),
+            false => self.0.volume.get(),
+        }
     }
 
-    /// Sets the volume, 0 to 1.
+    /// Sets the volume, 0 to 1. In remote mode, the device's.
     pub fn set_volume(&self, v: f32) {
         let v = if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
+        if let Some(c) = self.control() {
+            // The slider follows the device: what it already says is not sent back.
+            if self.0.remote_status.with_untracked(|s| s.volume).ok() != Some(v) {
+                c.set_volume(v);
+                self.0.remote_status.update(|s| s.volume = v);
+            }
+            return;
+        }
         self.0.volume.set_if_changed(v);
         self.send_volume();
     }
 
-    /// Whether the sound is muted. Tracked.
+    /// Whether the sound is muted (in remote mode, the device's). Tracked.
     pub fn is_muted(&self) -> bool {
-        self.0.muted.get()
+        match self.is_remote() {
+            true => self.0.remote_status.with(|s| s.muted),
+            false => self.0.muted.get(),
+        }
     }
 
-    /// Mutes or unmutes, keeping the volume.
+    /// Mutes or unmutes, keeping the volume. In remote mode, the device.
     pub fn set_muted(&self, on: bool) {
+        if let Some(c) = self.control() {
+            c.set_muted(on);
+            self.0.remote_status.update(|s| s.muted = on);
+            return;
+        }
         self.0.muted.set_if_changed(on);
         self.send_volume();
     }
@@ -674,9 +822,13 @@ impl Player {
         self.0.caption.get()
     }
 
-    /// Shows captions from track `i`, or none.
+    /// Shows captions from track `i`, or none. In remote mode the device is told too: the
+    /// choice is the same on both.
     pub fn set_caption_track(&self, i: Option<usize>) {
         self.0.caption.set_if_changed(i);
+        if let Some(c) = self.control() {
+            c.set_captions(i);
+        }
     }
 
     /// The caption showing now, if captions are on and a cue covers the position (shifted
@@ -756,6 +908,77 @@ impl Player {
         self.0.theater_offered.get()
     }
 
+    /// Calls `f` with the cast button when it is pressed: the app opens its menu of devices
+    /// anchored to it (with [`menu`](remedy_ui_widgets_core::menu)), and on a choice puts the
+    /// player in [remote mode](Self::set_remote). The widget shows the button only once an app
+    /// listens.
+    pub fn on_cast(&self, f: impl Fn(&El) + 'static) {
+        self.0.cast_handlers.borrow_mut().push(Rc::new(f));
+        self.0.cast_offered.set_if_changed(true);
+    }
+
+    /// Whether an app listens for the cast button. Tracked.
+    pub(crate) fn cast_offered(&self) -> bool {
+        self.0.cast_offered.get()
+    }
+
+    /// Tells the app the cast button (`button`) was pressed.
+    pub(crate) fn request_cast(&self, button: &El) {
+        let handlers = self.0.cast_handlers.borrow().clone();
+        for h in handlers {
+            h(button);
+        }
+    }
+
+    /// Controls `remote` (a TV the app casts to) in place of playing here, or plays here again
+    /// (`None`). While remote, the local media pauses and keeps its place; the picture gives
+    /// way to a casting stage ("Playing on The Ris"); and play, pause, seeking, volume, mute,
+    /// captions and next (every control and key of the widget, and these methods) act on the
+    /// device through [`Remote::control`], while [`state`](Self::state),
+    /// [`position`](Self::position), [`duration`](Self::duration), [`volume`](Self::volume)
+    /// and [`is_muted`](Self::is_muted) say what the app last told
+    /// [`set_remote_status`](Self::set_remote_status). Leaving, the app picks up where the
+    /// device was: it reads [`position`](Self::position) first, then [`seek`](Self::seek)s and
+    /// [`play`](Self::play)s here.
+    pub fn set_remote(&self, remote: Option<Remote>) {
+        if remote.is_some() {
+            self.0.send(Cmd::Pause);
+            // Connecting, at the local volume, until the app hears from the device.
+            let (volume, muted) = (self.0.volume.get_untracked(), self.0.muted.get_untracked());
+            self.0.remote_status.set(RemoteStatus {
+                volume: volume.unwrap_or(1.0),
+                muted: muted.unwrap_or(false),
+                ..RemoteStatus::default()
+            });
+        }
+        self.0.remote.set(remote);
+    }
+
+    /// The device's name, in remote mode. Tracked.
+    pub fn remote_name(&self) -> Option<String> {
+        self.0.remote.with(|r| r.as_ref().map(|r| r.name.clone()))
+    }
+
+    /// What the device is doing, as the app hears it (polled from its server, or pushed): the
+    /// seek bar, the time, the volume and the casting stage follow it.
+    pub fn set_remote_status(&self, status: RemoteStatus) {
+        self.0.remote_status.set_if_changed(status);
+    }
+
+    /// Whether the player is in remote mode. Tracked.
+    pub fn is_remote(&self) -> bool {
+        self.0.remote.with(Option::is_some)
+    }
+
+    /// The remote's poster, in remote mode. Tracked.
+    pub(crate) fn remote_poster(&self) -> Option<El> {
+        self.0.remote.with(|r| r.as_ref().and_then(|r| r.poster.clone()))
+    }
+
+    fn control(&self) -> Option<Rc<dyn RemoteControl>> {
+        self.0.remote.with_untracked(|r| r.as_ref().map(|r| r.control.clone())).ok().flatten()
+    }
+
     /// Shows pictures in `sink` (the [`player`](crate::player) widget attaches its surface).
     pub fn attach(&self, sink: Option<VideoSink>) {
         *self.0.sink.borrow_mut() = sink.clone();
@@ -819,8 +1042,12 @@ impl Player {
     /// Plays the next media now, in this player, taking it off the queue (nothing when the
     /// queue is empty): the current one stops, and every signal about the media starts over
     /// with the next.
+    /// In remote mode, the device is told ([`RemoteControl::next`]) and the app decides.
     pub fn play_next(&self) {
-        self.0.advance();
+        match self.control() {
+            Some(c) => c.next(),
+            None => self.0.advance(),
+        }
     }
 }
 

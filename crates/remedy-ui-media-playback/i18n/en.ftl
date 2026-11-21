@@ -38,6 +38,17 @@ playback-exit-full-screen = Exit full screen
 # Theater mode: the picture wide in the page. One name; screen readers say whether it is on.
 playback-theater-tip = Theater mode (T)
 playback-theater = Theater mode
+# Casting: the media plays on another device (a TV) and the controls drive it. One button
+# name that says whether it is casting; { $device } is the device's name ("Living room TV").
+playback-cast-tip = Cast to a TV or another screen
+playback-cast = Cast
+playback-casting = Casting
+playback-cast-connecting = Connecting to { $device }
+playback-cast-playing = Playing on { $device }
+playback-cast-paused = Paused on { $device }
+playback-cast-buffering = Loading on { $device }
+playback-cast-ended = Finished on { $device }
+playback-cast-failed = Can't play on { $device }
 # The seek bar's name, and its value ("0:42 of 3:20").
 playback-seek = Seek
 playback-seek-value = { $position } of { $duration }
