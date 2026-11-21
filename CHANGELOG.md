@@ -10,6 +10,17 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **A player timeline for streams that hold part of a film** (`Timeline`,
+  `Player::set_timeline`, `PlayerOptions::timeline`, `NextUp::timeline`). With an origin (the
+  film's time at the stream's 0) and the film's length, position, duration, seeks, buffered
+  ranges, the seek bar, the time and the caption timing of tracks the app adds are in film
+  time. A seek outside what the stream holds goes to `Player::on_seek_outside` while the
+  widget shows "Skipping to …" with the bar disabled and ±10 presses adding up;
+  `Player::replace_source` hands over the new stream (volume, speed, captions and remote mode
+  kept) and `Player::cancel_skip` gives up. Without a timeline nothing changes.
+- **A casting TV's position moves on between reports** while it plays, for at most 15
+  seconds and never past the end, as on Portal's page.
+
 - **The player can answer to streaming-site keys** (`KeyScheme`, `PlayerOptions::keys`).
   `KeyScheme::Arrows` makes Left and Right skip 10 seconds, Up and Down change the volume by
   5% and N play next anywhere in the player (focused sliders and text fields keep their own
