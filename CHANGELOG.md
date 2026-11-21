@@ -12,9 +12,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 - **The seek bar shows what a stream has downloaded on more platforms** (`Decoder::buffered`,
   `Player::buffered`). GStreamer keeps a progressive stream's bytes and is asked in percent
-  when it has no answer in time (before, a stream reported nothing). Media Foundation reads
-  the byte ranges its network byte stream has cached, placed in time in proportion to the
-  stream's length. MediaCodec reports how far ahead its extractor has cached. In a browser a
+  when it has no answer in time (before, a stream reported nothing). Media Foundation resolves
+  a URL to a byte stream, reads through it, and reports the byte ranges it has cached, placed
+  in time in proportion to the stream's length. MediaCodec reports how far ahead its extractor
+  has cached (an estimate from the bitrate, kept at its furthest since the last seek), and
+  streams URLs from threads attached to the app's Java VM, which the NDK's HTTP source needs:
+  before, a URL failed to open on Android; with no VM it now says `Unsupported`. In a browser a
   URL is fetched a chunk at a time: the page opens it once its movie box is in, samples still
   downloading wait, and what has arrived is reported. AVFoundation still shows only what is
   decoded ahead. `remedy-ui-media-playback/tools/slow-serve.py` serves a file slowly for

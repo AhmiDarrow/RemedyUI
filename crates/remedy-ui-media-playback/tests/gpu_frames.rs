@@ -167,7 +167,6 @@ fn pictures_on_the_gpu_match_pictures_in_cpu_memory() {
     read(&mut dec, usize::MAX, &mut last);
     dec.seek(Duration::from_millis(1500)).unwrap_or_else(|e| unreachable!("seek: {e}"));
     read(&mut dec, 12, &mut last);
-    drop(read);
     assert_eq!(n, cpu.len(), "as many pictures");
 }
 
