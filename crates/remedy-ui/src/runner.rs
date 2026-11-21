@@ -1213,8 +1213,9 @@ impl App {
         f: impl Fn(remedy_ui_services_desktop::power::PowerEvent) + 'static,
     ) -> Result<(), remedy_ui_services_desktop::DesktopError> {
         use remedy_ui_services_desktop::power::PowerEvent;
+        type Handler = Rc<dyn Fn(PowerEvent)>;
         thread_local! {
-            static POWER: RefCell<Option<Rc<dyn Fn(PowerEvent)>>> = const { RefCell::new(None) };
+            static POWER: RefCell<Option<Handler>> = const { RefCell::new(None) };
         }
         POWER.with(|p| *p.borrow_mut() = Some(Rc::new(f)));
         if self.0.borrow().power.is_some() {

@@ -106,9 +106,11 @@ fn app(app: &App, snapshot: Option<String>) {
 fn save(path: &str, image: &remedy_ui::paint::Image) -> std::io::Result<()> {
     let px: Vec<u8> = image
         .pixels
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|p| {
-            let [r, g, b, a] = <[u8; 4]>::try_from(p).unwrap_or([0; 4]);
+            let [r, g, b, a] = *p;
             let un = |c: u8| {
                 (u32::from(c) * 255 + u32::from(a) / 2)
                     .checked_div(u32::from(a))
