@@ -24,28 +24,69 @@ fn ui() -> Ui {
     Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), FontCollection::new())
 }
 
-/// What must go away: threads, live test decoders, live platform objects.
-fn census(decoders: &AtomicUsize) -> (usize, usize, usize) {
-    (process_threads(), decoders.load(Ordering::SeqCst), live_platform_objects())
+/// Whether a thread is one of RemedyUI's: every thread the player and its platform code
+/// start is named `remedy-…` (threads the system starts for itself, Media Foundation's and
+/// WinHTTP's pools, GStreamer's, are not the player's to end).
+fn ours(t: &(String, String)) -> bool {
+    t.0.starts_with("remedy-")
 }
 
-/// Waits up to 5 s for everything to fall back to `before`, pumping the UI thread's posts.
-fn settles(what: &str, before: (usize, usize, usize), decoders: &AtomicUsize) {
+/// What must go away: RemedyUI's threads, live test decoders, live platform objects.
+fn census(decoders: &AtomicUsize) -> (usize, usize, usize) {
+    (
+        process_threads().iter().filter(|t| ours(t)).count(),
+        decoders.load(Ordering::SeqCst),
+        live_platform_objects(),
+    )
+}
+
+/// The threads in `now` that were not in `before` (by name and start module).
+fn added(before: &[(String, String)], now: Vec<(String, String)>) -> Vec<(String, String)> {
+    let mut left = before.to_vec();
+    now.into_iter()
+        .filter(|t| match left.iter().position(|b| b == t) {
+            Some(i) => {
+                left.swap_remove(i);
+                false
+            }
+            None => true,
+        })
+        .collect()
+}
+
+/// Waits up to `within` for everything to fall back to `before`, pumping the UI thread's
+/// posts. On failure, names every thread started since `threads` was taken.
+fn settles_within(
+    what: &str,
+    within: Duration,
+    before: (usize, usize, usize),
+    threads: &[(String, String)],
+    decoders: &AtomicUsize,
+) {
     let start = Instant::now();
     loop {
         let _ = remedy_ui_reactive::run_posted();
         let now = census(decoders);
         if now.0 <= before.0 && now.1 <= before.1 && now.2 <= before.2 {
+            // The system's own threads that stayed, for the record (its pools idle out later).
+            let foreign = added(threads, process_threads());
+            if !foreign.is_empty() {
+                eprintln!("{what}: the system's threads still up (not the player's): {foreign:?}");
+            }
             return;
         }
         assert!(
-            start.elapsed() < Duration::from_secs(5),
-            "{what}: (threads, decoders, platform objects) {now:?}, were {before:?}"
+            start.elapsed() < within,
+            "{what}: (threads, decoders, platform objects) {now:?}, were {before:?}; threads since: {:?}",
+            added(threads, process_threads())
         );
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(5));
     }
 }
 
+fn settles(what: &str, before: (usize, usize, usize), threads: &[(String, String)], decoders: &AtomicUsize) {
+    settles_within(what, Duration::from_secs(5), before, threads, decoders);
+}
 fn wait(what: &str, ok: impl Fn() -> bool) {
     let start = Instant::now();
     while !ok() {
@@ -145,14 +186,14 @@ impl MediaHost for Host {
 fn scripted(script: Script, then: impl FnOnce(&Player)) {
     let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
     let alive = Arc::new(AtomicUsize::new(0));
-    let before = census(&alive);
+    let (before, threads) = (census(&alive), process_threads());
     let ui = ui();
     let host = Arc::new(Host { script, alive: alive.clone() });
     let p = Player::open(&ui, host, MediaSource::url("script:"), PlayerOptions::default().keep_awake(true));
     then(&p);
     drop(p);
     drop(ui);
-    settles("after the drop", before, &alive);
+    settles("after the drop", before, &threads, &alive);
 }
 
 #[test]
@@ -202,7 +243,6 @@ fn captions_in_a_stream_are_bounded() {
         wait("the error", || p.error().is_some());
         let e = p.error().map(|e| e.to_string()).unwrap_or_default();
         assert!(e.contains("subtitles inside this media are over 16 MB"), "{e}");
-
     });
 }
 
@@ -212,7 +252,10 @@ fn captions_in_a_stream_are_bounded() {
 enum Serve {
     NotFound,
     BadSegment,
+    /// Every segment after the first answers nothing for 4 s.
     SlowSegment,
+    /// The playlist answers nothing for 4 s.
+    SlowPlaylist,
 }
 
 /// The `video` HLS fixture over HTTP, as `how` says; the playlist's URL.
@@ -236,13 +279,18 @@ fn server(how: Serve) -> String {
                         return;
                     }
                     (Serve::BadSegment, Some(f)) if segment => vec![0x47; f.len()],
+                    (Serve::SlowPlaylist, Some(_)) if !segment => {
+                        std::thread::sleep(Duration::from_secs(4));
+                        return;
+                    }
                     (Serve::SlowSegment, Some(_)) if segment && !path.ends_with("00000.ts") => {
                         std::thread::sleep(Duration::from_secs(4));
                         return;
                     }
                     (_, Some(f)) => f,
                 };
-                let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                let head =
+                    format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
                 let _ = s.write_all(head.as_bytes()).and_then(|()| s.write_all(&body));
             });
         }
@@ -251,25 +299,27 @@ fn server(how: Serve) -> String {
 }
 
 /// A player of the stream `how` serves, on the platform's host; `then` runs on it before it
-/// is dropped. The census is taken after one warm-up open, so pools the platform keeps for
-/// the process (Media Foundation's work queues, GStreamer's) are not counted.
+/// is dropped.
 fn streamed(how: Serve, then: impl FnOnce(&Player)) {
+    streamed_within(how, Duration::from_secs(5), then);
+}
+
+/// [`streamed`], with everything to be gone `within` the drop.
+fn streamed_within(how: Serve, within: Duration, then: impl FnOnce(&Player)) {
     let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
     let Ok(host) = platform_host() else {
         eprintln!("no platform host here, skipping");
         return;
     };
-    let _ = host.open(&MediaSource::Url(server(Serve::NotFound)));
-    // The server's listener starts before the census: it stays for the process.
     let url = server(how);
     let none = AtomicUsize::new(0);
-    let before = census(&none);
+    let (before, threads) = (census(&none), process_threads());
     let ui = ui();
     let p = Player::open(&ui, host, MediaSource::Url(url), PlayerOptions::default().keep_awake(true));
     then(&p);
     drop(p);
     drop(ui);
-    settles("after the drop", before, &none);
+    settles_within("after the drop", within, before, &threads, &none);
 }
 
 #[test]
@@ -287,15 +337,22 @@ fn a_stream_with_a_bad_segment() {
     });
 }
 
-// shortcut: on Windows 5 threads (no decoder, no platform object) outlive the drop by 5 s;
-// not yet told apart from WinHTTP's own pool. Un-ignore once they are.
 #[test]
-#[cfg_attr(windows, ignore)]
 fn a_stream_dropped_mid_fetch() {
-    // Opened (the first segment came at once), then dropped while the second is awaited.
-    streamed(Serve::SlowSegment, |p| {
+    // Opened (the first segment came at once), then dropped while the second is awaited:
+    // the fetch gives up at once (its watchdog looks every 100 ms).
+    streamed_within(Serve::SlowSegment, Duration::from_millis(300), |p| {
         wait("opened", || p.state() == PlaybackState::Paused);
         p.play();
         std::thread::sleep(Duration::from_millis(1500));
+    });
+}
+
+#[test]
+fn a_stream_dropped_mid_open() {
+    // The playlist is still awaited: the open gives up, its fetch too.
+    streamed_within(Serve::SlowPlaylist, Duration::from_millis(300), |p| {
+        std::thread::sleep(Duration::from_millis(500));
+        assert_eq!(p.state(), PlaybackState::Opening);
     });
 }

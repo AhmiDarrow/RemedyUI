@@ -311,7 +311,8 @@ fn read<R: Read + Seek>(r: BufReader<R>, len: u64) -> Result<Vec<SubtitleTrack>,
             places.dedup();
         }
     }
-    let mut reader = Blocks { src: &mut src, tracks: &mut tracks, scale, seg_end, seen: Vec::new(), text_bytes: 0 };
+    let mut reader =
+        Blocks { src: &mut src, tracks: &mut tracks, scale, seg_end, seen: Vec::new(), text_bytes: 0 };
     if places.is_empty() {
         let mut at = first_cluster.unwrap_or(seg_end);
         while at < seg_end {

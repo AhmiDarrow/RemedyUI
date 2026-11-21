@@ -11,7 +11,9 @@ pub(crate) fn platform_hold(reason: &str) -> Option<Box<dyn std::any::Any>> {
         .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
         .unwrap_or_else(|| "RemedyUI".to_owned());
     // Counted with the platform objects, so the leak tests see a hold left behind.
-    inhibit(Inhibit::Display, &app, reason).ok().map(|h| Box::new((h, crate::os::Live::new())) as Box<dyn std::any::Any>)
+    inhibit(Inhibit::Display, &app, reason)
+        .ok()
+        .map(|h| Box::new((h, crate::os::Live::new())) as Box<dyn std::any::Any>)
 }
 
 #[cfg(not(feature = "keep-awake"))]

@@ -128,8 +128,9 @@ pub fn live_platform_objects() -> usize {
     os::live_objects()
 }
 
-/// For leak tests: the threads this process runs (0 where it cannot tell).
+/// For leak tests: the threads this process runs, as (name, module it started in); empty
+/// where the platform cannot tell, and the module empty where it does not say.
 #[doc(hidden)]
-pub fn process_threads() -> usize {
+pub fn process_threads() -> Vec<(String, String)> {
     os::process_threads()
 }
