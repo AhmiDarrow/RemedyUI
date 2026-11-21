@@ -996,6 +996,8 @@ impl Drop for Inner {
         }
         let id = self.id;
         let _ = PLAYERS.try_with(|p| p.borrow_mut().remove(&id));
+        #[cfg(feature = "media-session")]
+        crate::session::forget(id);
     }
 }
 
@@ -1975,6 +1977,18 @@ impl Player {
     /// A handle that hands [`RemoteStatus`] news to this player from any thread.
     pub fn remote_status_sender(&self) -> RemoteStatusSender {
         RemoteStatusSender { id: self.0.id, waker: remedy_ui_reactive::waker().ok() }
+    }
+
+    /// The player's number on its UI thread (what a post from another thread carries).
+    #[cfg(feature = "media-session")]
+    pub(crate) fn id(&self) -> u64 {
+        self.0.id
+    }
+
+    /// The player numbered `id` on this thread, while it lives.
+    #[cfg(feature = "media-session")]
+    pub(crate) fn by_id(id: u64) -> Option<Player> {
+        PLAYERS.with(|p| p.borrow().get(&id).and_then(Weak::upgrade)).map(Player)
     }
 
     /// Whether the player is in remote mode. Tracked.

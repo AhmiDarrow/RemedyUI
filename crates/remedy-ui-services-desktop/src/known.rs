@@ -49,6 +49,7 @@ impl KnownFolder {
     }
 }
 
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from)
 }
@@ -71,6 +72,11 @@ fn platform(k: KnownFolder) -> Option<PathBuf> {
         KnownFolder::Videos => h.join("Movies"),
         other => h.join(other.name()),
     })
+}
+
+#[cfg(not(any(windows, unix)))]
+fn platform(_: KnownFolder) -> Option<PathBuf> {
+    None
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]

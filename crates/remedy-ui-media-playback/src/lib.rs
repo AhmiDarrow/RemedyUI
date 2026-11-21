@@ -75,6 +75,7 @@ mod host;
     allow(dead_code)
 )]
 mod hls;
+mod media_keys;
 // Matroska and WebM text subtitles, read from local files on every platform (the
 // platforms' readers do not hand them out).
 mod mkv;
@@ -85,6 +86,8 @@ mod mp4;
 #[allow(unsafe_code)]
 mod os;
 mod player;
+#[cfg(feature = "media-session")]
+mod session;
 mod stretch;
 mod subtitles;
 mod widget;
@@ -104,6 +107,8 @@ pub use player::{
     CaptionsState, KeyScheme, NEXT_UP_DELAY, NextUp, Player, PlayerOptions, Remote, RemoteControl,
     RemoteStatus, RemoteStatusSender, StageStatus, Timeline, UnseenPolicy,
 };
+#[cfg(feature = "media-session")]
+pub use remedy_ui_services_desktop::media_session::{Artwork, NowPlaying};
 pub use stretch::{MAX_SPEED, MIN_SPEED, SPEEDS, clamp_speed};
 pub use subtitles::{Cue, SubtitleFormat, SubtitleTrack, parse_subtitles};
 pub use widget::{PlayerParts, format_time, player, player_picture, player_with};
