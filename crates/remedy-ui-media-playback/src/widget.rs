@@ -561,6 +561,9 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             if !e.pressed || e.composing || e.modifiers.ctrl || e.modifiers.alt || e.modifiers.meta {
                 return false;
             }
+            if let Key::Named(n) = &e.key {
+                return crate::media_keys::key_press(n).is_some_and(|m| crate::media_keys::apply(&p, m));
+            }
             let arrows = p.key_scheme() == KeyScheme::Arrows;
             let pictures = p.info().is_none_or(|i| i.video.is_some());
             match &e.key {

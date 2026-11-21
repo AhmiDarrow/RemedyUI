@@ -1541,6 +1541,16 @@ impl Player {
         RemoteStatusSender { id: self.0.id, waker: remedy_ui_reactive::waker().ok() }
     }
 
+    /// The player's number on its UI thread (what a post from another thread carries).
+    pub(crate) fn id(&self) -> u64 {
+        self.0.id
+    }
+
+    /// The player numbered `id` on this thread, while it lives.
+    pub(crate) fn by_id(id: u64) -> Option<Player> {
+        PLAYERS.with(|p| p.borrow().get(&id).and_then(Weak::upgrade)).map(Player)
+    }
+
     /// Whether the player is in remote mode. Tracked.
     pub fn is_remote(&self) -> bool {
         self.0.remote.with(Option::is_some)
