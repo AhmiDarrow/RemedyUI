@@ -3641,3 +3641,78 @@ fn subtitles_cut_to_the_stream_follow_the_timeline_across_new_sources() {
     assert_eq!(at(&mut s, 101_000).as_deref(), Some("One"), "after the new origin");
     assert_eq!(at(&mut s, 103_000), None);
 }
+
+/// A stand-in for the session's screen saver: the cookies it holds and the reasons given.
+#[cfg(all(target_os = "linux", feature = "keep-awake"))]
+#[derive(Clone, Default)]
+struct Saver {
+    held: Arc<Mutex<Vec<u32>>>,
+    reasons: Arc<Mutex<Vec<String>>>,
+    next: Arc<AtomicU64>,
+}
+
+#[cfg(all(target_os = "linux", feature = "keep-awake"))]
+#[zbus::interface(name = "org.freedesktop.ScreenSaver")]
+impl Saver {
+    fn inhibit(&self, _app: String, reason: String) -> u32 {
+        let cookie = u32::try_from(self.next.fetch_add(1, Ordering::SeqCst) + 1).unwrap_or(u32::MAX);
+        self.held.lock().unwrap_or_else(|e| e.into_inner()).push(cookie);
+        self.reasons.lock().unwrap_or_else(|e| e.into_inner()).push(reason);
+        cookie
+    }
+
+    fn un_inhibit(&self, cookie: u32) {
+        self.held.lock().unwrap_or_else(|e| e.into_inner()).retain(|c| *c != cookie);
+    }
+}
+
+/// The player's own hold on Linux: the session's screen saver, inhibited while video plays and
+/// uninhibited on pause, casting, the end and drop. Needs a session bus to serve the stand-in
+/// on (`dbus-run-session -- cargo test --features keep-awake`); without one it says so and
+/// passes.
+#[cfg(all(target_os = "linux", feature = "keep-awake"))]
+#[test]
+fn on_linux_the_session_screen_saver_is_inhibited_while_video_plays() {
+    if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none() {
+        eprintln!("skipped: no session bus (run under dbus-run-session)");
+        return;
+    }
+    let saver = Saver::default();
+    let _conn = zbus::block_on(async {
+        zbus::conn::Builder::session()?
+            .name("org.freedesktop.ScreenSaver")?
+            .serve_at("/org/freedesktop/ScreenSaver", saver.clone())?
+            .build()
+            .await
+    })
+    .unwrap_or_else(|e| unreachable!("serving the screen saver: {e}"));
+    let held = || saver.held.lock().unwrap_or_else(|e| e.into_inner()).len();
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 3, PlayerOptions::default().keep_awake(true));
+    assert_eq!(held(), 0, "not while paused");
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    assert_eq!(held(), 1, "inhibited while playing");
+    assert!(p.is_holding_awake());
+    p.pause();
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    assert_eq!(held(), 0, "uninhibited on pause");
+    p.play();
+    s.wait("playing", |_| held() == 1);
+    p.set_remote(Some(Remote::new("The Ris", Tv(Arc::new(Mutex::new(Vec::new()))))));
+    assert_eq!(held(), 0, "uninhibited while casting");
+    p.set_remote(None);
+    p.play();
+    s.wait("playing here again", |_| held() == 1);
+    s.wait("the end", |_| p.state() == PlaybackState::Ended);
+    assert_eq!(held(), 0, "uninhibited at the end");
+    p.play();
+    s.wait("playing from the start", |_| held() == 1);
+    drop(p);
+    view.remove();
+    drop(view);
+    s.pump();
+    assert_eq!(held(), 0, "uninhibited when the player goes");
+    let reasons = saver.reasons.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(reasons.iter().all(|r| r == "Playing video"), "{reasons:?}");
+}

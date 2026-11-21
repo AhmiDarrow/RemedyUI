@@ -199,8 +199,8 @@ mod platform {
 }
 
 /// A browser page: no power state, and only the screen kept on, with the Screen Wake Lock
-/// (`navigator.wakeLock`, reached by name). The browser lets go of it while the page is
-/// hidden; a hold taken again once the page shows asks again.
+/// (`navigator.wakeLock`, reached by name). The browser lets go of the lock while the page is
+/// hidden; a hold asks for it again each time the page shows.
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 mod platform {
     use std::cell::RefCell;
@@ -214,25 +214,84 @@ mod platform {
 
     pub(super) type Watch = ();
 
-    /// The sentinel the browser hands back once it holds the lock, and whether the hold went
-    /// before it came (then it is let go at once).
+    /// The sentinel the browser hands back once it holds the lock, whether a request is in
+    /// flight, and whether the hold went (a sentinel that comes after is let go at once).
     #[derive(Default)]
     struct Lock {
         sentinel: Option<JsValue>,
+        asking: bool,
         dropped: bool,
     }
 
-    pub(crate) struct Hold(Rc<RefCell<Lock>>);
+    pub(crate) struct Hold {
+        lock: Rc<RefCell<Lock>>,
+        /// Asks again when the page shows; removed with the hold.
+        on_show: Closure<dyn FnMut()>,
+    }
+
+    fn get(o: &JsValue, k: &str) -> JsValue {
+        Reflect::get(o, &k.into()).unwrap_or(JsValue::UNDEFINED)
+    }
+
+    fn method(o: &JsValue, k: &str) -> Option<Function> {
+        get(o, k).dyn_into().ok()
+    }
 
     fn release(sentinel: &JsValue) {
-        if let Ok(f) = Reflect::get(sentinel, &"release".into()).and_then(|f| f.dyn_into::<Function>()) {
+        if let Some(f) = method(sentinel, "release") {
             let _ = f.call0(sentinel);
         }
     }
 
+    fn document() -> JsValue {
+        get(&js_sys::global(), "document")
+    }
+
+    fn unsupported() -> DesktopError {
+        DesktopError::unsupported("keeping the screen on", "this browser has no Screen Wake Lock")
+    }
+
+    /// Asks the browser for the lock, unless it is held or asked for already.
+    fn request(lock: &Rc<RefCell<Lock>>) -> Result<(), DesktopError> {
+        {
+            let l = lock.borrow();
+            let live = l.sentinel.as_ref().is_some_and(|s| get(s, "released") != JsValue::TRUE);
+            if l.dropped || l.asking || live {
+                return Ok(());
+            }
+        }
+        let wake = get(&get(&js_sys::global(), "navigator"), "wakeLock");
+        let request = wake.is_object().then(|| method(&wake, "request")).flatten().ok_or_else(unsupported)?;
+        let promise = request
+            .call1(&wake, &"screen".into())
+            .map_err(|e| DesktopError::platform(format!("navigator.wakeLock.request: {e:?}")))?;
+        let then = method(&promise, "then")
+            .ok_or_else(|| DesktopError::platform("navigator.wakeLock.request returned no promise"))?;
+        lock.borrow_mut().asking = true;
+        let l = lock.clone();
+        let held = Closure::once_into_js(move |sentinel: JsValue| {
+            let mut l = l.borrow_mut();
+            l.asking = false;
+            match l.dropped {
+                true => release(&sentinel),
+                false => l.sentinel = Some(sentinel),
+            }
+        });
+        // Refused (the page hidden, a permissions policy): nothing is held until it shows.
+        let l = lock.clone();
+        let refused = Closure::once_into_js(move |_: JsValue| l.borrow_mut().asking = false);
+        then.call2(&promise, &held, &refused)
+            .map_err(|e| DesktopError::platform(format!("navigator.wakeLock.request: {e:?}")))?;
+        Ok(())
+    }
+
     impl Drop for Hold {
         fn drop(&mut self) {
-            let mut l = self.0.borrow_mut();
+            let doc = document();
+            if let Some(f) = method(&doc, "removeEventListener") {
+                let _ = f.call2(&doc, &"visibilitychange".into(), self.on_show.as_ref().unchecked_ref());
+            }
+            let mut l = self.lock.borrow_mut();
             l.dropped = true;
             if let Some(s) = l.sentinel.take() {
                 release(&s);
@@ -259,36 +318,19 @@ mod platform {
                 "a page can keep only the screen on",
             ));
         }
-        let unsupported =
-            || DesktopError::unsupported("keeping the screen on", "this browser has no Screen Wake Lock");
-        let nav = web_sys::window().ok_or_else(unsupported)?.navigator();
-        let wake =
-            Reflect::get(&nav, &"wakeLock".into()).ok().filter(|v| v.is_object()).ok_or_else(unsupported)?;
-        let request: Function = Reflect::get(&wake, &"request".into())
-            .ok()
-            .and_then(|f| f.dyn_into().ok())
-            .ok_or_else(unsupported)?;
-        let promise = request
-            .call1(&wake, &"screen".into())
-            .map_err(|e| DesktopError::platform(format!("navigator.wakeLock.request: {e:?}")))?;
         let lock = Rc::new(RefCell::new(Lock::default()));
+        request(&lock)?;
         let l = lock.clone();
-        let held = Closure::once_into_js(move |sentinel: JsValue| {
-            let mut l = l.borrow_mut();
-            match l.dropped {
-                true => release(&sentinel),
-                false => l.sentinel = Some(sentinel),
+        let on_show = Closure::<dyn FnMut()>::new(move || {
+            if get(&document(), "visibilityState").as_string().as_deref() == Some("visible") {
+                let _ = request(&l);
             }
         });
-        // Refused (the page hidden, a permissions policy): nothing is held.
-        let refused = Closure::once_into_js(|_: JsValue| {});
-        let then: Function = Reflect::get(&promise, &"then".into())
-            .ok()
-            .and_then(|f| f.dyn_into().ok())
-            .ok_or_else(|| DesktopError::platform("navigator.wakeLock.request returned no promise"))?;
-        then.call2(&promise, &held, &refused)
-            .map_err(|e| DesktopError::platform(format!("navigator.wakeLock.request: {e:?}")))?;
-        Ok(Hold(lock))
+        let doc = document();
+        if let Some(f) = method(&doc, "addEventListener") {
+            let _ = f.call2(&doc, &"visibilitychange".into(), on_show.as_ref().unchecked_ref());
+        }
+        Ok(Hold { lock, on_show })
     }
 }
 

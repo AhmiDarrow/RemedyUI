@@ -97,6 +97,11 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = ["
 # the DMA-BUF tests in src/os/gst_dmabuf.rs (Linux).
 remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "1.0.0-rc.1" }
 
+# The keep-awake test on Linux serves a stand-in for the session's screen saver
+# (org.freedesktop.ScreenSaver) on the session bus it runs under (dbus-run-session).
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dev-dependencies]
+zbus = { version = "=6.3.0", default-features = false, features = ["default-rt", "proxy", "service"] }
+
 [dev-dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
 remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1" }
