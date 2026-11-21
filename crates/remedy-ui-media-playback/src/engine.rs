@@ -1136,7 +1136,11 @@ impl Presenter {
         let done = f.eof && f.video.is_empty() && f.audio.is_empty();
         let error = f.error.clone();
         drop(f);
-        if !done {
+        // Sound taken from the queue is not yet written while the time stretcher holds it (or
+        // an output holds a last partial block): the end waits for the output to be told
+        // nothing follows, unless the sound is not leading the clock (no device, stalled).
+        let written_out = self.finished || self.out.is_none() || !self.audio_clock;
+        if !done || !written_out {
             return;
         }
         let heard = match self.out.as_mut() {
