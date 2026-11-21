@@ -298,8 +298,10 @@ fn a_missing_segment_is_retried_then_errors() {
 #[test]
 fn what_is_held_grows_as_segments_arrive() {
     let mut r = run("aac");
-    assert_eq!(r.dec.buffered(), Some(vec![ms(0)..ms(1000)]));
-    let mut seen = vec![];
+    let first = r.dec.buffered();
+    assert_eq!(first, Some(vec![ms(0)..ms(1000)]));
+    // Segments come ahead on the fetching thread, so a step may be passed between reads.
+    let mut seen = vec![first.unwrap_or_default()];
     while let Ok(Some(_)) = r.dec.read() {
         if let Some(b) = r.dec.buffered()
             && seen.last() != Some(&b)
@@ -387,6 +389,7 @@ fn a_growing_playlist_is_asked_again_while_nothing_is_read() {
     let Ok(mut r) = start("aac", mem) else { unreachable!("opens") };
     let length = |r: &mut Run| {
         r.dec.buffered();
+        assert!(r.dec.settle().is_ok());
         (r.dec.info().duration, r.dec.info().growing)
     };
     assert_eq!(length(&mut r), (Some(ms(1000)), true), "not due yet: not asked again");
