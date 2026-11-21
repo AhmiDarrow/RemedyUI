@@ -1450,7 +1450,14 @@ fn casting_hands_every_control_to_the_remote_and_back() {
     let problems = remedy_ui_devtools::audit(&s.ui);
     assert!(problems.is_empty(), "{problems:?}");
 
-    // The TV's word wins.
+    // Until the TV says it reached the End press's target, the bar stays there.
+    p.set_remote_status(RemoteStatus { state: PlaybackState::Buffering, ..status.clone() });
+    s.pump();
+    assert_eq!(value().as_deref(), Some("1:40 of 1:40"), "a report from before the seek");
+    p.set_remote_status(RemoteStatus { position: Duration::from_secs(99), ..status.clone() });
+    s.pump();
+    assert_eq!(value().as_deref(), Some("1:39 of 1:40"), "landed");
+    // Then the TV's word wins.
     p.set_remote_status(RemoteStatus { state: PlaybackState::Buffering, ..status });
     s.pump();
     assert!(visible(&view, "Loading on The Ris"));
@@ -1473,4 +1480,503 @@ fn casting_hands_every_control_to_the_remote_and_back() {
     assert!(press(&s.ui, Key::Character("k".into())));
     s.wait("local playing", |_| p.state() == PlaybackState::Playing);
     assert_eq!(log.lock().unwrap_or_else(|e| e.into_inner()).len(), 11, "the TV heard nothing more");
+}
+
+/// A paused scripted player of `seconds`, with `options`, in a player widget.
+fn scripted_with(s: &mut Screen, seconds: u64, options: PlayerOptions) -> (Player, El) {
+    let host = Arc::new(Scripted {
+        heard: Arc::new(AtomicU64::new(0)),
+        buffer: Duration::from_millis(200),
+        device: false,
+        seconds,
+    });
+    let p = Player::open(&s.ui, host, MediaSource::url("script:"), options);
+    let view = player(&s.ui, &p, "Scripted");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    (p, view)
+}
+
+/// Types `c` (with Shift held when `shift`).
+fn letter(ui: &Ui, c: &str, shift: bool) -> bool {
+    let shift = remedy_ui_input::Modifiers { shift, ..Default::default() };
+    ui.key(&KeyEvent::press(Key::Character(c.into())).with_modifiers(shift).with_text(Some(c.into())))
+}
+
+fn el(view: &El, name: &str) -> El {
+    named(view, name).unwrap_or_else(|| unreachable!("{name}"))
+}
+
+/// Double-clicks the middle of `target` at `at` ms (two presses 100 ms apart).
+fn double_click(s: &mut Screen, target: &El, at: u64) {
+    presses(s, target, &[at, at + 100], remedy_ui_input::PointerKind::Mouse);
+}
+
+/// Presses and lets go of the middle of `target` at each of `times` (ms), with `kind`.
+fn presses(s: &mut Screen, target: &El, times: &[u64], kind: remedy_ui_input::PointerKind) {
+    use remedy_ui_input::{Buttons, PointerEvent, PointerPhase};
+    s.ui.set_double_click_time(Duration::from_millis(400));
+    s.pump();
+    let b = target.bounds().unwrap_or_default();
+    let c = remedy_ui_core::Point::new((b.min.x + b.max.x) / 2.0, (b.min.y + b.max.y) / 2.0);
+    for &t in times {
+        let ev = |phase, buttons| {
+            PointerEvent::new(phase, c)
+                .with_kind(kind)
+                .with_buttons(buttons)
+                .with_time(Duration::from_millis(t))
+        };
+        s.ui.pointer(&ev(PointerPhase::Down, Buttons::PRIMARY));
+        s.ui.pointer(&ev(PointerPhase::Up, Buttons::default()));
+    }
+    s.pump();
+}
+
+#[test]
+fn the_arrows_scheme_answers_anywhere_in_the_player() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default().keys(KeyScheme::Arrows));
+    p.add_subtitles(SubtitleTrack { label: "English".into(), language: None, cues: Vec::new() });
+    p.on_theater(|_| {});
+    p.seek(Duration::from_secs(30));
+    s.wait("the seek", |_| near(p.position(), 30.0, 0.001));
+    p.set_volume(0.5);
+    s.pump();
+    // Focus on a button, not a slider: the arrows still act.
+    el(&view, "Mute").focus();
+    let at = |s: &mut Screen, secs: f64| s.wait(&format!("at {secs}"), |_| near(p.position(), secs, 0.001));
+    assert!(press(&s.ui, Key::ArrowRight));
+    at(&mut s, 40.0);
+    assert!(press(&s.ui, Key::ArrowLeft));
+    at(&mut s, 30.0);
+    assert!(letter(&s.ui, "l", false));
+    at(&mut s, 40.0);
+    assert!(letter(&s.ui, "J", true), "letters work with Shift");
+    at(&mut s, 30.0);
+    assert!(press(&s.ui, Key::ArrowUp));
+    assert_eq!(p.volume(), 0.55);
+    assert!(press(&s.ui, Key::ArrowDown));
+    assert!(press(&s.ui, Key::ArrowDown));
+    assert_eq!(p.volume(), 0.45);
+    // A step unmutes.
+    assert!(letter(&s.ui, "m", false));
+    assert!(p.is_muted());
+    assert!(press(&s.ui, Key::ArrowUp));
+    assert!(!p.is_muted() && p.volume() == 0.5);
+    assert!(letter(&s.ui, "K", true));
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    assert!(letter(&s.ui, "k", false));
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    assert!(letter(&s.ui, "c", false));
+    assert_eq!(p.caption_track(), Some(0));
+    assert!(letter(&s.ui, "f", false) && p.is_fullscreen());
+    assert!(press(&s.ui, Key::Escape) && !p.is_fullscreen());
+    assert!(letter(&s.ui, "t", false) && p.is_theater());
+    assert!(press(&s.ui, Key::Escape) && !p.is_theater());
+    assert!(letter(&s.ui, ">", true) && p.speed() > 1.0);
+    assert!(letter(&s.ui, "<", true) && p.speed() == 1.0);
+    // Space presses the focused button, not play.
+    assert!(press(&s.ui, Key::Space));
+    assert!(p.is_muted() && p.state() == PlaybackState::Paused);
+    p.set_muted(false);
+    // A focused slider keeps its keys: the seek bar moves its own 5 seconds.
+    let pos = p.position().as_secs_f64();
+    el(&view, "Seek").focus();
+    assert!(press(&s.ui, Key::ArrowRight));
+    at(&mut s, pos + 5.0);
+    // The volume slider moves itself, a step as the arrows do; Space plays there.
+    el(&view, "Volume").focus();
+    assert!(press(&s.ui, Key::ArrowUp));
+    s.pump();
+    assert_eq!(p.volume(), 0.55);
+    assert!(press(&s.ui, Key::Space));
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    p.pause();
+    // N plays next, plain or with Shift.
+    p.set_queue(vec![
+        NextUp::new(MediaSource::url("script:"), "One"),
+        NextUp::new(MediaSource::url("script:"), "Two"),
+    ]);
+    assert!(letter(&s.ui, "n", false));
+    assert_eq!(p.queue().len(), 1);
+    assert!(letter(&s.ui, "N", true));
+    assert!(p.queue().is_empty());
+    assert!(!letter(&s.ui, "n", false), "nothing next");
+    // Ctrl, Alt or the system key: never the player's.
+    let ctrl = remedy_ui_input::Modifiers { ctrl: true, ..Default::default() };
+    el(&view, "Mute").focus();
+    assert!(!s.ui.key(&KeyEvent::press(Key::ArrowRight).with_modifiers(ctrl).with_text(None)));
+    s.idle(30);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+#[test]
+fn the_classic_scheme_keeps_the_arrows_on_the_sliders_and_next_on_shift_n() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default());
+    p.seek(Duration::from_secs(30));
+    s.wait("the seek", |_| near(p.position(), 30.0, 0.001));
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:"), "Next")));
+    el(&view, "Mute").focus();
+    for k in [Key::ArrowRight, Key::ArrowLeft, Key::ArrowUp, Key::ArrowDown] {
+        assert!(!press(&s.ui, k), "the arrows are the sliders' alone");
+    }
+    assert!(!letter(&s.ui, "n", false), "plain N is not next");
+    assert!(!letter(&s.ui, "K", true), "Shift+K is not K");
+    s.pump();
+    assert!(near(p.position(), 30.0, 0.001) && p.volume() == 1.0);
+    el(&view, "Seek").focus();
+    assert!(press(&s.ui, Key::ArrowUp), "the seek bar seeks on Up");
+    s.wait("5 s on", |_| near(p.position(), 35.0, 0.001));
+    for k in ["k", "k", "l", "j", "m", "m", "f", "f"] {
+        assert!(letter(&s.ui, k, false), "{k}");
+    }
+    assert!(letter(&s.ui, "N", true));
+    assert!(p.next_up().is_none(), "Shift+N played it");
+}
+
+#[test]
+fn text_fields_and_open_menus_keep_their_keys_in_both_schemes() {
+    for keys in [KeyScheme::Classic, KeyScheme::Arrows] {
+        let mut s = Screen::new();
+        let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default().keys(keys));
+        p.seek(Duration::from_secs(30));
+        s.wait("the seek", |_| near(p.position(), 30.0, 0.001));
+        p.set_volume(0.5);
+        p.set_next_up(Some(NextUp::new(MediaSource::url("script:"), "Next")));
+        let unmoved = |p: &Player| {
+            p.state() == PlaybackState::Paused
+                && near(p.position(), 30.0, 0.001)
+                && p.volume() == 0.5
+                && !p.is_muted()
+                && !p.is_fullscreen()
+                && p.next_up().is_some()
+        };
+        // A field an app put in the player.
+        let field = remedy_ui_widgets_core::text_input(&s.ui, "Note");
+        let _ = view.clone().child(field.el());
+        s.pump();
+        field.el().focus();
+        for c in ["k", "j", "l", "m", "c", "f", "t", "n", " "] {
+            letter(&s.ui, c, false);
+        }
+        letter(&s.ui, "N", true);
+        for k in [Key::ArrowLeft, Key::ArrowRight, Key::ArrowUp, Key::ArrowDown, Key::Home, Key::End] {
+            press(&s.ui, k);
+        }
+        s.idle(30);
+        assert_eq!(field.value(), "kjlmcftn N", "{keys:?}: the field took the letters");
+        assert!(unmoved(&p), "{keys:?}: {:?}", p.position());
+        // An open menu takes the keys.
+        let anchor = el(&view, "Mute");
+        anchor.focus();
+        let item = remedy_ui_widgets_core::MenuItem::new("Something", || {});
+        let _menu = remedy_ui_widgets_core::menu(&s.ui, &anchor, vec![item]);
+        s.pump();
+        for c in ["k", "l", "m", "f", "n"] {
+            letter(&s.ui, c, false);
+        }
+        for k in [Key::ArrowRight, Key::ArrowUp, Key::ArrowDown] {
+            press(&s.ui, k);
+        }
+        s.idle(30);
+        assert!(unmoved(&p), "{keys:?}: {:?}", p.position());
+    }
+}
+
+#[test]
+fn double_clicking_the_picture_asks_for_full_screen_in_both_schemes() {
+    for keys in [KeyScheme::Classic, KeyScheme::Arrows] {
+        let mut s = Screen::new();
+        let (p, view) = scripted_with(&mut s, 3, PlayerOptions::default().keys(keys));
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let a = asked.clone();
+        p.on_fullscreen(move |on| a.lock().unwrap_or_else(|e| e.into_inner()).push(on));
+        let stage = find(&view, "player_stage").remove(0);
+        double_click(&mut s, &stage, 1000);
+        assert!(p.is_fullscreen(), "{keys:?}");
+        double_click(&mut s, &stage, 3000);
+        assert!(!p.is_fullscreen(), "{keys:?}");
+        assert_eq!(*asked.lock().unwrap_or_else(|e| e.into_inner()), [true, false]);
+        assert_eq!(p.state(), PlaybackState::Paused, "a double click does not play");
+    }
+}
+
+#[test]
+fn casting_disables_full_screen_and_theater_until_it_ends() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 3, PlayerOptions::default().keys(KeyScheme::Arrows));
+    p.on_theater(|_| {});
+    s.pump();
+    let disabled = |v: &El, name: &str| {
+        named(v, name)
+            .and_then(|b| b.info())
+            .is_some_and(|i| i.states.contains(remedy_ui_style::States::DISABLED))
+    };
+    let stage = find(&view, "player_stage").remove(0);
+    let log = Arc::new(Mutex::new(Vec::new()));
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    s.pump();
+    assert!(disabled(&view, "Full screen") && disabled(&view, "Theater mode"));
+    el(&view, "Mute").focus();
+    assert!(!letter(&s.ui, "f", false));
+    assert!(!letter(&s.ui, "t", false));
+    double_click(&mut s, &stage, 1000);
+    el(&view, "Full screen").focus();
+    let _ = press(&s.ui, Key::Enter);
+    assert!(!p.is_fullscreen() && !p.is_theater(), "nothing to enlarge while casting");
+    s.idle(30);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+
+    // Back here: offered again.
+    p.set_remote(None);
+    s.pump();
+    assert!(!disabled(&view, "Full screen") && !disabled(&view, "Theater mode"));
+    el(&view, "Mute").focus();
+    assert!(letter(&s.ui, "t", false) && p.is_theater());
+    assert!(letter(&s.ui, "f", false) && p.is_fullscreen());
+
+    // Casting from full screen and theater: they stay, and can only be left.
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    s.pump();
+    assert!(p.is_fullscreen() && p.is_theater(), "casting leaves the layout as it was");
+    assert!(!disabled(&view, "Exit full screen") && !disabled(&view, "Theater mode"));
+    double_click(&mut s, &stage, 5000);
+    assert!(!p.is_fullscreen(), "a double click leaves full screen");
+    assert!(disabled(&view, "Full screen"));
+    el(&view, "Mute").focus();
+    assert!(!letter(&s.ui, "f", false) && !p.is_fullscreen(), "and cannot come back");
+    assert!(letter(&s.ui, "t", false) && !p.is_theater(), "T leaves theater mode");
+    s.pump();
+    assert!(disabled(&view, "Theater mode"));
+    assert!(!letter(&s.ui, "t", false) && !p.is_theater());
+    assert!(log.lock().unwrap_or_else(|e| e.into_inner()).is_empty(), "the TV heard none of it");
+}
+
+#[test]
+fn a_click_on_the_picture_plays_and_pauses_once_no_second_click_comes() {
+    use remedy_ui_input::PointerKind::{Mouse, Touch};
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default().keys(KeyScheme::Arrows));
+    let stage = find(&view, "player_stage").remove(0);
+    // One click: nothing yet, then play once the double-click hold is out.
+    presses(&mut s, &stage, &[1000], Mouse);
+    assert_eq!(p.state(), PlaybackState::Paused, "waits for a second click");
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    presses(&mut s, &stage, &[2000], Mouse);
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    // A double click: full screen, and the first click's play is taken back.
+    double_click(&mut s, &stage, 3000);
+    s.idle(300);
+    assert!(p.is_fullscreen() && p.state() == PlaybackState::Paused);
+    // A third click in a row is a click again.
+    presses(&mut s, &stage, &[4000, 4100, 4200], Mouse);
+    assert!(!p.is_fullscreen(), "the double click in it leaves full screen");
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    p.pause();
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    // Fingers: a tap plays or pauses, a double tap toggles full screen alone.
+    presses(&mut s, &stage, &[6000], Touch);
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    presses(&mut s, &stage, &[7000], Touch);
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    presses(&mut s, &stage, &[8000, 8150], Touch);
+    s.idle(300);
+    assert!(p.is_fullscreen() && p.state() == PlaybackState::Paused);
+    presses(&mut s, &stage, &[9000, 9150], Touch);
+    s.idle(300);
+    assert!(!p.is_fullscreen() && p.state() == PlaybackState::Paused);
+
+    // While casting a click plays and pauses the TV; a double click does nothing.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    s.pump();
+    presses(&mut s, &stage, &[10_000], Mouse);
+    s.idle(300);
+    double_click(&mut s, &stage, 11_000);
+    s.idle(300);
+    assert!(!p.is_fullscreen());
+    assert_eq!(*log.lock().unwrap_or_else(|e| e.into_inner()), ["play"]);
+    p.set_remote(None);
+    s.pump();
+
+    // A press outside an open menu only closes it, as everywhere in RemedyUI...
+    let anchor = el(&view, "Mute");
+    let items = || vec![remedy_ui_widgets_core::MenuItem::new("Something", || {})];
+    let _menu = remedy_ui_widgets_core::menu(&s.ui, &anchor, items());
+    s.pump();
+    presses(&mut s, &stage, &[13_000], Mouse);
+    s.idle(300);
+    assert_eq!(p.state(), PlaybackState::Paused);
+    // ...but a menu opened to let it through (an app's cast menu) closes and plays, as in a
+    // web page's player.
+    let menu = remedy_ui_widgets_core::menu_press_through(&s.ui, &anchor, items());
+    s.pump();
+    assert!(menu.info().is_some_and(|i| !i.hidden));
+    presses(&mut s, &stage, &[14_000], Mouse);
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    assert!(menu.info().is_none(), "the menu closed");
+}
+
+#[test]
+fn in_the_classic_scheme_a_click_on_the_picture_does_nothing() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default());
+    let stage = find(&view, "player_stage").remove(0);
+    presses(&mut s, &stage, &[1000], remedy_ui_input::PointerKind::Mouse);
+    presses(&mut s, &stage, &[2000], remedy_ui_input::PointerKind::Touch);
+    s.idle(300);
+    assert_eq!(p.state(), PlaybackState::Paused);
+    presses(&mut s, &stage, &[3000, 3150], remedy_ui_input::PointerKind::Touch);
+    assert!(p.is_fullscreen(), "a double tap is a double click");
+}
+
+#[test]
+fn a_click_on_a_control_hands_the_keys_back_to_the_player_in_the_arrows_scheme() {
+    use remedy_ui_input::PointerKind::{Mouse, Touch};
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default().keys(KeyScheme::Arrows));
+    p.seek(Duration::from_secs(30));
+    s.wait("the seek", |_| near(p.position(), 30.0, 0.001));
+    let mute = el(&view, "Mute");
+    // A click mutes and leaves focus with the player, not the button.
+    presses(&mut s, &mute, &[1000], Mouse);
+    assert!(p.is_muted());
+    assert!(!el(&view, "Unmute").is_focused(), "focus left the button");
+    assert!(view.is_focused(), "the player has the keys");
+    // Space plays and pauses instead of pressing the button again; the arrows skip.
+    assert!(press(&s.ui, Key::Space));
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    assert!(p.is_muted());
+    p.pause();
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    assert!(press(&s.ui, Key::ArrowRight));
+    s.wait("10 s on", |_| near(p.position(), 40.0, 0.001));
+    // A tap on the volume slider: the arrows then skip, not nudge the slider.
+    let volume = el(&view, "Volume");
+    presses(&mut s, &volume, &[2000], Touch);
+    assert!(!volume.is_focused() && view.is_focused());
+    assert!(press(&s.ui, Key::ArrowLeft));
+    s.wait("10 s back", |_| near(p.position(), 30.0, 0.001));
+    // Tab leaves the player as usual, and it is a plain group again.
+    assert!(press(&s.ui, Key::Tab));
+    assert!(!view.is_focused());
+    s.idle(30);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+    // Keyboard activation keeps focus where the person put it.
+    let unmute = el(&view, "Unmute");
+    unmute.focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert!(!p.is_muted());
+    assert!(el(&view, "Mute").is_focused(), "Enter kept focus on the button");
+}
+
+#[test]
+fn in_the_classic_scheme_a_click_leaves_focus_on_the_control() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default());
+    presses(&mut s, &el(&view, "Mute"), &[1000], remedy_ui_input::PointerKind::Mouse);
+    assert!(p.is_muted());
+    assert!(el(&view, "Unmute").is_focused());
+    assert!(press(&s.ui, Key::Space), "Space presses it again");
+    s.pump();
+    assert!(!p.is_muted());
+}
+
+/// The casting stage as Portal draws it: the poster behind a dark scrim, "Playing on" small
+/// and the device's name large, centered. Writes `cast_stage.png` to the test's temp folder.
+#[test]
+fn the_casting_stage_centers_the_device_over_the_darkened_poster() {
+    let preview = remedy_ui_devtools::Preview::new("cast stage", |ui| {
+        let host = Arc::new(Scripted {
+            heard: Arc::new(AtomicU64::new(0)),
+            buffer: Duration::from_millis(200),
+            device: false,
+            seconds: 3,
+        });
+        let p = Player::open(ui, host, MediaSource::url("script:"), PlayerOptions::default());
+        let art = ui.el("art").grow(1.0).fill_width().style(
+            remedy_ui_style::StylePatch::default().background(remedy_ui_core::Color::rgb8(200, 60, 40)),
+        );
+        p.set_remote(Some(Remote::new("The Ris", Tv(Arc::default())).poster(art)));
+        p.set_remote_status(RemoteStatus::new(PlaybackState::Playing, Duration::from_secs(30)));
+        // Kept alive with the view.
+        let view = player(ui, &p, "Scripted");
+        let keep = p.clone();
+        view.on_removed(move || drop(keep))
+    })
+    .sizes(&[(640.0, 400.0)]);
+    let first = preview.variations().into_iter().next().unwrap_or_else(|| unreachable!("a size"));
+    let shot = preview.render(&first);
+    let png = shot.to_png().unwrap_or_else(|e| unreachable!("{e:?}"));
+    let out = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("cast_stage.png");
+    std::fs::write(&out, png).unwrap_or_else(|e| unreachable!("{e}"));
+    println!("{}", out.display());
+    let px = |x: u32, y: u32| {
+        let i = ((y * shot.width + x) * 4) as usize;
+        match shot.rgba.get(i..i + 3) {
+            Some(&[r, g, b]) => (r, g, b),
+            _ => unreachable!("({x}, {y}) is in the picture"),
+        }
+    };
+    // A corner of the stage: the poster's red, darkened, not black.
+    let (r, g, _) = px(10, 10);
+    assert!(r > 40 && r < 120 && g < 40, "darkened red: {:?}", px(10, 10));
+}
+
+#[test]
+fn speed_is_the_devices_own_while_casting() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 3, PlayerOptions::default());
+    let speed_shown = |v: &El| named(v, "Speed 1×").and_then(|b| b.info()).is_some_and(|i| !i.hidden);
+    assert!(speed_shown(&view), "{:?}", texts(&view, "label"));
+    p.set_remote(Some(Remote::new("The Ris", Tv(Arc::default()))));
+    s.pump();
+    assert!(!speed_shown(&view), "no speed while casting");
+    el(&view, "Mute").focus();
+    assert!(!letter(&s.ui, ">", true) && !letter(&s.ui, "<", true));
+    p.step_speed(true);
+    assert_eq!(p.speed(), 1.0, "the local media keeps its speed");
+    p.set_remote(None);
+    s.pump();
+    assert!(speed_shown(&view), "back with the local media");
+    assert!(letter(&s.ui, ">", true) && p.speed() > 1.0);
+}
+
+#[test]
+fn status_news_comes_from_any_thread_and_a_stale_poll_does_not_undo_a_seek() {
+    let mut s = Screen::new();
+    let (p, _view) = scripted_with(&mut s, 3, PlayerOptions::default());
+    let log = Arc::new(Mutex::new(Vec::new()));
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    let at = |secs| Duration::from_secs(secs);
+    let polled = move |secs| RemoteStatus::new(PlaybackState::Playing, at(secs)).length(at(100)).volume(0.5);
+    // A poll on its own thread.
+    let sender = p.remote_status_sender();
+    let sent = std::thread::spawn(move || sender.send(polled(30))).join().unwrap_or(false);
+    assert!(sent);
+    s.wait("the news", |_| p.position() == at(30));
+    assert_eq!((p.duration(), p.volume(), p.state()), (Some(at(100)), 0.5, PlaybackState::Playing));
+    // A seek: the bar shows its target at once, and a poll from before the TV moved does not
+    // pull it back.
+    p.seek(at(60));
+    assert_eq!(p.position(), at(60));
+    p.set_remote_status(polled(31));
+    assert_eq!(p.position(), at(60), "a stale poll is held off");
+    assert_eq!(p.volume(), 0.5, "the rest of the news still counts");
+    // The TV has landed (within 4 s of the target): its word wins again.
+    p.set_remote_status(polled(62));
+    assert_eq!(p.position(), at(62));
+    p.set_remote_status(polled(10));
+    assert_eq!(p.position(), at(10), "no seek in flight: believed");
+    assert_eq!(*log.lock().unwrap_or_else(|e| e.into_inner()), ["seek 60"]);
+    // Gone UI thread or not, a sender outliving the player drops the news quietly.
+    let sender = p.remote_status_sender();
+    drop(p);
+    assert!(sender.send(polled(5)));
+    s.pump();
 }

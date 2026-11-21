@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use remedy_ui_a11y::{Action, Live, Role, Semantics};
-use remedy_ui_core::{CornerRadii, Insets, Rect};
+use remedy_ui_core::{Color, CornerRadii, Insets, Rect};
 use remedy_ui_input::{Buttons, Key, PointerPhase};
 use remedy_ui_layout::{AUTO, Align, Justify, Position};
 use remedy_ui_media_video::{VideoFit, video_surface};
@@ -12,7 +12,7 @@ use remedy_ui_reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 
-use crate::{MediaError, PlaybackState, Player};
+use crate::{KeyScheme, MediaError, PlaybackState, Player};
 
 /// Message `id` in the window's locale (tracked: read in a property closure, it follows the
 /// locale).
@@ -48,6 +48,74 @@ pub fn format_time(d: Duration) -> String {
 const ARROW_SEEK: f64 = 5.0;
 /// How far J and L move it, as in common players.
 const JUMP_SEEK: f64 = 10.0;
+/// How long a click on the picture waits for a second one before it plays or pauses
+/// ([`KeyScheme::Arrows`]), so a double click only toggles full screen.
+const CLICK_HOLD: Duration = Duration::from_millis(220);
+/// How far Up and Down move the volume in [`KeyScheme::Arrows`].
+const VOLUME_STEP: f32 = 0.05;
+
+/// Whether full screen can be asked for or left: while remote only leaving is offered, since a
+/// full-screen casting stage would only enlarge the poster.
+fn fullscreen_toggles(p: &Player) -> bool {
+    p.is_fullscreen() || !p.is_remote()
+}
+
+/// Theater mode as [`fullscreen_toggles`].
+fn theater_toggles(p: &Player) -> bool {
+    p.is_theater() || !p.is_remote()
+}
+
+fn toggle_fullscreen(p: &Player) {
+    if fullscreen_toggles(p) {
+        p.request_fullscreen(!p.is_fullscreen());
+    }
+}
+
+fn toggle_theater(p: &Player) {
+    if theater_toggles(p) {
+        p.request_theater(!p.is_theater());
+    }
+}
+
+/// In [`KeyScheme::Arrows`], after a click or tap on `control` (not a key), takes focus off
+/// it once the click is done, so the next key goes to the player: Space plays and pauses
+/// instead of pressing the control again, and the arrows skip instead of nudging a slider.
+/// Keyboard activation keeps focus where it is. Focus goes to the player itself (focusable
+/// only until it loses focus again), since keys reach the player only from inside it.
+fn drops_focus_after_click(ui: &Ui, p: &Player, control: &El) {
+    if p.key_scheme() != KeyScheme::Arrows {
+        return;
+    }
+    let (me, u) = (control.clone(), ui.clone());
+    let _ = control.clone().on_pointer(move |e| {
+        if e.phase == PointerPhase::Up {
+            let me = me.clone();
+            u.after(Duration::ZERO, move || {
+                if !me.is_focused() {
+                    return;
+                }
+                let mut home = me.parent();
+                while let Some(h) = home.clone().filter(|h| h.info().is_none_or(|i| i.widget != "player")) {
+                    home = h.parent();
+                }
+                match home {
+                    Some(h) => h.focusable(true).focus(),
+                    None => me.blur(),
+                }
+            });
+        }
+        false
+    });
+}
+
+/// The volume up or down a step, on the 5% grid, unmuting.
+fn nudge_volume(p: &Player, up: bool) {
+    let step = if up { VOLUME_STEP } else { -VOLUME_STEP };
+    p.set_volume(((p.volume() + step) * 20.0).round().clamp(0.0, 20.0) / 20.0);
+    if p.is_muted() {
+        p.set_muted(false);
+    }
+}
 
 /// A player for `player`: its picture (with captions over it, when on) and a transport bar
 /// with play and pause, the time, a seek bar, mute and volume, a captions switch when the
@@ -67,6 +135,24 @@ const JUMP_SEEK: f64 = 10.0;
 /// what is [next up](Player::set_next_up). On the seek bar
 /// Space plays and pauses, the arrows move 5 seconds, Page Up and Page Down a tenth, Home and
 /// End to either end. Space and Enter press whichever button has focus.
+///
+/// With [`KeyScheme::Arrows`] ([`PlayerOptions::keys`](crate::PlayerOptions::keys)), also
+/// anywhere in the player: Left and Right skip 10 seconds, Up and Down change the volume by
+/// 5% (unmuting), Space plays and pauses on the volume slider, N plays next, and the letters
+/// work with Shift held; a focused slider keeps its own keys. In either scheme, keys with
+/// Ctrl, Alt or the system key held, keys a text field takes and keys while a menu is open
+/// never reach the player.
+///
+/// In remote mode the speed button is hidden and > and < do nothing: the device plays at its
+/// own speed.
+///
+/// Double-clicking (or double-tapping) the picture asks for full screen or leaves it. With
+/// [`KeyScheme::Arrows`] a single click or tap plays and pauses, once no second click has come
+/// within 220 ms (so a double click never plays or pauses), and a click or tap on a control
+/// hands the keys back to the player (Space then plays and pauses rather than pressing it
+/// again); keyboard activation keeps focus on the control. In
+/// remote mode the full-screen and theater buttons are disabled and F, T and a double-click
+/// do nothing, except to leave full screen or theater mode when casting started in it.
 ///
 /// Sound-only media shows the transport bar alone. Media with pictures pauses while the
 /// player is unseen (see [`UnseenPolicy`](crate::UnseenPolicy)), and does not start by itself
@@ -140,6 +226,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             move || tr(&u, "playback-loading")
         }));
     let cast = cast_stage(ui, player);
+    let p = player.clone();
     // The picture fills the stage (letterboxed by the surface); the rest sits over it.
     let stage = ui
         .el("player_stage")
@@ -149,7 +236,37 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .child(caption)
         .child(message)
         .child(cast)
-        .child(busy.clone());
+        .child(busy.clone())
+        .on_pointer({
+            let (u, held) = (ui.clone(), std::rc::Rc::new(std::cell::Cell::new(None)));
+            move |e| {
+                if e.phase != PointerPhase::Down || !e.buttons.contains(Buttons::PRIMARY) {
+                    return false;
+                }
+                // A second press takes back the first one's play or pause.
+                if let Some(t) = held.take() {
+                    u.cancel_timer(t);
+                }
+                if u.click_count() == 2 {
+                    toggle_fullscreen(&p);
+                    return true;
+                }
+                if p.key_scheme() != KeyScheme::Arrows {
+                    return false;
+                }
+                let (q, h) = (p.clone(), held.clone());
+                held.set(Some(u.after(CLICK_HOLD, move || {
+                    h.set(None);
+                    q.toggle();
+                })));
+                true
+            }
+        })
+        // The play button, Space and K, and the full-screen button and F, do what clicks do.
+        .keyboard_alternative({
+            let u = ui.clone();
+            move || tr(&u, "playback-full-screen-tip")
+        });
     let st = stage.clone();
     let p = player.clone();
     let stage = stage.bind(move || {
@@ -213,12 +330,9 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         move || p.set_muted(!p.is_muted()),
     );
     let level: Signal<f64> = Signal::new(f64::from(player.volume()));
-    let volume = ui
-        .el("player_volume")
-        .width(u * 14.0)
-        .layout(|l| l.shrink = 0.0)
-        // The core slider takes its name once: in the window's language when the player is made.
-        .child(w::slider(ui, tr(ui, "playback-volume"), level, 0.0, 1.0, 0.05));
+    // The core slider takes its name once: in the window's language when the player is made.
+    let slider = w::slider(ui, tr(ui, "playback-volume"), level, 0.0, 1.0, f64::from(VOLUME_STEP));
+    let volume = ui.el("player_volume").width(u * 14.0).layout(|l| l.shrink = 0.0).child(slider.clone());
     let p = player.clone();
     let volume = volume.bind(move || p.set_volume(level.get() as f32));
     // The slider follows the volume: the device's in remote mode.
@@ -266,7 +380,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                 tr(&u, if p.is_fullscreen() { "playback-exit-full-screen" } else { "playback-full-screen" })
             }
         },
-        move || p.request_fullscreen(!p.is_fullscreen()),
+        move || toggle_fullscreen(&p),
     );
     let fb = full.clone();
     // The speed, as a button that steps through the usual speeds and wraps back to the
@@ -293,10 +407,16 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         let u = ui.clone();
         w::tooltip(&speed, move || tr(&u, "playback-speed-tip"));
     }
+    // A device plays at its own speed: no speed while casting.
+    let (sb, p) = (speed.clone(), player.clone());
+    let speed = speed.bind(move || {
+        let _ = sb.clone().hidden(p.is_remote());
+    });
     let p = player.clone();
     let full = full.bind(move || {
         let pictures = p.info().is_none_or(|i| i.video.is_some());
         let _ = fb.clone().hidden(!pictures);
+        let _ = fb.clone().disabled(!fullscreen_toggles(&p));
     });
     // Theater mode: one name, pressed while on, offered once the app listens.
     let p = player.clone();
@@ -309,7 +429,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             let u = ui.clone();
             move || tr(&u, "playback-theater")
         },
-        move || p.request_theater(!p.is_theater()),
+        move || toggle_theater(&p),
     );
     let (tb, p, tu) = (theater.clone(), player.clone(), ui.clone());
     let theater = theater
@@ -325,6 +445,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                 let pictures = p.info().is_none_or(|i| i.video.is_some());
                 let _ = tb.clone().hidden(!pictures || !p.theater_offered());
                 tb.state(remedy_ui_style::States::CHECKED, p.is_theater());
+                let _ = tb.clone().disabled(!theater_toggles(&p));
             }
         });
     // Cast: one name that says whether it is casting; the app opens its menu of devices.
@@ -351,6 +472,9 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             cb.state(remedy_ui_style::States::CHECKED, p.is_remote());
         }
     });
+    for c in [&play, &seek, &mute, &slider, &speed, &captions, &theater, &cast, &full] {
+        drops_focus_after_click(ui, player, c);
+    }
     let bar = ui
         .el("toolbar")
         .row()
@@ -371,10 +495,17 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
 
     let p = player.clone();
     let vis = player.clone();
-    ui.el("player")
-        .column()
+    let root = ui.el("player");
+    let (me, home) = (root.clone(), root.clone());
+    root.column()
         .grow(1.0)
         .semantics(Semantics::new(Role::Group).label(label))
+        // Focusable only while a click left focus here (see `drops_focus_after_click`).
+        .on_focus_change(move |on| {
+            if !on {
+                let _ = me.clone().focusable(false);
+            }
+        })
         .child(stage)
         .child(next)
         .child(bar)
@@ -383,24 +514,28 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             if !e.pressed || e.composing || e.modifiers.ctrl || e.modifiers.alt || e.modifiers.meta {
                 return false;
             }
+            let arrows = p.key_scheme() == KeyScheme::Arrows;
+            let pictures = p.info().is_none_or(|i| i.video.is_some());
             match &e.key {
                 Key::Escape if p.is_fullscreen() => p.request_fullscreen(false),
                 Key::Escape if p.is_theater() => p.request_theater(false),
-                Key::Character(c) => match c.as_str() {
+                Key::ArrowLeft if arrows => p.seek_by(-JUMP_SEEK),
+                Key::ArrowRight if arrows => p.seek_by(JUMP_SEEK),
+                Key::ArrowUp if arrows => nudge_volume(&p, true),
+                Key::ArrowDown if arrows => nudge_volume(&p, false),
+                // Buttons press themselves on Space and the seek bar plays and pauses itself.
+                Key::Space if arrows && (slider.is_focused() || home.is_focused()) => p.toggle(),
+                Key::Character(c) => match (if arrows { c.to_lowercase() } else { c.clone() }).as_str() {
                     "k" => p.toggle(),
                     "j" => p.seek_by(-JUMP_SEEK),
                     "l" => p.seek_by(JUMP_SEEK),
                     "m" => p.set_muted(!p.is_muted()),
-                    ">" => p.step_speed(true),
-                    "<" => p.step_speed(false),
+                    ">" if !p.is_remote() => p.step_speed(true),
+                    "<" if !p.is_remote() => p.step_speed(false),
                     "c" if !p.subtitle_tracks().is_empty() => cycle_captions(&p),
-                    "f" if p.info().is_none_or(|i| i.video.is_some()) => {
-                        p.request_fullscreen(!p.is_fullscreen())
-                    }
-                    "t" if p.theater_offered() && p.info().is_none_or(|i| i.video.is_some()) => {
-                        p.request_theater(!p.is_theater())
-                    }
-                    "N" | "n" if e.modifiers.shift && p.next_up().is_some() => p.play_next(),
+                    "f" if pictures && fullscreen_toggles(&p) => toggle_fullscreen(&p),
+                    "t" if p.theater_offered() && pictures && theater_toggles(&p) => toggle_theater(&p),
+                    "N" | "n" if (arrows || e.modifiers.shift) && p.next_up().is_some() => p.play_next(),
                     _ => return false,
                 },
                 _ => return false,
@@ -414,20 +549,54 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
 #[track_caller]
 fn cast_stage(ui: &Ui, player: &Player) -> El {
     let u = ui.theme().spacing.unit;
-    let poster = ui.el("player_poster").column().grow(1.0).align(Align::Center).justify(Justify::Center);
+    let fill = |l: &mut remedy_ui_layout::LayoutStyle| {
+        l.position = Position::Absolute;
+        l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: 0.0 };
+    };
+    // The app's poster fills the stage behind the words, darkened so they read over any art.
+    let poster =
+        ui.el("player_poster").column().align(Align::Center).justify(Justify::Center).layout(fill).clip();
+    let scrim = ui.el("player_scrim").layout(fill).pass_through().paint(|cx| {
+        let (top, bottom) = (Color::BLACK.with_alpha(0.55), Color::BLACK.with_alpha(0.78));
+        cx.list.fill_rect(
+            Rect::new(0.0, 0.0, cx.size.width, cx.size.height),
+            Brush::Linear {
+                start: remedy_ui_core::Point::new(0.0, 0.0),
+                end: remedy_ui_core::Point::new(0.0, cx.size.height),
+                stops: vec![
+                    remedy_ui_paint::Stop { offset: 0.0, color: top },
+                    remedy_ui_paint::Stop { offset: 1.0, color: bottom },
+                ],
+            },
+        );
+    });
+    // "Playing on" small and muted, the device's name large, in the order the language puts them.
+    let words = |size: f32, weight: f32, color: Color| {
+        ui.el("label")
+            .style(remedy_ui_style::StylePatch::default().text_size(size).weight(weight).foreground(color))
+    };
+    let lead_color = Color::rgb8(0xd9, 0xd1, 0xc2);
+    let before = words(u * 3.6, 400.0, lead_color);
+    let name_line = words(u * 6.0, 600.0, Color::rgb8(0xf4, 0xef, 0xe4));
+    let after = words(u * 3.6, 400.0, lead_color);
     let text = ui
-        .el("player_caption")
+        .el("player_cast_text")
+        .column()
+        .align(Align::Center)
+        .justify(Justify::Center)
+        .gap(u * 1.2)
+        .layout(fill)
         .style(remedy_ui_style::StylePatch::default().padding(Insets {
-            top: u,
-            bottom: u,
-            start: u * 1.5,
-            end: u * 1.5,
+            top: u * 4.0,
+            bottom: u * 4.0,
+            start: u * 4.0,
+            end: u * 4.0,
         }))
-        .layout(move |l| {
-            l.position = Position::Absolute;
-            l.inset = Insets { top: AUTO, start: u * 3.0, end: AUTO, bottom: u * 3.0 };
-        });
-    let panel = ui.el("player_cast").column().grow(1.0).child(poster.clone()).child(text.clone());
+        .child(before.clone())
+        .child(name_line.clone())
+        .child(after.clone());
+    let panel =
+        ui.el("player_cast").column().grow(1.0).child(poster.clone()).child(scrim).child(text.clone());
     let (pa, p, tu) = (panel.clone(), player.clone(), ui.clone());
     let shown = std::cell::Cell::new(None);
     panel.bind(move || {
@@ -442,8 +611,14 @@ fn cast_stage(ui: &Ui, player: &Player) -> El {
             PlaybackState::Ended => "playback-cast-ended",
             PlaybackState::Failed => "playback-cast-failed",
         };
-        let said = crate::STRINGS.format(&tu, id, &[("device", name.into())]);
-        let _ = text.clone().text(remedy_ui_view::RichText::plain(said.clone()));
+        let said = crate::STRINGS.format(&tu, id, &[("device", name.clone().into())]);
+        // The words either side of the name (which the catalog may isolate, U+2068 ... U+2069).
+        let clean = said.replace(['\u{2068}', '\u{2069}'], "");
+        let (lead, trail) = clean.split_once(name.as_str()).unwrap_or(("", ""));
+        for (line, s) in [(&before, lead.trim()), (&name_line, name.as_str()), (&after, trail.trim())] {
+            let _ = line.clone().hidden(s.is_empty());
+            let _ = line.clone().text(remedy_ui_view::RichText::plain(s.to_owned()));
+        }
         let _ = text.clone().semantics(Semantics::new(Role::Status).label(said).live(Live::Polite));
         // The app's poster, put in when it changes.
         let art = p.remote_poster();
@@ -505,6 +680,8 @@ fn next_up_card(ui: &Ui, player: &Player) -> El {
             dismissed.set(true);
         },
     );
+    drops_focus_after_click(ui, player, &now);
+    drops_focus_after_click(ui, player, &cancel);
     let card = ui
         .el("player_next")
         .row()

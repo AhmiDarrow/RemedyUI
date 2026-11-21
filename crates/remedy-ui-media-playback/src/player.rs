@@ -28,6 +28,21 @@ pub enum UnseenPolicy {
     KeepPlaying,
 }
 
+/// Which keys the [`player`](crate::player) widget answers to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum KeyScheme {
+    /// The arrows act on the focused seek bar or volume slider only, and next is Shift+N.
+    #[default]
+    Classic,
+    /// As in a streaming site's player: anywhere in the player, Left and Right skip 10
+    /// seconds, Up and Down change the volume by 5%, and N plays next (Shift+N too); letters
+    /// work with Shift held; a click or tap on the picture plays and pauses. A focused seek bar or volume slider still takes the arrows,
+    /// Home, End, Page Up and Page Down itself, Space plays and pauses unless a button has
+    /// focus (which it presses), and a focused text field takes every key.
+    Arrows,
+}
+
 /// How a player starts.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -47,6 +62,8 @@ pub struct PlayerOptions {
     /// never advances by itself (the person chooses). The countdown does not start while the
     /// system asks for reduced motion.
     pub next_up_delay: Option<Duration>,
+    /// Which keys the widget answers to; [`KeyScheme::Classic`] by default.
+    pub keys: KeyScheme,
 }
 
 /// Media queued to play after the current one ends ([`Player::set_next_up`],
@@ -135,6 +152,71 @@ pub struct RemoteStatus {
     pub muted: bool,
 }
 
+impl RemoteStatus {
+    /// A device in `state` at `position`; its length unknown, full volume, not muted until
+    /// set: `RemoteStatus::new(PlaybackState::Playing, at).length(len).volume(0.5)`.
+    pub fn new(state: PlaybackState, position: Duration) -> Self {
+        RemoteStatus { state, position, ..RemoteStatus::default() }
+    }
+
+    /// Sets `length`: how long the media lasts.
+    pub fn length(mut self, value: Duration) -> Self {
+        self.length = Some(value);
+        self
+    }
+
+    /// Sets `volume`, 0 to 1.
+    pub fn volume(mut self, value: f32) -> Self {
+        self.volume = value.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Sets `muted`.
+    pub fn muted(mut self, value: bool) -> Self {
+        self.muted = value;
+        self
+    }
+}
+
+/// Hands [`RemoteStatus`] news to a [`Player`] from any thread (a poll of the TV's server
+/// running on its own thread): [`send`](Self::send) queues it onto the player's UI thread,
+/// where it is [`set_remote_status`](Player::set_remote_status). `Send` and cheap to clone;
+/// from [`Player::remote_status_sender`].
+#[derive(Clone)]
+pub struct RemoteStatusSender {
+    id: u64,
+    waker: Option<remedy_ui_reactive::Waker>,
+}
+
+impl std::fmt::Debug for RemoteStatusSender {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteStatusSender").field("player", &self.id).finish()
+    }
+}
+
+impl RemoteStatusSender {
+    /// Queues `status` for the player. False once the player's UI thread is gone (the player
+    /// itself gone is not an error: the news is dropped there).
+    pub fn send(&self, status: RemoteStatus) -> bool {
+        let id = self.id;
+        self.waker.as_ref().is_some_and(|w| {
+            w.post(move || {
+                let p = PLAYERS.with(|p| p.borrow().get(&id).and_then(Weak::upgrade));
+                if let Some(p) = p {
+                    Player(p).set_remote_status(status);
+                }
+            })
+            .is_ok()
+        })
+    }
+}
+
+/// How long a seek on the device shows its target, waiting for the device to report it is
+/// there (within [`SEEK_LANDED`]), before its reports are believed again.
+const SEEK_LAND: Duration = Duration::from_secs(8);
+/// How near the target a device's report counts as having landed.
+const SEEK_LANDED: Duration = Duration::from_secs(4);
+
 impl Default for RemoteStatus {
     fn default() -> Self {
         RemoteStatus {
@@ -178,6 +260,12 @@ impl PlayerOptions {
         self.next_up_delay = value;
         self
     }
+
+    /// Sets `keys`: which keys the widget answers to.
+    pub fn keys(mut self, value: KeyScheme) -> Self {
+        self.keys = value;
+        self
+    }
 }
 
 /// How long the "up next" countdown runs by default.
@@ -191,6 +279,7 @@ impl Default for PlayerOptions {
             find_subtitles: true,
             volume: 1.0,
             next_up_delay: Some(NEXT_UP_DELAY),
+            keys: KeyScheme::Classic,
         }
     }
 }
@@ -247,6 +336,8 @@ struct Inner {
     /// The device the controls act on, in remote mode.
     remote: Signal<Option<Remote>>,
     remote_status: Signal<RemoteStatus>,
+    /// A seek sent to the device: its target and when, until the device reports it landed.
+    remote_seek: Cell<Option<(Duration, remedy_ui_core::time::Instant)>>,
     /// Where each embedded text track sits in `tracks`.
     embedded: RefCell<Vec<usize>>,
     autoplayed: Cell<bool>,
@@ -564,6 +655,7 @@ impl Player {
             cast_offered: Signal::new(false),
             remote: Signal::new(None),
             remote_status: Signal::new(RemoteStatus::default()),
+            remote_seek: Cell::new(None),
             embedded: RefCell::new(Vec::new()),
             autoplayed: Cell::new(false),
             queue: Signal::new(Vec::new()),
@@ -608,6 +700,10 @@ impl Player {
     /// Steps the speed to the next of [`SPEEDS`](crate::SPEEDS) up (`faster`) or down from
     /// the current one, staying at the ends.
     pub fn step_speed(&self, faster: bool) {
+        // The device plays at its own speed; the paused local media is not the one heard.
+        if self.control().is_some() {
+            return;
+        }
         let now = self.0.speed.get_untracked().unwrap_or(1.0);
         let next = if faster {
             crate::SPEEDS.iter().copied().find(|s| *s > now + 1e-9)
@@ -661,6 +757,7 @@ impl Player {
                 self.0.remote_status.with_untracked(|s| s.length).ok().flatten().map_or(to, |d| to.min(d));
             c.seek(to);
             self.0.remote_status.update(|s| s.position = to);
+            self.0.remote_seek.set(Some((to, remedy_ui_core::time::Instant::now())));
             return;
         }
         let to = self.duration_untracked().map_or(to, |d| to.min(d));
@@ -903,6 +1000,11 @@ impl Player {
         self.0.theater_offered.set_if_changed(true);
     }
 
+    /// Which keys the widget answers to.
+    pub(crate) fn key_scheme(&self) -> KeyScheme {
+        self.0.options.keys
+    }
+
     /// Whether an app listens for theater requests. Tracked.
     pub(crate) fn theater_offered(&self) -> bool {
         self.0.theater_offered.get()
@@ -911,7 +1013,9 @@ impl Player {
     /// Calls `f` with the cast button when it is pressed: the app opens its menu of devices
     /// anchored to it (with [`menu`](remedy_ui_widgets_core::menu)), and on a choice puts the
     /// player in [remote mode](Self::set_remote). The widget shows the button only once an app
-    /// listens.
+    /// listens. Opened with [`menu_press_through`](remedy_ui_widgets_core::menu_press_through),
+    /// a press on the picture that closes the menu also plays or pauses, as in a web page's
+    /// player.
     pub fn on_cast(&self, f: impl Fn(&El) + 'static) {
         self.0.cast_handlers.borrow_mut().push(Rc::new(f));
         self.0.cast_offered.set_if_changed(true);
@@ -951,6 +1055,7 @@ impl Player {
                 ..RemoteStatus::default()
             });
         }
+        self.0.remote_seek.set(None);
         self.0.remote.set(remote);
     }
 
@@ -961,8 +1066,26 @@ impl Player {
 
     /// What the device is doing, as the app hears it (polled from its server, or pushed): the
     /// seek bar, the time, the volume and the casting stage follow it.
-    pub fn set_remote_status(&self, status: RemoteStatus) {
+    ///
+    /// After a seek, the shown position stays at the seek's target until the device reports a
+    /// position within 4 seconds of it while playing or paused, or for at most 8 seconds: a
+    /// poll answered before the device moved does not pull the seek bar back.
+    pub fn set_remote_status(&self, mut status: RemoteStatus) {
+        if let Some((to, at)) = self.0.remote_seek.get() {
+            let landed = matches!(status.state, PlaybackState::Playing | PlaybackState::Paused)
+                && status.position.abs_diff(to) < SEEK_LANDED;
+            if landed || at.elapsed() > SEEK_LAND {
+                self.0.remote_seek.set(None);
+            } else {
+                status.position = to;
+            }
+        }
         self.0.remote_status.set_if_changed(status);
+    }
+
+    /// A handle that hands [`RemoteStatus`] news to this player from any thread.
+    pub fn remote_status_sender(&self) -> RemoteStatusSender {
+        RemoteStatusSender { id: self.0.id, waker: remedy_ui_reactive::waker().ok() }
     }
 
     /// Whether the player is in remote mode. Tracked.
