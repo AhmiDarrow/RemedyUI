@@ -54,5 +54,6 @@ playback-play-now = شغّل الآن
 playback-next-cancel = إلغاء
 playback-starting-next = جارٍ بدء { $title }
 playback-canceling = جارٍ الإلغاء.
+playback-retry = { $message } اضغط «تشغيل» للمحاولة مرة أخرى.
 playback-speed = السرعة { $speed }×
 playback-speed-tip = سرعة التشغيل (Shift+> أسرع، Shift+< أبطأ)

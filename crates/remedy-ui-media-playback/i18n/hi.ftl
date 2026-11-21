@@ -50,5 +50,6 @@ playback-play-now = अभी चलाएँ
 playback-next-cancel = रद्द करें
 playback-starting-next = { $title } शुरू हो रहा है
 playback-canceling = रद्द किया जा रहा है।
+playback-retry = { $message } फिर से कोशिश करने के लिए «चलाएँ» दबाएँ।
 playback-speed = गति { $speed }×
 playback-speed-tip = चलाने की गति (Shift+> तेज़, Shift+< धीमी)

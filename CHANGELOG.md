@@ -10,6 +10,19 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Retry after a failure, and the app's words on the picture**, as on Portal's page.
+  `Player::on_retry(f)`: after playback fails here, Play, K, Space or a click on the picture
+  (in either key scheme) calls `f` with the last position (film time on a timeline), and the
+  failure ends "Press Play to try again."; the app answers with `replace_source` or fails
+  again. Without a listener nothing changes. `Player::set_status(Some(StageStatus::new(text)
+  .busy(true)))` says what the app is doing over the picture (Portal's resolve phases,
+  "Preparing the video.", "The stream did not arrive."), announced politely; while busy a
+  spinner shows, the seek bar is disabled, play and seeks wait, and `offer_cancel` shows the
+  same Cancel as for skips. `Player::fail(message)` stops fetching and fails with the app's
+  words (an alert, retried through `on_retry`). `Player::play()` while the player is still
+  opening now plays once it opens (it was dropped, so a just-picked video under reduced
+  motion did not start).
+
 - **Scrubbing, as on Portal's page**: pressing or dragging the player's seek bar (mouse, pen
   or touch) holds the thumb, the time and the bar's value at the pointer
   (`Player::scrubbing()`) and seeks once on release; a cancelled pointer goes back. Keys on
