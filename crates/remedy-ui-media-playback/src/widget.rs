@@ -101,6 +101,20 @@ pub struct PlayerParts {
     /// and the time in the [compact](Player::set_compact) layout only, as Portal's mini
     /// player. An element of its own, not one the app shows elsewhere at the same time.
     pub title: Option<El>,
+    /// The app's own glyphs for the player's icons (Portal's SVGs), by [`Icon`] and size in
+    /// logical pixels: `Some` replaces the built-in glyph, `None` keeps it. They take the
+    /// button's text color as the built-in ones do (an SVG icon draws in `currentColor`).
+    pub icons: Option<PlayerIcons>,
+}
+
+/// An app's glyphs for the player's icons ([`PlayerParts::icons`]): Play, Pause, Back10,
+/// Forward10, Volume, VolumeMuted, Captions, Theater, Cast, Casting, Fullscreen and
+/// FullscreenExit (Play also for the big Play over a paused picture).
+pub type PlayerIcons = std::rc::Rc<dyn Fn(&Ui, Icon, f32) -> Option<El>>;
+
+/// The app's glyph for `icon` at `size`, else the built-in one.
+fn glyph(ui: &Ui, icons: &Option<PlayerIcons>, icon: Icon, size: f32) -> El {
+    icons.as_ref().and_then(|f| f(ui, icon, size)).unwrap_or_else(|| w::icon(ui, icon, size))
 }
 
 impl PlayerParts {
@@ -113,6 +127,12 @@ impl PlayerParts {
     /// Sets `title`: the app's title in the compact layout.
     pub fn title(mut self, value: El) -> Self {
         self.title = Some(value);
+        self
+    }
+
+    /// Sets `icons`: the app's glyphs for the player's icons.
+    pub fn icons(mut self, value: impl Fn(&Ui, Icon, f32) -> Option<El> + 'static) -> Self {
+        self.icons = Some(std::rc::Rc::new(value));
         self
     }
 }
@@ -269,6 +289,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     let theme = ui.theme();
     let u = theme.spacing.unit;
     let options = player.options().clone();
+    let icons = &parts.icons;
 
     // The picture, with captions and messages over it.
     let surface = player_picture(ui, player, label.clone());
@@ -393,7 +414,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
                 .child(stage_cancel(ui, player)),
         );
     let cast = cast_stage(ui, player);
-    let (big_play, glyph) = big_play(ui, player);
+    let (big_play, glyph) = big_play(ui, icons, player);
     let on_glyph = {
         let (layer, glyph) = (big_play.clone(), glyph.clone());
         move |at: remedy_ui_core::Point| {
@@ -462,12 +483,13 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     });
 
     // The transport bar.
-    let play = play_button(ui, player);
+    let play = play_button(ui, icons, player);
     let time = clock(ui, player);
     let seek = seek_bar(ui, player);
     let p = player.clone();
     let mute = glyph_button(
         ui,
+        icons,
         [Icon::Volume, Icon::VolumeMuted],
         "playback-mute-tip",
         {
@@ -520,10 +542,11 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     // The slider follows the volume: the device's in remote mode.
     let p = player.clone();
     let volume = volume.bind(move || level.set_if_changed(f64::from(p.volume())));
-    let captions = captions_control(ui, player);
+    let captions = captions_control(ui, icons, player);
     let p = player.clone();
     let full = glyph_button(
         ui,
+        icons,
         [Icon::Fullscreen, Icon::FullscreenExit],
         "playback-full-screen-tip",
         {
@@ -578,6 +601,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     let p = player.clone();
     let theater = glyph_button(
         ui,
+        icons,
         [Icon::Theater, Icon::Theater],
         "playback-theater-tip",
         || 0,
@@ -608,6 +632,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     let p = player.clone();
     let cast = glyph_button(
         ui,
+        icons,
         [Icon::Cast, Icon::Casting],
         "playback-cast-tip",
         {
@@ -632,7 +657,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     let skip = |glyph: Icon, tip: &'static str, name: &'static str, by: f64| {
         let p = player.clone();
         let u = ui.clone();
-        glyph_button(ui, [glyph, glyph], tip, || 0, move || tr(&u, name), move || p.seek_by(by))
+        glyph_button(ui, icons, [glyph, glyph], tip, || 0, move || tr(&u, name), move || p.seek_by(by))
     };
     let skips = match options.skip_buttons {
         true => vec![
@@ -648,7 +673,8 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     for c in controls {
         drops_focus_after_click(ui, player, c);
     }
-    let row = || ui.el("toolbar").row().align(Align::Center).gap(u);
+    // The buttons sit close, as Portal's (0.1 rem): their own padding spaces their glyphs.
+    let row = || ui.el("player_row").row().align(Align::Center).gap(u * 0.4);
     let ends = |r: El| {
         r.children(speed.clone())
             .child(captions.clone())
@@ -670,10 +696,13 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
                 .child(ui.el("player_gap").grow(1.0));
             ui.el("player_bar").column().child(seek).child(ends(buttons))
         }
-        false => {
-            ends(row().child(play.clone()).children(skips).child(time).child(seek).child(mute).child(volume))
-        }
+        false => ui.el("player_bar").column().child(ends(
+            row().child(play.clone()).children(skips).child(time).child(seek).child(mute).child(volume),
+        )),
     };
+    // A hairline over the bar, between it and the picture (the sheet's `player_rule`).
+    let stroke = theme.stroke;
+    let bar = ui.el("player_chrome").column().child(ui.el("player_rule").height(stroke)).child(bar);
 
     let next = next_up_card(ui, player);
 
@@ -684,7 +713,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         .row()
         .align(Align::Center)
         .gap(u)
-        .child(play_button(ui, player))
+        .child(play_button(ui, icons, player))
         .child(clock(ui, player));
     let side = ui.el("player_side").column().grow(1.0).justify(Justify::Center).gap(u * 0.5);
     let side = match parts.title {
@@ -767,14 +796,19 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
 /// click is still full screen alone). Not in the tab order and not announced (the transport
 /// bar's Play is); hidden while busy, casting, or with no picture. The layer, and the glyph.
 #[track_caller]
-fn big_play(ui: &Ui, player: &Player) -> (El, El) {
-    let u = ui.theme().spacing.unit;
-    let size = u * 8.5;
+fn big_play(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> (El, El) {
+    // Portal's: 4.25 times the body text across, the glyph twice it, nudged right a fifth of
+    // the body text to look centered; the accent under the pointer, the glyph then the
+    // background's color.
+    let body = ui.theme().type_scale.body;
+    let size = (body * 4.25).round();
+    let bg = ui.theme().colors.bg;
     let look = move |hover: bool, accent: Color| {
         remedy_ui_style::StylePatch::default()
             .background(if hover { accent } else { Color::BLACK.with_alpha(0.55) })
-            .foreground(Color::WHITE)
+            .foreground(if hover { bg } else { Color::WHITE })
             .radius(size / 2.0)
+            .padding(Insets { top: 0.0, bottom: 0.0, start: body * 0.2, end: 0.0 })
     };
     let accent = ui.theme().colors.accent;
     let button = ui
@@ -785,7 +819,7 @@ fn big_play(ui: &Ui, player: &Player) -> (El, El) {
         .align(Align::Center)
         .justify(Justify::Center)
         .style(look(false, accent))
-        .child(w::icon(ui, Icon::Play, u * 4.0));
+        .child(glyph(ui, icons, Icon::Play, body * 2.0));
     let b = button.clone();
     let button = button.on_hover(move |on| {
         let _ = b.clone().style(look(on, accent));
@@ -813,10 +847,11 @@ fn big_play(ui: &Ui, player: &Player) -> (El, El) {
 
 /// Play and pause.
 #[track_caller]
-fn play_button(ui: &Ui, player: &Player) -> El {
+fn play_button(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
     let p = player.clone();
     glyph_button(
         ui,
+        icons,
         [Icon::Play, Icon::Pause],
         "playback-play-pause-tip",
         {
@@ -838,7 +873,7 @@ fn play_button(ui: &Ui, player: &Player) -> El {
 #[track_caller]
 fn clock(ui: &Ui, player: &Player) -> El {
     let (p, tu) = (player.clone(), ui.clone());
-    ui.el("label").nowrap().layout(|l| l.shrink = 0.0).text(move || {
+    ui.el("player_clock").nowrap().layout(|l| l.shrink = 0.0).text(move || {
         // Starting the next, the old media's numbers no longer hold and the new one's are
         // not known yet.
         if p.starting_next().is_some() {
@@ -1113,10 +1148,10 @@ fn caption_words(u: &Ui, p: &Player, short: bool) -> String {
 /// app's choices with their details, its note, and the timing a half second at a time);
 /// C turns captions off and back on as last picked. Shown while it can do something.
 #[track_caller]
-fn captions_control(ui: &Ui, player: &Player) -> El {
+fn captions_control(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
     let u = ui.theme().spacing.unit;
-    let size = ui.theme().type_scale.body + 3.0;
-    let glyph = w::icon(ui, Icon::Captions, size);
+    let size = (ui.theme().type_scale.body * 1.3).round();
+    let glyph = glyph(ui, icons, Icon::Captions, size);
     let (p, tu) = (player.clone(), ui.clone());
     let words = ui.el("label").nowrap().text(move || caption_words(&tu, &p, true));
     let open = Signal::new(false);
@@ -1280,19 +1315,22 @@ fn pulse_while_loading(ui: &Ui, player: &Player, glyph: &El) {
 #[track_caller]
 fn glyph_button(
     ui: &Ui,
+    icons: &Option<PlayerIcons>,
     glyphs: [Icon; 2],
     tip: &'static str,
     which: impl Fn() -> usize + 'static,
     name: impl Fn() -> String + 'static,
     on_press: impl Fn() + 'static,
 ) -> El {
-    let size = ui.theme().type_scale.body + 3.0;
+    // The glyph 1.3 times the body text, as Portal's (1.3 rem); the button's size and shape
+    // are the sheet's `player_button`.
+    let size = (ui.theme().type_scale.body * 1.3).round();
     let [first, second] = glyphs;
-    let a = w::icon(ui, first, size);
-    let b = w::icon(ui, second, size);
+    let a = glyph(ui, icons, first, size);
+    let b = glyph(ui, icons, second, size);
     let (a2, b2) = (a.clone(), b.clone());
     let button = ui
-        .el("icon_button")
+        .el("player_button")
         .row()
         .align(Align::Center)
         .justify(Justify::Center)
@@ -1319,9 +1357,10 @@ fn glyph_button(
 /// Page Up and Down a tenth, Home and End to the ends, at once.
 #[track_caller]
 fn seek_bar(ui: &Ui, player: &Player) -> El {
-    let h = ui.theme().spacing.control_height;
+    // As Portal's: 1.35 times the body text high; the thumb is the sheet's `player_seek` radius.
+    let h = (ui.theme().type_scale.body * 1.35).round();
     let unit = ui.theme().spacing.unit;
-    let bar = ui.el("slider").height(h).grow(1.0).focusable(true);
+    let bar = ui.el("player_seek").height(h).grow(1.0).focusable(true);
     let length = {
         let p = player.clone();
         move || p.duration().filter(|d| !d.is_zero())
@@ -1389,14 +1428,20 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
                 None => 0.0,
             };
             let d = cx.theme.derive();
+            // The theme's seek bar tokens, if it has them (Portal's: `track`, `player-loaded`,
+            // `player-thumb`); the thumb's radius is the sheet's `player_seek` radius.
+            let token = |name: &str| cx.theme.colors.custom.get(name).copied();
+            let track = token("track").unwrap_or(d.line);
+            let loaded = token("player-loaded").unwrap_or(d.text.with_alpha(0.35));
+            let thumb = token("player-thumb").unwrap_or(d.text);
             let mid = cx.size.height / 2.0;
-            let r = cx_radius(cx.size.height);
+            let r = if cx.style.radius > 0.0 { cx.style.radius } else { cx_radius(cx.size.height) };
             let (x0, x1) = (r, cx.size.width - r);
             let x = x0 + (x1 - x0) * t;
             cx.list.fill_rounded(
                 Rect::new(x0, mid - 2.0, x1, mid + 2.0),
                 CornerRadii::all(2.0),
-                Brush::Solid(d.line),
+                Brush::Solid(track),
             );
             if let Some(len) = len() {
                 let at = |d: Duration| {
@@ -1408,7 +1453,7 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
                         cx.list.fill_rounded(
                             Rect::new(a, mid - 2.0, b, mid + 2.0),
                             CornerRadii::all(2.0),
-                            Brush::Solid(d.text.with_alpha(0.35)),
+                            Brush::Solid(loaded),
                         );
                     }
                 }
@@ -1421,7 +1466,7 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
             cx.list.fill_rounded(
                 Rect::new(x - r, mid - r, x + r, mid + r),
                 CornerRadii::all(r),
-                Brush::Solid(d.text),
+                Brush::Solid(thumb),
             );
         })
         .on_hover(move |inside| {
