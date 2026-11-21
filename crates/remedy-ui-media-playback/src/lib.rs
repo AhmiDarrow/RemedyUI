@@ -26,8 +26,8 @@
 //!   MediaCodec and AAudio on Android; in a browser page, the browser's WebCodecs decoders (MP4
 //!   with H.264 and AAC, taken apart here) and WebAudio. An app with its own decoder
 //!   implements the trait. HLS (`.m3u8` of MPEG-TS with H.264 and AAC or MP3) is taken apart
-//!   by the crate's own reader and decoded by Media Foundation on Windows and GStreamer on
-//!   Linux; macOS and Android refuse it as unsupported for now.
+//!   by the crate's own reader and decoded by Media Foundation on Windows, GStreamer on Linux
+//!   and VideoToolbox and AudioToolbox on macOS; Android refuses it as unsupported for now.
 //! - [`Microphone`]: the default sound input, captured on a worker of its own and handed to
 //!   the app as it arrives (a tuner's pitch detection, a singing coach's pitch graph, a
 //!   level meter), with its state and level as signals. WASAPI on Windows, the system's
@@ -62,10 +62,10 @@ pub mod deps;
 mod engine;
 mod host;
 // HLS (`.m3u8` of MPEG-TS) taken apart here; the platform decodes the compressed streams.
-// shortcut: macOS and Android only refuse playlists (no `Elementary` there yet); a page reads
-// HLS through it once its host does.
+// shortcut: Android only refuses playlists (no `Elementary` there yet); a page reads HLS
+// through it once its host does.
 #[cfg_attr(
-    not(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))),
+    not(any(windows, all(unix, not(any(target_os = "ios", target_os = "android"))))),
     allow(dead_code)
 )]
 mod hls;

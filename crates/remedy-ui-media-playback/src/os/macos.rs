@@ -17,9 +17,9 @@ use objc2_av_foundation::{
 use objc2_core_foundation::CFString;
 use objc2_core_media::{CMSampleBuffer, CMTime, CMTimeRange, kCMTimePositiveInfinity};
 use objc2_core_video::{
-    CVPixelBufferGetBaseAddressOfPlane, CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeight,
-    CVPixelBufferGetHeightOfPlane, CVPixelBufferGetPixelFormatType, CVPixelBufferGetPlaneCount,
-    CVPixelBufferGetWidth, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
+    CVPixelBuffer, CVPixelBufferGetBaseAddressOfPlane, CVPixelBufferGetBytesPerRowOfPlane,
+    CVPixelBufferGetHeight, CVPixelBufferGetHeightOfPlane, CVPixelBufferGetPixelFormatType,
+    CVPixelBufferGetPlaneCount, CVPixelBufferGetWidth, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
     CVPixelBufferUnlockBaseAddress, kCVPixelBufferPixelFormatTypeKey,
     kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
 };
@@ -126,6 +126,10 @@ unsafe extern "C" {
     fn CMAudioFormatDescriptionGetStreamBasicDescription(desc: *const c_void) -> *const Asbd;
 }
 
+// HLS: VideoToolbox and AudioToolbox decode the streams the crate's own reader takes apart.
+#[path = "macos_hls.rs"]
+mod hls;
+
 struct MacHost;
 
 pub(super) fn host() -> Result<Arc<dyn MediaHost>, MediaError> {
@@ -138,9 +142,14 @@ impl MediaHost for MacHost {
     }
 
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
-        // shortcut: no Elementary here yet, so a playlist is refused plainly rather than failing in the decoder.
+        // AVAssetReader does not read playlists: the crate's own reader takes HLS apart and
+        // VideoToolbox and AudioToolbox decode its streams.
         if crate::hls::is_hls(source) {
-            return Err(MediaError::Unsupported("HLS is not read on macOS yet".into()));
+            return crate::hls::open(
+                &source.to_url(),
+                Box::new(hls::UrlFetch::new()),
+                Box::new(hls::ToolboxElementary::default()),
+            );
         }
         Ok(Box::new(AvDecoder::open(source)?))
     }
@@ -225,6 +234,51 @@ fn seconds(t: CMTime) -> Option<Duration> {
     // SAFETY: a pure conversion of a time value.
     let s = unsafe { t.seconds() };
     (s.is_finite() && s >= 0.0).then(|| Duration::from_secs_f64(s))
+}
+
+/// A copy of an NV12 pixel buffer (the asset reader's and VideoToolbox's pictures).
+fn nv12(image: &CVPixelBuffer) -> Result<Picture, MediaError> {
+    // SAFETY: the pixel buffer is locked for reading while its planes are copied.
+    unsafe {
+        let format = CVPixelBufferGetPixelFormatType(image);
+        let full_range = format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+        if format != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange && !full_range {
+            return Err(MediaError::Decode(format!("pictures came as {format:#x}, not NV12")));
+        }
+        if CVPixelBufferGetPlaneCount(image) != 2 {
+            return Err(MediaError::Decode("an NV12 picture without two planes".into()));
+        }
+        CVPixelBufferLockBaseAddress(image, CVPixelBufferLockFlags::ReadOnly);
+        let (w, h) = (CVPixelBufferGetWidth(image), CVPixelBufferGetHeight(image));
+        let mut data = Vec::new();
+        let mut planes = [Plane::default(); 3];
+        let mut ok = true;
+        for (i, slot) in planes.iter_mut().take(2).enumerate() {
+            let base = CVPixelBufferGetBaseAddressOfPlane(image, i).cast::<u8>();
+            let stride = CVPixelBufferGetBytesPerRowOfPlane(image, i);
+            let rows = CVPixelBufferGetHeightOfPlane(image, i);
+            if base.is_null() {
+                ok = false;
+                break;
+            }
+            *slot = Plane { offset: data.len(), stride };
+            data.extend_from_slice(std::slice::from_raw_parts(base, stride * rows));
+        }
+        CVPixelBufferUnlockBaseAddress(image, CVPixelBufferLockFlags::ReadOnly);
+        if !ok {
+            return Err(MediaError::Decode("a picture's planes could not be read".into()));
+        }
+        Ok(Picture {
+            width: w as u32,
+            height: h as u32,
+            format: PixelFormat::Nv12,
+            planes,
+            matrix: if h < 720 { YuvMatrix::Bt601 } else { YuvMatrix::Bt709 },
+            full_range,
+            data: Arc::from(data),
+            gpu: None,
+        })
+    }
 }
 
 impl AvDecoder {
@@ -382,50 +436,10 @@ impl AvDecoder {
     }
 
     fn picture(&self, sample: &CMSampleBuffer) -> Result<Picture, MediaError> {
-        // SAFETY: the pixel buffer is locked for reading while its planes are copied.
-        unsafe {
-            let image = sample
-                .image_buffer()
-                .ok_or_else(|| MediaError::Decode("a sample without a picture".into()))?;
-            let format = CVPixelBufferGetPixelFormatType(&image);
-            let full_range = format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
-            if format != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange && !full_range {
-                return Err(MediaError::Decode(format!("pictures came as {format:#x}, not NV12")));
-            }
-            if CVPixelBufferGetPlaneCount(&image) != 2 {
-                return Err(MediaError::Decode("an NV12 picture without two planes".into()));
-            }
-            CVPixelBufferLockBaseAddress(&image, CVPixelBufferLockFlags::ReadOnly);
-            let (w, h) = (CVPixelBufferGetWidth(&image), CVPixelBufferGetHeight(&image));
-            let mut data = Vec::new();
-            let mut planes = [Plane::default(); 3];
-            let mut ok = true;
-            for (i, slot) in planes.iter_mut().take(2).enumerate() {
-                let base = CVPixelBufferGetBaseAddressOfPlane(&image, i).cast::<u8>();
-                let stride = CVPixelBufferGetBytesPerRowOfPlane(&image, i);
-                let rows = CVPixelBufferGetHeightOfPlane(&image, i);
-                if base.is_null() {
-                    ok = false;
-                    break;
-                }
-                *slot = Plane { offset: data.len(), stride };
-                data.extend_from_slice(std::slice::from_raw_parts(base, stride * rows));
-            }
-            CVPixelBufferUnlockBaseAddress(&image, CVPixelBufferLockFlags::ReadOnly);
-            if !ok {
-                return Err(MediaError::Decode("a picture's planes could not be read".into()));
-            }
-            Ok(Picture {
-                width: w as u32,
-                height: h as u32,
-                format: PixelFormat::Nv12,
-                planes,
-                matrix: if h < 720 { YuvMatrix::Bt601 } else { YuvMatrix::Bt709 },
-                full_range,
-                data: Arc::from(data),
-                gpu: None,
-            })
-        }
+        // SAFETY: reading the sample's picture.
+        let image = unsafe { sample.image_buffer() }
+            .ok_or_else(|| MediaError::Decode("a sample without a picture".into()))?;
+        nv12(&image)
     }
 
     fn sound(&self, sample: &CMSampleBuffer) -> Result<Vec<f32>, MediaError> {
