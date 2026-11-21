@@ -52,8 +52,20 @@ export function blobUrl(bytes) { return URL.createObjectURL(new Blob([bytes], { 
 // (WebGL2), or drawn into a 2D canvas to be read back (the CPU's way).
 export function spyOnFrames() {
   if (window.__frames) return;
-  const counts = { copyTo: 0, close: 0, imported: 0, gpuCopied: 0, texImage: 0, readBack: 0 };
+  const counts = { copyTo: 0, close: 0, imported: 0, gpuCopied: 0, texImage: 0, readBack: 0, gpuErrors: 0 };
   window.__frames = counts;
+  // Every WebGPU device made from now on reports its uncaught errors here too (wgpu's own
+  // handler keeps them to itself).
+  if (window.GPUAdapter) {
+    const request = GPUAdapter.prototype.requestDevice;
+    GPUAdapter.prototype.requestDevice = async function (...a) {
+      const device = await request.apply(this, a);
+      const i = this.info || {};
+      console.log(`WebGPU adapter: ${i.vendor} ${i.architecture} ${i.device} ${i.description}`);
+      device.addEventListener('uncapturederror', (e) => { counts.gpuErrors++; console.log(`WebGPU error: ${e.error.message}`); });
+      return device;
+    };
+  }
   const wrap = (proto, name, key, test) => {
     if (!proto || !proto[name]) return;
     const f = proto[name];
@@ -401,6 +413,7 @@ async fn the_gpu_renderer_shows_frames_imported_where_they_are() {
         assert_eq!(tex_image, 0, "WebGPU has no WebGL2 context");
         assert!(read_back <= 2, "{read_back} pictures read back");
     }
+    assert_eq!(count("gpuErrors"), 0, "WebGPU reported no errors");
     if let Some(a) = app.borrow().as_ref() {
         a.quit();
     }
