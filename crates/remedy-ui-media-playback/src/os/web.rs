@@ -43,7 +43,6 @@ use crate::host::{
 use crate::mp4::{self, Kind, Mp4};
 
 // HLS: the crate's reader, fetched by the page and decoded by these WebCodecs decoders.
-#[allow(dead_code)] // shortcut: until the HLS decoder drives it
 #[path = "web_hls.rs"]
 mod hls_web;
 
@@ -1086,6 +1085,9 @@ impl MediaHost for WebHost {
                 *slot.borrow_mut() = Some(op);
                 out.borrow_mut().ready = Some(Ok(()));
                 Ok(Box::new(WebDecoder { out, open: slot, bytes: data, info }))
+            }
+            MediaSource::Url(url) if crate::hls::is_hls(source) => {
+                Ok(Box::new(hls_web::HlsDecoder::open(url, out)))
             }
             MediaSource::Url(url) => {
                 let bytes: SharedBytes = Rc::default();

@@ -51,11 +51,13 @@ const JUMP_SEEK: f64 = 10.0;
 
 /// A player for `player`: its picture (with captions over it, when on) and a transport bar
 /// with play and pause, the time, a seek bar, mute and volume, a captions switch when the
-/// media has caption tracks, and a full-screen request. `label` names it for screen readers
+/// media has caption tracks, a theater-mode request once the app listens for one
+/// ([`Player::on_theater`]), and a full-screen request. `label` names it for screen readers
 /// ("Talk recording").
 ///
 /// Keyboard, anywhere in the player: K plays and pauses, J and L jump 10 seconds, M mutes,
-/// C turns captions on and off, F asks for full screen and Escape leaves it, > and < (Shift+.
+/// C turns captions on and off, F asks for full screen, T for theater mode (when offered),
+/// Escape leaves full screen or else theater mode, > and < (Shift+.
 /// and Shift+, on most keyboards) make it faster and slower, and Shift+N plays
 /// what is [next up](Player::set_next_up). On the seek bar
 /// Space plays and pauses, the arrows move 5 seconds, Page Up and Page Down a tenth, Home and
@@ -284,6 +286,35 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         let pictures = p.info().is_none_or(|i| i.video.is_some());
         let _ = fb.clone().hidden(!pictures);
     });
+    // Theater mode: one name, pressed while on, offered once the app listens.
+    let p = player.clone();
+    let theater = glyph_button(
+        ui,
+        [Icon::Theater, Icon::Theater],
+        "playback-theater-tip",
+        || 0,
+        {
+            let u = ui.clone();
+            move || tr(&u, "playback-theater")
+        },
+        move || p.request_theater(!p.is_theater()),
+    );
+    let (tb, p, tu) = (theater.clone(), player.clone(), ui.clone());
+    let theater = theater
+        .semantics(move || {
+            Semantics::new(Role::Button)
+                .label(tr(&tu, "playback-theater"))
+                .checked(p.is_theater())
+                .action(Action::Click)
+        })
+        .bind({
+            let p = player.clone();
+            move || {
+                let pictures = p.info().is_none_or(|i| i.video.is_some());
+                let _ = tb.clone().hidden(!pictures || !p.theater_offered());
+                tb.state(remedy_ui_style::States::CHECKED, p.is_theater());
+            }
+        });
     let bar = ui
         .el("toolbar")
         .row()
@@ -296,6 +327,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .child(volume)
         .child(speed)
         .child(captions)
+        .child(theater)
         .child(full);
 
     let next = next_up_card(ui, player);
@@ -316,6 +348,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             }
             match &e.key {
                 Key::Escape if p.is_fullscreen() => p.request_fullscreen(false),
+                Key::Escape if p.is_theater() => p.request_theater(false),
                 Key::Character(c) => match c.as_str() {
                     "k" => p.toggle(),
                     "j" => p.seek_by(-JUMP_SEEK),
@@ -326,6 +359,9 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                     "c" if !p.subtitle_tracks().is_empty() => cycle_captions(&p),
                     "f" if p.info().is_none_or(|i| i.video.is_some()) => {
                         p.request_fullscreen(!p.is_fullscreen())
+                    }
+                    "t" if p.theater_offered() && p.info().is_none_or(|i| i.video.is_some()) => {
+                        p.request_theater(!p.is_theater())
                     }
                     "N" | "n" if e.modifiers.shift && p.next_up().is_some() => p.play_next(),
                     _ => return false,
