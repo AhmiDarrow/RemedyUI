@@ -849,6 +849,25 @@ pub(crate) fn open(
     Ok(Box::new(open_with(url, fetch, es, clock)?))
 }
 
+thread_local! {
+    /// The stop flag of the open running on this thread ([opening_until]).
+    static OPEN_STOP: std::cell::RefCell<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs open (a host's) with stop as the stop flag of any HLS stream it opens: once set,
+/// an open still fetching gives up within a fetch watchdog's tick, and the stream's fetching
+/// thread stops.
+pub(crate) fn opening_until<R>(
+    stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    open: impl FnOnce() -> R,
+) -> R {
+    let before = OPEN_STOP.with(|s| s.replace(Some(stop.clone())));
+    let r = open();
+    OPEN_STOP.with(|s| *s.borrow_mut() = before);
+    r
+}
+
 fn open_with(
     url: &str,
     mut fetch: Box<dyn Fetch>,
@@ -857,7 +876,7 @@ fn open_with(
 ) -> Result<HlsDecoder, MediaError> {
     let (asks, wants) = std::sync::mpsc::channel::<Want>();
     let (back, done) = std::sync::mpsc::channel::<Fetched>();
-    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop = OPEN_STOP.with(|s| s.borrow().clone()).unwrap_or_default();
     let stopped = stop.clone();
     std::thread::Builder::new()
         .name("remedy-hls-fetch".into())
@@ -888,16 +907,19 @@ fn open_with(
     };
     // The playlist and the first segment only: the rest comes while playing.
     while !d.hls.started() {
+        if d.stop.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(MediaError::Decode("closed while opening".into()));
+        }
         if d.hls.ended() {
             return Err(MediaError::Format("the HLS playlist lists no segments".into()));
         }
         match d.start() {
-            Some(wait) => (d.clock.sleep)(wait),
+            Some(wait) => (d.clock.sleep)(wait.min(WAIT_SLICE)),
             None if d.in_flight.is_none() => {
                 return Err(MediaError::Format("the HLS playlist lists no segments".into()));
             }
             None => {
-                d.take(Duration::MAX)?;
+                d.take(WAIT_SLICE)?;
             }
         }
     }
