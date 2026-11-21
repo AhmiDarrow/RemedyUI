@@ -13,7 +13,8 @@ use super::gstreamer::{
 };
 use super::gstreamer_stream::{Pipe, pull};
 use crate::hls::{
-    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, QUIET, Unit, VideoConfig, timed_out,
+    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, QUIET, Unit, VideoConfig, file_path,
+    timed_out,
 };
 use crate::host::{MediaError, Sample, VideoCodec};
 
@@ -272,6 +273,11 @@ impl GstFetch {
 
 impl Fetch for GstFetch {
     fn get(&mut self, url: &str) -> Result<Vec<u8>, MediaError> {
+        // A local playlist's segments are read from disk: their names joined on unescaped
+        // (spaces and all) are no URL GStreamer opens.
+        if let Some(path) = file_path(url) {
+            return std::fs::read(&path).map_err(|e| MediaError::NotFound(format!("{path}: {e}")));
+        }
         let g = self.g;
         if url.contains(char::is_whitespace) || url.contains('!') {
             return Err(MediaError::NotFound(format!("{url}: not a URL GStreamer can open")));

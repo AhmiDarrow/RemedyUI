@@ -518,3 +518,17 @@ fn hls_is_told_by_the_path() {
     assert!(is_hls(&MediaSource::file("C:/media/index.m3u8")));
     assert!(!is_hls(&MediaSource::file("clip.mp4")));
 }
+
+#[test]
+fn file_urls_name_paths() {
+    assert_eq!(file_path("https://a/b.ts"), None);
+    let p = |u: &str| file_path(u).unwrap_or_default();
+    if cfg!(windows) {
+        assert_eq!(p("file:///C:/a%20b/seg ü 1.ts?x"), "C:/a b/seg ü 1.ts");
+        assert_eq!(p("file://localhost/C:/a.ts"), "C:/a.ts");
+        assert_eq!(p("file://server/share/a.ts"), "//server/share/a.ts");
+    } else {
+        assert_eq!(p("file:///tmp/a%20b/seg ü 1.ts?x"), "/tmp/a b/seg ü 1.ts");
+        assert_eq!(p("file://localhost/tmp/a.ts"), "/tmp/a.ts");
+    }
+}
