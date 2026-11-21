@@ -138,6 +138,10 @@ impl MediaHost for MacHost {
     }
 
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
+        // shortcut: no Elementary here yet, so a playlist is refused plainly rather than failing in the decoder.
+        if crate::hls::is_hls(source) {
+            return Err(MediaError::Unsupported("HLS is not read on macOS yet".into()));
+        }
         Ok(Box::new(AvDecoder::open(source)?))
     }
 

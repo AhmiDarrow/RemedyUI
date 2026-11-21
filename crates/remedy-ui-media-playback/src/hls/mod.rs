@@ -100,6 +100,11 @@ pub(crate) trait Elementary: Send {
     fn end(&mut self) -> Result<(), MediaError>;
     /// Drops everything held (a seek); the next piece pushed is a key frame.
     fn flush(&mut self) -> Result<(), MediaError>;
+    /// The sound's format as the decoder gives it, when that is not the stream's own (an
+    /// AAC decoder's SBR doubles the rate); known once configured.
+    fn audio_format(&self) -> Option<AudioFormat> {
+        None
+    }
 }
 
 /// Fetches a URL whole, waiting for it (native threads).
@@ -485,8 +490,15 @@ impl HlsDecoder {
         }
         let got = self.fetch.get(&want.url);
         self.hls.deliver(&want, got)?;
-        self.info = self.hls.info();
+        self.refresh_info();
         Ok(true)
+    }
+
+    fn refresh_info(&mut self) {
+        self.info = self.hls.info();
+        if let Some(a) = self.es.audio_format() {
+            self.info.audio = Some(a);
+        }
     }
 }
 
@@ -554,6 +566,7 @@ fn open_with(
         return Err(MediaError::Unsupported("HLS segments hold no H.264 video, AAC or MP3 sound".into()));
     }
     d.es.configure(d.hls.video(), d.hls.audio())?;
+    d.refresh_info();
     Ok(d)
 }
 

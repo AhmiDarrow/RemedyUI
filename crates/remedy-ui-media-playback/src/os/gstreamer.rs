@@ -391,6 +391,13 @@ impl MediaHost for GstHost {
     }
 
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
+        if crate::hls::is_hls(source) {
+            return crate::hls::open(
+                &source.to_url(),
+                Box::new(super::gstreamer_hls::GstFetch::new()?),
+                Box::new(super::gstreamer_hls::GstElementary::new()?),
+            );
+        }
         Ok(Box::new(GstDecoder::open(gst()?, source)?))
     }
 
@@ -513,7 +520,7 @@ fn missing_codec(text: &str) -> MediaError {
     MediaError::Missing(d)
 }
 
-fn map_error(code: c_int, text: String) -> MediaError {
+pub(crate) fn map_error(code: c_int, text: String) -> MediaError {
     if text.contains("missing a plug-in")
         || text.contains("missing a plugin")
         || text.contains("No decoder available")
@@ -1643,7 +1650,7 @@ impl Bits {
 
 /// A video stream decoded as it arrives:
 /// `appsrc ! h264parse ! <decoder> ! videoconvert ! video/x-raw,format=NV12 ! appsink`.
-struct GstStreamDecoder {
+pub(crate) struct GstStreamDecoder {
     g: &'static Gst,
     pipeline: Ptr,
     src: Ptr,
@@ -1670,7 +1677,11 @@ impl GstStreamDecoder {
     }
 
     /// The decoder to use: the best one that has decoded the test stream on this machine.
-    fn choice(g: &'static Gst, codec: VideoCodec, hardware: bool) -> Result<&'static str, MediaError> {
+    pub(crate) fn choice(
+        g: &'static Gst,
+        codec: VideoCodec,
+        hardware: bool,
+    ) -> Result<&'static str, MediaError> {
         let VideoCodec::H264 = codec;
         let mut verdicts = VERDICTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         choose(&Self::candidates(hardware), &mut verdicts, |name| Self::probe(g, name))
@@ -1901,7 +1912,7 @@ impl Drop for GstStreamDecoder {
 
 /// An NV12 picture from a sample in GStreamer's default layout (rows padded to 4 bytes, the
 /// chroma plane after the luma's even rows), with its colours as its caps say.
-fn nv12_picture(g: &Gst, s: Ptr, bytes: &[u8]) -> Result<Picture, MediaError> {
+pub(crate) fn nv12_picture(g: &Gst, s: Ptr, bytes: &[u8]) -> Result<Picture, MediaError> {
     let (mut w, mut h) = (0, 0);
     // SAFETY: reading the sample's caps fields into locals.
     let colorimetry = unsafe {
