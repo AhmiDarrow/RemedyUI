@@ -12,6 +12,7 @@ playback-play = Reproduzir
 playback-pause = Pausar
 playback-time = { $position } / { $duration }
 playback-time-live = { $position } · Ao vivo
+playback-skipping = Pulando para { $position }
 playback-mute-tip = Desativar som (M)
 playback-mute = Desativar som
 playback-unmute = Ativar som
