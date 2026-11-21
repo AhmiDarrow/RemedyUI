@@ -208,7 +208,19 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             (_, Some(at)) if !p.is_remote() => {
                 Some(crate::STRINGS.format(&mu, "playback-skipping", &[("position", format_time(at).into())]))
             }
-            _ => None,
+            // The next, while the app makes it, as Portal's page says it: the title, then
+            // what the app is doing.
+            _ => match p.starting_next() {
+                Some(title) => {
+                    let head =
+                        crate::STRINGS.format(&mu, "playback-starting-next", &[("title", title.into())]);
+                    Some(match p.starting_detail() {
+                        Some(d) => format!("{head}\n{d}"),
+                        None => head,
+                    })
+                }
+                None => p.next_error(),
+            },
         };
         let _ = msg.clone().hidden(text.is_none());
         let _ = msg.clone().text(remedy_ui_view::RichText::plain(text.unwrap_or_default()));
@@ -275,11 +287,13 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     let stage = stage.bind(move || {
         let state = p.state();
         let remote = p.is_remote();
-        let _ = busy.clone().hidden(!matches!(state, PlaybackState::Opening | PlaybackState::Buffering));
+        let waiting = matches!(state, PlaybackState::Opening | PlaybackState::Buffering);
+        let _ = busy.clone().hidden(!waiting && p.starting_next().is_none());
         let _ = surface.clone().hidden(remote);
         // Sound alone needs no picture; what failed to open shows its message there.
         let pictures = p.info().is_none_or(|i| i.video.is_some());
-        let _ = st.clone().hidden(!pictures && state != PlaybackState::Failed && !remote);
+        let said = p.starting_next().is_some() || p.next_error().is_some();
+        let _ = st.clone().hidden(!pictures && state != PlaybackState::Failed && !remote && !said);
     });
 
     // The transport bar.
@@ -716,7 +730,8 @@ fn next_up_card(ui: &Ui, player: &Player) -> El {
             dismissed.set_if_changed(false);
         }
         *seen.borrow_mut() = next.clone();
-        let shown = due && next.is_some() && !dismissed.get();
+        // Starting the next, the stage says so in place of the card.
+        let shown = due && next.is_some() && !dismissed.get() && p.starting_next().is_none();
         let _ = c.clone().hidden(!shown);
         if let Some(n) = next {
             let _ = c.clone().semantics(Semantics::new(Role::Group).label(n.title));
@@ -876,7 +891,9 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
         let len = length();
         // On a timeline a seek the stream cannot take goes to the app; skipping, none does.
         let seekable = p2.is_remote() || p2.timeline().is_some() || p2.info().is_some_and(|i| i.seekable);
-        let _ = b3.clone().disabled(len.is_none() || !seekable || p2.skipping().is_some());
+        let _ = b3
+            .clone()
+            .disabled(len.is_none() || !seekable || p2.skipping().is_some() || p2.starting_next().is_some());
         let total = len.unwrap_or_default();
         let said = crate::STRINGS.format(
             &u,

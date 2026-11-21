@@ -43,5 +43,6 @@ playback-next-up-in = { $count ->
 }
 playback-play-now = अभी चलाएँ
 playback-next-cancel = रद्द करें
+playback-starting-next = { $title } शुरू हो रहा है
 playback-speed = गति { $speed }×
 playback-speed-tip = चलाने की गति (Shift+> तेज़, Shift+< धीमी)
