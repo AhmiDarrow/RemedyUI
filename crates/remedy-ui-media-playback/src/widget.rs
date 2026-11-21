@@ -52,6 +52,11 @@ const JUMP_SEEK: f64 = 10.0;
 /// How long a click on the picture waits for a second one before it plays or pauses
 /// ([`KeyScheme::Arrows`]), so a double click only toggles full screen.
 const CLICK_HOLD: Duration = Duration::from_millis(220);
+/// How long full screen rests with no activity before the controls fade (Portal's 2.6 s).
+const WAKE: Duration = Duration::from_millis(2600);
+/// How long they take to fade in or out (none under reduced motion).
+const FADE: Duration = Duration::from_millis(250);
+
 /// How far Up and Down move the volume in [`KeyScheme::Arrows`].
 const VOLUME_STEP: f32 = 0.05;
 
@@ -270,26 +275,53 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     let u = theme.spacing.unit;
     let options = player.options().clone();
 
+    // Full screen: the controls show on any activity and rest WAKE later (see `overlay`).
+    let menu_open = Signal::new(false);
+    let rest = std::rc::Rc::new(Rest {
+        ui: ui.clone(),
+        player: player.clone(),
+        timer: std::cell::Cell::new(None),
+        hold: std::cell::OnceCell::new(),
+    });
+    // How far the captions sit above the bottom: over the bar while it floats there.
+    let lift = Signal::new(u * 3.0);
+
     // The picture, with captions and messages over it.
     let surface = player_picture(ui, player, label.clone());
-    let caption = ui
-        .el("player_caption")
-        .layout(move |l| {
-            l.position = Position::Absolute;
-            l.inset = Insets { top: AUTO, start: u * 4.0, end: u * 4.0, bottom: u * 3.0 };
-        })
-        .style(remedy_ui_style::StylePatch::default().padding(Insets {
-            top: u * 0.5,
-            bottom: u * 0.5,
-            start: u * 1.5,
-            end: u * 1.5,
-        }));
-    let cap = caption.clone();
-    let p = player.clone();
+    // Captions centred at the foot of the picture, each line in its own box as a browser
+    // draws a cue (Portal's page): lines of different lengths stay centred.
+    let caption = ui.el("player_captions").column().align(Align::Center).pass_through().layout(move |l| {
+        l.position = Position::Absolute;
+        l.inset = Insets { top: AUTO, start: u * 4.0, end: u * 4.0, bottom: u * 3.0 };
+    });
+    let (cap, p, cu) = (caption.clone(), player.clone(), ui.clone());
+    let shown = std::cell::RefCell::new(None::<String>);
     let caption = caption.bind(move || {
         let text = p.caption_text().filter(|_| !p.is_remote());
+        if *shown.borrow() == text {
+            return;
+        }
+        cap.clear();
         let _ = cap.clone().hidden(text.is_none());
-        let _ = cap.clone().text(remedy_ui_view::RichText::plain(text.unwrap_or_default()));
+        for line in text.iter().flat_map(|t| t.lines()) {
+            let boxed = cu
+                .el("player_caption")
+                .style(remedy_ui_style::StylePatch::default().padding(Insets {
+                    top: u * 0.5,
+                    bottom: u * 0.5,
+                    start: u * 1.5,
+                    end: u * 1.5,
+                }))
+                .text(remedy_ui_view::RichText::plain(line.to_owned()));
+            let _ = cap.clone().child(boxed);
+        }
+        *shown.borrow_mut() = text;
+    });
+    // Above the bar while it floats over the picture in full screen.
+    let cap = caption.clone();
+    let caption = caption.bind(move || {
+        let bottom = lift.get();
+        let _ = cap.clone().layout(move |l| l.inset.bottom = bottom);
     });
     // What went wrong, in the captions' readable box at the top of the picture.
     let message = ui
@@ -414,9 +446,16 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         .child(big_play)
         .on_pointer({
             let (u, held) = (ui.clone(), std::rc::Rc::new(std::cell::Cell::new(None)));
+            let rest = rest.clone();
             move |e| {
                 if e.phase != PointerPhase::Down || !e.buttons.contains(Buttons::PRIMARY) {
                     return false;
+                }
+                // A tap on a rested full screen brings the controls back and does no more
+                // (Portal's would also play or pause).
+                if e.kind == PointerKind::Touch && !remedy_ui_reactive::untrack(|| p.controls_shown()) {
+                    rest.wake();
+                    return true;
                 }
                 // A second press takes back the first one's play or pause.
                 if let Some(t) = held.take() {
@@ -520,7 +559,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     // The slider follows the volume: the device's in remote mode.
     let p = player.clone();
     let volume = volume.bind(move || level.set_if_changed(f64::from(p.volume())));
-    let captions = captions_control(ui, player);
+    let captions = captions_control(ui, player, menu_open);
     let p = player.clone();
     let full = glyph_button(
         ui,
@@ -676,6 +715,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     };
 
     let next = next_up_card(ui, player);
+    let (chrome, title) = overlay(ui, player, &bar, &next, &rest, menu_open, lift);
 
     // Portal's mini player: the picture at the start, the app's title over play and the time
     // beside it; the "Up next" card stays under them.
@@ -712,7 +752,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
 
     let p = player.clone();
     let root = ui.el("player");
-    let (me, home) = (root.clone(), root.clone());
+    let (me, home, cursor) = (root.clone(), root.clone(), root.clone());
     root.column()
         .grow(1.0)
         .semantics(Semantics::new(Role::Group).label(label))
@@ -724,8 +764,47 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         })
         .child(main)
         .child(next)
-        .child(bar)
+        .child(chrome)
+        .child(title)
+        // The pointer hides with the controls.
+        .bind({
+            let p = player.clone();
+            move || {
+                let _ = cursor.clone().cursor_hidden(!p.controls_shown());
+            }
+        })
+        // Full screen takes the keys: focus comes to the player when it is elsewhere (as the
+        // focus a click leaves, `drops_focus_after_click`), so K, F and a key to wake work.
+        .bind({
+            let (p, me, was) = (player.clone(), home.clone(), std::cell::Cell::new(false));
+            move || {
+                let full = p.is_fullscreen();
+                if full && !was.replace(full) && !me.states().contains(remedy_ui_style::States::FOCUS_WITHIN)
+                {
+                    let _ = me.clone().focusable(true);
+                    me.focus();
+                }
+                was.set(full);
+            }
+        })
+        // Any pointer movement or press, and any key, brings the controls back.
+        .keyboard_alternative({
+            let u = ui.clone();
+            move || tr(&u, "playback-wake-tip")
+        })
+        .on_pointer({
+            let rest = rest.clone();
+            move |e| {
+                if matches!(e.phase, PointerPhase::Move | PointerPhase::Down) {
+                    rest.wake();
+                }
+                false
+            }
+        })
         .on_key(move |e| {
+            if e.pressed {
+                rest.wake();
+            }
             if !e.pressed || e.composing || e.modifiers.ctrl || e.modifiers.alt || e.modifiers.meta {
                 return false;
             }
@@ -760,6 +839,265 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             }
             true
         })
+}
+
+/// Full screen's rest: the controls show on activity and fade [`WAKE`] after the last, unless
+/// something holds them then (checked when the timer fires, as Portal's page does).
+struct Rest {
+    ui: Ui,
+    player: Player,
+    timer: std::cell::Cell<Option<u64>>,
+    /// Whether something holds the controls now (set once the bar is made).
+    hold: std::cell::OnceCell<Box<dyn Fn() -> bool>>,
+}
+
+impl Rest {
+    fn wake(self: &std::rc::Rc<Self>) {
+        self.player.set_awake(true);
+        if let Some(t) = self.timer.take() {
+            self.ui.cancel_timer(t);
+        }
+        let me = self.clone();
+        self.timer.set(Some(self.ui.after(WAKE, move || {
+            me.timer.set(None);
+            let full = remedy_ui_reactive::untrack(|| me.player.is_fullscreen());
+            match full && me.hold.get().is_some_and(|h| h()) {
+                true => me.wake(),
+                false => me.player.set_awake(false),
+            }
+        })));
+    }
+}
+
+/// Whether anything in `el` has focus the keyboard put there (not a click's).
+fn keyboard_focus_in(el: &El) -> bool {
+    let mut stack = vec![el.clone()];
+    while let Some(e) = stack.pop() {
+        if e.states().contains(remedy_ui_style::States::FOCUS_VISIBLE) {
+            return true;
+        }
+        stack.extend(e.child_elements());
+    }
+    false
+}
+
+/// Full screen, as on Portal's page: the bar floats over the foot of the picture on a
+/// gradient, the [title](Player::set_title) over its head, and both fade [`WAKE`] after the
+/// last pointer, touch or key activity, except while paused or busy, while the app says
+/// something, while scrubbing, with a menu open, under the pointer, or with keyboard focus in
+/// the bar. The captions sit above the bar while it shows. Unlike Portal's page, a faded bar
+/// stays in the accessibility tree and the tab order and focus coming into it brings it
+/// back, so nothing is announced as it fades and the keyboard never loses it; a press on the
+/// faded bar only brings it back; a hold ending gives a whole [`WAKE`] before the fade; the
+/// gradient is the theme's background, so the theme's own colors read over it; and under
+/// reduced motion the controls show and hide without fading. The bar and the title line.
+#[track_caller]
+fn overlay(
+    ui: &Ui,
+    player: &Player,
+    bar: &El,
+    next: &El,
+    rest: &std::rc::Rc<Rest>,
+    menu_open: Signal<bool>,
+    lift: Signal<f32>,
+) -> (El, El) {
+    let theme = ui.theme();
+    let u = theme.spacing.unit;
+    let fill = |l: &mut remedy_ui_layout::LayoutStyle| {
+        l.position = Position::Absolute;
+        l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: 0.0 };
+    };
+    // The theme's background, dense at the edge of the screen and gone toward the middle.
+    let scrim = |edge_at_top: bool| {
+        ui.el("player_scrim").layout(fill).pass_through().paint(move |cx| {
+            let (edge, clear) = (cx.theme.colors.bg.with_alpha(0.88), cx.theme.colors.bg.with_alpha(0.0));
+            let (from, to) = if edge_at_top { (edge, clear) } else { (clear, edge) };
+            cx.list.fill_rect(
+                Rect::new(0.0, 0.0, cx.size.width, cx.size.height),
+                Brush::Linear {
+                    start: remedy_ui_core::Point::new(0.0, 0.0),
+                    end: remedy_ui_core::Point::new(0.0, cx.size.height),
+                    stops: vec![
+                        remedy_ui_paint::Stop { offset: 0.0, color: from },
+                        remedy_ui_paint::Stop { offset: 1.0, color: to },
+                    ],
+                },
+            );
+        })
+    };
+    let back = scrim(false);
+    // Over the faded bar: a press brings it back rather than pressing what cannot be seen.
+    let shield = ui
+        .el("player_shield")
+        .layout(fill)
+        .hidden(true)
+        .on_pointer({
+            let rest = rest.clone();
+            move |e| {
+                if matches!(e.phase, PointerPhase::Move | PointerPhase::Down) {
+                    rest.wake();
+                }
+                true
+            }
+        })
+        .keyboard_alternative({
+            let u = ui.clone();
+            move || tr(&u, "playback-wake-tip")
+        });
+    // The bar's height, for the captions to sit above it.
+    let high = Signal::new(u * 16.0);
+    let chrome = ui.el("player_chrome").column().child(back.clone()).child(bar.clone()).child(shield.clone());
+    let chrome = chrome.on_resize(move |size| high.set_if_changed(size.height)).on_focus_within({
+        let rest = rest.clone();
+        move |on| {
+            if on {
+                rest.wake();
+            }
+        }
+    });
+    let p = player.clone();
+    let words = ui
+        .el("label")
+        .style(remedy_ui_style::StylePatch::default().text_size(theme.type_scale.title))
+        .text(move || p.title().unwrap_or_default());
+    let title = ui
+        .el("player_title")
+        .layout(|l| {
+            l.position = Position::Absolute;
+            l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: AUTO };
+        })
+        .style(remedy_ui_style::StylePatch::default().padding(Insets {
+            top: u * 2.2,
+            bottom: u * 6.0,
+            start: u * 3.0,
+            end: u * 3.0,
+        }))
+        .pass_through()
+        .child(scrim(true))
+        .child(words);
+
+    // What the player says holds the controls; the pointer and keyboard focus are looked at
+    // when the rest is up.
+    let held = {
+        let p = player.clone();
+        move || {
+            menu_open.get()
+                || p.state() != PlaybackState::Playing
+                || p.status().is_some()
+                || p.skipping().is_some()
+                || p.starting_next().is_some()
+                || p.scrubbing().is_some()
+        }
+    };
+    let _ = rest.hold.set(Box::new({
+        let (c, n, held) = (chrome.clone(), next.clone(), held.clone());
+        move || {
+            let hovered = |e: &El| e.states().contains(remedy_ui_style::States::HOVER);
+            remedy_ui_reactive::untrack(&held)
+                || hovered(&c)
+                || hovered(&n)
+                || keyboard_focus_in(&c)
+                || keyboard_focus_in(&n)
+        }
+    }));
+    // The "Up next" card coming up shows the controls, as on Portal's page; keyboard focus
+    // coming into it does too.
+    let _ = next
+        .clone()
+        .on_visibility({
+            let rest = rest.clone();
+            move |seen| {
+                if seen {
+                    rest.wake();
+                }
+            }
+        })
+        .on_focus_within({
+            let rest = rest.clone();
+            move |on| {
+                if on {
+                    rest.wake();
+                }
+            }
+        });
+    // Going full screen, and a hold starting or ending (a media key pausing, playback
+    // resuming), shows them for a whole rest.
+    let (r, p, last) = (rest.clone(), player.clone(), std::cell::Cell::new(None));
+    let chrome = chrome.bind(move || {
+        let now = (p.is_fullscreen(), held());
+        if last.replace(Some(now)) != Some(now) && now.0 {
+            remedy_ui_reactive::untrack(|| r.wake());
+        }
+    });
+    let motion = Motion::Tween { duration: FADE, easing: Easing::EASE_IN_OUT };
+    let (c, t, p, n) = (chrome.clone(), title.clone(), player.clone(), next.clone());
+    let float_next = move |n: &El, full: bool, high: f32| {
+        // Portal's: at the foot of the picture's end side, over the bar's place whether or
+        // not the bar shows (it does not jump as the bar fades), on a raised panel; it does
+        // not fade, being what the person is asked about.
+        let _ = n.clone().layout(move |l| match full {
+            true => {
+                l.position = Position::Absolute;
+                l.inset = Insets { top: AUTO, start: AUTO, end: u * 2.8, bottom: high + u * 2.0 };
+                l.width = Length::Px(u * 80.0);
+                l.max_width = Length::Percent(1.0);
+                l.axis = remedy_ui_layout::Axis::Column;
+                l.align_items = Align::Stretch;
+            }
+            false => {
+                l.position = Position::Relative;
+                l.inset = Insets::ZERO;
+                l.width = Length::Auto;
+                l.max_width = Length::Auto;
+                l.axis = remedy_ui_layout::Axis::Row;
+                l.align_items = Align::Center;
+            }
+        });
+        let theme = n.ui().theme();
+        let look = remedy_ui_style::StylePatch::default();
+        let look = match full {
+            true => look
+                .background(theme.colors.panel.with_alpha(0.92))
+                .border(theme.colors.line.unwrap_or(theme.colors.muted))
+                .border_width(1.0)
+                .radius(12.0)
+                .shadow(remedy_ui_style::Shadow::new(0.0, 12.0, 30.0, Color::BLACK.with_alpha(0.45))),
+            false => look
+                .background(Color::TRANSPARENT)
+                .border_width(0.0)
+                .radius(0.0)
+                .shadow(remedy_ui_style::Shadow::new(0.0, 0.0, 0.0, Color::TRANSPARENT)),
+        };
+        let _ = n.clone().style(look);
+    };
+    let chrome = chrome.bind(move || {
+        let full = p.is_fullscreen() && !p.is_compact();
+        let shown = p.controls_shown();
+        let _ = c.clone().layout(move |l| match full {
+            true => {
+                l.position = Position::Absolute;
+                l.inset = Insets { top: AUTO, start: 0.0, end: 0.0, bottom: 0.0 };
+            }
+            false => {
+                l.position = Position::Relative;
+                l.inset = Insets::ZERO;
+            }
+        });
+        let pad = match full {
+            true => Insets { top: u * 6.0, bottom: u * 1.8, start: u * 2.8, end: u * 2.8 },
+            false => Insets { top: 0.0, bottom: 0.0, start: 0.0, end: 0.0 },
+        };
+        let _ = c.clone().style(remedy_ui_style::StylePatch::default().padding(pad));
+        let _ = back.clone().hidden(!full);
+        float_next(&n, full, high.get());
+        let _ = shield.clone().hidden(shown);
+        let _ = t.clone().hidden(!full || p.title().is_none());
+        let to = if shown { 1.0 } else { 0.0 };
+        c.animate(Target::Opacity(to), motion);
+        t.animate(Target::Opacity(to), motion);
+        lift.set_if_changed(if full && shown { high.get() + u * 2.0 } else { u * 3.0 });
+    });
+    (chrome, title)
 }
 
 /// A big Play glyph in the middle of a paused picture, as on Portal's page: a dark disc that
@@ -1037,9 +1375,15 @@ fn next_up_card(ui: &Ui, player: &Player) -> El {
         }))
         .semantics(Semantics::new(Role::Group))
         .child(title.grow(1.0))
-        .child(left)
-        .child(now)
-        .child(cancel);
+        .child(
+            ui.el("player_next_actions")
+                .row()
+                .align(Align::Center)
+                .gap(u * 1.5)
+                .child(left)
+                .child(now)
+                .child(cancel),
+        );
     let c = card.clone();
     let p = player.clone();
     let seen = std::cell::RefCell::new(None);
@@ -1113,13 +1457,12 @@ fn caption_words(u: &Ui, p: &Player, short: bool) -> String {
 /// app's choices with their details, its note, and the timing a half second at a time);
 /// C turns captions off and back on as last picked. Shown while it can do something.
 #[track_caller]
-fn captions_control(ui: &Ui, player: &Player) -> El {
+fn captions_control(ui: &Ui, player: &Player, open: Signal<bool>) -> El {
     let u = ui.theme().spacing.unit;
     let size = ui.theme().type_scale.body + 3.0;
     let glyph = w::icon(ui, Icon::Captions, size);
     let (p, tu) = (player.clone(), ui.clone());
     let words = ui.el("label").nowrap().text(move || caption_words(&tu, &p, true));
-    let open = Signal::new(false);
     let button = ui
         .el("button")
         .row()

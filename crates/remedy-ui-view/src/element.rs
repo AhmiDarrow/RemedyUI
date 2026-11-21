@@ -702,6 +702,8 @@ pub(crate) struct Inner {
     pub(crate) requests: Vec<Request>,
     pub(crate) scroll_offsets: HashMap<ElementId, Vec2>,
     pub(crate) hovered: Vec<ElementId>,
+    /// Elements that hide the mouse pointer while it is over them ([`El::cursor_hidden`]).
+    pub(crate) cursor_hiding: std::collections::HashSet<ElementId>,
     pub(crate) pressed: Option<ElementId>,
     pub(crate) focus_visible: bool,
     /// The keyboard came up: the next frame scrolls the focused element back into view.
@@ -965,6 +967,7 @@ impl Ui {
             requests: Vec::new(),
             scroll_offsets: HashMap::new(),
             hovered: Vec::new(),
+            cursor_hiding: std::collections::HashSet::new(),
             pressed: None,
             focus_visible: false,
             reveal_focus: false,
@@ -1218,6 +1221,13 @@ impl Ui {
     /// Uses the system's double-click time (the runner sets it from system settings).
     pub fn set_double_click_time(&self, t: std::time::Duration) {
         self.0.borrow_mut().double_click = t;
+    }
+
+    /// Whether the mouse pointer should be hidden: it is over an element that hides it
+    /// ([`El::cursor_hidden`]). The runner passes it to the platform after each event.
+    pub fn cursor_hidden(&self) -> bool {
+        let i = self.0.borrow();
+        i.hovered.iter().any(|h| i.cursor_hiding.contains(h))
     }
 
     /// Presses in a row on the same spot of the same element, counting the one being
@@ -2024,6 +2034,7 @@ impl El {
             // Once for all of them: the hover chain can be as long as the tree is deep.
             let gone: std::collections::HashSet<ElementId> = ids.iter().copied().collect();
             i.hovered.retain(|h| !gone.contains(h));
+            i.cursor_hiding.retain(|h| !gone.contains(h));
             i.structure_changed = true;
         }
         // Removing from the tree disposes the elements' scopes, which runs the app's clean-ups
@@ -2964,6 +2975,21 @@ impl El {
         if changed {
             self.ui.request(Request::Frame);
         }
+    }
+
+    /// Hides the mouse pointer while it is over the element or its children, or shows it
+    /// again: a video full screen once its controls have faded. The runner tells the
+    /// platform ([`Ui::cursor_hidden`]); touch and pointerless platforms show none anyway.
+    pub fn cursor_hidden(self, hidden: bool) -> Self {
+        let changed = {
+            let mut i = self.ui.0.borrow_mut();
+            if hidden { i.cursor_hiding.insert(self.id) } else { i.cursor_hiding.remove(&self.id) }
+        };
+        // The runner looks again after the event or timer that changed it.
+        if changed {
+            self.ui.request(Request::Frame);
+        }
+        self
     }
 
     /// Lets clicks through the element itself to what is below; its children still take
