@@ -388,11 +388,22 @@ fn decode_step(st: &mut Decoding) -> Next {
 pub(crate) struct Control {
     tx: Sender<Cmd>,
     worker: Worker,
+    /// Set on closing: an open still under way (an HLS stream's fetches) gives up.
+    stop: Arc<AtomicBool>,
+}
+
+impl Drop for Control {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
 }
 
 impl Control {
     /// Sends a command and wakes the worker to take it.
     pub(crate) fn send(&self, cmd: Cmd) {
+        if matches!(cmd, Cmd::Close) {
+            self.stop.store(true, Ordering::Relaxed);
+        }
         if self.tx.send(cmd).is_ok() {
             self.worker.notify();
         }
@@ -409,17 +420,19 @@ pub(crate) fn start(
 ) -> Result<Control, MediaError> {
     let (tx, rx) = std::sync::mpsc::channel();
     let wake = tx.clone();
+    let stop = Arc::new(AtomicBool::new(false));
+    let stopping = stop.clone();
     let worker = Worker::spawn_timed(
         "remedy-player",
         move |bell| {
             let mut presenter = Presenter::new(host, rx, shared, notify);
-            presenter.open(&source, find_subtitles, wake, bell);
+            presenter.open(&source, find_subtitles, wake, bell, &stopping);
             presenter
         },
         Presenter::turn,
     )
     .map_err(|e| MediaError::Decode(format!("could not start the player's worker: {e}")))?;
-    Ok(Control { tx, worker })
+    Ok(Control { tx, worker, stop })
 }
 
 struct Presenter {
@@ -536,7 +549,14 @@ impl Presenter {
         }
     }
 
-    fn open(&mut self, source: &MediaSource, find_subtitles: bool, wake: Sender<Cmd>, own: Bell) {
+    fn open(
+        &mut self,
+        source: &MediaSource,
+        find_subtitles: bool,
+        wake: Sender<Cmd>,
+        own: Bell,
+        stop: &Arc<AtomicBool>,
+    ) {
         if find_subtitles && let Some(path) = source.local_path() {
             let found = crate::player::sidecar_subtitles(path);
             if !found.is_empty() {
@@ -546,7 +566,7 @@ impl Presenter {
         self.wake = Some(wake);
         self.own = Some(own);
         self.local = source.local_path().is_some();
-        match self.host.open(source) {
+        match crate::hls::opening_until(stop, || self.host.open(source)) {
             Ok(dec) => {
                 // Timed text inside an MP4, and text subtitles inside Matroska and WebM, are
                 // read from the file, whole, on every platform: Media Foundation,

@@ -56,18 +56,23 @@ pub(crate) fn live_objects() -> usize {
     LIVE.load(std::sync::atomic::Ordering::SeqCst)
 }
 
-pub(crate) fn process_threads() -> usize {
+/// The threads this process runs: each one's name, and where the platform says, the module
+/// it started in.
+pub(crate) fn process_threads() -> Vec<(String, String)> {
     #[cfg(windows)]
     {
         windows::process_threads()
     }
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
-        std::fs::read_dir("/proc/self/task").map(|d| d.count()).unwrap_or(0)
+        let name = |t: std::fs::DirEntry| std::fs::read_to_string(t.path().join("comm")).unwrap_or_default();
+        std::fs::read_dir("/proc/self/task")
+            .map(|d| d.flatten().map(|t| (name(t).trim_end().to_owned(), String::new())).collect())
+            .unwrap_or_default()
     }
     #[cfg(not(any(windows, target_os = "linux", target_os = "android")))]
     {
-        0
+        Vec::new()
     }
 }
 
