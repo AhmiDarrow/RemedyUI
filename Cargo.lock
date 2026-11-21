@@ -4739,9 +4739,12 @@ name = "remedy-ui-services-desktop"
 version = "1.0.0-rc.1"
 dependencies = [
  "futures-core",
+ "js-sys",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "wasm-bindgen",
+ "web-sys",
  "windows",
  "windows-core",
  "windows-sys 0.61.2",
