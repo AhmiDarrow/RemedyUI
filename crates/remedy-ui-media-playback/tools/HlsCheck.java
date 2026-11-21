@@ -1,6 +1,6 @@
 // Runs examples/android-hls-check.rs inside app_process (a real Java VM): serves an HLS fixture
 // over https on 127.0.0.1 with a self-signed certificate that this process trusts, loads the
-// library and calls its run(port). Paths under /plain/ answer at once, under /slow/ after 5 s,
+// library and calls its run(port). Paths under /plain/ answer at once, under /slow/ (and /drop/) after 5 s,
 // and under /stall/ the second segment stops half way for 4 s the first time it is asked for.
 // Prints "hls-https-check: PASSED" when every check and every request count holds.
 //
@@ -81,7 +81,7 @@ public class HlsCheck {
             String mode = parts[0];
             File f = new File(root, parts.length > 1 ? parts[1] : "");
             OutputStream out = sock.getOutputStream();
-            if (mode.equals("slow")) Thread.sleep(5000);
+            if (mode.equals("slow") || mode.equals("drop")) Thread.sleep(5000);
             if (!f.isFile()) {
                 out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes("ISO-8859-1"));
                 return;
