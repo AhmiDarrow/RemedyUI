@@ -147,6 +147,8 @@ struct Feed {
     audio: VecDeque<AudioItem>,
     audio_frames: u64,
     cues: Vec<(usize, Cue)>,
+    /// The bytes of cue text the decoder has handed out, against the subtitle file limit.
+    text_bytes: u64,
     /// The decoder's text samples are dropped: the source's captions were read from the
     /// file instead.
     skip_text: bool,
@@ -238,6 +240,11 @@ impl Feed {
             }
             Sample::Text { track, at, until, text } => {
                 if until > at && !self.skip_text {
+                    if crate::subtitles::over_cue_budget(&mut self.text_bytes, &text) {
+                        self.error = Some(MediaError::Format(crate::subtitles::CUES_TOO_BIG.into()));
+                        self.eof = true;
+                        return;
+                    }
                     self.cues.push((track, Cue { start: at, end: until, text }));
                 }
             }
@@ -548,10 +555,18 @@ impl Presenter {
                 // its end, for a player reading just ahead of the clock). The decoder's copy
                 // of the same tracks is then left out.
                 if let Some(path) = source.local_path() {
-                    let mut found = crate::mp4::text_tracks(path);
-                    if found.is_empty() {
-                        found = crate::mkv::text_tracks(path);
-                    }
+                    let found = crate::mp4::text_tracks(path).and_then(|found| match found.is_empty() {
+                        true => crate::mkv::text_tracks(path),
+                        false => Ok(found),
+                    });
+                    let found = match found {
+                        Ok(found) => found,
+                        Err(e) => {
+                            self.failed = Some(e);
+                            self.publish(Duration::ZERO, true);
+                            return;
+                        }
+                    };
                     if !found.is_empty() {
                         self.own_text = true;
                         lock(&self.shared.status).new_tracks.extend(found);

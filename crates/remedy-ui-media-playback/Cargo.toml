@@ -41,6 +41,8 @@ windows = { version = "=0.62.2", features = [
     # HLS playlists and segments (Media Foundation's HTTP byte stream is slow for big bodies).
     "Win32_Networking_WinHttp",
     "Win32_Security",
+    # Counting the process's threads, for the leak tests (tests/leaks.rs).
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Variant",
@@ -93,6 +95,7 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = ["
 # Pictures on the GPU drawn by the GPU renderer: tests/gpu_frames.rs (Windows, Android) and
 # the DMA-BUF tests in src/os/gst_dmabuf.rs (Linux).
 remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "1.0.0-rc.1" }
+
 
 [dev-dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
