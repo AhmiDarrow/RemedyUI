@@ -1234,8 +1234,7 @@ impl Presenter {
 
     /// Tells the UI thread, when something it shows changed.
     fn publish(&mut self, t: Duration, force: bool) {
-        // Positions shown stay within the stated length: the last picture may run a little
-        // past it.
+        // A growing stream's length, as its decoder says it (an HLS event playlist gains segments).
         let mut force = force;
         let grown = lock(&self.feed.feed).source_duration;
         if self.opened && grown.is_some() && grown != self.info.duration {
@@ -1243,6 +1242,8 @@ impl Presenter {
             lock(&self.shared.status).info = Some(self.info.clone());
             force = true;
         }
+        // Positions shown stay within the stated length: the last picture may run a little
+        // past it.
         let t = self.info.duration.map_or(t, |d| t.min(d));
         let state = self.state();
         let due = self.last_publish.is_none_or(|p| p.elapsed() >= POSITION_INTERVAL);
