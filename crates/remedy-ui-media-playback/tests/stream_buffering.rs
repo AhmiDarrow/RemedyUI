@@ -10,6 +10,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use remedy_ui_media_playback::*;
@@ -22,9 +23,15 @@ fn clip() -> Vec<u8> {
 /// How the server trickles the file out: `CHUNK` bytes, then a pause of `PAUSE`.
 const CHUNK: usize = 2048;
 const PAUSE: Duration = Duration::from_millis(60);
+/// The server holds back what comes after this many bytes until the test has opened the
+/// stream and asked once (or [`HOLD_AT_MOST`] passed): otherwise a slow `open` (a loaded
+/// machine) finds it all arrived, and nothing is seen growing. Past Media Foundation's first
+/// 16 KB block, which its `open` waits for.
+const HOLD: usize = 18 * 1024;
+const HOLD_AT_MOST: Duration = Duration::from_secs(10);
 
 /// Answers one request: the clip (or the range asked of it), a chunk at a time.
-fn serve(mut s: TcpStream, data: &[u8]) -> std::io::Result<()> {
+fn serve(mut s: TcpStream, data: &[u8], go: &AtomicBool) -> std::io::Result<()> {
     let mut reader = BufReader::new(s.try_clone()?);
     let mut range = None;
     let mut head = false;
@@ -65,7 +72,15 @@ fn serve(mut s: TcpStream, data: &[u8]) -> std::io::Result<()> {
     if head {
         return Ok(());
     }
-    for c in body.chunks(CHUNK) {
+    let from = range.map_or(0, |(a, _)| a);
+    for (i, c) in body.chunks(CHUNK).enumerate() {
+        let held = Instant::now();
+        while from + i * CHUNK + c.len() > HOLD
+            && !go.load(Ordering::Acquire)
+            && held.elapsed() < HOLD_AT_MOST
+        {
+            std::thread::sleep(Duration::from_millis(5));
+        }
         s.write_all(c)?;
         s.flush()?;
         std::thread::sleep(PAUSE);
@@ -73,16 +88,17 @@ fn serve(mut s: TcpStream, data: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// A server on a free local port, serving the clip slowly to each connection; its URL.
-fn slow_server() -> String {
+/// A server on a free local port, serving the clip slowly to each connection (past [`HOLD`]
+/// once `go` is set); its URL.
+fn slow_server(go: Arc<AtomicBool>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| unreachable!("a local port: {e}"));
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
     let data: Arc<[u8]> = clip().into();
     std::thread::spawn(move || {
         for s in listener.incoming().flatten() {
-            let data = data.clone();
+            let (data, go) = (data.clone(), go.clone());
             std::thread::spawn(move || {
-                let _ = serve(s, &data);
+                let _ = serve(s, &data, &go);
             });
         }
     });
@@ -98,7 +114,8 @@ fn a_slow_stream_reports_what_has_arrived_growing_within_the_media() {
             return;
         }
     };
-    let url = slow_server();
+    let go = Arc::new(AtomicBool::new(false));
+    let url = slow_server(go.clone());
     let started = Instant::now();
     let mut dec = match host.open(&MediaSource::url(&url)) {
         Ok(d) => d,
@@ -120,6 +137,7 @@ fn a_slow_stream_reports_what_has_arrived_growing_within_the_media() {
         }
     };
     ask(&mut dec, &mut seen);
+    go.store(true, Ordering::Release);
     // Read slowly too, so the download is not over before the first ask.
     let mut samples = 0;
     while dec.read().unwrap_or_else(|e| unreachable!("read: {e}")).is_some() {
