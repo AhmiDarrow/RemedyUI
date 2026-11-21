@@ -86,6 +86,7 @@ fn record(
     d: &ElData,
     rtl: bool,
     size: Size,
+    shown: Option<std::ops::Range<f32>>,
     theme: &remedy_ui_style::Theme,
     engine: &mut remedy_ui_text::TextEngine,
     focused: bool,
@@ -119,6 +120,15 @@ fn record(
         slot.rtl = rtl;
         let p = slot.paragraph(engine, Some(content.width().max(0.0)));
         let x = content.min.x + p.x_offset(content.width());
+        // A huge paragraph laid out lazily draws the lines that show and a window's height
+        // more on each side; scrolling out of them paints again ([`lazy_text_moved`]).
+        let band = p.is_lazy().then(|| {
+            let shown = shown.unwrap_or(0.0..0.0);
+            let (a, b) = (shown.start - content.min.y, shown.end - content.min.y);
+            let margin = (b - a).max(600.0);
+            (a - margin)..(b + margin)
+        });
+        slot.painted = band.clone().map(|b| (b, p.height()));
         // Marked and selected text show their highlights under the glyphs.
         let tokens = theme.derive();
         for r in &d.marks {
@@ -137,10 +147,17 @@ fn record(
                 );
             }
         }
-        glyphs(&mut list, &p, Point::new(x, content.min.y), s.foreground);
+        match &band {
+            Some(band) => glyphs_in(&mut list, &p, Point::new(x, content.min.y), s.foreground, band.clone()),
+            None => glyphs(&mut list, &p, Point::new(x, content.min.y), s.foreground),
+        }
         // Pictures in the text, in their objects' boxes.
         if !d.inline_images.is_empty() {
-            for (id, r) in p.inline_objects() {
+            let objects = match &band {
+                Some(band) => p.inline_objects_in(band.clone()),
+                None => p.inline_objects(),
+            };
+            for (id, r) in objects {
                 if let Some(img) = d.inline_images.iter().find(|i| i.id == id) {
                     list.push(remedy_ui_paint::Item::Image {
                         image: img.image.clone(),
@@ -247,8 +264,24 @@ thread_local! {
 }
 
 pub(crate) fn glyphs(list: &mut DisplayList, p: &Paragraph, origin: Point, default: Color) {
+    draw_runs(list, p.glyph_runs(), origin, default);
+}
+
+/// Draws the lines of `p` that reach into the band `ys` of its own y: for a huge paragraph
+/// laid out lazily, the part that shows.
+pub(crate) fn glyphs_in(
+    list: &mut DisplayList,
+    p: &Paragraph,
+    origin: Point,
+    default: Color,
+    ys: std::ops::Range<f32>,
+) {
+    draw_runs(list, p.glyph_runs_in(ys), origin, default);
+}
+
+fn draw_runs(list: &mut DisplayList, runs: Vec<remedy_ui_text::GlyphRunInfo>, origin: Point, default: Color) {
     let (hinting, antialias) = GLYPH_STYLE.with(std::cell::Cell::get);
-    for run in p.glyph_runs() {
+    for run in runs {
         let color = if run.color == Color::BLACK { default } else { run.color };
         for bar in [run.underline, run.strikethrough].into_iter().flatten() {
             list.fill_rect(bar.translate(origin.to_vec2()), Brush::Solid(color));
@@ -953,6 +986,7 @@ impl Ui {
         // Only elements marked themselves record again: a parent whose child changed keeps
         // its own chunk (layers are assembled from every chunk anyway), so a firefly's tick
         // never re-runs the backdrop painter around it.
+        let remeasure = lazy_text_moved(i, &rects, size);
         let mut repaint = i.tree.take_dirty(Dirty::PAINT);
         let _ = i.tree.take_dirty(Dirty::CHILD_PAINT);
         let mut painted = false;
@@ -981,8 +1015,24 @@ impl Ui {
             let sz = rects.get(&id).map(|r| r.size()).unwrap_or(Size::ZERO);
             let Some(d) = i.els.get(&id) else { continue };
             let rtl = i.layout.is_rtl(d.node);
-            let (chunk, next, failed, ask) =
-                record(d, rtl, sz, &theme, &mut engine, focused == Some(id), i.scale, now, reduced, rate);
+            let shown = if d.text.is_some() {
+                shown_band(i, id, Rect::from_origin_size(Point::ZERO, size))
+            } else {
+                None
+            };
+            let (chunk, next, failed, ask) = record(
+                d,
+                rtl,
+                sz,
+                shown,
+                &theme,
+                &mut engine,
+                focused == Some(id),
+                i.scale,
+                now,
+                reduced,
+                rate,
+            );
             if let Some(why) = failed {
                 paint_failures.push((id, why));
             }
@@ -1072,6 +1122,15 @@ impl Ui {
         if !again.is_empty() {
             self.request(crate::Request::Frame);
         }
+        // Lazy paragraphs whose height came out different once more lines were laid out are
+        // measured again.
+        for id in remeasure {
+            let node = self.0.borrow().els.get(&id).map(|d| d.node);
+            if let Some(n) = node {
+                let _ = self.0.borrow_mut().layout.mark_dirty(n);
+            }
+            self.mark(id, Dirty::LAYOUT | Dirty::PAINT);
+        }
         self.arm_wakes(now);
         self.wake_parked();
         for (cb, size) in resized {
@@ -1098,6 +1157,47 @@ impl Ui {
         }
         Frame { layers, scrollers }
     }
+}
+
+/// The part of `id` that shows on the window, as a band of its own y (from its top): inside
+/// the window and every scroll container or clipping ancestor. `None` when none of it does.
+fn shown_band(i: &Inner, id: ElementId, window: Rect) -> Option<std::ops::Range<f32>> {
+    let bounds = i.tree.bounds(id)?;
+    let mut visible = bounds.intersect(window)?;
+    let mut cur = i.tree.parent(id);
+    while let Some(c) = cur {
+        let d = i.els.get(&c)?;
+        if d.scroll || d.clip {
+            visible = visible.intersect(i.tree.bounds(c)?)?;
+        }
+        cur = i.tree.parent(c);
+    }
+    Some(visible.min.y - bounds.min.y..visible.max.y - bounds.min.y)
+}
+
+/// Text elements with a lazily laid-out paragraph: those scrolled past the lines they drew are
+/// marked to paint again. Returns those whose paragraph's height (estimated below the lines
+/// laid out) no longer matches the box it was measured into, to measure again.
+fn lazy_text_moved(i: &Inner, rects: &HashMap<ElementId, Rect>, size: Size) -> Vec<ElementId> {
+    let window = Rect::from_origin_size(Point::ZERO, size);
+    let mut remeasure = Vec::new();
+    for (id, d) in &i.els {
+        let Some(slot) = &d.text else { continue };
+        let Some((painted, height)) = slot.borrow().painted.clone() else { continue };
+        let inset = d.resolved.padding.top + d.resolved.border_width;
+        let shown = shown_band(i, *id, window).map(|b| b.start - inset..b.end - inset);
+        if shown.is_some_and(|b| b.start < painted.start || b.end > painted.end) {
+            i.tree.mark(*id, Dirty::PAINT);
+        }
+        let boxed = rects.get(id).map_or(0.0, |r| r.height())
+            - inset
+            - d.resolved.padding.bottom
+            - d.resolved.border_width;
+        if (height.ceil() - boxed).abs() > 0.5 {
+            remeasure.push(*id);
+        }
+    }
+    remeasure
 }
 
 /// True when some of `id` shows: it and its ancestors are not hidden or transparent, the window
