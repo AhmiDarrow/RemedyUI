@@ -286,14 +286,28 @@ impl Runtime {
         self.dispose_tree(id);
     }
 
+    /// Disposes `id` and all it owns, owned nodes first (the last-made first), each after
+    /// all it owns. An explicit stack, not recursion: ownership any number of levels deep is
+    /// disposed on any thread's stack.
     fn dispose_tree(&self, id: NodeId) {
-        let owned = match self.nodes.borrow_mut().get_mut(id) {
-            Some(n) => std::mem::take(&mut n.owned),
-            None => return,
-        };
-        for child in owned.into_iter().rev() {
-            self.dispose_tree(child);
+        // Each node, and whether what it owns is already on the stack above it.
+        let mut stack = vec![(id, false)];
+        while let Some((id, expanded)) = stack.pop() {
+            if expanded {
+                self.dispose_one(id);
+                continue;
+            }
+            let owned = match self.nodes.borrow_mut().get_mut(id) {
+                Some(n) => std::mem::take(&mut n.owned),
+                None => continue,
+            };
+            stack.push((id, true));
+            stack.extend(owned.into_iter().map(|child| (child, false)));
         }
+    }
+
+    /// Runs `id`'s clean-ups and removes it, unlinking it from what it read and what read it.
+    fn dispose_one(&self, id: NodeId) {
         self.run_cleanups(id);
         let removed = self.nodes.borrow_mut().remove(id);
         if let Some(node) = removed {
@@ -543,6 +557,13 @@ impl Runtime {
     // ---------- updating ----------
 
     fn update_if_necessary(&self, id: NodeId) -> Result<(), ReactiveError> {
+        // A memo's sources are brought up to date first, and running it reads more: a chain
+        // of memos recurses once per link.
+        crate::deep::deeper(|| self.update_here(id))
+    }
+
+    /// [`Runtime::update_if_necessary`], on this stack.
+    fn update_here(&self, id: NodeId) -> Result<(), ReactiveError> {
         let (state, sources, running) = match self.nodes.borrow().get(id) {
             Some(n) => (n.state, n.sources.clone(), n.running),
             None => return Err(ReactiveError::Disposed),

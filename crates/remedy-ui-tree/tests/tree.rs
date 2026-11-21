@@ -237,6 +237,30 @@ fn hit_testing_finds_the_topmost_element() -> R {
 }
 
 #[test]
+fn hit_testing_goes_any_depth_on_a_threads_stack() -> R {
+    // Tens of thousands of nested elements on a test thread's stack (2 MB): the deepest is
+    // on top, and a clip that misses part way down hides everything under it.
+    const N: usize = 20_000;
+    let t = Tree::new();
+    let full = Rect::new(0.0, 0.0, 100.0, 100.0);
+    t.set_bounds(t.root(), full)?;
+    let mut chain = vec![t.root()];
+    for _ in 0..N {
+        let parent = chain.last().copied().unwrap_or(t.root());
+        let e = el(&t, parent, "level")?;
+        t.set_bounds(e, full)?;
+        chain.push(e);
+    }
+    let p = Point::new(50.0, 50.0);
+    assert_eq!(t.hit_test(p), chain.last().copied(), "the deepest element");
+    let (above, mid) = (chain[N / 2 - 1], chain[N / 2]);
+    t.set_bounds(mid, Rect::new(0.0, 0.0, 10.0, 10.0))?;
+    t.set_clips(mid, true)?;
+    assert_eq!(t.hit_test(p), Some(above), "the clip hides what is under it");
+    Ok(())
+}
+
+#[test]
 fn tab_order_wraps_and_respects_explicit_order() -> R {
     let t = Tree::new();
     let a = el(&t, t.root(), "a")?;

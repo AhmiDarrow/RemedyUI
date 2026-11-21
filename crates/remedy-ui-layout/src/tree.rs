@@ -55,6 +55,16 @@ fn err(e: taffy::TaffyError) -> LayoutError {
     LayoutError(e.to_string())
 }
 
+/// The most stack taffy uses per level of the tree, in bytes: what its deepest algorithm
+/// (grid) was measured to use, with half again for margin. Measured with taffy 0.15.1 at
+/// about 32 KB a level unoptimized and 5 KB optimized (block and flex use less); re-measure
+/// when taffy changes. This sizes a stack; it does not limit the tree.
+const TAFFY_STACK_PER_LEVEL: usize = if cfg!(debug_assertions) { 48 << 10 } else { 8 << 10 };
+
+/// Stack for what runs at the deepest level besides taffy itself: a leaf's measure callback
+/// (text shaping and wrapping) and what it calls, in bytes.
+const MEASURE_STACK: usize = 1 << 20;
+
 /// Layout nodes and their results. Results are cached: computing again after a change
 /// redoes only what the change affects.
 pub struct LayoutTree {
@@ -130,10 +140,13 @@ impl LayoutTree {
     }
 
     /// Resolves inherited directions from `node` down, re-translating only nodes whose
-    /// direction changed.
-    fn resolve_direction(&mut self, node: NodeId, parent_rtl: bool) -> Result<(), LayoutError> {
-        let mut stack = vec![(node, parent_rtl)];
-        while let Some((id, parent)) = stack.pop() {
+    /// direction changed. Returns how many levels deep the tree under `node` goes (1 for a
+    /// leaf).
+    fn resolve_direction(&mut self, node: NodeId, parent_rtl: bool) -> Result<usize, LayoutError> {
+        let mut deepest = 0;
+        let mut stack = vec![(node, parent_rtl, 1usize)];
+        while let Some((id, parent, depth)) = stack.pop() {
+            deepest = deepest.max(depth);
             let Some((style, was, was_parent)) = self.styles.get(&id).cloned() else { continue };
             let rtl = match style.direction {
                 Direction::Inherit => parent,
@@ -145,10 +158,10 @@ impl LayoutTree {
                 self.styles.insert(id, (style, rtl, parent));
             }
             for c in self.taffy.children(id).map_err(err)? {
-                stack.push((c, rtl));
+                stack.push((c, rtl, depth + 1));
             }
         }
-        Ok(())
+        Ok(deepest)
     }
 
     /// Marks a measured leaf's content as changed (new text), so it is measured again.
@@ -189,7 +202,7 @@ impl LayoutTree {
         width: Option<f32>,
         height: Option<f32>,
     ) -> Result<(), LayoutError> {
-        self.resolve_direction(root.0, false)?;
+        let depth = self.resolve_direction(root.0, false)?;
         let size = |v: Option<f32>| v.map_or(taffy::Dimension::auto(), taffy::Dimension::length);
         let viewport_style = taffy::Style {
             display: taffy::Display::Block,
@@ -211,8 +224,14 @@ impl LayoutTree {
         };
         let space = |v: Option<f32>| v.map_or(AvailableSpace::MaxContent, AvailableSpace::Definite);
         let available = taffy::Size { width: space(width), height: space(height) };
-        self.taffy
-            .compute_layout_with_measure(viewport, available, |input, _node, ctx, style| {
+        // Taffy recurses once per level, inside its own code: the layout runs on a stack
+        // sized for this tree's depth (and the viewport above it), here when this thread's
+        // has room and on one made for it when not, so a tree of any depth lays out on any
+        // thread.
+        let need = (depth + 1).saturating_mul(TAFFY_STACK_PER_LEVEL).saturating_add(MEASURE_STACK);
+        let taffy = &mut self.taffy;
+        let mut run = move || {
+            taffy.compute_layout_with_measure(viewport, available, |input, _node, ctx, style| {
                 // Taffy's leaf algorithm applies the style (size, min/max, padding, aspect
                 // ratio); the measure callback only supplies the content size.
                 let conv = |a: AvailableSpace| match a {
@@ -250,7 +269,12 @@ impl LayoutTree {
                     },
                 )
             })
-            .map_err(err)
+        };
+        match stacker::remaining_stack() {
+            Some(left) if left >= need => run(),
+            _ => stacker::grow(need, run),
+        }
+        .map_err(err)
     }
 
     /// True when the node lays out right to left (its own or inherited direction).

@@ -263,3 +263,29 @@ fn absolute_insets_follow_the_parent_or_stay_physical() -> R {
     }
     Ok(())
 }
+
+#[test]
+fn trees_of_any_depth_lay_out_on_a_threads_stack() -> R {
+    // Taffy recurses once per level: thousands of nested flex, grid and block containers lay
+    // out on a test thread's stack (2 MB) all the same, each level inset by its padding, and
+    // a measured leaf at the bottom.
+    const N: usize = 4000;
+    for display in [Display::Flex, Display::Grid, Display::Block] {
+        let mut t = LayoutTree::new();
+        let leaf = t.measured(&LayoutStyle::default(), |_| remedy_ui_core::Size::new(10.0, 10.0))?;
+        let mut top = leaf;
+        for _ in 0..N {
+            let mut s = LayoutStyle::default();
+            s.display = display;
+            s.padding = Insets::all(1.0);
+            let parent = t.node(&s)?;
+            t.add_child(parent, top)?;
+            top = parent;
+        }
+        t.compute(top, None, None)?;
+        let at = t.absolute_rect(top, leaf).map(|r| (r.min.x, r.min.y, r.width(), r.height()));
+        assert_eq!(at, Some((N as f32, N as f32, 10.0, 10.0)), "{display:?}: the leaf, {N} levels in");
+        assert_eq!(t.rect(top).map(|r| r.width()), Some(10.0 + 2.0 * N as f32), "{display:?}");
+    }
+    Ok(())
+}

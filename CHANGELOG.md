@@ -583,6 +583,18 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   walking (`Compositor::frame`), `LayerTree::for_each`, `LayerTree::find` and dropping a
   `Layer` each recursed once per level. They now use explicit stacks, so a tree of any depth
   is walked and dropped on any thread (tested at 20,000 levels).
+- Element trees a few hundred levels deep overflowed the stack, and deep trees took time in
+  the square of their depth. Now any depth works on any thread (tested at 20,000 levels on a
+  2 MB test thread, and on a 512 KB one), in time that grows with the tree's size:
+  - Layout runs taffy, which recurses per level, on a stack sized from the tree's depth.
+  - The frame walk and memos reading memos (a chain of any length) run on a stack that grows
+    (`stacker`). Disposing nested scopes and hit testing keep explicit stacks.
+  - Attaching a subtree restyles only its root (its children follow when what they inherit
+    changes), the style pass remembers depths on the way up, inserting a leaf skips the cycle
+    walk, the accessibility tree finds merging ancestors in one pass per update, and removing
+    a subtree clears its hover chain once. Unoptimized, at 10,000 levels: building 9 s to
+    0.13 s, the first frame 46 s to 1.1 s, removal 0.6 s to 0.06 s; the accessibility tree's
+    test at 20,000 levels 196 s to 0.3 s.
 - `cargo fmt --all --check` and `cargo clippy --workspace -- -D warnings` (Rust 1.97) are
   clean again: unformatted files in the bridges, script, viz and stage and board widgets,
   and a redundant `drop` in the themes' style sheet.
