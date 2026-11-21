@@ -14,7 +14,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `KeyScheme::Arrows` makes Left and Right skip 10 seconds, Up and Down change the volume by
   5% and N play next anywhere in the player (focused sliders and text fields keep their own
   keys); `KeyScheme::Classic`, the default, is unchanged. Double-clicking the picture asks for
-  full screen or leaves it, and while casting the full-screen and theater buttons, F, T and
+  full screen or leaves it (with `Arrows`, a single click plays and pauses after 220 ms), and while casting the full-screen and theater buttons, F, T and
   the double click only leave a mode casting started in.
 - **The seek bar shows what a stream has downloaded on more platforms** (`Decoder::buffered`,
   `Player::buffered`). GStreamer keeps a progressive stream's bytes and is asked in percent
