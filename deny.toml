@@ -89,6 +89,3 @@ allow-wildcard-paths = true
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# The owner's wgpu fork (damage-only presents), pinned to one commit by the workspace's
-# [patch.crates-io] until the change is released. No other git source is allowed.
-allow-git = ["https://github.com/AhmiDarrow/wgpu"]
