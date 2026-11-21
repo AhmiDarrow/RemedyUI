@@ -89,6 +89,8 @@ pub struct GpuContext {
     pub(crate) readback: Arc<Mutex<Option<wgpu::Buffer>>>,
     /// Textures the app renders and display lists place (`Item::Texture`).
     pub(crate) textures: crate::external::Registry,
+    /// The effect kernels, made on first use; they go with the device's last context.
+    pub(crate) effect_kernels: Arc<std::sync::OnceLock<Arc<crate::effects::Kernels>>>,
     pub(crate) serial: u64,
     pub(crate) timer: crate::gputime::GpuTimer,
     /// The one window a browser's WebGL2 context draws on (its `data-raw-handle` id): a
@@ -196,6 +198,14 @@ impl GpuContext {
             (Rung::Primary | Rung::Software, false) => wgpu::Backends::PRIMARY.with_env(),
             (Rung::Gl, _) => wgpu::Backends::GL,
         };
+        #[cfg(windows)]
+        if crate::ffi::d3d_debug::enabled() {
+            // Test runs only: every D3D12 check, on the GPU too, and any message fails the run.
+            desc.flags |= wgpu::InstanceFlags::advanced_debugging();
+            crate::ffi::d3d_debug::install();
+        }
+        // `WGPU_VALIDATION`, `WGPU_GPU_BASED_VALIDATION` and the rest still override.
+        desc.flags = desc.flags.with_env();
         let instance = wgpu::Instance::new(desc);
         // WebGL2 adapters come from a canvas's context; WebGPU and native adapters present
         // to any window. The WebGPU rung must not touch the canvas: a canvas that once gave
@@ -293,6 +303,7 @@ impl GpuContext {
             errors,
             readback: Arc::default(),
             textures,
+            effect_kernels: Arc::default(),
             serial,
             timer: Default::default(),
             bound_canvas,

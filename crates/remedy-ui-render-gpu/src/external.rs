@@ -39,6 +39,12 @@ impl Registry {
 /// wgpu's own thread-local state is going away).
 static SHARED: Mutex<Option<GpuContext>> = Mutex::new(None);
 
+/// Whether the process's shared device was made (and so is alive at exit, by design).
+#[cfg(windows)]
+pub(crate) fn shared_made() -> bool {
+    SHARED.try_lock().map_or(true, |s| s.is_some())
+}
+
 impl GpuContext {
     /// Registers `texture` so display lists can place it (`Item::Texture` with the returned
     /// id). It must be a 2D premultiplied RGBA8 texture ([`FORMAT`](crate::FORMAT)) made on
