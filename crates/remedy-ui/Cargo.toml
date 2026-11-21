@@ -209,6 +209,11 @@ png = { version = "=0.18.1" }
 [target.'cfg(windows)'.dev-dependencies]
 remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "1.0.0-rc.1" }
 
+# tests/real_cursor.rs on Linux: the pointer read with XFixes and moved with XTest.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "1.0.0-rc.1" }
+x11rb = { version = "=0.13.2", features = ["xfixes", "xtest"] }
+
 # Tests, examples and the guide's doctests build with every pack, so `cargo test` checks all of them.
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dev-dependencies]
 remedy-ui = { path = ".", features = ["full"] }

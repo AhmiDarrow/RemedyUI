@@ -361,3 +361,10 @@ mod hooks {
 
 #[cfg(windows)]
 pub use hooks::{WindowsHooks, claim_single_instance, run};
+
+/// The mouse pointer as Windows has it, for tests that check what the host did with it.
+#[cfg(windows)]
+#[doc(hidden)]
+pub mod pointer {
+    pub use crate::os::pointer::{move_to, position, screen_size, showing};
+}

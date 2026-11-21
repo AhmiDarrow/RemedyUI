@@ -453,3 +453,45 @@ pub(crate) fn utc_offset(unix_seconds: i64) -> Option<i32> {
         i32::try_from(diff).ok()
     }
 }
+
+/// The mouse pointer, read and moved for tests (`crate::pointer`).
+pub(crate) mod pointer {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CURSOR_SHOWING, CURSORINFO, GetCursorInfo, GetCursorPos, GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN,
+        SetCursorPos,
+    };
+
+    /// Whether Windows shows the pointer now (`GetCursorInfo`'s `CURSOR_SHOWING`).
+    pub fn showing() -> bool {
+        let mut info = CURSORINFO {
+            cbSize: size_of::<CURSORINFO>() as u32,
+            flags: 0,
+            hCursor: std::ptr::null_mut(),
+            ptScreenPos: POINT { x: 0, y: 0 },
+        };
+        // SAFETY: `info` is a CURSORINFO with its size set, as GetCursorInfo asks.
+        let ok = unsafe { GetCursorInfo(&mut info) } != 0;
+        ok && info.flags & CURSOR_SHOWING != 0
+    }
+
+    /// Where the pointer is, in screen pixels.
+    pub fn position() -> (i32, i32) {
+        let mut at = POINT { x: 0, y: 0 };
+        // SAFETY: `at` is a POINT for GetCursorPos to fill.
+        let _ = unsafe { GetCursorPos(&mut at) };
+        (at.x, at.y)
+    }
+
+    /// Moves the pointer to `x`, `y` in screen pixels.
+    pub fn move_to(x: i32, y: i32) {
+        // SAFETY: plain coordinates.
+        let _ = unsafe { SetCursorPos(x, y) };
+    }
+
+    /// The primary screen's size in pixels.
+    pub fn screen_size() -> (i32, i32) {
+        // SAFETY: GetSystemMetrics takes only the metric's index.
+        unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) }
+    }
+}
