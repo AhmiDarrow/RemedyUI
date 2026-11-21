@@ -75,6 +75,9 @@ pub struct Project {
     pub web_icon: Option<PathBuf>,
     /// The package depends on `remedy-ui` itself (so its `web` feature can be turned on).
     pub uses_remedy_ui: bool,
+    /// The URL schemes that open the app (`[app] url_schemes`, `["hearth"]`): the macOS
+    /// bundle declares them, the way macOS requires (other desktops register at run time).
+    pub url_schemes: Vec<String>,
 }
 
 /// The theme color pages get when `remedy.toml` names none: Dark Forest's background, the
@@ -113,6 +116,29 @@ fn android_permissions(t: &toml::Table) -> Result<Vec<String>, String> {
         };
         if !out.contains(&full) {
             out.push(full);
+        }
+    }
+    Ok(out)
+}
+
+/// The schemes `[app] url_schemes` lists, lowercased and checked as RFC 3986 says.
+fn url_schemes(t: &toml::Table) -> Result<Vec<String>, String> {
+    let Some(v) = t.get("app").and_then(|a| a.get("url_schemes")) else { return Ok(Vec::new()) };
+    let bad = "remedy.toml: [app] url_schemes must be a list of schemes such as \"hearth\"";
+    let mut out: Vec<String> = Vec::new();
+    for item in v.as_array().ok_or(bad)? {
+        let s = item.as_str().ok_or(bad)?.to_ascii_lowercase();
+        let mut chars = s.chars();
+        let ok = chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+            && chars.all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
+            && !["http", "https", "file"].contains(&s.as_str());
+        if !ok {
+            return Err(format!(
+                "remedy.toml: [app] url_schemes: `{s}` is not a scheme an app can take (a letter, then letters, digits, '+', '-' or '.')"
+            ));
+        }
+        if !out.contains(&s) {
+            out.push(s);
         }
     }
     Ok(out)
@@ -248,6 +274,7 @@ impl Project {
             android_keystore: string(&remedy, "android", "keystore").map(|k| root.join(k)),
             android_key_alias: string(&remedy, "android", "key_alias"),
             android_permissions: android_permissions(&remedy)?,
+            url_schemes: url_schemes(&remedy)?,
             android_foreground: android_foreground(&remedy)?,
             web_short_name: string(&remedy, "web", "short_name"),
             web_theme: string(&remedy, "web", "theme_color").unwrap_or_else(|| DEFAULT_THEME_COLOR.into()),
@@ -335,6 +362,7 @@ pub(crate) mod tests {
             web_theme: DEFAULT_THEME_COLOR.into(),
             web_icon: None,
             uses_remedy_ui: true,
+            url_schemes: Vec::new(),
         }
     }
 
@@ -367,6 +395,16 @@ pub(crate) mod tests {
         );
         assert!(icon_pixel_art(&parse("[app]\nicon_scaling = \"blurry\"\n")).is_err());
         assert_eq!(icon_pixel_art(&parse("")), Ok(false));
+    }
+
+    #[test]
+    fn url_schemes_are_checked_and_lowercased() {
+        let t: toml::Table = toml::from_str("[app]\nurl_schemes = [\"Hearth\", \"hearth\", \"web+hearth\"]")
+            .unwrap_or_default();
+        assert_eq!(url_schemes(&t), Ok(vec!["hearth".to_owned(), "web+hearth".to_owned()]));
+        let bad: toml::Table = toml::from_str("[app]\nurl_schemes = [\"https\"]").unwrap_or_default();
+        assert!(url_schemes(&bad).is_err());
+        assert_eq!(url_schemes(&toml::Table::new()), Ok(Vec::new()));
     }
 
     #[test]

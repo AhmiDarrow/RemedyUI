@@ -113,6 +113,9 @@ pub struct AppConfig {
     pub data_dir: Option<PathBuf>,
     /// Which edition's default behaviors the app's windows follow ([`AppConfig::edition`]).
     pub edition: Edition,
+    /// The app's reverse-domain id (`com.example.hearth`): its desktop entry's name on Linux,
+    /// where docks look up its badge ([`AppConfig::app_id`]).
+    pub app_id: Option<String>,
     /// In a browser page: where the first window mounts and whether its title is the page's
     /// ([`AppConfig::web`]). Not used on other platforms.
     #[cfg(feature = "web")]
@@ -151,9 +154,18 @@ impl AppConfig {
             single_instance: false,
             data_dir: None,
             edition: Edition::FIRST,
+            app_id: None,
             #[cfg(feature = "web")]
             web: remedy_ui_bridge_web::WebConfig::default(),
         }
+    }
+
+    /// Names the app by its reverse-domain id (`com.example.hearth`), the one its package
+    /// and `remedy.toml` use. On Linux it is the desktop entry (`<id>.desktop`) docks show the
+    /// app's badge on; without it the bridge uses the entry the desktop launched the app from.
+    pub fn app_id(mut self, id: impl Into<String>) -> Self {
+        self.app_id = Some(id.into());
+        self
     }
 
     /// Follows `edition`'s default behaviors. An app that never calls this keeps
@@ -607,6 +619,7 @@ enum Cmd {
     Permission(remedy_ui_host::Permission, PermissionDone),
     Notify(Box<remedy_ui_host::Notification>, Box<dyn FnOnce(Result<(), Unsupported>)>),
     Withdraw(u64),
+    Badge(Option<remedy_ui_host::Badge>),
     Foreground(Box<remedy_ui_host::ForegroundTask>, Box<dyn FnOnce(Result<(), Unsupported>)>),
     StopForeground,
     Share(Option<u64>, remedy_ui_host::ShareOptions, ShareDone),
@@ -672,6 +685,16 @@ struct Shared {
     jobs: HashMap<u64, Job>,
     done: Arc<Mutex<Vec<(u64, JobResult)>>>,
     on_launch: Option<Rc<dyn Fn(Vec<String>)>>,
+    /// The app's id, for its badge ([`AppConfig::app_id`]).
+    app_id: String,
+    /// Links in these schemes reach [`App::on_url`].
+    #[cfg(feature = "desktop")]
+    url_schemes: Vec<String>,
+    #[cfg(feature = "desktop")]
+    on_url: Option<Rc<dyn Fn(String)>>,
+    /// Reports power changes to [`App::on_power`] while the app runs.
+    #[cfg(feature = "desktop")]
+    power: Option<remedy_ui_services_desktop::power::PowerWatch>,
     on_activity: Option<Rc<dyn Fn()>>,
     /// Told the system's light/dark preference and high contrast, now and when they change.
     on_appearance: Option<AppearanceFn>,
@@ -1125,6 +1148,90 @@ impl App {
     /// longer applies: the message was read in the app).
     pub fn withdraw_notification(&self, id: u64) {
         self.push(Cmd::Withdraw(id));
+    }
+
+    /// Shows `badge` on the app's taskbar button (Windows' overlay), Dock tile (macOS),
+    /// dock launcher (Linux docks that read the launcher entry API; name the app with
+    /// [`AppConfig::app_id`]) or installed web app's icon, or takes it away with `None`.
+    /// Platforms without badges (Android, whose launchers count notifications) ignore it.
+    ///
+    /// ```no_run
+    /// # fn unread(app: &remedy_ui::App, n: u32) {
+    /// use remedy_ui::host::Badge;
+    ///
+    /// app.set_badge(Badge::count(n));
+    /// # }
+    /// ```
+    pub fn set_badge(&self, badge: Option<remedy_ui_host::Badge>) {
+        self.push(Cmd::Badge(badge));
+    }
+
+    /// Called with each link in one of `schemes` (`hearth://note/42`) the app is opened with:
+    /// the one it was started with (right after this call), and with
+    /// [`AppConfig::single_instance`] every link opened while it runs. Register the scheme
+    /// with [`desktop::scheme::register`](crate::desktop::scheme::register) (on macOS, list
+    /// it in `remedy.toml`'s `url_schemes`). Treat a link as untrusted input: anything on the
+    /// system can open one.
+    #[cfg(feature = "desktop")]
+    pub fn on_url(&self, schemes: &[&str], f: impl Fn(String) + 'static) {
+        let f: Rc<dyn Fn(String)> = Rc::new(f);
+        let first = {
+            let mut s = self.0.borrow_mut();
+            let first = s.on_url.is_none();
+            s.url_schemes = schemes.iter().map(|s| (*s).to_owned()).collect();
+            s.on_url = Some(f);
+            first
+        };
+        if first {
+            let args: Vec<String> = std::env::args().skip(1).collect();
+            self.links_in(&args);
+        }
+    }
+
+    /// Hands the links in `args` to [`App::on_url`].
+    #[cfg(feature = "desktop")]
+    fn links_in(&self, args: &[String]) {
+        let (schemes, f) = {
+            let s = self.0.borrow();
+            (s.url_schemes.clone(), s.on_url.clone())
+        };
+        let Some(f) = f else { return };
+        let schemes: Vec<&str> = schemes.iter().map(String::as_str).collect();
+        for url in remedy_ui_services_desktop::scheme::urls(args, &schemes) {
+            f(url);
+        }
+    }
+
+    /// Called on the UI thread whenever the machine is about to sleep, wakes, or changes
+    /// between battery and mains power, while the app runs. A second call replaces `f`.
+    /// [`DesktopError::Unsupported`](crate::desktop::DesktopError::Unsupported) where the
+    /// system reports none of it. To keep the machine awake, hold a
+    /// [`desktop::power::inhibit`](crate::desktop::power::inhibit) guard.
+    #[cfg(feature = "desktop")]
+    pub fn on_power(
+        &self,
+        f: impl Fn(remedy_ui_services_desktop::power::PowerEvent) + 'static,
+    ) -> Result<(), remedy_ui_services_desktop::DesktopError> {
+        use remedy_ui_services_desktop::power::PowerEvent;
+        thread_local! {
+            static POWER: RefCell<Option<Rc<dyn Fn(PowerEvent)>>> = const { RefCell::new(None) };
+        }
+        POWER.with(|p| *p.borrow_mut() = Some(Rc::new(f)));
+        if self.0.borrow().power.is_some() {
+            return Ok(());
+        }
+        let ui = remedy_ui_reactive::waker()
+            .map_err(|e| remedy_ui_services_desktop::DesktopError::Platform { reason: e.to_string() })?;
+        let watch = remedy_ui_services_desktop::power::watch(move |e| {
+            let _ = ui.post(move || {
+                let f = POWER.with(|p| p.borrow().clone());
+                if let Some(f) = f {
+                    f(e);
+                }
+            });
+        })?;
+        self.0.borrow_mut().power = Some(watch);
+        Ok(())
     }
 
     /// Called when the person uses a notification the app showed: its id and what they did.
@@ -1877,6 +1984,7 @@ impl Runner {
     ) -> Self {
         let shared = Shared {
             name: config.name.clone(),
+            app_id: config.app_id.clone().unwrap_or_default(),
             data_dir: config.data_dir.clone(),
             sheet: Some(config.sheet.clone()),
             ..Shared::default()
@@ -1918,6 +2026,8 @@ impl Runner {
     }
 
     fn launched(&mut self, args: Vec<String>) {
+        #[cfg(feature = "desktop")]
+        self.app.links_in(&args);
         let cb = self.app.0.borrow().on_launch.clone();
         if let Some(cb) = cb {
             cb(args);
@@ -2232,6 +2342,10 @@ impl Runner {
             }
             Cmd::Withdraw(id) => {
                 let _ = host.withdraw_notification(id);
+            }
+            Cmd::Badge(badge) => {
+                let id = self.app.0.borrow().app_id.clone();
+                let _ = host.set_badge(&id, badge);
             }
             Cmd::Foreground(mut task, done) => {
                 if task.notification.app.is_empty() {

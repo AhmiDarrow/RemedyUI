@@ -335,6 +335,29 @@ impl Host for WebHost<'_> {
         Ok(())
     }
 
+    fn set_badge(&mut self, _app_id: &str, badge: Option<remedy_ui_host::Badge>) -> Result<(), Unsupported> {
+        // The Badging API: on the icon of an installed web app (Chromium browsers, Safari).
+        let Some(window) = web_sys::window() else {
+            return Err(Unsupported::new("app badges", "no browser window"));
+        };
+        let navigator: wasm_bindgen::JsValue = window.navigator().into();
+        let (name, arg) = match badge {
+            Some(remedy_ui_host::Badge::Count(n)) => ("setAppBadge", Some(wasm_bindgen::JsValue::from(n))),
+            Some(_) => ("setAppBadge", None),
+            None => ("clearAppBadge", None),
+        };
+        let f = super::dom::get(&navigator, name);
+        let Some(f) = wasm_bindgen::JsCast::dyn_ref::<js_sys::Function>(&f) else {
+            return Err(Unsupported::new("app badges", "this browser has no Badging API"));
+        };
+        // The promise rejects only where the page may not badge (not installed); nothing to do then.
+        let called = match arg {
+            Some(a) => f.call1(&navigator, &a),
+            None => f.call0(&navigator),
+        };
+        called.map(|_| ()).map_err(|_| Unsupported::new("app badges", "the browser refused the badge"))
+    }
+
     fn request_permission(
         &mut self,
         permission: remedy_ui_host::Permission,

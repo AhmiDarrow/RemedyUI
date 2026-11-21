@@ -3284,7 +3284,7 @@ dependencies = [
  "objc2-quartz-core 0.2.2",
  "objc2-symbols",
  "objc2-uniform-type-identifiers 0.2.2",
- "objc2-user-notifications",
+ "objc2-user-notifications 0.2.2",
 ]
 
 [[package]]
@@ -3319,6 +3319,18 @@ dependencies = [
  "objc2 0.5.3",
  "objc2-core-location",
  "objc2-foundation 0.2.2",
+]
+
+[[package]]
+name = "objc2-user-notifications"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9df9128cbbfef73cda168416ccf7f837b62737d748333bfe9ab71c245d76613e"
+dependencies = [
+ "bitflags 2.13.2",
+ "block2 0.6.2",
+ "objc2 0.6.5",
+ "objc2-foundation 0.3.2",
 ]
 
 [[package]]
@@ -4050,6 +4062,7 @@ dependencies = [
  "remedy-ui-script-rhai",
  "remedy-ui-script-wasm",
  "remedy-ui-secure",
+ "remedy-ui-services-desktop",
  "remedy-ui-services-i18n",
  "remedy-ui-services-spell",
  "remedy-ui-services-update",
@@ -4150,9 +4163,11 @@ dependencies = [
 name = "remedy-ui-bridge-macos"
 version = "1.0.0-rc.1"
 dependencies = [
+ "block2 0.6.2",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "objc2-user-notifications 0.3.2",
  "remedy-ui-bridge-winit",
  "remedy-ui-core",
  "remedy-ui-host",
@@ -4708,8 +4723,14 @@ dependencies = [
 name = "remedy-ui-services-desktop"
 version = "1.0.0-rc.1"
 dependencies = [
+ "futures-core",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "windows",
  "windows-core",
+ "windows-sys 0.61.2",
+ "zbus 6.3.0",
 ]
 
 [[package]]

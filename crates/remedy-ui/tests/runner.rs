@@ -2043,3 +2043,38 @@ fn a_rising_keyboard_scrolls_the_focused_field_above_it() {
     let after = field.bounds().unwrap_or_default();
     assert!(after.max.y <= 200.5, "above the keyboard: {after:?}");
 }
+
+#[test]
+fn the_badge_names_the_app_and_links_reach_on_url() {
+    use remedy_ui::host::Badge;
+    use std::cell::RefCell;
+    let urls = Rc::new(RefCell::new(Vec::<String>::new()));
+    let launches = Rc::new(RefCell::new(Vec::<Vec<String>>::new()));
+    let (u2, l2) = (urls.clone(), launches.clone());
+    let mut runner = Runner::with_geometry(
+        config().app_id("com.example.hearth"),
+        GeometryStore::in_memory(),
+        move |app: &App| {
+            app.set_badge(Badge::count(3));
+            app.on_url(&["hearth"], move |u| u2.borrow_mut().push(u));
+            app.on_second_instance(move |a| l2.borrow_mut().push(a));
+        },
+    );
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 1);
+    assert_eq!(host.badge(), Some(("com.example.hearth", Badge::Count(3))));
+    runner.app().set_badge(None);
+    host.run_frames(&mut runner, 1);
+    assert_eq!(host.badge(), None);
+
+    // A link opened while the app runs comes as a later launch's arguments (or, on macOS, the
+    // bridge's "get URL" event in the same shape).
+    host.send(HostEvent::SecondInstance(vec![
+        "--quiet".into(),
+        "HEARTH://note/42".into(),
+        "https://x".into(),
+    ]));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*urls.borrow(), vec!["HEARTH://note/42".to_owned()]);
+    assert_eq!(launches.borrow().len(), 1, "the launch is still reported whole");
+}
