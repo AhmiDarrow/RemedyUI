@@ -112,7 +112,8 @@ pub(crate) trait Elementary: Send {
 
 /// Fetches a URL whole, waiting for it (native threads).
 pub(crate) trait Fetch: Send {
-    fn get(&mut self, url: &str) -> Result<Vec<u8>, MediaError>;
+    /// Gives up soon (within a tenth of a second or so) once `stop` is set: the reader is gone.
+    fn get(&mut self, url: &str, stop: &std::sync::atomic::AtomicBool) -> Result<Vec<u8>, MediaError>;
 }
 
 mod playlist;
@@ -657,6 +658,8 @@ pub(crate) struct HlsDecoder {
     hls: Hls,
     /// Wants for the fetching thread; dropping it ends the thread once its fetch is done.
     asks: std::sync::mpsc::Sender<Want>,
+    /// Set on drop: the fetch under way gives up at once rather than run on (up to [`LOAD`]).
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     done: std::sync::mpsc::Receiver<Fetched>,
     /// The fetch under way. What it brings is handed to the reader, which drops a segment
     /// no longer wanted (a seek came meanwhile).
@@ -785,6 +788,12 @@ impl HlsDecoder {
     }
 }
 
+impl Drop for HlsDecoder {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 impl Decoder for HlsDecoder {
     fn info(&self) -> &MediaInfo {
         &self.info
@@ -848,11 +857,13 @@ fn open_with(
 ) -> Result<HlsDecoder, MediaError> {
     let (asks, wants) = std::sync::mpsc::channel::<Want>();
     let (back, done) = std::sync::mpsc::channel::<Fetched>();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stopped = stop.clone();
     std::thread::Builder::new()
         .name("remedy-hls-fetch".into())
         .spawn(move || {
             for want in wants {
-                let got = fetch.get(&want.url);
+                let got = fetch.get(&want.url, &stopped);
                 if back.send((want, got)).is_err() {
                     return;
                 }
@@ -865,6 +876,7 @@ fn open_with(
     let mut d = HlsDecoder {
         hls,
         asks,
+        stop,
         done,
         in_flight: None,
         es,
