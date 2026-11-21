@@ -133,10 +133,80 @@ const NEAR_END: usize = 2;
 /// The longest a driver waits at once for a fetch that is not due yet, before asking again
 /// what is wanted (a seek may have come).
 pub(crate) const WAIT_SLICE: Duration = Duration::from_millis(100);
-/// A failed fetch is tried again this many times before the error comes out.
-const RETRIES: u32 = 3;
-/// How long to wait before trying a failed fetch again.
-const RETRY_PAUSE: Duration = Duration::from_secs(1);
+// Riding out late and failed fetches, as Portal's hls.js setup does: a fetch that fails is
+// tried again ERROR_RETRIES times (TIMEOUT_RETRIES when it timed out), the pause doubling from
+// RETRY_PAUSE up to MAX_RETRY_PAUSE; a spot that still fails starts over, RECOVERIES times,
+// and each segment read earns those back, so a long film with the odd hiccup never dies.
+/// A failed fetch is tried again this many times in a row.
+const ERROR_RETRIES: u32 = 3;
+/// A fetch that timed out is tried again this many times in a row.
+const TIMEOUT_RETRIES: u32 = 4;
+/// The first pause before trying a failed fetch again; each next one doubles.
+const RETRY_PAUSE: Duration = Duration::from_millis(250);
+/// The longest pause between tries, and every pause while the playlist is still growing (the
+/// server may still be writing the segment: ffmpeg's HLS 404s one until it is renamed in).
+const MAX_RETRY_PAUSE: Duration = Duration::from_secs(1);
+/// How many times a spot that keeps failing starts over before its error comes out.
+const RECOVERIES: u32 = 6;
+/// A fetch gives up when no answer has come this long after asking.
+pub(crate) const FIRST_BYTE: Duration = Duration::from_secs(12);
+/// A fetch gives up when it has taken this long in all.
+pub(crate) const LOAD: Duration = Duration::from_secs(60);
+/// A fetch whose bytes stop coming for this long is dropped and started again.
+pub(crate) const QUIET: Duration = Duration::from_millis(2500);
+/// How a fetch that gave up waiting ends its error, so it is told from one that failed.
+const TIMED_OUT: &str = "(timed out)";
+
+/// The error of a fetch of `url` that gave up waiting (`why`): retried as a timeout.
+pub(crate) fn timed_out(url: &str, why: &str) -> MediaError {
+    MediaError::NotFound(format!("{url}: {why} {TIMED_OUT}"))
+}
+
+/// The path a `file:` URL names (`file:///C:/a%20b/c.ts` or `file:///tmp/a%20b/c.ts`, as
+/// [`MediaSource::to_url`] makes, or with a segment name joined on unescaped); `None` for
+/// other schemes.
+///
+/// shortcut: a literal `%` in an unescaped segment name is read as an escape; parse the
+/// playlist's names apart from the base if that ever matters.
+///
+/// [`MediaSource::to_url`]: crate::host::MediaSource::to_url
+pub(crate) fn file_path(url: &str) -> Option<String> {
+    let rest = url.get(..5).filter(|s| s.eq_ignore_ascii_case("file:")).and(url.get(5..))?;
+    let rest = rest.split(['?', '#']).next().unwrap_or(rest);
+    // On Windows `file:///C:/…` and `file://localhost/C:/…` are drive paths and
+    // `file://server/share/…` a UNC one (kept as `//server/share/…`); elsewhere `file:///tmp/…`
+    // and `file://localhost/tmp/…` are `/tmp/…`.
+    let path = if cfg!(windows) {
+        rest.strip_prefix("///").or_else(|| rest.strip_prefix("//localhost/"))
+    } else {
+        rest.strip_prefix("//localhost").filter(|p| p.starts_with('/')).or_else(|| rest.strip_prefix("//"))
+    };
+    Some(unescape(path.unwrap_or(rest)))
+}
+
+fn unescape(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while let Some(&c) = b.get(i) {
+        let hex = b.get(i + 1..i + 3).and_then(|h| std::str::from_utf8(h).ok());
+        match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+            Some(v) if c == b'%' => {
+                out.push(v);
+                i += 3;
+            }
+            _ => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn is_timeout(e: &MediaError) -> bool {
+    matches!(e, MediaError::NotFound(m) if m.ends_with(TIMED_OUT))
+}
 
 /// One unit read from a segment, its times still on the stream's clock (unwrapped 90 kHz).
 enum Raw {
@@ -173,8 +243,10 @@ pub(crate) struct Hls {
     queue: VecDeque<(usize, Unit)>,
     /// The index of the segment the last unit handed out came from.
     current: usize,
-    /// Failed fetches in a row of what is wanted now.
+    /// Failed fetches in a row of what is wanted now, since the spot last started over.
     failures: u32,
+    /// Times the spot has started over since a segment was last read.
+    recoveries: u32,
     /// The stream's clock at a media time: (unwrapped 90 kHz time, media time, the segment
     /// it was taken at).
     anchor: Option<(u64, Duration, usize)>,
@@ -204,6 +276,7 @@ impl Hls {
             queue: VecDeque::new(),
             current: 0,
             failures: 0,
+            recoveries: 0,
             anchor: None,
             last_ts: None,
             need_key: true,
@@ -217,7 +290,7 @@ impl Hls {
     /// What to fetch next, or `None` when nothing is wanted now (enough is held ahead, or the
     /// whole playlist has been fetched).
     pub(crate) fn wanted(&self) -> Option<Want> {
-        let pause = if self.failures > 0 { RETRY_PAUSE } else { Duration::ZERO };
+        let pause = self.retry_pause();
         if !self.loaded {
             return Some(Want { url: self.url.clone(), kind: WantKind::Playlist, after: pause });
         }
@@ -237,8 +310,8 @@ impl Hls {
             return None;
         }
         let reading = self.queue.front().map_or(self.next, |(i, _)| *i).max(self.current);
-        let after = if self.failures > 0 {
-            RETRY_PAUSE
+        let after = if self.failures > 0 || self.recoveries > 0 {
+            self.retry_pause()
         } else if reading + NEAR_END >= self.segments.len() {
             self.target / 2
         } else {
@@ -247,9 +320,20 @@ impl Hls {
         Some(Want { url: self.url.clone(), kind: WantKind::Playlist, after })
     }
 
-    /// Hands over what was fetched for `want`. A failed fetch is asked for again (after a
-    /// pause) a few times before its error comes out here; a playlist that cannot be played
-    /// is an error at once.
+    /// How long to wait before trying again what failed; zero when nothing did.
+    fn retry_pause(&self) -> Duration {
+        if self.failures == 0 && self.recoveries == 0 {
+            return Duration::ZERO;
+        }
+        if !self.complete {
+            return MAX_RETRY_PAUSE;
+        }
+        (RETRY_PAUSE * 2u32.pow(self.failures.saturating_sub(1).min(4))).min(MAX_RETRY_PAUSE)
+    }
+
+    /// Hands over what was fetched for `want`. A failed fetch is asked for again, after a
+    /// growing pause, until the retries and recoveries run out, and only then does its error
+    /// come out here; a playlist that cannot be played is an error at once.
     pub(crate) fn deliver(
         &mut self,
         want: &Want,
@@ -265,14 +349,28 @@ impl Hls {
             Ok(d) => d,
             Err(e) => {
                 self.failures += 1;
-                return if self.failures > RETRIES { Err(e) } else { Ok(()) };
+                let retries = if is_timeout(&e) { TIMEOUT_RETRIES } else { ERROR_RETRIES };
+                if self.failures > retries {
+                    if self.recoveries >= RECOVERIES {
+                        return Err(e);
+                    }
+                    self.recoveries += 1;
+                    self.failures = 0;
+                }
+                return Ok(());
             }
         };
         self.failures = 0;
         match want.kind {
             WantKind::Playlist => self.read_playlist(&want.url, &data),
             WantKind::Segment(_) => {
+                // Earned back only by a segment that gave something to play: one that comes
+                // but cannot be read must not keep its spot alive for ever.
+                let before = self.queue.len();
                 self.read_segment(&data);
+                if self.queue.len() > before {
+                    self.recoveries = 0;
+                }
                 Ok(())
             }
         }
@@ -483,6 +581,7 @@ impl Hls {
     pub(crate) fn seek(&mut self, to: Duration) {
         self.queue.clear();
         self.failures = 0;
+        self.recoveries = 0;
         self.need_key = true;
         self.place(to);
     }
