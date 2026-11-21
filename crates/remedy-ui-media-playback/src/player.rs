@@ -2019,6 +2019,27 @@ impl Player {
         self.0.cast_offered.set_if_changed(true);
     }
 
+    /// Applies the player's keys to `e` under its [`KeyScheme`], as the
+    /// [`player`](crate::player) widget does for keys from inside it (K, J, L, M, C, F, T,
+    /// Escape, > and <, N; the arrows and Space in [`KeyScheme::Arrows`]; the media keys), in
+    /// [remote mode](Self::set_remote) on the device. True when the key was the player's;
+    /// keys with Ctrl, Alt or the system key held never are.
+    pub fn handle_key(&self, e: &remedy_ui_input::KeyEvent) -> bool {
+        crate::widget::apply_key(self, e, true)
+    }
+
+    /// Hears the player's keys wherever focus is inside `el` (the window's
+    /// [`root`](Ui::root), for the whole window), as Portal's page does: [`handle_key`]
+    /// (Self::handle_key) for each key nothing focused took, except that a focused text field
+    /// keeps every key, a focused slider its own (the arrows, Home, End, Page Up and Down), a
+    /// focused button or other control Space and Enter, and nothing reaches the player while
+    /// focus is in a menu or dialog or one is open. Keys inside the player widget reach it
+    /// first.
+    pub fn keys_from(&self, el: &El) {
+        let (p, ui) = (self.clone(), el.ui().clone());
+        let _ = el.clone().on_key(move |e| !focus_keeps(&ui, e) && p.handle_key(e));
+    }
+
     /// What the person picked in the widget's captions menu (or C, or the app). Tracked.
     pub fn caption_pick(&self) -> CaptionPick {
         self.0.caption_pick.get()
@@ -2134,7 +2155,9 @@ impl Player {
     /// Puts the [`player`](crate::player) widget in its compact layout (`true`), as Portal's
     /// mini player: the picture, play and pause, the time and the app's
     /// [title](crate::PlayerParts::title) alone, the "Up next" card under them; or back.
-    /// Playback carries on. Going compact leaves full screen and theater mode, and coming back
+    /// Playback carries on. Going compact closes the menus opened from the widget (its
+    /// captions menu, the app's [cast](Self::on_cast) menu anchored to its button), leaves
+    /// full screen and theater mode, and coming back
     /// asks for theater mode again if it was on. A full-screen or theater request from the
     /// widget (F, T, a double click) while compact comes back first.
     pub fn set_compact(&self, on: bool) {
@@ -2593,6 +2616,54 @@ impl Player {
             self.0.starting_detail.set_if_changed(None);
         });
     }
+}
+
+/// Whether what has focus keeps `e` from [`Player::keys_from`], as Portal's `typingTarget`:
+/// a text field every key, a slider its own, a button Space and Enter; and a menu or dialog
+/// every key while one has focus or, with nothing focused, is open.
+fn focus_keeps(ui: &Ui, e: &remedy_ui_input::KeyEvent) -> bool {
+    use remedy_ui_a11y::{Action, Role};
+    use remedy_ui_input::Key;
+    let tree = ui.tree();
+    let Some(focused) = tree.focused() else {
+        // Menus and dialogs sit in the overlay layers beside the content, as focus scopes.
+        let layers = ui.root().parent().map(|w| w.child_elements()).unwrap_or_default();
+        return layers
+            .iter()
+            .skip(1)
+            .flat_map(El::child_elements)
+            .any(|o| tree.focus_scope(o.id()) == o.id());
+    };
+    let role = |el: &El| el.info().and_then(|i| i.semantics).map(|s| s.role());
+    let mut at = Some(ui.element(focused));
+    while let Some(el) = at {
+        if matches!(role(&el), Some(Role::Menu | Role::MenuBar | Role::Dialog)) {
+            return true;
+        }
+        at = el.parent();
+    }
+    let Some(info) = ui.element(focused).info() else { return false };
+    let role = info.semantics.as_ref().map(|s| s.role());
+    let text = matches!(
+        role,
+        Some(Role::TextInput | Role::MultilineTextInput | Role::PasswordInput | Role::SpinButton)
+    );
+    let slider_key = matches!(
+        e.key,
+        Key::ArrowLeft
+            | Key::ArrowRight
+            | Key::ArrowUp
+            | Key::ArrowDown
+            | Key::Home
+            | Key::End
+            | Key::PageUp
+            | Key::PageDown
+    );
+    let presses = info.clickable || info.semantics.is_some_and(|s| s.actions().contains(&Action::Click));
+    info.field
+        || text
+        || (role == Some(Role::Slider) && slider_key)
+        || (presses && matches!(e.key, Key::Space | Key::Enter))
 }
 
 /// Starts an engine playing `source` for player `id`, reporting into `shared`.

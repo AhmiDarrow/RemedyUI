@@ -10,6 +10,19 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **The player's keys from anywhere in the window** in `media-playback`, as Portal's page
+  hears them page-wide: `Player::keys_from(&ui.root())` routes the keys nothing focused took
+  to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),
+  except that a focused text field keeps every key, a focused slider its own, a focused
+  button Space and Enter, and nothing reaches the player while a menu or dialog has focus or
+  is open; keys with Ctrl, Alt or the system key held never do. `Player::handle_key` applies
+  the same key map to one key and says whether it took it; the `player` widget uses it too,
+  so there is one key map.
+- **Going compact closes the player's menus** in `media-playback`, as Portal's mini player
+  does: `Player::set_compact(true)` closes the captions menu and any menu the app opened
+  anchored to the player's buttons (the cast menu from `on_cast`). Full screen leaves them
+  open, as Portal's page does. `widgets-core`'s new `close_menus_in(&el)` closes every open
+  menu opened from `el` or from inside it, without moving focus.
 - **Portal's full-screen overlay** in `media-playback`. In full screen the `player`
   widget's bar floats over the foot of the picture on a gradient, the title the app gives
   (`Player::set_title(Some(..))`) over its head, and both fade 2.6 s after the last pointer,

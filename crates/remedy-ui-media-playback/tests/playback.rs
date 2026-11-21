@@ -4034,3 +4034,166 @@ fn on_linux_the_session_screen_saver_is_inhibited_while_video_plays() {
     let reasons = saver.reasons.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert!(reasons.iter().all(|r| r == "Playing video"), "{reasons:?}");
 }
+
+/// The open menus' layers in the window.
+fn open_menus(ui: &Ui) -> usize {
+    ui.root().parent().map_or(0, |w| find(&w, "dismiss_layer").len())
+}
+
+#[test]
+fn keys_from_the_window_reach_the_player_and_fields_menus_and_dialogs_keep_theirs() {
+    use remedy_ui_widgets_core as w;
+    for scheme in [KeyScheme::Arrows, KeyScheme::Classic] {
+        let mut s = Screen::new();
+        let (p, _view) = scripted_with(&mut s, 60, PlayerOptions::default().keys(scheme));
+        let arrows = scheme == KeyScheme::Arrows;
+        let pressed = Rc::new(std::cell::Cell::new(0));
+        let n = pressed.clone();
+        let outside = w::button(&s.ui, "Elsewhere", move || n.set(n.get() + 1));
+        let field = w::text_input(&s.ui, "Search");
+        s.ui.root().child(outside.clone()).child(field.el());
+        p.keys_from(&s.ui.root());
+        p.seek(Duration::from_secs(30));
+        s.wait("the seek", |_| near(p.position(), 30.0, 0.001));
+        let at =
+            |s: &mut Screen, secs: f64| s.wait(&format!("at {secs}"), |_| near(p.position(), secs, 0.001));
+
+        // Focus on a button outside the player: its keys act on the player.
+        outside.focus();
+        assert!(letter(&s.ui, "l", false));
+        at(&mut s, 40.0);
+        assert!(letter(&s.ui, "k", false));
+        s.wait("playing", |_| p.state() == PlaybackState::Playing);
+        assert!(letter(&s.ui, "k", false));
+        s.wait("paused", |_| p.state() == PlaybackState::Paused);
+        assert_eq!(press(&s.ui, Key::ArrowLeft), arrows, "the arrows only in the arrows scheme");
+        at(&mut s, if arrows { 30.0 } else { 40.0 });
+        // Space and Enter still press the focused button.
+        assert!(press(&s.ui, Key::Space));
+        assert!(pressed.get() == 1 && p.state() == PlaybackState::Paused);
+        // Nothing focused: Space plays in the arrows scheme.
+        outside.blur();
+        assert_eq!(press(&s.ui, Key::Space), arrows);
+        if arrows {
+            s.wait("playing", |_| p.state() == PlaybackState::Playing);
+            p.pause();
+            s.wait("paused", |_| p.state() == PlaybackState::Paused);
+        }
+        // Modifiers are never the player's.
+        let ctrl = remedy_ui_input::Modifiers { ctrl: true, ..Default::default() };
+        assert!(!s.ui.key(&KeyEvent::press(Key::Character("k".into())).with_modifiers(ctrl).with_text(None)));
+
+        // A text field keeps every key, the player's letters and the arrows too.
+        let pos = p.position();
+        field.el().focus();
+        let _ = letter(&s.ui, "k", false);
+        let _ = letter(&s.ui, "l", false);
+        let _ = press(&s.ui, Key::ArrowLeft);
+        let _ = press(&s.ui, Key::Escape);
+        s.idle(30);
+        assert_eq!(field.value(), "kl");
+        assert!(p.state() == PlaybackState::Paused && p.position() == pos);
+
+        // A menu keeps its keys.
+        outside.focus();
+        let _ =
+            w::menu(&s.ui, &outside, vec![w::MenuItem::new("One", || {}), w::MenuItem::new("Two", || {})]);
+        s.pump();
+        assert_eq!(open_menus(&s.ui), 1);
+        let _ = letter(&s.ui, "k", false);
+        let _ = letter(&s.ui, "l", false);
+        s.idle(30);
+        assert!(p.state() == PlaybackState::Paused && p.position() == pos);
+        let _ = press(&s.ui, Key::Escape);
+        s.pump();
+        assert_eq!(open_menus(&s.ui), 0);
+
+        // A dialog keeps its keys, with focus in it or nowhere.
+        let modal = w::modal(&s.ui, "Ask", w::button(&s.ui, "OK", || {}), true);
+        s.pump();
+        let _ = letter(&s.ui, "k", false);
+        if let Some(f) = s.ui.tree().focused() {
+            s.ui.element(f).blur();
+        }
+        let _ = letter(&s.ui, "l", false);
+        s.idle(30);
+        assert!(p.state() == PlaybackState::Paused && p.position() == pos);
+        modal.close();
+        s.pump();
+        outside.focus();
+        assert!(letter(&s.ui, "k", false), "the player hears keys again");
+        s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    }
+}
+
+#[test]
+fn keys_from_the_window_reach_the_remote() {
+    let mut s = Screen::new();
+    let (p, _view) = scripted_with(&mut s, 60, PlayerOptions::default().keys(KeyScheme::Arrows));
+    p.keys_from(&s.ui.root());
+    let log = Arc::new(Mutex::new(Vec::new()));
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    p.set_remote_status(RemoteStatus {
+        length: Some(Duration::from_secs(100)),
+        volume: Some(0.5),
+        ..RemoteStatus::new(PlaybackState::Paused, Duration::from_secs(30))
+    });
+    s.pump();
+    let heard = |log: &Arc<Mutex<Vec<String>>>| log.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let before = heard(&log).len();
+    assert!(letter(&s.ui, "k", false));
+    assert!(press(&s.ui, Key::ArrowRight));
+    s.pump();
+    let got = heard(&log);
+    assert_eq!(got.get(before..), Some(&["play".to_owned(), "seek 40".to_owned()][..]), "{got:?}");
+    // The direct way too.
+    assert!(p.handle_key(&KeyEvent::press(Key::Character("m".into())).with_text(None)));
+    assert_eq!(heard(&log).last().map(String::as_str), Some("muted true"));
+}
+
+#[test]
+fn going_compact_closes_the_menus_the_player_opened_or_anchored() {
+    use remedy_ui_widgets_core as w;
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default());
+    p.add_subtitles(SubtitleTrack { label: "English".into(), language: None, cues: Vec::new() });
+    let u = s.ui.clone();
+    p.on_cast(move |anchor| {
+        let _ = w::menu(&u, anchor, vec![w::MenuItem::new("The Ris", || {})]);
+    });
+    // An app's menu anchored elsewhere stays.
+    let outside = w::button(&s.ui, "Elsewhere", || {});
+    s.ui.root().child(outside.clone());
+    s.pump();
+    let _ = w::menu(&s.ui, &outside, vec![w::MenuItem::new("Mine", || {})]);
+    s.pump();
+    el(&view, "Cast").focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert_eq!(open_menus(&s.ui), 2);
+    p.set_compact(true);
+    s.pump();
+    assert_eq!(open_menus(&s.ui), 1, "the cast menu closed, the app's own stayed");
+    p.set_compact(false);
+    s.pump();
+    // The captions menu.
+    let captions = find(&view, "button")
+        .into_iter()
+        .find(|b| {
+            b.info()
+                .and_then(|i| i.semantics)
+                .and_then(|s| s.name().map(plain))
+                .is_some_and(|n| n.starts_with("Captions"))
+        })
+        .unwrap_or_else(|| unreachable!("the captions button"));
+    captions.focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert_eq!(open_menus(&s.ui), 2);
+    let expanded = |b: &El| b.info().and_then(|i| i.semantics).and_then(|s| s.expanded_state());
+    assert_eq!(expanded(&captions), Some(true));
+    p.set_compact(true);
+    s.pump();
+    assert_eq!(open_menus(&s.ui), 1);
+    assert_eq!(expanded(&captions), Some(false), "the button says it closed");
+}
