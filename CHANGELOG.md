@@ -27,6 +27,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   seen while any of its pictures is, so moving the picture to a picture-in-picture or another
   window never pauses it. The widget uses it, so its root no longer reports visibility itself.
 
+- **Media keys and the system's media controls.** The `player` widget answers the media keys
+  (Play/Pause, Play, Pause, Stop, Next, Previous, Rewind and Fast-forward ±10 s, as Portal's
+  TV page), and `Player::now_playing(Some(NowPlaying::new(title).subtitle(..).art(..)))`
+  (feature `media-session`) shows what plays in Windows' SMTC or a browser's
+  `navigator.mediaSession`, kept in step with the player's state, position, timeline and
+  remote mode, its buttons coming back to the player (`desktop::media_session` for apps
+  without the player). Linux (MPRIS), macOS and Android say `Unsupported` for now.
 - **Retry after a failure, and the app's words on the picture**, as on Portal's page.
   `Player::on_retry(f)`: after playback fails here, Play, K, Space or a click on the picture
   (in either key scheme) calls `f` with the last position (film time on a timeline), and the
