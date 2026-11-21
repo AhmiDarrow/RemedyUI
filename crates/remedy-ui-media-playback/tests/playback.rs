@@ -1425,7 +1425,9 @@ fn casting_hands_every_control_to_the_remote_and_back() {
     assert!(press(&s.ui, Key::Character("m".into())));
     assert!(press(&s.ui, Key::Character("c".into())));
     assert!(s.ui.key(&KeyEvent::press(Key::Character("N".into())).with_modifiers(shift).with_text(None)));
-    named(&view, "Unmute the TV").unwrap_or_else(|| unreachable!("the mute button says the TV is muted")).focus();
+    named(&view, "Unmute the TV")
+        .unwrap_or_else(|| unreachable!("the mute button says the TV is muted"))
+        .focus();
     assert!(press(&s.ui, Key::Enter));
     p.set_volume(0.8);
     // The volume goes once it has rested, as Portal's page sends it.
@@ -2630,7 +2632,9 @@ fn on_a_tv_and_on_a_timeline_only_the_release_seeks() {
     let (p, view) = scripted_with(&mut s, 3, PlayerOptions::default());
     let log = Arc::new(Mutex::new(Vec::new()));
     p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
-    p.set_remote_status(RemoteStatus::new(PlaybackState::Paused, Duration::ZERO).length(Duration::from_secs(100)));
+    p.set_remote_status(
+        RemoteStatus::new(PlaybackState::Paused, Duration::ZERO).length(Duration::from_secs(100)),
+    );
     s.pump();
     drag(&mut s, &view, 0.1, &[0.3, 0.6, 0.505]);
     assert_eq!(*log.lock().unwrap_or_else(|e| e.into_inner()), ["seek 50"]);
@@ -2675,7 +2679,11 @@ fn a_tvs_volume_waits_for_the_tv_and_goes_once_it_rests() {
     assert!(press(&s.ui, Key::ArrowUp));
     assert_eq!(p.volume(), 0.6, "shown at once");
     s.idle(400);
-    assert_eq!(*log.lock().unwrap_or_else(|e| e.into_inner()), ["volume 0.60"], "sent once, where it stopped");
+    assert_eq!(
+        *log.lock().unwrap_or_else(|e| e.into_inner()),
+        ["volume 0.60"],
+        "sent once, where it stopped"
+    );
     p.set_remote(None);
     s.pump();
     assert!(named(&view, "Volume").is_some() && p.volume_known());
@@ -2685,8 +2693,7 @@ fn a_tvs_volume_waits_for_the_tv_and_goes_once_it_rests() {
 fn a_big_play_glyph_shows_over_a_paused_picture_and_plays() {
     let mut s = Screen::new();
     let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default());
-    let shown =
-        |v: &El| find(v, "player_big_play_layer").iter().any(|l| l.info().is_some_and(|i| !i.hidden));
+    let shown = |v: &El| find(v, "player_big_play_layer").iter().any(|l| l.info().is_some_and(|i| !i.hidden));
     s.pump();
     assert!(shown(&view), "paused");
     // A click on it plays, in the classic scheme too.

@@ -669,7 +669,8 @@ impl Inner {
         let timer = ui.after(REMOTE_VOLUME_REST, move || {
             if let Some(p) = PLAYERS.with(|p| p.borrow().get(&id).and_then(Weak::upgrade)) {
                 p.remote_volume_timer.set(None);
-                let control = p.remote.with_untracked(|r| r.as_ref().map(|r| r.control.clone())).ok().flatten();
+                let control =
+                    p.remote.with_untracked(|r| r.as_ref().map(|r| r.control.clone())).ok().flatten();
                 if let Some(c) = control {
                     c.set_volume(v);
                 }
@@ -1538,10 +1539,9 @@ impl Player {
             self.0.send(Cmd::Pause);
             // Connecting, its volume unknown, until the app hears from the device.
             let muted = self.0.muted.get_untracked();
-            self.0.remote_status.set(RemoteStatus {
-                muted: muted.unwrap_or(false),
-                ..RemoteStatus::default()
-            });
+            self.0
+                .remote_status
+                .set(RemoteStatus { muted: muted.unwrap_or(false), ..RemoteStatus::default() });
         }
         self.0.remote_seek.set(None);
         self.0.remote_seen.set(None);

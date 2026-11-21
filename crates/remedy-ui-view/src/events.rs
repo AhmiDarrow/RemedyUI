@@ -294,7 +294,9 @@ impl Ui {
                 }
             }
             PointerPhase::Cancel => {
-                if let Some(p) = self.0.borrow_mut().pressed.take() {
+                // Taken first: the borrow must end before the state changes.
+                let pressed = self.0.borrow_mut().pressed.take();
+                if let Some(p) = pressed {
                     self.set_state(p, States::PRESSED, false);
                 }
             }
