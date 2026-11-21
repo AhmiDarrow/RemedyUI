@@ -22,15 +22,16 @@ use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{
     DUPLICATE_CLOSE_SOURCE, DuplicateHandle, FALSE, FILETIME, HANDLE, HANDLE_FLAG_INHERIT,
-    INVALID_HANDLE_VALUE, SetHandleInformation, TRUE, WAIT_OBJECT_0,
+    INVALID_HANDLE_VALUE, LUID, SetHandleInformation, TRUE, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::Security::Isolation::{
     CreateAppContainerProfile, DeleteAppContainerProfile, DeriveAppContainerSidFromAppContainerName,
 };
 use windows_sys::Win32::Security::{
-    CopySid, CreateRestrictedToken, DISABLE_MAX_PRIVILEGE, FreeSid, GetLengthSid, GetTokenInformation,
-    LUA_TOKEN, SECURITY_CAPABILITIES, TOKEN_ADJUST_DEFAULT, TOKEN_ADJUST_SESSIONID, TOKEN_ASSIGN_PRIMARY,
-    TOKEN_DUPLICATE, TOKEN_QUERY, TokenIsAppContainer, TokenPrivileges,
+    AdjustTokenPrivileges, CopySid, CreateRestrictedToken, DISABLE_MAX_PRIVILEGE, FreeSid, GetLengthSid,
+    GetTokenInformation, LUA_TOKEN, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_REMOVED, SECURITY_CAPABILITIES,
+    TOKEN_ADJUST_DEFAULT, TOKEN_ADJUST_PRIVILEGES, TOKEN_ADJUST_SESSIONID, TOKEN_ASSIGN_PRIMARY,
+    TOKEN_DUPLICATE, TOKEN_PRIVILEGES, TOKEN_QUERY, TokenIsAppContainer, TokenPrivileges,
 };
 use windows_sys::Win32::System::Console::{GetStdHandle, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE};
 use windows_sys::Win32::System::JobObjects::{
@@ -239,8 +240,8 @@ pub(crate) fn forget() {
     }
 }
 
-/// This process's token with every privilege but bypass-traverse removed and administrator
-/// groups made deny-only.
+/// This process's token with every privilege but bypass-traverse removed (the helper drops
+/// that one itself, see `drop_traverse`) and administrator groups made deny-only.
 fn restricted_token() -> io::Result<OwnedHandle> {
     let mut token: HANDLE = null_mut();
     let access =
@@ -812,6 +813,37 @@ fn token_info(class: i32) -> Option<Vec<u8>> {
     Some(buf.iter().flat_map(|w| w.to_ne_bytes()).take(len as usize).collect())
 }
 
+/// Removes bypass-traverse checking, the one privilege the restricted token keeps, from the
+/// helper's own token for good (as Chromium's lockdown token lacks it). Holding it, opening a
+/// path below a device that leaves such opens to its driver, as the socket driver does
+/// (`\Device\Afd\Endpoint`, what Windows Sockets opens), skips the device's access check, which
+/// refuses the AppContainer. Done here, not in the token the helper starts with: Windows'
+/// loader needs it to start a process in an AppContainer.
+fn drop_traverse() -> Result<(), String> {
+    let mut token: HANDLE = null_mut();
+    // SAFETY: opens this process's own token to adjust privileges; closed by `owned`.
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &mut token) } == 0 {
+        return Err(format!("the helper cannot open its token: {}", last()));
+    }
+    let token = owned(token).map_err(|e| e.to_string())?;
+    let removed = TOKEN_PRIVILEGES {
+        PrivilegeCount: 1,
+        // SeChangeNotifyPrivilege's fixed LUID.
+        Privileges: [LUID_AND_ATTRIBUTES {
+            Luid: LUID { LowPart: 23, HighPart: 0 },
+            Attributes: SE_PRIVILEGE_REMOVED,
+        }],
+    };
+    // SAFETY: a token opened with TOKEN_ADJUST_PRIVILEGES and one privilege to remove.
+    let ok =
+        unsafe { AdjustTokenPrivileges(token.as_raw_handle(), FALSE, &removed, 0, null_mut(), null_mut()) };
+    // It succeeds without removing a privilege the token lacks (ERROR_NOT_ALL_ASSIGNED): fine.
+    if ok == 0 {
+        return Err(format!("the helper cannot drop bypass-traverse: {}", last()));
+    }
+    Ok(())
+}
+
 /// The helper was started already shut in; this checks that it was, and says how. A helper
 /// not in an AppContainer refuses to run.
 pub(crate) fn lock_down() -> Result<Vec<Layer>, String> {
@@ -821,13 +853,13 @@ pub(crate) fn lock_down() -> Result<Vec<Layer>, String> {
     if !in_container {
         return Err("the helper is not in an AppContainer".into());
     }
+    drop_traverse()?;
     let mut layers = vec![Layer::AppContainer];
-    // TOKEN_PRIVILEGES starts with its count; a restricted token keeps one at most
-    // (bypass traverse checking).
+    // TOKEN_PRIVILEGES starts with its count: none is left.
     let privileges = token_info(TokenPrivileges)
         .and_then(|b| b.first_chunk::<4>().map(|c| u32::from_ne_bytes(*c)))
         .unwrap_or(u32::MAX);
-    if privileges <= 1 {
+    if privileges == 0 {
         layers.push(Layer::RestrictedToken);
     }
     let mut in_job = FALSE;
