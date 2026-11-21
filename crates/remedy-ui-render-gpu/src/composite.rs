@@ -287,6 +287,7 @@ impl GpuCompositor {
     /// the damaged rectangles are drawn, each as a scene of its own size placed at its corner,
     /// with the rest of the frame left as it was; damage over most of the frame draws it all.
     /// `with` is the renderer for `format` (a window's), or `None` for this compositor's own.
+    /// Returns the rectangles drawn, `(x0, y0, x1, y1)` in pixels.
     #[allow(clippy::too_many_arguments, reason = "a frame's target and its renderer")]
     pub(crate) fn render_damage(
         &mut self,
@@ -297,7 +298,7 @@ impl GpuCompositor {
         (width, height): (u32, u32),
         background: Color,
         with: Option<(&mut vello_gpu::Renderer, &mut vello_gpu::Resources)>,
-    ) -> Result<(), GpuError> {
+    ) -> Result<Vec<(u16, u16, u16, u16)>, GpuError> {
         if self.is_lost() {
             return Err(GpuError::Lost);
         }
@@ -333,7 +334,7 @@ impl GpuCompositor {
             Some((v, r)) => (v, r),
             None => (&mut self.renderer.vello, &mut self.renderer.resources),
         };
-        for (x0, y0, x1, y1) in rects {
+        for &(x0, y0, x1, y1) in &rects {
             let (rw, rh) = (x1 - x0, y1 - y0);
             self.composited += u64::from(rw) * u64::from(rh);
             let area = Rect::new(f32::from(x0), f32::from(y0), f32::from(x1), f32::from(y1));
@@ -352,7 +353,7 @@ impl GpuCompositor {
             crate::renderer::submit_scene_with(&ctx, vello, resources, &scene, &view, &bindings, options)?;
         }
         self.measure(tiles);
-        Ok(())
+        Ok(rects)
     }
 
     /// Updates the gauges of what this compositor holds on the GPU: the tiles of the set in
@@ -535,6 +536,6 @@ impl GpuCompositor {
         );
         self.tiles = tiles;
         self.retained = retained;
-        done
+        done.map(drop)
     }
 }

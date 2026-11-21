@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Vec2};
 use remedy_ui_paint::{
-    Affine, Blend, Brush, DisplayList, GlyphRun, Image, Item, Path, Sampling, Stop, Stroke,
+    Affine, Blend, Brush, DisplayList, Filter, GlyphRun, Image, Item, Path, Sampling, Stop, Stroke,
 };
 use remedy_ui_render_cpu::{CpuRenderer, Frame, RenderError};
 use remedy_ui_text::{Antialias, FontCollection, Hinting, ParagraphOptions, RichText, TextEngine, TextStyle};
@@ -292,4 +292,42 @@ fn images_the_app_drops_leave_the_cache() {
     drop(b);
     let _ = r.render(&DisplayList::new(), 8, 4, 1.0, Color::WHITE);
     assert_eq!(r.cached_images(), 0);
+}
+
+#[test]
+fn shadows_thrown_off_the_top_or_left_edge_are_not_drawn() {
+    // A shadow thrown further up or left than its content's filter area reaches is wholly off
+    // the canvas. vello_cpu 0.4.0 drew it unshifted instead (see vendor/vello_cpu/PATCHED.md);
+    // a shadow thrown right or down, or only partly off the edge, was always right.
+    let card = |l: &mut DisplayList| {
+        l.fill_rounded(
+            Rect::new(-5.84, -15.488, 28.8195, 30.1691),
+            CornerRadii::all(8.16),
+            Brush::Solid(Color::rgba8(246, 193, 234, 207)),
+        );
+    };
+    let mut plain = DisplayList::new();
+    card(&mut plain);
+    let want = render(&plain, 96, 96, 1.0);
+    for offset in
+        [Vec2::new(-1.0e9, -4.622), Vec2::new(-60.0, 3.0), Vec2::new(2.0, -2048.0), Vec2::new(-40.0, -40.0)]
+    {
+        let mut l = DisplayList::new();
+        l.push_filter(Filter::DropShadow { offset, blur: 0.714, color: Color::rgba8(125, 23, 239, 252) });
+        card(&mut l);
+        l.pop_filter();
+        let got = render(&l, 96, 96, 1.0);
+        assert_eq!(px(&got, 10, 10), [248, 205, 238, 255], "{offset:?}");
+        // Drawn through a filter layer the edges may round a little differently, no more.
+        let worst = got.pixels.iter().zip(&want.pixels).map(|(a, b)| a.abs_diff(*b)).max();
+        assert!(worst.is_some_and(|d| d <= 2), "{offset:?}: no shadow anywhere ({worst:?})");
+    }
+    // Partly off the left edge: the part still on the canvas is drawn.
+    let mut l = DisplayList::new();
+    l.push_filter(Filter::DropShadow { offset: Vec2::new(-20.0, 40.0), blur: 0.0, color: Color::BLACK });
+    l.fill_rect(Rect::new(4.0, 4.0, 36.0, 36.0), Brush::Solid(Color::rgb8(255, 0, 0)));
+    l.pop_filter();
+    let got = render(&l, 96, 96, 1.0);
+    assert_eq!(px(&got, 10, 60), [0, 0, 0, 255], "the shadow's visible part");
+    assert_eq!(px(&got, 30, 60), WHITE, "past the shadow's right edge");
 }
