@@ -259,6 +259,9 @@ pub(crate) struct TextSlot {
     pub(crate) data: bool,
     /// The paragraph at the last wrap width asked for.
     pub(crate) cache: Option<(ParagraphKey, Rc<Paragraph>)>,
+    /// For a huge paragraph laid out lazily: the band of its lines last drawn, and its height
+    /// then.
+    pub(crate) painted: Option<(std::ops::Range<f32>, f32)>,
 }
 
 /// A picture inside a paragraph: drawn where the text's inline object with the same `id`
@@ -2567,6 +2570,7 @@ impl El {
                     pseudo,
                     data: data_text,
                     cache: None,
+                    painted: None,
                 }));
                 self.make_measured(slot.clone());
                 let mut i = self.ui.0.borrow_mut();
@@ -2666,6 +2670,7 @@ impl El {
                 pseudo: None,
                 data: false,
                 cache: None,
+                painted: None,
             }))
         })
     }
@@ -2682,7 +2687,13 @@ impl El {
                 Available::MaxContent => None,
             });
             let p = slot.borrow_mut().paragraph(&mut engine.borrow_mut(), width);
-            Size::new(p.width().ceil(), p.height().ceil())
+            // A lazy paragraph's widest line is known only once every line is laid out: it
+            // takes the width it wraps in.
+            let w = match width {
+                Some(w) if p.is_lazy() && !p.is_complete() => w.max(p.width()),
+                _ => p.width(),
+            };
+            Size::new(w.ceil(), p.height().ceil())
         };
         let Ok(node) = i.layout.measured(&style, measure) else { return };
         let parent = i.tree.parent(self.id).and_then(|p| i.els.get(&p).map(|d| d.node));
