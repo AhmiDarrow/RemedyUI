@@ -109,6 +109,18 @@ fn pictures_on_the_gpu_match_pictures_in_cpu_memory() {
         let copied = draw(&mut w, c);
         assert!(worst(&shown, &copied) <= 2, "at {at:?} the GPU shows the same colours");
     }
+    drop((w, cpu));
+
+    // A renderer dropped while the pictures it drew are still held on the GPU: once the
+    // pictures go too, every texture and the decoder's device are let go (counted by debug
+    // builds; under REMEDY_D3D_DEBUG=1 the debug layers' report at exit fails the run on any
+    // D3D12 import the renderer kept).
+    assert!(g.image_bytes() > 0, "the renderer holds what it drew");
+    drop(g);
+    let held = live_platform_objects();
+    assert!(held >= gpu.len(), "{held} platform objects live with {} pictures held", gpu.len());
+    drop((gpu, host));
+    assert_eq!(live_platform_objects(), 0, "every picture's texture and the device let go");
 }
 
 /// Android: the pictures cannot be read back (an opaque format), and the reader lends only so

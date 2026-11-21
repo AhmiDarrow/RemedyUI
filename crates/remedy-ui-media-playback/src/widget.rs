@@ -231,7 +231,8 @@ fn toggle_mute(p: &Player) {
 /// 5% (unmuting), Space plays and pauses on the volume slider, N plays next, and the letters
 /// work with Shift held; a focused slider keeps its own keys. In either scheme, keys with
 /// Ctrl, Alt or the system key held, keys a text field takes and keys while a menu is open
-/// never reach the player.
+/// never reach the player. [`Player::keys_from`] hears the same keys from the rest of the
+/// window, as Portal's page does.
 ///
 /// In remote mode the speed button is hidden and > and < do nothing: the device plays at its
 /// own speed.
@@ -769,7 +770,9 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
 
     let p = player.clone();
     let root = ui.el("player");
-    let (me, home, cursor) = (root.clone(), root.clone(), root.clone());
+    let (me, home, cursor, menus) = (root.clone(), root.clone(), root.clone(), root.clone());
+    static WIDGETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let widget_id = WIDGETS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     root.column()
         .grow(1.0)
         .semantics(Semantics::new(Role::Group).label(label))
@@ -818,44 +821,78 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
                 false
             }
         })
+        // Keys from the rest of the window (`Player::keys_from`) wake the controls too.
+        .bind({
+            let (p, rest, was) = (player.clone(), rest.clone(), std::cell::Cell::new(None));
+            move || {
+                let n = p.key_wakes();
+                if was.replace(Some(n)).is_some_and(|w| w != n) {
+                    remedy_ui_reactive::untrack(|| rest.wake());
+                }
+            }
+        })
+        // Seen or not, for `Player::keys_from` (Portal's keys only while its dock is open).
+        .on_visibility({
+            let p = player.clone();
+            move |seen| p.widget_seen(widget_id, Some(seen))
+        })
+        .on_removed({
+            let p = player.clone();
+            move || p.widget_seen(widget_id, None)
+        })
         .on_key(move |e| {
             if e.pressed {
                 rest.wake();
             }
-            if !e.pressed || e.composing || e.modifiers.ctrl || e.modifiers.alt || e.modifiers.meta {
-                return false;
-            }
-            if let Key::Named(n) = &e.key {
-                return crate::media_keys::key_press(n).is_some_and(|m| crate::media_keys::apply(&p, m));
-            }
-            let arrows = p.key_scheme() == KeyScheme::Arrows;
-            let pictures = p.info().is_none_or(|i| i.video.is_some());
-            match &e.key {
-                Key::Escape if p.is_fullscreen() => p.request_fullscreen(false),
-                Key::Escape if p.is_theater() => p.request_theater(false),
-                Key::ArrowLeft if arrows => p.seek_by(-JUMP_SEEK),
-                Key::ArrowRight if arrows => p.seek_by(JUMP_SEEK),
-                Key::ArrowUp if arrows => nudge_volume(&p, true),
-                Key::ArrowDown if arrows => nudge_volume(&p, false),
-                // Buttons press themselves on Space and the seek bar plays and pauses itself.
-                Key::Space if arrows && (slider.is_focused() || home.is_focused()) => p.toggle(),
-                Key::Character(c) => match (if arrows { c.to_lowercase() } else { c.clone() }).as_str() {
-                    "k" => p.toggle(),
-                    "j" => p.seek_by(-JUMP_SEEK),
-                    "l" => p.seek_by(JUMP_SEEK),
-                    "m" => toggle_mute(&p),
-                    ">" if !p.is_remote() => p.step_speed(true),
-                    "<" if !p.is_remote() => p.step_speed(false),
-                    "c" if p.captions_offered() => p.toggle_captions(),
-                    "f" if pictures && fullscreen_toggles(&p) => toggle_fullscreen(&p),
-                    "t" if p.theater_offered() && pictures && theater_toggles(&p) => toggle_theater(&p),
-                    "N" | "n" if (arrows || e.modifiers.shift) && p.next_up().is_some() => p.play_next(),
-                    _ => return false,
-                },
-                _ => return false,
-            }
-            true
+            // Buttons press themselves on Space and the seek bar plays and pauses itself.
+            apply_key(&p, e, slider.is_focused() || home.is_focused())
         })
+        // Going compact closes the menus its hidden buttons opened, as Portal's mini player.
+        .bind({
+            let p = player.clone();
+            move || {
+                if p.is_compact() {
+                    remedy_ui_reactive::untrack(|| w::close_menus_in(&menus));
+                }
+            }
+        })
+}
+
+/// The player's key map ([`Player::handle_key`]): `space` when Space may play and pause in
+/// [`KeyScheme::Arrows`]. True when the key was the player's.
+pub(crate) fn apply_key(p: &Player, e: &remedy_ui_input::KeyEvent, space: bool) -> bool {
+    if !e.pressed || e.composing || e.modifiers.ctrl || e.modifiers.alt || e.modifiers.meta {
+        return false;
+    }
+    if let Key::Named(n) = &e.key {
+        return crate::media_keys::key_press(n).is_some_and(|m| crate::media_keys::apply(p, m));
+    }
+    let arrows = p.key_scheme() == KeyScheme::Arrows;
+    let pictures = p.info().is_none_or(|i| i.video.is_some());
+    match &e.key {
+        Key::Escape if p.is_fullscreen() => p.request_fullscreen(false),
+        Key::Escape if p.is_theater() => p.request_theater(false),
+        Key::ArrowLeft if arrows => p.seek_by(-JUMP_SEEK),
+        Key::ArrowRight if arrows => p.seek_by(JUMP_SEEK),
+        Key::ArrowUp if arrows => nudge_volume(p, true),
+        Key::ArrowDown if arrows => nudge_volume(p, false),
+        Key::Space if arrows && space => p.toggle(),
+        Key::Character(c) => match (if arrows { c.to_lowercase() } else { c.clone() }).as_str() {
+            "k" => p.toggle(),
+            "j" => p.seek_by(-JUMP_SEEK),
+            "l" => p.seek_by(JUMP_SEEK),
+            "m" => toggle_mute(p),
+            ">" if !p.is_remote() => p.step_speed(true),
+            "<" if !p.is_remote() => p.step_speed(false),
+            "c" if p.captions_offered() => p.toggle_captions(),
+            "f" if pictures && fullscreen_toggles(p) => toggle_fullscreen(p),
+            "t" if p.theater_offered() && pictures && theater_toggles(p) => toggle_theater(p),
+            "N" | "n" if (arrows || e.modifiers.shift) && p.next_up().is_some() => p.play_next(),
+            _ => return false,
+        },
+        _ => return false,
+    }
+    true
 }
 
 /// Full screen's rest: the controls show on activity and fade [`WAKE`] after the last, unless
