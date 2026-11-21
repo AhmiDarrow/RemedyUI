@@ -3774,8 +3774,9 @@ fn caption_lines_are_centred_each_in_its_own_box() {
         let b = l.bounds().unwrap_or_default();
         assert!(((b.min.x + b.max.x) / 2.0 - mid).abs() < 1.0, "centred: {b:?} in {stage:?}");
     }
-    let (a, b) = (lines[0].bounds().unwrap_or_default(), lines[1].bounds().unwrap_or_default());
-    assert!(b.width() < a.width(), "each line its own box");
+    let width = |i: usize| lines.get(i).and_then(El::bounds).unwrap_or_default().width();
+    let (a, b) = (width(0), width(1));
+    assert!(b < a, "each line its own box");
 }
 
 #[test]
