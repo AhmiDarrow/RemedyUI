@@ -37,11 +37,12 @@ fn failed(what: &'static str) -> impl Fn(vk::Result) -> ChainError {
 
 /// Opens `adapter`'s Vulkan device as wgpu would, with `VK_KHR_incremental_present` added
 /// where the device has it. `None` when the adapter is not Vulkan or lacks the extension (the
-/// caller opens the device the usual way; presents then report the whole window).
+/// caller opens the device the usual way; presents then report the whole window). An error
+/// says why a device that has the extension would not open with it.
 pub(crate) fn open_device(
     adapter: &wgpu::Adapter,
     desc: &wgpu::DeviceDescriptor<'_>,
-) -> Option<Result<(wgpu::Device, wgpu::Queue), wgpu::RequestDeviceError>> {
+) -> Option<Result<(wgpu::Device, wgpu::Queue), String>> {
     // SAFETY: wgpu's own adapter; the callback only adds an extension the device reports.
     unsafe {
         let hal = adapter.as_hal::<Vk>()?;
@@ -51,20 +52,21 @@ pub(crate) fn open_device(
         if !extensions.iter().any(|e| e.extension_name_as_c_str() == Ok(name)) {
             return None;
         }
-        let open = hal
-            .open_with_callback(
-                desc.required_features,
-                &desc.required_limits,
-                &desc.memory_hints,
-                Some(Box::new(move |args| {
-                    if !args.extensions.contains(&name) {
-                        args.extensions.push(name);
-                    }
-                })),
-            )
-            .ok()?;
+        let open = match hal.open_with_callback(
+            desc.required_features,
+            &desc.required_limits,
+            &desc.memory_hints,
+            Some(Box::new(move |args| {
+                if !args.extensions.contains(&name) {
+                    args.extensions.push(name);
+                }
+            })),
+        ) {
+            Ok(open) => open,
+            Err(e) => return Some(Err(e.to_string())),
+        };
         drop(hal);
-        Some(adapter.create_device_from_hal::<Vk>(open, desc))
+        Some(adapter.create_device_from_hal::<Vk>(open, desc).map_err(|e| e.to_string()))
     }
 }
 
