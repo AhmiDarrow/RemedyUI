@@ -14,7 +14,8 @@ Every pack the apps need is built (see [ROADMAP.md](ROADMAP.md)), so what is lef
 | **Hearth** | Done on `remedyui` (checklist 55/55) | No; v0.4.0 is still pywebview | Merge, release; macOS run |
 | **FreeSpeak** | Done on `remedyui`, egui removed (checklist 429/430) | No; `main` is still egui | macOS (tray, hotkeys, signing); merge, release |
 | **GuitarRemedy** | Started on `remedyui`: workspace, core crate, content as data | No | The screens |
-| **RemedyPDF, VoiceRemedy, Portal** | Not started | No | All |
+| **Portal** | Not started; the engine has what it needs (HLS, casting controls, film timeline, Portal's keys, tested live against Portal's server and a Cast TV) | No | The app |
+| **RemedyPDF, VoiceRemedy** | Not started | No | All |
 | **RemedyAI desktop, RemedyOS apps** | Not started | No | All |
 
 None of these waits on RemedyLua. It only adds Lua bindings for effects; FreeSpeak's own Lua 5.4 engine plugs in through `ScriptEngine` today.
