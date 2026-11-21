@@ -445,6 +445,8 @@ struct Track {
     input_done: bool,
     /// The decoder gave its last output.
     output_done: bool,
+    /// The codec, counted while it lives (debug builds).
+    _live: super::Live,
 }
 
 /// How a decoded picture sits in a codec's output buffer.
@@ -462,6 +464,8 @@ struct Layout {
 struct NdkDecoder {
     ndk: &'static Ndk,
     extractor: Ptr,
+    /// The extractor, counted while it lives (debug builds).
+    _live: super::Live,
     video: Option<Track>,
     audio: Option<Track>,
     vout: Out,
@@ -500,6 +504,8 @@ struct Image {
     reader: Arc<Reader>,
     raw: Ptr,
     texture: GpuTexture,
+    /// Counted while it holds its image (debug builds).
+    _live: super::Live,
 }
 
 // SAFETY: an `AImage` is deleted once, from whichever thread drops the last picture.
@@ -584,6 +590,7 @@ impl NdkDecoder {
             let mut d = NdkDecoder {
                 ndk,
                 extractor,
+                _live: super::Live::new(),
                 video: None,
                 audio: None,
                 vout: Out::default(),
@@ -651,7 +658,13 @@ impl NdkDecoder {
                             height: h.max(0) as u32,
                             frame_rate: fps,
                         });
-                        d.video = Some(Track { index: i, codec, input_done: false, output_done: false });
+                        d.video = Some(Track {
+                            index: i,
+                            codec,
+                            input_done: false,
+                            output_done: false,
+                            _live: super::Live::new(),
+                        });
                         (ndk.extractor_select_track)(extractor, i);
                     }
                 } else if mime.starts_with("audio/") && d.audio.is_none() {
@@ -664,7 +677,13 @@ impl NdkDecoder {
                             d.aout.channels = ch as usize;
                             d.info.audio =
                                 Some(AudioFormat { sample_rate: rate as u32, channels: ch as u16 });
-                            d.audio = Some(Track { index: i, codec, input_done: false, output_done: false });
+                            d.audio = Some(Track {
+                                index: i,
+                                codec,
+                                input_done: false,
+                                output_done: false,
+                                _live: super::Live::new(),
+                            });
                             (ndk.extractor_select_track)(extractor, i);
                         } else {
                             (ndk.codec_delete)(codec);
@@ -963,6 +982,7 @@ impl Reader {
                 reader: self.clone(),
                 raw,
                 texture: GpuTexture::HardwareBuffer { buffer: 0, width: 0, height: 0, left: 0, top: 0 },
+                _live: super::Live::new(),
             };
             let (mut buffer, mut w, mut h, mut crop) = (std::ptr::null_mut(), 0, 0, [0i32; 4]);
             if (im.image_get_hardware_buffer)(raw, &mut buffer) != AMEDIA_OK
@@ -1141,6 +1161,8 @@ struct AAudioOut {
     format: AudioFormat,
     /// Frames presented when the clock was last set back to zero (a flush).
     base: i64,
+    /// The AAudio stream, counted while it lives (debug builds).
+    _live: super::Live,
 }
 
 // SAFETY: the stream is used from one thread at a time.
@@ -1165,7 +1187,7 @@ impl AAudioOut {
             if r != AAUDIO_OK || stream.is_null() {
                 return Err(aa.error("the sound output would not open", r));
             }
-            Ok(AAudioOut { aa, stream, format, base: 0 })
+            Ok(AAudioOut { aa, stream, format, base: 0, _live: super::Live::new() })
         }
     }
 
@@ -1262,6 +1284,8 @@ struct AAudioIn {
     stream: Ptr,
     format: AudioFormat,
     period: Duration,
+    /// The AAudio stream, counted while it lives (debug builds).
+    _live: super::Live,
 }
 
 // SAFETY: the stream is used from one thread at a time (the microphone's worker).
@@ -1313,7 +1337,7 @@ impl AAudioIn {
             }
             let burst = (aa.stream_get_frames_per_burst)(stream);
             let period = format.duration_of(u64::try_from(burst).unwrap_or(0)).max(Duration::from_millis(1));
-            Ok(AAudioIn { aa, stream, format, period })
+            Ok(AAudioIn { aa, stream, format, period, _live: super::Live::new() })
         }
     }
 }
