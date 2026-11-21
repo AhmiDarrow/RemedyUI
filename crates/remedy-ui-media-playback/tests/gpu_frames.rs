@@ -1,10 +1,12 @@
 //! Pictures that stay on the GPU (Windows: Media Foundation on a D3D11 device, shared with the
-//! renderer's D3D12 device) show the same colours at the same times as pictures copied
-//! through CPU memory, through a seek, and never pass through CPU memory on the way.
+//! renderer's D3D12 device; Android: MediaCodec into an image reader, its hardware buffers
+//! imported into the renderer's Vulkan device) show the same colours at the same times as
+//! pictures copied through CPU memory, through a seek, and never pass through CPU memory on the
+//! way.
 //!
 //! A test binary of its own: which GPU takes pictures is process-wide, and the other playback
 //! tests read their pictures' bytes.
-#![cfg(windows)]
+#![cfg(any(windows, target_os = "android"))]
 
 use std::time::Duration;
 
@@ -64,6 +66,7 @@ fn worst(a: &[u8], b: &[u8]) -> u8 {
     a.iter().zip(b).map(|(x, y)| x.abs_diff(*y)).max().unwrap_or(0)
 }
 
+#[cfg(windows)]
 #[test]
 fn pictures_on_the_gpu_match_pictures_in_cpu_memory() {
     let host = platform_host().unwrap_or_else(|e| unreachable!("Media Foundation: {e}"));
@@ -108,8 +111,69 @@ fn pictures_on_the_gpu_match_pictures_in_cpu_memory() {
     }
 }
 
+/// Android: the pictures cannot be read back (an opaque format), and the reader lends only so
+/// many at once, so each is drawn as it is decoded and compared with the copied one drawn.
+#[cfg(target_os = "android")]
+#[test]
+fn pictures_on_the_gpu_match_pictures_in_cpu_memory() {
+    let host = platform_host().unwrap_or_else(|e| unreachable!("MediaCodec: {e}"));
+    // No renderer has said it takes pictures on the GPU yet: they come in CPU memory.
+    assert_eq!(remedy_ui_paint::gpu_video_adapter(), None);
+    let cpu = pictures(&*host);
+    assert!(cpu.iter().all(|(_, f)| f.gpu.is_none() && !f.data.is_empty()));
+    let new = || {
+        GpuRenderer::new(
+            GpuContext::new(&LadderOptions::default()).unwrap_or_else(|e| unreachable!("GPU: {e}")),
+            None,
+        )
+    };
+    let mut w = new();
+    let copied: Vec<Vec<u8>> = cpu.iter().map(|(_, c)| draw(&mut w, c)).collect();
+    if remedy_ui_paint::gpu_video_adapter().is_none() {
+        eprintln!("this GPU cannot import hardware buffers, skipping");
+        return;
+    }
+    let mut g = new();
+    let mut dec = host.open(&MediaSource::file(clip())).unwrap_or_else(|e| unreachable!("open: {e}"));
+    let (mut n, mut last) = (0usize, None);
+    let mut check = |at: Duration, p: &Picture, last: &mut Option<VideoFrame>| {
+        let f = frame(1000 + n as u64, p);
+        let Some((at_c, c)) = cpu.get(n) else { unreachable!("more pictures than copied ones") };
+        assert_eq!(*at_c, at, "picture {n} at the same time");
+        assert_eq!((c.width, c.height), (f.width, f.height));
+        assert!(f.gpu.is_some() && f.data.is_empty(), "the picture at {at:?} came through CPU memory");
+        let shown = draw(&mut g, &f);
+        // In place: only the converted picture is held, no plane textures to upload into.
+        assert_eq!(g.image_bytes(), u64::from(f.width * f.height * 4), "at {at:?}");
+        let worst = worst(&shown, copied.get(n).map_or(&[][..], |v| v));
+        assert!(worst <= 2, "at {at:?} the GPU shows the same colours (off by {worst})");
+        // Held until the next one shows, as a video surface holds its current frame.
+        *last = Some(f);
+        n += 1;
+    };
+    let mut read = |dec: &mut Box<dyn Decoder>, most: usize, last: &mut Option<VideoFrame>| {
+        let mut k = 0;
+        while k < most {
+            match dec.read().unwrap_or_else(|e| unreachable!("read: {e}")) {
+                Some(Sample::Video { at, picture, .. }) => {
+                    check(at, &picture, last);
+                    k += 1;
+                }
+                Some(_) => {}
+                None => break,
+            }
+        }
+    };
+    read(&mut dec, usize::MAX, &mut last);
+    dec.seek(Duration::from_millis(1500)).unwrap_or_else(|e| unreachable!("seek: {e}"));
+    read(&mut dec, 12, &mut last);
+    drop(read);
+    assert_eq!(n, cpu.len(), "as many pictures");
+}
+
 /// The process's CPU time so far, in milliseconds (all threads: Media Foundation decodes on
 /// its own), and its private memory and peak working set in MB.
+#[cfg(windows)]
 fn process_usage() -> (f64, f64, f64) {
     let script = format!(
         "$p = Get-Process -Id {}; \"$($p.TotalProcessorTime.TotalMilliseconds) $($p.PrivateMemorySize64) $($p.PeakWorkingSet64)\"",
@@ -125,6 +189,7 @@ fn process_usage() -> (f64, f64, f64) {
 /// Per picture: process CPU time and wall time to decode it and draw it on the GPU (waiting for
 /// the GPU), on the copy path or the GPU path. `REMEDY_BENCH_CLIP` names the clip and
 /// `REMEDY_BENCH_PATH` the path (`copy` or `gpu`); one path per process, so memory is its own.
+#[cfg(windows)]
 #[test]
 #[ignore = "a measurement: run by hand with a long clip"]
 fn measure_a_clip() {
