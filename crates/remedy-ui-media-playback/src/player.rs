@@ -201,8 +201,9 @@ pub struct RemoteStatus {
     pub position: Duration,
     /// How long the media lasts, once the device knows.
     pub length: Option<Duration>,
-    /// Its volume, 0 to 1.
-    pub volume: f32,
+    /// Its volume, 0 to 1; `None` until the device reports it: the volume slider and keys
+    /// wait, since a step from a level the device has not said could jump it to full.
+    pub volume: Option<f32>,
     /// Whether it is muted.
     pub muted: bool,
     /// The title of what the device starts next by itself (a media server's autoplay), while
@@ -211,7 +212,7 @@ pub struct RemoteStatus {
 }
 
 impl RemoteStatus {
-    /// A device in `state` at `position`; its length unknown, full volume, not muted until
+    /// A device in `state` at `position`; its length and volume unknown, not muted until
     /// set: `RemoteStatus::new(PlaybackState::Playing, at).length(len).volume(0.5)`.
     pub fn new(state: PlaybackState, position: Duration) -> Self {
         RemoteStatus { state, position, ..RemoteStatus::default() }
@@ -225,7 +226,7 @@ impl RemoteStatus {
 
     /// Sets `volume`, 0 to 1.
     pub fn volume(mut self, value: f32) -> Self {
-        self.volume = value.clamp(0.0, 1.0);
+        self.volume = Some(value.clamp(0.0, 1.0));
         self
     }
 
@@ -287,6 +288,9 @@ const REMOTE_STALE: Duration = Duration::from_secs(15);
 const REMOTE_TICK: Duration = Duration::from_millis(250);
 /// How far from the end of what a stream can play a seek in place may land (the next
 /// segment may not exist yet), as in Portal's `seekInPlace`.
+/// How long the volume rests before it goes to the device, as Portal's page waits: a dragged
+/// slider sends where it stops.
+const REMOTE_VOLUME_REST: Duration = Duration::from_millis(300);
 const STREAM_EDGE: Duration = Duration::from_secs(2);
 
 /// A device's report `at`, `elapsed` ago, moved on while it plays: at most [`REMOTE_STALE`]
@@ -308,7 +312,7 @@ impl Default for RemoteStatus {
             state: PlaybackState::Opening,
             position: Duration::ZERO,
             length: None,
-            volume: 1.0,
+            volume: None,
             muted: false,
             next: None,
         }
@@ -447,6 +451,10 @@ struct Inner {
     /// The device's last known position and when: moved on from there while it plays.
     remote_seen: Cell<Option<(Duration, remedy_ui_core::time::Instant)>>,
     remote_timer: Cell<Option<u64>>,
+    /// The device's volume waiting to be sent ([`REMOTE_VOLUME_REST`]).
+    remote_volume_timer: Cell<Option<u64>>,
+    /// Where the seek bar is held while pressed or dragged, before the seek on release.
+    scrubbing: Signal<Option<Duration>>,
     /// Where the stream sits in a longer work.
     timeline: Signal<Option<Timeline>>,
     /// A seek outside the stream handed to the app: its target, until a new source comes.
@@ -672,6 +680,27 @@ impl Inner {
 
     /// Moves a playing device's shown position on in a while, and again after, until news
     /// comes or its last report is [stale](REMOTE_STALE).
+    /// Sends `v` to the device once the volume has rested ([`REMOTE_VOLUME_REST`]), unless
+    /// it is no longer in control.
+    fn send_remote_volume_soon(&self, v: f32) {
+        let Some(ui) = self.ui.upgrade() else { return };
+        if let Some(t) = self.remote_volume_timer.take() {
+            ui.cancel_timer(t);
+        }
+        let id = self.id;
+        let timer = ui.after(REMOTE_VOLUME_REST, move || {
+            if let Some(p) = PLAYERS.with(|p| p.borrow().get(&id).and_then(Weak::upgrade)) {
+                p.remote_volume_timer.set(None);
+                let control =
+                    p.remote.with_untracked(|r| r.as_ref().map(|r| r.control.clone())).ok().flatten();
+                if let Some(c) = control {
+                    c.set_volume(v);
+                }
+            }
+        });
+        self.remote_volume_timer.set(Some(timer));
+    }
+
     fn schedule_remote_tick(&self) {
         let Some(ui) = self.ui.upgrade() else { return };
         if let Some(t) = self.remote_timer.take() {
@@ -928,6 +957,8 @@ impl Player {
             remote_seek: Cell::new(None),
             remote_seen: Cell::new(None),
             remote_timer: Cell::new(None),
+            remote_volume_timer: Cell::new(None),
+            scrubbing: Signal::new(None),
             timeline: Signal::new(options.timeline),
             skipping: Signal::new(None),
             holding: Signal::new(false),
@@ -1307,22 +1338,43 @@ impl Player {
         self.0.stats.get()
     }
 
-    /// The volume, 0 to 1 (in remote mode, the device's). Tracked.
+    /// The volume, 0 to 1 (in remote mode, the device's; the local one until the device
+    /// reports it, see [`volume_known`](Self::volume_known)). Tracked.
     pub fn volume(&self) -> f32 {
+        let local = self.0.volume.get();
         match self.is_remote() {
-            true => self.0.remote_status.with(|s| s.volume),
-            false => self.0.volume.get(),
+            true => self.0.remote_status.with(|s| s.volume).unwrap_or(local),
+            false => local,
         }
     }
 
-    /// Sets the volume, 0 to 1. In remote mode, the device's.
+    /// Whether [`volume`](Self::volume) is known: false in remote mode until the device
+    /// reports its volume ([`RemoteStatus::volume`]), while the widget's volume slider and
+    /// keys are disabled. Tracked.
+    pub fn volume_known(&self) -> bool {
+        !self.is_remote() || self.0.remote_status.with(|s| s.volume.is_some())
+    }
+
+    /// Where the widget's seek bar is held while it is pressed or dragged (on a
+    /// [timeline](Self::set_timeline), in the work's time): the bar's thumb and the time show
+    /// it, and the seek happens once, on release; `None` otherwise. Tracked.
+    pub fn scrubbing(&self) -> Option<Duration> {
+        self.0.scrubbing.get()
+    }
+
+    pub(crate) fn set_scrubbing(&self, at: Option<Duration>) {
+        self.0.scrubbing.set_if_changed(at);
+    }
+
+    /// Sets the volume, 0 to 1. In remote mode, the device's: shown at once, sent once it
+    /// has rested for 300 ms (as Portal's page does), so a dragged slider sends where it stops.
     pub fn set_volume(&self, v: f32) {
         let v = if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
-        if let Some(c) = self.control() {
+        if self.control().is_some() {
             // The slider follows the device: what it already says is not sent back.
-            if self.0.remote_status.with_untracked(|s| s.volume).ok() != Some(v) {
-                c.set_volume(v);
-                self.0.remote_status.update(|s| s.volume = v);
+            if self.0.remote_status.with_untracked(|s| s.volume).ok() != Some(Some(v)) {
+                self.0.remote_status.update(|s| s.volume = Some(v));
+                self.0.send_remote_volume_soon(v);
             }
             return;
         }
@@ -1542,15 +1594,17 @@ impl Player {
     /// device was: it reads [`position`](Self::position) first, then [`seek`](Self::seek)s and
     /// [`play`](Self::play)s here.
     pub fn set_remote(&self, remote: Option<Remote>) {
+        // A volume for the device that was is not sent to the next.
+        if let (Some(t), Some(ui)) = (self.0.remote_volume_timer.take(), self.0.ui.upgrade()) {
+            ui.cancel_timer(t);
+        }
         if remote.is_some() {
             self.0.send(Cmd::Pause);
-            // Connecting, at the local volume, until the app hears from the device.
-            let (volume, muted) = (self.0.volume.get_untracked(), self.0.muted.get_untracked());
-            self.0.remote_status.set(RemoteStatus {
-                volume: volume.unwrap_or(1.0),
-                muted: muted.unwrap_or(false),
-                ..RemoteStatus::default()
-            });
+            // Connecting, its volume unknown, until the app hears from the device.
+            let muted = self.0.muted.get_untracked();
+            self.0
+                .remote_status
+                .set(RemoteStatus { muted: muted.unwrap_or(false), ..RemoteStatus::default() });
         }
         self.0.remote_seek.set(None);
         self.0.remote_seen.set(None);
