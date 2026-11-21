@@ -4,6 +4,9 @@
 //! (the distribution's codecs, hardware decoders through VA-API plugins). Sound goes out
 //! through an `appsrc ! audioconvert ! audioresample ! autoaudiosink` pipeline, whose
 //! position is the sound clock.
+//!
+//! When a renderer takes pictures on the GPU, the video sink asks for DMA-BUFs first and
+//! hands them over unmapped (`gst_dmabuf.rs`).
 
 use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_void};
 use std::sync::{Arc, OnceLock};
@@ -432,7 +435,7 @@ struct Branch {
     done: bool,
 }
 
-struct GstDecoder {
+pub(crate) struct GstDecoder {
     g: &'static Gst,
     playbin: Ptr,
     video: Option<Branch>,
@@ -442,11 +445,22 @@ struct GstDecoder {
     info: MediaInfo,
     matrix: YuvMatrix,
     full_range: bool,
+    /// Set when the video sink asked for DMA-BUFs (a renderer imports them).
+    dma: Option<&'static super::gst_dmabuf::Fns>,
 }
 
 // SAFETY: GStreamer elements are thread-safe objects; the decoder is used from one thread at
 // a time.
 unsafe impl Send for GstDecoder {}
+
+/// Says once, in the log, why pictures go through CPU memory although a renderer takes them on
+/// the GPU: a decoder, driver or format that cannot share. Playback is the same, only slower.
+fn copy_path(why: &str) {
+    static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        eprintln!("remedy-ui-media-playback: video pictures are copied through CPU memory: {why}");
+    }
+}
 
 /// A pipeline description's error as a missing element when that is what it says (GStreamer
 /// writes `no element "autoaudiosink"`), else `other` with the text.
@@ -505,6 +519,16 @@ fn map_error(code: c_int, text: String) -> MediaError {
 
 impl GstDecoder {
     fn open(g: &'static Gst, source: &MediaSource) -> Result<GstDecoder, MediaError> {
+        GstDecoder::open_with(g, source, None)
+    }
+
+    /// As `open`, with `filter` (a floating bin) run on the decoded pictures before the video
+    /// sink: tests put a DMA-BUF producer there where no hardware decoder is.
+    pub(crate) fn open_with(
+        g: &'static Gst,
+        source: &MediaSource,
+        filter: Option<Ptr>,
+    ) -> Result<GstDecoder, MediaError> {
         let uri = match source {
             MediaSource::File(p) => {
                 if !p.exists() {
@@ -539,8 +563,29 @@ impl GstDecoder {
             info: MediaInfo::default(),
             matrix: YuvMatrix::Bt709,
             full_range: false,
+            dma: None,
         };
-        let vsink = g.app_sink("video/x-raw,format=NV12", SINK_PICTURES)?;
+        // DMA-BUFs in the layouts the renderer imports, when one has said it takes them.
+        let modifiers = match remedy_ui_paint::gpu_video_adapter() {
+            Some(remedy_ui_paint::GpuAdapter::Uuid(_)) => remedy_ui_paint::gpu_video_dma_buf_modifiers(),
+            _ => Vec::new(),
+        };
+        d.dma = (!modifiers.is_empty()).then(super::gst_dmabuf::fns).flatten();
+        let vcaps = match d.dma {
+            Some(_) => super::gst_dmabuf::caps(&modifiers),
+            None => "video/x-raw,format=NV12".to_owned(),
+        };
+        let vsink = g.app_sink(&vcaps, SINK_PICTURES)?;
+        if let Some(f) = d.dma {
+            super::gst_dmabuf::accept_video_meta(f, vsink);
+            // Without playsink's software colour balance, which works only in CPU memory and
+            // would pull DMA-BUF pictures back there (video, audio, text, soft volume,
+            // deinterlace: playbin's defaults otherwise).
+            // SAFETY: a documented playbin property with its C type (GstPlayFlags).
+            unsafe {
+                (g.object_set)(playbin, c"flags".as_ptr(), 0x217 as c_uint, std::ptr::null::<c_char>())
+            };
+        }
         d.video = Some(Branch { sink: vsink, head: None, done: false });
         let asink = g.app_sink("audio/x-raw,format=F32LE,layout=interleaved", SINK_SOUND)?;
         d.audio = Some(Branch { sink: asink, head: None, done: false });
@@ -552,6 +597,10 @@ impl GstDecoder {
             (g.object_set)(playbin, c"video-sink".as_ptr(), vsink, std::ptr::null::<c_char>());
             (g.object_set)(playbin, c"audio-sink".as_ptr(), asink, std::ptr::null::<c_char>());
             (g.object_set)(playbin, c"text-sink".as_ptr(), tsink, std::ptr::null::<c_char>());
+        }
+        if let Some(bin) = filter {
+            // SAFETY: a documented playbin property; playbin takes the floating bin.
+            unsafe { (g.object_set)(playbin, c"video-filter".as_ptr(), bin, std::ptr::null::<c_char>()) };
         }
         // SAFETY: state changes on a live element.
         let changed = unsafe { (g.element_set_state)(playbin, GST_STATE_PAUSED) };
@@ -594,6 +643,11 @@ impl GstDecoder {
         unsafe { (g.element_set_state)(playbin, GST_STATE_PLAYING) };
         // What the first samples say about the streams.
         d.describe()?;
+        if let (Some(f), Some(s)) = (d.dma, d.video.as_ref().and_then(|b| b.head))
+            && !super::gst_dmabuf::is_dmabuf(g, f, s)
+        {
+            copy_path("the decoder hands over its pictures in CPU memory, not DMA-BUFs");
+        }
         let mut dur: i64 = -1;
         // SAFETY: queries into locals on a live element.
         unsafe {
@@ -702,6 +756,32 @@ impl GstDecoder {
             let pts = (*buf).pts;
             let duration = (*buf).duration;
             let at = if pts == CLOCK_TIME_NONE { Duration::ZERO } else { Duration::from_nanos(pts) };
+            // A picture in DMA-BUFs goes over as it is, never mapped. One that cannot (its
+            // planes are not all in DMA-BUFs, say) is copied, which a linear one allows.
+            if which == 0
+                && let Some(f) = self.dma
+                && super::gst_dmabuf::is_dmabuf(g, f, s)
+            {
+                match self.shared_picture(f, s) {
+                    Ok(picture) => {
+                        let duration = (duration != CLOCK_TIME_NONE).then(|| Duration::from_nanos(duration));
+                        (g.mini_object_unref)(s);
+                        return Ok(Some(Sample::Video { at, duration, picture }));
+                    }
+                    Err((why, linear)) => {
+                        copy_path(&format!("a picture in DMA-BUFs cannot be shared: {why}"));
+                        if !linear {
+                            (g.mini_object_unref)(s);
+                            return Err(MediaError::Decode(format!(
+                                "a tiled DMA-BUF picture cannot be read: {why}"
+                            )));
+                        }
+                    }
+                }
+            }
+            if which == 0 {
+                super::gst_dmabuf::MAPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
             let mut map = GstMapInfo::default();
             if (g.buffer_map)(buf, &mut map, GST_MAP_READ) == 0 {
                 (g.mini_object_unref)(s);
@@ -736,9 +816,9 @@ impl GstDecoder {
         }
     }
 
-    /// An NV12 picture in GStreamer's default layout: rows padded to 4 bytes, the chroma
-    /// plane after the luma's (even) rows.
-    fn picture(&self, s: Ptr, bytes: &[u8]) -> Result<Picture, MediaError> {
+    /// A picture in DMA-BUFs, held as it is; `Err` says why it cannot be, and whether its
+    /// layout is linear (so it can be mapped and copied instead).
+    fn shared_picture(&self, f: &super::gst_dmabuf::Fns, s: Ptr) -> Result<Picture, (String, bool)> {
         let g = self.g;
         let (mut w, mut h) = (0, 0);
         // SAFETY: reading the sample's caps fields into locals.
@@ -747,11 +827,35 @@ impl GstDecoder {
             (g.structure_get_int)(st, c"width".as_ptr(), &mut w);
             (g.structure_get_int)(st, c"height".as_ptr(), &mut h);
         }
+        let (w, h) = (u32::try_from(w).unwrap_or(0), u32::try_from(h).unwrap_or(0));
+        if w == 0 || h == 0 {
+            return Err(("it has no size".into(), false));
+        }
+        let p = super::gst_dmabuf::DmaPicture::new(g, f, s, w, h)?;
+        Ok(Picture::on_gpu(w, h, self.matrix, self.full_range, Arc::new(p)))
+    }
+
+    /// An NV12 picture as its `GstVideoMeta` lays it out (a sink that asked for DMA-BUFs also
+    /// takes padded rows in CPU memory), else in GStreamer's default layout: rows padded to 4
+    /// bytes, the chroma plane after the luma's (even) rows.
+    fn picture(&self, s: Ptr, bytes: &[u8]) -> Result<Picture, MediaError> {
+        let g = self.g;
+        let (mut w, mut h) = (0, 0);
+        // SAFETY: reading the sample's caps fields and buffer into locals.
+        let meta = unsafe {
+            let st = (g.caps_get_structure)((g.sample_get_caps)(s), 0);
+            (g.structure_get_int)(st, c"width".as_ptr(), &mut w);
+            (g.structure_get_int)(st, c"height".as_ptr(), &mut h);
+            let buf = (g.sample_get_buffer)(s);
+            self.dma.and_then(|f| super::gst_dmabuf::video_layout(f, buf))
+        };
         let (w, h) = (usize::try_from(w).unwrap_or(0), usize::try_from(h).unwrap_or(0));
-        let stride = w.div_ceil(4) * 4;
-        let rows = h.div_ceil(2) * 2;
-        let need = stride * rows + stride * rows / 2;
-        if w == 0 || h == 0 || bytes.len() < need {
+        let [(y, ys), (uv, uvs)] = meta.unwrap_or_else(|| {
+            let stride = w.div_ceil(4) * 4;
+            [(0, stride), (stride * h.div_ceil(2) * 2, stride)]
+        });
+        let need = (y + ys * h).max(uv + uvs * h.div_ceil(2));
+        if w == 0 || h == 0 || ys < w || uvs < w.div_ceil(2) * 2 || bytes.len() < need {
             return Err(MediaError::Decode(format!(
                 "an NV12 picture of {w}x{h} came in {} bytes",
                 bytes.len()
@@ -761,7 +865,7 @@ impl GstDecoder {
             width: w as u32,
             height: h as u32,
             format: PixelFormat::Nv12,
-            planes: [Plane { offset: 0, stride }, Plane { offset: stride * rows, stride }, Plane::default()],
+            planes: [Plane { offset: y, stride: ys }, Plane { offset: uv, stride: uvs }, Plane::default()],
             matrix: self.matrix,
             full_range: self.full_range,
             data: Arc::from(bytes.get(..need).unwrap_or_default()),
