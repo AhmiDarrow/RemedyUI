@@ -109,51 +109,22 @@ pub fn sheet(t: &Theme) -> StyleSheet {
             .radius(r.small),
     );
     rule("player_stage", None, States::NONE, StylePatch::default().background(Color::BLACK));
-    // The player's bar, as media players draw it: on the panel under a hairline, its buttons
-    // bare round glyphs a control high (the glyph 1.3 times the body text), the one that stays
-    // on in the accent, the time in muted small text.
+    // The player's bar row: a toolbar; the title over a full-screen picture, title size.
+    rule("player_row", None, States::NONE, StylePatch::default().background(c.panel).padding(Insets::all(u)));
+    rule("player_title_text", None, States::NONE, StylePatch::default().text_size(t.type_scale.title));
+    // The time under the pointer over the seek bar: the text on a card ringed in the accent.
     rule(
-        "player_bar",
-        None,
-        States::NONE,
-        StylePatch::default().background(c.panel).padding(Insets {
-            top: u * 0.6,
-            bottom: u * 1.6,
-            start: u * 2.0,
-            end: u * 2.0,
-        }),
-    );
-    rule("player_rule", None, States::NONE, StylePatch::default().background(line));
-    // The seek bar's thumb radius (its colors are the `track`, `player-loaded` and
-    // `player-thumb` tokens, else the line, the text a third through and the text).
-    rule("player_seek", None, States::NONE, StylePatch::default().radius(t.type_scale.body * 0.35));
-    rule("player_seek", None, States::DISABLED, disabled.clone());
-    let glyph = (t.type_scale.body * 1.3).round();
-    let ch = d.control_height;
-    rule(
-        "player_button",
+        "player_tip",
         None,
         States::NONE,
         StylePatch::default()
-            .background(Color::TRANSPARENT)
-            .foreground(d.text)
-            .radius(ch / 2.0)
-            .padding(Insets::all(((ch - glyph) / 2.0).max(0.0))),
-    );
-    rule("player_button", None, States::HOVER, StylePatch::default().background(d.text.with_alpha(0.13)));
-    rule("player_button", None, States::PRESSED, StylePatch::default().background(d.text.with_alpha(0.2)));
-    rule("player_button", None, States::CHECKED, StylePatch::default().foreground(c.accent));
-    rule("player_button", None, States::DISABLED, disabled.clone());
-    rule(
-        "player_clock",
-        None,
-        States::NONE,
-        StylePatch::default().foreground(c.muted).text_size(t.type_scale.small).padding(Insets {
-            top: 0.0,
-            bottom: 0.0,
-            start: u * 1.6,
-            end: u * 1.6,
-        }),
+            .background(c.card)
+            .foreground(c.text)
+            .border(c.accent)
+            .border_width(1.0)
+            .radius(6.0)
+            .text_size(t.type_scale.body * 0.82)
+            .padding(Insets { top: u * 0.25, bottom: u * 0.25, start: u, end: u }),
     );
     // Documents: quotes get a bar, code a box, tables lines between cells.
     rule("md_quote_bar", None, States::NONE, StylePatch::default().background(line));
@@ -223,19 +194,19 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         "heading",
         Some("1"),
         States::NONE,
-        StylePatch::default().text_size(t.type_scale.title + 6.0).weight(700.0),
+        StylePatch::default().heading(true).text_size(t.type_scale.title + 6.0).weight(700.0),
     );
     rule(
         "heading",
         Some("2"),
         States::NONE,
-        StylePatch::default().text_size(t.type_scale.title).weight(650.0),
+        StylePatch::default().heading(true).text_size(t.type_scale.title).weight(650.0),
     );
     rule(
         "heading",
         Some("3"),
         States::NONE,
-        StylePatch::default().text_size(t.type_scale.body + 2.0).weight(600.0),
+        StylePatch::default().heading(true).text_size(t.type_scale.body + 2.0).weight(600.0),
     );
 
     // Buttons.
@@ -247,7 +218,7 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         .radius(r.medium)
         .padding(pad(u * 1.5, u * 3.0))
         .weight(600.0);
-    for w in ["button", "icon_button"] {
+    for w in ["button", "icon_button", "player_button"] {
         rule(w, None, States::NONE, base.clone());
         rule(w, None, States::HOVER, StylePatch::default().background(d.hover));
         rule(w, None, States::PRESSED, StylePatch::default().background(d.pressed));
@@ -295,12 +266,9 @@ pub fn sheet(t: &Theme) -> StyleSheet {
             StylePatch::default().background(solid.mix_oklab(Color::BLACK, 0.1)),
         );
     }
-    rule(
-        "icon_button",
-        None,
-        States::NONE,
-        StylePatch::default().padding(Insets::all(u * 1.5)).radius(r.small),
-    );
+    for w in ["icon_button", "player_button"] {
+        rule(w, None, States::NONE, StylePatch::default().padding(Insets::all(u * 1.5)).radius(r.small));
+    }
 
     // Inputs.
     for w in ["text_input", "secret_input", "text_area", "search"] {

@@ -86,6 +86,8 @@ pub struct StylePatch {
     pub opacity: Option<f32>,
     /// Text in the theme's monospace families (codes, keys, numbers that must line up).
     pub mono: Option<bool>,
+    /// Text in the theme's heading families (titles and headings); monospace wins.
+    pub heading: Option<bool>,
     /// The focus ring's color, drawn while the element has keyboard focus.
     pub outline: Option<Color>,
     /// The focus ring's width; 0 for elements that show focus another way.
@@ -169,6 +171,12 @@ impl StylePatch {
         self
     }
 
+    /// Sets whether text uses the theme's heading families.
+    pub fn heading(mut self, value: bool) -> Self {
+        self.heading = Some(value);
+        self
+    }
+
     /// Sets whether text uses the theme's monospace families.
     pub fn mono(mut self, value: bool) -> Self {
         self.mono = Some(value);
@@ -238,6 +246,7 @@ impl StylePatch {
             weight: Some(400.0),
             opacity: Some(1.0),
             mono: Some(false),
+            heading: Some(false),
             outline: Some(theme.derive().focus),
             outline_width: Some(2.0),
             outline_offset: Some(2.0),
@@ -262,6 +271,7 @@ impl StylePatch {
             weight: other.weight.or(self.weight),
             opacity: other.opacity.or(self.opacity),
             mono: other.mono.or(self.mono),
+            heading: other.heading.or(self.heading),
             outline: other.outline.or(self.outline),
             outline_width: other.outline_width.or(self.outline_width),
             outline_offset: other.outline_offset.or(self.outline_offset),
@@ -297,6 +307,8 @@ pub struct ResolvedStyle {
     pub opacity: f32,
     /// Monospace text.
     pub mono: bool,
+    /// Text in the theme's heading families.
+    pub heading: bool,
     /// The focus ring's color.
     pub outline: Color,
     /// The focus ring's width (0: none).
@@ -328,6 +340,7 @@ impl ResolvedStyle {
             weight: p.weight.unwrap_or(400.0),
             opacity: p.opacity.unwrap_or(1.0),
             mono: p.mono.unwrap_or(false),
+            heading: p.heading.unwrap_or(false),
             outline: p.outline.unwrap_or(Color::TRANSPARENT),
             outline_width: p.outline_width.unwrap_or(0.0),
             outline_offset: p.outline_offset.unwrap_or(0.0),
@@ -385,6 +398,7 @@ impl ResolvedStyle {
             text_size: Some(self.text_size),
             weight: Some(self.weight),
             mono: Some(self.mono),
+            heading: Some(self.heading),
             ..base.clone()
         }
     }

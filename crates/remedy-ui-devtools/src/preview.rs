@@ -195,7 +195,12 @@ impl Preview {
     pub fn render(&self, v: &Variation) -> Snapshot {
         let theme = theme_for(v);
         let fonts = bundled_fonts();
-        let ui = Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), fonts);
+        // Portal's palettes come with Portal's sheet, as a Portal app sets them.
+        let sheet = match v.theme.starts_with("portal:") {
+            true => remedy_ui_themes::portal_sheet(&theme),
+            false => remedy_ui_themes::sheet(&theme),
+        };
+        let ui = Ui::new(theme.clone(), sheet, fonts);
         ui.set_locale(v.locale.clone());
         ui.set_reduced_motion(true);
         let content = (self.build)(&ui);

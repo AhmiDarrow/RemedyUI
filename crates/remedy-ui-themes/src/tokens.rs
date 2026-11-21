@@ -117,6 +117,21 @@ pub fn to_tokens(theme: &Theme) -> String {
         },
         "density": { "$type": "string", "$value": theme.density.name() },
     });
+    if let Some(m) = doc.as_object_mut() {
+        if !theme.heading_families.is_empty() {
+            if let Some(font) = m.get_mut("font").and_then(Value::as_object_mut) {
+                font.insert(
+                    "heading".into(),
+                    json!({ "$type": "fontFamily", "$value": theme.heading_families }),
+                );
+            }
+        }
+        if !theme.metrics.is_empty() {
+            let metrics: Map<String, Value> =
+                theme.metrics.iter().map(|(k, v)| (k.clone(), px(*v))).collect();
+            m.insert("metric".into(), Value::Object(metrics));
+        }
+    }
     let a = &theme.assets;
     if a.background.is_some() || !a.fonts.is_empty() {
         let mut assets = Map::new();
@@ -241,6 +256,14 @@ pub fn from_tokens(json: &str, base: &Theme) -> Result<Theme, TokenError> {
     }
     if let Some(v) = get("font", "mono") {
         t.mono_families = read_families(v, "font.mono")?;
+    }
+    if let Some(v) = get("font", "heading") {
+        t.heading_families = read_families(v, "font.heading")?;
+    }
+    if let Some(metrics) = doc.get("metric").and_then(Value::as_object) {
+        for (k, v) in metrics {
+            t.metrics.insert(k.clone(), read_px(v, &format!("metric.{k}"))?);
+        }
     }
     for (key, slot) in [
         ("small", &mut t.type_scale.small),
