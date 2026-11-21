@@ -35,8 +35,7 @@ use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
 use vello_common::fearless_simd::{
-    Bytes, Simd, SimdBase, SimdFloat, SimdInt, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32, u32x4,
-    u32x8,
+    Bytes, Simd, SimdBase, SimdFloat, SimdInt, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32, u32x4, u32x8,
 };
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
@@ -257,10 +256,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     /// The transform parameter is used to scale filter parameters based on the current
     /// transformation matrix (e.g., zoom level), ensuring filters look consistent
     /// regardless of scale.
-    #[expect(
-        private_interfaces,
-        reason = "`FineKernel` is public but this specific method is not needed."
-    )]
+    #[expect(private_interfaces, reason = "`FineKernel` is public but this specific method is not needed.")]
     fn filter_layer(
         pixmap: &mut Pixmap,
         filter: &Filter,
@@ -277,11 +273,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     /// Returns a painter that can render linear, radial, or sweep gradients based on
     /// pre-computed t values (gradient interpolation parameters).
     #[simd]
-    fn gradient_painter<'a>(
-        simd: S,
-        gradient: &'a EncodedGradient,
-        t_vals: &'a [f32],
-    ) -> impl Painter + 'a {
+    fn gradient_painter<'a>(simd: S, gradient: &'a EncodedGradient, t_vals: &'a [f32]) -> impl Painter + 'a {
         GradientPainter::new(simd, gradient, t_vals)
     }
 
@@ -629,11 +621,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     #[inline]
                     |span| {
                         let range = Self::scratch_range(span);
-                        T::copy_solid(
-                            self.simd,
-                            &mut self.blend_buffers.last_mut().unwrap()[range],
-                            color,
-                        );
+                        T::copy_solid(self.simd, &mut self.blend_buffers.last_mut().unwrap()[range], color);
                     },
                 );
             }
@@ -666,12 +654,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let scene_x0 = usize::from(region.span().pixel_x());
         let scratch = self.blend_buffers.last().unwrap();
 
-        T::pack(
-            self.simd,
-            &scratch[scene_x0 * TILE_HEIGHT_COMPONENTS..],
-            width,
-            region,
-        );
+        T::pack(self.simd, &scratch[scene_x0 * TILE_HEIGHT_COMPONENTS..], width, region);
     }
 
     /// Reads the pixels of the target back into the buffer.
@@ -683,12 +666,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let width = usize::from(region.width());
         let scratch = self.blend_buffers.last_mut().unwrap();
 
-        T::unpack(
-            self.simd,
-            region,
-            width,
-            &mut scratch[scene_x0 * TILE_HEIGHT_COMPONENTS..],
-        );
+        T::unpack(self.simd, region, width, &mut scratch[scene_x0 * TILE_HEIGHT_COMPONENTS..]);
     }
 
     /// Execute a bucketed rendering command on the current strip row.
@@ -716,8 +694,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 let paint_fill = |fine: &mut Self, span: TileAlignedSpan| {
                     let alphas = cmd.alpha_idx().map(|alpha_idx| {
                         let alpha_offset = alpha_idx as usize
-                            + usize::from(span.pixel_x() - cmd.span.pixel_x())
-                                * Tile::HEIGHT as usize;
+                            + usize::from(span.pixel_x() - cmd.span.pixel_x()) * Tile::HEIGHT as usize;
                         &alpha_buffer[alpha_offset..]
                     });
 
@@ -748,8 +725,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 let layer_fill = |fine: &mut Self, span: TileAlignedSpan| {
                     let alphas = cmd.alpha_idx().map(|alpha_idx| {
                         let alpha_offset = alpha_idx as usize
-                            + usize::from(span.pixel_x() - cmd.span.pixel_x())
-                                * Tile::HEIGHT as usize;
+                            + usize::from(span.pixel_x() - cmd.span.pixel_x()) * Tile::HEIGHT as usize;
                         &alpha_buffer[alpha_offset..]
                     });
 
@@ -782,10 +758,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         T::apply_mask(
             self.simd,
             target,
-            iter::repeat(T::NumericVec::from_f32(
-                self.simd,
-                f32x16::splat(self.simd, opacity),
-            )),
+            iter::repeat(T::NumericVec::from_f32(self.simd, f32x16::splat(self.simd, opacity))),
         );
     }
 
@@ -815,9 +788,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
             let samples = u8x16::from_slice(
                 self.simd,
-                &[
-                    s1, s1, s1, s1, s2, s2, s2, s2, s3, s3, s3, s3, s4, s4, s4, s4,
-                ],
+                &[s1, s1, s1, s1, s2, s2, s2, s2, s3, s3, s3, s3, s4, s4, s4, s4],
             );
             T::NumericVec::from_u8(self.simd, samples)
         });
@@ -856,9 +827,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 target,
                 x,
                 row_y,
-                source
-                    .chunks_exact(T::Composite::LENGTH)
-                    .map(|s| T::Composite::from_slice(self.simd, s)),
+                source.chunks_exact(T::Composite::LENGTH).map(|s| T::Composite::from_slice(self.simd, s)),
                 blend_mode,
                 alphas,
                 None,
@@ -895,12 +864,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     ) {
         if attrs.blend_mode == BlendMode::default() && attrs.mask.is_none() {
             let scratch = self.blend_buffers.last_mut().unwrap();
-            T::fill_solid(
-                self.simd,
-                &mut scratch[Self::scratch_range(span)],
-                color,
-                alphas,
-            );
+            T::fill_solid(self.simd, &mut scratch[Self::scratch_range(span)], color, alphas);
             return;
         }
 
@@ -957,9 +921,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let encoded_paint = resources
             .encoded_paints
             .get(paint_index)
-            .unwrap_or_else(|| {
-                &resources.filter_paints[paint_index - resources.encoded_paints.len()]
-            });
+            .unwrap_or_else(|| &resources.filter_paints[paint_index - resources.encoded_paints.len()]);
 
         let sampler_x = f64::from(sample_x) + PIXEL_CENTER_OFFSET;
         let sampler_y = f64::from(sample_y) + PIXEL_CENTER_OFFSET;
@@ -972,11 +934,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 fill_complex_paint!($may_have_transparency, $filler, None::<&Tint>)
             };
             ($may_have_transparency:expr, $filler:expr, $tint:expr) => {
-                if $may_have_transparency
-                    || alphas.is_some()
-                    || !default_blend
-                    || attrs.mask.is_some()
-                {
+                if $may_have_transparency || alphas.is_some() || !default_blend || attrs.mask.is_some() {
                     T::apply_painter(simd, color_buf, $filler);
                     if let Some(tint) = $tint {
                         T::apply_tint(simd, color_buf, tint);
@@ -1104,9 +1062,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         } else {
                             fill_complex_paint!(
                                 image.may_have_transparency,
-                                T::high_quality_image_painter(
-                                    simd, image, &pixmap, sampler_x, sampler_y
-                                ),
+                                T::high_quality_image_painter(simd, image, &pixmap, sampler_x, sampler_y),
                                 tint
                             );
                         }
@@ -1116,17 +1072,13 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         if image.sampler.quality == ImageQuality::Medium {
                             fill_complex_paint!(
                                 image.may_have_transparency,
-                                T::medium_quality_image_painter(
-                                    simd, image, &pixmap, sampler_x, sampler_y
-                                ),
+                                T::medium_quality_image_painter(simd, image, &pixmap, sampler_x, sampler_y),
                                 tint
                             );
                         } else {
                             fill_complex_paint!(
                                 image.may_have_transparency,
-                                T::high_quality_image_painter(
-                                    simd, image, &pixmap, sampler_x, sampler_y
-                                ),
+                                T::high_quality_image_painter(simd, image, &pixmap, sampler_x, sampler_y),
                                 tint
                             );
                         }

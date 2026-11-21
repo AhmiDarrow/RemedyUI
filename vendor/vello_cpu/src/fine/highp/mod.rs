@@ -49,10 +49,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     /// Applies a filter effect to a rendered layer.
     ///
     /// Delegates to the f32-specific filter implementation.
-    #[expect(
-        private_interfaces,
-        reason = "`FineKernel` is public but this specific method is not needed."
-    )]
+    #[expect(private_interfaces, reason = "`FineKernel` is public but this specific method is not needed.")]
     fn filter_layer(
         pixmap: &mut Pixmap,
         filter: &Filter,
@@ -80,11 +77,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     /// Used for anti-aliasing and clipping effects. Each pixel is multiplied by
     /// its corresponding mask value (already normalized to [0.0, 1.0]).
     #[simd]
-    fn apply_mask(
-        simd: S,
-        dest: &mut [Self::Numeric],
-        mut src: impl Iterator<Item = Self::NumericVec>,
-    ) {
+    fn apply_mask(simd: S, dest: &mut [Self::Numeric], mut src: impl Iterator<Item = Self::NumericVec>) {
         for el in dest.as_chunks_mut::<16>().0 {
             let loaded = f32x16::from_slice(simd, el);
             let mulled = loaded * src.next().unwrap();
@@ -164,20 +157,14 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
             alpha_fill::alpha_composite_arbitrary(
                 simd,
                 dest,
-                src.as_chunks::<16>()
-                    .0
-                    .iter()
-                    .map(|el| f32x16::from_slice(simd, el)),
+                src.as_chunks::<16>().0.iter().map(|el| f32x16::from_slice(simd, el)),
                 bytemuck::cast_slice::<u8, [u8; 4]>(alphas).iter().copied(),
             );
         } else {
             fill::alpha_composite_arbitrary(
                 simd,
                 dest,
-                src.as_chunks::<16>()
-                    .0
-                    .iter()
-                    .map(|el| f32x16::from_slice(simd, el)),
+                src.as_chunks::<16>().0.iter().map(|el| f32x16::from_slice(simd, el)),
             );
         }
     }
@@ -214,11 +201,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                 } else {
                     // Fallback: check each individually
                     [
-                        if start_x < width && start_y < height {
-                            m.sample(start_x, start_y)
-                        } else {
-                            255
-                        },
+                        if start_x < width && start_y < height { m.sample(start_x, start_y) } else { 255 },
                         if start_x < width && start_y + 1 < height {
                             m.sample(start_x, start_y + 1)
                         } else {
@@ -268,12 +251,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         for y in region.tile_rows() {
             let row = &mut region.row_mut(y)[..width * COLOR_COMPONENTS];
             // TODO: SIMDify
-            for (dx, [r, g, b, a]) in row
-                .as_chunks_mut::<COLOR_COMPONENTS>()
-                .0
-                .iter_mut()
-                .enumerate()
-            {
+            for (dx, [r, g, b, a]) in row.as_chunks_mut::<COLOR_COMPONENTS>().0.iter_mut().enumerate() {
                 let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
                 let src = &scratch[idx..idx + COLOR_COMPONENTS];
                 *r = (src[0] * 255.0 + 0.5) as u8;
@@ -425,8 +403,7 @@ mod alpha_fill {
     ) {
         let one = f32x16::splat(simd, 1.0);
 
-        for ((next_dest, next_mask), next_src) in
-            dest.as_chunks_mut::<16>().0.iter_mut().zip(alphas).zip(src)
+        for ((next_dest, next_mask), next_src) in dest.as_chunks_mut::<16>().0.iter_mut().zip(alphas).zip(src)
         {
             let src_a = next_src.splat_4th();
             alpha_composite_inner(simd, next_dest, &next_mask, next_src, src_a, one);
@@ -442,8 +419,7 @@ mod alpha_fill {
         alphas: impl Iterator<Item = [u8; 4]>,
         blend_mode: BlendMode,
     ) {
-        for ((next_dest, next_mask), next_src) in
-            dest.as_chunks_mut::<16>().0.iter_mut().zip(alphas).zip(src)
+        for ((next_dest, next_mask), next_src) in dest.as_chunks_mut::<16>().0.iter_mut().zip(alphas).zip(src)
         {
             let masks = extract_masks(simd, &next_mask);
             let bg = f32x16::from_slice(simd, next_dest);
@@ -486,13 +462,7 @@ mod alpha_fill {
 /// Output: [m0/255, m0/255, m0/255, m0/255, m1/255, ..., m3/255] (as f32, 16 elements)
 #[inline(always)]
 fn extract_masks<S: Simd>(simd: S, masks: &[u8; 4]) -> f32x16<S> {
-    let mut base_mask = [
-        masks[0] as f32,
-        masks[1] as f32,
-        masks[2] as f32,
-        masks[3] as f32,
-    ]
-    .simd_into(simd);
+    let mut base_mask = [masks[0] as f32, masks[1] as f32, masks[2] as f32, masks[3] as f32].simd_into(simd);
 
     base_mask *= f32x4::splat(simd, 1.0 / 255.0);
 

@@ -113,10 +113,7 @@ pub(crate) struct MultiThreadedDispatcher {
 
 impl MultiThreadedDispatcher {
     pub(crate) fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
-        let thread_pool = ThreadPoolBuilder::new()
-            .num_threads(num_threads as usize)
-            .build()
-            .unwrap();
+        let thread_pool = ThreadPoolBuilder::new().num_threads(num_threads as usize).build().unwrap();
         let alpha_storage = MaybePresent::new(vec![vec![]; usize::from(num_threads)]);
         let workers = Arc::new(ThreadLocal::new());
 
@@ -205,8 +202,7 @@ impl MultiThreadedDispatcher {
             let thread_id = worker.thread_id();
 
             // Take out the allocation for alphas and store it in the worker.
-            alpha_storage
-                .with_inner(|alphas| worker.init(std::mem::take(&mut alphas[thread_id as usize])));
+            alpha_storage.with_inner(|alphas| worker.init(std::mem::take(&mut alphas[thread_id as usize])));
 
             while let Ok(task) = render_task_receiver.recv() {
                 worker.run_render_task(task, &mut recorded_command_sender);
@@ -261,8 +257,7 @@ impl MultiThreadedDispatcher {
 
     fn send_pending_tasks(&mut self) {
         let task_idx = self.bump_task_idx();
-        let allocation_group =
-            std::mem::replace(&mut self.allocation_group, self.allocations.get());
+        let allocation_group = std::mem::replace(&mut self.allocation_group, self.allocations.get());
         let task_sender = self.task_sender.as_mut().unwrap();
         let clip_path = self.clip_context.get().map(|c| OwnedClip {
             strips: c.path.strips.into(),
@@ -270,11 +265,7 @@ impl MultiThreadedDispatcher {
             bbox: c.path.bbox,
             shape: c.shape,
         });
-        let task = RenderTask {
-            idx: task_idx,
-            clip_path,
-            allocation_group,
-        };
+        let task = RenderTask { idx: task_idx, clip_path, allocation_group };
         task_sender.send(task).unwrap();
         self.record_finished_commands(true);
     }
@@ -302,11 +293,7 @@ impl MultiThreadedDispatcher {
     fn record_finished_commands(&mut self, abort_empty: bool) {
         loop {
             let receiver = self.recorded_command_receiver.as_mut().unwrap();
-            let next = if abort_empty {
-                receiver.try_recv().ok()
-            } else {
-                receiver.recv().ok()
-            };
+            let next = if abort_empty { receiver.try_recv().ok() } else { receiver.recv().ok() };
 
             match next {
                 Some(mut task) => {
@@ -324,8 +311,7 @@ impl MultiThreadedDispatcher {
                                     &task.allocation_group.strips
                                         [strip_range.start as usize..strip_range.end as usize],
                                 );
-                                let strips =
-                                    &self.strip_storage.strips[strip_range.start..strip_range.end];
+                                let strips = &self.strip_storage.strips[strip_range.start..strip_range.end];
                                 let draw = RecordedFill::new(
                                     thread_id,
                                     strip_range,
@@ -349,22 +335,11 @@ impl MultiThreadedDispatcher {
                                         &task.allocation_group.strips
                                             [strip_range.start as usize..strip_range.end as usize],
                                     );
-                                    LayerClip {
-                                        strip_range,
-                                        thread_idx: thread_id,
-                                        bbox: clip_bbox.unwrap(),
-                                    }
+                                    LayerClip { strip_range, thread_idx: thread_id, bbox: clip_bbox.unwrap() }
                                 });
 
-                                self.recorder.push_layer(
-                                    LayerProps {
-                                        blend_mode,
-                                        opacity,
-                                        mask,
-                                        clip_path,
-                                    },
-                                    None,
-                                );
+                                self.recorder
+                                    .push_layer(LayerProps { blend_mode, opacity, mask, clip_path }, None);
                             }
                             RecordedCommand::PopLayer => match self.recorder.pop_layer() {
                                 PoppedLayer::Regular => {}
@@ -417,17 +392,11 @@ impl MultiThreadedDispatcher {
                 filter_paints: &bucketer.filter_paints,
                 image_resolver,
             };
-            let params = FineRenderParams {
-                scene_size: (scene_width, scene_height),
-                target_offset: settings.offset,
-            };
+            let params =
+                FineRenderParams { scene_size: (scene_width, scene_height), target_offset: settings.offset };
 
-            let mut regions = Regions::new(
-                &mut target,
-                params.scene_size,
-                params.target_offset,
-                bucketer.rows().len(),
-            );
+            let mut regions =
+                Regions::new(&mut target, params.scene_size, params.target_offset, bucketer.rows().len());
             let fines = ThreadLocal::new();
             self.thread_pool.install(|| {
                 regions.update_par(|region| {
@@ -511,19 +480,8 @@ impl Dispatcher for MultiThreadedDispatcher {
         });
     }
 
-    fn fill_rect_fast(
-        &mut self,
-        rect: &Rect,
-        paint: Paint,
-        blend_mode: BlendMode,
-        mask: Option<Mask>,
-    ) {
-        self.register_task(RenderTaskType::FillRect {
-            rect: *rect,
-            paint,
-            blend_mode,
-            mask,
-        });
+    fn fill_rect_fast(&mut self, rect: &Rect, paint: Paint, blend_mode: BlendMode, mask: Option<Mask>) {
+        self.register_task(RenderTaskType::FillRect { rect: *rect, paint, blend_mode, mask });
     }
 
     fn push_layer(
@@ -565,10 +523,7 @@ impl Dispatcher for MultiThreadedDispatcher {
 
     fn pop_layer(&mut self) {
         self.register_task(RenderTaskType::PopLayer);
-        self.layer_depth = self
-            .layer_depth
-            .checked_sub(1)
-            .expect("layer stack underflow");
+        self.layer_depth = self.layer_depth.checked_sub(1).expect("layer stack underflow");
     }
 
     fn reset(&mut self, width: u16, height: u16) {
@@ -635,26 +590,12 @@ impl Dispatcher for MultiThreadedDispatcher {
         // Only u8 pipeline enabled
         #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
         {
-            self.rasterize_u8(
-                target,
-                scene_width,
-                scene_height,
-                settings,
-                encoded_paints,
-                image_resolver,
-            );
+            self.rasterize_u8(target, scene_width, scene_height, settings, encoded_paints, image_resolver);
         }
         // Only f32 pipeline enabled
         #[cfg(all(feature = "f32_pipeline", not(feature = "u8_pipeline")))]
         {
-            self.rasterize_f32(
-                target,
-                scene_width,
-                scene_height,
-                settings,
-                encoded_paints,
-                image_resolver,
-            );
+            self.rasterize_f32(target, scene_width, scene_height, settings, encoded_paints, image_resolver);
         }
 
         // Both pipelines enabled
@@ -702,8 +643,7 @@ impl Dispatcher for MultiThreadedDispatcher {
 
     fn push_clip_rect(&mut self, rect: &Rect) {
         self.flush_tasks();
-        self.clip_context
-            .push_clip_rect(rect, &mut self.strip_generator);
+        self.clip_context.push_clip_rect(rect, &mut self.strip_generator);
     }
 
     fn pop_clip(&mut self) {
@@ -793,12 +733,7 @@ impl Allocations {
         let strips = self.strips.get();
         let recorded_commands = self.recorded_commands.get();
 
-        AllocationGroup {
-            path,
-            render_tasks,
-            recorded_commands,
-            strips,
-        }
+        AllocationGroup { path, render_tasks, recorded_commands, strips }
     }
 
     fn put(&mut self, allocation: AllocationGroup) {
@@ -904,10 +839,7 @@ pub(crate) struct MaybePresent<T: Default> {
 
 impl<T: Default> MaybePresent<T> {
     pub(crate) fn new(val: T) -> Self {
-        Self {
-            present: Arc::new(AtomicBool::new(true)),
-            value: Arc::new(Mutex::new(val)),
-        }
+        Self { present: Arc::new(AtomicBool::new(true)), value: Arc::new(Mutex::new(val)) }
     }
 
     pub(crate) fn init(&self, value: T) {
@@ -917,20 +849,14 @@ impl<T: Default> MaybePresent<T> {
     }
 
     pub(crate) fn with_inner(&self, mut func: impl FnMut(&mut T)) {
-        assert!(
-            self.present.load(Ordering::SeqCst),
-            "Tried to access `MaybePresent` before initialization."
-        );
+        assert!(self.present.load(Ordering::SeqCst), "Tried to access `MaybePresent` before initialization.");
 
         let mut lock = self.value.lock().unwrap();
         func(&mut lock);
     }
 
     pub(crate) fn take(&self) -> T {
-        assert!(
-            self.present.load(Ordering::SeqCst),
-            "Tried to access `MaybePresent` before initialization."
-        );
+        assert!(self.present.load(Ordering::SeqCst), "Tried to access `MaybePresent` before initialization.");
 
         let mut locked = self.value.lock().unwrap();
         self.present.store(false, Ordering::SeqCst);

@@ -22,9 +22,6 @@ url = "https://raw.githubusercontent.com/mozilla/supply-chain/main/audits.toml"
 [imports.zcash]
 url = "https://raw.githubusercontent.com/zcash/rust-ecosystem/main/supply-chain/audits.toml"
 
-[policy.vello_cpu]
-audit-as-crates-io = true
-
 [[exemptions.accesskit]]
 version = "0.25.2"
 criteria = "safe-to-deploy"
@@ -1730,10 +1727,6 @@ version = "1.29.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.vello_common]]
-version = "0.4.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.vello_cpu]]
 version = "0.4.0"
 criteria = "safe-to-deploy"
 

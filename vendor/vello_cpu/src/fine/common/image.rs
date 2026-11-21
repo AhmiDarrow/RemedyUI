@@ -6,9 +6,7 @@ use crate::fine::{PosExt, Splat4thExt, u8_to_f32};
 use crate::kurbo::Point;
 use fearless_simd_macros::simd;
 use vello_common::encode::EncodedImage;
-use vello_common::fearless_simd::{
-    Bytes, Select, Simd, SimdBase, SimdFloat, f32x4, f32x16, u8x16, u32x4,
-};
+use vello_common::fearless_simd::{Bytes, Select, Simd, SimdBase, SimdFloat, f32x4, f32x16, u8x16, u32x4};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::element_wise_splat;
 
@@ -34,31 +32,15 @@ impl<'a, S: Simd> PlainNNImagePainter<'a, S> {
         let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
         let y_positions = extend_mode(
-            f32x4::splat_pos(
-                simd,
-                data.cur_pos.y as f32,
-                data.x_advances.1,
-                data.y_advances.1,
-            ),
+            f32x4::splat_pos(simd, data.cur_pos.y as f32, data.x_advances.1, data.y_advances.1),
             image.sampler.y_extend,
             data.height,
             data.height_inv,
         );
 
-        let cur_x_pos = f32x4::splat_pos(
-            simd,
-            data.cur_pos.x as f32,
-            data.x_advances.0,
-            data.y_advances.0,
-        );
+        let cur_x_pos = f32x4::splat_pos(simd, data.cur_pos.x as f32, data.x_advances.0, data.y_advances.0);
 
-        Self {
-            data,
-            advance: image.x_advance.x as f32,
-            y_positions,
-            cur_x_pos,
-            simd,
-        }
+        Self { data, advance: image.x_advance.x as f32, y_positions, cur_x_pos, simd }
     }
 }
 
@@ -211,9 +193,8 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
 
         let mut interpolated_color = f32x16::splat(self.simd, 0.0);
 
-        let sample = |x_pos: f32x4<S>, y_pos: f32x4<S>| {
-            u8_to_f32(sample(self.simd, &self.data, x_pos, y_pos))
-        };
+        let sample =
+            |x_pos: f32x4<S>, y_pos: f32x4<S>| u8_to_f32(sample(self.simd, &self.data, x_pos, y_pos));
 
         macro_rules! extend_x {
             ($idx:expr,$offsets:expr) => {
@@ -482,13 +463,7 @@ fn weights<S: Simd>(simd: S, fract: f32x4<S>) -> [f32x4<S>; 4] {
 
 /// Calculate a weight based on the fractional value t and the cubic coefficients.
 #[inline(always)]
-fn single_weight<S: Simd>(
-    t: f32x4<S>,
-    a: f32x4<S>,
-    b: f32x4<S>,
-    c: f32x4<S>,
-    d: f32x4<S>,
-) -> f32x4<S> {
+fn single_weight<S: Simd>(t: f32x4<S>, a: f32x4<S>, b: f32x4<S>, c: f32x4<S>, d: f32x4<S>) -> f32x4<S> {
     t.mul_add(d, c).mul_add(t, b).mul_add(t, a)
 }
 
@@ -509,24 +484,9 @@ const fn mf_resampler() -> [[f32; 4]; 4] {
 /// calculate weights based on the `x_fract` and `y_fract` of the location we are looking at.
 const fn cubic_resampler(b: f32, c: f32) -> [[f32; 4]; 4] {
     [
-        [
-            (1.0 / 6.0) * b,
-            -(3.0 / 6.0) * b - c,
-            (3.0 / 6.0) * b + 2.0 * c,
-            -(1.0 / 6.0) * b - c,
-        ],
-        [
-            1.0 - (2.0 / 6.0) * b,
-            0.0,
-            -3.0 + (12.0 / 6.0) * b + c,
-            2.0 - (9.0 / 6.0) * b - c,
-        ],
-        [
-            (1.0 / 6.0) * b,
-            (3.0 / 6.0) * b + c,
-            3.0 - (15.0 / 6.0) * b - 2.0 * c,
-            -2.0 + (9.0 / 6.0) * b + c,
-        ],
+        [(1.0 / 6.0) * b, -(3.0 / 6.0) * b - c, (3.0 / 6.0) * b + 2.0 * c, -(1.0 / 6.0) * b - c],
+        [1.0 - (2.0 / 6.0) * b, 0.0, -3.0 + (12.0 / 6.0) * b + c, 2.0 - (9.0 / 6.0) * b - c],
+        [(1.0 / 6.0) * b, (3.0 / 6.0) * b + c, 3.0 - (15.0 / 6.0) * b - 2.0 * c, -2.0 + (9.0 / 6.0) * b + c],
         [0.0, 0.0, -c, (1.0 / 6.0) * b + c],
     ]
 }
@@ -544,46 +504,23 @@ mod tests {
         let extended = extend_mode(values, mode, max, inv_max).to_int::<u32x4<_>>();
         let expected = u32x4::from_slice(simd, &expected);
 
-        assert!(
-            extended.simd_eq(expected).all_true(),
-            "expected {expected:?}, got {extended:?}"
-        );
+        assert!(extended.simd_eq(expected).all_true(), "expected {expected:?}, got {extended:?}");
     }
 
     #[test]
     fn taps_at_boundaries() {
-        assert_extend(
-            crate::peniko::Extend::Reflect,
-            2.0,
-            [(-1.0_f32).next_down(); 4],
-            [1; 4],
-        );
-        assert_extend(
-            crate::peniko::Extend::Repeat,
-            3.0,
-            [15.0_f32.next_down(); 4],
-            [2; 4],
-        );
+        assert_extend(crate::peniko::Extend::Reflect, 2.0, [(-1.0_f32).next_down(); 4], [1; 4]);
+        assert_extend(crate::peniko::Extend::Repeat, 3.0, [15.0_f32.next_down(); 4], [2; 4]);
     }
 
     #[test]
     fn repeat() {
-        assert_extend(
-            crate::peniko::Extend::Repeat,
-            10.0,
-            [-f32::EPSILON, -1.25, 9.75, 12.25],
-            [9, 8, 9, 2],
-        );
+        assert_extend(crate::peniko::Extend::Repeat, 10.0, [-f32::EPSILON, -1.25, 9.75, 12.25], [9, 8, 9, 2]);
     }
 
     #[test]
     fn reflect() {
-        assert_extend(
-            crate::peniko::Extend::Reflect,
-            10.0,
-            [-1.25, 0.25, 9.75, 12.25],
-            [1, 0, 9, 7],
-        );
+        assert_extend(crate::peniko::Extend::Reflect, 10.0, [-1.25, 0.25, 9.75, 12.25], [1, 0, 9, 7]);
     }
 
     #[test]

@@ -39,16 +39,7 @@ pub(crate) fn offset_pixels(pixmap: &mut Pixmap, dx: f32, dy: f32) {
             // Shift right+down: iterate bottom-to-top, right-to-left
             for y in (0..height).rev() {
                 for x in (0..width).rev() {
-                    process_offset_pixel(
-                        pixmap,
-                        x,
-                        y,
-                        dx_pixels,
-                        dy_pixels,
-                        width,
-                        height,
-                        transparent,
-                    );
+                    process_offset_pixel(pixmap, x, y, dx_pixels, dy_pixels, width, height, transparent);
                 }
             }
         }
@@ -56,16 +47,7 @@ pub(crate) fn offset_pixels(pixmap: &mut Pixmap, dx: f32, dy: f32) {
             // Shift right+up: iterate top-to-bottom, right-to-left
             for y in 0..height {
                 for x in (0..width).rev() {
-                    process_offset_pixel(
-                        pixmap,
-                        x,
-                        y,
-                        dx_pixels,
-                        dy_pixels,
-                        width,
-                        height,
-                        transparent,
-                    );
+                    process_offset_pixel(pixmap, x, y, dx_pixels, dy_pixels, width, height, transparent);
                 }
             }
         }
@@ -73,16 +55,7 @@ pub(crate) fn offset_pixels(pixmap: &mut Pixmap, dx: f32, dy: f32) {
             // Shift left+down: iterate bottom-to-top, left-to-right
             for y in (0..height).rev() {
                 for x in 0..width {
-                    process_offset_pixel(
-                        pixmap,
-                        x,
-                        y,
-                        dx_pixels,
-                        dy_pixels,
-                        width,
-                        height,
-                        transparent,
-                    );
+                    process_offset_pixel(pixmap, x, y, dx_pixels, dy_pixels, width, height, transparent);
                 }
             }
         }
@@ -90,16 +63,7 @@ pub(crate) fn offset_pixels(pixmap: &mut Pixmap, dx: f32, dy: f32) {
             // Shift left+up: iterate top-to-bottom, left-to-right
             for y in 0..height {
                 for x in 0..width {
-                    process_offset_pixel(
-                        pixmap,
-                        x,
-                        y,
-                        dx_pixels,
-                        dy_pixels,
-                        width,
-                        height,
-                        transparent,
-                    );
+                    process_offset_pixel(pixmap, x, y, dx_pixels, dy_pixels, width, height, transparent);
                 }
             }
         }
@@ -154,16 +118,7 @@ mod tests {
     fn test_offset_pixels_positive() {
         let mut pixmap = Pixmap::new(4, 4);
         // Set center pixel to white
-        pixmap.set_pixel(
-            1,
-            1,
-            PremulRgba8 {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 255,
-            },
-        );
+        pixmap.set_pixel(1, 1, PremulRgba8 { r: 255, g: 255, b: 255, a: 255 });
 
         offset_pixels(&mut pixmap, 1.0, 1.0);
 
@@ -181,16 +136,7 @@ mod tests {
     fn test_offset_pixels_negative() {
         let mut pixmap = Pixmap::new(4, 4);
         // Set pixel at (2,2) to white
-        pixmap.set_pixel(
-            2,
-            2,
-            PremulRgba8 {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 255,
-            },
-        );
+        pixmap.set_pixel(2, 2, PremulRgba8 { r: 255, g: 255, b: 255, a: 255 });
 
         offset_pixels(&mut pixmap, -1.0, -1.0);
 
@@ -207,16 +153,7 @@ mod tests {
     #[test]
     fn test_offset_pixels_fractional() {
         let mut pixmap = Pixmap::new(4, 4);
-        pixmap.set_pixel(
-            1,
-            1,
-            PremulRgba8 {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 255,
-            },
-        );
+        pixmap.set_pixel(1, 1, PremulRgba8 { r: 255, g: 255, b: 255, a: 255 });
 
         // 0.6 rounds to 1, -0.4 rounds to 0
         offset_pixels(&mut pixmap, 0.6, -0.4);
@@ -230,16 +167,7 @@ mod tests {
     #[test]
     fn test_offset_pixels_out_of_bounds() {
         let mut pixmap = Pixmap::new(4, 4);
-        pixmap.set_pixel(
-            1,
-            1,
-            PremulRgba8 {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 255,
-            },
-        );
+        pixmap.set_pixel(1, 1, PremulRgba8 { r: 255, g: 255, b: 255, a: 255 });
 
         // Large offset that moves pixel outside bounds
         offset_pixels(&mut pixmap, 10.0, 10.0);

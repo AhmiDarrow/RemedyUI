@@ -195,10 +195,16 @@ a tested tolerance.
 
 - **Present mode.** Frames pace to the display (vsync) by default; apps may present as soon
   as each frame is drawn instead (`AppConfig`'s vsync setting).
-- **Partial presents** happen on the CPU path, where the bridge hands the damage rectangles
-  to the platform (softbuffer's `present_with_damage`, or only those rectangles put on a
-  browser canvas). wgpu presents whole swapchain images, so the GPU path rasters and
-  composites only the damage but presents the whole kept frame (one copy).
+- **Partial presents.** Every path rasters and composites only the damage into the window's
+  kept frame. On the CPU path the bridge hands the damage rectangles to the platform
+  (softbuffer's `present_with_damage`, or only those rectangles put on a browser canvas). On
+  D3D12 and Vulkan the window has a swapchain of RemedyUI's own on wgpu's device
+  (`render-gpu`'s `ffi::dxgi` and `ffi::vulkan`, made with upstream wgpu's interop calls): its
+  images keep what they showed, so a present copies in only what changed since that image was
+  last shown, and reports those rectangles to the system (DXGI `Present1` dirty rectangles;
+  `VK_KHR_incremental_present` where the device has it), which composites only them. Metal,
+  GL, the web and windows with premultiplied transparency present through wgpu's surface:
+  the kept frame is copied in whole (the system composites those whole on every platform).
 
 ## Effects and custom shaders
 

@@ -45,10 +45,7 @@ pub(crate) mod scalar {
     #[allow(dead_code, reason = "documents the scalar version of `div_255_exact`")]
     #[inline(always)]
     pub(crate) const fn div_255_exact(val: u16) -> u16 {
-        debug_assert!(
-            val < 65280,
-            "`div_255_exact` overflows for values of `65280` or greater"
-        );
+        debug_assert!(val < 65280, "`div_255_exact` overflows for values of `65280` or greater");
         (val + (val >> 8) + 1) >> 8
     }
 
@@ -127,7 +124,6 @@ impl<S: Simd> Premultiply for f32x4<S> {
         let zero = Self::splat(alphas.simd, 0.0);
         let divided = self / alphas;
 
-        self.simd
-            .select_f32x4(self.simd.simd_eq_f32x4(alphas, zero), zero, divided)
+        self.simd.select_f32x4(self.simd.simd_eq_f32x4(alphas, zero), zero, divided)
     }
 }

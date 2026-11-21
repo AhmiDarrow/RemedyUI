@@ -25,13 +25,7 @@ impl<'a, S: Simd> GradientPainter<'a, S> {
         let lut = gradient.u8_lut(simd);
         let scale_factor = f32x16::splat(simd, lut.scale_factor());
 
-        Self {
-            gradient,
-            scale_factor,
-            lut: lut.lut(),
-            t_vals: t_vals.as_chunks::<16>().0.iter(),
-            simd,
-        }
+        Self { gradient, scale_factor, lut: lut.lut(), t_vals: t_vals.as_chunks::<16>().0.iter(), simd }
     }
 }
 

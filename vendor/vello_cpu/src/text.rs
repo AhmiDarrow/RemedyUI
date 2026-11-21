@@ -13,8 +13,8 @@
 
 use crate::render::DEFAULT_GLYPH_ATLAS_SIZE;
 use crate::{
-    Image, ImageSource, PaintType, Pixmap, RasterizerSettings, RenderContext, RenderMode,
-    RenderSettings, Resources, TargetInit, color, kurbo, peniko,
+    Image, ImageSource, PaintType, Pixmap, RasterizerSettings, RenderContext, RenderMode, RenderSettings,
+    Resources, TargetInit, color, kurbo, peniko,
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -22,9 +22,7 @@ use alloc::vec::Vec;
 use color::palette::css::BLACK;
 use core::fmt::Debug;
 use core::ops::RangeInclusive;
-use glifo::atlas::{
-    AtlasConfig, AtlasSlot, GlyphAtlas, GlyphCacheConfig, ImageCache, PendingClearRect,
-};
+use glifo::atlas::{AtlasConfig, AtlasSlot, GlyphAtlas, GlyphCacheConfig, ImageCache, PendingClearRect};
 use glifo::{AtlasCacher, DrawSink, GlyphRunBackend};
 use glifo::{Glyph, renderer};
 use kurbo::{Affine, BezPath, Rect};
@@ -67,10 +65,7 @@ impl GlyphAtlasResources {
             glyph_renderer: Box::new(RenderContext::new_with(
                 page_width,
                 page_height,
-                RenderSettings {
-                    level,
-                    num_threads: 0,
-                },
+                RenderSettings { level, num_threads: 0 },
             )),
             pixmaps: Vec::new(),
             page_width,
@@ -84,12 +79,7 @@ impl GlyphAtlasResources {
 }
 
 /// Ensure a pixmap exists for the given page, creating it if needed.
-fn ensure_page(
-    pixmaps: &mut Vec<Arc<Pixmap>>,
-    page_width: u16,
-    page_height: u16,
-    page_index: usize,
-) {
+fn ensure_page(pixmaps: &mut Vec<Arc<Pixmap>>, page_width: u16, page_height: u16, page_index: usize) {
     while pixmaps.len() <= page_index {
         pixmaps.push(Arc::new(Pixmap::new(page_width, page_height)));
     }
@@ -128,10 +118,8 @@ impl Resources {
 
     /// Upload all pending bitmaps, rasterize pending outline/COLR glyphs, etc.
     fn sync_glyph_cache(&mut self, render_mode: RenderMode) {
-        let glyph_resources = self
-            .glyph_resources
-            .as_mut()
-            .expect("glyph atlas resources must exist before syncing");
+        let glyph_resources =
+            self.glyph_resources.as_mut().expect("glyph atlas resources must exist before syncing");
 
         // Upload all pending bitmap glyphs to the image atlas.
         for upload in glyph_resources.glyph_atlas.drain_pending_uploads() {
@@ -188,16 +176,13 @@ impl Resources {
             .unwrap_or_else(|error| match error {});
 
         for (page_index, pixmap) in glyph_resources.pixmaps.iter().enumerate() {
-            self.image_registry
-                .register_atlas_page(page_index as u32, Arc::clone(pixmap));
+            self.image_registry.register_atlas_page(page_index as u32, Arc::clone(pixmap));
         }
     }
 
     fn clear_evicted_glyph_atlas_regions(&mut self) {
-        let glyph_resources = self
-            .glyph_resources
-            .as_mut()
-            .expect("glyph atlas resources must exist before clearing");
+        let glyph_resources =
+            self.glyph_resources.as_mut().expect("glyph atlas resources must exist before clearing");
         for clear in glyph_resources.glyph_atlas.drain_pending_clear_rects() {
             let pixmap = Arc::get_mut(&mut glyph_resources.pixmaps[clear.page_index as usize])
                 .expect("atlas pixmap should be uniquely owned during region clearing");
@@ -225,26 +210,18 @@ impl<'a> CpuGlyphRunBackend<'a> {
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
         let atlas_cacher = if self.atlas_cache_enabled {
-            self.resources
-                .ensure_glyph_resources(self.ctx.render_settings.level);
+            self.resources.ensure_glyph_resources(self.ctx.render_settings.level);
             let glyph_resources = self
                 .resources
                 .glyph_resources
                 .as_mut()
                 .expect("glyph atlas resources must exist after initialization");
-            AtlasCacher::Enabled(
-                &mut glyph_resources.glyph_atlas,
-                &mut glyph_resources.image_cache,
-            )
+            AtlasCacher::Enabled(&mut glyph_resources.glyph_atlas, &mut glyph_resources.image_cache)
         } else {
             AtlasCacher::Disabled
         };
 
-        let mut glyph_run = run.build(
-            glyphs,
-            self.resources.glyph_prep_cache.as_mut(),
-            atlas_cacher,
-        );
+        let mut glyph_run = run.build(glyphs, self.resources.glyph_prep_cache.as_mut(), atlas_cacher);
         render(&mut glyph_run, self.ctx)
     }
 }
@@ -323,14 +300,7 @@ fn clear_pixmap_region(dst: &mut Pixmap, rect: PendingClearRect) {
 }
 
 /// Copy bitmap glyph pixels into a rectangular region of an atlas page.
-fn copy_pixmap_to_atlas(
-    src: &Pixmap,
-    dst: &mut Pixmap,
-    dst_x: u16,
-    dst_y: u16,
-    width: u16,
-    height: u16,
-) {
+fn copy_pixmap_to_atlas(src: &Pixmap, dst: &mut Pixmap, dst_x: u16, dst_y: u16, width: u16, height: u16) {
     let copy_width = width as usize;
     let copy_height = height as usize;
     let src_stride = src.width() as usize;
@@ -510,11 +480,6 @@ mod debug {
         let idx = COLOR_INDEX.fetch_add(1, Ordering::Relaxed) % COLORS.len();
         renderer.set_transform(Affine::IDENTITY);
         renderer.set_paint(COLORS[idx]);
-        renderer.fill_rect(&Rect::new(
-            0.0,
-            0.0,
-            raster_metrics.width as f64,
-            raster_metrics.height as f64,
-        ));
+        renderer.fill_rect(&Rect::new(0.0, 0.0, raster_metrics.width as f64, raster_metrics.height as f64));
     }
 }

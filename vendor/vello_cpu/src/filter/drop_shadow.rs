@@ -74,17 +74,8 @@ fn apply_drop_shadow(
 
     // Step 2: Blur the already-offset shadow
     if std_deviation > 0.0 {
-        let scratch =
-            filter_scratch.get_scratch_buffer(shadow_pixmap.width(), shadow_pixmap.height());
-        apply_blur(
-            &mut shadow_pixmap,
-            scratch,
-            n_decimations,
-            n_decimations,
-            kernel,
-            kernel,
-            edge_mode,
-        );
+        let scratch = filter_scratch.get_scratch_buffer(shadow_pixmap.width(), shadow_pixmap.height());
+        apply_blur(&mut shadow_pixmap, scratch, n_decimations, n_decimations, kernel, kernel, edge_mode);
     }
 
     // Step 3: Apply shadow color and optionally composite with original
@@ -213,18 +204,8 @@ mod tests {
     /// Test Porter-Duff source-over with fully opaque source.
     #[test]
     fn test_compose_src_over_opaque_source() {
-        let src = PremulRgba8 {
-            r: 255,
-            g: 0,
-            b: 0,
-            a: 255,
-        }; // Opaque red
-        let dst = PremulRgba8 {
-            r: 0,
-            g: 255,
-            b: 0,
-            a: 255,
-        }; // Opaque green
+        let src = PremulRgba8 { r: 255, g: 0, b: 0, a: 255 }; // Opaque red
+        let dst = PremulRgba8 { r: 0, g: 255, b: 0, a: 255 }; // Opaque green
 
         let result = compose_src_over(src, dst);
         // Opaque source should completely cover destination
@@ -237,18 +218,8 @@ mod tests {
     /// Test Porter-Duff source-over with transparent source.
     #[test]
     fn test_compose_src_over_transparent_source() {
-        let src = PremulRgba8 {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        };
-        let dst = PremulRgba8 {
-            r: 0,
-            g: 255,
-            b: 0,
-            a: 255,
-        };
+        let src = PremulRgba8 { r: 0, g: 0, b: 0, a: 0 };
+        let dst = PremulRgba8 { r: 0, g: 255, b: 0, a: 255 };
 
         let result = compose_src_over(src, dst);
         // Transparent source should leave destination unchanged
@@ -261,33 +232,15 @@ mod tests {
     /// Test Porter-Duff source-over with semi-transparent source.
     #[test]
     fn test_compose_src_over_semi_transparent() {
-        let src = PremulRgba8 {
-            r: 128,
-            g: 0,
-            b: 0,
-            a: 128,
-        }; // 50% red (premul)
-        let dst = PremulRgba8 {
-            r: 0,
-            g: 128,
-            b: 0,
-            a: 128,
-        }; // 50% green (premul)
+        let src = PremulRgba8 { r: 128, g: 0, b: 0, a: 128 }; // 50% red (premul)
+        let dst = PremulRgba8 { r: 0, g: 128, b: 0, a: 128 }; // 50% green (premul)
 
         let result = compose_src_over(src, dst);
         // Result should blend src + dst*(1-src_alpha)
         // r: 128 + 0*(1-0.5) = 128
         // g: 0 + 128*0.5 = 64
         // a: 128 + 128*0.5 = 192
-        assert_eq!(
-            result,
-            PremulRgba8 {
-                r: 128,
-                g: 64,
-                b: 0,
-                a: 192,
-            }
-        );
+        assert_eq!(result, PremulRgba8 { r: 128, g: 64, b: 0, a: 192 });
     }
 
     /// Test `write_colored_shadow` applies color correctly.
@@ -297,16 +250,7 @@ mod tests {
         let mut dst_pixmap = Pixmap::new(2, 2);
 
         // Shadow has alpha=255 at (0,0)
-        shadow_pixmap.set_pixel(
-            0,
-            0,
-            PremulRgba8 {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        );
+        shadow_pixmap.set_pixel(0, 0, PremulRgba8 { r: 0, g: 0, b: 0, a: 255 });
 
         let shadow_color = AlphaColor {
             components: [1.0, 0.0, 0.0, 1.0], // Red

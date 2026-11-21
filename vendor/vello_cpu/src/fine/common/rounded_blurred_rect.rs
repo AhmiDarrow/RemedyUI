@@ -26,12 +26,7 @@ pub(crate) struct BlurredRoundedRectFiller<S: Simd> {
 
 impl<S: Simd> BlurredRoundedRectFiller<S> {
     #[simd]
-    pub(crate) fn new(
-        simd: S,
-        rect: &EncodedBlurredRoundedRectangle,
-        start_x: f64,
-        start_y: f64,
-    ) -> Self {
+    pub(crate) fn new(simd: S, rect: &EncodedBlurredRoundedRectangle, start_x: f64, start_y: f64) -> Self {
         let start_pos = rect.transform * Point::new(start_x, start_y);
         let color_components = rect.color.as_premul_f32().components;
         let r = f32x8::splat(simd, color_components[0]);
@@ -42,14 +37,7 @@ impl<S: Simd> BlurredRoundedRectFiller<S> {
         let alpha_calculator =
             AlphaCalculator::new(start_pos, rect.x_advance, rect.y_advance, simd_rect, simd);
 
-        Self {
-            alpha_calculator,
-            r,
-            g,
-            b,
-            a,
-            invert: rect.invert,
-        }
+        Self { alpha_calculator, r, g, b, a, invert: rect.invert }
     }
 }
 
@@ -86,10 +74,7 @@ impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<S> {
                     let b = u8x16::from_f32(simd, simd.combine_f32x8(first.b, second.b));
                     let a = u8x16::from_f32(simd, simd.combine_f32x8(first.a, second.a));
 
-                    simd.store_four_interleaved_u8x16(
-                        [r, g, b, a],
-                        (&mut chunk[..]).try_into().unwrap(),
-                    );
+                    simd.store_four_interleaved_u8x16([r, g, b, a], (&mut chunk[..]).try_into().unwrap());
                 }
             },
         );
@@ -101,12 +86,8 @@ impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<S> {
             || {
                 for chunk in buf.as_chunks_mut::<32>().0 {
                     let [c1, c2] = self.next().unwrap().get();
-                    c1[0]
-                        .simd
-                        .store_four_interleaved_f32x4(c1, (&mut chunk[..16]).try_into().unwrap());
-                    c2[0]
-                        .simd
-                        .store_four_interleaved_f32x4(c2, (&mut chunk[16..]).try_into().unwrap());
+                    c1[0].simd.store_four_interleaved_f32x4(c1, (&mut chunk[..16]).try_into().unwrap());
+                    c2[0].simd.store_four_interleaved_f32x4(c2, (&mut chunk[16..]).try_into().unwrap());
                 }
             },
         );
@@ -130,13 +111,7 @@ impl<S: Simd> AlphaCalculator<S> {
         r: SimdRoundedBlurredRect<S>,
         simd: S,
     ) -> Self {
-        Self {
-            cur_pos: start_pos,
-            x_advance,
-            y_advance,
-            r,
-            simd,
-        }
+        Self { cur_pos: start_pos, x_advance, y_advance, r, simd }
     }
 }
 
@@ -213,20 +188,7 @@ impl<S: Simd> SimdRoundedBlurredRect<S> {
         let v0 = f32x8::splat(s, 0.0);
         let v1 = f32x8::splat(s, 0.5);
 
-        Self {
-            exponent,
-            recip_exponent,
-            scale,
-            std_dev_inv,
-            min_edge,
-            w,
-            v0,
-            v1,
-            h,
-            width,
-            height,
-            r1,
-        }
+        Self { exponent, recip_exponent, scale, std_dev_inv, min_edge, w, v0, v1, h, width, height, r1 }
     }
 }
 

@@ -7,19 +7,9 @@ use vello_common::encode::{FocalKind, RadialKind};
 use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x8};
 
 pub(crate) enum SimdRadialKindInner<S: Simd> {
-    Radial {
-        bias: f32x8<S>,
-        scale: f32x8<S>,
-    },
-    Strip {
-        scaled_r0_squared: f32x8<S>,
-    },
-    Focal {
-        kind: FocalKind,
-        fp0: f32x8<S>,
-        scale: f32x8<S>,
-        bias: f32x8<S>,
-    },
+    Radial { bias: f32x8<S>, scale: f32x8<S> },
+    Strip { scaled_r0_squared: f32x8<S> },
+    Focal { kind: FocalKind, fp0: f32x8<S>, scale: f32x8<S>, bias: f32x8<S> },
 }
 
 pub(crate) struct SimdRadialKind<S: Simd> {
@@ -34,15 +24,10 @@ impl<S: Simd> SimdRadialKind<S> {
                 bias: f32x8::splat(simd, bias),
                 scale: f32x8::splat(simd, scale),
             },
-            RadialKind::Strip { scaled_r0_squared } => SimdRadialKindInner::Strip {
-                scaled_r0_squared: f32x8::splat(simd, scaled_r0_squared),
-            },
-            RadialKind::Focal {
-                kind,
-                fp0,
-                scale,
-                bias,
-            } => SimdRadialKindInner::Focal {
+            RadialKind::Strip { scaled_r0_squared } => {
+                SimdRadialKindInner::Strip { scaled_r0_squared: f32x8::splat(simd, scaled_r0_squared) }
+            }
+            RadialKind::Focal { kind, fp0, scale, bias } => SimdRadialKindInner::Focal {
                 kind,
                 fp0: f32x8::splat(simd, fp0),
                 scale: f32x8::splat(simd, scale),
@@ -71,12 +56,7 @@ impl<S: Simd> SimdGradientKind<S> for SimdRadialKind<S> {
                 let mask = simd.simd_lt_f32x8(p1, f32x8::splat(simd, 0.0));
                 simd.select_f32x8(mask, f32x8::splat(simd, f32::NAN), x_pos + p1.sqrt())
             }
-            SimdRadialKindInner::Focal {
-                kind,
-                fp0,
-                scale,
-                bias,
-            } => {
+            SimdRadialKindInner::Focal { kind, fp0, scale, bias } => {
                 let mut t = match kind {
                     FocalKind::OnCircle => y_pos.mul_add(y_pos / x_pos, x_pos),
                     FocalKind::WellBehaved => {

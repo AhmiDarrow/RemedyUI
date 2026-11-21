@@ -38,10 +38,8 @@ fn to_f32<S: Simd>(val: u8x32<S>) -> (f32x16<S>, f32x16<S>) {
 
 #[inline(always)]
 fn to_u8<S: Simd>(val1: f32x16<S>, val2: f32x16<S>) -> u8x32<S> {
-    let val1 =
-        f32_to_u8(f32x16::splat(val1.simd, 255.0).mul_add(val1, f32x16::splat(val1.simd, 0.5)));
-    let val2 =
-        f32_to_u8(f32x16::splat(val2.simd, 255.0).mul_add(val2, f32x16::splat(val2.simd, 0.5)));
+    let val1 = f32_to_u8(f32x16::splat(val1.simd, 255.0).mul_add(val1, f32x16::splat(val1.simd, 0.5)));
+    let val2 = f32_to_u8(f32x16::splat(val2.simd, 255.0).mul_add(val2, f32x16::splat(val2.simd, 0.5)));
 
     val1.simd.combine_u8x16(val1, val2)
 }
@@ -124,9 +122,7 @@ u8_mix!(Screen, |src_c: u8x32<S>, bg_c: u8x32<S>| {
 });
 
 // Overlay is hard-light with source and backdrop swapped.
-u8_mix!(Overlay, |src_c: u8x32<S>, bg_c: u8x32<S>| {
-    hard_light_inner(src_c, bg_c, bg_c)
-});
+u8_mix!(Overlay, |src_c: u8x32<S>, bg_c: u8x32<S>| { hard_light_inner(src_c, bg_c, bg_c) });
 
 // Darken:
 //   B(Cb, Cs) = min(Cb, Cs)
@@ -155,9 +151,7 @@ u8_mix!(Lighten, |src_c: u8x32<S>, bg_c: u8x32<S>| {
 // Hard-light:
 //   if Cs <= 0.5: B(Cb, Cs) = 2 * Cb * Cs
 //   otherwise:    B(Cb, Cs) = 1 - 2 * (1 - Cb) * (1 - Cs)
-u8_mix!(HardLight, |src_c: u8x32<S>, bg_c: u8x32<S>| {
-    hard_light_inner(src_c, bg_c, src_c)
-});
+u8_mix!(HardLight, |src_c: u8x32<S>, bg_c: u8x32<S>| { hard_light_inner(src_c, bg_c, src_c) });
 
 // Difference:
 //   B(Cb, Cs) = abs(Cb - Cs)

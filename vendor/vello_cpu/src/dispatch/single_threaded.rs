@@ -21,9 +21,7 @@ use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint, PremulColor};
 use vello_common::pixmap::{Pixmap, PixmapMut};
-use vello_common::record::{
-    CommandRecorder, LayerClip, LayerProps, Node, PoppedLayer, RecordedLayerKind,
-};
+use vello_common::record::{CommandRecorder, LayerClip, LayerProps, Node, PoppedLayer, RecordedLayerKind};
 use vello_common::strip_generator::{GenerationMode, StripStorage};
 use vello_common::util::strip_bbox;
 use vello_common::viewport::ViewportState;
@@ -112,10 +110,8 @@ impl SingleThreadedDispatcher {
     ) {
         let filters = self.rasterize_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
         let target_init = settings.target_init.map(PremulColor::from_alpha_color);
-        let params = FineRenderParams {
-            scene_size: (scene_width, scene_height),
-            target_offset: settings.offset,
-        };
+        let params =
+            FineRenderParams { scene_size: (scene_width, scene_height), target_offset: settings.offset };
 
         self.bucket_and_rasterize::<S, F>(
             simd,
@@ -162,12 +158,8 @@ impl SingleThreadedDispatcher {
             filter_paints: &bucketer.filter_paints,
             image_resolver,
         };
-        let mut regions = Regions::new(
-            &mut target,
-            params.scene_size,
-            params.target_offset,
-            bucketer.rows().len(),
-        );
+        let mut regions =
+            Regions::new(&mut target, params.scene_size, params.target_offset, bucketer.rows().len());
         Self::rasterize_target::<S, F>(
             simd,
             &bucketer,
@@ -202,13 +194,7 @@ impl SingleThreadedDispatcher {
         });
     }
 
-    fn record_fill(
-        &mut self,
-        strip_start: usize,
-        paint: Paint,
-        blend_mode: BlendMode,
-        mask: Option<Mask>,
-    ) {
+    fn record_fill(&mut self, strip_start: usize, paint: Paint, blend_mode: BlendMode, mask: Option<Mask>) {
         let strip_end = self.strip_storage.strips.len();
         let strip_range = strip_start..strip_end;
         let strips = &self.strip_storage.strips[strip_range.start..strip_range.end];
@@ -230,10 +216,8 @@ impl SingleThreadedDispatcher {
         // are composited into. Therefore, iterating in reverse order is enough to ensure that all
         // dependencies have been rendered before they are invoked.
         for id in self.recorder.filter_layers.iter().rev().copied() {
-            let RecordedLayerKind::Filter {
-                filter_data: filter_plan,
-                placement,
-            } = &self.recorder.layers[id as usize].kind
+            let RecordedLayerKind::Filter { filter_data: filter_plan, placement } =
+                &self.recorder.layers[id as usize].kind
             else {
                 unreachable!("filter_layers only contains filter layers");
             };
@@ -247,10 +231,7 @@ impl SingleThreadedDispatcher {
             // TODO: See https://github.com/linebender/vello/pull/1701#discussion_r3400709986, explore
             // using pools for more resources.
             let mut pixmap = Pixmap::new(width, height);
-            let params = FineRenderParams {
-                scene_size: (width, height),
-                target_offset: (0, 0),
-            };
+            let params = FineRenderParams { scene_size: (width, height), target_offset: (0, 0) };
 
             self.bucket_and_rasterize::<S, F>(
                 simd,
@@ -265,12 +246,7 @@ impl SingleThreadedDispatcher {
                 image_resolver,
             );
 
-            F::filter_layer(
-                &mut pixmap,
-                &filter_plan.filter,
-                filter_ctx.scratch(),
-                filter_plan.transform,
-            );
+            F::filter_layer(&mut pixmap, &filter_plan.filter, filter_ctx.scratch(), filter_plan.transform);
 
             // Save the filtered pixmap to disk for debugging.
             // #[cfg(all(debug_assertions, feature = "std", feature = "png"))]
@@ -300,17 +276,16 @@ impl Dispatcher for SingleThreadedDispatcher {
     ) {
         let strip_start = self.strip_storage.strips.len();
         let strip_storage = &mut self.strip_storage;
-        self.viewport
-            .with_generator_and_clip(|strip_generator, clip_path| {
-                strip_generator.generate_filled_path(
-                    path,
-                    fill_rule,
-                    transform,
-                    aliasing_threshold,
-                    strip_storage,
-                    clip_path.map(|clip| clip.path),
-                );
-            });
+        self.viewport.with_generator_and_clip(|strip_generator, clip_path| {
+            strip_generator.generate_filled_path(
+                path,
+                fill_rule,
+                transform,
+                aliasing_threshold,
+                strip_storage,
+                clip_path.map(|clip| clip.path),
+            );
+        });
         self.record_fill(strip_start, paint, blend_mode, mask);
     }
 
@@ -326,33 +301,25 @@ impl Dispatcher for SingleThreadedDispatcher {
     ) {
         let strip_start = self.strip_storage.strips.len();
         let strip_storage = &mut self.strip_storage;
-        self.viewport
-            .with_generator_and_clip(|strip_generator, clip_path| {
-                strip_generator.generate_stroked_path(
-                    path,
-                    stroke,
-                    transform,
-                    aliasing_threshold,
-                    strip_storage,
-                    clip_path.map(|clip| clip.path),
-                );
-            });
+        self.viewport.with_generator_and_clip(|strip_generator, clip_path| {
+            strip_generator.generate_stroked_path(
+                path,
+                stroke,
+                transform,
+                aliasing_threshold,
+                strip_storage,
+                clip_path.map(|clip| clip.path),
+            );
+        });
         self.record_fill(strip_start, paint, blend_mode, mask);
     }
 
-    fn fill_rect_fast(
-        &mut self,
-        rect: &Rect,
-        paint: Paint,
-        blend_mode: BlendMode,
-        mask: Option<Mask>,
-    ) {
+    fn fill_rect_fast(&mut self, rect: &Rect, paint: Paint, blend_mode: BlendMode, mask: Option<Mask>) {
         let strip_start = self.strip_storage.strips.len();
         let strip_storage = &mut self.strip_storage;
-        self.viewport
-            .with_generator_and_clip(|strip_generator, clip_path| {
-                strip_generator.generate_filled_rect_fast(rect, strip_storage, clip_path);
-            });
+        self.viewport.with_generator_and_clip(|strip_generator, clip_path| {
+            strip_generator.generate_filled_rect_fast(rect, strip_storage, clip_path);
+        });
         self.record_fill(strip_start, paint, blend_mode, mask);
     }
 
@@ -374,36 +341,26 @@ impl Dispatcher for SingleThreadedDispatcher {
         let clip_path = clip_path.map(|clip_path| {
             let strip_start = self.strip_storage.strips.len();
             let strip_storage = &mut self.strip_storage;
-            self.viewport
-                .with_generator_and_clip(|strip_generator, existing_clip| {
-                    strip_generator.generate_filled_path(
-                        clip_path,
-                        fill_rule,
-                        clip_transform,
-                        aliasing_threshold,
-                        strip_storage,
-                        existing_clip.map(|clip| clip.path),
-                    );
+            self.viewport.with_generator_and_clip(|strip_generator, existing_clip| {
+                strip_generator.generate_filled_path(
+                    clip_path,
+                    fill_rule,
+                    clip_transform,
+                    aliasing_threshold,
+                    strip_storage,
+                    existing_clip.map(|clip| clip.path),
+                );
 
-                    let strip_range = strip_start..strip_storage.strips.len();
-                    LayerClip {
-                        bbox: strip_bbox(&strip_storage.strips[strip_range.clone()])
-                            .unwrap_or(RectU16::ZERO),
-                        strip_range,
-                        thread_idx: 0,
-                    }
-                })
+                let strip_range = strip_start..strip_storage.strips.len();
+                LayerClip {
+                    bbox: strip_bbox(&strip_storage.strips[strip_range.clone()]).unwrap_or(RectU16::ZERO),
+                    strip_range,
+                    thread_idx: 0,
+                }
+            })
         });
 
-        self.recorder.push_layer(
-            LayerProps {
-                blend_mode,
-                opacity,
-                mask,
-                clip_path,
-            },
-            filter_data,
-        );
+        self.recorder.push_layer(LayerProps { blend_mode, opacity, mask, clip_path }, filter_data);
     }
 
     fn pop_layer(&mut self) {
@@ -438,27 +395,13 @@ impl Dispatcher for SingleThreadedDispatcher {
         // If only the u8 pipeline is enabled, then use it.
         #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
         {
-            self.rasterize_u8(
-                target,
-                scene_width,
-                scene_height,
-                settings,
-                encoded_paints,
-                image_resolver,
-            );
+            self.rasterize_u8(target, scene_width, scene_height, settings, encoded_paints, image_resolver);
         }
 
         // If only the f32 pipeline is enabled, then use it.
         #[cfg(all(feature = "f32_pipeline", not(feature = "u8_pipeline")))]
         {
-            self.rasterize_f32(
-                target,
-                scene_width,
-                scene_height,
-                settings,
-                encoded_paints,
-                image_resolver,
-            );
+            self.rasterize_f32(target, scene_width, scene_height, settings, encoded_paints, image_resolver);
         }
 
         // If both pipelines are enabled, select precision based on render mode parameter.
@@ -492,14 +435,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         {
             // This case never gets hit because there is a compile_error in the root.
             // But have this code disables some warnings and makes the compile error easier to read
-            let _ = (
-                target,
-                scene_width,
-                scene_height,
-                settings,
-                encoded_paints,
-                image_resolver,
-            );
+            let _ = (target, scene_width, scene_height, settings, encoded_paints, image_resolver);
         }
     }
 
@@ -510,8 +446,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         transform: Affine,
         aliasing_threshold: Option<u8>,
     ) {
-        self.viewport
-            .push_clip_path(path, fill_rule, transform, aliasing_threshold);
+        self.viewport.push_clip_path(path, fill_rule, transform, aliasing_threshold);
     }
 
     fn push_clip_rect(&mut self, rect: &Rect) {
@@ -529,10 +464,7 @@ impl Dispatcher for SingleThreadedDispatcher {
 
 /// Saves a filtered pixmap to disk for debugging purposes.
 /// Only available in debug builds with `std` and `png` features enabled.
-#[allow(
-    dead_code,
-    reason = "useful debug utility, can be enabled by uncommenting the call site"
-)]
+#[allow(dead_code, reason = "useful debug utility, can be enabled by uncommenting the call site")]
 #[cfg(all(debug_assertions, feature = "std", feature = "png"))]
 fn save_filtered_layer_debug(pixmap: &Pixmap, layer_id: usize) {
     use std::path::PathBuf;

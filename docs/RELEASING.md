@@ -51,8 +51,10 @@ machine: without it `cargo xtask check` skips the audits with a note.
    package every publishable crate (64 at 1.0.0-rc.1). Crates that are not published carry
    `publish = false`: `xtask` and `remedy-ui-test`. Dev-dependencies on the facade are
    path-only, so packaging does not need the facade on crates.io first.
-6. **Publish** in dependency order with `cargo publish -p <crate>` (Cargo orders a workspace
-   publish itself from 1.90: `cargo publish --workspace`), then tag the release `vX.Y.Z`.
+6. **Publish** `remedy-vello-cpu` first when it changed (it lives outside the workspace:
+   `cargo publish --manifest-path vendor/vello_cpu/Cargo.toml`), then the workspace in
+   dependency order with `cargo publish -p <crate>` (Cargo orders a workspace publish itself
+   from 1.90: `cargo publish --workspace`), then tag the release `vX.Y.Z`.
 
 ## Editions
 

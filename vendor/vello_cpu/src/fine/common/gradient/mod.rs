@@ -78,11 +78,7 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
         // In case we had any NaN's, set the index to an explicit invalid sentinel. There
         // probably is architecture-specific behavior how NaN will be converted to
         // f32, so we apply our own handling of that.
-        let indices = self.simd.select_u32x8(
-            valid,
-            indices,
-            u32x8::splat(self.simd, GRADIENT_INVALID_POS),
-        );
+        let indices = self.simd.select_u32x8(valid, indices, u32x8::splat(self.simd, GRADIENT_INVALID_POS));
 
         Some(indices)
     }
@@ -134,22 +130,17 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
                 || {
                     for chunk in buf.as_chunks_mut::<32>().0 {
                         let indices = masked_iter.next().unwrap();
-                        let invalid =
-                            indices.simd_eq(u32x8::splat(self.simd, GRADIENT_INVALID_POS));
+                        let invalid = indices.simd_eq(u32x8::splat(self.simd, GRADIENT_INVALID_POS));
                         let (invalid_1, invalid_2) = self.simd.split_mask32x8(invalid);
 
-                        let loaded_1: u32x4<S> =
-                            u8x16::from_slice(self.simd, &chunk[..16]).bitcast();
+                        let loaded_1: u32x4<S> = u8x16::from_slice(self.simd, &chunk[..16]).bitcast();
                         let masked_1 =
-                            self.simd
-                                .select_u32x4(invalid_1, u32x4::splat(self.simd, 0), loaded_1);
+                            self.simd.select_u32x4(invalid_1, u32x4::splat(self.simd, 0), loaded_1);
                         masked_1.bitcast::<u8x16<S>>().store_slice(&mut chunk[..16]);
 
-                        let loaded_2: u32x4<S> =
-                            u8x16::from_slice(self.simd, &chunk[16..]).bitcast();
+                        let loaded_2: u32x4<S> = u8x16::from_slice(self.simd, &chunk[16..]).bitcast();
                         let masked_2 =
-                            self.simd
-                                .select_u32x4(invalid_2, u32x4::splat(self.simd, 0), loaded_2);
+                            self.simd.select_u32x4(invalid_2, u32x4::splat(self.simd, 0), loaded_2);
                         masked_2.bitcast::<u8x16<S>>().store_slice(&mut chunk[16..]);
                     }
                 },
@@ -191,20 +182,14 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
                         let (indices_1, indices_2) = self.simd.split_u32x8(indices);
                         let invalid_1 = invalid_f32_mask(self.simd, indices_1);
                         let loaded_1 = f32x16::from_slice(self.simd, &chunk[..16]);
-                        let masked_1 = self.simd.select_f32x16(
-                            invalid_1,
-                            f32x16::splat(self.simd, 0.0),
-                            loaded_1,
-                        );
+                        let masked_1 =
+                            self.simd.select_f32x16(invalid_1, f32x16::splat(self.simd, 0.0), loaded_1);
                         masked_1.store_slice(&mut chunk[..16]);
 
                         let invalid_2 = invalid_f32_mask(self.simd, indices_2);
                         let loaded_2 = f32x16::from_slice(self.simd, &chunk[16..]);
-                        let masked_2 = self.simd.select_f32x16(
-                            invalid_2,
-                            f32x16::splat(self.simd, 0.0),
-                            loaded_2,
-                        );
+                        let masked_2 =
+                            self.simd.select_f32x16(invalid_2, f32x16::splat(self.simd, 0.0), loaded_2);
                         masked_2.store_slice(&mut chunk[16..]);
                     }
                 },
@@ -221,10 +206,7 @@ fn invalid_f32_mask<S: Simd>(simd: S, indices: u32x4<S>) -> mask32x16<S> {
 }
 
 #[inline(always)]
-pub(crate) fn apply_extend<S: Simd, V: SimdFloat<S, Element = f32>>(
-    val: V,
-    extend: peniko::Extend,
-) -> V {
+pub(crate) fn apply_extend<S: Simd, V: SimdFloat<S, Element = f32>>(val: V, extend: peniko::Extend) -> V {
     match extend {
         peniko::Extend::Pad => val.max(0.0).min(1.0),
         peniko::Extend::Repeat => (val - val.floor()).fract(),
