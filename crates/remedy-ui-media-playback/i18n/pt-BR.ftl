@@ -44,5 +44,6 @@ playback-next-up-in = { $count ->
 }
 playback-play-now = Reproduzir agora
 playback-next-cancel = Cancelar
+playback-starting-next = Iniciando { $title }
 playback-speed = Velocidade { $speed }×
 playback-speed-tip = Velocidade de reprodução (Shift+> mais rápido, Shift+< mais lento)
