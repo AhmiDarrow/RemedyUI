@@ -4197,3 +4197,45 @@ fn going_compact_closes_the_menus_the_player_opened_or_anchored() {
     assert_eq!(open_menus(&s.ui), 1);
     assert_eq!(expanded(&captions), Some(false), "the button says it closed");
 }
+
+#[test]
+fn keys_from_the_window_wake_the_full_screen_controls_and_wait_for_a_shown_player() {
+    use remedy_ui_widgets_core as w;
+    let mut s = Screen::new();
+    let (p, view) = full_screen(&mut s);
+    let outside = w::button(&s.ui, "Elsewhere", || {});
+    s.ui.root().child(outside.clone());
+    p.keys_from(&s.ui.root());
+    s.pump();
+    outside.focus();
+    rested(&mut s);
+    assert!(!p.controls_shown(), "rested");
+    // A key from outside the player wakes them, even one the player does nothing with.
+    assert!(!press(&s.ui, Key::Character("x".into())));
+    s.pump();
+    assert!(p.controls_shown(), "woken by a key from elsewhere");
+    rested(&mut s);
+    assert!(!p.controls_shown());
+    assert!(p.handle_key(&KeyEvent::press(Key::Character("k".into())).with_text(None)));
+    s.pump();
+    assert!(p.controls_shown(), "woken by handle_key");
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+
+    // Hidden, the player hears no keys from the window.
+    p.request_fullscreen(false);
+    let _ = view.clone().hidden(true);
+    s.pump();
+    s.pump();
+    outside.focus();
+    assert!(!letter(&s.ui, "k", false), "a hidden player takes no keys");
+    s.idle(30);
+    assert_eq!(p.state(), PlaybackState::Paused);
+    // Shown again (compact too), it does.
+    p.set_compact(true);
+    let _ = view.clone().hidden(false);
+    s.pump();
+    s.pump();
+    outside.focus();
+    assert!(letter(&s.ui, "k", false));
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+}
