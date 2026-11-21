@@ -107,3 +107,78 @@ fn pictures_on_the_gpu_match_pictures_in_cpu_memory() {
         assert!(worst(&shown, &copied) <= 2, "at {at:?} the GPU shows the same colours");
     }
 }
+
+/// The process's CPU time so far, in milliseconds (all threads: Media Foundation decodes on
+/// its own), and its private memory and peak working set in MB.
+fn process_usage() -> (f64, f64, f64) {
+    let script = format!(
+        "$p = Get-Process -Id {}; \"$($p.TotalProcessorTime.TotalMilliseconds) $($p.PrivateMemorySize64) $($p.PeakWorkingSet64)\"",
+        std::process::id()
+    );
+    let out = std::process::Command::new("powershell").args(["-NoProfile", "-Command", &script]).output();
+    let text = out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+    let v: Vec<f64> = text.split_whitespace().filter_map(|s| s.parse().ok()).collect();
+    let at = |i: usize| v.get(i).copied().unwrap_or(0.0);
+    (at(0), at(1) / 1e6, at(2) / 1e6)
+}
+
+/// Per picture: process CPU time and wall time to decode it and draw it on the GPU (waiting for
+/// the GPU), on the copy path or the GPU path. `REMEDY_BENCH_CLIP` names the clip and
+/// `REMEDY_BENCH_PATH` the path (`copy` or `gpu`); one path per process, so memory is its own.
+#[test]
+#[ignore = "a measurement: run by hand with a long clip"]
+fn measure_a_clip() {
+    let (Ok(clip), Ok(path)) = (std::env::var("REMEDY_BENCH_CLIP"), std::env::var("REMEDY_BENCH_PATH"))
+    else {
+        eprintln!("set REMEDY_BENCH_CLIP and REMEDY_BENCH_PATH");
+        return;
+    };
+    let host = platform_host().unwrap_or_else(|e| unreachable!("Media Foundation: {e}"));
+    let ctx = GpuContext::new(&LadderOptions::default()).unwrap_or_else(|e| unreachable!("GPU: {e}"));
+    let mut g = GpuRenderer::new(ctx, None);
+    if path == "copy" {
+        remedy_ui_paint::set_gpu_video_adapter(None);
+    }
+    let mut dec = host.open(&MediaSource::file(&clip)).unwrap_or_else(|e| unreachable!("open: {e}"));
+    let v = dec.info().video.clone().unwrap_or_else(|| unreachable!("a picture"));
+    let target = g.create_target(v.width, v.height).unwrap_or_else(|e| unreachable!("target: {e}"));
+    let rect = Rect::new(0.0, 0.0, v.width as f32, v.height as f32);
+    let (cpu0, _, _) = process_usage();
+    let start = std::time::Instant::now();
+    let (mut times, mut on_gpu) = (Vec::new(), 0usize);
+    let mut shown: Option<VideoFrame> = None;
+    while let Some(s) = dec.read().unwrap_or_else(|e| unreachable!("read: {e}")) {
+        let Sample::Video { picture, .. } = s else { continue };
+        let t = std::time::Instant::now();
+        on_gpu += usize::from(picture.gpu.is_some());
+        let mut list = DisplayList::new();
+        let f = frame(times.len() as u64, &picture);
+        list.push(Item::Video { frame: f.clone(), rect, radii: CornerRadii::ZERO });
+        g.draw(&list, remedy_ui_paint::Affine::IDENTITY, Color::BLACK, &target)
+            .unwrap_or_else(|e| unreachable!("draw {}: {e}", times.len()));
+        // Held until the next one shows, as a video surface holds its current frame.
+        shown = Some(f);
+        let _ = g.context().device.poll(remedy_ui_render_gpu::wgpu::PollType::wait_indefinitely());
+        times.push((start.elapsed(), t.elapsed()));
+    }
+    drop(shown);
+    let wall = start.elapsed();
+    let (cpu1, private, peak) = process_usage();
+    let n = times.len().max(1) as f64;
+    let mut shows: Vec<f64> = times.iter().map(|(_, d)| d.as_secs_f64() * 1e3).collect();
+    shows.sort_by(f64::total_cmp);
+    let p95 = shows.get(shows.len() * 95 / 100).copied().unwrap_or(0.0);
+    eprintln!(
+        "{path} {}x{}: {} pictures ({on_gpu} on the GPU); per picture: CPU {:.2} ms, frame time {:.2} ms \
+         (draw {:.2} ms, p95 {:.2} ms); private memory {:.0} MB, peak working set {:.0} MB",
+        v.width,
+        v.height,
+        times.len(),
+        (cpu1 - cpu0) / n,
+        wall.as_secs_f64() * 1e3 / n,
+        shows.iter().sum::<f64>() / n,
+        p95,
+        private,
+        peak,
+    );
+}
