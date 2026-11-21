@@ -643,3 +643,32 @@ fn a_press_through_menu_lets_the_press_that_closes_it_reach_what_is_under_it() {
         assert_eq!(pressed.get(), usize::from(through), "through: {through}");
     }
 }
+
+#[test]
+fn an_entry_that_stays_open_steps_with_its_label_following() {
+    let mut t = T::new();
+    let step = Signal::new(0);
+    let anchor = w::button(&t.ui, "Timing", || {});
+    t.ui.root().child(anchor.clone());
+    t.frame();
+    let items = vec![
+        MenuItem::new("", move || step.set(step.get() + 1))
+            .label(move || format!("Later ({})", step.get()))
+            .stays_open(),
+        MenuItem::new("Done", || {}),
+    ];
+    let _ = w::menu(&t.ui, &anchor, items);
+    t.frame();
+    assert_eq!(t.focused().as_deref(), Some("Later (0)"));
+    t.key(Key::Enter);
+    t.key(Key::Enter);
+    assert_eq!(step.get(), 2);
+    assert_eq!(t.menus().len(), 1, "still open");
+    assert_eq!(t.focused().as_deref(), Some("Later (2)"), "focus stays, its name says the value");
+    t.click_at(t.bounds(Role::MenuItem, "Later (2)").center());
+    assert_eq!(step.get(), 3);
+    assert_eq!(t.menus().len(), 1);
+    t.key(Key::ArrowDown);
+    t.key(Key::Enter);
+    assert!(t.menus().is_empty(), "other entries still close it");
+}

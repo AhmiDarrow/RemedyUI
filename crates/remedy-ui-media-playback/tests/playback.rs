@@ -1863,14 +1863,16 @@ fn a_click_on_a_control_hands_the_keys_back_to_the_player_in_the_arrows_scheme()
     assert!(p.is_muted());
     p.pause();
     s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    // It played a moment before pausing (longer on a busy machine): skips are from there.
+    let at = p.position().as_secs_f64();
     assert!(press(&s.ui, Key::ArrowRight));
-    s.wait("10 s on", |_| near(p.position(), 40.0, 0.001));
+    s.wait("10 s on", |_| near(p.position(), at + 10.0, 0.001));
     // A tap on the volume slider: the arrows then skip, not nudge the slider.
     let volume = el(&view, "Volume");
     presses(&mut s, &volume, &[2000], Touch);
     assert!(!volume.is_focused() && view.is_focused());
     assert!(press(&s.ui, Key::ArrowLeft));
-    s.wait("10 s back", |_| near(p.position(), 30.0, 0.001));
+    s.wait("10 s back", |_| near(p.position(), at, 0.001));
     // Tab leaves the player as usual, and it is a plain group again.
     assert!(press(&s.ui, Key::Tab));
     assert!(!view.is_focused());
@@ -3067,4 +3069,392 @@ fn an_empty_player_picks_up_a_cast_and_is_given_its_stream_after() {
     assert!(p.position() >= Duration::from_secs(2010));
     let problems = remedy_ui_devtools::audit(&s.ui);
     assert!(problems.is_empty(), "{problems:?}");
+}
+
+/// Whether `name` is a control shown in `view` (it and every element above it not hidden).
+fn shown(view: &El, name: &str) -> bool {
+    let mut stack = vec![view.clone()];
+    while let Some(e) = stack.pop() {
+        if e.info().is_none_or(|i| i.hidden) {
+            continue;
+        }
+        if e.info().and_then(|i| i.semantics).is_some_and(|s| s.name().map(plain).as_deref() == Some(name)) {
+            return true;
+        }
+        stack.extend(e.child_elements());
+    }
+    false
+}
+
+fn audit_clean(s: &mut Screen) {
+    s.idle(30);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+/// The open menu's entries as a screen reader meets them: role, name, checked.
+fn menu_entries(ui: &Ui) -> Vec<(remedy_ui_a11y::Role, String, Option<bool>)> {
+    use remedy_ui_a11y::Role;
+    ui.reader_view()
+        .into_iter()
+        .filter(|n| matches!(n.role, Role::MenuItem | Role::MenuItemRadio))
+        .filter_map(|n| Some((n.role, plain(&n.name?), n.checked)))
+        .collect()
+}
+
+fn focused_name(ui: &Ui) -> Option<String> {
+    let f = ui.tree().focused()?;
+    let n =
+        ui.reader_view().into_iter().find(|n| ui.element_by_node_id(n.id).is_some_and(|e| e.id() == f))?;
+    n.name.map(|s| plain(&s))
+}
+
+fn english() -> SubtitleTrack {
+    let cues = parse_subtitles("WEBVTT\n\n00:00.000 --> 00:02.000\nHello\n", SubtitleFormat::WebVtt);
+    SubtitleTrack { label: "English".into(), language: Some("en".into()), cues }
+}
+
+#[test]
+fn one_captions_button_says_what_shows_and_its_menu_picks_and_times() {
+    use remedy_ui_a11y::Role;
+    let mut s = Screen::new();
+    let (p, view) = scripted(&mut s);
+    // Nothing to pick: no button.
+    assert!(!shown(&view, "Captions: off"));
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let h = heard.clone();
+    p.on_caption_pick(move |pick| h.lock().unwrap_or_else(|e| e.into_inner()).push(pick.clone()));
+    p.add_subtitles(english());
+    p.set_caption_choices(vec![CaptionChoice::new("os:1", "Deutsch").detail("Hearing impaired")]);
+    p.set_caption_note(Some("Searching online…".into()));
+    s.pump();
+    assert!(shown(&view, "Captions: off"));
+    assert!(texts(&view, "label").iter().any(|t| t == "Off"), "the state is on the button, in words");
+
+    // Enter opens the menu: what can show, each marked, and the timing.
+    let button = el(&view, "Captions: off");
+    button.focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    s.pump();
+    let entries = menu_entries(&s.ui);
+    let names: Vec<&str> = entries.iter().map(|e| e.1.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "Off",
+            "Auto",
+            "English",
+            "Deutsch · Hearing impaired",
+            "Searching online…",
+            "Earlier (−0.5 s) · in sync",
+            "Later (+0.5 s) · in sync",
+            "Reset timing"
+        ]
+    );
+    assert_eq!(entries.first().map(|e| (e.0, e.2)), Some((Role::MenuItemRadio, Some(true))), "Off is marked");
+    assert_eq!(button.info().and_then(|i| i.semantics).and_then(|s| s.expanded_state()), Some(true));
+    assert_eq!(focused_name(&s.ui).as_deref(), Some("Off"));
+
+    // Auto: the app picks and shows its pick.
+    assert!(press(&s.ui, Key::ArrowDown));
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert!(menu_entries(&s.ui).is_empty(), "a pick closes the menu");
+    assert_eq!(p.caption_pick(), CaptionPick::Auto);
+    assert!(shown(&view, "Captions: auto"));
+    p.set_caption_track(Some(0));
+    s.pump();
+    assert!(
+        shown(&view, "Captions: auto, English")
+            && texts(&view, "label").iter().any(|t| t == "Auto · English")
+    );
+    assert_eq!(p.caption_pick(), CaptionPick::Auto, "the app's pick stays Auto");
+
+    // An online choice: loading, in words, until the app shows it.
+    el(&view, "Captions: auto, English").focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    s.pump();
+    for _ in 0..3 {
+        assert!(press(&s.ui, Key::ArrowDown));
+    }
+    assert_eq!(focused_name(&s.ui).as_deref(), Some("Deutsch · Hearing impaired"));
+    assert!(press(&s.ui, Key::Enter));
+    p.set_captions_loading(true);
+    s.pump();
+    assert!(shown(&view, "Captions: loading") && texts(&view, "label").iter().any(|t| t == "Loading…"));
+    let mut de = english();
+    de.label = "Deutsch".into();
+    let at = p.add_subtitles(de);
+    p.set_caption_track(Some(at));
+    s.pump();
+    assert!(!p.captions_loading() && shown(&view, "Captions: Deutsch"));
+    assert_eq!(
+        *heard.lock().unwrap_or_else(|e| e.into_inner()),
+        [CaptionPick::Auto, CaptionPick::Choice("os:1".into())]
+    );
+
+    // C: off, and back to what was showing.
+    view.clone().focusable(true).focus();
+    assert!(press(&s.ui, Key::Character("c".into())));
+    s.pump();
+    assert!(
+        p.caption_pick() == CaptionPick::Off && p.caption_track().is_none() && shown(&view, "Captions: off")
+    );
+    assert!(press(&s.ui, Key::Character("c".into())));
+    s.pump();
+    assert_eq!(p.caption_track(), Some(at), "C brings back the track it had loaded");
+
+    // Timing: steps keep the menu open, and say where the timing is now.
+    el(&view, "Captions: Deutsch").focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    s.pump();
+    while focused_name(&s.ui).is_some_and(|n| !n.starts_with("Later")) {
+        assert!(press(&s.ui, Key::ArrowDown));
+    }
+    assert!(press(&s.ui, Key::Enter));
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert_eq!(p.caption_delay(), 1000);
+    assert_eq!(focused_name(&s.ui).as_deref(), Some("Later (+0.5 s) · now 1 s later"));
+    assert!(!menu_entries(&s.ui).is_empty(), "still open");
+    let said = el(&view, "Captions: Deutsch").info().and_then(|i| i.semantics);
+    assert_eq!(said.and_then(|s| s.description_text().map(plain)).as_deref(), Some("now 1 s later"));
+    audit_clean(&mut s);
+    assert!(press(&s.ui, Key::Escape));
+    s.pump();
+    assert!(menu_entries(&s.ui).is_empty());
+}
+
+#[test]
+fn loading_reads_in_words_and_the_glyph_pulses_unless_motion_is_reduced() {
+    let mut s = Screen::new();
+    let (p, view) = scripted(&mut s);
+    p.on_caption_pick(|_| {});
+    s.ui.set_frame_time(Duration::ZERO);
+    p.set_caption_pick(CaptionPick::Auto);
+    p.set_captions_loading(true);
+    s.pump();
+    let button = el(&view, "Captions: loading");
+    assert!(texts(&view, "label").iter().any(|t| t == "Loading…"));
+    let glyph = button.child_elements().into_iter().next().unwrap_or_else(|| unreachable!("the glyph"));
+    let opacity = |s: &mut Screen, ms: u64| {
+        s.ui.set_frame_time(Duration::from_millis(ms));
+        s.pump();
+        glyph.info().map_or(0.0, |i| i.style.opacity)
+    };
+    // Portal's subs-pulse: 0.45 at the middle of 1.2 s, back to 1 at its end, again.
+    assert!((opacity(&mut s, 600) - 0.45).abs() < 0.02);
+    assert!((opacity(&mut s, 1200) - 1.0).abs() < 0.02);
+    assert!((opacity(&mut s, 1800) - 0.45).abs() < 0.02);
+    // Reduced motion: no pulse; the words say it.
+    s.ui.set_reduced_motion(true);
+    assert!((opacity(&mut s, 2100) - 1.0).abs() < 0.001);
+    assert!((opacity(&mut s, 2400) - 1.0).abs() < 0.001);
+    assert!(texts(&view, "label").iter().any(|t| t == "Loading…"));
+    s.ui.set_reduced_motion(false);
+    p.set_captions_loading(false);
+    assert!((opacity(&mut s, 3000) - 1.0).abs() < 0.001, "done loading, steady");
+}
+
+#[test]
+fn the_captions_pick_carries_to_the_next_media() {
+    let mut s = Screen::new();
+    let (p, view) = scripted(&mut s);
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let h = heard.clone();
+    p.on_caption_pick(move |pick| h.lock().unwrap_or_else(|e| e.into_inner()).push(pick.clone()));
+    p.add_subtitles(english());
+    p.set_caption_pick(CaptionPick::Track(0));
+    p.set_caption_delay(500);
+    p.start_next(MediaSource::url("script:"), None);
+    // The next plays once open (it may never be seen paused): wait for it to open.
+    s.wait("the next", |_| p.info().is_some());
+    // The app adds the next media's tracks: the one named as before is picked again.
+    let cues = parse_subtitles("WEBVTT\n\n00:00.000 --> 00:01.000\nHallo\n", SubtitleFormat::WebVtt);
+    p.add_subtitles(SubtitleTrack { label: "Deutsch".into(), language: None, cues });
+    assert_eq!(p.caption_track(), None);
+    let at = p.add_subtitles(english());
+    s.pump();
+    assert_eq!((p.caption_pick(), p.caption_track()), (CaptionPick::Track(at), Some(at)));
+    assert!(shown(&view, "Captions: English"));
+    assert_eq!(p.caption_delay(), 500, "the timing too");
+    // Auto is asked again for each new media.
+    p.set_caption_pick(CaptionPick::Auto);
+    p.start_next(MediaSource::url("script:"), None);
+    s.wait("the one after", |_| p.info().is_some());
+    let picks = heard.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert_eq!(picks.iter().filter(|p| **p == CaptionPick::Auto).count(), 2, "{picks:?}");
+    assert_eq!(p.caption_pick(), CaptionPick::Auto);
+}
+
+#[test]
+fn skip_buttons_move_ten_seconds_and_the_speed_button_can_go() {
+    let mut s = Screen::new();
+    let options = PlayerOptions::default().skip_buttons(true).speed_button(false);
+    let (p, view) = scripted_with(&mut s, 30, options);
+    let names = |v: &El| {
+        find(v, "button")
+            .into_iter()
+            .filter_map(|b| b.info().and_then(|i| i.semantics).and_then(|s| s.name().map(plain)))
+            .collect::<Vec<_>>()
+    };
+    assert!(!names(&view).iter().any(|n| n.starts_with("Speed")), "{:?}", names(&view));
+    p.seek(Duration::from_secs(15));
+    s.wait("at 15 s", |_| near(p.position(), 15.0, 0.001));
+    el(&view, "Forward 10 seconds").focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.wait("at 25 s", |_| near(p.position(), 25.0, 0.001));
+    el(&view, "Back 10 seconds").focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.wait("back at 15 s", |_| near(p.position(), 15.0, 0.001));
+    audit_clean(&mut s);
+    // By default the speed button is there and no skip buttons.
+    let mut t = Screen::new();
+    let (_, plain_view) = scripted(&mut t);
+    assert!(names(&plain_view).iter().any(|n| n.starts_with("Speed")));
+    assert!(named(&plain_view, "Back 10 seconds").is_none());
+}
+
+#[test]
+fn the_apps_controls_sit_in_the_bar_in_order_in_two_rows() {
+    let mut s = Screen::new();
+    let host = Arc::new(Scripted {
+        heard: Arc::new(AtomicU64::new(0)),
+        buffer: Duration::from_millis(200),
+        device: false,
+        seconds: 3,
+    });
+    // Portal's bar: no speed button.
+    let options = PlayerOptions::default().two_rows(true).skip_buttons(true).speed_button(false);
+    let p = Player::open(&s.ui, host, MediaSource::url("script:"), options);
+    p.on_theater(|_| {});
+    let pip = remedy_ui_widgets_core::icon_button(
+        &s.ui,
+        remedy_ui_widgets_core::Icon::Image,
+        "Picture in picture",
+        || {},
+    );
+    let more =
+        remedy_ui_widgets_core::icon_button(&s.ui, remedy_ui_widgets_core::Icon::Info, "Details", || {});
+    let view =
+        player_with(&s.ui, &p, "Scripted", PlayerParts::default().end(vec![pip.clone(), more.clone()]));
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    // Portal's two rows: the seek bar above the buttons.
+    let (seek, play) = (el(&view, "Seek"), el(&view, "Play"));
+    let (sb, pb) = (seek.bounds().unwrap_or_default(), play.bounds().unwrap_or_default());
+    assert!(sb.max.y <= pb.min.y + 0.5, "{sb:?} above {pb:?}");
+    // In order: Play, the skips, ..., captions, the app's two, theater, full screen.
+    let row = play.parent().unwrap_or_else(|| unreachable!());
+    let order: Vec<_> = row.child_elements().iter().map(El::id).collect();
+    let at = |e: &El| order.iter().position(|i| *i == e.id()).unwrap_or_else(|| unreachable!("in the row"));
+    let wanted = ["Play", "Back 10 seconds", "Forward 10 seconds", "Captions: off"];
+    let mut last = 0;
+    for n in wanted {
+        let i = at(&el(&view, n));
+        assert!(i >= last, "{n} out of order");
+        last = i;
+    }
+    assert!(last < at(&pip) && at(&pip) < at(&more) && at(&more) < at(&el(&view, "Theater mode")));
+    assert!(at(&el(&view, "Theater mode")) < at(&el(&view, "Full screen")));
+    audit_clean(&mut s);
+}
+
+#[test]
+fn the_compact_layout_keeps_playing_and_shows_only_the_mini_parts() {
+    let mut s = Screen::new();
+    let host = Arc::new(Scripted {
+        heard: Arc::new(AtomicU64::new(0)),
+        buffer: Duration::from_millis(200),
+        device: false,
+        seconds: 30,
+    });
+    let p =
+        Player::open(&s.ui, host, MediaSource::url("script:"), PlayerOptions::default().skip_buttons(true));
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let a = asked.clone();
+    p.on_theater(move |on| a.lock().unwrap_or_else(|e| e.into_inner()).push(on));
+    let title = s.ui.el("label").text("Episode 3");
+    let view = player_with(&s.ui, &p, "Scripted", PlayerParts::default().title(title.clone()));
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    let seen = |e: &El| {
+        let mut at = Some(e.clone());
+        while let Some(x) = at {
+            if x.info().is_none_or(|i| i.hidden) {
+                return false;
+            }
+            at = x.parent();
+        }
+        true
+    };
+    assert!(!seen(&title), "the title waits for compact");
+    p.request_theater(true);
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+
+    p.set_compact(true);
+    s.pump();
+    assert!(p.is_compact() && !p.is_theater(), "compact leaves theater mode");
+    assert!(shown(&view, "Pause") && seen(&title));
+    assert!(texts(&view, "label").iter().any(|t| t.ends_with("/ 0:30")), "the time");
+    for gone in ["Seek", "Mute", "Volume", "Back 10 seconds", "Full screen", "Theater mode"] {
+        assert!(!shown(&view, gone), "{gone} in the mini player");
+    }
+    let surface = find(&view, "video_surface").into_iter().next().unwrap_or_else(|| unreachable!());
+    let b = surface.bounds().unwrap_or_default();
+    assert!(b.width() > 0.0 && b.width() < SIZE.width / 2.0, "a small picture: {b:?}");
+    let at = p.position();
+    s.idle(300);
+    assert_eq!(p.state(), PlaybackState::Playing, "small but seen, it plays on");
+    assert!(p.position() > at);
+    audit_clean(&mut s);
+
+    // T comes back straight into theater mode; then out of compact the bar is back.
+    view.clone().focusable(true).focus();
+    assert!(letter(&s.ui, "t", false));
+    s.pump();
+    assert!(!p.is_compact() && p.is_theater());
+    assert!(shown(&view, "Seek") && shown(&view, "Mute"));
+    assert_eq!(p.state(), PlaybackState::Playing);
+    // Compact and back brings theater mode back by itself, as Portal's.
+    p.set_compact(true);
+    p.set_compact(false);
+    assert!(p.is_theater());
+    assert_eq!(*asked.lock().unwrap_or_else(|e| e.into_inner()), [true, false, true, false, true]);
+}
+
+#[test]
+fn a_second_picture_keeps_the_player_seen_while_the_first_is_hidden() {
+    let mut s = Screen::new();
+    let host = Arc::new(Scripted {
+        heard: Arc::new(AtomicU64::new(0)),
+        buffer: Duration::from_millis(200),
+        device: false,
+        seconds: 30,
+    });
+    let p = Player::open(&s.ui, host, MediaSource::url("script:"), PlayerOptions::default());
+    let view = player(&s.ui, &p, "Scripted");
+    let pip = player_picture(&s.ui, &p, "Scripted, small").width(120.0).height(80.0);
+    s.ui.root().child(view.clone()).child(pip.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    let _ = view.clone().hidden(true);
+    s.idle(300);
+    assert_eq!(p.state(), PlaybackState::Playing, "the other picture is seen");
+    // The pictures go to the one shown: frames keep coming.
+    let shown_frames = |s: &Screen| luma(&s.frame);
+    let before = shown_frames(&s);
+    s.wait("a newer picture", |s| shown_frames(s) != before);
+    let _ = pip.clone().hidden(true);
+    s.wait("paused with none seen", |_| p.state() == PlaybackState::Paused);
+    let _ = view.clone().hidden(false);
+    s.wait("playing again", |_| p.state() == PlaybackState::Playing);
+    pip.remove();
+    s.idle(100);
+    assert_eq!(p.state(), PlaybackState::Playing);
 }
