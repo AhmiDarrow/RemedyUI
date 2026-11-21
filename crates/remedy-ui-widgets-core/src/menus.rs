@@ -376,6 +376,7 @@ pub(crate) struct Chain {
     timer: Cell<Option<u64>>,
     bar: Option<BarLink>,
     rtl: bool,
+    press_through: bool,
     closed: Cell<bool>,
     on_closed: RefCell<Vec<Box<dyn FnOnce()>>>,
 }
@@ -391,6 +392,8 @@ pub(crate) struct Open {
     pub(crate) bar: Option<BarLink>,
     /// Laid out right to left (what it opened from is).
     pub(crate) rtl: bool,
+    /// The press outside that closes it also reaches what is under it.
+    pub(crate) press_through: bool,
 }
 
 impl Chain {
@@ -405,6 +408,7 @@ impl Chain {
             timer: Cell::new(None),
             bar: o.bar,
             rtl: o.rtl,
+            press_through: o.press_through,
             closed: Cell::new(false),
             on_closed: RefCell::new(Vec::new()),
         });
@@ -915,6 +919,10 @@ impl Chain {
         }
         if e.phase == PointerPhase::Down {
             self.close(true);
+            if self.press_through {
+                // The layer is gone: the same press goes on to what was under it.
+                let _ = self.ui.pointer(e);
+            }
             return true;
         }
         false
@@ -999,7 +1007,8 @@ pub(crate) fn open_menu(
     let ui = from.ui();
     let restore = ui.tree().focused().map(|f| ui.element(f));
     let rtl = from.is_rtl();
-    OpenMenu(Chain::open(ui, items, Open { anchor, label: None, keyboard, last, restore, bar: None, rtl }))
+    let o = Open { anchor, label: None, keyboard, last, restore, bar: None, rtl, press_through: false };
+    OpenMenu(Chain::open(ui, items, o))
 }
 
 /// Opens a menu below `anchor`. Returns the menu's layer; it closes itself when an entry is
@@ -1010,6 +1019,28 @@ pub fn menu(ui: &Ui, anchor: &El, items: Vec<MenuItem>) -> El {
     let b = anchor.bounds().unwrap_or(Rect::ZERO);
     let _ = ui;
     open_menu(anchor, b, items, false, false).layer()
+}
+
+/// Opens a menu below `anchor` as [`menu`] does, except that the press outside that closes it
+/// also reaches what is under it: a click on a video player's picture both closes the menu
+/// and plays or pauses, as in a web page's player.
+#[track_caller]
+pub fn menu_press_through(ui: &Ui, anchor: &El, items: Vec<MenuItem>) -> El {
+    let b = anchor.bounds().unwrap_or(Rect::ZERO);
+    let from = anchor.ui();
+    let restore = from.tree().focused().map(|f| from.element(f));
+    let o = Open {
+        anchor: b,
+        label: None,
+        keyboard: false,
+        last: false,
+        restore,
+        bar: None,
+        rtl: anchor.is_rtl(),
+        press_through: true,
+    };
+    let _ = ui;
+    Chain::open(&from, items, o).layer.clone()
 }
 
 /// Opens a menu at the pointer on a secondary press (right click) on `target`, or with the

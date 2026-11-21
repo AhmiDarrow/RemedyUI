@@ -1795,19 +1795,22 @@ fn a_click_on_the_picture_plays_and_pauses_once_no_second_click_comes() {
     p.set_remote(None);
     s.pump();
 
-    // A press outside an open menu only closes it, as everywhere in RemedyUI.
+    // A press outside an open menu only closes it, as everywhere in RemedyUI...
     let anchor = el(&view, "Mute");
-    let _menu = remedy_ui_widgets_core::menu(
-        &s.ui,
-        &anchor,
-        vec![remedy_ui_widgets_core::MenuItem::new("Something", || {})],
-    );
+    let items = || vec![remedy_ui_widgets_core::MenuItem::new("Something", || {})];
+    let _menu = remedy_ui_widgets_core::menu(&s.ui, &anchor, items());
     s.pump();
     presses(&mut s, &stage, &[13_000], Mouse);
     s.idle(300);
     assert_eq!(p.state(), PlaybackState::Paused);
+    // ...but a menu opened to let it through (an app's cast menu) closes and plays, as in a
+    // web page's player.
+    let menu = remedy_ui_widgets_core::menu_press_through(&s.ui, &anchor, items());
+    s.pump();
+    assert!(menu.info().is_some_and(|i| !i.hidden));
     presses(&mut s, &stage, &[14_000], Mouse);
     s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    assert!(menu.info().is_none(), "the menu closed");
 }
 
 #[test]
@@ -1821,4 +1824,58 @@ fn in_the_classic_scheme_a_click_on_the_picture_does_nothing() {
     assert_eq!(p.state(), PlaybackState::Paused);
     presses(&mut s, &stage, &[3000, 3150], remedy_ui_input::PointerKind::Touch);
     assert!(p.is_fullscreen(), "a double tap is a double click");
+}
+
+#[test]
+fn a_click_on_a_control_hands_the_keys_back_to_the_player_in_the_arrows_scheme() {
+    use remedy_ui_input::PointerKind::{Mouse, Touch};
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default().keys(KeyScheme::Arrows));
+    p.seek(Duration::from_secs(30));
+    s.wait("the seek", |_| near(p.position(), 30.0, 0.001));
+    let mute = el(&view, "Mute");
+    // A click mutes and leaves focus with the player, not the button.
+    presses(&mut s, &mute, &[1000], Mouse);
+    assert!(p.is_muted());
+    assert!(!el(&view, "Unmute").is_focused(), "focus left the button");
+    assert!(view.is_focused(), "the player has the keys");
+    // Space plays and pauses instead of pressing the button again; the arrows skip.
+    assert!(press(&s.ui, Key::Space));
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    assert!(p.is_muted());
+    p.pause();
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    assert!(press(&s.ui, Key::ArrowRight));
+    s.wait("10 s on", |_| near(p.position(), 40.0, 0.001));
+    // A tap on the volume slider: the arrows then skip, not nudge the slider.
+    let volume = el(&view, "Volume");
+    presses(&mut s, &volume, &[2000], Touch);
+    assert!(!volume.is_focused() && view.is_focused());
+    assert!(press(&s.ui, Key::ArrowLeft));
+    s.wait("10 s back", |_| near(p.position(), 30.0, 0.001));
+    // Tab leaves the player as usual, and it is a plain group again.
+    assert!(press(&s.ui, Key::Tab));
+    assert!(!view.is_focused());
+    s.idle(30);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+    // Keyboard activation keeps focus where the person put it.
+    let unmute = el(&view, "Unmute");
+    unmute.focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert!(!p.is_muted());
+    assert!(el(&view, "Mute").is_focused(), "Enter kept focus on the button");
+}
+
+#[test]
+fn in_the_classic_scheme_a_click_leaves_focus_on_the_control() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default());
+    presses(&mut s, &el(&view, "Mute"), &[1000], remedy_ui_input::PointerKind::Mouse);
+    assert!(p.is_muted());
+    assert!(el(&view, "Unmute").is_focused());
+    assert!(press(&s.ui, Key::Space), "Space presses it again");
+    s.pump();
+    assert!(!p.is_muted());
 }

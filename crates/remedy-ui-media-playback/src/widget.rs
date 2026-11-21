@@ -77,6 +77,37 @@ fn toggle_theater(p: &Player) {
     }
 }
 
+/// In [`KeyScheme::Arrows`], after a click or tap on `control` (not a key), takes focus off
+/// it once the click is done, so the next key goes to the player: Space plays and pauses
+/// instead of pressing the control again, and the arrows skip instead of nudging a slider.
+/// Keyboard activation keeps focus where it is. Focus goes to the player itself (focusable
+/// only until it loses focus again), since keys reach the player only from inside it.
+fn drops_focus_after_click(ui: &Ui, p: &Player, control: &El) {
+    if p.key_scheme() != KeyScheme::Arrows {
+        return;
+    }
+    let (me, u) = (control.clone(), ui.clone());
+    let _ = control.clone().on_pointer(move |e| {
+        if e.phase == PointerPhase::Up {
+            let me = me.clone();
+            u.after(Duration::ZERO, move || {
+                if !me.is_focused() {
+                    return;
+                }
+                let mut home = me.parent();
+                while let Some(h) = home.clone().filter(|h| h.info().is_none_or(|i| i.widget != "player")) {
+                    home = h.parent();
+                }
+                match home {
+                    Some(h) => h.focusable(true).focus(),
+                    None => me.blur(),
+                }
+            });
+        }
+        false
+    });
+}
+
 /// The volume up or down a step, on the 5% grid, unmuting.
 fn nudge_volume(p: &Player, up: bool) {
     let step = if up { VOLUME_STEP } else { -VOLUME_STEP };
@@ -114,7 +145,9 @@ fn nudge_volume(p: &Player, up: bool) {
 ///
 /// Double-clicking (or double-tapping) the picture asks for full screen or leaves it. With
 /// [`KeyScheme::Arrows`] a single click or tap plays and pauses, once no second click has come
-/// within 220 ms (so a double click never plays or pauses). In
+/// within 220 ms (so a double click never plays or pauses), and a click or tap on a control
+/// hands the keys back to the player (Space then plays and pauses rather than pressing it
+/// again); keyboard activation keeps focus on the control. In
 /// remote mode the full-screen and theater buttons are disabled and F, T and a double-click
 /// do nothing, except to leave full screen or theater mode when casting started in it.
 ///
@@ -431,6 +464,9 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             cb.state(remedy_ui_style::States::CHECKED, p.is_remote());
         }
     });
+    for c in [&play, &seek, &mute, &slider, &speed, &captions, &theater, &cast, &full] {
+        drops_focus_after_click(ui, player, c);
+    }
     let bar = ui
         .el("toolbar")
         .row()
@@ -451,10 +487,17 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
 
     let p = player.clone();
     let vis = player.clone();
-    ui.el("player")
-        .column()
+    let root = ui.el("player");
+    let (me, home) = (root.clone(), root.clone());
+    root.column()
         .grow(1.0)
         .semantics(Semantics::new(Role::Group).label(label))
+        // Focusable only while a click left focus here (see `drops_focus_after_click`).
+        .on_focus_change(move |on| {
+            if !on {
+                let _ = me.clone().focusable(false);
+            }
+        })
         .child(stage)
         .child(next)
         .child(bar)
@@ -473,7 +516,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                 Key::ArrowUp if arrows => nudge_volume(&p, true),
                 Key::ArrowDown if arrows => nudge_volume(&p, false),
                 // Buttons press themselves on Space and the seek bar plays and pauses itself.
-                Key::Space if arrows && slider.is_focused() => p.toggle(),
+                Key::Space if arrows && (slider.is_focused() || home.is_focused()) => p.toggle(),
                 Key::Character(c) => match (if arrows { c.to_lowercase() } else { c.clone() }).as_str() {
                     "k" => p.toggle(),
                     "j" => p.seek_by(-JUMP_SEEK),
@@ -589,6 +632,8 @@ fn next_up_card(ui: &Ui, player: &Player) -> El {
             dismissed.set(true);
         },
     );
+    drops_focus_after_click(ui, player, &now);
+    drops_focus_after_click(ui, player, &cancel);
     let card = ui
         .el("player_next")
         .row()

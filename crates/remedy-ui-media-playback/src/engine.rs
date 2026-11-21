@@ -910,7 +910,9 @@ impl Presenter {
                         // No sound follows when the media has none left, or when the decoder is
                         // further ahead with pictures than its look-ahead past the last sound
                         // (the sound track has a gap, or ended before the pictures).
+                        // Sound the time stretcher still holds is more to come.
                         let no_more_sound = f.audio.is_empty()
+                            && self.stretch_from.is_none()
                             && (f.eof || f.video_newest > f.audio_end.saturating_add(f.lead));
                         let waiting = f.audio.is_empty() && !f.eof;
                         drop(f);
