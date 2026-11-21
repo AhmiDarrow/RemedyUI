@@ -305,7 +305,10 @@ enum Serve {
 
 /// The `video` HLS fixture over HTTP, as `how` says; the playlist's URL.
 fn server(how: Serve) -> String {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hls/video");
+    // On a device the fixtures are pushed beside the test binary: REMEDY_FIXTURES says where.
+    let fixtures = std::env::var_os("REMEDY_FIXTURES")
+        .map_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures"), Into::into);
+    let dir = fixtures.join("hls/video");
     let listener = TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| unreachable!("listening: {e}"));
     let port = listener.local_addr().map(|a| a.port()).unwrap_or_default();
     std::thread::spawn(move || {
