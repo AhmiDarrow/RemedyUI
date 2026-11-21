@@ -643,24 +643,25 @@ fn cast_stage(ui: &Ui, player: &Player) -> El {
 fn next_up_card(ui: &Ui, player: &Player) -> El {
     let u = ui.theme().spacing.unit;
     let dismissed = Signal::new(false);
-    let (p, tu) = (player.clone(), ui.clone());
-    let title = ui.el("label").text(move || {
+    // The title and the countdown are announced as they show and change.
+    let said = |text: String| Semantics::new(Role::Status).label(text).live(Live::Polite);
+    let title = ui.el("label");
+    let (t, p, tu) = (title.clone(), player.clone(), ui.clone());
+    let title = title.bind(move || {
         let title = p.next_up().map(|n| n.title).unwrap_or_default();
-        crate::STRINGS.format(&tu, "playback-next-up", &[("title", title.into())])
+        let text = crate::STRINGS.format(&tu, "playback-next-up", &[("title", title.into())]);
+        let _ = t.clone().text(remedy_ui_view::RichText::plain(text.clone())).semantics(said(text));
     });
-    let (p, tu) = (player.clone(), ui.clone());
-    let left = ui.el("label").nowrap().text(move || match p.countdown() {
-        // Whole seconds, rounded up: 5, 4, ... 1.
-        Some(d) => {
-            let secs = d.as_secs() + u64::from(d.subsec_nanos() > 0);
-            crate::STRINGS.format(&tu, "playback-next-up-in", &[("count", secs.into())])
-        }
-        None => String::new(),
-    });
-    let lb = left.clone();
-    let p = player.clone();
+    let left = ui.el("label").nowrap();
+    let (lb, p, tu) = (left.clone(), player.clone(), ui.clone());
     let left = left.bind(move || {
-        let _ = lb.clone().hidden(p.countdown().is_none());
+        let countdown = p.countdown();
+        let _ = lb.clone().hidden(countdown.is_none());
+        // Whole seconds, rounded up: 5, 4, ... 1.
+        let Some(d) = countdown else { return };
+        let secs = d.as_secs() + u64::from(d.subsec_nanos() > 0);
+        let text = crate::STRINGS.format(&tu, "playback-next-up-in", &[("count", secs.into())]);
+        let _ = lb.clone().text(remedy_ui_view::RichText::plain(text.clone())).semantics(said(text));
     });
     let p = player.clone();
     let now = w::button(
@@ -705,14 +706,17 @@ fn next_up_card(ui: &Ui, player: &Player) -> El {
     let p = player.clone();
     let seen = std::cell::RefCell::new(None);
     card.bind(move || {
-        let ended = p.state() == PlaybackState::Ended;
+        // At the end, or near it when the app asks (Portal's last 20 seconds).
+        // Portal's way: while casting, the device moves on by itself and no card shows.
+        let away = p.next_up_early() && p.is_remote();
+        let due = !away && (p.state() == PlaybackState::Ended || p.next_up_near());
         let next = p.next_up();
         // A new end, or something new next, brings the card back.
-        if !ended || *seen.borrow() != next {
+        if !due || *seen.borrow() != next {
             dismissed.set_if_changed(false);
         }
         *seen.borrow_mut() = next.clone();
-        let shown = ended && next.is_some() && !dismissed.get();
+        let shown = due && next.is_some() && !dismissed.get();
         let _ = c.clone().hidden(!shown);
         if let Some(n) = next {
             let _ = c.clone().semantics(Semantics::new(Role::Group).label(n.title));
