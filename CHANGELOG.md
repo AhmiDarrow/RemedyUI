@@ -35,13 +35,6 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   above the bar in full screen. `Player::caption_cues` gives the cues showing with their
   settings. `Cue` has a new `settings` field (`..Default::default()` in literals).
 
-### Fixed
-
-- **The pointer hides reliably over a full-screen player on Windows.** winit hides it with
-  `ShowCursor` only while it believes the pointer is inside the window; the Windows bridge
-  now also answers `WM_SETCURSOR` with no cursor while it is hidden and clears the cursor
-  at once when the pointer is over the window (`PlatformHooks::set_cursor_hidden`).
-
 - **Portal's full-screen overlay** in `media-playback`. In full screen the `player`
   widget's bar floats over the foot of the picture on a gradient, the title the app gives
   (`Player::set_title(Some(..))`) over its head, and both fade 2.6 s after the last pointer,
@@ -922,6 +915,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   change the board (it no longer builds again on each keystroke).
 
 ### Fixed
+
+- **The pointer hides reliably over a full-screen player on Windows.** winit hides it with
+  `ShowCursor` only while it believes the pointer is inside the window; the Windows bridge
+  now also answers `WM_SETCURSOR` with no cursor while it is hidden and clears the cursor
+  at once when the pointer is over the window (`PlatformHooks::set_cursor_hidden`).
 
 - The `remedy-ui` runner tests build for wasm32 again: the PNG check of
   `Window::snapshot_png`, which comes with the `devtools` feature, runs only with it.
