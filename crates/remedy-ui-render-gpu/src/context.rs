@@ -93,7 +93,10 @@ pub struct GpuContext {
     /// The Vulkan device was opened with `VK_KHR_incremental_present`: presents can say
     /// which rectangles changed.
     #[cfg_attr(
-        not(any(all(unix, not(any(target_os = "macos", target_os = "ios"))), feature = "windows-vulkan")),
+        not(any(
+            all(unix, not(any(target_os = "macos", target_os = "ios"))),
+            all(windows, feature = "windows-vulkan")
+        )),
         allow(dead_code)
     )]
     pub(crate) incremental_present: bool,
@@ -232,11 +235,14 @@ impl GpuContext {
         };
         // On Vulkan the device also gets `VK_KHR_incremental_present` where it has it, so a
         // window's own swapchain can report only what changed.
-        #[cfg(any(all(unix, not(any(target_os = "macos", target_os = "ios"))), feature = "windows-vulkan"))]
+        #[cfg(any(
+            all(unix, not(any(target_os = "macos", target_os = "ios"))),
+            all(windows, feature = "windows-vulkan")
+        ))]
         let opened = crate::ffi::vulkan::open_device(&adapter, &desc);
         #[cfg(not(any(
             all(unix, not(any(target_os = "macos", target_os = "ios"))),
-            feature = "windows-vulkan"
+            all(windows, feature = "windows-vulkan")
         )))]
         let opened: Option<Result<(wgpu::Device, wgpu::Queue), wgpu::RequestDeviceError>> = None;
         let incremental_present = matches!(opened, Some(Ok(_)));

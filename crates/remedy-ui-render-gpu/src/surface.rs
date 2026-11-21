@@ -35,7 +35,10 @@ enum Swap {
     #[cfg(windows)]
     Dxgi(crate::ffi::dxgi::DxgiChain),
     /// RemedyUI's own swapchain on wgpu's Vulkan device, which presents only what changed.
-    #[cfg(any(all(unix, not(any(target_os = "macos", target_os = "ios"))), feature = "windows-vulkan"))]
+    #[cfg(any(
+        all(unix, not(any(target_os = "macos", target_os = "ios"))),
+        all(windows, feature = "windows-vulkan")
+    ))]
     Vulkan(Box<crate::ffi::vulkan::VkChain>),
 }
 
@@ -104,7 +107,7 @@ impl GpuSurface {
             Some(Swap::Dxgi(_)) => true,
             #[cfg(any(
                 all(unix, not(any(target_os = "macos", target_os = "ios"))),
-                feature = "windows-vulkan"
+                all(windows, feature = "windows-vulkan")
             ))]
             Some(Swap::Vulkan(_)) => true,
             _ => false,
@@ -120,7 +123,7 @@ impl GpuSurface {
             Some(Swap::Dxgi(_)) => true,
             #[cfg(any(
                 all(unix, not(any(target_os = "macos", target_os = "ios"))),
-                feature = "windows-vulkan"
+                all(windows, feature = "windows-vulkan")
             ))]
             Some(Swap::Vulkan(chain)) => chain.reports_damage(),
             _ => false,
@@ -137,7 +140,9 @@ impl GpuSurface {
 impl GpuSurface {
     /// What a swapchain image that showed a frame `age` presents ago needs copied in: this
     /// frame's rectangles and those of the presents in between. `None` when the image holds
-    /// nothing known (age `0`, or older than the history kept): all of it.
+    /// nothing known (age `0`, or older than the history kept): all of it. Only this window's
+    /// own swapchains keep what they showed.
+    #[cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))]
     fn changed_since(&self, age: usize) -> Option<Vec<(u16, u16, u16, u16)>> {
         (age > 0 && self.history.len() + 1 >= age).then(|| {
             self.pending.iter().chain(self.history.iter().take(age - 1).flatten()).copied().collect()
@@ -279,7 +284,10 @@ fn own_vulkan_or_wgpu(
     format: wgpu::TextureFormat,
     vsync: bool,
 ) -> Result<Swap, GpuError> {
-    #[cfg(any(all(unix, not(any(target_os = "macos", target_os = "ios"))), feature = "windows-vulkan"))]
+    #[cfg(any(
+        all(unix, not(any(target_os = "macos", target_os = "ios"))),
+        all(windows, feature = "windows-vulkan")
+    ))]
     let surface = if premultiplied {
         surface
     } else {
@@ -305,7 +313,10 @@ fn own_vulkan_or_wgpu(
     Ok(Swap::Wgpu(surface))
 }
 
-#[cfg(any(all(unix, not(any(target_os = "macos", target_os = "ios"))), feature = "windows-vulkan"))]
+#[cfg(any(
+    all(unix, not(any(target_os = "macos", target_os = "ios"))),
+    all(windows, feature = "windows-vulkan")
+))]
 fn vk_error(e: crate::ffi::vulkan::ChainError) -> GpuError {
     match e {
         crate::ffi::vulkan::ChainError::Lost => GpuError::Lost,
@@ -381,7 +392,7 @@ impl GpuCompositor {
             }
             #[cfg(any(
                 all(unix, not(any(target_os = "macos", target_os = "ios"))),
-                feature = "windows-vulkan"
+                all(windows, feature = "windows-vulkan")
             ))]
             Some(Swap::Vulkan(chain)) => {
                 if chain.resize(surface.config.width, surface.config.height).is_err() {
@@ -468,7 +479,10 @@ impl GpuCompositor {
         if let Some(Swap::Dxgi(_)) = &surface.surface {
             return self.present_dxgi(surface);
         }
-        #[cfg(any(all(unix, not(any(target_os = "macos", target_os = "ios"))), feature = "windows-vulkan"))]
+        #[cfg(any(
+            all(unix, not(any(target_os = "macos", target_os = "ios"))),
+            all(windows, feature = "windows-vulkan")
+        ))]
         if let Some(Swap::Vulkan(_)) = &surface.surface {
             return self.present_vulkan(surface);
         }
@@ -611,7 +625,10 @@ impl GpuCompositor {
 
     /// Presents through RemedyUI's own Vulkan swapchain: the image keeps what it showed, so
     /// only what changed since is copied in and reported to the presentation engine.
-    #[cfg(any(all(unix, not(any(target_os = "macos", target_os = "ios"))), feature = "windows-vulkan"))]
+    #[cfg(any(
+        all(unix, not(any(target_os = "macos", target_os = "ios"))),
+        all(windows, feature = "windows-vulkan")
+    ))]
     fn present_vulkan(&mut self, surface: &mut GpuSurface) -> Result<Presented, GpuError> {
         use crate::ffi::LastUse;
         let ctx = self.renderer().context();
