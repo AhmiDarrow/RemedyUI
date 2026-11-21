@@ -36,37 +36,89 @@ fn failed(what: &'static str) -> impl Fn(vk::Result) -> ChainError {
 }
 
 /// Opens `adapter`'s Vulkan device as wgpu would, with `VK_KHR_incremental_present` added
-/// where the device has it. `None` when the adapter is not Vulkan or lacks the extension (the
-/// caller opens the device the usual way; presents then report the whole window). An error
-/// says why a device that has the extension would not open with it.
+/// where the device has it, and on Android `VK_ANDROID_external_memory_android_hardware_buffer`
+/// with the Y'CbCr sampler feature (decoded pictures sampled where the decoder left them;
+/// [`super::video`]). Returns the device and whether presents can report what changed. `None`
+/// when the adapter is not Vulkan or has none of these (the caller opens the device the usual
+/// way). An error says why a device that has them would not open with them.
 pub(crate) fn open_device(
     adapter: &wgpu::Adapter,
     desc: &wgpu::DeviceDescriptor<'_>,
-) -> Option<Result<(wgpu::Device, wgpu::Queue), String>> {
-    // SAFETY: wgpu's own adapter; the callback only adds an extension the device reports.
+) -> Option<Result<(wgpu::Device, wgpu::Queue, bool), String>> {
+    // SAFETY: wgpu's own adapter. The device is made as `open_with_callback` makes it, from
+    // wgpu-hal's own extension and feature lists, plus extensions the device reports and the
+    // one feature bit (in wgpu's own feature struct) that the device reports too.
     unsafe {
         let hal = adapter.as_hal::<Vk>()?;
         let instance = hal.shared_instance().raw_instance();
-        let extensions = instance.enumerate_device_extension_properties(hal.raw_physical_device()).ok()?;
-        let name = ash::khr::incremental_present::NAME;
-        if !extensions.iter().any(|e| e.extension_name_as_c_str() == Ok(name)) {
+        let physical = hal.raw_physical_device();
+        let extensions = instance.enumerate_device_extension_properties(physical).ok()?;
+        let has = |name: &std::ffi::CStr| extensions.iter().any(|e| e.extension_name_as_c_str() == Ok(name));
+        let incremental = has(ash::khr::incremental_present::NAME);
+        let wanted = super::video::wanted_extensions();
+        let video = !wanted.is_empty() && wanted.iter().all(|n| has(n)) && {
+            let mut ycbcr = vk::PhysicalDeviceSamplerYcbcrConversionFeatures::default();
+            let mut f = vk::PhysicalDeviceFeatures2::default().push_next(&mut ycbcr);
+            instance.get_physical_device_features2(physical, &mut f);
+            let version = instance.get_physical_device_properties(physical).api_version;
+            ycbcr.sampler_ycbcr_conversion == vk::TRUE && version >= vk::API_VERSION_1_1
+        };
+        if !incremental && !video {
             return None;
         }
-        let open = match hal.open_with_callback(
+        let mut names = hal.required_device_extensions(desc.required_features);
+        let mut add = |n: &'static std::ffi::CStr| {
+            if !names.contains(&n) {
+                names.push(n);
+            }
+        };
+        if incremental {
+            add(ash::khr::incremental_present::NAME);
+        }
+        if video {
+            wanted.iter().for_each(|n| add(n));
+        }
+        let mut features = hal.physical_device_features(&names, desc.required_features);
+        let pointers: Vec<_> = names.iter().map(|n| n.as_ptr()).collect();
+        let queues = [vk::DeviceQueueCreateInfo::default().queue_family_index(0).queue_priorities(&[1.0])];
+        let info = features.add_to_device_create(
+            vk::DeviceCreateInfo::default().queue_create_infos(&queues).enabled_extension_names(&pointers),
+        );
+        if video {
+            // wgpu chains the Y'CbCr conversion feature but leaves it off; it is turned on.
+            let mut at = info.p_next as *mut vk::BaseOutStructure<'_>;
+            while let Some(s) = at.as_mut() {
+                if s.s_type == vk::StructureType::PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES {
+                    (*(at as *mut vk::PhysicalDeviceSamplerYcbcrConversionFeatures<'_>))
+                        .sampler_ycbcr_conversion = vk::TRUE;
+                }
+                at = s.p_next;
+            }
+        }
+        let raw = match instance.create_device(physical, &info, None) {
+            Ok(d) => d,
+            Err(e) => return Some(Err(e.to_string())),
+        };
+        let open = match hal.device_from_raw(
+            raw,
+            None,
+            &names,
             desc.required_features,
             &desc.required_limits,
             &desc.memory_hints,
-            Some(Box::new(move |args| {
-                if !args.extensions.contains(&name) {
-                    args.extensions.push(name);
-                }
-            })),
+            0,
+            0,
         ) {
             Ok(open) => open,
             Err(e) => return Some(Err(e.to_string())),
         };
         drop(hal);
-        Some(adapter.create_device_from_hal::<Vk>(open, desc).map_err(|e| e.to_string()))
+        Some(
+            adapter
+                .create_device_from_hal::<Vk>(open, desc)
+                .map(|(d, q)| (d, q, incremental))
+                .map_err(|e| e.to_string()),
+        )
     }
 }
 

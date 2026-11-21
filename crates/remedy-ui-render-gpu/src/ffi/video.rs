@@ -7,19 +7,37 @@
 //! decoder's shared fence first, and is followed by a one-barrier list of ours that hands the
 //! texture back in the common state (wgpu leaves it in the shader-resource state), so D3D11
 //! may write the next picture into it. The picture is held until that list has run.
+//!
+//! Android: a MediaCodec picture's `AHardwareBuffer` is imported into wgpu's Vulkan device and
+//! drawn into the stream's converted picture by a pass of ours ([`android`]).
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 use remedy_ui_paint::GpuFrame;
 
+#[cfg(target_os = "android")]
+mod android;
+#[cfg(target_os = "android")]
+pub(crate) use android::{Shared, wanted_extensions};
 #[cfg(windows)]
 pub(crate) use windows_shared::Shared;
 
+/// Device extensions importing pictures needs, which [`super::vulkan::open_device`] adds
+/// where the device has them all (none: nothing is imported on this platform).
+#[cfg(not(target_os = "android"))]
+#[cfg(any(
+    all(unix, not(any(target_os = "macos", target_os = "ios"))),
+    all(windows, feature = "windows-vulkan")
+))]
+pub(crate) fn wanted_extensions() -> &'static [&'static std::ffi::CStr] {
+    &[]
+}
+
 /// A stream's pictures opened on this device, and those the GPU is still reading.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 #[derive(Default)]
 pub(crate) struct Shared(());
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 impl Shared {
     /// `picture`'s texture opened on `device`; `None` when this device cannot open it.
     pub(crate) fn open(&mut self, device: &wgpu::Device, picture: &GpuFrame) -> Option<wgpu::Texture> {
@@ -48,7 +66,13 @@ pub(crate) fn announce(device: &wgpu::Device) {
             remedy_ui_paint::set_gpu_video_adapter(Some(remedy_ui_paint::GpuAdapter::Luid(luid)));
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "android")]
+    {
+        if android::can_import(device) {
+            remedy_ui_paint::set_gpu_video_adapter(Some(remedy_ui_paint::GpuAdapter::Only));
+        }
+    }
+    #[cfg(not(any(windows, target_os = "android")))]
     let _ = device;
 }
 
