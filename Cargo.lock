@@ -4570,6 +4570,7 @@ dependencies = [
  "wasm-bindgen-test",
  "web-sys",
  "windows",
+ "zbus 6.3.0",
 ]
 
 [[package]]
@@ -4747,6 +4748,7 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
  "windows",
