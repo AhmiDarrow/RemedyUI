@@ -772,8 +772,12 @@ impl Painter {
                 Item::Backdrop { rect, radii, blur } => {
                     let sigma = if blur.is_finite() { blur.max(0.0) } else { 0.0 };
                     let Some(&(start, root_t)) = roots.last() else { continue };
-                    // Glass opens two layers, and replays what is under it inside them.
-                    if (sigma == 0.0 && start == i) || self.layers + 2 > remedy_ui_paint::MAX_GROUP_DEPTH {
+                    // Glass opens two layers, and replays what is under it inside them; glass
+                    // past the replay budget is drawn without its frost (see Budget).
+                    if (sigma == 0.0 && start == i)
+                        || self.layers + 2 > remedy_ui_paint::MAX_GROUP_DEPTH
+                        || !self.matrices.admit_glass()
+                    {
                         continue;
                     }
                     self.layers += 2;
@@ -787,7 +791,9 @@ impl Painter {
                     let reach = filter_reach(&f, t);
                     let under = cull.map(|a| grow(a, reach));
                     if let Some(prefix) = items.get(start..i) {
+                        self.matrices.glass_depth += 1;
                         self.draw_items(s, prefix, root_t, under, groups + 1, true);
+                        self.matrices.glass_depth -= 1;
                     }
                     s.set_transform(kaffine(t));
                     s.pop_layer();
