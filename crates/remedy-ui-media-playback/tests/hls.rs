@@ -62,7 +62,12 @@ fn serve(mut s: TcpStream, files: &Files, rate: Option<usize>) -> std::io::Resul
             break;
         }
     }
-    let body = files.lock().unwrap_or_else(PoisonError::into_inner).get(&path).cloned();
+    let (body, stall) = {
+        let mut files = files.lock().unwrap_or_else(PoisonError::into_inner);
+        // Every request is logged under `asked`; a file marked `stall:` stops half way, once.
+        files.entry("asked".into()).or_default().extend(format!("{path}\n").bytes());
+        (files.get(&path).cloned(), files.remove(&format!("stall:{path}")).is_some())
+    };
     let (status, body) = match body {
         Some(b) => ("200 OK", b),
         None => ("404 Not Found", Vec::new()),
@@ -72,6 +77,13 @@ fn serve(mut s: TcpStream, files: &Files, rate: Option<usize>) -> std::io::Resul
         "HTTP/1.1 {status}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
         body.len()
     )?;
+    if stall {
+        let (head, rest) = body.split_at(body.len() / 2);
+        s.write_all(head)?;
+        s.flush()?;
+        std::thread::sleep(Duration::from_secs(3));
+        return s.write_all(rest);
+    }
     let Some(rate) = rate else { return s.write_all(&body) };
     // A tenth of a second's worth at a time.
     for chunk in body.chunks((rate / 10).max(1)) {
@@ -361,6 +373,41 @@ fn a_missing_segment_errors() {
         }
     }
     assert!(result.is_err(), "reading past a segment that is not there");
+}
+
+/// How often `path` was asked for.
+fn asked(files: &Files, path: &str) -> usize {
+    let files = files.lock().unwrap_or_else(PoisonError::into_inner);
+    files.get("asked").map_or(0, |a| String::from_utf8_lossy(a).lines().filter(|l| *l == path).count())
+}
+
+/// A segment the server does not have yet (ffmpeg still writing it) is waited for, then plays.
+#[test]
+fn a_late_segment_is_waited_for() {
+    let (url, files) = server(growing(3));
+    let seg = files.lock().unwrap_or_else(PoisonError::into_inner).remove("seg00001.ts");
+    let Some(mut d) = open(&url) else { return };
+    let late = files.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(5));
+        let mut files = late.lock().unwrap_or_else(PoisonError::into_inner);
+        files.extend(seg.map(|s| ("seg00001.ts".to_string(), s)));
+        files.insert("index.m3u8".into(), playlist().into_bytes());
+    });
+    let (pictures, _) = read_all(d.as_mut());
+    assert_eq!(pictures.len(), 75, "pictures");
+    assert!(asked(&files, "seg00001.ts") > 2, "asked again while it was missing");
+}
+
+/// A download that stops half way is dropped after a quiet while and fetched again.
+#[test]
+fn a_stalled_download_is_started_again() {
+    let (url, files) = server(playlist());
+    files.lock().unwrap_or_else(PoisonError::into_inner).insert("stall:seg00001.ts".into(), Vec::new());
+    let Some(mut d) = open(&url) else { return };
+    let (pictures, _) = read_all(d.as_mut());
+    assert_eq!(pictures.len(), 75, "pictures");
+    assert_eq!(asked(&files, "seg00001.ts"), 2, "fetched again after it stalled");
 }
 
 /// The fixture `stream` served over HTTP and read to the end: what it said it holds, every
