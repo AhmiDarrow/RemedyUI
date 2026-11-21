@@ -49,7 +49,8 @@ pub struct PlayerOptions {
     pub next_up_delay: Option<Duration>,
 }
 
-/// What plays after the current media ends ([`Player::set_next_up`]).
+/// Media queued to play after the current one ends ([`Player::set_next_up`],
+/// [`Player::set_queue`], [`Player::enqueue`]).
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct NextUp {
@@ -155,7 +156,8 @@ struct Inner {
     /// Where each embedded text track sits in `tracks`.
     embedded: RefCell<Vec<usize>>,
     autoplayed: Cell<bool>,
-    next_up: Signal<Option<NextUp>>,
+    /// What plays after the current media, in order: the first is next up.
+    queue: Signal<Vec<NextUp>>,
     /// Time left before the next plays, while the countdown runs.
     countdown: Signal<Option<Duration>>,
     /// The countdown's timer and when it ends.
@@ -237,7 +239,7 @@ impl Inner {
     fn count_down(&self) {
         if self.deadline.get().is_some()
             || self.declined.get()
-            || self.next_up.get_untracked().ok().flatten().is_none()
+            || self.queue.with_untracked(Vec::is_empty).unwrap_or(true)
         {
             return;
         }
@@ -285,12 +287,28 @@ impl Inner {
         self.countdown.set_if_changed(None);
     }
 
-    /// Plays what is next, in this player.
+    /// Plays what is next, in this player, taking it off the queue.
     fn advance(&self) {
         self.stop_countdown();
-        let Some(next) = self.next_up.get_untracked().ok().flatten() else { return };
-        self.next_up.set(None);
-        self.load(next.source);
+        if self.queue.with_untracked(Vec::is_empty).unwrap_or(true) {
+            return;
+        }
+        let mut next = None;
+        self.queue.update(|q| next = Some(q.remove(0)));
+        if let Some(next) = next {
+            self.load(next.source);
+        }
+    }
+
+    /// The queue changed: a new next lets the countdown start again at this end, and an
+    /// empty queue stops it.
+    fn queue_changed(&self) {
+        self.declined.set(false);
+        if self.queue.with_untracked(Vec::is_empty).unwrap_or(true) {
+            self.stop_countdown();
+        } else if self.state.get_untracked().ok() == Some(PlaybackState::Ended) {
+            self.count_down();
+        }
     }
 
     /// Replaces the media with `source` and plays it once open: a new engine, every signal
@@ -444,7 +462,7 @@ impl Player {
             fullscreen_handlers: RefCell::new(Vec::new()),
             embedded: RefCell::new(Vec::new()),
             autoplayed: Cell::new(false),
-            next_up: Signal::new(None),
+            queue: Signal::new(Vec::new()),
             countdown: Signal::new(None),
             timer: Cell::new(None),
             deadline: Cell::new(None),
@@ -688,25 +706,40 @@ impl Player {
         self.0.send(Cmd::Visible(seen));
     }
 
-    /// Sets what plays after this media ends, in this player (`None`: nothing). At the end
-    /// a countdown of [`PlayerOptions::next_up_delay`] runs ([`countdown`](Self::countdown))
-    /// and then the next plays; the [`player`](crate::player) widget shows it as "Up next"
-    /// with Play now and Cancel. Setting it again while the countdown runs keeps the
-    /// countdown going, towards the new media.
+    /// Sets what plays after this media ends, in this player, in place of the whole
+    /// [queue](Self::set_queue) (`None`: nothing). At the end a countdown of
+    /// [`PlayerOptions::next_up_delay`] runs ([`countdown`](Self::countdown)) and then the
+    /// next plays; the [`player`](crate::player) widget shows it as "Up next" with Play now
+    /// and Cancel. Setting it again while the countdown runs keeps the countdown going,
+    /// towards the new media.
     pub fn set_next_up(&self, next: Option<NextUp>) {
-        let none = next.is_none();
-        self.0.next_up.set(next);
-        self.0.declined.set(false);
-        if none {
-            self.0.stop_countdown();
-        } else if self.0.state.get_untracked().ok() == Some(PlaybackState::Ended) {
-            self.0.count_down();
-        }
+        self.set_queue(next.into_iter().collect());
     }
 
-    /// What plays after this media ends. Tracked.
+    /// Sets what plays after this media, in order: when one ends the first of the rest
+    /// counts down and plays, and so on until the queue is empty. Each plays in this player,
+    /// taken off the queue as it starts. An empty queue stops a countdown that runs.
+    pub fn set_queue(&self, queue: Vec<NextUp>) {
+        self.0.queue.set(queue);
+        self.0.queue_changed();
+    }
+
+    /// Adds `next` at the end of the queue (as next up, when the queue is empty; and if the
+    /// media has already ended, its countdown starts).
+    pub fn enqueue(&self, next: NextUp) {
+        self.0.queue.update(|q| q.push(next));
+        self.0.queue_changed();
+    }
+
+    /// What plays after this media, in order; the first is [next up](Self::next_up).
+    /// Tracked.
+    pub fn queue(&self) -> Vec<NextUp> {
+        self.0.queue.get()
+    }
+
+    /// What plays after this media ends: the first in the queue. Tracked.
     pub fn next_up(&self) -> Option<NextUp> {
-        self.0.next_up.get()
+        self.0.queue.with(|q| q.first().cloned())
     }
 
     /// The time left before the next media plays, while the countdown at the end runs.
@@ -721,8 +754,9 @@ impl Player {
         self.0.stop_countdown();
     }
 
-    /// Plays the next media now, in this player (nothing when none is set): the current one
-    /// stops, and every signal about the media starts over with the next.
+    /// Plays the next media now, in this player, taking it off the queue (nothing when the
+    /// queue is empty): the current one stops, and every signal about the media starts over
+    /// with the next.
     pub fn play_next(&self) {
         self.0.advance();
     }
