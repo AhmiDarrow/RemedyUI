@@ -49,26 +49,33 @@ pub extern "C" fn Java_HlsCheck_run(_env: *mut c_void, _class: *mut c_void, port
     failed + i32::from(got.is_err())
 }
 
-/// The threads this process runs (Rust's go unnamed on Android, so all are counted).
-fn threads() -> usize {
-    std::fs::read_dir("/proc/self/task").map_or(0, Iterator::count)
+/// The ids of the threads this process runs (Rust's go unnamed here, so ids it is).
+fn threads() -> std::collections::HashSet<String> {
+    std::fs::read_dir("/proc/self/task")
+        .map(|d| d.flatten().map(|t| t.file_name().to_string_lossy().into_owned()).collect())
+        .unwrap_or_default()
 }
 
 /// Opens `url` (a server 5 s slow to answer), drops it while the next segment is being
-/// fetched, and waits for the fetch's two threads (fetching, and its watchdog) to go: how
-/// long that took, or that they stayed. The server's thread, asleep, stays.
+/// fetched, and waits for the threads that came with it to go: all but the server's, asleep
+/// on that request. How long that took, or what stayed.
 fn drop_mid_fetch(url: &str) -> Result<Duration, String> {
     let host = platform_host().map_err(|e| format!("no platform host: {e}"))?;
+    let before = threads();
     let mut d = host.open(&MediaSource::Url(url.into())).map_err(|e| format!("opening: {e}"))?;
     // Starts the next segment's fetch.
     let _ = d.buffered();
     std::thread::sleep(Duration::from_millis(500));
-    let before = threads();
+    let new: Vec<String> = threads().difference(&before).cloned().collect();
+    let left = || {
+        let now = threads();
+        new.iter().filter(|t| now.contains(*t)).count()
+    };
     let dropped = std::time::Instant::now();
     drop(d);
-    while threads() + 2 > before {
+    while left() > 1 {
         if dropped.elapsed() > Duration::from_secs(2) {
-            return Err(format!("{} of {before} threads still running 2 s after the drop", threads()));
+            return Err(format!("{} of its {} threads still running 2 s after the drop", left(), new.len()));
         }
         std::thread::sleep(Duration::from_millis(5));
     }
