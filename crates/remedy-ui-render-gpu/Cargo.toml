@@ -52,6 +52,12 @@ ash = { version = "=0.38.0" }
 wgpu = { version = "=30.0.2", default-features = false, features = ["webgpu", "webgl", "fragile-send-sync-non-atomic-wasm"] }
 # Browsers make adapters and devices through promises.
 wasm-bindgen-futures = { version = "=0.4.80" }
+# WebCodecs' VideoFrames imported on wgpu's own WebGPU device or WebGL2 context (ffi/video.rs),
+# at the versions wgpu itself uses.
+wasm-bindgen = { version = "=0.2.130" }
+js-sys = { version = "=0.3.107" }
+web-sys = { version = "=0.3.107", features = ["WebGl2RenderingContext"] }
+glow = { version = "=0.17.0" }
 
 [features]
 # Tests on Windows: RemedyUI's own Vulkan swapchain through wgpu's Vulkan backend, so it runs

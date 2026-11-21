@@ -2,6 +2,10 @@
 //! or RGBA) and a small render pass converts them into one RGBA texture per stream, which the
 //! scene samples like any image. The conversion pipeline is made with the renderer, never
 //! mid-frame.
+//!
+//! Pictures already on the GPU are sampled where they are: a decoder's shared texture
+//! (Windows), or a browser's `VideoFrame`, which is put into the stream's texture by the
+//! browser itself (`ffi::video::Web`).
 
 use std::collections::HashMap;
 
@@ -88,6 +92,8 @@ pub(crate) struct GpuVideos {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     streams: HashMap<u64, Stream>,
+    /// A browser's frames put into a stream's texture where they are.
+    web: crate::ffi::video::Web,
 }
 
 fn plane_format(format: PixelFormat, i: usize) -> wgpu::TextureFormat {
@@ -116,6 +122,31 @@ fn mk_texture(
         usage,
         view_formats: &[],
     })
+}
+
+/// Clears `target` through wgpu, so wgpu counts it as written and never clears it itself
+/// after something outside wgpu has written it.
+fn clear(device: &wgpu::Device, queue: &wgpu::Queue, target: &wgpu::Texture) {
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let mut enc = device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RemedyUI video clear") });
+    drop(enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("RemedyUI video clear"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: &view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    }));
+    queue.submit([enc.finish()]);
 }
 
 /// Uploads each plane straight from the frame's bytes, its stride as is.
@@ -206,7 +237,8 @@ impl GpuVideos {
             multiview_mask: None,
             cache,
         });
-        GpuVideos { pipeline, layout, streams: HashMap::new() }
+        let web = crate::ffi::video::Web::new(device);
+        GpuVideos { pipeline, layout, streams: HashMap::new(), web }
     }
 
     /// The texture showing `frame`, converted on the GPU (once per frame), and the id to bind
@@ -237,7 +269,10 @@ impl GpuVideos {
                 frame.width,
                 frame.height,
                 FORMAT,
-                wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                // A browser's frames may be copied in (`ffi::video::Web`).
+                wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::COPY_DST,
                 "RemedyUI video frame",
             );
             let params = device.create_buffer(&wgpu::BufferDescriptor {
@@ -248,6 +283,9 @@ impl GpuVideos {
             });
             let id = fresh();
             new_view = Some(target.create_view(&wgpu::TextureViewDescriptor::default()));
+            if frame.gpu.is_some() {
+                clear(device, queue, &target);
+            }
             self.streams.insert(
                 frame.stream,
                 Stream {
@@ -265,6 +303,13 @@ impl GpuVideos {
         let s = self.streams.get_mut(&frame.stream)?;
         if s.frame != frame.id {
             s.frame = frame.id;
+            // A browser's frame goes into the texture where it is, submitted at once (it is
+            // good only until the decoder closes it; work already submitted is not affected).
+            if let Some(g) = &frame.gpu
+                && self.web.draw(device, &s.target, g)
+            {
+                return Some(Shown { id: s.id, new_view, replaced });
+            }
             // Android: a picture on the GPU is drawn into the target by a pass of the platform's.
             #[cfg(target_os = "android")]
             if frame.gpu.as_ref().is_some_and(|g| {
@@ -299,6 +344,7 @@ impl GpuVideos {
                             .collect();
                     }
                     upload(queue, &cpu, &s.planes)?;
+
                     s.planes.iter().map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())).collect()
                 }
             };

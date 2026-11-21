@@ -80,14 +80,307 @@ pub(crate) fn announce(device: &wgpu::Device) {
             remedy_ui_paint::set_gpu_video_adapter(Some(remedy_ui_paint::GpuAdapter::Uuid(uuid)));
         }
     }
+    #[cfg(target_arch = "wasm32")]
+    {
+        if web::takes_frames(device) {
+            remedy_ui_paint::set_gpu_video_adapter(Some(remedy_ui_paint::GpuAdapter::Browser));
+        }
+    }
     #[cfg(target_os = "android")]
     {
         if android::can_import(device) {
             remedy_ui_paint::set_gpu_video_adapter(Some(remedy_ui_paint::GpuAdapter::Only));
         }
     }
-    #[cfg(not(any(windows, target_os = "android", all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))))]
+    #[cfg(not(any(windows, target_os = "android", target_arch = "wasm32", all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))))]
     let _ = device;
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) use web::Web;
+
+/// Pictures that are a browser's `VideoFrame`s; none come anywhere else.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) struct Web(());
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Web {
+    pub(crate) fn new(device: &wgpu::Device) -> Self {
+        let _ = device;
+        Web(())
+    }
+
+    /// Puts `picture` into `target` where it is; false when it is not a frame this can.
+    pub(crate) fn draw(
+        &self,
+        device: &wgpu::Device,
+        target: &wgpu::Texture,
+        picture: &remedy_ui_paint::GpuFrame,
+    ) -> bool {
+        let _ = (device, target, picture);
+        false
+    }
+}
+
+/// A browser page: WebCodecs' `VideoFrame`s put into a stream's converted texture without
+/// leaving the GPU.
+///
+/// wgpu 30's WebGPU backend has no external textures (`create_external_texture` and an
+/// `ExternalTexture` binding are `unimplemented!` there), so on WebGPU the frame is imported
+/// with `GPUDevice.importExternalTexture` on wgpu's own device and drawn into the texture by a
+/// small pipeline made on that device directly, in the same task and submitted at once: an
+/// external texture is good only until its frame is closed. A browser whose WebGPU has no
+/// external textures (Firefox 160 refuses the binding) gets the frame copied into the texture
+/// with `GPUQueue.copyExternalImageToTexture` instead, also on the GPU; which one is known
+/// once the pipeline's error scope answers, and frames before that are copied. wgpu's WebGL2 backend copies a
+/// `VideoFrame` only when built with `--cfg=web_sys_unstable_apis` (an app's build flag, not
+/// a library's), so on WebGL2 the frame is given to `texSubImage2D` on wgpu's own WebGL2
+/// context, into the texture wgpu made. Either way the browser converts YUV to RGB with the
+/// frame's own color space, on the GPU.
+#[cfg(target_arch = "wasm32")]
+mod web {
+    use std::cell::Cell;
+    use std::mem::ManuallyDrop;
+    use std::rc::Rc;
+
+    use js_sys::{Array, Function, Object, Reflect};
+    use remedy_ui_paint::{GpuFrame, GpuTexture};
+    use wasm_bindgen::convert::FromWasmAbi;
+    use wasm_bindgen::{JsCast, JsValue};
+
+    use crate::renderer::FORMAT;
+
+    /// Draws the imported frame over the whole target, one texel to one pixel.
+    const SHADER: &str = r"
+@group(0) @binding(0) var frame: texture_external;
+
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    let x = f32((i << 1u) & 2u) * 2.0 - 1.0;
+    let y = f32(i & 2u) * 2.0 - 1.0;
+    return vec4<f32>(x, y, 0.0, 1.0);
+}
+
+@fragment
+fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+    let c = textureLoad(frame, vec2<u32>(pos.xy));
+    return vec4<f32>(c.rgb, 1.0);
+}
+";
+
+    fn get(o: &JsValue, k: &str) -> JsValue {
+        Reflect::get(o, &JsValue::from_str(k)).unwrap_or(JsValue::UNDEFINED)
+    }
+
+    fn obj(pairs: &[(&str, JsValue)]) -> JsValue {
+        let o = Object::new();
+        for (k, v) in pairs {
+            let _ = Reflect::set(&o, &JsValue::from_str(k), v);
+        }
+        o.into()
+    }
+
+    fn call(o: &JsValue, method: &str, args: &[&JsValue]) -> Result<JsValue, JsValue> {
+        let f: Function = get(o, method).dyn_into()?;
+        f.apply(o, &args.iter().copied().collect::<Array>())
+    }
+
+    /// Whether `device` puts `VideoFrame`s into textures: WebGPU, or wgpu's WebGL2.
+    pub(crate) fn takes_frames(device: &wgpu::Device) -> bool {
+        // SAFETY: the hal device is only looked at, not used.
+        device.as_webgpu().is_some() || unsafe { device.as_hal::<wgpu::hal::api::Gles>() }.is_some()
+    }
+
+    /// The pipeline that draws an imported frame, on wgpu's own `GPUDevice`.
+    struct WebGpu {
+        device: JsValue,
+        queue: JsValue,
+        layout: JsValue,
+        pipeline: JsValue,
+        /// The pipeline was made without a validation error (`None` until the browser says).
+        valid: Rc<Cell<Option<bool>>>,
+    }
+
+    impl WebGpu {
+        fn new(device: &JsValue) -> Result<WebGpu, JsValue> {
+            let valid: Rc<Cell<Option<bool>>> = Rc::default();
+            if !get(device, "importExternalTexture").is_function() {
+                valid.set(Some(false));
+            }
+            call(device, "pushErrorScope", &[&"validation".into()])?;
+            let made = Self::pipeline(device);
+            let scope: js_sys::Promise = call(device, "popErrorScope", &[])?.dyn_into()?;
+            let (layout, pipeline) = made?;
+            let answer = valid.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let error = wasm_bindgen_futures::JsFuture::from(scope).await;
+                let ok = matches!(&error, Ok(e) if e.is_null());
+                answer.set(Some(answer.get().unwrap_or(true) && ok));
+            });
+            Ok(WebGpu { device: device.clone(), queue: get(device, "queue"), layout, pipeline, valid })
+        }
+
+        /// The bind group layout and the pipeline.
+        fn pipeline(device: &JsValue) -> Result<(JsValue, JsValue), JsValue> {
+            let module = call(device, "createShaderModule", &[&obj(&[("code", SHADER.into())])])?;
+            // GPUShaderStage.FRAGMENT
+            let entry = obj(&[
+                ("binding", 0.into()),
+                ("visibility", 2.into()),
+                ("externalTexture", Object::new().into()),
+            ]);
+            let layout =
+                call(device, "createBindGroupLayout", &[&obj(&[("entries", Array::of1(&entry).into())])])?;
+            let pipeline_layout = call(
+                device,
+                "createPipelineLayout",
+                &[&obj(&[("bindGroupLayouts", Array::of1(&layout).into())])],
+            )?;
+            let format = match FORMAT {
+                wgpu::TextureFormat::Rgba8Unorm => "rgba8unorm",
+                _ => return Err("the renderer's format".into()),
+            };
+            let target = obj(&[("format", format.into())]);
+            let pipeline = call(
+                device,
+                "createRenderPipeline",
+                &[&obj(&[
+                    ("label", "RemedyUI web video".into()),
+                    ("layout", pipeline_layout),
+                    ("vertex", obj(&[("module", module.clone()), ("entryPoint", "vs".into())])),
+                    (
+                        "fragment",
+                        obj(&[
+                            ("module", module),
+                            ("entryPoint", "fs".into()),
+                            ("targets", Array::of1(&target).into()),
+                        ]),
+                    ),
+                    ("primitive", obj(&[("topology", "triangle-list".into())])),
+                ])],
+            )?;
+            Ok((layout, pipeline))
+        }
+
+        /// Puts `frame` into `target`, submitted before this returns: imported and drawn, or
+        /// copied on the GPU where the browser cannot import it.
+        fn draw(&self, target: &JsValue, frame: &JsValue) -> Result<(), JsValue> {
+            if self.valid.get().is_none() {
+                return Err("the pipeline is not known to be valid yet".into());
+            }
+            if self.valid.get() != Some(true) {
+                let source = obj(&[("source", frame.clone())]);
+                let dest = obj(&[("texture", target.clone())]);
+                let size = Array::of2(&get(target, "width"), &get(target, "height"));
+                call(&self.queue, "copyExternalImageToTexture", &[&source, &dest, &size.into()])?;
+                return Ok(());
+            }
+            let external =
+                call(&self.device, "importExternalTexture", &[&obj(&[("source", frame.clone())])])?;
+            let entry = obj(&[("binding", 0.into()), ("resource", external)]);
+            let group = call(
+                &self.device,
+                "createBindGroup",
+                &[&obj(&[("layout", self.layout.clone()), ("entries", Array::of1(&entry).into())])],
+            )?;
+            let view = call(target, "createView", &[])?;
+            let encoder = call(&self.device, "createCommandEncoder", &[])?;
+            let attachment = obj(&[
+                ("view", view),
+                ("loadOp", "clear".into()),
+                ("storeOp", "store".into()),
+                ("clearValue", obj(&[("r", 0.into()), ("g", 0.into()), ("b", 0.into()), ("a", 0.into())])),
+            ]);
+            let pass = call(
+                &encoder,
+                "beginRenderPass",
+                &[&obj(&[("colorAttachments", Array::of1(&attachment).into())])],
+            )?;
+            call(&pass, "setPipeline", &[&self.pipeline])?;
+            call(&pass, "setBindGroup", &[&0.into(), &group])?;
+            call(&pass, "draw", &[&3.into()])?;
+            call(&pass, "end", &[])?;
+            let commands = call(&encoder, "finish", &[])?;
+            call(&self.queue, "submit", &[&Array::of1(&commands).into()])?;
+            Ok(())
+        }
+    }
+
+    /// What puts a browser's frames into textures on this renderer's device.
+    pub(crate) struct Web {
+        webgpu: Option<WebGpu>,
+    }
+
+    impl Web {
+        pub(crate) fn new(device: &wgpu::Device) -> Self {
+            Web { webgpu: device.as_webgpu().and_then(|d| WebGpu::new(d.as_ref()).ok()) }
+        }
+
+        /// Puts `picture` into `target` (the stream's converted texture, already written once
+        /// by wgpu so it never clears it again) on the GPU; false when it is not a frame or
+        /// this device cannot, and the caller reads it back instead.
+        pub(crate) fn draw(&self, device: &wgpu::Device, target: &wgpu::Texture, picture: &GpuFrame) -> bool {
+            let GpuTexture::WebVideoFrame { frame, width, height } = picture.0.texture() else {
+                return false;
+            };
+            if (width, height) != (target.width(), target.height()) {
+                return false;
+            }
+            // SAFETY: `frame` is the handle of the picture's own reference to the frame, which
+            // lives as long as `picture` (borrowed for this call); wrapped so it is never
+            // dropped here, and only borrowed (a clone is a reference of its own).
+            let frame = ManuallyDrop::new(unsafe { JsValue::from_abi(frame) });
+            let frame: &JsValue = &frame;
+            match (&self.webgpu, target.as_webgpu()) {
+                (Some(w), Some(t)) => w.draw(t.as_ref(), frame).is_ok(),
+                _ => gl_upload(device, target, frame),
+            }
+        }
+    }
+
+    /// `frame` given to WebGL2's `texSubImage2D` into `target`'s GL texture.
+    fn gl_upload(device: &wgpu::Device, target: &wgpu::Texture, frame: &JsValue) -> bool {
+        use glow::HasContext;
+        use wgpu::hal::api::Gles;
+        // SAFETY: wgpu's GL device and texture are used on the one thread a page has, between
+        // wgpu's own submissions (wgpu runs a submission's GL calls when it is submitted), and
+        // the GL state touched (the bound 2D texture, two unpack flags) is put back.
+        let Some(dev) = (unsafe { device.as_hal::<Gles>() }) else { return false };
+        // SAFETY: as above; the texture outlives this call (the caller holds it).
+        let Some(tex) = (unsafe { target.as_hal::<Gles>() }) else { return false };
+        let wgpu::hal::gles::TextureInner::Texture { raw, target: bind } = tex.inner else { return false };
+        if bind != glow::TEXTURE_2D {
+            return false;
+        }
+        let ctx = dev.context();
+        let gl = ctx.lock();
+        let webgl: &JsValue = ctx.webgl2_context.as_ref();
+        // SAFETY: as above.
+        unsafe {
+            // Earlier errors are not this upload's (a lost context answers forever: a few will do).
+            for _ in 0..8 {
+                if gl.get_error() == glow::NO_ERROR {
+                    break;
+                }
+            }
+            gl.bind_texture(glow::TEXTURE_2D, Some(raw));
+            gl.pixel_store_bool(web_sys::WebGl2RenderingContext::UNPACK_FLIP_Y_WEBGL, false);
+            gl.pixel_store_bool(web_sys::WebGl2RenderingContext::UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+        }
+        let n = |v: u32| JsValue::from(v);
+        let called = call(
+            webgl,
+            "texSubImage2D",
+            &[&n(glow::TEXTURE_2D), &n(0), &n(0), &n(0), &n(glow::RGBA), &n(glow::UNSIGNED_BYTE), frame],
+        );
+        // SAFETY: as above.
+        let error = unsafe {
+            let e = gl.get_error();
+            gl.bind_texture(glow::TEXTURE_2D, None);
+            e
+        };
+        called.is_ok() && error == glow::NO_ERROR
+    }
 }
 
 #[cfg(windows)]

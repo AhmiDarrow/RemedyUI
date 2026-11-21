@@ -7,14 +7,22 @@
 //! source given by URL is fetched without blocking first ([`Decoder::poll_ready`]); a file
 //! the user picked or dropped is read from the web bridge's file store.
 //!
-//! The one unsafe line in this module says the decoder and the sound output may be "sent":
-//! a page built without shared memory has a single thread, so nothing is ever sent anywhere.
-//! A build with threads (`atomics`) refuses to compile rather than be wrong.
+//! Decoded pictures stay on the GPU when the page draws with the GPU renderer (it announces
+//! [`GpuAdapter::Browser`](remedy_ui_paint::GpuAdapter::Browser)): each `VideoFrame` is handed
+//! over as it is ([`GpuTexture::WebVideoFrame`](remedy_ui_paint::GpuTexture::WebVideoFrame)),
+//! for the renderer to import, and closed when the last clone of its picture goes. Otherwise
+//! (the CPU renderer, or more frames held than the browser's decoder can spare) its pixels are
+//! copied out with `copyTo` and the frame is closed at once.
+//!
+//! The unsafe lines in this module say the decoder, the sound output and a picture on the GPU
+//! may be "sent" or shared: a page built without shared memory has a single thread, so
+//! nothing is ever sent anywhere. A build with threads (`atomics`) refuses to compile rather
+//! than be wrong.
 
 #[cfg(target_feature = "atomics")]
 compile_error!("the web media host is for pages with one thread; a threaded build needs workers of its own");
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -22,7 +30,9 @@ use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use js_sys::{Array, Float32Array, Object, Promise, Reflect, Uint8Array};
+use remedy_ui_paint::{CpuPixels, GpuAdapter, GpuPicture, GpuTexture};
 use wasm_bindgen::JsCast;
+use wasm_bindgen::convert::IntoWasmAbi;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
@@ -63,6 +73,10 @@ extern "C" {
     fn duration(this: &VideoFrame) -> Option<f64>;
     #[wasm_bindgen(method, getter, js_name = visibleRect)]
     fn visible_rect(this: &VideoFrame) -> JsValue;
+    #[wasm_bindgen(method, getter, js_name = displayWidth)]
+    fn display_width(this: &VideoFrame) -> u32;
+    #[wasm_bindgen(method, getter, js_name = displayHeight)]
+    fn display_height(this: &VideoFrame) -> u32;
     #[wasm_bindgen(method, getter, js_name = colorSpace)]
     fn color_space(this: &VideoFrame) -> JsValue;
     #[wasm_bindgen(method, catch, js_name = allocationSize)]
@@ -71,6 +85,14 @@ extern "C" {
     fn copy_to(this: &VideoFrame, dest: &Uint8Array) -> Result<Promise, JsValue>;
     #[wasm_bindgen(method, js_name = close)]
     fn close_frame(this: &VideoFrame);
+
+    /// A 2D canvas's context (an `OffscreenCanvas`'s), which reads a frame's pixels back
+    /// without waiting.
+    type Canvas2d;
+    #[wasm_bindgen(method, catch, js_name = drawImage)]
+    fn draw_frame(this: &Canvas2d, frame: &VideoFrame, x: f64, y: f64) -> Result<(), JsValue>;
+    #[wasm_bindgen(method, catch, js_name = getImageData)]
+    fn get_image_data(this: &Canvas2d, x: f64, y: f64, w: f64, h: f64) -> Result<JsValue, JsValue>;
 
     type AudioDecoder;
     #[wasm_bindgen(constructor, catch)]
@@ -151,6 +173,8 @@ struct Outputs {
     flushed: bool,
     /// The source has been fetched and the decoders configured (or that failed).
     ready: Option<Result<(), MediaError>>,
+    /// Frames handed over on the GPU and not yet closed.
+    held: Rc<Cell<usize>>,
 }
 
 impl Outputs {
@@ -220,12 +244,7 @@ fn picture(frame: &VideoFrame, layout: &JsValue, bytes: Vec<u8>) -> Result<Pictu
             stride: get(&p, "stride").as_f64().unwrap_or(0.0) as usize,
         }
     };
-    let color = frame.color_space();
-    let full_range = get(&color, "fullRange").as_bool().unwrap_or(false);
-    let matrix = match get(&color, "matrix").as_string().as_deref() {
-        Some("bt470bg" | "smpte170m") => YuvMatrix::Bt601,
-        _ => YuvMatrix::Bt709,
-    };
+    let (matrix, full_range) = color(frame);
     let format = frame.format().unwrap_or_default();
     let (format, planes, data) = match format.as_str() {
         "I420" | "I420A" => (PixelFormat::I420, [plane(0), plane(1), plane(2)], bytes),
@@ -254,7 +273,110 @@ fn picture(frame: &VideoFrame, layout: &JsValue, bytes: Vec<u8>) -> Result<Pictu
     Ok(Picture { width, height, format, planes, matrix, full_range, data: Arc::from(data), gpu: None })
 }
 
+/// The most decoded frames handed over on the GPU at once. A browser's decoder has a pool
+/// of a limited size and waits for frames to be closed before it decodes more; past this, frames
+/// are copied out and closed at once, so pictures the player holds ahead never stall it. It
+/// covers the player's look-ahead at 30 frames a second.
+const HELD_FRAMES: usize = 24;
+
+/// A decoded `VideoFrame` handed to the renderer as it is: closed when the last clone of its
+/// picture is dropped.
+struct WebFrame {
+    frame: VideoFrame,
+    width: u32,
+    height: u32,
+    held: Rc<Cell<usize>>,
+}
+
+// SAFETY: as for the decoder: one thread in a page without shared memory, so the frame is
+// never used from another.
+unsafe impl Send for WebFrame {}
+// SAFETY: as above.
+unsafe impl Sync for WebFrame {}
+
+impl GpuPicture for WebFrame {
+    fn texture(&self) -> GpuTexture {
+        let frame: &JsValue = &self.frame;
+        GpuTexture::WebVideoFrame { frame: frame.into_abi(), width: self.width, height: self.height }
+    }
+
+    /// The pixels through a 2D canvas, which draws the frame and reads it back at once (the
+    /// CPU renderer cannot wait for `copyTo`'s promise).
+    fn read_back(&self) -> Option<CpuPixels> {
+        let (w, h) = (self.width, self.height);
+        if !has_global("OffscreenCanvas") {
+            return None;
+        }
+        let canvas = Reflect::construct(
+            &get(&js_sys::global(), "OffscreenCanvas").into(),
+            &Array::of2(&JsValue::from(w), &JsValue::from(h)),
+        )
+        .ok()?;
+        let get_context: js_sys::Function = get(&canvas, "getContext").dyn_into().ok()?;
+        let ctx = get_context.call1(&canvas, &JsValue::from_str("2d")).ok()?;
+        if ctx.is_null() || ctx.is_undefined() {
+            return None;
+        }
+        let ctx: Canvas2d = ctx.unchecked_into();
+        ctx.draw_frame(&self.frame, 0.0, 0.0).ok()?;
+        let image = ctx.get_image_data(0.0, 0.0, f64::from(w), f64::from(h)).ok()?;
+        let data: Uint8Array = Uint8Array::new(&get(&image, "data"));
+        let stride = w as usize * 4;
+        Some(CpuPixels {
+            format: PixelFormat::Rgba,
+            planes: [Plane { offset: 0, stride }, Plane::default(), Plane::default()],
+            data: Arc::from(data.to_vec()),
+        })
+    }
+}
+
+impl Drop for WebFrame {
+    fn drop(&mut self) {
+        self.frame.close_frame();
+        self.held.set(self.held.get().saturating_sub(1));
+    }
+}
+
+/// `frame` as a picture on the GPU, when a renderer takes it there and the decoder can spare it.
+fn gpu_picture(out: &Shared, frame: VideoFrame) -> Result<Picture, VideoFrame> {
+    let held = out.borrow().held.clone();
+    if remedy_ui_paint::gpu_video_adapter() != Some(GpuAdapter::Browser) || held.get() >= HELD_FRAMES {
+        return Err(frame);
+    }
+    let (width, height) = (frame.display_width(), frame.display_height());
+    if width == 0 || height == 0 {
+        return Err(frame);
+    }
+    let (matrix, full_range) = color(&frame);
+    held.set(held.get() + 1);
+    let picture = Arc::new(WebFrame { frame, width, height, held });
+    Ok(Picture::on_gpu(width, height, matrix, full_range, picture))
+}
+
+/// The frame's YUV matrix and range.
+fn color(frame: &VideoFrame) -> (YuvMatrix, bool) {
+    let color = frame.color_space();
+    let full_range = get(&color, "fullRange").as_bool().unwrap_or(false);
+    let matrix = match get(&color, "matrix").as_string().as_deref() {
+        Some("bt470bg" | "smpte170m") => YuvMatrix::Bt601,
+        _ => YuvMatrix::Bt709,
+    };
+    (matrix, full_range)
+}
+
 fn video_output(out: &Shared, frame: VideoFrame) {
+    // Handed over as it is when the GPU renderer takes it: ready at once, in its place.
+    let at = micros(frame.timestamp());
+    let duration = frame.duration().map(micros);
+    let frame = match gpu_picture(out, frame) {
+        Ok(picture) => {
+            let mut o = out.borrow_mut();
+            o.queue.push_back(Slot::Ready(Sample::Video { at, duration, picture }));
+            o.wake();
+            return;
+        }
+        Err(frame) => frame,
+    };
     let (seq, generation) = {
         let mut o = out.borrow_mut();
         let seq = o.next_copy;
@@ -264,8 +386,6 @@ fn video_output(out: &Shared, frame: VideoFrame) {
     };
     let out = out.clone();
     wasm_bindgen_futures::spawn_local(async move {
-        let at = micros(frame.timestamp());
-        let duration = frame.duration().map(micros);
         let copied = async {
             let size = frame.allocation_size().map_err(|e| js_error("sizing a picture", &e))?;
             let buf = Uint8Array::new_with_length(size);

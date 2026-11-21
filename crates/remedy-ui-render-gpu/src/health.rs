@@ -299,7 +299,7 @@ struct Watch {
     /// The hang threshold, in nanoseconds.
     hang: AtomicU64,
     hung: AtomicBool,
-    epoch: std::time::Instant,
+    epoch: remedy_ui_core::time::Instant,
 }
 
 impl std::fmt::Debug for PresentWatchdog {
@@ -337,7 +337,7 @@ impl PresentWatchdog {
             started: AtomicU64::new(0),
             hang: AtomicU64::new(u64::try_from(PRESENT_HANG.as_nanos()).unwrap_or(u64::MAX)),
             hung: AtomicBool::new(false),
-            epoch: std::time::Instant::now(),
+            epoch: remedy_ui_core::time::Instant::now(),
         });
         #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
         {
