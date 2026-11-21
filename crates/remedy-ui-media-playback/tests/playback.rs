@@ -2177,7 +2177,11 @@ fn without_a_timeline_seeks_are_the_streams_own_and_not_whole_seconds() {
     p.seek(Duration::from_millis(1500));
     s.wait("1.5 s", |_| p.position() == Duration::from_millis(1500));
     assert_eq!(p.duration(), Some(Duration::from_secs(3)));
-    assert!(p.buffered().first().is_some_and(|r| r.start < Duration::from_millis(1500)));
+    // The seek empties what was decoded ahead; once the engine says what it decoded from the
+    // new place, that is in the stream's own time, from 1.5 s (not 1 s, and no origin added).
+    s.wait("decoded ahead from the seek", |_| {
+        p.buffered().first().is_some_and(|r| r.start == Duration::from_millis(1500) && r.end > r.start)
+    });
 }
 
 /// Whether `text` shows on the view as a status announced politely.
