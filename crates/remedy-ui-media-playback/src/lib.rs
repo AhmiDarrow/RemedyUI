@@ -17,7 +17,9 @@
 //!   position shown or taken is the work's, the seek bar spans its length, and a seek outside
 //!   what the stream holds goes to the app ([`Player::on_seek_outside`]) while the player
 //!   shows it is skipping, until the app hands over a new stream
-//!   ([`Player::replace_source`]).
+//!   ([`Player::replace_source`]). [`Player::hold_for_source`] waits the same way for a new
+//!   stream of the same place (a quality or sound switch); while skipping, holding or remote
+//!   the old stream is not fetched. [`Player::empty`] starts with nothing to play here.
 //! - [`MediaHost`]: where decoding and sound come from. [`platform_host`] gives the
 //!   platform's: Media Foundation and WASAPI on Windows; the system's GStreamer on Linux,
 //!   loaded at run time and never bundled; AVFoundation and Audio Queues on macOS;

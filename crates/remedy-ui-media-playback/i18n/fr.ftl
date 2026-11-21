@@ -13,6 +13,7 @@ playback-pause = Pause
 playback-time = { $position } / { $duration }
 playback-time-live = { $position } · En direct
 playback-skipping = Saut à { $position }
+playback-preparing = Préparation de la vidéo.
 playback-mute-tip = Couper le son (M)
 playback-mute = Couper le son
 playback-unmute = Rétablir le son
