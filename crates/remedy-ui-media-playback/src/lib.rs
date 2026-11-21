@@ -48,6 +48,7 @@ mod mp4;
 #[allow(unsafe_code)]
 mod os;
 mod player;
+mod stretch;
 mod subtitles;
 mod widget;
 
@@ -63,6 +64,7 @@ pub use host::{
     merge_ranges,
 };
 pub use player::{NEXT_UP_DELAY, NextUp, Player, PlayerOptions, UnseenPolicy};
+pub use stretch::{MAX_SPEED, MIN_SPEED, SPEEDS, clamp_speed};
 pub use subtitles::{Cue, SubtitleFormat, SubtitleTrack, parse_subtitles};
 pub use widget::{format_time, player};
 

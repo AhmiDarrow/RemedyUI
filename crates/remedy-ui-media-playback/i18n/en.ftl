@@ -47,3 +47,7 @@ playback-next-up-in = { $count ->
 }
 playback-play-now = Play now
 playback-next-cancel = Cancel
+
+## The speed button: { $speed } is the playback speed (1, 1.5, 0.75), written the locale's way.
+playback-speed = Speed { $speed }×
+playback-speed-tip = Playback speed (Shift+> faster, Shift+< slower)
