@@ -28,3 +28,5 @@ playback-next-up = 接下来：{ $title }
 playback-next-up-in = { $count } 秒后播放
 playback-play-now = 立即播放
 playback-next-cancel = 取消
+playback-speed = 速度 { $speed }×
+playback-speed-tip = 播放速度（Shift+> 加快，Shift+< 减慢）

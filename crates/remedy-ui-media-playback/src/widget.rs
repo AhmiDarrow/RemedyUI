@@ -55,7 +55,8 @@ const JUMP_SEEK: f64 = 10.0;
 /// ("Talk recording").
 ///
 /// Keyboard, anywhere in the player: K plays and pauses, J and L jump 10 seconds, M mutes,
-/// C turns captions on and off, F asks for full screen and Escape leaves it, and Shift+N plays
+/// C turns captions on and off, F asks for full screen and Escape leaves it, > and < (Shift+.
+/// and Shift+, on most keyboards) make it faster and slower, and Shift+N plays
 /// what is [next up](Player::set_next_up). On the seek bar
 /// Space plays and pauses, the arrows move 5 seconds, Page Up and Page Down a tenth, Home and
 /// End to either end. Space and Enter press whichever button has focus.
@@ -254,6 +255,30 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         move || p.request_fullscreen(!p.is_fullscreen()),
     );
     let fb = full.clone();
+    // The speed, as a button that steps through the usual speeds and wraps back to the
+    // slowest; Shift+> and Shift+< step up and down.
+    let (sp, tu) = (player.clone(), ui.clone());
+    let speed = w::button(
+        ui,
+        move || {
+            let s = sp.speed();
+            crate::STRINGS.format(&tu, "playback-speed", &[("speed", s.into())])
+        },
+        {
+            let p = player.clone();
+            move || {
+                let now = p.speed();
+                match crate::SPEEDS.iter().copied().find(|s| *s > now + 1e-9) {
+                    Some(next) => p.set_speed(next),
+                    None => p.set_speed(crate::SPEEDS.first().copied().unwrap_or(1.0)),
+                }
+            }
+        },
+    );
+    {
+        let u = ui.clone();
+        w::tooltip(&speed, move || tr(&u, "playback-speed-tip"));
+    }
     let p = player.clone();
     let full = full.bind(move || {
         let pictures = p.info().is_none_or(|i| i.video.is_some());
@@ -269,6 +294,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .child(seek)
         .child(mute)
         .child(volume)
+        .child(speed)
         .child(captions)
         .child(full);
 
@@ -295,6 +321,8 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                     "j" => p.seek_by(-JUMP_SEEK),
                     "l" => p.seek_by(JUMP_SEEK),
                     "m" => p.set_muted(!p.is_muted()),
+                    ">" => p.step_speed(true),
+                    "<" => p.step_speed(false),
                     "c" if !p.subtitle_tracks().is_empty() => cycle_captions(&p),
                     "f" if p.info().is_none_or(|i| i.video.is_some()) => {
                         p.request_fullscreen(!p.is_fullscreen())
