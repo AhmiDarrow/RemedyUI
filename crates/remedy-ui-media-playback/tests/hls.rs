@@ -596,3 +596,45 @@ fn dropping_a_stream_mid_fetch_hangs_up_promptly() {
     }
     eprintln!("hung up {:?} after the drop", dropped.elapsed());
 }
+
+/// Prints what a first picture costs, median of 5: opening the stream (what `replace_source`
+/// and `start_next` wait for) and seeking inside it, back to a segment already held and
+/// ahead to one that is not yet. For before-and-after numbers, not a pass mark.
+#[test]
+fn first_picture_costs() {
+    let (url, _files) = server(playlist());
+    // The first picture at or past `from` (a seek lands on the key frame before it).
+    let first = |d: &mut dyn Decoder, from: Duration| loop {
+        match d.read() {
+            Ok(Some(Sample::Video { at, .. })) if at + Duration::from_millis(41) > from => break Some(at),
+            Ok(Some(_)) => {}
+            _ => break None,
+        }
+    };
+    let median = |mut v: Vec<Duration>| {
+        v.sort();
+        v.get(v.len() / 2).copied().unwrap_or_default()
+    };
+    let (mut opens, mut backs, mut aheads) = (Vec::new(), Vec::new(), Vec::new());
+    for _ in 0..5 {
+        let started = std::time::Instant::now();
+        let Some(mut d) = open(&url) else { return };
+        assert!(first(d.as_mut(), Duration::ZERO).is_some(), "a first picture");
+        opens.push(started.elapsed());
+        // Into the second segment, so the first is held, then back to it and on to the third.
+        d.seek(Duration::from_millis(1200)).unwrap_or_else(|e| unreachable!("seeking: {e}"));
+        let _ = first(d.as_mut(), Duration::from_millis(1200));
+        for (to, into) in [(300, &mut backs), (2700, &mut aheads)] {
+            let started = std::time::Instant::now();
+            d.seek(Duration::from_millis(to)).unwrap_or_else(|e| unreachable!("seeking: {e}"));
+            assert!(first(d.as_mut(), Duration::from_millis(to)).is_some(), "a picture after the seek");
+            into.push(started.elapsed());
+        }
+    }
+    eprintln!(
+        "first picture: open {:?}, seek back {:?}, seek ahead {:?}",
+        median(opens),
+        median(backs),
+        median(aheads)
+    );
+}
