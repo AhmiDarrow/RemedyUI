@@ -5,6 +5,7 @@
 
 use std::collections::VecDeque;
 use std::mem::ManuallyDrop;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use windows::Win32::Media::MediaFoundation::{
@@ -23,8 +24,8 @@ use windows::Win32::Media::MediaFoundation::{
 use windows::Win32::Networking::WinHttp::{
     URL_COMPONENTS, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_FLAG_REFRESH, WINHTTP_FLAG_SECURE,
     WINHTTP_INTERNET_SCHEME_HTTPS, WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_QUERY_STATUS_CODE, WinHttpCloseHandle,
-    WinHttpConnect, WinHttpCrackUrl, WinHttpOpen, WinHttpOpenRequest, WinHttpQueryHeaders, WinHttpReadData,
-    WinHttpReceiveResponse, WinHttpSendRequest,
+    WinHttpConnect, WinHttpCrackUrl, WinHttpOpen, WinHttpOpenRequest, WinHttpQueryDataAvailable,
+    WinHttpQueryHeaders, WinHttpReadData, WinHttpReceiveResponse, WinHttpSendRequest, WinHttpSetTimeouts,
 };
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::core::{GUID, HSTRING, Interface, PCWSTR, w};
@@ -32,7 +33,10 @@ use windows::core::{GUID, HSTRING, Interface, PCWSTR, w};
 use super::super::d3d11::Gpu;
 use super::{Layout, Mf, MfDecoder, com, copy_path, format_error, from_hns, hns, video_layout};
 use crate::capture::Converter;
-use crate::hls::{AudioCodec, AudioConfig, Elementary, Fetch, Unit, VideoConfig};
+use crate::hls::{
+    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, QUIET, Unit, VideoConfig, file_path,
+    timed_out,
+};
 use crate::host::{AudioFormat, MediaError, Picture, Sample};
 
 fn decode_error(e: windows::core::Error) -> MediaError {
@@ -523,42 +527,6 @@ impl Elementary for MftElementary {
     }
 }
 
-/// The path a `file:` URL names (`file:///C:/a%20b/c.ts`, as [`MediaSource::to_url`] makes,
-/// or with a segment name joined on unescaped); `None` for other schemes.
-///
-/// shortcut: a literal `%` in an unescaped segment name is read as an escape; parse the
-/// playlist's names apart from the base if that ever matters.
-///
-/// [`MediaSource::to_url`]: crate::host::MediaSource::to_url
-fn file_path(url: &str) -> Option<String> {
-    let rest = url.get(..5).filter(|s| s.eq_ignore_ascii_case("file:")).and(url.get(5..))?;
-    let rest = rest.split(['?', '#']).next().unwrap_or(rest);
-    // `file:///C:/…` and `file://localhost/C:/…` are drive paths; `file://server/share/…` a
-    // UNC one (kept as `//server/share/…`).
-    let path = rest.strip_prefix("///").or_else(|| rest.strip_prefix("//localhost/")).unwrap_or(rest);
-    Some(unescape(path))
-}
-
-fn unescape(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while let Some(&c) = b.get(i) {
-        let hex = b.get(i + 1..i + 3).and_then(|h| std::str::from_utf8(h).ok());
-        match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
-            Some(v) if c == b'%' => {
-                out.push(v);
-                i += 3;
-            }
-            _ => {
-                out.push(c);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
 /// One WinHTTP handle, closed when dropped.
 struct Handle(*mut std::ffi::c_void);
 
@@ -573,6 +541,9 @@ impl Handle {
         Ok(Handle(h))
     }
 }
+
+// SAFETY: WinHTTP's handles may be used, and closed, from any thread.
+unsafe impl Send for Handle {}
 
 impl Drop for Handle {
     fn drop(&mut self) {
@@ -612,7 +583,17 @@ impl Fetch for HttpFetch {
         if let Some(path) = file_path(url) {
             return std::fs::read(&path).map_err(|e| MediaError::NotFound(format!("{path}: {e}")));
         }
-        let failed = |e: windows::core::Error| MediaError::NotFound(format!("{url}: {}", e.message()));
+        // ERROR_WINHTTP_TIMEOUT: retried as a timeout (a quiet one is a stalled download restarted).
+        let timeout = |e: &windows::core::Error| e.code() == windows::core::HRESULT::from_win32(12002);
+        let failed = |e: windows::core::Error| {
+            if timeout(&e) {
+                timed_out(url, &e.message())
+            } else {
+                MediaError::NotFound(format!("{url}: {}", e.message()))
+            }
+        };
+        let ms = |d: Duration| i32::try_from(d.as_millis()).unwrap_or(i32::MAX);
+        let started = std::time::Instant::now();
         let wide: Vec<u16> = url.encode_utf16().collect();
         // Lengths set and pointers left null: the parts point into `wide`.
         let mut parts = URL_COMPONENTS {
@@ -639,11 +620,11 @@ impl Fetch for HttpFetch {
         if parts.nScheme == WINHTTP_INTERNET_SCHEME_HTTPS {
             flags.0 |= WINHTTP_FLAG_SECURE.0;
         }
-        // SAFETY: handles checked as they come and closed in reverse order; buffers outlive
-        // the calls that fill them.
-        unsafe {
-            let connection = Handle::new(WinHttpConnect(self.session.0, &host, parts.nPort, 0), url)?;
-            let request = Handle::new(
+        // SAFETY: handles checked as they come; the request is closed before the connection.
+        let connection = Handle::new(unsafe { WinHttpConnect(self.session.0, &host, parts.nPort, 0) }, url)?;
+        // SAFETY: as above.
+        let request = Handle::new(
+            unsafe {
                 WinHttpOpenRequest(
                     connection.0,
                     w!("GET"),
@@ -652,35 +633,109 @@ impl Fetch for HttpFetch {
                     PCWSTR::null(),
                     std::ptr::null(),
                     flags,
-                ),
-                url,
-            )?;
-            WinHttpSendRequest(request.0, None, None, 0, 0, 0).map_err(failed)?;
-            WinHttpReceiveResponse(request.0, std::ptr::null_mut()).map_err(failed)?;
-            let (mut status, mut size) = (0u32, 4u32);
-            WinHttpQueryHeaders(
-                request.0,
-                WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                PCWSTR::null(),
-                Some((&raw mut status).cast()),
-                &mut size,
-                std::ptr::null_mut(),
-            )
-            .map_err(failed)?;
-            if status != 200 {
-                return Err(MediaError::NotFound(format!("{url}: the server answered {status}")));
-            }
-            let mut out = Vec::new();
-            let mut chunk = vec![0u8; 1 << 20];
-            loop {
-                let mut n = 0u32;
-                WinHttpReadData(request.0, chunk.as_mut_ptr().cast(), chunk.len() as u32, &mut n)
-                    .map_err(|e| format_error(&e))?;
-                if n == 0 {
-                    return Ok(out);
+                )
+            },
+            url,
+        )?;
+        let first = ms(FIRST_BYTE);
+        // SAFETY: a live request handle.
+        unsafe { WinHttpSetTimeouts(request.0, first, first, first, first) }.map_err(failed)?;
+        // WinHTTP's own receive timeout did not end a body gone quiet, so a watchdog closes the
+        // request, which ends the call waiting on it: no answer for FIRST_BYTE, no byte for
+        // QUIET once it answered, or LOAD in all.
+        let req = request.0;
+        let watched = (std::sync::Mutex::new(Some(request)), std::sync::Condvar::new());
+        // When something last came (ms from `started`) and how long it may stop for.
+        let (last, limit) = (AtomicU64::new(0), AtomicU64::new(FIRST_BYTE.as_millis() as u64));
+        let gave_up = AtomicBool::new(false);
+        let progress = |quiet: Duration| {
+            last.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
+            limit.store(quiet.as_millis() as u64, Ordering::Relaxed);
+        };
+        let got = std::thread::scope(|s| {
+            s.spawn(|| {
+                let mut open = watched.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                while open.is_some() {
+                    let since = started.elapsed().as_millis() as u64;
+                    let quiet = since.saturating_sub(last.load(Ordering::Relaxed));
+                    if since > LOAD.as_millis() as u64 || quiet > limit.load(Ordering::Relaxed) {
+                        gave_up.store(true, Ordering::Relaxed);
+                        *open = None;
+                        return;
+                    }
+                    open = watched
+                        .1
+                        .wait_timeout(open, Duration::from_millis(100))
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .0;
                 }
-                out.extend_from_slice(chunk.get(..n as usize).unwrap_or_default());
+            });
+            // SAFETY: `req` is open until the watchdog closes it, which ends the call using it.
+            let got = unsafe { transfer(req, url, &progress) };
+            *watched.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+            watched.1.notify_all();
+            got
+        });
+        drop(connection);
+        if gave_up.load(Ordering::Relaxed) {
+            let quiet = limit.load(Ordering::Relaxed) == QUIET.as_millis() as u64;
+            return Err(timed_out(
+                url,
+                if quiet { "nothing arrived" } else { "no answer, or too long in all" },
+            ));
+        }
+        got
+    }
+}
+
+/// Sends the request `req` and reads its answer, calling `progress` with how long it may next
+/// go quiet each time something comes (an answer, then bytes).
+///
+/// # Safety
+/// `req` is a WinHTTP request handle, open or closed by another thread meanwhile (which makes
+/// the call using it fail).
+unsafe fn transfer(
+    req: *mut std::ffi::c_void,
+    url: &str,
+    progress: &dyn Fn(Duration),
+) -> Result<Vec<u8>, MediaError> {
+    let failed = |e: windows::core::Error| MediaError::NotFound(format!("{url}: {}", e.message()));
+    // SAFETY: the caller's handle; buffers outlive the calls that fill them.
+    unsafe {
+        WinHttpSendRequest(req, None, None, 0, 0, 0).map_err(failed)?;
+        WinHttpReceiveResponse(req, std::ptr::null_mut()).map_err(failed)?;
+        progress(QUIET);
+        let (mut status, mut size) = (0u32, 4u32);
+        WinHttpQueryHeaders(
+            req,
+            WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+            PCWSTR::null(),
+            Some((&raw mut status).cast()),
+            &mut size,
+            std::ptr::null_mut(),
+        )
+        .map_err(failed)?;
+        if status != 200 {
+            return Err(MediaError::NotFound(format!("{url}: the server answered {status}")));
+        }
+        let mut out = Vec::new();
+        let mut chunk = vec![0u8; 1 << 20];
+        loop {
+            // Wait for bytes, then read only those: a read of a large buffer waits to fill it,
+            // and the watchdog would take a slow download that is moving for a quiet one.
+            let mut ready = 0u32;
+            WinHttpQueryDataAvailable(req, &mut ready).map_err(failed)?;
+            if ready == 0 {
+                return Ok(out);
             }
+            let mut n = 0u32;
+            let want = ready.min(chunk.len() as u32);
+            WinHttpReadData(req, chunk.as_mut_ptr().cast(), want, &mut n).map_err(|e| format_error(&e))?;
+            if n == 0 {
+                return Ok(out);
+            }
+            out.extend_from_slice(chunk.get(..n as usize).unwrap_or_default());
+            progress(QUIET);
         }
     }
 }

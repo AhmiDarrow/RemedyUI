@@ -7,10 +7,13 @@ use super::{
     AudioDecoder, EncodedAudioChunk, EncodedVideoChunk, Shared, Slot, VideoDecoder, audio_output, call,
     has_global, js_error, obj, video_output,
 };
-use crate::hls::{AudioCodec, AudioConfig, Elementary, Hls, Unit, VideoConfig, WAIT_SLICE, Want, WantKind};
+use crate::hls::{
+    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Hls, LOAD, QUIET, Unit, VideoConfig, WAIT_SLICE, Want,
+    WantKind, timed_out,
+};
 use crate::host::{Decoder, MediaError, MediaInfo, Sample};
 use js_sys::{Object, Promise, Uint8Array};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -278,17 +281,67 @@ async fn sleep(d: Duration) {
     let _ = JsFuture::from(p).await;
 }
 
-/// Fetches `url` whole.
+/// Fetches `url` whole. Aborted, as a timeout the reader retries, when no answer comes for
+/// [`FIRST_BYTE`], the body goes quiet for [`QUIET`] (a stalled download, started again), or
+/// the whole takes [`LOAD`].
 async fn fetch_all(url: &str) -> Result<Vec<u8>, MediaError> {
     let not_found = |e: JsValue| MediaError::NotFound(js_error(url, &e));
     let win = web_sys::window().ok_or_else(|| MediaError::Unsupported("no browser window".into()))?;
-    let resp: web_sys::Response =
-        JsFuture::from(win.fetch_with_str(url)).await.map_err(not_found)?.unchecked_into();
-    if !resp.ok() {
-        return Err(MediaError::NotFound(format!("{url}: the server answered {}", resp.status())));
+    let abort = web_sys::AbortController::new().map_err(not_found)?;
+    let init = web_sys::RequestInit::new();
+    init.set_signal(Some(&abort.signal()));
+    let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    // When bytes last came (the start, until the answer) and how long they may stop; NaN once done.
+    let watch = Rc::new(Cell::new((js_sys::Date::now(), FIRST_BYTE)));
+    let timed = Rc::new(Cell::new(None::<&'static str>));
+    {
+        let (watch, timed, abort, started) =
+            (watch.clone(), timed.clone(), abort.clone(), js_sys::Date::now());
+        wasm_bindgen_futures::spawn_local(async move {
+            loop {
+                sleep(WAIT_SLICE * 2).await;
+                let (last, limit) = watch.get();
+                let now = js_sys::Date::now();
+                let why = if last.is_nan() {
+                    return;
+                } else if now - started > ms(LOAD) {
+                    "the download took too long"
+                } else if now - last > ms(limit) {
+                    "nothing arrived"
+                } else {
+                    continue;
+                };
+                timed.set(Some(why));
+                abort.abort();
+                return;
+            }
+        });
     }
-    let buf = JsFuture::from(resp.array_buffer().map_err(not_found)?).await.map_err(not_found)?;
-    Ok(Uint8Array::new(&buf).to_vec())
+    let got = async {
+        let resp: web_sys::Response = JsFuture::from(win.fetch_with_str_and_init(url, &init))
+            .await
+            .map_err(not_found)?
+            .unchecked_into();
+        if !resp.ok() {
+            return Err(MediaError::NotFound(format!("{url}: the server answered {}", resp.status())));
+        }
+        watch.set((js_sys::Date::now(), QUIET));
+        let Some(body) = resp.body() else { return Ok(Vec::new()) };
+        let reader: web_sys::ReadableStreamDefaultReader = body.get_reader().unchecked_into();
+        let mut out = Vec::new();
+        loop {
+            let chunk = JsFuture::from(reader.read()).await.map_err(not_found)?;
+            if js_sys::Reflect::get(&chunk, &"done".into()).is_ok_and(|d| d.is_truthy()) {
+                return Ok(out);
+            }
+            let value = js_sys::Reflect::get(&chunk, &"value".into()).map_err(not_found)?;
+            out.extend(value.unchecked_into::<Uint8Array>().to_vec());
+            watch.set((js_sys::Date::now(), QUIET));
+        }
+    }
+    .await;
+    watch.set((f64::NAN, QUIET));
+    got.map_err(|e| timed.get().map_or(e, |why| timed_out(url, why)))
 }
 
 impl HlsDecoder {
