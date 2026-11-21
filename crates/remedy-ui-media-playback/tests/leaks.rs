@@ -399,6 +399,8 @@ fn a_stream_dropped_mid_fetch() {
         wait("opened", || p.state() == PlaybackState::Paused);
         p.play();
         std::thread::sleep(Duration::from_millis(1500));
+        // Seen counted while it plays (with GST_TRACERS=leaks on Linux, its elements too).
+        eprintln!("mid-fetch: {} platform objects live", live_platform_objects());
     });
 }
 

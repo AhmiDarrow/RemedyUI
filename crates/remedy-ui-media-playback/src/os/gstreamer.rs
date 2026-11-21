@@ -454,6 +454,8 @@ struct Branch {
 
 pub(crate) struct GstDecoder {
     g: &'static Gst,
+    /// Counted while it lives (debug builds), as every pipeline here is.
+    _live: super::Live,
     playbin: Ptr,
     video: Option<Branch>,
     audio: Option<Branch>,
@@ -572,6 +574,7 @@ impl GstDecoder {
         let playbin = g.make("playbin")?;
         let mut d = GstDecoder {
             g,
+            _live: super::Live::new(),
             playbin,
             video: None,
             audio: None,
@@ -1122,6 +1125,7 @@ impl Drop for GstDecoder {
 /// Sound out through `appsrc ! audioconvert ! audioresample ! autoaudiosink`.
 struct GstOutput {
     g: &'static Gst,
+    _live: super::Live,
     pipeline: Ptr,
     src: Ptr,
     format: AudioFormat,
@@ -1177,7 +1181,16 @@ impl GstOutput {
                 return Err(MediaError::Device(reason));
             }
         }
-        Ok(GstOutput { g, pipeline, src, format, queue_bytes, written: 0, playing: false })
+        Ok(GstOutput {
+            g,
+            _live: super::Live::new(),
+            pipeline,
+            src,
+            format,
+            queue_bytes,
+            written: 0,
+            playing: false,
+        })
     }
 
     fn check(&self) -> Result<(), MediaError> {
@@ -1324,6 +1337,7 @@ impl Drop for GstOutput {
 /// asked for.
 struct GstInput {
     g: &'static Gst,
+    _live: super::Live,
     pipeline: Ptr,
     sink: Ptr,
     format: AudioFormat,
@@ -1380,7 +1394,7 @@ impl GstInput {
                 return Err(MediaError::NotFound(reason));
             }
         }
-        Ok(GstInput { g, pipeline, sink, format })
+        Ok(GstInput { g, _live: super::Live::new(), pipeline, sink, format })
     }
 }
 
@@ -1652,6 +1666,7 @@ impl Bits {
 /// `appsrc ! h264parse ! <decoder> ! videoconvert ! video/x-raw,format=NV12 ! appsink`.
 pub(crate) struct GstStreamDecoder {
     g: &'static Gst,
+    _live: super::Live,
     pipeline: Ptr,
     src: Ptr,
     sink: Ptr,
@@ -1789,6 +1804,7 @@ impl GstStreamDecoder {
         }
         Ok(GstStreamDecoder {
             g,
+            _live: super::Live::new(),
             pipeline,
             src,
             sink,

@@ -216,6 +216,8 @@ pub(crate) struct Pipe {
     g: &'static Gst,
     pub(crate) pipeline: Ptr,
     named: Vec<Ptr>,
+    /// Counted while it lives (debug builds).
+    _live: super::Live,
 }
 
 impl Pipe {
@@ -228,7 +230,7 @@ impl Pipe {
         if pipeline.is_null() {
             return Err(MediaError::Unsupported(g.take_error(err)));
         }
-        let mut p = Pipe { g, pipeline, named: Vec::new() };
+        let mut p = Pipe { g, pipeline, named: Vec::new(), _live: super::Live::new() };
         if !err.is_null() {
             return Err(MediaError::Unsupported(g.take_error(err)));
         }
