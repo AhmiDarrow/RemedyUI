@@ -7,7 +7,7 @@ use super::{
     AudioDecoder, EncodedAudioChunk, EncodedVideoChunk, Shared, Slot, VideoDecoder, audio_output, call,
     has_global, js_error, obj, video_output,
 };
-use crate::hls::{AudioCodec, AudioConfig, Elementary, Hls, Unit, VideoConfig};
+use crate::hls::{AudioCodec, AudioConfig, Elementary, Hls, Unit, VideoConfig, WAIT_SLICE, Want, WantKind};
 use crate::host::{Decoder, MediaError, MediaInfo, Sample};
 use js_sys::{Object, Promise, Uint8Array};
 use std::cell::RefCell;
@@ -223,10 +223,32 @@ impl Drop for WebElementary {
     }
 }
 
-/// What the page's fetches share with the decoder: the reader, and whether a fetch is under way.
+/// What the page's fetches share with the decoder: the reader, whether a fetch is under way,
+/// and when the last playlist and segment fetches ended (the page's clock, in milliseconds).
 struct Reader {
     hls: Hls,
     fetching: bool,
+    fetched: (f64, f64),
+}
+
+impl Reader {
+    /// What is wanted now, and how long until it is due.
+    fn due(&self) -> Option<(Want, Duration)> {
+        let want = self.hls.wanted()?;
+        let since = Duration::from_secs_f64(((js_sys::Date::now() - self.last(&want)) / 1000.0).max(0.0));
+        let wait = want.after.saturating_sub(since);
+        Some((want, wait))
+    }
+}
+
+impl Reader {
+    /// When the last fetch of `want`'s kind ended.
+    fn last(&self, want: &Want) -> f64 {
+        match want.kind {
+            WantKind::Playlist => self.fetched.0,
+            WantKind::Segment(_) => self.fetched.1,
+        }
+    }
 }
 
 /// An HLS source played in a page: the reader's wants fetched one at a time, its units fed to
@@ -271,29 +293,45 @@ async fn fetch_all(url: &str) -> Result<Vec<u8>, MediaError> {
 
 impl HlsDecoder {
     pub(super) fn open(url: &str, out: Shared) -> HlsDecoder {
-        let reader = Rc::new(RefCell::new(Reader { hls: Hls::new(url), fetching: false }));
+        let now = js_sys::Date::now();
+        let reader =
+            Rc::new(RefCell::new(Reader { hls: Hls::new(url), fetching: false, fetched: (now, now) }));
         let mut dec =
             HlsDecoder { out, reader, el: None, pending: None, ending: false, info: MediaInfo::default() };
         dec.fetch();
         dec
     }
 
-    /// Starts fetching what the reader wants next, unless a fetch is under way.
+    /// Starts fetching what the reader wants next, unless a fetch is under way. A fetch not
+    /// due yet is waited for in short slices, asking again after each what is wanted (a seek
+    /// or a segment now wanted goes first).
     fn fetch(&mut self) {
-        let want = {
+        {
             let mut r = self.reader.borrow_mut();
-            if r.fetching {
+            if r.fetching || r.hls.wanted().is_none() {
                 return;
             }
-            let Some(want) = r.hls.wanted() else { return };
             r.fetching = true;
-            want
-        };
+        }
         let (reader, out) = (self.reader.clone(), self.out.clone());
         wasm_bindgen_futures::spawn_local(async move {
-            sleep(want.after).await;
+            let want = loop {
+                let due = reader.borrow().due();
+                match due {
+                    None => {
+                        reader.borrow_mut().fetching = false;
+                        return;
+                    }
+                    Some((want, wait)) if wait.is_zero() => break want,
+                    Some((_, wait)) => sleep(wait.min(WAIT_SLICE)).await,
+                }
+            };
             let got = fetch_all(&want.url).await;
             let mut r = reader.borrow_mut();
+            match want.kind {
+                WantKind::Playlist => r.fetched.0 = js_sys::Date::now(),
+                WantKind::Segment(_) => r.fetched.1 = js_sys::Date::now(),
+            }
             let delivered = r.hls.deliver(&want, got);
             r.fetching = false;
             drop(r);
@@ -400,7 +438,13 @@ impl Decoder for HlsDecoder {
         Ok(())
     }
 
+    /// Also keeps the fetches going while nothing is read (paused), so a growing playlist
+    /// is asked again and its length grows.
     fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
+        if self.el.is_some() {
+            self.info = self.reader.borrow().hls.info();
+        }
+        self.fetch();
         Some(self.reader.borrow().hls.buffered())
     }
 }

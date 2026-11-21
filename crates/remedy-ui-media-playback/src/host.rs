@@ -132,10 +132,16 @@ pub struct TextTrackInfo {
 #[derive(Clone, Debug, Default, PartialEq)]
 #[non_exhaustive]
 pub struct MediaInfo {
-    /// How long it lasts; `None` for a live stream.
+    /// How long it lasts; `None` for a live stream. While [`MediaInfo::growing`], the length
+    /// so far.
     pub duration: Option<Duration>,
     /// Whether the player can move to another position in it.
     pub seekable: bool,
+    /// The media is still being made and `duration` may still grow (an HLS event playlist
+    /// without its end yet). A seek past the length so far is not cut to it: the player waits
+    /// for the media to reach the target. A decoder says so in [`Decoder::info`], and clears
+    /// it once the length is final.
+    pub growing: bool,
     /// The picture, when there is one.
     pub video: Option<VideoInfo>,
     /// The sound, when there is some: the format its samples come in.
@@ -254,8 +260,10 @@ pub trait Decoder: Send {
     fn seek(&mut self, to: Duration) -> Result<(), MediaError>;
     /// The stretches of the media the source holds without waiting (downloaded, for a
     /// stream), as positions in the media, when the decoder knows; `None` when it does not.
-    /// The player asks a few times a second, from the decoding thread, and adds what it has
-    /// decoded ahead itself; a local file counts as held whole.
+    /// The player asks a few times a second, from the decoding thread, also while paused, and
+    /// adds what it has decoded ahead itself; a local file counts as held whole. A decoder
+    /// may use the call to keep its source fresh (a growing playlist asked again), and
+    /// [`Decoder::info`] is read after it.
     fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
         None
     }
