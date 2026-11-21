@@ -527,6 +527,7 @@ fn open(data: SharedBytes, mp4: Mp4, out: &Shared) -> Result<Open, MediaError> {
     let info = MediaInfo {
         duration: length,
         seekable: true,
+        growing: false,
         video: video.as_ref().and_then(|(i, ..)| mp4.tracks.get(*i)).and_then(|t| match t.kind {
             Kind::Video { width, height } => {
                 let secs = t.length().as_secs_f64();

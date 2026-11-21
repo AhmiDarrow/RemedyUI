@@ -167,6 +167,8 @@ struct Feed {
     source_ranges: Option<Vec<std::ops::Range<Duration>>>,
     /// The length as the decoder last said: a growing stream's (an HLS event playlist) grows.
     source_duration: Option<Duration>,
+    /// Whether the decoder last said that length may still grow.
+    source_growing: bool,
 }
 
 impl Feed {
@@ -286,10 +288,12 @@ fn decode_step(st: &mut Decoding) -> Next {
     if st.asked.is_none_or(|a| a.elapsed() >= BUFFERED_INTERVAL) {
         st.asked = Some(Instant::now());
         let ranges = st.dec.buffered();
-        let duration = st.dec.info().duration;
+        let (duration, growing) = (st.dec.info().duration, st.dec.info().growing);
         let mut f = lock(&st.shared.feed);
-        let changed = f.source_ranges != ranges || f.source_duration != duration;
+        let changed =
+            f.source_ranges != ranges || f.source_duration != duration || f.source_growing != growing;
         f.source_duration = duration;
+        f.source_growing = growing;
         // Asked again later, even with nothing to decode, while the source says what it holds.
         keep_asking = ranges.is_some();
         f.source_ranges = ranges;
@@ -824,7 +828,11 @@ impl Presenter {
         if !self.opened || !self.info.seekable {
             return;
         }
-        let to = self.info.duration.map_or(to, |d| to.min(d));
+        // A growing stream's length so far is no limit: the decoder waits for it to get there.
+        let to = match self.info.duration {
+            Some(d) if !self.info.growing => to.min(d),
+            _ => to,
+        };
         {
             let mut f = lock(&self.feed.feed);
             f.generation += 1;
@@ -1236,15 +1244,22 @@ impl Presenter {
     fn publish(&mut self, t: Duration, force: bool) {
         // A growing stream's length, as its decoder says it (an HLS event playlist gains segments).
         let mut force = force;
-        let grown = lock(&self.feed.feed).source_duration;
-        if self.opened && grown.is_some() && grown != self.info.duration {
+        let (grown, growing) = {
+            let f = lock(&self.feed.feed);
+            (f.source_duration, f.source_growing)
+        };
+        if self.opened && grown.is_some() && (grown != self.info.duration || growing != self.info.growing) {
             self.info.duration = grown;
+            self.info.growing = growing;
             lock(&self.shared.status).info = Some(self.info.clone());
             force = true;
         }
         // Positions shown stay within the stated length: the last picture may run a little
-        // past it.
-        let t = self.info.duration.map_or(t, |d| t.min(d));
+        // past it. A growing stream's position may be past its length so far (a seek ahead).
+        let t = match self.info.duration {
+            Some(d) if !self.info.growing => t.min(d),
+            _ => t,
+        };
         let state = self.state();
         let due = self.last_publish.is_none_or(|p| p.elapsed() >= POSITION_INTERVAL);
         let buffered = self.buffered(t);
