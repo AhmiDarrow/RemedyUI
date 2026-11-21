@@ -59,9 +59,18 @@ pub struct PlayerOptions {
     pub volume: f32,
     /// How long the "up next" countdown runs once the media ends with a
     /// [`next up`](Player::set_next_up) set, before the next plays in this player; `None`
-    /// never advances by itself (the person chooses). The countdown does not start while the
-    /// system asks for reduced motion.
+    /// never advances by itself (the person chooses); zero plays it at once. A countdown does
+    /// not start while the system asks for reduced motion (zero, which shows no countdown,
+    /// still plays).
     pub next_up_delay: Option<Duration>,
+    /// How long before the end the widget's "Up next" card shows, as Portal's page does (the
+    /// last 20 seconds): while playing here (not remote) media over a minute long, measured
+    /// in the work's time on a [timeline](Player::set_timeline). Cancel puts it away for that
+    /// next; the end still plays it as [`next_up_delay`](Self::next_up_delay) says (Portal's
+    /// autoplay is `Some(Duration::ZERO)`). While remote no card shows, at the end either: the
+    /// device moves on by itself. `None` (the default): the card shows only at the end, also
+    /// while remote.
+    pub next_up_lead: Option<Duration>,
     /// Which keys the widget answers to; [`KeyScheme::Classic`] by default.
     pub keys: KeyScheme,
     /// Where the source sits in a longer work, if it is part of one ([`Player::set_timeline`]).
@@ -319,6 +328,12 @@ impl PlayerOptions {
         self
     }
 
+    /// Sets `next_up_lead`: how long before the end the "Up next" card shows.
+    pub fn next_up_lead(mut self, value: Option<Duration>) -> Self {
+        self.next_up_lead = value;
+        self
+    }
+
     /// Sets `keys`: which keys the widget answers to.
     pub fn keys(mut self, value: KeyScheme) -> Self {
         self.keys = value;
@@ -345,6 +360,7 @@ impl Default for PlayerOptions {
             next_up_delay: Some(NEXT_UP_DELAY),
             keys: KeyScheme::Classic,
             timeline: None,
+            next_up_lead: None,
         }
     }
 }
@@ -510,7 +526,7 @@ impl Inner {
         }
         let Some(delay) = self.options.next_up_delay else { return };
         let Some(ui) = self.ui.upgrade() else { return };
-        if ui.reduced_motion() {
+        if ui.reduced_motion() && !delay.is_zero() {
             return;
         }
         self.deadline.set(Some(remedy_ui_core::time::Instant::now() + delay));
@@ -1270,6 +1286,24 @@ impl Player {
     /// Which keys the widget answers to.
     pub(crate) fn key_scheme(&self) -> KeyScheme {
         self.0.options.keys
+    }
+
+    /// Whether the "Up next" card is due before the end ([`PlayerOptions::next_up_lead`]):
+    /// something is next, media over a minute long, within the lead of its end. Tracked.
+    pub(crate) fn next_up_near(&self) -> bool {
+        let Some(lead) = self.0.options.next_up_lead else { return false };
+        if self.0.queue.with(Vec::is_empty) {
+            return false;
+        }
+        let Some(len) = self.duration().filter(|d| *d > Duration::from_secs(60)) else { return false };
+        let left = len.saturating_sub(self.position());
+        !left.is_zero() && left <= lead
+    }
+
+    /// Whether the app asked for the card before the end, as Portal's page does: then, while
+    /// remote, no card shows at all (the device moves on by itself).
+    pub(crate) fn next_up_early(&self) -> bool {
+        self.0.options.next_up_lead.is_some()
     }
 
     /// Whether an app listens for theater requests. Tracked.
