@@ -10,6 +10,15 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **The seek bar shows what a stream has downloaded on more platforms** (`Decoder::buffered`,
+  `Player::buffered`). GStreamer keeps a progressive stream's bytes and is asked in percent
+  when it has no answer in time (before, a stream reported nothing). Media Foundation reads
+  the byte ranges its network byte stream has cached, placed in time in proportion to the
+  stream's length. MediaCodec reports how far ahead its extractor has cached. In a browser a
+  URL is fetched a chunk at a time: the page opens it once its movie box is in, samples still
+  downloading wait, and what has arrived is reported. AVFoundation still shows only what is
+  decoded ahead. `remedy-ui-media-playback/tools/slow-serve.py` serves a file slowly for
+  the browser test, and `tools/web-test.sh` starts it.
 - **GPU windows present only what changed, on unmodified wgpu.** On D3D12 and Vulkan a window
   presents through a swapchain of RemedyUI's own on wgpu's device: its images keep what they
   showed, each present copies in only what changed since that image was shown and tells the
