@@ -10,6 +10,19 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **The player can answer to streaming-site keys** (`KeyScheme`, `PlayerOptions::keys`).
+  `KeyScheme::Arrows` makes Left and Right skip 10 seconds, Up and Down change the volume by
+  5% and N play next anywhere in the player (focused sliders and text fields keep their own
+  keys); `KeyScheme::Classic`, the default, is unchanged. Double-clicking the picture asks for
+  full screen or leaves it (with `Arrows`, a single click plays and pauses after 220 ms), and while casting the full-screen and theater buttons, F, T and
+  the double click only leave a mode casting started in. With `Arrows`, a click on a control hands the
+  keys back to the player, as in Portal.
+- **`menu_press_through`** (`widgets-core`): a menu whose closing press also reaches what is
+  under it (a player's picture plays or pauses).
+- **Casting**: the stage centers "Playing on" and the device's name over the app's poster under a
+  dark scrim; the speed button is hidden while remote; `RemoteStatus::new` with `length`,
+  `volume` and `muted`; `Player::remote_status_sender` (a `Send` handle) delivers status news
+  from any thread; and a poll from before a seek landed no longer pulls the seek bar back.
 - **The seek bar shows what a stream has downloaded on more platforms** (`Decoder::buffered`,
   `Player::buffered`). GStreamer keeps a progressive stream's bytes and is asked in percent
   when it has no answer in time (before, a stream reported nothing). Media Foundation resolves
