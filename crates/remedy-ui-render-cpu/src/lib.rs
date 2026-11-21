@@ -23,8 +23,8 @@ use std::sync::Arc;
 
 use remedy_ui_core::{Color, CornerRadii, Point, Rect};
 use remedy_ui_paint::{
-    Affine, Blend, Brush, DisplayList, ExternalTexture, GlyphRun, Image, Item, Path, PathEl, Sampling,
-    Stroke, StrokeCap, StrokeJoin, VideoFrame,
+    Affine, Blend, Brush, DisplayList, ExternalTexture, FilterBudget, GlyphRun, Image, Item, Path, PathEl,
+    Sampling, Stroke, StrokeCap, StrokeJoin, VideoFrame,
 };
 use remedy_ui_text::{Antialias, GlyphRasterizer, Hinting, size_64, subpixel_bin};
 use vello_cpu::color::{AlphaColor, Srgb};
@@ -289,14 +289,10 @@ fn texture_item<S: Surface>(ctx: &mut S, texture: &ExternalTexture, rect: Rect, 
     ctx.fill_path(&rounded(rect, radii));
 }
 
-/// The vello filter for a display-list filter, or `None` when it changes nothing.
-pub(crate) fn vello_filter(
-    f: &remedy_ui_paint::Filter,
-    scale: f32,
-) -> Option<vello_cpu::filter_effects::Filter> {
+/// The vello filter for a display-list filter already bounded for drawing (by
+/// [`FilterBudget::limit`]), or `None` when it changes nothing.
+pub(crate) fn vello_filter(f: &remedy_ui_paint::Filter) -> Option<vello_cpu::filter_effects::Filter> {
     use vello_cpu::filter_effects::{EdgeMode, Filter, FilterPrimitive};
-    // Bounded: a filter's buffers grow with its blur and offset.
-    let f = &f.limited(scale);
     let sigma = f.std_dev();
     let primitive = match f {
         remedy_ui_paint::Filter::Blur { .. } if sigma == 0.0 => return None,
@@ -317,24 +313,26 @@ pub(crate) fn vello_filter(
 }
 
 /// The filter a backdrop of standard deviation `blur` draws its glass with, or `None` for no
-/// blur. Both compositors use it, so they blur alike.
-/// `scale` is how much the glass's transform scales lengths (the blur is bounded by
-/// [`remedy_ui_paint::MAX_FILTER_STD_DEV`]).
+/// blur, when no filter is around it. Both compositors use the same bound, so they blur
+/// alike. `scale` is how much the glass's transform scales lengths (the blur is bounded by
+/// [`remedy_ui_paint::MAX_FILTER_STD_DEV`]; inside filters, by what they leave: see
+/// [`FilterBudget`]).
 pub fn backdrop_filter(blur: f32, scale: f32) -> Option<vello_cpu::filter_effects::Filter> {
-    vello_filter(&remedy_ui_paint::Filter::Blur { radius: blur }, scale)
+    layer_filter(&remedy_ui_paint::Filter::Blur { radius: blur }, scale)
 }
 
-/// The vello filter a display-list filter is drawn with, or `None` when it changes nothing.
-/// Both compositors use it for layers' filters, so they filter alike.
-/// `scale` is how much the layer's transform scales lengths.
+/// The vello filter a display-list filter is drawn with when no filter is around it, or
+/// `None` when it changes nothing. Both compositors use the same bound, so they filter alike.
+/// `scale` is how much the layer's transform scales lengths (inside filters, the bound is
+/// what they leave: see [`FilterBudget`]).
 pub fn layer_filter(f: &remedy_ui_paint::Filter, scale: f32) -> Option<vello_cpu::filter_effects::Filter> {
-    vello_filter(f, scale)
+    vello_filter(&FilterBudget::FULL.limit(f, scale).0)
 }
 
-/// How far, in device pixels, filter `f` pushed under transform `t` carries drawing.
+/// How far, in device pixels, filter `f` (already bounded for drawing) pushed under transform
+/// `t` carries drawing.
 fn filter_reach(f: &remedy_ui_paint::Filter, t: Affine) -> f32 {
     let k = t.scale_factor();
-    let f = &f.limited(k);
     let off = match f {
         remedy_ui_paint::Filter::DropShadow { offset, .. } => offset.x.abs().max(offset.y.abs()),
         remedy_ui_paint::Filter::Blur { .. } => 0.0,
@@ -511,14 +509,16 @@ impl Painter {
     ) {
         self.sweep_images();
         // Groups the list leaves open are closed: a list is drawn as a whole, balanced.
-        self.draw_items(s, list.items(), base, area, 0, true);
+        self.draw_items(s, list.items(), base, area, 0, FilterBudget::FULL, true);
         s.set_transform(kurbo::Affine::IDENTITY);
         s.reset_paint_transform();
     }
 
     /// Draws `items` through `base`. `outer_groups` is how many opacity, blend or filter
-    /// groups are open around them (LCD text inside one falls back to grayscale). With
-    /// `close`, groups the items leave open are closed at the end (a backdrop's replay).
+    /// groups are open around them (LCD text inside one falls back to grayscale), and
+    /// `budget` what the filters around them leave the filters inside. With `close`, groups
+    /// the items leave open are closed at the end (a backdrop's replay).
+    #[allow(clippy::too_many_arguments)]
     fn draw_items<S: Surface>(
         &mut self,
         s: &mut S,
@@ -526,6 +526,7 @@ impl Painter {
         base: Affine,
         area: Option<Rect>,
         outer_groups: usize,
+        budget: FilterBudget,
         close: bool,
     ) {
         let scale = base.scale_factor();
@@ -533,7 +534,8 @@ impl Painter {
         // Open opacity/blend/filter groups: LCD text inside one falls back to grayscale.
         let mut groups = outer_groups;
         // The culling area: inside a filter group, grown by what the filter carries in.
-        let mut areas = vec![area];
+        // With each, what the filter groups open around it leave the filters inside them.
+        let mut areas = vec![(area, budget)];
         // Surface layers open (clips and groups), to close at the end of a replay.
         let mut open = 0usize;
         // Backdrop roots: where the innermost open group's content starts, and the transform
@@ -541,7 +543,7 @@ impl Painter {
         let mut roots: Vec<(usize, Affine)> = vec![(0, base)];
         for (i, item) in items.iter().enumerate() {
             let t = transforms.last().copied().unwrap_or(base);
-            let cull = areas.last().copied().flatten();
+            let (cull, left) = areas.last().copied().unwrap_or((area, budget));
             // Culling is conservative: transformed bounds are boxes around the item.
             if let (Some(area), Some(b)) = (cull, item.bounds())
                 && t.apply_rect(b).intersect(area).is_none_or(|r| r.is_empty())
@@ -643,15 +645,17 @@ impl Painter {
                 }
                 Item::PushFilter(f) => {
                     groups += 1;
-                    match vello_filter(f, t.scale_factor()) {
+                    // Bounded with the filters around it: see `FilterBudget`.
+                    let (f, inside) = left.limit(f, t.scale_factor());
+                    match vello_filter(&f) {
                         Some(vf) => s.push_filter_layer(vf),
                         None => s.push_group(peniko::BlendMode::default(), 1.0),
                     }
                     open += 1;
                     roots.push((i + 1, t));
                     // What the group draws around the area can reach into it.
-                    let reach = filter_reach(f, t);
-                    areas.push(cull.map(|a| grow(a, reach)));
+                    let reach = filter_reach(&f, t);
+                    areas.push((cull.map(|a| grow(a, reach)), inside));
                 }
                 Item::Backdrop { rect, radii, blur } => {
                     let sigma = if blur.is_finite() { blur.max(0.0) } else { 0.0 };
@@ -661,7 +665,10 @@ impl Painter {
                     }
                     s.push_clip_layer(&rounded(*rect, *radii));
                     let f = remedy_ui_paint::Filter::Blur { radius: sigma };
-                    match vello_filter(&f, t.scale_factor()) {
+                    // What is under the glass is drawn inside its blur, and inside the
+                    // filters around it.
+                    let (f, inside) = left.limit(&f, t.scale_factor());
+                    match vello_filter(&f) {
                         Some(vf) => s.push_filter_layer(vf),
                         None => s.push_group(peniko::BlendMode::default(), 1.0),
                     }
@@ -669,7 +676,7 @@ impl Painter {
                     let reach = filter_reach(&f, t);
                     let under = cull.map(|a| grow(a, reach));
                     if let Some(prefix) = items.get(start..i) {
-                        self.draw_items(s, prefix, root_t, under, groups + 1, true);
+                        self.draw_items(s, prefix, root_t, under, groups + 1, inside, true);
                     }
                     s.set_transform(kaffine(t));
                     s.pop_layer();
