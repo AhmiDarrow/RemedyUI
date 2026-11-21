@@ -10,6 +10,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **HLS on Android.** A `.m3u8` source plays through the crate's own HLS reader, as on
+  Windows and Linux (it said `Unsupported` before): MediaCodec decodes the H.264, AAC and MP3
+  streams (pictures on the GPU path as for files), and playlists and segments come over
+  HTTP/1.1 on a socket of the crate's own (http), through Java's `HttpURLConnection` on the
+  app's VM (https), or from disk. `tests/hls.rs` passes on an Android 14 emulator (http and
+  files; the https way through Java is not yet run on a device).
 - **Retry after a failure, and the app's words on the picture**, as on Portal's page.
   `Player::on_retry(f)`: after playback fails here, Play, K, Space or a click on the picture
   (in either key scheme) calls `f` with the last position (film time on a timeline), and the
