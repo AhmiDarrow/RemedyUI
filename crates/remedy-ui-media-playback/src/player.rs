@@ -661,7 +661,7 @@ struct Inner {
     /// What plays, shown at the top of the picture in full screen ([`Player::set_title`]).
     title: Signal<Option<String>>,
     /// In full screen, the controls are showing (not faded after a rest).
-    awake: Signal<bool>,
+    controls_awake: Signal<bool>,
     /// Theater was on when the player went compact, so leaving it brings it back (Portal's).
     theater_before_compact: Cell<bool>,
     /// [`PlayerOptions::next_up_delay`] and [`next_up_lead`](PlayerOptions::next_up_lead),
@@ -1299,7 +1299,7 @@ impl Player {
             captions_loading: Signal::new(false),
             compact: Signal::new(options.compact),
             title: Signal::new(None),
-            awake: Signal::new(true),
+            controls_awake: Signal::new(true),
             theater_before_compact: Cell::new(false),
             next_up_delay: Signal::new(options.next_up_delay),
             next_up_lead: Signal::new(options.next_up_lead),
@@ -2179,7 +2179,7 @@ impl Player {
     /// stay while paused, busy, hovered, focused from the keyboard, scrubbed or with a menu
     /// open). Tracked.
     pub fn controls_shown(&self) -> bool {
-        !self.is_fullscreen() || self.0.awake.get()
+        !self.is_fullscreen() || self.0.controls_awake.get()
     }
 
     /// Rests the controls now, as 2.6 s with no activity would: for pictures of the faded
@@ -2190,7 +2190,7 @@ impl Player {
     }
 
     pub(crate) fn set_awake(&self, on: bool) {
-        self.0.awake.set_if_changed(on);
+        self.0.controls_awake.set_if_changed(on);
     }
 
     /// Whether an app listens for the cast button. Tracked.

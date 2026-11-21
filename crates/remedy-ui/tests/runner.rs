@@ -2116,6 +2116,7 @@ fn an_element_hides_the_mouse_pointer_while_it_is_over_it() {
     assert!(!hidden(&host), "shown again where it rests");
 }
 
+#[test]
 fn keys_and_clicks_sent_to_a_live_window_reach_it_as_the_platforms_do() {
     let count = Signal::new(0u32);
     let typed = Rc::new(std::cell::RefCell::new(String::new()));
