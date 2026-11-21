@@ -3,10 +3,10 @@
 //! sought, played while its playlist grows, and failing on a missing segment; the other
 //! fixtures in `tests/fixtures/hls` played to the end; and a playlist opened as a local file.
 //!
-//! Skips, saying why, where there is no platform host. Not built for macOS and Android, whose
-//! hosts refuse HLS for now.
+//! Skips, saying why, where there is no platform host. Not built for macOS, whose host refuses
+//! HLS for now.
 
-#![cfg(not(any(target_arch = "wasm32", target_os = "macos", target_os = "android")))]
+#![cfg(not(any(target_arch = "wasm32", target_os = "macos")))]
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};

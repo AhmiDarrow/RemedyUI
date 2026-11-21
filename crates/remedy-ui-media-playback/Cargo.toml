@@ -109,5 +109,10 @@ wasm-bindgen-test = { version = "=0.3.80" }
 web-sys = { version = "=0.3.107", features = ["console", "Document", "Element", "HtmlCanvasElement"] }
 remedy-ui = { path = "../remedy-ui", default-features = false, features = ["widgets", "web", "playback", "gpu"] }
 
+# HLS over https on Android inside app_process, for a real Java VM (tools/android-hls-check.sh).
+[[example]]
+name = "android-hls-check"
+crate-type = ["cdylib"]
+
 [lints]
 workspace = true
