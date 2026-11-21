@@ -120,3 +120,17 @@ pub use widget::{PlayerParts, format_time, player, player_picture, player_with};
 pub fn platform_host() -> Result<Arc<dyn MediaHost>, MediaError> {
     os::platform_host()
 }
+
+/// For leak tests: the platform objects alive (Media Foundation starts, D3D11 devices,
+/// pictures on the GPU). Debug builds count them; release builds always say 0.
+#[doc(hidden)]
+pub fn live_platform_objects() -> usize {
+    os::live_objects()
+}
+
+/// For leak tests: the threads this process runs, as (name, module it started in); empty
+/// where the platform cannot tell, and the module empty where it does not say.
+#[doc(hidden)]
+pub fn process_threads() -> Vec<(String, String)> {
+    os::process_threads()
+}
