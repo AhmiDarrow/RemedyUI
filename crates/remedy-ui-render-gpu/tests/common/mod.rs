@@ -13,8 +13,8 @@ use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows
 use remedy_ui_bridge_winit::winit::platform::x11::EventLoopBuilderExtX11;
 
 /// An event loop for this test thread, with the validation layer's reports collected from
-/// now on. `None` on Linux without an X11 display (said on stderr): the test has nothing to
-/// present to and passes.
+/// now on. `None` on Linux without an X11 display or a Vulkan device (said on stderr): the
+/// test has nothing to present with and passes.
 pub fn event_loop() -> Option<EventLoop<UserEvent>> {
     let mut builder = EventLoop::<UserEvent>::with_user_event();
     #[cfg(target_os = "linux")]
@@ -24,6 +24,19 @@ pub fn event_loop() -> Option<EventLoop<UserEvent>> {
             return None;
         }
         builder.with_x11();
+        // What these tests check is presenting through RemedyUI's own Vulkan swapchain;
+        // wgpu's GL surface presents nothing under Xvfb.
+        match remedy_ui_render_gpu::GpuContext::new(&remedy_ui_render_gpu::LadderOptions::default()) {
+            Ok(ctx) if ctx.adapter.get_info().backend == wgpu::Backend::Vulkan => {}
+            Ok(ctx) => {
+                eprintln!("no Vulkan device ({}): nothing presented", ctx.describe());
+                return None;
+            }
+            Err(e) => {
+                eprintln!("no GPU ({e}): nothing presented");
+                return None;
+            }
+        }
     }
     if log::set_logger(&VALIDATION).is_ok() {
         log::set_max_level(log::LevelFilter::Warn);
@@ -53,8 +66,10 @@ impl log::Log for Validation {
 
     fn log(&self, r: &log::Record<'_>) {
         let text = r.args().to_string();
-        // Errors, and the synchronization hazards (warnings in some layer versions).
+        // The layer's errors, and its synchronization hazards (warnings in some versions);
+        // wgpu starts each message with its type (the loader's are GENERAL).
         if self.enabled(r.metadata())
+            && text.starts_with("VALIDATION")
             && (r.level() == log::Level::Error || text.contains("SYNC-"))
             && let Ok(mut v) = self.0.lock()
         {
