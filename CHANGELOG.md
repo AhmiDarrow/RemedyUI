@@ -10,6 +10,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **A queue for next-up in the media player**: `Player::set_queue`, `enqueue` and `queue`
+  hold what plays after the current media, in order. At each end the first counts down and
+  plays in the same player, taken off the queue as it starts, until the queue is empty;
+  the widget's "Up next" card shows each in turn. `set_next_up` now sets the queue to the
+  one given (or empties it), and `next_up` is the queue's first.
 - **Playback speed in the media player, with the pitch kept**: `Player::set_speed` (0.25× to
   4×, `MIN_SPEED`/`MAX_SPEED`; not-a-number is 1×), `Player::speed`, `step_speed` and `SPEEDS`.
   Sound goes through a pitch-preserving WSOLA time stretcher of the crate's own (no new
