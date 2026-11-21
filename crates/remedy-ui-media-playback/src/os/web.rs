@@ -42,6 +42,11 @@ use crate::host::{
 };
 use crate::mp4::{self, Kind, Mp4};
 
+// HLS: the crate's reader, fetched by the page and decoded by these WebCodecs decoders.
+#[allow(dead_code)] // shortcut: until the HLS decoder drives it
+#[path = "web_hls.rs"]
+mod hls_web;
+
 #[wasm_bindgen]
 extern "C" {
     type VideoDecoder;

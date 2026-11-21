@@ -86,7 +86,11 @@ pub(crate) enum WantKind {
 pub(crate) trait Elementary: Send {
     /// Sets the decoders up for the streams the media holds (either may be absent). Called
     /// once, before the first [`Elementary::push`].
-    fn configure(&mut self, video: Option<&VideoConfig>, audio: Option<&AudioConfig>) -> Result<(), MediaError>;
+    fn configure(
+        &mut self,
+        video: Option<&VideoConfig>,
+        audio: Option<&AudioConfig>,
+    ) -> Result<(), MediaError>;
     /// Hands over one compressed piece.
     fn push(&mut self, unit: Unit) -> Result<(), MediaError>;
     /// The next decoded sample if one is ready (pictures and sound, each in presentation
