@@ -45,3 +45,4 @@ REMEDY_SLOW_CLIP_URL="http://127.0.0.1:$(cat "$port_file")/clip.mp4" \
     cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web
 cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web_gpu
 cargo test --manifest-path "$root/crates/remedy-ui-widgets-board/Cargo.toml" --target wasm32-unknown-unknown --test web
+cargo test --manifest-path "$root/crates/remedy-ui-services-desktop/Cargo.toml" --target wasm32-unknown-unknown --test media_session_web
