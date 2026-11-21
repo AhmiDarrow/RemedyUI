@@ -41,6 +41,13 @@ thread_local! {
     static MIRRORS: RefCell<HashMap<u64, Mirror>> = RefCell::new(HashMap::new());
 }
 
+/// Clears a dropped player's entry from the controls.
+pub(crate) fn forget(id: u64) {
+    // Taken out first so the entry's drop runs outside the borrow.
+    let gone = MIRRORS.try_with(|m| m.try_borrow_mut().ok().and_then(|mut m| m.remove(&id)));
+    drop(gone);
+}
+
 fn press(c: MediaCommand) -> Option<Press> {
     Some(match c {
         MediaCommand::Play => Press::Play,
@@ -241,5 +248,9 @@ mod tests {
 
         assert!(p.now_playing(None).is_ok());
         assert_eq!(seen.borrow().last().map(String::as_str), Some("now none"), "left the controls");
+        p.mirror_to(Rc::new(Fake(seen.clone())), &NowPlaying::new("Again"));
+        frame();
+        drop(p);
+        assert_eq!(seen.borrow().last().map(String::as_str), Some("now none"), "dropped, cleared");
     }
 }
