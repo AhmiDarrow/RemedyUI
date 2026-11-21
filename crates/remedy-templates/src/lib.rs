@@ -152,21 +152,9 @@ impl Dependency {
     }
 }
 
-/// The workspace's `[patch.crates-io]` lines, which every app needs until the patched crates
-/// are released: the wgpu fork's damage-only presents and the vendored `vello_cpu`. A test
-/// keeps it equal to the workspace's.
+/// The workspace's `[patch.crates-io]` lines, which every app needs until the patched crate is
+/// released: the vendored `vello_cpu`. A test keeps it equal to the workspace's.
 const PATCH: &str = r#"vello_cpu = { path = "vendor/vello_cpu" }
-wgpu = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
-wgpu-core = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
-wgpu-hal = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
-wgpu-types = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
-wgpu-naga-bridge = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
-naga = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
-naga-types = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
-wgpu-core-deps-apple = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
-wgpu-core-deps-emscripten = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
-wgpu-core-deps-wasm = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
-wgpu-core-deps-windows-linux-android = { git = "https://github.com/AhmiDarrow/wgpu", rev = "a30dba29196796037ddcd7f25954a717109d5c28" }
 "#;
 
 /// `my-app` → `My App`.
@@ -703,7 +691,7 @@ mod tests {
         assert!(git.contains(&format!("vello_cpu = {{ git = \"{REPOSITORY}\" }}")), "{git}");
         let path = cargo(&Dependency::Path(PathBuf::from("/src/remedy")));
         assert!(path.contains("vello_cpu = { path = \"/src/remedy/vendor/vello_cpu\" }"), "{path}");
-        assert!(path.contains("wgpu = { git = \"https://github.com/AhmiDarrow/wgpu\""), "{path}");
+        assert!(!path.contains("AhmiDarrow/wgpu"), "no wgpu fork: {path}");
     }
 
     #[test]

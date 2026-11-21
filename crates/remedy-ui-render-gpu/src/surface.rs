@@ -222,9 +222,6 @@ fn build(
         .ok_or_else(|| GpuError::Surface("the adapter cannot present to this window".into()))?;
     config.format = format;
     config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
-    // Swapchain images keep what they showed, so a present copies in and reports only what
-    // changed since ([`GpuSurface`]'s history): the compositor redraws only that on screen.
-    config.preserve_contents = true;
     // The frame is kept in a texture of its own and copied to the swapchain image, where the
     // swapchain allows copies.
     if caps.usages.contains(wgpu::TextureUsages::COPY_DST) {
@@ -501,10 +498,11 @@ impl GpuCompositor {
         let (w, h) = (frame.texture.width().min(kept.width()), frame.texture.height().min(kept.height()));
         let ctx = self.renderer().context();
         let copies = surface.copies && frame.texture.format() == kept.format();
-        let age = frame.buffer_age() as usize;
-        let changed = if copies { surface.changed_since(age) } else { None };
+        // wgpu's images hold nothing known: the whole frame goes in (only this window's own
+        // swapchains, on D3D12 and Vulkan, keep what they showed).
+        let changed: Option<Vec<(u16, u16, u16, u16)>> = None;
         if copies {
-            if let Some(copies) = copy_in(ctx, kept, &frame.texture, changed.as_deref(), (w, h)) {
+            if let Some(copies) = copy_in(ctx, kept, &frame.texture, None, (w, h)) {
                 ctx.queue.submit([copies]);
             }
         } else {
@@ -538,24 +536,10 @@ impl GpuCompositor {
             let (shown, want) = (ctx.read_back(&frame.texture)?, ctx.read_back(kept)?);
             checks.compared += 1;
             checks.damaged += usize::from(changed.is_some());
-            checks.unknown += usize::from(age == 0);
+            checks.unknown += 1;
             checks.mismatched += usize::from(shown.pixels != want.pixels);
         }
-        match changed {
-            Some(changed) => {
-                let damage: Vec<wgpu::DamageRect> = changed
-                    .iter()
-                    .map(|&(x0, y0, x1, y1)| wgpu::DamageRect {
-                        x: u32::from(x0),
-                        y: u32::from(y0),
-                        width: u32::from(x1 - x0),
-                        height: u32::from(y1 - y0),
-                    })
-                    .collect();
-                ctx.queue.present_with_damage(frame, &damage);
-            }
-            None => ctx.queue.present(frame),
-        }
+        ctx.queue.present(frame);
         surface.history.push_front(std::mem::take(&mut surface.pending));
         // A swapchain has at most 16 images (DXGI's limit; presentation engines keep fewer):
         // an image older than that is drawn whole.

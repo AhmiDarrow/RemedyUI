@@ -22,40 +22,7 @@ url = "https://raw.githubusercontent.com/mozilla/supply-chain/main/audits.toml"
 [imports.zcash]
 url = "https://raw.githubusercontent.com/zcash/rust-ecosystem/main/supply-chain/audits.toml"
 
-[policy.naga]
-audit-as-crates-io = true
-
-[policy.naga-types]
-audit-as-crates-io = true
-
 [policy.vello_cpu]
-audit-as-crates-io = true
-
-[policy.wgpu]
-audit-as-crates-io = true
-
-[policy.wgpu-core]
-audit-as-crates-io = true
-
-[policy.wgpu-core-deps-apple]
-audit-as-crates-io = true
-
-[policy.wgpu-core-deps-emscripten]
-audit-as-crates-io = true
-
-[policy.wgpu-core-deps-wasm]
-audit-as-crates-io = true
-
-[policy.wgpu-core-deps-windows-linux-android]
-audit-as-crates-io = true
-
-[policy.wgpu-hal]
-audit-as-crates-io = true
-
-[policy.wgpu-naga-bridge]
-audit-as-crates-io = true
-
-[policy.wgpu-types]
 audit-as-crates-io = true
 
 [[exemptions.accesskit]]
@@ -923,11 +890,11 @@ version = "0.8.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.naga]]
-version = "30.0.2@git:a30dba29196796037ddcd7f25954a717109d5c28"
+version = "30.0.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.naga-types]]
-version = "30.0.2@git:a30dba29196796037ddcd7f25954a717109d5c28"
+version = "30.0.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.ndk]]
@@ -1911,39 +1878,39 @@ version = "0.4.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.wgpu]]
-version = "30.0.2@git:a30dba29196796037ddcd7f25954a717109d5c28"
+version = "30.0.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.wgpu-core]]
-version = "30.0.2@git:a30dba29196796037ddcd7f25954a717109d5c28"
+version = "30.0.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.wgpu-core-deps-apple]]
-version = "30.0.2@git:a30dba29196796037ddcd7f25954a717109d5c28"
+version = "30.0.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.wgpu-core-deps-emscripten]]
-version = "30.0.2@git:a30dba29196796037ddcd7f25954a717109d5c28"
+version = "30.0.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.wgpu-core-deps-wasm]]
-version = "30.0.2@git:a30dba29196796037ddcd7f25954a717109d5c28"
+version = "30.0.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.wgpu-core-deps-windows-linux-android]]
-version = "30.0.2@git:a30dba29196796037ddcd7f25954a717109d5c28"
+version = "30.0.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.wgpu-hal]]
-version = "30.0.2@git:a30dba29196796037ddcd7f25954a717109d5c28"
+version = "30.0.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.wgpu-naga-bridge]]
-version = "30.0.2@git:a30dba29196796037ddcd7f25954a717109d5c28"
+version = "30.0.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.wgpu-types]]
-version = "30.0.2@git:a30dba29196796037ddcd7f25954a717109d5c28"
+version = "30.0.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.wgsl-parse]]
