@@ -5,7 +5,10 @@
 //! checked against the data, and tables are as large as the file says, never larger than the
 //! file could hold.
 
+use std::path::Path;
 use std::time::Duration;
+
+use crate::subtitles::{Cue, SubtitleTrack};
 
 /// Why a file could not be read as MP4.
 pub(crate) type Error = String;
@@ -26,6 +29,11 @@ pub(crate) enum Kind {
         sample_rate: u32,
         /// Channels.
         channels: u16,
+    },
+    /// MPEG-4 timed text (`tx3g`): subtitles or captions.
+    Text {
+        /// Its language (ISO 639-2), when the file names one.
+        language: Option<String>,
     },
 }
 
@@ -165,17 +173,118 @@ fn table(body: &[u8], header: usize, width: usize) -> Result<(usize, &[u8]), Err
 pub(crate) fn parse(data: &[u8]) -> Result<Mp4, Error> {
     let top = atoms(data)?;
     let moov = child(&top, b"moov").ok_or("no movie box (moov): not an MP4 file, or a fragmented one")?;
-    let moov = atoms(moov.body)?;
-    let mut tracks = Vec::new();
-    for trak in moov.iter().filter(|a| &a.kind == b"trak") {
-        if let Some(t) = track(trak.body, data.len() as u64)? {
-            tracks.push(t);
-        }
-    }
-    if tracks.is_empty() {
+    let tracks = moov_tracks(moov.body, data.len() as u64)?;
+    if tracks.iter().all(|t| matches!(t.kind, Kind::Text { .. })) {
         return Err("no H.264 video or AAC sound in the file".into());
     }
     Ok(Mp4 { tracks })
+}
+
+fn moov_tracks(moov: &[u8], file_len: u64) -> Result<Vec<Track>, Error> {
+    let moov = atoms(moov)?;
+    let mut tracks = Vec::new();
+    for trak in moov.iter().filter(|a| &a.kind == b"trak") {
+        if let Some(t) = track(trak.body, file_len)? {
+            tracks.push(t);
+        }
+    }
+    Ok(tracks)
+}
+
+/// The largest movie box read from a file: far above a feature film's (a few megabytes).
+const MAX_MOOV: u64 = 64 << 20;
+
+/// The largest timed-text sample read; a cue is a line or two.
+const MAX_CUE: u32 = 64 << 10;
+
+/// The MPEG-4 timed-text tracks in the file at `path`, as subtitle tracks; none when it is
+/// not an MP4 or holds none. Only the movie box and the text samples are read, so a long
+/// film costs a few small reads.
+pub(crate) fn text_tracks(path: &Path) -> Vec<SubtitleTrack> {
+    read_text_tracks(path).unwrap_or_default()
+}
+
+fn read_text_tracks(path: &Path) -> Result<Vec<SubtitleTrack>, Error> {
+    use std::io::{Read, Seek, SeekFrom};
+    let io = |e: std::io::Error| e.to_string();
+    let mut f = std::fs::File::open(path).map_err(io)?;
+    let len = f.metadata().map_err(io)?.len();
+    // Walk the top-level boxes by their headers alone until the movie box.
+    let mut at = 0u64;
+    let moov = loop {
+        if at.saturating_add(8) > len {
+            return Ok(Vec::new());
+        }
+        let mut h = [0u8; 16];
+        f.seek(SeekFrom::Start(at)).map_err(io)?;
+        f.read_exact(&mut h[..8]).map_err(io)?;
+        let (header, size) = match be32(&h, 0)? {
+            0 => (8, len - at),
+            1 => {
+                f.read_exact(&mut h[8..]).map_err(io)?;
+                (16, be64(&h, 8)?)
+            }
+            s => (8, u64::from(s)),
+        };
+        if size < header || size > len - at {
+            return Err("a box runs past the end of the file".into());
+        }
+        if &h[4..8] == b"moov" {
+            if size > MAX_MOOV {
+                return Err("the movie box is too large".into());
+            }
+            let mut body = vec![0u8; (size - header) as usize];
+            f.read_exact(&mut body).map_err(io)?;
+            break body;
+        }
+        at += size;
+    };
+    let mut out = Vec::new();
+    for t in moov_tracks(&moov, len)? {
+        let Kind::Text { language } = &t.kind else { continue };
+        let mut cues = Vec::new();
+        for s in t.samples.iter().filter(|s| (2..=MAX_CUE).contains(&s.size)) {
+            let mut b = vec![0u8; s.size as usize];
+            f.seek(SeekFrom::Start(s.offset)).map_err(io)?;
+            f.read_exact(&mut b).map_err(io)?;
+            let text = cue_text(&b);
+            let (start, end) = (t.time(s.pts), t.time(s.pts.saturating_add(i64::from(s.duration))));
+            if !text.is_empty() && end > start {
+                cues.push(Cue { start, end, text });
+            }
+        }
+        cues.sort_by_key(|c| c.start);
+        if !cues.is_empty() {
+            let label = language.clone().unwrap_or_else(|| "Subtitles".into());
+            out.push(SubtitleTrack { label, language: language.clone(), cues });
+        }
+    }
+    Ok(out)
+}
+
+/// A `tx3g` sample's text: a big-endian length, then UTF-8 (or UTF-16 after a byte-order
+/// mark); style boxes after it are left out.
+fn cue_text(b: &[u8]) -> String {
+    let n = be16(b, 0).map_or(0, usize::from);
+    let t = b.get(2..(2 + n).min(b.len())).unwrap_or_default();
+    let text = match t {
+        [0xFE, 0xFF, rest @ ..] => {
+            let units: Vec<u16> = rest.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes(*c)).collect();
+            String::from_utf16_lossy(&units)
+        }
+        _ => String::from_utf8_lossy(t).into_owned(),
+    };
+    text.replace("\r\n", "\n").trim().to_owned()
+}
+
+/// A media header's language: three letters packed five bits each (ISO 639-2/T), `und`
+/// for none.
+fn mdhd_language(mdhd: &[u8]) -> Option<String> {
+    let at = if mdhd.first() == Some(&1) { 32 } else { 20 };
+    let packed = be16(mdhd, at).ok()?;
+    let letters: String =
+        [10u16, 5, 0].iter().map(|s| char::from(((packed >> s) & 0x1F) as u8 + 0x60)).collect();
+    (letters.chars().all(|c| c.is_ascii_lowercase()) && letters != "und").then_some(letters)
 }
 
 fn track(trak: &[u8], file_len: u64) -> Result<Option<Track>, Error> {
@@ -214,6 +323,7 @@ fn track(trak: &[u8], file_len: u64) -> Result<Option<Track>, Error> {
             let object = asc.first().map_or(2, |b| b >> 3);
             (Kind::Audio { sample_rate, channels }, format!("mp4a.40.{object}"), asc)
         }
+        b"tx3g" => (Kind::Text { language: mdhd_language(mdhd) }, "tx3g".into(), Vec::new()),
         _ => return Ok(None),
     };
     let edit_shift = child(&trak, b"edts").map(|e| edit_shift(e.body)).transpose()?.flatten().unwrap_or(0);
@@ -422,6 +532,29 @@ mod tests {
         for s in v.samples.iter().chain(&a.samples) {
             assert!(s.offset + u64::from(s.size) <= data.len() as u64);
         }
+    }
+
+    #[test]
+    fn timed_text_is_read_from_the_file_with_its_language() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/clip-subs.mp4");
+        let tracks = text_tracks(&path);
+        assert_eq!(tracks.len(), 1, "{tracks:?}");
+        let Some(t) = tracks.first() else { unreachable!("a track") };
+        assert_eq!(t.language.as_deref(), Some("eng"));
+        let ms = |d: Duration| d.as_millis();
+        let cues: Vec<_> = t.cues.iter().map(|c| (ms(c.start), ms(c.end), c.text.as_str())).collect();
+        assert_eq!(cues, [(500, 1500, "One"), (1500, 2500, "Two & more")]);
+        // The plain clip has none, and something that is not an MP4 has none.
+        assert!(text_tracks(&path.with_file_name("clip.mp4")).is_empty());
+        assert!(text_tracks(&path.with_file_name("clip.vtt")).is_empty());
+    }
+
+    #[test]
+    fn timed_text_samples_are_bounded_by_their_length() {
+        assert_eq!(cue_text(b"\x00\x03OneTRAILING-STYLE"), "One");
+        assert_eq!(cue_text(b"\x00\x40short"), "short");
+        assert_eq!(cue_text(b"\x00\x06\xFE\xFF\x00h\x00i"), "hi");
+        assert_eq!(cue_text(b"\x00"), "");
     }
 
     #[test]
