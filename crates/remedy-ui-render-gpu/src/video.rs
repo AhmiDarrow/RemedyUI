@@ -265,6 +265,13 @@ impl GpuVideos {
         let s = self.streams.get_mut(&frame.stream)?;
         if s.frame != frame.id {
             s.frame = frame.id;
+            // Android: a picture on the GPU is drawn into the target by a pass of the platform's.
+            #[cfg(target_os = "android")]
+            if frame.gpu.as_ref().is_some_and(|g| {
+                s.shared.convert(device, queue, g, frame.matrix, frame.full_range, &s.target)
+            }) {
+                return Some(Shown { id: s.id, new_view, replaced });
+            }
             // A picture on the GPU is sampled where it is when this device can open it.
             let opened = frame.gpu.as_ref().and_then(|g| s.shared.open(device, g));
             let in_place = opened.is_some();

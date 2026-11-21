@@ -8,6 +8,9 @@
 //! texture back in the common state (wgpu leaves it in the shader-resource state), so D3D11
 //! may write the next picture into it. The picture is held until that list has run.
 //!
+//! Android: a MediaCodec picture's `AHardwareBuffer` is imported into wgpu's Vulkan device and
+//! drawn into the stream's converted picture by a pass of ours ([`android`]).
+//!
 //! Linux: a picture in DMA-BUFs is imported on wgpu's Vulkan device, one image per plane
 //! (`ffi::dmabuf`).
 //!
@@ -17,11 +20,26 @@
 #[cfg(not(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios"))))))]
 use remedy_ui_paint::GpuFrame;
 
+#[cfg(target_os = "android")]
+mod android;
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+pub(crate) use super::dmabuf::Shared;
+#[cfg(target_os = "android")]
+pub(crate) use android::{Shared, wanted_extensions};
 #[cfg(windows)]
 pub(crate) use windows_shared::Shared;
 
-#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
-pub(crate) use super::dmabuf::Shared;
+/// Device extensions importing pictures needs, which [`super::vulkan::open_device`] adds
+/// where the device has them all (none here: Linux's DMA-BUF extensions are added by their
+/// own rule, [`super::vulkan::DMA_BUF_EXTENSIONS`]).
+#[cfg(not(target_os = "android"))]
+#[cfg(any(
+    all(unix, not(any(target_os = "macos", target_os = "ios"))),
+    all(windows, feature = "windows-vulkan")
+))]
+pub(crate) fn wanted_extensions() -> &'static [&'static std::ffi::CStr] {
+    &[]
+}
 
 /// A stream's pictures opened on this device, and those the GPU is still reading.
 #[cfg(not(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios"))))))]
@@ -55,7 +73,13 @@ pub(crate) fn announce(device: &wgpu::Device) {
             remedy_ui_paint::set_gpu_video_adapter(Some(remedy_ui_paint::GpuAdapter::Luid(luid)));
         }
     }
-    #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
+    #[cfg(target_os = "android")]
+    {
+        if android::can_import(device) {
+            remedy_ui_paint::set_gpu_video_adapter(Some(remedy_ui_paint::GpuAdapter::Only));
+        }
+    }
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
     {
         if let Some((uuid, modifiers)) = super::dmabuf::adapter(device) {
             remedy_ui_paint::set_gpu_video_dma_buf_modifiers(modifiers);
