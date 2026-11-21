@@ -62,12 +62,9 @@ pub mod deps;
 mod engine;
 mod host;
 // HLS (`.m3u8` of MPEG-TS) taken apart here; the platform decodes the compressed streams.
-// shortcut: macOS and Android only refuse playlists (no `Elementary` there yet); a page reads
-// HLS through it once its host does.
-#[cfg_attr(
-    not(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))),
-    allow(dead_code)
-)]
+// shortcut: macOS only refuses playlists (no `Elementary` there yet); a page reads HLS through
+// it once its host does.
+#[cfg_attr(not(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios"))))), allow(dead_code))]
 mod hls;
 mod media_keys;
 // Matroska and WebM text subtitles, read from local files on every platform (the
