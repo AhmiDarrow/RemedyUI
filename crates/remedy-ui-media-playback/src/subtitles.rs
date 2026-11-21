@@ -237,7 +237,11 @@ impl CueSettings {
             position: Some(l),
             position_align: Some(CueAnchor::Start),
             size: Some((100.0 - l - r).max(0.0)),
-            align: [CueAlign::Left, CueAlign::Center, CueAlign::Right][usize::from(h)],
+            align: match h {
+                0 => CueAlign::Left,
+                1 => CueAlign::Center,
+                _ => CueAlign::Right,
+            },
             vertical: None,
         }
     }
