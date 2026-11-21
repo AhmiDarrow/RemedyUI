@@ -2151,11 +2151,17 @@ fn keys_and_clicks_sent_to_a_live_window_reach_it_as_the_platforms_do() {
     w.click_at(Point::new(10.0, 10.0));
     host.run_frames(&mut runner, 1);
     assert_eq!(count.get(), 1);
-    // The window's picture as a PNG.
+    // The window's picture as a PNG (`snapshot_png` comes with the devtools feature).
+    #[cfg(feature = "devtools")]
+    snapshot_png_matches_the_window(&mut host, &mut runner, &w);
+}
+
+#[cfg(feature = "devtools")]
+fn snapshot_png_matches_the_window(host: &mut HeadlessHost, runner: &mut Runner, w: &remedy_ui::Window) {
     let png = Rc::new(std::cell::RefCell::new(None));
     let p2 = png.clone();
     w.snapshot_png(move |bytes| *p2.borrow_mut() = bytes);
-    host.run_frames(&mut runner, 1);
+    host.run_frames(runner, 1);
     let bytes = png.borrow_mut().take().unwrap_or_else(|| unreachable!("a PNG"));
     let mut reader =
         png::Decoder::new(std::io::Cursor::new(bytes)).read_info().unwrap_or_else(|e| unreachable!("{e}"));
@@ -2163,5 +2169,5 @@ fn keys_and_clicks_sent_to_a_live_window_reach_it_as_the_platforms_do() {
     let info = reader.next_frame(&mut buf).unwrap_or_else(|e| unreachable!("{e}"));
     assert_eq!((info.width, info.height), (200, 100));
     let at = (10 * 200 + 10) * 4;
-    assert_eq!(buf.get(at..at + 4), Some(&px(&host, first(&host), 10, 10)[..]), "the button, opaque");
+    assert_eq!(buf.get(at..at + 4), Some(&px(host, first(host), 10, 10)[..]), "the button, opaque");
 }

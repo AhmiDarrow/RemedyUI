@@ -1020,7 +1020,48 @@ pub(crate) fn open_menu(
     let restore = ui.tree().focused().map(|f| ui.element(f));
     let rtl = from.is_rtl();
     let o = Open { anchor, label: None, keyboard, last, restore, bar: None, rtl, press_through: false };
-    OpenMenu(Chain::open(ui, items, o))
+    OpenMenu(opened_from(from, Chain::open(ui, items, o)))
+}
+
+thread_local! {
+    /// Open menus with the window and element they were opened from, for [`close_menus_in`].
+    static OPENED_FROM: RefCell<Vec<(u64, remedy_ui_view::ElementId, Weak<Chain>)>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+fn opened_from(from: &El, chain: Rc<Chain>) -> Rc<Chain> {
+    OPENED_FROM.with_borrow_mut(|v| {
+        v.retain(|(_, _, c)| c.upgrade().is_some_and(|c| !c.closed.get()));
+        v.push((from.ui().id(), from.id(), Rc::downgrade(&chain)));
+    });
+    chain
+}
+
+/// Closes every open menu that was opened from `el` or from something inside it (a
+/// [`menu`] or [`menu_press_through`] anchored to one of its buttons, a context menu),
+/// without moving focus: a video player going compact closes the menus of the buttons it
+/// hides.
+pub fn close_menus_in(el: &El) {
+    let ui = el.ui();
+    let inside = |id| {
+        let mut at = Some(ui.element(id));
+        while let Some(e) = at {
+            if e.id() == el.id() {
+                return true;
+            }
+            at = e.parent();
+        }
+        false
+    };
+    let open: Vec<Rc<Chain>> = OPENED_FROM.with_borrow(|v| {
+        v.iter()
+            .filter(|(w, from, _)| *w == ui.id() && inside(*from))
+            .filter_map(|(_, _, c)| c.upgrade())
+            .collect()
+    });
+    for c in open {
+        c.close(false);
+    }
 }
 
 /// Opens a menu below `anchor`. Returns the menu's layer; it closes itself when an entry is
@@ -1052,7 +1093,7 @@ pub fn menu_press_through(ui: &Ui, anchor: &El, items: Vec<MenuItem>) -> El {
         press_through: true,
     };
     let _ = ui;
-    Chain::open(from, items, o).layer.clone()
+    opened_from(anchor, Chain::open(from, items, o)).layer.clone()
 }
 
 /// Opens a menu at the pointer on a secondary press (right click) on `target`, or with the
