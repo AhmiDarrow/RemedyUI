@@ -9,12 +9,12 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use remedy_ui_media_video::VideoSink;
-use remedy_ui_reactive::Signal;
+use remedy_ui_reactive::{Memo, Signal};
 use remedy_ui_view::{El, Ui};
 
 use crate::engine::{self, Cmd, PlaybackState, PlaybackStats, Shared, lock};
 use crate::host::{MediaError, MediaHost, MediaInfo, MediaSource};
-use crate::subtitles::{SubtitleFormat, SubtitleTrack, parse_subtitles};
+use crate::subtitles::{SubtitleFormat, SubtitleTrack, cue_reach, parse_subtitles, read_subtitle_file};
 
 /// What a player does while it cannot be seen (scrolled away, hidden, its window minimized
 /// or covered).
@@ -570,6 +570,8 @@ struct Inner {
     volume: Signal<f32>,
     muted: Signal<bool>,
     tracks: Signal<Vec<SubtitleTrack>>,
+    /// Each track's `cue_reach`, so the caption showing is found by binary search.
+    cue_reach: Memo<Vec<Vec<Duration>>>,
     caption: Signal<Option<usize>>,
     /// Milliseconds every caption is shifted by: positive shows cues later.
     caption_delay: Signal<i64>,
@@ -1219,6 +1221,8 @@ impl Player {
             None => (None, None),
         };
         let volume = options.volume.clamp(0.0, 1.0);
+        let tracks = Signal::new(Vec::<SubtitleTrack>::new());
+        let cue_reach = Memo::new(move || tracks.with(|t| t.iter().map(|tr| cue_reach(&tr.cues)).collect()));
         let inner = Rc::new(Inner {
             id,
             ui: ui.downgrade(),
@@ -1235,7 +1239,8 @@ impl Player {
             speed: Signal::new(1.0),
             volume: Signal::new(volume),
             muted: Signal::new(false),
-            tracks: Signal::new(Vec::new()),
+            tracks,
+            cue_reach,
             caption: Signal::new(None),
             caption_delay: Signal::new(0),
             fullscreen: Signal::new(false),
@@ -1842,8 +1847,7 @@ impl Player {
     /// Reads a subtitle file (WebVTT, SRT, ASS/SSA, by its extension or its contents) and adds
     /// it as a track named `label`.
     pub fn load_subtitles(&self, path: &Path, label: impl Into<String>) -> Result<usize, MediaError> {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| MediaError::NotFound(format!("{}: {e}", path.display())))?;
+        let text = read_subtitle_file(path)?;
         let format = path
             .extension()
             .and_then(|e| e.to_str())
@@ -1906,7 +1910,11 @@ impl Player {
         } else {
             at + Duration::from_millis(delay.unsigned_abs())
         };
-        self.0.tracks.with(|t| t.get(sel).and_then(|tr| tr.text_at(at)))
+        // The memo first: computing it reads the tracks.
+        self.0.cue_reach.with(|r| {
+            let r = r.get(sel)?;
+            self.0.tracks.with(|t| t.get(sel).and_then(|tr| tr.text_at_with(r, at)))
+        })
     }
 
     /// How far every caption track is shifted, in milliseconds: positive shows each cue
@@ -2587,7 +2595,7 @@ pub(crate) fn sidecar_subtitles(media: &Path) -> Vec<SubtitleTrack> {
             None => (None, rest),
         };
         let Some(format) = SubtitleFormat::from_extension(ext) else { continue };
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(text) = read_subtitle_file(&path) else { continue };
         let cues = parse_subtitles(&text, format);
         if cues.is_empty() {
             continue;
