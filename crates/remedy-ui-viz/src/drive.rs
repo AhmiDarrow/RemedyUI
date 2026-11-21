@@ -213,7 +213,12 @@ impl Ticker {
     }
 
     /// A ticker of `kind`.
-    pub fn of_kind(el: &El, clock: Clock, kind: TickKind, step: impl FnMut(Duration) -> Moved + 'static) -> Self {
+    pub fn of_kind(
+        el: &El,
+        clock: Clock,
+        kind: TickKind,
+        step: impl FnMut(Duration) -> Moved + 'static,
+    ) -> Self {
         Ticker(Rc::new(Inner {
             el: el.clone(),
             clock,

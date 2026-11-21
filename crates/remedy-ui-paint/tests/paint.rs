@@ -97,3 +97,39 @@ fn a_blur_looks_the_same_at_high_dpi() {
     assert_eq!(huge.limited(2.0).std_dev(), MAX_FILTER_STD_DEV);
     assert_eq!(huge.limited(0.5).std_dev() * 0.5, MAX_FILTER_STD_DEV);
 }
+
+#[test]
+fn nested_filters_share_one_bound() {
+    let shadow =
+        |x: f32, y: f32, blur: f32| Filter::DropShadow { offset: Vec2::new(x, y), blur, color: Color::BLACK };
+    let offset = |f: Filter| match f {
+        Filter::DropShadow { offset, .. } => offset,
+        Filter::Blur { .. } => Vec2::ZERO,
+    };
+    // Alone, a filter gets the whole bound, exactly as `limited` draws it.
+    let hostile = shadow(1.0e9, -1.0e9, 1.0e9);
+    for scale in [0.5, 1.0, 2.0] {
+        assert_eq!(FilterBudget::FULL.limit(&hostile, scale).0, hostile.limited(scale));
+    }
+    // Nested at 200%: the first uses all of it (1024 units is 2048 device pixels on each
+    // axis), so a shadow inside falls no farther; the blur is spent too.
+    let (outer, left) = FilterBudget::FULL.limit(&hostile, 2.0);
+    assert_eq!(offset(outer), Vec2::new(MAX_FILTER_OFFSET / 2.0, -MAX_FILTER_OFFSET / 2.0));
+    let (inner, _) = left.limit(&hostile, 2.0);
+    assert_eq!(offset(inner), Vec2::ZERO);
+    assert_eq!(inner.std_dev(), 0.0);
+    // Partly spent: what is left, axis by axis. A shadow 2000 px right leaves 48 px to the
+    // right but all 2048 down; one 10 px either way leaves 2038.
+    let (_, left) = FilterBudget::FULL.limit(&shadow(2000.0, 0.0, 0.0), 1.0);
+    assert_eq!(offset(left.limit(&shadow(-100.0, 3000.0, 0.0), 1.0).0), Vec2::new(-48.0, MAX_FILTER_OFFSET));
+    // Blur adds up in the bound's units: 40 + 40 is past 64, so the second gets 24.
+    let (_, left) = FilterBudget::FULL.limit(&Filter::Blur { radius: 40.0 }, 1.0);
+    assert_eq!(left.limit(&Filter::Blur { radius: 40.0 }, 1.0).0.std_dev(), 24.0);
+    // Ordinary nesting is untouched: a 4 px blur in a card's 8 px shadow 6 px down.
+    let (card, left) = FilterBudget::FULL.limit(&shadow(0.0, 6.0, 16.0), 1.0);
+    assert_eq!(card, shadow(0.0, 6.0, 16.0));
+    assert_eq!(left.limit(&Filter::Blur { radius: 4.0 }, 1.0).0, Filter::Blur { radius: 4.0 });
+    // Non-finite asks spend nothing and draw nothing, as alone.
+    let (nan, left) = FilterBudget::FULL.limit(&shadow(f32::NAN, f32::INFINITY, f32::NAN), 1.0);
+    assert_eq!((offset(nan), nan.std_dev(), left), (Vec2::ZERO, 0.0, FilterBudget::FULL));
+}

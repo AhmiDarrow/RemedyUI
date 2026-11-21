@@ -497,7 +497,12 @@ pub fn sheet(t: &Theme) -> StyleSheet {
                 .mono(true),
         );
     }
-    rule("display_flap", None, States::NONE, StylePatch::default().background(board.mix_oklab(Color::WHITE, 0.1)).radius(r.small));
+    rule(
+        "display_flap",
+        None,
+        States::NONE,
+        StylePatch::default().background(board.mix_oklab(Color::WHITE, 0.1)).radius(r.small),
+    );
     // Extras: the star color, the carousel's frame and dots, the wizard's markers and the swatches.
     rule("rating", None, States::NONE, StylePatch::default().foreground(c.warn));
     rule("qr_code", None, States::NONE, StylePatch::default().radius(r.small));

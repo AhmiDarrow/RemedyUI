@@ -544,7 +544,10 @@ impl std::fmt::Debug for ScriptHooks {
 impl ScriptHooks {
     /// Hooks that open links with `open_link`, show pictures as their description, build no
     /// app elements and send stops to `stopped`.
-    pub fn new(open_link: impl Fn(&str) + 'static, stopped: impl Fn(FailurePhase, ScriptError) + 'static) -> Self {
+    pub fn new(
+        open_link: impl Fn(&str) + 'static,
+        stopped: impl Fn(FailurePhase, ScriptError) + 'static,
+    ) -> Self {
         ScriptHooks { open_link: Rc::new(open_link), picture: None, element: None, stopped: Rc::new(stopped) }
     }
 
@@ -565,7 +568,13 @@ impl ScriptHooks {
 /// an element of a `.rui` file the app registers): it renders `widget` with `settings` and
 /// `host`, again whenever `host` changes and after each of its handlers runs. A failure goes
 /// to `hooks.stopped` and leaves the last good picture in place.
-pub fn mount_script(ui: &Ui, widget: SharedWidget, settings: Map<String, Value>, host: Signal<Value>, hooks: ScriptHooks) -> El {
+pub fn mount_script(
+    ui: &Ui,
+    widget: SharedWidget,
+    settings: Map<String, Value>,
+    host: Signal<Value>,
+    hooks: ScriptHooks,
+) -> El {
     let holder = w::column(ui).fill_width();
     let version = Signal::new(0u64);
     let (h2, u2) = (holder.clone(), ui.clone());
@@ -609,19 +618,28 @@ pub fn build_node(
     open: &Rc<dyn Fn(&str)>,
     stopped: &Rc<dyn Fn(FailurePhase, ScriptError)>,
 ) -> El {
-    let hooks = ScriptHooks { open_link: open.clone(), picture: None, element: None, stopped: stopped.clone() };
+    let hooks =
+        ScriptHooks { open_link: open.clone(), picture: None, element: None, stopped: stopped.clone() };
     build_node_with(ui, node, widget, version, &hooks)
 }
 
 /// Builds elements from what a script described, like [`build_node`], with pictures and the
 /// app's own elements built through `hooks`.
-pub fn build_node_with(ui: &Ui, node: &Node, widget: &SharedWidget, version: Signal<u64>, hooks: &ScriptHooks) -> El {
+pub fn build_node_with(
+    ui: &Ui,
+    node: &Node,
+    widget: &SharedWidget,
+    version: Signal<u64>,
+    hooks: &ScriptHooks,
+) -> El {
     let unit = ui.theme().spacing.unit;
     let (open, stopped) = (&hooks.open_link, &hooks.stopped);
     match node {
-        Node::Column { gap, children } => children
-            .iter()
-            .fold(w::column(ui).gap(*gap).fill_width(), |c, n| c.child(build_node_with(ui, n, widget, version, hooks))),
+        Node::Column { gap, children } => {
+            children.iter().fold(w::column(ui).gap(*gap).fill_width(), |c, n| {
+                c.child(build_node_with(ui, n, widget, version, hooks))
+            })
+        }
         Node::Row { gap, children } => children
             .iter()
             .fold(w::wrap(ui).gap(*gap), |c, n| c.child(build_node_with(ui, n, widget, version, hooks))),
@@ -654,21 +672,21 @@ pub fn build_node_with(ui: &Ui, node: &Node, widget: &SharedWidget, version: Sig
             w::progress(ui, label.clone(), Signal::new(Some(*value))).fill_width()
         }
         Node::Divider => w::divider(ui, false).margin_y(unit),
-        Node::Image { src, alt, width, height } => {
-            match &hooks.picture {
-                Some(picture) => {
-                    let el = picture(ui, src);
-                    let el = if alt.is_empty() {
-                        el
-                    } else {
-                        el.semantics(remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Image).label(alt.clone()))
-                    };
-                    let el = if *width > 0.0 { el.width(*width) } else { el };
-                    if *height > 0.0 { el.height(*height) } else { el }
-                }
-                None => w::text(ui, alt.clone()).variant("muted"),
+        Node::Image { src, alt, width, height } => match &hooks.picture {
+            Some(picture) => {
+                let el = picture(ui, src);
+                let el = if alt.is_empty() {
+                    el
+                } else {
+                    el.semantics(
+                        remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Image).label(alt.clone()),
+                    )
+                };
+                let el = if *width > 0.0 { el.width(*width) } else { el };
+                if *height > 0.0 { el.height(*height) } else { el }
             }
-        }
+            None => w::text(ui, alt.clone()).variant("muted"),
+        },
         Node::Element { kind, props, handlers, children } => {
             let Some(make) = &hooks.element else { return w::column(ui) };
             let built = children.iter().map(|n| build_node_with(ui, n, widget, version, hooks)).collect();
