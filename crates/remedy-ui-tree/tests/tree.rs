@@ -320,3 +320,21 @@ fn payloads_hold_widget_data() -> R {
     assert_eq!(t.with_payload(e, |v: &mut u8| *v), None, "wrong type is None, not a panic");
     Ok(())
 }
+
+#[test]
+fn removing_the_focused_element_hands_focus_to_the_nearest_focusable_ancestor() -> R {
+    let t = Tree::new();
+    let panel = el(&t, t.root(), "panel")?;
+    let list = el(&t, panel, "list")?;
+    let item = el(&t, list, "item")?;
+    t.set_focusable(panel, true)?;
+    t.set_focusable(item, true)?;
+    t.focus(item)?;
+    // The list goes (a page swapped for another): keys still reach the panel.
+    t.remove(list)?;
+    assert_eq!(t.focused(), Some(panel));
+    // With nothing focusable around it, focus clears.
+    t.remove(panel)?;
+    assert_eq!(t.focused(), None);
+    Ok(())
+}

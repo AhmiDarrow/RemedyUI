@@ -328,8 +328,18 @@ impl Tree {
     }
 
     /// Detaches `id` from its parent without destroying it, so it can be attached elsewhere
-    /// (moving a subtree between windows or containers). Focus inside it is cleared.
+    /// (moving a subtree between windows or containers). Focus inside it moves to the nearest
+    /// focusable element around it (a dialog whose button went away keeps its keys), or clears.
     pub fn detach(&self, id: ElementId) -> Result<(), TreeError> {
+        let heir = {
+            let d = self.0.borrow();
+            let inside = d.focus.is_some_and(|f| d.is_ancestor_or_self(id, f));
+            let mut at = d.nodes.get(id).and_then(|n| n.parent).filter(|_| inside);
+            while let Some(a) = at.filter(|a| !d.nodes.get(*a).is_some_and(|n| n.focusable)) {
+                at = d.nodes.get(a).and_then(|n| n.parent);
+            }
+            at
+        };
         let parent = {
             let mut d = self.0.borrow_mut();
             if id == d.root {
@@ -345,6 +355,9 @@ impl Tree {
             parent
         };
         self.clear_focus_within(id);
+        if let Some(h) = heir {
+            let _ = self.focus(h);
+        }
         if let Some(p) = parent {
             self.mark(p, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
         }

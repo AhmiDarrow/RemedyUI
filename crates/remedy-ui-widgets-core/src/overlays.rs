@@ -287,9 +287,12 @@ pub fn modal(ui: &Ui, title: impl Into<String>, content: El, escape_closes: bool
         .el("dialog")
         .column()
         .gap(ui.theme().spacing.unit * 3.0)
+        // Taller than the window (a phone in landscape, large text): it scrolls.
+        .scroll()
         .layout(|l| {
             l.max_width = Length::Percent(0.92);
             l.min_width = Length::Px(260.0);
+            l.max_height = Length::Percent(0.92);
         })
         .semantics(Semantics::new(Role::Dialog).label(title.into()))
         .child(content);

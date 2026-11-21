@@ -267,8 +267,8 @@ public final class Bridge
 
     /** Starts or updates a text session (UI thread). */
     public void textInput(String text, int selStart, int selEnd, float x, float top, float bottom,
-            boolean secret, boolean multiline) {
-        input.update(text, selStart, selEnd, x, top, bottom, secret, multiline);
+            boolean secret, boolean multiline, boolean numeric) {
+        input.update(text, selStart, selEnd, x, top, bottom, secret, multiline, numeric);
     }
 
     /** The app committed the input method's composition itself (UI thread). */

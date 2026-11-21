@@ -1079,6 +1079,13 @@ impl Ui {
         for (cb, now) in placed {
             cb(now.as_ref());
         }
+        // Laid out with the keyboard's inset: scroll what has focus back above it.
+        if std::mem::take(&mut self.0.borrow_mut().reveal_focus)
+            && let Some(f) = self.tree().focused()
+        {
+            crate::El { ui: self.clone(), id: f }.scroll_into_view();
+            self.request(crate::Request::Frame);
+        }
         for (id, why) in paint_failures {
             self.report_failure(id, crate::FailurePhase::Paint, why, None);
         }
