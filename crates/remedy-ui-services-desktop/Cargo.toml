@@ -22,13 +22,20 @@ objc2-foundation = { version = "=0.3.2" }
 objc2-app-kit = { version = "=0.3.2" }
 
 # Power on Linux: UPower and logind on the system bus, the screen saver on the session bus.
+# Media controls: an MPRIS player served on the session bus.
 [target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
-zbus = { version = "=6.3.0", default-features = false, features = ["default-rt", "proxy"] }
+zbus = { version = "=6.3.0", default-features = false, features = ["default-rt", "proxy", "service"] }
 futures-core = { version = "=0.3.34" }
 
 # The tests serve stand-ins for UPower, logind and the screen saver on a private bus.
 [target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dev-dependencies]
 zbus = { version = "=6.3.0", default-features = false, features = ["default-rt", "proxy", "service"] }
+
+# Media controls on Android: the bridge's Java (MediaControls) through JNI, with the app's
+# Context from ndk-context (which android-activity fills in).
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "=0.21.1" }
+ndk-context = { version = "=0.1.1" }
 
 # The browser's media session (navigator.mediaSession, reached by name: web-sys keeps it
 # behind its unstable APIs).
