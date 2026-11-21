@@ -651,6 +651,5 @@ pub fn sheet(t: &Theme) -> StyleSheet {
     );
     // An image still loading shows a placeholder the size it will be.
     rule("image", Some("loading"), States::NONE, StylePatch::default().background(d.hover).radius(r.small));
-    drop(rule);
     s
 }
