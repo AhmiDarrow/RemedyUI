@@ -1381,7 +1381,7 @@ fn casting_hands_every_control_to_the_remote_and_back() {
         state: PlaybackState::Paused,
         position: Duration::from_secs(30),
         length: Some(Duration::from_secs(100)),
-        volume: 0.5,
+        volume: Some(0.5),
         muted: false,
         next: None,
     };
@@ -1425,10 +1425,13 @@ fn casting_hands_every_control_to_the_remote_and_back() {
     assert!(press(&s.ui, Key::Character("m".into())));
     assert!(press(&s.ui, Key::Character("c".into())));
     assert!(s.ui.key(&KeyEvent::press(Key::Character("N".into())).with_modifiers(shift).with_text(None)));
-    named(&view, "Unmute").unwrap_or_else(|| unreachable!("the mute button says the TV is muted")).focus();
+    named(&view, "Unmute the TV")
+        .unwrap_or_else(|| unreachable!("the mute button says the TV is muted"))
+        .focus();
     assert!(press(&s.ui, Key::Enter));
     p.set_volume(0.8);
-    s.pump();
+    // The volume goes once it has rested, as Portal's page sends it.
+    s.idle(400);
     let pressed = log.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert_eq!(
         pressed,
@@ -1721,7 +1724,7 @@ fn casting_disables_full_screen_and_theater_until_it_ends() {
     p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
     s.pump();
     assert!(disabled(&view, "Full screen") && disabled(&view, "Theater mode"));
-    el(&view, "Mute").focus();
+    el(&view, "Mute the TV").focus();
     assert!(!letter(&s.ui, "f", false));
     assert!(!letter(&s.ui, "t", false));
     double_click(&mut s, &stage, 1000);
@@ -1748,7 +1751,7 @@ fn casting_disables_full_screen_and_theater_until_it_ends() {
     double_click(&mut s, &stage, 5000);
     assert!(!p.is_fullscreen(), "a double click leaves full screen");
     assert!(disabled(&view, "Full screen"));
-    el(&view, "Mute").focus();
+    el(&view, "Mute the TV").focus();
     assert!(!letter(&s.ui, "f", false) && !p.is_fullscreen(), "and cannot come back");
     assert!(letter(&s.ui, "t", false) && !p.is_theater(), "T leaves theater mode");
     s.pump();
@@ -1827,10 +1830,13 @@ fn in_the_classic_scheme_a_click_on_the_picture_does_nothing() {
     let mut s = Screen::new();
     let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default());
     let stage = find(&view, "player_stage").remove(0);
+    // Playing, with no Play glyph over the picture.
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
     presses(&mut s, &stage, &[1000], remedy_ui_input::PointerKind::Mouse);
     presses(&mut s, &stage, &[2000], remedy_ui_input::PointerKind::Touch);
     s.idle(300);
-    assert_eq!(p.state(), PlaybackState::Paused);
+    assert_eq!(p.state(), PlaybackState::Playing);
     presses(&mut s, &stage, &[3000, 3150], remedy_ui_input::PointerKind::Touch);
     assert!(p.is_fullscreen(), "a double tap is a double click");
 }
@@ -1939,7 +1945,7 @@ fn speed_is_the_devices_own_while_casting() {
     p.set_remote(Some(Remote::new("The Ris", Tv(Arc::default()))));
     s.pump();
     assert!(!speed_shown(&view), "no speed while casting");
-    el(&view, "Mute").focus();
+    el(&view, "Mute the TV").focus();
     assert!(!letter(&s.ui, ">", true) && !letter(&s.ui, "<", true));
     p.step_speed(true);
     assert_eq!(p.speed(), 1.0, "the local media keeps its speed");
@@ -2171,7 +2177,11 @@ fn without_a_timeline_seeks_are_the_streams_own_and_not_whole_seconds() {
     p.seek(Duration::from_millis(1500));
     s.wait("1.5 s", |_| p.position() == Duration::from_millis(1500));
     assert_eq!(p.duration(), Some(Duration::from_secs(3)));
-    assert!(p.buffered().first().is_some_and(|r| r.start < Duration::from_millis(1500)));
+    // The seek empties what was decoded ahead; once the engine says what it decoded from the
+    // new place, that is in the stream's own time, from 1.5 s (not 1 s, and no origin added).
+    s.wait("decoded ahead from the seek", |_| {
+        p.buffered().first().is_some_and(|r| r.start == Duration::from_millis(1500) && r.end > r.start)
+    });
 }
 
 /// Whether `text` shows on the view as a status announced politely.
@@ -2533,6 +2543,193 @@ fn cancel_while_skipping_asks_the_app_which_keeps_the_stream() {
     assert!(!shown_enabled(&cancel).0);
     assert_eq!(alert(&view), None);
     assert!(!seek_disabled(&view), "the current stream stays, usable");
+}
+
+/// A pointer event at `fraction` of the seek bar's track (as its thumb is placed).
+fn on_bar(
+    view: &El,
+    phase: remedy_ui_input::PointerPhase,
+    fraction: f32,
+    pressed: bool,
+) -> remedy_ui_input::PointerEvent {
+    use remedy_ui_input::{Buttons, PointerEvent};
+    let b = el(view, "Seek").bounds().unwrap_or_else(|| unreachable!("laid out"));
+    let r = (b.height() * 0.3).max(5.0);
+    let x = b.min.x + r + (b.width() - 2.0 * r) * fraction;
+    let at = remedy_ui_core::Point::new(x, (b.min.y + b.max.y) / 2.0);
+    PointerEvent::new(phase, at).with_buttons(if pressed { Buttons::PRIMARY } else { Buttons::default() })
+}
+
+/// Presses the seek bar at `from`, drags it through `to`, and lets go at the last.
+fn drag(s: &mut Screen, view: &El, from: f32, to: &[f32]) {
+    use remedy_ui_input::PointerPhase::{Down, Move, Up};
+    s.ui.pointer(&on_bar(view, Down, from, true));
+    for &f in to {
+        s.ui.pointer(&on_bar(view, Move, f, true));
+    }
+    s.ui.pointer(&on_bar(view, Up, to.last().copied().unwrap_or(from), false));
+    s.pump();
+}
+
+#[test]
+fn dragging_the_seek_bar_previews_and_seeks_once_on_release() {
+    use remedy_ui_input::PointerPhase::{Cancel, Down, Move, Up};
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default());
+    s.pump();
+    s.ui.pointer(&on_bar(&view, Down, 0.25, true));
+    s.ui.pointer(&on_bar(&view, Move, 0.5005, true));
+    s.pump();
+    assert!(p.scrubbing().is_some_and(|d| near(d, 30.0, 0.2)), "{:?}", p.scrubbing());
+    assert_eq!(p.position(), Duration::ZERO, "no seek while held");
+    assert!(texts(&view, "label").iter().any(|t| t == "0:30 / 1:00"), "{:?}", texts(&view, "label"));
+    assert_eq!(seek_value(&view).as_deref(), Some("0:30 of 1:00"));
+    // The tip: the time under the pointer.
+    assert!(texts(&view, "label").iter().any(|t| t == "0:30"), "{:?}", texts(&view, "label"));
+    s.idle(50);
+    assert_eq!(p.position(), Duration::ZERO, "still no seek");
+    // Let go: one seek, there.
+    s.ui.pointer(&on_bar(&view, Up, 0.5005, false));
+    assert_eq!(p.scrubbing(), None);
+    s.wait("the seek", |_| near(p.position(), 30.0, 0.2));
+
+    // A cancelled drag goes back to where it was.
+    let at = p.position();
+    s.ui.pointer(&on_bar(&view, Down, 0.9, true));
+    s.ui.pointer(&on_bar(&view, Move, 0.8, true));
+    s.pump();
+    assert!(p.scrubbing().is_some_and(|d| near(d, 48.0, 0.2)));
+    s.ui.pointer(&on_bar(&view, Cancel, 0.8, false));
+    s.idle(30);
+    assert_eq!((p.scrubbing(), p.position()), (None, at));
+    assert_eq!(seek_value(&view).as_deref(), Some("0:30 of 1:00"));
+
+    // Fingers drag the same way.
+    let touch =
+        |phase, f, pressed| on_bar(&view, phase, f, pressed).with_kind(remedy_ui_input::PointerKind::Touch);
+    s.ui.pointer(&touch(Down, 0.1, true));
+    s.ui.pointer(&touch(Move, 0.2005, true));
+    s.pump();
+    assert!(p.scrubbing().is_some_and(|d| near(d, 12.0, 0.2)));
+    assert!(near(p.position(), 30.0, 0.2));
+    s.ui.pointer(&touch(Up, 0.2005, false));
+    s.wait("the touch seek", |_| near(p.position(), 12.0, 0.2));
+    s.pump();
+    assert!(!texts(&view, "label").iter().any(|t| t == "0:12"), "a lifted finger leaves no tip");
+
+    // Hovering shows the tip alone; the keys still seek at once.
+    s.ui.pointer(&on_bar(&view, Move, 0.7505, false));
+    s.pump();
+    assert!(texts(&view, "label").iter().any(|t| t == "0:45"), "{:?}", texts(&view, "label"));
+    assert_eq!(p.scrubbing(), None);
+    el(&view, "Seek").focus();
+    assert!(press(&s.ui, Key::ArrowRight));
+    s.wait("the key's seek", |_| near(p.position(), 17.0, 0.2));
+    s.idle(30);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+#[test]
+fn on_a_tv_and_on_a_timeline_only_the_release_seeks() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 3, PlayerOptions::default());
+    let log = Arc::new(Mutex::new(Vec::new()));
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    p.set_remote_status(
+        RemoteStatus::new(PlaybackState::Paused, Duration::ZERO).length(Duration::from_secs(100)),
+    );
+    s.pump();
+    drag(&mut s, &view, 0.1, &[0.3, 0.6, 0.505]);
+    assert_eq!(*log.lock().unwrap_or_else(|e| e.into_inner()), ["seek 50"]);
+
+    // On a film's timeline, a drag past the stream asks the app once, for where it stops.
+    let mut s = Screen::new();
+    let (p, view, asked) = film(&mut s);
+    s.pump();
+    s.ui.pointer(&on_bar(&view, remedy_ui_input::PointerPhase::Move, 0.50005, false));
+    s.pump();
+    assert!(
+        texts(&view, "label").iter().any(|t| t == "1:30:46"),
+        "the tip in film time: {:?}",
+        texts(&view, "label")
+    );
+    drag(&mut s, &view, 0.2, &[0.4, 0.50005]);
+    assert_eq!(p.scrubbing(), None);
+    assert_eq!(*asked.lock().unwrap_or_else(|e| e.into_inner()), [5446]);
+    assert_eq!(p.skipping(), Some(Duration::from_secs(5446)));
+}
+
+#[test]
+fn a_tvs_volume_waits_for_the_tv_and_goes_once_it_rests() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 3, PlayerOptions::default().keys(KeyScheme::Arrows));
+    let log = Arc::new(Mutex::new(Vec::new()));
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    s.pump();
+    let disabled = |v: &El| {
+        el(v, "TV volume").info().is_some_and(|i| i.states.contains(remedy_ui_style::States::DISABLED))
+    };
+    assert!(!p.volume_known() && disabled(&view), "unknown until the TV says");
+    el(&view, "Mute the TV").focus();
+    assert!(press(&s.ui, Key::ArrowUp));
+    assert!(press(&s.ui, Key::ArrowDown));
+    s.idle(400);
+    assert!(log.lock().unwrap_or_else(|e| e.into_inner()).is_empty(), "no step from a level it has not said");
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Paused, Duration::ZERO).volume(0.5));
+    s.pump();
+    assert!(p.volume_known() && !disabled(&view));
+    assert!(press(&s.ui, Key::ArrowUp));
+    assert!(press(&s.ui, Key::ArrowUp));
+    assert_eq!(p.volume(), 0.6, "shown at once");
+    s.idle(400);
+    assert_eq!(
+        *log.lock().unwrap_or_else(|e| e.into_inner()),
+        ["volume 0.60"],
+        "sent once, where it stopped"
+    );
+    p.set_remote(None);
+    s.pump();
+    assert!(named(&view, "Volume").is_some() && p.volume_known());
+}
+
+#[test]
+fn a_big_play_glyph_shows_over_a_paused_picture_and_plays() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default());
+    let shown = |v: &El| find(v, "player_big_play_layer").iter().any(|l| l.info().is_some_and(|i| !i.hidden));
+    s.pump();
+    assert!(shown(&view), "paused");
+    // A click on it plays, in the classic scheme too.
+    let glyph = find(&view, "player_big_play").remove(0);
+    presses(&mut s, &glyph, &[1000], remedy_ui_input::PointerKind::Mouse);
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    assert!(!shown(&view));
+    p.pause();
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    assert!(shown(&view));
+    // Not while casting.
+    p.set_remote(Some(Remote::new("The Ris", Tv(Arc::default()))));
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Paused, Duration::ZERO));
+    s.pump();
+    assert!(!shown(&view));
+}
+
+#[test]
+fn unmuting_at_volume_zero_sets_half() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 3, PlayerOptions::default());
+    p.set_volume(0.0);
+    s.pump();
+    // At 0 it shows as muted, as on Portal's page.
+    el(&view, "Unmute").focus();
+    assert!(press(&s.ui, Key::Enter));
+    assert!(!p.is_muted() && p.volume() == 0.5);
+    s.pump();
+    assert!(named(&view, "Mute").is_some());
+    // M too: mute, then unmute at the volume it had.
+    assert!(letter(&s.ui, "m", false) && p.is_muted());
+    assert!(letter(&s.ui, "m", false) && !p.is_muted() && p.volume() == 0.5);
 }
 
 /// Scripted clips by name, as [`Clips`], whose decoder counts every call made of it (each a
