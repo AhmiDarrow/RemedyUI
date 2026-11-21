@@ -5,7 +5,7 @@
 //! here, so they cut the same pictures.
 
 use remedy_ui_core::{ColorMatrix, Rect};
-use remedy_ui_paint::{Item, MAX_FILTER_MATRIX_DEPTH, MAX_FILTER_MATRIX_GROUPS};
+use remedy_ui_paint::{Affine, DisplayList, Item, MAX_FILTER_MATRIX_DEPTH, MAX_FILTER_MATRIX_GROUPS};
 use vello_cpu::kurbo;
 use vello_cpu::peniko::{ImageQuality, ImageSampler};
 use vello_cpu::{ImageSource, Pixmap};
@@ -48,6 +48,32 @@ pub(crate) fn group_end(items: &[Item], at: usize) -> usize {
         }
     }
     items.len()
+}
+
+/// Where the run of items `inner`, drawn through `t`, can draw inside `target` (target
+/// pixels): its bounds, cut to the target. A run whose clips and groups do not nest (a clip
+/// closed by a group's pop, which the painter allows: any pop closes the layer on top) may
+/// draw beyond what [`DisplayList::bounds_of`] says, so there it is the whole target.
+/// `None` when it draws nothing there.
+pub(crate) fn drawn_box(inner: &[Item], t: Affine, target: Rect) -> Option<Rect> {
+    let drawn = if nests(inner) { t.apply_rect(DisplayList::bounds_of(inner)?) } else { target };
+    drawn.intersect(target).filter(|r| !r.is_empty())
+}
+
+/// True when every pop in `items` closes what it names (a clip a clip, a group a group) and
+/// nothing is closed that was not opened in them; groups may be left open.
+fn nests(items: &[Item]) -> bool {
+    let mut open: Vec<bool> = Vec::new();
+    for item in items {
+        match item {
+            Item::PushClip { .. } => open.push(true),
+            Item::PushLayer { .. } | Item::PushFilter(_) => open.push(false),
+            Item::PopClip if open.pop() != Some(true) => return false,
+            Item::PopLayer | Item::PopFilter if open.pop() != Some(false) => return false,
+            _ => {}
+        }
+    }
+    true
 }
 
 /// The whole pixels `[x, y, width, height]` of a `size` target a group drawing over `drawn`
