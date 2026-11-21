@@ -12,7 +12,7 @@ use remedy_ui_reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core::{self as w, Icon};
 
-use crate::{MediaError, PlaybackState, Player};
+use crate::{KeyScheme, MediaError, PlaybackState, Player};
 
 /// Message `id` in the window's locale (tracked: read in a property closure, it follows the
 /// locale).
@@ -48,6 +48,40 @@ pub fn format_time(d: Duration) -> String {
 const ARROW_SEEK: f64 = 5.0;
 /// How far J and L move it, as in common players.
 const JUMP_SEEK: f64 = 10.0;
+/// How far Up and Down move the volume in [`KeyScheme::Arrows`].
+const VOLUME_STEP: f32 = 0.05;
+
+/// Whether full screen can be asked for or left: while remote only leaving is offered, since a
+/// full-screen casting stage would only enlarge the poster.
+fn fullscreen_toggles(p: &Player) -> bool {
+    p.is_fullscreen() || !p.is_remote()
+}
+
+/// Theater mode as [`fullscreen_toggles`].
+fn theater_toggles(p: &Player) -> bool {
+    p.is_theater() || !p.is_remote()
+}
+
+fn toggle_fullscreen(p: &Player) {
+    if fullscreen_toggles(p) {
+        p.request_fullscreen(!p.is_fullscreen());
+    }
+}
+
+fn toggle_theater(p: &Player) {
+    if theater_toggles(p) {
+        p.request_theater(!p.is_theater());
+    }
+}
+
+/// The volume up or down a step, on the 5% grid, unmuting.
+fn nudge_volume(p: &Player, up: bool) {
+    let step = if up { VOLUME_STEP } else { -VOLUME_STEP };
+    p.set_volume(((p.volume() + step) * 20.0).round().clamp(0.0, 20.0) / 20.0);
+    if p.is_muted() {
+        p.set_muted(false);
+    }
+}
 
 /// A player for `player`: its picture (with captions over it, when on) and a transport bar
 /// with play and pause, the time, a seek bar, mute and volume, a captions switch when the
@@ -67,6 +101,17 @@ const JUMP_SEEK: f64 = 10.0;
 /// what is [next up](Player::set_next_up). On the seek bar
 /// Space plays and pauses, the arrows move 5 seconds, Page Up and Page Down a tenth, Home and
 /// End to either end. Space and Enter press whichever button has focus.
+///
+/// With [`KeyScheme::Arrows`] ([`PlayerOptions::keys`](crate::PlayerOptions::keys)), also
+/// anywhere in the player: Left and Right skip 10 seconds, Up and Down change the volume by
+/// 5% (unmuting), Space plays and pauses on the volume slider, N plays next, and the letters
+/// work with Shift held; a focused slider keeps its own keys. In either scheme, keys with
+/// Ctrl, Alt or the system key held, keys a text field takes and keys while a menu is open
+/// never reach the player.
+///
+/// Double-clicking (or double-tapping) the picture asks for full screen or leaves it. In
+/// remote mode the full-screen and theater buttons are disabled and F, T and a double-click
+/// do nothing, except to leave full screen or theater mode when casting started in it.
 ///
 /// Sound-only media shows the transport bar alone. Media with pictures pauses while the
 /// player is unseen (see [`UnseenPolicy`](crate::UnseenPolicy)), and does not start by itself
@@ -140,6 +185,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             move || tr(&u, "playback-loading")
         }));
     let cast = cast_stage(ui, player);
+    let p = player.clone();
     // The picture fills the stage (letterboxed by the surface); the rest sits over it.
     let stage = ui
         .el("player_stage")
@@ -149,7 +195,8 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .child(caption)
         .child(message)
         .child(cast)
-        .child(busy.clone());
+        .child(busy.clone())
+        .on_double_click(move || toggle_fullscreen(&p));
     let st = stage.clone();
     let p = player.clone();
     let stage = stage.bind(move || {
@@ -213,12 +260,9 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         move || p.set_muted(!p.is_muted()),
     );
     let level: Signal<f64> = Signal::new(f64::from(player.volume()));
-    let volume = ui
-        .el("player_volume")
-        .width(u * 14.0)
-        .layout(|l| l.shrink = 0.0)
-        // The core slider takes its name once: in the window's language when the player is made.
-        .child(w::slider(ui, tr(ui, "playback-volume"), level, 0.0, 1.0, 0.05));
+    // The core slider takes its name once: in the window's language when the player is made.
+    let slider = w::slider(ui, tr(ui, "playback-volume"), level, 0.0, 1.0, f64::from(VOLUME_STEP));
+    let volume = ui.el("player_volume").width(u * 14.0).layout(|l| l.shrink = 0.0).child(slider.clone());
     let p = player.clone();
     let volume = volume.bind(move || p.set_volume(level.get() as f32));
     // The slider follows the volume: the device's in remote mode.
@@ -266,7 +310,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                 tr(&u, if p.is_fullscreen() { "playback-exit-full-screen" } else { "playback-full-screen" })
             }
         },
-        move || p.request_fullscreen(!p.is_fullscreen()),
+        move || toggle_fullscreen(&p),
     );
     let fb = full.clone();
     // The speed, as a button that steps through the usual speeds and wraps back to the
@@ -297,6 +341,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     let full = full.bind(move || {
         let pictures = p.info().is_none_or(|i| i.video.is_some());
         let _ = fb.clone().hidden(!pictures);
+        let _ = fb.clone().disabled(!fullscreen_toggles(&p));
     });
     // Theater mode: one name, pressed while on, offered once the app listens.
     let p = player.clone();
@@ -309,7 +354,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             let u = ui.clone();
             move || tr(&u, "playback-theater")
         },
-        move || p.request_theater(!p.is_theater()),
+        move || toggle_theater(&p),
     );
     let (tb, p, tu) = (theater.clone(), player.clone(), ui.clone());
     let theater = theater
@@ -325,6 +370,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                 let pictures = p.info().is_none_or(|i| i.video.is_some());
                 let _ = tb.clone().hidden(!pictures || !p.theater_offered());
                 tb.state(remedy_ui_style::States::CHECKED, p.is_theater());
+                let _ = tb.clone().disabled(!theater_toggles(&p));
             }
         });
     // Cast: one name that says whether it is casting; the app opens its menu of devices.
@@ -383,10 +429,18 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             if !e.pressed || e.composing || e.modifiers.ctrl || e.modifiers.alt || e.modifiers.meta {
                 return false;
             }
+            let arrows = p.key_scheme() == KeyScheme::Arrows;
+            let pictures = p.info().is_none_or(|i| i.video.is_some());
             match &e.key {
                 Key::Escape if p.is_fullscreen() => p.request_fullscreen(false),
                 Key::Escape if p.is_theater() => p.request_theater(false),
-                Key::Character(c) => match c.as_str() {
+                Key::ArrowLeft if arrows => p.seek_by(-JUMP_SEEK),
+                Key::ArrowRight if arrows => p.seek_by(JUMP_SEEK),
+                Key::ArrowUp if arrows => nudge_volume(&p, true),
+                Key::ArrowDown if arrows => nudge_volume(&p, false),
+                // Buttons press themselves on Space and the seek bar plays and pauses itself.
+                Key::Space if arrows && slider.is_focused() => p.toggle(),
+                Key::Character(c) => match (if arrows { c.to_lowercase() } else { c.clone() }).as_str() {
                     "k" => p.toggle(),
                     "j" => p.seek_by(-JUMP_SEEK),
                     "l" => p.seek_by(JUMP_SEEK),
@@ -394,13 +448,9 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                     ">" => p.step_speed(true),
                     "<" => p.step_speed(false),
                     "c" if !p.subtitle_tracks().is_empty() => cycle_captions(&p),
-                    "f" if p.info().is_none_or(|i| i.video.is_some()) => {
-                        p.request_fullscreen(!p.is_fullscreen())
-                    }
-                    "t" if p.theater_offered() && p.info().is_none_or(|i| i.video.is_some()) => {
-                        p.request_theater(!p.is_theater())
-                    }
-                    "N" | "n" if e.modifiers.shift && p.next_up().is_some() => p.play_next(),
+                    "f" if pictures && fullscreen_toggles(&p) => toggle_fullscreen(&p),
+                    "t" if p.theater_offered() && pictures && theater_toggles(&p) => toggle_theater(&p),
+                    "N" | "n" if (arrows || e.modifiers.shift) && p.next_up().is_some() => p.play_next(),
                     _ => return false,
                 },
                 _ => return false,
