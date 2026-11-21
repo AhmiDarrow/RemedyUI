@@ -420,9 +420,11 @@ pub fn render(input: &RenderInput, ws: &Workspace, png_file: Option<&str>) -> Re
     };
     let px: Vec<u8> = pic
         .pixels
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|p| {
-            let [r, g, b, a] = <[u8; 4]>::try_from(p).unwrap_or([0; 4]);
+            let [r, g, b, a] = *p;
             match bg {
                 Some(bg) => {
                     let over = |c: u8, k: u8| {

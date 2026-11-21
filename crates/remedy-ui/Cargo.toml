@@ -212,3 +212,16 @@ remedy-ui = { path = ".", features = ["customize", "markup", "macros", "agents",
 
 [lints]
 workspace = true
+
+# Prism effects are not in the smaller Android and web builds the examples are linted with.
+[[example]]
+name = "effects_gallery"
+required-features = ["effects"]
+
+[[example]]
+name = "glass_and_shadows"
+required-features = ["effects"]
+
+[[test]]
+name = "effects_markup"
+required-features = ["effects", "markup"]

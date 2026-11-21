@@ -48,7 +48,7 @@ pub(crate) fn halve(w: u32, h: u32, pixels: &[u8]) -> (u32, u32, Vec<u8>) {
     for (y, dst) in out.chunks_exact_mut(nw * 4).enumerate() {
         let row = |r: usize| pixels.get(r.min(h - 1) * stride..(r.min(h - 1) + 1) * stride).unwrap_or(&[]);
         let (a, b) = (row(2 * y), row(2 * y + 1));
-        for (x, d) in dst.chunks_exact_mut(4).enumerate() {
+        for (x, d) in dst.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let (x0, x1) = (2 * x * 4, (2 * x + 1).min(w - 1) * 4);
             let (Some(p), Some(q), Some(r), Some(t)) =
                 (a.get(x0..x0 + 4), a.get(x1..x1 + 4), b.get(x0..x0 + 4), b.get(x1..x1 + 4))

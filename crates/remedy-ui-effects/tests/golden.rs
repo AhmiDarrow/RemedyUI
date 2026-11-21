@@ -56,7 +56,7 @@ fn render(name: &str, threads: usize) -> (u32, u32, Vec<u8>) {
 
 /// Whether every pixel is the same.
 fn blank(px: &[u8]) -> bool {
-    px.chunks_exact(4).all(|p| px.get(..4) == Some(p))
+    px.as_chunks::<4>().0.iter().all(|p| px.get(..4) == Some(p.as_slice()))
 }
 
 fn golden_path(name: &str) -> PathBuf {
