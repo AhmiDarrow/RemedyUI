@@ -30,7 +30,7 @@ use windows::Win32::System::Com::StructuredStorage::{
     PROPVARIANT, PropVariantClear, PropVariantToUInt32, PropVariantToUInt64,
 };
 use windows::Win32::System::Com::{
-    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
+    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoIncrementMTAUsage, CoInitializeEx, CoTaskMemFree,
 };
 use windows::Win32::System::Variant::VT_I8;
 use windows::core::{GUID, HSTRING, Interface};
@@ -60,8 +60,17 @@ fn from_hns(t: i64) -> Duration {
 
 /// Joins this thread to the multithreaded COM apartment once (the player's threads are its
 /// own; a thread already in a single-threaded apartment keeps it, which Media Foundation's
-/// free-threaded objects also allow).
+/// free-threaded objects also allow), and keeps that apartment for the whole process.
 fn com() {
+    static MTA: std::sync::Once = std::sync::Once::new();
+    // When the last thread in the apartment ends, COM tears it down and unloads the WinRT
+    // DLLs it loaded (twinapi.appcore.dll), while Media Foundation's HTTP stack
+    // (Windows.Networking.Connectivity.dll) keeps pointers into them: the next stream opened
+    // over HTTP crashed reading the unloaded DLL.
+    // SAFETY: a plain COM call; its cookie is never released, so the apartment lives on.
+    MTA.call_once(|| {
+        let _ = unsafe { CoIncrementMTAUsage() };
+    });
     thread_local! {
         static JOINED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     }
