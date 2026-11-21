@@ -7,6 +7,12 @@
 //!   and pause, time, a keyboard-operable seek bar, mute and volume, captions, a full-screen
 //!   request, and a theater-mode request for apps that lay one out). Captions can be shifted
 //!   earlier or later ([`Player::set_caption_delay`]) when a subtitle file is out of step.
+//! - Portal's bar ([`player_with`], [`PlayerOptions`]): Back and Forward 10 seconds, no speed
+//!   button, two rows, a captions button that opens the app's menu ([`Player::on_captions`])
+//!   or is a CC toggle the app answers ([`Player::set_captions_state`]), the app's own controls
+//!   ([`PlayerParts`]), and a compact mini player ([`Player::set_compact`]). The picture alone
+//!   is [`player_picture`]: the player is seen while any of its pictures is, so a
+//!   picture-in-picture or a second window keeps it playing.
 //! - Casting: [`Player::on_cast`] shows a Cast button whose press hands the app the button to
 //!   anchor its own menu of devices to; [`Player::set_remote`] puts the player in remote mode,
 //!   where the local media pauses in place, a casting stage replaces the picture, and every
