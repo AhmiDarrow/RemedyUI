@@ -102,19 +102,20 @@ pub(crate) fn parse(text: &str, url: &str) -> Result<Playlist, MediaError> {
             if let Some(bw) = v
                 && best.as_ref().is_none_or(|(b, _)| bw > *b)
             {
-                best = Some((bw, resolve(url, line)));
+                best = Some((bw, allowed(url, resolve(url, line))?));
             }
         } else {
             let d = duration.take().unwrap_or(Duration::ZERO);
             segments.push(Segment {
-                url: resolve(url, line),
+                url: allowed(url, resolve(url, line))?,
                 sequence,
                 duration: d,
                 start,
                 discontinuity: std::mem::take(&mut discontinuity),
             });
-            sequence += 1;
-            start += d;
+            // Untrusted numbers: a huge #EXTINF or media sequence must not overflow.
+            sequence = sequence.saturating_add(1);
+            start = start.saturating_add(d);
         }
     }
     if saw_variant {
@@ -144,6 +145,26 @@ fn attribute(list: &str, name: &str) -> Option<String> {
         rest = next;
     }
     None
+}
+
+/// `url` (a segment or variant the playlist at `base` lists) when it may be fetched, as a
+/// browser's HLS player would: over http or https (never from https down to http, mixed
+/// content), or from disk only for a playlist that is itself on disk. Anything else (a remote
+/// playlist pointing at `file:`, or at another scheme a platform reader would open, such as a
+/// GStreamer device URI) is refused.
+fn allowed(base: &str, url: String) -> Result<String, MediaError> {
+    let scheme = |u: &str| match u.split_once(':') {
+        Some((s, _)) if has_scheme(u) => s.to_ascii_lowercase(),
+        _ => String::new(),
+    };
+    let ok = match (scheme(base).as_str(), scheme(&url).as_str()) {
+        // Relative to a page (in a browser) without a scheme of its own: the page's.
+        (_, "") => true,
+        ("https", "http") => false,
+        (_, "http" | "https") | ("file", "file") => true,
+        _ => false,
+    };
+    if ok { Ok(url) } else { Err(unsupported(&format!("playlist at {base} may not point at {url}"))) }
 }
 
 /// Whether `s` starts with a URL scheme (`https:`, `file:`).
@@ -276,5 +297,35 @@ mod tests {
         assert!(matches!(parse(ranges, BASE), Err(MediaError::Unsupported(_))));
         assert!(matches!(parse("<html>", BASE), Err(MediaError::Format(_))));
         assert!(matches!(parse("", BASE), Err(MediaError::Format(_))));
+    }
+
+    #[test]
+    fn segments_point_only_where_a_browser_would_fetch_from() {
+        let one = |base: &str, uri: &str| parse(&format!("#EXTM3U\n#EXTINF:1,\n{uri}\n"), base).is_ok();
+        let master =
+            |uri: &str| parse(&format!("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\n{uri}\n"), BASE).is_ok();
+        assert!(one(BASE, "https://cdn.example.net/a.ts"), "another host over https");
+        assert!(one(BASE, "//cdn.example.net/a.ts"));
+        assert!(!one(BASE, "http://cdn.example.net/a.ts"), "https down to http");
+        assert!(one("http://h/index.m3u8", "https://h/a.ts"));
+        assert!(!one(BASE, "file:///etc/passwd"), "a remote playlist reading the disk");
+        assert!(!one("http://h/index.m3u8", "FILE:///C:/a.ts"));
+        assert!(!one(BASE, "v4l2:///dev/video0"), "a device URI a platform reader would open");
+        assert!(!master("file:///C:/x.m3u8"));
+        assert!(one("file:///C:/media/index.m3u8", "seg.ts"));
+        assert!(one("file:///C:/media/index.m3u8", "file:///D:/other/seg.ts"));
+        assert!(one("file:///C:/media/index.m3u8", "https://h/a.ts"));
+        assert!(one("/media/index.m3u8", "seg.ts"), "relative to a page");
+    }
+
+    #[test]
+    fn huge_numbers_do_not_overflow() {
+        let m = media(
+            "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:18446744073709551615\n#EXTINF:1e19,\na.ts\n\
+             #EXTINF:1e19,\nb.ts\n#EXTINF:1,\nc.ts\n",
+        );
+        assert_eq!(m.segments.len(), 3);
+        assert_eq!(m.segments[2].sequence, u64::MAX);
+        assert_eq!(m.segments[2].start, Duration::MAX);
     }
 }
