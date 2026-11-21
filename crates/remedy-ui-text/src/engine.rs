@@ -631,6 +631,19 @@ impl TextEngine {
         self.build(text, base, &segments, options, &overrides)
     }
 
+    /// Lays out `text`, the edited text of `before` (laid out with the same style and
+    /// options). Gives the same paragraph as [`TextEngine::layout`].
+    pub fn layout_after_edit(
+        &mut self,
+        before: &Paragraph,
+        text: &RichText,
+        base: &TextStyle,
+        options: ParagraphOptions,
+    ) -> Paragraph {
+        let _ = before;
+        self.layout(text, base, options)
+    }
+
     /// Shapes and lays out once; `families` replaces the family list on its ranges.
     fn build(
         &mut self,
@@ -1120,6 +1133,21 @@ impl Paragraph {
             }
         }
         out
+    }
+
+    /// The glyph runs of the lines that reach into `ys` (from the paragraph's top), in
+    /// drawing order: what a view draws for the part of the paragraph it shows.
+    pub fn glyph_runs_in(&self, ys: Range<f32>) -> Vec<GlyphRunInfo> {
+        let lines: Vec<Range<usize>> = self
+            .lines()
+            .into_iter()
+            .filter(|l| l.bottom > ys.start && l.top < ys.end)
+            .map(|l| l.range)
+            .collect();
+        self.glyph_runs()
+            .into_iter()
+            .filter(|r| lines.iter().any(|l| l.contains(&r.range.start) || l.start == r.range.start))
+            .collect()
     }
 
     /// Inline objects with their boxes, by the ids the caller gave them.
