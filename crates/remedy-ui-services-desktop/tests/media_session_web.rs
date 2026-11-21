@@ -23,8 +23,8 @@ fn text(o: &JsValue, k: &str) -> Option<String> {
 #[wasm_bindgen_test]
 fn the_pages_media_session_shows_what_plays() {
     let ms = get(&get(&js_sys::global(), "navigator"), "mediaSession");
-    let session =
-        MediaSession::new(|_| {}).unwrap_or_else(|e| unreachable!("a browser has navigator.mediaSession: {e}"));
+    let session = MediaSession::new(|_| {})
+        .unwrap_or_else(|e| unreachable!("a browser has navigator.mediaSession: {e}"));
     session.set_now_playing(Some(&NowPlaying::new("The Ris").subtitle("S1 E3")));
     session.set_playback(MediaState::Playing, Duration::from_secs(30), Some(Duration::from_secs(100)));
     session.set_can_next(true);
