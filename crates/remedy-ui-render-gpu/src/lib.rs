@@ -29,7 +29,7 @@ pub use cache::PipelineCacheStore;
 pub use composite::{AdapterSummary, GpuCompositor};
 pub use context::{GpuContext, LadderOptions, Rung};
 pub use renderer::{FORMAT, GpuRenderer};
-pub use surface::{GpuSurface, Presented};
+pub use surface::{GpuSurface, PresentChecks, Presented};
 pub use wgpu;
 
 /// Why the GPU renderer could not draw.

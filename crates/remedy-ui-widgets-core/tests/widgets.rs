@@ -969,3 +969,20 @@ fn built_in_labels_follow_the_window_language() {
     }
     assert_eq!(w::Icon::Close.localized_name(&t.ui), "Schließen");
 }
+
+#[test]
+fn a_modal_taller_than_the_window_fits_and_scrolls() {
+    let mut t = T::new();
+    let tall = (0..20).fold(t.ui.el("column").column(), |c, n| c.child(w::text(&t.ui, format!("Line {n}"))));
+    let last = w::button(&t.ui, "Done", || {});
+    let m = w::modal(&t.ui, "Long", tall.child(last.clone()), true);
+    t.frame();
+    let b = m.body().bounds().unwrap_or_default();
+    assert!(b.min.y >= 0.0 && b.max.y <= 300.0, "the dialog fits the 300 px window: {b:?}");
+    // Its last button can be scrolled to.
+    let _ = t.comp.scroll_at(Point::new(200.0, 150.0), remedy_ui_core::Vec2::new(0.0, 1000.0));
+    t.frame();
+    t.frame();
+    let l = last.bounds().unwrap_or_default();
+    assert!(l.max.y <= b.max.y + 0.5 && l.min.y >= b.min.y, "scrolled into the dialog: {l:?} in {b:?}");
+}

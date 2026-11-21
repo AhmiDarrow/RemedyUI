@@ -245,11 +245,15 @@ pub enum Filter {
 pub const MAX_FILTER_STD_DEV: f32 = 64.0;
 /// The farthest a drop shadow falls, in device pixels, on each axis.
 pub const MAX_FILTER_OFFSET: f32 = 2048.0;
-/// The most clips and groups (layers, filters, glass) renderers keep open at once while
-/// drawing a display list. A list nesting deeper (a theme's mistake or a hostile one) draws
-/// what is past this depth without opening more: pushes past it open nothing and their pops
-/// close nothing. vello_gpu overflows its stack somewhere past 500 nested layers, which
-/// aborts the process; the CPU renderer slows by the nesting.
+/// The most groups (clips, opacity and blend layers, filters, and the layers glass draws
+/// through) a renderer keeps open at once. Renderers nest one surface layer per group, and the
+/// GPU's layer handling recurses per level, so a list from a stranger nesting thousands of
+/// groups would overflow the stack. A push past this opens nothing and its pop closes nothing:
+/// what it holds is drawn as if the group were not there (unclipped, unfaded, unfiltered),
+/// and glass that deep is not drawn. Real interfaces nest a few dozen. This is a safety bound,
+/// not a capacity limit: the recursion is in vello, outside RemedyUI's control, and the bound
+/// keeps it within any thread's stack. RemedyUI's own walks (the compositor's layer tree)
+/// use explicit stacks and take any depth.
 pub const MAX_GROUP_DEPTH: usize = 256;
 /// How deep glass seen through glass is drawn: glass ([`Item::Backdrop`]) draws again what
 /// is under it, and glass under glass draws again what is under that, so a stack of panes
@@ -268,23 +272,72 @@ pub const MAX_FILTER_MATRIX_DEPTH: usize = 4;
 /// row of a long list is bounded: the groups past this many are drawn without their matrix.
 pub const MAX_FILTER_MATRIX_GROUPS: usize = 64;
 
+/// How much blur and offset a chain of nested filters has left to draw with.
+///
+/// [`MAX_FILTER_STD_DEV`] and [`MAX_FILTER_OFFSET`] bound one filter, but a filter's buffers
+/// hold everything nested in it: every filter in a chain grows them again by its own reach,
+/// and blurs them all again. A stranger's theme nesting shadows at the bound would make each
+/// level's buffer thousands of pixels wider than the last, past what a GPU can hold and with
+/// work that grows with the square of the depth. So the bounds hold for the whole chain: a
+/// filter nested in others gets what they left, and the chain reaches no farther than one
+/// filter at the bound. Filters side by side each start from what their common parents left.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FilterBudget {
+    /// How much farther shadows may fall, in device pixels, on each axis.
+    offset: Vec2,
+    /// How much more blur, as a standard deviation in [`MAX_FILTER_STD_DEV`]'s units.
+    std_dev: f32,
+}
+
+impl FilterBudget {
+    /// All of it: what a filter with no filters around it may use.
+    pub const FULL: FilterBudget = FilterBudget {
+        offset: Vec2 { x: MAX_FILTER_OFFSET, y: MAX_FILTER_OFFSET },
+        std_dev: MAX_FILTER_STD_DEV,
+    };
+
+    /// `filter` as renderers draw it under a transform scaling lengths by `scale`, within
+    /// what is left, and what is left after it for the filters nested inside it.
+    pub fn limit(self, filter: &Filter, scale: f32) -> (Filter, FilterBudget) {
+        let k = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+        // The blur bound is in the filter's own units, or device pixels when zoomed out:
+        // a blur looks the same at 100% and 200%.
+        let unit = k.min(1.0);
+        let sigma = filter.std_dev().min(self.std_dev / unit);
+        let std_dev = (self.std_dev - sigma * unit).max(0.0);
+        match *filter {
+            Filter::Blur { .. } => (Filter::Blur { radius: sigma }, FilterBudget { std_dev, ..self }),
+            // A matrix neither blurs nor moves: it takes none of the budget.
+            Filter::ColorMatrix { matrix } => (Filter::ColorMatrix { matrix: matrix.limited() }, self),
+            Filter::DropShadow { offset, color, .. } => {
+                let o = |v: f32, left: f32| if v.is_finite() { v.clamp(-left / k, left / k) } else { 0.0 };
+                let offset = Vec2::new(o(offset.x, self.offset.x), o(offset.y, self.offset.y));
+                let left = Vec2::new(
+                    (self.offset.x - offset.x.abs() * k).max(0.0),
+                    (self.offset.y - offset.y.abs() * k).max(0.0),
+                );
+                (
+                    Filter::DropShadow { offset, blur: sigma * 2.0, color },
+                    FilterBudget { offset: left, std_dev },
+                )
+            }
+        }
+    }
+}
+
+impl Default for FilterBudget {
+    fn default() -> Self {
+        FilterBudget::FULL
+    }
+}
+
 impl Filter {
     /// The filter as renderers draw it under a transform scaling lengths by `scale`: its
     /// blur at most [`MAX_FILTER_STD_DEV`] (in device pixels when `scale` is below 1) and its
-    /// offset at most [`MAX_FILTER_OFFSET`] device pixels, whatever was asked.
+    /// offset at most [`MAX_FILTER_OFFSET`] device pixels, whatever was asked. Nested in other
+    /// filters it gets less: see [`FilterBudget`].
     pub fn limited(&self, scale: f32) -> Filter {
-        let k = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
-        let sigma = self.std_dev().min(MAX_FILTER_STD_DEV / k.min(1.0));
-        match *self {
-            Filter::Blur { .. } => Filter::Blur { radius: sigma },
-            Filter::ColorMatrix { matrix } => Filter::ColorMatrix { matrix: matrix.limited() },
-            Filter::DropShadow { offset, color, .. } => {
-                let o = |v: f32| {
-                    if v.is_finite() { v.clamp(-MAX_FILTER_OFFSET / k, MAX_FILTER_OFFSET / k) } else { 0.0 }
-                };
-                Filter::DropShadow { offset: Vec2::new(o(offset.x), o(offset.y)), blur: sigma * 2.0, color }
-            }
-        }
+        FilterBudget::FULL.limit(self, scale).0
     }
 
     /// The Gaussian's standard deviation, in the group's space.

@@ -237,6 +237,30 @@ fn hit_testing_finds_the_topmost_element() -> R {
 }
 
 #[test]
+fn hit_testing_goes_any_depth_on_a_threads_stack() -> R {
+    // Tens of thousands of nested elements on a test thread's stack (2 MB): the deepest is
+    // on top, and a clip that misses part way down hides everything under it.
+    const N: usize = 20_000;
+    let t = Tree::new();
+    let full = Rect::new(0.0, 0.0, 100.0, 100.0);
+    t.set_bounds(t.root(), full)?;
+    let mut chain = vec![t.root()];
+    for _ in 0..N {
+        let parent = chain.last().copied().unwrap_or(t.root());
+        let e = el(&t, parent, "level")?;
+        t.set_bounds(e, full)?;
+        chain.push(e);
+    }
+    let p = Point::new(50.0, 50.0);
+    assert_eq!(t.hit_test(p), chain.last().copied(), "the deepest element");
+    let (above, mid) = (chain[N / 2 - 1], chain[N / 2]);
+    t.set_bounds(mid, Rect::new(0.0, 0.0, 10.0, 10.0))?;
+    t.set_clips(mid, true)?;
+    assert_eq!(t.hit_test(p), Some(above), "the clip hides what is under it");
+    Ok(())
+}
+
+#[test]
 fn tab_order_wraps_and_respects_explicit_order() -> R {
     let t = Tree::new();
     let a = el(&t, t.root(), "a")?;
@@ -294,5 +318,23 @@ fn payloads_hold_widget_data() -> R {
     t.set_payload(e, 0.5f32)?;
     assert_eq!(t.with_payload(e, |v: &mut f32| *v), Some(0.5));
     assert_eq!(t.with_payload(e, |v: &mut u8| *v), None, "wrong type is None, not a panic");
+    Ok(())
+}
+
+#[test]
+fn removing_the_focused_element_hands_focus_to_the_nearest_focusable_ancestor() -> R {
+    let t = Tree::new();
+    let panel = el(&t, t.root(), "panel")?;
+    let list = el(&t, panel, "list")?;
+    let item = el(&t, list, "item")?;
+    t.set_focusable(panel, true)?;
+    t.set_focusable(item, true)?;
+    t.focus(item)?;
+    // The list goes (a page swapped for another): keys still reach the panel.
+    t.remove(list)?;
+    assert_eq!(t.focused(), Some(panel));
+    // With nothing focusable around it, focus clears.
+    t.remove(panel)?;
+    assert_eq!(t.focused(), None);
     Ok(())
 }

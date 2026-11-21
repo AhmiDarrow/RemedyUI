@@ -42,6 +42,28 @@ pub struct GpuSurface {
     frame: Option<wgpu::Texture>,
     /// The swapchain takes copies (otherwise the frame is drawn onto it).
     copies: bool,
+    /// Rectangles drawn into `frame` since the latest present, `(x0, y0, x1, y1)`.
+    pending: Vec<(u16, u16, u16, u16)>,
+    /// What each present changed, the latest first: a swapchain image `n` presents old needs
+    /// `pending` and the first `n - 1` of these copied in.
+    history: std::collections::VecDeque<Vec<(u16, u16, u16, u16)>>,
+    /// Tests: what [`GpuSurface::check_presents`] found.
+    checks: Option<PresentChecks>,
+}
+
+/// What [`GpuSurface::check_presents`] found. For tests.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PresentChecks {
+    /// Presents whose swapchain image was compared with the window's frame.
+    pub compared: usize,
+    /// Presents that copied in only what changed (the image kept an older frame).
+    pub damaged: usize,
+    /// Presents whose image held nothing known (age `0`: new to the swapchain, after a
+    /// resize, or a backend that does not keep contents), so all of it was drawn.
+    pub unknown: usize,
+    /// Presents whose image differed from the window's frame anywhere.
+    pub mismatched: usize,
 }
 
 impl GpuSurface {
@@ -50,6 +72,21 @@ impl GpuSurface {
     #[doc(hidden)]
     pub fn lose_swapchain(&mut self) {
         self.surface = None;
+    }
+
+    /// From now on reads every swapchain image back before it is presented and compares it
+    /// with the window's frame, pixel for pixel. Slow; for tests. Takes effect where the
+    /// swapchain can be read (the next time it is built or resized).
+    #[doc(hidden)]
+    pub fn check_presents(&mut self) {
+        self.checks.get_or_insert_default();
+        self.config.usage |= wgpu::TextureUsages::COPY_SRC;
+    }
+
+    /// What [`check_presents`](Self::check_presents) found so far.
+    #[doc(hidden)]
+    pub fn present_checks(&self) -> PresentChecks {
+        self.checks.unwrap_or_default()
     }
 }
 
@@ -90,6 +127,9 @@ fn build(
         .ok_or_else(|| GpuError::Surface("the adapter cannot present to this window".into()))?;
     config.format = format;
     config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
+    // Swapchain images keep what they showed, so a present copies in and reports only what
+    // changed since ([`GpuSurface`]'s history): the compositor redraws only that on screen.
+    config.preserve_contents = true;
     // The frame is kept in a texture of its own and copied to the swapchain image, where the
     // swapchain allows copies.
     if caps.usages.contains(wgpu::TextureUsages::COPY_DST) {
@@ -148,6 +188,9 @@ impl GpuCompositor {
             tiles: Default::default(),
             frame: None,
             copies,
+            pending: Vec::new(),
+            history: Default::default(),
+            checks: None,
         })
     }
 
@@ -210,7 +253,7 @@ impl GpuCompositor {
         // damage is lost and the next present shows it.
         let raster = remedy_ui_trace::phase!("raster").entered();
         let size = (surface.config.width, surface.config.height);
-        self.render_damage(
+        let drawn = self.render_damage(
             &mut surface.tiles,
             plan,
             &mut surface.frame,
@@ -219,6 +262,18 @@ impl GpuCompositor {
             background,
             Some((&mut surface.vello, &mut surface.resources)),
         )?;
+        surface.pending.extend(drawn);
+        // Frames drawn while nothing is shown (an occluded window) pile up: past a few, one
+        // rectangle around them all costs less to copy than the list (a tuning constant).
+        if surface.pending.len() > 32
+            && let Some(all) = surface
+                .pending
+                .iter()
+                .copied()
+                .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)))
+        {
+            surface.pending = vec![all];
+        }
         drop(raster);
         let Some(swapchain) = surface.surface.as_ref() else { return Ok(Presented::Retry) };
         // Waiting for the swapchain to hand out an image is part of presenting.
@@ -243,11 +298,41 @@ impl GpuCompositor {
         drop(acquire);
         let _present = remedy_ui_trace::phase!("present").entered();
         let Some(kept) = surface.frame.as_ref() else { return Ok(Presented::Retry) };
-        // wgpu presents whole images (it has no present with damage), so the kept frame is
-        // shown whole: one copy, or one draw where the swapchain takes no copies.
         let (w, h) = (frame.texture.width().min(kept.width()), frame.texture.height().min(kept.height()));
         let ctx = self.renderer().context();
-        if surface.copies && frame.texture.format() == kept.format() {
+        let copies = surface.copies && frame.texture.format() == kept.format();
+        // A swapchain image that kept what it showed `age` presents ago needs only what
+        // changed since: this frame's rectangles and those of the presents in between. The
+        // presentation engine is told the same rectangles, and updates only them on screen.
+        let age = frame.buffer_age() as usize;
+        let changed: Option<Vec<(u16, u16, u16, u16)>> =
+            (copies && age > 0 && surface.history.len() + 1 >= age).then(|| {
+                surface
+                    .pending
+                    .iter()
+                    .chain(surface.history.iter().take(age - 1).flatten())
+                    .copied()
+                    .collect()
+            });
+        if let Some(changed) = &changed {
+            let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("RemedyUI show damage"),
+            });
+            for &(x0, y0, x1, y1) in changed {
+                let (x1, y1) = (u32::from(x1).min(w), u32::from(y1).min(h));
+                let (x0, y0) = (u32::from(x0), u32::from(y0));
+                if x1 <= x0 || y1 <= y0 {
+                    continue;
+                }
+                let origin = wgpu::Origin3d { x: x0, y: y0, z: 0 };
+                encoder.copy_texture_to_texture(
+                    wgpu::TexelCopyTextureInfo { origin, ..kept.as_image_copy() },
+                    wgpu::TexelCopyTextureInfo { origin, ..frame.texture.as_image_copy() },
+                    wgpu::Extent3d { width: x1 - x0, height: y1 - y0, depth_or_array_layers: 1 },
+                );
+            }
+            ctx.queue.submit([encoder.finish()]);
+        } else if copies {
             let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("RemedyUI show frame"),
             });
@@ -282,7 +367,34 @@ impl GpuCompositor {
                 &bindings,
             )?;
         }
-        ctx.queue.present(frame);
+        if let Some(checks) = surface.checks.as_mut()
+            && frame.texture.usage().contains(wgpu::TextureUsages::COPY_SRC)
+        {
+            let (shown, want) = (ctx.read_back(&frame.texture)?, ctx.read_back(kept)?);
+            checks.compared += 1;
+            checks.damaged += usize::from(changed.is_some());
+            checks.unknown += usize::from(age == 0);
+            checks.mismatched += usize::from(shown.pixels != want.pixels);
+        }
+        match changed {
+            Some(changed) => {
+                let damage: Vec<wgpu::DamageRect> = changed
+                    .iter()
+                    .map(|&(x0, y0, x1, y1)| wgpu::DamageRect {
+                        x: u32::from(x0),
+                        y: u32::from(y0),
+                        width: u32::from(x1 - x0),
+                        height: u32::from(y1 - y0),
+                    })
+                    .collect();
+                ctx.queue.present_with_damage(frame, &damage);
+            }
+            None => ctx.queue.present(frame),
+        }
+        surface.history.push_front(std::mem::take(&mut surface.pending));
+        // A swapchain has at most 16 images (DXGI's limit; presentation engines keep fewer):
+        // an image older than that is drawn whole.
+        surface.history.truncate(16);
         Ok(Presented::Shown)
     }
 

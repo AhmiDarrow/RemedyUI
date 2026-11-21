@@ -87,16 +87,23 @@ WebGL2 in a browser.
 - **Shadows and filters.** `Item::Shadow` is vello's closed-form blurred rounded rectangle,
   with no blur pass. Blur and drop-shadow filter groups and backdrops are vello filter layers
   (a multi-scale Gaussian), the same algorithm `vello_cpu` runs, so the two renderers agree
-  within two levels. A drop shadow moved wholly outside the target is drawn without its
-  shadow (it shows nothing there): vello_cpu draws one moved past the left or top edge under
-  the shape, and vello_gpu sizes buffers to reach one, past the device's limit when nested.
+  within two levels.
+- **Bounds on what a list asks for.** A filter blurs at most `MAX_FILTER_STD_DEV` (64)
+  device pixels and a drop shadow falls at most `MAX_FILTER_OFFSET` (2048), and at most
+  `MAX_GROUP_DEPTH` (256) groups are open at once: clips, opacity and blend groups, filters,
+  and the layers glass draws through. vello's layer handling recurses per level, so a list
+  nesting thousands of groups would overflow the stack. Both the `Painter` and the composite
+  walk (`record_ops`) keep a stack of which pushes opened a layer: a push past the bound opens
+  none and its pop closes none, so what it holds is drawn as if the group were not there and
+  the groups around it stay balanced; glass that deep is not drawn. Both renderers apply the
+  same bound, so they still agree. It is a safety bound on recursion in vello, not a
+  capacity limit: the compositor's own walks over the layer tree (the frame walk,
+  `LayerTree::for_each` and `find`, dropping a tree) use explicit stacks and take trees of
+  any depth.
 - **Glass is bounded**: each pane draws again what is under it, glass included, so a stack
   of panes would double the cost with every pane. Glass seen through more than
   `MAX_BACKDROP_DEPTH` (2) panes, and panes past `MAX_BACKDROP_REPLAYS` (128) in one raster,
   are drawn without their frost, in display lists and in the compositor alike.
-- **Nesting is bounded**: at most `MAX_GROUP_DEPTH` (256) clips, groups, filters and glass
-  are open at once while a list draws; pushes past it open nothing and their pops close
-  nothing (vello_gpu overflows its stack somewhere past 500, which would abort the process).
 - **Colour matrices** (`Filter::ColorMatrix`) are RemedyUI's own pass, since vello's filter
   graph runs none. The group is drawn into a picture of its own, in device pixels, covering
   only what it draws inside the target (its corner on a 64-pixel grid, so blurs inside it

@@ -4,6 +4,7 @@
 
 use remedy_ui_compositor::{CompositeOp, LayerId, TileKey};
 use remedy_ui_core::{Color, CornerRadii, Rect};
+use remedy_ui_paint::{FilterBudget, MAX_GROUP_DEPTH};
 use vello_cpu::kurbo;
 
 use crate::matrix::{Budget, picture_rect};
@@ -60,7 +61,9 @@ pub trait CompositeTarget {
 /// Records the ops of `all` from index `first` that touch `area` (device pixels) into
 /// `target`, shifted by `shift` (device pixels to the target's). With `close`, layers they
 /// leave open are closed (a backdrop's replay). `background` is drawn under glass that reaches
-/// the frame's start.
+/// the frame's start. At most [`MAX_GROUP_DEPTH`] clips and layers are open at once: a push
+/// past it opens nothing (what it holds is drawn as if it were not there), and its pop closes
+/// nothing.
 pub fn record_ops<T: CompositeTarget>(
     target: &mut T,
     all: &[CompositeOp],
@@ -70,8 +73,8 @@ pub fn record_ops<T: CompositeTarget>(
     shift: kurbo::Affine,
     background: Color,
 ) {
-    let mut budget = Budget::default();
-    walk(target, all, first, area, close, shift, background, &mut budget);
+    let mut matrices = Budget::default();
+    walk(target, all, first, area, FilterBudget::FULL, close, shift, background, 0, &mut matrices);
 }
 
 /// The index in `all` of the pop closing the filter group opened at `at`, or `all.len()`.
@@ -92,16 +95,71 @@ fn filter_end(all: &[CompositeOp], at: usize) -> usize {
     all.len()
 }
 
-#[allow(clippy::too_many_arguments, reason = "record_ops' arguments and the matrix budget")]
+/// The most clips and layers glass opens around its replay.
+const GLASS_DEPTH: usize = 4;
+
+/// What a push left open, closed by its pop.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Open {
+    /// A clip path.
+    Clip,
+    /// A layer.
+    Layer,
+    /// Nothing: the push was past [`MAX_GROUP_DEPTH`].
+    Skipped,
+}
+
+/// The clips and layers a walk has open, bounded by [`MAX_GROUP_DEPTH`].
+struct Stack {
+    /// What each push left open, innermost last.
+    open: Vec<Open>,
+    /// Clips and layers open, around the walk and in it.
+    depth: usize,
+}
+
+impl Stack {
+    /// Whether `n` more clips and layers fit under the bound.
+    fn fits(&self, n: usize) -> bool {
+        self.depth + n <= MAX_GROUP_DEPTH
+    }
+
+    /// Records a push of `kind`: true if it may open it, false (and nothing to close at its
+    /// pop) past the bound.
+    fn push(&mut self, kind: Open) -> bool {
+        let fits = self.fits(1);
+        self.open.push(if fits { kind } else { Open::Skipped });
+        if fits {
+            self.depth += 1;
+        }
+        fits
+    }
+
+    /// Closes the latest push, if it opened anything.
+    fn pop<T: CompositeTarget>(&mut self, target: &mut T) {
+        match self.open.pop() {
+            Some(Open::Clip) => target.pop_clip(),
+            Some(Open::Layer) => target.pop_layer(),
+            Some(Open::Skipped) | None => return,
+        }
+        self.depth -= 1;
+    }
+}
+
+/// [`record_ops`] with `depth` clips and layers already open around the ops, inside filters
+/// that leave `budget` to the filters within (a backdrop's replay is drawn inside its blur and
+/// the filter groups around it).
+#[allow(clippy::too_many_arguments)]
 fn walk<T: CompositeTarget>(
     target: &mut T,
     all: &[CompositeOp],
     first: usize,
     area: Rect,
+    budget: FilterBudget,
     close: bool,
     shift: kurbo::Affine,
     background: Color,
-    budget: &mut Budget,
+    depth: usize,
+    matrices: &mut Budget,
 ) {
     let ops = all.get(first..).unwrap_or(&[]);
     // Ops before this (relative to `first`) were drawn already (a colour-matrix group, as
@@ -109,13 +167,15 @@ fn walk<T: CompositeTarget>(
     let mut resume = 0usize;
     // Inside a skipped subtree: how many pushes deep.
     let mut skip = 0u32;
-    // What is open: true for a clip path, false for a layer.
-    let mut open: Vec<bool> = Vec::new();
+    // What is open.
+    let mut open = Stack { open: Vec::new(), depth };
     // What is culled against: inside a filter group, its whole region, so the group's source
-    // is the same whatever part of the frame is drawn.
-    let mut areas = vec![area];
-    let misses =
-        |r: Rect, areas: &[Rect]| r.intersect(*areas.last().unwrap_or(&area)).is_none_or(|r| r.is_empty());
+    // is the same whatever part of the frame is drawn. With each, what the filter groups open
+    // around it leave the filters inside them (see `FilterBudget`).
+    let mut areas = vec![(area, budget)];
+    let misses = |r: Rect, areas: &[(Rect, FilterBudget)]| {
+        r.intersect(areas.last().map_or(area, |a| a.0)).is_none_or(|r| r.is_empty())
+    };
     for (k, op) in ops.iter().enumerate() {
         if k < resume {
             continue;
@@ -137,25 +197,21 @@ fn walk<T: CompositeTarget>(
             CompositeOp::PushClip { transform, rect, radii } => {
                 // A clip path, not an isolated clip layer: clipping needs no layer of its own,
                 // and one per clipped element made every composite that many groups.
+                if !open.push(Open::Clip) {
+                    continue;
+                }
                 target.set_transform(shift * kaffine(*transform));
                 if *radii == CornerRadii::ZERO {
                     target.push_clip_rect(&krect(*rect));
                 } else {
                     target.push_clip_path(&rounded(*rect, *radii));
                 }
-                open.push(true);
             }
-            CompositeOp::PopClip => {
-                target.pop_clip();
-                open.pop();
-            }
+            CompositeOp::PopClip | CompositeOp::PopOpacity => open.pop(target),
             CompositeOp::PushOpacity(o) => {
-                target.push_opacity_layer(*o);
-                open.push(false);
-            }
-            CompositeOp::PopOpacity => {
-                target.pop_layer();
-                open.pop();
+                if open.push(Open::Layer) {
+                    target.push_opacity_layer(*o);
+                }
             }
             CompositeOp::PushFilter { region, .. } if misses(*region, &areas) => {
                 skip = 1;
@@ -164,10 +220,12 @@ fn walk<T: CompositeTarget>(
                 filter: remedy_ui_paint::Filter::ColorMatrix { matrix },
                 region,
                 ..
-            } if let Some(m) = budget.admit(matrix) => {
+            } if let Some(m) = matrices.admit(matrix) => {
                 let end = filter_end(all, first + k);
+                let left = areas.last().map_or(budget, |a| a.1);
                 // What of the group shows here, in the target's pixels.
-                let shown = region.intersect(*areas.last().unwrap_or(&area)).and_then(|r| r.intersect(area));
+                let shown =
+                    region.intersect(areas.last().map_or(area, |a| a.0)).and_then(|r| r.intersect(area));
                 let to_target = |r: Rect| {
                     let k = shift.transform_rect_bbox(krect(r));
                     Rect::new(k.x0 as f32, k.y0 as f32, k.x1 as f32, k.y1 as f32)
@@ -188,44 +246,44 @@ fn walk<T: CompositeTarget>(
                     Rect::new(picture.x0 as f32, picture.y0 as f32, picture.x1 as f32, picture.y1 as f32);
                 let sub_shift = kurbo::Affine::translate((-f64::from(x), -f64::from(y))) * shift;
                 let group = all.get(..end).unwrap_or(all);
-                budget.depth += 1;
-                budget.drawn += 1;
+                matrices.depth += 1;
+                matrices.drawn += 1;
+                // The picture is a target of its own: its layers start from none.
                 let ok = target.color_matrix_group(rect, &m, &mut |sub| {
-                    walk(sub, group, first + k + 1, sub_area, true, sub_shift, background, budget);
+                    walk(sub, group, first + k + 1, sub_area, left, true, sub_shift, background, 0, matrices);
                 });
-                budget.depth -= 1;
+                matrices.depth -= 1;
                 if ok {
                     resume = end + 1 - first;
                     continue;
                 }
                 // Drawn as a plain group, closed by its pop as any other.
-                target.set_transform(shift);
-                target.push_opacity_layer(1.0);
-                target.push_clip_rect(&krect(*region));
-                open.push(false);
-                open.push(true);
-                areas.push(*region);
+                if open.push(Open::Layer) {
+                    target.set_transform(shift);
+                    target.push_opacity_layer(1.0);
+                }
+                if open.push(Open::Clip) {
+                    target.set_transform(shift);
+                    target.push_clip_rect(&krect(*region));
+                }
+                areas.push((*region, left));
             }
             CompositeOp::PushFilter { transform, filter, region } => {
+                // A filter group is a layer and a clip path, closed in that order. Past the
+                // depth bound it is neither, and its content is drawn unfiltered.
+                let left = areas.last().map_or(budget, |a| a.1);
+                if !open.fits(2) {
+                    open.push(Open::Skipped);
+                    open.push(Open::Skipped);
+                    areas.push((*region, left));
+                    continue;
+                }
+                open.push(Open::Layer);
+                open.push(Open::Clip);
                 target.set_transform(shift * kaffine(*transform));
-                // The region is what the group draws grown by its filters' reach (offsets
-                // included) on every side; shrunk by this filter's own reach it still holds
-                // the drawing. A shadow wholly outside the target shows nothing and is not
-                // drawn (the vello renderers mishandle one; see `shadow_beyond_target`).
-                let in_target = {
-                    let r = CompositeOp::filter_reach(transform, filter);
-                    let drawn =
-                        Rect::new(region.min.x + r, region.min.y + r, region.max.x - r, region.max.y - r);
-                    let k = shift.transform_rect_bbox(krect(drawn));
-                    Rect::new(k.x0 as f32, k.y0 as f32, k.x1 as f32, k.y1 as f32)
-                };
-                // vello's buffer never reaches past the target: what is drawn there.
-                let (w, h) = target.size();
-                let whole = Rect::new(0.0, 0.0, f32::from(w), f32::from(h));
-                let unseen = in_target
-                    .intersect(whole)
-                    .is_some_and(|d| crate::shadow_beyond_target(filter, *transform, d, whole));
-                match crate::layer_filter(filter, transform.scale_factor()).filter(|_| !unseen) {
+                let (filter, inside) = left.limit(filter, transform.scale_factor());
+                areas.push((*region, inside));
+                match crate::vello_filter(&filter) {
                     Some(f) => target.push_filter_layer(f),
                     None => target.push_opacity_layer(1.0),
                 }
@@ -233,24 +291,22 @@ fn walk<T: CompositeTarget>(
                 // every rectangle that draws it.
                 target.set_transform(shift);
                 target.push_clip_rect(&krect(*region));
-                // A filter group is a layer and a clip path, closed in that order.
-                open.push(false);
-                open.push(true);
-                areas.push(*region);
             }
             CompositeOp::PopFilter => {
-                target.pop_clip();
-                target.pop_layer();
-                open.pop();
-                open.pop();
+                open.pop(target);
+                open.pop(target);
                 if areas.len() > 1 {
                     areas.pop();
                 }
             }
             CompositeOp::Backdrop { transform, rect, radii, blur, opacity } => {
-                // Glass past the replay budget is drawn without its frost (see Budget): each
-                // pane draws again what is under it, glass included.
-                if misses(transform.apply_rect(*rect), &areas) || !budget.admit_glass() {
+                // Glass opens up to three layers and a clip, and replays what is under it
+                // inside them: past the depth bound, or past the glass budget (each pane draws
+                // again what is under it, glass included), it is not drawn.
+                if misses(transform.apply_rect(*rect), &areas)
+                    || !open.fits(GLASS_DEPTH)
+                    || !matrices.admit_glass()
+                {
                     continue;
                 }
                 let at = first + k;
@@ -265,7 +321,12 @@ fn walk<T: CompositeTarget>(
                 if *opacity < 1.0 {
                     target.push_opacity_layer(*opacity);
                 }
-                match crate::backdrop_filter(*blur, transform.scale_factor()) {
+                // What is under the glass is drawn inside its blur, and inside the filter
+                // groups around it.
+                let left = areas.last().map_or(budget, |a| a.1);
+                let glass = remedy_ui_paint::Filter::Blur { radius: *blur };
+                let (glass, inside) = left.limit(&glass, transform.scale_factor());
+                match crate::vello_filter(&glass) {
                     Some(f) => target.push_filter_layer(f),
                     None => target.push_opacity_layer(1.0),
                 }
@@ -281,9 +342,20 @@ fn walk<T: CompositeTarget>(
                 // goes without its frost). Drawing each root's picture once into a texture both
                 // renderers sample would make it linear, if stacks of glass become common.
                 if let Some(prefix) = all.get(..at) {
-                    budget.glass_depth += 1;
-                    walk(target, prefix, root, under, true, shift, background, budget);
-                    budget.glass_depth -= 1;
+                    matrices.glass_depth += 1;
+                    walk(
+                        target,
+                        prefix,
+                        root,
+                        under,
+                        inside,
+                        true,
+                        shift,
+                        background,
+                        open.depth + GLASS_DEPTH,
+                        matrices,
+                    );
+                    matrices.glass_depth -= 1;
                 }
                 target.pop_clip();
                 target.pop_layer();
@@ -314,12 +386,8 @@ fn walk<T: CompositeTarget>(
         }
     }
     if close {
-        for clip in open.into_iter().rev() {
-            if clip {
-                target.pop_clip();
-            } else {
-                target.pop_layer();
-            }
+        while !open.open.is_empty() {
+            open.pop(target);
         }
     }
 }

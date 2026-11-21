@@ -925,6 +925,8 @@ pub struct TextInputState {
     pub private: bool,
     /// Several lines (Enter inserts a line break instead of submitting).
     pub multiline: bool,
+    /// A number: input methods show their number pad (with a decimal separator).
+    pub numeric: bool,
 }
 
 /// What an input method did.

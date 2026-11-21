@@ -21,6 +21,7 @@ remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-trace = { path = "../remedy-ui-trace", version = "1.0.0-rc.1" }
 serde = { version = "=1.0.229", optional = true }
 serde_json = { version = "=1.0.154", optional = true }
+stacker = "=0.1.25"
 
 # A browser page keeps persisted values in its `localStorage`.
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]

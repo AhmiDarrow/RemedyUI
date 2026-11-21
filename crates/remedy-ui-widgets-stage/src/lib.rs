@@ -76,8 +76,8 @@ mod timeline;
 
 pub use button::{BigButtonOptions, ButtonLook, big_button, big_toggle};
 pub use common::{Ink, LineStyle, Place};
-pub use display::{Board, DisplayOptions, Marquee, display_text};
 pub use dial::{KnobOptions, Station, TunerOptions, TunerShape, ValueText, knob, tuner};
+pub use display::{Board, DisplayOptions, Marquee, display_text};
 pub use fader::{FaderOptions, fader};
 pub use orbit::{Orbit, OrbitOptions, orbit};
 pub use path::{PathLayout, PathOptions, Route, Spread, path_layout};

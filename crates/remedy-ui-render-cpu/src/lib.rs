@@ -25,8 +25,8 @@ use std::sync::Arc;
 
 use remedy_ui_core::{Color, CornerRadii, Point, Rect};
 use remedy_ui_paint::{
-    Affine, Blend, Brush, DisplayList, ExternalTexture, GlyphRun, Image, Item, Path, PathEl, Sampling,
-    Stroke, StrokeCap, StrokeJoin, VideoFrame,
+    Affine, Blend, Brush, DisplayList, ExternalTexture, FilterBudget, GlyphRun, Image, Item, MAX_GROUP_DEPTH,
+    Path, PathEl, Sampling, Stroke, StrokeCap, StrokeJoin, VideoFrame,
 };
 use remedy_ui_text::{Antialias, GlyphRasterizer, Hinting, size_64, subpixel_bin};
 use vello_cpu::color::{AlphaColor, Srgb};
@@ -112,9 +112,6 @@ pub struct Painter {
     next_glyph: u64,
     /// Colour-matrix groups open and drawn in the current raster.
     matrices: matrix::Budget,
-    /// Surface layers open in the current raster (clips, groups, filters, glass), against
-    /// [`remedy_ui_paint::MAX_GROUP_DEPTH`].
-    layers: usize,
     /// Mipmaps of app images drawn scaled down, by the image's id, with its pixels (gone
     /// when the app drops the image).
     mips: HashMap<u64, (std::sync::Weak<[u8]>, mip::Levels)>,
@@ -299,14 +296,10 @@ fn texture_item<S: Surface>(ctx: &mut S, texture: &ExternalTexture, rect: Rect, 
     ctx.fill_path(&rounded(rect, radii));
 }
 
-/// The vello filter for a display-list filter, or `None` when it changes nothing.
-pub(crate) fn vello_filter(
-    f: &remedy_ui_paint::Filter,
-    scale: f32,
-) -> Option<vello_cpu::filter_effects::Filter> {
+/// The vello filter for a display-list filter already bounded for drawing (by
+/// [`FilterBudget::limit`]), or `None` when it changes nothing.
+pub(crate) fn vello_filter(f: &remedy_ui_paint::Filter) -> Option<vello_cpu::filter_effects::Filter> {
     use vello_cpu::filter_effects::{EdgeMode, Filter, FilterPrimitive};
-    // Bounded: a filter's buffers grow with its blur and offset.
-    let f = &f.limited(scale);
     let sigma = f.std_dev();
     let primitive = match f {
         remedy_ui_paint::Filter::Blur { .. } if sigma == 0.0 => return None,
@@ -330,54 +323,26 @@ pub(crate) fn vello_filter(
 }
 
 /// The filter a backdrop of standard deviation `blur` draws its glass with, or `None` for no
-/// blur. Both compositors use it, so they blur alike.
-/// `scale` is how much the glass's transform scales lengths (the blur is bounded by
-/// [`remedy_ui_paint::MAX_FILTER_STD_DEV`]).
+/// blur, when no filter is around it. Both compositors use the same bound, so they blur
+/// alike. `scale` is how much the glass's transform scales lengths (the blur is bounded by
+/// [`remedy_ui_paint::MAX_FILTER_STD_DEV`]; inside filters, by what they leave: see
+/// [`FilterBudget`]).
 pub fn backdrop_filter(blur: f32, scale: f32) -> Option<vello_cpu::filter_effects::Filter> {
-    vello_filter(&remedy_ui_paint::Filter::Blur { radius: blur }, scale)
+    layer_filter(&remedy_ui_paint::Filter::Blur { radius: blur }, scale)
 }
 
-/// The vello filter a display-list filter is drawn with, or `None` when it changes nothing.
-/// Both compositors use it for layers' filters, so they filter alike.
-/// `scale` is how much the layer's transform scales lengths.
+/// The vello filter a display-list filter is drawn with when no filter is around it, or
+/// `None` when it changes nothing. Both compositors use the same bound, so they filter alike.
+/// `scale` is how much the layer's transform scales lengths (inside filters, the bound is
+/// what they leave: see [`FilterBudget`]).
 pub fn layer_filter(f: &remedy_ui_paint::Filter, scale: f32) -> Option<vello_cpu::filter_effects::Filter> {
-    vello_filter(f, scale)
+    vello_filter(&FilterBudget::FULL.limit(f, scale).0)
 }
 
-/// True when the shadow of a drop-shadow filter `f`, pushed under `t` over drawing that covers
-/// `drawn` (target pixels, within the target), lies wholly outside `target`, blur included:
-/// nothing of it shows there, and the group is drawn without it. Exactly right, and needed:
-/// vello_cpu (0.4) moves a shadow by shifting pixels inside a buffer cut to the target, and a
-/// shift past the buffer's left or top edge wraps its bounds check and leaves the shadow
-/// under the shape; vello_gpu sizes its buffers to reach a moved shadow, so nested shadows
-/// moved far off the target ask for textures past the device's limit and fail the frame.
-pub(crate) fn shadow_beyond_target(
-    f: &remedy_ui_paint::Filter,
-    t: Affine,
-    drawn: Rect,
-    target: Rect,
-) -> bool {
-    let k = t.scale_factor();
-    let limited = f.limited(k);
-    let remedy_ui_paint::Filter::DropShadow { offset, .. } = limited else { return false };
-    let [a, b, c, d, _, _] = t.0;
-    let (dx, dy) = (a * offset.x + c * offset.y, b * offset.x + d * offset.y);
-    // The blur's reach around the moved shadow (not the move itself), and a pixel more.
-    let reach = (limited.std_dev() * 3.0 * k).ceil() + 1.0;
-    let shadow = Rect::new(
-        drawn.min.x + dx - reach,
-        drawn.min.y + dy - reach,
-        drawn.max.x + dx + reach,
-        drawn.max.y + dy + reach,
-    );
-    let finite = [shadow.min.x, shadow.min.y, shadow.max.x, shadow.max.y].iter().all(|v| v.is_finite());
-    finite && shadow.intersect(target).is_none_or(|r| r.is_empty())
-}
-
-/// How far, in device pixels, filter `f` pushed under transform `t` carries drawing.
+/// How far, in device pixels, filter `f` (already bounded for drawing) pushed under transform
+/// `t` carries drawing.
 fn filter_reach(f: &remedy_ui_paint::Filter, t: Affine) -> f32 {
     let k = t.scale_factor();
-    let f = &f.limited(k);
     let off = match f {
         remedy_ui_paint::Filter::DropShadow { offset, .. } => offset.x.abs().max(offset.y.abs()),
         remedy_ui_paint::Filter::Blur { .. } | remedy_ui_paint::Filter::ColorMatrix { .. } => 0.0,
@@ -489,7 +454,6 @@ impl Painter {
             next_glyph: 0,
             matrices: matrix::Budget::default(),
             mips: HashMap::new(),
-            layers: 0,
         }
     }
 
@@ -561,16 +525,19 @@ impl Painter {
     ) {
         self.sweep_images();
         self.matrices = matrix::Budget::default();
-        self.layers = 0;
         // Groups the list leaves open are closed: a list is drawn as a whole, balanced.
-        self.draw_items(s, list.items(), base, area, 0, true);
+        self.draw_items(s, list.items(), base, area, 0, 0, FilterBudget::FULL, true);
         s.set_transform(kurbo::Affine::IDENTITY);
         s.reset_paint_transform();
     }
 
     /// Draws `items` through `base`. `outer_groups` is how many opacity, blend or filter
-    /// groups are open around them (LCD text inside one falls back to grayscale). With
-    /// `close`, groups the items leave open are closed at the end (a backdrop's replay).
+    /// groups are open around them (LCD text inside one falls back to grayscale), and
+    /// `depth` how many surface layers, and `budget` what the filters around them leave the
+    /// filters inside. With `close`, groups the items leave open are closed at the end (a
+    /// backdrop's replay). At most [`MAX_GROUP_DEPTH`] layers are open at once: a push past it
+    /// opens none, and its pop closes none.
+    #[allow(clippy::too_many_arguments)]
     fn draw_items<S: Surface>(
         &mut self,
         s: &mut S,
@@ -578,6 +545,8 @@ impl Painter {
         base: Affine,
         area: Option<Rect>,
         outer_groups: usize,
+        depth: usize,
+        budget: FilterBudget,
         close: bool,
     ) {
         let scale = base.scale_factor();
@@ -585,22 +554,24 @@ impl Painter {
         // Open opacity/blend/filter groups: LCD text inside one falls back to grayscale.
         let mut groups = outer_groups;
         // The culling area: inside a filter group, grown by what the filter carries in.
-        let mut areas = vec![area];
-        // Surface layers open (clips and groups), to close at the end of a replay.
-        let mut open = 0usize;
+        // With each, what the filter groups open around it leave the filters inside them.
+        let mut areas = vec![(area, budget)];
+        // The pushes open (clips and groups), innermost last: whether each opened a surface
+        // layer (false past `MAX_GROUP_DEPTH`), so its pop closes one only if it did.
+        let mut open: Vec<bool> = Vec::new();
+        // Surface layers open, around the items and among them.
+        let mut layers = depth;
         // Backdrop roots: where the innermost open group's content starts, and the transform
         // it starts under.
         let mut roots: Vec<(usize, Affine)> = vec![(0, base)];
         // Items before this were drawn already (a colour-matrix group, as one picture).
         let mut resume = 0usize;
-        // Pushes past MAX_GROUP_DEPTH, which opened nothing: their pops close nothing.
-        let mut skipped = 0usize;
         for (i, item) in items.iter().enumerate() {
             if i < resume {
                 continue;
             }
             let t = transforms.last().copied().unwrap_or(base);
-            let cull = areas.last().copied().flatten();
+            let (cull, left) = areas.last().copied().unwrap_or((area, budget));
             // Culling is conservative: transformed bounds are boxes around the item.
             if let (Some(area), Some(b)) = (cull, item.bounds())
                 && t.apply_rect(b).intersect(area).is_none_or(|r| r.is_empty())
@@ -665,31 +636,35 @@ impl Painter {
                 }
                 Item::Video { frame, rect, radii } => self.video(s, frame, *rect, *radii),
                 Item::Texture { texture, rect, radii } => texture_item(s, texture, *rect, *radii),
+                // Past the depth bound a push opens nothing (it is remembered, so its pop
+                // closes nothing): what it holds is drawn into the group around it.
                 Item::PushClip { .. } | Item::PushLayer { .. } | Item::PushFilter(_)
-                    if self.layers >= remedy_ui_paint::MAX_GROUP_DEPTH =>
+                    if layers >= MAX_GROUP_DEPTH =>
                 {
-                    skipped += 1;
+                    open.push(false);
                 }
-                Item::PopClip | Item::PopLayer | Item::PopFilter if skipped > 0 => skipped -= 1,
                 Item::PushClip { rect, radii } => {
                     s.push_clip_layer(&rounded(*rect, *radii));
-                    open += 1;
-                    self.layers += 1;
+                    open.push(true);
+                    layers += 1;
                 }
                 // A pop with nothing open (a list with one pop too many) is skipped: the
                 // surface's own layers are not the list's to close.
-                Item::PopClip if open == 0 => {}
-                Item::PopLayer | Item::PopFilter if open == 0 => {}
+                Item::PopClip | Item::PopLayer | Item::PopFilter if open.is_empty() => {}
+                // The pop of a push that opened nothing.
+                Item::PopClip | Item::PopLayer | Item::PopFilter if open.last() == Some(&false) => {
+                    open.pop();
+                }
                 Item::PopClip => {
                     s.pop_layer();
-                    open -= 1;
-                    self.layers = self.layers.saturating_sub(1);
+                    open.pop();
+                    layers -= 1;
                 }
                 Item::PopLayer | Item::PopFilter => {
                     groups = groups.saturating_sub(1);
                     s.pop_layer();
-                    open -= 1;
-                    self.layers = self.layers.saturating_sub(1);
+                    open.pop();
+                    layers -= 1;
                     if roots.len() > 1 {
                         roots.pop();
                     }
@@ -706,8 +681,8 @@ impl Painter {
                         Blend::Plus => peniko::BlendMode::new(peniko::Mix::Normal, peniko::Compose::Plus),
                     };
                     s.push_group(mode, *opacity);
-                    open += 1;
-                    self.layers += 1;
+                    open.push(true);
+                    layers += 1;
                     roots.push((i + 1, t));
                 }
                 Item::PushFilter(remedy_ui_paint::Filter::ColorMatrix { matrix })
@@ -731,7 +706,8 @@ impl Painter {
                     self.matrices.depth += 1;
                     self.matrices.drawn += 1;
                     let ok = s.color_matrix_group(rect, &m, &mut |sub| {
-                        self.draw_items(sub, inner, sub_base, Some(sub_area), groups + 1, true);
+                        // The picture is a surface of its own: its layers start from none.
+                        self.draw_items(sub, inner, sub_base, Some(sub_area), groups + 1, 0, left, true);
                     });
                     self.matrices.depth -= 1;
                     if ok {
@@ -740,50 +716,45 @@ impl Painter {
                         // Drawn as a plain group, closed by its pop as any other.
                         groups += 1;
                         s.push_group(peniko::BlendMode::default(), 1.0);
-                        open += 1;
-                        self.layers += 1;
+                        open.push(true);
+                        layers += 1;
                         roots.push((i + 1, t));
-                        areas.push(cull);
+                        areas.push((cull, left));
                     }
                 }
                 Item::PushFilter(f) => {
                     groups += 1;
-                    // A shadow wholly outside the target shows nothing, and the vello renderers
-                    // mishandle one (see `shadow_beyond_target`).
-                    let unseen = matches!(f, remedy_ui_paint::Filter::DropShadow { .. }) && {
-                        let inner = items.get(i + 1..matrix::group_end(items, i)).unwrap_or(&[]);
-                        let (sw, sh) = s.size();
-                        // vello's buffer never reaches past the target: what is drawn there.
-                        let target = Rect::new(0.0, 0.0, f32::from(sw), f32::from(sh));
-                        matrix::drawn_box(inner, t, target)
-                            .is_some_and(|d| shadow_beyond_target(f, t, d, target))
-                    };
-                    match vello_filter(f, t.scale_factor()).filter(|_| !unseen) {
+                    // Bounded with the filters around it: see `FilterBudget`.
+                    let (f, inside) = left.limit(f, t.scale_factor());
+                    match vello_filter(&f) {
                         Some(vf) => s.push_filter_layer(vf),
                         None => s.push_group(peniko::BlendMode::default(), 1.0),
                     }
-                    open += 1;
-                    self.layers += 1;
+                    open.push(true);
+                    layers += 1;
                     roots.push((i + 1, t));
                     // What the group draws around the area can reach into it.
-                    let reach = filter_reach(f, t);
-                    areas.push(cull.map(|a| grow(a, reach)));
+                    let reach = filter_reach(&f, t);
+                    areas.push((cull.map(|a| grow(a, reach)), inside));
                 }
                 Item::Backdrop { rect, radii, blur } => {
                     let sigma = if blur.is_finite() { blur.max(0.0) } else { 0.0 };
                     let Some(&(start, root_t)) = roots.last() else { continue };
-                    // Glass opens two layers, and replays what is under it inside them; glass
-                    // past the replay budget is drawn without its frost (see Budget).
+                    // Glass needs two layers of its own, and replays what is under it inside
+                    // them: past the depth bound, or past the glass budget (each pane draws again
+                    // what is under it, glass included), it is not drawn.
                     if (sigma == 0.0 && start == i)
-                        || self.layers + 2 > remedy_ui_paint::MAX_GROUP_DEPTH
+                        || layers + 2 > MAX_GROUP_DEPTH
                         || !self.matrices.admit_glass()
                     {
                         continue;
                     }
-                    self.layers += 2;
                     s.push_clip_layer(&rounded(*rect, *radii));
                     let f = remedy_ui_paint::Filter::Blur { radius: sigma };
-                    match vello_filter(&f, t.scale_factor()) {
+                    // What is under the glass is drawn inside its blur, and inside the
+                    // filters around it.
+                    let (f, inside) = left.limit(&f, t.scale_factor());
+                    match vello_filter(&f) {
                         Some(vf) => s.push_filter_layer(vf),
                         None => s.push_group(peniko::BlendMode::default(), 1.0),
                     }
@@ -792,13 +763,12 @@ impl Painter {
                     let under = cull.map(|a| grow(a, reach));
                     if let Some(prefix) = items.get(start..i) {
                         self.matrices.glass_depth += 1;
-                        self.draw_items(s, prefix, root_t, under, groups + 1, true);
+                        self.draw_items(s, prefix, root_t, under, groups + 1, layers + 2, inside, true);
                         self.matrices.glass_depth -= 1;
                     }
                     s.set_transform(kaffine(t));
                     s.pop_layer();
                     s.pop_layer();
-                    self.layers -= 2;
                 }
                 Item::PushTransform(a) => transforms.push(a.then(t)),
                 Item::PopTransform => {
@@ -809,10 +779,9 @@ impl Painter {
             }
         }
         if close {
-            for _ in 0..open {
+            for _ in open.into_iter().filter(|&opened| opened) {
                 s.pop_layer();
             }
-            self.layers = self.layers.saturating_sub(open);
         }
     }
 
