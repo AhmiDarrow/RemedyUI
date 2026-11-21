@@ -34,6 +34,7 @@
 
 mod context;
 pub mod debug;
+mod deep;
 mod error;
 #[cfg(feature = "persist")]
 mod persist;

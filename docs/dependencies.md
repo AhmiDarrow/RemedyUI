@@ -25,6 +25,7 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | Hyphenation | `hyphenation` | 0.8.4 | `text` (feature) | Knuth–Liang dictionaries per language, each a feature |
 | Look-alike detection | `unicode-security` | 0.1.3 | `text` | UTS #39 skeletons for confusable names (`skeleton`, `looks_like`) |
 | Secret buffers | `zeroize` | 1.9.1 | `text`, `secure` | Zeroing that the compiler cannot optimize away |
+| Stack growth | `stacker` (with `psm`) | 0.1.25 | `layout`, `reactive`, `view` | Recursion that cannot be a loop (taffy's layout, the frame walk, memos reading memos) runs on a stack that grows, so trees of any depth work on any thread. Maintained by the Rust project and used by rustc for the same purpose; MIT OR Apache-2.0. `psm` assembles its stack switch with `cc` per target (a prebuilt object on wasm32), as `ring` already does |
 | Layout algorithms | `taffy` | 0.15.1 (flexbox, grid, block, content-size) | `layout` | CSS flexbox, grid and block, faithful to the specs. Its leaf callback runs `compute_leaf_layout` so styles apply; it keeps padding physical, so RemedyUI mirrors logical insets for right to left itself |
 | GPU | `wgpu` | 30.0.2 | `render-gpu` | D3D12, Vulkan, Metal, GL 3.3 / GLES 3.0 |
 | Paths | `vello_gpu`, `vello_cpu` | 0.4.0 | `render-gpu`, `render-cpu` | Sparse-strip paths without compute shaders; fast multithreaded CPU rendering. Pre-1.0: behind RemedyUI's path type |

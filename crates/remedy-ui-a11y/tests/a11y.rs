@@ -191,3 +191,40 @@ fn a_toolbar_reaches_platforms_as_one() {
     assert_eq!(role_name(Role::Toolbar), "toolbar");
     assert!(!is_control_role(Role::Toolbar), "a container, not a control");
 }
+
+#[test]
+fn deep_trees_update_in_linear_time_and_changes_reach_their_merging_ancestor() {
+    // Tens of thousands of levels, a merging group near the top: a change at the bottom
+    // re-sends the group (its label changed) and nothing it merged away.
+    const N: u64 = 20_000;
+    let started = std::time::Instant::now();
+    let mut t = A11yTree::new(1);
+    t.set(1, Semantics::new(Role::Window).label("Deep"));
+    t.set(2, Semantics::new(Role::Group).merge_descendants());
+    t.set_children(1, &[2]);
+    let mut parent = 2;
+    for id in 3..3 + N {
+        t.set(id, Semantics::new(Role::Group));
+        t.set_children(parent, &[id]);
+        parent = id;
+    }
+    let leaf = 3 + N;
+    t.set(leaf, Semantics::new(Role::Label).label("before"));
+    t.set_children(parent, &[leaf]);
+    t.connect();
+    let first = t.take_update();
+    assert_eq!(first.as_ref().map(|u| u.nodes.len()), Some(2), "the window and the merged group");
+    t.set(leaf, Semantics::new(Role::Label).label("after"));
+    let u = t.take_update();
+    let ids: Vec<NodeId> =
+        u.as_ref().map(|u| u.nodes.iter().map(|(id, _)| *id).collect()).unwrap_or_default();
+    assert_eq!(ids, [NodeId(2)], "the group, whose label changed, and nothing merged away");
+    assert_eq!(u.as_ref().and_then(|u| node(u, 2)).and_then(|n| n.label()), Some("after"));
+    // Every level changed at once is one pass up, not one per level.
+    for id in 3..3 + N {
+        t.set(id, Semantics::new(Role::Group).label("level"));
+    }
+    assert_eq!(t.take_update().map(|u| u.nodes.len()), Some(1));
+    let took = started.elapsed();
+    assert!(took < std::time::Duration::from_secs(20), "linear work ({took:?})");
+}
