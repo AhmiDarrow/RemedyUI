@@ -1,6 +1,8 @@
 //! Repository checks and release tools for RemedyUI.
 //!
-//! - `cargo xtask check`: the layer graph, the unsafe-code boundary and publishing metadata.
+//! - `cargo xtask check`: the layer graph, the unsafe-code boundary, publishing metadata, the
+//!   committed docs index, and `cargo vet --locked` (skipped, with a note, when cargo-vet is
+//!   not installed).
 //! - `cargo xtask semver --baseline <git revision or tag>`: every publishable crate's API
 //!   against the baseline, with `cargo-semver-checks` ([`SEMVER_CHECKS_VERSION`]).
 //! - `cargo xtask msrv`: the workspace builds with the Rust version it declares
@@ -447,6 +449,30 @@ fn cargo_cmd() -> Command {
     Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
 }
 
+/// Every dependency must be audited or exempted in `supply-chain/` (docs/dependencies.md).
+/// `--locked` uses the committed `imports.lock`, so the check reads no network. Machines
+/// without cargo-vet skip it and say so; it is not a pass.
+fn check_vet(problems: &mut Vec<String>) {
+    let installed = cargo_cmd()
+        .args(["vet", "--version"])
+        .current_dir(repo_root())
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !installed {
+        eprintln!(
+            "note: skipping the supply-chain audits: cargo-vet is not installed (cargo install cargo-vet --locked)"
+        );
+        return;
+    }
+    match cargo_cmd().args(["vet", "--locked"]).current_dir(repo_root()).status() {
+        Ok(s) if s.success() => {}
+        Ok(_) => problems.push(
+            "cargo vet --locked failed (see above): audit the new or changed dependencies, or record them with `cargo vet` (see docs/dependencies.md)".into(),
+        ),
+        Err(e) => problems.push(format!("could not run cargo vet: {e}")),
+    }
+}
+
 /// Runs cargo-semver-checks on every publishable crate against `baseline`.
 fn semver(args: &[String]) -> Result<(), String> {
     let at = args.iter().position(|a| a == "--baseline").ok_or(USAGE)?;
@@ -576,6 +602,7 @@ fn main() -> ExitCode {
     check_unsafe(&pkgs, &mut problems);
     check_metadata(&pkgs, &mut problems);
     check_docs_index(&mut problems);
+    check_vet(&mut problems);
     if problems.is_empty() {
         println!(
             "ok: {} crates follow the layer graph and the unsafe-code boundary, and published ones carry their metadata",
