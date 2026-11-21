@@ -26,8 +26,13 @@ remedy-ui-widgets-core = { path = "../remedy-ui-widgets-core", version = "1.0.0-
 [target.'cfg(windows)'.dependencies]
 windows = { version = "=0.62.2", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
     "Win32_Media_Audio",
     "Win32_Media_MediaFoundation",
+    "Win32_Security",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Variant",
@@ -68,6 +73,10 @@ objc2-core-foundation = { version = "=0.3.2", default-features = false, features
 objc2-core-media = { version = "=0.3.2", default-features = false, features = ["std", "CMBase", "CMBlockBuffer", "CMFormatDescription", "CMSampleBuffer", "CMTime", "CMTimeRange", "objc2-core-video"] }
 objc2-core-video = { version = "=0.3.2", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSError", "NSString", "NSURL", "NSValue"] }
+
+[target.'cfg(any(windows, target_os = "android"))'.dev-dependencies]
+# tests/gpu_frames.rs: pictures on the GPU drawn by the GPU renderer.
+remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "1.0.0-rc.1" }
 
 [dev-dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }

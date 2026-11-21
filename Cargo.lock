@@ -4518,7 +4518,9 @@ version = "1.0.0-rc.1"
 dependencies = [
  "gif",
  "image",
+ "jni 0.21.1",
  "libc",
+ "ndk-context",
  "remedy-ui-core",
  "remedy-ui-fonts",
  "remedy-ui-media-anim",
@@ -4556,6 +4558,7 @@ dependencies = [
  "remedy-ui-paint",
  "remedy-ui-reactive",
  "remedy-ui-render-cpu",
+ "remedy-ui-render-gpu",
  "remedy-ui-style",
  "remedy-ui-text",
  "remedy-ui-themes",
@@ -4651,7 +4654,9 @@ name = "remedy-ui-render-gpu"
 version = "1.0.0-rc.1"
 dependencies = [
  "ash",
+ "log",
  "raw-window-handle",
+ "remedy-ui-bridge-linux",
  "remedy-ui-bridge-windows",
  "remedy-ui-bridge-winit",
  "remedy-ui-compositor",
@@ -4843,8 +4848,11 @@ name = "remedy-ui-text"
 version = "1.0.0-rc.1"
 dependencies = [
  "fontique",
+ "icu_properties",
  "icu_segmenter",
  "parley",
+ "parley_data",
+ "parley_engine",
  "remedy-ui-core",
  "remedy-ui-fonts",
  "remedy-ui-fonts-cjk",

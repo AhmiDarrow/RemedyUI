@@ -1,8 +1,11 @@
 //! Video frames: pictures that change many times a second, in the pixel layouts decoders and
 //! capture produce (NV12, I420, RGBA). Renderers convert them to the screen's colors: the GPU
 //! renderer on the GPU, the CPU renderer here ([`VideoFrame::to_rgba`]).
+//!
+//! A frame's pixels are in CPU memory, or already on the GPU ([`GpuPicture`]): a hardware
+//! decoder's picture, shared with the renderer's device so it never passes through the CPU.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// How a frame's pixels are laid out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -55,8 +58,122 @@ pub struct VideoFrame {
     pub full_range: bool,
     /// The planes, in order: RGBA has one, NV12 two (Y, UV), I420 three (Y, U, V).
     pub planes: [Plane; 3],
-    /// All of the frame's bytes.
+    /// All of the frame's bytes (empty for a frame that lives on the GPU).
     pub data: Arc<[u8]>,
+    /// The picture on the GPU, when the decoder handed it over there: `data` is then empty
+    /// and `planes` unused, and renderers that cannot open the texture read it back
+    /// ([`GpuPicture::read_back`]).
+    pub gpu: Option<GpuFrame>,
+}
+
+/// A picture in GPU memory, shared by a decoder with whichever renderer draws it.
+///
+/// A renderer that samples the texture keeps its clone of the [`GpuFrame`] until the GPU work
+/// that reads it has finished: the decoder reuses the texture only once every clone is gone.
+pub trait GpuPicture: Send + Sync {
+    /// The texture, as the platform shares it between devices.
+    fn texture(&self) -> GpuTexture;
+    /// Its pixels copied into CPU memory, for a renderer that cannot open the texture (the
+    /// CPU renderer, or a GPU on another adapter); `None` when it cannot be read.
+    fn read_back(&self) -> Option<CpuPixels>;
+}
+
+/// The pixels [`GpuPicture::read_back`] gives, laid out as [`VideoFrame`]'s.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CpuPixels {
+    /// How the bytes are laid out.
+    pub format: PixelFormat,
+    /// The planes, as [`VideoFrame::planes`].
+    pub planes: [Plane; 3],
+    /// The bytes.
+    pub data: Arc<[u8]>,
+}
+
+/// How a platform shares a texture between the decoder's device and the renderer's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum GpuTexture {
+    /// Windows: an NV12 texture made by a D3D11 device as a shared NT handle, opened on a
+    /// D3D12 device with `ID3D12Device::OpenSharedHandle`, and a shared fence the decoder
+    /// signals once the picture is written.
+    D3dNv12 {
+        /// The adapter both devices are on ([`GpuAdapter::Luid`]).
+        adapter: u64,
+        /// The texture's NT handle, open while the picture lives.
+        texture: usize,
+        /// Unique to this texture in the process: the same key is the same texture, so a
+        /// renderer opens it once.
+        texture_key: u64,
+        /// The fence's NT handle, open while the picture lives.
+        fence: usize,
+        /// Unique to this fence in the process, as `texture_key`.
+        fence_key: u64,
+        /// The fence value at which the picture is written: GPU work reading it waits for it.
+        value: u64,
+        /// The texture's size (at least the frame's, even).
+        width: u32,
+        /// The texture's height.
+        height: u32,
+    },
+    /// Android: an `AHardwareBuffer` a MediaCodec decoder wrote (through an `AImageReader`),
+    /// already complete, imported into Vulkan with
+    /// `VK_ANDROID_external_memory_android_hardware_buffer` and sampled through a
+    /// `VkSamplerYcbcrConversion` for its format.
+    HardwareBuffer {
+        /// The `AHardwareBuffer*`, valid while the picture lives.
+        buffer: usize,
+        /// The buffer's size in pixels (at least the frame's).
+        width: u32,
+        /// The buffer's height.
+        height: u32,
+        /// Where the frame's pixels start in the buffer (its crop).
+        left: u32,
+        /// As `left`, downwards.
+        top: u32,
+    },
+}
+
+/// A frame's [`GpuPicture`], cheap to clone; equal when it is the same picture.
+#[derive(Clone)]
+pub struct GpuFrame(pub Arc<dyn GpuPicture>);
+
+impl PartialEq for GpuFrame {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for GpuFrame {}
+
+impl std::fmt::Debug for GpuFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "GpuFrame({:?})", self.0.texture())
+    }
+}
+
+/// A GPU, as the platform names it, so a decoder makes its pictures on the GPU the renderer
+/// draws with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum GpuAdapter {
+    /// A DXGI adapter's LUID (Windows), low part in the low 32 bits.
+    Luid(u64),
+    /// The device's only GPU (Android: decoders have no say in which).
+    Only,
+}
+
+static GPU_VIDEO: Mutex<Option<GpuAdapter>> = Mutex::new(None);
+
+/// Says a renderer on `adapter` takes [`GpuPicture`]s, or (`None`) that none does. GPU
+/// renderers call it when their device can open shared pictures; decoders ask
+/// [`gpu_video_adapter`] when they open, and hand over pictures in CPU memory when it is `None`.
+pub fn set_gpu_video_adapter(adapter: Option<GpuAdapter>) {
+    *GPU_VIDEO.lock().unwrap_or_else(PoisonError::into_inner) = adapter;
+}
+
+/// The adapter a renderer takes [`GpuPicture`]s on ([`set_gpu_video_adapter`]), if any.
+pub fn gpu_video_adapter() -> Option<GpuAdapter> {
+    *GPU_VIDEO.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl std::fmt::Debug for VideoFrame {
@@ -105,14 +222,25 @@ impl VideoFrame {
             full_range: false,
             planes,
             data,
+            gpu: None,
         }
     }
 
-    /// True when every plane lies inside the bytes and its rows are wide enough. Renderers
-    /// skip frames that are not.
+    /// A frame of `picture`, which lives on the GPU.
+    pub fn on_gpu(stream: u64, id: u64, width: u32, height: u32, picture: Arc<dyn GpuPicture>) -> Self {
+        let mut f = VideoFrame::packed(stream, id, width, height, PixelFormat::Nv12, Arc::from([]));
+        f.gpu = Some(GpuFrame(picture));
+        f
+    }
+
+    /// True when every plane lies inside the bytes and its rows are wide enough (or the frame
+    /// is on the GPU). Renderers skip frames that are not.
     pub fn is_valid(&self) -> bool {
         if self.width == 0 || self.height == 0 {
             return false;
+        }
+        if self.gpu.is_some() {
+            return true;
         }
         self.format.plane_sizes(self.width, self.height).iter().zip(self.planes.iter()).all(
             |(&(w, h, b), p)| {
@@ -133,9 +261,20 @@ impl VideoFrame {
         self.data.get(start..start + len).unwrap_or_default()
     }
 
+    /// The frame with its pixels in CPU memory: itself, or read back from the GPU.
+    pub fn in_cpu_memory(&self) -> Option<std::borrow::Cow<'_, VideoFrame>> {
+        let Some(gpu) = &self.gpu else { return Some(std::borrow::Cow::Borrowed(self)) };
+        let px = gpu.0.read_back()?;
+        let f = VideoFrame { format: px.format, planes: px.planes, data: px.data, gpu: None, ..self.clone() };
+        f.is_valid().then_some(std::borrow::Cow::Owned(f))
+    }
+
     /// The frame as premultiplied RGBA8, row by row (what images hold), or `None` when its
-    /// planes do not fit its bytes.
+    /// planes do not fit its bytes. A frame on the GPU is read back first.
     pub fn to_rgba(&self) -> Option<Vec<u8>> {
+        if self.gpu.is_some() {
+            return self.in_cpu_memory()?.to_rgba();
+        }
         if !self.is_valid() {
             return None;
         }
@@ -276,5 +415,36 @@ mod tests {
         // RGBA is premultiplied on the way.
         let rgba = VideoFrame::packed(1, 3, 1, 1, PixelFormat::Rgba, vec![200, 100, 0, 128].into());
         assert_eq!(rgba.to_rgba(), Some(vec![100, 50, 0, 128]));
+    }
+
+    struct Fake(Vec<u8>);
+
+    impl GpuPicture for Fake {
+        fn texture(&self) -> GpuTexture {
+            GpuTexture::D3dNv12 {
+                adapter: 0,
+                texture: 0,
+                texture_key: 1,
+                fence: 0,
+                fence_key: 1,
+                value: 0,
+                width: 2,
+                height: 2,
+            }
+        }
+        fn read_back(&self) -> Option<CpuPixels> {
+            let f = VideoFrame::packed(0, 0, 2, 2, PixelFormat::Nv12, self.0.clone().into());
+            Some(CpuPixels { format: f.format, planes: f.planes, data: f.data })
+        }
+    }
+
+    #[test]
+    fn a_frame_on_the_gpu_converts_like_its_bytes_once_read_back() {
+        let cpu = nv12(2, 2, 81, 90, 240);
+        let gpu = VideoFrame::on_gpu(1, 1, 2, 2, Arc::new(Fake(cpu.data.to_vec())));
+        assert!(gpu.is_valid() && gpu.data.is_empty());
+        assert_eq!(gpu.to_rgba(), cpu.to_rgba());
+        assert_eq!(gpu.clone(), gpu, "the same picture");
+        assert_ne!(VideoFrame::on_gpu(1, 1, 2, 2, Arc::new(Fake(vec![]))).to_rgba(), cpu.to_rgba());
     }
 }

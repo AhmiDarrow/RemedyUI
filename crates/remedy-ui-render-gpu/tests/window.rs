@@ -1,13 +1,15 @@
 //! GPU frames presented to a real window, through a resize and a forced device loss. One
 //! test per process, because a process may create only one event loop.
-#![cfg(windows)]
+//!
+//! Windows, and Linux on X11 (Xvfb is enough: `xvfb-run cargo test --test window`); without a
+//! display the Linux run says so and passes.
+#![cfg(any(windows, target_os = "linux"))]
+
+mod common;
 
 use std::time::Duration;
 
-use remedy_ui_bridge_windows::WindowsHooks;
-use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
-use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
-use remedy_ui_bridge_winit::{UserEvent, run_on};
+use remedy_ui_bridge_winit::run_on;
 use remedy_ui_compositor::{Compositor, Layer, LayerId, LayerTree};
 use remedy_ui_core::{Color, CornerRadii, Rect, Size};
 use remedy_ui_host::{App, Host, HostEvent, WindowId, WindowOptions};
@@ -139,13 +141,12 @@ impl App for Probe {
 
 #[test]
 fn gpu_frames_reach_a_real_window_through_resize_and_device_loss() {
-    let event_loop = match EventLoop::<UserEvent>::with_user_event().with_any_thread(true).build() {
-        Ok(e) => e,
-        Err(e) => unreachable!("an event loop: {e}"),
-    };
+    let Some(event_loop) = common::event_loop() else { return };
     let mut probe = Probe::default();
-    let result = run_on(event_loop, &mut probe, WindowsHooks::default());
+    let result = run_on(event_loop, &mut probe, common::Hooks::default());
     assert!(result.is_ok(), "{result:?}");
+    let validation = common::validation();
+    assert!(validation.is_empty(), "validation: {validation:#?}");
     assert!(!probe.deadline_hit, "finished in time; errors: {:?}", probe.errors);
     assert!(probe.errors.is_empty(), "{:?}", probe.errors);
     assert!(probe.resized && probe.lost && probe.recovered);
