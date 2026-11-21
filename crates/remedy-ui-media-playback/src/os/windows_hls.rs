@@ -970,26 +970,26 @@ mod tests {
         });
         let mut f = HttpFetch::new().unwrap_or_else(|e| unreachable!("{e}"));
         let url = |p: &str| format!("http://127.0.0.1:{port}/{p}");
-        let big = f.get(&url("200000")).unwrap_or_else(|e| unreachable!("{e}"));
+        let big = f.get(&url("200000"), &AtomicBool::new(false)).unwrap_or_else(|e| unreachable!("{e}"));
         assert!(big.len() == 200_000 && big.iter().all(|b| *b == (200_000 % 256) as u8));
         // A 1080p segment's size, from this machine: curl takes a few milliseconds.
         let started = std::time::Instant::now();
-        let seg = f.get(&url("4317044")).unwrap_or_else(|e| unreachable!("{e}"));
+        let seg = f.get(&url("4317044"), &AtomicBool::new(false)).unwrap_or_else(|e| unreachable!("{e}"));
         let took = started.elapsed();
         eprintln!("fetched 4,317,044 bytes in {took:?}");
         assert_eq!(seg.len(), 4_317_044);
         assert!(took < std::time::Duration::from_millis(500), "a 4 MB segment took {took:?}");
-        let a = f.get(&url("grows")).unwrap_or_else(|e| unreachable!("{e}"));
-        let b = f.get(&url("grows")).unwrap_or_else(|e| unreachable!("{e}"));
+        let a = f.get(&url("grows"), &AtomicBool::new(false)).unwrap_or_else(|e| unreachable!("{e}"));
+        let b = f.get(&url("grows"), &AtomicBool::new(false)).unwrap_or_else(|e| unreachable!("{e}"));
         assert_ne!(a, b, "fetched again, not cached");
-        let r = f.get(&url("missing.ts"));
+        let r = f.get(&url("missing.ts"), &AtomicBool::new(false));
         assert!(matches!(r, Err(MediaError::NotFound(_))), "{r:?}");
     }
 
     #[test]
     fn fetch_missing() {
         let mut f = HttpFetch::new().unwrap_or_else(|e| unreachable!("{e}"));
-        let r = f.get("http://127.0.0.1:9/nothing.m3u8");
+        let r = f.get("http://127.0.0.1:9/nothing.m3u8", &AtomicBool::new(false));
         assert!(matches!(r, Err(MediaError::NotFound(_))), "{r:?}");
     }
 }

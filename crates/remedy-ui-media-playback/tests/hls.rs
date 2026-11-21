@@ -66,6 +66,9 @@ fn serve(mut s: TcpStream, files: &Files, rate: Option<usize>) -> std::io::Resul
         let mut files = files.lock().unwrap_or_else(PoisonError::into_inner);
         // Every request is logged under `asked`; a file marked `stall:` stops half way, once.
         files.entry("asked".into()).or_default().extend(format!("{path}\n").bytes());
+        // Where the reader had got to (what it keeps under `pos`) when this was asked for.
+        let pos = files.get("pos").cloned().unwrap_or_default();
+        files.insert(format!("asked-at:{path}"), pos);
         (files.get(&path).cloned(), files.remove(&format!("stall:{path}")).is_some())
     };
     let trickle =
@@ -308,10 +311,10 @@ fn a_player_follows_a_growing_playlist() {
 
 /// A 1080p stream of 4 MB, two-second segments (made with the `ffmpeg` on the PATH; skipped
 /// without one), served at 6 MB/s, read at the pace it plays: segments are fetched ahead while
-/// pictures are decoded, so each has arrived a second before playing reaches it, and opening
+/// pictures are decoded, so each is asked for while the one before it plays, and opening
 /// waits only for the playlist and the first segment. Told by where the reader was when each
-/// segment had arrived, not by how late reads were: a loaded machine (a parallel build) slows
-/// decoding, not the fetching ahead.
+/// segment was asked for, not by how late reads were: a loaded machine (a parallel build)
+/// slows decoding, and so every read, whatever was fetched ahead.
 #[test]
 fn big_segments_are_read_at_the_pace_they_play() {
     let folder = std::env::temp_dir().join(format!("remedy-hls-1080p-{}", std::process::id()));
@@ -387,11 +390,14 @@ fn big_segments_are_read_at_the_pace_they_play() {
     assert!(opened < Duration::from_secs(15), "opening took {opened:?}");
     let files = files.lock().unwrap_or_else(PoisonError::into_inner);
     for k in 1..3u64 {
-        let at =
-            files.get(&format!("sent-at:seg0000{k}.ts")).map(|p| String::from_utf8_lossy(p).into_owned());
-        let at: u64 = at.and_then(|p| p.parse().ok()).unwrap_or_default();
-        // It starts at 2k s; its sound plays up to 0.7 s before that, so a second ahead at least.
-        assert!(at + 1000 <= 2000 * k, "segment {k} had arrived only at {at} ms, playing");
+        let pos = |key: &str| -> u64 {
+            let p = files.get(&format!("{key}:seg0000{k}.ts"));
+            p.and_then(|p| String::from_utf8_lossy(p).parse().ok()).unwrap_or_default()
+        };
+        let (asked, sent) = (pos("asked-at"), pos("sent-at"));
+        eprintln!("segment {k}: asked for at {asked} ms of playing, all sent at {sent} ms");
+        // Segment k plays from 2k s: asked for while the one before it plays, not once it is due.
+        assert!(asked < 2000 * (k - 1) + 1000, "segment {k} was asked for only at {asked} ms of playing");
     }
 }
 
