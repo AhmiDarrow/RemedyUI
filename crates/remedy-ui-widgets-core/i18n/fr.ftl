@@ -83,6 +83,7 @@ icon-volume = Volume
 icon-muted = Son coupé
 icon-full-screen = Plein écran
 icon-exit-full-screen = Quitter le plein écran
+icon-theater-mode = Mode cinéma
 icon-captions = Sous-titres
 icon-home = Accueil
 icon-image = Image
