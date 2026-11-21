@@ -15,7 +15,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   Sound goes through a pitch-preserving WSOLA time stretcher of the crate's own (no new
   dependency), and pictures follow the same clock, on the sound device or the wall. The
   widget gains a speed button (in all 11 languages) and Shift+> / Shift+<. The speed carries
-  over to what plays next.
+  over to what plays next. At any speed the sound plays to the very end of the media.
 - **A start-up self-test frame and a present watchdog for the GPU** (`remedy_ui_render_gpu::health`).
   Each rung of the backend ladder draws a small reference scene that must match the CPU
   renderer before it is used (`LadderOptions::self_test`, on by default), or the ladder moves

@@ -986,7 +986,12 @@ impl Presenter {
                 }
                 f.audio_frames -= n as u64;
             }
-            if failed.is_none() && f.eof && f.audio.is_empty() && !self.finished {
+            if failed.is_none()
+                && f.eof
+                && f.audio.is_empty()
+                && !self.finished
+                && self.stretch_from.is_none()
+            {
                 // Some outputs hold a last partial block until told nothing follows.
                 self.finished = true;
                 if let Err(e) = out.finish() {
@@ -1032,8 +1037,15 @@ impl Presenter {
                 continue;
             }
             // More input: the next decoded sound, unless it does not follow on from what the
-            // stretcher holds (a gap): then what it holds is dropped and it starts again.
-            let Some(item) = f.audio.pop_front() else { break };
+            // stretcher holds (a gap): then what it holds is dropped and it starts again. At
+            // the end of the media, what it holds is played to its end.
+            let Some(item) = f.audio.pop_front() else {
+                if f.eof && self.stretch_from.is_some() && !stretcher.done() {
+                    stretcher.finish();
+                    continue;
+                }
+                break;
+            };
             let frames = (item.samples.len() / ch) as u64;
             f.audio_frames -= frames;
             let held_end = from + fmt.duration_of(stretcher.input_end());
@@ -1045,7 +1057,13 @@ impl Presenter {
             }
             stretcher.push(&item.samples);
         }
-        if speed == 1.0 && stretcher.held() < hop {
+        // Told nothing follows once the stretched sound has played to its end too.
+        if f.eof && f.audio.is_empty() && (stretcher.done() || self.stretch_from.is_none()) && !self.finished
+        {
+            self.finished = true;
+            out.finish()?;
+        }
+        if speed == 1.0 && stretcher.held() < hop && !f.eof {
             // Back at normal speed with nothing much held: plain writing takes over.
             stretcher.reset();
             self.stretch_from = None;
