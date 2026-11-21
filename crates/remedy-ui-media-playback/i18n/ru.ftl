@@ -34,6 +34,7 @@ playback-cast-paused = Пауза на { $device }
 playback-cast-buffering = Загрузка на { $device }
 playback-cast-ended = Завершено на { $device }
 playback-cast-failed = Не удаётся воспроизвести на { $device }
+playback-cast-next = Запуск { $title } на { $device }
 playback-seek = Позиция воспроизведения
 playback-seek-value = { $position } из { $duration }
 playback-next-up = Далее: { $title }
@@ -45,5 +46,7 @@ playback-next-up-in = { $count ->
 }
 playback-play-now = Воспроизвести сейчас
 playback-next-cancel = Отмена
+playback-starting-next = Запуск: { $title }
+playback-canceling = Отмена.
 playback-speed = Скорость { $speed }×
 playback-speed-tip = Скорость воспроизведения (Shift+> быстрее, Shift+< медленнее)
