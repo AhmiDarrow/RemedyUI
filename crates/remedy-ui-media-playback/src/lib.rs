@@ -47,7 +47,7 @@ pub mod deps;
 mod engine;
 mod host;
 // HLS (`.m3u8` of MPEG-TS) taken apart here; the platform decodes the compressed streams.
-#[allow(dead_code)] // shortcut: until the platform hosts open HLS through it
+#[cfg_attr(not(windows), allow(dead_code))] // shortcut: until the other platform hosts open HLS through it
 mod hls;
 // Matroska and WebM text subtitles, read from local files on every platform (the
 // platforms' readers do not hand them out).

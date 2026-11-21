@@ -88,3 +88,15 @@ ffmpeg -copyts -i clip.mp4 -t 2 -c:v libx264 -profile:v high -b:v 20k -c:a aac -
   -output_ts_offset 95441 $C -hls_playlist_type event \
   -hls_segment_filename hls/wrap/seg%05d.ts hls/wrap/index.m3u8
 ```
+
+`clip.h264`, `clip.aac` and `clip.mp3` are `clip.mp4`'s streams on their own, as an HLS segment
+carries them, for the Windows HLS decoders' tests (`src/os/windows_hls.rs`): the pictures as an
+Annex B byte stream, the sound as ADTS frames, and the sound re-encoded as MP3 at a constant
+64 kb/s (192-byte frames, no ID3 or Xing header):
+
+```
+ffmpeg -i clip.mp4 -map 0:v -c copy -bsf:v h264_mp4toannexb -f h264 clip.h264
+ffmpeg -i clip.mp4 -map 0:a -c copy -f adts clip.aac
+ffmpeg -i clip.mp4 -map 0:a -c:a libmp3lame -b:a 64k -write_xing 0 -id3v2_version 0 \
+  -map_metadata -1 -fflags +bitexact -f mp3 clip.mp3
+```
