@@ -181,7 +181,10 @@ pub fn fader(ui: &Ui, label: impl Into<String>, value: Signal<f64>, options: Fad
                 let off = groove + u;
                 for side in [-1.0f32, 1.0] {
                     let (c0, c1) = (mid + side * off, mid + side * (off + len));
-                    cx.list.fill_rect(rect(at - w / 2.0, at + w / 2.0, c0.min(c1), c0.max(c1)), Brush::Solid(d.muted));
+                    cx.list.fill_rect(
+                        rect(at - w / 2.0, at + w / 2.0, c0.min(c1), c0.max(c1)),
+                        Brush::Solid(d.muted),
+                    );
                 }
             }
         }
@@ -190,7 +193,12 @@ pub fn fader(ui: &Ui, label: impl Into<String>, value: Signal<f64>, options: Fad
             CornerRadii::all(groove / 2.0),
             Brush::Solid(cx.theme.colors.bg),
         );
-        cx.list.border(rect(a, b, mid - groove / 2.0, mid + groove / 2.0), CornerRadii::all(groove / 2.0), w, d.line);
+        cx.list.border(
+            rect(a, b, mid - groove / 2.0, mid + groove / 2.0),
+            CornerRadii::all(groove / 2.0),
+            w,
+            d.line,
+        );
         // The filled part of the groove, in the fader's color (the accent by default).
         let at = pos_of(t, sz);
         let low = if vertical { b } else { a };
@@ -213,7 +221,10 @@ pub fn fader(ui: &Ui, label: impl Into<String>, value: Signal<f64>, options: Fad
         });
         cx.list.fill_rounded(cap_rect, radius, Brush::Solid(cx.theme.colors.card));
         cx.list.border(cap_rect, radius, w, d.line);
-        cx.list.fill_rect(rect(at - w, at + w, mid - half_across + u, mid + half_across - u), Brush::Solid(d.text));
+        cx.list.fill_rect(
+            rect(at - w, at + w, mid - half_across + u, mid + half_across - u),
+            Brush::Solid(d.text),
+        );
     });
 
     let set = move |v: f64| value.set_if_changed(snap(v, min, max, step));

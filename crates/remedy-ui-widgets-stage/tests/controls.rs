@@ -134,7 +134,13 @@ fn an_arc_tuner_picks_by_angle_and_jumps_under_reduced_motion() {
     ui.set_reduced_motion(true);
     let sel = Signal::new(0usize);
     let clock = Clock::manual();
-    let el = tuner(&ui, "Band", stations(), sel, TunerOptions::default().shape(TunerShape::Arc).clock(clock.clone()));
+    let el = tuner(
+        &ui,
+        "Band",
+        stations(),
+        sel,
+        TunerOptions::default().shape(TunerShape::Arc).clock(clock.clone()),
+    );
     mount(&ui, &el);
     let b = el.bounds().unwrap_or_default();
     // Straight up from the arc's center is the middle of the dial; right of it is past the
@@ -154,7 +160,8 @@ fn a_fader_drags_by_its_cap_and_steps_with_keys() {
     let ui = ui();
     let v = Signal::new(0.0f64);
     let level = Signal::new(0.5f32);
-    let el = fader(&ui, "Maple", v, FaderOptions::default().range(0.0, 10.0).step(0.5).length(200.0).meter(level));
+    let el =
+        fader(&ui, "Maple", v, FaderOptions::default().range(0.0, 10.0).step(0.5).length(200.0).meter(level));
     mount(&ui, &el);
     // With a meter the result is a strip: the fader, then the meter.
     let kids = el.child_elements();
@@ -201,7 +208,8 @@ fn a_big_button_presses_on_release_and_reports_holding() {
     let presses = Rc::new(Cell::new(0));
     let p2 = presses.clone();
     let held = Signal::new(false);
-    let el = big_button(&ui, "Push to talk", move || p2.set(p2.get() + 1), BigButtonOptions::default().held(held));
+    let el =
+        big_button(&ui, "Push to talk", move || p2.set(p2.get() + 1), BigButtonOptions::default().held(held));
     mount(&ui, &el);
     let c = el.bounds().unwrap_or_default().center();
     pointer(&ui, c, PointerPhase::Down, Buttons::PRIMARY);
@@ -234,7 +242,12 @@ fn big_toggles_latch_and_switches_are_switches() {
     let mic = Signal::new(false);
     let deafen = Signal::new(true);
     let a = big_toggle(&ui, "Mic", mic, BigButtonOptions::default().look(ButtonLook::Plate));
-    let b = big_toggle(&ui, "Deafen", deafen, BigButtonOptions::default().look(ButtonLook::Switch).variant("danger"));
+    let b = big_toggle(
+        &ui,
+        "Deafen",
+        deafen,
+        BigButtonOptions::default().look(ButtonLook::Switch).variant("danger"),
+    );
     let row = ui.el("row").row().gap(20.0).child(a.clone()).child(b.clone());
     mount(&ui, &row);
     let c = a.bounds().unwrap_or_default().center();

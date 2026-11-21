@@ -9,7 +9,9 @@ use std::rc::Rc;
 
 use remedy_ui_core::Size;
 use remedy_ui_reactive::Signal;
-use remedy_ui_script::{Action, Language, Limits, Node, ScriptError, ScriptWidget, SettingSpec, describe_with, serde_json};
+use remedy_ui_script::{
+    Action, Language, Limits, Node, ScriptError, ScriptWidget, SettingSpec, describe_with, serde_json,
+};
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, FailurePhase, Ui};
 use remedy_ui_widgets_board::*;
@@ -76,7 +78,12 @@ impl ScriptWidget for Fixed {
         self.act_with(action, &Value::Null)
     }
     fn act_with(&mut self, action: Action, value: &Value) -> Result<(), ScriptError> {
-        let on = self.last.as_ref().ok_or_else(|| ScriptError::Shape("nothing shown".into()))?.handler(action)?.clone();
+        let on = self
+            .last
+            .as_ref()
+            .ok_or_else(|| ScriptError::Shape("nothing shown".into()))?
+            .handler(action)?
+            .clone();
         self.got.borrow_mut().push((on, value.clone()));
         Ok(())
     }
