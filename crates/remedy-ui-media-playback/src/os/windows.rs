@@ -12,7 +12,8 @@ use windows::Win32::Media::Audio::{
     WAVEFORMATEXTENSIBLE_0, eCapture, eConsole, eRender,
 };
 use windows::Win32::Media::MediaFoundation::{
-    IMF2DBuffer, IMFAttributes, IMFMediaType, IMFSample, IMFSourceReader, MF_MT_AUDIO_NUM_CHANNELS,
+    IMF2DBuffer, IMFAttributes, IMFByteStream, IMFByteStreamCacheControl2, IMFMediaType, IMFSample,
+    IMFSourceReader, MF_BYTE_STREAM_CACHE_RANGE, MF_BYTESTREAM_SERVICE, MF_MT_AUDIO_NUM_CHANNELS,
     MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE,
     MF_MT_MAJOR_TYPE, MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_SUBTYPE, MF_MT_VIDEO_NOMINAL_RANGE,
     MF_MT_YUV_MATRIX, MF_PD_DURATION, MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_ANY_STREAM,
@@ -26,7 +27,9 @@ use windows::Win32::Media::MediaFoundation::{
 use windows::Win32::System::Com::StructuredStorage::{
     PROPVARIANT, PropVariantClear, PropVariantToUInt32, PropVariantToUInt64,
 };
-use windows::Win32::System::Com::{CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx};
+use windows::Win32::System::Com::{
+    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
+};
 use windows::Win32::System::Variant::VT_I8;
 use windows::core::{GUID, HSTRING, Interface};
 
@@ -471,6 +474,49 @@ impl Decoder for MfDecoder {
         self.video_done = self.video.is_none();
         self.audio_done = self.audio.is_none();
         Ok(())
+    }
+
+    fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
+        // What the source's byte stream has in its cache: a network byte stream (HTTP) says
+        // which byte ranges it has downloaded. They become times in proportion to the
+        // stream's length (Media Foundation does not map bytes to times), so they are an
+        // estimate of where each stretch lies. A file's byte stream keeps no cache: `None`.
+        com();
+        let length = self.info.duration?;
+        // SAFETY: the source's byte stream asked of the live reader for the interface the
+        // pointer is then owned as; the cache's range list is read for the count it gives
+        // and freed with the COM allocator it came from.
+        unsafe {
+            let mut p: *mut std::ffi::c_void = std::ptr::null_mut();
+            self.reader
+                .GetServiceForStream(
+                    MF_SOURCE_READER_MEDIASOURCE.0 as u32,
+                    &MF_BYTESTREAM_SERVICE,
+                    &IMFByteStream::IID,
+                    &mut p,
+                )
+                .ok()?;
+            if p.is_null() {
+                return None;
+            }
+            let stream = IMFByteStream::from_raw(p);
+            let cache: IMFByteStreamCacheControl2 = stream.cast().ok()?;
+            let bytes = stream.GetLength().ok().filter(|l| *l > 0 && *l != u64::MAX)?;
+            let (mut n, mut list) = (0u32, std::ptr::null_mut::<MF_BYTE_STREAM_CACHE_RANGE>());
+            cache.GetByteRanges(&mut n, &mut list).ok()?;
+            let ranges = if list.is_null() {
+                Vec::new()
+            } else {
+                let at = |b: u64| length.mul_f64(b.min(bytes) as f64 / bytes as f64);
+                let ranges = std::slice::from_raw_parts(list, n as usize)
+                    .iter()
+                    .map(|r| at(r.qwStartOffset)..at(r.qwEndOffset))
+                    .collect();
+                CoTaskMemFree(Some(list.cast_const().cast()));
+                ranges
+            };
+            Some(ranges)
+        }
     }
 }
 
