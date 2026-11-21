@@ -47,5 +47,6 @@ playback-play-now = Lire maintenant
 playback-next-cancel = Annuler
 playback-starting-next = Démarrage de { $title }
 playback-canceling = Annulation.
+playback-retry = { $message } Appuyez sur Lecture pour réessayer.
 playback-speed = Vitesse { $speed }×
 playback-speed-tip = Vitesse de lecture (Maj+> plus vite, Maj+< plus lent)

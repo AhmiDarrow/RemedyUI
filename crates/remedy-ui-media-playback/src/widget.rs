@@ -156,8 +156,12 @@ fn nudge_volume(p: &Player, up: bool) {
 ///
 /// While the app makes a next made [later](crate::NextUp::later) ("Starting …" over the
 /// picture, as an alert), or a device starts its next by itself, the seek bar is disabled
-/// and the time blank. While starting the next or skipping, a Cancel button shows under the
-/// spinner when the app offers one ([`Player::offer_cancel`]); Escape does not press it.
+/// and the time blank. While starting the next, skipping or [busy](Player::set_status), a
+/// Cancel button shows under the spinner when the app offers one ([`Player::offer_cancel`]);
+/// Escape does not press it. The app's [status](Player::set_status) shows in place of the
+/// player's own words, announced politely. After a failure, when the app
+/// [retries](Player::on_retry), Play, K, Space and a click on the picture (in either scheme)
+/// try again.
 ///
 /// Sound-only media shows the transport bar alone. Media with pictures pauses while the
 /// player is unseen (see [`UnseenPolicy`](crate::UnseenPolicy)), and does not start by itself
@@ -202,14 +206,30 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             bottom: u,
             start: u * 1.5,
             end: u * 1.5,
-        }))
-        .semantics(Semantics::new(Role::Alert));
+        }));
     let msg = message.clone();
     let p = player.clone();
     let mu = ui.clone();
     let message = message.bind(move || {
+        // The app's status in place of the player's words; announced politely, as Portal's
+        // page does, where the player's own failures and work are alerts.
+        if let Some(s) = p.status().filter(|_| !p.is_remote()) {
+            let text = if s.busy && p.canceling() { tr(&mu, "playback-canceling") } else { s.text };
+            let said = Semantics::new(Role::Status).label(text.clone()).live(Live::Polite);
+            let _ = msg.clone().hidden(false).semantics(said);
+            let _ = msg.clone().text(remedy_ui_view::RichText::plain(text));
+            return;
+        }
+        let _ = msg.clone().semantics(Semantics::new(Role::Alert));
         let text = match (p.state(), p.skipping()) {
-            (PlaybackState::Failed, _) if !p.is_remote() => Some(failure(&mu.locale(), p.error())),
+            (PlaybackState::Failed, _) if !p.is_remote() => {
+                let why = p.app_failure().unwrap_or_else(|| failure(&mu.locale(), p.error()));
+                // As Portal's page: Play asks again when the app can.
+                Some(match p.retries() {
+                    true => crate::STRINGS.format(&mu, "playback-retry", &[("message", why.into())]),
+                    false => why,
+                })
+            }
             (_, Some(at)) if !p.is_remote() => {
                 let head =
                     crate::STRINGS.format(&mu, "playback-skipping", &[("position", format_time(at).into())]);
@@ -290,7 +310,9 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                     toggle_fullscreen(&p);
                     return true;
                 }
-                if p.key_scheme() != KeyScheme::Arrows {
+                // After a failure a click tries again (Portal's), in either scheme.
+                let retry = p.retries() && p.state() == PlaybackState::Failed && !p.is_remote();
+                if p.key_scheme() != KeyScheme::Arrows && !retry {
                     return false;
                 }
                 let (q, h) = (p.clone(), held.clone());
@@ -312,12 +334,13 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         let state = p.state();
         let remote = p.is_remote();
         let waiting = matches!(state, PlaybackState::Opening | PlaybackState::Buffering);
-        let working = p.starting_next().is_some() || (p.skipping().is_some() && !remote);
+        let busy_status = p.status().is_some_and(|s| s.busy);
+        let working = p.starting_next().is_some() || ((p.skipping().is_some() || busy_status) && !remote);
         let _ = busy.clone().hidden(!waiting && !working);
         let _ = surface.clone().hidden(remote);
         // Sound alone needs no picture; what failed to open shows its message there.
         let pictures = p.info().is_none_or(|i| i.video.is_some());
-        let said = p.starting_next().is_some() || p.next_error().is_some();
+        let said = p.starting_next().is_some() || p.next_error().is_some() || p.status().is_some();
         let _ = st.clone().hidden(!pictures && state != PlaybackState::Failed && !remote && !said);
     });
 
@@ -947,9 +970,13 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
         let len = length();
         // On a timeline a seek the stream cannot take goes to the app; skipping, none does.
         let seekable = p2.is_remote() || p2.timeline().is_some() || p2.info().is_some_and(|i| i.seekable);
-        let _ = b3
-            .clone()
-            .disabled(len.is_none() || !seekable || p2.skipping().is_some() || p2.starting_next().is_some());
+        let _ = b3.clone().disabled(
+            len.is_none()
+                || !seekable
+                || p2.skipping().is_some()
+                || p2.starting_next().is_some()
+                || (p2.status().is_some_and(|s| s.busy) && !p2.is_remote()),
+        );
         let total = len.unwrap_or_default();
         let said = crate::STRINGS.format(
             &u,

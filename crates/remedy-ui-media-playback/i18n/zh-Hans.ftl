@@ -43,5 +43,6 @@ playback-play-now = 立即播放
 playback-next-cancel = 取消
 playback-starting-next = 正在启动 { $title }
 playback-canceling = 正在取消。
+playback-retry = { $message }按“播放”重试。
 playback-speed = 速度 { $speed }×
 playback-speed-tip = 播放速度（Shift+> 加快，Shift+< 减慢）
