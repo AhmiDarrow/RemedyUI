@@ -42,6 +42,10 @@ use crate::host::{
 };
 use crate::mp4::{self, Kind, Mp4};
 
+// HLS: the crate's reader, fetched by the page and decoded by these WebCodecs decoders.
+#[path = "web_hls.rs"]
+mod hls_web;
+
 #[wasm_bindgen]
 extern "C" {
     type VideoDecoder;
@@ -523,6 +527,7 @@ fn open(data: SharedBytes, mp4: Mp4, out: &Shared) -> Result<Open, MediaError> {
     let info = MediaInfo {
         duration: length,
         seekable: true,
+        growing: false,
         video: video.as_ref().and_then(|(i, ..)| mp4.tracks.get(*i)).and_then(|t| match t.kind {
             Kind::Video { width, height } => {
                 let secs = t.length().as_secs_f64();
@@ -1081,6 +1086,9 @@ impl MediaHost for WebHost {
                 *slot.borrow_mut() = Some(op);
                 out.borrow_mut().ready = Some(Ok(()));
                 Ok(Box::new(WebDecoder { out, open: slot, bytes: data, info }))
+            }
+            MediaSource::Url(url) if crate::hls::is_hls(source) => {
+                Ok(Box::new(hls_web::HlsDecoder::open(url, out)))
             }
             MediaSource::Url(url) => {
                 let bytes: SharedBytes = Rc::default();
