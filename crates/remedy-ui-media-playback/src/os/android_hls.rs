@@ -419,8 +419,8 @@ impl Elementary for NdkElementary {
 pub(super) struct NdkFetch;
 
 impl Fetch for NdkFetch {
-    fn get(&mut self, url: &str, _stop: &std::sync::atomic::AtomicBool) -> Result<Vec<u8>, MediaError> {
-        fetch(url, 0)
+    fn get(&mut self, url: &str, stop: &AtomicBool) -> Result<Vec<u8>, MediaError> {
+        fetch(url, 0, stop)
     }
 }
 
@@ -428,15 +428,15 @@ fn scheme<'a>(url: &'a str, scheme: &str) -> Option<&'a str> {
     url.get(..scheme.len()).filter(|s| s.eq_ignore_ascii_case(scheme)).and(url.get(scheme.len()..))
 }
 
-fn fetch(url: &str, hops: u32) -> Result<Vec<u8>, MediaError> {
+fn fetch(url: &str, hops: u32, stop: &AtomicBool) -> Result<Vec<u8>, MediaError> {
     if let Some(path) = file_path(url) {
         return std::fs::read(&path).map_err(|e| MediaError::NotFound(format!("{path}: {e}")));
     }
     if let Some(rest) = scheme(url, "http://") {
-        return http(url, rest, hops);
+        return http(url, rest, hops, stop);
     }
     if scheme(url, "https://").is_some() {
-        return java_get(url);
+        return java_get(url, stop);
     }
     Err(MediaError::NotFound(format!("{url}: not an http, https or file URL")))
 }
@@ -450,8 +450,9 @@ fn io_error(url: &str, e: &std::io::Error, quiet: &str) -> MediaError {
 }
 
 /// GET `url` (`rest` is what follows `http://`) over HTTP/1.1: no answer for [`FIRST_BYTE`],
-/// no byte for [`QUIET`] once it answered, or [`LOAD`] in all is a timeout.
-fn http(url: &str, rest: &str, hops: u32) -> Result<Vec<u8>, MediaError> {
+/// no byte for [`QUIET`] once it answered, or [`LOAD`] in all is a timeout; set `stop` and the
+/// socket is shut at once (a watcher thread), ending the read waiting on it.
+fn http(url: &str, rest: &str, hops: u32, stop: &AtomicBool) -> Result<Vec<u8>, MediaError> {
     let started = Instant::now();
     let rest = rest.split('#').next().unwrap_or(rest);
     let (authority, path) = rest.find(['/', '?']).map_or((rest, "/"), |i| rest.split_at(i));
@@ -476,12 +477,39 @@ fn http(url: &str, rest: &str, hops: u32) -> Result<Vec<u8>, MediaError> {
             Err(e) => last = Some(e),
         }
     }
-    let Some(mut s) = stream else {
+    let Some(s) = stream else {
         return Err(last.map_or_else(
             || MediaError::NotFound(format!("{url}: no address for {host}")),
             |e| io_error(url, &e, "no answer"),
         ));
     };
+    let watched = s.try_clone().map_err(|e| io_error(url, &e, "no answer"))?;
+    let (done, finished) = std::sync::mpsc::channel::<()>();
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = finished.recv_timeout(WATCH) {
+                if stop.load(Ordering::Relaxed) {
+                    let _ = watched.shutdown(std::net::Shutdown::Both);
+                    return;
+                }
+            }
+        });
+        let got = exchange(s, url, authority, &path, hops, started, stop);
+        drop(done);
+        got
+    })
+}
+
+/// The request and answer of [`http`] on the connected `s`.
+fn exchange(
+    mut s: TcpStream,
+    url: &str,
+    authority: &str,
+    path: &str,
+    hops: u32,
+    started: Instant,
+    stop: &AtomicBool,
+) -> Result<Vec<u8>, MediaError> {
     let io = |e: std::io::Error| io_error(url, &e, "no answer");
     s.set_read_timeout(Some(FIRST_BYTE)).map_err(io)?;
     s.set_write_timeout(Some(FIRST_BYTE)).map_err(io)?;
@@ -525,7 +553,7 @@ fn http(url: &str, rest: &str, hops: u32) -> Result<Vec<u8>, MediaError> {
         } else {
             format!("http://{authority}/{}", to.trim_start_matches('/'))
         };
-        return fetch(&to, hops + 1);
+        return fetch(&to, hops + 1, stop);
     }
     if !(200..300).contains(&status) {
         return Err(MediaError::NotFound(format!("{url}: HTTP {status}")));
@@ -589,7 +617,7 @@ fn read_body(
 
 /// GET `url` (https) through Java's `HttpURLConnection` on this thread, attached to the app's
 /// Java VM.
-fn java_get(url: &str) -> Result<Vec<u8>, MediaError> {
+fn java_get(url: &str, stop: &AtomicBool) -> Result<Vec<u8>, MediaError> {
     let env = java_env().ok_or_else(|| {
         MediaError::Unsupported(format!("{url}: https needs the app's Java VM (it is read through Java)"))
     })?;
@@ -601,7 +629,7 @@ fn java_get(url: &str) -> Result<Vec<u8>, MediaError> {
             j.clear();
             return Err(MediaError::NotFound(format!("{url}: no room for Java references")));
         }
-        let got = j.get(url);
+        let got = j.get(url, stop);
         j.f::<unsafe extern "C" fn(Ptr, Ptr) -> Ptr>(POP_LOCAL_FRAME)(env, std::ptr::null_mut());
         got
     }
@@ -721,7 +749,7 @@ impl Jni {
         }
     }
 
-    unsafe fn get(&self, url: &str) -> Result<Vec<u8>, MediaError> {
+    unsafe fn get(&self, url: &str, stop: &AtomicBool) -> Result<Vec<u8>, MediaError> {
         let env = self.0;
         let ms = |d: Duration| d.as_millis() as u64;
         let curl = CString::new(url).map_err(|e| MediaError::NotFound(format!("{url}: {e}")))?;
@@ -752,7 +780,7 @@ impl Jni {
             // Java's own read timeout cannot change once connected: it only backs the watchdog up.
             void(env, conn, set_read, [ms(FIRST_BYTE)].as_ptr());
             self.check(url)?;
-            let dog = Watchdog::start(self, conn, disconnect)?;
+            let dog = Watchdog::start(self, conn, disconnect, stop)?;
             let got = self.read_all(url, conn, &dog);
             void(env, conn, disconnect, std::ptr::null());
             self.clear();
@@ -815,7 +843,7 @@ impl Jni {
 }
 
 /// Ends a Java fetch that waits too long: no answer for [`FIRST_BYTE`], no byte for [`QUIET`]
-/// once it answered, or [`LOAD`] in all. A thread of its own calls the connection's
+/// once it answered, or [`LOAD`] in all, or at once when `stop` is set. A thread of its own calls the connection's
 /// `disconnect()`, which ends the call waiting on it, as the WinHTTP watchdog does on Windows
 /// (Java's own read timeout cannot change once connected).
 struct Watchdog {
@@ -839,7 +867,7 @@ struct Progress {
 const WATCH: Duration = Duration::from_millis(50);
 
 impl Watchdog {
-    unsafe fn start(j: &Jni, conn: Ptr, disconnect: Ptr) -> Result<Watchdog, MediaError> {
+    unsafe fn start(j: &Jni, conn: Ptr, disconnect: Ptr, stop: &AtomicBool) -> Result<Watchdog, MediaError> {
         // SAFETY: a global reference (usable from any thread) to a live local one.
         let global = unsafe { j.f::<unsafe extern "C" fn(Ptr, Ptr) -> Ptr>(NEW_GLOBAL_REF)(j.0, conn) };
         if global.is_null() {
@@ -853,17 +881,22 @@ impl Watchdog {
         });
         let (stop, stopped) = std::sync::mpsc::channel::<()>();
         let p = progress.clone();
-        let (conn_ref, method) = (global as usize, disconnect as usize);
+        // The thread is joined before the watchdog goes (`stop` or drop), so `stop` outlives it.
+        let (conn_ref, method, halt) =
+            (global as usize, disconnect as usize, stop as *const AtomicBool as usize);
         let thread = std::thread::Builder::new()
             .name("remedy-hls-watchdog".into())
             .spawn(move || {
                 while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(WATCH) {
                     let since = p.start.elapsed().as_millis() as u64;
                     let quiet = since.saturating_sub(p.last.load(Ordering::Relaxed));
-                    if since <= LOAD.as_millis() as u64 && quiet <= p.limit.load(Ordering::Relaxed) {
+                    // SAFETY: `halt` borrows the caller's flag, alive until this thread is joined.
+                    let halted = unsafe { &*(halt as *const AtomicBool) }.load(Ordering::Relaxed);
+                    if !halted && since <= LOAD.as_millis() as u64 && quiet <= p.limit.load(Ordering::Relaxed)
+                    {
                         continue;
                     }
-                    p.gave_up.store(true, Ordering::Relaxed);
+                    p.gave_up.store(!halted, Ordering::Relaxed);
                     if let Some(env) = java_env() {
                         let j = Jni(env);
                         // SAFETY: `disconnect()` on the connection the global reference holds
@@ -885,6 +918,13 @@ impl Watchdog {
         Ok(Watchdog { progress, stop: Some(stop), thread: Some(thread), conn: global })
     }
 
+    fn join(&mut self) {
+        self.stop.take();
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+
     /// Something came: the watch starts again, allowing `quiet` until the next.
     fn progress(&self, quiet: Duration) {
         let p = &self.progress;
@@ -894,10 +934,7 @@ impl Watchdog {
 
     /// Ends the watch; why it gave up, if it did.
     fn stop(mut self, j: &Jni) -> Option<&'static str> {
-        self.stop.take();
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
+        self.join();
         // SAFETY: the watchdog's thread is done with the global reference.
         unsafe { j.f::<unsafe extern "C" fn(Ptr, Ptr)>(DELETE_GLOBAL_REF)(j.0, self.conn) };
         let p = &self.progress;
@@ -910,5 +947,12 @@ impl Watchdog {
                 "no answer"
             }
         })
+    }
+}
+
+impl Drop for Watchdog {
+    /// An early return still joins the thread, which borrows the caller's `stop`.
+    fn drop(&mut self) {
+        self.join();
     }
 }
