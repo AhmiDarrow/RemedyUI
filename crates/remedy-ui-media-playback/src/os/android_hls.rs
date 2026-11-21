@@ -419,7 +419,7 @@ impl Elementary for NdkElementary {
 pub(super) struct NdkFetch;
 
 impl Fetch for NdkFetch {
-    fn get(&mut self, url: &str) -> Result<Vec<u8>, MediaError> {
+    fn get(&mut self, url: &str, _stop: &std::sync::atomic::AtomicBool) -> Result<Vec<u8>, MediaError> {
         fetch(url, 0)
     }
 }

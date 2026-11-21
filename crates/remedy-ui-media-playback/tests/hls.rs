@@ -66,8 +66,13 @@ fn serve(mut s: TcpStream, files: &Files, rate: Option<usize>) -> std::io::Resul
         let mut files = files.lock().unwrap_or_else(PoisonError::into_inner);
         // Every request is logged under `asked`; a file marked `stall:` stops half way, once.
         files.entry("asked".into()).or_default().extend(format!("{path}\n").bytes());
+        // Where the reader had got to (what it keeps under `pos`) when this was asked for.
+        let pos = files.get("pos").cloned().unwrap_or_default();
+        files.insert(format!("asked-at:{path}"), pos);
         (files.get(&path).cloned(), files.remove(&format!("stall:{path}")).is_some())
     };
+    let trickle =
+        files.lock().unwrap_or_else(PoisonError::into_inner).contains_key(&format!("trickle:{path}"));
     let (status, body) = match body {
         Some(b) => ("200 OK", b),
         None => ("404 Not Found", Vec::new()),
@@ -77,6 +82,22 @@ fn serve(mut s: TcpStream, files: &Files, rate: Option<usize>) -> std::io::Resul
         "HTTP/1.1 {status}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
         body.len()
     )?;
+    if trickle {
+        // A byte every tenth of a second, never quiet long enough to time out, until the client
+        // hangs up; when it did is kept under `closed:` (ms since the Unix epoch).
+        let (head, rest) = body.split_at(body.len() / 2);
+        s.write_all(head)?;
+        for b in rest.chunks(1) {
+            if s.write_all(b).and_then(|()| s.flush()).is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+        let at = now.as_millis().to_string().into_bytes();
+        files.lock().unwrap_or_else(PoisonError::into_inner).insert(format!("closed:{path}"), at);
+        return Ok(());
+    }
     if stall {
         let (head, rest) = body.split_at(body.len() / 2);
         s.write_all(head)?;
@@ -90,6 +111,10 @@ fn serve(mut s: TcpStream, files: &Files, rate: Option<usize>) -> std::io::Resul
         s.write_all(chunk)?;
         std::thread::sleep(Duration::from_millis(100));
     }
+    // Where the reader had got to (what it keeps under `pos`) when this was all sent.
+    let mut files = files.lock().unwrap_or_else(PoisonError::into_inner);
+    let pos = files.get("pos").cloned().unwrap_or_default();
+    files.insert(format!("sent-at:{path}"), pos);
     Ok(())
 }
 
@@ -286,8 +311,10 @@ fn a_player_follows_a_growing_playlist() {
 
 /// A 1080p stream of 4 MB, two-second segments (made with the `ffmpeg` on the PATH; skipped
 /// without one), served at 6 MB/s, read at the pace it plays: segments are fetched ahead while
-/// pictures are decoded, so no read waits for the network, and opening waits only for the
-/// playlist and the first segment.
+/// pictures are decoded, so each is asked for while the one before it plays, and opening
+/// waits only for the playlist and the first segment. Told by where the reader was when each
+/// segment was asked for, not by how late reads were: a loaded machine (a parallel build)
+/// slows decoding, and so every read, whatever was fetched ahead.
 #[test]
 fn big_segments_are_read_at_the_pace_they_play() {
     let folder = std::env::temp_dir().join(format!("remedy-hls-1080p-{}", std::process::id()));
@@ -345,6 +372,8 @@ fn big_segments_are_read_at_the_pace_they_play() {
         // player holds both.
         let Sample::Video { at, .. } = s else { continue };
         pictures += 1;
+        let pos = at.as_millis().to_string().into_bytes();
+        files.lock().unwrap_or_else(PoisonError::into_inner).insert("pos".into(), pos);
         // Played in time: wait for the picture's moment; a picture already late is behind.
         let now = start.elapsed();
         behind = behind.max(now.saturating_sub(at));
@@ -359,8 +388,17 @@ fn big_segments_are_read_at_the_pace_they_play() {
     // first start) slows to several seconds. The clock only catches a hang.
     assert_eq!(asked_at_open, "index.m3u8\nseg00000.ts\n", "what opening fetched");
     assert!(opened < Duration::from_secs(15), "opening took {opened:?}");
-    assert!(slowest < Duration::from_millis(200), "a read waited {slowest:?}");
-    assert!(behind < Duration::from_millis(300), "fell {behind:?} behind");
+    let files = files.lock().unwrap_or_else(PoisonError::into_inner);
+    for k in 1..3u64 {
+        let pos = |key: &str| -> u64 {
+            let p = files.get(&format!("{key}:seg0000{k}.ts"));
+            p.and_then(|p| String::from_utf8_lossy(p).parse().ok()).unwrap_or_default()
+        };
+        let (asked, sent) = (pos("asked-at"), pos("sent-at"));
+        eprintln!("segment {k}: asked for at {asked} ms of playing, all sent at {sent} ms");
+        // Segment k plays from 2k s: asked for while the one before it plays, not once it is due.
+        assert!(asked < 2000 * (k - 1) + 1000, "segment {k} was asked for only at {asked} ms of playing");
+    }
 }
 
 #[test]
@@ -530,4 +568,31 @@ fn pictures_on_the_gpu() {
         n += 1;
     }
     assert_eq!(n, 75, "pictures");
+}
+
+/// A stream dropped while a segment is still coming (slowly, but never quiet long enough to
+/// time out): the fetch is given up at once, not run on for up to a minute.
+#[test]
+fn dropping_a_stream_mid_fetch_hangs_up_promptly() {
+    let (url, files) = server(playlist());
+    let marked = |k: &str| files.lock().unwrap_or_else(PoisonError::into_inner).get(k).cloned();
+    files.lock().unwrap_or_else(PoisonError::into_inner).insert("trickle:seg00001.ts".into(), Vec::new());
+    let Some(mut d) = open(&url) else { return };
+    let asked = |p: &str| marked("asked").is_some_and(|a| String::from_utf8_lossy(&a).contains(p));
+    // Read until the trickling segment is being fetched.
+    let started = std::time::Instant::now();
+    while !asked("seg00001.ts") {
+        assert!(started.elapsed() < Duration::from_secs(10), "the second segment is asked for");
+        let _ = d.buffered();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(marked("closed:seg00001.ts").is_none(), "still coming");
+    let dropped = std::time::Instant::now();
+    drop(d);
+    while marked("closed:seg00001.ts").is_none() {
+        assert!(dropped.elapsed() < Duration::from_secs(2), "the fetch hung up within 2 s of the drop");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    eprintln!("hung up {:?} after the drop", dropped.elapsed());
 }

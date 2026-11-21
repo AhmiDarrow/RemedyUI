@@ -80,6 +80,8 @@ pub(crate) fn known_folder(k: crate::KnownFolder) -> Option<std::path::PathBuf> 
     }
 }
 
+#[cfg(target_os = "android")]
+pub(crate) mod android_media;
 #[cfg(target_os = "macos")]
 pub(crate) mod macos;
 #[cfg(windows)]
