@@ -679,11 +679,25 @@ impl GpuCompositor {
         let back = &acquired.texture;
         let (w, h) = (back.width().min(kept.width()), back.height().min(kept.height()));
         let changed = surface.changed_since(acquired.age as usize);
-        let copies = copy_in(ctx, kept, back, changed.as_deref(), (w, h));
-        let mut last = if copies.is_some() { LastUse::Written } else { LastUse::Untouched };
-        if let Some(copies) = copies {
-            ctx.queue.submit([copies]);
+        let (copied, rejected) = ctx.catch_errors(|| {
+            let copies = copy_in(ctx, kept, back, changed.as_deref(), (w, h));
+            let copied = copies.is_some();
+            if let Some(copies) = copies {
+                ctx.queue.submit([copies]);
+            }
+            copied
+        });
+        if let Some(why) = rejected {
+            // wgpu ran none of it: the buffer goes back as it came (a barrier from the copy
+            // state would be wrong), and the window leaves the GPU.
+            drop(acquired);
+            if let Some(Swap::Dxgi(chain)) = surface.surface.as_mut() {
+                let _ = chain.present(LastUse::Untouched, None);
+            }
+            surface.surface = None;
+            return Err(GpuError::Surface(format!("the frame's copies were rejected: {why}")));
         }
+        let mut last = if copied { LastUse::Written } else { LastUse::Untouched };
         if let Some(checks) = surface.checks.as_mut() {
             let (shown, want) = (ctx.read_back(back)?, ctx.read_back(kept)?);
             checks.compared += 1;

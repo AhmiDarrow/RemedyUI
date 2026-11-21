@@ -529,6 +529,19 @@ impl VkChain {
         if let Some(a) = self.acquires.get_mut(slot) {
             a.1 = Some(submitted);
         }
+        // A submission wgpu rejected (an invalid command buffer) never reached the queue, and
+        // the semaphores staged for it would go with the next one, whoever makes it; the
+        // present would wait for a signal that never comes. The image cannot be shown.
+        // SAFETY: the semaphores are this chain's, staged above.
+        if let Some(hal) = unsafe { queue.as_hal::<Vk>() }
+            && hal.remove_signal_semaphore(rendered)
+        {
+            if let Some(&(acquired, _)) = self.acquires.get(slot) {
+                hal.remove_wait_semaphore(acquired);
+            }
+            self.stale = true;
+            return Err(ChainError::Failed("wgpu rejected the frame's submission".into()));
+        }
         let rects: Vec<vk::RectLayerKHR> = damage
             .unwrap_or_default()
             .iter()
