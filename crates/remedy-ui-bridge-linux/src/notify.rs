@@ -3,8 +3,8 @@
 //! mako, dunst and the rest provide.
 //!
 //! What the person does comes back as the server's `ActionInvoked` (a button, or `default`
-//! for the notification itself) and `NotificationClosed` signals, heard on a thread of their
-//! own and passed to the event loop.
+//! for the notification itself) and `NotificationClosed` signals, heard in order on a thread
+//! of their own and passed to the event loop.
 
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -86,22 +86,40 @@ impl Notifier {
             return Ok(c.clone());
         }
         let conn = zbus::block_on(zbus::Connection::session()).map_err(unsupported)?;
-        for member in ["ActionInvoked", "NotificationClosed"] {
-            let (conn, shared) = (conn.clone(), self.shared.clone());
-            std::thread::Builder::new()
-                .name(format!("remedy-notify-{member}"))
-                .spawn(move || {
-                    let heard = zbus::block_on(async {
-                        let proxy = zbus::Proxy::new(&conn, DEST, PATH, IFACE).await?;
-                        let mut signals = proxy.receive_signal(member).await?;
-                        loop {
-                            let next = std::future::poll_fn(|cx| {
-                                futures_core::Stream::poll_next(Pin::new(&mut signals), cx)
-                            })
-                            .await;
-                            let Some(msg) = next else { break };
-                            let body = msg.body();
-                            let event = if member == "ActionInvoked" {
+        self.listen(conn)
+    }
+
+    /// Uses `conn` (a test's private bus).
+    #[cfg(test)]
+    pub(crate) fn with_connection(conn: zbus::Connection) -> Result<Self, Unsupported> {
+        let mut n = Notifier::default();
+        let _conn = n.listen(conn)?;
+        Ok(n)
+    }
+
+    /// Hears the server's answers on `conn` from now on.
+    fn listen(&mut self, conn: zbus::Connection) -> Result<zbus::Connection, Unsupported> {
+        // One stream for both signals keeps them in the order the server sent them: a press
+        // and the close that follows it arrive as press, then close.
+        let rule = format!("type='signal',interface='{IFACE}',path='{PATH}'");
+        let mut signals = zbus::block_on(zbus::MessageStream::for_match_rule(rule.as_str(), &conn, None))
+            .map_err(unsupported)?;
+        let shared = self.shared.clone();
+        std::thread::Builder::new()
+            .name("remedy-notify".into())
+            .spawn(move || {
+                zbus::block_on(async {
+                    loop {
+                        let next = std::future::poll_fn(|cx| {
+                            futures_core::Stream::poll_next(Pin::new(&mut signals), cx)
+                        })
+                        .await;
+                        let Some(Ok(msg)) = next else { break };
+                        let header = msg.header();
+                        let member = header.member().map(|m| m.as_str().to_owned()).unwrap_or_default();
+                        let body = msg.body();
+                        let event = match member.as_str() {
+                            "ActionInvoked" => {
                                 let Ok((server, key)) = body.deserialize::<(u32, String)>() else { continue };
                                 (
                                     server,
@@ -111,7 +129,8 @@ impl Notifier {
                                         NotificationResponse::Action(key)
                                     },
                                 )
-                            } else {
+                            }
+                            "NotificationClosed" => {
                                 let Ok((server, reason)) = body.deserialize::<(u32, u32)>() else { continue };
                                 if reason != DISMISSED_BY_USER {
                                     // Expired (still in the desktop's history) or withdrawn by the
@@ -125,30 +144,27 @@ impl Notifier {
                                     continue;
                                 }
                                 (server, NotificationResponse::Dismissed)
-                            };
-                            let waker = {
-                                let mut g = lock(&shared);
-                                // Signals are broadcast: only this app's notifications count.
-                                let Some(&app) = g.by_server.get(&event.0) else { continue };
-                                if event.1 == NotificationResponse::Dismissed {
-                                    g.by_server.remove(&event.0);
-                                    g.by_app.remove(&app);
-                                }
-                                g.events.push(HostEvent::Notification(app, event.1));
-                                g.waker.clone()
-                            };
-                            if let Some(w) = waker {
-                                w();
                             }
+                            _ => continue,
+                        };
+                        let waker = {
+                            let mut g = lock(&shared);
+                            // Signals are broadcast: only this app's notifications count.
+                            let Some(&app) = g.by_server.get(&event.0) else { continue };
+                            if event.1 == NotificationResponse::Dismissed {
+                                g.by_server.remove(&event.0);
+                                g.by_app.remove(&app);
+                            }
+                            g.events.push(HostEvent::Notification(app, event.1));
+                            g.waker.clone()
+                        };
+                        if let Some(w) = waker {
+                            w();
                         }
-                        Ok::<(), zbus::Error>(())
-                    });
-                    if let Err(e) = heard {
-                        eprintln!("RemedyUI: notification answers stopped: {e}");
                     }
-                })
-                .map_err(unsupported)?;
-        }
+                });
+            })
+            .map_err(unsupported)?;
         self.conn = Some(conn.clone());
         Ok(conn)
     }
@@ -201,5 +217,139 @@ impl Notifier {
             proxy.call::<_, _, ()>("CloseNotification", &(server,)).await
         })
         .map_err(unsupported)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, PoisonError};
+    use std::time::{Duration, Instant};
+
+    use remedy_ui_host::{HostEvent, Notification, NotificationResponse, TrayImage};
+    use zbus::object_server::SignalEmitter;
+    use zbus::{OwnedVariant, interface};
+
+    use super::{DEST, Notifier, PATH};
+    use crate::badge::tests::Bus;
+
+    /// What the stand-in server was asked: (replaces, summary, body, actions, hint names).
+    type Shown = (u32, String, String, Vec<String>, Vec<String>);
+
+    #[derive(Clone, Default)]
+    struct Server {
+        shown: Arc<Mutex<Vec<Shown>>>,
+        closed: Arc<Mutex<Vec<u32>>>,
+    }
+
+    #[interface(name = "org.freedesktop.Notifications")]
+    impl Server {
+        #[allow(clippy::too_many_arguments)]
+        fn notify(
+            &self,
+            _app: String,
+            replaces: u32,
+            _icon: String,
+            summary: String,
+            body: String,
+            actions: Vec<String>,
+            hints: HashMap<String, OwnedVariant>,
+            _timeout: i32,
+        ) -> u32 {
+            let mut names: Vec<String> = hints.into_keys().collect();
+            names.sort();
+            let mut s = self.shown.lock().unwrap_or_else(PoisonError::into_inner);
+            s.push((replaces, summary, body, actions, names));
+            if replaces != 0 { replaces } else { 40 + s.len() as u32 }
+        }
+
+        fn close_notification(&self, id: u32) {
+            self.closed.lock().unwrap_or_else(PoisonError::into_inner).push(id);
+        }
+
+        #[zbus(signal)]
+        async fn action_invoked(e: &SignalEmitter<'_>, id: u32, key: &str) -> zbus::Result<()>;
+
+        #[zbus(signal)]
+        async fn notification_closed(e: &SignalEmitter<'_>, id: u32, reason: u32) -> zbus::Result<()>;
+    }
+
+    fn events(n: &mut Notifier, want: usize) -> Vec<HostEvent> {
+        let start = Instant::now();
+        let mut out = Vec::new();
+        while out.len() < want && start.elapsed() < Duration::from_secs(5) {
+            out.extend(n.take_events());
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        out
+    }
+
+    #[test]
+    fn notifications_go_to_the_server_and_answers_come_back() {
+        let Some(bus) = Bus::start() else { return };
+        let server = Server::default();
+        let Ok(served) = zbus::block_on(
+            zbus::conn::Builder::address(bus.address.as_str())
+                .name(DEST)
+                .serve_at(PATH, server.clone())
+                .build(),
+        ) else {
+            unreachable!("serving the stand-in")
+        };
+        let Ok(mut n) = Notifier::with_connection(bus.connect()) else { unreachable!("a notifier") };
+        let icon =
+            TrayImage { size: 2, rgba: vec![128, 0, 0, 128, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255] };
+        let note = Notification::new(7, "Break time", "Stand up and stretch")
+            .action("snooze", "Snooze")
+            .icon(icon)
+            .silent(true);
+        assert!(n.show(&note).is_ok());
+        {
+            let shown = server.shown.lock().unwrap_or_else(PoisonError::into_inner);
+            let Some((replaces, summary, body, actions, hints)) = shown.first() else {
+                unreachable!("shown")
+            };
+            assert_eq!(
+                (*replaces, summary.as_str(), body.as_str()),
+                (0, "Break time", "Stand up and stretch")
+            );
+            assert_eq!(
+                actions,
+                &["default", "", "snooze", "Snooze"],
+                "pressing it reports back as `default`"
+            );
+            assert_eq!(hints, &["image-data", "suppress-sound"]);
+        }
+        // Showing the same id again replaces it on the server.
+        assert!(n.show(&Notification::new(7, "Break time", "Now")).is_ok());
+        assert_eq!(server.shown.lock().unwrap_or_else(PoisonError::into_inner).get(1).map(|s| s.0), Some(41));
+
+        let emit = |key: Option<&str>, id: u32| {
+            zbus::block_on(async {
+                let i = served.object_server().interface::<_, Server>(PATH).await?;
+                match key {
+                    Some(k) => Server::action_invoked(i.signal_emitter(), id, k).await,
+                    None => Server::notification_closed(i.signal_emitter(), id, 2).await,
+                }
+            })
+        };
+        // Another app's notification is not this app's business.
+        assert!(emit(Some("default"), 99).is_ok());
+        assert!(emit(Some("default"), 41).is_ok());
+        assert!(emit(Some("snooze"), 41).is_ok());
+        assert!(emit(None, 41).is_ok());
+        assert_eq!(
+            events(&mut n, 3),
+            vec![
+                HostEvent::Notification(7, NotificationResponse::Activated),
+                HostEvent::Notification(7, NotificationResponse::Action("snooze".into())),
+                HostEvent::Notification(7, NotificationResponse::Dismissed),
+            ]
+        );
+
+        assert!(n.show(&Notification::new(8, "Saved", "")).is_ok());
+        assert!(n.withdraw(8).is_ok());
+        assert_eq!(*server.closed.lock().unwrap_or_else(PoisonError::into_inner), vec![43]);
+        assert!(n.withdraw(8).is_ok(), "withdrawing twice is not an error");
     }
 }

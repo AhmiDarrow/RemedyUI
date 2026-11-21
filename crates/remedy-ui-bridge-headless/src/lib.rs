@@ -129,6 +129,7 @@ pub struct HeadlessHost {
     permission_answers: VecDeque<bool>,
     permissions_answer_later: bool,
     notifications: Vec<remedy_ui_host::Notification>,
+    badge: Option<(String, remedy_ui_host::Badge)>,
     withdrawn: Vec<u64>,
     notifications_off: bool,
     foreground: Option<remedy_ui_host::ForegroundTask>,
@@ -184,6 +185,7 @@ impl HeadlessHost {
             permission_answers: VecDeque::new(),
             permissions_answer_later: false,
             notifications: Vec::new(),
+            badge: None,
             withdrawn: Vec::new(),
             notifications_off: false,
             foreground: None,
@@ -414,6 +416,11 @@ impl HeadlessHost {
     /// Answer one with [`HostEvent::Notification`] through [`HeadlessHost::send`].
     pub fn notifications(&self) -> &[remedy_ui_host::Notification] {
         &self.notifications
+    }
+
+    /// The badge the app shows now, with the app id it named.
+    pub fn badge(&self) -> Option<(&str, remedy_ui_host::Badge)> {
+        self.badge.as_ref().map(|(id, b)| (id.as_str(), *b))
     }
 
     /// The ids of the notifications the app took away, oldest first.
@@ -823,6 +830,11 @@ impl Host for HeadlessHost {
 
     fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
         self.withdrawn.push(id);
+        Ok(())
+    }
+
+    fn set_badge(&mut self, app_id: &str, badge: Option<remedy_ui_host::Badge>) -> Result<(), Unsupported> {
+        self.badge = badge.map(|b| (app_id.to_owned(), b));
         Ok(())
     }
 

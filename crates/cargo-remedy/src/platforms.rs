@@ -582,13 +582,27 @@ pub fn info_plist(p: &Project) -> String {
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
-</dict>
+{schemes}</dict>
 </plist>
 "#,
         name = x(&p.name),
         id = x(&p.id),
         version = x(&p.version),
         bin = x(&p.bin),
+        schemes = url_types(p),
+    )
+}
+
+/// `CFBundleURLTypes` for the app's URL schemes, so links in them open the app.
+fn url_types(p: &Project) -> String {
+    if p.url_schemes.is_empty() {
+        return String::new();
+    }
+    let x = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let list: String = p.url_schemes.iter().map(|s| format!("<string>{}</string>", x(s))).collect();
+    format!(
+        "  <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>{}</string><key>CFBundleURLSchemes</key><array>{list}</array></dict></array>\n",
+        x(&p.id)
     )
 }
 
@@ -683,6 +697,7 @@ mod tests {
             web_theme: crate::project::DEFAULT_THEME_COLOR.into(),
             web_icon: None,
             uses_remedy_ui: true,
+            url_schemes: Vec::new(),
         }
     }
 
@@ -782,6 +797,14 @@ mod tests {
         assert_eq!(version_code("0.1.0"), 100);
         let plist = info_plist(&p);
         assert!(plist.contains("<string>My Notes</string>") && plist.contains("<string>my-notes</string>"));
+        assert!(!plist.contains("CFBundleURLTypes"), "no schemes unless asked for");
+        let mut linked = project();
+        linked.url_schemes = vec!["hearth".into()];
+        let plist = info_plist(&linked);
+        assert!(
+            plist.contains("<key>CFBundleURLSchemes</key><array><string>hearth</string></array>"),
+            "{plist}"
+        );
         let i = icns_entries(&[(*b"ic08", b"PNG".to_vec())]);
         assert_eq!(i.get(..4), Some(&b"icns"[..]));
         assert_eq!(i.len(), 19);

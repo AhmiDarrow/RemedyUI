@@ -10,6 +10,35 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **The rest of the desktop services** (`remedy-ui-services-desktop`, `remedy_ui::desktop`
+  behind the new `desktop` feature):
+  - **App badges** in the host contract (`Badge::Count`/`Badge::Dot`, `Host::set_badge`,
+    `App::set_badge`): a taskbar overlay icon on Windows (`ITaskbarList3`, drawn by
+    `Badge::image`), the Dock tile's label on macOS, the launcher entry API on Linux (read by
+    KDE, Dash to Dock, Plank; `AppConfig::app_id` names the desktop entry), and the Badging
+    API for installed web apps. The headless host records it (`HeadlessHost::badge`).
+  - **URL schemes** (`desktop::scheme`): `register`, `unregister`, `is_registered` and
+    `urls`. A URL protocol under `HKCU\Software\Classes` on Windows; `x-scheme-handler/…` in
+    the app's desktop entry and `mimeapps.list` on Linux; the bundle's `CFBundleURLTypes` on
+    macOS, which `cargo remedy package` now writes from `remedy.toml`'s `[app] url_schemes`.
+    `App::on_url` hears the launch's link and, with single instance, every later one through
+    the existing hand-off; on macOS the bridge turns the "get URL" Apple event into the same
+    hand-off.
+  - **Jump lists and recent files** (`desktop::jump`): `set_tasks` (Windows jump list Tasks,
+    a Linux desktop entry's actions), `add_recent` and `clear_recent`
+    (`SHAddToRecentDocs`/`IApplicationDestinations`, `recently-used.xbel` edited in place,
+    macOS's Open Recent list). Dock menu tasks on macOS say `Unsupported`.
+  - **Power** (`desktop::power`): `on_battery`, `watch` (sleeping, resumed, power source
+    changes) and `inhibit` (keep the system, or the screen too, awake while a guard lives).
+    UPower, logind and the session's screen saver on Linux; power requests and callback
+    notifications on Windows; IOKit power sources, assertions and system power messages on
+    macOS. `App::on_power` brings the events to the UI thread.
+  - **Notifications on macOS** through the User Notifications framework (buttons, a picture
+    attached as a thumbnail, presses and dismissals back to `App::on_notification`); it needs
+    the app in a bundle and says `Unsupported` otherwise.
+  - What a platform cannot do says `DesktopError::Unsupported` (new), and a bad scheme
+    `DesktopError::Invalid` (new).
+
 - **Playback speed in the media player, with the pitch kept**: `Player::set_speed` (0.25× to
   4×, `MIN_SPEED`/`MAX_SPEED`; not-a-number is 1×), `Player::speed`, `step_speed` and `SPEEDS`.
   Sound goes through a pitch-preserving WSOLA time stretcher of the crate's own (no new
@@ -617,6 +646,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   change the board (it no longer builds again on each keystroke).
 
 ### Fixed
+
+- On Linux, a notification's button press could be lost when its close came right after:
+  the two signals were heard on separate threads and the close could be handled first. They
+  are now heard in order on one stream.
 
 - **Stacked glass could stall a frame for minutes.** Each pane of glass draws again what is
   under it, glass included, so every pane doubled the cost (16 stacked panes took 40 s on the

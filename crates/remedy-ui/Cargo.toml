@@ -106,6 +106,10 @@ macros = ["dep:remedy-ui-macros"]
 ## Images and animations decoded in a sandboxed helper process (`remedy_ui::isolated`), so a
 ## decoder that crashes, hangs or runs away with memory takes down only the helper.
 isolated = ["image", "anim", "dep:remedy-ui-media-isolated"]
+## Desktop services (`remedy_ui::desktop`): starting with the session, URL schemes
+## (`App::on_url`), jump lists and recent files, power (`App::on_power`, keeping awake),
+## showing files in the file manager and the user's usual folders.
+desktop = ["dep:remedy-ui-services-desktop"]
 ## Signed updates from GitHub releases or a feed (`remedy_ui::update`).
 update = ["widgets", "dep:remedy-ui-services-update"]
 ## The in-memory host for tests (`remedy_ui::headless`).
@@ -115,7 +119,7 @@ headless = ["dep:remedy-ui-bridge-headless"]
 ## only the module's types (`WebConfig`, `Mount`) and its documentation, with no web code.
 web = ["dep:remedy-ui-bridge-web"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts", "script-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-rhai", "script-wasm", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "effects", "customize", "web", "macros", "isolated", "webstorage"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "script-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-rhai", "script-wasm", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "effects", "customize", "web", "macros", "isolated", "webstorage", "desktop"]
 
 [dependencies]
 remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "1.0.0-rc.1" }
@@ -165,6 +169,7 @@ remedy-ui-script-rhai = { path = "../remedy-ui-script-rhai", version = "1.0.0-rc
 remedy-ui-script-wasm = { path = "../remedy-ui-script-wasm", version = "1.0.0-rc.1", optional = true }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1", optional = true }
 remedy-ui-services-update = { path = "../remedy-ui-services-update", version = "1.0.0-rc.1", optional = true }
+remedy-ui-services-desktop = { path = "../remedy-ui-services-desktop", version = "1.0.0-rc.1", optional = true }
 remedy-ui-services-i18n = { path = "../remedy-ui-services-i18n", version = "1.0.0-rc.1", optional = true }
 remedy-ui-services-webstorage = { path = "../remedy-ui-services-webstorage", version = "1.0.0-rc.1", optional = true }
 remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "1.0.0-rc.1", optional = true }

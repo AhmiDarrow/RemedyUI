@@ -11,6 +11,7 @@
 //!
 //! - drag and drop with other apps: out on X11 through XDND, both ways on Wayland through
 //!   the data device (winit takes file drops in on X11);
+//! - the app's badge on the dock (the launcher entry API KDE, Dash to Dock and Plank read);
 //! - window icons: `_NET_WM_ICON` on X11, `xdg-toplevel-icon-v1` on Wayland compositors that
 //!   have it (the others show the app's desktop-entry icon for every window).
 //!
@@ -27,6 +28,9 @@ mod services;
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod notify;
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod badge;
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod xtray;
@@ -67,6 +71,8 @@ mod linux {
         // process serves the data to whoever pastes.
         clipboard: Option<arboard::Clipboard>,
         tray: crate::services::Tray,
+        /// The app's badge on the dock's launcher entry.
+        badge: crate::badge::LauncherBadge,
         /// System notifications on the desktop's notification server.
         notifier: crate::notify::Notifier,
         /// Drag and drop on Wayland, once a Wayland window exists.
@@ -417,6 +423,15 @@ mod linux {
 
         fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
             self.notifier.withdraw(id)
+        }
+
+        fn set_badge(
+            &mut self,
+            _windows: &[&Window],
+            app_id: &str,
+            badge: Option<remedy_ui_host::Badge>,
+        ) -> Result<(), Unsupported> {
+            self.badge.set(app_id, badge)
         }
 
         fn share(
