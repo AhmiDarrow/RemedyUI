@@ -508,6 +508,47 @@ fn plays_mp3_sound() {
     assert!(about(sound, Duration::from_secs(2)), "sound {sound:?}");
 }
 
+/// Each picture's time and the luma at its middle (pictures in memory: no renderer here).
+fn lumas(d: &mut dyn Decoder) -> Vec<(Duration, u8)> {
+    let mut out = Vec::new();
+    while let Some(s) = d.read().unwrap_or_else(|e| unreachable!("reading: {e}")) {
+        if let Sample::Video { at, picture: p, .. } = s {
+            let [plane, ..] = p.planes;
+            let i = plane.offset + (p.height as usize / 2) * plane.stride + p.width as usize / 2;
+            out.push((at, p.data.get(i).copied().unwrap_or_default()));
+        }
+    }
+    out
+}
+
+/// Streams opened one after another on a host take the last one's decoders over (kept, or
+/// made anew where the sound changes codec): the pictures are those a new host gives.
+#[test]
+fn the_next_stream_on_a_host_decodes_alike() {
+    let (video, _v) = serve_dir("video", None);
+    let Some(mut fresh) = open(&video) else { return };
+    let want = lumas(fresh.as_mut());
+    drop(fresh);
+    assert_eq!(want.len(), 75);
+    let Ok(host) = platform_host() else { return };
+    let opened = |url: &str| host.open(&MediaSource::Url(url.into())).unwrap_or_else(|e| unreachable!("{e}"));
+    // H.264 and AAC, then H.264 alone, then H.264 and MP3, then H.264 alone again.
+    let (aac, _a) = serve_dir("aac", None);
+    let (mp3, _m) = serve_dir("mp3", None);
+    for url in [&aac, &video, &mp3, &video] {
+        let got = lumas(opened(url).as_mut());
+        if *url == video {
+            assert_eq!(got.len(), want.len(), "pictures after reuse");
+            for ((t, y), (wt, wy)) in got.iter().zip(&want) {
+                assert_eq!(t, wt);
+                assert!(y.abs_diff(*wy) <= 2, "luma {y} at {t:?}, a new host's {wy}");
+            }
+        } else {
+            assert!(got.len() >= 50, "{url}'s pictures: {}", got.len());
+        }
+    }
+}
+
 #[test]
 fn plays_video_without_sound() {
     let Some((info, pictures, sound)) = play("video") else { return };
