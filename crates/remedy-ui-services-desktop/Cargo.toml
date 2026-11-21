@@ -47,6 +47,7 @@ web-sys = { version = "=0.3.107", features = ["Blob", "BlobPropertyBag", "Url", 
 # The browser test (the web bridge's `tools/web-test.sh`).
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
 wasm-bindgen-test = { version = "=0.3.80" }
+wasm-bindgen-futures = { version = "=0.4.80" }
 
 [target.'cfg(windows)'.dev-dependencies]
 # The SMTC test presses the session's buttons from the controlling side.
@@ -56,6 +57,11 @@ windows = { version = "=0.62.2", features = ["Foundation", "Foundation_Collectio
 # (tools/android-media-check.sh).
 [[example]]
 name = "android-media-check"
+crate-type = ["cdylib"]
+
+# Keeping the screen on on Android, the same way (tools/android-keep-awake-check.sh).
+[[example]]
+name = "android-keep-awake-check"
 crate-type = ["cdylib"]
 
 [lints]

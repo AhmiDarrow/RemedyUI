@@ -51,7 +51,7 @@ The allowed sideways edges inside L5:
 - `widgets-stage` may depend on `viz`
 - `doc-rich` may depend on `doc-code`, behind its `code-blocks` feature, for colored code blocks
 - `media-anim` may depend on `media-image`
-- `media-playback` may depend on `media-video` (its pictures go to a video surface) and `widgets-core` (its transport bar), and on `services-desktop` behind its `media-session` feature (what plays shows in the system's media controls)
+- `media-playback` may depend on `media-video` (its pictures go to a video surface) and `widgets-core` (its transport bar), and on `services-desktop` behind its `media-session` feature (what plays shows in the system's media controls) and its `keep-awake` feature (the screen held on while video plays, through `power::inhibit`)
 
 Image and icon *sources* are a trait in `paint`, so `widgets-core` can show images without knowing any decoder; `media-image` and `media-svg` register decoders for them.
 

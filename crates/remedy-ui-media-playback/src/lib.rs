@@ -66,6 +66,7 @@
 /// [`remedy_ui_view::strings::add_messages`] under the name `media-playback`.
 pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("media-playback");
 
+mod awake;
 mod capture;
 pub mod deps;
 mod engine;

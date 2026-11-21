@@ -3,6 +3,7 @@
 //! widget on a real view. The engine's sync is also checked against a scripted host whose
 //! sound clock the test moves by hand.
 
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -1387,6 +1388,7 @@ fn casting_hands_every_control_to_the_remote_and_back() {
         volume: Some(0.5),
         muted: false,
         next: None,
+        reported_at: None,
     };
     p.set_remote_status(status.clone());
     s.pump();
@@ -3457,4 +3459,260 @@ fn a_second_picture_keeps_the_player_seen_while_the_first_is_hidden() {
     pip.remove();
     s.idle(100);
     assert_eq!(p.state(), PlaybackState::Playing);
+}
+
+#[test]
+fn the_up_next_delay_and_lead_change_while_it_plays() {
+    let mut s = Screen::new();
+    // Autoplay off: nothing counts down at the end.
+    let options = PlayerOptions::default().next_up_delay(None);
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:1"), options);
+    let view = player(&s.ui, &p, "Scripted");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:2"), "Two")));
+    p.play();
+    s.wait("ended", |_| p.state() == PlaybackState::Ended);
+    s.idle(100);
+    assert_eq!(p.countdown(), None, "no countdown with autoplay off");
+    // Turned on at the end: the countdown starts at once.
+    p.set_next_up_delay(Some(Duration::from_secs(30)));
+    assert_eq!(p.next_up_delay(), Some(Duration::from_secs(30)));
+    s.pump();
+    assert!(p.countdown().is_some_and(|c| c > Duration::from_secs(25)));
+    // Off again: the countdown stops, the next stays for Play now.
+    p.set_next_up_delay(None);
+    s.pump();
+    assert_eq!(p.countdown(), None);
+    assert!(p.next_up().is_some());
+    // A running countdown made shorter counts to the new length from when it began.
+    p.set_next_up_delay(Some(Duration::from_secs(30)));
+    p.set_next_up_delay(Some(Duration::from_secs(5)));
+    s.pump();
+    assert!(p.countdown().is_some_and(|c| c <= Duration::from_secs(5)), "{:?}", p.countdown());
+    // Zero, past already: the next plays now.
+    p.set_next_up_delay(Some(Duration::ZERO));
+    s.wait("the next playing", |_| {
+        p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(2))
+    });
+    assert_eq!(p.next_up(), None);
+    // The lead is the app's to change too.
+    assert_eq!(p.next_up_lead(), None);
+    p.set_next_up_lead(Some(Duration::from_secs(20)));
+    assert_eq!(p.next_up_lead(), Some(Duration::from_secs(20)));
+}
+
+/// A fake screen hold: counts the holds taken and not yet let go.
+struct Hold(Rc<std::cell::Cell<i32>>);
+
+impl Drop for Hold {
+    fn drop(&mut self) {
+        self.0.set(self.0.get() - 1);
+    }
+}
+
+#[test]
+fn the_screen_is_held_on_only_while_video_plays_here_and_is_seen() {
+    let mut s = Screen::new();
+    let (p, _view) = scripted_with(&mut s, 20, PlayerOptions::default().keep_awake(true));
+    let held = Rc::new(std::cell::Cell::new(0));
+    let h = held.clone();
+    p.set_awake_hold(move || {
+        h.set(h.get() + 1);
+        Some(Box::new(Hold(h.clone())) as Box<dyn std::any::Any>)
+    });
+    assert!(p.keep_awake());
+    assert_eq!(held.get(), 0, "not while paused");
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    assert_eq!(held.get(), 1, "held while playing");
+    assert!(p.is_holding_awake());
+    p.set_visible(false);
+    assert_eq!(held.get(), 0, "not while unseen");
+    p.set_visible(true);
+    s.wait("playing again", |_| p.state() == PlaybackState::Playing && held.get() == 1);
+    p.pause();
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    assert_eq!(held.get(), 0, "let go when paused");
+    p.play();
+    s.wait("playing", |_| held.get() == 1);
+    // Casting: the TV plays, not this screen.
+    p.set_remote(Some(Remote::new("The Ris", Tv(Arc::new(Mutex::new(Vec::new()))))));
+    assert_eq!(held.get(), 0, "not while remote");
+    p.set_remote(None);
+    p.play();
+    s.wait("playing here again", |_| held.get() == 1);
+    // Turned off by the app, and on again.
+    p.set_keep_awake(false);
+    assert_eq!(held.get(), 0);
+    p.set_keep_awake(true);
+    assert_eq!(held.get(), 1);
+    drop(p);
+    _view.remove();
+    drop(_view);
+    s.pump();
+    assert_eq!(held.get(), 0, "let go when the player goes");
+}
+
+#[test]
+fn without_keep_awake_nothing_is_held() {
+    let mut s = Screen::new();
+    let (p, _view) = scripted_with(&mut s, 3, PlayerOptions::default());
+    let held = Rc::new(std::cell::Cell::new(0));
+    let h = held.clone();
+    p.set_awake_hold(move || {
+        h.set(h.get() + 1);
+        Some(Box::new(Hold(h.clone())) as Box<dyn std::any::Any>)
+    });
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    assert_eq!(held.get(), 0);
+    p.set_keep_awake(true);
+    assert_eq!(held.get(), 1);
+    s.wait("ended", |_| p.state() == PlaybackState::Ended);
+    assert_eq!(held.get(), 0, "let go at the end");
+}
+
+#[test]
+fn a_remote_report_is_moved_on_by_its_age() {
+    let mut s = Screen::new();
+    let (p, _view) = scripted(&mut s);
+    p.set_remote(Some(Remote::new("The Ris", Tv(Arc::new(Mutex::new(Vec::new()))))));
+    let len = Duration::from_secs(100);
+    p.set_remote_status(
+        RemoteStatus::new(PlaybackState::Playing, Duration::from_secs(30))
+            .length(len)
+            .age(Duration::from_secs(5)),
+    );
+    assert!(near(p.position(), 35.0, 0.5), "{:?}", p.position());
+    // Moved on from when it was made, at most 15 s.
+    let then = remedy_ui_core::time::Instant::now() - Duration::from_secs(40);
+    p.set_remote_status(
+        RemoteStatus::new(PlaybackState::Playing, Duration::from_secs(30)).length(len).reported_at(then),
+    );
+    assert!(near(p.position(), 45.0, 0.5), "{:?}", p.position());
+    // Never past the end; and a paused device stays where it said.
+    p.set_remote_status(
+        RemoteStatus::new(PlaybackState::Playing, Duration::from_secs(98))
+            .length(len)
+            .age(Duration::from_secs(5)),
+    );
+    assert_eq!(p.position(), len);
+    p.set_remote_status(
+        RemoteStatus::new(PlaybackState::Paused, Duration::from_secs(30))
+            .length(len)
+            .age(Duration::from_secs(5)),
+    );
+    assert_eq!(p.position(), Duration::from_secs(30));
+    // Between reports it moves on from the report's time, not from when it arrived.
+    p.set_remote_status(
+        RemoteStatus::new(PlaybackState::Playing, Duration::from_secs(30))
+            .length(len)
+            .age(Duration::from_secs(2)),
+    );
+    s.idle(400);
+    assert!(near(p.position(), 32.4, 0.3), "{:?}", p.position());
+}
+
+#[test]
+fn subtitles_cut_to_the_stream_follow_the_timeline_across_new_sources() {
+    let mut s = Screen::new();
+    let origin = Duration::from_secs(100);
+    let options = PlayerOptions::default().timeline(Timeline::new(origin).length(Duration::from_secs(200)));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:20"), options);
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    // The server cut the subtitles to its stream: 1 s into the stream is the film's 101 s.
+    let cues = parse_subtitles("WEBVTT\n\n00:01.000 --> 00:02.000\nOne\n", SubtitleFormat::WebVtt);
+    let i = p.add_subtitles_stream(SubtitleTrack { label: "Online".into(), language: None, cues });
+    p.set_caption_track(Some(i));
+    let at = |s: &mut Screen, ms: u64| {
+        p.seek(Duration::from_millis(ms));
+        s.wait("the seek", |_| near(p.position(), ms as f64 / 1000.0, 0.001));
+        p.caption_text()
+    };
+    assert_eq!(at(&mut s, 101_000).as_deref(), Some("One"), "in the film's time");
+    assert_eq!(at(&mut s, 103_000), None);
+    // A new stream from 99 s: the cue is still at the film's 101 s.
+    p.replace_source(
+        MediaSource::url("script:20"),
+        Timeline::new(Duration::from_secs(99)).length(Duration::from_secs(200)),
+    );
+    s.wait("opened", |_| p.info().is_some());
+    assert_eq!(at(&mut s, 101_000).as_deref(), Some("One"), "after the new origin");
+    assert_eq!(at(&mut s, 103_000), None);
+}
+
+/// A stand-in for the session's screen saver: the cookies it holds and the reasons given.
+#[cfg(all(target_os = "linux", feature = "keep-awake"))]
+#[derive(Clone, Default)]
+struct Saver {
+    held: Arc<Mutex<Vec<u32>>>,
+    reasons: Arc<Mutex<Vec<String>>>,
+    next: Arc<AtomicU64>,
+}
+
+#[cfg(all(target_os = "linux", feature = "keep-awake"))]
+#[zbus::interface(name = "org.freedesktop.ScreenSaver")]
+impl Saver {
+    fn inhibit(&self, _app: String, reason: String) -> u32 {
+        let cookie = u32::try_from(self.next.fetch_add(1, Ordering::SeqCst) + 1).unwrap_or(u32::MAX);
+        self.held.lock().unwrap_or_else(|e| e.into_inner()).push(cookie);
+        self.reasons.lock().unwrap_or_else(|e| e.into_inner()).push(reason);
+        cookie
+    }
+
+    fn un_inhibit(&self, cookie: u32) {
+        self.held.lock().unwrap_or_else(|e| e.into_inner()).retain(|c| *c != cookie);
+    }
+}
+
+/// The player's own hold on Linux: the session's screen saver, inhibited while video plays and
+/// uninhibited on pause, casting, the end and drop. Needs a session bus to serve the stand-in
+/// on (`dbus-run-session -- cargo test --features keep-awake`); without one it says so and
+/// passes.
+#[cfg(all(target_os = "linux", feature = "keep-awake"))]
+#[test]
+fn on_linux_the_session_screen_saver_is_inhibited_while_video_plays() {
+    if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none() {
+        eprintln!("skipped: no session bus (run under dbus-run-session)");
+        return;
+    }
+    let saver = Saver::default();
+    let _conn = zbus::block_on(async {
+        zbus::conn::Builder::session()
+            .name("org.freedesktop.ScreenSaver")
+            .serve_at("/org/freedesktop/ScreenSaver", saver.clone())
+            .build()
+            .await
+    })
+    .unwrap_or_else(|e| unreachable!("serving the screen saver: {e}"));
+    let held = || saver.held.lock().unwrap_or_else(|e| e.into_inner()).len();
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 3, PlayerOptions::default().keep_awake(true));
+    assert_eq!(held(), 0, "not while paused");
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    assert_eq!(held(), 1, "inhibited while playing");
+    assert!(p.is_holding_awake());
+    p.pause();
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    assert_eq!(held(), 0, "uninhibited on pause");
+    p.play();
+    s.wait("playing", |_| held() == 1);
+    p.set_remote(Some(Remote::new("The Ris", Tv(Arc::new(Mutex::new(Vec::new()))))));
+    assert_eq!(held(), 0, "uninhibited while casting");
+    p.set_remote(None);
+    p.play();
+    s.wait("playing here again", |_| held() == 1);
+    s.wait("the end", |_| p.state() == PlaybackState::Ended);
+    assert_eq!(held(), 0, "uninhibited at the end");
+    p.play();
+    s.wait("playing from the start", |_| held() == 1);
+    drop(p);
+    view.remove();
+    drop(view);
+    s.pump();
+    assert_eq!(held(), 0, "uninhibited when the player goes");
+    let reasons = saver.reasons.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(reasons.iter().all(|r| r == "Playing video"), "{reasons:?}");
 }

@@ -7,6 +7,7 @@ playback-failed-device = サウンドデバイスに問題があるため再生�
 playback-failed-denied = アクセスが許可されなかったため再生できません: { $detail }
 playback-failed-missing = このメディアは再生できません: { $detail }
 playback-loading = 読み込み中
+playback-keep-awake = 動画を再生中
 playback-play-pause-tip = 再生/一時停止 (K)
 playback-play = 再生
 playback-pause = 一時停止
