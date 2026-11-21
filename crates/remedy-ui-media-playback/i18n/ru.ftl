@@ -47,6 +47,7 @@ playback-back = Назад на 10 секунд
 playback-forward-tip = Вперёд на 10 секунд (L)
 playback-forward = Вперёд на 10 секунд
 playback-full-screen-tip = Во весь экран (F)
+playback-wake-tip = Любая клавиша показывает элементы управления
 playback-full-screen = Во весь экран
 playback-exit-full-screen = Выйти из полноэкранного режима
 playback-theater-tip = Режим кинотеатра (T)

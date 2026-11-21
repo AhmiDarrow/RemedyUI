@@ -101,13 +101,15 @@ fn the_audit_finds_unnamed_controls_low_contrast_and_small_targets() {
     let tiny = w::icon_button(&ui, w::Icon::Close, "Close", || {}).width(16.0).height(16.0);
     let faint = w::text(&ui, "Barely there").style(StylePatch::default().foreground(bg.with_alpha(0.9)));
     let gone = w::text(&ui, "Hidden").style(StylePatch::default().foreground(bg)).hidden(true);
+    let faded = w::text(&ui, "Faded out").style(StylePatch::default().foreground(bg).opacity(0.0));
     ui.root().child(
         w::column(&ui)
             .child(good.clone())
             .child(unnamed.clone())
             .child(tiny.clone())
             .child(faint.clone())
-            .child(gone),
+            .child(gone)
+            .child(faded),
     );
     frame(&ui);
     let found = audit(&ui);
@@ -120,7 +122,7 @@ fn the_audit_finds_unnamed_controls_low_contrast_and_small_targets() {
         found.iter().any(|p| p.element == faint_text && matches!(p.kind, ProblemKind::LowContrast { .. })),
         "{found:?}"
     );
-    assert_eq!(found.len(), 3, "the hidden label is skipped: {found:?}");
+    assert_eq!(found.len(), 3, "the hidden and faded-out labels are skipped: {found:?}");
     let msg = found.iter().find(|p| p.kind == ProblemKind::Unnamed).map(Problem::message).unwrap_or_default();
     assert!(msg.contains("devtools.rs"), "points at the source line: {msg}");
 }
