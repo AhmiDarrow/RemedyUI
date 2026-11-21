@@ -115,7 +115,10 @@ pub(crate) trait Elementary: Send {
 /// A host's decoders between streams: the last stream's, handed back when it is dropped and
 /// taken by the next stream the host opens, so making the decoders again (tens of
 /// milliseconds, hundreds cold) is saved. Dropped with the host, so with its player.
-pub(crate) type Spare = std::sync::Arc<std::sync::Mutex<Option<Box<dyn Elementary>>>>;
+pub(crate) type Spare = std::sync::Arc<SpareSlot>;
+
+/// What a [`Spare`] holds.
+pub(crate) type SpareSlot = std::sync::Mutex<Option<Box<dyn Elementary>>>;
 
 /// No decoders: before configuring, and once handed back.
 impl Elementary for () {
@@ -728,7 +731,7 @@ pub(crate) struct HlsDecoder {
     /// A fetch handed over outside a read failed for good: the next read says so.
     failed: Option<MediaError>,
     /// Where the decoders go back to when this is dropped, once configured.
-    spare: Option<std::sync::Weak<std::sync::Mutex<Option<Box<dyn Elementary>>>>>,
+    spare: Option<std::sync::Weak<SpareSlot>>,
 }
 
 impl HlsDecoder {

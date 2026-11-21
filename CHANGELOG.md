@@ -806,6 +806,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- `media-playback`: an HLS stream's decoders are kept by the player's host for the next
+  stream (`replace_source`, `start_next`) and reconfigured when its streams allow (on
+  Windows the H.264 transform always, the sound one for the same config), so the next
+  stream's first picture comes sooner (Windows release, the test stream: 9-11 ms to 4-5 ms
+  on a warm host, 35-37 ms to 9 ms for a new player). They still go when the player drops.
 - `RemoteStatus` in `media-playback` has a new public field, `reported_at`: a struct
   literal adds `reported_at: None` (or `..RemoteStatus::default()`).
 - `RemoteStatus::volume` is now `Option<f32>`, `None` (unknown) by default and on
