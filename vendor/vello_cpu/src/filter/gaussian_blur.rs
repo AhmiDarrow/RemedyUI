@@ -20,9 +20,7 @@
 
 use super::FilterEffect;
 use crate::filter::context::ScratchBuffer;
-use vello_common::filter::gaussian_blur::{
-    DecimationAxes, DecimationSizer, GaussianBlur, decimation_levels,
-};
+use vello_common::filter::gaussian_blur::{DecimationAxes, DecimationSizer, GaussianBlur, decimation_levels};
 use vello_common::filter_effects::EdgeMode;
 use vello_common::peniko::color::PremulRgba8;
 #[cfg(not(feature = "std"))]
@@ -96,11 +94,7 @@ pub(crate) fn apply_blur(
         sizer.upscale_axes(axes);
     }
 
-    debug_assert_eq!(
-        sizer.current(),
-        (width, height),
-        "Final dimensions should match original"
-    );
+    debug_assert_eq!(sizer.current(), (width, height), "Final dimensions should match original");
 }
 
 /// Apply separable Gaussian convolution with logical dimensions.
@@ -315,13 +309,7 @@ pub(crate) fn downscale(
 ///
 /// Reduces width by 2x while applying a binomial blur kernel. The \[1,3,3,1\] weights
 /// approximate a Gaussian and contribute variance=0.75 before the 2x downsampling.
-fn downscale_x(
-    src: &mut Pixmap,
-    src_width: u16,
-    src_height: u16,
-    dst_width: u16,
-    edge_mode: EdgeMode,
-) {
+fn downscale_x(src: &mut Pixmap, src_width: u16, src_height: u16, dst_width: u16, edge_mode: EdgeMode) {
     for y in 0..src_height {
         // Sliding window: maintains 2 previous pixels (x0, x1) to form 4-tap filter
         // with current pixels (x2, x3). Start with sample at -1 for implicit left padding.
@@ -349,13 +337,7 @@ fn downscale_x(
 ///
 /// Reduces logical height by 2x while applying a binomial blur kernel.
 /// Operates in-place by writing to the beginning of the same buffer.
-fn downscale_y(
-    src: &mut Pixmap,
-    src_width: u16,
-    src_height: u16,
-    dst_height: u16,
-    edge_mode: EdgeMode,
-) {
+fn downscale_y(src: &mut Pixmap, src_width: u16, src_height: u16, dst_height: u16, edge_mode: EdgeMode) {
     for x in 0..src_width {
         // Sliding window: maintains 2 previous pixels (y0, y1) to form 4-tap filter
         // with current pixels (y2, y3). Start with sample at -1 for implicit top padding.
@@ -397,12 +379,7 @@ fn downscale_y(
 ///   → weights: 0.75×pixel\[k\] + 0.25×pixel\[k-1\]
 /// - Position `2k+1`: distance 0.5 from center at `2k+0.5`, distance 1.5 from center at `2k+2.5`
 ///   → weights: 0.75×pixel\[k\] + 0.25×pixel\[k+1\]
-pub(crate) fn upscale(
-    src: &mut Pixmap,
-    src_width: u16,
-    src_height: u16,
-    edge_mode: EdgeMode,
-) -> (u16, u16) {
+pub(crate) fn upscale(src: &mut Pixmap, src_width: u16, src_height: u16, edge_mode: EdgeMode) -> (u16, u16) {
     let dst_width = src_width * 2;
     let dst_height = src_height * 2;
     upscale_x(src, src_width, src_height, edge_mode);
@@ -475,12 +452,7 @@ fn upscale_y(src: &mut Pixmap, src_width: u16, src_height: u16, edge_mode: EdgeM
 }
 
 /// Transparent black pixel constant.
-const TRANSPARENT_BLACK: PremulRgba8 = PremulRgba8 {
-    r: 0,
-    g: 0,
-    b: 0,
-    a: 0,
-};
+const TRANSPARENT_BLACK: PremulRgba8 = PremulRgba8 { r: 0, g: 0, b: 0, a: 0 };
 
 /// Sample a pixel with edge mode handling for horizontal sampling.
 #[inline(always)]
@@ -557,12 +529,7 @@ fn extend(coord: i32, size: u16, edge_mode: EdgeMode) -> u16 {
 /// This binomial pattern approximates a Gaussian and contributes variance=0.75 to the blur.
 /// Adds 4 before the shift to implement round-to-nearest instead of floor division.
 #[inline(always)]
-fn decimate_weighted(
-    p0: PremulRgba8,
-    p1: PremulRgba8,
-    p2: PremulRgba8,
-    p3: PremulRgba8,
-) -> PremulRgba8 {
+fn decimate_weighted(p0: PremulRgba8, p1: PremulRgba8, p2: PremulRgba8, p3: PremulRgba8) -> PremulRgba8 {
     let r = ((p0.r as u32 + p1.r as u32 * 3 + p2.r as u32 * 3 + p3.r as u32 + 4) >> 3) as u8;
     let g = ((p0.g as u32 + p1.g as u32 * 3 + p2.g as u32 * 3 + p3.g as u32 + 4) >> 3) as u8;
     let b = ((p0.b as u32 + p1.b as u32 * 3 + p2.b as u32 * 3 + p3.b as u32 + 4) >> 3) as u8;
@@ -681,30 +648,10 @@ mod tests {
     /// Test [1,3,3,1]/8 decimation weights.
     #[test]
     fn test_decimate_weighted() {
-        let p0 = PremulRgba8 {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        };
-        let p1 = PremulRgba8 {
-            r: 8,
-            g: 8,
-            b: 8,
-            a: 8,
-        };
-        let p2 = PremulRgba8 {
-            r: 8,
-            g: 8,
-            b: 8,
-            a: 8,
-        };
-        let p3 = PremulRgba8 {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        };
+        let p0 = PremulRgba8 { r: 0, g: 0, b: 0, a: 0 };
+        let p1 = PremulRgba8 { r: 8, g: 8, b: 8, a: 8 };
+        let p2 = PremulRgba8 { r: 8, g: 8, b: 8, a: 8 };
+        let p3 = PremulRgba8 { r: 0, g: 0, b: 0, a: 0 };
 
         // (0 + 3*8 + 3*8 + 0 + 4) / 8 = (48 + 4) / 8 = 52 / 8 = 6.5 → 6 (rounds down)
         let result = decimate_weighted(p0, p1, p2, p3);
@@ -717,12 +664,7 @@ mod tests {
     /// Test [1,3,3,1]/8 with all same values (should be identity).
     #[test]
     fn test_decimate_weighted_uniform() {
-        let p = PremulRgba8 {
-            r: 100,
-            g: 150,
-            b: 200,
-            a: 255,
-        };
+        let p = PremulRgba8 { r: 100, g: 150, b: 200, a: 255 };
         let result = decimate_weighted(p, p, p, p);
         // All same: (100 + 300 + 300 + 100 + 4) / 8 = 804/8 = 100.5 → 100 (rounds down)
         assert_eq!(result.r, 100);
@@ -734,18 +676,8 @@ mod tests {
     /// Test [0.25, 0.75] interpolation.
     #[test]
     fn test_interpolate_25_75() {
-        let p0 = PremulRgba8 {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        };
-        let p1 = PremulRgba8 {
-            r: 100,
-            g: 100,
-            b: 100,
-            a: 100,
-        };
+        let p0 = PremulRgba8 { r: 0, g: 0, b: 0, a: 0 };
+        let p1 = PremulRgba8 { r: 100, g: 100, b: 100, a: 100 };
 
         // (0 + 300 + 2) / 4 = 302 / 4 = 75.5 → 75 (rounds down)
         let result = interpolate_25_75(p0, p1);
@@ -758,18 +690,8 @@ mod tests {
     /// Test [0.75, 0.25] interpolation.
     #[test]
     fn test_interpolate_75_25() {
-        let p0 = PremulRgba8 {
-            r: 100,
-            g: 100,
-            b: 100,
-            a: 100,
-        };
-        let p1 = PremulRgba8 {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        };
+        let p0 = PremulRgba8 { r: 100, g: 100, b: 100, a: 100 };
+        let p1 = PremulRgba8 { r: 0, g: 0, b: 0, a: 0 };
 
         // (300 + 0 + 2) / 4 = 302 / 4 = 75.5 → 75 (rounds down)
         let result = interpolate_75_25(p0, p1);
@@ -782,18 +704,8 @@ mod tests {
     /// Test interpolation symmetry.
     #[test]
     fn test_interpolation_symmetry() {
-        let p0 = PremulRgba8 {
-            r: 50,
-            g: 100,
-            b: 150,
-            a: 200,
-        };
-        let p1 = PremulRgba8 {
-            r: 200,
-            g: 150,
-            b: 100,
-            a: 50,
-        };
+        let p0 = PremulRgba8 { r: 50, g: 100, b: 150, a: 200 };
+        let p1 = PremulRgba8 { r: 200, g: 150, b: 100, a: 50 };
 
         let r1 = interpolate_25_75(p0, p1);
         let r2 = interpolate_75_25(p1, p0);
@@ -839,16 +751,7 @@ mod tests {
             let mut scratch = Pixmap::new(32, 32);
             // One opaque row in the middle.
             for x in 0..32 {
-                pixmap.set_pixel(
-                    x,
-                    16,
-                    PremulRgba8 {
-                        r: 255,
-                        g: 0,
-                        b: 0,
-                        a: 255,
-                    },
-                );
+                pixmap.set_pixel(x, 16, PremulRgba8 { r: 255, g: 0, b: 0, a: 255 });
             }
 
             apply_blur(
@@ -879,26 +782,8 @@ mod tests {
     fn test_axis_blurs_are_transposes() {
         let mut horizontal = Pixmap::new(24, 24);
         let mut vertical = Pixmap::new(24, 24);
-        horizontal.set_pixel(
-            12,
-            12,
-            PremulRgba8 {
-                r: 255,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        );
-        vertical.set_pixel(
-            12,
-            12,
-            PremulRgba8 {
-                r: 255,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        );
+        horizontal.set_pixel(12, 12, PremulRgba8 { r: 255, g: 0, b: 0, a: 255 });
+        vertical.set_pixel(12, 12, PremulRgba8 { r: 255, g: 0, b: 0, a: 255 });
         let mut scratch = Pixmap::new(24, 24);
 
         let blur_x = GaussianBlur::new(4.0, 0.0, EdgeMode::None);
@@ -924,11 +809,7 @@ mod tests {
 
         for y in 0..24 {
             for x in 0..24 {
-                assert_eq!(
-                    horizontal.sample(x, y),
-                    vertical.sample(y, x),
-                    "at ({x}, {y})"
-                );
+                assert_eq!(horizontal.sample(x, y), vertical.sample(y, x), "at ({x}, {y})");
             }
         }
     }
@@ -940,16 +821,7 @@ mod tests {
         // Fill with white
         for y in 0..5 {
             for x in 0..5 {
-                pixmap.set_pixel(
-                    x,
-                    y,
-                    PremulRgba8 {
-                        r: 255,
-                        g: 255,
-                        b: 255,
-                        a: 255,
-                    },
-                );
+                pixmap.set_pixel(x, y, PremulRgba8 { r: 255, g: 255, b: 255, a: 255 });
             }
         }
 
@@ -975,12 +847,7 @@ mod tests {
         let mut src = Pixmap::new(5, 3);
         let mut dst = Pixmap::new(5, 3);
         // Fill with uniform gray
-        src.data_mut().fill(PremulRgba8 {
-            r: 128,
-            g: 128,
-            b: 128,
-            a: 255,
-        });
+        src.data_mut().fill(PremulRgba8 { r: 128, g: 128, b: 128, a: 255 });
 
         let (kernel, kernel_size) = compute_gaussian_kernel(1.0);
         convolve_x(
@@ -997,15 +864,7 @@ mod tests {
         for y in 0..3 {
             for x in 0..5 {
                 let pixel = dst.sample(x, y);
-                assert_eq!(
-                    pixel,
-                    PremulRgba8 {
-                        r: 128,
-                        g: 128,
-                        b: 128,
-                        a: 255,
-                    }
-                );
+                assert_eq!(pixel, PremulRgba8 { r: 128, g: 128, b: 128, a: 255 });
             }
         }
     }
@@ -1016,12 +875,7 @@ mod tests {
         let mut src = Pixmap::new(3, 5);
         let mut dst = Pixmap::new(3, 5);
         // Fill with uniform gray
-        src.data_mut().fill(PremulRgba8 {
-            r: 128,
-            g: 128,
-            b: 128,
-            a: 255,
-        });
+        src.data_mut().fill(PremulRgba8 { r: 128, g: 128, b: 128, a: 255 });
 
         let (kernel, kernel_size) = compute_gaussian_kernel(1.0);
         convolve_y(
@@ -1038,15 +892,7 @@ mod tests {
         for y in 0..5 {
             for x in 0..3 {
                 let pixel = dst.sample(x, y);
-                assert_eq!(
-                    pixel,
-                    PremulRgba8 {
-                        r: 128,
-                        g: 128,
-                        b: 128,
-                        a: 255,
-                    }
-                );
+                assert_eq!(pixel, PremulRgba8 { r: 128, g: 128, b: 128, a: 255 });
             }
         }
     }
@@ -1056,16 +902,7 @@ mod tests {
     fn test_convolve_identity_kernel() {
         let mut src = Pixmap::new(3, 3);
         let mut dst = Pixmap::new(3, 3);
-        src.set_pixel(
-            1,
-            1,
-            PremulRgba8 {
-                r: 255,
-                g: 100,
-                b: 50,
-                a: 200,
-            },
-        );
+        src.set_pixel(1, 1, PremulRgba8 { r: 255, g: 100, b: 50, a: 200 });
 
         let kernel = [1.0]; // Identity kernel
         convolve_x(&src, &mut dst, 3, 3, &kernel, 0, EdgeMode::None);
@@ -1099,36 +936,9 @@ mod tests {
     #[test]
     fn test_sample_x_at_boundaries() {
         let mut pixmap = Pixmap::new(3, 1);
-        pixmap.set_pixel(
-            0,
-            0,
-            PremulRgba8 {
-                r: 10,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        );
-        pixmap.set_pixel(
-            1,
-            0,
-            PremulRgba8 {
-                r: 20,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        );
-        pixmap.set_pixel(
-            2,
-            0,
-            PremulRgba8 {
-                r: 30,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        );
+        pixmap.set_pixel(0, 0, PremulRgba8 { r: 10, g: 0, b: 0, a: 255 });
+        pixmap.set_pixel(1, 0, PremulRgba8 { r: 20, g: 0, b: 0, a: 255 });
+        pixmap.set_pixel(2, 0, PremulRgba8 { r: 30, g: 0, b: 0, a: 255 });
 
         // Test left boundary with Duplicate
         let mut p = sample_x(&pixmap, -1, 0, 3, EdgeMode::Duplicate);
@@ -1147,36 +957,9 @@ mod tests {
     #[test]
     fn test_sample_y_at_boundaries() {
         let mut pixmap = Pixmap::new(1, 3);
-        pixmap.set_pixel(
-            0,
-            0,
-            PremulRgba8 {
-                r: 10,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        );
-        pixmap.set_pixel(
-            0,
-            1,
-            PremulRgba8 {
-                r: 20,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        );
-        pixmap.set_pixel(
-            0,
-            2,
-            PremulRgba8 {
-                r: 30,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        );
+        pixmap.set_pixel(0, 0, PremulRgba8 { r: 10, g: 0, b: 0, a: 255 });
+        pixmap.set_pixel(0, 1, PremulRgba8 { r: 20, g: 0, b: 0, a: 255 });
+        pixmap.set_pixel(0, 2, PremulRgba8 { r: 30, g: 0, b: 0, a: 255 });
 
         // Test top boundary with Duplicate
         let mut p = sample_y(&pixmap, 0, -1, 3, EdgeMode::Duplicate);
@@ -1197,12 +980,7 @@ mod tests {
         for sigma in [0.1, 0.5, 1.0, 2.0, 5.0, 10.0] {
             let (kernel, kernel_size) = compute_gaussian_kernel(sigma);
             let sum: f32 = kernel.iter().take(usize::from(kernel_size)).sum();
-            assert!(
-                (sum - 1.0).abs() < 1e-6,
-                "Kernel for σ={} not normalized: sum={}",
-                sigma,
-                sum
-            );
+            assert!((sum - 1.0).abs() < 1e-6, "Kernel for σ={} not normalized: sum={}", sigma, sum);
         }
     }
 
@@ -1211,12 +989,7 @@ mod tests {
     fn test_downscale_upscale_roundtrip() {
         let mut pixmap = Pixmap::new(8, 8);
         // Fill with a pattern
-        pixmap.data_mut().fill(PremulRgba8 {
-            r: 128,
-            g: 128,
-            b: 128,
-            a: 255,
-        });
+        pixmap.data_mut().fill(PremulRgba8 { r: 128, g: 128, b: 128, a: 255 });
 
         let (w1, h1) = downscale(&mut pixmap, 8, 8, EdgeMode::Duplicate);
         assert_eq!(w1, 4);
@@ -1231,16 +1004,7 @@ mod tests {
         let mut pixmap = Pixmap::new(width, height);
         for (y, row) in values.iter().enumerate() {
             for (x, &r) in row.iter().enumerate() {
-                pixmap.set_pixel(
-                    x as u16,
-                    y as u16,
-                    PremulRgba8 {
-                        r,
-                        g: 0,
-                        b: 0,
-                        a: 255,
-                    },
-                );
+                pixmap.set_pixel(x as u16, y as u16, PremulRgba8 { r, g: 0, b: 0, a: 255 });
             }
         }
         pixmap
@@ -1251,10 +1015,7 @@ mod tests {
             for (x, &want) in row.iter().enumerate() {
                 let got = pixmap.sample(x as u16, y as u16).r;
 
-                assert_eq!(
-                    got, want,
-                    "red mismatch at ({x}, {y}): got {got}, expected {want}"
-                );
+                assert_eq!(got, want, "red mismatch at ({x}, {y}): got {got}, expected {want}");
             }
         }
     }

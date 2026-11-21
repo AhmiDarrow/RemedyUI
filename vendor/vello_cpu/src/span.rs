@@ -26,11 +26,7 @@ impl Span {
     /// Panics if the aligned end cannot be represented in pixel coordinates.
     pub fn tile_aligned(self) -> TileAlignedSpan {
         let start = self.tile_x();
-        let count = if self.width == 0 {
-            0
-        } else {
-            self.tile_end() - start
-        };
+        let count = if self.width == 0 { 0 } else { self.tile_end() - start };
 
         TileAlignedSpan::from_tiles(start, count)
     }
@@ -143,10 +139,7 @@ impl TryFrom<Span> for TileAlignedSpan {
             return Err("tile span end overflow");
         }
 
-        Ok(Self::from_tiles(
-            span.x / Tile::WIDTH,
-            span.width / Tile::WIDTH,
-        ))
+        Ok(Self::from_tiles(span.x / Tile::WIDTH, span.width / Tile::WIDTH))
     }
 }
 
@@ -179,11 +172,9 @@ mod tests {
     #[test]
     fn try_from_preserves_aligned_bounds() {
         let max_aligned = u16::MAX / Tile::WIDTH * Tile::WIDTH;
-        for span in [
-            Span::new(Tile::WIDTH, 3 * Tile::WIDTH),
-            Span::new(0, max_aligned),
-            Span::new(max_aligned, 0),
-        ] {
+        for span in
+            [Span::new(Tile::WIDTH, 3 * Tile::WIDTH), Span::new(0, max_aligned), Span::new(max_aligned, 0)]
+        {
             assert_eq!(TileAlignedSpan::try_from(span).unwrap().as_span(), span);
         }
     }

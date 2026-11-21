@@ -1,8 +1,10 @@
-# vello_cpu 0.4.0, patched for RemedyUI
+# remedy-vello-cpu: RemedyUI's copy of vello_cpu 0.4.0
 
-This is the published `vello_cpu` 0.4.0 crate (Apache-2.0 OR MIT; see the license files) with
-one fix, used through `[patch.crates-io]` in the workspace `Cargo.toml`. The crate's examples,
-changelog and lockfile are left out; nothing else differs from the published crate.
+This is the published `vello_cpu` 0.4.0 crate (Apache-2.0 OR MIT; see the license files, and
+the upstream project at https://github.com/linebender/vello) with RemedyUI's fixes, published
+under its own name, `remedy-vello-cpu`. Its library is still called `vello_cpu`, so code uses it
+unchanged; `remedy-ui-render-cpu` depends on it by that name. The crate's examples, changelog
+and lockfile are left out; the fixes below are the only other differences.
 
 ## The fix
 
@@ -20,4 +22,4 @@ Covered by `shadows_thrown_off_the_top_or_left_edge_are_not_drawn` in
 `crates/remedy-ui-render-gpu/tests/filters.rs`. (The published crate's own tests need assets
 it does not ship, so they are not run here.)
 
-Drop this directory and the `[patch.crates-io]` entry once a vello_cpu release carries a fix.
+Upstream changes are taken in by hand, when RemedyUI chooses, with the fixes kept.

@@ -85,10 +85,7 @@ impl RowState {
     pub(super) fn push_buf(&mut self) {
         let push_cmd_idx = self.render_cmds.len();
         self.render_cmds.push(RenderCmd::PushBuf(None));
-        self.layer_stack.push(RowLayerState {
-            push_cmd_idx,
-            span: None,
-        });
+        self.layer_stack.push(RowLayerState { push_cmd_idx, span: None });
         self.layer_depth += 1;
     }
 
@@ -135,16 +132,8 @@ impl Clear for RowState {
 }
 
 fn debug_assert_tile_aligned(point: (u16, u16), description: &str) {
-    debug_assert_eq!(
-        point.0 % Tile::WIDTH,
-        0,
-        "{description} must be tile-width aligned",
-    );
-    debug_assert_eq!(
-        point.1 % Tile::HEIGHT,
-        0,
-        "{description} must be tile-height aligned",
-    );
+    debug_assert_eq!(point.0 % Tile::WIDTH, 0, "{description} must be tile-width aligned",);
+    debug_assert_eq!(point.1 % Tile::HEIGHT, 0, "{description} must be tile-height aligned",);
 }
 
 /// A bucketer that groups commands into strip-row-sized buckets.
@@ -298,14 +287,7 @@ impl CommandBucketer {
         debug_assert_tile_aligned(self.viewport_origin(), "viewport origin");
 
         for node in nodes {
-            for RecordedFill {
-                thread_idx,
-                strip_range,
-                paint,
-                blend_mode,
-                mask,
-            } in node.draws_in(draws)
-            {
+            for RecordedFill { thread_idx, strip_range, paint, blend_mode, mask } in node.draws_in(draws) {
                 let draw_id = self.next_draw_id();
                 let attrs = PaintFillAttrs {
                     paint: paint.clone(),
@@ -328,14 +310,7 @@ impl CommandBucketer {
                         self.push_layer(props);
                         // TODO: Avoid recursion to prevent stack overflows for deeply nested
                         // layers.
-                        self.bucket_commands(
-                            &layer.nodes,
-                            draws,
-                            layers,
-                            strips,
-                            encoded_paints,
-                            filter_ctx,
-                        );
+                        self.bucket_commands(&layer.nodes, draws, layers, strips, encoded_paints, filter_ctx);
                         self.pop_layer(strips);
                     }
                     RecordedLayerKind::Filter { placement, .. } => {
@@ -351,11 +326,7 @@ impl CommandBucketer {
                         // Note: At this point, we've already rasterized all dependent
                         // filter layers, so this should never fail.
                         if let Some(pixmap) = filter_ctx.filter_layer(id as usize) {
-                            self.generate_filter_layer_fill(
-                                pixmap,
-                                *placement,
-                                encoded_paints.len(),
-                            );
+                            self.generate_filter_layer_fill(pixmap, *placement, encoded_paints.len());
                         }
 
                         if needs_layer {
@@ -461,9 +432,8 @@ impl CommandBucketer {
                 clip_strips,
                 |bucketer, fill| {
                     if bucketer.occupied_rows_bool_scratch[fill.row_idx] {
-                        bucketer.rows[fill.row_idx].push_cmd(RenderCmd::LayerFill(LayerFill::new(
-                            fill.span, None, attrs_idx,
-                        )));
+                        bucketer.rows[fill.row_idx]
+                            .push_cmd(RenderCmd::LayerFill(LayerFill::new(fill.span, None, attrs_idx)));
                     }
                 },
                 |bucketer, fill| {
@@ -501,9 +471,7 @@ impl CommandBucketer {
 
                 // TODO: Instead of always pushing the full layer bbox across all rows, it
                 // would be nice to instead only emit the per-row bounding box.
-                row.push_cmd(RenderCmd::LayerFill(LayerFill::new(
-                    layer.span, None, attrs_idx,
-                )));
+                row.push_cmd(RenderCmd::LayerFill(LayerFill::new(layer.span, None, attrs_idx)));
                 row.pop_buf();
             }
 
@@ -625,12 +593,8 @@ impl CommandBucketer {
         );
     }
 
-    pub(crate) fn generate<F, A>(
-        &mut self,
-        strip_buf: &[Strip],
-        mut fill_cmd: F,
-        mut alpha_fill_cmd: A,
-    ) where
+    pub(crate) fn generate<F, A>(&mut self, strip_buf: &[Strip], mut fill_cmd: F, mut alpha_fill_cmd: A)
+    where
         F: FnMut(&mut Self, GeneratedFill),
         A: FnMut(&mut Self, GeneratedAlphaFill),
     {
@@ -722,9 +686,7 @@ impl CommandBucketer {
 
         let Some(draw_id) = draw_id else {
             // If depth-culling is disabled, we can just push it as a single contiguous command.
-            row.push_cmd(RenderCmd::PaintFill(PaintFill::new(
-                fill.span, None, attrs_idx,
-            )));
+            row.push_cmd(RenderCmd::PaintFill(PaintFill::new(fill.span, None, attrs_idx)));
 
             return;
         };
@@ -798,12 +760,7 @@ mod tests {
     }
 
     fn layer_props() -> LayerProps {
-        LayerProps {
-            blend_mode: BlendMode::default(),
-            opacity: 1.0,
-            mask: None,
-            clip_path: None,
-        }
+        LayerProps { blend_mode: BlendMode::default(), opacity: 1.0, mask: None, clip_path: None }
     }
 
     fn clipped_layer_props(bbox: RectU16) -> LayerProps {
@@ -811,50 +768,31 @@ mod tests {
             blend_mode: BlendMode::default(),
             opacity: 1.0,
             mask: None,
-            clip_path: Some(LayerClip {
-                strip_range: 0..0,
-                thread_idx: 0,
-                bbox,
-            }),
+            clip_path: Some(LayerClip { strip_range: 0..0, thread_idx: 0, bbox }),
         }
     }
 
     fn destructive_clipped_layer_props(bbox: RectU16) -> LayerProps {
-        LayerProps {
-            blend_mode: BlendMode::new(Mix::Normal, Compose::Clear),
-            ..clipped_layer_props(bbox)
-        }
+        LayerProps { blend_mode: BlendMode::new(Mix::Normal, Compose::Clear), ..clipped_layer_props(bbox) }
     }
 
-    fn clipped_layer_props_with_strips(
-        bbox: RectU16,
-        strip_range: core::ops::Range<usize>,
-    ) -> LayerProps {
+    fn clipped_layer_props_with_strips(bbox: RectU16, strip_range: core::ops::Range<usize>) -> LayerProps {
         LayerProps {
             blend_mode: BlendMode::default(),
             opacity: 1.0,
             mask: None,
-            clip_path: Some(LayerClip {
-                strip_range,
-                thread_idx: 0,
-                bbox,
-            }),
+            clip_path: Some(LayerClip { strip_range, thread_idx: 0, bbox }),
         }
     }
 
     fn count_layer_fills(cmds: &[RenderCmd]) -> usize {
-        cmds.iter()
-            .filter(|cmd| matches!(cmd, RenderCmd::LayerFill(_)))
-            .count()
+        cmds.iter().filter(|cmd| matches!(cmd, RenderCmd::LayerFill(_))).count()
     }
 
     #[test]
     fn opaque_fill_inside_layer_does_not_use_depth_write() {
         let mut bucketer = CommandBucketer::from_wh(DEPTH_BUCKET_WIDTH, 4);
-        let strips = [
-            Strip::new(0, 0, 0, false),
-            Strip::new(DEPTH_BUCKET_WIDTH, 0, 0, true),
-        ];
+        let strips = [Strip::new(0, 0, 0, false), Strip::new(DEPTH_BUCKET_WIDTH, 0, 0, true)];
 
         bucketer.push_layer(&layer_props());
         bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(RED))), &[]);
@@ -933,16 +871,9 @@ mod tests {
     #[test]
     fn non_opaque_fill_uses_regular_commands() {
         let mut bucketer = CommandBucketer::from_wh(DEPTH_BUCKET_WIDTH, 4);
-        let strips = [
-            Strip::new(0, 0, 0, false),
-            Strip::new(DEPTH_BUCKET_WIDTH, 0, 0, true),
-        ];
+        let strips = [Strip::new(0, 0, 0, false), Strip::new(DEPTH_BUCKET_WIDTH, 0, 0, true)];
 
-        bucketer.generate_fill(
-            &strips,
-            &fill_attrs(Paint::Solid(color(BLUE.with_alpha(0.5)))),
-            &[],
-        );
+        bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(BLUE.with_alpha(0.5)))), &[]);
 
         let row = &bucketer.rows()[0];
         assert_eq!(row.depth_cmds.len(), 0);
@@ -960,10 +891,7 @@ mod tests {
         bucketer.push_layer(&clipped_layer_props(RectU16::new(40, 32, 72, 96)));
 
         // A 32px-wide alpha strip at scene (40, 32) => local (8, 0), fully inside the clip.
-        let strips = [
-            Strip::new(40, 32, 0, false),
-            Strip::new(72, 32, 32 * u32::from(Tile::HEIGHT), false),
-        ];
+        let strips = [Strip::new(40, 32, 0, false), Strip::new(72, 32, 32 * u32::from(Tile::HEIGHT), false)];
         bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(RED))), &[]);
 
         let row = &bucketer.rows()[0];
@@ -998,10 +926,7 @@ mod tests {
         ];
 
         // Clip bbox in scene coordinates: (0, 0)..(16, 40) => local (0, 0)..(16, 8).
-        bucketer.push_layer(&clipped_layer_props_with_strips(
-            RectU16::new(0, 0, 16, 40),
-            2..6,
-        ));
+        bucketer.push_layer(&clipped_layer_props_with_strips(RectU16::new(0, 0, 16, 40), 2..6));
         bucketer.generate_fill(&strips[0..2], &fill_attrs(Paint::Solid(color(RED))), &[]);
         bucketer.pop_layer(&strips);
 

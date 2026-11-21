@@ -52,21 +52,11 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
         );
 
         let extend_x = |x_pos: f32x4<S>| {
-            extend_mode(
-                x_pos,
-                self.data.image.sampler.x_extend,
-                self.data.width,
-                self.data.width_inv,
-            )
+            extend_mode(x_pos, self.data.image.sampler.x_extend, self.data.width, self.data.width_inv)
         };
 
         let extend_y = |y_pos: f32x4<S>| {
-            extend_mode(
-                y_pos,
-                self.data.image.sampler.y_extend,
-                self.data.height,
-                self.data.height_inv,
-            )
+            extend_mode(y_pos, self.data.image.sampler.y_extend, self.data.height, self.data.height_inv)
         };
 
         let x_shifted = x_positions + 0.5;
@@ -74,14 +64,8 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
         let x_base = x_shifted.floor();
         let y_base = y_shifted.floor();
 
-        let fx = f32_to_u8(element_wise_splat(
-            self.simd,
-            (x_shifted - x_base).mul_add(255.0, 0.5),
-        ));
-        let fy = f32_to_u8(element_wise_splat(
-            self.simd,
-            (y_shifted - y_base).mul_add(255.0, 0.5),
-        ));
+        let fx = f32_to_u8(element_wise_splat(self.simd, (x_shifted - x_base).mul_add(255.0, 0.5)));
+        let fy = f32_to_u8(element_wise_splat(self.simd, (y_shifted - y_base).mul_add(255.0, 0.5)));
 
         let fx = widen(fx);
         let fy = widen(fy);
@@ -144,50 +128,23 @@ impl<'a, S: Simd> PlainBilinearImagePainter<'a, S> {
         let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
         // For axis-aligned images, y doesn't change across the strip
-        let y_positions = f32x4::splat_pos(
-            simd,
-            data.cur_pos.y as f32,
-            data.x_advances.1,
-            data.y_advances.1,
-        );
+        let y_positions = f32x4::splat_pos(simd, data.cur_pos.y as f32, data.x_advances.1, data.y_advances.1);
 
         let y_shifted = y_positions + 0.5;
         let y_base = y_shifted.floor();
 
         // Pre-compute y extend positions
-        let y_pos1 = extend_mode(
-            y_base - 1.0,
-            image.sampler.y_extend,
-            data.height,
-            data.height_inv,
-        );
+        let y_pos1 = extend_mode(y_base - 1.0, image.sampler.y_extend, data.height, data.height_inv);
         let y_pos2 = extend_mode(y_base, image.sampler.y_extend, data.height, data.height_inv);
 
         // Pre-compute y interpolation weights
-        let fy = f32_to_u8(element_wise_splat(
-            simd,
-            (y_shifted - y_base).mul_add(255.0, 0.5),
-        ));
+        let fy = f32_to_u8(element_wise_splat(simd, (y_shifted - y_base).mul_add(255.0, 0.5)));
         let fy = widen(fy);
         let fy_inv = u16x16::splat(simd, 255) - fy;
 
-        let cur_x_pos = f32x4::splat_pos(
-            simd,
-            data.cur_pos.x as f32,
-            data.x_advances.0,
-            data.y_advances.0,
-        );
+        let cur_x_pos = f32x4::splat_pos(simd, data.cur_pos.x as f32, data.x_advances.0, data.y_advances.0);
 
-        Self {
-            data,
-            y_pos1,
-            y_pos2,
-            fy,
-            fy_inv,
-            cur_x_pos,
-            advance: image.x_advance.x as f32,
-            simd,
-        }
+        Self { data, y_pos1, y_pos2, fy, fy_inv, cur_x_pos, advance: image.x_advance.x as f32, simd }
     }
 }
 
@@ -200,24 +157,13 @@ impl<S: Simd> Iterator for PlainBilinearImagePainter<'_, S> {
         let x_base = x_shifted.floor();
 
         // Only x needs to be extended per-iteration
-        let x_pos1 = extend_mode(
-            x_base - 1.0,
-            self.data.image.sampler.x_extend,
-            self.data.width,
-            self.data.width_inv,
-        );
-        let x_pos2 = extend_mode(
-            x_base,
-            self.data.image.sampler.x_extend,
-            self.data.width,
-            self.data.width_inv,
-        );
+        let x_pos1 =
+            extend_mode(x_base - 1.0, self.data.image.sampler.x_extend, self.data.width, self.data.width_inv);
+        let x_pos2 =
+            extend_mode(x_base, self.data.image.sampler.x_extend, self.data.width, self.data.width_inv);
 
         // Compute x interpolation weights
-        let fx = f32_to_u8(element_wise_splat(
-            self.simd,
-            (x_shifted - x_base).mul_add(255.0, 0.5),
-        ));
+        let fx = f32_to_u8(element_wise_splat(self.simd, (x_shifted - x_base).mul_add(255.0, 0.5)));
         let fx = widen(fx);
         let fx_inv = u16x16::splat(self.simd, 255) - fx;
 

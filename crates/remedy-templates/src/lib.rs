@@ -136,26 +136,7 @@ impl Dependency {
             format!("{{ {src}, features = [{features}] }}")
         }
     }
-
-    /// The engine's `[patch.crates-io]` for the app, which builds outside the engine's
-    /// workspace: vendored crates from the checkout or the repository.
-    fn patch(&self) -> String {
-        let vendored = match self {
-            Dependency::Git(url) => format!("{{ git = \"{url}\" }}"),
-            Dependency::Path(root) => {
-                let p = root.join("vendor").join("vello_cpu").display().to_string();
-                let p = p.strip_prefix(r"\\?\").unwrap_or(&p);
-                format!("{{ path = \"{}\" }}", p.replace('\\', "/"))
-            }
-        };
-        PATCH.replace("{ path = \"vendor/vello_cpu\" }", &vendored)
-    }
 }
-
-/// The workspace's `[patch.crates-io]` lines, which every app needs until the patched crate is
-/// released: the vendored `vello_cpu`. A test keeps it equal to the workspace's.
-const PATCH: &str = r#"vello_cpu = { path = "vendor/vello_cpu" }
-"#;
 
 /// `my-app` → `My App`.
 pub fn title(name: &str) -> String {
@@ -208,10 +189,8 @@ pub fn generate(
     } else {
         format!("{packs}, \"headless\", \"devtools\"")
     };
-    let mut cargo = fill(CARGO)
-        .replace("{{remedy}}", &remedy.spec(packs))
-        .replace("{{remedy_dev}}", &remedy.spec(&dev))
-        .replace("{{patch}}", &remedy.patch());
+    let mut cargo =
+        fill(CARGO).replace("{{remedy}}", &remedy.spec(packs)).replace("{{remedy_dev}}", &remedy.spec(&dev));
     let mut remedy_toml = fill(REMEDY_TOML);
     if template == "android" {
         cargo =
@@ -287,10 +266,7 @@ opt-level = "s"
 codegen-units = 1
 strip = true
 panic = "abort"
-
-# The engine's patched crates (the app builds outside its workspace).
-[patch.crates-io]
-{{patch}}"#;
+"#;
 
 const MAIN: &str = r#"//! {{title}}.
 
@@ -678,20 +654,12 @@ mod tests {
     }
 
     #[test]
-    fn apps_carry_the_workspace_patches() {
+    fn the_engine_patches_nothing_apps_would_miss() {
+        // An app builds outside the engine's workspace and never sees its [patch] section: the
+        // engine's own copies of crates are dependencies of their own (remedy-vello-cpu).
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let ws = std::fs::read_to_string(root.join("Cargo.toml")).unwrap_or_default();
-        assert!(ws.contains(&format!("[patch.crates-io]\n{PATCH}")), "PATCH differs from the workspace's");
-        let cargo = |dep: &Dependency| {
-            let files = generate("my-notes", "basic", dep).unwrap_or_else(|e| unreachable!("{e}"));
-            let found = files.into_iter().find(|(p, _)| p == Path::new("Cargo.toml"));
-            String::from_utf8(found.map(|f| f.1).unwrap_or_default()).unwrap_or_default()
-        };
-        let git = cargo(&Dependency::Git(REPOSITORY.to_owned()));
-        assert!(git.contains(&format!("vello_cpu = {{ git = \"{REPOSITORY}\" }}")), "{git}");
-        let path = cargo(&Dependency::Path(PathBuf::from("/src/remedy")));
-        assert!(path.contains("vello_cpu = { path = \"/src/remedy/vendor/vello_cpu\" }"), "{path}");
-        assert!(!path.contains("AhmiDarrow/wgpu"), "no wgpu fork: {path}");
+        assert!(!ws.is_empty() && !ws.contains("[patch"), "the workspace patches crates apps would not get");
     }
 
     #[test]

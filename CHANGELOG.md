@@ -10,6 +10,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **GPU windows present only what changed, on unmodified wgpu.** On D3D12 and Vulkan a window
+  presents through a swapchain of RemedyUI's own on wgpu's device: its images keep what they
+  showed, each present copies in only what changed since that image was shown and tells the
+  system only those rectangles (DXGI dirty rectangles; `VK_KHR_incremental_present` where the
+  device has it, which the Vulkan device is now opened with). Measured on an RTX 3080 against
+  the earlier patched wgpu: about 10% less time a frame on Vulkan, level or better on D3D12.
+  `present_cost` (run by hand) measures it.
 - **The rest of the desktop services** (`remedy-ui-services-desktop`, `remedy_ui::desktop`
   behind the new `desktop` feature):
   - **App badges** in the host contract (`Badge::Count`/`Badge::Dot`, `Host::set_badge`,
@@ -565,6 +572,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- **No patched crates.** wgpu is crates.io's 30.0.2 again (the fork is gone), and vello_cpu
+  with RemedyUI's fix is its own crate, `remedy-vello-cpu`, which `render-cpu` depends on. The
+  workspace patches nothing, so apps from `cargo remedy new` need no `[patch]` section, and
+  `cargo deny` allows no git source.
 - **`Surface` and `CompositeTarget` gain `size` and `color_matrix_group`** (required): what
   draws a colour-matrix group's picture. Only a custom renderer implements these traits; it
   renders what the callback draws into a picture of its own, runs

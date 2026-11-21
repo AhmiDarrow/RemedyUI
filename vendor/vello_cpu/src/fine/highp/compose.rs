@@ -84,9 +84,7 @@ macro_rules! compose {
                 let fb = $fb(simd, al_s, al_b);
 
                 if $sat {
-                    (src_c * fa + fb * bg_c)
-                        .min(f32x16::splat(simd, 1.0))
-                        .max(f32x16::splat(simd, 0.0))
+                    (src_c * fa + fb * bg_c).min(f32x16::splat(simd, 1.0)).max(f32x16::splat(simd, 0.0))
                 } else {
                     src_c * fa + fb * bg_c
                 }
@@ -95,81 +93,16 @@ macro_rules! compose {
     };
 }
 
-compose!(
-    Clear,
-    |simd, _, _| f32x16::splat(simd, 0.0),
-    |simd, _, _| f32x16::splat(simd, 0.0),
-    false
-);
-compose!(
-    Copy,
-    |simd, _, _| f32x16::splat(simd, 1.0),
-    |simd, _, _| f32x16::splat(simd, 0.0),
-    false
-);
-compose!(
-    SrcOver,
-    |simd, _, _| f32x16::splat(simd, 1.0),
-    |_, al_s: f32x16<S>, _| 1.0 - al_s,
-    false
-);
-compose!(
-    DestOver,
-    |_, _, al_b: f32x16<S>| 1.0 - al_b,
-    |simd, _, _| f32x16::splat(simd, 1.0),
-    false
-);
-compose!(
-    Dest,
-    |simd, _, _| f32x16::splat(simd, 0.0),
-    |simd, _, _| f32x16::splat(simd, 1.0),
-    false
-);
-compose!(
-    Xor,
-    |_, _, al_b: f32x16<S>| 1.0 - al_b,
-    |_, al_s: f32x16<S>, _| 1.0 - al_s,
-    false
-);
-compose!(
-    SrcIn,
-    |_, _, al_b: f32x16<S>| al_b,
-    |simd, _, _| f32x16::splat(simd, 0.0),
-    false
-);
-compose!(
-    DestIn,
-    |simd, _, _| f32x16::splat(simd, 0.0),
-    |_, al_s: f32x16<S>, _| al_s,
-    false
-);
-compose!(
-    SrcOut,
-    |_, _, al_b: f32x16<S>| 1.0 - al_b,
-    |simd, _, _| f32x16::splat(simd, 0.0),
-    false
-);
-compose!(
-    DestOut,
-    |simd, _, _| f32x16::splat(simd, 0.0),
-    |_, al_s: f32x16<S>, _| 1.0 - al_s,
-    false
-);
-compose!(
-    SrcAtop,
-    |_, _, al_b: f32x16<S>| al_b,
-    |_, al_s: f32x16<S>, _| 1.0 - al_s,
-    false
-);
-compose!(
-    DestAtop,
-    |_, _, al_b: f32x16<S>| 1.0 - al_b,
-    |_, al_s: f32x16<S>, _| al_s,
-    false
-);
-compose!(
-    Plus,
-    |simd, _, _| f32x16::splat(simd, 1.0),
-    |simd, _, _| f32x16::splat(simd, 1.0),
-    true
-);
+compose!(Clear, |simd, _, _| f32x16::splat(simd, 0.0), |simd, _, _| f32x16::splat(simd, 0.0), false);
+compose!(Copy, |simd, _, _| f32x16::splat(simd, 1.0), |simd, _, _| f32x16::splat(simd, 0.0), false);
+compose!(SrcOver, |simd, _, _| f32x16::splat(simd, 1.0), |_, al_s: f32x16<S>, _| 1.0 - al_s, false);
+compose!(DestOver, |_, _, al_b: f32x16<S>| 1.0 - al_b, |simd, _, _| f32x16::splat(simd, 1.0), false);
+compose!(Dest, |simd, _, _| f32x16::splat(simd, 0.0), |simd, _, _| f32x16::splat(simd, 1.0), false);
+compose!(Xor, |_, _, al_b: f32x16<S>| 1.0 - al_b, |_, al_s: f32x16<S>, _| 1.0 - al_s, false);
+compose!(SrcIn, |_, _, al_b: f32x16<S>| al_b, |simd, _, _| f32x16::splat(simd, 0.0), false);
+compose!(DestIn, |simd, _, _| f32x16::splat(simd, 0.0), |_, al_s: f32x16<S>, _| al_s, false);
+compose!(SrcOut, |_, _, al_b: f32x16<S>| 1.0 - al_b, |simd, _, _| f32x16::splat(simd, 0.0), false);
+compose!(DestOut, |simd, _, _| f32x16::splat(simd, 0.0), |_, al_s: f32x16<S>, _| 1.0 - al_s, false);
+compose!(SrcAtop, |_, _, al_b: f32x16<S>| al_b, |_, al_s: f32x16<S>, _| 1.0 - al_s, false);
+compose!(DestAtop, |_, _, al_b: f32x16<S>| 1.0 - al_b, |_, al_s: f32x16<S>, _| al_s, false);
+compose!(Plus, |simd, _, _| f32x16::splat(simd, 1.0), |simd, _, _| f32x16::splat(simd, 1.0), true);

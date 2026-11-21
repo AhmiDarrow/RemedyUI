@@ -27,27 +27,14 @@ impl<'a> Region<'a> {
         Self::new_from_row(pixmap, rect, 0)
     }
 
-    pub(crate) fn new_from_row(
-        pixmap: &'a mut PixmapMut<'_>,
-        rect: RectU16,
-        row_idx: usize,
-    ) -> Self {
+    pub(crate) fn new_from_row(pixmap: &'a mut PixmapMut<'_>, rect: RectU16, row_idx: usize) -> Self {
         let width = rect.width();
         let height = rect.height().min(Tile::HEIGHT);
         let row_stride = usize::from(pixmap.width()) * COLOR_COMPONENTS;
         let start_offset = usize::from(rect.y0) * row_stride;
         let x_offset_bytes = usize::from(rect.x0) * COLOR_COMPONENTS;
         let buffer = pixmap.data_mut();
-        Self::from_rows(
-            row_idx,
-            0,
-            0,
-            width,
-            height,
-            row_stride,
-            x_offset_bytes,
-            &mut buffer[start_offset..],
-        )
+        Self::from_rows(row_idx, 0, 0, width, height, row_stride, x_offset_bytes, &mut buffer[start_offset..])
     }
 
     pub(crate) fn row_mut(&mut self, y: u16) -> &mut [u8] {
@@ -111,11 +98,7 @@ impl<'a> Region<'a> {
         let row_width_bytes = usize::from(width) * COLOR_COMPONENTS;
         let mut areas: [&mut [u8]; Tile::HEIGHT as usize] = [&mut [], &mut [], &mut [], &mut []];
 
-        for area in areas
-            .iter_mut()
-            .skip(usize::from(tile_y_start))
-            .take(usize::from(height))
-        {
+        for area in areas.iter_mut().skip(usize::from(tile_y_start)).take(usize::from(height)) {
             let (row, rest) = rows.split_at_mut(row_stride);
             let (_, row) = row.split_at_mut(x_offset_bytes);
             let (row, _) = row.split_at_mut(row_width_bytes);
@@ -123,14 +106,7 @@ impl<'a> Region<'a> {
             rows = rest;
         }
 
-        Self {
-            row_idx,
-            scene_x0,
-            tile_y_start,
-            width,
-            height,
-            areas,
-        }
+        Self { row_idx, scene_x0, tile_y_start, width, height, areas }
     }
 }
 
@@ -154,17 +130,14 @@ impl<'a> Regions<'a> {
             SizeU16::from_wh(target.width(), target.height()),
             offset,
         ) else {
-            return Self {
-                regions: Vec::new(),
-            };
+            return Self { regions: Vec::new() };
         };
 
         let first_row_idx = visible.y0 / Tile::HEIGHT;
         let last_row_idx = (visible.y1 - 1) / Tile::HEIGHT;
 
         let stride = usize::from(target.width()) * COLOR_COMPONENTS;
-        let x_offset_bytes =
-            usize::try_from(i32::from(visible.x0) + dst_x).unwrap() * COLOR_COMPONENTS;
+        let x_offset_bytes = usize::try_from(i32::from(visible.x0) + dst_x).unwrap() * COLOR_COMPONENTS;
         let render_bytes = usize::from(visible.height()) * stride;
         let target_y0 = usize::try_from(i32::from(visible.y0) + dst_y).unwrap();
         let target = target.data_mut();
@@ -173,9 +146,7 @@ impl<'a> Regions<'a> {
 
         for row_idx in first_row_idx..=last_row_idx {
             let band_y0 = (row_idx * Tile::HEIGHT).max(visible.y0);
-            let band_y1 = (row_idx * Tile::HEIGHT)
-                .saturating_add(Tile::HEIGHT)
-                .min(visible.y1);
+            let band_y1 = (row_idx * Tile::HEIGHT).saturating_add(Tile::HEIGHT).min(visible.y1);
             let band_height = band_y1 - band_y0;
             let (buffer, rest) = remaining.split_at_mut(usize::from(band_height) * stride);
             regions.push(Region::from_rows(
@@ -213,14 +184,7 @@ mod tests {
 
     #[test]
     fn regions_with_off_target_offsets_do_not_panic() {
-        for offset in [
-            (20, 0),
-            (0, 20),
-            (-20, 0),
-            (0, -20),
-            (i32::MIN, i32::MIN),
-            (i32::MAX, i32::MAX),
-        ] {
+        for offset in [(20, 0), (0, 20), (-20, 0), (0, -20), (i32::MIN, i32::MIN), (i32::MAX, i32::MAX)] {
             let mut pixmap = Pixmap::new(10, 10);
             let mut pixmap = pixmap.as_mut();
             let _regions = Regions::new(&mut pixmap, (4, 4), offset, 1);

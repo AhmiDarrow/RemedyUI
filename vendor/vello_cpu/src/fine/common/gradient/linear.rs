@@ -14,9 +14,7 @@ pub(crate) struct SimdLinearKind<S: Simd> {
 
 impl<S: Simd> SimdLinearKind<S> {
     pub(crate) fn new(_: S, _: LinearKind) -> Self {
-        Self {
-            phantom_data: PhantomData,
-        }
+        Self { phantom_data: PhantomData }
     }
 }
 
