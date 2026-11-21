@@ -4654,6 +4654,8 @@ name = "remedy-ui-render-gpu"
 version = "1.0.0-rc.1"
 dependencies = [
  "ash",
+ "glow",
+ "js-sys",
  "raw-window-handle",
  "remedy-ui-bridge-windows",
  "remedy-ui-bridge-winit",
@@ -4669,7 +4671,9 @@ dependencies = [
  "remedy-ui-text",
  "remedy-ui-trace",
  "vello_gpu",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
+ "web-sys",
  "wgpu",
  "windows",
 ]
