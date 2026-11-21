@@ -138,7 +138,12 @@ impl Decoder for Dec {
     fn read(&mut self) -> Result<Option<Sample>, MediaError> {
         self.n += 1;
         let mut at = Duration::from_millis(self.n * 100);
-        let cue = |at: Duration, text: String| Sample::Text { track: 0, at, until: at + Duration::from_millis(5), text };
+        let cue = |at: Duration, text: String| Sample::Text {
+            track: 0,
+            at,
+            until: at + Duration::from_millis(5),
+            text,
+        };
         match self.script {
             Script::SlowRead => std::thread::sleep(Duration::from_millis(50)),
             Script::ReadFails if self.n == 3 => return Err(MediaError::Decode("scripted failure".into())),
@@ -264,7 +269,9 @@ fn captions_in_a_stream_keep_a_window_of_the_latest() {
         p.play();
         let cues = || p.subtitle_tracks().into_iter().flat_map(|t| t.cues).collect::<Vec<_>>();
         // Past 16 MB of captions, the earliest go and playback goes on.
-        wait("the earliest cues dropped", || cues().first().is_some_and(|c| c.start > Duration::from_secs(1)));
+        wait("the earliest cues dropped", || {
+            cues().first().is_some_and(|c| c.start > Duration::from_secs(1))
+        });
         let kept = cues();
         let bytes: usize = kept.iter().map(|c| c.text.len()).sum();
         assert!(bytes <= 16 << 20, "{bytes} bytes of cues kept");

@@ -14,7 +14,9 @@ use remedy_ui_view::{El, Ui};
 
 use crate::engine::{self, Cmd, PlaybackState, PlaybackStats, Shared, lock};
 use crate::host::{MediaError, MediaHost, MediaInfo, MediaSource};
-use crate::subtitles::{\n    SubtitleFormat, SubtitleTrack, add_streamed_cues, cue_reach, parse_subtitles, read_subtitle_file,\n};
+use crate::subtitles::{
+    SubtitleFormat, SubtitleTrack, add_streamed_cues, cue_reach, parse_subtitles, read_subtitle_file,
+};
 
 /// What a player does while it cannot be seen (scrolled away, hidden, its window minimized
 /// or covered).
