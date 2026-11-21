@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs the isolated-decoding tests (tests/isolated.rs) on the Android device or emulator adb
 # sees, inside an app whose helpers are the bridge's isolated decoding service: builds
-# examples/android-isolated-check.rs, packages it with the bridge's dex (the service) and an
+# examples/android-isolated-check/, packages it with the bridge's dex (the service) and an
 # instrumentation (tools/IsolatedCheck.java), installs it, runs it, prints the report and
 # uninstalls it. No Gradle, as tools/build-apk.sh in the Android bridge.
 #

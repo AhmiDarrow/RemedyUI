@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Plays HLS over https on the Android device or emulator adb sees, inside app_process (a real
-# Java VM, which the https fetch goes through): builds examples/android-hls-check.rs, compiles
+# Java VM, which the https fetch goes through): builds examples/android-hls-check/, compiles
 # tools/HlsCheck.java (a local https server with a self-signed certificate it trusts), pushes
 # them with tests/fixtures/hls/aac, runs it and prints the report. No APK, no Gradle.
 #

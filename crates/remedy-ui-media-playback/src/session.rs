@@ -62,6 +62,16 @@ fn press(c: MediaCommand) -> Option<Press> {
     })
 }
 
+/// Does what the controls asked of `p`: a button, or the volume (MPRIS).
+fn handle(p: &Player, c: MediaCommand) {
+    if let MediaCommand::SetVolume(v) = c {
+        #[allow(clippy::cast_possible_truncation, reason = "a volume, 0 to 1")]
+        p.set_volume(v as f32);
+    } else if let Some(m) = press(c) {
+        apply(p, m);
+    }
+}
+
 fn media_state(s: PlaybackState) -> MediaState {
     match s {
         PlaybackState::Playing | PlaybackState::Buffering => MediaState::Playing,
@@ -94,7 +104,7 @@ impl Player {
     /// remote mode, the device's). The controls' buttons, the keyboard's media keys wherever
     /// focus is, and headsets come back to the player (in remote mode, to the device).
     /// Again with `Some` changes what shows; `None` leaves the controls. Where the system has
-    /// no media controls (Linux, macOS and Android for now), says
+    /// no media controls (macOS for now), says
     /// [`DesktopError::Unsupported`]; the player's own media keys still work.
     pub fn now_playing(&self, now: Option<NowPlaying>) -> Result<(), DesktopError> {
         let id = self.id();
@@ -111,8 +121,8 @@ impl Player {
             remedy_ui_reactive::waker().map_err(|e| DesktopError::Platform { reason: e.to_string() })?;
         let session = MediaSession::new(move |c| {
             let _ = waker.post(move || {
-                if let (Some(p), Some(m)) = (Player::by_id(id), press(c)) {
-                    apply(&p, m);
+                if let Some(p) = Player::by_id(id) {
+                    handle(&p, c);
                 }
             });
         })?;
@@ -127,6 +137,7 @@ impl Player {
         let s = sink.clone();
         let shown: Cell<Option<Shown>> = Cell::new(None);
         let next: Cell<Option<bool>> = Cell::new(None);
+        let volume: Cell<Option<f32>> = Cell::new(None);
         let ((), scope) = Scope::detached(|| {
             let _ = Effect::new(move || {
                 let Some(p) = Player::by_id(id) else { return };
@@ -139,6 +150,10 @@ impl Player {
                 let can = p.is_remote() || p.next_up().is_some();
                 if next.replace(Some(can)) != Some(can) {
                     s.set_can_next(can);
+                }
+                let v = p.volume();
+                if volume.replace(Some(v)) != Some(v) {
+                    s.set_volume(f64::from(v));
                 }
             });
         });
@@ -192,6 +207,9 @@ mod tests {
         fn set_can_next(&self, can: bool) {
             self.0.borrow_mut().push(format!("next {can}"));
         }
+        fn set_volume(&self, volume: f64) {
+            self.0.borrow_mut().push(format!("volume {volume}"));
+        }
     }
 
     struct Tv(Rc<RefCell<Vec<String>>>);
@@ -234,7 +252,7 @@ mod tests {
         let seen = Rc::new(RefCell::new(Vec::new()));
         p.mirror_to(Rc::new(Fake(seen.clone())), &NowPlaying::new("The Ris").subtitle("S1 E3"));
         frame();
-        assert_eq!(*seen.borrow(), ["now The Ris", "Paused 30 Some(100)", "next true"]);
+        assert_eq!(*seen.borrow(), ["now The Ris", "Paused 30 Some(100)", "next true", "volume 1"]);
 
         p.set_remote_status(crate::RemoteStatus::new(PlaybackState::Playing, s(30)).length(s(100)));
         frame();
@@ -245,6 +263,12 @@ mod tests {
             assert!(press(c).is_some_and(|m| apply(&p, m)));
         }
         assert_eq!(*tv.borrow(), ["pause", "seek 50", "next"]);
+
+        // The controls' volume (MPRIS) sets the player's, and the controls hear it back.
+        handle(&p, MediaCommand::SetVolume(0.5));
+        frame();
+        assert!((p.volume() - 0.5).abs() < 1e-6);
+        assert_eq!(seen.borrow().last().map(String::as_str), Some("volume 0.5"));
 
         assert!(p.now_playing(None).is_ok());
         assert_eq!(seen.borrow().last().map(String::as_str), Some("now none"), "left the controls");
