@@ -106,11 +106,29 @@ struct Run {
     asked: Arc<Mutex<Vec<String>>>,
 }
 
+thread_local! {
+    /// How long this test's clock has waited (each test runs on a thread of its own).
+    static WAITED: std::cell::Cell<Duration> = const { std::cell::Cell::new(Duration::ZERO) };
+}
+
+/// A clock that only moves when waited on: the tests do not wait.
+fn fake_now() -> std::time::Instant {
+    static BASE: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    *BASE.get_or_init(std::time::Instant::now) + WAITED.get()
+}
+
+/// Lets `d` pass on the tests' clock.
+fn pass(d: Duration) {
+    WAITED.set(WAITED.get() + d);
+}
+
+const CLOCK: Clock = Clock { now: fake_now, sleep: pass };
+
 fn start(dir: &str, mem: Mem) -> Result<Run, MediaError> {
     let es = Echo::default();
     let units = es.units.clone();
     let asked = mem.asked.clone();
-    let dec = open_with(&format!("{ROOT}{dir}/index.m3u8"), Box::new(mem), Box::new(es), |_| {})?;
+    let dec = open_with(&format!("{ROOT}{dir}/index.m3u8"), Box::new(mem), Box::new(es), CLOCK)?;
     Ok(Run { dec, units, asked })
 }
 
@@ -183,7 +201,7 @@ fn the_decoders_are_set_up_from_the_first_segment() {
     let es = Echo::default();
     let configured = es.configured.clone();
     let url = format!("{ROOT}aac/index.m3u8");
-    let opened = open_with(&url, Box::new(Mem::of("aac", None)), Box::new(es), |_| {});
+    let opened = open_with(&url, Box::new(Mem::of("aac", None)), Box::new(es), CLOCK);
     assert!(opened.is_ok());
     let Some((Some(v), Some(a))) = lock(&configured).clone() else { unreachable!("both set up") };
     assert!(v.codec.starts_with("avc1.64"));
@@ -347,6 +365,85 @@ fn only_a_few_segments_are_fetched_ahead() {
     }
     assert_eq!(fetched, AHEAD + 1, "the one being read and those ahead");
     assert!(!hls.ended());
+}
+
+/// An event playlist of the `aac` fixture's segments that lists one more each version, the
+/// last with its end; its URL.
+fn growing(mem: &mut Mem) -> String {
+    let head = "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:EVENT\n";
+    let seg = |i: u32| format!("#EXTINF:1.000000,\nseg0000{i}.ts\n");
+    let v1 = format!("{head}{}", seg(0));
+    let v2 = format!("{head}{}{}", seg(0), seg(1));
+    let v3 = format!("{head}{}{}{}#EXT-X-ENDLIST\n", seg(0), seg(1), seg(2));
+    let url = format!("{ROOT}aac/index.m3u8");
+    mem.versions.insert(url.clone(), vec![v1, v2, v3]);
+    url
+}
+
+#[test]
+fn a_growing_playlist_is_asked_again_while_nothing_is_read() {
+    let mut mem = Mem::of("aac", None);
+    let url = growing(&mut mem);
+    let Ok(mut r) = start("aac", mem) else { unreachable!("opens") };
+    let length = |r: &mut Run| {
+        r.dec.buffered();
+        (r.dec.info().duration, r.dec.info().growing)
+    };
+    assert_eq!(length(&mut r), (Some(ms(1000)), true), "not due yet: not asked again");
+    // Asked again every target duration (half of one near the end), nothing read meanwhile.
+    pass(ms(1000));
+    assert_eq!(length(&mut r), (Some(ms(2000)), true));
+    pass(ms(1000));
+    assert_eq!(length(&mut r), (Some(ms(3000)), false), "ended: the length is final");
+    pass(ms(5000));
+    length(&mut r);
+    assert_eq!(lock(&r.asked).iter().filter(|u| **u == url).count(), 3, "not asked once ended");
+}
+
+#[test]
+fn a_seek_past_the_end_so_far_waits_for_the_playlist_to_reach_it() {
+    let mut mem = Mem::of("aac", None);
+    growing(&mut mem);
+    let Ok(mut r) = start("aac", mem) else { unreachable!("opens") };
+    assert!(r.dec.seek(ms(2500)).is_ok());
+    // Waiting for the playlist does not block: one slice, then the caller asks again.
+    let polled = r.dec.poll_read(&mut Context::from_waker(std::task::Waker::noop()));
+    assert!(polled.is_pending());
+    lock(&r.units).clear();
+    let Ok(samples) = read_all(&mut r.dec) else { unreachable!("plays on") };
+    let first_video = samples.iter().find(|s| s.0).map(|s| s.1);
+    assert!(first_video.is_some_and(|t| t >= ms(1990) && t <= ms(2100)), "from 2 s: {first_video:?}");
+    assert_eq!(times(&lock(&r.units)).0.len(), 25, "only the third segment");
+}
+
+#[test]
+fn a_seek_past_the_end_of_an_ended_playlist_starts_at_the_last_segment() {
+    let mut r = run("aac");
+    assert!(!r.dec.info().growing);
+    assert!(r.dec.seek(ms(60_000)).is_ok());
+    lock(&r.units).clear();
+    assert!(read_all(&mut r.dec).is_ok());
+    let (video, _) = times(&lock(&r.units));
+    assert_eq!(video.len(), 25);
+    // Decoding times run a little before the segment's start (pictures reordered).
+    assert!(video[0].0 >= ms(1900) && video[0].1, "the third segment's key frame: {:?}", video[0]);
+}
+
+#[test]
+fn a_growing_playlist_is_asked_again_far_from_its_end() {
+    let text = format!(
+        "#EXTM3U\n#EXT-X-TARGETDURATION:4\n{}",
+        (0..10).map(|_| "#EXTINF:4,\nseg00000.ts\n").collect::<String>()
+    );
+    let mut hls = Hls::new(&format!("{ROOT}aac/index.m3u8"));
+    let seg = fixture("aac/seg00000.ts");
+    while let Some(w) = hls.wanted().filter(|w| w.kind != WantKind::Playlist || !hls.loaded) {
+        let data = if w.kind == WantKind::Playlist { text.as_bytes().to_vec() } else { seg.clone() };
+        assert!(hls.deliver(&w, Ok(data)).is_ok());
+    }
+    // The segments ahead are fetched; the playlist is still asked for, a target duration on.
+    let w = hls.wanted();
+    assert_eq!(w.map(|w| (w.kind, w.after)), Some((WantKind::Playlist, Duration::from_secs(4))));
 }
 
 #[test]

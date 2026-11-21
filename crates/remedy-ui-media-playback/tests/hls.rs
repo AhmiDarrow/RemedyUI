@@ -205,6 +205,60 @@ fn plays_a_growing_playlist() {
     assert!(pictures.last().is_some_and(|t| *t > Duration::from_millis(2900)), "last {:?}", pictures.last());
 }
 
+/// Takes what the player's workers posted until `ok` holds, failing after a while.
+fn wait_for(what: &str, ok: impl Fn() -> bool) {
+    let start = std::time::Instant::now();
+    while !ok() {
+        let _ = remedy_ui_reactive::run_posted();
+        assert!(start.elapsed() < Duration::from_secs(20), "waited for {what}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// An event playlist growing through a `Player`: its length grows while paused; a seek past
+/// the length so far is not cut to it and plays from there once the segments are listed; a
+/// seek within works; once the playlist has ended, a seek past its end stops at the end.
+#[test]
+fn a_player_follows_a_growing_playlist() {
+    let Ok(host) = platform_host() else { return eprintln!("skipped: no platform host") };
+    let (url, files) = server(growing(1));
+    let set = |p: String| {
+        files.lock().unwrap_or_else(PoisonError::into_inner).insert("index.m3u8".into(), p.into_bytes())
+    };
+    let theme = remedy_ui_themes::ThemeChoice::default().resolve(None, false);
+    let ui = remedy_ui_view::Ui::new(
+        theme.clone(),
+        remedy_ui_themes::sheet(&theme),
+        remedy_ui_text::FontCollection::new(),
+    );
+    let p = Player::open(&ui, host, MediaSource::url(&url), PlayerOptions::default());
+    let secs = |s: f64| Duration::from_secs_f64(s);
+    let length = || p.info().map(|i| (i.duration, i.growing));
+    wait_for("opened", || p.state() == PlaybackState::Paused);
+    assert_eq!(length(), Some((Some(secs(1.0)), true)));
+    // Paused, nothing read: the playlist is still asked again and the length grows.
+    set(growing(2));
+    wait_for("the length to grow while paused", || length() == Some((Some(secs(2.0)), true)));
+    // Past the length so far: not cut to it.
+    p.seek(secs(2.5));
+    wait_for("the seek", || p.position() == secs(2.5));
+    std::thread::sleep(Duration::from_millis(300));
+    let _ = remedy_ui_reactive::run_posted();
+    assert_eq!(p.position(), secs(2.5), "the seek waits for the playlist to get there");
+    set(playlist());
+    wait_for("the playlist's end", || length() == Some((Some(secs(3.0)), false)));
+    p.play();
+    wait_for("playing from 2.5 s to the end", || {
+        assert!(p.position() >= secs(2.5), "went back to {:?}", p.position());
+        p.state() == PlaybackState::Ended
+    });
+    // Within, and past the end of the ended playlist.
+    p.seek(secs(1.2));
+    wait_for("the seek within", || p.position() == secs(1.2));
+    p.seek(secs(60.0));
+    wait_for("the seek past the end", || p.position() == secs(3.0));
+}
+
 #[test]
 fn a_missing_segment_errors() {
     let (url, files) = server(playlist());

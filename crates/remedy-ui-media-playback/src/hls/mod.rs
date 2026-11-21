@@ -68,8 +68,11 @@ pub(crate) struct Want {
     pub url: String,
     /// What it is.
     pub kind: WantKind,
-    /// Wait this long before asking (a growing playlist is asked again after half its target
-    /// duration; a failed fetch is retried after a pause).
+    /// Wait this long after the last fetch of the same kind (playlist or segment) ended
+    /// before asking: a growing playlist is asked again every target duration (half of one
+    /// near its end), a failed fetch is retried after a pause. A driver waits in short slices
+    /// ([`WAIT_SLICE`]) and asks [`Hls::wanted`] again after each, so a seek or a segment now
+    /// wanted is not held up behind a playlist's wait.
     pub after: Duration,
 }
 
@@ -119,6 +122,7 @@ use crate::host::{AudioFormat, Decoder, MediaInfo, MediaSource, VideoInfo};
 use playlist::{Playlist, Segment};
 use std::collections::VecDeque;
 use std::ops::Range;
+use std::task::{Context, Poll};
 
 /// Segments fetched ahead of the one being handed out: enough to ride out a slow fetch,
 /// few enough to keep memory bounded (a 2160p segment is several megabytes).
@@ -126,6 +130,9 @@ const AHEAD: usize = 3;
 /// The playlist of a growing stream is asked again once the reader is this many segments
 /// from its end.
 const NEAR_END: usize = 2;
+/// The longest a driver waits at once for a fetch that is not due yet, before asking again
+/// what is wanted (a seek may have come).
+pub(crate) const WAIT_SLICE: Duration = Duration::from_millis(100);
 /// A failed fetch is tried again this many times before the error comes out.
 const RETRIES: u32 = 3;
 /// How long to wait before trying a failed fetch again.
@@ -157,6 +164,9 @@ pub(crate) struct Hls {
     target: Duration,
     /// The playlist is complete.
     complete: bool,
+    /// A seek past the end of a growing playlist so far: reading starts there once the
+    /// playlist reaches it (or ends).
+    waiting: Option<Duration>,
     /// The index in `segments` of the next segment to fetch.
     next: usize,
     /// Units read, each with the index of its segment.
@@ -189,6 +199,7 @@ impl Hls {
             segments: Vec::new(),
             target: Duration::ZERO,
             complete: false,
+            waiting: None,
             next: 0,
             queue: VecDeque::new(),
             current: 0,
@@ -216,11 +227,24 @@ impl Hls {
         {
             return Some(Want { url: s.url.clone(), kind: WantKind::Segment(s.sequence), after: pause });
         }
-        if !self.complete && reading + NEAR_END >= self.segments.len() {
-            let after = if self.failures > 0 { RETRY_PAUSE } else { self.target / 2 };
-            return Some(Want { url: self.url.clone(), kind: WantKind::Playlist, after });
+        self.reload()
+    }
+
+    /// The playlist again, while it is not complete (whatever else is wanted): kept fresh so
+    /// its length grows while nothing is read (paused). `None` once it has ended.
+    pub(crate) fn reload(&self) -> Option<Want> {
+        if !self.loaded || self.complete {
+            return None;
         }
-        None
+        let reading = self.queue.front().map_or(self.next, |(i, _)| *i).max(self.current);
+        let after = if self.failures > 0 {
+            RETRY_PAUSE
+        } else if reading + NEAR_END >= self.segments.len() {
+            self.target / 2
+        } else {
+            self.target
+        };
+        Some(Want { url: self.url.clone(), kind: WantKind::Playlist, after })
     }
 
     /// Hands over what was fetched for `want`. A failed fetch is asked for again (after a
@@ -278,6 +302,9 @@ impl Hls {
                             self.segments.push(s);
                         }
                     }
+                }
+                if let Some(to) = self.waiting {
+                    self.place(to);
                 }
             }
         }
@@ -424,11 +451,18 @@ impl Hls {
         self.started
     }
 
-    /// What the stream holds. Its length is the playlist's, and grows with a growing one.
+    /// The length of the segments listed so far.
+    fn length(&self) -> Duration {
+        self.segments.last().map_or(Duration::ZERO, |s| s.start + s.duration)
+    }
+
+    /// What the stream holds. Its length is the playlist's, and grows with a growing one
+    /// (`growing` until the playlist ends).
     pub(crate) fn info(&self) -> MediaInfo {
         MediaInfo {
-            duration: Some(self.segments.iter().map(|s| s.duration).sum()),
+            duration: Some(self.length()),
             seekable: true,
+            growing: !self.complete,
             video: self.video.as_ref().map(|v| VideoInfo::new(v.width, v.height, None)),
             audio: self.audio.as_ref().map(|a| AudioFormat::new(a.sample_rate, a.channels)),
             text_tracks: Vec::new(),
@@ -443,15 +477,28 @@ impl Hls {
     }
 
     /// Moves to `to`: reading starts again at the segment holding it (each starts on a key
-    /// frame); the player drops what comes before `to`.
+    /// frame); the player drops what comes before `to`. Past the end of a playlist that is
+    /// still growing, reading waits for the playlist to reach `to`; past the end of a complete
+    /// one, it starts at the last segment.
     pub(crate) fn seek(&mut self, to: Duration) {
-        let index = self.segments.iter().rposition(|s| s.start <= to).unwrap_or(0);
         self.queue.clear();
-        self.next = index;
-        self.current = index;
         self.failures = 0;
         self.need_key = true;
-        let start = self.segments.get(index).map_or(Duration::ZERO, |s| s.start);
+        self.place(to);
+    }
+
+    /// Sets reading to start at `to`, or to wait for the playlist to reach it.
+    fn place(&mut self, to: Duration) {
+        let waiting = !self.complete && to >= self.length();
+        self.waiting = waiting.then_some(to);
+        let (index, start) = if waiting {
+            (self.segments.len(), to)
+        } else {
+            let i = self.segments.iter().rposition(|s| s.start <= to).unwrap_or(0);
+            (i, self.segments.get(i).map_or(Duration::ZERO, |s| s.start))
+        };
+        self.next = index;
+        self.current = index;
         self.held = start..start;
     }
 
@@ -468,6 +515,13 @@ impl Hls {
     }
 }
 
+/// The clock a native reader waits by: `std` natively; the tests' own, which does not wait.
+#[derive(Clone, Copy)]
+pub(crate) struct Clock {
+    pub now: fn() -> std::time::Instant,
+    pub sleep: fn(Duration),
+}
+
 /// An HLS stream decoded natively: fetched with a [`Fetch`] (waiting), decoded by the
 /// platform's [`Elementary`] decoders.
 pub(crate) struct HlsDecoder {
@@ -477,20 +531,42 @@ pub(crate) struct HlsDecoder {
     info: MediaInfo,
     /// The decoders have been told no more units follow.
     ended: bool,
-    /// Waits before a fetch (`std::thread::sleep`; the tests do not wait).
-    sleep: fn(Duration),
+    clock: Clock,
+    /// When the last playlist fetch and the last segment fetch ended.
+    fetched: (std::time::Instant, std::time::Instant),
+    /// A playlist asked again outside a read failed for good: the next read says so.
+    failed: Option<MediaError>,
 }
 
 impl HlsDecoder {
-    /// Fetches what is wanted next and hands it over; false when nothing is wanted.
+    /// When the last fetch of `want`'s kind ended.
+    fn last(&mut self, want: &Want) -> &mut std::time::Instant {
+        match want.kind {
+            WantKind::Playlist => &mut self.fetched.0,
+            WantKind::Segment(_) => &mut self.fetched.1,
+        }
+    }
+
+    /// How long until `want` is due.
+    fn wait(&mut self, want: &Want) -> Duration {
+        let since = (self.clock.now)().saturating_duration_since(*self.last(want));
+        want.after.saturating_sub(since)
+    }
+
+    /// Fetches `want` and hands it over.
+    fn fetch(&mut self, want: &Want) -> Result<(), MediaError> {
+        let got = self.fetch.get(&want.url);
+        *self.last(want) = (self.clock.now)();
+        self.hls.deliver(want, got)?;
+        self.refresh_info();
+        Ok(())
+    }
+
+    /// Fetches what is wanted next, waiting until it is due; false when nothing is wanted.
     fn fetch_next(&mut self) -> Result<bool, MediaError> {
         let Some(want) = self.hls.wanted() else { return Ok(false) };
-        if !want.after.is_zero() {
-            (self.sleep)(want.after);
-        }
-        let got = self.fetch.get(&want.url);
-        self.hls.deliver(&want, got)?;
-        self.refresh_info();
+        (self.clock.sleep)(self.wait(&want));
+        self.fetch(&want)?;
         Ok(true)
     }
 
@@ -498,6 +574,39 @@ impl HlsDecoder {
         self.info = self.hls.info();
         if let Some(a) = self.es.audio_format() {
             self.info.audio = Some(a);
+        }
+    }
+
+    /// The next sample, or `Pending` after waiting at most [`WAIT_SLICE`] for a fetch not
+    /// due yet (the caller asks again, and a seek in between is taken at once).
+    fn step(&mut self) -> Poll<Result<Option<Sample>, MediaError>> {
+        if let Some(e) = self.failed.take() {
+            return Poll::Ready(Err(e));
+        }
+        loop {
+            if let Some(s) = self.es.pull()? {
+                return Poll::Ready(Ok(Some(s)));
+            }
+            if self.ended {
+                return Poll::Ready(Ok(None));
+            }
+            if let Some(unit) = self.hls.next_unit() {
+                self.es.push(unit)?;
+                continue;
+            }
+            if self.hls.ended() {
+                self.es.end()?;
+                self.ended = true;
+                continue;
+            }
+            // Nothing to hand out and nothing wanted cannot happen; stop rather than spin.
+            let Some(want) = self.hls.wanted() else { return Poll::Ready(Ok(None)) };
+            let wait = self.wait(&want);
+            if !wait.is_zero() {
+                (self.clock.sleep)(wait.min(WAIT_SLICE));
+                return Poll::Pending;
+            }
+            self.fetch(&want)?;
         }
     }
 }
@@ -509,22 +618,19 @@ impl Decoder for HlsDecoder {
 
     fn read(&mut self) -> Result<Option<Sample>, MediaError> {
         loop {
-            if let Some(s) = self.es.pull()? {
-                return Ok(Some(s));
-            }
-            if self.ended {
-                return Ok(None);
-            }
-            if let Some(unit) = self.hls.next_unit() {
-                self.es.push(unit)?;
-            } else if self.hls.ended() {
-                self.es.end()?;
-                self.ended = true;
-            } else if !self.fetch_next()? {
-                // Nothing to hand out and nothing wanted cannot happen; stop rather than spin.
-                return Ok(None);
+            if let Poll::Ready(r) = self.step() {
+                return r;
             }
         }
+    }
+
+    fn poll_read(&mut self, cx: &mut Context<'_>) -> Poll<Result<Option<Sample>, MediaError>> {
+        let polled = self.step();
+        if polled.is_pending() {
+            // Asked again at once: the wait was a slice, so a seek is not held up behind it.
+            cx.waker().wake_by_ref();
+        }
+        polled
     }
 
     fn seek(&mut self, to: Duration) -> Result<(), MediaError> {
@@ -533,7 +639,16 @@ impl Decoder for HlsDecoder {
         self.es.flush()
     }
 
+    /// Also asks a growing playlist again when that is due, so its length grows while
+    /// nothing is read (paused, or the decoded buffer full).
     fn buffered(&mut self) -> Option<Vec<Range<Duration>>> {
+        if self.failed.is_none()
+            && let Some(want) = self.hls.reload()
+            && self.wait(&want).is_zero()
+            && let Err(e) = self.fetch(&want)
+        {
+            self.failed = Some(e);
+        }
         Some(self.hls.buffered())
     }
 }
@@ -545,18 +660,20 @@ pub(crate) fn open(
     fetch: Box<dyn Fetch>,
     es: Box<dyn Elementary>,
 ) -> Result<Box<dyn Decoder>, MediaError> {
-    Ok(Box::new(open_with(url, fetch, es, std::thread::sleep)?))
+    let clock = Clock { now: std::time::Instant::now, sleep: std::thread::sleep };
+    Ok(Box::new(open_with(url, fetch, es, clock)?))
 }
 
 fn open_with(
     url: &str,
     fetch: Box<dyn Fetch>,
     es: Box<dyn Elementary>,
-    sleep: fn(Duration),
+    clock: Clock,
 ) -> Result<HlsDecoder, MediaError> {
     let hls = Hls::new(url);
     let info = hls.info();
-    let mut d = HlsDecoder { hls, fetch, es, info, ended: false, sleep };
+    let now = (clock.now)();
+    let mut d = HlsDecoder { hls, fetch, es, info, ended: false, clock, fetched: (now, now), failed: None };
     while !d.hls.started() {
         if d.hls.ended() || !d.fetch_next()? {
             return Err(MediaError::Format("the HLS playlist lists no segments".into()));
