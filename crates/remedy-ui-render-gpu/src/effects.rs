@@ -12,7 +12,7 @@
 //! and its last frame.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use remedy_ui_effects::ir::{Effect, Op, Source, Splat, StageKind};
 use remedy_ui_effects::{FrameInput, Instance, buffer_size};
@@ -432,7 +432,8 @@ fn fs(o: Out) -> @location(0) vec4<f32> {
 ";
 
 /// The pipelines effects run on, made once per device.
-struct Kernels {
+#[derive(Debug)]
+pub(crate) struct Kernels {
     shade: wgpu::RenderPipeline,
     shade_layout: wgpu::BindGroupLayout,
     blur: wgpu::RenderPipeline,
@@ -643,16 +644,7 @@ impl Kernels {
 
     /// The kernels of `ctx`'s device, made on first use.
     fn of(ctx: &GpuContext) -> Arc<Kernels> {
-        static ALL: Mutex<Vec<(u64, Arc<Kernels>)>> = Mutex::new(Vec::new());
-        let mut all = ALL.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some((_, k)) = all.iter().find(|(s, _)| *s == ctx.serial) {
-            return k.clone();
-        }
-        let k = Arc::new(Kernels::new(&ctx.device, &ctx.queue));
-        // Only the current device's are kept.
-        all.clear();
-        all.push((ctx.serial, k.clone()));
-        k
+        ctx.effect_kernels.get_or_init(|| Arc::new(Kernels::new(&ctx.device, &ctx.queue))).clone()
     }
 }
 
