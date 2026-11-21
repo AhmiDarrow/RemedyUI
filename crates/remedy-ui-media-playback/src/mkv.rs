@@ -20,7 +20,10 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::host::MediaError;
-use crate::subtitles::{CUES_TOO_BIG, Cue, SubtitleTrack, ass_text, clean_markup, over_cue_budget};
+use crate::subtitles::{
+    CUES_TOO_BIG, Cue, CueSettings, SubtitleTrack, an_tag, ass_text, clean_markup, over_cue_budget,
+    srt_settings,
+};
 
 /// Why a file could not be read as Matroska.
 pub(crate) type Error = String;
@@ -111,7 +114,7 @@ struct TextTrack {
     language: Option<String>,
     /// Bytes every block of the track had taken off its front ("header stripping").
     prefix: Vec<u8>,
-    cues: Vec<(Duration, Option<Duration>, String)>,
+    cues: Vec<(Duration, Option<Duration>, String, CueSettings)>,
 }
 
 /// An element: its ID, where its data starts and how long it is (`None`: unknown, running
@@ -605,7 +608,7 @@ impl<R: Read + Seek> Blocks<'_, R> {
             if over_cue_budget(&mut self.text_bytes, &text) {
                 return Err(CUES_TOO_BIG.into());
             }
-            t.cues.push((start, end, text));
+            t.cues.push((start, end, text, cue_settings(&payload, t.format)));
         }
         Ok(())
     }
@@ -636,6 +639,24 @@ fn cue_text(b: &[u8], format: Format) -> String {
     lines.join("\n").trim().to_owned()
 }
 
+/// Where a subtitle block's cue goes: WebM's WebVTT settings line, SRT's `{\anN}`, and an
+/// ASS block's `\anN` and margins (the script's styles and size are not read: its default
+/// 384 by 288, bottom-centre).
+fn cue_settings(b: &[u8], format: Format) -> CueSettings {
+    let s = String::from_utf8_lossy(b).replace("\r\n", "\n");
+    match format {
+        // ReadOrder, Layer, Style, Name, MarginL, MarginR, MarginV, Effect, Text.
+        Format::Ass => {
+            let f: Vec<&str> = s.splitn(9, ',').collect();
+            let num = |i: usize| f.get(i).and_then(|v| v.trim().parse().ok()).unwrap_or(0.0);
+            let an = f.get(8).and_then(|t| an_tag(t)).unwrap_or(2);
+            CueSettings::numpad(an, (num(4), num(5), num(6)), (384.0, 288.0))
+        }
+        Format::WebmVtt => CueSettings::parse_webvtt(s.split('\n').nth(1).unwrap_or_default()),
+        Format::Srt | Format::Vtt => srt_settings(&s),
+    }
+}
+
 /// A track's cues in time order, those without a duration lasting until the next; `None`
 /// when it has none.
 fn finish(t: TextTrack) -> Option<SubtitleTrack> {
@@ -645,7 +666,7 @@ fn finish(t: TextTrack) -> Option<SubtitleTrack> {
     let cues: Vec<Cue> = raw
         .into_iter()
         .enumerate()
-        .filter_map(|(i, (start, end, text))| {
+        .filter_map(|(i, (start, end, text, settings))| {
             let end = end.unwrap_or_else(|| {
                 starts
                     .get(i + 1..)
@@ -655,7 +676,7 @@ fn finish(t: TextTrack) -> Option<SubtitleTrack> {
                     .find(|s| *s > start)
                     .unwrap_or(start + LAST_CUE)
             });
-            (end > start).then_some(Cue { start, end, text })
+            (end > start).then_some(Cue { start, end, text, settings })
         })
         .collect();
     if cues.is_empty() {
@@ -729,6 +750,17 @@ mod tests {
         assert_eq!(parse(b""), Ok(Vec::new()));
         // An EBML document of another type.
         assert_eq!(parse(b"\x1A\x45\xDF\xA3\x87\x42\x82\x84abcd"), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn block_placement_in_each_format() {
+        use crate::subtitles::{CueAlign, CueLine};
+        assert_eq!(cue_settings(b"{\\an8}Top", Format::Srt).line, Some(CueLine::Percent(0.0)));
+        let s = cue_settings(b"3,0,Default,,96,0,0,,{\\an1}Hi", Format::Ass);
+        assert_eq!((s.line, s.align, s.position), (None, CueAlign::Left, Some(25.0)));
+        let s = cue_settings(b"id\nline:0 align:start\nHi", Format::WebmVtt);
+        assert_eq!((s.line, s.align), (Some(CueLine::Number(0)), CueAlign::Start));
+        assert_eq!(cue_settings(b"plain", Format::Vtt), CueSettings::default());
     }
 
     #[test]

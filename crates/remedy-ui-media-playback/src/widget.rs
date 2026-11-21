@@ -295,34 +295,38 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         l.position = Position::Absolute;
         l.inset = Insets { top: AUTO, start: u * 4.0, end: u * 4.0, bottom: u * 3.0 };
     });
-    let (cap, p, cu) = (caption.clone(), player.clone(), ui.clone());
-    let shown = std::cell::RefCell::new(None::<String>);
+    // Cues with settings of their own (WebVTT's line, position, size and align; ASS's `\anN`)
+    // each in a layer over the same area, placed by `placed_cue`.
+    let placed = ui.el("player_captions_placed").pass_through().layout(move |l| {
+        l.position = Position::Absolute;
+        l.inset = Insets { top: u * 3.0, start: u * 4.0, end: u * 4.0, bottom: u * 3.0 };
+    });
+    let (cap, pl, p, cu) = (caption.clone(), placed.clone(), player.clone(), ui.clone());
+    let shown = std::cell::RefCell::new(Vec::<crate::Cue>::new());
     let caption = caption.bind(move || {
-        let text = p.caption_text().filter(|_| !p.is_remote());
-        if *shown.borrow() == text {
+        let cues = if p.is_remote() { Vec::new() } else { p.caption_cues() };
+        if *shown.borrow() == cues {
             return;
         }
         cap.clear();
-        let _ = cap.clone().hidden(text.is_none());
-        for line in text.iter().flat_map(|t| t.lines()) {
-            let boxed = cu
-                .el("player_caption")
-                .style(remedy_ui_style::StylePatch::default().padding(Insets {
-                    top: u * 0.5,
-                    bottom: u * 0.5,
-                    start: u * 1.5,
-                    end: u * 1.5,
-                }))
-                .text(remedy_ui_view::RichText::plain(line.to_owned()));
-            let _ = cap.clone().child(boxed);
+        pl.clear();
+        let (plain, own): (Vec<&crate::Cue>, Vec<&crate::Cue>) =
+            cues.iter().partition(|c| c.settings == crate::CueSettings::default());
+        let _ = cap.clone().hidden(plain.is_empty());
+        for line in plain.iter().flat_map(|c| c.text.lines()) {
+            let _ = cap.clone().child(caption_line(&cu, line));
         }
-        *shown.borrow_mut() = text;
+        for c in own {
+            let _ = pl.clone().child(placed_cue(&cu, c));
+        }
+        *shown.borrow_mut() = cues;
     });
     // Above the bar while it floats over the picture in full screen.
-    let cap = caption.clone();
+    let (cap, pl) = (caption.clone(), placed.clone());
     let caption = caption.bind(move || {
         let bottom = lift.get();
         let _ = cap.clone().layout(move |l| l.inset.bottom = bottom);
+        let _ = pl.clone().layout(move |l| l.inset.bottom = bottom);
     });
     // What went wrong, in the captions' readable box at the top of the picture.
     let message = ui
@@ -441,6 +445,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         .column()
         .child(surface.clone())
         .child(caption)
+        .child(placed)
         .child(message)
         .child(cast)
         .child(busy.clone())
@@ -1447,6 +1452,64 @@ fn next_up_card(ui: &Ui, player: &Player) -> El {
 /// Portal's timing step: half a second, within ten minutes either way.
 const CAPTION_STEP: i64 = 500;
 const CAPTION_LIMIT: i64 = 600_000;
+
+/// One caption line in its own readable box, as a browser draws a cue's line.
+fn caption_line(ui: &Ui, line: &str) -> El {
+    let u = ui.theme().spacing.unit;
+    ui.el("player_caption")
+        .style(remedy_ui_style::StylePatch::default().padding(Insets {
+            top: u * 0.5,
+            bottom: u * 0.5,
+            start: u * 1.5,
+            end: u * 1.5,
+        }))
+        .text(remedy_ui_view::RichText::plain(line.to_owned()))
+}
+
+/// A cue with settings of its own, in a layer over the captions' area: its box across from
+/// [`CueSettings::box_across`](crate::CueSettings::box_across), its lines lined up in it by
+/// `align`, and its `line` down the area: a percentage from the top (0 the top, 100 the foot)
+/// or a count of lines from the top (0 on) or the foot (-1 on); none sits at the foot.
+fn placed_cue(ui: &Ui, cue: &crate::Cue) -> El {
+    use crate::{CueAlign, CueLine};
+    let s = cue.settings;
+    let theme = ui.theme();
+    // A caption line's height: its text and its box's padding.
+    let line_h = theme.type_scale.body * 1.5 + theme.spacing.unit;
+    let gap = |grow: f32| ui.el("player_cue_gap").pass_through().grow(grow.max(0.0));
+    let fixed = |h: f32| ui.el("player_cue_gap").pass_through().layout(move |l| l.height = Length::Px(h));
+    let lines = ui.el("player_cue").column().pass_through().align(match s.align {
+        CueAlign::Start | CueAlign::Left => Align::Start,
+        CueAlign::Center => Align::Center,
+        CueAlign::End | CueAlign::Right => Align::End,
+    });
+    let lines = cue.text.lines().fold(lines, |b, line| b.child(caption_line(ui, line)));
+    let (left, size) = s.box_across();
+    let lines = lines.layout(move |l| {
+        l.width = Length::Percent(size / 100.0);
+        l.shrink = 0.0;
+    });
+    // The room either side shared so the box's left edge is `left` percent across.
+    let across = ui
+        .el("player_cue_row")
+        .row()
+        .pass_through()
+        .child(gap(left))
+        .child(lines)
+        .child(gap(100.0 - size - left));
+    // shortcut: a percentage line puts the box `p` percent of the room down (0 the top, 100 the
+    // foot) whatever its line alignment, and cues are not moved apart when they overlap.
+    let (before, after) = match s.line {
+        None => (gap(1.0), fixed(0.0)),
+        Some(CueLine::Percent(p)) => (gap(p), gap(100.0 - p)),
+        Some(CueLine::Number(n)) if n >= 0 => (fixed(n as f32 * line_h), gap(1.0)),
+        Some(CueLine::Number(n)) => (gap(1.0), fixed((!n) as f32 * line_h)),
+    };
+    ui.el("player_cue_layer").column().pass_through().child(before).child(across).child(after).layout(|l| {
+        l.position = Position::Absolute;
+        l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: 0.0 };
+    })
+}
 
 /// The caption timing in words: "in sync", "now 1.5 s later", "now 0.5 s earlier".
 fn timing_words(u: &Ui, ms: i64) -> String {
