@@ -10,6 +10,16 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Scrubbing, as on Portal's page**: pressing or dragging the player's seek bar (mouse, pen
+  or touch) holds the thumb, the time and the bar's value at the pointer
+  (`Player::scrubbing()`) and seeks once on release; a cancelled pointer goes back. Keys on
+  the bar still seek at once. On a TV and on a timeline only the release seeks. A tip over
+  the bar shows the time under the pointer (film time on a timeline). A big Play glyph shows
+  over a paused picture; unmuting at volume 0 sets half; while casting the volume slider is
+  "TV volume" and the mute button "Mute the TV". `Player::volume_known()`: a TV's volume is
+  unknown until it reports one, and the slider and volume keys wait; volume sends to a TV
+  wait until it rests 300 ms.
+
 - **A next made later** (`NextUp::later(title)`), for an app whose server makes the next
   episode's stream only when it is due, as Portal's does. At the end (after the countdown, at
   once with a zero `next_up_delay`), on Play now, Shift+N (N) or `play_next`, the player asks
@@ -640,6 +650,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- `RemoteStatus::volume` is now `Option<f32>`, `None` (unknown) by default and on
+  `Player::set_remote`: a struct literal writes `volume: Some(v)`; `.volume(v)` is unchanged.
 - `NextUp::source` is now `Option<MediaSource>` (`None` for `NextUp::later`), and
   `RemoteStatus` has a `next` field: a struct literal adds `next: None`.
 
@@ -746,6 +758,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- A cancelled pointer (`PointerPhase::Cancel`) over a pressed element panicked in the view.
 - The media player could end before the last of the sound was played on a busy machine:
   the end was declared once the decoded sound was taken, while the time stretcher still held
   its last blocks (or an output a last partial block). It now waits until the output has
