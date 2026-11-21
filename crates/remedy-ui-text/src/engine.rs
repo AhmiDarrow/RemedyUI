@@ -904,6 +904,14 @@ pub struct GlyphRunInfo {
     pub range: Range<usize>,
     /// The glyphs.
     pub glyphs: Vec<PositionedGlyph>,
+    /// Each glyph's advance in logical pixels, parallel to `glyphs`, as the shaper gave it
+    /// (letter spacing included). A mark's is usually zero; its `x` carries its offset.
+    /// Empty, with `clusters`, in the rare run whose shaped cluster is split between styles.
+    pub advances: Vec<f32>,
+    /// The byte offset into the paragraph's text where each glyph's cluster starts, parallel
+    /// to `glyphs`: the glyphs of a ligature or of a letter with its marks share one, as in
+    /// HarfBuzz's cluster values.
+    pub clusters: Vec<usize>,
     /// The underline to draw under the run, from the paragraph's top-left, if it has one.
     pub underline: Option<Rect>,
     /// The line through the run, if it has one.
@@ -1073,6 +1081,29 @@ impl Paragraph {
                 let middle = if metrics.x_height > 0.0 { metrics.x_height / 2.0 } else { size * 0.25 };
                 let underline = style.underline.as_ref().map(|d| bar(below, d));
                 let strikethrough = style.strikethrough.as_ref().map(|d| bar(middle, d));
+                let glyphs: Vec<PositionedGlyph> = run
+                    .positioned_glyphs()
+                    .map(|g| PositionedGlyph { id: g.id, x: g.x / s, y: g.y / s })
+                    .collect();
+                // Clusters in visual order carry their glyphs, in the same order the run
+                // positions them; only those of this glyph run's text belong to it.
+                let mut advances = Vec::with_capacity(glyphs.len());
+                let mut clusters = Vec::with_capacity(glyphs.len());
+                for c in r.visual_clusters() {
+                    let start = c.text_range().start;
+                    if !range.contains(&start) {
+                        continue;
+                    }
+                    for g in c.glyphs() {
+                        advances.push(g.advance / s);
+                        clusters.push(start);
+                    }
+                }
+                if advances.len() != glyphs.len() {
+                    // A cluster split across styles; the per-glyph detail is not reliable.
+                    advances.clear();
+                    clusters.clear();
+                }
                 out.push(GlyphRunInfo {
                     font: RunFont { data: font.data.clone(), index: font.index },
                     size: r.font_size() / s,
@@ -1080,10 +1111,9 @@ impl Paragraph {
                     link: rs.link,
                     rtl: r.is_rtl(),
                     range,
-                    glyphs: run
-                        .positioned_glyphs()
-                        .map(|g| PositionedGlyph { id: g.id, x: g.x / s, y: g.y / s })
-                        .collect(),
+                    glyphs,
+                    advances,
+                    clusters,
                     underline,
                     strikethrough,
                 });
