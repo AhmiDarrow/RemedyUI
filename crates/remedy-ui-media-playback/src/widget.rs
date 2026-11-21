@@ -294,11 +294,13 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         l.position = Position::Absolute;
         l.inset = Insets { top: AUTO, start: u * 4.0, end: u * 4.0, bottom: u * 3.0 };
     });
-    // Cues with settings of their own (WebVTT's line, position, size and align; ASS's `\anN`)
-    // each in a layer over the same area, placed by `placed_cue`.
-    let placed = ui.el("player_captions_placed").pass_through().layout(move |l| {
+    // Once any cue showing has settings of its own (WebVTT's line, position, size, align and
+    // vertical; ASS's alignment and margins), every cue showing is laid out by WebVTT's rules
+    // on the letterboxed picture and drawn here (`cue_layout`), moved apart where they meet
+    // and kept above the bar.
+    let placed = ui.el("player_cues").pass_through().layout(|l| {
         l.position = Position::Absolute;
-        l.inset = Insets { top: u * 3.0, start: u * 4.0, end: u * 4.0, bottom: u * 3.0 };
+        l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: 0.0 };
     });
     let (cap, pl, p, cu) = (caption.clone(), placed.clone(), player.clone(), ui.clone());
     let shown = std::cell::RefCell::new(Vec::<crate::Cue>::new());
@@ -308,24 +310,34 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             return;
         }
         cap.clear();
-        pl.clear();
-        let (plain, own): (Vec<&crate::Cue>, Vec<&crate::Cue>) =
-            cues.iter().partition(|c| c.settings == crate::CueSettings::default());
-        let _ = cap.clone().hidden(plain.is_empty());
-        for line in plain.iter().flat_map(|c| c.text.lines()) {
-            let _ = cap.clone().child(caption_line(&cu, line));
-        }
-        for c in own {
-            let _ = pl.clone().child(placed_cue(&cu, c));
+        let own = cues.iter().any(|c| c.settings != crate::CueSettings::default());
+        let _ = cap.clone().hidden(cues.is_empty() || own);
+        let _ = pl.clone().hidden(!own);
+        if !own {
+            for line in cues.iter().flat_map(|c| c.text.lines()) {
+                let _ = cap.clone().child(caption_line(&cu, line));
+            }
         }
         *shown.borrow_mut() = cues;
     });
-    // Above the bar while it floats over the picture in full screen.
-    let (cap, pl) = (caption.clone(), placed.clone());
+    // Above the bar while it floats over the picture in full screen; the placed cues are
+    // drawn again when the cues, the lift or the picture's shape change.
+    let cap = caption.clone();
     let caption = caption.bind(move || {
         let bottom = lift.get();
         let _ = cap.clone().layout(move |l| l.inset.bottom = bottom);
-        let _ = pl.clone().layout(move |l| l.inset.bottom = bottom);
+    });
+    let (pl, p) = (placed.clone(), player.clone());
+    let placed = placed.bind(move || {
+        let cues = if p.is_remote() { Vec::new() } else { p.caption_cues() };
+        if cues.iter().all(|c| c.settings == crate::CueSettings::default()) {
+            return;
+        }
+        let bottom = lift.get();
+        let aspect = p.info().and_then(|i| i.video).map(|v| v.width as f32 / v.height.max(1) as f32);
+        let label = cues.iter().map(|c| c.text.as_str()).collect::<Vec<_>>().join("\n");
+        let _ = pl.clone().semantics(Semantics::new(Role::Group).label(label));
+        let _ = pl.clone().paint(move |cx| paint_cues(cx, &cues, aspect, bottom));
     });
     // What went wrong, in the captions' readable box at the top of the picture.
     let message = ui
@@ -1429,51 +1441,57 @@ fn caption_line(ui: &Ui, line: &str) -> El {
         .text(remedy_ui_view::RichText::plain(line.to_owned()))
 }
 
-/// A cue with settings of its own, in a layer over the captions' area: its box across from
-/// [`CueSettings::box_across`](crate::CueSettings::box_across), its lines lined up in it by
-/// `align`, and its `line` down the area: a percentage from the top (0 the top, 100 the foot)
-/// or a count of lines from the top (0 on) or the foot (-1 on); none sits at the foot.
-fn placed_cue(ui: &Ui, cue: &crate::Cue) -> El {
-    use crate::{CueAlign, CueLine};
-    let s = cue.settings;
-    let theme = ui.theme();
-    // A caption line's height: its text and its box's padding.
-    let line_h = theme.type_scale.body * 1.5 + theme.spacing.unit;
-    let gap = |grow: f32| ui.el("player_cue_gap").pass_through().grow(grow.max(0.0));
-    let fixed = |h: f32| ui.el("player_cue_gap").pass_through().layout(move |l| l.height = Length::Px(h));
-    let lines = ui.el("player_cue").column().pass_through().align(match s.align {
-        CueAlign::Start | CueAlign::Left => Align::Start,
-        CueAlign::Center => Align::Center,
-        CueAlign::End | CueAlign::Right => Align::End,
-    });
-    let lines = cue.text.lines().fold(lines, |b, line| b.child(caption_line(ui, line)));
-    let (left, size) = s.box_across();
-    let lines = lines.layout(move |l| {
-        l.width = Length::Percent(size / 100.0);
-        l.shrink = 0.0;
-    });
-    // The room either side shared so the box's left edge is `left` percent across.
-    let across = ui
-        .el("player_cue_row")
-        .row()
-        .pass_through()
-        .child(gap(left))
-        .child(lines)
-        .child(gap(100.0 - size - left));
-    // shortcut: a percentage line puts the box `p` percent of the room down (0 the top, 100 the
-    // foot) whatever its line alignment, and cues are not moved apart when they overlap.
-    let (before, after) = match s.line {
-        None => (gap(1.0), fixed(0.0)),
-        Some(CueLine::Percent(p)) => (gap(p), gap(100.0 - p)),
-        Some(CueLine::Number(n)) if n >= 0 => (fixed(n as f32 * line_h), gap(1.0)),
-        Some(CueLine::Number(n)) => (gap(1.0), fixed((!n) as f32 * line_h)),
+/// Draws cues laid out by WebVTT's rules on the picture shown at `aspect` in the stage,
+/// above the bar `lift` up from the foot: each line in a readable box as `player_caption`
+/// draws one (light text on a dark box). Vertical cues are set upright, one character under
+/// another (CSS's `text-orientation: upright`, as CJK reads): the text stack lays out and
+/// draws lines across only, and its glyphs are drawn unturned under a rotation, so each
+/// character is drawn on its own, stepped down by the line height.
+fn paint_cues(cx: &mut remedy_ui_view::PaintCx<'_>, cues: &[crate::Cue], aspect: Option<f32>, lift: f32) {
+    let theme = cx.theme;
+    let u = theme.spacing.unit;
+    let text = remedy_ui_view::TextPaint {
+        size: theme.type_scale.body,
+        weight: 400.0,
+        color: Color::WHITE,
+        mono: false,
     };
-    ui.el("player_cue_layer").column().pass_through().child(before).child(across).child(after).layout(|l| {
-        l.position = Position::Absolute;
-        l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: 0.0 };
-    })
+    let radius = CornerRadii::all(theme.radii.small);
+    let vp = crate::cue_layout::viewport(cx.size, aspect);
+    // The title area: the picture above the bar, which floats over its foot in full screen.
+    let title = Rect::new(vp.min.x, vp.min.y, vp.max.x, vp.max.y.min(cx.size.height - lift).max(vp.min.y));
+    // A character's step down a vertical line: the line height.
+    let step = cx.measure_text("M", text).height;
+    let placed = crate::cue_layout::layout(cues, vp, title, (u * 1.5, u * 0.5), &mut |t, down| {
+        if down {
+            // Down the line: a step per character; across it, the widest character.
+            let widest = t
+                .chars()
+                .map(|ch| cx.measure_text(ch.encode_utf8(&mut [0; 4]), text).width)
+                .fold(0.0, f32::max);
+            remedy_ui_core::Size::new(t.chars().count() as f32 * step, widest)
+        } else {
+            cx.measure_text(t, text)
+        }
+    });
+    let mid = remedy_ui_core::Vec2::new(0.5, 0.5);
+    for cue in placed {
+        for line in cue.lines {
+            cx.list.fill_rounded(line.rect, radius, Brush::Solid(Color::BLACK.with_alpha(0.8)));
+            let c = line.rect.center();
+            if cue.vertical.is_none() {
+                cx.text(&line.text, c, mid, text);
+                continue;
+            }
+            let n = line.text.chars().count() as f32;
+            let top = c.y - n * step / 2.0;
+            for (k, ch) in line.text.chars().enumerate() {
+                let at = remedy_ui_core::Point::new(c.x, top + (k as f32 + 0.5) * step);
+                cx.text(ch.encode_utf8(&mut [0; 4]), at, mid, text);
+            }
+        }
+    }
 }
-
 /// The caption timing in words: "in sync", "now 1.5 s later", "now 0.5 s earlier".
 fn timing_words(u: &Ui, ms: i64) -> String {
     let secs = (ms.unsigned_abs() as f64) / 1000.0;
