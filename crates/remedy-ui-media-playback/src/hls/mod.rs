@@ -522,11 +522,20 @@ pub(crate) struct Clock {
     pub sleep: fn(Duration),
 }
 
-/// An HLS stream decoded natively: fetched with a [`Fetch`] (waiting), decoded by the
-/// platform's [`Elementary`] decoders.
+/// What the fetching thread brings back: the want and what came of it.
+type Fetched = (Want, Result<Vec<u8>, MediaError>);
+
+/// An HLS stream decoded natively: fetched with a [`Fetch`] on a thread of its own (one fetch
+/// at a time, at most [`AHEAD`] segments ahead), so decoding goes on while a segment
+/// downloads; decoded by the platform's [`Elementary`] decoders.
 pub(crate) struct HlsDecoder {
     hls: Hls,
-    fetch: Box<dyn Fetch>,
+    /// Wants for the fetching thread; dropping it ends the thread once its fetch is done.
+    asks: std::sync::mpsc::Sender<Want>,
+    done: std::sync::mpsc::Receiver<Fetched>,
+    /// The fetch under way. What it brings is handed to the reader, which drops a segment
+    /// no longer wanted (a seek came meanwhile).
+    in_flight: Option<Want>,
     es: Box<dyn Elementary>,
     info: MediaInfo,
     /// The decoders have been told no more units follow.
@@ -534,7 +543,7 @@ pub(crate) struct HlsDecoder {
     clock: Clock,
     /// When the last playlist fetch and the last segment fetch ended.
     fetched: (std::time::Instant, std::time::Instant),
-    /// A playlist asked again outside a read failed for good: the next read says so.
+    /// A fetch handed over outside a read failed for good: the next read says so.
     failed: Option<MediaError>,
 }
 
@@ -553,21 +562,43 @@ impl HlsDecoder {
         want.after.saturating_sub(since)
     }
 
-    /// Fetches `want` and hands it over.
-    fn fetch(&mut self, want: &Want) -> Result<(), MediaError> {
-        let got = self.fetch.get(&want.url);
-        *self.last(want) = (self.clock.now)();
-        self.hls.deliver(want, got)?;
+    /// Hands over what the fetch under way brought, waiting up to `wait` for it; false when
+    /// nothing came (or nothing is under way).
+    fn take(&mut self, wait: Duration) -> Result<bool, MediaError> {
+        if self.in_flight.is_none() {
+            return Ok(false);
+        }
+        use std::sync::mpsc::RecvTimeoutError;
+        let (want, got) = match self.done.recv_timeout(wait) {
+            Ok(f) => f,
+            Err(RecvTimeoutError::Timeout) => return Ok(false),
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(MediaError::Decode("the HLS fetching thread stopped".into()));
+            }
+        };
+        self.in_flight = None;
+        *self.last(&want) = (self.clock.now)();
+        self.hls.deliver(&want, got)?;
         self.refresh_info();
-        Ok(())
+        Ok(true)
     }
 
-    /// Fetches what is wanted next, waiting until it is due; false when nothing is wanted.
-    fn fetch_next(&mut self) -> Result<bool, MediaError> {
-        let Some(want) = self.hls.wanted() else { return Ok(false) };
-        (self.clock.sleep)(self.wait(&want));
-        self.fetch(&want)?;
-        Ok(true)
+    /// Starts the fetch wanted next when none is under way and it is due. How long until it
+    /// is due when it is not; `None` when one was started, one is under way, or nothing is
+    /// wanted.
+    fn start(&mut self) -> Option<Duration> {
+        if self.in_flight.is_some() {
+            return None;
+        }
+        let want = self.hls.wanted()?;
+        let wait = self.wait(&want);
+        if !wait.is_zero() {
+            return Some(wait);
+        }
+        if self.asks.send(want.clone()).is_ok() {
+            self.in_flight = Some(want);
+        }
+        None
     }
 
     fn refresh_info(&mut self) {
@@ -577,13 +608,16 @@ impl HlsDecoder {
         }
     }
 
-    /// The next sample, or `Pending` after waiting at most [`WAIT_SLICE`] for a fetch not
-    /// due yet (the caller asks again, and a seek in between is taken at once).
+    /// The next sample, or `Pending` after waiting at most [`WAIT_SLICE`] for a fetch (the
+    /// caller asks again, and a seek in between is taken at once).
     fn step(&mut self) -> Poll<Result<Option<Sample>, MediaError>> {
         if let Some(e) = self.failed.take() {
             return Poll::Ready(Err(e));
         }
         loop {
+            // Keep the fetching thread busy while units are decoded.
+            self.take(Duration::ZERO)?;
+            let due_in = self.start();
             if let Some(s) = self.es.pull()? {
                 return Poll::Ready(Ok(Some(s)));
             }
@@ -599,14 +633,29 @@ impl HlsDecoder {
                 self.ended = true;
                 continue;
             }
-            // Nothing to hand out and nothing wanted cannot happen; stop rather than spin.
-            let Some(want) = self.hls.wanted() else { return Poll::Ready(Ok(None)) };
-            let wait = self.wait(&want);
-            if !wait.is_zero() {
-                (self.clock.sleep)(wait.min(WAIT_SLICE));
-                return Poll::Pending;
+            if self.in_flight.is_some() {
+                if !self.take(WAIT_SLICE)? {
+                    return Poll::Pending;
+                }
+                continue;
             }
-            self.fetch(&want)?;
+            // Nothing to hand out and nothing wanted cannot happen; stop rather than spin.
+            let Some(wait) = due_in else { return Poll::Ready(Ok(None)) };
+            (self.clock.sleep)(wait.min(WAIT_SLICE));
+            return Poll::Pending;
+        }
+    }
+
+    /// Hands over every fetch it starts until nothing more is due (the tests' clock stands
+    /// still, so a growing playlist is not asked again).
+    #[cfg(test)]
+    fn settle(&mut self) -> Result<(), MediaError> {
+        loop {
+            self.take(Duration::MAX)?;
+            self.start();
+            if self.in_flight.is_none() {
+                return Ok(());
+            }
         }
     }
 }
@@ -639,15 +688,17 @@ impl Decoder for HlsDecoder {
         self.es.flush()
     }
 
-    /// Also asks a growing playlist again when that is due, so its length grows while
-    /// nothing is read (paused, or the decoded buffer full).
+    /// Also hands over what was fetched and starts what is due (a growing playlist asked
+    /// again, segments ahead), so its length grows while nothing is read (paused, or the
+    /// decoded buffer full).
     fn buffered(&mut self) -> Option<Vec<Range<Duration>>> {
-        if self.failed.is_none()
-            && let Some(want) = self.hls.reload()
-            && self.wait(&want).is_zero()
-            && let Err(e) = self.fetch(&want)
-        {
-            self.failed = Some(e);
+        if self.failed.is_none() {
+            match self.take(Duration::ZERO) {
+                Ok(_) => {
+                    self.start();
+                }
+                Err(e) => self.failed = Some(e),
+            }
         }
         Some(self.hls.buffered())
     }
@@ -666,17 +717,51 @@ pub(crate) fn open(
 
 fn open_with(
     url: &str,
-    fetch: Box<dyn Fetch>,
+    mut fetch: Box<dyn Fetch>,
     es: Box<dyn Elementary>,
     clock: Clock,
 ) -> Result<HlsDecoder, MediaError> {
+    let (asks, wants) = std::sync::mpsc::channel::<Want>();
+    let (back, done) = std::sync::mpsc::channel::<Fetched>();
+    std::thread::Builder::new()
+        .name("remedy-hls-fetch".into())
+        .spawn(move || {
+            for want in wants {
+                let got = fetch.get(&want.url);
+                if back.send((want, got)).is_err() {
+                    return;
+                }
+            }
+        })
+        .map_err(|e| MediaError::Decode(format!("could not start the HLS fetching thread: {e}")))?;
     let hls = Hls::new(url);
     let info = hls.info();
     let now = (clock.now)();
-    let mut d = HlsDecoder { hls, fetch, es, info, ended: false, clock, fetched: (now, now), failed: None };
+    let mut d = HlsDecoder {
+        hls,
+        asks,
+        done,
+        in_flight: None,
+        es,
+        info,
+        ended: false,
+        clock,
+        fetched: (now, now),
+        failed: None,
+    };
+    // The playlist and the first segment only: the rest comes while playing.
     while !d.hls.started() {
-        if d.hls.ended() || !d.fetch_next()? {
+        if d.hls.ended() {
             return Err(MediaError::Format("the HLS playlist lists no segments".into()));
+        }
+        match d.start() {
+            Some(wait) => (d.clock.sleep)(wait),
+            None if d.in_flight.is_none() => {
+                return Err(MediaError::Format("the HLS playlist lists no segments".into()));
+            }
+            None => {
+                d.take(Duration::MAX)?;
+            }
         }
     }
     if d.hls.video().is_none() && d.hls.audio().is_none() {

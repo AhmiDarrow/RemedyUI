@@ -32,6 +32,8 @@ windows = { version = "=0.62.2", features = [
     "Win32_Graphics_Dxgi_Common",
     "Win32_Media_Audio",
     "Win32_Media_MediaFoundation",
+    # HLS playlists and segments (Media Foundation's HTTP byte stream is slow for big bodies).
+    "Win32_Networking_WinHttp",
     "Win32_Security",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",

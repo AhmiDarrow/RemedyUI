@@ -46,7 +46,8 @@ fn growing(n: usize) -> String {
     out
 }
 
-fn serve(mut s: TcpStream, files: &Files) -> std::io::Result<()> {
+/// Answers one request from `files`, at most `rate` bytes a second when there is one.
+fn serve(mut s: TcpStream, files: &Files, rate: Option<usize>) -> std::io::Result<()> {
     let mut reader = BufReader::new(s.try_clone()?);
     let (mut line, mut path) = (String::new(), String::new());
     loop {
@@ -71,7 +72,13 @@ fn serve(mut s: TcpStream, files: &Files) -> std::io::Result<()> {
         "HTTP/1.1 {status}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
         body.len()
     )?;
-    s.write_all(&body)
+    let Some(rate) = rate else { return s.write_all(&body) };
+    // A tenth of a second's worth at a time.
+    for chunk in body.chunks((rate / 10).max(1)) {
+        s.write_all(chunk)?;
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Ok(())
 }
 
 /// A server on a free local port with the clip's segments and `playlist`; its playlist URL and
@@ -82,9 +89,15 @@ fn server(playlist: String) -> (String, Files) {
 
 /// A server with the files of the fixture `stream` (its playlist replaced by `playlist`).
 fn serve_dir(stream: &str, playlist: Option<String>) -> (String, Files) {
+    serve_path(&dir(stream), playlist, None)
+}
+
+/// A server with the files in `folder` (its playlist replaced by `playlist`), sending at most
+/// `rate` bytes a second when there is one.
+fn serve_path(folder: &std::path::Path, playlist: Option<String>, rate: Option<usize>) -> (String, Files) {
     let mut map = HashMap::new();
-    for e in std::fs::read_dir(dir(stream)).unwrap_or_else(|e| unreachable!("{stream}: {e}")).flatten() {
-        let data = std::fs::read(e.path()).unwrap_or_else(|e| unreachable!("{stream}: {e}"));
+    for e in std::fs::read_dir(folder).unwrap_or_else(|e| unreachable!("{folder:?}: {e}")).flatten() {
+        let data = std::fs::read(e.path()).unwrap_or_else(|e| unreachable!("{folder:?}: {e}"));
         map.insert(e.file_name().to_string_lossy().into_owned(), data);
     }
     if let Some(p) = playlist {
@@ -97,7 +110,7 @@ fn serve_dir(stream: &str, playlist: Option<String>) -> (String, Files) {
     std::thread::spawn(move || {
         for s in listener.incoming().flatten() {
             let files = served.clone();
-            std::thread::spawn(move || serve(s, &files));
+            std::thread::spawn(move || serve(s, &files, rate));
         }
     });
     (format!("http://127.0.0.1:{port}/index.m3u8"), files)
@@ -257,6 +270,78 @@ fn a_player_follows_a_growing_playlist() {
     wait_for("the seek within", || p.position() == secs(1.2));
     p.seek(secs(60.0));
     wait_for("the seek past the end", || p.position() == secs(3.0));
+}
+
+/// A 1080p stream of 4 MB, two-second segments (made with the `ffmpeg` on the PATH; skipped
+/// without one), served at 6 MB/s, read at the pace it plays: segments are fetched ahead while
+/// pictures are decoded, so no read waits for the network, and opening waits only for the
+/// playlist and the first segment.
+#[test]
+fn big_segments_are_read_at_the_pace_they_play() {
+    let folder = std::env::temp_dir().join(format!("remedy-hls-1080p-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&folder);
+    let made = std::process::Command::new("ffmpeg")
+        .args([
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=1920x1080:rate=25,noise=alls=40:allf=t",
+        ])
+        .args(["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "6"])
+        .args([
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-b:v",
+            "16M",
+            "-maxrate",
+            "16M",
+            "-bufsize",
+            "16M",
+        ])
+        .args(["-g", "50", "-keyint_min", "50", "-sc_threshold", "0", "-pix_fmt", "yuv420p"])
+        .args(["-c:a", "aac", "-b:a", "128k", "-f", "hls", "-hls_time", "2", "-hls_playlist_type", "vod"])
+        .arg("-hls_segment_filename")
+        .arg(folder.join("seg%05d.ts"))
+        .arg(folder.join("index.m3u8"))
+        .status();
+    if !made.is_ok_and(|s| s.success()) {
+        let _ = std::fs::remove_dir_all(&folder);
+        return eprintln!("skipped: no ffmpeg on the PATH to make the stream");
+    }
+    let (url, _files) = serve_path(&folder, None, Some(6_000_000));
+    let _ = std::fs::remove_dir_all(&folder);
+    let opening = std::time::Instant::now();
+    let Some(mut d) = open(&url) else { return };
+    let opened = opening.elapsed();
+    let start = std::time::Instant::now();
+    let (mut slowest, mut behind, mut pictures) = (Duration::ZERO, Duration::ZERO, 0);
+    loop {
+        let asked = std::time::Instant::now();
+        let s = d.read().unwrap_or_else(|e| unreachable!("reading: {e}"));
+        slowest = slowest.max(asked.elapsed());
+        let Some(s) = s else { break };
+        // Paced by the pictures: a segment carries its sound up to 0.7 s ahead of them, and a
+        // player holds both.
+        let Sample::Video { at, .. } = s else { continue };
+        pictures += 1;
+        // Played in time: wait for the picture's moment; a picture already late is behind.
+        let now = start.elapsed();
+        behind = behind.max(now.saturating_sub(at));
+        std::thread::sleep(at.saturating_sub(now));
+    }
+    eprintln!(
+        "opened in {opened:?}; slowest read {slowest:?}; at most {behind:?} behind; {pictures} pictures"
+    );
+    assert_eq!(pictures, 150, "pictures");
+    // Opening fetches the playlist and one 4 MB segment (0.7 s at this rate), no more.
+    assert!(opened < Duration::from_millis(2000), "opening took {opened:?}");
+    assert!(slowest < Duration::from_millis(200), "a read waited {slowest:?}");
+    assert!(behind < Duration::from_millis(300), "fell {behind:?} behind");
 }
 
 #[test]

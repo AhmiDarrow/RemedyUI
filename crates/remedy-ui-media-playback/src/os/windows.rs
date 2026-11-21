@@ -123,7 +123,7 @@ impl MediaHost for WindowsHost {
         if crate::hls::is_hls(source) {
             return crate::hls::open(
                 &source.to_url(),
-                Box::new(hls::MfFetch::new()?),
+                Box::new(hls::HttpFetch::new()?),
                 Box::new(hls::MftElementary::new()?),
             );
         }

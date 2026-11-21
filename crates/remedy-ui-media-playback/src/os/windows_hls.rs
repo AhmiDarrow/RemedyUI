@@ -1,7 +1,7 @@
 //! Windows HLS: the H.264, AAC and MP3 streams the crate's own HLS reader takes apart, decoded
 //! by Media Foundation transforms (H.264 on the graphics card through the same D3D11 device
 //! manager the source reader uses, when a renderer takes pictures there), and playlists and
-//! segments fetched through Media Foundation's own HTTP byte stream.
+//! segments fetched through WinHTTP.
 
 use std::collections::VecDeque;
 use std::mem::ManuallyDrop;
@@ -20,8 +20,14 @@ use windows::Win32::Media::MediaFoundation::{
     MFT_OUTPUT_DATA_BUFFER, MFT_OUTPUT_STREAM_CAN_PROVIDE_SAMPLES, MFT_OUTPUT_STREAM_PROVIDES_SAMPLES,
     MFT_REGISTER_TYPE_INFO, MFTEnumEx, MFVideoFormat_H264, MFVideoFormat_NV12,
 };
+use windows::Win32::Networking::WinHttp::{
+    URL_COMPONENTS, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_FLAG_REFRESH, WINHTTP_FLAG_SECURE,
+    WINHTTP_INTERNET_SCHEME_HTTPS, WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_QUERY_STATUS_CODE, WinHttpCloseHandle,
+    WinHttpConnect, WinHttpCrackUrl, WinHttpOpen, WinHttpOpenRequest, WinHttpQueryHeaders, WinHttpReadData,
+    WinHttpReceiveResponse, WinHttpSendRequest,
+};
 use windows::Win32::System::Com::CoTaskMemFree;
-use windows::core::{GUID, Interface};
+use windows::core::{GUID, HSTRING, Interface, PCWSTR, w};
 
 use super::super::d3d11::Gpu;
 use super::{Layout, Mf, MfDecoder, com, copy_path, format_error, from_hns, hns, video_layout};
@@ -553,37 +559,128 @@ fn unescape(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// [`Fetch`] through Media Foundation's HTTP byte stream (http and https); `file:` URLs are
-/// read from disk.
-pub(crate) struct MfFetch {
-    _mf: Mf,
-}
+/// One WinHTTP handle, closed when dropped.
+struct Handle(*mut std::ffi::c_void);
 
-impl MfFetch {
-    pub(crate) fn new() -> Result<MfFetch, MediaError> {
-        Ok(MfFetch { _mf: Mf::start()? })
+impl Handle {
+    fn new(h: *mut std::ffi::c_void, what: &str) -> Result<Handle, MediaError> {
+        if h.is_null() {
+            return Err(MediaError::NotFound(format!(
+                "{what}: {}",
+                windows::core::Error::from_thread().message()
+            )));
+        }
+        Ok(Handle(h))
     }
 }
 
-impl Fetch for MfFetch {
+impl Drop for Handle {
+    fn drop(&mut self) {
+        // SAFETY: a handle WinHTTP gave and nothing else closes.
+        let _ = unsafe { WinHttpCloseHandle(self.0) };
+    }
+}
+
+/// [`Fetch`] through WinHTTP (http and https, through the system's proxy); `file:` URLs are
+/// read from disk. Media Foundation's own HTTP byte stream gave a 4 MB segment in 1.7 s from
+/// a local server that hands it out in milliseconds.
+pub(crate) struct HttpFetch {
+    session: Handle,
+}
+
+// SAFETY: WinHTTP's handles may be used from any thread (one call at a time here: `&mut self`).
+unsafe impl Send for HttpFetch {}
+
+impl HttpFetch {
+    pub(crate) fn new() -> Result<HttpFetch, MediaError> {
+        // SAFETY: plain arguments; the handle is checked.
+        let h = unsafe {
+            WinHttpOpen(
+                w!("remedy-ui-media-playback"),
+                WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                PCWSTR::null(),
+                PCWSTR::null(),
+                0,
+            )
+        };
+        Ok(HttpFetch { session: Handle::new(h, "WinHTTP")? })
+    }
+}
+
+impl Fetch for HttpFetch {
     fn get(&mut self, url: &str) -> Result<Vec<u8>, MediaError> {
         if let Some(path) = file_path(url) {
             return std::fs::read(&path).map_err(|e| MediaError::NotFound(format!("{path}: {e}")));
         }
-        com();
-        // Media Foundation fails to open an unreachable host and an HTTP error status alike.
-        let stream =
-            super::byte_stream(url).map_err(|e| MediaError::NotFound(format!("{url}: {}", e.message())))?;
-        let mut out = Vec::new();
-        let mut chunk = vec![0u8; 64 * 1024];
-        loop {
-            let mut n = 0u32;
-            // SAFETY: a synchronous read into a buffer that outlives the call.
-            unsafe { stream.Read(&mut chunk, &mut n) }.map_err(|e| format_error(&e))?;
-            if n == 0 {
-                return Ok(out);
+        let failed = |e: windows::core::Error| MediaError::NotFound(format!("{url}: {}", e.message()));
+        let wide: Vec<u16> = url.encode_utf16().collect();
+        // Lengths set and pointers left null: the parts point into `wide`.
+        let mut parts = URL_COMPONENTS {
+            dwStructSize: std::mem::size_of::<URL_COMPONENTS>() as u32,
+            dwHostNameLength: u32::MAX,
+            dwUrlPathLength: u32::MAX,
+            dwExtraInfoLength: u32::MAX,
+            ..Default::default()
+        };
+        // SAFETY: `parts` and `wide` outlive the call, and the parts are read before `wide` goes.
+        unsafe { WinHttpCrackUrl(&wide, 0, &mut parts) }.map_err(failed)?;
+        let part = |p: windows::core::PWSTR, n: u32| -> Vec<u16> {
+            if p.is_null() {
+                return Vec::new();
             }
-            out.extend_from_slice(chunk.get(..n as usize).unwrap_or_default());
+            // SAFETY: WinHTTP's pointer and length into `wide`.
+            unsafe { std::slice::from_raw_parts(p.0, n as usize) }.to_vec()
+        };
+        let host = HSTRING::from_wide(&part(parts.lpszHostName, parts.dwHostNameLength));
+        let mut object = part(parts.lpszUrlPath, parts.dwUrlPathLength);
+        object.extend(part(parts.lpszExtraInfo, parts.dwExtraInfoLength));
+        let object = HSTRING::from_wide(&object);
+        let mut flags = WINHTTP_FLAG_REFRESH;
+        if parts.nScheme == WINHTTP_INTERNET_SCHEME_HTTPS {
+            flags.0 |= WINHTTP_FLAG_SECURE.0;
+        }
+        // SAFETY: handles checked as they come and closed in reverse order; buffers outlive
+        // the calls that fill them.
+        unsafe {
+            let connection = Handle::new(WinHttpConnect(self.session.0, &host, parts.nPort, 0), url)?;
+            let request = Handle::new(
+                WinHttpOpenRequest(
+                    connection.0,
+                    w!("GET"),
+                    &object,
+                    PCWSTR::null(),
+                    PCWSTR::null(),
+                    std::ptr::null(),
+                    flags,
+                ),
+                url,
+            )?;
+            WinHttpSendRequest(request.0, None, None, 0, 0, 0).map_err(failed)?;
+            WinHttpReceiveResponse(request.0, std::ptr::null_mut()).map_err(failed)?;
+            let (mut status, mut size) = (0u32, 4u32);
+            WinHttpQueryHeaders(
+                request.0,
+                WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                PCWSTR::null(),
+                Some((&raw mut status).cast()),
+                &mut size,
+                std::ptr::null_mut(),
+            )
+            .map_err(failed)?;
+            if status != 200 {
+                return Err(MediaError::NotFound(format!("{url}: the server answered {status}")));
+            }
+            let mut out = Vec::new();
+            let mut chunk = vec![0u8; 1 << 20];
+            loop {
+                let mut n = 0u32;
+                WinHttpReadData(request.0, chunk.as_mut_ptr().cast(), chunk.len() as u32, &mut n)
+                    .map_err(|e| format_error(&e))?;
+                if n == 0 {
+                    return Ok(out);
+                }
+                out.extend_from_slice(chunk.get(..n as usize).unwrap_or_default());
+            }
         }
     }
 }
@@ -810,10 +907,17 @@ mod tests {
                 };
             }
         });
-        let mut f = MfFetch::new().unwrap_or_else(|e| unreachable!("{e}"));
+        let mut f = HttpFetch::new().unwrap_or_else(|e| unreachable!("{e}"));
         let url = |p: &str| format!("http://127.0.0.1:{port}/{p}");
         let big = f.get(&url("200000")).unwrap_or_else(|e| unreachable!("{e}"));
         assert!(big.len() == 200_000 && big.iter().all(|b| *b == (200_000 % 256) as u8));
+        // A 1080p segment's size, from this machine: curl takes a few milliseconds.
+        let started = std::time::Instant::now();
+        let seg = f.get(&url("4317044")).unwrap_or_else(|e| unreachable!("{e}"));
+        let took = started.elapsed();
+        eprintln!("fetched 4,317,044 bytes in {took:?}");
+        assert_eq!(seg.len(), 4_317_044);
+        assert!(took < std::time::Duration::from_millis(500), "a 4 MB segment took {took:?}");
         let a = f.get(&url("grows")).unwrap_or_else(|e| unreachable!("{e}"));
         let b = f.get(&url("grows")).unwrap_or_else(|e| unreachable!("{e}"));
         assert_ne!(a, b, "fetched again, not cached");
@@ -823,7 +927,7 @@ mod tests {
 
     #[test]
     fn fetch_missing() {
-        let mut f = MfFetch::new().unwrap_or_else(|e| unreachable!("{e}"));
+        let mut f = HttpFetch::new().unwrap_or_else(|e| unreachable!("{e}"));
         let r = f.get("http://127.0.0.1:9/nothing.m3u8");
         assert!(matches!(r, Err(MediaError::NotFound(_))), "{r:?}");
     }
