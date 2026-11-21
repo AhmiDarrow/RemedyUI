@@ -293,7 +293,8 @@ impl DxgiChain {
         match unsafe { WaitForSingleObject(self.waitable, WAIT_MS) } {
             WAIT_OBJECT_0 => {}
             WAIT_TIMEOUT => return Ok(None),
-            _ => return Err(ChainError::Lost),
+            // A failed wait says nothing about the device: build the swapchain again.
+            other => return Err(ChainError::Failed(format!("waiting for the swapchain: {other:?}"))),
         }
         // SAFETY: a query on a live swapchain.
         let index = unsafe { self.raw.GetCurrentBackBufferIndex() } as usize;
