@@ -85,6 +85,9 @@ pub(crate) enum Cmd {
     /// Pause, rather than only stop showing pictures, while unseen.
     PauseUnseen(bool),
     Sink(Option<VideoSink>),
+    /// Stop (or go on) asking the decoder for anything, so a stream is not fetched: while
+    /// the app makes a new one, or a TV plays it. The last picture stays.
+    Suspend(bool),
     /// The decoder has something new.
     Wake,
     Close,
@@ -169,6 +172,8 @@ struct Feed {
     source_duration: Option<Duration>,
     /// Whether the decoder last said that length may still grow.
     source_growing: bool,
+    /// The decoder is left alone ([`Cmd::Suspend`]): neither read nor asked what it holds.
+    suspended: bool,
 }
 
 impl Feed {
@@ -282,6 +287,10 @@ const BUFFERED_INTERVAL: Duration = Duration::from_millis(250);
 
 /// One step of decoding: a seek, or one sample read into the feed when it wants more.
 fn decode_step(st: &mut Decoding) -> Next {
+    // A stream's decoder fetches when asked anything (HLS reloads its playlist on `buffered`).
+    if lock(&st.shared.feed).suspended {
+        return Next::Idle;
+    }
     // What the source holds, a few times a second: a stream goes on arriving while the
     // decoded buffer is full or playback is paused.
     let mut keep_asking = false;
@@ -745,6 +754,10 @@ impl Presenter {
                 if let (Some(sink), Some(p)) = (&self.sink, &self.last_picture) {
                     sink.push(p.clone());
                 }
+            }
+            Cmd::Suspend(on) => {
+                lock(&self.feed.feed).suspended = on;
+                self.feed.ring();
             }
             Cmd::Wake | Cmd::Close => {}
         }
