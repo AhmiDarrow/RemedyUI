@@ -332,10 +332,15 @@ impl PresentWatchdog {
     /// A watchdog for presents on `ctx`, with the thread that watches them (native only; a
     /// browser has no thread to watch from, and its presents never block).
     pub fn new(ctx: &GpuContext) -> Self {
+        // GPU-based validation (`REMEDY_D3D_DEBUG`) makes a first present take seconds.
+        #[cfg(windows)]
+        let hang = if crate::ffi::d3d_debug::enabled() { PRESENT_HANG * 20 } else { PRESENT_HANG };
+        #[cfg(not(windows))]
+        let hang = PRESENT_HANG;
         let inner = Arc::new(Watch {
             key: key(ctx),
             started: AtomicU64::new(0),
-            hang: AtomicU64::new(u64::try_from(PRESENT_HANG.as_nanos()).unwrap_or(u64::MAX)),
+            hang: AtomicU64::new(u64::try_from(hang.as_nanos()).unwrap_or(u64::MAX)),
             hung: AtomicBool::new(false),
             epoch: remedy_ui_core::time::Instant::now(),
         });

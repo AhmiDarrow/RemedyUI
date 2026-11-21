@@ -17,10 +17,11 @@ use windows::Win32::Graphics::Direct3D::{
 };
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-    D3D11_CREATE_DEVICE_VIDEO_SUPPORT, D3D11_FENCE_FLAG_SHARED, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE,
-    D3D11_RESOURCE_MISC_SHARED, D3D11_RESOURCE_MISC_SHARED_NTHANDLE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
-    D3D11_USAGE_DEFAULT, D3D11_USAGE_STAGING, D3D11CreateDevice, ID3D11Device, ID3D11Device5,
-    ID3D11DeviceContext, ID3D11DeviceContext4, ID3D11Fence, ID3D11Multithread, ID3D11Texture2D,
+    D3D11_CREATE_DEVICE_DEBUG, D3D11_CREATE_DEVICE_FLAG, D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
+    D3D11_FENCE_FLAG_SHARED, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE, D3D11_RESOURCE_MISC_SHARED,
+    D3D11_RESOURCE_MISC_SHARED_NTHANDLE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
+    D3D11_USAGE_STAGING, D3D11CreateDevice, ID3D11Device, ID3D11Device5, ID3D11DeviceContext,
+    ID3D11DeviceContext4, ID3D11Fence, ID3D11Multithread, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIAdapter, IDXGIFactory4, IDXGIResource1};
@@ -104,6 +105,15 @@ pub(super) struct Gpu {
 // free-threaded; the decoder that owns this uses it from one thread at a time.
 unsafe impl Send for Gpu {}
 
+/// The D3D11 debug layer, for test runs with `REMEDY_D3D_DEBUG=1` (docs/d3d-debug-layers.md);
+/// the GPU renderer, made first, reports its messages.
+fn debug_layer() -> D3D11_CREATE_DEVICE_FLAG {
+    match std::env::var_os("REMEDY_D3D_DEBUG") {
+        Some(v) if v != "0" => D3D11_CREATE_DEVICE_DEBUG,
+        _ => D3D11_CREATE_DEVICE_FLAG(0),
+    }
+}
+
 impl Gpu {
     /// Hardware decoding on the adapter with LUID `adapter`; why not, when it cannot.
     pub(super) fn new(adapter: u64) -> Result<Gpu, String> {
@@ -118,7 +128,7 @@ impl Gpu {
                 &a,
                 D3D_DRIVER_TYPE_UNKNOWN,
                 HMODULE::default(),
-                D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT | debug_layer(),
                 Some(&[D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0]),
                 D3D11_SDK_VERSION,
                 Some(&mut device),
