@@ -22,6 +22,10 @@ use crate::host::{
     PixelFormat, Plane, Sample, VideoInfo, YuvMatrix,
 };
 
+/// HLS: the crate's reader, MediaCodec decoding its streams.
+#[path = "android_hls.rs"]
+mod hls;
+
 type Ptr = *mut c_void;
 type Status = i32;
 
@@ -88,6 +92,9 @@ struct Ndk {
     format_get_int64: unsafe extern "C" fn(Ptr, *const c_char, *mut i64) -> bool,
     format_get_string: unsafe extern "C" fn(Ptr, *const c_char, *mut *const c_char) -> bool,
     format_set_int32: unsafe extern "C" fn(Ptr, *const c_char, i32),
+    format_new: unsafe extern "C" fn() -> Ptr,
+    format_set_string: unsafe extern "C" fn(Ptr, *const c_char, *const c_char),
+    format_set_buffer: unsafe extern "C" fn(Ptr, *const c_char, *const c_void, usize),
     codec_create_decoder_by_type: unsafe extern "C" fn(*const c_char) -> Ptr,
     codec_configure: unsafe extern "C" fn(Ptr, Ptr, Ptr, Ptr, u32) -> Status,
     codec_start: unsafe extern "C" fn(Ptr) -> Status,
@@ -213,6 +220,9 @@ impl Ndk {
             format_get_int64: sym!(l, "AMediaFormat_getInt64"),
             format_get_string: sym!(l, "AMediaFormat_getString"),
             format_set_int32: sym!(l, "AMediaFormat_setInt32"),
+            format_new: sym!(l, "AMediaFormat_new"),
+            format_set_string: sym!(l, "AMediaFormat_setString"),
+            format_set_buffer: sym!(l, "AMediaFormat_setBuffer"),
             codec_create_decoder_by_type: sym!(l, "AMediaCodec_createDecoderByType"),
             codec_configure: sym!(l, "AMediaCodec_configure"),
             codec_start: sym!(l, "AMediaCodec_start"),
@@ -305,16 +315,22 @@ impl AAudio {
 /// aborts a thread that does so unattached); the player's decoding threads are its own.
 /// False without a VM (a bare native process).
 fn on_java() -> bool {
+    java_env().is_some()
+}
+
+/// This thread's `JNIEnv`, attaching it to the Java VM (see [`on_java`]); `None` without a VM.
+fn java_env() -> Option<Ptr> {
     thread_local! {
         // Dropped as the thread ends, before ART's own check that it detached.
         static JAVA: Option<JavaThread> = JavaThread::attach();
     }
-    JAVA.with(Option::is_some)
+    JAVA.with(|j| j.as_ref().map(|j| j.env))
 }
 
 /// This thread's attachment to the Java VM (detached on drop if it was not attached before).
 struct JavaThread {
     vm: Ptr,
+    env: Ptr,
     detach: bool,
 }
 
@@ -348,11 +364,15 @@ impl JavaThread {
                 std::mem::transmute(*table.add(JNI_GET_ENV));
             let mut env = std::ptr::null_mut();
             if get_env(vm, &mut env, JNI_VERSION_1_6) == 0 {
-                return Some(JavaThread { vm, detach: false });
+                return Some(JavaThread { vm, env, detach: false });
             }
             let attach: unsafe extern "C" fn(Ptr, *mut Ptr, Ptr) -> i32 =
                 std::mem::transmute(*table.add(JNI_ATTACH_DAEMON));
-            (attach(vm, &mut env, std::ptr::null_mut()) == 0).then_some(JavaThread { vm, detach: true })
+            (attach(vm, &mut env, std::ptr::null_mut()) == 0 && !env.is_null()).then_some(JavaThread {
+                vm,
+                env,
+                detach: true,
+            })
         }
     }
 }
@@ -397,9 +417,13 @@ impl MediaHost for AndroidHost {
     }
 
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
-        // shortcut: no Elementary here yet, so a playlist is refused plainly rather than failing in the decoder.
+        // The extractor takes no HLS of its own that seeks and grows as elsewhere: the crate's reader.
         if crate::hls::is_hls(source) {
-            return Err(MediaError::Unsupported("HLS is not read on Android yet".into()));
+            return crate::hls::open(
+                &source.to_url(),
+                Box::new(hls::NdkFetch),
+                Box::new(hls::NdkElementary::new(ndk()?)),
+            );
         }
         Ok(Box::new(NdkDecoder::open(ndk()?, source)?))
     }
@@ -440,14 +464,11 @@ struct NdkDecoder {
     extractor: Ptr,
     video: Option<Track>,
     audio: Option<Track>,
-    layout: Option<Layout>,
-    pcm_float: bool,
-    channels: usize,
+    vout: Out,
+    aout: Out,
     extractor_done: bool,
     pending: VecDeque<Sample>,
     info: MediaInfo,
-    /// The reader the video decoder renders into, when pictures stay on the GPU.
-    reader: Option<Arc<Reader>>,
     /// The file the extractor reads through its descriptor, kept open while it does.
     _file: Option<std::fs::File>,
     /// The source is a stream the extractor downloads (not a file).
@@ -565,13 +586,11 @@ impl NdkDecoder {
                 extractor,
                 video: None,
                 audio: None,
-                layout: None,
-                pcm_float: false,
-                channels: 0,
+                vout: Out::default(),
+                aout: Out::default(),
                 extractor_done: false,
                 pending: VecDeque::new(),
                 info: MediaInfo::default(),
-                reader: None,
                 _file: None,
                 network: file.is_none(),
                 cached_end: Duration::ZERO,
@@ -618,7 +637,7 @@ impl NdkDecoder {
                             Ok((reader, window)) => {
                                 codec = d.decoder(&mime, f, window);
                                 match codec {
-                                    Some(_) => d.reader = Some(Arc::new(reader)),
+                                    Some(_) => d.vout.reader = Some(Arc::new(reader)),
                                     None => copy_path("the decoder would not render into an image reader"),
                                 }
                             }
@@ -642,7 +661,7 @@ impl NdkDecoder {
                         let rate = ndk.int(f, c"sample-rate").unwrap_or(0);
                         let ch = ndk.int(f, c"channel-count").unwrap_or(0);
                         if rate > 0 && ch > 0 {
-                            d.channels = ch as usize;
+                            d.aout.channels = ch as usize;
                             d.info.audio =
                                 Some(AudioFormat { sample_rate: rate as u32, channels: ch as u16 });
                             d.audio = Some(Track { index: i, codec, input_done: false, output_done: false });
@@ -668,25 +687,32 @@ impl NdkDecoder {
     /// A started decoder for `mime` configured from the track's format, rendering into
     /// `window` when it is not null, or `None`.
     fn decoder(&self, mime: &str, format: Ptr, window: Ptr) -> Option<Ptr> {
-        let ndk = self.ndk;
-        let m = CString::new(mime).ok()?;
-        // SAFETY: creating, configuring and starting a decoder; it is deleted on failure.
-        unsafe {
-            let codec = (ndk.codec_create_decoder_by_type)(m.as_ptr());
-            if codec.is_null() {
-                return None;
-            }
-            let null = std::ptr::null_mut();
-            if (ndk.codec_configure)(codec, format, window, null, 0) != AMEDIA_OK
-                || (ndk.codec_start)(codec) != AMEDIA_OK
-            {
-                (ndk.codec_delete)(codec);
-                return None;
-            }
-            Some(codec)
-        }
+        decoder(self.ndk, mime, format, window)
     }
+}
 
+/// A started decoder for `mime` configured from `format`, rendering into `window` when it is
+/// not null, or `None`.
+fn decoder(ndk: &Ndk, mime: &str, format: Ptr, window: Ptr) -> Option<Ptr> {
+    let m = CString::new(mime).ok()?;
+    // SAFETY: creating, configuring and starting a decoder; it is deleted on failure.
+    unsafe {
+        let codec = (ndk.codec_create_decoder_by_type)(m.as_ptr());
+        if codec.is_null() {
+            return None;
+        }
+        let null = std::ptr::null_mut();
+        if (ndk.codec_configure)(codec, format, window, null, 0) != AMEDIA_OK
+            || (ndk.codec_start)(codec) != AMEDIA_OK
+        {
+            (ndk.codec_delete)(codec);
+            return None;
+        }
+        Some(codec)
+    }
+}
+
+impl NdkDecoder {
     /// Attaches this thread to Java when the extractor reads a stream (see [`on_java`]).
     fn on_java(&self) {
         if self.network {
@@ -757,110 +783,135 @@ impl NdkDecoder {
 
     /// Takes what the decoders have finished into `pending`.
     fn drain(&mut self, wait_us: i64) -> Result<(), MediaError> {
-        let ndk = self.ndk;
         for video in [true, false] {
-            let Some(codec) = (if video { self.video.as_ref() } else { self.audio.as_ref() })
-                .filter(|t| !t.output_done)
-                .map(|t| t.codec)
-            else {
-                continue;
+            let (track, out) = if video {
+                (self.video.as_mut(), &mut self.vout)
+            } else {
+                (self.audio.as_mut(), &mut self.aout)
             };
-            let mut info = BufferInfo::default();
-            // SAFETY: dequeuing, reading and releasing an output buffer of a live decoder.
-            unsafe {
-                let i = (ndk.codec_dequeue_output_buffer)(codec, &mut info, wait_us);
-                if i == INFO_TRY_AGAIN_LATER {
-                    continue;
-                }
-                if i == INFO_OUTPUT_FORMAT_CHANGED {
-                    let f = (ndk.codec_get_output_format)(codec);
-                    if !f.is_null() {
-                        if video {
-                            // Pictures in a reader describe themselves.
-                            if self.reader.is_none() {
-                                self.layout = Some(picture_layout(ndk, f)?);
-                            }
-                        } else {
-                            self.pcm_float = ndk.int(f, c"pcm-encoding").unwrap_or(PCM_16) == PCM_FLOAT;
-                            if let Some(ch) = ndk.int(f, c"channel-count").filter(|c| *c > 0) {
-                                self.channels = ch as usize;
-                            }
-                        }
-                        (ndk.format_delete)(f);
-                    }
-                    continue;
-                }
-                if i < 0 {
-                    continue;
-                }
-                let idx = i as usize;
-                if video && let Some(reader) = &self.reader {
-                    let eos = info.flags & BUFFER_FLAG_END_OF_STREAM != 0;
-                    let at = Duration::from_micros(info.presentation_time_us.max(0) as u64);
-                    // A picture only when the reader has an image to lend: with every one
-                    // held, this one is dropped rather than the codec stalled.
-                    let room = Arc::strong_count(reader) <= READER_IMAGES as usize;
-                    let render = room && !(eos && info.size <= 0);
-                    (ndk.codec_release_output_buffer)(codec, idx, render);
-                    if render {
-                        let picture = reader.next()?;
-                        self.pending.push_back(Sample::Video { at, duration: None, picture });
-                    }
-                    if eos && let Some(t) = self.video.as_mut() {
-                        t.output_done = true;
-                    }
-                    continue;
-                }
-                let mut size = 0usize;
-                let base = (ndk.codec_get_output_buffer)(codec, idx, &mut size);
-                let start = usize::try_from(info.offset).unwrap_or(0);
-                let len = usize::try_from(info.size).unwrap_or(0);
-                let at = Duration::from_micros(info.presentation_time_us.max(0) as u64);
-                if !base.is_null() && len > 0 && start + len <= size {
-                    let bytes = std::slice::from_raw_parts(base.add(start), len);
-                    if video {
-                        let layout = match self.layout {
-                            Some(l) => l,
-                            None => {
-                                let f = (ndk.codec_get_output_format)(codec);
-                                let l = picture_layout(ndk, f);
-                                (ndk.format_delete)(f);
-                                l?
-                            }
-                        };
-                        self.layout = Some(layout);
-                        let picture = picture(bytes, layout)?;
-                        self.pending.push_back(Sample::Video { at, duration: None, picture });
-                    } else {
-                        let samples: Vec<f32> = if self.pcm_float {
-                            bytes.as_chunks::<4>().0.iter().map(|b| f32::from_ne_bytes(*b)).collect()
-                        } else {
-                            bytes
-                                .as_chunks::<2>()
-                                .0
-                                .iter()
-                                .map(|b| f32::from(i16::from_ne_bytes(*b)) / 32768.0)
-                                .collect()
-                        };
-                        let whole = samples.len() - samples.len() % self.channels.max(1);
-                        if whole > 0 {
-                            self.pending.push_back(Sample::Audio {
-                                at,
-                                samples: samples.get(..whole).unwrap_or_default().to_vec(),
-                            });
-                        }
-                    }
-                }
-                (ndk.codec_release_output_buffer)(codec, idx, false);
-                if info.flags & BUFFER_FLAG_END_OF_STREAM != 0 {
-                    let t = if video { self.video.as_mut() } else { self.audio.as_mut() };
-                    if let Some(t) = t {
-                        t.output_done = true;
-                    }
-                }
+            let Some(t) = track.filter(|t| !t.output_done) else { continue };
+            if let Some((sample, eos)) = output(self.ndk, t.codec, video, out, wait_us)? {
+                t.output_done |= eos;
+                self.pending.extend(sample);
             }
         }
         Ok(())
+    }
+}
+
+/// How a decoder's output is read: the reader it renders into, or how its buffers are laid out.
+#[derive(Default)]
+struct Out {
+    /// The reader a video decoder renders into, when pictures stay on the GPU.
+    reader: Option<Arc<Reader>>,
+    layout: Option<Layout>,
+    pcm_float: bool,
+    channels: usize,
+    /// The sound's rate as the decoder gives it (0 until it says).
+    rate: u32,
+}
+
+/// One look at `codec`'s output, waiting up to `wait_us`: `None` when nothing is ready yet,
+/// else the sample it gave (none for a format change) and whether it was the stream's last.
+fn output(
+    ndk: &Ndk,
+    codec: Ptr,
+    video: bool,
+    out: &mut Out,
+    wait_us: i64,
+) -> Result<Option<(Option<Sample>, bool)>, MediaError> {
+    let mut info = BufferInfo::default();
+    // SAFETY: dequeuing, reading and releasing an output buffer of a live decoder.
+    unsafe {
+        let i = (ndk.codec_dequeue_output_buffer)(codec, &mut info, wait_us);
+        if i == INFO_OUTPUT_FORMAT_CHANGED {
+            let f = (ndk.codec_get_output_format)(codec);
+            if !f.is_null() {
+                if video {
+                    // Pictures in a reader describe themselves.
+                    if out.reader.is_none() {
+                        let l = picture_layout(ndk, f);
+                        (ndk.format_delete)(f);
+                        out.layout = Some(l?);
+                        return Ok(Some((None, false)));
+                    }
+                } else {
+                    out.pcm_float = ndk.int(f, c"pcm-encoding").unwrap_or(PCM_16) == PCM_FLOAT;
+                    if let Some(ch) = ndk.int(f, c"channel-count").filter(|c| *c > 0) {
+                        out.channels = ch as usize;
+                    }
+                    if let Some(r) = ndk.int(f, c"sample-rate").filter(|r| *r > 0) {
+                        out.rate = r as u32;
+                    }
+                }
+                (ndk.format_delete)(f);
+            }
+            return Ok(Some((None, false)));
+        }
+        if i == INFO_TRY_AGAIN_LATER {
+            return Ok(None);
+        }
+        if i < 0 {
+            // Output buffers changed (and the like): look again.
+            return Ok(Some((None, false)));
+        }
+        let idx = i as usize;
+        let eos = info.flags & BUFFER_FLAG_END_OF_STREAM != 0;
+        let at = Duration::from_micros(info.presentation_time_us.max(0) as u64);
+        if video && let Some(reader) = &out.reader {
+            // A picture only when the reader has an image to lend: with every one held, this
+            // one is dropped rather than the codec stalled.
+            let room = Arc::strong_count(reader) <= READER_IMAGES as usize;
+            let render = room && !(eos && info.size <= 0);
+            (ndk.codec_release_output_buffer)(codec, idx, render);
+            let sample = if render {
+                Some(Sample::Video { at, duration: None, picture: reader.next()? })
+            } else {
+                None
+            };
+            return Ok(Some((sample, eos)));
+        }
+        let mut size = 0usize;
+        let base = (ndk.codec_get_output_buffer)(codec, idx, &mut size);
+        let start = usize::try_from(info.offset).unwrap_or(0);
+        let len = usize::try_from(info.size).unwrap_or(0);
+        let mut sample = None;
+        if !base.is_null() && len > 0 && start + len <= size {
+            let bytes = std::slice::from_raw_parts(base.add(start), len);
+            if video {
+                let layout = match out.layout {
+                    Some(l) => l,
+                    None => {
+                        let f = (ndk.codec_get_output_format)(codec);
+                        let l = picture_layout(ndk, f);
+                        (ndk.format_delete)(f);
+                        l?
+                    }
+                };
+                out.layout = Some(layout);
+                sample = Some(Sample::Video { at, duration: None, picture: picture(bytes, layout)? });
+            } else {
+                let samples: Vec<f32> = if out.pcm_float {
+                    bytes.as_chunks::<4>().0.iter().map(|b| f32::from_ne_bytes(*b)).collect()
+                } else {
+                    bytes
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|b| f32::from(i16::from_ne_bytes(*b)) / 32768.0)
+                        .collect()
+                };
+                let whole = samples.len() - samples.len() % out.channels.max(1);
+                if whole > 0 {
+                    sample = Some(Sample::Audio {
+                        at,
+                        samples: samples.get(..whole).unwrap_or_default().to_vec(),
+                    });
+                }
+            }
+        }
+        (ndk.codec_release_output_buffer)(codec, idx, false);
+        Ok(Some((sample, eos)))
     }
 }
 
