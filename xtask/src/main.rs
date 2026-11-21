@@ -203,6 +203,8 @@ const SIDEWAYS: &[(&str, &str)] = &[
     // the core widgets.
     ("remedy-ui-media-playback", "remedy-ui-media-video"),
     ("remedy-ui-media-playback", "remedy-ui-widgets-core"),
+    // The player shows what plays in the system's media controls (feature `media-session`).
+    ("remedy-ui-media-playback", "remedy-ui-services-desktop"),
     // The update banner is a widget.
     ("remedy-ui-services-update", "remedy-ui-widgets-core"),
     // The spelling menu is built from the core menu widgets.
