@@ -25,8 +25,9 @@ use windows::core::{GUID, Interface};
 
 use super::super::d3d11::Gpu;
 use super::{Layout, Mf, MfDecoder, com, copy_path, format_error, from_hns, hns, video_layout};
+use crate::capture::Converter;
 use crate::hls::{AudioCodec, AudioConfig, Elementary, Fetch, Unit, VideoConfig};
-use crate::host::{MediaError, Picture, Sample};
+use crate::host::{AudioFormat, MediaError, Picture, Sample};
 
 fn decode_error(e: windows::core::Error) -> MediaError {
     MediaError::Decode(format!("{} ({:#010x})", e.message(), e.code().0))
@@ -253,6 +254,14 @@ struct Audio {
     t: IMFTransform,
     /// The output is 32-bit float; else 16-bit integers.
     float: bool,
+    /// The format the decoder said it would give when opened: the one the player is told,
+    /// which every sample is given in.
+    format: AudioFormat,
+    /// The format it gives now. The AAC decoder guesses SBR (twice the rate, and stereo)
+    /// for a stream at 24 kHz or less until its first frame says otherwise.
+    actual: AudioFormat,
+    /// From `actual` to `format`, while they differ.
+    convert: Option<Converter>,
     out: VecDeque<Sample>,
 }
 
@@ -279,8 +288,11 @@ impl Audio {
             }
             t.SetInputType(0, &input, 0).map_err(|e| MediaError::Format(e.message()))?;
         }
-        let mut a = Audio { t, float: true, out: VecDeque::new() };
+        let none = AudioFormat::new(0, 0);
+        let mut a = Audio { t, float: true, format: none, actual: none, convert: None, out: VecDeque::new() };
         a.set_output()?;
+        a.format = a.actual;
+        a.reset();
         message(&a.t, MFT_MESSAGE_NOTIFY_BEGIN_STREAMING)?;
         message(&a.t, MFT_MESSAGE_NOTIFY_START_OF_STREAM)?;
         Ok(a)
@@ -291,7 +303,25 @@ impl Audio {
         if !self.float && !set_output(&self.t, &MFAudioFormat_PCM).map_err(decode_error)? {
             return Err(MediaError::Format("the sound decoder gives neither float nor PCM".into()));
         }
+        // SAFETY: reading the type just set.
+        let (rate, channels) = unsafe {
+            let t = self.t.GetOutputCurrentType(0).map_err(decode_error)?;
+            (
+                t.GetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND).unwrap_or(0),
+                t.GetUINT32(&MF_MT_AUDIO_NUM_CHANNELS).unwrap_or(0),
+            )
+        };
+        if rate == 0 || channels == 0 {
+            return Err(MediaError::Format("the sound decoder gives no rate or no channels".into()));
+        }
+        self.actual = AudioFormat::new(rate, u16::try_from(channels).unwrap_or(u16::MAX));
+        self.reset();
         Ok(())
+    }
+
+    /// Starts converting afresh (after a format change or a seek).
+    fn reset(&mut self) {
+        self.convert = (self.actual != self.format).then(|| Converter::new(self.actual, self.format));
     }
 
     fn collect(&mut self) -> Result<(), MediaError> {
@@ -322,6 +352,14 @@ impl Audio {
                         };
                         let _ = buffer.Unlock();
                         v
+                    };
+                    let samples = match &mut self.convert {
+                        Some(c) => {
+                            let mut out = Vec::new();
+                            c.convert(&samples, &mut out);
+                            out
+                        }
+                        None => samples,
                     };
                     if !samples.is_empty() {
                         self.out.push_back(Sample::Audio { at: time_of(&s), samples });
@@ -469,12 +507,54 @@ impl Elementary for MftElementary {
         }
         if let Some(a) = &mut self.audio {
             a.out.clear();
+            a.reset();
         }
         Ok(())
     }
+
+    fn audio_format(&self) -> Option<AudioFormat> {
+        self.audio.as_ref().map(|a| a.format)
+    }
 }
 
-/// [`Fetch`] through Media Foundation's HTTP byte stream (http and https).
+/// The path a `file:` URL names (`file:///C:/a%20b/c.ts`, as [`MediaSource::to_url`] makes,
+/// or with a segment name joined on unescaped); `None` for other schemes.
+///
+/// shortcut: a literal `%` in an unescaped segment name is read as an escape; parse the
+/// playlist's names apart from the base if that ever matters.
+///
+/// [`MediaSource::to_url`]: crate::host::MediaSource::to_url
+fn file_path(url: &str) -> Option<String> {
+    let rest = url.get(..5).filter(|s| s.eq_ignore_ascii_case("file:")).and(url.get(5..))?;
+    let rest = rest.split(['?', '#']).next().unwrap_or(rest);
+    // `file:///C:/…` and `file://localhost/C:/…` are drive paths; `file://server/share/…` a
+    // UNC one (kept as `//server/share/…`).
+    let path = rest.strip_prefix("///").or_else(|| rest.strip_prefix("//localhost/")).unwrap_or(rest);
+    Some(unescape(path))
+}
+
+fn unescape(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while let Some(&c) = b.get(i) {
+        let hex = b.get(i + 1..i + 3).and_then(|h| std::str::from_utf8(h).ok());
+        match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+            Some(v) if c == b'%' => {
+                out.push(v);
+                i += 3;
+            }
+            _ => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// [`Fetch`] through Media Foundation's HTTP byte stream (http and https); `file:` URLs are
+/// read from disk.
 pub(crate) struct MfFetch {
     _mf: Mf,
 }
@@ -487,6 +567,9 @@ impl MfFetch {
 
 impl Fetch for MfFetch {
     fn get(&mut self, url: &str) -> Result<Vec<u8>, MediaError> {
+        if let Some(path) = file_path(url) {
+            return std::fs::read(&path).map_err(|e| MediaError::NotFound(format!("{path}: {e}")));
+        }
         com();
         // Media Foundation fails to open an unreachable host and an HTTP error status alike.
         let stream =
