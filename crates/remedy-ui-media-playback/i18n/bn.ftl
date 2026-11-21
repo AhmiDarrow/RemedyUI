@@ -13,6 +13,7 @@ playback-pause = বিরতি দিন
 playback-time = { $position } / { $duration }
 playback-time-live = { $position } · লাইভ
 playback-skipping = { $position }-এ যাওয়া হচ্ছে
+playback-preparing = ভিডিও প্রস্তুত করা হচ্ছে।
 playback-mute-tip = মিউট করুন (M)
 playback-mute = মিউট করুন
 playback-unmute = আনমিউট করুন
