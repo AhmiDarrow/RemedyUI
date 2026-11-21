@@ -13,6 +13,7 @@ playback-pause = 一時停止
 playback-time = { $position } / { $duration }
 playback-time-live = { $position } · ライブ
 playback-skipping = { $position } に移動中
+playback-preparing = 動画を準備しています。
 playback-mute-tip = ミュート (M)
 playback-mute = ミュート
 playback-unmute = ミュート解除
