@@ -174,6 +174,7 @@ const MISSING_RETRIES: u32 = 2;
 
 /// The error of a fetch of `url` the server answered with HTTP `status`: one that says the
 /// file does not exist (404, 410) is told apart, so an open fails promptly.
+#[cfg_attr(not(any(windows, target_os = "android", target_arch = "wasm32")), allow(dead_code))]
 pub(crate) fn answered(url: &str, status: u32) -> MediaError {
     match status {
         404 | 410 => missing(url, &format!("the server answered {status}")),
