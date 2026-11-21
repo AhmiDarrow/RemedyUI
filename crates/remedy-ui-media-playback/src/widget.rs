@@ -196,7 +196,12 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .child(message)
         .child(cast)
         .child(busy.clone())
-        .on_double_click(move || toggle_fullscreen(&p));
+        .on_double_click(move || toggle_fullscreen(&p))
+        // The full-screen button and F do what a double click does.
+        .keyboard_alternative({
+            let u = ui.clone();
+            move || tr(&u, "playback-full-screen-tip")
+        });
     let st = stage.clone();
     let p = player.clone();
     let stage = stage.bind(move || {
