@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_a11y::{Action, Live, Role, Semantics};
 use remedy_ui_core::{CornerRadii, Insets, Rect};
 use remedy_ui_input::{Buttons, Key, PointerPhase};
 use remedy_ui_layout::{AUTO, Align, Justify, Position};
@@ -52,8 +52,13 @@ const JUMP_SEEK: f64 = 10.0;
 /// A player for `player`: its picture (with captions over it, when on) and a transport bar
 /// with play and pause, the time, a seek bar, mute and volume, a captions switch when the
 /// media has caption tracks, a theater-mode request once the app listens for one
-/// ([`Player::on_theater`]), and a full-screen request. `label` names it for screen readers
+/// ([`Player::on_theater`]), a cast button once the app opens a device menu
+/// ([`Player::on_cast`]), and a full-screen request. `label` names it for screen readers
 /// ("Talk recording").
+///
+/// In [remote mode](Player::set_remote) the picture gives way to a casting stage (the
+/// device's name and what it is doing, announced as it changes, over the app's poster) and
+/// every control and key acts on the device.
 ///
 /// Keyboard, anywhere in the player: K plays and pauses, J and L jump 10 seconds, M mutes,
 /// C turns captions on and off, F asks for full screen, T for theater mode (when offered),
@@ -90,7 +95,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     let cap = caption.clone();
     let p = player.clone();
     let caption = caption.bind(move || {
-        let text = p.caption_text();
+        let text = p.caption_text().filter(|_| !p.is_remote());
         let _ = cap.clone().hidden(text.is_none());
         let _ = cap.clone().text(remedy_ui_view::RichText::plain(text.unwrap_or_default()));
     });
@@ -113,7 +118,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     let mu = ui.clone();
     let message = message.bind(move || {
         let text = match p.state() {
-            PlaybackState::Failed => Some(failure(&mu.locale(), p.error())),
+            PlaybackState::Failed if !p.is_remote() => Some(failure(&mu.locale(), p.error())),
             _ => None,
         };
         let _ = msg.clone().hidden(text.is_none());
@@ -134,23 +139,27 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             let u = ui.clone();
             move || tr(&u, "playback-loading")
         }));
+    let cast = cast_stage(ui, player);
     // The picture fills the stage (letterboxed by the surface); the rest sits over it.
     let stage = ui
         .el("player_stage")
         .grow(1.0)
         .column()
-        .child(surface)
+        .child(surface.clone())
         .child(caption)
         .child(message)
+        .child(cast)
         .child(busy.clone());
     let st = stage.clone();
     let p = player.clone();
     let stage = stage.bind(move || {
         let state = p.state();
+        let remote = p.is_remote();
         let _ = busy.clone().hidden(!matches!(state, PlaybackState::Opening | PlaybackState::Buffering));
+        let _ = surface.clone().hidden(remote);
         // Sound alone needs no picture; what failed to open shows its message there.
         let pictures = p.info().is_none_or(|i| i.video.is_some());
-        let _ = st.clone().hidden(!pictures && state != PlaybackState::Failed);
+        let _ = st.clone().hidden(!pictures && state != PlaybackState::Failed && !remote);
     });
 
     // The transport bar.
@@ -212,6 +221,9 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .child(w::slider(ui, tr(ui, "playback-volume"), level, 0.0, 1.0, 0.05));
     let p = player.clone();
     let volume = volume.bind(move || p.set_volume(level.get() as f32));
+    // The slider follows the volume: the device's in remote mode.
+    let p = player.clone();
+    let volume = volume.bind(move || level.set_if_changed(f64::from(p.volume())));
     let p = player.clone();
     let captions = glyph_button(
         ui,
@@ -315,6 +327,30 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                 tb.state(remedy_ui_style::States::CHECKED, p.is_theater());
             }
         });
+    // Cast: one name that says whether it is casting; the app opens its menu of devices.
+    let p = player.clone();
+    let cast = glyph_button(
+        ui,
+        [Icon::Cast, Icon::Casting],
+        "playback-cast-tip",
+        {
+            let p = player.clone();
+            move || usize::from(p.is_remote())
+        },
+        {
+            let (p, u) = (player.clone(), ui.clone());
+            move || tr(&u, if p.is_remote() { "playback-casting" } else { "playback-cast" })
+        },
+        || {},
+    );
+    let (cb, me) = (cast.clone(), cast.clone());
+    let cast = cast.on_click(move || p.request_cast(&me)).bind({
+        let p = player.clone();
+        move || {
+            let _ = cb.clone().hidden(!p.cast_offered());
+            cb.state(remedy_ui_style::States::CHECKED, p.is_remote());
+        }
+    });
     let bar = ui
         .el("toolbar")
         .row()
@@ -328,6 +364,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .child(speed)
         .child(captions)
         .child(theater)
+        .child(cast)
         .child(full);
 
     let next = next_up_card(ui, player);
@@ -370,6 +407,54 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             }
             true
         })
+}
+
+/// What plays where, in remote mode: the device's name and state over the app's poster, in
+/// place of the picture; announced politely as it changes.
+#[track_caller]
+fn cast_stage(ui: &Ui, player: &Player) -> El {
+    let u = ui.theme().spacing.unit;
+    let poster = ui.el("player_poster").column().grow(1.0).align(Align::Center).justify(Justify::Center);
+    let text = ui
+        .el("player_caption")
+        .style(remedy_ui_style::StylePatch::default().padding(Insets {
+            top: u,
+            bottom: u,
+            start: u * 1.5,
+            end: u * 1.5,
+        }))
+        .layout(move |l| {
+            l.position = Position::Absolute;
+            l.inset = Insets { top: AUTO, start: u * 3.0, end: AUTO, bottom: u * 3.0 };
+        });
+    let panel = ui.el("player_cast").column().grow(1.0).child(poster.clone()).child(text.clone());
+    let (pa, p, tu) = (panel.clone(), player.clone(), ui.clone());
+    let shown = std::cell::Cell::new(None);
+    panel.bind(move || {
+        let name = p.remote_name();
+        let _ = pa.clone().hidden(name.is_none());
+        let Some(name) = name else { return };
+        let id = match p.state() {
+            PlaybackState::Opening => "playback-cast-connecting",
+            PlaybackState::Paused => "playback-cast-paused",
+            PlaybackState::Playing => "playback-cast-playing",
+            PlaybackState::Buffering => "playback-cast-buffering",
+            PlaybackState::Ended => "playback-cast-ended",
+            PlaybackState::Failed => "playback-cast-failed",
+        };
+        let said = crate::STRINGS.format(&tu, id, &[("device", name.into())]);
+        let _ = text.clone().text(remedy_ui_view::RichText::plain(said.clone()));
+        let _ = text.clone().semantics(Semantics::new(Role::Status).label(said).live(Live::Polite));
+        // The app's poster, put in when it changes.
+        let art = p.remote_poster();
+        if shown.get() != art.as_ref().map(El::id) {
+            poster.clear();
+            if let Some(a) = &art {
+                let _ = poster.clone().child(a.clone());
+            }
+            shown.set(art.as_ref().map(El::id));
+        }
+    })
 }
 
 /// "Up next" at the end of the media, when something is set to play next: its title, the
@@ -549,7 +634,7 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
         if let Some(len) = len() {
             let at =
                 |d: Duration| x0 + (x1 - x0) * (d.as_secs_f64() / len.as_secs_f64()).clamp(0.0, 1.0) as f32;
-            for r in painted.buffered() {
+            for r in if painted.is_remote() { Vec::new() } else { painted.buffered() } {
                 let (a, b) = (at(r.start), at(r.end));
                 if b > a {
                     cx.list.fill_rounded(
@@ -605,7 +690,8 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
         // Repainted as more arrives.
         let _ = p2.buffered();
         let len = length();
-        let _ = b3.clone().disabled(len.is_none() || !p2.info().is_some_and(|i| i.seekable));
+        let seekable = p2.is_remote() || p2.info().is_some_and(|i| i.seekable);
+        let _ = b3.clone().disabled(len.is_none() || !seekable);
         let total = len.unwrap_or_default();
         let said = crate::STRINGS.format(
             &u,

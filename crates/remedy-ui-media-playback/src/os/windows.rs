@@ -30,10 +30,14 @@ use windows::Win32::System::Com::StructuredStorage::{
     PROPVARIANT, PropVariantClear, PropVariantToUInt32, PropVariantToUInt64,
 };
 use windows::Win32::System::Com::{
-    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
+    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoIncrementMTAUsage, CoInitializeEx, CoTaskMemFree,
 };
 use windows::Win32::System::Variant::VT_I8;
 use windows::core::{GUID, HSTRING, Interface};
+
+// HLS: Media Foundation transforms decode the streams the crate's own reader takes apart.
+#[path = "windows_hls.rs"]
+mod hls;
 
 use crate::host::{
     AudioFormat, AudioInput, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Picture,
@@ -56,8 +60,17 @@ fn from_hns(t: i64) -> Duration {
 
 /// Joins this thread to the multithreaded COM apartment once (the player's threads are its
 /// own; a thread already in a single-threaded apartment keeps it, which Media Foundation's
-/// free-threaded objects also allow).
+/// free-threaded objects also allow), and keeps that apartment for the whole process.
 fn com() {
+    static MTA: std::sync::Once = std::sync::Once::new();
+    // When the last thread in the apartment ends, COM tears it down and unloads the WinRT
+    // DLLs it loaded (twinapi.appcore.dll), while Media Foundation's HTTP stack
+    // (Windows.Networking.Connectivity.dll) keeps pointers into them: the next stream opened
+    // over HTTP crashed reading the unloaded DLL.
+    // SAFETY: a plain COM call; its cookie is never released, so the apartment lives on.
+    MTA.call_once(|| {
+        let _ = unsafe { CoIncrementMTAUsage() };
+    });
     thread_local! {
         static JOINED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     }
@@ -105,6 +118,15 @@ impl MediaHost for WindowsHost {
     }
 
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
+        // Media Foundation's source reader refuses playlists: the crate's own reader takes HLS
+        // apart and Media Foundation's transforms decode its streams.
+        if crate::hls::is_hls(source) {
+            return crate::hls::open(
+                &source.to_url(),
+                Box::new(hls::MfFetch::new()?),
+                Box::new(hls::MftElementary::new()?),
+            );
+        }
         Ok(Box::new(MfDecoder::open(source)?))
     }
 
@@ -125,6 +147,24 @@ fn format_error(e: &windows::core::Error) -> MediaError {
         // MF_E_UNSUPPORTED_BYTESTREAM_TYPE, MF_E_UNSUPPORTED_FORMAT, MF_E_INVALID_FILE_FORMAT
         0xC00D_36C4 | 0xC00D_36B4 | 0xC00D_3E8C => MediaError::Format(e.message()),
         _ => MediaError::Format(format!("{} ({:#010x})", e.message(), e.code().0)),
+    }
+}
+
+/// A URL that resolves to a byte stream (HTTP and HTTPS through Media Foundation's own network
+/// stack); other schemes (RTSP) fail.
+fn byte_stream(url: &str) -> windows::core::Result<IMFByteStream> {
+    // SAFETY: resolving a URL into locals that outlive the call.
+    unsafe {
+        let mut kind = MF_OBJECT_TYPE::default();
+        let mut object = None;
+        MFCreateSourceResolver()?.CreateObjectFromURL(
+            &HSTRING::from(url),
+            MF_RESOLUTION_BYTESTREAM.0 as u32,
+            None::<&windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore>,
+            &mut kind,
+            &mut object,
+        )?;
+        object.ok_or_else(|| windows::core::Error::from(windows::Win32::Foundation::E_POINTER))?.cast()
     }
 }
 
@@ -269,21 +309,7 @@ impl MfDecoder {
                 if matches!(source, MediaSource::Url(_)) {
                     // A URL that resolves to a byte stream (HTTP): read through one kept here.
                     // Other schemes (RTSP) fail to and go the URL way.
-                    let stream = MFCreateSourceResolver().and_then(|r| {
-                        let mut kind = MF_OBJECT_TYPE::default();
-                        let mut object = None;
-                        r.CreateObjectFromURL(
-                            &HSTRING::from(url.as_str()),
-                            MF_RESOLUTION_BYTESTREAM.0 as u32,
-                            None::<&windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore>,
-                            &mut kind,
-                            &mut object,
-                        )?;
-                        object
-                            .ok_or_else(|| windows::core::Error::from(windows::Win32::Foundation::E_POINTER))
-                            .and_then(|o| o.cast::<IMFByteStream>())
-                    });
-                    if let Ok(stream) = stream {
+                    if let Ok(stream) = byte_stream(&url) {
                         let reader = MFCreateSourceReaderFromByteStream(&stream, &attrs)
                             .map_err(|e| format_error(&e))?;
                         return Ok((reader, Some(stream)));
