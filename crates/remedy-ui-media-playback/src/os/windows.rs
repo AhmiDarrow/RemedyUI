@@ -15,7 +15,8 @@ use windows::Win32::Media::MediaFoundation::{
     IMF2DBuffer, IMFAttributes, IMFMediaType, IMFSample, IMFSourceReader, MF_MT_AUDIO_NUM_CHANNELS,
     MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE,
     MF_MT_MAJOR_TYPE, MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_SUBTYPE, MF_MT_VIDEO_NOMINAL_RANGE,
-    MF_MT_YUV_MATRIX, MF_PD_DURATION, MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_ANY_STREAM,
+    MF_MT_YUV_MATRIX, MF_PD_DURATION, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READER_ALL_STREAMS,
+    MF_SOURCE_READER_ANY_STREAM, MF_SOURCE_READER_D3D_MANAGER,
     MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, MF_SOURCE_READER_MEDIASOURCE,
     MF_SOURCE_READER_MEDIASOURCE_CHARACTERISTICS, MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED,
     MF_SOURCE_READERF_ENDOFSTREAM, MF_SOURCE_READERF_ERROR, MF_VERSION, MFAudioFormat_Float,
@@ -139,8 +140,19 @@ struct Layout {
     stride: Option<u32>,
 }
 
+/// Says once, in the log, why pictures go through CPU memory although a renderer takes them on
+/// the GPU: a driver or format that cannot share. Playback is the same, only slower.
+fn copy_path(why: &str) {
+    static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        eprintln!("remedy-ui-media-playback: video pictures are copied through CPU memory: {why}");
+    }
+}
+
 struct MfDecoder {
     reader: IMFSourceReader,
+    /// Hardware decoding into textures shared with the renderer, when one takes them.
+    gpu: Option<super::d3d11::Gpu>,
     info: MediaInfo,
     video: Option<(u32, Layout)>,
     audio: Option<u32>,
@@ -220,18 +232,48 @@ impl MfDecoder {
             }
             MediaSource::Url(u) => u.clone(),
         };
+        // Pictures stay on the GPU when a renderer takes them there.
+        let mut gpu = match remedy_ui_paint::gpu_video_adapter() {
+            Some(remedy_ui_paint::GpuAdapter::Luid(l)) => {
+                super::d3d11::Gpu::new(l).map_err(|e| copy_path(&e)).ok()
+            }
+            _ => None,
+        };
+        let make = |gpu: Option<&super::d3d11::Gpu>| -> Result<IMFSourceReader, MediaError> {
+            // SAFETY: Media Foundation calls on objects made here; every pointer passed lives
+            // across the call.
+            unsafe {
+                let mut attrs: Option<IMFAttributes> = None;
+                MFCreateAttributes(&mut attrs, 3).map_err(|e| MediaError::Unsupported(e.message()))?;
+                let attrs = attrs.ok_or_else(|| MediaError::Unsupported("no attribute store".into()))?;
+                // Color conversion and deinterlacing to NV12, whatever the decoder gives.
+                attrs
+                    .SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1)
+                    .map_err(|e| MediaError::Unsupported(e.message()))?;
+                if let Some(g) = gpu {
+                    // Decoding (and converting) on the graphics card, into its textures.
+                    attrs
+                        .SetUnknown(&MF_SOURCE_READER_D3D_MANAGER, &g.manager)
+                        .map_err(|e| MediaError::Unsupported(e.message()))?;
+                    attrs
+                        .SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1)
+                        .map_err(|e| MediaError::Unsupported(e.message()))?;
+                }
+                MFCreateSourceReaderFromURL(&HSTRING::from(url.as_str()), &attrs)
+                    .map_err(|e| format_error(&e))
+            }
+        };
+        let reader = match make(gpu.as_ref()) {
+            Err(e) if gpu.is_some() => {
+                copy_path(&format!("the source reader would not open on the GPU ({e})"));
+                gpu = None;
+                make(None)?
+            }
+            r => r?,
+        };
         // SAFETY: Media Foundation calls on objects this function owns; every pointer passed
         // lives across the call.
         unsafe {
-            let mut attrs: Option<IMFAttributes> = None;
-            MFCreateAttributes(&mut attrs, 1).map_err(|e| MediaError::Unsupported(e.message()))?;
-            let attrs = attrs.ok_or_else(|| MediaError::Unsupported("no attribute store".into()))?;
-            // Color conversion and deinterlacing to NV12, whatever the decoder gives.
-            attrs
-                .SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1)
-                .map_err(|e| MediaError::Unsupported(e.message()))?;
-            let reader = MFCreateSourceReaderFromURL(&HSTRING::from(url.as_str()), &attrs)
-                .map_err(|e| format_error(&e))?;
             reader
                 .SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false)
                 .map_err(|e| MediaError::Format(e.message()))?;
@@ -306,6 +348,7 @@ impl MfDecoder {
             }
             Ok(MfDecoder {
                 reader,
+                gpu,
                 info,
                 video,
                 audio,
@@ -316,7 +359,19 @@ impl MfDecoder {
         }
     }
 
-    fn picture(&self, sample: &IMFSample, l: Layout) -> Result<Picture, MediaError> {
+    /// The decoded picture, on the GPU where it can stay there, else copied into CPU memory.
+    fn picture(&mut self, sample: &IMFSample, l: Layout) -> Result<Picture, MediaError> {
+        if let Some(g) = &mut self.gpu {
+            match g.picture(sample, l.x, l.y, l.width, l.height, l.matrix, l.full_range) {
+                Ok(p) => return Ok(p),
+                Err(e) => copy_path(&e),
+            }
+        }
+        Self::copy(sample, l)
+    }
+
+    /// The picture's bytes copied out of the sample's locked buffer.
+    fn copy(sample: &IMFSample, l: Layout) -> Result<Picture, MediaError> {
         // SAFETY: the buffer is locked while its bytes are copied, and unlocked after.
         unsafe {
             let buffer = sample.GetBufferByIndex(0).map_err(|e| MediaError::Decode(e.message()))?;
@@ -343,6 +398,7 @@ impl MfDecoder {
                     matrix: l.matrix,
                     full_range: l.full_range,
                     data: Arc::from(bytes),
+                    gpu: None,
                 })
             };
             if let Ok(b2) = buffer.cast::<IMF2DBuffer>() {
