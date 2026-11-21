@@ -47,6 +47,7 @@ playback-back = ১০ সেকেন্ড পিছনে
 playback-forward-tip = ১০ সেকেন্ড সামনে (L)
 playback-forward = ১০ সেকেন্ড সামনে
 playback-full-screen-tip = পূর্ণ স্ক্রিন (F)
+playback-wake-tip = যেকোনো কী নিয়ন্ত্রণগুলি দেখায়
 playback-full-screen = পূর্ণ স্ক্রিন
 playback-exit-full-screen = পূর্ণ স্ক্রিন থেকে বেরিয়ে আসুন
 playback-theater-tip = থিয়েটার মোড (T)

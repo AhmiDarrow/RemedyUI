@@ -233,6 +233,11 @@ signals, so the UI follows them like any other state.
   transport bar (play and pause, the time, a seek bar, mute and volume, captions, and a
   full-screen request). K plays and pauses, J and L jump 10 seconds, M mutes, C turns
   captions on and off, F asks for full screen; on the seek bar the arrows move 5 seconds.
+- In full screen the bar floats over the picture with the title the app gives
+  ([`Player::set_title`](crate::playback::Player::set_title)) and fades with the mouse
+  pointer 2.6 s after the last activity, unless paused, busy, scrubbing, hovered, a menu is
+  open or keyboard focus is in the bar; a faded bar stays reachable by keyboard and screen
+  readers, and any key, touch or movement brings it back.
 - Media with pictures pauses while unseen ([`crate::playback::UnseenPolicy`]) and does not
   start by itself under reduced motion.
 

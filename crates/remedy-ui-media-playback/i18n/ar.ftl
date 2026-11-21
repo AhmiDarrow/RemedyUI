@@ -47,6 +47,7 @@ playback-back = رجوع 10 ثوانٍ
 playback-forward-tip = تقديم 10 ثوانٍ (L)
 playback-forward = تقديم 10 ثوانٍ
 playback-full-screen-tip = ملء الشاشة (F)
+playback-wake-tip = أي مفتاح يُظهر عناصر التحكم
 playback-full-screen = ملء الشاشة
 playback-exit-full-screen = الخروج من ملء الشاشة
 playback-theater-tip = وضع المسرح (T)

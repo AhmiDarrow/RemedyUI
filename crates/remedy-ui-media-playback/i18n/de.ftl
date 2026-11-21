@@ -47,6 +47,7 @@ playback-back = 10 Sekunden zurück
 playback-forward-tip = 10 Sekunden vor (L)
 playback-forward = 10 Sekunden vor
 playback-full-screen-tip = Vollbild (F)
+playback-wake-tip = Jede Taste zeigt die Steuerung
 playback-full-screen = Vollbild
 playback-exit-full-screen = Vollbild beenden
 playback-theater-tip = Kinomodus (T)

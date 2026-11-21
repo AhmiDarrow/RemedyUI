@@ -4085,6 +4085,7 @@ dependencies = [
  "remedy-ui-widgets-nav",
  "remedy-ui-widgets-stage",
  "remedy-ui-widgets-term",
+ "x11rb",
 ]
 
 [[package]]
