@@ -75,11 +75,6 @@ pub struct PlayerOptions {
     pub keys: KeyScheme,
     /// Where the source sits in a longer work, if it is part of one ([`Player::set_timeline`]).
     pub timeline: Option<Timeline>,
-    /// The widget's captions button is Portal's CC: an on/off toggle whose state the app sets
-    /// ([`Player::set_captions_state`], with a loading state) and hears
-    /// ([`Player::on_captions_toggle`]), with an arrow beside it that opens the app's menu
-    /// ([`Player::on_captions`]). C toggles.
-    pub captions_toggle: bool,
     /// The widget shows Back 10 seconds and Forward 10 seconds buttons after Play, as Portal's.
     pub skip_buttons: bool,
     /// The widget shows the speed button (Portal's page has none); on by default.
@@ -91,34 +86,47 @@ pub struct PlayerOptions {
     pub compact: bool,
 }
 
-/// The captions toggle's state ([`PlayerOptions::captions_toggle`]), as the app sets it:
-/// Portal's "Subtitles off", "on, loading", "on, English".
+/// What the person chose in the widget's captions menu ([`Player::caption_pick`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct CaptionsState {
-    /// Captions are on.
-    pub on: bool,
-    /// The app is still finding or loading them (on only).
-    pub loading: bool,
-    /// What shows, once known ("English").
-    pub name: Option<String>,
+pub enum CaptionPick {
+    /// No captions.
+    #[default]
+    Off,
+    /// The app picks (Portal's Auto: the best match in the person's languages). Offered once
+    /// the app listens ([`Player::on_caption_pick`]); it shows its pick with
+    /// [`Player::set_caption_track`].
+    Auto,
+    /// One of the player's [tracks](Player::subtitle_tracks): the media's own and the app's.
+    Track(usize),
+    /// One of the app's [choices](Player::set_caption_choices) not loaded yet (one found
+    /// online), by its id: the app fetches it ([`Player::set_captions_loading`]), adds it and
+    /// shows it.
+    Choice(String),
 }
 
-impl CaptionsState {
-    /// On or off, not loading, unnamed: `CaptionsState::on(true).loading(true)`.
-    pub fn on(on: bool) -> Self {
-        CaptionsState { on, ..Self::default() }
+/// A captions choice the app offers before it has the track (Portal's online subtitles):
+/// `CaptionChoice::new("os:42", "English · 720p.BluRay").detail("Hearing impaired · Best match")`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CaptionChoice {
+    /// The app's id for it, given back in [`CaptionPick::Choice`].
+    pub id: String,
+    /// Its name in the menu.
+    pub label: String,
+    /// What else to know, in words ("Hearing impaired · Best match"), after the name.
+    pub detail: Option<String>,
+}
+
+impl CaptionChoice {
+    /// `id`, named `label`.
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        CaptionChoice { id: id.into(), label: label.into(), detail: None }
     }
 
-    /// Sets `loading`.
-    pub fn loading(mut self, value: bool) -> Self {
-        self.loading = value;
-        self
-    }
-
-    /// Sets `name`.
-    pub fn name(mut self, value: impl Into<String>) -> Self {
-        self.name = Some(value.into());
+    /// Sets `detail`.
+    pub fn detail(mut self, value: impl Into<String>) -> Self {
+        self.detail = Some(value.into());
         self
     }
 }
@@ -440,12 +448,6 @@ impl PlayerOptions {
         self
     }
 
-    /// Sets `captions_toggle`: the captions button is an on/off toggle with a menu arrow.
-    pub fn captions_toggle(mut self, value: bool) -> Self {
-        self.captions_toggle = value;
-        self
-    }
-
     /// Sets `skip_buttons`: Back and Forward 10 seconds buttons.
     pub fn skip_buttons(mut self, value: bool) -> Self {
         self.skip_buttons = value;
@@ -485,7 +487,6 @@ impl Default for PlayerOptions {
             keys: KeyScheme::Classic,
             timeline: None,
             next_up_lead: None,
-            captions_toggle: false,
             skip_buttons: false,
             speed_button: true,
             two_rows: false,
@@ -519,8 +520,8 @@ type NextNeededHandler = Rc<dyn Fn(&NextUp)>;
 type CancelHandler = Rc<dyn Fn()>;
 /// Hears Play pressed after a failure.
 type RetryHandler = Rc<dyn Fn(Duration)>;
-/// Hears the captions toggle.
-type ToggleHandler = Rc<dyn Fn(bool)>;
+/// Hears a captions pick.
+type PickHandler = Rc<dyn Fn(&CaptionPick)>;
 
 struct Inner {
     id: u64,
@@ -616,10 +617,16 @@ struct Inner {
     /// seen; and which one holds the sink.
     pictures: RefCell<Vec<(u64, VideoSink, bool)>>,
     holder: Cell<Option<u64>>,
-    captions_handlers: RefCell<Vec<CastHandler>>,
-    captions_offered: Signal<bool>,
-    captions_toggle_handlers: RefCell<Vec<ToggleHandler>>,
-    captions_state: Signal<CaptionsState>,
+    caption_pick: Signal<CaptionPick>,
+    /// The last pick that showed captions, for C to come back to.
+    last_pick: RefCell<Option<CaptionPick>>,
+    /// The name of the track picked in the last work, to pick again in this one.
+    want_label: RefCell<Option<String>>,
+    pick_handlers: RefCell<Vec<PickHandler>>,
+    pick_offered: Signal<bool>,
+    caption_choices: Signal<Vec<CaptionChoice>>,
+    caption_note: Signal<Option<String>>,
+    captions_loading: Signal<bool>,
     compact: Signal<bool>,
     /// Theater was on when the player went compact, so leaving it brings it back (Portal's).
     theater_before_compact: Cell<bool>,
@@ -890,6 +897,14 @@ impl Inner {
     /// added, the caption choice and its delay: the new source is more of the same work.
     /// `choice` keeps the choice of an embedded track (by its order) and the delay alone.
     fn load(&self, source: MediaSource, timeline: Option<Timeline>, same_work: bool, choice: bool) {
+        // The pick carries over: a track by its name, since the next media numbers its own.
+        let pick = self.caption_pick.get_untracked().unwrap_or_default();
+        let picked_label = match &pick {
+            CaptionPick::Track(i) => {
+                self.tracks.with_untracked(|t| t.get(*i).map(|t| t.label.clone())).ok().flatten()
+            }
+            _ => None,
+        };
         // The app's tracks (on the work's timeline) stay; the old source's embedded ones go.
         let mut kept = (Vec::new(), None, None, 0);
         if same_work || choice {
@@ -945,6 +960,7 @@ impl Inner {
             self.end_cancel();
         });
         self.embedded.borrow_mut().clear();
+        self.carry_pick(pick, picked_label, !same_work);
         self.play_on_open.set(self.remote.with_untracked(Option::is_none).unwrap_or(true));
         let muted = self.muted.get_untracked().unwrap_or(false);
         self.send(Cmd::Volume(if muted { 0.0 } else { self.volume.get_untracked().unwrap_or(1.0) }));
@@ -953,6 +969,44 @@ impl Inner {
         self.send(Cmd::Visible(self.visible.get()));
         self.send(Cmd::Speed(self.speed.get_untracked().unwrap_or(1.0)));
         self.sync_suspend();
+    }
+
+    /// After new media: a picked track still shown keeps its pick; one gone is picked again
+    /// by `label` once a track of that name comes; in a new work an app's choice becomes Auto
+    /// (or Off without an app), and Auto is asked of the app again.
+    fn carry_pick(&self, pick: CaptionPick, label: Option<String>, new_work: bool) {
+        let shown = self.caption.get_untracked().ok().flatten();
+        let next = match pick {
+            CaptionPick::Track(_) => match shown {
+                Some(t) => CaptionPick::Track(t),
+                None => {
+                    *self.want_label.borrow_mut() = label;
+                    *self.last_pick.borrow_mut() = None;
+                    CaptionPick::Off
+                }
+            },
+            CaptionPick::Choice(_) if new_work => match self.pick_offered.get_untracked().unwrap_or(false) {
+                true => CaptionPick::Auto,
+                false => CaptionPick::Off,
+            },
+            p => p,
+        };
+        self.captions_loading.set_if_changed(false);
+        self.caption_pick.set_if_changed(next.clone());
+        if new_work && next == CaptionPick::Auto {
+            let handlers = self.pick_handlers.borrow().clone();
+            for h in handlers {
+                h(&next);
+            }
+        }
+    }
+
+    /// A track named as the one picked in the last media came: it is picked again.
+    fn repick(&self, tracks: &[SubtitleTrack], from: usize) -> Option<usize> {
+        let want = self.want_label.borrow().clone()?;
+        let at = tracks.iter().enumerate().skip(from).find(|(_, t)| t.label == want)?.0;
+        self.want_label.borrow_mut().take();
+        Some(at)
     }
 
     fn on_opened(&self, info: Option<&MediaInfo>) {
@@ -972,7 +1026,19 @@ impl Inner {
             if let Some(&i) = self.rechoose_embedded.take().and_then(|k| map.get(k)) {
                 self.caption.set(Some(i));
             }
+            let from = map.first().copied().unwrap_or(0);
             *self.embedded.borrow_mut() = map;
+            let tracks = self.tracks.get_untracked().unwrap_or_default();
+            if let Some(i) = self.repick(&tracks, from) {
+                self.caption.set(Some(i));
+                self.caption_pick.set_if_changed(CaptionPick::Track(i));
+                *self.last_pick.borrow_mut() = Some(CaptionPick::Track(i));
+            } else if let Some(i) = self.caption.get_untracked().ok().flatten() {
+                // A choice made again by its order is the pick.
+                if self.caption_pick.get_untracked().ok() == Some(CaptionPick::Off) {
+                    self.caption_pick.set_if_changed(CaptionPick::Track(i));
+                }
+            }
         }
         if self.play_on_open.replace(false) {
             // Chosen, or counted down to: it plays, reduced motion or not.
@@ -1127,10 +1193,14 @@ impl Player {
             visible: Cell::new(true),
             pictures: RefCell::new(Vec::new()),
             holder: Cell::new(None),
-            captions_handlers: RefCell::new(Vec::new()),
-            captions_offered: Signal::new(false),
-            captions_toggle_handlers: RefCell::new(Vec::new()),
-            captions_state: Signal::new(CaptionsState::default()),
+            caption_pick: Signal::new(CaptionPick::Off),
+            last_pick: RefCell::new(None),
+            want_label: RefCell::new(None),
+            pick_handlers: RefCell::new(Vec::new()),
+            pick_offered: Signal::new(false),
+            caption_choices: Signal::new(Vec::new()),
+            caption_note: Signal::new(None),
+            captions_loading: Signal::new(false),
             compact: Signal::new(options.compact),
             theater_before_compact: Cell::new(false),
             options,
@@ -1653,6 +1723,10 @@ impl Player {
             i = t.len();
             t.push(track);
         });
+        let tracks = self.0.tracks.get_untracked().unwrap_or_default();
+        if let Some(at) = self.0.repick(&tracks, i) {
+            self.set_caption_pick(CaptionPick::Track(at));
+        }
         i
     }
 
@@ -1683,6 +1757,26 @@ impl Player {
     /// choice is the same on both.
     pub fn set_caption_track(&self, i: Option<usize>) {
         self.0.caption.set_if_changed(i);
+        // Shown: no longer loading; the menu's pick follows a track set from outside it.
+        let pick = self.0.caption_pick.get_untracked().unwrap_or_default();
+        match i {
+            Some(t) => {
+                self.0.captions_loading.set_if_changed(false);
+                match pick {
+                    CaptionPick::Off | CaptionPick::Track(_) => {
+                        self.0.caption_pick.set_if_changed(CaptionPick::Track(t));
+                        *self.0.last_pick.borrow_mut() = Some(CaptionPick::Track(t));
+                    }
+                    // A choice the app loaded: C comes back to its track, not to fetching it.
+                    CaptionPick::Choice(_) => *self.0.last_pick.borrow_mut() = Some(CaptionPick::Track(t)),
+                    CaptionPick::Auto => {}
+                }
+            }
+            None if matches!(pick, CaptionPick::Track(_)) => {
+                self.0.caption_pick.set_if_changed(CaptionPick::Off)
+            }
+            None => {}
+        }
         if let Some(c) = self.control() {
             c.set_captions(i);
         }
@@ -1802,55 +1896,111 @@ impl Player {
         self.0.cast_offered.set_if_changed(true);
     }
 
-    /// Calls `f` with the captions button when it is pressed or C is typed (with
-    /// [`PlayerOptions::captions_toggle`], the arrow beside the toggle): the app opens its own
-    /// menu anchored to it (tracks, online ones, a timing of ±0.5 s with
-    /// [`set_caption_delay`](Self::set_caption_delay)), in place of the widget stepping through
-    /// the tracks. The button shows once an app listens, with or without tracks.
-    pub fn on_captions(&self, f: impl Fn(&El) + 'static) {
-        self.0.captions_handlers.borrow_mut().push(Rc::new(f));
-        self.0.captions_offered.set_if_changed(true);
+    /// What the person picked in the widget's captions menu (or C, or the app). Tracked.
+    pub fn caption_pick(&self) -> CaptionPick {
+        self.0.caption_pick.get()
     }
 
-    /// Whether an app listens for the captions button. Tracked.
-    pub(crate) fn captions_offered(&self) -> bool {
-        self.0.captions_offered.get()
-    }
-
-    /// Tells the app the captions button (`button`) was pressed.
-    pub(crate) fn request_captions(&self, button: &El) {
-        let handlers = self.0.captions_handlers.borrow().clone();
+    /// Picks captions, as the widget's menu does: Off hides them, a track shows it, Auto and
+    /// an app's choice clear what shows until the app shows its pick. Then the app hears it
+    /// ([`on_caption_pick`](Self::on_caption_pick)). The pick stays from one media to the next:
+    /// Off stays off, Auto asks the app again, a track is picked again by its name when the
+    /// next media has one.
+    pub fn set_caption_pick(&self, pick: CaptionPick) {
+        if pick != CaptionPick::Off {
+            *self.0.last_pick.borrow_mut() = Some(pick.clone());
+        }
+        self.0.want_label.borrow_mut().take();
+        self.0.captions_loading.set_if_changed(false);
+        self.0.caption_pick.set_if_changed(pick.clone());
+        let shown = match &pick {
+            CaptionPick::Track(i) => Some(*i),
+            _ => None,
+        };
+        self.0.caption.set_if_changed(shown);
+        if let Some(c) = self.control() {
+            c.set_captions(shown);
+        }
+        let handlers = self.0.pick_handlers.borrow().clone();
         for h in handlers {
-            h(button);
+            h(&pick);
         }
     }
 
-    /// Sets what the captions toggle shows ([`PlayerOptions::captions_toggle`]): on or off,
-    /// loading, and what is shown.
-    pub fn set_captions_state(&self, state: CaptionsState) {
-        self.0.captions_state.set_if_changed(state);
+    /// Calls `f` with each pick from the widget's captions menu (or C), and with Auto again
+    /// for each new media while Auto is picked. Listening offers Auto in the menu.
+    pub fn on_caption_pick(&self, f: impl Fn(&CaptionPick) + 'static) {
+        self.0.pick_handlers.borrow_mut().push(Rc::new(f));
+        self.0.pick_offered.set_if_changed(true);
     }
 
-    /// What the captions toggle shows. Tracked.
-    pub fn captions_state(&self) -> CaptionsState {
-        self.0.captions_state.get()
+    /// Whether an app listens for picks (and so offers Auto). Tracked.
+    pub(crate) fn auto_offered(&self) -> bool {
+        self.0.pick_offered.get()
     }
 
-    /// Calls `f` with the wanted state when the captions toggle is pressed or C is typed
-    /// ([`PlayerOptions::captions_toggle`]): Portal's Auto (`true`) or Off. The toggle shows
-    /// the new state at once, not loading and unnamed; the app then sets the rest.
-    pub fn on_captions_toggle(&self, f: impl Fn(bool) + 'static) {
-        self.0.captions_toggle_handlers.borrow_mut().push(Rc::new(f));
+    /// Sets the choices the app offers before it has their tracks (Portal's online
+    /// subtitles), listed in the captions menu after the player's tracks.
+    pub fn set_caption_choices(&self, choices: Vec<CaptionChoice>) {
+        self.0.caption_choices.set_if_changed(choices);
     }
 
-    /// Flips the captions toggle and tells the app.
+    /// The app's captions choices. Tracked.
+    pub fn caption_choices(&self) -> Vec<CaptionChoice> {
+        self.0.caption_choices.get()
+    }
+
+    /// A line the captions menu shows under the choices ("Searching online…", "Search
+    /// failed: …"), or none.
+    pub fn set_caption_note(&self, note: Option<String>) {
+        self.0.caption_note.set_if_changed(note);
+    }
+
+    /// The captions menu's note. Tracked.
+    pub fn caption_note(&self) -> Option<String> {
+        self.0.caption_note.get()
+    }
+
+    /// Says the picked captions are on their way (fetched or made): the captions button reads
+    /// "Loading…" until the app shows them ([`set_caption_track`](Self::set_caption_track)) or
+    /// says otherwise.
+    pub fn set_captions_loading(&self, on: bool) {
+        self.0.captions_loading.set_if_changed(on);
+    }
+
+    /// Whether the picked captions are loading. Tracked.
+    pub fn captions_loading(&self) -> bool {
+        self.0.captions_loading.get()
+    }
+
+    /// C: captions off, or back on as last picked (else Auto when offered, else the first
+    /// track, else the app's first choice).
     pub(crate) fn toggle_captions(&self) {
-        let on = !self.0.captions_state.get_untracked().is_ok_and(|s| s.on);
-        self.set_captions_state(CaptionsState::on(on));
-        let handlers = self.0.captions_toggle_handlers.borrow().clone();
-        for h in handlers {
-            h(on);
+        if self.0.caption_pick.get_untracked().unwrap_or_default() != CaptionPick::Off {
+            self.set_caption_pick(CaptionPick::Off);
+            return;
         }
+        let last = self.0.last_pick.borrow().clone();
+        let tracks = self.0.tracks.with_untracked(Vec::len).unwrap_or(0);
+        let first_choice =
+            self.0.caption_choices.with_untracked(|c| c.first().map(|c| c.id.clone())).ok().flatten();
+        let pick = match last {
+            Some(CaptionPick::Track(i)) if i < tracks => Some(CaptionPick::Track(i)),
+            Some(p @ (CaptionPick::Auto | CaptionPick::Choice(_))) => Some(p),
+            _ if self.0.pick_offered.get_untracked().unwrap_or(false) => Some(CaptionPick::Auto),
+            _ if tracks > 0 => Some(CaptionPick::Track(0)),
+            _ => first_choice.map(CaptionPick::Choice),
+        };
+        if let Some(p) = pick {
+            self.set_caption_pick(p);
+        }
+    }
+
+    /// Whether the captions control can do anything: tracks, choices or an app's Auto. Tracked.
+    pub(crate) fn captions_offered(&self) -> bool {
+        self.auto_offered()
+            || !self.0.tracks.with(Vec::is_empty)
+            || !self.0.caption_choices.with(Vec::is_empty)
     }
 
     /// The options the player was made with.

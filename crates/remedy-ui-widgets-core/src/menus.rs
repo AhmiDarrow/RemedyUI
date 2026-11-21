@@ -76,6 +76,7 @@ pub struct MenuItem {
     shortcut: Option<Shortcut>,
     icon: Option<Icon>,
     mnemonic: Option<char>,
+    stays: bool,
 }
 
 impl std::fmt::Debug for MenuItem {
@@ -98,6 +99,7 @@ impl MenuItem {
             shortcut: None,
             icon: None,
             mnemonic: None,
+            stays: false,
         }
     }
 
@@ -220,6 +222,14 @@ impl MenuItem {
     /// not contain is shown after it, as "(F)".
     pub fn mnemonic(mut self, key: char) -> Self {
         self.mnemonic = key.to_lowercase().next();
+        self
+    }
+
+    /// Keeps the menu open when the entry is chosen, for a step taken a few times in a row
+    /// (a caption timing's "Later (+0.5 s)"): focus stays on it and its label, a signal or
+    /// closure, says the new value.
+    pub fn stays_open(mut self) -> Self {
+        self.stays = true;
         self
     }
 
@@ -806,7 +816,9 @@ impl Chain {
             return;
         }
         let action = entry.item.action.clone();
-        self.close(true);
+        if !entry.item.stays {
+            self.close(true);
+        }
         action();
     }
 

@@ -3090,70 +3090,201 @@ fn audit_clean(s: &mut Screen) {
     assert!(problems.is_empty(), "{problems:?}");
 }
 
-#[test]
-fn the_captions_button_and_c_hand_the_app_its_menu() {
-    let mut s = Screen::new();
-    let (p, view) = scripted(&mut s);
-    // No tracks and no app: no captions button.
-    assert!(!shown(&view, "Captions: off"));
-    let menus = Arc::new(Mutex::new(0));
-    let m = menus.clone();
-    p.on_captions(move |button| {
-        assert!(button.info().is_some(), "the button, to anchor a menu to");
-        *m.lock().unwrap_or_else(|e| e.into_inner()) += 1;
-    });
-    s.pump();
-    assert!(shown(&view, "Captions: off"), "shown once the app listens");
-    el(&view, "Captions: off").focus();
-    assert!(press(&s.ui, Key::Enter));
-    assert!(press(&s.ui, Key::Character("c".into())));
-    assert_eq!(*menus.lock().unwrap_or_else(|e| e.into_inner()), 2, "the button and C");
-    assert_eq!(p.caption_track(), None, "the widget leaves the tracks to the app");
+/// The open menu's entries as a screen reader meets them: role, name, checked.
+fn menu_entries(ui: &Ui) -> Vec<(remedy_ui_a11y::Role, String, Option<bool>)> {
+    use remedy_ui_a11y::Role;
+    ui.reader_view()
+        .into_iter()
+        .filter(|n| matches!(n.role, Role::MenuItem | Role::MenuItemRadio))
+        .filter_map(|n| Some((n.role, plain(&n.name?), n.checked)))
+        .collect()
+}
+
+fn focused_name(ui: &Ui) -> Option<String> {
+    let f = ui.tree().focused()?;
+    let n =
+        ui.reader_view().into_iter().find(|n| ui.element_by_node_id(n.id).is_some_and(|e| e.id() == f))?;
+    n.name.map(|s| plain(&s))
+}
+
+fn english() -> SubtitleTrack {
+    let cues = parse_subtitles("WEBVTT\n\n00:00.000 --> 00:02.000\nHello\n", SubtitleFormat::WebVtt);
+    SubtitleTrack { label: "English".into(), language: Some("en".into()), cues }
 }
 
 #[test]
-fn the_captions_toggle_shows_what_the_app_says_and_its_arrow_opens_the_menu() {
+fn one_captions_button_says_what_shows_and_its_menu_picks_and_times() {
+    use remedy_ui_a11y::Role;
     let mut s = Screen::new();
-    let (p, view) = scripted_with(&mut s, 3, PlayerOptions::default().captions_toggle(true));
+    let (p, view) = scripted(&mut s);
+    // Nothing to pick: no button.
+    assert!(!shown(&view, "Captions: off"));
     let heard = Arc::new(Mutex::new(Vec::new()));
     let h = heard.clone();
-    p.on_captions_toggle(move |on| h.lock().unwrap_or_else(|e| e.into_inner()).push(on));
+    p.on_caption_pick(move |pick| h.lock().unwrap_or_else(|e| e.into_inner()).push(pick.clone()));
+    p.add_subtitles(english());
+    p.set_caption_choices(vec![CaptionChoice::new("os:1", "Deutsch").detail("Hearing impaired")]);
+    p.set_caption_note(Some("Searching online…".into()));
     s.pump();
     assert!(shown(&view, "Captions: off"));
-    assert!(!shown(&view, "Caption options"), "no arrow until the app has a menu");
-    let checked = |v: &El, name: &str| {
-        named(v, name).and_then(|b| b.info()).and_then(|i| i.semantics).and_then(|s| s.checked_state())
-    };
-    assert_eq!(checked(&view, "Captions: off"), Some(false));
-    el(&view, "Captions: off").focus();
-    assert!(press(&s.ui, Key::Character("c".into())));
-    s.pump();
-    assert!(p.captions_state().on && shown(&view, "Captions: on"));
-    assert_eq!(checked(&view, "Captions: on"), Some(true));
-    p.set_captions_state(CaptionsState::on(true).loading(true));
-    s.pump();
-    assert!(shown(&view, "Captions: on, loading"));
-    p.set_captions_state(CaptionsState::on(true).name("English"));
-    s.pump();
-    assert!(shown(&view, "Captions: English"));
-    el(&view, "Captions: English").focus();
-    assert!(press(&s.ui, Key::Enter));
-    s.pump();
-    assert!(shown(&view, "Captions: off"));
-    assert_eq!(*heard.lock().unwrap_or_else(|e| e.into_inner()), [true, false]);
+    assert!(texts(&view, "label").iter().any(|t| t == "Off"), "the state is on the button, in words");
 
-    let menus = Arc::new(Mutex::new(0));
-    let m = menus.clone();
-    p.on_captions(move |_| *m.lock().unwrap_or_else(|e| e.into_inner()) += 1);
-    s.pump();
-    assert!(shown(&view, "Caption options"));
-    el(&view, "Caption options").focus();
+    // Enter opens the menu: what can show, each marked, and the timing.
+    let button = el(&view, "Captions: off");
+    button.focus();
     assert!(press(&s.ui, Key::Enter));
-    assert_eq!(*menus.lock().unwrap_or_else(|e| e.into_inner()), 1);
+    s.pump();
+    s.pump();
+    let entries = menu_entries(&s.ui);
+    let names: Vec<&str> = entries.iter().map(|e| e.1.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "Off",
+            "Auto",
+            "English",
+            "Deutsch · Hearing impaired",
+            "Searching online…",
+            "Earlier (−0.5 s) · in sync",
+            "Later (+0.5 s) · in sync",
+            "Reset timing"
+        ]
+    );
+    assert_eq!(entries.first().map(|e| (e.0, e.2)), Some((Role::MenuItemRadio, Some(true))), "Off is marked");
+    assert_eq!(button.info().and_then(|i| i.semantics).and_then(|s| s.expanded_state()), Some(true));
+    assert_eq!(focused_name(&s.ui).as_deref(), Some("Off"));
+
+    // Auto: the app picks and shows its pick.
+    assert!(press(&s.ui, Key::ArrowDown));
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert!(menu_entries(&s.ui).is_empty(), "a pick closes the menu");
+    assert_eq!(p.caption_pick(), CaptionPick::Auto);
+    assert!(shown(&view, "Captions: auto"));
+    p.set_caption_track(Some(0));
+    s.pump();
+    assert!(
+        shown(&view, "Captions: auto, English")
+            && texts(&view, "label").iter().any(|t| t == "Auto · English")
+    );
+    assert_eq!(p.caption_pick(), CaptionPick::Auto, "the app's pick stays Auto");
+
+    // An online choice: loading, in words, until the app shows it.
+    el(&view, "Captions: auto, English").focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    s.pump();
+    for _ in 0..3 {
+        assert!(press(&s.ui, Key::ArrowDown));
+    }
+    assert_eq!(focused_name(&s.ui).as_deref(), Some("Deutsch · Hearing impaired"));
+    assert!(press(&s.ui, Key::Enter));
+    p.set_captions_loading(true);
+    s.pump();
+    assert!(shown(&view, "Captions: loading") && texts(&view, "label").iter().any(|t| t == "Loading…"));
+    let mut de = english();
+    de.label = "Deutsch".into();
+    let at = p.add_subtitles(de);
+    p.set_caption_track(Some(at));
+    s.pump();
+    assert!(!p.captions_loading() && shown(&view, "Captions: Deutsch"));
+    assert_eq!(
+        *heard.lock().unwrap_or_else(|e| e.into_inner()),
+        [CaptionPick::Auto, CaptionPick::Choice("os:1".into())]
+    );
+
+    // C: off, and back to what was showing.
+    view.clone().focusable(true).focus();
     assert!(press(&s.ui, Key::Character("c".into())));
-    assert_eq!(*menus.lock().unwrap_or_else(|e| e.into_inner()), 1, "C still toggles");
-    assert!(p.captions_state().on);
+    s.pump();
+    assert!(
+        p.caption_pick() == CaptionPick::Off && p.caption_track().is_none() && shown(&view, "Captions: off")
+    );
+    assert!(press(&s.ui, Key::Character("c".into())));
+    s.pump();
+    assert_eq!(p.caption_track(), Some(at), "C brings back the track it had loaded");
+
+    // Timing: steps keep the menu open, and say where the timing is now.
+    el(&view, "Captions: Deutsch").focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    s.pump();
+    while focused_name(&s.ui).is_some_and(|n| !n.starts_with("Later")) {
+        assert!(press(&s.ui, Key::ArrowDown));
+    }
+    assert!(press(&s.ui, Key::Enter));
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert_eq!(p.caption_delay(), 1000);
+    assert_eq!(focused_name(&s.ui).as_deref(), Some("Later (+0.5 s) · now 1 s later"));
+    assert!(!menu_entries(&s.ui).is_empty(), "still open");
+    let said = el(&view, "Captions: Deutsch").info().and_then(|i| i.semantics);
+    assert_eq!(said.and_then(|s| s.description_text().map(plain)).as_deref(), Some("now 1 s later"));
     audit_clean(&mut s);
+    assert!(press(&s.ui, Key::Escape));
+    s.pump();
+    assert!(menu_entries(&s.ui).is_empty());
+}
+
+#[test]
+fn loading_reads_in_words_and_the_glyph_pulses_unless_motion_is_reduced() {
+    let mut s = Screen::new();
+    let (p, view) = scripted(&mut s);
+    p.on_caption_pick(|_| {});
+    s.ui.set_frame_time(Duration::ZERO);
+    p.set_caption_pick(CaptionPick::Auto);
+    p.set_captions_loading(true);
+    s.pump();
+    let button = el(&view, "Captions: loading");
+    assert!(texts(&view, "label").iter().any(|t| t == "Loading…"));
+    let glyph = button.child_elements().into_iter().next().unwrap_or_else(|| unreachable!("the glyph"));
+    let opacity = |s: &mut Screen, ms: u64| {
+        s.ui.set_frame_time(Duration::from_millis(ms));
+        s.pump();
+        glyph.info().map_or(0.0, |i| i.style.opacity)
+    };
+    // Portal's subs-pulse: 0.45 at the middle of 1.2 s, back to 1 at its end, again.
+    assert!((opacity(&mut s, 600) - 0.45).abs() < 0.02);
+    assert!((opacity(&mut s, 1200) - 1.0).abs() < 0.02);
+    assert!((opacity(&mut s, 1800) - 0.45).abs() < 0.02);
+    // Reduced motion: no pulse; the words say it.
+    s.ui.set_reduced_motion(true);
+    assert!((opacity(&mut s, 2100) - 1.0).abs() < 0.001);
+    assert!((opacity(&mut s, 2400) - 1.0).abs() < 0.001);
+    assert!(texts(&view, "label").iter().any(|t| t == "Loading…"));
+    s.ui.set_reduced_motion(false);
+    p.set_captions_loading(false);
+    assert!((opacity(&mut s, 3000) - 1.0).abs() < 0.001, "done loading, steady");
+}
+
+#[test]
+fn the_captions_pick_carries_to_the_next_media() {
+    let mut s = Screen::new();
+    let (p, view) = scripted(&mut s);
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let h = heard.clone();
+    p.on_caption_pick(move |pick| h.lock().unwrap_or_else(|e| e.into_inner()).push(pick.clone()));
+    p.add_subtitles(english());
+    p.set_caption_pick(CaptionPick::Track(0));
+    p.set_caption_delay(500);
+    p.start_next(MediaSource::url("script:"), None);
+    s.wait("the next", |_| p.state() == PlaybackState::Paused);
+    // The app adds the next media's tracks: the one named as before is picked again.
+    let cues = parse_subtitles("WEBVTT\n\n00:00.000 --> 00:01.000\nHallo\n", SubtitleFormat::WebVtt);
+    p.add_subtitles(SubtitleTrack { label: "Deutsch".into(), language: None, cues });
+    assert_eq!(p.caption_track(), None);
+    let at = p.add_subtitles(english());
+    s.pump();
+    assert_eq!((p.caption_pick(), p.caption_track()), (CaptionPick::Track(at), Some(at)));
+    assert!(shown(&view, "Captions: English"));
+    assert_eq!(p.caption_delay(), 500, "the timing too");
+    // Auto is asked again for each new media.
+    p.set_caption_pick(CaptionPick::Auto);
+    p.start_next(MediaSource::url("script:"), None);
+    s.wait("the one after", |_| p.state() == PlaybackState::Paused);
+    let picks = heard.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert_eq!(picks.iter().filter(|p| **p == CaptionPick::Auto).count(), 2, "{picks:?}");
+    assert_eq!(p.caption_pick(), CaptionPick::Auto);
 }
 
 #[test]
@@ -3194,8 +3325,7 @@ fn the_apps_controls_sit_in_the_bar_in_order_in_two_rows() {
         seconds: 3,
     });
     // Portal's bar: no speed button.
-    let options =
-        PlayerOptions::default().two_rows(true).skip_buttons(true).captions_toggle(true).speed_button(false);
+    let options = PlayerOptions::default().two_rows(true).skip_buttons(true).speed_button(false);
     let p = Player::open(&s.ui, host, MediaSource::url("script:"), options);
     p.on_theater(|_| {});
     let pip = remedy_ui_widgets_core::icon_button(
