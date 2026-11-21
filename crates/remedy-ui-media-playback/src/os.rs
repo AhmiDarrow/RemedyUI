@@ -12,6 +12,8 @@ mod d3d11;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod gst_dmabuf;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod gst_leaks;
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod gstreamer;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod gstreamer_hls;
@@ -53,7 +55,10 @@ impl Drop for Live {
 }
 
 pub(crate) fn live_objects() -> usize {
-    LIVE.load(std::sync::atomic::Ordering::SeqCst)
+    let live = LIVE.load(std::sync::atomic::Ordering::SeqCst);
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+    let live = live + gst_leaks::traced_elements();
+    live
 }
 
 /// The threads this process runs: each one's name, and where the platform says, the module
