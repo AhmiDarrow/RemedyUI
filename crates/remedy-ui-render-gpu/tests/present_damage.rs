@@ -2,12 +2,21 @@
 //! copies in what changed since that image was last shown and tells the system only that. Every
 //! image presented must still equal the window's whole frame, through a resize and frames where
 //! nothing changed. One test per process (one event loop per process).
-#![cfg(windows)]
+//!
+//! Windows, and Linux on X11 (Xvfb is enough: `xvfb-run cargo test --test present_damage`);
+//! without a display the Linux run says so and passes.
+#![cfg(any(windows, target_os = "linux"))]
 
 use std::time::Duration;
 
-use remedy_ui_bridge_windows::WindowsHooks;
+#[cfg(target_os = "linux")]
+use remedy_ui_bridge_linux::LinuxHooks as Hooks;
+#[cfg(windows)]
+use remedy_ui_bridge_windows::WindowsHooks as Hooks;
 use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
+#[cfg(target_os = "linux")]
+use remedy_ui_bridge_winit::winit::platform::x11::EventLoopBuilderExtX11;
+#[cfg(windows)]
 use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
 use remedy_ui_bridge_winit::{UserEvent, run_on};
 use remedy_ui_compositor::{Compositor, Layer, LayerId, LayerTree};
@@ -18,6 +27,32 @@ use remedy_ui_paint::{Brush, DisplayList};
 use remedy_ui_render_gpu::{
     GpuCompositor, GpuContext, GpuRenderer, GpuSurface, LadderOptions, PresentChecks, Presented,
 };
+
+/// Collects what the Vulkan validation layer reports through wgpu (when the layer is
+/// installed: `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation`, and
+/// `VK_KHRONOS_VALIDATION_VALIDATE_SYNC=true` for synchronization validation).
+struct Validation(std::sync::Mutex<Vec<String>>);
+
+static VALIDATION: Validation = Validation(std::sync::Mutex::new(Vec::new()));
+
+impl log::Log for Validation {
+    fn enabled(&self, m: &log::Metadata<'_>) -> bool {
+        m.level() <= log::Level::Warn && m.target().starts_with("wgpu_hal")
+    }
+
+    fn log(&self, r: &log::Record<'_>) {
+        let text = r.args().to_string();
+        // Errors, and the synchronization hazards (reported as warnings by some layer versions).
+        if self.enabled(r.metadata())
+            && (r.level() == log::Level::Error || text.contains("SYNC-"))
+            && let Ok(mut v) = self.0.lock()
+        {
+            v.push(text);
+        }
+    }
+
+    fn flush(&self) {}
+}
 
 /// Stripes, and a dot at `x` (frames where `x` is unchanged change nothing).
 fn tree(x: f32) -> LayerTree {
@@ -141,13 +176,27 @@ impl App for Probe {
 
 #[test]
 fn presenting_only_what_changed_shows_the_whole_frame() {
-    let event_loop = match EventLoop::<UserEvent>::with_user_event().with_any_thread(true).build() {
+    let mut builder = EventLoop::<UserEvent>::with_user_event();
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("DISPLAY").is_none() {
+            eprintln!("no X11 display (run under xvfb-run): nothing presented");
+            return;
+        }
+        builder.with_x11();
+    }
+    let event_loop = match builder.with_any_thread(true).build() {
         Ok(e) => e,
         Err(e) => unreachable!("an event loop: {e}"),
     };
+    if log::set_logger(&VALIDATION).is_ok() {
+        log::set_max_level(log::LevelFilter::Warn);
+    }
     let mut probe = Probe::default();
-    let result = run_on(event_loop, &mut probe, WindowsHooks::default());
+    let result = run_on(event_loop, &mut probe, Hooks::default());
     assert!(result.is_ok(), "{result:?}");
+    let validation = VALIDATION.0.lock().map(|v| v.clone()).unwrap_or_default();
+    assert!(validation.is_empty(), "validation: {validation:#?}");
     assert!(!probe.deadline_hit, "finished in time; errors: {:?}", probe.errors);
     assert!(probe.errors.is_empty(), "{:?}", probe.errors);
     let c = probe.checks;
