@@ -74,6 +74,10 @@ pub struct GpuContext {
     /// The device.
     pub device: wgpu::Device,
     /// Its queue.
+    ///
+    /// Submit to it only from the thread that presents windows (the UI thread): on Vulkan a
+    /// window's own swapchain presents on this queue outside wgpu's lock, so a submission
+    /// from another thread at the same time is undefined behaviour.
     pub queue: wgpu::Queue,
     /// The rung it came from.
     pub rung: Rung,

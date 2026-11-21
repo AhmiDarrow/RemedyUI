@@ -100,8 +100,9 @@ pub(crate) struct DxgiChain {
     device: wgpu::Device,
 }
 
-// SAFETY: D3D12 and DXGI objects are free-threaded; the chain is used from one thread at a
-// time (the window's presenting thread).
+// SAFETY: D3D12 queues, fences and resources are free-threaded; the command allocators and
+// lists are used from one thread at a time (`&mut self`). Unlike the Vulkan chain, nothing
+// here needs wgpu's other submissions on the same thread: a D3D12 queue orders them.
 unsafe impl Send for DxgiChain {}
 
 fn dxgi_format(format: wgpu::TextureFormat) -> Option<DXGI_FORMAT> {

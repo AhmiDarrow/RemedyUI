@@ -5,9 +5,18 @@
 //!
 //! wgpu copies into the images as textures wrapped from them each frame. The image's acquire
 //! semaphore gates wgpu's submission and a semaphore wgpu signals gates the present; a command
-//! buffer of ours, submitted with wgpu's, returns the image to the present layout. Presents
-//! go on wgpu's queue: like every submit to it, they come from one thread at a time (the UI
-//! thread, where windows present and embedded GPU content submits).
+//! buffer of ours, submitted with wgpu's, returns the image to the present layout.
+//!
+//! One thread: Vulkan needs a queue's users kept apart, and wgpu does that only among its
+//! own calls. This chain presents on wgpu's queue and waits for the device idle outside
+//! wgpu's lock, and the acquire's semaphore is waited on by wgpu's *next* submission,
+//! whichever thread makes it. So every submission to the device's queue must come from the
+//! thread that presents windows. In this workspace it does: the runner, embedded GPU
+//! content (`remedy-ui-embed-gpu`), effects (`remedy-ui-media-effects`) and video all submit
+//! on the UI thread, and no other thread touches the GPU ([`GpuContext::queue`] says so to
+//! apps). wgpu's own swapchain, which RemedyUI uses everywhere else, has no such rule.
+//!
+//! [`GpuContext::queue`]: crate::GpuContext::queue
 
 use ash::vk;
 
@@ -127,7 +136,9 @@ pub(crate) struct VkChain {
     wrapped: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
-// SAFETY: Vulkan handles are plain values; the chain is used from one thread at a time.
+// SAFETY: Vulkan handles are plain values, used from one thread at a time (`&mut self`). That
+// thread must also be the one that submits to wgpu's queue (see the module's docs): moving
+// the chain to another thread moves the window's presents with it.
 unsafe impl Send for VkChain {}
 
 fn vk_format(format: wgpu::TextureFormat) -> Option<vk::Format> {
@@ -321,7 +332,8 @@ impl VkChain {
     fn let_go(&self) {
         // wgpu frees a texture once the submissions using it are done and it polls.
         let _ = self.wgpu_device.poll(wgpu::PollType::wait_indefinitely());
-        // SAFETY: a call on wgpu's device, from the thread that submits to its queue.
+        // SAFETY: a call on wgpu's device, from the only thread that submits to its queue
+        // (the module's docs).
         let _ = unsafe { self.device.device_wait_idle() };
         debug_assert_eq!(
             self.wrapped.load(std::sync::atomic::Ordering::Relaxed),
@@ -436,7 +448,8 @@ impl VkChain {
     pub(crate) fn wait_for_image(&self, queue: &wgpu::Queue) {
         let Some((_, slot)) = self.current else { return };
         let Some(&(semaphore, _)) = self.acquires.get(slot) else { return };
-        // SAFETY: the semaphore is the one the acquire signals; wgpu waits on it once.
+        // SAFETY: the semaphore is the one the acquire signals; wgpu's next submission waits on
+        // it once, and that is this frame's (only this thread submits: the module's docs).
         if let Some(hal) = unsafe { queue.as_hal::<Vk>() } {
             hal.add_wait_semaphore(semaphore, None, vk::PipelineStageFlags::ALL_COMMANDS);
         }
@@ -545,8 +558,8 @@ impl VkChain {
         if self.incremental && damage.is_some() {
             info = info.push_next(&mut region_info);
         }
-        // SAFETY: presenting this chain's acquired image on wgpu's queue, from the thread that
-        // submits to it.
+        // SAFETY: presenting this chain's acquired image on wgpu's queue, outside wgpu's lock:
+        // this is the only thread that submits to it (the module's docs).
         let result = unsafe { self.swapchain_fns.queue_present(self.queue, &info) };
         self.presents += 1;
         if let Some(image) = self.images.get_mut(index as usize) {
