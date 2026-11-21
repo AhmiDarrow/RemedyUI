@@ -127,6 +127,14 @@ use std::task::{Context, Poll};
 /// Segments fetched ahead of the one being handed out: enough to ride out a slow fetch,
 /// few enough to keep memory bounded (a 2160p segment is several megabytes).
 const AHEAD: usize = 3;
+/// No more segments are fetched ahead once the units read hold this many bytes, as hls.js's
+/// `maxBufferSize`: three 2160p segments of 10 s would otherwise hold hundreds of megabytes.
+const MAX_HELD: usize = 60_000_000;
+/// A fetch longer than this is refused: no segment is near it, and an endless answer must not
+/// take all the memory.
+pub(crate) const MAX_FETCH: usize = 256 << 20;
+/// A playlist longer than this is refused (a day of 2 s segments is about 2 MB).
+const MAX_PLAYLIST: usize = 16 << 20;
 /// The playlist of a growing stream is asked again once the reader is this many segments
 /// from its end.
 const NEAR_END: usize = 2;
@@ -241,6 +249,8 @@ pub(crate) struct Hls {
     next: usize,
     /// Units read, each with the index of its segment.
     queue: VecDeque<(usize, Unit)>,
+    /// The bytes the units in `queue` hold.
+    queued: usize,
     /// The index of the segment the last unit handed out came from.
     current: usize,
     /// Failed fetches in a row of what is wanted now, since the spot last started over.
@@ -274,6 +284,7 @@ impl Hls {
             waiting: None,
             next: 0,
             queue: VecDeque::new(),
+            queued: 0,
             current: 0,
             failures: 0,
             recoveries: 0,
@@ -297,6 +308,7 @@ impl Hls {
         let reading = self.queue.front().map_or(self.next, |(i, _)| *i).max(self.current);
         if let Some(s) = self.segments.get(self.next)
             && self.next <= reading + AHEAD
+            && (self.queued < MAX_HELD || self.queue.is_empty())
         {
             return Some(Want { url: s.url.clone(), kind: WantKind::Segment(s.sequence), after: pause });
         }
@@ -377,6 +389,11 @@ impl Hls {
     }
 
     fn read_playlist(&mut self, url: &str, data: &[u8]) -> Result<(), MediaError> {
+        if data.len() > MAX_PLAYLIST {
+            return Err(MediaError::Format(format!(
+                "the HLS playlist at {url} is over {MAX_PLAYLIST} bytes"
+            )));
+        }
         let text = String::from_utf8_lossy(data);
         match playlist::parse(&text, url)? {
             Playlist::Master(variant) => {
@@ -393,10 +410,10 @@ impl Hls {
                     None => self.segments = m.segments,
                     Some(last) => {
                         // Segments are only added at the end; those already known keep their place.
-                        let (seq, mut start) = (last.sequence, last.start + last.duration);
+                        let (seq, mut start) = (last.sequence, last.start.saturating_add(last.duration));
                         for mut s in m.segments.into_iter().filter(|s| s.sequence > seq) {
                             s.start = start;
-                            start += s.duration;
+                            start = start.saturating_add(s.duration);
                             self.segments.push(s);
                         }
                     }
@@ -484,9 +501,10 @@ impl Hls {
                 }
                 Raw::Audio { pts, data } => Unit::Audio { pts: time(pts), data },
             };
+            self.queued += unit_len(&unit);
             self.queue.push_back((index, unit));
         }
-        self.held.end = seg.start + seg.duration;
+        self.held.end = seg.start.saturating_add(seg.duration);
         self.started = true;
     }
 
@@ -551,7 +569,7 @@ impl Hls {
 
     /// The length of the segments listed so far.
     fn length(&self) -> Duration {
-        self.segments.last().map_or(Duration::ZERO, |s| s.start + s.duration)
+        self.segments.last().map_or(Duration::ZERO, |s| s.start.saturating_add(s.duration))
     }
 
     /// What the stream holds. Its length is the playlist's, and grows with a growing one
@@ -570,6 +588,7 @@ impl Hls {
     /// The next unit in decoding order, when one has been read.
     pub(crate) fn next_unit(&mut self) -> Option<Unit> {
         let (index, unit) = self.queue.pop_front()?;
+        self.queued -= unit_len(&unit);
         self.current = index;
         Some(unit)
     }
@@ -580,6 +599,7 @@ impl Hls {
     /// one, it starts at the last segment.
     pub(crate) fn seek(&mut self, to: Duration) {
         self.queue.clear();
+        self.queued = 0;
         self.failures = 0;
         self.recoveries = 0;
         self.need_key = true;
@@ -611,6 +631,12 @@ impl Hls {
     /// been read and every unit taken.
     pub(crate) fn ended(&self) -> bool {
         self.loaded && self.complete && self.next >= self.segments.len() && self.queue.is_empty()
+    }
+}
+
+fn unit_len(u: &Unit) -> usize {
+    match u {
+        Unit::Video { data, .. } | Unit::Audio { data, .. } => data.len(),
     }
 }
 
