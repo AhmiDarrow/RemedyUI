@@ -76,6 +76,7 @@ impl DesktopError {
         DesktopError::Io { path: path.to_path_buf(), reason: err.to_string() }
     }
 
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub(crate) fn platform(reason: impl std::fmt::Display) -> DesktopError {
         DesktopError::Platform { reason: reason.to_string() }
     }
