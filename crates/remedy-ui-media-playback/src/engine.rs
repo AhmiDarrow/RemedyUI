@@ -165,6 +165,8 @@ struct Feed {
     video_newest: Duration,
     /// What the source holds without waiting, as its decoder last said.
     source_ranges: Option<Vec<std::ops::Range<Duration>>>,
+    /// The length as the decoder last said: a growing stream's (an HLS event playlist) grows.
+    source_duration: Option<Duration>,
 }
 
 impl Feed {
@@ -284,8 +286,10 @@ fn decode_step(st: &mut Decoding) -> Next {
     if st.asked.is_none_or(|a| a.elapsed() >= BUFFERED_INTERVAL) {
         st.asked = Some(Instant::now());
         let ranges = st.dec.buffered();
+        let duration = st.dec.info().duration;
         let mut f = lock(&st.shared.feed);
-        let changed = f.source_ranges != ranges;
+        let changed = f.source_ranges != ranges || f.source_duration != duration;
+        f.source_duration = duration;
         // Asked again later, even with nothing to decode, while the source says what it holds.
         keep_asking = ranges.is_some();
         f.source_ranges = ranges;
@@ -1232,6 +1236,13 @@ impl Presenter {
     fn publish(&mut self, t: Duration, force: bool) {
         // Positions shown stay within the stated length: the last picture may run a little
         // past it.
+        let mut force = force;
+        let grown = lock(&self.feed.feed).source_duration;
+        if self.opened && grown.is_some() && grown != self.info.duration {
+            self.info.duration = grown;
+            lock(&self.shared.status).info = Some(self.info.clone());
+            force = true;
+        }
         let t = self.info.duration.map_or(t, |d| t.min(d));
         let state = self.state();
         let due = self.last_publish.is_none_or(|p| p.elapsed() >= POSITION_INTERVAL);
