@@ -143,29 +143,36 @@ fn timestamp(b: &[u8; 5]) -> u64 {
 /// time seen, already unwrapped).
 pub(crate) fn unwrap(near: u64, raw: u64) -> u64 {
     let base = near & !(WRAP - 1);
-    [base.wrapping_sub(WRAP), base, base + WRAP]
+    [base.checked_sub(WRAP), Some(base), base.checked_add(WRAP)]
         .into_iter()
+        .flatten()
         .filter_map(|b| b.checked_add(raw))
         .min_by_key(|t| t.abs_diff(near))
         .unwrap_or(raw)
 }
 
-/// The NAL units of an Annex B byte stream, without their start codes.
+/// The NAL units of an H.264 access unit (Annex B), without their start codes, up to its first
+/// slice: the parameter sets and SEI before it whole, and the slice as the rest of the data,
+/// not scanned. All that is asked of an access unit is known by then (whether it is a key
+/// frame, its SPS and PPS), and the slices are nearly all of its bytes.
 pub(crate) fn nal_units(data: &[u8]) -> Vec<&[u8]> {
-    let starts: Vec<usize> =
-        data.windows(3).enumerate().filter(|(_, w)| *w == [0, 0, 1]).map(|(i, _)| i + 3).collect();
-    starts
-        .iter()
-        .enumerate()
-        .filter_map(|(n, &s)| {
-            let mut end = starts.get(n + 1).map_or(data.len(), |next| next - 3);
-            // The zero before a four-byte start code belongs to it.
-            while end > s && n + 1 < starts.len() && data.get(end - 1) == Some(&0) {
-                end -= 1;
-            }
-            data.get(s..end)
-        })
-        .collect()
+    let next = |from: usize| data.get(from..)?.windows(3).position(|w| w == [0, 0, 1]).map(|p| from + p + 3);
+    let mut out = Vec::new();
+    let mut at = next(0);
+    while let Some(s) = at {
+        if data.get(s).is_some_and(|b| (1..=5).contains(&(b & 0x1f))) {
+            out.extend(data.get(s..));
+            break;
+        }
+        at = next(s);
+        let mut end = at.map_or(data.len(), |n| n - 3);
+        // The zero before a four-byte start code belongs to it.
+        while end > s && at.is_some() && data.get(end - 1) == Some(&0) {
+            end -= 1;
+        }
+        out.extend(data.get(s..end));
+    }
+    out
 }
 
 /// What an H.264 sequence parameter set says about the picture.
@@ -511,6 +518,8 @@ mod tests {
         assert_eq!(unwrap(WRAP + 50, WRAP - 100), WRAP - 100);
         assert_eq!(unwrap(3 * WRAP + 10, 20), 3 * WRAP + 20);
         assert_eq!(unwrap(10, WRAP - 10), WRAP - 10, "nothing goes below zero");
+        // Nothing goes past the top (this overflowed).
+        assert_eq!(unwrap(u64::MAX - 5, 0), u64::MAX & !(WRAP - 1));
         assert_eq!(timestamp(&[0x21, 0x00, 0x07, 0xd8, 0x61]), 126_000);
     }
 
