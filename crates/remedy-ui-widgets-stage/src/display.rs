@@ -4,11 +4,11 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
+use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_core::{CornerRadii, Rect, Size};
 use remedy_ui_layout::Length;
 use remedy_ui_paint::Brush;
 use remedy_ui_reactive::untrack;
-use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_view::{El, IntoProp, PaintCx, RichText, Ui};
 use remedy_ui_viz::{Clock, Moved};
 
@@ -66,7 +66,13 @@ pub struct DisplayOptions {
 
 impl Default for DisplayOptions {
     fn default() -> Self {
-        DisplayOptions { board: Board::Led, marquee: Marquee::Overflow, speed: None, cells: None, clock: Clock::system() }
+        DisplayOptions {
+            board: Board::Led,
+            marquee: Marquee::Overflow,
+            speed: None,
+            cells: None,
+            clock: Clock::system(),
+        }
     }
 }
 
@@ -315,7 +321,11 @@ pub fn display_text(ui: &Ui, text: impl IntoProp<String>, options: DisplayOption
             (0..chars.len()).filter(|&i| old.get(i) != chars.get(i)).collect()
         };
         let first = s.shown.borrow().is_empty();
-        if board == Board::SplitFlap && !first && !changed.is_empty() && !untrack(|| line.ui().reduced_motion()) {
+        if board == Board::SplitFlap
+            && !first
+            && !changed.is_empty()
+            && !untrack(|| line.ui().reduced_motion())
+        {
             *s.flipping.borrow_mut() = changed;
             s.flip.set(1.0);
         }
@@ -328,7 +338,9 @@ pub fn display_text(ui: &Ui, text: impl IntoProp<String>, options: DisplayOption
             Board::SplitFlap => {
                 s.set_flaps(&chars);
                 // Read as one piece of text, not letter by letter.
-                let _ = line.clone().semantics(Semantics::new(Role::Label).label(full.trim_end()).merge_descendants());
+                let _ = line
+                    .clone()
+                    .semantics(Semantics::new(Role::Label).label(full.trim_end()).merge_descendants());
             }
         }
         s.offset.set(0.0);
@@ -350,7 +362,11 @@ fn dots(cx: &mut PaintCx<'_>) {
     while y < cx.size.height {
         let mut x = pitch / 2.0;
         while x < cx.size.width {
-            cx.list.fill_rounded(Rect::new(x - r, y - r, x + r, y + r), CornerRadii::all(r), Brush::Solid(dim));
+            cx.list.fill_rounded(
+                Rect::new(x - r, y - r, x + r, y + r),
+                CornerRadii::all(r),
+                Brush::Solid(dim),
+            );
             x += pitch;
         }
         y += pitch;

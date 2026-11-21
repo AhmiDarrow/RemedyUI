@@ -385,19 +385,17 @@ pub fn scene(ui: &Ui, label: impl Into<String>, design: Size, options: SceneOpti
     let ui = ui.clone();
     let pointer = state.pointer;
     let parallax = state.options.parallax > 0.0;
-    let el = el
-        .paint(painter(false))
-        .on_resize(move |size| {
-            let Some(s) = weak.upgrade() else { return };
-            s.size.set(Some(size));
-            s.rtl.set(s.el.is_rtl());
-            let t = StageTransform::fit(s.design, size, s.options.fit, s.options.pixel_perfect);
-            if s.transform.replace(t) != t {
-                s.el.repaint();
-                s.front_el.repaint();
-            }
-            s.put_all();
-        });
+    let el = el.paint(painter(false)).on_resize(move |size| {
+        let Some(s) = weak.upgrade() else { return };
+        s.size.set(Some(size));
+        s.rtl.set(s.el.is_rtl());
+        let t = StageTransform::fit(s.design, size, s.options.fit, s.options.pixel_perfect);
+        if s.transform.replace(t) != t {
+            s.el.repaint();
+            s.front_el.repaint();
+        }
+        s.put_all();
+    });
     let el = if parallax {
         // Parallax only decorates: nothing is reached through it, so the stage stays a
         // plain group to the keyboard.
@@ -409,7 +407,8 @@ pub fn scene(ui: &Ui, label: impl Into<String>, design: Size, options: SceneOpti
                 let half = Vec2::new(b.width() / 2.0, b.height() / 2.0);
                 let c = b.center();
                 let n = |d: f32, h: f32| if h > 0.0 { (d / h).clamp(-1.0, 1.0) } else { 0.0 };
-                pointer.set_if_changed(Vec2::new(n(e.position.x - c.x, half.x), n(e.position.y - c.y, half.y)));
+                pointer
+                    .set_if_changed(Vec2::new(n(e.position.x - c.x, half.x), n(e.position.y - c.y, half.y)));
             }
             false
         })
