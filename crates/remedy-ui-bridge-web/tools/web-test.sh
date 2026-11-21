@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs the browser tests in a headless browser with wasm-bindgen-test-runner: the web
-# bridge's (`tests/browser.rs`), media playback's (`remedy-ui-media-playback/tests/web.rs`)
-# and the script engines' on a board (`remedy-ui-widgets-board/tests/web.rs`).
+# bridge's (`tests/browser.rs`), media playback's (`remedy-ui-media-playback/tests/web.rs`, and
+# `web_gpu.rs` for pictures on the GPU) and the script engines' on a board (`remedy-ui-widgets-board/tests/web.rs`).
 #
 #   tools/web-test.sh [firefox|chrome]
 #
@@ -37,4 +37,5 @@ trap 'kill $slow 2>/dev/null; rm -f "$port_file"' EXIT
 for _ in $(seq 50); do [ -s "$port_file" ] && break; sleep 0.1; done
 REMEDY_SLOW_CLIP_URL="http://127.0.0.1:$(cat "$port_file")/clip.mp4" \
     cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web
+cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web_gpu
 cargo test --manifest-path "$root/crates/remedy-ui-widgets-board/Cargo.toml" --target wasm32-unknown-unknown --test web

@@ -134,6 +134,19 @@ pub enum GpuTexture {
         /// The picture's height.
         height: u32,
     },
+    /// A browser page: a WebCodecs `VideoFrame`, which the page's GPU device imports where it
+    /// is (`GPUDevice.importExternalTexture` on WebGPU, `texImage2D` from the frame on
+    /// WebGL2). The picture holds the frame open and closes it when it is dropped.
+    WebVideoFrame {
+        /// wasm-bindgen's handle to the picture's own reference to the frame (the `u32` a
+        /// `&JsValue` passes as), valid while the picture lives. A renderer clones the
+        /// reference for as long as it uses the frame; it never drops this one.
+        frame: u32,
+        /// The frame's size as shown (`displayWidth`), which is what an import gives.
+        width: u32,
+        /// Its `displayHeight`.
+        height: u32,
+    },
     /// Android: an `AHardwareBuffer` a MediaCodec decoder wrote (through an `AImageReader`),
     /// already complete, imported into Vulkan with
     /// `VK_ANDROID_external_memory_android_hardware_buffer` and sampled through a
@@ -199,6 +212,9 @@ pub enum GpuAdapter {
     /// [`GpuTexture::DmaBuf`] pictures whose layout is one of
     /// [`gpu_video_dma_buf_modifiers`].
     Uuid([u8; 16]),
+    /// A browser page's GPU (WebGPU or WebGL2): a page's `VideoFrame`s import into any of its
+    /// devices, so there is nothing to tell them apart by.
+    Browser,
     /// The device's only GPU (Android: decoders have no say in which).
     Only,
 }

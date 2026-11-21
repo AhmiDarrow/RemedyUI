@@ -89,11 +89,12 @@ remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "1.0.0-rc.1
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
 
-# The browser test (tests/web.rs): a player in a page through the facade's web bridge.
+# The browser tests (tests/web.rs, tests/web_gpu.rs): a player in a page through the facade's
+# web bridge, drawn by the CPU renderer and by the GPU renderer.
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
 wasm-bindgen-test = { version = "=0.3.80" }
-web-sys = { version = "=0.3.107", features = ["console"] }
-remedy-ui = { path = "../remedy-ui", default-features = false, features = ["widgets", "web", "playback"] }
+web-sys = { version = "=0.3.107", features = ["console", "Document", "Element", "HtmlCanvasElement"] }
+remedy-ui = { path = "../remedy-ui", default-features = false, features = ["widgets", "web", "playback", "gpu"] }
 
 [lints]
 workspace = true
