@@ -34,6 +34,7 @@ pub struct HeadlessWindow {
     minimized: bool,
     maximized: bool,
     fullscreen: bool,
+    cursor_hidden: bool,
 }
 
 impl HeadlessWindow {
@@ -75,6 +76,11 @@ impl HeadlessWindow {
     /// True while it fills the screen.
     pub fn is_fullscreen(&self) -> bool {
         self.fullscreen
+    }
+
+    /// True while the mouse pointer is hidden over it ([`Host::set_cursor_hidden`]).
+    pub fn is_cursor_hidden(&self) -> bool {
+        self.cursor_hidden
     }
 
     /// True while minimized.
@@ -578,6 +584,7 @@ impl Host for HeadlessHost {
             minimized: false,
             maximized: false,
             fullscreen: false,
+            cursor_hidden: false,
         };
         Self::apply_size(&mut w, options.size);
         self.queue.push_back(HostEvent::Resized {
@@ -708,6 +715,12 @@ impl Host for HeadlessHost {
             w.options.capture_protected = on;
         }
         Ok(())
+    }
+
+    fn set_cursor_hidden(&mut self, window: WindowId, hidden: bool) {
+        if let Some(w) = self.window_mut(window) {
+            w.cursor_hidden = hidden;
+        }
     }
 
     fn request_frame(&mut self, window: WindowId) {

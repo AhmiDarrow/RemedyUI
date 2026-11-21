@@ -47,6 +47,7 @@ playback-back = 10 सेकंड पीछे
 playback-forward-tip = 10 सेकंड आगे (L)
 playback-forward = 10 सेकंड आगे
 playback-full-screen-tip = फ़ुल स्क्रीन (F)
+playback-wake-tip = कोई भी कुंजी नियंत्रण दिखाती है
 playback-full-screen = फ़ुल स्क्रीन
 playback-exit-full-screen = फ़ुल स्क्रीन से बाहर निकलें
 playback-theater-tip = थिएटर मोड (T)
