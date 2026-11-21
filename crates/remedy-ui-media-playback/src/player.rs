@@ -1791,11 +1791,13 @@ impl Player {
     }
 
     /// The player's number on its UI thread (what a post from another thread carries).
+    #[cfg(feature = "media-session")]
     pub(crate) fn id(&self) -> u64 {
         self.0.id
     }
 
     /// The player numbered `id` on this thread, while it lives.
+    #[cfg(feature = "media-session")]
     pub(crate) fn by_id(id: u64) -> Option<Player> {
         PLAYERS.with(|p| p.borrow().get(&id).and_then(Weak::upgrade)).map(Player)
     }
