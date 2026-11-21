@@ -942,6 +942,9 @@ mod tests {
         // `/grows` (a playlist fetched again must not come from a cache); anything else is 404.
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| unreachable!("{e}"));
         let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
+        // Every path asked, in order.
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let log = asked.clone();
         std::thread::spawn(move || {
             for (k, s) in listener.incoming().flatten().enumerate() {
                 let mut line = String::new();
@@ -949,6 +952,7 @@ mod tests {
                 let _ = r.read_line(&mut line);
                 let path = line.split(' ').nth(1).unwrap_or_default().trim_start_matches('/').to_string();
                 while r.read_line(&mut line).is_ok_and(|n| n > 2) {}
+                log.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(path.clone());
                 let body = match path.parse::<usize>() {
                     Ok(n) => Some(vec![(n % 256) as u8; n]),
                     Err(_) if path == "grows" => Some(format!("request {k}").into_bytes()),
@@ -972,13 +976,19 @@ mod tests {
         let url = |p: &str| format!("http://127.0.0.1:{port}/{p}");
         let big = f.get(&url("200000"), &AtomicBool::new(false)).unwrap_or_else(|e| unreachable!("{e}"));
         assert!(big.len() == 200_000 && big.iter().all(|b| *b == (200_000 % 256) as u8));
-        // A 1080p segment's size, from this machine: curl takes a few milliseconds.
+        // A 1080p segment's size, from this machine: curl takes a few milliseconds. Whole, in one
+        // request (no retries, no ranges); the clock only catches a hang, as a loaded machine
+        // (tests in loops, a parallel build) stretches any download.
         let started = std::time::Instant::now();
         let seg = f.get(&url("4317044"), &AtomicBool::new(false)).unwrap_or_else(|e| unreachable!("{e}"));
         let took = started.elapsed();
         eprintln!("fetched 4,317,044 bytes in {took:?}");
-        assert_eq!(seg.len(), 4_317_044);
-        assert!(took < std::time::Duration::from_millis(500), "a 4 MB segment took {took:?}");
+        assert!(seg.len() == 4_317_044 && seg.iter().all(|b| *b == (4_317_044 % 256) as u8));
+        let asked_for = |p: &str| {
+            asked.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().filter(|a| *a == p).count()
+        };
+        assert_eq!(asked_for("4317044"), 1, "one request for the segment");
+        assert!(took < std::time::Duration::from_secs(10), "a 4 MB segment took {took:?}");
         let a = f.get(&url("grows"), &AtomicBool::new(false)).unwrap_or_else(|e| unreachable!("{e}"));
         let b = f.get(&url("grows"), &AtomicBool::new(false)).unwrap_or_else(|e| unreachable!("{e}"));
         assert_ne!(a, b, "fetched again, not cached");
