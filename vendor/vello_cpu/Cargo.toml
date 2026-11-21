@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 rust-version = "1.89"
-name = "vello_cpu"
+name = "remedy-vello-cpu"
 version = "0.4.0"
 build = false
 autolib = false
@@ -20,7 +20,7 @@ autobins = false
 autoexamples = false
 autotests = false
 autobenches = false
-description = "A CPU-based renderer for Vello, optimized for SIMD and multithreaded execution."
+description = "RemedyUI's copy of vello_cpu 0.4.0 (a CPU renderer for Vello) with its fixes; see PATCHED.md."
 readme = "README.md"
 keywords = [
     "2d",
@@ -31,7 +31,8 @@ categories = [
     "graphics",
 ]
 license = "Apache-2.0 OR MIT"
-repository = "https://github.com/linebender/vello"
+repository = "https://github.com/AhmiDarrow/RemedyUI"
+homepage = "https://github.com/linebender/vello"
 resolver = "2"
 
 [package.metadata.docs.rs]

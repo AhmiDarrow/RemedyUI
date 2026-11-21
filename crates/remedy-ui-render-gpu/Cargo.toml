@@ -26,6 +26,16 @@ wgpu = { version = "=30.0.2", default-features = false, features = ["std", "park
 [target.'cfg(windows)'.dependencies]
 # D3D12; the software rung is WARP, so no GL is needed.
 wgpu = { version = "=30.0.2", default-features = false, features = ["dx12"] }
+# The window's own swapchain on wgpu's D3D12 device (`ffi::dxgi`), the same crate wgpu uses.
+windows = { version = "=0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_System_Threading",
+] }
+raw-window-handle = { version = "=0.6.2" }
+ash = { version = "=0.38.0", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 wgpu = { version = "=30.0.2", default-features = false, features = ["metal"] }
@@ -33,6 +43,8 @@ wgpu = { version = "=30.0.2", default-features = false, features = ["metal"] }
 [target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))'.dependencies]
 # Vulkan first; GL for machines without a Vulkan driver.
 wgpu = { version = "=30.0.2", default-features = false, features = ["vulkan", "gles"] }
+# The window's own swapchain on wgpu's Vulkan device (`ffi::vulkan`), the bindings wgpu uses.
+ash = { version = "=0.38.0" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # WebGPU first, WebGL2 where the browser has no WebGPU. A page without shared memory has one
@@ -41,7 +53,13 @@ wgpu = { version = "=30.0.2", default-features = false, features = ["webgpu", "w
 # Browsers make adapters and devices through promises.
 wasm-bindgen-futures = { version = "=0.4.80" }
 
+[features]
+# Tests on Windows: RemedyUI's own Vulkan swapchain through wgpu's Vulkan backend, so it runs
+# on a Windows machine's GPU too. Windows apps present through D3D12 and never turn it on.
+windows-vulkan = ["wgpu/vulkan", "dep:ash"]
+
 [dev-dependencies]
+remedy-ui-render-gpu = { path = ".", features = ["windows-vulkan"] }
 # Resource counters prove no pipeline or shader is created after start-up (tests only).
 wgpu = { version = "=30.0.2", features = ["counters"] }
 remedy-ui-bridge-windows = { path = "../remedy-ui-bridge-windows", version = "1.0.0-rc.1" }

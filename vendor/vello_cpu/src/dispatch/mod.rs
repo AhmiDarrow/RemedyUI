@@ -38,13 +38,7 @@ pub(crate) trait Dispatcher: Debug + Send {
         mask: Option<Mask>,
     );
     /// Fill a pixel-aligned rectangle with the current paint.
-    fn fill_rect_fast(
-        &mut self,
-        rect: &Rect,
-        paint: Paint,
-        blend_mode: BlendMode,
-        mask: Option<Mask>,
-    );
+    fn fill_rect_fast(&mut self, rect: &Rect, paint: Paint, blend_mode: BlendMode, mask: Option<Mask>);
     fn push_clip_path(
         &mut self,
         path: &BezPath,

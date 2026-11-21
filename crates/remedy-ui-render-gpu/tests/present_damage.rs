@@ -45,6 +45,8 @@ struct Probe {
     shown: usize,
     resized: bool,
     checks: PresentChecks,
+    own: bool,
+    reports: bool,
     backend: String,
     errors: Vec<String>,
     deadline_hit: bool,
@@ -117,6 +119,8 @@ impl App for Probe {
                 }
                 if self.shown >= 40 {
                     self.checks = s.present_checks();
+                    self.own = s.own_swapchain();
+                    self.reports = s.reports_damage();
                     host.close_window(window);
                 } else {
                     host.request_frame(window);
@@ -147,7 +151,16 @@ fn presenting_only_what_changed_shows_the_whole_frame() {
     assert!(!probe.deadline_hit, "finished in time; errors: {:?}", probe.errors);
     assert!(probe.errors.is_empty(), "{:?}", probe.errors);
     let c = probe.checks;
-    eprintln!("{}: {c:?}", probe.backend);
+    eprintln!("{}: {c:?}, own swapchain: {}, reports damage: {}", probe.backend, probe.own, probe.reports);
+    // D3D12 always can; Vulkan where the device offers VK_KHR_incremental_present (Mesa and
+    // Android do; NVIDIA's Windows driver does not). A device that offers it but failed to
+    // open with it is a recorded GPU error, which fails the test above.
+    if probe.backend.contains("Dx12") {
+        assert!(probe.reports, "{}", probe.backend);
+    }
+    // On D3D12 and Vulkan the window presents through RemedyUI's own swapchain.
+    let own_expected = probe.backend.contains("Dx12") || probe.backend.contains("Vulkan");
+    assert_eq!(probe.own, own_expected, "{}", probe.backend);
     assert!(c.compared >= 35, "the swapchain could be read back: {c:?}");
     assert_eq!(c.mismatched, 0, "every presented image equals the whole frame: {c:?}");
     // An image that holds nothing known (new to the swapchain, or after the resize) must be

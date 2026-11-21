@@ -23,19 +23,11 @@ pub(crate) fn estimate_render_task_cost(task: &RenderTaskType, paths: &[PathEl])
             let path_length = (2.0 * (rect.width().abs() + rect.height().abs())) as f32;
             path_length_adjusted_cost(4.0, path_length) / FAST_PATH_SPEEDUP
         }
-        RenderTaskType::FillPath {
-            path_range,
-            transform,
-            ..
-        } => {
+        RenderTaskType::FillPath { path_range, transform, .. } => {
             let path = &paths[path_range.start as usize..path_range.end as usize];
             estimate_path_cost(segments(path.iter().copied()), *transform, false)
         }
-        RenderTaskType::StrokePath {
-            path_range,
-            transform,
-            ..
-        } => {
+        RenderTaskType::StrokePath { path_range, transform, .. } => {
             let path = &paths[path_range.start as usize..path_range.end as usize];
             estimate_path_cost(segments(path.iter().copied()), *transform, true)
         }
@@ -134,10 +126,6 @@ impl PathCostData {
             }
         }
 
-        Self {
-            num_line_segments,
-            num_curve_segments,
-            path_length,
-        }
+        Self { num_line_segments, num_curve_segments, path_length }
     }
 }

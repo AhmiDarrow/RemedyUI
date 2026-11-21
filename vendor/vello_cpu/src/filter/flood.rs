@@ -32,10 +32,7 @@ mod tests {
         let mut filter_scratch = ScratchBuffer::new();
 
         // Semi-transparent white (50% alpha)
-        let color = AlphaColor {
-            components: [1.0, 1.0, 1.0, 0.5],
-            cs: std::marker::PhantomData::<Srgb>,
-        };
+        let color = AlphaColor { components: [1.0, 1.0, 1.0, 0.5], cs: std::marker::PhantomData::<Srgb> };
         let flood = Flood::new(color);
         flood.execute_lowp(&mut pixmap, &mut filter_scratch);
 
@@ -43,15 +40,7 @@ mod tests {
         for y in 0..2 {
             for x in 0..2 {
                 let pixel = pixmap.sample(x, y);
-                assert_eq!(
-                    pixel,
-                    PremulRgba8 {
-                        r: 128,
-                        g: 128,
-                        b: 128,
-                        a: 128
-                    }
-                );
+                assert_eq!(pixel, PremulRgba8 { r: 128, g: 128, b: 128, a: 128 });
             }
         }
     }
@@ -63,10 +52,7 @@ mod tests {
         let mut filter_scratch = ScratchBuffer::new();
 
         // Semi-transparent white (50% alpha)
-        let color = AlphaColor {
-            components: [1.0, 1.0, 1.0, 0.5],
-            cs: std::marker::PhantomData::<Srgb>,
-        };
+        let color = AlphaColor { components: [1.0, 1.0, 1.0, 0.5], cs: std::marker::PhantomData::<Srgb> };
         let flood = Flood::new(color);
         flood.execute_highp(&mut pixmap, &mut filter_scratch);
 
@@ -74,15 +60,7 @@ mod tests {
         for y in 0..2 {
             for x in 0..2 {
                 let pixel = pixmap.sample(x, y);
-                assert_eq!(
-                    pixel,
-                    PremulRgba8 {
-                        r: 128,
-                        g: 128,
-                        b: 128,
-                        a: 128
-                    }
-                );
+                assert_eq!(pixel, PremulRgba8 { r: 128, g: 128, b: 128, a: 128 });
             }
         }
     }

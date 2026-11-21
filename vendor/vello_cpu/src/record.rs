@@ -27,13 +27,7 @@ impl RecordedFill {
         blend_mode: BlendMode,
         mask: Option<Mask>,
     ) -> Self {
-        Self {
-            thread_idx,
-            strip_range,
-            paint,
-            blend_mode,
-            mask,
-        }
+        Self { thread_idx, strip_range, paint, blend_mode, mask }
     }
 }
 

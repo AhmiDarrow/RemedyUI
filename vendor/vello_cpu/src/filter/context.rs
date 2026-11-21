@@ -14,10 +14,7 @@ pub(crate) struct FilterContext {
 
 impl FilterContext {
     pub(crate) fn new(num_layers: usize) -> Self {
-        Self {
-            layers: (0..num_layers).map(|_| None).collect(),
-            scratch: ScratchBuffer::new(),
-        }
+        Self { layers: (0..num_layers).map(|_| None).collect(), scratch: ScratchBuffer::new() }
     }
 
     pub(crate) fn scratch(&mut self) -> &mut ScratchBuffer {

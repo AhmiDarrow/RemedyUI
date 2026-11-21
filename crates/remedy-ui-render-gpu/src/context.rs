@@ -90,6 +90,16 @@ pub struct GpuContext {
     /// The one window a browser's WebGL2 context draws on (its `data-raw-handle` id): a
     /// WebGL2 device belongs to the canvas it was made for. `None` everywhere else.
     pub(crate) bound_canvas: Option<u32>,
+    /// The Vulkan device was opened with `VK_KHR_incremental_present`: presents can say
+    /// which rectangles changed.
+    #[cfg_attr(
+        not(any(
+            all(unix, not(any(target_os = "macos", target_os = "ios"))),
+            all(windows, feature = "windows-vulkan")
+        )),
+        allow(dead_code)
+    )]
+    pub(crate) incremental_present: bool,
 }
 
 /// The most GPU errors kept between calls to [`GpuContext::take_errors`]. An app that never
@@ -217,21 +227,43 @@ impl GpuContext {
         // measured frame time on their timeline (nothing is written unless a trace records).
         let features =
             adapter.features() & (wgpu::Features::PIPELINE_CACHE | wgpu::Features::TIMESTAMP_QUERY);
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: Some("RemedyUI"),
-                required_features: features,
-                required_limits: adapter.limits(),
-                ..Default::default()
-            })
-            .await
-            .map_err(|e| GpuError::Device(e.to_string()))?;
+        let desc = wgpu::DeviceDescriptor {
+            label: Some("RemedyUI"),
+            required_features: features,
+            required_limits: adapter.limits(),
+            ..Default::default()
+        };
+        // On Vulkan the device also gets `VK_KHR_incremental_present` where it has it, so a
+        // window's own swapchain can report only what changed.
+        #[cfg(any(
+            all(unix, not(any(target_os = "macos", target_os = "ios"))),
+            all(windows, feature = "windows-vulkan")
+        ))]
+        let opened = crate::ffi::vulkan::open_device(&adapter, &desc);
+        #[cfg(not(any(
+            all(unix, not(any(target_os = "macos", target_os = "ios"))),
+            all(windows, feature = "windows-vulkan")
+        )))]
+        let opened: Option<Result<(wgpu::Device, wgpu::Queue), wgpu::RequestDeviceError>> = None;
+        let incremental_present = matches!(opened, Some(Ok(_)));
+        // A device that offers the extension but would not open with it is reported (below),
+        // never passed over quietly: presents would then report the whole window.
+        let mut open_failure = None;
+        let (device, queue) = match opened {
+            Some(Ok(pair)) => pair,
+            other => {
+                if let Some(Err(e)) = other {
+                    open_failure = Some(format!("opening the Vulkan device with incremental presents: {e}"));
+                }
+                adapter.request_device(&desc).await.map_err(|e| GpuError::Device(e.to_string()))?
+            }
+        };
         let lost = Arc::new(AtomicBool::new(false));
         let flag = lost.clone();
         device.set_device_lost_callback(move |_, _| flag.store(true, Ordering::SeqCst));
         // wgpu panics on an uncaught validation error by default; an app must not crash for
         // a GPU mistake, so errors are recorded for diagnostics instead.
-        let errors = Arc::new(Mutex::new(Vec::new()));
+        let errors = Arc::new(Mutex::new(open_failure.into_iter().collect::<Vec<_>>()));
         let sink = errors.clone();
         device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
             if let Ok(mut v) = sink.lock() {
@@ -254,6 +286,7 @@ impl GpuContext {
             serial,
             timer: Default::default(),
             bound_canvas,
+            incremental_present,
         })
     }
 

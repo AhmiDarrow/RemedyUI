@@ -145,39 +145,24 @@ macro_rules! separable_mix {
     };
 }
 
-separable_mix!(Multiply, |cs: f32x4<S>, cb: f32x4<S>| Multiply::single(
-    cs, cb
-));
+separable_mix!(Multiply, |cs: f32x4<S>, cb: f32x4<S>| Multiply::single(cs, cb));
 separable_mix!(Screen, |cs: f32x4<S>, cb: f32x4<S>| Screen::single(cs, cb));
-separable_mix!(Overlay, |cs: f32x4<S>, cb: f32x4<S>| HardLight::single(
-    cb, cs
-));
+separable_mix!(Overlay, |cs: f32x4<S>, cb: f32x4<S>| HardLight::single(cb, cs));
 separable_mix!(Darken, |cs: f32x4<S>, cb: f32x4<S>| cs.min(cb));
 separable_mix!(Lighten, |cs: f32x4<S>, cb: f32x4<S>| cs.max(cb));
 separable_mix!(Difference, |cs: f32x4<S>, cb: f32x4<S>| {
-    cs.simd
-        .select_f32x4(cs.simd.simd_le_f32x4(cs, cb), cb - cs, cs - cb)
+    cs.simd.select_f32x4(cs.simd.simd_le_f32x4(cs, cb), cb - cs, cs - cb)
 });
-separable_mix!(HardLight, |cs: f32x4<S>, cb: f32x4<S>| HardLight::single(
-    cs, cb
-));
-separable_mix!(Exclusion, |cs: f32x4<S>, cb: f32x4<S>| {
-    (cs + cb) - 2.0 * (cs * cb)
-});
+separable_mix!(HardLight, |cs: f32x4<S>, cb: f32x4<S>| HardLight::single(cs, cb));
+separable_mix!(Exclusion, |cs: f32x4<S>, cb: f32x4<S>| { (cs + cb) - 2.0 * (cs * cb) });
 separable_mix!(SoftLight, |cs: f32x4<S>, cb: f32x4<S>| {
     let mask_1 = cs.simd.simd_le_f32x4(cb, f32x4::splat(cs.simd, 0.25));
 
-    let d = cs
-        .simd
-        .select_f32x4(mask_1, ((16.0 * cb - 12.0) * cb + 4.0) * cb, cb.sqrt());
+    let d = cs.simd.select_f32x4(mask_1, ((16.0 * cb - 12.0) * cb + 4.0) * cb, cb.sqrt());
 
     let mask_2 = cs.simd.simd_le_f32x4(cs, f32x4::splat(cs.simd, 0.5));
 
-    cs.simd.select_f32x4(
-        mask_2,
-        cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb),
-        cb + (2.0 * cs - 1.0) * (d - cb),
-    )
+    cs.simd.select_f32x4(mask_2, cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb), cb + (2.0 * cs - 1.0) * (d - cb))
 });
 separable_mix!(ColorDodge, |cs: f32x4<S>, cb: f32x4<S>| {
     let mask_1 = cb.simd.simd_eq_f32x4(cb, f32x4::splat(cb.simd, 0.0));
@@ -274,8 +259,7 @@ fn clip_color<S: Simd>(r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>) {
     let below = l - n;
     let above = x - l;
     let clip_low = simd.simd_lt_f32x4(n, zero) & simd.simd_gt_f32x4(below, zero);
-    let clip_high =
-        simd.simd_gt_f32x4(x, f32x4::splat(simd, 1.0)) & simd.simd_gt_f32x4(above, zero);
+    let clip_high = simd.simd_gt_f32x4(x, f32x4::splat(simd, 1.0)) & simd.simd_gt_f32x4(above, zero);
 
     for c in [r, g, b] {
         *c = simd.select_f32x4(clip_low, l + (((*c - l) * l) / below), *c);
