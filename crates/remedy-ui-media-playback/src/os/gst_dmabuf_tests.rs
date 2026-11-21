@@ -224,7 +224,10 @@ unsafe extern "C" fn probe(_pad: Ptr, info: *mut GstPadProbeInfo, _data: Ptr) ->
         let stride = w.div_ceil(ROW_ALIGN) * ROW_ALIGN;
         let uv_at = (stride * h).div_ceil(PAGE) * PAGE;
         let size = (uv_at + stride * h.div_ceil(2)).div_ceil(PAGE) * PAGE;
-        let mut out = vec![0u8; size];
+        // Reused, as the pool's buffers are: a decoder does not allocate per picture either.
+        static SCRATCH: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+        let mut out = SCRATCH.lock().unwrap_or_else(|e| e.into_inner());
+        out.resize(size, 0);
         let planes = [(h, w, (y0, ys0), 0), (h.div_ceil(2), w.div_ceil(2) * 2, (uv0, uvs0), uv_at)];
         for (rows, len, (from, from_stride), to) in planes {
             for r in 0..rows {
