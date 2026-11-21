@@ -48,6 +48,9 @@ pub fn format_time(d: Duration) -> String {
 const ARROW_SEEK: f64 = 5.0;
 /// How far J and L move it, as in common players.
 const JUMP_SEEK: f64 = 10.0;
+/// How long a click on the picture waits for a second one before it plays or pauses
+/// ([`KeyScheme::Arrows`]), so a double click only toggles full screen.
+const CLICK_HOLD: Duration = Duration::from_millis(220);
 /// How far Up and Down move the volume in [`KeyScheme::Arrows`].
 const VOLUME_STEP: f32 = 0.05;
 
@@ -109,7 +112,9 @@ fn nudge_volume(p: &Player, up: bool) {
 /// Ctrl, Alt or the system key held, keys a text field takes and keys while a menu is open
 /// never reach the player.
 ///
-/// Double-clicking (or double-tapping) the picture asks for full screen or leaves it. In
+/// Double-clicking (or double-tapping) the picture asks for full screen or leaves it. With
+/// [`KeyScheme::Arrows`] a single click or tap plays and pauses, once no second click has come
+/// within 220 ms (so a double click never plays or pauses). In
 /// remote mode the full-screen and theater buttons are disabled and F, T and a double-click
 /// do nothing, except to leave full screen or theater mode when casting started in it.
 ///
@@ -196,8 +201,32 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .child(message)
         .child(cast)
         .child(busy.clone())
-        .on_double_click(move || toggle_fullscreen(&p))
-        // The full-screen button and F do what a double click does.
+        .on_pointer({
+            let (u, held) = (ui.clone(), std::rc::Rc::new(std::cell::Cell::new(None)));
+            move |e| {
+                if e.phase != PointerPhase::Down || !e.buttons.contains(Buttons::PRIMARY) {
+                    return false;
+                }
+                // A second press takes back the first one's play or pause.
+                if let Some(t) = held.take() {
+                    u.cancel_timer(t);
+                }
+                if u.click_count() == 2 {
+                    toggle_fullscreen(&p);
+                    return true;
+                }
+                if p.key_scheme() != KeyScheme::Arrows {
+                    return false;
+                }
+                let (q, h) = (p.clone(), held.clone());
+                held.set(Some(u.after(CLICK_HOLD, move || {
+                    h.set(None);
+                    q.toggle();
+                })));
+                true
+            }
+        })
+        // The play button, Space and K, and the full-screen button and F, do what clicks do.
         .keyboard_alternative({
             let u = ui.clone();
             move || tr(&u, "playback-full-screen-tip")

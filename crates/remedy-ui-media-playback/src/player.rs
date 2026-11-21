@@ -37,7 +37,7 @@ pub enum KeyScheme {
     Classic,
     /// As in a streaming site's player: anywhere in the player, Left and Right skip 10
     /// seconds, Up and Down change the volume by 5%, and N plays next (Shift+N too); letters
-    /// work with Shift held. A focused seek bar or volume slider still takes the arrows,
+    /// work with Shift held; a click or tap on the picture plays and pauses. A focused seek bar or volume slider still takes the arrows,
     /// Home, End, Page Up and Page Down itself, Space plays and pauses unless a button has
     /// focus (which it presses), and a focused text field takes every key.
     Arrows,

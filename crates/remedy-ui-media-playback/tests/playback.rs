@@ -1502,14 +1502,22 @@ fn el(view: &El, name: &str) -> El {
 
 /// Double-clicks the middle of `target` at `at` ms (two presses 100 ms apart).
 fn double_click(s: &mut Screen, target: &El, at: u64) {
+    presses(s, target, &[at, at + 100], remedy_ui_input::PointerKind::Mouse);
+}
+
+/// Presses and lets go of the middle of `target` at each of `times` (ms), with `kind`.
+fn presses(s: &mut Screen, target: &El, times: &[u64], kind: remedy_ui_input::PointerKind) {
     use remedy_ui_input::{Buttons, PointerEvent, PointerPhase};
     s.ui.set_double_click_time(Duration::from_millis(400));
     s.pump();
     let b = target.bounds().unwrap_or_default();
     let c = remedy_ui_core::Point::new((b.min.x + b.max.x) / 2.0, (b.min.y + b.max.y) / 2.0);
-    for t in [at, at + 100] {
+    for &t in times {
         let ev = |phase, buttons| {
-            PointerEvent::new(phase, c).with_buttons(buttons).with_time(Duration::from_millis(t))
+            PointerEvent::new(phase, c)
+                .with_kind(kind)
+                .with_buttons(buttons)
+                .with_time(Duration::from_millis(t))
         };
         s.ui.pointer(&ev(PointerPhase::Down, Buttons::PRIMARY));
         s.ui.pointer(&ev(PointerPhase::Up, Buttons::default()));
@@ -1738,4 +1746,79 @@ fn casting_disables_full_screen_and_theater_until_it_ends() {
     assert!(disabled(&view, "Theater mode"));
     assert!(!letter(&s.ui, "t", false) && !p.is_theater());
     assert!(log.lock().unwrap_or_else(|e| e.into_inner()).is_empty(), "the TV heard none of it");
+}
+
+#[test]
+fn a_click_on_the_picture_plays_and_pauses_once_no_second_click_comes() {
+    use remedy_ui_input::PointerKind::{Mouse, Touch};
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default().keys(KeyScheme::Arrows));
+    let stage = find(&view, "player_stage").remove(0);
+    // One click: nothing yet, then play once the double-click hold is out.
+    presses(&mut s, &stage, &[1000], Mouse);
+    assert_eq!(p.state(), PlaybackState::Paused, "waits for a second click");
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    presses(&mut s, &stage, &[2000], Mouse);
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    // A double click: full screen, and the first click's play is taken back.
+    double_click(&mut s, &stage, 3000);
+    s.idle(300);
+    assert!(p.is_fullscreen() && p.state() == PlaybackState::Paused);
+    // A third click in a row is a click again.
+    presses(&mut s, &stage, &[4000, 4100, 4200], Mouse);
+    assert!(!p.is_fullscreen(), "the double click in it leaves full screen");
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    p.pause();
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    // Fingers: a tap plays or pauses, a double tap toggles full screen alone.
+    presses(&mut s, &stage, &[6000], Touch);
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    presses(&mut s, &stage, &[7000], Touch);
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    presses(&mut s, &stage, &[8000, 8150], Touch);
+    s.idle(300);
+    assert!(p.is_fullscreen() && p.state() == PlaybackState::Paused);
+    presses(&mut s, &stage, &[9000, 9150], Touch);
+    s.idle(300);
+    assert!(!p.is_fullscreen() && p.state() == PlaybackState::Paused);
+
+    // While casting a click plays and pauses the TV; a double click does nothing.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    s.pump();
+    presses(&mut s, &stage, &[10_000], Mouse);
+    s.idle(300);
+    double_click(&mut s, &stage, 11_000);
+    s.idle(300);
+    assert!(!p.is_fullscreen());
+    assert_eq!(*log.lock().unwrap_or_else(|e| e.into_inner()), ["play"]);
+    p.set_remote(None);
+    s.pump();
+
+    // A press outside an open menu only closes it, as everywhere in RemedyUI.
+    let anchor = el(&view, "Mute");
+    let _menu = remedy_ui_widgets_core::menu(
+        &s.ui,
+        &anchor,
+        vec![remedy_ui_widgets_core::MenuItem::new("Something", || {})],
+    );
+    s.pump();
+    presses(&mut s, &stage, &[13_000], Mouse);
+    s.idle(300);
+    assert_eq!(p.state(), PlaybackState::Paused);
+    presses(&mut s, &stage, &[14_000], Mouse);
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+}
+
+#[test]
+fn in_the_classic_scheme_a_click_on_the_picture_does_nothing() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default());
+    let stage = find(&view, "player_stage").remove(0);
+    presses(&mut s, &stage, &[1000], remedy_ui_input::PointerKind::Mouse);
+    presses(&mut s, &stage, &[2000], remedy_ui_input::PointerKind::Touch);
+    s.idle(300);
+    assert_eq!(p.state(), PlaybackState::Paused);
+    presses(&mut s, &stage, &[3000, 3150], remedy_ui_input::PointerKind::Touch);
+    assert!(p.is_fullscreen(), "a double tap is a double click");
 }
