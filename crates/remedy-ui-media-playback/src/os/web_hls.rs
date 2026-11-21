@@ -8,8 +8,8 @@ use super::{
     has_global, js_error, obj, video_output,
 };
 use crate::hls::{
-    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Hls, LOAD, QUIET, Unit, VideoConfig, WAIT_SLICE, Want,
-    WantKind, timed_out,
+    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Hls, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
+    WAIT_SLICE, Want, WantKind, timed_out,
 };
 use crate::host::{Decoder, MediaError, MediaInfo, Sample};
 use js_sys::{Object, Promise, Uint8Array};
@@ -335,7 +335,16 @@ async fn fetch_all(url: &str) -> Result<Vec<u8>, MediaError> {
                 return Ok(out);
             }
             let value = js_sys::Reflect::get(&chunk, &"value".into()).map_err(not_found)?;
-            out.extend(value.unchecked_into::<Uint8Array>().to_vec());
+            // Copied once, straight into `out` (`to_vec` then `extend` copied each chunk twice).
+            let bytes = value.unchecked_into::<Uint8Array>();
+            let at = out.len();
+            out.resize(at + bytes.length() as usize, 0);
+            if let Some(to) = out.get_mut(at..) {
+                bytes.copy_to(to);
+            }
+            if out.len() > MAX_FETCH {
+                return Err(MediaError::Format(format!("{url}: over {MAX_FETCH} bytes")));
+            }
             watch.set((js_sys::Date::now(), QUIET));
         }
     }

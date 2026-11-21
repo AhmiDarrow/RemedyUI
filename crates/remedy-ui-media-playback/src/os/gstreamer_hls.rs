@@ -13,8 +13,8 @@ use super::gstreamer::{
 };
 use super::gstreamer_stream::{Pipe, pull};
 use crate::hls::{
-    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, QUIET, Unit, VideoConfig, file_path,
-    timed_out,
+    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
+    file_path, timed_out,
 };
 use crate::host::{MediaError, Sample, VideoCodec};
 
@@ -300,6 +300,9 @@ impl Fetch for GstFetch {
                     // SAFETY: the sample `pull` handed over, released once.
                     unsafe { (g.mini_object_unref)(s) };
                     out.extend_from_slice(&bytes);
+                    if out.len() > MAX_FETCH {
+                        return Err(MediaError::Format(format!("{url}: over {MAX_FETCH} bytes")));
+                    }
                     last = Instant::now();
                 }
                 // Nothing yet waits for the first byte; a download gone quiet is started again.
