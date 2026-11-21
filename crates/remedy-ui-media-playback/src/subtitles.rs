@@ -101,14 +101,17 @@ pub struct Cue {
 
 /// Where a cue goes, in WebVTT's cue settings (`line`, `position`, `size`, `align`,
 /// `vertical`); SRT's and ASS's `{\anN}` and ASS's margins are read into the same terms.
-/// Percentages are of the captions' area, 0 to 100.
+/// Percentages are of the picture (WebVTT's video viewport), 0 to 100.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[non_exhaustive]
 pub struct CueSettings {
-    /// Vertical text, right to left or left to right (read, but laid out across).
+    /// Vertical text: lines running down, stacked right to left or left to right.
     pub vertical: Option<Vertical>,
     /// Which line: `None` sits at the foot (`line:auto`).
     pub line: Option<CueLine>,
+    /// Which part of the cue a percentage `line` places (`line:50%,center`); `None` is its
+    /// start (its top, in horizontal text).
+    pub line_align: Option<CueAnchor>,
     /// Where the box's anchor is across, in percent; `None` follows `align`.
     pub position: Option<f32>,
     /// Which part of the box sits at `position`; `None` follows `align`.
@@ -185,11 +188,19 @@ impl CueSettings {
                     "lr" => out.vertical = Some(Vertical::Lr),
                     _ => {}
                 },
-                "line" => match (percent(v), v.parse()) {
-                    (Some(p), _) => out.line = Some(CueLine::Percent(p)),
-                    (None, Ok(n)) => out.line = Some(CueLine::Number(n)),
-                    _ => {}
-                },
+                "line" => {
+                    match (percent(v), v.parse()) {
+                        (Some(p), _) => out.line = Some(CueLine::Percent(p)),
+                        (None, Ok(n)) => out.line = Some(CueLine::Number(n)),
+                        _ => continue,
+                    }
+                    out.line_align = match after {
+                        "start" => Some(CueAnchor::Start),
+                        "center" => Some(CueAnchor::Center),
+                        "end" => Some(CueAnchor::End),
+                        _ => None,
+                    };
+                }
                 "position" => {
                     if let Some(p) = percent(v) {
                         out.position = Some(p);
@@ -218,22 +229,26 @@ impl CueSettings {
 
     /// ASS's numpad alignment (`\an1`…`\an9`: 1 bottom left, 5 the middle, 9 top right),
     /// with the left, right and vertical margins in the script's pixels and its size
-    /// (`PlayResX` by `PlayResY`). Bottom-centre is the default placement.
+    /// (`PlayResX` by `PlayResY`): the vertical margin above a bottom line and below a top
+    /// one, the side margins bounding the box. Bottom-centre with no margins is the default.
     pub fn numpad(an: u8, margins: (f32, f32, f32), res: (f32, f32)) -> CueSettings {
-        if !(1..=9).contains(&an) || an == 2 {
+        if !(1..=9).contains(&an) || (an == 2 && margins == (0.0, 0.0, 0.0)) {
             return CueSettings::default();
         }
         let (h, v) = ((an - 1) % 3, (an - 1) / 3);
         let pc = |px: f32, of: f32| if of > 0.0 { (px / of * 100.0).clamp(0.0, 100.0) } else { 0.0 };
         let (l, r, mv) = (pc(margins.0, res.0), pc(margins.1, res.0), pc(margins.2, res.1));
         CueSettings {
-            // shortcut: the foot keeps the player's own margin (and its lift over the bar), not
-            // MarginV; read it there too if a script's bottom lines sit visibly wrong.
-            line: match v {
-                0 => None,
-                1 => Some(CueLine::Percent(50.0)),
-                _ => Some(CueLine::Percent(mv)),
-            },
+            line: Some(CueLine::Percent(match v {
+                0 => 100.0 - mv,
+                1 => 50.0,
+                _ => mv,
+            })),
+            line_align: Some(match v {
+                0 => CueAnchor::End,
+                1 => CueAnchor::Center,
+                _ => CueAnchor::Start,
+            }),
             position: Some(l),
             position_align: Some(CueAnchor::Start),
             size: Some((100.0 - l - r).max(0.0)),
@@ -486,47 +501,50 @@ pub(crate) fn clean_markup(line: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// ASS/SSA: the `[Events]` section's `Format:` line names the fields, and each `Dialogue:`
-/// line fills them, its text last (it may hold commas).
-fn parse_ass(text: &str) -> Vec<Cue> {
-    let mut cues = Vec::new();
-    let mut fields: Vec<String> =
-        ["layer", "start", "end", "style", "name", "marginl", "marginr", "marginv", "effect", "text"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-    let mut in_events = false;
-    // `[V4+ Styles]` (numpad alignment) or `[V4 Styles]` (SSA's: 1-3 foot, +4 top, +8 middle).
-    let mut styles_section: Option<bool> = None;
-    let mut style_fields: Vec<String> = Vec::new();
-    // Each style's alignment and margins.
-    let mut styles: std::collections::HashMap<String, (u8, [f32; 3])> = Default::default();
-    // The script's size: ASS's default when it says none.
-    let mut res = (384.0f32, 288.0f32);
-    for line in text.lines() {
-        let line = line.trim();
-        if line.starts_with('[') {
-            in_events = line.eq_ignore_ascii_case("[events]");
-            styles_section = match line.to_ascii_lowercase().as_str() {
-                "[v4+ styles]" => Some(true),
-                "[v4 styles]" => Some(false),
-                _ => None,
-            };
-            continue;
-        }
-        if let Some(v) = line.strip_prefix("PlayResX:").and_then(|v| v.trim().parse().ok()) {
-            res.0 = v;
-        }
-        if let Some(v) = line.strip_prefix("PlayResY:").and_then(|v| v.trim().parse().ok()) {
-            res.1 = v;
-        }
-        if let Some(plus) = styles_section {
+/// An ASS/SSA script's header: its size (`PlayResX` by `PlayResY`, ASS's 384 by 288 when it
+/// says none) and each style's numpad alignment and left, right and vertical margins. A
+/// Matroska ASS track keeps it in its codec private data.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AssHeader {
+    res: (f32, f32),
+    styles: std::collections::HashMap<String, (u8, [f32; 3])>,
+}
+
+impl Default for AssHeader {
+    fn default() -> Self {
+        AssHeader { res: (384.0, 288.0), styles: Default::default() }
+    }
+}
+
+impl AssHeader {
+    /// Reads `[Script Info]`'s size and the `[V4+ Styles]` (numpad alignment) or `[V4 Styles]`
+    /// (SSA's: 1-3 foot, +4 top, +8 middle) section.
+    pub(crate) fn parse(text: &str) -> AssHeader {
+        let mut h = AssHeader::default();
+        let mut section: Option<bool> = None;
+        let mut fields: Vec<String> = Vec::new();
+        for line in text.lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                section = match line.to_ascii_lowercase().as_str() {
+                    "[v4+ styles]" => Some(true),
+                    "[v4 styles]" => Some(false),
+                    _ => None,
+                };
+                continue;
+            }
+            if let Some(v) = line.strip_prefix("PlayResX:").and_then(|v| v.trim().parse().ok()) {
+                h.res.0 = v;
+            }
+            if let Some(v) = line.strip_prefix("PlayResY:").and_then(|v| v.trim().parse().ok()) {
+                h.res.1 = v;
+            }
+            let Some(plus) = section else { continue };
             if let Some(f) = line.strip_prefix("Format:") {
-                style_fields = f.split(',').map(|s| s.trim().to_ascii_lowercase()).collect();
+                fields = f.split(',').map(|s| s.trim().to_ascii_lowercase()).collect();
             } else if let Some(s) = line.strip_prefix("Style:") {
                 let parts: Vec<&str> = s.split(',').map(str::trim).collect();
-                let field =
-                    |n: &str| style_fields.iter().position(|f| f == n).and_then(|i| parts.get(i)).copied();
+                let field = |n: &str| fields.iter().position(|f| f == n).and_then(|i| parts.get(i)).copied();
                 let num = |n: &str| field(n).and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0);
                 let a: u8 = field("alignment").and_then(|v| v.parse().ok()).unwrap_or(2);
                 let an = match (plus, a) {
@@ -536,8 +554,39 @@ fn parse_ass(text: &str) -> Vec<Cue> {
                     (false, a) => a,
                 };
                 let name = field("name").unwrap_or_default().to_string();
-                styles.insert(name, (an, [num("marginl"), num("marginr"), num("marginv")]));
+                h.styles.insert(name, (an, [num("marginl"), num("marginr"), num("marginv")]));
             }
+        }
+        h
+    }
+
+    /// Where a dialogue goes: its text's `\anN` over its style's alignment, and its own
+    /// margins (where not 0) over its style's.
+    pub(crate) fn settings(&self, style: &str, margins: [f32; 3], text: &str) -> CueSettings {
+        let (style_an, style_margins) = self.styles.get(style.trim()).copied().unwrap_or((2, [0.0; 3]));
+        let m = |i: usize| {
+            let own = margins.get(i).copied().unwrap_or(0.0);
+            if own != 0.0 { own } else { style_margins.get(i).copied().unwrap_or(0.0) }
+        };
+        CueSettings::numpad(an_tag(text).unwrap_or(style_an), (m(0), m(1), m(2)), self.res)
+    }
+}
+
+/// ASS/SSA: the `[Events]` section's `Format:` line names the fields, and each `Dialogue:`
+/// line fills them, its text last (it may hold commas).
+fn parse_ass(text: &str) -> Vec<Cue> {
+    let header = AssHeader::parse(text);
+    let mut cues = Vec::new();
+    let mut fields: Vec<String> =
+        ["layer", "start", "end", "style", "name", "marginl", "marginr", "marginv", "effect", "text"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+    let mut in_events = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_events = line.eq_ignore_ascii_case("[events]");
             continue;
         }
         if !in_events && !line.starts_with("Dialogue:") {
@@ -555,16 +604,9 @@ fn parse_ass(text: &str) -> Vec<Cue> {
         if end <= start {
             continue;
         }
-        let (style_an, style_margins) =
-            styles.get(field("style").unwrap_or_default().trim()).copied().unwrap_or((2, [0.0; 3]));
-        // A dialogue's own margins, where not 0, stand in for its style's.
-        let margin = |i: usize, name: &str| {
-            let own = field(name).and_then(|v| v.trim().parse::<f32>().ok()).unwrap_or(0.0);
-            if own != 0.0 { own } else { style_margins.get(i).copied().unwrap_or(0.0) }
-        };
-        let an = an_tag(t).unwrap_or(style_an);
-        let settings =
-            CueSettings::numpad(an, (margin(0, "marginl"), margin(1, "marginr"), margin(2, "marginv")), res);
+        let num = |n: &str| field(n).and_then(|v| v.trim().parse::<f32>().ok()).unwrap_or(0.0);
+        let margins = [num("marginl"), num("marginr"), num("marginv")];
+        let settings = header.settings(field("style").unwrap_or_default(), margins, t);
         let text = ass_text(t);
         if !text.is_empty() {
             cues.push(Cue { start, end, text, settings });
@@ -664,6 +706,10 @@ mod tests {
         assert_eq!((s.size, s.align, s.vertical), (Some(50.0), CueAlign::Left, Some(Vertical::Rl)));
         assert_eq!(s.box_across(), (25.0, 50.0));
         assert_eq!(CueSettings::parse_webvtt("line:-2 align:end").line, Some(CueLine::Number(-2)));
+        let s = CueSettings::parse_webvtt("line:80%,end");
+        assert_eq!((s.line, s.line_align), (Some(CueLine::Percent(80.0)), Some(CueAnchor::End)));
+        assert_eq!(CueSettings::parse_webvtt("line:50%,center").line_align, Some(CueAnchor::Center));
+        assert_eq!(CueSettings::parse_webvtt("line:x%,center"), CueSettings::default());
         // Bad values are left out; nothing given is the default.
         assert_eq!(
             CueSettings::parse_webvtt("line:150% size:x position:-1% bogus:1"),
@@ -705,7 +751,10 @@ mod tests {
             (second.line, second.align, second.box_across()),
             (Some(CueLine::Percent(50.0)), CueAlign::Left, (20.0, 75.0))
         );
-        assert_eq!(s.get(2), Some(&CueSettings::default()));
+        // A bottom line sits its MarginV (10 of 500: 2%) above the foot, by its bottom edge.
+        let third = s.get(2).copied().unwrap_or_default();
+        assert_eq!((third.line, third.line_align), (Some(CueLine::Percent(98.0)), Some(CueAnchor::End)));
+        assert_eq!((third.align, third.box_across()), (CueAlign::Center, (1.0, 98.0)));
         let ssa = "[V4 Styles]\nFormat: Name, Alignment\nStyle: Top,6\n\n[Events]\nFormat: Marked, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: Marked=0,0:00:01.00,0:00:02.00,Top,,0,0,0,,Hi\n";
         let cue = parse_subtitles(ssa, SubtitleFormat::Ass);
         let s = cue.first().map(|c| c.settings).unwrap_or_default();

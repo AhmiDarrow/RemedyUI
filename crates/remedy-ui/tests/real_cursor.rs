@@ -20,7 +20,7 @@ use remedy_ui_bridge_winit::run_on;
 
 #[cfg(windows)]
 mod os {
-    pub use remedy_ui_bridge_windows::pointer::{click, move_to, position, screen_size, showing};
+    pub use remedy_ui_bridge_windows::pointer::{click, move_to, position, screen_size, showing, under};
     use remedy_ui_bridge_winit::UserEvent;
     use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
     use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
@@ -89,6 +89,11 @@ mod os {
         let _ = c.get_input_focus().ok().and_then(|r| r.reply().ok());
     }
 
+    /// Not read on X11: the hidden pointer's image is what is checked there.
+    pub fn under() -> String {
+        String::new()
+    }
+
     pub fn screen_size() -> (i32, i32) {
         x().2
     }
@@ -108,6 +113,10 @@ mod os {
 use os as pointer;
 
 const RATE: u32 = 8000;
+
+/// What was under the pointer when it showed though it should have hidden (Windows: the
+/// window under it and the one in front).
+static WHY: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
 /// A minute of silence in tenths of a second, so the player plays by the clock.
 struct Silence {
@@ -229,6 +238,10 @@ fn full_screen_hides_the_pointer_with_the_resting_controls() {
                         // hears the request after the frame that rests them, and a full screen
                         // drawn on the CPU of a busy machine can take most of that.
                         3 if since.get() >= 2 && !pointer::showing() || since.get() == 15 => {
+                            if pointer::showing() {
+                                *WHY.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                                    pointer::under();
+                            }
                             note();
                             pointer::move_to(at.0 + 40, at.1 + 40);
                             step.set(4);
@@ -259,5 +272,10 @@ fn full_screen_hides_the_pointer_with_the_resting_controls() {
     pointer::move_to(was.0, was.1);
     assert!(result.is_ok(), "{result:?}");
     let seen = seen.borrow().clone();
-    assert_eq!(seen, [(true, true), (false, false), (true, true)], "(pointer showing, controls shown)");
+    let why = WHY.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    assert_eq!(
+        seen,
+        [(true, true), (false, false), (true, true)],
+        "(pointer showing, controls shown); {why}"
+    );
 }

@@ -512,6 +512,46 @@ pub(crate) mod pointer {
         // SAFETY: GetSystemMetrics takes only the metric's index.
         unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) }
     }
+
+    /// The top-level window under the pointer and the one in front: each one's class, title
+    /// and process (marked when it is this one), for a test to say what was under the
+    /// pointer when it showed.
+    pub fn under() -> String {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GA_ROOT, GetAncestor, GetClassNameW, GetForegroundWindow, GetWindowTextW,
+            GetWindowThreadProcessId, WindowFromPoint,
+        };
+        let mut at = POINT { x: 0, y: 0 };
+        // SAFETY: `at` is a POINT for GetCursorPos to fill.
+        let _ = unsafe { GetCursorPos(&mut at) };
+        let describe = |h: windows_sys::Win32::Foundation::HWND| {
+            if h.is_null() {
+                return "none".to_owned();
+            }
+            let (mut class, mut title) = ([0u16; 128], [0u16; 128]);
+            let mut pid = 0u32;
+            // SAFETY: each buffer is passed with its length; `pid` is a u32 to fill.
+            let (n, t) = unsafe {
+                (GetClassNameW(h, class.as_mut_ptr(), 128), GetWindowTextW(h, title.as_mut_ptr(), 128))
+            };
+            // SAFETY: as above.
+            let _ = unsafe { GetWindowThreadProcessId(h, &mut pid) };
+            let s = |b: &[u16], n: i32| {
+                String::from_utf16_lossy(b.get(..usize::try_from(n).unwrap_or(0)).unwrap_or_default())
+            };
+            let mine = if pid == std::process::id() { ", this process" } else { "" };
+            format!("{:?} {:?} (process {pid}{mine})", s(&class, n), s(&title, t))
+        };
+        // SAFETY: plain coordinates and window handles.
+        let (point, front) = unsafe { (GetAncestor(WindowFromPoint(at), GA_ROOT), GetForegroundWindow()) };
+        format!(
+            "under the pointer at ({}, {}): {}; in front: {}",
+            at.x,
+            at.y,
+            describe(point),
+            describe(front)
+        )
+    }
 }
 
 /// The pointer hidden over a window. winit hides it (`ShowCursor`) only while it has seen the
