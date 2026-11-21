@@ -44,38 +44,33 @@ pub extern "C" fn Java_HlsCheck_run(_env: *mut c_void, _class: *mut c_void, port
         );
         failed += i32::from(!ok);
     }
-    let got = drop_mid_fetch(&format!("https://127.0.0.1:{port}/slow/aac/index.m3u8"));
+    let got = drop_mid_fetch(&format!("https://127.0.0.1:{port}/drop/aac/index.m3u8"));
     eprintln!("hls-https-check: drop: {} {got:?}", if got.is_ok() { "ok" } else { "FAILED" });
     failed + i32::from(got.is_err())
 }
 
-/// The crate's fetch threads (`remedy-hls-*`, as /proc shows their names) now running.
-fn fetch_threads() -> usize {
-    std::fs::read_dir("/proc/self/task").map_or(0, |d| {
-        d.flatten()
-            .filter(|t| {
-                std::fs::read_to_string(t.path().join("comm")).is_ok_and(|n| n.starts_with("remedy-hls"))
-            })
-            .count()
-    })
+/// The threads this process runs (Rust's go unnamed on Android, so all are counted).
+fn threads() -> usize {
+    std::fs::read_dir("/proc/self/task").map_or(0, Iterator::count)
 }
 
-/// Opens `url` (a server 5 s slow to answer), drops it while the next segment is still being
-/// fetched, and waits for its fetch threads to go: how long that took, or that they stayed.
+/// Opens `url` (a server 5 s slow to answer), drops it while the next segment is being
+/// fetched, and waits for the fetch's two threads (fetching, and its watchdog) to go: how
+/// long that took, or that they stayed. The server's thread, asleep, stays.
 fn drop_mid_fetch(url: &str) -> Result<Duration, String> {
     let host = platform_host().map_err(|e| format!("no platform host: {e}"))?;
-    let d = host.open(&MediaSource::Url(url.into())).map_err(|e| format!("opening: {e}"))?;
+    let mut d = host.open(&MediaSource::Url(url.into())).map_err(|e| format!("opening: {e}"))?;
+    // Starts the next segment's fetch.
+    let _ = d.buffered();
     std::thread::sleep(Duration::from_millis(500));
-    if fetch_threads() == 0 {
-        return Err("no fetch thread running before the drop".into());
-    }
+    let before = threads();
     let dropped = std::time::Instant::now();
     drop(d);
-    while fetch_threads() > 0 {
+    while threads() + 2 > before {
         if dropped.elapsed() > Duration::from_secs(2) {
-            return Err(format!("{} fetch threads 2 s after the drop", fetch_threads()));
+            return Err(format!("{} of {before} threads still running 2 s after the drop", threads()));
         }
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(5));
     }
     Ok(dropped.elapsed())
 }
