@@ -27,7 +27,14 @@ pub(crate) fn add_streamed_cues(cues: &mut Vec<Cue>, new: impl IntoIterator<Item
     let size = |c: &Cue| (c.text.len() + std::mem::size_of::<Cue>()) as u64;
     for cue in new {
         let at = cues.partition_point(|c| c.start <= cue.start);
-        if cues.get(..at).unwrap_or_default().iter().rev().take_while(|c| c.start == cue.start).any(|c| *c == cue) {
+        if cues
+            .get(..at)
+            .unwrap_or_default()
+            .iter()
+            .rev()
+            .take_while(|c| c.start == cue.start)
+            .any(|c| *c == cue)
+        {
             continue;
         }
         cues.insert(at, cue);
