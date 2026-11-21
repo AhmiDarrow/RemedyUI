@@ -42,5 +42,6 @@ playback-next-up-in = { $count } 秒後に再生します
 playback-play-now = 今すぐ再生
 playback-next-cancel = キャンセル
 playback-starting-next = { $title } を開始しています
+playback-canceling = キャンセルしています。
 playback-speed = 速度 { $speed }×
 playback-speed-tip = 再生速度（Shift+> で速く、Shift+< で遅く）

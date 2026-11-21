@@ -65,6 +65,8 @@ playback-play-now = Play now
 playback-next-cancel = Cancel
 # While the app starts the next (a media server makes its stream).
 playback-starting-next = Starting { $title }
+# Over the picture once Cancel is pressed, while the app stops its work.
+playback-canceling = Canceling.
 
 ## The speed button: { $speed } is the playback speed (1, 1.5, 0.75), written the locale's way.
 playback-speed = Speed { $speed }×

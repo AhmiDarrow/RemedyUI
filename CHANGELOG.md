@@ -21,6 +21,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   that starts its next by itself says so with `RemoteStatus::starting_next(title)`: the
   casting stage reads "Starting <title> on <device>", the bar waits and the time is blank,
   and `Player::set_remote_poster` changes the poster without leaving remote mode.
+  `Player::offer_cancel(true)` shows a Cancel button under the spinner in the middle of the
+  picture while the next starts or a skip runs (as Portal's page does when the add-on says
+  its work may be stopped); pressing it calls `Player::on_cancel`, disables it and says
+  "Canceling." until the app ends the work.
 
 - **The "Up next" card can show before the end** (`PlayerOptions::next_up_lead`), as on
   Portal's page: the last N seconds of media over a minute long, in film time on a timeline;
