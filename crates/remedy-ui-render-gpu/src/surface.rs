@@ -130,6 +130,13 @@ impl GpuSurface {
         }
     }
 
+    /// Stops what [`check_presents`](Self::check_presents) started and returns what it found:
+    /// later presents go as an app's do (a read back changes the image's last use). For tests.
+    #[doc(hidden)]
+    pub fn stop_checking_presents(&mut self) -> PresentChecks {
+        self.checks.take().unwrap_or_default()
+    }
+
     /// What [`check_presents`](Self::check_presents) found so far.
     #[doc(hidden)]
     pub fn present_checks(&self) -> PresentChecks {
