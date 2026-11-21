@@ -309,15 +309,35 @@ fn a_player_follows_a_growing_playlist() {
     wait_for("the seek past the end", || p.position() == secs(3.0));
 }
 
-/// A 1080p stream of 4 MB, two-second segments (made with the `ffmpeg` on the PATH; skipped
-/// without one), served at 6 MB/s, read at the pace it plays: segments are fetched ahead while
-/// pictures are decoded, so each is asked for while the one before it plays, and opening
-/// waits only for the playlist and the first segment. Told by where the reader was when each
-/// segment was asked for, not by how late reads were: a loaded machine (a parallel build)
-/// slows decoding, and so every read, whatever was fetched ahead.
+/// A measurement of the platform's HLS path: every picture of the 6 s 1080p stream read as
+/// fast as it decodes, served at full speed; the mean and 95th percentile read. Run by hand.
 #[test]
-fn big_segments_are_read_at_the_pace_they_play() {
-    let folder = std::env::temp_dir().join(format!("remedy-hls-1080p-{}", std::process::id()));
+#[ignore = "a measurement: run by hand"]
+fn measure_1080p_reads() {
+    let Some((url, _files)) = served_1080p("measure", None) else { return };
+    let Some(mut d) = open(&url) else { return };
+    let (mut reads, start) = (Vec::new(), std::time::Instant::now());
+    loop {
+        let t = std::time::Instant::now();
+        let Some(s) = d.read().unwrap_or_else(|e| unreachable!("reading: {e}")) else { break };
+        if let Sample::Video { .. } = s {
+            reads.push(t.elapsed().as_secs_f64() * 1e3);
+        }
+    }
+    let all = start.elapsed().as_secs_f64() * 1e3;
+    reads.sort_by(f64::total_cmp);
+    let p95 = reads.get(reads.len() * 95 / 100).copied().unwrap_or(0.0);
+    eprintln!(
+        "{} pictures in {all:.0} ms: {:.2} ms each, p95 read {p95:.2} ms",
+        reads.len(),
+        all / reads.len().max(1) as f64
+    );
+}
+
+/// The 6 s 1080p HLS stream of [`big_segments_are_read_at_the_pace_they_play`], made with the
+/// `ffmpeg` on the PATH and served at `rate` bytes a second; `None` without ffmpeg.
+fn served_1080p(name: &str, rate: Option<usize>) -> Option<(String, Files)> {
+    let folder = std::env::temp_dir().join(format!("remedy-hls-1080p-{name}-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&folder);
     let made = std::process::Command::new("ffmpeg")
         .args([
@@ -348,12 +368,23 @@ fn big_segments_are_read_at_the_pace_they_play() {
         .arg(folder.join("seg%05d.ts"))
         .arg(folder.join("index.m3u8"))
         .status();
-    if !made.is_ok_and(|s| s.success()) {
-        let _ = std::fs::remove_dir_all(&folder);
-        return eprintln!("skipped: no ffmpeg on the PATH to make the stream");
-    }
-    let (url, files) = serve_path(&folder, None, Some(6_000_000));
+    let served = made.is_ok_and(|s| s.success()).then(|| serve_path(&folder, None, rate));
     let _ = std::fs::remove_dir_all(&folder);
+    if served.is_none() {
+        eprintln!("skipped: no ffmpeg on the PATH to make the stream");
+    }
+    served
+}
+
+/// A 1080p stream of 4 MB, two-second segments (made with the `ffmpeg` on the PATH; skipped
+/// without one), served at 6 MB/s, read at the pace it plays: segments are fetched ahead while
+/// pictures are decoded, so each is asked for while the one before it plays, and opening
+/// waits only for the playlist and the first segment. Told by where the reader was when each
+/// segment was asked for, not by how late reads were: a loaded machine (a parallel build)
+/// slows decoding, and so every read, whatever was fetched ahead.
+#[test]
+fn big_segments_are_read_at_the_pace_they_play() {
+    let Some((url, files)) = served_1080p("pace", Some(6_000_000)) else { return };
     let opening = std::time::Instant::now();
     let Some(mut d) = open(&url) else { return };
     let opened = opening.elapsed();
