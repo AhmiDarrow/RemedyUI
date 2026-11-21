@@ -28,6 +28,21 @@ pub enum UnseenPolicy {
     KeepPlaying,
 }
 
+/// Which keys the [`player`](crate::player) widget answers to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum KeyScheme {
+    /// The arrows act on the focused seek bar or volume slider only, and next is Shift+N.
+    #[default]
+    Classic,
+    /// As in a streaming site's player: anywhere in the player, Left and Right skip 10
+    /// seconds, Up and Down change the volume by 5%, and N plays next (Shift+N too); letters
+    /// work with Shift held. A focused seek bar or volume slider still takes the arrows,
+    /// Home, End, Page Up and Page Down itself, Space plays and pauses unless a button has
+    /// focus (which it presses), and a focused text field takes every key.
+    Arrows,
+}
+
 /// How a player starts.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -47,6 +62,8 @@ pub struct PlayerOptions {
     /// never advances by itself (the person chooses). The countdown does not start while the
     /// system asks for reduced motion.
     pub next_up_delay: Option<Duration>,
+    /// Which keys the widget answers to; [`KeyScheme::Classic`] by default.
+    pub keys: KeyScheme,
 }
 
 /// Media queued to play after the current one ends ([`Player::set_next_up`],
@@ -178,6 +195,12 @@ impl PlayerOptions {
         self.next_up_delay = value;
         self
     }
+
+    /// Sets `keys`: which keys the widget answers to.
+    pub fn keys(mut self, value: KeyScheme) -> Self {
+        self.keys = value;
+        self
+    }
 }
 
 /// How long the "up next" countdown runs by default.
@@ -191,6 +214,7 @@ impl Default for PlayerOptions {
             find_subtitles: true,
             volume: 1.0,
             next_up_delay: Some(NEXT_UP_DELAY),
+            keys: KeyScheme::Classic,
         }
     }
 }
@@ -901,6 +925,11 @@ impl Player {
     pub fn on_theater(&self, f: impl Fn(bool) + 'static) {
         self.0.theater_handlers.borrow_mut().push(Rc::new(f));
         self.0.theater_offered.set_if_changed(true);
+    }
+
+    /// Which keys the widget answers to.
+    pub(crate) fn key_scheme(&self) -> KeyScheme {
+        self.0.options.keys
     }
 
     /// Whether an app listens for theater requests. Tracked.
