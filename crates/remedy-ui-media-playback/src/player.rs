@@ -749,7 +749,8 @@ impl Player {
         }
     }
 
-    /// Moves to `to` (clamped to the media's length). Does nothing in media that cannot seek.
+    /// Moves to `to` (clamped to the media's length, unless that may still grow: then it
+    /// waits for the media to get there). Does nothing in media that cannot seek.
     /// In remote mode, tells the device.
     pub fn seek(&self, to: Duration) {
         if let Some(c) = self.control() {
@@ -760,8 +761,12 @@ impl Player {
             self.0.remote_seek.set(Some((to, remedy_ui_core::time::Instant::now())));
             return;
         }
-        let to = self.duration_untracked().map_or(to, |d| to.min(d));
-        if self.info_untracked().is_some_and(|i| i.seekable) {
+        let info = self.info_untracked();
+        let to = match info.as_ref().and_then(|i| i.duration) {
+            Some(d) if !info.as_ref().is_some_and(|i| i.growing) => to.min(d),
+            _ => to,
+        };
+        if info.is_some_and(|i| i.seekable) {
             self.0.position.set(to);
             self.0.send(Cmd::Seek(to));
         }
@@ -801,10 +806,6 @@ impl Player {
             true => self.0.remote_status.with(|s| s.length),
             false => self.0.info.with(|i| i.as_ref().and_then(|i| i.duration)),
         }
-    }
-
-    fn duration_untracked(&self) -> Option<Duration> {
-        self.info_untracked().and_then(|i| i.duration)
     }
 
     fn info_untracked(&self) -> Option<MediaInfo> {
