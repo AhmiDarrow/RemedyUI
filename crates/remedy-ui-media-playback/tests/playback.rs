@@ -3068,3 +3068,260 @@ fn an_empty_player_picks_up_a_cast_and_is_given_its_stream_after() {
     let problems = remedy_ui_devtools::audit(&s.ui);
     assert!(problems.is_empty(), "{problems:?}");
 }
+
+/// Whether `name` is a control shown in `view` (it and every element above it not hidden).
+fn shown(view: &El, name: &str) -> bool {
+    let mut stack = vec![view.clone()];
+    while let Some(e) = stack.pop() {
+        if e.info().is_none_or(|i| i.hidden) {
+            continue;
+        }
+        if e.info().and_then(|i| i.semantics).is_some_and(|s| s.name().map(plain).as_deref() == Some(name)) {
+            return true;
+        }
+        stack.extend(e.child_elements());
+    }
+    false
+}
+
+fn audit_clean(s: &mut Screen) {
+    s.idle(30);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+#[test]
+fn the_captions_button_and_c_hand_the_app_its_menu() {
+    let mut s = Screen::new();
+    let (p, view) = scripted(&mut s);
+    // No tracks and no app: no captions button.
+    assert!(!shown(&view, "Captions: off"));
+    let menus = Arc::new(Mutex::new(0));
+    let m = menus.clone();
+    p.on_captions(move |button| {
+        assert!(button.info().is_some(), "the button, to anchor a menu to");
+        *m.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+    });
+    s.pump();
+    assert!(shown(&view, "Captions: off"), "shown once the app listens");
+    el(&view, "Captions: off").focus();
+    assert!(press(&s.ui, Key::Enter));
+    assert!(press(&s.ui, Key::Character("c".into())));
+    assert_eq!(*menus.lock().unwrap_or_else(|e| e.into_inner()), 2, "the button and C");
+    assert_eq!(p.caption_track(), None, "the widget leaves the tracks to the app");
+}
+
+#[test]
+fn the_captions_toggle_shows_what_the_app_says_and_its_arrow_opens_the_menu() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 3, PlayerOptions::default().captions_toggle(true));
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let h = heard.clone();
+    p.on_captions_toggle(move |on| h.lock().unwrap_or_else(|e| e.into_inner()).push(on));
+    s.pump();
+    assert!(shown(&view, "Captions: off"));
+    assert!(!shown(&view, "Caption options"), "no arrow until the app has a menu");
+    let checked = |v: &El, name: &str| {
+        named(v, name).and_then(|b| b.info()).and_then(|i| i.semantics).and_then(|s| s.checked_state())
+    };
+    assert_eq!(checked(&view, "Captions: off"), Some(false));
+    el(&view, "Captions: off").focus();
+    assert!(press(&s.ui, Key::Character("c".into())));
+    s.pump();
+    assert!(p.captions_state().on && shown(&view, "Captions: on"));
+    assert_eq!(checked(&view, "Captions: on"), Some(true));
+    p.set_captions_state(CaptionsState::on(true).loading(true));
+    s.pump();
+    assert!(shown(&view, "Captions: on, loading"));
+    p.set_captions_state(CaptionsState::on(true).name("English"));
+    s.pump();
+    assert!(shown(&view, "Captions: English"));
+    el(&view, "Captions: English").focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert!(shown(&view, "Captions: off"));
+    assert_eq!(*heard.lock().unwrap_or_else(|e| e.into_inner()), [true, false]);
+
+    let menus = Arc::new(Mutex::new(0));
+    let m = menus.clone();
+    p.on_captions(move |_| *m.lock().unwrap_or_else(|e| e.into_inner()) += 1);
+    s.pump();
+    assert!(shown(&view, "Caption options"));
+    el(&view, "Caption options").focus();
+    assert!(press(&s.ui, Key::Enter));
+    assert_eq!(*menus.lock().unwrap_or_else(|e| e.into_inner()), 1);
+    assert!(press(&s.ui, Key::Character("c".into())));
+    assert_eq!(*menus.lock().unwrap_or_else(|e| e.into_inner()), 1, "C still toggles");
+    assert!(p.captions_state().on);
+    audit_clean(&mut s);
+}
+
+#[test]
+fn skip_buttons_move_ten_seconds_and_the_speed_button_can_go() {
+    let mut s = Screen::new();
+    let options = PlayerOptions::default().skip_buttons(true).speed_button(false);
+    let (p, view) = scripted_with(&mut s, 30, options);
+    let names = |v: &El| {
+        find(v, "button")
+            .into_iter()
+            .filter_map(|b| b.info().and_then(|i| i.semantics).and_then(|s| s.name().map(plain)))
+            .collect::<Vec<_>>()
+    };
+    assert!(!names(&view).iter().any(|n| n.starts_with("Speed")), "{:?}", names(&view));
+    p.seek(Duration::from_secs(15));
+    s.wait("at 15 s", |_| near(p.position(), 15.0, 0.001));
+    el(&view, "Forward 10 seconds").focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.wait("at 25 s", |_| near(p.position(), 25.0, 0.001));
+    el(&view, "Back 10 seconds").focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.wait("back at 15 s", |_| near(p.position(), 15.0, 0.001));
+    audit_clean(&mut s);
+    // By default the speed button is there and no skip buttons.
+    let mut t = Screen::new();
+    let (_, plain_view) = scripted(&mut t);
+    assert!(names(&plain_view).iter().any(|n| n.starts_with("Speed")));
+    assert!(named(&plain_view, "Back 10 seconds").is_none());
+}
+
+#[test]
+fn the_apps_controls_sit_in_the_bar_in_order_in_two_rows() {
+    let mut s = Screen::new();
+    let host = Arc::new(Scripted {
+        heard: Arc::new(AtomicU64::new(0)),
+        buffer: Duration::from_millis(200),
+        device: false,
+        seconds: 3,
+    });
+    // Portal's bar: no speed button.
+    let options =
+        PlayerOptions::default().two_rows(true).skip_buttons(true).captions_toggle(true).speed_button(false);
+    let p = Player::open(&s.ui, host, MediaSource::url("script:"), options);
+    p.on_theater(|_| {});
+    let pip = remedy_ui_widgets_core::icon_button(
+        &s.ui,
+        remedy_ui_widgets_core::Icon::Image,
+        "Picture in picture",
+        || {},
+    );
+    let more =
+        remedy_ui_widgets_core::icon_button(&s.ui, remedy_ui_widgets_core::Icon::Info, "Details", || {});
+    let view =
+        player_with(&s.ui, &p, "Scripted", PlayerParts::default().end(vec![pip.clone(), more.clone()]));
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    // Portal's two rows: the seek bar above the buttons.
+    let (seek, play) = (el(&view, "Seek"), el(&view, "Play"));
+    let (sb, pb) = (seek.bounds().unwrap_or_default(), play.bounds().unwrap_or_default());
+    assert!(sb.max.y <= pb.min.y + 0.5, "{sb:?} above {pb:?}");
+    // In order: Play, the skips, ..., captions, the app's two, theater, full screen.
+    let row = play.parent().unwrap_or_else(|| unreachable!());
+    let order: Vec<_> = row.child_elements().iter().map(El::id).collect();
+    let at = |e: &El| order.iter().position(|i| *i == e.id()).unwrap_or_else(|| unreachable!("in the row"));
+    let wanted = ["Play", "Back 10 seconds", "Forward 10 seconds", "Captions: off"];
+    let mut last = 0;
+    for n in wanted {
+        let i = at(&el(&view, n));
+        assert!(i >= last, "{n} out of order");
+        last = i;
+    }
+    assert!(last < at(&pip) && at(&pip) < at(&more) && at(&more) < at(&el(&view, "Theater mode")));
+    assert!(at(&el(&view, "Theater mode")) < at(&el(&view, "Full screen")));
+    audit_clean(&mut s);
+}
+
+#[test]
+fn the_compact_layout_keeps_playing_and_shows_only_the_mini_parts() {
+    let mut s = Screen::new();
+    let host = Arc::new(Scripted {
+        heard: Arc::new(AtomicU64::new(0)),
+        buffer: Duration::from_millis(200),
+        device: false,
+        seconds: 30,
+    });
+    let p =
+        Player::open(&s.ui, host, MediaSource::url("script:"), PlayerOptions::default().skip_buttons(true));
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let a = asked.clone();
+    p.on_theater(move |on| a.lock().unwrap_or_else(|e| e.into_inner()).push(on));
+    let title = s.ui.el("label").text("Episode 3");
+    let view = player_with(&s.ui, &p, "Scripted", PlayerParts::default().title(title.clone()));
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    let seen = |e: &El| {
+        let mut at = Some(e.clone());
+        while let Some(x) = at {
+            if x.info().is_none_or(|i| i.hidden) {
+                return false;
+            }
+            at = x.parent();
+        }
+        true
+    };
+    assert!(!seen(&title), "the title waits for compact");
+    p.request_theater(true);
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+
+    p.set_compact(true);
+    s.pump();
+    assert!(p.is_compact() && !p.is_theater(), "compact leaves theater mode");
+    assert!(shown(&view, "Pause") && seen(&title));
+    assert!(texts(&view, "label").iter().any(|t| t.ends_with("/ 0:30")), "the time");
+    for gone in ["Seek", "Mute", "Volume", "Back 10 seconds", "Full screen", "Theater mode"] {
+        assert!(!shown(&view, gone), "{gone} in the mini player");
+    }
+    let surface = find(&view, "video_surface").into_iter().next().unwrap_or_else(|| unreachable!());
+    let b = surface.bounds().unwrap_or_default();
+    assert!(b.width() > 0.0 && b.width() < SIZE.width / 2.0, "a small picture: {b:?}");
+    let at = p.position();
+    s.idle(300);
+    assert_eq!(p.state(), PlaybackState::Playing, "small but seen, it plays on");
+    assert!(p.position() > at);
+    audit_clean(&mut s);
+
+    // T comes back straight into theater mode; then out of compact the bar is back.
+    view.clone().focusable(true).focus();
+    assert!(letter(&s.ui, "t", false));
+    s.pump();
+    assert!(!p.is_compact() && p.is_theater());
+    assert!(shown(&view, "Seek") && shown(&view, "Mute"));
+    assert_eq!(p.state(), PlaybackState::Playing);
+    // Compact and back brings theater mode back by itself, as Portal's.
+    p.set_compact(true);
+    p.set_compact(false);
+    assert!(p.is_theater());
+    assert_eq!(*asked.lock().unwrap_or_else(|e| e.into_inner()), [true, false, true, false, true]);
+}
+
+#[test]
+fn a_second_picture_keeps_the_player_seen_while_the_first_is_hidden() {
+    let mut s = Screen::new();
+    let host = Arc::new(Scripted {
+        heard: Arc::new(AtomicU64::new(0)),
+        buffer: Duration::from_millis(200),
+        device: false,
+        seconds: 30,
+    });
+    let p = Player::open(&s.ui, host, MediaSource::url("script:"), PlayerOptions::default());
+    let view = player(&s.ui, &p, "Scripted");
+    let pip = player_picture(&s.ui, &p, "Scripted, small").width(120.0).height(80.0);
+    s.ui.root().child(view.clone()).child(pip.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    let _ = view.clone().hidden(true);
+    s.idle(300);
+    assert_eq!(p.state(), PlaybackState::Playing, "the other picture is seen");
+    // The pictures go to the one shown: frames keep coming.
+    let shown_frames = |s: &Screen| luma(&s.frame);
+    let before = shown_frames(&s);
+    s.wait("a newer picture", |s| shown_frames(s) != before);
+    let _ = pip.clone().hidden(true);
+    s.wait("paused with none seen", |_| p.state() == PlaybackState::Paused);
+    let _ = view.clone().hidden(false);
+    s.wait("playing again", |_| p.state() == PlaybackState::Playing);
+    pip.remove();
+    s.idle(100);
+    assert_eq!(p.state(), PlaybackState::Playing);
+}

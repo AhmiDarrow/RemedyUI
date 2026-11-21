@@ -95,12 +95,12 @@ pub use host::{
     merge_ranges,
 };
 pub use player::{
-    KeyScheme, NEXT_UP_DELAY, NextUp, Player, PlayerOptions, Remote, RemoteControl, RemoteStatus,
-    RemoteStatusSender, StageStatus, Timeline, UnseenPolicy,
+    CaptionsState, KeyScheme, NEXT_UP_DELAY, NextUp, Player, PlayerOptions, Remote, RemoteControl,
+    RemoteStatus, RemoteStatusSender, StageStatus, Timeline, UnseenPolicy,
 };
 pub use stretch::{MAX_SPEED, MIN_SPEED, SPEEDS, clamp_speed};
 pub use subtitles::{Cue, SubtitleFormat, SubtitleTrack, parse_subtitles};
-pub use widget::{format_time, player};
+pub use widget::{PlayerParts, format_time, player, player_picture, player_with};
 
 /// The platform's own decoders and sound output, or [`MediaError::Unsupported`] with the
 /// reason where there are none (no GStreamer installed on a Linux machine, a platform with

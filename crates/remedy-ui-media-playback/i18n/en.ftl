@@ -38,6 +38,15 @@ playback-captions-tip = Captions (C)
 # { $track } is the caption track's name ("English", "fr").
 playback-captions-track = Captions: { $track }
 playback-captions-off = Captions: off
+# The captions toggle (Portal's CC), as the app says it is; and the arrow opening its menu.
+playback-captions-on = Captions: on
+playback-captions-loading = Captions: on, loading
+playback-captions-more = Caption options
+# Portal's skip buttons.
+playback-back-tip = Back 10 seconds (J)
+playback-back = Back 10 seconds
+playback-forward-tip = Forward 10 seconds (L)
+playback-forward = Forward 10 seconds
 playback-full-screen-tip = Full screen (F)
 playback-full-screen = Full screen
 playback-exit-full-screen = Exit full screen

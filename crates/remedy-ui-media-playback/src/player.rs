@@ -75,6 +75,52 @@ pub struct PlayerOptions {
     pub keys: KeyScheme,
     /// Where the source sits in a longer work, if it is part of one ([`Player::set_timeline`]).
     pub timeline: Option<Timeline>,
+    /// The widget's captions button is Portal's CC: an on/off toggle whose state the app sets
+    /// ([`Player::set_captions_state`], with a loading state) and hears
+    /// ([`Player::on_captions_toggle`]), with an arrow beside it that opens the app's menu
+    /// ([`Player::on_captions`]). C toggles.
+    pub captions_toggle: bool,
+    /// The widget shows Back 10 seconds and Forward 10 seconds buttons after Play, as Portal's.
+    pub skip_buttons: bool,
+    /// The widget shows the speed button (Portal's page has none); on by default.
+    pub speed_button: bool,
+    /// The widget's bar in two rows, as Portal's: the seek bar above; below, Play (and the
+    /// skip buttons), mute and volume and the time at the start, the rest at the end.
+    pub two_rows: bool,
+    /// Starts in the compact layout ([`Player::set_compact`]).
+    pub compact: bool,
+}
+
+/// The captions toggle's state ([`PlayerOptions::captions_toggle`]), as the app sets it:
+/// Portal's "Subtitles off", "on, loading", "on, English".
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CaptionsState {
+    /// Captions are on.
+    pub on: bool,
+    /// The app is still finding or loading them (on only).
+    pub loading: bool,
+    /// What shows, once known ("English").
+    pub name: Option<String>,
+}
+
+impl CaptionsState {
+    /// On or off, not loading, unnamed: `CaptionsState::on(true).loading(true)`.
+    pub fn on(on: bool) -> Self {
+        CaptionsState { on, ..Self::default() }
+    }
+
+    /// Sets `loading`.
+    pub fn loading(mut self, value: bool) -> Self {
+        self.loading = value;
+        self
+    }
+
+    /// Sets `name`.
+    pub fn name(mut self, value: impl Into<String>) -> Self {
+        self.name = Some(value.into());
+        self
+    }
 }
 
 /// Where a stream sits in the work it was made from: a film converted to a stream from a
@@ -393,6 +439,36 @@ impl PlayerOptions {
         self.timeline = Some(value);
         self
     }
+
+    /// Sets `captions_toggle`: the captions button is an on/off toggle with a menu arrow.
+    pub fn captions_toggle(mut self, value: bool) -> Self {
+        self.captions_toggle = value;
+        self
+    }
+
+    /// Sets `skip_buttons`: Back and Forward 10 seconds buttons.
+    pub fn skip_buttons(mut self, value: bool) -> Self {
+        self.skip_buttons = value;
+        self
+    }
+
+    /// Sets `speed_button`: whether the speed button shows.
+    pub fn speed_button(mut self, value: bool) -> Self {
+        self.speed_button = value;
+        self
+    }
+
+    /// Sets `two_rows`: the bar in two rows, the seek bar above.
+    pub fn two_rows(mut self, value: bool) -> Self {
+        self.two_rows = value;
+        self
+    }
+
+    /// Sets `compact`: starts in the compact layout.
+    pub fn compact(mut self, value: bool) -> Self {
+        self.compact = value;
+        self
+    }
 }
 
 /// How long the "up next" countdown runs by default.
@@ -409,6 +485,11 @@ impl Default for PlayerOptions {
             keys: KeyScheme::Classic,
             timeline: None,
             next_up_lead: None,
+            captions_toggle: false,
+            skip_buttons: false,
+            speed_button: true,
+            two_rows: false,
+            compact: false,
         }
     }
 }
@@ -438,6 +519,8 @@ type NextNeededHandler = Rc<dyn Fn(&NextUp)>;
 type CancelHandler = Rc<dyn Fn()>;
 /// Hears Play pressed after a failure.
 type RetryHandler = Rc<dyn Fn(Duration)>;
+/// Hears the captions toggle.
+type ToggleHandler = Rc<dyn Fn(bool)>;
 
 struct Inner {
     id: u64,
@@ -529,6 +612,17 @@ struct Inner {
     /// seen.
     sink: RefCell<Option<VideoSink>>,
     visible: Cell<bool>,
+    /// Each [`player_picture`](crate::player_picture): its number, sink and whether it is
+    /// seen; and which one holds the sink.
+    pictures: RefCell<Vec<(u64, VideoSink, bool)>>,
+    holder: Cell<Option<u64>>,
+    captions_handlers: RefCell<Vec<CastHandler>>,
+    captions_offered: Signal<bool>,
+    captions_toggle_handlers: RefCell<Vec<ToggleHandler>>,
+    captions_state: Signal<CaptionsState>,
+    compact: Signal<bool>,
+    /// Theater was on when the player went compact, so leaving it brings it back (Portal's).
+    theater_before_compact: Cell<bool>,
 }
 
 impl Inner {
@@ -1029,6 +1123,14 @@ impl Player {
             retry_handlers: RefCell::new(Vec::new()),
             sink: RefCell::new(None),
             visible: Cell::new(true),
+            pictures: RefCell::new(Vec::new()),
+            holder: Cell::new(None),
+            captions_handlers: RefCell::new(Vec::new()),
+            captions_offered: Signal::new(false),
+            captions_toggle_handlers: RefCell::new(Vec::new()),
+            captions_state: Signal::new(CaptionsState::default()),
+            compact: Signal::new(options.compact),
+            theater_before_compact: Cell::new(false),
             options,
         });
         PLAYERS.with(|p| p.borrow_mut().insert(id, Rc::downgrade(&inner)));
@@ -1698,6 +1800,93 @@ impl Player {
         self.0.cast_offered.set_if_changed(true);
     }
 
+    /// Calls `f` with the captions button when it is pressed or C is typed (with
+    /// [`PlayerOptions::captions_toggle`], the arrow beside the toggle): the app opens its own
+    /// menu anchored to it (tracks, online ones, a timing of ±0.5 s with
+    /// [`set_caption_delay`](Self::set_caption_delay)), in place of the widget stepping through
+    /// the tracks. The button shows once an app listens, with or without tracks.
+    pub fn on_captions(&self, f: impl Fn(&El) + 'static) {
+        self.0.captions_handlers.borrow_mut().push(Rc::new(f));
+        self.0.captions_offered.set_if_changed(true);
+    }
+
+    /// Whether an app listens for the captions button. Tracked.
+    pub(crate) fn captions_offered(&self) -> bool {
+        self.0.captions_offered.get()
+    }
+
+    /// Tells the app the captions button (`button`) was pressed.
+    pub(crate) fn request_captions(&self, button: &El) {
+        let handlers = self.0.captions_handlers.borrow().clone();
+        for h in handlers {
+            h(button);
+        }
+    }
+
+    /// Sets what the captions toggle shows ([`PlayerOptions::captions_toggle`]): on or off,
+    /// loading, and what is shown.
+    pub fn set_captions_state(&self, state: CaptionsState) {
+        self.0.captions_state.set_if_changed(state);
+    }
+
+    /// What the captions toggle shows. Tracked.
+    pub fn captions_state(&self) -> CaptionsState {
+        self.0.captions_state.get()
+    }
+
+    /// Calls `f` with the wanted state when the captions toggle is pressed or C is typed
+    /// ([`PlayerOptions::captions_toggle`]): Portal's Auto (`true`) or Off. The toggle shows
+    /// the new state at once, not loading and unnamed; the app then sets the rest.
+    pub fn on_captions_toggle(&self, f: impl Fn(bool) + 'static) {
+        self.0.captions_toggle_handlers.borrow_mut().push(Rc::new(f));
+    }
+
+    /// Flips the captions toggle and tells the app.
+    pub(crate) fn toggle_captions(&self) {
+        let on = !self.0.captions_state.get_untracked().is_ok_and(|s| s.on);
+        self.set_captions_state(CaptionsState::on(on));
+        let handlers = self.0.captions_toggle_handlers.borrow().clone();
+        for h in handlers {
+            h(on);
+        }
+    }
+
+    /// The options the player was made with.
+    pub(crate) fn options(&self) -> &PlayerOptions {
+        &self.0.options
+    }
+
+    /// Puts the [`player`](crate::player) widget in its compact layout (`true`), as Portal's
+    /// mini player: the picture, play and pause, the time and the app's
+    /// [title](crate::PlayerParts::title) alone, the "Up next" card under them; or back.
+    /// Playback carries on. Going compact leaves full screen and theater mode, and coming back
+    /// asks for theater mode again if it was on. A full-screen or theater request from the
+    /// widget (F, T, a double click) while compact comes back first.
+    pub fn set_compact(&self, on: bool) {
+        if self.0.compact.get_untracked().unwrap_or(false) == on {
+            return;
+        }
+        if on {
+            let (full, theater) = remedy_ui_reactive::untrack(|| (self.is_fullscreen(), self.is_theater()));
+            if full {
+                self.request_fullscreen(false);
+            }
+            self.0.theater_before_compact.set(theater);
+            if theater {
+                self.request_theater(false);
+            }
+        }
+        self.0.compact.set(on);
+        if !on && self.0.theater_before_compact.replace(false) {
+            self.request_theater(true);
+        }
+    }
+
+    /// Whether the widget is in its compact layout. Tracked.
+    pub fn is_compact(&self) -> bool {
+        self.0.compact.get()
+    }
+
     /// Whether an app listens for the cast button. Tracked.
     pub(crate) fn cast_offered(&self) -> bool {
         self.0.cast_offered.get()
@@ -1802,10 +1991,54 @@ impl Player {
         self.0.remote.with_untracked(|r| r.as_ref().map(|r| r.control.clone())).ok().flatten()
     }
 
-    /// Shows pictures in `sink` (the [`player`](crate::player) widget attaches its surface).
+    /// Shows pictures in `sink`, in place of any [`player_picture`](crate::player_picture)
+    /// (which attaches itself when shown).
     pub fn attach(&self, sink: Option<VideoSink>) {
+        self.0.holder.set(None);
+        self.send_sink(sink);
+    }
+
+    fn send_sink(&self, sink: Option<VideoSink>) {
         *self.0.sink.borrow_mut() = sink.clone();
         self.0.send(Cmd::Sink(sink));
+    }
+
+    /// A [`player_picture`](crate::player_picture) `id` with `sink` was made: it takes the
+    /// pictures while nothing shows them yet.
+    pub(crate) fn add_picture(&self, id: u64, sink: VideoSink) {
+        self.0.pictures.borrow_mut().push((id, sink.clone(), false));
+        if self.0.sink.borrow().is_none() {
+            self.0.holder.set(Some(id));
+            self.send_sink(Some(sink));
+        }
+    }
+
+    /// Picture `id` is seen or not (`None`: gone). A picture just seen takes the pictures; one
+    /// that holds them and stops being seen hands them to another seen one. The player is seen
+    /// while any picture is.
+    pub(crate) fn picture_seen(&self, id: u64, seen: Option<bool>) {
+        let hand = {
+            let mut pics = self.0.pictures.borrow_mut();
+            match seen {
+                Some(on) => pics.iter_mut().filter(|p| p.0 == id).for_each(|p| p.2 = on),
+                None => pics.retain(|p| p.0 != id),
+            }
+            match seen {
+                Some(true) => pics.iter().find(|p| p.0 == id).map(|p| (p.0, p.1.clone())),
+                _ if self.0.holder.get() == Some(id) => pics.iter().find(|p| p.2).map(|p| (p.0, p.1.clone())),
+                _ => None,
+            }
+        };
+        if let Some((id, sink)) = hand
+            && self.0.holder.get() != Some(id)
+        {
+            self.0.holder.set(Some(id));
+            self.send_sink(Some(sink));
+        }
+        let any = self.0.pictures.borrow().iter().any(|p| p.2);
+        if self.0.visible.get() != any {
+            self.set_visible(any);
+        }
     }
 
     /// Tells the player whether it is seen (the widget does, from the engine's visibility).
