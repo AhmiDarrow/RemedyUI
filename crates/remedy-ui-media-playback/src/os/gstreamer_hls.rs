@@ -272,7 +272,7 @@ impl GstFetch {
 }
 
 impl Fetch for GstFetch {
-    fn get(&mut self, url: &str) -> Result<Vec<u8>, MediaError> {
+    fn get(&mut self, url: &str, stop: &std::sync::atomic::AtomicBool) -> Result<Vec<u8>, MediaError> {
         // A local playlist's segments are read from disk: their names joined on unescaped
         // (spaces and all) are no URL GStreamer opens.
         if let Some(path) = file_path(url) {
@@ -294,6 +294,9 @@ impl Fetch for GstFetch {
             }
             if eos {
                 return Ok(out);
+            }
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                return Err(MediaError::Decode(format!("{url}: the reader has gone")));
             }
             match pull(g, p.get(0), POLL * 20) {
                 Some((bytes, _, s)) => {

@@ -48,7 +48,7 @@ impl Mem {
 }
 
 impl Fetch for Mem {
-    fn get(&mut self, url: &str) -> Result<Vec<u8>, MediaError> {
+    fn get(&mut self, url: &str, _: &std::sync::atomic::AtomicBool) -> Result<Vec<u8>, MediaError> {
         lock(&self.asked).push(url.to_string());
         if let Some((free, permits)) = &self.gate
             && lock(&self.asked).len() > *free
