@@ -44,5 +44,38 @@ pub extern "C" fn Java_HlsCheck_run(_env: *mut c_void, _class: *mut c_void, port
         );
         failed += i32::from(!ok);
     }
-    failed
+    let got = drop_mid_fetch(&format!("https://127.0.0.1:{port}/slow/aac/index.m3u8"));
+    eprintln!("hls-https-check: drop: {} {got:?}", if got.is_ok() { "ok" } else { "FAILED" });
+    failed + i32::from(got.is_err())
+}
+
+/// The crate's fetch threads (`remedy-hls-*`, as /proc shows their names) now running.
+fn fetch_threads() -> usize {
+    std::fs::read_dir("/proc/self/task").map_or(0, |d| {
+        d.flatten()
+            .filter(|t| {
+                std::fs::read_to_string(t.path().join("comm")).is_ok_and(|n| n.starts_with("remedy-hls"))
+            })
+            .count()
+    })
+}
+
+/// Opens `url` (a server 5 s slow to answer), drops it while the next segment is still being
+/// fetched, and waits for its fetch threads to go: how long that took, or that they stayed.
+fn drop_mid_fetch(url: &str) -> Result<Duration, String> {
+    let host = platform_host().map_err(|e| format!("no platform host: {e}"))?;
+    let d = host.open(&MediaSource::Url(url.into())).map_err(|e| format!("opening: {e}"))?;
+    std::thread::sleep(Duration::from_millis(500));
+    if fetch_threads() == 0 {
+        return Err("no fetch thread running before the drop".into());
+    }
+    let dropped = std::time::Instant::now();
+    drop(d);
+    while fetch_threads() > 0 {
+        if dropped.elapsed() > Duration::from_secs(2) {
+            return Err(format!("{} fetch threads 2 s after the drop", fetch_threads()));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    Ok(dropped.elapsed())
 }
