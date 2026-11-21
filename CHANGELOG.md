@@ -27,7 +27,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - **Keeping the screen on on Android and in a browser** in `services-desktop`:
   `power::inhibit(Inhibit::Display, ..)` sets the activity's `FLAG_KEEP_SCREEN_ON` through the
   Android bridge's Java (`MediaControls.keepScreenOn`; the dex is rebuilt) and takes the Screen
-  Wake Lock (`navigator.wakeLock`) in a page, where it said `Unsupported` before.
+  Wake Lock (`navigator.wakeLock`) in a page, where it said `Unsupported` before; the browser
+  lets go of the lock while the page is hidden, and a hold asks for it again when the page
+  shows. Checked for real: `tools/android-keep-awake-check.sh` reads `FLAG_KEEP_SCREEN_ON`
+  back from `dumpsys window` (set while a hold lives, cleared after the last), the web bridge's
+  `tools/web-test.sh` runs `keep_awake_web` and media playback's `web_keep_awake` in headless
+  Firefox, and on Linux the player's test serves a stand-in `org.freedesktop.ScreenSaver`
+  under `dbus-run-session`.
 - **Input and pictures for automation and end-to-end tests** in the facade:
   `Window::send_key`, `press_key`, `send_pointer` and `click_at` hand keys and pointer events to
   a live window as the platform would (focus, shortcuts and gestures as for real input, where

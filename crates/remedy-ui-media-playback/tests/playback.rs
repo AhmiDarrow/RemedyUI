@@ -3679,9 +3679,9 @@ fn on_linux_the_session_screen_saver_is_inhibited_while_video_plays() {
     }
     let saver = Saver::default();
     let _conn = zbus::block_on(async {
-        zbus::conn::Builder::session()?
-            .name("org.freedesktop.ScreenSaver")?
-            .serve_at("/org/freedesktop/ScreenSaver", saver.clone())?
+        zbus::conn::Builder::session()
+            .name("org.freedesktop.ScreenSaver")
+            .serve_at("/org/freedesktop/ScreenSaver", saver.clone())
             .build()
             .await
     })
