@@ -10,6 +10,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Reference-shape tests for Arabic, Hebrew and Chinese** (`remedy-ui-text`): fixed
+  paragraphs shape to HarfBuzz's glyph ids, clusters, advances and mark offsets, their runs
+  come out in the order GNU FriBidi's levels give, and they wrap where ICU4C allows. The
+  fixtures are small OFL Noto subsets, written with their references by
+  `tools/shape_references.py`. `GlyphRunInfo` gains `advances` and `clusters`, each glyph's
+  advance and the byte offset where its cluster starts.
 - **Playback speed in the media player, with the pitch kept**: `Player::set_speed` (0.25× to
   4×, `MIN_SPEED`/`MAX_SPEED`; not-a-number is 1×), `Player::speed`, `step_speed` and `SPEEDS`.
   Sound goes through a pitch-preserving WSOLA time stretcher of the crate's own (no new
