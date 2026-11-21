@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use remedy_ui_a11y::{Action, Live, Role, Semantics};
-use remedy_ui_core::{CornerRadii, Insets, Rect};
+use remedy_ui_core::{Color, CornerRadii, Insets, Rect};
 use remedy_ui_input::{Buttons, Key, PointerPhase};
 use remedy_ui_layout::{AUTO, Align, Justify, Position};
 use remedy_ui_media_video::{VideoFit, video_surface};
@@ -142,6 +142,9 @@ fn nudge_volume(p: &Player, up: bool) {
 /// work with Shift held; a focused slider keeps its own keys. In either scheme, keys with
 /// Ctrl, Alt or the system key held, keys a text field takes and keys while a menu is open
 /// never reach the player.
+///
+/// In remote mode the speed button is hidden and > and < do nothing: the device plays at its
+/// own speed.
 ///
 /// Double-clicking (or double-tapping) the picture asks for full screen or leaves it. With
 /// [`KeyScheme::Arrows`] a single click or tap plays and pauses, once no second click has come
@@ -404,6 +407,11 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         let u = ui.clone();
         w::tooltip(&speed, move || tr(&u, "playback-speed-tip"));
     }
+    // A device plays at its own speed: no speed while casting.
+    let (sb, p) = (speed.clone(), player.clone());
+    let speed = speed.bind(move || {
+        let _ = sb.clone().hidden(p.is_remote());
+    });
     let p = player.clone();
     let full = full.bind(move || {
         let pictures = p.info().is_none_or(|i| i.video.is_some());
@@ -522,8 +530,8 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                     "j" => p.seek_by(-JUMP_SEEK),
                     "l" => p.seek_by(JUMP_SEEK),
                     "m" => p.set_muted(!p.is_muted()),
-                    ">" => p.step_speed(true),
-                    "<" => p.step_speed(false),
+                    ">" if !p.is_remote() => p.step_speed(true),
+                    "<" if !p.is_remote() => p.step_speed(false),
                     "c" if !p.subtitle_tracks().is_empty() => cycle_captions(&p),
                     "f" if pictures && fullscreen_toggles(&p) => toggle_fullscreen(&p),
                     "t" if p.theater_offered() && pictures && theater_toggles(&p) => toggle_theater(&p),
@@ -541,20 +549,54 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
 #[track_caller]
 fn cast_stage(ui: &Ui, player: &Player) -> El {
     let u = ui.theme().spacing.unit;
-    let poster = ui.el("player_poster").column().grow(1.0).align(Align::Center).justify(Justify::Center);
+    let fill = |l: &mut remedy_ui_layout::LayoutStyle| {
+        l.position = Position::Absolute;
+        l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: 0.0 };
+    };
+    // The app's poster fills the stage behind the words, darkened so they read over any art.
+    let poster =
+        ui.el("player_poster").column().align(Align::Center).justify(Justify::Center).layout(fill).clip();
+    let scrim = ui.el("player_scrim").layout(fill).pass_through().paint(|cx| {
+        let (top, bottom) = (Color::BLACK.with_alpha(0.55), Color::BLACK.with_alpha(0.78));
+        cx.list.fill_rect(
+            Rect::new(0.0, 0.0, cx.size.width, cx.size.height),
+            Brush::Linear {
+                start: remedy_ui_core::Point::new(0.0, 0.0),
+                end: remedy_ui_core::Point::new(0.0, cx.size.height),
+                stops: vec![
+                    remedy_ui_paint::Stop { offset: 0.0, color: top },
+                    remedy_ui_paint::Stop { offset: 1.0, color: bottom },
+                ],
+            },
+        );
+    });
+    // "Playing on" small and muted, the device's name large, in the order the language puts them.
+    let words = |size: f32, weight: f32, color: Color| {
+        ui.el("label")
+            .style(remedy_ui_style::StylePatch::default().text_size(size).weight(weight).foreground(color))
+    };
+    let lead_color = Color::rgb8(0xd9, 0xd1, 0xc2);
+    let before = words(u * 3.6, 400.0, lead_color);
+    let name_line = words(u * 6.0, 600.0, Color::rgb8(0xf4, 0xef, 0xe4));
+    let after = words(u * 3.6, 400.0, lead_color);
     let text = ui
-        .el("player_caption")
+        .el("player_cast_text")
+        .column()
+        .align(Align::Center)
+        .justify(Justify::Center)
+        .gap(u * 1.2)
+        .layout(fill)
         .style(remedy_ui_style::StylePatch::default().padding(Insets {
-            top: u,
-            bottom: u,
-            start: u * 1.5,
-            end: u * 1.5,
+            top: u * 4.0,
+            bottom: u * 4.0,
+            start: u * 4.0,
+            end: u * 4.0,
         }))
-        .layout(move |l| {
-            l.position = Position::Absolute;
-            l.inset = Insets { top: AUTO, start: u * 3.0, end: AUTO, bottom: u * 3.0 };
-        });
-    let panel = ui.el("player_cast").column().grow(1.0).child(poster.clone()).child(text.clone());
+        .child(before.clone())
+        .child(name_line.clone())
+        .child(after.clone());
+    let panel =
+        ui.el("player_cast").column().grow(1.0).child(poster.clone()).child(scrim).child(text.clone());
     let (pa, p, tu) = (panel.clone(), player.clone(), ui.clone());
     let shown = std::cell::Cell::new(None);
     panel.bind(move || {
@@ -569,8 +611,14 @@ fn cast_stage(ui: &Ui, player: &Player) -> El {
             PlaybackState::Ended => "playback-cast-ended",
             PlaybackState::Failed => "playback-cast-failed",
         };
-        let said = crate::STRINGS.format(&tu, id, &[("device", name.into())]);
-        let _ = text.clone().text(remedy_ui_view::RichText::plain(said.clone()));
+        let said = crate::STRINGS.format(&tu, id, &[("device", name.clone().into())]);
+        // The words either side of the name (which the catalog may isolate, U+2068 ... U+2069).
+        let clean = said.replace(['\u{2068}', '\u{2069}'], "");
+        let (lead, trail) = clean.split_once(name.as_str()).unwrap_or(("", ""));
+        for (line, s) in [(&before, lead.trim()), (&name_line, name.as_str()), (&after, trail.trim())] {
+            let _ = line.clone().hidden(s.is_empty());
+            let _ = line.clone().text(remedy_ui_view::RichText::plain(s.to_owned()));
+        }
         let _ = text.clone().semantics(Semantics::new(Role::Status).label(said).live(Live::Polite));
         // The app's poster, put in when it changes.
         let art = p.remote_poster();
