@@ -327,6 +327,12 @@ mod hooks {
             os::dnd::drag_out(h, data, allowed).map(DragStarted::Finished)
         }
 
+        fn set_cursor_hidden(&mut self, window: &Window, hidden: bool) {
+            if let Some(h) = hwnd(window) {
+                os::cursor::set_hidden(h, hidden);
+            }
+        }
+
         fn window_closed(&mut self, window: &Window) {
             let Some(h) = hwnd(window) else { return };
             if self.icons.contains_key(&h) {

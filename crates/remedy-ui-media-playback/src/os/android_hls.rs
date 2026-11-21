@@ -20,7 +20,7 @@ use super::{
 };
 use crate::hls::{
     AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
-    file_path, timed_out,
+    answered, file_path, timed_out,
 };
 use crate::host::{AudioFormat, MediaError, Sample};
 
@@ -557,7 +557,7 @@ fn exchange(
         return fetch(&to, hops + 1, stop);
     }
     if !(200..300).contains(&status) {
-        return Err(MediaError::NotFound(format!("{url}: HTTP {status}")));
+        return Err(answered(url, u32::from(status)));
     }
     r.get_ref().set_read_timeout(Some(QUIET)).map_err(io)?;
     let mut body = Vec::with_capacity(length.unwrap_or(0).min(64 << 20));
@@ -806,7 +806,7 @@ impl Jni {
             self.check(url)?;
             dog.progress(QUIET);
             if !(200..300).contains(&code) {
-                return Err(MediaError::NotFound(format!("{url}: HTTP {code}")));
+                return Err(answered(url, code.unsigned_abs()));
             }
             let input = obj(
                 env,

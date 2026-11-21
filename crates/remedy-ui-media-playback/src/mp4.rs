@@ -9,7 +9,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::host::MediaError;
-use crate::subtitles::{CUES_TOO_BIG, Cue, SubtitleTrack, over_cue_budget};
+use crate::subtitles::{CUES_TOO_BIG, Cue, SubtitleTrack, clean_markup, over_cue_budget, srt_settings};
 
 /// Why a file could not be read as MP4.
 pub(crate) type Error = String;
@@ -301,7 +301,10 @@ fn read_text_tracks(path: &Path) -> Result<Vec<SubtitleTrack>, Error> {
                 if over_cue_budget(&mut text_bytes, &text) {
                     return Err(CUES_TOO_BIG.into());
                 }
-                cues.push(Cue { start, end, text });
+                // 3GPP timed text has no tags, but `{\anN}` is carried by some muxers from SRT.
+                let settings = srt_settings(&text);
+                let text = if settings == Default::default() { text } else { clean_markup(&text) };
+                cues.push(Cue { start, end, text, settings });
             }
         }
         cues.sort_by_key(|c| c.start);

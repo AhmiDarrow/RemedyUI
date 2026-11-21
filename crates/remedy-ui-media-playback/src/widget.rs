@@ -251,7 +251,8 @@ fn toggle_mute(p: &Player) {
 /// 5% (unmuting), Space plays and pauses on the volume slider, N plays next, and the letters
 /// work with Shift held; a focused slider keeps its own keys. In either scheme, keys with
 /// Ctrl, Alt or the system key held, keys a text field takes and keys while a menu is open
-/// never reach the player.
+/// never reach the player. [`Player::keys_from`] hears the same keys from the rest of the
+/// window, as Portal's page does.
 ///
 /// In remote mode the speed button is hidden and > and < do nothing: the device plays at its
 /// own speed.
@@ -315,34 +316,38 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         l.position = Position::Absolute;
         l.inset = Insets { top: AUTO, start: u * 4.0, end: u * 4.0, bottom: u * 3.0 };
     });
-    let (cap, p, cu) = (caption.clone(), player.clone(), ui.clone());
-    let shown = std::cell::RefCell::new(None::<String>);
+    // Cues with settings of their own (WebVTT's line, position, size and align; ASS's `\anN`)
+    // each in a layer over the same area, placed by `placed_cue`.
+    let placed = ui.el("player_captions_placed").pass_through().layout(move |l| {
+        l.position = Position::Absolute;
+        l.inset = Insets { top: u * 3.0, start: u * 4.0, end: u * 4.0, bottom: u * 3.0 };
+    });
+    let (cap, pl, p, cu) = (caption.clone(), placed.clone(), player.clone(), ui.clone());
+    let shown = std::cell::RefCell::new(Vec::<crate::Cue>::new());
     let caption = caption.bind(move || {
-        let text = p.caption_text().filter(|_| !p.is_remote());
-        if *shown.borrow() == text {
+        let cues = if p.is_remote() { Vec::new() } else { p.caption_cues() };
+        if *shown.borrow() == cues {
             return;
         }
         cap.clear();
-        let _ = cap.clone().hidden(text.is_none());
-        for line in text.iter().flat_map(|t| t.lines()) {
-            let boxed = cu
-                .el("player_caption")
-                .style(remedy_ui_style::StylePatch::default().padding(Insets {
-                    top: u * 0.5,
-                    bottom: u * 0.5,
-                    start: u * 1.5,
-                    end: u * 1.5,
-                }))
-                .text(remedy_ui_view::RichText::plain(line.to_owned()));
-            let _ = cap.clone().child(boxed);
+        pl.clear();
+        let (plain, own): (Vec<&crate::Cue>, Vec<&crate::Cue>) =
+            cues.iter().partition(|c| c.settings == crate::CueSettings::default());
+        let _ = cap.clone().hidden(plain.is_empty());
+        for line in plain.iter().flat_map(|c| c.text.lines()) {
+            let _ = cap.clone().child(caption_line(&cu, line));
         }
-        *shown.borrow_mut() = text;
+        for c in own {
+            let _ = pl.clone().child(placed_cue(&cu, c));
+        }
+        *shown.borrow_mut() = cues;
     });
     // Above the bar while it floats over the picture in full screen.
-    let cap = caption.clone();
+    let (cap, pl) = (caption.clone(), placed.clone());
     let caption = caption.bind(move || {
         let bottom = lift.get();
         let _ = cap.clone().layout(move |l| l.inset.bottom = bottom);
+        let _ = pl.clone().layout(move |l| l.inset.bottom = bottom);
     });
     // What went wrong, in the captions' readable box at the top of the picture.
     let message = ui
@@ -461,6 +466,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         .column()
         .child(surface.clone())
         .child(caption)
+        .child(placed)
         .child(message)
         .child(cast)
         .child(busy.clone())
@@ -817,7 +823,9 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
 
     let p = player.clone();
     let root = ui.el("player");
-    let (me, home, cursor) = (root.clone(), root.clone(), root.clone());
+    let (me, home, cursor, menus) = (root.clone(), root.clone(), root.clone(), root.clone());
+    static WIDGETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let widget_id = WIDGETS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     root.column()
         .grow(1.0)
         .semantics(Semantics::new(Role::Group).label(label))
@@ -866,44 +874,78 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
                 false
             }
         })
+        // Keys from the rest of the window (`Player::keys_from`) wake the controls too.
+        .bind({
+            let (p, rest, was) = (player.clone(), rest.clone(), std::cell::Cell::new(None));
+            move || {
+                let n = p.key_wakes();
+                if was.replace(Some(n)).is_some_and(|w| w != n) {
+                    remedy_ui_reactive::untrack(|| rest.wake());
+                }
+            }
+        })
+        // Seen or not, for `Player::keys_from` (Portal's keys only while its dock is open).
+        .on_visibility({
+            let p = player.clone();
+            move |seen| p.widget_seen(widget_id, Some(seen))
+        })
+        .on_removed({
+            let p = player.clone();
+            move || p.widget_seen(widget_id, None)
+        })
         .on_key(move |e| {
             if e.pressed {
                 rest.wake();
             }
-            if !e.pressed || e.composing || e.modifiers.ctrl || e.modifiers.alt || e.modifiers.meta {
-                return false;
-            }
-            if let Key::Named(n) = &e.key {
-                return crate::media_keys::key_press(n).is_some_and(|m| crate::media_keys::apply(&p, m));
-            }
-            let arrows = p.key_scheme() == KeyScheme::Arrows;
-            let pictures = p.info().is_none_or(|i| i.video.is_some());
-            match &e.key {
-                Key::Escape if p.is_fullscreen() => p.request_fullscreen(false),
-                Key::Escape if p.is_theater() => p.request_theater(false),
-                Key::ArrowLeft if arrows => p.seek_by(-JUMP_SEEK),
-                Key::ArrowRight if arrows => p.seek_by(JUMP_SEEK),
-                Key::ArrowUp if arrows => nudge_volume(&p, true),
-                Key::ArrowDown if arrows => nudge_volume(&p, false),
-                // Buttons press themselves on Space and the seek bar plays and pauses itself.
-                Key::Space if arrows && (slider.is_focused() || home.is_focused()) => p.toggle(),
-                Key::Character(c) => match (if arrows { c.to_lowercase() } else { c.clone() }).as_str() {
-                    "k" => p.toggle(),
-                    "j" => p.seek_by(-JUMP_SEEK),
-                    "l" => p.seek_by(JUMP_SEEK),
-                    "m" => toggle_mute(&p),
-                    ">" if !p.is_remote() => p.step_speed(true),
-                    "<" if !p.is_remote() => p.step_speed(false),
-                    "c" if p.captions_offered() => p.toggle_captions(),
-                    "f" if pictures && fullscreen_toggles(&p) => toggle_fullscreen(&p),
-                    "t" if p.theater_offered() && pictures && theater_toggles(&p) => toggle_theater(&p),
-                    "N" | "n" if (arrows || e.modifiers.shift) && p.next_up().is_some() => p.play_next(),
-                    _ => return false,
-                },
-                _ => return false,
-            }
-            true
+            // Buttons press themselves on Space and the seek bar plays and pauses itself.
+            apply_key(&p, e, slider.is_focused() || home.is_focused())
         })
+        // Going compact closes the menus its hidden buttons opened, as Portal's mini player.
+        .bind({
+            let p = player.clone();
+            move || {
+                if p.is_compact() {
+                    remedy_ui_reactive::untrack(|| w::close_menus_in(&menus));
+                }
+            }
+        })
+}
+
+/// The player's key map ([`Player::handle_key`]): `space` when Space may play and pause in
+/// [`KeyScheme::Arrows`]. True when the key was the player's.
+pub(crate) fn apply_key(p: &Player, e: &remedy_ui_input::KeyEvent, space: bool) -> bool {
+    if !e.pressed || e.composing || e.modifiers.ctrl || e.modifiers.alt || e.modifiers.meta {
+        return false;
+    }
+    if let Key::Named(n) = &e.key {
+        return crate::media_keys::key_press(n).is_some_and(|m| crate::media_keys::apply(p, m));
+    }
+    let arrows = p.key_scheme() == KeyScheme::Arrows;
+    let pictures = p.info().is_none_or(|i| i.video.is_some());
+    match &e.key {
+        Key::Escape if p.is_fullscreen() => p.request_fullscreen(false),
+        Key::Escape if p.is_theater() => p.request_theater(false),
+        Key::ArrowLeft if arrows => p.seek_by(-JUMP_SEEK),
+        Key::ArrowRight if arrows => p.seek_by(JUMP_SEEK),
+        Key::ArrowUp if arrows => nudge_volume(p, true),
+        Key::ArrowDown if arrows => nudge_volume(p, false),
+        Key::Space if arrows && space => p.toggle(),
+        Key::Character(c) => match (if arrows { c.to_lowercase() } else { c.clone() }).as_str() {
+            "k" => p.toggle(),
+            "j" => p.seek_by(-JUMP_SEEK),
+            "l" => p.seek_by(JUMP_SEEK),
+            "m" => toggle_mute(p),
+            ">" if !p.is_remote() => p.step_speed(true),
+            "<" if !p.is_remote() => p.step_speed(false),
+            "c" if p.captions_offered() => p.toggle_captions(),
+            "f" if pictures && fullscreen_toggles(p) => toggle_fullscreen(p),
+            "t" if p.theater_offered() && pictures && theater_toggles(p) => toggle_theater(p),
+            "N" | "n" if (arrows || e.modifiers.shift) && p.next_up().is_some() => p.play_next(),
+            _ => return false,
+        },
+        _ => return false,
+    }
+    true
 }
 
 /// Full screen's rest: the controls show on activity and fade [`WAKE`] after the last, unless
@@ -1546,6 +1588,64 @@ fn next_up_card(ui: &Ui, player: &Player) -> El {
 /// Portal's timing step: half a second, within ten minutes either way.
 const CAPTION_STEP: i64 = 500;
 const CAPTION_LIMIT: i64 = 600_000;
+
+/// One caption line in its own readable box, as a browser draws a cue's line.
+fn caption_line(ui: &Ui, line: &str) -> El {
+    let u = ui.theme().spacing.unit;
+    ui.el("player_caption")
+        .style(remedy_ui_style::StylePatch::default().padding(Insets {
+            top: u * 0.5,
+            bottom: u * 0.5,
+            start: u * 1.5,
+            end: u * 1.5,
+        }))
+        .text(remedy_ui_view::RichText::plain(line.to_owned()))
+}
+
+/// A cue with settings of its own, in a layer over the captions' area: its box across from
+/// [`CueSettings::box_across`](crate::CueSettings::box_across), its lines lined up in it by
+/// `align`, and its `line` down the area: a percentage from the top (0 the top, 100 the foot)
+/// or a count of lines from the top (0 on) or the foot (-1 on); none sits at the foot.
+fn placed_cue(ui: &Ui, cue: &crate::Cue) -> El {
+    use crate::{CueAlign, CueLine};
+    let s = cue.settings;
+    let theme = ui.theme();
+    // A caption line's height: its text and its box's padding.
+    let line_h = theme.type_scale.body * 1.5 + theme.spacing.unit;
+    let gap = |grow: f32| ui.el("player_cue_gap").pass_through().grow(grow.max(0.0));
+    let fixed = |h: f32| ui.el("player_cue_gap").pass_through().layout(move |l| l.height = Length::Px(h));
+    let lines = ui.el("player_cue").column().pass_through().align(match s.align {
+        CueAlign::Start | CueAlign::Left => Align::Start,
+        CueAlign::Center => Align::Center,
+        CueAlign::End | CueAlign::Right => Align::End,
+    });
+    let lines = cue.text.lines().fold(lines, |b, line| b.child(caption_line(ui, line)));
+    let (left, size) = s.box_across();
+    let lines = lines.layout(move |l| {
+        l.width = Length::Percent(size / 100.0);
+        l.shrink = 0.0;
+    });
+    // The room either side shared so the box's left edge is `left` percent across.
+    let across = ui
+        .el("player_cue_row")
+        .row()
+        .pass_through()
+        .child(gap(left))
+        .child(lines)
+        .child(gap(100.0 - size - left));
+    // shortcut: a percentage line puts the box `p` percent of the room down (0 the top, 100 the
+    // foot) whatever its line alignment, and cues are not moved apart when they overlap.
+    let (before, after) = match s.line {
+        None => (gap(1.0), fixed(0.0)),
+        Some(CueLine::Percent(p)) => (gap(p), gap(100.0 - p)),
+        Some(CueLine::Number(n)) if n >= 0 => (fixed(n as f32 * line_h), gap(1.0)),
+        Some(CueLine::Number(n)) => (gap(1.0), fixed((!n) as f32 * line_h)),
+    };
+    ui.el("player_cue_layer").column().pass_through().child(before).child(across).child(after).layout(|l| {
+        l.position = Position::Absolute;
+        l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: 0.0 };
+    })
+}
 
 /// The caption timing in words: "in sync", "now 1.5 s later", "now 0.5 s earlier".
 fn timing_words(u: &Ui, ms: i64) -> String {

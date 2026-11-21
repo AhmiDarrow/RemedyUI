@@ -73,7 +73,7 @@ pub use icons::{Icon, avatar, canvas, icon, image, pixel_image};
 pub use inputs::{field, reveal_toggle, search, secret_input, text_area, text_input};
 pub use lists::{ListItems, ListTransitions, for_each, for_each_with, list, virtual_list};
 pub use menu_bar::menu_bar;
-pub use menus::{MenuItem, context_menu, context_menu_at, menu, menu_press_through};
+pub use menus::{MenuItem, close_menus_in, context_menu, context_menu_at, menu, menu_press_through};
 pub use overlays::{
     DialogButton, Modal, dialog, fill_window, fit_beside, fit_near, fit_near_dir, lock_screen, modal,
     place_at, place_beside, place_near, place_near_within, popover, tooltip, trusted_prompt,

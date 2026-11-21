@@ -10,6 +10,31 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **The player's keys from anywhere in the window** in `media-playback`, as Portal's page
+  hears them page-wide: `Player::keys_from(&ui.root())` routes the keys nothing focused took
+  to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),
+  except that a focused text field keeps every key, a focused slider its own, a focused
+  button Space and Enter, and nothing reaches the player while a menu or dialog has focus or
+  is open; keys with Ctrl, Alt or the system key held never do. It acts only while the
+  player shows (a `player` widget or `player_picture` of it is seen, compact and remote
+  included), as Portal's keys only while its dock is open, so the app need not switch it.
+  `Player::handle_key` applies the same key map to one key and says whether it took it; the
+  `player` widget uses it too, so there is one key map. Each key either of them hears wakes the
+  full-screen controls, as a key inside the player does (Portal's `wake()`).
+- **Going compact closes the player's menus** in `media-playback`, as Portal's mini player
+  does: `Player::set_compact(true)` closes the captions menu and any menu the app opened
+  anchored to the player's buttons (the cast menu from `on_cast`). Full screen leaves them
+  open, as Portal's page does. `widgets-core`'s new `close_menus_in(&el)` closes every open
+  menu opened from `el` or from inside it, without moving focus.
+- **Caption cue settings** in `media-playback`: WebVTT's `line` (a percentage or a line
+  number), `position` (with its anchor), `size`, `align` and `vertical` (read; laid out across),
+  SRT's `{\anN}`, and ASS/SSA's `\anN` with its styles' alignment and margins in the script's
+  `PlayResX` by `PlayResY` are read into `Cue::settings` (`CueSettings`), from files and from
+  Matroska's and MP4's embedded tracks. The `player` widget lays each such cue out by
+  WebVTT's rules (`CueSettings::box_across`); cues with none stay centred at the foot,
+  above the bar in full screen. `Player::caption_cues` gives the cues showing with their
+  settings. `Cue` has a new `settings` field (`..Default::default()` in literals).
+
 - **Portal's full-screen overlay** in `media-playback`. In full screen the `player`
   widget's bar floats over the foot of the picture on a gradient, the title the app gives
   (`Player::set_title(Some(..))`) over its head, and both fade 2.6 s after the last pointer,
@@ -891,6 +916,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **The pointer hides reliably over a full-screen player on Windows.** winit hides it with
+  `ShowCursor` only while it believes the pointer is inside the window; the Windows bridge
+  now also answers `WM_SETCURSOR` with no cursor while it is hidden and clears the cursor
+  at once when the pointer is over the window (`PlatformHooks::set_cursor_hidden`).
+
+- The `remedy-ui` runner tests build for wasm32 again: the PNG check of
+  `Window::snapshot_png`, which comes with the `devtools` feature, runs only with it.
 - A cancelled pointer (`PointerPhase::Cancel`) over a pressed element panicked in the view.
 - The media player could end before the last of the sound was played on a busy machine:
   the end was declared once the decoded sound was taken, while the time stretcher still held
