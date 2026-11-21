@@ -194,9 +194,22 @@ impl Outputs {
 
 type Shared = Rc<RefCell<Outputs>>;
 
-/// The parts that exist once the source is in hand.
+/// The source's bytes as they arrive: all at once for a file, a chunk at a time while a URL
+/// is fetched.
+#[derive(Default)]
+struct Bytes {
+    data: Vec<u8>,
+    /// Every byte is in.
+    complete: bool,
+    /// The decoder is gone: a fetch under way stops.
+    dropped: bool,
+}
+
+type SharedBytes = Rc<RefCell<Bytes>>;
+
+/// The parts that exist once the source's movie box is in hand.
 struct Open {
-    data: Rc<[u8]>,
+    data: SharedBytes,
     mp4: Mp4,
     video: Option<(usize, VideoDecoder, Object)>,
     audio: Option<(usize, AudioDecoder, Object)>,
@@ -211,6 +224,7 @@ struct Open {
 struct WebDecoder {
     out: Shared,
     open: Rc<RefCell<Option<Open>>>,
+    bytes: SharedBytes,
     info: MediaInfo,
 }
 
@@ -429,8 +443,7 @@ fn audio_output(out: &Shared, data: &AudioData) -> Result<(), MediaError> {
 }
 
 /// Makes and configures the decoders for `data`.
-fn open(data: Rc<[u8]>, out: &Shared) -> Result<Open, MediaError> {
-    let mp4 = mp4::parse(&data).map_err(MediaError::Format)?;
+fn open(data: SharedBytes, mp4: Mp4, out: &Shared) -> Result<Open, MediaError> {
     let mut callbacks: Vec<Closure<dyn FnMut(JsValue)>> = Vec::new();
     let error_cb = {
         let out = out.clone();
@@ -542,7 +555,8 @@ impl Open {
         let t = self.mp4.tracks.get(track)?;
         let s = t.samples.get(i)?;
         let start = usize::try_from(s.offset).ok()?;
-        let bytes = self.data.get(start..start + s.size as usize)?;
+        let data = self.data.borrow();
+        let bytes = data.data.get(start..start + s.size as usize)?;
         let us = |d: Duration| JsValue::from_f64(d.as_secs_f64() * 1_000_000.0);
         Some(obj(&[
             ("type", JsValue::from_str(if s.sync { "key" } else { "delta" })),
@@ -550,6 +564,44 @@ impl Open {
             ("duration", us(t.time(i64::from(s.duration)))),
             ("data", Uint8Array::from(bytes).into()),
         ]))
+    }
+
+    /// Whether sample `i` of `track` is still to arrive (a fetch under way).
+    fn waiting_for(&self, track: usize, i: usize) -> bool {
+        let data = self.data.borrow();
+        !data.complete
+            && self
+                .mp4
+                .tracks
+                .get(track)
+                .and_then(|t| t.samples.get(i))
+                .is_some_and(|s| s.offset.saturating_add(u64::from(s.size)) > data.data.len() as u64)
+    }
+
+    /// What has arrived, as a stretch of the media from its start: up to the first sample of
+    /// the video or sound track whose bytes are still to come.
+    fn held(&self) -> Vec<std::ops::Range<Duration>> {
+        let data = self.data.borrow();
+        let length = self.info.duration.unwrap_or_default();
+        if data.complete {
+            return vec![Duration::ZERO..length];
+        }
+        let arrived = data.data.len() as u64;
+        let tracks = [self.video.as_ref().map(|v| v.0), self.audio.as_ref().map(|a| a.0)];
+        let until = tracks
+            .into_iter()
+            .flatten()
+            .filter_map(|t| self.mp4.tracks.get(t))
+            .map(|t| {
+                t.samples
+                    .iter()
+                    .find(|s| s.offset.saturating_add(u64::from(s.size)) > arrived)
+                    .map_or(t.length(), |s| t.time(s.pts))
+            })
+            .min()
+            .unwrap_or_default()
+            .min(length);
+        if until.is_zero() { Vec::new() } else { vec![Duration::ZERO..until] }
     }
 
     fn next_time(&self, track: usize, i: usize) -> Option<i64> {
@@ -575,10 +627,15 @@ impl Open {
                 (None, None) => break,
             };
             let busy = if take_video {
-                self.video.as_ref().is_some_and(|(_, d, _)| d.decode_queue_size() >= 2)
+                self.video.as_ref().is_some_and(|(t, d, _)| {
+                    d.decode_queue_size() >= 2 || self.waiting_for(*t, self.next_video)
+                })
             } else {
-                self.audio.as_ref().is_some_and(|(_, d, _)| d.decode_queue_size() >= 2)
+                self.audio.as_ref().is_some_and(|(t, d, _)| {
+                    d.decode_queue_size() >= 2 || self.waiting_for(*t, self.next_audio)
+                })
             };
+            // A sample still downloading waits too: each chunk that arrives wakes the reader.
             if busy {
                 break;
             }
@@ -733,10 +790,15 @@ impl Decoder for WebDecoder {
         }
         Ok(())
     }
+
+    fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
+        self.open.borrow().as_ref().map(Open::held)
+    }
 }
 
 impl Drop for WebDecoder {
     fn drop(&mut self) {
+        self.bytes.borrow_mut().dropped = true;
         if let Some(op) = self.open.borrow_mut().take() {
             if let Some((_, d, _)) = &op.video {
                 let _ = d.close();
@@ -748,34 +810,104 @@ impl Drop for WebDecoder {
     }
 }
 
-/// Fetches `url` without blocking, then opens it.
-fn fetch_and_open(url: String, out: Shared, slot: Rc<RefCell<Option<Open>>>) {
+/// Calls `o.method(args…)`.
+fn call(o: &JsValue, method: &str, args: &[JsValue]) -> Result<JsValue, JsValue> {
+    let f: js_sys::Function = get(o, method).dyn_into()?;
+    f.apply(o, &args.iter().collect::<Array>())
+}
+
+/// The length of the body a response brings, when its headers say and nothing (a content
+/// encoding) makes the bytes read differ from it.
+fn body_length(resp: &web_sys::Response) -> Option<u64> {
+    let headers = get(resp, "headers");
+    let header =
+        |name: &str| call(&headers, "get", &[JsValue::from_str(name)]).ok().and_then(|v| v.as_string());
+    if header("content-encoding").is_some_and(|e| !e.trim().eq_ignore_ascii_case("identity")) {
+        return None;
+    }
+    header("content-length").and_then(|l| l.trim().parse().ok())
+}
+
+/// Fetches `url` without blocking, a chunk at a time into `bytes`, and opens it as soon as
+/// its movie box is in (at once for a file made for streaming, its movie box first; at the
+/// end otherwise). Samples still to come wait in the feed; each chunk wakes the reader.
+fn fetch_and_open(url: String, out: Shared, slot: Rc<RefCell<Option<Open>>>, bytes: SharedBytes) {
     wasm_bindgen_futures::spawn_local(async move {
+        let not_found = |e: &JsValue| MediaError::NotFound(js_error(&url, e));
+        let opened = |op: Result<Open, MediaError>| {
+            let ready = op.map(|op| *slot.borrow_mut() = Some(op));
+            let mut o = out.borrow_mut();
+            o.ready = Some(ready);
+            o.wake();
+        };
         let fetched = async {
             let win = web_sys::window().ok_or_else(|| MediaError::Unsupported("no browser window".into()))?;
-            let resp = JsFuture::from(win.fetch_with_str(&url))
-                .await
-                .map_err(|e| MediaError::NotFound(js_error(&url, &e)))?;
+            let resp = JsFuture::from(win.fetch_with_str(&url)).await.map_err(|e| not_found(&e))?;
             let resp: web_sys::Response = resp.unchecked_into();
             if !resp.ok() {
                 return Err(MediaError::NotFound(format!("{url}: the server answered {}", resp.status())));
             }
-            let buf = resp.array_buffer().map_err(|e| MediaError::NotFound(js_error(&url, &e)))?;
-            let buf = JsFuture::from(buf).await.map_err(|e| MediaError::NotFound(js_error(&url, &e)))?;
-            Ok(Uint8Array::new(&buf).to_vec())
+            let total = body_length(&resp);
+            let body = get(&resp, "body");
+            if body.is_null() || body.is_undefined() {
+                // No readable body (an old browser): all of it at once.
+                let buf = resp.array_buffer().map_err(|e| not_found(&e))?;
+                let buf = JsFuture::from(buf).await.map_err(|e| not_found(&e))?;
+                bytes.borrow_mut().data = Uint8Array::new(&buf).to_vec();
+                return Ok(());
+            }
+            let reader = call(&body, "getReader", &[]).map_err(|e| not_found(&e))?;
+            loop {
+                if bytes.borrow().dropped {
+                    let _ = call(&reader, "cancel", &[]);
+                    return Ok(());
+                }
+                let read = call(&reader, "read", &[]).map_err(|e| not_found(&e))?;
+                let chunk = JsFuture::from(Promise::from(read)).await.map_err(|e| not_found(&e))?;
+                if get(&chunk, "done").is_truthy() {
+                    break;
+                }
+                let value: Uint8Array = get(&chunk, "value").dyn_into().map_err(|e| not_found(&e))?;
+                let mut b = bytes.borrow_mut();
+                let at = b.data.len();
+                b.data.resize(at + value.length() as usize, 0);
+                if let Some(dest) = b.data.get_mut(at..) {
+                    value.copy_to(dest);
+                }
+                let head = match total {
+                    Some(len) if slot.borrow().is_none() && out.borrow().ready.is_none() => {
+                        mp4::parse_head(&b.data, len).map_err(MediaError::Format)?
+                    }
+                    _ => None,
+                };
+                drop(b);
+                match head {
+                    Some(m) => opened(open(bytes.clone(), m, &out)),
+                    None => out.borrow_mut().wake(),
+                }
+            }
+            if let Some(len) = total
+                && (bytes.borrow().data.len() as u64) < len
+            {
+                return Err(MediaError::NotFound(format!(
+                    "{url}: the download stopped at {} of {len} bytes",
+                    bytes.borrow().data.len()
+                )));
+            }
+            Ok(())
         }
         .await;
-        let result = fetched.and_then(|bytes| open(Rc::from(bytes), &out));
-        let ready = match result {
-            Ok(op) => {
-                *slot.borrow_mut() = Some(op);
-                Ok(())
+        bytes.borrow_mut().complete = true;
+        match fetched {
+            // Opened once the movie box came in; the last samples are in now.
+            Ok(()) if out.borrow().ready.is_some() => out.borrow_mut().wake(),
+            Ok(()) => {
+                let m = mp4::parse(&bytes.borrow().data).map_err(MediaError::Format);
+                opened(m.and_then(|m| open(bytes.clone(), m, &out)));
             }
-            Err(e) => Err(e),
-        };
-        let mut o = out.borrow_mut();
-        o.ready = Some(ready);
-        o.wake();
+            Err(e) if out.borrow().ready.is_some() => out.borrow_mut().fail(e),
+            Err(e) => opened(Err(e)),
+        }
     });
 }
 
@@ -941,15 +1073,19 @@ impl MediaHost for WebHost {
                         path.display()
                     ))
                 })?;
-                let op = open(Rc::from(bytes), &out)?;
+                let m = mp4::parse(&bytes).map_err(MediaError::Format)?;
+                let data: SharedBytes =
+                    Rc::new(RefCell::new(Bytes { data: bytes, complete: true, dropped: false }));
+                let op = open(data.clone(), m, &out)?;
                 let info = op.info.clone();
                 *slot.borrow_mut() = Some(op);
                 out.borrow_mut().ready = Some(Ok(()));
-                Ok(Box::new(WebDecoder { out, open: slot, info }))
+                Ok(Box::new(WebDecoder { out, open: slot, bytes: data, info }))
             }
             MediaSource::Url(url) => {
-                fetch_and_open(url.clone(), out.clone(), slot.clone());
-                Ok(Box::new(WebDecoder { out, open: slot, info: MediaInfo::default() }))
+                let bytes: SharedBytes = Rc::default();
+                fetch_and_open(url.clone(), out.clone(), slot.clone(), bytes.clone());
+                Ok(Box::new(WebDecoder { out, open: slot, bytes, info: MediaInfo::default() }))
             }
         }
     }

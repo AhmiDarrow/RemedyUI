@@ -24,6 +24,8 @@ pub(crate) const GST_FORMAT_TIME: c_int = 3;
 /// Buffering ranges in hundred-thousandths of a percent of the whole (`GST_FORMAT_PERCENT`).
 const GST_FORMAT_PERCENT: c_int = 5;
 const GST_FORMAT_PERCENT_MAX: f64 = 1_000_000.0;
+/// `GST_PLAY_FLAG_DOWNLOAD`: playbin keeps what a progressive stream downloads.
+const GST_PLAY_FLAG_DOWNLOAD: c_int = 0x80;
 pub(crate) const GST_STATE_NULL: c_int = 1;
 pub(crate) const GST_STATE_READY: c_int = 2;
 pub(crate) const GST_STATE_PAUSED: c_int = 3;
@@ -552,6 +554,13 @@ impl GstDecoder {
             (g.object_set)(playbin, c"video-sink".as_ptr(), vsink, std::ptr::null::<c_char>());
             (g.object_set)(playbin, c"audio-sink".as_ptr(), asink, std::ptr::null::<c_char>());
             (g.object_set)(playbin, c"text-sink".as_ptr(), tsink, std::ptr::null::<c_char>());
+            if matches!(source, MediaSource::Url(_)) {
+                // Progressive download: a stream's bytes are kept (in a temporary file) as
+                // they arrive, so the buffering query says which parts of the whole are in
+                // hand, not just how full a queue is.
+                let flags = g.get_int(playbin, c"flags") | GST_PLAY_FLAG_DOWNLOAD;
+                (g.object_set)(playbin, c"flags".as_ptr(), flags, std::ptr::null::<c_char>());
+            }
         }
         // SAFETY: state changes on a live element.
         let changed = unsafe { (g.element_set_state)(playbin, GST_STATE_PAUSED) };
@@ -908,25 +917,36 @@ impl Decoder for GstDecoder {
     }
 
     fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
+        // Asked in time first (a pipeline that knows says so directly); a download buffer
+        // (queue2) answers only in percent of the whole, which the length turns into time.
+        let time = self.buffering(GST_FORMAT_TIME);
+        if time.as_ref().is_some_and(|r| !r.is_empty()) {
+            return time;
+        }
+        match self.buffering(GST_FORMAT_PERCENT) {
+            Some(r) if !r.is_empty() => Some(r),
+            _ => time,
+        }
+    }
+}
+
+impl GstDecoder {
+    /// The pipeline's answer to a buffering query asked in `format`, as positions in the
+    /// media: `None` when it does not answer or answers in a format with no time here.
+    fn buffering(&self, format: c_int) -> Option<Vec<std::ops::Range<Duration>>> {
         let g = self.g;
         let total = self.info.duration;
         // SAFETY: a buffering query made, asked of the live pipeline, read through its
         // documented accessors with out-pointers to locals, and released.
         unsafe {
-            let q = (g.query_new_buffering)(GST_FORMAT_TIME);
+            let q = (g.query_new_buffering)(format);
             if q.is_null() {
                 return None;
             }
             let mut out = None;
             if (g.element_query)(self.playbin, q) != 0 {
-                let mut format: c_int = 0;
-                (g.query_parse_buffering_range)(
-                    q,
-                    &mut format,
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                );
+                let (mut format, mut start, mut stop) = (0 as c_int, -1i64, -1i64);
+                (g.query_parse_buffering_range)(q, &mut format, &mut start, &mut stop, std::ptr::null_mut());
                 let at = |x: i64| -> Option<Duration> {
                     match (format, total) {
                         _ if x < 0 => None,
@@ -949,6 +969,12 @@ impl Decoder for GstDecoder {
                         {
                             ranges.push(a..b);
                         }
+                    }
+                    // No list, but the stretch being downloaded: that one.
+                    if ranges.is_empty()
+                        && let (Some(a), Some(b)) = (at(start), at(stop))
+                    {
+                        ranges.push(a..b);
                     }
                     out = Some(ranges);
                 }
