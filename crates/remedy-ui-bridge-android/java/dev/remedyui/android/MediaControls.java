@@ -6,6 +6,7 @@
 
 package dev.remedyui.android;
 
+import android.app.Activity;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -18,6 +19,7 @@ import android.media.session.PlaybackState;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.view.WindowManager;
 
 public final class MediaControls extends MediaSession.Callback {
     // The commands, as Rust reads them; SEEK_BY and SEEK_TO carry milliseconds.
@@ -35,6 +37,26 @@ public final class MediaControls extends MediaSession.Callback {
     private static final int NOTIFICATION = 0x52454d5a;
 
     private static native void command(long handle, int what, long arg);
+
+    /**
+     * Keeps the activity's screen on while video plays (FLAG_KEEP_SCREEN_ON), or lets it turn
+     * off again: on the main thread, where the window takes its flags. Throws when the context
+     * is no activity (there is no window to keep on).
+     */
+    static void keepScreenOn(Context context, boolean on) {
+        if (!(context instanceof Activity)) {
+            throw new IllegalStateException("the app's context is not an activity: no window to keep on");
+        }
+        Activity activity = (Activity) context;
+        activity.runOnUiThread(() -> {
+            int flag = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON;
+            if (on) {
+                activity.getWindow().addFlags(flag);
+            } else {
+                activity.getWindow().clearFlags(flag);
+            }
+        });
+    }
 
     private final Context context;
     private final long handle;

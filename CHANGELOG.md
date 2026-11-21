@@ -10,6 +10,30 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **The player owns what Portal worked around** in `media-playback`.
+  `Player::set_next_up_delay` and `set_next_up_lead` (with tracked `next_up_delay()` and
+  `next_up_lead()`) change autoplay while it plays: a countdown running counts to the new
+  length from when it began, `None` stops it, and at the end one starts, so the app no longer
+  sets the delay to `None` and calls `play_next()` on Ended itself. `PlayerOptions::keep_awake`
+  and `Player::set_keep_awake` hold the screen on while video plays here and is seen (not
+  paused, ended, remote, unseen or sound only), let go on pause, end and drop; the hold is the
+  system's with the new `keep-awake` feature (also in the facade), or the app's own through
+  `Player::set_awake_hold` (tests use a fake). `RemoteStatus::reported_at(Instant)` and
+  `age(Duration)` say when the TV reported: a playing device's position is moved on from then,
+  at once and between reports. `Player::add_subtitles_stream` adds a track timed to the stream
+  (subtitles a server cut to its stream); the player moves it onto the work's time, so it stays
+  right across `replace_source` with a new origin. New message `playback-keep-awake` in all 11
+  locales (the reason the system lists).
+- **Keeping the screen on on Android and in a browser** in `services-desktop`:
+  `power::inhibit(Inhibit::Display, ..)` sets the activity's `FLAG_KEEP_SCREEN_ON` through the
+  Android bridge's Java (`MediaControls.keepScreenOn`; the dex is rebuilt) and takes the Screen
+  Wake Lock (`navigator.wakeLock`) in a page, where it said `Unsupported` before.
+- **Input and pictures for automation and end-to-end tests** in the facade:
+  `Window::send_key`, `press_key`, `send_pointer` and `click_at` hand keys and pointer events to
+  a live window as the platform would (focus, shortcuts and gestures as for real input, where
+  harnesses called `Ui::key` after focusing by hand), and `Window::snapshot_png` (feature
+  `devtools`) encodes the window's picture as PNG with straight alpha, reusing the devtools'
+  `Snapshot::to_png`. Agents (`remedy-ui-automation`) still never send synthetic input.
 - **Portal's control bar and mini player** in `media-playback`. The captions control
   does all Portal's CC does, without its problems: one button (not a toggle beside a 22 px
   arrow) that says what shows in words, "Off", "Auto · English" or "Loading…" (Portal showed
@@ -719,6 +743,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- `RemoteStatus` in `media-playback` has a new public field, `reported_at`: a struct
+  literal adds `reported_at: None` (or `..RemoteStatus::default()`).
 - `RemoteStatus::volume` is now `Option<f32>`, `None` (unknown) by default and on
   `Player::set_remote`: a struct literal writes `volume: Some(v)`; `.volume(v)` is unchanged.
 - `NextUp::source` is now `Option<MediaSource>` (`None` for `NextUp::later`), and

@@ -7,6 +7,7 @@ playback-failed-device = يتعذّر تشغيل هذا المحتوى بسبب 
 playback-failed-denied = يتعذّر تشغيل هذا المحتوى لأن الوصول غير مسموح به: { $detail }
 playback-failed-missing = يتعذّر تشغيل هذا المحتوى: { $detail }
 playback-loading = جارٍ التحميل
+playback-keep-awake = تشغيل فيديو
 playback-play-pause-tip = تشغيل أو إيقاف مؤقت (K)
 playback-play = تشغيل
 playback-pause = إيقاف مؤقت

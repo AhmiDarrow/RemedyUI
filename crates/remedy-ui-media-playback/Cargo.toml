@@ -28,6 +28,9 @@ remedy-ui-services-desktop = { path = "../remedy-ui-services-desktop", version =
 ## `Player::now_playing`: the player in the system's media controls (SMTC, a browser's
 ## `navigator.mediaSession`), through the desktop services.
 media-session = ["dep:remedy-ui-services-desktop"]
+## `Player::set_keep_awake`: the screen held on while video plays, through the desktop
+## services' power inhibit (Windows, macOS, Linux, Android, a browser's Screen Wake Lock).
+keep-awake = ["dep:remedy-ui-services-desktop"]
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "=0.62.2", features = [

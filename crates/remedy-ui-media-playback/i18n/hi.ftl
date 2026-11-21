@@ -7,6 +7,7 @@ playback-failed-device = साउंड डिवाइस में समस�
 playback-failed-denied = इसे नहीं चलाया जा सकता क्योंकि ऐक्सेस की अनुमति नहीं मिली: { $detail }
 playback-failed-missing = इसे चलाया नहीं जा सकता: { $detail }
 playback-loading = लोड हो रहा है
+playback-keep-awake = वीडियो चल रहा है
 playback-play-pause-tip = चलाएँ या रोकें (K)
 playback-play = चलाएँ
 playback-pause = रोकें
