@@ -88,6 +88,18 @@ WebGL2 in a browser.
   with no blur pass. Blur and drop-shadow filter groups and backdrops are vello filter layers
   (a multi-scale Gaussian), the same algorithm `vello_cpu` runs, so the two renderers agree
   within two levels.
+- **Bounds on what a list asks for.** A filter blurs at most `MAX_FILTER_STD_DEV` (64)
+  device pixels and a drop shadow falls at most `MAX_FILTER_OFFSET` (2048), and at most
+  `MAX_GROUP_DEPTH` (256) groups are open at once: clips, opacity and blend groups, filters,
+  and the layers glass draws through. vello's layer handling recurses per level, so a list
+  nesting thousands of groups would overflow the stack. Both the `Painter` and the composite
+  walk (`record_ops`) keep a stack of which pushes opened a layer: a push past the bound opens
+  none and its pop closes none, so what it holds is drawn as if the group were not there and
+  the groups around it stay balanced; glass that deep is not drawn. Both renderers apply the
+  same bound, so they still agree. It is a safety bound on recursion in vello, not a
+  capacity limit: the compositor's own walks over the layer tree (the frame walk,
+  `LayerTree::for_each` and `find`, dropping a tree) use explicit stacks and take trees of
+  any depth.
 - **Images and glyphs** are uploaded to the GPU on first use: glyphs and nearest-sampled
   images packed into RGBA atlas pages, filtered or large images in textures of their own.
   Uploads of images the app dropped are freed, and `clear_caches` drops them all (they are

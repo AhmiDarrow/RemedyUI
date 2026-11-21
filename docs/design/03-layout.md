@@ -50,6 +50,7 @@ All layout properties are logical: `start` and `end`, `inline` and `block`, neve
 - **Relayout boundaries** stop dirtiness from climbing: fixed size, tight constraints, or a scroll axis (see [02](02-state-and-elements.md)).
 - **Parallel layout.** Sibling subtrees that are relayout boundaries can lay out in parallel on the worker pool when there is enough work, as Servo's layout does. The UI thread copies each subtree's layout inputs into a detached snapshot, workers lay the snapshots out, and the UI thread writes the results back. Workers never touch the live tree. This happens at a window resize, a theme change or first build. Small updates stay on the UI thread, where they are cheaper.
 - **Same frame.** Layout always completes before paint in the same frame. Nothing is measured one frame late.
+- **Any depth.** Taffy recurses once per level of the tree, up to about 32 KB a level for grid unoptimized and 5 KB optimized. Each layout runs on a stack sized from the tree's depth: this thread's when it has room, one made for it when not. Nested layouts tens of thousands deep lay out on any thread ([09](09-performance-and-resources.md)).
 
 ## Virtualization
 

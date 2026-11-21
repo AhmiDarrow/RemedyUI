@@ -175,27 +175,41 @@ impl LayerTree {
         LayerTree { roots: roots.into_iter().map(Arc::new).collect() }
     }
 
-    /// Visits every layer, parents before children.
+    /// Visits every layer, parents before children (each layer's children back to front).
     pub fn for_each(&self, mut f: impl FnMut(&Layer)) {
-        fn walk(l: &Layer, f: &mut impl FnMut(&Layer)) {
+        // An explicit stack, not recursion: a tree any number of layers deep is walked on
+        // any thread's stack.
+        let mut stack: Vec<&Layer> = self.roots.iter().rev().map(|r| &**r).collect();
+        while let Some(l) = stack.pop() {
             f(l);
-            for c in &l.children {
-                walk(c, f);
-            }
-        }
-        for r in &self.roots {
-            walk(r, &mut f);
+            stack.extend(l.children.iter().rev().map(|c| &**c));
         }
     }
 
-    /// The layer with `id`, if any.
+    /// The layer with `id`, if any (the first, parents before children).
     pub fn find(&self, id: LayerId) -> Option<&Layer> {
-        fn walk(l: &Layer, id: LayerId) -> Option<&Layer> {
+        let mut stack: Vec<&Layer> = self.roots.iter().rev().map(|r| &**r).collect();
+        while let Some(l) = stack.pop() {
             if l.id == id {
                 return Some(l);
             }
-            l.children.iter().find_map(|c| walk(c, id))
+            stack.extend(l.children.iter().rev().map(|c| &**c));
         }
-        self.roots.iter().find_map(|r| walk(r, id))
+        None
+    }
+}
+
+impl Drop for Layer {
+    /// Drops the layers under this one that nothing else shares one at a time, not each
+    /// inside its parent's drop: a tree any number of layers deep is dropped on any thread's
+    /// stack.
+    fn drop(&mut self) {
+        let mut orphans = std::mem::take(&mut self.children);
+        while let Some(child) = orphans.pop() {
+            // A layer still shared (by another snapshot) is not dropped here.
+            if let Some(mut layer) = Arc::into_inner(child) {
+                orphans.append(&mut layer.children);
+            }
+        }
     }
 }
