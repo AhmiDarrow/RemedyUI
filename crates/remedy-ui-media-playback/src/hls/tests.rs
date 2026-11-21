@@ -1,0 +1,459 @@
+//! The HLS reader driven whole: playlists and segments from the fixtures served from memory,
+//! and decoders that turn each unit into a sample at its time.
+
+use super::*;
+use crate::host::{Picture, PixelFormat};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+const ROOT: &str = "https://test.example/hls/";
+
+/// What the decoders were set up with.
+type Setup = (Option<VideoConfig>, Option<AudioConfig>);
+
+fn fixture(name: &str) -> Vec<u8> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hls").join(name);
+    std::fs::read(path).unwrap_or_else(|e| unreachable!("{name}: {e}"))
+}
+
+/// Serves the fixtures by URL; a playlist with several versions hands them out in turn (the
+/// last again and again), as a growing playlist does.
+#[derive(Default)]
+struct Mem {
+    files: HashMap<String, Vec<u8>>,
+    versions: HashMap<String, Vec<String>>,
+    asked: Arc<Mutex<Vec<String>>>,
+}
+
+impl Mem {
+    /// Every segment of the fixture `dir`, and `playlist` (or the fixture's own) as its index.
+    fn of(dir: &str, playlist: Option<&str>) -> Self {
+        let mut m = Mem::default();
+        for i in 0..3 {
+            let name = format!("{dir}/seg0000{i}.ts");
+            if let Ok(d) = std::fs::read(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hls").join(&name),
+            ) {
+                m.files.insert(format!("{ROOT}{name}"), d);
+            }
+        }
+        let index = playlist.map_or_else(|| fixture(&format!("{dir}/index.m3u8")), |p| p.as_bytes().to_vec());
+        m.files.insert(format!("{ROOT}{dir}/index.m3u8"), index);
+        m
+    }
+}
+
+impl Fetch for Mem {
+    fn get(&mut self, url: &str) -> Result<Vec<u8>, MediaError> {
+        lock(&self.asked).push(url.to_string());
+        if let Some(v) = self.versions.get_mut(url) {
+            let text = if v.len() > 1 { v.remove(0) } else { v[0].clone() };
+            return Ok(text.into_bytes());
+        }
+        self.files.get(url).cloned().ok_or_else(|| MediaError::NotFound(url.to_string()))
+    }
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Decoders that hand each unit straight back as a sample at its time (a 2x2 picture, or one
+/// frame of silence), remembering the units.
+#[derive(Default)]
+struct Echo {
+    out: VecDeque<Sample>,
+    units: Arc<Mutex<Vec<Unit>>>,
+    configured: Arc<Mutex<Option<Setup>>>,
+}
+
+impl Elementary for Echo {
+    fn configure(
+        &mut self,
+        video: Option<&VideoConfig>,
+        audio: Option<&AudioConfig>,
+    ) -> Result<(), MediaError> {
+        *lock(&self.configured) = Some((video.cloned(), audio.cloned()));
+        Ok(())
+    }
+    fn push(&mut self, unit: Unit) -> Result<(), MediaError> {
+        self.out.push_back(match &unit {
+            Unit::Video { pts, .. } => Sample::Video {
+                at: *pts,
+                duration: None,
+                picture: Picture::packed(2, 2, PixelFormat::Rgba, vec![0u8; 16]),
+            },
+            Unit::Audio { pts, .. } => Sample::Audio { at: *pts, samples: vec![0.0; 2] },
+        });
+        lock(&self.units).push(unit);
+        Ok(())
+    }
+    fn pull(&mut self) -> Result<Option<Sample>, MediaError> {
+        Ok(self.out.pop_front())
+    }
+    fn end(&mut self) -> Result<(), MediaError> {
+        Ok(())
+    }
+    fn flush(&mut self) -> Result<(), MediaError> {
+        self.out.clear();
+        Ok(())
+    }
+}
+
+struct Run {
+    dec: HlsDecoder,
+    units: Arc<Mutex<Vec<Unit>>>,
+    asked: Arc<Mutex<Vec<String>>>,
+}
+
+thread_local! {
+    /// How long this test's clock has waited (each test runs on a thread of its own).
+    static WAITED: std::cell::Cell<Duration> = const { std::cell::Cell::new(Duration::ZERO) };
+}
+
+/// A clock that only moves when waited on: the tests do not wait.
+fn fake_now() -> std::time::Instant {
+    static BASE: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    *BASE.get_or_init(std::time::Instant::now) + WAITED.get()
+}
+
+/// Lets `d` pass on the tests' clock.
+fn pass(d: Duration) {
+    WAITED.set(WAITED.get() + d);
+}
+
+const CLOCK: Clock = Clock { now: fake_now, sleep: pass };
+
+fn start(dir: &str, mem: Mem) -> Result<Run, MediaError> {
+    let es = Echo::default();
+    let units = es.units.clone();
+    let asked = mem.asked.clone();
+    let dec = open_with(&format!("{ROOT}{dir}/index.m3u8"), Box::new(mem), Box::new(es), CLOCK)?;
+    Ok(Run { dec, units, asked })
+}
+
+fn run(dir: &str) -> Run {
+    start(dir, Mem::of(dir, None)).unwrap_or_else(|e| unreachable!("{dir} opens: {e}"))
+}
+
+/// Every sample to the end: (is video, time).
+fn read_all(dec: &mut HlsDecoder) -> Result<Vec<(bool, Duration)>, MediaError> {
+    let mut out = Vec::new();
+    while let Some(s) = dec.read()? {
+        out.push((matches!(s, Sample::Video { .. }), s.at()));
+        assert!(out.len() < 10_000, "the reader ends");
+    }
+    Ok(out)
+}
+
+fn ms(t: u64) -> Duration {
+    Duration::from_millis(t)
+}
+
+/// Video units' times in order, and audio units' times in order, from what was pushed.
+fn times(units: &[Unit]) -> (Vec<(Duration, bool)>, Vec<Duration>) {
+    let mut v = Vec::new();
+    let mut a = Vec::new();
+    for u in units {
+        match u {
+            Unit::Video { dts, keyframe, .. } => v.push((*dts, *keyframe)),
+            Unit::Audio { pts, .. } => a.push(*pts),
+        }
+    }
+    (v, a)
+}
+
+fn ordered(t: &[Duration]) -> bool {
+    t.windows(2).all(|w| w[0] <= w[1])
+}
+
+#[test]
+fn h264_and_aac_play_from_the_start_to_the_end_in_order() {
+    let mut r = run("aac");
+    let info = r.dec.info().clone();
+    assert_eq!(info.duration, Some(ms(3000)));
+    assert!(info.seekable);
+    assert_eq!(info.video.as_ref().map(|v| (v.width, v.height)), Some((176, 100)));
+    assert_eq!(info.audio, Some(AudioFormat::new(48000, 2)));
+    let Ok(samples) = read_all(&mut r.dec) else { unreachable!("plays to the end") };
+    let units = lock(&r.units);
+    let (video, audio) = times(&units);
+    assert_eq!(video.len(), 75, "every picture");
+    assert_eq!(video.iter().filter(|(_, k)| *k).count(), 3, "a key frame a segment");
+    assert!(video[0].1, "starts on a key frame");
+    assert!(ordered(&video.iter().map(|v| v.0).collect::<Vec<_>>()));
+    assert!(ordered(&audio));
+    // The earliest time in the first segment is zero, whatever the stream's clock said (1.46 s).
+    assert_eq!(audio[0], Duration::ZERO);
+    let last = samples.iter().map(|s| s.1).max().unwrap_or_default();
+    assert!(last > ms(2900) && last < ms(3100), "ends near 3 s: {last:?}");
+    // Every key frame carries its parameter sets.
+    for u in units.iter() {
+        if let Unit::Video { keyframe: true, data, .. } = u {
+            assert!(ts::nal_units(data).iter().any(|n| n[0] & 0x1f == 7));
+        }
+    }
+    assert!(r.dec.read().is_ok_and(|s| s.is_none()), "stays at the end");
+}
+
+#[test]
+fn the_decoders_are_set_up_from_the_first_segment() {
+    let es = Echo::default();
+    let configured = es.configured.clone();
+    let url = format!("{ROOT}aac/index.m3u8");
+    let opened = open_with(&url, Box::new(Mem::of("aac", None)), Box::new(es), CLOCK);
+    assert!(opened.is_ok());
+    let Some((Some(v), Some(a))) = lock(&configured).clone() else { unreachable!("both set up") };
+    assert!(v.codec.starts_with("avc1.64"));
+    assert_eq!(v.sps[0] & 0x1f, 7);
+    assert_eq!(v.pps[0] & 0x1f, 8);
+    assert_eq!(a.codec, AudioCodec::Aac { asc: vec![0x11, 0x90] });
+    assert_eq!(a.codec_string, "mp4a.40.2");
+}
+
+#[test]
+fn h264_and_mp3_play() {
+    let mut r = run("mp3");
+    assert_eq!(r.dec.info().audio, Some(AudioFormat::new(44100, 2)));
+    assert!(read_all(&mut r.dec).is_ok());
+    let (video, audio) = times(&lock(&r.units));
+    assert_eq!(video.len(), 50);
+    assert!(ordered(&audio));
+    assert!(audio.last().is_some_and(|t| *t > ms(1900) && *t < ms(2100)));
+}
+
+#[test]
+fn video_without_sound_plays() {
+    let mut r = run("video");
+    assert_eq!(r.dec.info().audio, None);
+    assert!(read_all(&mut r.dec).is_ok());
+    let (video, audio) = times(&lock(&r.units));
+    assert_eq!(video.len(), 75);
+    assert!(audio.is_empty());
+    assert_eq!(video[0].0, Duration::ZERO);
+}
+
+#[test]
+fn a_clock_far_in_that_wraps_mid_stream_plays_from_zero() {
+    let mut r = run("wrap");
+    assert!(read_all(&mut r.dec).is_ok());
+    let (video, audio) = times(&lock(&r.units));
+    assert_eq!(video.len(), 50);
+    assert!(ordered(&audio) && ordered(&video.iter().map(|v| v.0).collect::<Vec<_>>()));
+    assert_eq!(audio[0], Duration::ZERO);
+    assert!(audio.last().is_some_and(|t| *t < ms(2100)), "no jump at the wrap: {:?}", audio.last());
+}
+
+#[test]
+fn a_seek_starts_at_the_segment_holding_the_target() {
+    let mut r = run("aac");
+    // Read a little, then go to 1.5 s.
+    for _ in 0..10 {
+        assert!(r.dec.read().is_ok());
+    }
+    assert!(r.dec.seek(ms(1500)).is_ok());
+    lock(&r.units).clear();
+    let Ok(samples) = read_all(&mut r.dec) else { unreachable!("plays on") };
+    let first_video = samples.iter().find(|s| s.0).map(|s| s.1);
+    assert!(first_video.is_some_and(|t| t >= ms(990) && t <= ms(1100)), "from 1 s: {first_video:?}");
+    let (video, _) = times(&lock(&r.units));
+    assert!(video[0].1, "a key frame first");
+    assert_eq!(video.len(), 50, "the second and third segments");
+    assert_eq!(r.dec.buffered(), Some(vec![ms(1000)..ms(3000)]));
+}
+
+#[test]
+fn a_growing_playlist_is_asked_again_until_it_ends() {
+    let head = "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:EVENT\n";
+    let seg = |i: u32| format!("#EXTINF:1.000000,\nseg0000{i}.ts\n");
+    let v1 = format!("{head}{}", seg(0));
+    let v2 = format!("{head}{}{}", seg(0), seg(1));
+    let v3 = format!("{head}{}{}{}#EXT-X-ENDLIST\n", seg(0), seg(1), seg(2));
+    let mut mem = Mem::of("aac", None);
+    let url = format!("{ROOT}aac/index.m3u8");
+    mem.versions.insert(url.clone(), vec![v1, v2.clone(), v2, v3]);
+    let Ok(mut r) = start("aac", mem) else { unreachable!("opens") };
+    assert_eq!(r.dec.info().duration, Some(ms(1000)));
+    let mut lengths = vec![];
+    while let Ok(Some(_)) = r.dec.read() {
+        lengths.push(r.dec.info().duration);
+    }
+    assert_eq!(lengths.last(), Some(&Some(ms(3000))), "the length grew to the whole");
+    assert!(lengths.contains(&Some(ms(2000))));
+    assert_eq!(times(&lock(&r.units)).0.len(), 75, "every picture");
+    assert_eq!(lock(&r.asked).iter().filter(|u| **u == url).count(), 4);
+}
+
+#[test]
+fn a_missing_segment_is_retried_then_errors() {
+    let mut mem = Mem::of("aac", None);
+    let gone = format!("{ROOT}aac/seg00001.ts");
+    mem.files.remove(&gone);
+    let Ok(mut r) = start("aac", mem) else { unreachable!("opens") };
+    let result = read_all(&mut r.dec);
+    assert!(matches!(result, Err(MediaError::NotFound(_))), "{result:?}");
+    assert_eq!(lock(&r.asked).iter().filter(|u| **u == gone).count(), 1 + RETRIES as usize);
+}
+
+#[test]
+fn what_is_held_grows_as_segments_arrive() {
+    let mut r = run("aac");
+    let first = r.dec.buffered();
+    assert_eq!(first, Some(vec![ms(0)..ms(1000)]));
+    // Segments come ahead on the fetching thread, so a step may be passed between reads.
+    let mut seen = vec![first.unwrap_or_default()];
+    while let Ok(Some(_)) = r.dec.read() {
+        if let Some(b) = r.dec.buffered()
+            && seen.last() != Some(&b)
+        {
+            seen.push(b);
+        }
+    }
+    assert_eq!(seen.last(), Some(&vec![ms(0)..ms(3000)]));
+    assert!(seen.len() >= 3, "grew segment by segment: {seen:?}");
+}
+
+#[test]
+fn a_discontinuity_starts_the_clock_again() {
+    // The first segment of `aac` (clock from 1.46 s), then the first of `wrap` (clock near
+    // the 33-bit wrap): the second plays on from 1 s.
+    let text = "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\n../aac/seg00000.ts\n\
+                #EXT-X-DISCONTINUITY\n#EXTINF:1,\n../wrap/seg00000.ts\n#EXT-X-ENDLIST\n";
+    let mut mem = Mem::of("aac", Some(text));
+    mem.files.insert(format!("{ROOT}wrap/seg00000.ts"), fixture("wrap/seg00000.ts"));
+    let Ok(mut r) = start("aac", mem) else { unreachable!("opens") };
+    assert!(read_all(&mut r.dec).is_ok());
+    let (video, audio) = times(&lock(&r.units));
+    assert_eq!(video.len(), 50);
+    assert!(ordered(&audio));
+    assert!(audio.iter().any(|t| *t == ms(1000)), "the second starts at 1 s");
+    assert!(audio.last().is_some_and(|t| *t < ms(2100)));
+}
+
+#[test]
+fn a_master_playlist_leads_to_its_variant() {
+    let mut hls = Hls::new("https://test.example/master.m3u8");
+    let Some(w) = hls.wanted() else { unreachable!("the playlist is wanted") };
+    let master =
+        "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=500000,CODECS=\"avc1.64000d,mp4a.40.2\"\nv/index.m3u8\n";
+    assert!(hls.deliver(&w, Ok(master.as_bytes().to_vec())).is_ok());
+    let w = hls.wanted();
+    assert_eq!(
+        w.as_ref().map(|w| (w.url.as_str(), w.kind)),
+        Some(("https://test.example/v/index.m3u8", WantKind::Playlist))
+    );
+    let Some(w) = w else { unreachable!() };
+    assert!(hls.deliver(&w, Ok(fixture("aac/index.m3u8"))).is_ok());
+    let w = hls.wanted();
+    assert_eq!(
+        w.map(|w| (w.url, w.kind)),
+        Some(("https://test.example/v/seg00000.ts".into(), WantKind::Segment(0)))
+    );
+}
+
+#[test]
+fn only_a_few_segments_are_fetched_ahead() {
+    let text = format!(
+        "#EXTM3U\n#EXT-X-TARGETDURATION:1\n{}#EXT-X-ENDLIST\n",
+        (0..10).map(|_| "#EXTINF:1,\nseg00000.ts\n").collect::<String>()
+    );
+    let mut hls = Hls::new(&format!("{ROOT}aac/index.m3u8"));
+    let seg = fixture("aac/seg00000.ts");
+    let mut fetched = 0;
+    while let Some(w) = hls.wanted() {
+        let data = if w.kind == WantKind::Playlist { text.as_bytes().to_vec() } else { seg.clone() };
+        fetched += usize::from(w.kind != WantKind::Playlist);
+        assert!(hls.deliver(&w, Ok(data)).is_ok());
+    }
+    assert_eq!(fetched, AHEAD + 1, "the one being read and those ahead");
+    assert!(!hls.ended());
+}
+
+/// An event playlist of the `aac` fixture's segments that lists one more each version, the
+/// last with its end; its URL.
+fn growing(mem: &mut Mem) -> String {
+    let head = "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:EVENT\n";
+    let seg = |i: u32| format!("#EXTINF:1.000000,\nseg0000{i}.ts\n");
+    let v1 = format!("{head}{}", seg(0));
+    let v2 = format!("{head}{}{}", seg(0), seg(1));
+    let v3 = format!("{head}{}{}{}#EXT-X-ENDLIST\n", seg(0), seg(1), seg(2));
+    let url = format!("{ROOT}aac/index.m3u8");
+    mem.versions.insert(url.clone(), vec![v1, v2, v3]);
+    url
+}
+
+#[test]
+fn a_growing_playlist_is_asked_again_while_nothing_is_read() {
+    let mut mem = Mem::of("aac", None);
+    let url = growing(&mut mem);
+    let Ok(mut r) = start("aac", mem) else { unreachable!("opens") };
+    let length = |r: &mut Run| {
+        r.dec.buffered();
+        assert!(r.dec.settle().is_ok());
+        (r.dec.info().duration, r.dec.info().growing)
+    };
+    assert_eq!(length(&mut r), (Some(ms(1000)), true), "not due yet: not asked again");
+    // Asked again every target duration (half of one near the end), nothing read meanwhile.
+    pass(ms(1000));
+    assert_eq!(length(&mut r), (Some(ms(2000)), true));
+    pass(ms(1000));
+    assert_eq!(length(&mut r), (Some(ms(3000)), false), "ended: the length is final");
+    pass(ms(5000));
+    length(&mut r);
+    assert_eq!(lock(&r.asked).iter().filter(|u| **u == url).count(), 3, "not asked once ended");
+}
+
+#[test]
+fn a_seek_past_the_end_so_far_waits_for_the_playlist_to_reach_it() {
+    let mut mem = Mem::of("aac", None);
+    growing(&mut mem);
+    let Ok(mut r) = start("aac", mem) else { unreachable!("opens") };
+    assert!(r.dec.seek(ms(2500)).is_ok());
+    // Waiting for the playlist does not block: one slice, then the caller asks again.
+    let polled = r.dec.poll_read(&mut Context::from_waker(std::task::Waker::noop()));
+    assert!(polled.is_pending());
+    lock(&r.units).clear();
+    let Ok(samples) = read_all(&mut r.dec) else { unreachable!("plays on") };
+    let first_video = samples.iter().find(|s| s.0).map(|s| s.1);
+    assert!(first_video.is_some_and(|t| t >= ms(1990) && t <= ms(2100)), "from 2 s: {first_video:?}");
+    assert_eq!(times(&lock(&r.units)).0.len(), 25, "only the third segment");
+}
+
+#[test]
+fn a_seek_past_the_end_of_an_ended_playlist_starts_at_the_last_segment() {
+    let mut r = run("aac");
+    assert!(!r.dec.info().growing);
+    assert!(r.dec.seek(ms(60_000)).is_ok());
+    lock(&r.units).clear();
+    assert!(read_all(&mut r.dec).is_ok());
+    let (video, _) = times(&lock(&r.units));
+    assert_eq!(video.len(), 25);
+    // Decoding times run a little before the segment's start (pictures reordered).
+    assert!(video[0].0 >= ms(1900) && video[0].1, "the third segment's key frame: {:?}", video[0]);
+}
+
+#[test]
+fn a_growing_playlist_is_asked_again_far_from_its_end() {
+    let text = format!(
+        "#EXTM3U\n#EXT-X-TARGETDURATION:4\n{}",
+        (0..10).map(|_| "#EXTINF:4,\nseg00000.ts\n").collect::<String>()
+    );
+    let mut hls = Hls::new(&format!("{ROOT}aac/index.m3u8"));
+    let seg = fixture("aac/seg00000.ts");
+    while let Some(w) = hls.wanted().filter(|w| w.kind != WantKind::Playlist || !hls.loaded) {
+        let data = if w.kind == WantKind::Playlist { text.as_bytes().to_vec() } else { seg.clone() };
+        assert!(hls.deliver(&w, Ok(data)).is_ok());
+    }
+    // The segments ahead are fetched; the playlist is still asked for, a target duration on.
+    let w = hls.wanted();
+    assert_eq!(w.map(|w| (w.kind, w.after)), Some((WantKind::Playlist, Duration::from_secs(4))));
+}
+
+#[test]
+fn hls_is_told_by_the_path() {
+    assert!(is_hls(&MediaSource::url("https://h/live/index.m3u8")));
+    assert!(is_hls(&MediaSource::url("https://h/live/INDEX.M3U8?token=a.mp4#t=3")));
+    assert!(!is_hls(&MediaSource::url("https://h/video.mp4?list=a.m3u8")));
+    assert!(is_hls(&MediaSource::file("C:/media/index.m3u8")));
+    assert!(!is_hls(&MediaSource::file("clip.mp4")));
+}

@@ -5,13 +5,27 @@
 //!   position, length, volume, captions and errors are signals.
 //! - [`player()`]: the widget: the picture with captions over it and a transport bar (play
 //!   and pause, time, a keyboard-operable seek bar, mute and volume, captions, a full-screen
-//!   request).
+//!   request, and a theater-mode request for apps that lay one out). Captions can be shifted
+//!   earlier or later ([`Player::set_caption_delay`]) when a subtitle file is out of step.
+//! - Casting: [`Player::on_cast`] shows a Cast button whose press hands the app the button to
+//!   anchor its own menu of devices to; [`Player::set_remote`] puts the player in remote mode,
+//!   where the local media pauses in place, a casting stage replaces the picture, and every
+//!   control and key acts on the app's [`RemoteControl`] while the bar shows the
+//!   [`RemoteStatus`] the app feeds in, moved on between reports while the device plays.
+//! - A [`Timeline`] ([`Player::set_timeline`]) puts a stream that holds part of a longer work
+//!   (a film a media server converts from a resume or skip point) on the work's time: every
+//!   position shown or taken is the work's, the seek bar spans its length, and a seek outside
+//!   what the stream holds goes to the app ([`Player::on_seek_outside`]) while the player
+//!   shows it is skipping, until the app hands over a new stream
+//!   ([`Player::replace_source`]).
 //! - [`MediaHost`]: where decoding and sound come from. [`platform_host`] gives the
 //!   platform's: Media Foundation and WASAPI on Windows; the system's GStreamer on Linux,
 //!   loaded at run time and never bundled; AVFoundation and Audio Queues on macOS;
 //!   MediaCodec and AAudio on Android; in a browser page, the browser's WebCodecs decoders (MP4
 //!   with H.264 and AAC, taken apart here) and WebAudio. An app with its own decoder
-//!   implements the trait.
+//!   implements the trait. HLS (`.m3u8` of MPEG-TS with H.264 and AAC or MP3) is taken apart
+//!   by the crate's own reader and decoded by Media Foundation on Windows and GStreamer on
+//!   Linux; macOS and Android refuse it as unsupported for now.
 //! - [`Microphone`]: the default sound input, captured on a worker of its own and handed to
 //!   the app as it arrives (a tuner's pitch detection, a singing coach's pitch graph, a
 //!   level meter), with its state and level as signals. WASAPI on Windows, the system's
@@ -45,6 +59,14 @@ mod capture;
 pub mod deps;
 mod engine;
 mod host;
+// HLS (`.m3u8` of MPEG-TS) taken apart here; the platform decodes the compressed streams.
+// shortcut: macOS and Android only refuse playlists (no `Elementary` there yet); a page reads
+// HLS through it once its host does.
+#[cfg_attr(
+    not(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))),
+    allow(dead_code)
+)]
+mod hls;
 // Matroska and WebM text subtitles, read from local files on every platform (the
 // platforms' readers do not hand them out).
 mod mkv;
@@ -70,7 +92,10 @@ pub use host::{
     VideoCodec, VideoEncoderOptions, VideoInfo, VideoStreamDecoder, VideoStreamEncoder, YuvMatrix,
     merge_ranges,
 };
-pub use player::{NEXT_UP_DELAY, NextUp, Player, PlayerOptions, UnseenPolicy};
+pub use player::{
+    KeyScheme, NEXT_UP_DELAY, NextUp, Player, PlayerOptions, Remote, RemoteControl, RemoteStatus,
+    RemoteStatusSender, Timeline, UnseenPolicy,
+};
 pub use stretch::{MAX_SPEED, MIN_SPEED, SPEEDS, clamp_speed};
 pub use subtitles::{Cue, SubtitleFormat, SubtitleTrack, parse_subtitles};
 pub use widget::{format_time, player};

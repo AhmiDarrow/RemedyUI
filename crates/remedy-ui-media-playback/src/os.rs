@@ -14,6 +14,8 @@ mod gst_dmabuf;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod gstreamer;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod gstreamer_hls;
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod gstreamer_stream;
 #[cfg(target_os = "macos")]
 mod macos;
