@@ -24,13 +24,16 @@ pub(crate) mod dxgi;
 
 /// Linux and Android (and Windows tests): a swapchain of RemedyUI's own on wgpu's Vulkan
 /// device, presenting only what changed.
-#[cfg(any(all(unix, not(any(target_os = "macos", target_os = "ios"))), feature = "windows-vulkan"))]
+#[cfg(any(
+    all(unix, not(any(target_os = "macos", target_os = "ios"))),
+    all(windows, feature = "windows-vulkan")
+))]
 pub(crate) mod vulkan;
 
 /// The last thing done to a swapchain image being drawn, which the return to the present
 /// state starts from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(not(any(windows, unix)), allow(dead_code))]
+#[cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))]
 pub(crate) enum LastUse {
     /// Nothing: it is as the swapchain handed it out.
     Untouched,
