@@ -70,6 +70,7 @@ pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_st
 
 mod awake;
 mod capture;
+mod cue_layout;
 pub mod deps;
 mod engine;
 mod host;
