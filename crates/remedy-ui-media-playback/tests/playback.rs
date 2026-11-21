@@ -1022,3 +1022,30 @@ fn speed_carries_over_to_what_plays_next() {
     assert_eq!(p.speed(), 2.0);
     assert!(took < 1.6, "two seconds at 2x took {took} s");
 }
+
+#[test]
+fn at_another_speed_the_end_of_the_sound_is_played_too() {
+    for speed in [2.0, 0.5] {
+        let heard = Arc::new(AtomicU64::new(0));
+        let host = Arc::new(Scripted {
+            heard: heard.clone(),
+            buffer: Duration::from_millis(500),
+            device: true,
+            seconds: 2,
+        });
+        let mut s = Screen::new();
+        let p = Player::open(&s.ui, host, MediaSource::url("script:"), PlayerOptions::default());
+        s.ui.root().child(player(&s.ui, &p, "Scripted"));
+        s.wait("opened", |_| p.state() == PlaybackState::Paused);
+        p.set_speed(speed);
+        p.play();
+        // The device plays all it is given.
+        heard.store(u64::MAX / 2, Ordering::SeqCst);
+        s.wait("ended", |_| p.state() == PlaybackState::Ended);
+        // Two seconds of media at 1000 frames a second, stretched: all of it, to within one
+        // block (20 frames at this rate).
+        let want = (2000.0 / speed) as u64;
+        let got = p.stats().audio_frames;
+        assert!(got + 20 >= want && got <= want + 20, "{speed}x: {got} of {want} frames reached the device");
+    }
+}

@@ -43,6 +43,9 @@ pub(crate) struct Stretcher {
     tail_at: u64,
     /// The cross-fade's weights for the incoming block, `hop` of them.
     fade: Vec<f32>,
+    /// Where the sound ends, in input frames since the last reset, once no more follows
+    /// ([`finish`](Self::finish)): silence is held after it so the last blocks can form.
+    end: Option<u64>,
 }
 
 impl Stretcher {
@@ -69,6 +72,7 @@ impl Stretcher {
             tail: Vec::new(),
             tail_at: 0,
             fade,
+            end: None,
         }
     }
 
@@ -79,6 +83,24 @@ impl Stretcher {
         self.ideal = 0.0;
         self.tail.clear();
         self.tail_at = 0;
+        self.end = None;
+    }
+
+    /// No more input follows: what is held is played to its end. Silence is added after it
+    /// so the last blocks can form, and [`step`](Self::step) stops once the output has
+    /// reached the end of the real sound.
+    pub(crate) fn finish(&mut self) {
+        if self.end.is_some() {
+            return;
+        }
+        self.end = Some(self.input_end());
+        let pad = (self.tolerance + 2 * self.hop + 1) * self.channels;
+        self.input.extend(std::iter::repeat_n(0.0, pad));
+    }
+
+    /// True once [`finish`](Self::finish)ed and played to the end of the sound.
+    pub(crate) fn done(&self) -> bool {
+        self.end.is_some_and(|e| self.ideal >= e as f64)
     }
 
     /// Frames of output each block adds.
@@ -116,6 +138,9 @@ impl Stretcher {
     /// input is needed first.
     pub(crate) fn step(&mut self, speed: f64, out: &mut Vec<f32>) -> Option<()> {
         let speed = clamp_speed(speed);
+        if self.done() {
+            return None;
+        }
         let (hop, ch) = (self.hop, self.channels);
         let ideal = self.ideal.round().max(0.0) as u64;
         // Matched against the tail: the block may start anywhere in ideal ± tolerance, and
@@ -274,6 +299,31 @@ mod tests {
         assert!((ratio - 2.0).abs() < 1e-9, "{ratio}");
         s.reset();
         assert_eq!((s.held(), s.position()), (0, 0.0));
+    }
+
+    #[test]
+    fn the_end_of_the_sound_is_played_too() {
+        let input = sine(&[440.0], 1.0);
+        for speed in [0.5, 1.5, 2.0] {
+            let mut s = Stretcher::new(1, RATE);
+            let mut out = Vec::new();
+            s.push(&input);
+            while s.step(speed, &mut out).is_some() {}
+            let before = out.len();
+            s.finish();
+            while s.step(speed, &mut out).is_some() {}
+            assert!(s.done());
+            let want = input.len() as f64 / speed;
+            let got = out.len() as f64;
+            // All of it, to within the last block.
+            assert!(
+                got >= want - 1.0 && got < want + s.hop() as f64,
+                "{speed}: {got} of {want} ({before} before)"
+            );
+            // Finishing again, or stepping on, adds nothing.
+            s.finish();
+            assert!(s.step(speed, &mut out).is_none());
+        }
     }
 
     #[test]
