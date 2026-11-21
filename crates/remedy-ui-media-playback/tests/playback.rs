@@ -2727,3 +2727,162 @@ fn unmuting_at_volume_zero_sets_half() {
     assert!(letter(&s.ui, "m", false) && p.is_muted());
     assert!(letter(&s.ui, "m", false) && !p.is_muted() && p.volume() == 0.5);
 }
+
+/// Scripted clips by name, as [`Clips`], whose decoder counts every call made of it (each a
+/// fetch, for a stream) and says what it holds, so it is asked again and again.
+struct Counting(Arc<AtomicU64>);
+
+struct CountingDecoder {
+    inner: Box<dyn Decoder>,
+    calls: Arc<AtomicU64>,
+}
+
+impl Decoder for CountingDecoder {
+    fn info(&self) -> &MediaInfo {
+        self.inner.info()
+    }
+    fn read(&mut self) -> Result<Option<Sample>, MediaError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.inner.read()
+    }
+    fn seek(&mut self, to: Duration) -> Result<(), MediaError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.inner.seek(to)
+    }
+    fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Some(vec![Duration::ZERO..Duration::from_secs(20)])
+    }
+}
+
+impl MediaHost for Counting {
+    fn name(&self) -> &str {
+        "counting"
+    }
+    fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
+        Ok(Box::new(CountingDecoder { inner: Clips.open(source)?, calls: self.0.clone() }))
+    }
+    fn audio_output(&self, f: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
+        Clips.audio_output(f)
+    }
+}
+
+/// [`film`] on a host that counts the calls made of its decoders.
+fn counted_film(s: &mut Screen) -> (Player, El, Arc<Mutex<Vec<u64>>>, Arc<AtomicU64>) {
+    let calls = Arc::new(AtomicU64::new(0));
+    let options = PlayerOptions::default().timeline(Timeline::new(ORIGIN).length(FILM));
+    let p = Player::open(&s.ui, Arc::new(Counting(calls.clone())), MediaSource::url("script:20"), options);
+    let view = player(&s.ui, &p, "Endgame");
+    s.ui.root().child(view.clone());
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let a = asked.clone();
+    p.on_seek_outside(move |to| a.lock().unwrap_or_else(|e| e.into_inner()).push(to.as_secs()));
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    (p, view, asked, calls)
+}
+
+/// Whether nothing asks the decoder anything for over twice its polling interval.
+fn left_alone(s: &mut Screen, calls: &AtomicU64) -> bool {
+    s.idle(60);
+    let before = calls.load(Ordering::SeqCst);
+    s.idle(700);
+    calls.load(Ordering::SeqCst) == before
+}
+
+#[test]
+fn a_hold_for_a_new_source_stops_fetching_queues_presses_and_keeps_the_settings() {
+    let mut s = Screen::new();
+    let (p, view, asked, calls) = counted_film(&mut s);
+    let cue =
+        Cue { start: Duration::from_secs(430), end: Duration::from_secs(434), text: "On your left".into() };
+    let i = p.add_subtitles(SubtitleTrack { label: "English".into(), language: None, cues: vec![cue] });
+    p.set_caption_track(Some(i));
+    p.set_caption_delay(250);
+    p.set_volume(0.4);
+    p.set_speed(1.5);
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    // A quality switch: the app's server replaces the stream from 410 s.
+    p.hold_for_source(Duration::from_secs(410));
+    assert_eq!(p.skipping(), Some(Duration::from_secs(410)));
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    assert_eq!(alert(&view).as_deref(), Some("Preparing the video."));
+    assert!(seek_disabled(&view));
+    assert!(left_alone(&mut s, &calls), "the old stream is not fetched meanwhile");
+    // Presses of ±10 add up; seeks wait; the app is asked nothing.
+    p.seek_by(10.0);
+    p.seek_by(10.0);
+    p.seek(Duration::from_secs(5000));
+    assert!(asked.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
+    // The new stream comes: the presses run from 410 s, past what it holds yet, so the app is
+    // asked for 430 s, as after a skip.
+    p.replace_source(MediaSource::url("script:20"), Timeline::new(Duration::from_secs(410)).length(FILM));
+    assert_eq!(*asked.lock().unwrap_or_else(|e| e.into_inner()), [430]);
+    s.pump();
+    assert_eq!(alert(&view).as_deref(), Some("Skipping to 7:10"));
+    p.replace_source(MediaSource::url("script:20"), Timeline::new(Duration::from_secs(430)).length(FILM));
+    s.wait("plays the new stream", |_| p.state() == PlaybackState::Playing);
+    assert_eq!((p.volume(), p.speed()), (0.4, 1.5));
+    assert_eq!((p.subtitle_tracks().len(), p.caption_track(), p.caption_delay()), (1, Some(0), 250));
+    assert_eq!(alert(&view), None);
+    assert!(!seek_disabled(&view));
+}
+
+#[test]
+fn a_hold_canceled_plays_the_old_stream_on_from_where_it_was() {
+    let mut s = Screen::new();
+    let (p, view, _asked, calls) = counted_film(&mut s);
+    p.play();
+    s.wait("a second in", |_| p.position() >= ORIGIN + Duration::from_secs(1));
+    p.hold_for_source(p.position());
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    let at = p.position();
+    assert!(left_alone(&mut s, &calls));
+    assert_eq!(p.position(), at, "it stays where it was");
+    p.cancel_skip();
+    assert_eq!(p.skipping(), None);
+    s.wait("playing on", |_| p.state() == PlaybackState::Playing && p.position() > at);
+    assert!(p.position() < at + Duration::from_secs(2), "on from where it was, not restarted");
+    assert!(!left_alone(&mut s, &calls), "fetching again");
+    assert_eq!(alert(&view), None);
+}
+
+#[test]
+fn casting_stops_fetching_here_until_it_ends() {
+    let mut s = Screen::new();
+    let (p, _view, _asked, calls) = counted_film(&mut s);
+    assert!(!left_alone(&mut s, &calls), "a stream is asked what it holds while paused");
+    p.set_remote(Some(Remote::new("The Ris", Tv(Arc::new(Mutex::new(Vec::new()))))));
+    assert!(left_alone(&mut s, &calls), "nothing fetched here while the TV plays");
+    p.set_remote(None);
+    assert!(!left_alone(&mut s, &calls));
+    p.play();
+    s.wait("plays here again", |_| p.state() == PlaybackState::Playing);
+}
+
+#[test]
+fn an_empty_player_picks_up_a_cast_and_is_given_its_stream_after() {
+    let mut s = Screen::new();
+    let options = PlayerOptions::default().timeline(Timeline::new(ORIGIN).length(FILM));
+    let p = Player::empty(&s.ui, Arc::new(Clips), options);
+    let view = player(&s.ui, &p, "Endgame");
+    s.ui.root().child(view.clone());
+    s.idle(30);
+    assert_eq!((p.state(), p.error()), (PlaybackState::Opening, None));
+    // A cast already running when the page opened.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Playing, Duration::from_secs(2000)).length(FILM));
+    assert_eq!((p.state(), p.position()), (PlaybackState::Playing, Duration::from_secs(2000)));
+    p.pause();
+    assert_eq!(*log.lock().unwrap_or_else(|e| e.into_inner()), ["pause"]);
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Paused, Duration::from_secs(2010)).length(FILM));
+    // Back here: the app makes a stream from where the TV was.
+    let there = p.position();
+    p.set_remote(None);
+    p.replace_source(MediaSource::url("script:20"), Timeline::new(there).length(FILM));
+    s.wait("plays here", |_| p.state() == PlaybackState::Playing);
+    assert!(p.position() >= Duration::from_secs(2010));
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+}

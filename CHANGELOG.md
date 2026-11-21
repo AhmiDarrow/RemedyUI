@@ -20,6 +20,17 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   unknown until it reports one, and the slider and volume keys wait; volume sends to a TV
   wait until it rests 300 ms.
 
+- **A hold for a new source** (`Player::hold_for_source(at)`), for a quality or sound
+  track switch where the app's server replaces the stream, as on Portal's page: skipping
+  without a seek (paused, the bar disabled, ±10 presses adding up from `at`), "Preparing the
+  video." over the picture, ended by `replace_source` or `cancel_skip` (which plays the old
+  stream on from where it was). Skipping, holding and remote mode now leave the old engine's
+  decoder alone, so a stream is not fetched meanwhile (an HLS playlist the server rewrites no
+  longer fails the player); it fetches again when they end. **An empty player**
+  (`Player::empty`, `Player::empty_platform`) has no source: put it in remote mode at once
+  (a cast already running when the page opens) or give it one later with `replace_source` or
+  `start_next`.
+
 - **A next made later** (`NextUp::later(title)`), for an app whose server makes the next
   episode's stream only when it is due, as Portal's does. At the end (after the countdown, at
   once with a zero `next_up_delay`), on Play now, Shift+N (N) or `play_next`, the player asks

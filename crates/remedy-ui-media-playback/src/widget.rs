@@ -235,8 +235,14 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         let text = match (p.state(), p.skipping()) {
             (PlaybackState::Failed, _) if !p.is_remote() => Some(failure(&mu.locale(), p.error())),
             (_, Some(at)) if !p.is_remote() => {
-                let head =
-                    crate::STRINGS.format(&mu, "playback-skipping", &[("position", format_time(at).into())]);
+                let head = match p.holding() {
+                    true => tr(&mu, "playback-preparing"),
+                    false => crate::STRINGS.format(
+                        &mu,
+                        "playback-skipping",
+                        &[("position", format_time(at).into())],
+                    ),
+                };
                 Some(match p.canceling() {
                     true => format!("{head}\n{}", tr(&mu, "playback-canceling")),
                     false => head,
