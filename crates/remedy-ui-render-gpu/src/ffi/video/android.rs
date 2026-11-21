@@ -93,20 +93,18 @@ pub(crate) struct Shared {
 
 impl Shared {
     /// Pictures here are not opened as wgpu textures ([`Shared::convert`] draws them).
-    pub(crate) fn open(&mut self, device: &wgpu::Device, picture: &GpuFrame) -> Option<wgpu::Texture> {
+    pub(crate) fn open(
+        &mut self,
+        device: &wgpu::Device,
+        picture: &GpuFrame,
+    ) -> Option<Vec<wgpu::TextureView>> {
         let _ = (device, picture);
         None
     }
 
-    /// Submits `commands` (never used with a texture of [`Shared::open`], which gives none).
-    pub(crate) fn submit(
-        &mut self,
-        queue: &wgpu::Queue,
-        commands: wgpu::CommandBuffer,
-        picture: &GpuFrame,
-        texture: wgpu::Texture,
-    ) {
-        let _ = (picture, texture);
+    /// Submits `commands` (never after [`Shared::open`], which opens nothing).
+    pub(crate) fn submit(&mut self, queue: &wgpu::Queue, commands: wgpu::CommandBuffer, picture: &GpuFrame) {
+        let _ = picture;
         queue.submit([commands]);
     }
 

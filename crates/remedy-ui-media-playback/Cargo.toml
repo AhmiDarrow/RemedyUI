@@ -76,8 +76,9 @@ objc2-core-media = { version = "=0.3.2", default-features = false, features = ["
 objc2-core-video = { version = "=0.3.2", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSError", "NSString", "NSURL", "NSValue"] }
 
-[target.'cfg(any(windows, target_os = "android"))'.dev-dependencies]
-# tests/gpu_frames.rs: pictures on the GPU drawn by the GPU renderer.
+[target.'cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))'.dev-dependencies]
+# Pictures on the GPU drawn by the GPU renderer: tests/gpu_frames.rs (Windows, Android) and
+# the DMA-BUF tests in src/os/gst_dmabuf.rs (Linux).
 remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "1.0.0-rc.1" }
 
 [dev-dependencies]

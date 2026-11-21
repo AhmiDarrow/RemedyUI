@@ -319,18 +319,9 @@ impl GpuVideos {
             }
             // A picture on the GPU is sampled where it is when this device can open it.
             let opened = frame.gpu.as_ref().and_then(|g| s.shared.open(device, g));
-            let views: Vec<wgpu::TextureView> = match &opened {
-                Some(t) => [wgpu::TextureAspect::Plane0, wgpu::TextureAspect::Plane1]
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, aspect)| {
-                        t.create_view(&wgpu::TextureViewDescriptor {
-                            format: Some(plane_format(PixelFormat::Nv12, i)),
-                            aspect,
-                            ..Default::default()
-                        })
-                    })
-                    .collect(),
+            let in_place = opened.is_some();
+            let views: Vec<wgpu::TextureView> = match opened {
+                Some(views) => views,
                 None => {
                     // Otherwise its bytes are uploaded, read back first when it is on the GPU.
                     let cpu = frame.in_cpu_memory()?;
@@ -408,8 +399,8 @@ impl GpuVideos {
             }
             // Submitted now: the queue runs it before the frame that samples the result. A
             // shared picture's submission also waits for the decoder and hands it back after.
-            match (&frame.gpu, opened) {
-                (Some(g), Some(t)) => s.shared.submit(queue, enc.finish(), g, t),
+            match &frame.gpu {
+                Some(g) if in_place => s.shared.submit(queue, enc.finish(), g),
                 _ => {
                     queue.submit([enc.finish()]);
                 }

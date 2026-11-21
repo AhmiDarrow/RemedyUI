@@ -115,6 +115,25 @@ pub enum GpuTexture {
         /// The texture's height.
         height: u32,
     },
+    /// Linux: a picture in DMA-BUFs, one per plane or shared, imported on a Vulkan device with
+    /// `VK_EXT_external_memory_dma_buf` (and `VK_EXT_image_drm_format_modifier` for layouts
+    /// other than linear). Each plane is imported as an image of its own: NV12 as an R8 luma
+    /// image and an RG8 chroma image. Writes still in flight are waited for through the
+    /// buffer's implicit fences.
+    DmaBuf {
+        /// The planes in order (Y, then UV); only the first `plane_count` are used.
+        planes: [DmaBufPlane; 4],
+        /// How many planes the picture has.
+        plane_count: u32,
+        /// The DRM fourcc of the whole picture (`NV12` is `0x3231_564e`).
+        drm_fourcc: u32,
+        /// The DRM format modifier of every plane (`0` is linear).
+        modifier: u64,
+        /// The picture's width (each plane is its share of it).
+        width: u32,
+        /// The picture's height.
+        height: u32,
+    },
     /// A browser page: a WebCodecs `VideoFrame`, which the page's GPU device imports where it
     /// is (`GPUDevice.importExternalTexture` on WebGPU, `texImage2D` from the frame on
     /// WebGL2). The picture holds the frame open and closes it when it is dropped.
@@ -146,6 +165,24 @@ pub enum GpuTexture {
     },
 }
 
+/// Where one plane of a [`GpuTexture::DmaBuf`] picture is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct DmaBufPlane {
+    /// The DMA-BUF's file descriptor, open while the picture lives. The renderer duplicates
+    /// it to import it and never closes this one.
+    pub fd: i32,
+    /// Where the plane starts in the buffer, in bytes.
+    pub offset: u64,
+    /// Bytes from one row to the next.
+    pub stride: u32,
+}
+
+/// `NV12` as a DRM fourcc.
+pub const DRM_FORMAT_NV12: u32 = u32::from_le_bytes(*b"NV12");
+
+/// The linear DRM format modifier: rows one after another.
+pub const DRM_FORMAT_MOD_LINEAR: u64 = 0;
+
 /// A frame's [`GpuPicture`], cheap to clone; equal when it is the same picture.
 #[derive(Clone)]
 pub struct GpuFrame(pub Arc<dyn GpuPicture>);
@@ -171,6 +208,10 @@ impl std::fmt::Debug for GpuFrame {
 pub enum GpuAdapter {
     /// A DXGI adapter's LUID (Windows), low part in the low 32 bits.
     Luid(u64),
+    /// A Vulkan device's `VkPhysicalDeviceIDProperties::deviceUUID` (Linux): it imports
+    /// [`GpuTexture::DmaBuf`] pictures whose layout is one of
+    /// [`gpu_video_dma_buf_modifiers`].
+    Uuid([u8; 16]),
     /// A browser page's GPU (WebGPU or WebGL2): a page's `VideoFrame`s import into any of its
     /// devices, so there is nothing to tell them apart by.
     Browser,
@@ -179,6 +220,19 @@ pub enum GpuAdapter {
 }
 
 static GPU_VIDEO: Mutex<Option<GpuAdapter>> = Mutex::new(None);
+static DMA_BUF_MODIFIERS: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+
+/// Says which DRM format modifiers the renderer that announced a [`GpuAdapter::Uuid`] imports
+/// NV12 pictures in (each plane on its own). Decoders ask for DMA-BUFs only in these, and
+/// take pictures in CPU memory otherwise.
+pub fn set_gpu_video_dma_buf_modifiers(modifiers: Vec<u64>) {
+    *DMA_BUF_MODIFIERS.lock().unwrap_or_else(PoisonError::into_inner) = modifiers;
+}
+
+/// The DRM format modifiers [`set_gpu_video_dma_buf_modifiers`] gave; empty when none.
+pub fn gpu_video_dma_buf_modifiers() -> Vec<u64> {
+    DMA_BUF_MODIFIERS.lock().unwrap_or_else(PoisonError::into_inner).clone()
+}
 
 /// Says a renderer on `adapter` takes [`GpuPicture`]s, or (`None`) that none does. GPU
 /// renderers call it when their device can open shared pictures; decoders ask
