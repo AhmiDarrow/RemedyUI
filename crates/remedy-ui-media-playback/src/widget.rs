@@ -9,10 +9,11 @@ use remedy_ui_layout::{AUTO, Align, Justify, Length, Position};
 use remedy_ui_media_video::{VideoFit, video_surface};
 use remedy_ui_paint::Brush;
 use remedy_ui_reactive::Signal;
+use remedy_ui_view::motion::{Easing, Motion, Target};
 use remedy_ui_view::{El, Ui};
-use remedy_ui_widgets_core::{self as w, Icon};
+use remedy_ui_widgets_core::{self as w, Icon, MenuItem};
 
-use crate::{KeyScheme, MediaError, PlaybackState, Player};
+use crate::{CaptionPick, KeyScheme, MediaError, PlaybackState, Player};
 
 /// Message `id` in the window's locale (tracked: read in a property closure, it follows the
 /// locale).
@@ -84,17 +85,6 @@ fn toggle_theater(p: &Player) {
             return;
         }
         p.request_theater(!p.is_theater());
-    }
-}
-
-/// The captions button or C: the toggle flips, an app's menu opens, or the tracks step.
-fn press_captions(p: &Player, button: &El) {
-    if p.options().captions_toggle {
-        p.toggle_captions();
-    } else if p.captions_offered() {
-        p.request_captions(button);
-    } else {
-        cycle_captions(p);
     }
 }
 
@@ -210,8 +200,11 @@ fn toggle_mute(p: &Player) {
 }
 
 /// A player for `player`: its picture (with captions over it, when on) and a transport bar
-/// with play and pause, the time, a seek bar, mute and volume, a captions switch when the
-/// media has caption tracks, a theater-mode request once the app listens for one
+/// with play and pause, the time, a seek bar, mute and volume, a captions button while there
+/// is anything to pick (it says what shows, "Off", "Auto · English" or "Loading…", and opens
+/// a menu: Off, Auto when the app offers it ([`Player::on_caption_pick`]), the tracks, the
+/// app's [choices](Player::set_caption_choices) and note, and the timing half a second at a
+/// time, the steps keeping the menu open), a theater-mode request once the app listens for one
 /// ([`Player::on_theater`]), a cast button once the app opens a device menu
 /// ([`Player::on_cast`]), and a full-screen request. `label` names it for screen readers
 /// ("Talk recording").
@@ -221,7 +214,7 @@ fn toggle_mute(p: &Player) {
 /// every control and key acts on the device.
 ///
 /// Keyboard, anywhere in the player: K plays and pauses, J and L jump 10 seconds, M mutes,
-/// C turns captions on and off, F asks for full screen, T for theater mode (when offered),
+/// C turns captions off and back on as last picked, F asks for full screen, T for theater mode (when offered),
 /// Escape leaves full screen or else theater mode, > and < (Shift+.
 /// and Shift+, on most keyboards) make it faster and slower, and Shift+N plays
 /// what is [next up](Player::set_next_up). On the seek bar
@@ -261,8 +254,7 @@ fn toggle_mute(p: &Player) {
 ///
 /// [`PlayerOptions`](crate::PlayerOptions) shape the bar as Portal's: `skip_buttons` (Back and
 /// Forward 10 seconds after Play), `speed_button(false)`, `two_rows` (the seek bar above the
-/// buttons), `captions_toggle` (CC on and off with a loading state, and an arrow that opens
-/// the app's menu, [`Player::on_captions`]); and [`Player::set_compact`] switches to Portal's
+/// buttons); and [`Player::set_compact`] switches to Portal's
 /// mini player. [`player_with`] adds the app's own controls.
 #[track_caller]
 pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
@@ -528,72 +520,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     // The slider follows the volume: the device's in remote mode.
     let p = player.clone();
     let volume = volume.bind(move || level.set_if_changed(f64::from(p.volume())));
-    // Captions: steps through the tracks; hands the app its menu once it listens
-    // (`on_captions`); or, as Portal's CC, a toggle the app answers (`captions_toggle`).
-    let toggles = options.captions_toggle;
-    let captions = glyph_button(
-        ui,
-        [Icon::Captions, Icon::Captions],
-        "playback-captions-tip",
-        || 0,
-        {
-            let (p, u) = (player.clone(), ui.clone());
-            move || caption_name(&u, &p)
-        },
-        || {},
-    );
-    let (cb, me, p) = (captions.clone(), captions.clone(), player.clone());
-    let captions = captions.on_click(move || press_captions(&p, &me)).bind({
-        let p = player.clone();
-        move || {
-            let on = match toggles {
-                true => p.captions_state().on,
-                false => p.caption_track().is_some(),
-            };
-            let shown = toggles || p.captions_offered() || !p.subtitle_tracks().is_empty();
-            let _ = cb.clone().hidden(!shown);
-            cb.state(remedy_ui_style::States::CHECKED, on);
-            // shortcut: Portal pulses the glyph while loading; a steady dim (its reduced-motion
-            // look) until the widget has animations of its own.
-            let loading = toggles && p.captions_state().on && p.captions_state().loading;
-            let _ = cb.clone().style(remedy_ui_style::StylePatch::default().opacity(if loading {
-                0.6
-            } else {
-                1.0
-            }));
-        }
-    });
-    let captions = match toggles {
-        true => {
-            let (p, u) = (player.clone(), ui.clone());
-            captions.semantics(move || {
-                Semantics::new(Role::Button)
-                    .label(caption_name(&u, &p))
-                    .checked(p.captions_state().on)
-                    .action(Action::Click)
-            })
-        }
-        false => captions,
-    };
-    // Portal's "more" arrow beside the toggle: the app's menu (tracks, timing).
-    let more = glyph_button(
-        ui,
-        [Icon::ChevronUp, Icon::ChevronUp],
-        "playback-captions-more",
-        || 0,
-        {
-            let u = ui.clone();
-            move || tr(&u, "playback-captions-more")
-        },
-        || {},
-    );
-    let (mb, me, p) = (more.clone(), more.clone(), player.clone());
-    let more = more.on_click(move || p.request_captions(&me)).bind({
-        let p = player.clone();
-        move || {
-            let _ = mb.clone().hidden(!toggles || !p.captions_offered());
-        }
-    });
+    let captions = captions_control(ui, player);
     let p = player.clone();
     let full = glyph_button(
         ui,
@@ -701,7 +628,6 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             cb.state(remedy_ui_style::States::CHECKED, p.is_remote());
         }
     });
-    let cap_key = captions.clone();
     // Portal's Back and Forward 10 seconds, after Play.
     let skip = |glyph: Icon, tip: &'static str, name: &'static str, by: f64| {
         let p = player.clone();
@@ -716,7 +642,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         false => Vec::new(),
     };
     let speed = options.speed_button.then_some(speed);
-    let mut controls = vec![&play, &mute, &slider, &captions, &more, &theater, &cast, &full];
+    let mut controls = vec![&play, &mute, &slider, &captions, &theater, &cast, &full];
     controls.extend(skips.iter());
     controls.extend(speed.iter());
     for c in controls {
@@ -726,7 +652,6 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     let ends = |r: El| {
         r.children(speed.clone())
             .child(captions.clone())
-            .child(more.clone())
             .children(parts.end.iter().cloned())
             .child(theater.clone())
             .child(cast.clone())
@@ -825,12 +750,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
                     "m" => toggle_mute(&p),
                     ">" if !p.is_remote() => p.step_speed(true),
                     "<" if !p.is_remote() => p.step_speed(false),
-                    "c" if p.options().captions_toggle
-                        || p.captions_offered()
-                        || !p.subtitle_tracks().is_empty() =>
-                    {
-                        press_captions(&p, &cap_key)
-                    }
+                    "c" if p.captions_offered() => p.toggle_captions(),
                     "f" if pictures && fullscreen_toggles(&p) => toggle_fullscreen(&p),
                     "t" if p.theater_offered() && pictures && theater_toggles(&p) => toggle_theater(&p),
                     "N" | "n" if (arrows || e.modifiers.shift) && p.next_up().is_some() => p.play_next(),
@@ -1143,39 +1063,219 @@ fn next_up_card(ui: &Ui, player: &Player) -> El {
     })
 }
 
-/// The captions button's name: the toggle's state ([`PlayerOptions::captions_toggle`]), as
-/// Portal's "Subtitles on, loading", or the track shown.
-fn caption_name(u: &Ui, p: &Player) -> String {
-    if p.options().captions_toggle {
-        let s = p.captions_state();
-        return match (s.on, s.loading, s.name) {
-            (false, ..) => tr(u, "playback-captions-off"),
-            (true, true, _) => tr(u, "playback-captions-loading"),
-            (true, false, Some(n)) => {
-                crate::STRINGS.format(u, "playback-captions-track", &[("track", n.into())])
-            }
-            (true, false, None) => tr(u, "playback-captions-on"),
-        };
+/// Portal's timing step: half a second, within ten minutes either way.
+const CAPTION_STEP: i64 = 500;
+const CAPTION_LIMIT: i64 = 600_000;
+
+/// The caption timing in words: "in sync", "now 1.5 s later", "now 0.5 s earlier".
+fn timing_words(u: &Ui, ms: i64) -> String {
+    let secs = (ms.unsigned_abs() as f64) / 1000.0;
+    match ms.signum() {
+        0 => tr(u, "playback-timing-in-sync"),
+        1 => crate::STRINGS.format(u, "playback-timing-later", &[("seconds", secs.into())]),
+        _ => crate::STRINGS.format(u, "playback-timing-earlier", &[("seconds", secs.into())]),
     }
+}
+
+/// The name of what shows: the track's, else the app's choice picked.
+fn shown_name(p: &Player) -> Option<String> {
     let tracks = p.subtitle_tracks();
-    match p.caption_track().and_then(|i| tracks.get(i)) {
-        Some(t) => crate::STRINGS.format(u, "playback-captions-track", &[("track", t.label.as_str().into())]),
-        None => tr(u, "playback-captions-off"),
+    if let Some(t) = p.caption_track().and_then(|i| tracks.get(i)) {
+        return Some(t.label.clone());
+    }
+    match p.caption_pick() {
+        CaptionPick::Choice(id) => p.caption_choices().into_iter().find(|c| c.id == id).map(|c| c.label),
+        _ => None,
     }
 }
 
-/// Off, then each track in turn, then off again.
-fn cycle_captions(p: &Player) {
-    let n = p.subtitle_tracks().len();
-    let next = match p.caption_track() {
-        None if n > 0 => Some(0),
-        Some(i) if i + 1 < n => Some(i + 1),
-        _ => None,
+/// The captions button's words: short on the button ("Off", "Auto · English", "Loading…"),
+/// whole in its name ("Captions: auto, English").
+fn caption_words(u: &Ui, p: &Player, short: bool) -> String {
+    let id = |s: &str| {
+        if short { format!("playback-captions-short-{s}") } else { format!("playback-captions-{s}") }
     };
-    p.set_caption_track(next);
+    let name = shown_name(p);
+    let fmt = |key: String, track: String| crate::STRINGS.format(u, &key, &[("track", track.into())]);
+    match (p.captions_loading(), p.caption_pick(), name) {
+        (true, ..) => tr(u, &id("loading")),
+        (false, CaptionPick::Off, _) => tr(u, &id("off")),
+        (false, CaptionPick::Auto, Some(n)) => fmt(id("auto-track"), n),
+        (false, CaptionPick::Auto, None) => tr(u, &id("auto")),
+        (false, _, Some(n)) if short => n,
+        (false, _, Some(n)) => fmt("playback-captions-track".into(), n),
+        (false, _, None) => tr(u, &id("off")),
+    }
 }
 
-/// An icon button whose glyph (`glyphs[which()]`) and name follow the player, with the
+/// The captions control: one button that says what shows ("Off", "Auto · English",
+/// "Loading…") and opens the captions menu (Off, Auto when the app offers it, the tracks, the
+/// app's choices with their details, its note, and the timing a half second at a time);
+/// C turns captions off and back on as last picked. Shown while it can do something.
+#[track_caller]
+fn captions_control(ui: &Ui, player: &Player) -> El {
+    let u = ui.theme().spacing.unit;
+    let size = ui.theme().type_scale.body + 3.0;
+    let glyph = w::icon(ui, Icon::Captions, size);
+    let (p, tu) = (player.clone(), ui.clone());
+    let words = ui.el("label").nowrap().text(move || caption_words(&tu, &p, true));
+    let open = Signal::new(false);
+    let button = ui
+        .el("button")
+        .row()
+        .align(Align::Center)
+        .gap(u * 1.5)
+        .layout(|l| l.shrink = 0.0)
+        .child(glyph.clone())
+        .child(words);
+    let (me, p, mu) = (button.clone(), player.clone(), ui.clone());
+    let button = button
+        .on_click(move || {
+            let layer = w::menu_press_through(&mu, &me, caption_menu(&mu, &p));
+            open.set(true);
+            let _ = layer.on_removed(move || open.set(false));
+        })
+        .semantics({
+            let (p, u) = (player.clone(), ui.clone());
+            move || {
+                let s = Semantics::new(Role::Button)
+                    .label(caption_words(&u, &p, false))
+                    .expanded(open.get())
+                    .action(Action::Click);
+                match p.caption_delay() {
+                    0 => s,
+                    ms => s.description(timing_words(&u, ms)),
+                }
+            }
+        });
+    {
+        let u = ui.clone();
+        w::tooltip(&button, move || tr(&u, "playback-captions-tip"));
+    }
+    let (b, p) = (button.clone(), player.clone());
+    let button = button.bind(move || {
+        let _ = b.clone().hidden(!p.captions_offered());
+        b.state(remedy_ui_style::States::CHECKED, p.caption_pick() != CaptionPick::Off);
+    });
+    pulse_while_loading(ui, player, &glyph);
+    button
+}
+
+/// The captions menu's entries, as they are when it opens; their marks and the timing follow.
+fn caption_menu(ui: &Ui, p: &Player) -> Vec<MenuItem> {
+    let pick = |want: CaptionPick| {
+        let (a, b) = (p.clone(), p.clone());
+        let w2 = want.clone();
+        (move || a.caption_pick() == want, move || b.set_caption_pick(w2.clone()))
+    };
+    let mut items = Vec::new();
+    let (on, set) = pick(CaptionPick::Off);
+    items.push(MenuItem::radio(tr(ui, "playback-captions-menu-off"), on, set));
+    if remedy_ui_reactive::untrack(|| p.auto_offered()) {
+        let (on, set) = pick(CaptionPick::Auto);
+        let (q, u) = (p.clone(), ui.clone());
+        items.push(MenuItem::radio(String::new(), on, set).label(move || {
+            match (q.caption_pick() == CaptionPick::Auto, q.captions_loading(), shown_name(&q)) {
+                (true, true, _) => tr(&u, "playback-captions-short-loading"),
+                (true, false, Some(n)) => {
+                    crate::STRINGS.format(&u, "playback-captions-menu-auto-track", &[("track", n.into())])
+                }
+                _ => tr(&u, "playback-captions-menu-auto"),
+            }
+        }));
+    }
+    let tracks = remedy_ui_reactive::untrack(|| p.subtitle_tracks());
+    if !tracks.is_empty() {
+        items.push(MenuItem::separator());
+    }
+    for (i, t) in tracks.into_iter().enumerate() {
+        let (on, set) = pick(CaptionPick::Track(i));
+        items.push(MenuItem::radio(t.label, on, set));
+    }
+    let choices = remedy_ui_reactive::untrack(|| p.caption_choices());
+    if !choices.is_empty() {
+        items.push(MenuItem::separator());
+    }
+    for c in choices {
+        let (on, set) = pick(CaptionPick::Choice(c.id.clone()));
+        let name = match &c.detail {
+            Some(d) => format!("{} · {d}", c.label),
+            None => c.label.clone(),
+        };
+        let (q, u, id) = (p.clone(), ui.clone(), c.id);
+        items.push(MenuItem::radio(String::new(), on, set).label(move || {
+            match q.captions_loading() && q.caption_pick() == CaptionPick::Choice(id.clone()) {
+                true => crate::STRINGS.format(
+                    &u,
+                    "playback-captions-menu-loading",
+                    &[("label", name.clone().into())],
+                ),
+                false => name.clone(),
+            }
+        }));
+    }
+    if let Some(note) = remedy_ui_reactive::untrack(|| p.caption_note()) {
+        items.push(MenuItem::new(note, || {}).disabled(true));
+    }
+    // A TV shows the file as it is, as on Portal's page: no timing while remote.
+    if !remedy_ui_reactive::untrack(|| p.is_remote()) {
+        items.push(MenuItem::separator());
+        let step = |key: &'static str, by: i64| {
+            let (a, b, u) = (p.clone(), p.clone(), ui.clone());
+            MenuItem::new(String::new(), move || {
+                let to = (a.caption_delay() + by).clamp(-CAPTION_LIMIT, CAPTION_LIMIT);
+                a.set_caption_delay(to);
+            })
+            .label(move || {
+                crate::STRINGS.format(&u, key, &[("timing", timing_words(&u, b.caption_delay()).into())])
+            })
+            .stays_open()
+        };
+        items.push(step("playback-captions-earlier", -CAPTION_STEP));
+        items.push(step("playback-captions-later", CAPTION_STEP));
+        let (a, b) = (p.clone(), p.clone());
+        items.push(
+            MenuItem::new(tr(ui, "playback-captions-reset"), move || a.set_caption_delay(0))
+                .disabled(move || b.caption_delay() == 0)
+                .stays_open(),
+        );
+    }
+    items
+}
+
+/// Half of Portal's `subs-pulse` (1.2 s, ease-in-out, down to 0.45 at the middle).
+const PULSE_HALF: Duration = Duration::from_millis(600);
+
+/// While captions load, the glyph pulses as Portal's does (down to 0.45 and back every
+/// 1.2 s): a cue beside the button's "Loading…", so none under reduced motion.
+fn pulse_while_loading(ui: &Ui, player: &Player, glyph: &El) {
+    // Each start or stop is a new run; a finished half of an old one ends there.
+    let run = std::rc::Rc::new(std::cell::Cell::new(0u64));
+    fn half(glyph: El, run: std::rc::Rc<std::cell::Cell<u64>>, me: u64, down: bool) {
+        let motion = Motion::Tween { duration: PULSE_HALF, easing: Easing::EASE_IN_OUT };
+        let (g, r) = (glyph.clone(), run.clone());
+        glyph.animate_then(Target::Opacity(if down { 0.45 } else { 1.0 }), motion, move || {
+            if r.get() == me {
+                half(g, r, me, !down);
+            }
+        });
+    }
+    let (p, u, g, last) = (player.clone(), ui.clone(), glyph.clone(), std::cell::Cell::new(None));
+    let _ = glyph.clone().bind(move || {
+        let pulse = p.captions_loading() && !u.reduced_motion();
+        if last.replace(Some(pulse)) == Some(pulse) {
+            return;
+        }
+        let me = run.get() + 1;
+        run.set(me);
+        match pulse {
+            true => half(g.clone(), run.clone(), me, true),
+            false => g.set_animated(Target::Opacity(1.0)),
+        }
+    });
+}
+
+/// An icon button whose glyph/// An icon button whose glyph (`glyphs[which()]`) and name follow the player, with the
 /// message `tip` as its tooltip.
 #[track_caller]
 fn glyph_button(

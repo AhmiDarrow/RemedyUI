@@ -7,10 +7,13 @@
 //!   and pause, time, a keyboard-operable seek bar, mute and volume, captions, a full-screen
 //!   request, and a theater-mode request for apps that lay one out). Captions can be shifted
 //!   earlier or later ([`Player::set_caption_delay`]) when a subtitle file is out of step.
+//! - Captions: one button says what shows and opens a menu of Off, Auto (the app's pick,
+//!   [`Player::on_caption_pick`]), the tracks, the app's not-yet-loaded
+//!   [choices](Player::set_caption_choices) with their details (hearing impaired), and the
+//!   timing; the app says when its pick is [loading](Player::set_captions_loading). The pick
+//!   carries to the next media.
 //! - Portal's bar ([`player_with`], [`PlayerOptions`]): Back and Forward 10 seconds, no speed
-//!   button, two rows, a captions button that opens the app's menu ([`Player::on_captions`])
-//!   or is a CC toggle the app answers ([`Player::set_captions_state`]), the app's own controls
-//!   ([`PlayerParts`]), and a compact mini player ([`Player::set_compact`]). The picture alone
+//!   button, two rows, the app's own controls ([`PlayerParts`]), and a compact mini player ([`Player::set_compact`]). The picture alone
 //!   is [`player_picture`]: the player is seen while any of its pictures is, so a
 //!   picture-in-picture or a second window keeps it playing.
 //! - Casting: [`Player::on_cast`] shows a Cast button whose press hands the app the button to
@@ -104,8 +107,8 @@ pub use host::{
     merge_ranges,
 };
 pub use player::{
-    CaptionsState, KeyScheme, NEXT_UP_DELAY, NextUp, Player, PlayerOptions, Remote, RemoteControl,
-    RemoteStatus, RemoteStatusSender, StageStatus, Timeline, UnseenPolicy,
+    CaptionChoice, CaptionPick, KeyScheme, NEXT_UP_DELAY, NextUp, Player, PlayerOptions, Remote,
+    RemoteControl, RemoteStatus, RemoteStatusSender, StageStatus, Timeline, UnseenPolicy,
 };
 #[cfg(feature = "media-session")]
 pub use remedy_ui_services_desktop::media_session::{Artwork, NowPlaying};

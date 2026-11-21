@@ -10,12 +10,23 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
-- **Portal's control bar and mini player** in `media-playback`. `Player::on_captions(f)`: the
-  captions button and C hand the app the button to anchor its own menu (tracks, timing).
-  `PlayerOptions::captions_toggle(true)`: the button is Portal's CC, on or off with a loading
-  state the app sets (`Player::set_captions_state(CaptionsState::on(true).loading(true))`,
-  named "Captions: on, loading", "Captions: English"), heard through `on_captions_toggle`,
-  with a "Caption options" arrow that calls `on_captions`. `skip_buttons(true)` adds Back and
+- **Portal's control bar and mini player** in `media-playback`. The captions control
+  does all Portal's CC does, without its problems: one button (not a toggle beside a 22 px
+  arrow) that says what shows in words, "Off", "Auto · English" or "Loading…" (Portal showed
+  on/off only, loading only by a pulse), and opens a menu built from the `menus` components:
+  Off, Auto when the app listens (`Player::on_caption_pick`, called with a `CaptionPick`), the
+  player's tracks, the app's choices not loaded yet (`Player::set_caption_choices(vec![
+  CaptionChoice::new(id, label).detail("Hearing impaired · Best match")])`, details in
+  words where Portal wrote "HI"), the app's note (`set_caption_note`), and the timing
+  (Earlier and Later by 0.5 s, saying where it is now, "now 1 s later", and Reset), steps
+  that keep the menu open (new `MenuItem::stays_open` in `widgets-core`). Each entry is a
+  menu item with its mark for screen readers; the button names the state, says the timing
+  when it is not in sync and whether the menu is open. `Player::set_captions_loading(true)`
+  shows "Loading…" until the app shows the track; the glyph pulses as Portal's does, except
+  under reduced motion. C turns captions off and back on as last picked. The pick carries to
+  the next media (Off stays off, Auto is asked again, a track is picked again by its name)
+  with its timing, where Portal forgot the choice and the timing each episode. The button
+  shows whenever there is something to pick. `skip_buttons(true)` adds Back and
   Forward 10 seconds (new `Icon::Back10` and `Icon::Forward10` in `widgets-core`),
   `speed_button(false)` hides speed, `two_rows(true)` puts the seek bar above the buttons.
   `player_with(ui, &p, label, PlayerParts::default().end(vec![pip]).title(heading))` adds the
