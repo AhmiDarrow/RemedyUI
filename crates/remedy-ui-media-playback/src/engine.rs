@@ -144,7 +144,7 @@ struct Feed {
     audio: VecDeque<AudioItem>,
     audio_frames: u64,
     cues: Vec<(usize, Cue)>,
-    /// The decoder's text samples are dropped: the source's timed text was read from the
+    /// The decoder's text samples are dropped: the source's captions were read from the
     /// file instead.
     skip_text: bool,
     eof: bool,
@@ -194,7 +194,7 @@ impl Feed {
                 if before {
                     return;
                 }
-                let bytes = picture.data.len();
+                let bytes = picture.bytes();
                 self.video_newest = self.video_newest.max(at);
                 self.video.push_back(VideoItem { at, picture });
                 self.video_bytes += bytes;
@@ -202,7 +202,7 @@ impl Feed {
                 // already past or nearly so.
                 while self.video_bytes > self.budget_bytes && self.video.len() > 1 {
                     if let Some(old) = self.video.pop_front() {
-                        self.video_bytes -= old.picture.data.len();
+                        self.video_bytes -= old.picture.bytes();
                         self.dropped += 1;
                     }
                 }
@@ -456,7 +456,8 @@ struct Presenter {
     done: bool,
     /// The source is a file on this machine: all of it is there to play.
     local: bool,
-    /// The source's timed text was read from the file (an MP4's), not from the decoder.
+    /// The source's captions were read from the file (an MP4's timed text, a Matroska
+    /// file's text tracks), not from the decoder.
     own_text: bool,
     /// The device holds sound it is not playing; the wall clock leads meanwhile.
     stalled: bool,
@@ -523,13 +524,17 @@ impl Presenter {
         self.local = source.local_path().is_some();
         match self.host.open(source) {
             Ok(dec) => {
-                // Timed text inside an MP4 is read from the file, whole, on every platform:
-                // Media Foundation, AVFoundation and MediaCodec do not hand it out, and
-                // GStreamer hands each cue out well after the pictures around it (seconds
-                // late, past its end, for a player reading just ahead of the clock). The
-                // decoder's copy of the same track is then left out.
+                // Timed text inside an MP4, and text subtitles inside Matroska and WebM, are
+                // read from the file, whole, on every platform: Media Foundation,
+                // AVFoundation, MediaCodec and WebCodecs do not hand them out, and GStreamer
+                // hands each cue out well after the pictures around it (seconds late, past
+                // its end, for a player reading just ahead of the clock). The decoder's copy
+                // of the same tracks is then left out.
                 if let Some(path) = source.local_path() {
-                    let found = crate::mp4::text_tracks(path);
+                    let mut found = crate::mp4::text_tracks(path);
+                    if found.is_empty() {
+                        found = crate::mkv::text_tracks(path);
+                    }
                     if !found.is_empty() {
                         self.own_text = true;
                         lock(&self.shared.status).new_tracks.extend(found);
@@ -1106,7 +1111,7 @@ impl Presenter {
             let mut latest: Option<VideoItem> = None;
             while f.video.front().is_some_and(|v| v.at <= t) {
                 if let Some(v) = f.video.pop_front() {
-                    f.video_bytes -= v.picture.data.len();
+                    f.video_bytes -= v.picture.bytes();
                     if latest.replace(v).is_some() {
                         self.stats.frames_dropped += 1;
                     }
@@ -1116,7 +1121,7 @@ impl Presenter {
         } else if self.preview {
             let v = f.video.pop_front();
             if let Some(v) = &v {
-                f.video_bytes -= v.picture.data.len();
+                f.video_bytes -= v.picture.bytes();
             }
             v
         } else {

@@ -7,6 +7,8 @@ use crate::host::{MediaError, MediaHost};
 
 #[cfg(target_os = "android")]
 mod android;
+#[cfg(windows)]
+mod d3d11;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod gstreamer;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]

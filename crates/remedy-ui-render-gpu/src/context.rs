@@ -225,8 +225,11 @@ impl GpuContext {
         drop(surface);
         // Timestamps are asked for where the adapter has them: devtools traces put the GPU's
         // measured frame time on their timeline (nothing is written unless a trace records).
-        let features =
-            adapter.features() & (wgpu::Features::PIPELINE_CACHE | wgpu::Features::TIMESTAMP_QUERY);
+        // NV12 textures let decoded pictures be sampled where the decoder left them.
+        let features = adapter.features()
+            & (wgpu::Features::PIPELINE_CACHE
+                | wgpu::Features::TIMESTAMP_QUERY
+                | wgpu::Features::TEXTURE_FORMAT_NV12);
         let desc = wgpu::DeviceDescriptor {
             label: Some("RemedyUI"),
             required_features: features,
@@ -270,6 +273,8 @@ impl GpuContext {
                 keep_error(&mut v, e.to_string());
             }
         }));
+        // Decoders hand this device's adapter pictures on the GPU from now on.
+        crate::ffi::video::announce(&device);
         static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
         let textures = crate::external::Registry::default();

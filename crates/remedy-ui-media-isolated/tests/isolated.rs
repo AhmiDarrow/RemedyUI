@@ -4,6 +4,9 @@
 //!
 //! Each test is run in order (they share the one enabled engine); a failure is reported and
 //! the run carries on. Arguments that are not flags filter tests by name.
+//!
+//! On Android the same tests run inside an app (`examples/android-isolated-check.rs`,
+//! `tools/android-check.sh`), whose helpers are isolated service processes.
 
 use std::hint::black_box;
 use std::io::{Read, Write};
@@ -79,9 +82,15 @@ fn probe_network(addrs: &str) -> String {
         Err(e) => format!("bad address {e}"),
     });
     let udp = guarded(&|| attempt(UdpSocket::bind("127.0.0.1:0").and_then(|s| s.send_to(b"escaped", udp))));
-    // Code that skips Windows Sockets opens the socket driver itself.
+    // Code that skips Windows Sockets opens the socket driver itself: below the device, as
+    // Windows Sockets does (an open the device leaves to the driver), and the device itself.
     let afd = if cfg!(windows) {
-        format!("; socket driver: {}", attempt(std::fs::File::open(r"\\?\GLOBALROOT\Device\Afd\Endpoint")))
+        let open = |p: &str| attempt(std::fs::File::open(p));
+        format!(
+            "; socket driver: {}; socket device: {}",
+            open(r"\\?\GLOBALROOT\Device\Afd\Endpoint"),
+            open(r"\\?\GLOBALROOT\Device\Afd")
+        )
     } else {
         String::new()
     };
@@ -121,8 +130,16 @@ impl Format for Hostile {
         if let Some(addr) = what.strip_prefix("net:") {
             return Err(DecodeError::Malformed(probe_network(addr)));
         }
-        if let Some(program) = what.strip_prefix("spawn:") {
-            let r = std::process::Command::new(program).arg(MARKER).spawn().and_then(|mut c| c.wait());
+        if let Some(spawn) = what.strip_prefix("spawn:") {
+            // `program`, or on Android the shell, which leaves the marker itself.
+            let (program, marker) = spawn.split_once('\n').unwrap_or((spawn, ""));
+            let mut c = std::process::Command::new(program);
+            if cfg!(target_os = "android") {
+                c.arg("-c").arg(format!("echo started > '{marker}'"));
+            } else {
+                c.arg(MARKER);
+            }
+            let r = c.spawn().and_then(|mut c| c.wait());
             return Err(DecodeError::Malformed(format!("spawn: {}", attempt(r))));
         }
         Err(DecodeError::Unrecognized)
@@ -179,6 +196,10 @@ fn helpers_start_sandboxed() {
         if landlock {
             assert!(iso.layers.iter().any(|l| matches!(l, Layer::Landlock { .. })), "{:?}", iso.layers);
         }
+    }
+    if cfg!(target_os = "android") {
+        assert!(iso.layers.contains(&Layer::IsolatedProcess), "{:?}", iso.layers);
+        assert!(iso.layers.contains(&Layer::ResourceLimits), "{:?}", iso.layers);
     }
     // Enabling again answers the same.
     assert_eq!(enable().ok(), Some(iso));
@@ -305,12 +326,35 @@ fn the_helper_cannot_reach_the_network() {
     };
     println!("    in the helper: {there}");
     // No socket can be made: seccomp on Linux; on Windows the less privileged AppContainer
-    // cannot start Windows Sockets at all. (The socket driver itself still opens there; what
-    // a socket made through it sends is dropped by AppContainer network isolation, which is
-    // what the listeners check below.)
+    // cannot start Windows Sockets at all (and the socket driver is closed to it, see below).
     assert!(there.contains("tcp: blocked") && there.contains("udp send: blocked"), "{there}");
     assert!(!accepted(&listener), "a connection from the helper arrived");
     assert!(!received(&udp), "a datagram from the helper arrived");
+}
+
+/// Windows: a decoder that skips Windows Sockets and opens the socket driver (`\Device\Afd`)
+/// itself, to make a socket and connect, is refused the driver.
+fn the_helper_cannot_open_the_socket_driver() {
+    if !cfg!(windows) {
+        println!("    skipped: Windows only");
+        return;
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| unreachable!("{e}"));
+    let addr = listener.local_addr().unwrap_or_else(|e| unreachable!("{e}"));
+    let bytes = hostile(&format!("net:{addr},{addr}"));
+    let probe = |r: Result<Decoded, DecodeError>| match r {
+        Err(DecodeError::Malformed(r)) => r,
+        other => unreachable!("{:?}", other.map(|d| d.source_size)),
+    };
+    // In the app the driver opens below the device, as Windows Sockets opens it: the test is real.
+    let here = probe(decode(&bytes, None));
+    println!("    in the app:    {here}");
+    assert!(here.contains("socket driver: ALLOWED"), "{here}");
+    let there = probe(decode_for_box(&bytes, None, false));
+    println!("    in the helper: {there}");
+    for what in ["tcp: blocked", "socket driver: blocked", "socket device: blocked"] {
+        assert!(there.contains(what), "{what}: {there}");
+    }
 }
 
 /// Passed to a program the helper tries to start: started, this binary leaves a file named
@@ -324,8 +368,13 @@ fn spawn_marker() -> std::path::PathBuf {
 fn the_helper_cannot_start_programs() {
     let marker = spawn_marker();
     let _ = std::fs::remove_file(&marker);
-    let exe = std::env::current_exe().unwrap_or_else(|e| unreachable!("{e}"));
-    let bytes = hostile(&format!("spawn:{}", exe.display()));
+    // An app's own executable on Android is the system's app_process: the shell stands in.
+    let exe = if cfg!(target_os = "android") {
+        std::path::PathBuf::from("/system/bin/sh")
+    } else {
+        std::env::current_exe().unwrap_or_else(|e| unreachable!("{e}"))
+    };
+    let bytes = hostile(&format!("spawn:{}\n{}", exe.display(), marker.display()));
 
     let here = match decode(&bytes, None) {
         Err(DecodeError::Malformed(r)) => r,
@@ -421,16 +470,31 @@ fn disabling_decodes_in_the_app_again() {
 #[path = "isolated/anim.rs"]
 mod anim;
 
-fn main() -> ExitCode {
+/// The hostile formats, in the app and (registered before `helper_main`, or on Android from
+/// `remedy_ui_media_isolated_formats`) in the helper.
+pub(crate) fn register_formats() {
     add_format(Arc::new(Hostile));
     remedy_ui_media_anim::route::add_format(Arc::new(anim::HostileAnimation));
+}
+
+pub(crate) fn main() -> ExitCode {
+    register_formats();
     remedy_ui_media_isolated::helper_main();
     if std::env::args().any(|a| a == MARKER) {
         let _ = std::fs::write(spawn_marker(), "started");
         return ExitCode::SUCCESS;
     }
 
-    let filter: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect();
+    // An Android app's arguments are the system's: its filter comes in the environment.
+    let filter: Vec<String> = if cfg!(target_os = "android") {
+        std::env::var("REMEDY_TEST_FILTER")
+            .unwrap_or_default()
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect()
+    } else {
+        std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect()
+    };
     let tests: &[(&str, fn())] = &[
         ("helpers_start_sandboxed", helpers_start_sandboxed),
         ("images_decode_in_the_helper_as_in_the_app", images_decode_in_the_helper_as_in_the_app),
@@ -445,6 +509,7 @@ fn main() -> ExitCode {
         ),
         ("the_helper_cannot_touch_files", the_helper_cannot_touch_files),
         ("the_helper_cannot_reach_the_network", the_helper_cannot_reach_the_network),
+        ("the_helper_cannot_open_the_socket_driver", the_helper_cannot_open_the_socket_driver),
         ("the_helper_cannot_start_programs", the_helper_cannot_start_programs),
         (
             "an_image_element_shows_its_error_state_and_the_app_carries_on",
