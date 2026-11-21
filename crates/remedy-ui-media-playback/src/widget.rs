@@ -5,7 +5,7 @@ use std::time::Duration;
 use remedy_ui_a11y::{Action, Live, Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Insets, Rect};
 use remedy_ui_input::{Buttons, Key, PointerKind, PointerPhase};
-use remedy_ui_layout::{AUTO, Align, Justify, Position};
+use remedy_ui_layout::{AUTO, Align, Justify, Length, Position};
 use remedy_ui_media_video::{VideoFit, video_surface};
 use remedy_ui_paint::Brush;
 use remedy_ui_reactive::Signal;
@@ -67,14 +67,82 @@ fn theater_toggles(p: &Player) -> bool {
 
 fn toggle_fullscreen(p: &Player) {
     if fullscreen_toggles(p) {
+        // As Portal's mini player: the compact picture has no box to fill the screen with.
+        p.set_compact(false);
         p.request_fullscreen(!p.is_fullscreen());
     }
 }
 
 fn toggle_theater(p: &Player) {
     if theater_toggles(p) {
+        // T while compact opens straight into theater mode, as Portal's mini player.
+        if remedy_ui_reactive::untrack(|| p.is_compact()) {
+            p.set_compact(false);
+            if !p.is_theater() {
+                p.request_theater(true);
+            }
+            return;
+        }
         p.request_theater(!p.is_theater());
     }
+}
+
+/// The captions button or C: the toggle flips, an app's menu opens, or the tracks step.
+fn press_captions(p: &Player, button: &El) {
+    if p.options().captions_toggle {
+        p.toggle_captions();
+    } else if p.captions_offered() {
+        p.request_captions(button);
+    } else {
+        cycle_captions(p);
+    }
+}
+
+/// What an app adds to the [`player_with`] widget, as Portal's page has its own controls in
+/// the bar: `PlayerParts::default().end(vec![pip]).title(heading)`.
+#[derive(Default)]
+#[non_exhaustive]
+pub struct PlayerParts {
+    /// The app's own controls (a picture-in-picture button), in order, in the bar after
+    /// captions and before theater mode, cast and full screen: where Portal's PiP is. Not in
+    /// the compact layout.
+    pub end: Vec<El>,
+    /// The app's title (and whatever goes beside it, such as Expand and Close), above play
+    /// and the time in the [compact](Player::set_compact) layout only, as Portal's mini
+    /// player. An element of its own, not one the app shows elsewhere at the same time.
+    pub title: Option<El>,
+}
+
+impl PlayerParts {
+    /// Sets `end`: the app's controls at the end of the bar.
+    pub fn end(mut self, value: Vec<El>) -> Self {
+        self.end = value;
+        self
+    }
+
+    /// Sets `title`: the app's title in the compact layout.
+    pub fn title(mut self, value: El) -> Self {
+        self.title = Some(value);
+        self
+    }
+}
+
+/// The picture of `player` alone: what plays, letterboxed, named `label` for screen readers.
+/// It takes the pictures when shown (the newest shown one does), handing them to another
+/// shown picture when hidden or removed, and the player counts as seen while any of its
+/// pictures is ([`UnseenPolicy`](crate::UnseenPolicy)): so moving the picture between the
+/// full widget, a compact one, a picture-in-picture or a second window never pauses it. The
+/// [`player`] widget uses one.
+#[track_caller]
+pub fn player_picture(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
+    static IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let id = IDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let (surface, sink) = video_surface(ui, label, VideoFit::Contain);
+    player.add_picture(id, sink);
+    let (p, q) = (player.clone(), player.clone());
+    surface
+        .on_visibility(move |seen| p.picture_seen(id, Some(seen)))
+        .on_removed(move || q.picture_seen(id, None))
 }
 
 /// In [`KeyScheme::Arrows`], after a click or tap on `control` (not a key), takes focus off
@@ -187,18 +255,31 @@ fn toggle_mute(p: &Player) {
 /// [retries](Player::on_retry), Play, K, Space and a click on the picture (in either scheme)
 /// try again.
 ///
-/// Sound-only media shows the transport bar alone. Media with pictures pauses while the
-/// player is unseen (see [`UnseenPolicy`](crate::UnseenPolicy)), and does not start by itself
-/// under reduced motion.
+/// Sound-only media shows the transport bar alone. Media with pictures pauses while none of
+/// its [pictures](player_picture) is seen (see [`UnseenPolicy`](crate::UnseenPolicy)), and
+/// does not start by itself under reduced motion.
+///
+/// [`PlayerOptions`](crate::PlayerOptions) shape the bar as Portal's: `skip_buttons` (Back and
+/// Forward 10 seconds after Play), `speed_button(false)`, `two_rows` (the seek bar above the
+/// buttons), `captions_toggle` (CC on and off with a loading state, and an arrow that opens
+/// the app's menu, [`Player::on_captions`]); and [`Player::set_compact`] switches to Portal's
+/// mini player. [`player_with`] adds the app's own controls.
 #[track_caller]
 pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
+    player_with(ui, player, label, PlayerParts::default())
+}
+
+/// The [`player`] widget with the app's own `parts`: its controls at the end of the bar and
+/// its title in the compact layout.
+#[track_caller]
+pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: PlayerParts) -> El {
     let label = label.into();
     let theme = ui.theme();
     let u = theme.spacing.unit;
+    let options = player.options().clone();
 
     // The picture, with captions and messages over it.
-    let (surface, sink) = video_surface(ui, label.clone(), VideoFit::Contain);
-    player.attach(Some(sink));
+    let surface = player_picture(ui, player, label.clone());
     let caption = ui
         .el("player_caption")
         .layout(move |l| {
@@ -235,6 +316,11 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     let p = player.clone();
     let mu = ui.clone();
     let message = message.bind(move || {
+        // Portal's mini player shows no words over its small picture.
+        if p.is_compact() {
+            let _ = msg.clone().hidden(true);
+            return;
+        }
         // The app's status in place of the player's words; announced politely, as Portal's
         // page does, where the player's own failures and work are alerts.
         if let Some(s) = p.status().filter(|_| !p.is_remote()) {
@@ -384,44 +470,8 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     });
 
     // The transport bar.
-    let p = player.clone();
-    let play = glyph_button(
-        ui,
-        [Icon::Play, Icon::Pause],
-        "playback-play-pause-tip",
-        {
-            let p = player.clone();
-            move || usize::from(matches!(p.state(), PlaybackState::Playing | PlaybackState::Buffering))
-        },
-        {
-            let (p, u) = (player.clone(), ui.clone());
-            move || {
-                let playing = matches!(p.state(), PlaybackState::Playing | PlaybackState::Buffering);
-                tr(&u, if playing { "playback-pause" } else { "playback-play" })
-            }
-        },
-        move || p.toggle(),
-    );
-    let (p, tu) = (player.clone(), ui.clone());
-    let time = ui.el("label").nowrap().layout(|l| l.shrink = 0.0).text(move || {
-        // Starting the next, the old media's numbers no longer hold and the new one's are
-        // not known yet.
-        if p.starting_next().is_some() {
-            return String::new();
-        }
-        let pos = format_time(p.scrubbing().unwrap_or_else(|| p.position()));
-        match p.duration() {
-            Some(d) => crate::STRINGS.format(
-                &tu,
-                "playback-time",
-                &[("position", pos.into()), ("duration", format_time(d).into())],
-            ),
-            None if p.info().is_some() => {
-                crate::STRINGS.format(&tu, "playback-time-live", &[("position", pos.into())])
-            }
-            None => pos,
-        }
-    });
+    let play = play_button(ui, player);
+    let time = clock(ui, player);
     let seek = seek_bar(ui, player);
     let p = player.clone();
     let mute = glyph_button(
@@ -478,7 +528,9 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     // The slider follows the volume: the device's in remote mode.
     let p = player.clone();
     let volume = volume.bind(move || level.set_if_changed(f64::from(p.volume())));
-    let p = player.clone();
+    // Captions: steps through the tracks; hands the app its menu once it listens
+    // (`on_captions`); or, as Portal's CC, a toggle the app answers (`captions_toggle`).
+    let toggles = options.captions_toggle;
     let captions = glyph_button(
         ui,
         [Icon::Captions, Icon::Captions],
@@ -486,24 +538,61 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         || 0,
         {
             let (p, u) = (player.clone(), ui.clone());
-            move || {
-                let tracks = p.subtitle_tracks();
-                match p.caption_track().and_then(|i| tracks.get(i)) {
-                    Some(t) => {
-                        let track = [("track", t.label.as_str().into())];
-                        crate::STRINGS.format(&u, "playback-captions-track", &track)
-                    }
-                    None => tr(&u, "playback-captions-off"),
-                }
-            }
+            move || caption_name(&u, &p)
         },
-        move || cycle_captions(&p),
+        || {},
     );
-    let cb = captions.clone();
-    let p = player.clone();
-    let captions = captions.bind(move || {
-        let _ = cb.clone().hidden(p.subtitle_tracks().is_empty());
-        cb.state(remedy_ui_style::States::CHECKED, p.caption_track().is_some());
+    let (cb, me, p) = (captions.clone(), captions.clone(), player.clone());
+    let captions = captions.on_click(move || press_captions(&p, &me)).bind({
+        let p = player.clone();
+        move || {
+            let on = match toggles {
+                true => p.captions_state().on,
+                false => p.caption_track().is_some(),
+            };
+            let shown = toggles || p.captions_offered() || !p.subtitle_tracks().is_empty();
+            let _ = cb.clone().hidden(!shown);
+            cb.state(remedy_ui_style::States::CHECKED, on);
+            // shortcut: Portal pulses the glyph while loading; a steady dim (its reduced-motion
+            // look) until the widget has animations of its own.
+            let loading = toggles && p.captions_state().on && p.captions_state().loading;
+            let _ = cb.clone().style(remedy_ui_style::StylePatch::default().opacity(if loading {
+                0.6
+            } else {
+                1.0
+            }));
+        }
+    });
+    let captions = match toggles {
+        true => {
+            let (p, u) = (player.clone(), ui.clone());
+            captions.semantics(move || {
+                Semantics::new(Role::Button)
+                    .label(caption_name(&u, &p))
+                    .checked(p.captions_state().on)
+                    .action(Action::Click)
+            })
+        }
+        false => captions,
+    };
+    // Portal's "more" arrow beside the toggle: the app's menu (tracks, timing).
+    let more = glyph_button(
+        ui,
+        [Icon::ChevronUp, Icon::ChevronUp],
+        "playback-captions-more",
+        || 0,
+        {
+            let u = ui.clone();
+            move || tr(&u, "playback-captions-more")
+        },
+        || {},
+    );
+    let (mb, me, p) = (more.clone(), more.clone(), player.clone());
+    let more = more.on_click(move || p.request_captions(&me)).bind({
+        let p = player.clone();
+        move || {
+            let _ = mb.clone().hidden(!toggles || !p.captions_offered());
+        }
     });
     let p = player.clone();
     let full = glyph_button(
@@ -612,29 +701,91 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             cb.state(remedy_ui_style::States::CHECKED, p.is_remote());
         }
     });
-    for c in [&play, &mute, &slider, &speed, &captions, &theater, &cast, &full] {
+    let cap_key = captions.clone();
+    // Portal's Back and Forward 10 seconds, after Play.
+    let skip = |glyph: Icon, tip: &'static str, name: &'static str, by: f64| {
+        let p = player.clone();
+        let u = ui.clone();
+        glyph_button(ui, [glyph, glyph], tip, || 0, move || tr(&u, name), move || p.seek_by(by))
+    };
+    let skips = match options.skip_buttons {
+        true => vec![
+            skip(Icon::Back10, "playback-back-tip", "playback-back", -JUMP_SEEK),
+            skip(Icon::Forward10, "playback-forward-tip", "playback-forward", JUMP_SEEK),
+        ],
+        false => Vec::new(),
+    };
+    let speed = options.speed_button.then_some(speed);
+    let mut controls = vec![&play, &mute, &slider, &captions, &more, &theater, &cast, &full];
+    controls.extend(skips.iter());
+    controls.extend(speed.iter());
+    for c in controls {
         drops_focus_after_click(ui, player, c);
     }
-    let bar = ui
+    let row = || ui.el("toolbar").row().align(Align::Center).gap(u);
+    let ends = |r: El| {
+        r.children(speed.clone())
+            .child(captions.clone())
+            .child(more.clone())
+            .children(parts.end.iter().cloned())
+            .child(theater.clone())
+            .child(cast.clone())
+            .child(full.clone())
+    };
+    let bar = match options.two_rows {
+        // Portal's: the seek bar alone above; Play, the skips, the sound and the time at the
+        // start of the row below, the rest at its end.
+        true => {
+            let buttons = row()
+                .child(play.clone())
+                .children(skips)
+                .child(mute)
+                .child(volume)
+                .child(time)
+                .child(ui.el("player_gap").grow(1.0));
+            ui.el("player_bar").column().child(seek).child(ends(buttons))
+        }
+        false => {
+            ends(row().child(play.clone()).children(skips).child(time).child(seek).child(mute).child(volume))
+        }
+    };
+
+    let next = next_up_card(ui, player);
+
+    // Portal's mini player: the picture at the start, the app's title over play and the time
+    // beside it; the "Up next" card stays under them.
+    let mini = ui
         .el("toolbar")
         .row()
         .align(Align::Center)
         .gap(u)
-        .child(play)
-        .child(time)
-        .child(seek)
-        .child(mute)
-        .child(volume)
-        .child(speed)
-        .child(captions)
-        .child(theater)
-        .child(cast)
-        .child(full);
-
-    let next = next_up_card(ui, player);
+        .child(play_button(ui, player))
+        .child(clock(ui, player));
+    let side = ui.el("player_side").column().grow(1.0).justify(Justify::Center).gap(u * 0.5);
+    let side = match parts.title {
+        Some(t) => side.child(t),
+        None => side,
+    }
+    .child(mini);
+    let main = ui.el("player_main").column().grow(1.0).gap(u * 1.5).child(stage.clone()).child(side.clone());
+    let (m, st, sd, br, p) = (main.clone(), stage, side, bar.clone(), player.clone());
+    let main = main.bind(move || {
+        let compact = p.is_compact();
+        let _ = sd.clone().hidden(!compact);
+        let _ = br.clone().hidden(compact);
+        let _ = match compact {
+            true => m.clone().row().align(Align::Center),
+            false => m.clone().column().align(Align::Stretch),
+        };
+        let _ = st.clone().layout(move |l| {
+            l.grow = if compact { 0.0 } else { 1.0 };
+            l.shrink = if compact { 0.0 } else { 1.0 };
+            l.width = if compact { Length::Px(u * 17.0) } else { Length::Auto };
+            l.height = if compact { Length::Px(u * 9.5) } else { Length::Auto };
+        });
+    });
 
     let p = player.clone();
-    let vis = player.clone();
     let root = ui.el("player");
     let (me, home) = (root.clone(), root.clone());
     root.column()
@@ -646,10 +797,9 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                 let _ = me.clone().focusable(false);
             }
         })
-        .child(stage)
+        .child(main)
         .child(next)
         .child(bar)
-        .on_visibility(move |seen| vis.set_visible(seen))
         .on_key(move |e| {
             if !e.pressed || e.composing || e.modifiers.ctrl || e.modifiers.alt || e.modifiers.meta {
                 return false;
@@ -672,7 +822,12 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                     "m" => toggle_mute(&p),
                     ">" if !p.is_remote() => p.step_speed(true),
                     "<" if !p.is_remote() => p.step_speed(false),
-                    "c" if !p.subtitle_tracks().is_empty() => cycle_captions(&p),
+                    "c" if p.options().captions_toggle
+                        || p.captions_offered()
+                        || !p.subtitle_tracks().is_empty() =>
+                    {
+                        press_captions(&p, &cap_key)
+                    }
                     "f" if pictures && fullscreen_toggles(&p) => toggle_fullscreen(&p),
                     "t" if p.theater_offered() && pictures && theater_toggles(&p) => toggle_theater(&p),
                     "N" | "n" if (arrows || e.modifiers.shift) && p.next_up().is_some() => p.play_next(),
@@ -728,9 +883,57 @@ fn big_play(ui: &Ui, player: &Player) -> (El, El) {
         let paused = matches!(p.state(), PlaybackState::Paused | PlaybackState::Ended);
         let pictures = p.info().is_some_and(|i| i.video.is_some());
         let busy = p.skipping().is_some() || p.starting_next().is_some();
-        let _ = l.clone().hidden(!paused || !pictures || busy || p.is_remote());
+        let _ = l.clone().hidden(!paused || !pictures || busy || p.is_remote() || p.is_compact());
     });
     (layer, button)
+}
+
+/// Play and pause.
+#[track_caller]
+fn play_button(ui: &Ui, player: &Player) -> El {
+    let p = player.clone();
+    glyph_button(
+        ui,
+        [Icon::Play, Icon::Pause],
+        "playback-play-pause-tip",
+        {
+            let p = player.clone();
+            move || usize::from(matches!(p.state(), PlaybackState::Playing | PlaybackState::Buffering))
+        },
+        {
+            let (p, u) = (player.clone(), ui.clone());
+            move || {
+                let playing = matches!(p.state(), PlaybackState::Playing | PlaybackState::Buffering);
+                tr(&u, if playing { "playback-pause" } else { "playback-play" })
+            }
+        },
+        move || p.toggle(),
+    )
+}
+
+/// The time: "1:05 / 3:20".
+#[track_caller]
+fn clock(ui: &Ui, player: &Player) -> El {
+    let (p, tu) = (player.clone(), ui.clone());
+    ui.el("label").nowrap().layout(|l| l.shrink = 0.0).text(move || {
+        // Starting the next, the old media's numbers no longer hold and the new one's are
+        // not known yet.
+        if p.starting_next().is_some() {
+            return String::new();
+        }
+        let pos = format_time(p.scrubbing().unwrap_or_else(|| p.position()));
+        match p.duration() {
+            Some(d) => crate::STRINGS.format(
+                &tu,
+                "playback-time",
+                &[("position", pos.into()), ("duration", format_time(d).into())],
+            ),
+            None if p.info().is_some() => {
+                crate::STRINGS.format(&tu, "playback-time-live", &[("position", pos.into())])
+            }
+            None => pos,
+        }
+    })
 }
 
 /// Cancel under the spinner, while the app's work (starting the next, a skip) can be stopped
@@ -749,7 +952,7 @@ fn stage_cancel(ui: &Ui, player: &Player) -> El {
     drops_focus_after_click(ui, player, &button);
     let (b, p) = (button.clone(), player.clone());
     button.bind(move || {
-        let _ = b.clone().hidden(!p.cancel_shown()).disabled(p.canceling());
+        let _ = b.clone().hidden(!p.cancel_shown() || p.is_compact()).disabled(p.canceling());
     })
 }
 
@@ -935,6 +1138,27 @@ fn next_up_card(ui: &Ui, player: &Player) -> El {
             let _ = c.clone().semantics(Semantics::new(Role::Group).label(n.title));
         }
     })
+}
+
+/// The captions button's name: the toggle's state ([`PlayerOptions::captions_toggle`]), as
+/// Portal's "Subtitles on, loading", or the track shown.
+fn caption_name(u: &Ui, p: &Player) -> String {
+    if p.options().captions_toggle {
+        let s = p.captions_state();
+        return match (s.on, s.loading, s.name) {
+            (false, ..) => tr(u, "playback-captions-off"),
+            (true, true, _) => tr(u, "playback-captions-loading"),
+            (true, false, Some(n)) => {
+                crate::STRINGS.format(u, "playback-captions-track", &[("track", n.into())])
+            }
+            (true, false, None) => tr(u, "playback-captions-on"),
+        };
+    }
+    let tracks = p.subtitle_tracks();
+    match p.caption_track().and_then(|i| tracks.get(i)) {
+        Some(t) => crate::STRINGS.format(u, "playback-captions-track", &[("track", t.label.as_str().into())]),
+        None => tr(u, "playback-captions-off"),
+    }
 }
 
 /// Off, then each track in turn, then off again.
