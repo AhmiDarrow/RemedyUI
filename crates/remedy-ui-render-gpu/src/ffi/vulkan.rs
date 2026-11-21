@@ -251,6 +251,14 @@ impl VkChain {
             if caps.supported_usage_flags.contains(vk::ImageUsageFlags::TRANSFER_SRC) {
                 usage |= vk::ImageUsageFlags::TRANSFER_SRC;
             }
+            // Frames are drawn upright: the presentation engine rotates them for a rotated
+            // display (as with wgpu's swapchain). The surface's current transform would say
+            // they are already rotated.
+            let transform = if caps.supported_transforms.contains(vk::SurfaceTransformFlagsKHR::IDENTITY) {
+                vk::SurfaceTransformFlagsKHR::IDENTITY
+            } else {
+                caps.current_transform
+            };
             let old = self.raw;
             let info = vk::SwapchainCreateInfoKHR::default()
                 .surface(self.raw_surface)
@@ -261,7 +269,7 @@ impl VkChain {
                 .image_array_layers(1)
                 .image_usage(usage)
                 .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-                .pre_transform(caps.current_transform)
+                .pre_transform(transform)
                 .composite_alpha(alpha)
                 .present_mode(mode)
                 .clipped(true)
