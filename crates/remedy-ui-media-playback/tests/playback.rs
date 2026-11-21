@@ -916,3 +916,109 @@ fn under_reduced_motion_the_next_waits_for_the_person() {
     p.play_next();
     s.wait("the next playing", |_| p.state() == PlaybackState::Playing);
 }
+
+#[test]
+fn speed_runs_the_clock_faster_or_slower_without_a_sound_device() {
+    for (speed, seconds, want) in [(2.0, 2u64, 1.0f64), (0.5, 1, 2.0)] {
+        let mut s = Screen::new();
+        let p = Player::open(
+            &s.ui,
+            Arc::new(Clips),
+            MediaSource::url(format!("script:{seconds}")),
+            PlayerOptions::default(),
+        );
+        s.ui.root().child(player(&s.ui, &p, "Scripted"));
+        s.wait("opened", |_| p.state() == PlaybackState::Paused);
+        p.set_speed(speed);
+        let started = Instant::now();
+        p.play();
+        s.wait("ended", |_| p.state() == PlaybackState::Ended);
+        let took = started.elapsed().as_secs_f64();
+        assert!((want * 0.95..want + 0.6).contains(&took), "{seconds} s at {speed}x took {took} s");
+        assert!(p.stats().frames_shown >= 8, "pictures follow the clock: {:?}", p.stats());
+    }
+}
+
+#[test]
+fn speed_follows_the_sound_device_clock_and_changes_mid_play() {
+    let heard = Arc::new(AtomicU64::new(0));
+    let host =
+        Arc::new(Scripted { heard: heard.clone(), buffer: Duration::from_secs(2), device: true, seconds: 6 });
+    let mut s = Screen::new();
+    let p = Player::open(&s.ui, host, MediaSource::url("script:"), PlayerOptions::default());
+    s.ui.root().child(player(&s.ui, &p, "Scripted"));
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.set_speed(2.0);
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    // Half a second heard at twice the speed is a second of media.
+    heard.store(500, Ordering::SeqCst);
+    s.wait("a second in", |_| near(p.position(), 1.0, 0.03));
+    // Back to normal speed: the sound already with the device plays out at its own speed,
+    // what follows at the new one, and the clock never jumps back.
+    p.set_speed(1.0);
+    let before = p.position();
+    heard.store(1500, Ordering::SeqCst);
+    s.wait("moving on", |_| p.position() > before + Duration::from_millis(200));
+    assert!(p.position() >= before);
+    assert!(p.position() < Duration::from_secs(4), "{:?}", p.position());
+    // Seeking while fast still lands where asked.
+    p.set_speed(1.5);
+    p.seek(Duration::from_secs(3));
+    s.wait("at three seconds", |_| near(p.position(), 3.0, 0.001));
+    assert!(p.stats().audio_frames > 0, "sound reached the device: {:?}", p.stats());
+}
+
+#[test]
+fn the_speed_button_and_keys_step_through_the_speeds() {
+    let mut s = Screen::new();
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:3"), PlayerOptions::default());
+    let view = player(&s.ui, &p, "Scripted");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    let speed =
+        named(&view, "Speed 1×").unwrap_or_else(|| unreachable!("a speed button named for screen readers"));
+    speed.focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert_eq!(p.speed(), 1.25);
+    assert!(named(&view, "Speed 1.25×").is_some(), "its name follows");
+    // > and < from anywhere in the player step up and down; the ends hold.
+    for _ in 0..10 {
+        assert!(s.ui.key(&KeyEvent::press(Key::Character(">".into()))));
+    }
+    assert_eq!(p.speed(), 2.0);
+    assert!(s.ui.key(&KeyEvent::press(Key::Character("<".into()))));
+    assert_eq!(p.speed(), 1.75);
+    // In the window's language (an app's runner also writes the number the locale's way,
+    // 1,75 in German).
+    s.ui.set_locale("de");
+    s.pump();
+    assert!(named(&view, "Tempo 1.75×").or_else(|| named(&view, "Tempo 1,75×")).is_some(), "in German");
+    // Hostile values are bounded.
+    p.set_speed(f64::NAN);
+    assert_eq!(p.speed(), 1.0);
+    p.set_speed(100.0);
+    assert_eq!(p.speed(), MAX_SPEED);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+#[test]
+fn speed_carries_over_to_what_plays_next() {
+    let mut s = Screen::new();
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:1"), PlayerOptions::default());
+    s.ui.root().child(player(&s.ui, &p, "Scripted"));
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.set_speed(2.0);
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:2"), "Two")));
+    p.play_next();
+    s.wait("the next playing", |_| {
+        p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(2))
+    });
+    let started = Instant::now();
+    s.wait("ended", |_| p.state() == PlaybackState::Ended);
+    let took = started.elapsed().as_secs_f64();
+    assert_eq!(p.speed(), 2.0);
+    assert!(took < 1.6, "two seconds at 2x took {took} s");
+}
