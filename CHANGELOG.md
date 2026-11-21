@@ -10,6 +10,22 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **A next made later** (`NextUp::later(title)`), for an app whose server makes the next
+  episode's stream only when it is due, as Portal's does. At the end (after the countdown, at
+  once with a zero `next_up_delay`), on Play now, Shift+N (N) or `play_next`, the player asks
+  `Player::on_next_needed`, pauses, and shows "Starting <title>" over the picture (with the
+  app's `next_status` detail, announced as an alert; the bar disabled, play and seeks doing
+  nothing); the app answers with `start_next(source, timeline)` (volume, speed, the embedded
+  caption choice and delay carry over), `next_failed(message)` (shown; the current media
+  stays usable and Play now tries again) or `cancel_next()`. Never asked while remote. A TV
+  that starts its next by itself says so with `RemoteStatus::starting_next(title)`: the
+  casting stage reads "Starting <title> on <device>", the bar waits and the time is blank,
+  and `Player::set_remote_poster` changes the poster without leaving remote mode.
+  `Player::offer_cancel(true)` shows a Cancel button under the spinner in the middle of the
+  picture while the next starts or a skip runs (as Portal's page does when the add-on says
+  its work may be stopped); pressing it calls `Player::on_cancel`, disables it and says
+  "Canceling." until the app ends the work.
+
 - **The "Up next" card can show before the end** (`PlayerOptions::next_up_lead`), as on
   Portal's page: the last N seconds of media over a minute long, in film time on a timeline;
   Cancel puts it away for that next, and while casting no card shows (the TV moves on by
@@ -623,6 +639,9 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `set_symbol_fallbacks` and `DEFAULT_SYMBOL_FALLBACKS`.
 
 ### Changed
+
+- `NextUp::source` is now `Option<MediaSource>` (`None` for `NextUp::later`), and
+  `RemoteStatus` has a `next` field: a struct literal adds `next: None`.
 
 - **No patched crates.** wgpu is crates.io's 30.0.2 again (the fork is gone), and vello_cpu
   with RemedyUI's fix is its own crate, `remedy-vello-cpu`, which `render-cpu` depends on. The

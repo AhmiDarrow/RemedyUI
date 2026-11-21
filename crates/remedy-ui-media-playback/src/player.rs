@@ -109,8 +109,9 @@ impl Timeline {
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct NextUp {
-    /// The media.
-    pub source: MediaSource,
+    /// The media; `None` when the app makes it only once it is time to play it
+    /// ([`NextUp::later`]).
+    pub source: Option<MediaSource>,
     /// What to call it ("Episode 4: The Long Night"), shown and read out.
     pub title: String,
     /// Its timeline, if it is a stream of a longer work; none by default.
@@ -120,7 +121,15 @@ pub struct NextUp {
 impl NextUp {
     /// `source`, called `title`.
     pub fn new(source: MediaSource, title: impl Into<String>) -> Self {
-        NextUp { source, title: title.into(), timeline: None }
+        NextUp { source: Some(source), title: title.into(), timeline: None }
+    }
+
+    /// Something called `title` whose source the app makes only when it is time to play it,
+    /// as a media server starts a play job for the next episode (Portal's page): the player
+    /// asks with [`Player::on_next_needed`] and the app answers with
+    /// [`Player::start_next`] or [`Player::next_failed`].
+    pub fn later(title: impl Into<String>) -> Self {
+        NextUp { source: None, title: title.into(), timeline: None }
     }
 
     /// Plays it on `timeline`.
@@ -196,6 +205,9 @@ pub struct RemoteStatus {
     pub volume: f32,
     /// Whether it is muted.
     pub muted: bool,
+    /// The title of what the device starts next by itself (a media server's autoplay), while
+    /// it starts it: the casting stage says so and the seek bar waits.
+    pub next: Option<String>,
 }
 
 impl RemoteStatus {
@@ -220,6 +232,12 @@ impl RemoteStatus {
     /// Sets `muted`.
     pub fn muted(mut self, value: bool) -> Self {
         self.muted = value;
+        self
+    }
+
+    /// Sets `next`: the device is starting `title` by itself.
+    pub fn starting_next(mut self, title: impl Into<String>) -> Self {
+        self.next = Some(title.into());
         self
     }
 }
@@ -292,6 +310,7 @@ impl Default for RemoteStatus {
             length: None,
             volume: 1.0,
             muted: false,
+            next: None,
         }
     }
 }
@@ -384,6 +403,10 @@ type FullscreenHandler = Rc<dyn Fn(bool)>;
 type CastHandler = Rc<dyn Fn(&El)>;
 /// Hears a seek outside what the stream holds.
 type SeekOutsideHandler = Rc<dyn Fn(Duration)>;
+/// Hears that a next made later is due.
+type NextNeededHandler = Rc<dyn Fn(&NextUp)>;
+/// Hears Cancel pressed while the app works.
+type CancelHandler = Rc<dyn Fn()>;
 
 struct Inner {
     id: u64,
@@ -448,6 +471,18 @@ struct Inner {
     play_on_open: Cell<bool>,
     /// The person stopped the countdown: it does not start again at this end.
     declined: Cell<bool>,
+    /// The title of a next made later, while the app makes it, and what the app says it is
+    /// doing.
+    starting: Signal<Option<String>>,
+    starting_detail: Signal<Option<String>>,
+    /// Why the app could not make the next, until something else happens.
+    next_error: Signal<Option<String>>,
+    next_needed_handlers: RefCell<Vec<NextNeededHandler>>,
+    /// The app can stop its work (starting the next, or a skip) now: Cancel shows.
+    cancel_offered: Signal<bool>,
+    /// Cancel was pressed: the app is stopping its work.
+    canceling: Signal<bool>,
+    cancel_handlers: RefCell<Vec<CancelHandler>>,
     /// What the engine was told, to tell the next one: the picture's sink and whether it is
     /// seen.
     sink: RefCell<Option<VideoSink>>,
@@ -520,6 +555,7 @@ impl Inner {
     fn count_down(&self) {
         if self.deadline.get().is_some()
             || self.declined.get()
+            || self.is_starting()
             || self.queue.with_untracked(Vec::is_empty).unwrap_or(true)
         {
             return;
@@ -568,17 +604,48 @@ impl Inner {
         self.countdown.set_if_changed(None);
     }
 
-    /// Plays what is next, in this player, taking it off the queue.
+    /// Plays what is next, in this player, taking it off the queue; a next made later is
+    /// asked of the app instead, and stays queued until it comes.
     fn advance(&self) {
         self.stop_countdown();
-        if self.queue.with_untracked(Vec::is_empty).unwrap_or(true) {
+        if self.is_starting() {
+            return;
+        }
+        let Some(next) = self.queue.with_untracked(|q| q.first().cloned()).ok().flatten() else { return };
+        if next.source.is_none() {
+            let handlers = self.next_needed_handlers.borrow().clone();
+            // While remote the device moves on by itself.
+            if handlers.is_empty() || self.remote.with_untracked(Option::is_some).unwrap_or(false) {
+                return;
+            }
+            remedy_ui_reactive::batch(|| {
+                self.next_error.set_if_changed(None);
+                self.starting_detail.set_if_changed(None);
+                self.end_cancel();
+                self.starting.set(Some(next.title.clone()));
+            });
+            // As Portal's page leaves the old episode: nothing plays while the next starts.
+            self.send(Cmd::Pause);
+            for h in handlers {
+                h(&next);
+            }
             return;
         }
         let mut next = None;
         self.queue.update(|q| next = Some(q.remove(0)));
-        if let Some(next) = next {
-            self.load(next.source, next.timeline, false);
+        if let Some(NextUp { source: Some(source), timeline, .. }) = next {
+            self.load(source, timeline, false, false);
         }
+    }
+
+    /// The app's work ended (or a new one began): no Cancel until it offers one again.
+    fn end_cancel(&self) {
+        self.cancel_offered.set_if_changed(false);
+        self.canceling.set_if_changed(false);
+    }
+
+    fn is_starting(&self) -> bool {
+        self.starting.with_untracked(Option::is_some).unwrap_or(false)
     }
 
     /// Moves a playing device's shown position on in a while, and again after, until news
@@ -635,16 +702,17 @@ impl Inner {
     /// mode): a new engine, every signal about the media back to its start, the player's own
     /// settings (volume, picture, seen) carried over. `same_work` keeps the tracks the app
     /// added, the caption choice and its delay: the new source is more of the same work.
-    fn load(&self, source: MediaSource, timeline: Option<Timeline>, same_work: bool) {
+    /// `choice` keeps the choice of an embedded track (by its order) and the delay alone.
+    fn load(&self, source: MediaSource, timeline: Option<Timeline>, same_work: bool, choice: bool) {
         // The app's tracks (on the work's timeline) stay; the old source's embedded ones go.
         let mut kept = (Vec::new(), None, None, 0);
-        if same_work {
+        if same_work || choice {
             let embedded = self.embedded.borrow().clone();
             let chosen = self.caption.get_untracked().ok().flatten();
             for (i, t) in self.tracks.get_untracked().unwrap_or_default().into_iter().enumerate() {
                 if let Some(k) = embedded.iter().position(|&e| e == i) {
                     kept.2 = kept.2.or((chosen == Some(i)).then_some(k));
-                } else {
+                } else if same_work {
                     kept.1 = kept.1.or((chosen == Some(i)).then_some(kept.0.len()));
                     kept.0.push(t);
                 }
@@ -681,6 +749,10 @@ impl Inner {
             self.caption_delay.set(delay);
             self.timeline.set(timeline);
             self.skipping.set(None);
+            self.starting.set_if_changed(None);
+            self.starting_detail.set_if_changed(None);
+            self.next_error.set_if_changed(None);
+            self.end_cancel();
         });
         self.embedded.borrow_mut().clear();
         self.play_on_open.set(self.remote.with_untracked(Option::is_none).unwrap_or(true));
@@ -831,6 +903,13 @@ impl Player {
             deadline: Cell::new(None),
             play_on_open: Cell::new(false),
             declined: Cell::new(false),
+            starting: Signal::new(None),
+            starting_detail: Signal::new(None),
+            next_error: Signal::new(None),
+            next_needed_handlers: RefCell::new(Vec::new()),
+            cancel_offered: Signal::new(false),
+            canceling: Signal::new(false),
+            cancel_handlers: RefCell::new(Vec::new()),
             sink: RefCell::new(None),
             visible: Cell::new(true),
             options,
@@ -896,7 +975,52 @@ impl Player {
     /// presses made meanwhile; the current stream stays, paused.
     pub fn cancel_skip(&self) {
         self.0.queued_skip.set(None);
+        self.0.end_cancel();
         self.0.skipping.set_if_changed(None);
+    }
+
+    /// Offers a Cancel button (or takes it away) while the app works on
+    /// [starting the next](Self::starting_next) or a [skip](Self::skipping), when that work
+    /// can be stopped now: as Portal's page does while the add-on, which says whether it may
+    /// be stopped, finds sources. It shows under the spinner in the middle of the picture,
+    /// in the tab order; pressing it calls [`on_cancel`](Self::on_cancel), disables it and
+    /// says "Canceling." until the app ends the work ([`cancel_next`](Self::cancel_next),
+    /// [`next_failed`](Self::next_failed), [`cancel_skip`](Self::cancel_skip) or a new
+    /// source). Each new start or skip begins without one.
+    pub fn offer_cancel(&self, on: bool) {
+        self.0.cancel_offered.set_if_changed(on);
+    }
+
+    /// Calls `f` when Cancel ([`offer_cancel`](Self::offer_cancel)) is pressed: the app stops
+    /// its server's work (Portal answers the add-on's prompt with cancel) and then ends it
+    /// here. [`starting_next`](Self::starting_next) and [`skipping`](Self::skipping) say
+    /// which work it was.
+    pub fn on_cancel(&self, f: impl Fn() + 'static) {
+        self.0.cancel_handlers.borrow_mut().push(Rc::new(f));
+    }
+
+    /// Whether Cancel shows: offered, while starting the next or skipping here. Tracked.
+    pub(crate) fn cancel_shown(&self) -> bool {
+        self.0.cancel_offered.get()
+            && !self.is_remote()
+            && (self.0.starting.with(Option::is_some) || self.0.skipping.with(Option::is_some))
+    }
+
+    /// Whether Cancel was pressed and the app is stopping its work. Tracked.
+    pub(crate) fn canceling(&self) -> bool {
+        self.0.canceling.get()
+    }
+
+    /// Cancel was pressed.
+    pub(crate) fn press_cancel(&self) {
+        if self.0.canceling.get_untracked().unwrap_or(false) {
+            return;
+        }
+        self.0.canceling.set(true);
+        let handlers = self.0.cancel_handlers.borrow().clone();
+        for h in handlers {
+            h();
+        }
     }
 
     /// Plays `source` in place of the current stream, on `timeline`: a stream of the same
@@ -907,7 +1031,7 @@ impl Player {
     pub fn replace_source(&self, source: MediaSource, timeline: Timeline) {
         let queued = self.0.queued_skip.take();
         let target = self.0.skipping.get_untracked().ok().flatten();
-        self.0.load(source, Some(timeline), true);
+        self.0.load(source, Some(timeline), true, false);
         if let (Some(q), Some(t)) = (queued, target) {
             self.seek(Duration::try_from_secs_f64((t.as_secs_f64() + q).max(0.0)).unwrap_or_default());
         }
@@ -954,7 +1078,12 @@ impl Player {
                 self.0.remote_status.update(|s| s.state = PlaybackState::Playing);
                 self.0.anchor_remote();
             }
-            None => self.0.send(Cmd::Play),
+            // The next is starting: nothing here to play.
+            None if self.0.is_starting() => {}
+            None => {
+                self.0.next_error.set_if_changed(None);
+                self.0.send(Cmd::Play);
+            }
         }
     }
 
@@ -989,7 +1118,7 @@ impl Player {
     /// On a [timeline](Self::set_timeline), `to` is in the work's time, taken in whole
     /// seconds within its length: inside what the stream can play now it moves there in
     /// place; outside, it goes to [`on_seek_outside`](Self::on_seek_outside). While
-    /// [skipping](Self::skipping) it does nothing.
+    /// [skipping](Self::skipping) or [starting the next](Self::starting_next) it does nothing.
     pub fn seek(&self, to: Duration) {
         let timeline = self.0.timeline.get_untracked().ok().flatten();
         let length = remedy_ui_reactive::untrack(|| self.duration());
@@ -1000,6 +1129,9 @@ impl Player {
             self.0.remote_status.update(|s| s.position = to);
             self.0.remote_seek.set(Some((to, remedy_ui_core::time::Instant::now())));
             self.0.anchor_remote();
+            return;
+        }
+        if self.0.is_starting() {
             return;
         }
         let Some(timeline) = timeline else { return self.seek_stream(to) };
@@ -1016,6 +1148,7 @@ impl Player {
             }
             _ => {
                 self.0.queued_skip.set(None);
+                self.0.end_cancel();
                 self.0.skipping.set(Some(to));
                 self.0.send(Cmd::Pause);
                 let handlers = self.0.seek_outside_handlers.borrow().clone();
@@ -1362,6 +1495,18 @@ impl Player {
         self.0.schedule_remote_tick();
     }
 
+    /// Shows `poster` on the casting stage in place of the remote's (the device moved on to
+    /// other media), staying in remote mode. Nothing outside it.
+    pub fn set_remote_poster(&self, poster: Option<El>) {
+        if self.is_remote_untracked() {
+            self.0.remote.update(|r| {
+                if let Some(r) = r {
+                    r.poster = poster;
+                }
+            });
+        }
+    }
+
     /// The device's name, in remote mode. Tracked.
     pub fn remote_name(&self) -> Option<String> {
         self.0.remote.with(|r| r.as_ref().map(|r| r.name.clone()))
@@ -1472,13 +1617,95 @@ impl Player {
 
     /// Plays the next media now, in this player, taking it off the queue (nothing when the
     /// queue is empty): the current one stops, and every signal about the media starts over
-    /// with the next.
+    /// with the next. A next made [later](NextUp::later) is asked of the app instead
+    /// ([`on_next_needed`](Self::on_next_needed)).
     /// In remote mode, the device is told ([`RemoteControl::next`]) and the app decides.
     pub fn play_next(&self) {
         match self.control() {
             Some(c) => c.next(),
             None => self.0.advance(),
         }
+    }
+
+    /// Calls `f` with next up when it is time to play a next made [later](NextUp::later): at
+    /// the end once the countdown is up (at once with a zero
+    /// [`next_up_delay`](PlayerOptions::next_up_delay)), or on Play now, Shift+N (N) or
+    /// [`play_next`](Self::play_next); never in remote mode, where the device moves on by
+    /// itself. The current media pauses and the player shows it is
+    /// [starting the next](Self::starting_next) ("Starting Episode 2" over the picture,
+    /// announced; the seek bar disabled; play and seeks do nothing) while the app makes it,
+    /// then hands it over with [`start_next`](Self::start_next), or says why not with
+    /// [`next_failed`](Self::next_failed), or gives up with
+    /// [`cancel_next`](Self::cancel_next). With no app listening, such a next never plays.
+    pub fn on_next_needed(&self, f: impl Fn(&NextUp) + 'static) {
+        self.0.next_needed_handlers.borrow_mut().push(Rc::new(f));
+    }
+
+    /// The title of the next while the app makes it ([`on_next_needed`](Self::on_next_needed));
+    /// in remote mode, while the device starts it by itself ([`RemoteStatus::next`]).
+    /// Tracked.
+    pub fn starting_next(&self) -> Option<String> {
+        match self.is_remote() {
+            true => self.0.remote_status.with(|s| s.next.clone()),
+            false => self.0.starting.get(),
+        }
+    }
+
+    /// What the app is doing to start the next, shown and announced under "Starting …"
+    /// ("Asking the add-on to play this."); `None` clears it. Only while
+    /// [starting the next](Self::starting_next).
+    pub fn next_status(&self, detail: Option<String>) {
+        if self.0.is_starting() {
+            self.0.starting_detail.set_if_changed(detail);
+        }
+    }
+
+    /// What the app says it is doing to start the next. Tracked.
+    pub(crate) fn starting_detail(&self) -> Option<String> {
+        self.0.starting_detail.get()
+    }
+
+    /// What the app says went wrong making the next ([`next_failed`](Self::next_failed)),
+    /// until play is pressed or other media opens. Tracked.
+    pub fn next_error(&self) -> Option<String> {
+        self.0.next_error.get()
+    }
+
+    /// Plays `source` (on `timeline`, if a stream of a longer work) as the next: next up comes
+    /// off the queue if it was made [later](NextUp::later), and it plays once open (unless
+    /// remote). Volume, speed, the choice of an embedded caption track (by its order) and the
+    /// caption delay carry over; tracks the app added belonged to the old media and go.
+    pub fn start_next(&self, source: MediaSource, timeline: Option<Timeline>) {
+        if self.0.queue.with_untracked(|q| q.first().is_some_and(|n| n.source.is_none())).unwrap_or(false) {
+            self.0.queue.update(|q| {
+                q.remove(0);
+            });
+        }
+        self.0.load(source, timeline, false, true);
+    }
+
+    /// The app could not make the next: `message` shows over the picture and is announced;
+    /// the current media stays (paused, or ended), next up stays queued for Play now to try
+    /// again, and the end does not ask again by itself.
+    pub fn next_failed(&self, message: impl Into<String>) {
+        self.0.declined.set(true);
+        remedy_ui_reactive::batch(|| {
+            self.0.end_cancel();
+            self.0.starting.set_if_changed(None);
+            self.0.starting_detail.set_if_changed(None);
+            self.0.next_error.set(Some(message.into()));
+        });
+    }
+
+    /// Stops starting the next (the person or the app gave up): the current media stays,
+    /// paused or ended, next up stays queued, and the end does not ask again by itself.
+    pub fn cancel_next(&self) {
+        self.0.declined.set(true);
+        remedy_ui_reactive::batch(|| {
+            self.0.end_cancel();
+            self.0.starting.set_if_changed(None);
+            self.0.starting_detail.set_if_changed(None);
+        });
     }
 }
 

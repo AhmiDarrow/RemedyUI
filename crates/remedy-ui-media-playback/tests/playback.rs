@@ -1383,6 +1383,7 @@ fn casting_hands_every_control_to_the_remote_and_back() {
         length: Some(Duration::from_secs(100)),
         volume: 0.5,
         muted: false,
+        next: None,
     };
     p.set_remote_status(status.clone());
     s.pump();
@@ -2266,4 +2267,270 @@ fn while_casting_portals_way_shows_no_card_and_the_default_still_does_at_the_end
     p.set_remote(Some(Remote::new("The Ris", Tv(Arc::new(Mutex::new(Vec::new()))))));
     p.set_remote_status(RemoteStatus::new(PlaybackState::Ended, at(70)).length(at(70)));
     s.wait("the card at the TV's end", |_| card_shown(&view));
+}
+
+/// Portal's way with a next made later: the card 20 s before the end, the next asked of the
+/// app at once at the end (with `delay` zero), and what it was asked for.
+fn portal_later(s: &mut Screen, delay: Option<Duration>) -> (Player, El, Arc<Mutex<Vec<String>>>) {
+    let options = PlayerOptions::default()
+        .next_up_lead(Some(Duration::from_secs(20)))
+        .next_up_delay(delay)
+        .timeline(Timeline::new(Duration::from_secs(30)).length(Duration::from_secs(100)));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:70"), options);
+    let view = player(&s.ui, &p, "Episode 1");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let a = asked.clone();
+    p.on_next_needed(move |n| a.lock().unwrap_or_else(|e| e.into_inner()).push(n.title.clone()));
+    p.set_next_up(Some(NextUp::later("Episode 2")));
+    (p, view, asked)
+}
+
+/// The text over the picture, which screen readers hear as an alert.
+fn alert(view: &El) -> Option<String> {
+    find(view, "player_caption").iter().find_map(|c| {
+        let i = c.info().filter(|i| !i.hidden)?;
+        let alert = i.semantics.is_some_and(|s| s.role() == remedy_ui_a11y::Role::Alert);
+        i.text.filter(|_| alert).map(|t| plain(&t))
+    })
+}
+
+#[test]
+fn a_next_made_later_is_asked_for_at_the_end_and_plays_on_its_own_timeline() {
+    let mut s = Screen::new();
+    let (p, view, asked) = portal_later(&mut s, Some(Duration::ZERO));
+    let asked_for = || asked.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    p.set_volume(0.3);
+    p.set_caption_delay(400);
+    p.seek(Duration::from_secs(85));
+    s.wait("the card, 15 s before the end", |_| card_shown(&view));
+    assert!(asked_for().is_empty(), "nothing is started early");
+    p.seek(Duration::from_millis(99_000));
+    p.play();
+    s.wait("asked at the end", |_| !asked_for().is_empty());
+    s.idle(100);
+    assert_eq!(asked_for(), ["Episode 2"], "once");
+    assert_eq!(p.starting_next().as_deref(), Some("Episode 2"));
+    assert!(!card_shown(&view), "the stage says it in place of the card");
+    assert!(seek_disabled(&view));
+    p.next_status(Some("Asking the add-on to play this.".into()));
+    s.idle(30);
+    assert_eq!(alert(&view).as_deref(), Some("Starting Episode 2\nAsking the add-on to play this."));
+    // Meanwhile play and seeks do nothing.
+    p.play();
+    p.seek(Duration::from_secs(40));
+    s.idle(50);
+    assert_eq!(p.state(), PlaybackState::Ended);
+    // The app's stream of episode 2, from its resume point.
+    let t = Timeline::new(Duration::from_secs(10)).length(Duration::from_secs(50));
+    p.start_next(MediaSource::url("script:20"), Some(t));
+    assert_eq!(p.starting_next(), None);
+    assert_eq!(p.next_up(), None, "it came off the queue");
+    s.wait("episode 2 playing", |_| p.state() == PlaybackState::Playing);
+    assert_eq!(p.timeline(), Some(t));
+    assert_eq!(p.duration(), Some(Duration::from_secs(50)));
+    assert!(p.position() >= Duration::from_secs(10));
+    assert_eq!((p.volume(), p.caption_delay()), (0.3, 400));
+    assert_eq!(alert(&view), None);
+    assert!(!seek_disabled(&view));
+    assert_eq!(asked_for(), ["Episode 2"]);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+#[test]
+fn play_now_on_the_early_card_asks_and_a_failure_leaves_the_player_usable() {
+    let mut s = Screen::new();
+    let (p, view, asked) = portal_later(&mut s, Some(Duration::ZERO));
+    let asked_for = || asked.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    p.seek(Duration::from_secs(85));
+    p.play();
+    s.wait("the card", |_| card_shown(&view));
+    named(&view, "Play now").unwrap_or_else(|| unreachable!("Play now")).focus();
+    assert!(press(&s.ui, Key::Enter));
+    assert_eq!(asked_for(), ["Episode 2"]);
+    s.wait("paused while it starts", |_| p.state() == PlaybackState::Paused);
+    // Shift+N meanwhile asks nothing more.
+    letter(&s.ui, "N", true);
+    assert_eq!(asked_for(), ["Episode 2"]);
+    p.next_failed("No playable stream was found.");
+    s.idle(30);
+    assert_eq!(p.starting_next(), None);
+    assert_eq!(alert(&view).as_deref(), Some("No playable stream was found."));
+    assert!(!seek_disabled(&view), "usable again");
+    assert!(card_shown(&view), "Play now can try again");
+    p.play();
+    s.wait("episode 1 plays on", |_| p.state() == PlaybackState::Playing);
+    assert_eq!(alert(&view), None, "play clears the message");
+    // Again, and the app (or the person, through it) gives up.
+    p.play_next();
+    assert_eq!(asked_for(), ["Episode 2", "Episode 2"]);
+    p.cancel_next();
+    assert_eq!(p.starting_next(), None);
+    assert_eq!(p.next_up().map(|n| n.title), Some("Episode 2".into()), "still next");
+    p.seek(Duration::from_secs(90));
+    s.wait("seeks again", |_| p.position() == Duration::from_secs(90));
+}
+
+#[test]
+fn with_autoplay_off_the_end_asks_nothing_and_play_now_does() {
+    let mut s = Screen::new();
+    let (p, view, asked) = portal_later(&mut s, None);
+    let asked_for = || asked.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    p.seek(Duration::from_millis(99_500));
+    p.play();
+    s.wait("ended", |_| p.state() == PlaybackState::Ended);
+    s.idle(100);
+    assert!(asked_for().is_empty());
+    assert!(card_shown(&view));
+    named(&view, "Play now").unwrap_or_else(|| unreachable!("Play now")).focus();
+    assert!(press(&s.ui, Key::Enter));
+    assert_eq!(asked_for(), ["Episode 2"]);
+}
+
+#[test]
+fn while_casting_a_next_made_later_is_never_asked_for() {
+    let mut s = Screen::new();
+    let (p, _view, asked) = portal_later(&mut s, Some(Duration::ZERO));
+    let log = Arc::new(Mutex::new(Vec::new()));
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    let at = Duration::from_secs;
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Ended, at(100)).length(at(100)));
+    p.play_next();
+    s.idle(50);
+    assert!(asked.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
+    assert_eq!(p.starting_next(), None);
+    assert_eq!(*log.lock().unwrap_or_else(|e| e.into_inner()), ["next"], "the device is told");
+}
+
+#[test]
+fn a_tv_starting_its_next_by_itself_says_so_then_switches_to_the_new_job_at_once() {
+    let mut s = Screen::new();
+    let at = Duration::from_secs;
+    let options = PlayerOptions::default()
+        .next_up_lead(Some(at(20)))
+        .next_up_delay(Some(Duration::ZERO))
+        .timeline(Timeline::new(at(0)).length(at(2500)));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:70"), options);
+    let view = player(&s.ui, &p, "S4E1");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    let visible = |v: &El, name: &str| named(v, name).and_then(|b| b.info()).is_some_and(|i| !i.hidden);
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let old_art = s.ui.el("label").text("Season 4 episode 1");
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone())).poster(old_art)));
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Ended, at(2500)).length(at(2500)));
+    s.pump();
+    assert!(visible(&view, "Finished on The Ris"));
+    // Portal's device state "next": position 0, no length, the next's title.
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Opening, at(0)).starting_next("4x02. Switchback"));
+    s.pump();
+    assert!(announced(&view, "Starting 4x02. Switchback on The Ris"), "the stage says it, politely");
+    assert_eq!(p.starting_next().as_deref(), Some("4x02. Switchback"));
+    assert!(seek_disabled(&view), "the bar waits");
+    assert!(
+        !texts(&view, "label").iter().any(|t| t.contains(" / ")),
+        "no 0:00 / 0:00: {:?}",
+        texts(&view, "label")
+    );
+    assert!(!card_shown(&view));
+    // The app adopts the new job while still remote: its timeline, its poster, then the TV
+    // playing from 0.
+    let new_art = s.ui.el("label").text("Season 4 episode 2");
+    p.set_timeline(Some(Timeline::new(at(0)).length(at(2497))));
+    p.set_remote_poster(Some(new_art.clone()));
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Playing, at(0)).length(at(2497)));
+    s.pump();
+    assert!(p.is_remote());
+    assert_eq!((p.position(), p.duration()), (at(0), Some(at(2497))));
+    assert!(texts(&view, "label").iter().any(|t| t == "0:00 / 41:37"), "{:?}", texts(&view, "label"));
+    assert!(!seek_disabled(&view));
+    assert!(visible(&view, "Playing on The Ris"));
+    let on_stage =
+        find(&view, "player_poster").iter().flat_map(El::child_elements).map(|e| e.id()).collect::<Vec<_>>();
+    assert_eq!(on_stage, [new_art.id()], "the new poster");
+    s.idle(400);
+    assert!(p.position() < at(2), "moves on from 0, never back to the old job's numbers");
+    assert!(log.lock().unwrap_or_else(|e| e.into_inner()).is_empty(), "the TV was told nothing");
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+/// The Cancel button in the middle of the picture (not the Up next card's).
+fn stage_cancel(view: &El) -> Option<El> {
+    find(view, "player_busy_center").first().and_then(|c| named(c, "Cancel"))
+}
+
+fn shown_enabled(e: &El) -> (bool, bool) {
+    e.info().map_or((false, false), |i| (!i.hidden, !i.states.contains(remedy_ui_style::States::DISABLED)))
+}
+
+#[test]
+fn cancel_while_the_next_starts_asks_the_app_which_ends_it_as_portal_does() {
+    let mut s = Screen::new();
+    let (p, view, _asked) = portal_later(&mut s, Some(Duration::ZERO));
+    let cancels = Arc::new(Mutex::new(Vec::new()));
+    let (c, q) = (cancels.clone(), p.clone());
+    p.on_cancel(move || c.lock().unwrap_or_else(|e| e.into_inner()).push(q.starting_next()));
+    let cancel = stage_cancel(&view).unwrap_or_else(|| unreachable!("a stage Cancel"));
+    p.seek(Duration::from_secs(85));
+    p.play();
+    s.wait("the card", |_| card_shown(&view));
+    p.play_next();
+    s.pump();
+    assert!(!shown_enabled(&cancel).0, "not until the app says its work can stop");
+    // The add-on finds sources, and says it may be stopped.
+    p.next_status(Some("The add-on is finding sources.".into()));
+    p.offer_cancel(true);
+    s.pump();
+    assert_eq!(shown_enabled(&cancel), (true, true));
+    assert_eq!(alert(&view).as_deref(), Some("Starting Episode 2\nThe add-on is finding sources."));
+    cancel.focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert_eq!(*cancels.lock().unwrap_or_else(|e| e.into_inner()), [Some("Episode 2".to_string())]);
+    assert_eq!(shown_enabled(&cancel), (true, false), "disabled once pressed");
+    assert_eq!(alert(&view).as_deref(), Some("Starting Episode 2\nCanceling."), "announced");
+    let _ = press(&s.ui, Key::Enter);
+    s.pump();
+    assert_eq!(cancels.lock().unwrap_or_else(|e| e.into_inner()).len(), 1, "a second press does nothing");
+    // The add-on stopped: the job failed, as Portal's poll then hears.
+    p.next_failed("Canceled. Press Play to try again.");
+    s.pump();
+    assert!(!shown_enabled(&cancel).0);
+    assert_eq!(alert(&view).as_deref(), Some("Canceled. Press Play to try again."));
+    assert!(!seek_disabled(&view));
+    // A new start begins without Cancel.
+    p.play_next();
+    s.pump();
+    assert!(!shown_enabled(&cancel).0);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+#[test]
+fn cancel_while_skipping_asks_the_app_which_keeps_the_stream() {
+    let mut s = Screen::new();
+    let (p, view, asked) = film(&mut s);
+    let cancels = Arc::new(Mutex::new(Vec::new()));
+    let (c, q) = (cancels.clone(), p.clone());
+    p.on_cancel(move || c.lock().unwrap_or_else(|e| e.into_inner()).push(q.skipping()));
+    let cancel = stage_cancel(&view).unwrap_or_else(|| unreachable!("a stage Cancel"));
+    p.seek(Duration::from_secs(100));
+    assert_eq!(*asked.lock().unwrap_or_else(|e| e.into_inner()), [100]);
+    p.offer_cancel(true);
+    s.pump();
+    assert_eq!(shown_enabled(&cancel), (true, true));
+    cancel.focus();
+    assert!(press(&s.ui, Key::Space));
+    s.pump();
+    assert_eq!(*cancels.lock().unwrap_or_else(|e| e.into_inner()), [Some(Duration::from_secs(100))]);
+    assert_eq!(alert(&view).as_deref(), Some("Skipping to 1:40\nCanceling."));
+    p.cancel_skip();
+    s.pump();
+    assert_eq!(p.skipping(), None);
+    assert!(!shown_enabled(&cancel).0);
+    assert_eq!(alert(&view), None);
+    assert!(!seek_disabled(&view), "the current stream stays, usable");
 }

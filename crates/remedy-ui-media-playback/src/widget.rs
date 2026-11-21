@@ -154,6 +154,11 @@ fn nudge_volume(p: &Player, up: bool) {
 /// remote mode the full-screen and theater buttons are disabled and F, T and a double-click
 /// do nothing, except to leave full screen or theater mode when casting started in it.
 ///
+/// While the app makes a next made [later](crate::NextUp::later) ("Starting …" over the
+/// picture, as an alert), or a device starts its next by itself, the seek bar is disabled
+/// and the time blank. While starting the next or skipping, a Cancel button shows under the
+/// spinner when the app offers one ([`Player::offer_cancel`]); Escape does not press it.
+///
 /// Sound-only media shows the transport bar alone. Media with pictures pauses while the
 /// player is unseen (see [`UnseenPolicy`](crate::UnseenPolicy)), and does not start by itself
 /// under reduced motion.
@@ -206,9 +211,32 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         let text = match (p.state(), p.skipping()) {
             (PlaybackState::Failed, _) if !p.is_remote() => Some(failure(&mu.locale(), p.error())),
             (_, Some(at)) if !p.is_remote() => {
-                Some(crate::STRINGS.format(&mu, "playback-skipping", &[("position", format_time(at).into())]))
+                let head =
+                    crate::STRINGS.format(&mu, "playback-skipping", &[("position", format_time(at).into())]);
+                Some(match p.canceling() {
+                    true => format!("{head}\n{}", tr(&mu, "playback-canceling")),
+                    false => head,
+                })
             }
-            _ => None,
+            // The next, while the app makes it, as Portal's page says it: the title, then
+            // what the app is doing.
+            _ if p.is_remote() => None,
+            _ => match p.starting_next() {
+                Some(title) => {
+                    let head =
+                        crate::STRINGS.format(&mu, "playback-starting-next", &[("title", title.into())]);
+                    // As Portal's page: once Cancel is pressed, that is what it is doing.
+                    let detail = match p.canceling() {
+                        true => Some(tr(&mu, "playback-canceling")),
+                        false => p.starting_detail(),
+                    };
+                    Some(match detail {
+                        Some(d) => format!("{head}\n{d}"),
+                        None => head,
+                    })
+                }
+                None => p.next_error(),
+            },
         };
         let _ = msg.clone().hidden(text.is_none());
         let _ = msg.clone().text(remedy_ui_view::RichText::plain(text.unwrap_or_default()));
@@ -224,10 +252,18 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: 0.0 };
         })
         .pass_through()
-        .child(w::spinner(ui, {
-            let u = ui.clone();
-            move || tr(&u, "playback-loading")
-        }));
+        .child(
+            ui.el("player_busy_center")
+                .column()
+                .align(Align::Center)
+                .gap(u * 1.5)
+                .pass_through()
+                .child(w::spinner(ui, {
+                    let u = ui.clone();
+                    move || tr(&u, "playback-loading")
+                }))
+                .child(stage_cancel(ui, player)),
+        );
     let cast = cast_stage(ui, player);
     let p = player.clone();
     // The picture fills the stage (letterboxed by the surface); the rest sits over it.
@@ -275,11 +311,14 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     let stage = stage.bind(move || {
         let state = p.state();
         let remote = p.is_remote();
-        let _ = busy.clone().hidden(!matches!(state, PlaybackState::Opening | PlaybackState::Buffering));
+        let waiting = matches!(state, PlaybackState::Opening | PlaybackState::Buffering);
+        let working = p.starting_next().is_some() || (p.skipping().is_some() && !remote);
+        let _ = busy.clone().hidden(!waiting && !working);
         let _ = surface.clone().hidden(remote);
         // Sound alone needs no picture; what failed to open shows its message there.
         let pictures = p.info().is_none_or(|i| i.video.is_some());
-        let _ = st.clone().hidden(!pictures && state != PlaybackState::Failed && !remote);
+        let said = p.starting_next().is_some() || p.next_error().is_some();
+        let _ = st.clone().hidden(!pictures && state != PlaybackState::Failed && !remote && !said);
     });
 
     // The transport bar.
@@ -303,6 +342,11 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     );
     let (p, tu) = (player.clone(), ui.clone());
     let time = ui.el("label").nowrap().layout(|l| l.shrink = 0.0).text(move || {
+        // Starting the next, the old media's numbers no longer hold and the new one's are
+        // not known yet.
+        if p.starting_next().is_some() {
+            return String::new();
+        }
         let pos = format_time(p.position());
         match p.duration() {
             Some(d) => crate::STRINGS.format(
@@ -547,6 +591,26 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         })
 }
 
+/// Cancel under the spinner, while the app's work (starting the next, a skip) can be stopped
+/// ([`Player::offer_cancel`]), as on Portal's page; disabled once pressed.
+#[track_caller]
+fn stage_cancel(ui: &Ui, player: &Player) -> El {
+    let p = player.clone();
+    let button = w::button(
+        ui,
+        {
+            let u = ui.clone();
+            move || tr(&u, "playback-next-cancel")
+        },
+        move || p.press_cancel(),
+    );
+    drops_focus_after_click(ui, player, &button);
+    let (b, p) = (button.clone(), player.clone());
+    button.bind(move || {
+        let _ = b.clone().hidden(!p.cancel_shown()).disabled(p.canceling());
+    })
+}
+
 /// What plays where, in remote mode: the device's name and state over the app's poster, in
 /// place of the picture; announced politely as it changes.
 #[track_caller]
@@ -606,7 +670,9 @@ fn cast_stage(ui: &Ui, player: &Player) -> El {
         let name = p.remote_name();
         let _ = pa.clone().hidden(name.is_none());
         let Some(name) = name else { return };
+        let next = p.starting_next();
         let id = match p.state() {
+            _ if next.is_some() => "playback-cast-next",
             PlaybackState::Opening => "playback-cast-connecting",
             PlaybackState::Paused => "playback-cast-paused",
             PlaybackState::Playing => "playback-cast-playing",
@@ -614,7 +680,11 @@ fn cast_stage(ui: &Ui, player: &Player) -> El {
             PlaybackState::Ended => "playback-cast-ended",
             PlaybackState::Failed => "playback-cast-failed",
         };
-        let said = crate::STRINGS.format(&tu, id, &[("device", name.clone().into())]);
+        let said = crate::STRINGS.format(
+            &tu,
+            id,
+            &[("device", name.clone().into()), ("title", next.unwrap_or_default().into())],
+        );
         // The words either side of the name (which the catalog may isolate, U+2068 ... U+2069).
         let clean = said.replace(['\u{2068}', '\u{2069}'], "");
         let (lead, trail) = clean.split_once(name.as_str()).unwrap_or(("", ""));
@@ -716,7 +786,8 @@ fn next_up_card(ui: &Ui, player: &Player) -> El {
             dismissed.set_if_changed(false);
         }
         *seen.borrow_mut() = next.clone();
-        let shown = due && next.is_some() && !dismissed.get();
+        // Starting the next, the stage says so in place of the card.
+        let shown = due && next.is_some() && !dismissed.get() && p.starting_next().is_none();
         let _ = c.clone().hidden(!shown);
         if let Some(n) = next {
             let _ = c.clone().semantics(Semantics::new(Role::Group).label(n.title));
@@ -876,7 +947,9 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
         let len = length();
         // On a timeline a seek the stream cannot take goes to the app; skipping, none does.
         let seekable = p2.is_remote() || p2.timeline().is_some() || p2.info().is_some_and(|i| i.seekable);
-        let _ = b3.clone().disabled(len.is_none() || !seekable || p2.skipping().is_some());
+        let _ = b3
+            .clone()
+            .disabled(len.is_none() || !seekable || p2.skipping().is_some() || p2.starting_next().is_some());
         let total = len.unwrap_or_default();
         let said = crate::STRINGS.format(
             &u,

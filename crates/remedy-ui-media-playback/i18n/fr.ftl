@@ -34,6 +34,7 @@ playback-cast-paused = En pause sur { $device }
 playback-cast-buffering = Chargement sur { $device }
 playback-cast-ended = Terminé sur { $device }
 playback-cast-failed = Lecture impossible sur { $device }
+playback-cast-next = Démarrage de { $title } sur { $device }
 playback-seek = Position de lecture
 playback-seek-value = { $position } sur { $duration }
 playback-next-up = À suivre : { $title }
@@ -44,5 +45,7 @@ playback-next-up-in = { $count ->
 }
 playback-play-now = Lire maintenant
 playback-next-cancel = Annuler
+playback-starting-next = Démarrage de { $title }
+playback-canceling = Annulation.
 playback-speed = Vitesse { $speed }×
 playback-speed-tip = Vitesse de lecture (Maj+> plus vite, Maj+< plus lent)

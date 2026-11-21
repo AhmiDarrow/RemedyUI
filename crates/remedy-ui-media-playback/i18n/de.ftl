@@ -34,6 +34,7 @@ playback-cast-paused = Auf { $device } pausiert
 playback-cast-buffering = Wird auf { $device } geladen
 playback-cast-ended = Auf { $device } beendet
 playback-cast-failed = Wiedergabe auf { $device } nicht möglich
+playback-cast-next = { $title } wird auf { $device } gestartet
 playback-seek = Wiedergabeposition
 playback-seek-value = { $position } von { $duration }
 playback-next-up = Als Nächstes: { $title }
@@ -43,5 +44,7 @@ playback-next-up-in = { $count ->
 }
 playback-play-now = Jetzt abspielen
 playback-next-cancel = Abbrechen
+playback-starting-next = { $title } wird gestartet
+playback-canceling = Wird abgebrochen.
 playback-speed = Tempo { $speed }×
 playback-speed-tip = Wiedergabetempo (Shift+> schneller, Shift+< langsamer)

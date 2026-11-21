@@ -50,6 +50,7 @@ playback-cast-paused = Paused on { $device }
 playback-cast-buffering = Loading on { $device }
 playback-cast-ended = Finished on { $device }
 playback-cast-failed = Can't play on { $device }
+playback-cast-next = Starting { $title } on { $device }
 # The seek bar's name, and its value ("0:42 of 3:20").
 playback-seek = Seek
 playback-seek-value = { $position } of { $duration }
@@ -62,6 +63,10 @@ playback-next-up-in = { $count ->
 }
 playback-play-now = Play now
 playback-next-cancel = Cancel
+# While the app starts the next (a media server makes its stream).
+playback-starting-next = Starting { $title }
+# Over the picture once Cancel is pressed, while the app stops its work.
+playback-canceling = Canceling.
 
 ## The speed button: { $speed } is the playback speed (1, 1.5, 0.75), written the locale's way.
 playback-speed = Speed { $speed }×
