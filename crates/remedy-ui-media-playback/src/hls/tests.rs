@@ -23,6 +23,8 @@ struct Mem {
     files: HashMap<String, Vec<u8>>,
     versions: HashMap<String, Vec<String>>,
     asked: Arc<Mutex<Vec<String>>>,
+    /// URLs that fail this many more times before they are served, and whether as timeouts.
+    late: HashMap<String, (u32, bool)>,
 }
 
 impl Mem {
@@ -46,6 +48,16 @@ impl Mem {
 impl Fetch for Mem {
     fn get(&mut self, url: &str) -> Result<Vec<u8>, MediaError> {
         lock(&self.asked).push(url.to_string());
+        if let Some((n, timeout)) = self.late.get_mut(url)
+            && *n > 0
+        {
+            *n -= 1;
+            return Err(if *timeout {
+                timed_out(url, "nothing arrived")
+            } else {
+                MediaError::NotFound(url.into())
+            });
+        }
         if let Some(v) = self.versions.get_mut(url) {
             let text = if v.len() > 1 { v.remove(0) } else { v[0].clone() };
             return Ok(text.into_bytes());
@@ -292,7 +304,56 @@ fn a_missing_segment_is_retried_then_errors() {
     let Ok(mut r) = start("aac", mem) else { unreachable!("opens") };
     let result = read_all(&mut r.dec);
     assert!(matches!(result, Err(MediaError::NotFound(_))), "{result:?}");
-    assert_eq!(lock(&r.asked).iter().filter(|u| **u == gone).count(), 1 + RETRIES as usize);
+    let rounds = (1 + RECOVERIES) as usize;
+    assert_eq!(lock(&r.asked).iter().filter(|u| **u == gone).count(), (1 + ERROR_RETRIES as usize) * rounds);
+}
+
+/// Plays the `aac` fixture with `late` failing as it says; how often each segment was asked.
+fn play_late(late: &[(u32, u32, bool)]) -> Result<Vec<usize>, MediaError> {
+    let mut mem = Mem::of("aac", None);
+    for &(seg, n, timeout) in late {
+        mem.late.insert(format!("{ROOT}aac/seg0000{seg}.ts"), (n, timeout));
+    }
+    let mut r = start("aac", mem)?;
+    let samples = read_all(&mut r.dec)?;
+    assert!(samples.iter().any(|s| s.1 > ms(2900)), "plays to the end");
+    let asked = lock(&r.asked);
+    Ok((0..3).map(|i| asked.iter().filter(|u| u.ends_with(&format!("seg0000{i}.ts"))).count()).collect())
+}
+
+#[test]
+fn a_late_segment_plays_on_once_it_appears() {
+    let before = WAITED.get();
+    assert_eq!(play_late(&[(1, 10, false)]).ok(), Some(vec![1, 11, 1]));
+    // 250, 500, 1000 ms, then 250 after starting over, and so on: 4.75 s.
+    let waited = WAITED.get() - before;
+    assert!(waited >= ms(4750), "waited between tries: {waited:?}");
+}
+
+#[test]
+fn a_stalled_fetch_is_started_again() {
+    // Four timeouts in a row are retried without starting over; a fifth starts over.
+    assert_eq!(play_late(&[(2, 4, true)]).ok(), Some(vec![1, 1, 5]));
+    assert_eq!(play_late(&[(2, 30, true)]).ok(), Some(vec![1, 1, 31]));
+    assert!(play_late(&[(2, 35, true)]).is_err(), "gives up after 7 rounds of 5");
+}
+
+#[test]
+fn recoveries_are_earned_back_by_each_segment_read() {
+    // Each spot nearly runs out (27 of 28 tries fail), but reading it earns them back.
+    assert_eq!(play_late(&[(1, 27, false), (2, 27, false)]).ok(), Some(vec![1, 28, 28]));
+    assert!(play_late(&[(1, 28, false)]).is_err());
+}
+
+#[test]
+fn a_growing_playlist_waits_the_longest_pause_between_tries() {
+    let mut mem = Mem::of("aac", None);
+    growing(&mut mem);
+    let mut r = start("aac", mem).unwrap_or_else(|e| unreachable!("opens: {e}"));
+    r.dec.hls.failures = 1;
+    assert_eq!(r.dec.hls.wanted().map(|w| w.after), Some(MAX_RETRY_PAUSE), "growing");
+    r.dec.hls.complete = true;
+    assert_eq!(r.dec.hls.retry_pause(), RETRY_PAUSE, "complete");
 }
 
 #[test]

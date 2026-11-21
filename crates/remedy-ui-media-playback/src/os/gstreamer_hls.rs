@@ -12,7 +12,9 @@ use super::gstreamer::{
     nv12_picture,
 };
 use super::gstreamer_stream::{Pipe, pull};
-use crate::hls::{AudioCodec, AudioConfig, Elementary, Fetch, Unit, VideoConfig};
+use crate::hls::{
+    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, QUIET, Unit, VideoConfig, timed_out,
+};
 use crate::host::{MediaError, Sample, VideoCodec};
 
 const PURPOSE: &str = "playing HLS streams";
@@ -23,8 +25,6 @@ const HOLD: u32 = 8;
 const STALL: Duration = Duration::from_millis(250);
 /// How long a drained decoder may take to give out the end of what it held.
 const DRAIN: Duration = Duration::from_secs(10);
-/// How long a fetch may go without a byte before it fails.
-const FETCH_WAIT: Duration = Duration::from_secs(30);
 const POLL: Duration = Duration::from_millis(5);
 
 /// `desc` built, a missing element (or URI handler) named as the package to install.
@@ -278,7 +278,7 @@ impl Fetch for GstFetch {
         }
         let p = build(g, &format!("{url} ! appsink name=sink sync=false"), &[c"sink"])?;
         p.start("fetching")?;
-        let (mut out, mut last) = (Vec::new(), Instant::now());
+        let (mut out, mut last, started) = (Vec::new(), Instant::now(), Instant::now());
         loop {
             // SAFETY: asking a live app sink. Read before the bus: a failed source (an HTTP
             // 404) posts its error, then ends the stream.
@@ -296,9 +296,11 @@ impl Fetch for GstFetch {
                     out.extend_from_slice(&bytes);
                     last = Instant::now();
                 }
-                None if last.elapsed() > FETCH_WAIT => {
-                    return Err(MediaError::NotFound(format!("{url}: nothing arrived for {FETCH_WAIT:?}")));
+                // Nothing yet waits for the first byte; a download gone quiet is started again.
+                None if last.elapsed() > if out.is_empty() { FIRST_BYTE } else { QUIET } => {
+                    return Err(timed_out(url, "nothing arrived"));
                 }
+                None if started.elapsed() > LOAD => return Err(timed_out(url, "the download took too long")),
                 None => {}
             }
         }

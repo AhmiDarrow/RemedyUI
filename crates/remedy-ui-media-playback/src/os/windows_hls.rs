@@ -22,9 +22,10 @@ use windows::Win32::Media::MediaFoundation::{
 };
 use windows::Win32::Networking::WinHttp::{
     URL_COMPONENTS, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_FLAG_REFRESH, WINHTTP_FLAG_SECURE,
-    WINHTTP_INTERNET_SCHEME_HTTPS, WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_QUERY_STATUS_CODE, WinHttpCloseHandle,
-    WinHttpConnect, WinHttpCrackUrl, WinHttpOpen, WinHttpOpenRequest, WinHttpQueryHeaders, WinHttpReadData,
-    WinHttpReceiveResponse, WinHttpSendRequest,
+    WINHTTP_INTERNET_SCHEME_HTTPS, WINHTTP_OPTION_RECEIVE_RESPONSE_TIMEOUT, WINHTTP_QUERY_FLAG_NUMBER,
+    WINHTTP_QUERY_STATUS_CODE, WinHttpCloseHandle, WinHttpConnect, WinHttpCrackUrl, WinHttpOpen,
+    WinHttpOpenRequest, WinHttpQueryDataAvailable, WinHttpQueryHeaders, WinHttpReadData,
+    WinHttpReceiveResponse, WinHttpSendRequest, WinHttpSetOption, WinHttpSetTimeouts,
 };
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::core::{GUID, HSTRING, Interface, PCWSTR, w};
@@ -32,7 +33,9 @@ use windows::core::{GUID, HSTRING, Interface, PCWSTR, w};
 use super::super::d3d11::Gpu;
 use super::{Layout, Mf, MfDecoder, com, copy_path, format_error, from_hns, hns, video_layout};
 use crate::capture::Converter;
-use crate::hls::{AudioCodec, AudioConfig, Elementary, Fetch, Unit, VideoConfig};
+use crate::hls::{
+    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, QUIET, Unit, VideoConfig, timed_out,
+};
 use crate::host::{AudioFormat, MediaError, Picture, Sample};
 
 fn decode_error(e: windows::core::Error) -> MediaError {
@@ -612,7 +615,17 @@ impl Fetch for HttpFetch {
         if let Some(path) = file_path(url) {
             return std::fs::read(&path).map_err(|e| MediaError::NotFound(format!("{path}: {e}")));
         }
-        let failed = |e: windows::core::Error| MediaError::NotFound(format!("{url}: {}", e.message()));
+        // ERROR_WINHTTP_TIMEOUT: retried as a timeout (a quiet one is a stalled download restarted).
+        let timeout = |e: &windows::core::Error| e.code() == windows::core::HRESULT::from_win32(12002);
+        let failed = |e: windows::core::Error| {
+            if timeout(&e) {
+                timed_out(url, &e.message())
+            } else {
+                MediaError::NotFound(format!("{url}: {}", e.message()))
+            }
+        };
+        let ms = |d: Duration| i32::try_from(d.as_millis()).unwrap_or(i32::MAX);
+        let started = std::time::Instant::now();
         let wide: Vec<u16> = url.encode_utf16().collect();
         // Lengths set and pointers left null: the parts point into `wide`.
         let mut parts = URL_COMPONENTS {
@@ -655,6 +668,16 @@ impl Fetch for HttpFetch {
                 ),
                 url,
             )?;
+            // The first-byte limit until the answer's headers; then a read that waits this long
+            // for any byte gives up.
+            let first = ms(FIRST_BYTE);
+            WinHttpSetTimeouts(request.0, first, first, first, ms(QUIET)).map_err(failed)?;
+            WinHttpSetOption(
+                Some(request.0),
+                WINHTTP_OPTION_RECEIVE_RESPONSE_TIMEOUT,
+                Some(&first.to_ne_bytes()),
+            )
+            .map_err(failed)?;
             WinHttpSendRequest(request.0, None, None, 0, 0, 0).map_err(failed)?;
             WinHttpReceiveResponse(request.0, std::ptr::null_mut()).map_err(failed)?;
             let (mut status, mut size) = (0u32, 4u32);
@@ -673,9 +696,19 @@ impl Fetch for HttpFetch {
             let mut out = Vec::new();
             let mut chunk = vec![0u8; 1 << 20];
             loop {
+                if started.elapsed() > LOAD {
+                    return Err(timed_out(url, "the download took too long"));
+                }
+                // Waiting here keeps to the receive timeout; a read of a large buffer did not.
                 let mut n = 0u32;
-                WinHttpReadData(request.0, chunk.as_mut_ptr().cast(), chunk.len() as u32, &mut n)
-                    .map_err(|e| format_error(&e))?;
+                WinHttpQueryDataAvailable(request.0, &mut n).map_err(failed)?;
+                if n == 0 {
+                    return Ok(out);
+                }
+                let mut n = 0u32;
+                WinHttpReadData(request.0, chunk.as_mut_ptr().cast(), chunk.len() as u32, &mut n).map_err(
+                    |e| if timeout(&e) { timed_out(url, "nothing arrived") } else { format_error(&e) },
+                )?;
                 if n == 0 {
                     return Ok(out);
                 }
