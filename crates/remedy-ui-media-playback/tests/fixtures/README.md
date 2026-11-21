@@ -53,3 +53,14 @@ English WebVTT track, spread over three clusters:
 ffmpeg -i clip.mp4 -i clip.vtt -map 0:v -map 0:a -map 1 -c:v libvpx -b:v 50k -c:a libopus -b:a 24k \
   -c:s webvtt -metadata:s:s:0 language=eng -map_metadata -1 -fflags +bitexact clip-subs.webm
 ```
+
+`hls/clip.m3u8` with `hls/clip0.ts`..`clip2.ts` is `clip.mp4` as HLS for the browser tests: an
+EVENT playlist (no master) of three one-second MPEG-TS segments, H.264 baseline with a key
+frame every second (each segment starts with one) and AAC-LC stereo at 48 kHz:
+
+```
+cd hls && ffmpeg -i ../clip.mp4 -c:v libx264 -profile:v baseline -g 25 -keyint_min 25 -sc_threshold 0 -bf 0 \
+  -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv -c:a aac -b:a 64k \
+  -map_metadata -1 -fflags +bitexact -f hls -hls_time 1 -hls_playlist_type event \
+  -hls_segment_filename 'clip%d.ts' clip.m3u8
+```
