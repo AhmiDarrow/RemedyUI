@@ -111,8 +111,9 @@ fn process_cpu_ms() -> f64 {
     // Fields after the command's closing parenthesis: utime and stime are the 12th and 13th,
     // in clock ticks of 10 ms.
     let rest = stat.rsplit_once(')').map_or("", |(_, r)| r);
-    let f: Vec<f64> = rest.split_whitespace().filter_map(|v| v.parse().ok()).collect();
-    (f.get(11).copied().unwrap_or(0.0) + f.get(12).copied().unwrap_or(0.0)) * 10.0
+    let f: Vec<&str> = rest.split_whitespace().collect();
+    let at = |i: usize| f.get(i).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+    (at(11) + at(12)) * 10.0
 }
 
 fn producer() -> &'static Producer {
@@ -470,15 +471,24 @@ fn measure_a_clip() {
         (process_cpu_ms(), STAND_IN_NS.load(Ordering::Relaxed), MAPPED.load(Ordering::Relaxed));
     let start = std::time::Instant::now();
     let (mut n, mut on_gpu) = (0usize, 0usize);
+    // This thread's CPU time reading pictures and drawing them (the hand-over itself: mapping
+    // and copying, or holding the buffer; uploading, or importing), apart from GStreamer's and
+    // the driver's threads.
+    let (mut read_ns, mut draw_ns) = (0u64, 0u64);
     let mut shown: Option<VideoFrame> = None;
-    while let Some(s) = dec.read().unwrap_or_else(|e| unreachable!("read: {e}")) {
+    loop {
+        let t0 = thread_cpu_ns();
+        let Some(s) = dec.read().unwrap_or_else(|e| unreachable!("read: {e}")) else { break };
+        read_ns += thread_cpu_ns() - t0;
         let Sample::Video { picture, .. } = s else { continue };
+        let t1 = thread_cpu_ns();
         on_gpu += usize::from(picture.gpu.is_some());
         let mut list = DisplayList::new();
         let f = frame(n as u64, &picture);
         list.push(Item::Video { frame: f.clone(), rect, radii: CornerRadii::ZERO });
         g.draw(&list, remedy_ui_paint::Affine::IDENTITY, Color::BLACK, &target)
             .unwrap_or_else(|e| unreachable!("draw {n}: {e}"));
+        draw_ns += thread_cpu_ns() - t1;
         // Held until the next one shows, as a video surface holds its current frame.
         shown = Some(f);
         let _ = g.context().device.poll(remedy_ui_render_gpu::wgpu::PollType::wait_indefinitely());
@@ -491,13 +501,16 @@ fn measure_a_clip() {
     let k = n.max(1) as f64;
     eprintln!(
         "{path} {}x{}: {n} pictures ({on_gpu} in DMA-BUFs, {} mapped); per picture: CPU {:.2} ms \
-         (stand-in copy {:.2} ms, so {:.2} ms without it), frame time {:.2} ms",
+         (stand-in copy {:.2} ms, so {:.2} ms without it); on this thread: read {:.3} ms, draw {:.3} ms; \
+         frame time {:.2} ms",
         v.width,
         v.height,
         MAPPED.load(Ordering::Relaxed) - mapped0,
         cpu / k,
         stand / k,
         (cpu - stand) / k,
+        read_ns as f64 / 1e6 / k,
+        draw_ns as f64 / 1e6 / k,
         wall.as_secs_f64() * 1e3 / k,
     );
 }
