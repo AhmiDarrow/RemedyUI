@@ -459,6 +459,8 @@ struct Inner {
     timeline: Signal<Option<Timeline>>,
     /// A seek outside the stream handed to the app: its target, until a new source comes.
     skipping: Signal<Option<Duration>>,
+    /// The skip is a hold for a new source of the same place ([`Player::hold_for_source`]).
+    holding: Signal<bool>,
     /// Seconds pressed while skipping, from its target: run once the new source comes.
     queued_skip: Cell<Option<f64>>,
     seek_outside_handlers: RefCell<Vec<SeekOutsideHandler>>,
@@ -652,6 +654,26 @@ impl Inner {
         self.canceling.set_if_changed(false);
     }
 
+    /// Leaves the engine's decoder alone (no fetching) while skipping or remote, as Portal's
+    /// page stops loading the stream; lets it go on otherwise.
+    fn sync_suspend(&self) {
+        let skipping = self.skipping.with_untracked(Option::is_some).unwrap_or(false);
+        let remote = self.remote.with_untracked(Option::is_some).unwrap_or(false);
+        self.send(Cmd::Suspend(skipping || remote));
+    }
+
+    /// Pauses and waits for the app's new source, from `at` (the work's time).
+    fn begin_skip(&self, at: Duration, holding: bool) {
+        self.queued_skip.set(None);
+        self.end_cancel();
+        remedy_ui_reactive::batch(|| {
+            self.holding.set_if_changed(holding);
+            self.skipping.set(Some(at));
+        });
+        self.send(Cmd::Pause);
+        self.sync_suspend();
+    }
+
     fn is_starting(&self) -> bool {
         self.starting.with_untracked(Option::is_some).unwrap_or(false)
     }
@@ -778,6 +800,7 @@ impl Inner {
             self.caption_delay.set(delay);
             self.timeline.set(timeline);
             self.skipping.set(None);
+            self.holding.set_if_changed(false);
             self.starting.set_if_changed(None);
             self.starting_detail.set_if_changed(None);
             self.next_error.set_if_changed(None);
@@ -791,6 +814,7 @@ impl Inner {
         self.send(Cmd::Sink(self.sink.borrow().clone()));
         self.send(Cmd::Visible(self.visible.get()));
         self.send(Cmd::Speed(self.speed.get_untracked().unwrap_or(1.0)));
+        self.sync_suspend();
     }
 
     fn on_opened(&self, info: Option<&MediaInfo>) {
@@ -865,27 +889,41 @@ impl Player {
     /// [`PlaybackState::Opening`]; it is [`PlaybackState::Failed`] with an
     /// [`error`](Player::error) if the source cannot be opened.
     pub fn open(ui: &Ui, host: Arc<dyn MediaHost>, source: MediaSource, options: PlayerOptions) -> Player {
-        Self::start(ui, Ok(host), source, options)
+        Self::start(ui, Ok(host), Some(source), options)
     }
 
     /// Opens `source` with the platform's own decoders ([`platform_host`](crate::platform_host)).
     pub fn open_platform(ui: &Ui, source: MediaSource, options: PlayerOptions) -> Player {
-        Self::start(ui, crate::platform_host(), source, options)
+        Self::start(ui, crate::platform_host(), Some(source), options)
+    }
+
+    /// A player with nothing to play here yet, in [`PlaybackState::Opening`]: put in
+    /// [remote mode](Self::set_remote) at once (as Portal's page picks up a cast already
+    /// running when it opens), or given its media later with
+    /// [`replace_source`](Self::replace_source) or [`start_next`](Self::start_next).
+    pub fn empty(ui: &Ui, host: Arc<dyn MediaHost>, options: PlayerOptions) -> Player {
+        Self::start(ui, Ok(host), None, options)
+    }
+
+    /// [`empty`](Self::empty), with the platform's own decoders.
+    pub fn empty_platform(ui: &Ui, options: PlayerOptions) -> Player {
+        Self::start(ui, crate::platform_host(), None, options)
     }
 
     fn start(
         ui: &Ui,
         host: Result<Arc<dyn MediaHost>, MediaError>,
-        source: MediaSource,
+        source: Option<MediaSource>,
         options: PlayerOptions,
     ) -> Player {
         static IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let id = IDS.fetch_add(1, Ordering::Relaxed);
         let shared = Arc::new(Shared::default());
-        let started = launch(id, &host, source, options.find_subtitles, shared.clone());
+        let started = source.map(|s| launch(id, &host, s, options.find_subtitles, shared.clone()));
         let (tx, failed) = match started {
-            Ok(tx) => (Some(tx), None),
-            Err(e) => (None, Some(e)),
+            Some(Ok(tx)) => (Some(tx), None),
+            Some(Err(e)) => (None, Some(e)),
+            None => (None, None),
         };
         let volume = options.volume.clamp(0.0, 1.0);
         let inner = Rc::new(Inner {
@@ -923,6 +961,7 @@ impl Player {
             scrubbing: Signal::new(None),
             timeline: Signal::new(options.timeline),
             skipping: Signal::new(None),
+            holding: Signal::new(false),
             queued_skip: Cell::new(None),
             seek_outside_handlers: RefCell::new(Vec::new()),
             rechoose_embedded: Cell::new(None),
@@ -1003,11 +1042,37 @@ impl Player {
     }
 
     /// Stops [skipping](Self::skipping) (the app could not make the new stream), dropping
-    /// presses made meanwhile; the current stream stays, paused.
+    /// presses made meanwhile; the current stream stays where it was and fetches again,
+    /// paused after a skip, playing again after a [hold](Self::hold_for_source) (as Portal's
+    /// page goes back to the old stream when a quality or sound switch fails).
     pub fn cancel_skip(&self) {
+        let held = self.0.holding.get_untracked().unwrap_or(false);
         self.0.queued_skip.set(None);
         self.0.end_cancel();
-        self.0.skipping.set_if_changed(None);
+        remedy_ui_reactive::batch(|| {
+            self.0.holding.set_if_changed(false);
+            self.0.skipping.set_if_changed(None);
+        });
+        self.0.sync_suspend();
+        if held && !self.is_remote_untracked() {
+            self.play();
+        }
+    }
+
+    /// Waits for a new source of the same place, from `at` (the work's time): a quality or
+    /// sound track switch, where the app's server replaces the stream. As
+    /// [skipping](Self::skipping) without a seek: paused, the current stream no longer
+    /// fetched (its last picture stays), the seek bar disabled, presses of ±10 added up from
+    /// `at`, and "Preparing the video." over the picture. Ended by
+    /// [`replace_source`](Self::replace_source) (settings kept, presses run) or
+    /// [`cancel_skip`](Self::cancel_skip).
+    pub fn hold_for_source(&self, at: Duration) {
+        self.0.begin_skip(at, true);
+    }
+
+    /// Whether the skip is a [hold](Self::hold_for_source). Tracked.
+    pub(crate) fn holding(&self) -> bool {
+        self.0.holding.get()
     }
 
     /// Offers a Cancel button (or takes it away) while the app works on
@@ -1178,10 +1243,7 @@ impl Player {
                 self.seek_stream(local.unwrap_or_default())
             }
             _ => {
-                self.0.queued_skip.set(None);
-                self.0.end_cancel();
-                self.0.skipping.set(Some(to));
-                self.0.send(Cmd::Pause);
+                self.0.begin_skip(to, false);
                 let handlers = self.0.seek_outside_handlers.borrow().clone();
                 for h in handlers {
                     h(to);
@@ -1521,8 +1583,9 @@ impl Player {
     }
 
     /// Controls `remote` (a TV the app casts to) in place of playing here, or plays here again
-    /// (`None`). While remote, the local media pauses and keeps its place; the picture gives
-    /// way to a casting stage ("Playing on The Ris"); and play, pause, seeking, volume, mute,
+    /// (`None`). While remote, the local media pauses and keeps its place, no longer fetched
+    /// (as Portal's page stops loading the stream while casting) until it leaves; the picture
+    /// gives way to a casting stage ("Playing on The Ris"); and play, pause, seeking, volume, mute,
     /// captions and next (every control and key of the widget, and these methods) act on the
     /// device through [`Remote::control`], while [`state`](Self::state),
     /// [`position`](Self::position), [`duration`](Self::duration), [`volume`](Self::volume)
@@ -1546,6 +1609,7 @@ impl Player {
         self.0.remote_seek.set(None);
         self.0.remote_seen.set(None);
         self.0.remote.set(remote);
+        self.0.sync_suspend();
         self.0.schedule_remote_tick();
     }
 

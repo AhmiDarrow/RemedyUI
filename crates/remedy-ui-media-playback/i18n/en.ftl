@@ -25,6 +25,7 @@ playback-time = { $position } / { $duration }
 # The time shown for a live stream, which has no end.
 playback-time-live = { $position } · Live
 playback-skipping = Skipping to { $position }
+playback-preparing = Preparing the video.
 playback-mute-tip = Mute (M)
 playback-mute = Mute
 playback-unmute = Unmute
