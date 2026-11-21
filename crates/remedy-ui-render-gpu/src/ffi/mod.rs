@@ -22,7 +22,7 @@ pub(crate) fn create_pipeline_cache(device: &wgpu::Device, data: Option<&[u8]>) 
 pub(crate) mod video;
 
 /// Linux: decoded pictures in DMA-BUFs, imported on wgpu's Vulkan device.
-#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 pub(crate) mod dmabuf;
 
 /// Windows: a swapchain of RemedyUI's own on wgpu's D3D12 device, presenting only what changed.

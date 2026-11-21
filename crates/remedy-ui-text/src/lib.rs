@@ -24,6 +24,7 @@ mod atlas;
 mod code_edit;
 mod editing;
 mod engine;
+mod lazy;
 mod pseudo;
 mod raster;
 mod rich;
@@ -84,6 +85,7 @@ pub use engine::{
     Affinity, DEFAULT_SYMBOL_FALLBACKS, FontCollection, FontError, FontFile, GlyphRunInfo, LineInfo,
     Paragraph, ParagraphOptions, PositionedGlyph, RunFont, TextEngine, TextPosition,
 };
+pub use lazy::LAZY_MIN_BYTES;
 pub use pseudo::Pseudo;
 pub use raster::{Antialias, GlyphImage, GlyphRasterizer, Hinting, SUBPIXEL_BINS, size_64, subpixel_bin};
 pub use rich::{InlineObject, OBJECT_REPLACEMENT, RichText, Span};

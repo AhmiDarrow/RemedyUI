@@ -95,10 +95,14 @@ pub(crate) struct DxgiChain {
     last_presented: Vec<u64>,
     /// The buffer handed out by `acquire`, until it is presented.
     current: Option<usize>,
+    /// wgpu's device, whose textures wrap the back buffers: the swapchain is released only
+    /// once wgpu let go of them (a window takes a new swapchain only after the old one is gone).
+    device: wgpu::Device,
 }
 
-// SAFETY: D3D12 and DXGI objects are free-threaded; the chain is used from one thread at a
-// time (the window's presenting thread).
+// SAFETY: D3D12 queues, fences and resources are free-threaded; the command allocators and
+// lists are used from one thread at a time (`&mut self`). Unlike the Vulkan chain, nothing
+// here needs wgpu's other submissions on the same thread: a D3D12 queue orders them.
 unsafe impl Send for DxgiChain {}
 
 fn dxgi_format(format: wgpu::TextureFormat) -> Option<DXGI_FORMAT> {
@@ -146,11 +150,12 @@ impl DxgiChain {
             let hal = unsafe { device.as_hal::<Dx12>() }?;
             (hal.raw_device().clone(), hal.raw_queue().clone())
         };
-        Some(Self::build(&raw_device, queue, hwnd, width.max(1), height.max(1), format, dxgi, vsync))
+        Some(Self::build(device, &raw_device, queue, hwnd, width.max(1), height.max(1), format, dxgi, vsync))
     }
 
     #[allow(clippy::too_many_arguments, reason = "the swapchain's whole description")]
     fn build(
+        wgpu_device: &wgpu::Device,
         device: &ID3D12Device,
         queue: ID3D12CommandQueue,
         hwnd: HWND,
@@ -228,6 +233,7 @@ impl DxgiChain {
                 presents: 0,
                 last_presented: vec![0; BUFFERS as usize],
                 current: None,
+                device: wgpu_device.clone(),
             };
             chain.take_buffers()?;
             Ok(chain)
@@ -293,7 +299,8 @@ impl DxgiChain {
         match unsafe { WaitForSingleObject(self.waitable, WAIT_MS) } {
             WAIT_OBJECT_0 => {}
             WAIT_TIMEOUT => return Ok(None),
-            _ => return Err(ChainError::Lost),
+            // A failed wait says nothing about the device: build the swapchain again.
+            other => return Err(ChainError::Failed(format!("waiting for the swapchain: {other:?}"))),
         }
         // SAFETY: a query on a live swapchain.
         let index = unsafe { self.raw.GetCurrentBackBufferIndex() } as usize;
@@ -433,7 +440,9 @@ impl DxgiChain {
 
 impl Drop for DxgiChain {
     fn drop(&mut self) {
-        // The GPU may still run a barrier list; the lists and buffers go only after.
+        // wgpu lets go of the back buffers it wrapped once the GPU is done with them, and the
+        // GPU may still run a barrier list: the lists, buffers and swapchain go only after.
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         self.wait_lists();
         // SAFETY: the waitable object is the swapchain's, closed once.
         unsafe {

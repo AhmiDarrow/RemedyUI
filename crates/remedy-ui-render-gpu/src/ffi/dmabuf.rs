@@ -281,8 +281,8 @@ impl Shared {
         for (plane, (format, wgpu_format, size)) in planes.iter().zip(layout) {
             let Some(Some(d)) = &self.device else { return None };
             // SAFETY: the picture's descriptor, open while it lives (it is borrowed here).
-            let fd = unsafe { BorrowedFd::borrow_raw(plane.fd) }.try_clone_to_owned().ok()?;
-            let meta = std::fs::File::from(fd.try_clone().ok()?).metadata().ok()?;
+            let file = std::fs::File::from(unsafe { BorrowedFd::borrow_raw(plane.fd) }.try_clone_to_owned().ok()?);
+            let meta = file.metadata().ok()?;
             let key = Key {
                 dev: meta.dev(),
                 ino: meta.ino(),
@@ -297,7 +297,7 @@ impl Shared {
                 std::collections::hash_map::Entry::Vacant(e) => {
                     // SAFETY: the plane's layout is the decoder's; `import` checks it against
                     // what the device takes before binding.
-                    let Some((image, memory)) = (unsafe { import(d, fd, format, size, plane, modifier) })
+                    let Some((image, memory)) = (unsafe { import(d, file.into(), format, size, plane, modifier) })
                     else {
                         read_back("the Vulkan driver would not import its planes");
                         return None;
