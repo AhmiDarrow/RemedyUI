@@ -122,3 +122,58 @@ fn full_screen_pictures() {
         view
     });
 }
+
+/// Cues with settings of their own where they say: WebVTT's `line:0 align:start` at the top
+/// left, ASS's `\an6` at the middle right, WebVTT's `line:50% position:50% size:40%` in the
+/// middle, and one with none centred at the foot as before.
+#[test]
+fn cue_settings_place_the_captions() {
+    let vtt = "WEBVTT\n\n00:00.000 --> 01:00.000 line:0 align:start\nTop left\n\n00:00.000 --> 01:00.000 line:50% position:50% size:40%\nMiddle\n\n00:00.000 --> 01:00.000\nAt the foot, centred\n";
+    let ass = "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:01:00.00,Default,,0,0,0,,{\\an6}Middle right\n";
+    let mut cues = parse_subtitles(vtt, SubtitleFormat::WebVtt);
+    cues.extend(parse_subtitles(ass, SubtitleFormat::Ass));
+    let seen: std::rc::Rc<std::cell::RefCell<Option<El>>> = Default::default();
+    let s = seen.clone();
+    let preview = Preview::new("cue-settings", move |ui| {
+        let p = Player::empty_platform(ui, PlayerOptions::default());
+        let track = SubtitleTrack { label: "Placed".into(), language: None, cues: cues.clone() };
+        p.set_caption_track(Some(p.add_subtitles(track)));
+        let view = player(ui, &p, "Episode");
+        *s.borrow_mut() = Some(view.clone());
+        view
+    })
+    .sizes(&[(640.0, 400.0)]);
+    let v = preview.variations().into_iter().next().unwrap_or_else(|| unreachable!("one variation"));
+    let png = preview.render(&v).to_png().unwrap_or_else(|e| unreachable!("{e:?}"));
+    if let Ok(dir) = std::env::var("REMEDY_SHOTS") {
+        std::fs::write(std::path::Path::new(&dir).join("cue-settings.png"), png)
+            .unwrap_or_else(|e| unreachable!("{e}"));
+    }
+    // Every caption box drawn, with its centre.
+    let root = seen.borrow().clone().unwrap_or_else(|| unreachable!("built"));
+    let (mut stack, mut boxes) = (vec![root.clone()], Vec::new());
+    while let Some(e) = stack.pop() {
+        if e.info().is_some_and(|i| i.widget == "player_caption" && !i.hidden)
+            && let Some(b) = e.bounds()
+            && b.width() > 0.0
+        {
+            boxes.push(b);
+        }
+        stack.extend(e.child_elements());
+    }
+    let area = root.bounds().unwrap_or_else(|| unreachable!("laid out"));
+    let rel = |b: &remedy_ui_core::Rect| {
+        let c = b.center();
+        ((c.x - area.min.x) / area.width(), (c.y - area.min.y) / area.height(), *b)
+    };
+    let found: Vec<_> = boxes.iter().map(rel).collect();
+    let has = |what: &str, f: &dyn Fn(f32, f32) -> bool| {
+        assert!(found.iter().any(|(x, y, _)| f(*x, *y)), "{what}: {found:?}");
+    };
+    assert_eq!(found.len(), 4, "{found:?}");
+    has("top left", &|x, y| x < 0.25 && y < 0.2);
+    has("middle right", &|x, y| x > 0.75 && (0.2..0.6).contains(&y));
+    has("middle", &|x, y| (0.4..0.6).contains(&x) && (0.2..0.6).contains(&y));
+    // The bar sits under the picture here, so the foot's caption is in the lower part.
+    has("foot, centred", &|x, y| (0.45..0.55).contains(&x) && y > 0.55);
+}
