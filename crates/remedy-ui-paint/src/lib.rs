@@ -245,6 +245,12 @@ pub enum Filter {
 pub const MAX_FILTER_STD_DEV: f32 = 64.0;
 /// The farthest a drop shadow falls, in device pixels, on each axis.
 pub const MAX_FILTER_OFFSET: f32 = 2048.0;
+/// The most clips and groups (layers, filters, glass) renderers keep open at once while
+/// drawing a display list. A list nesting deeper (a theme's mistake or a hostile one) draws
+/// what is past this depth without opening more: pushes past it open nothing and their pops
+/// close nothing. vello_gpu overflows its stack somewhere past 500 nested layers, which
+/// aborts the process; the CPU renderer slows by the nesting.
+pub const MAX_GROUP_DEPTH: usize = 256;
 /// The most colour-matrix groups ([`Filter::ColorMatrix`]) renderers draw nested inside one
 /// another. Each open one holds a picture of its own, so a theme nesting a thousand of them
 /// does not hold a thousand pictures: groups deeper than this are drawn without their matrix.

@@ -612,6 +612,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **Deeply nested groups aborted the process on the GPU.** vello_gpu overflowed its stack
+  somewhere past 500 nested layers, clips or filters, so a display list nesting thousands (a
+  hostile theme's) crashed the app. Renderers now keep at most `MAX_GROUP_DEPTH` (256) open:
+  pushes past it open nothing and their pops close nothing, and what is inside still draws.
 - **Drop shadows moved wholly off the target drew wrong.** The CPU renderer drew a shadow moved
   past the left or top edge of a tile or window under its shape (vello_cpu's shift wraps its
   bounds check), and the GPU renderer failed the whole frame for nested shadows moved far off
