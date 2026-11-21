@@ -147,16 +147,17 @@ impl Web {
 /// with `GPUDevice.importExternalTexture` on wgpu's own device and drawn into the texture by a
 /// small pipeline made on that device directly, in the same task and submitted at once: an
 /// external texture is good only until its frame is closed. A browser whose WebGPU has no
-/// external textures (Firefox 160 refuses the binding) gets the frame copied into the texture
-/// with `GPUQueue.copyExternalImageToTexture` instead, also on the GPU; which one is known
-/// once the pipeline's error scope answers, and frames before that are copied. wgpu's WebGL2 backend copies a
-/// `VideoFrame` only when built with `--cfg=web_sys_unstable_apis` (an app's build flag, not
+/// external textures (Firefox 160's, with `dom.webgpu.external-texture.enabled` off) gets the
+/// frame copied into the texture with `GPUQueue.copyExternalImageToTexture` instead, also on
+/// the GPU: through a 2D canvas where the copy takes no `VideoFrame` (Firefox 160's takes only
+/// images and canvases). Which one is known once the pipeline's error scope answers; frames
+/// before that are read back. wgpu's WebGL2 backend copies a `VideoFrame` only when built with `--cfg=web_sys_unstable_apis` (an app's build flag, not
 /// a library's), so on WebGL2 the frame is given to `texSubImage2D` on wgpu's own WebGL2
 /// context, into the texture wgpu made. Either way the browser converts YUV to RGB with the
 /// frame's own color space, on the GPU.
 #[cfg(target_arch = "wasm32")]
 mod web {
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
     use std::mem::ManuallyDrop;
     use std::rc::Rc;
 
@@ -216,6 +217,12 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
         pipeline: JsValue,
         /// The pipeline was made without a validation error (`None` until the browser says).
         valid: Rc<Cell<Option<bool>>>,
+        /// `copyExternalImageToTexture` takes a `VideoFrame` (Firefox 160's takes only images
+        /// and canvases): `false` once it has refused one.
+        copies_frames: Cell<bool>,
+        /// Where a frame is drawn for that copy otherwise: an `OffscreenCanvas` and its 2D
+        /// context, made on first use.
+        canvas: RefCell<Option<(JsValue, JsValue)>>,
     }
 
     impl WebGpu {
@@ -234,7 +241,15 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
                 let ok = matches!(&error, Ok(e) if e.is_null());
                 answer.set(Some(answer.get().unwrap_or(true) && ok));
             });
-            Ok(WebGpu { device: device.clone(), queue: get(device, "queue"), layout, pipeline, valid })
+            Ok(WebGpu {
+                device: device.clone(),
+                queue: get(device, "queue"),
+                layout,
+                pipeline,
+                valid,
+                copies_frames: Cell::new(true),
+                canvas: RefCell::default(),
+            })
         }
 
         /// The bind group layout and the pipeline.
@@ -286,11 +301,7 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
                 return Err("the pipeline is not known to be valid yet".into());
             }
             if self.valid.get() != Some(true) {
-                let source = obj(&[("source", frame.clone())]);
-                let dest = obj(&[("texture", target.clone())]);
-                let size = Array::of2(&get(target, "width"), &get(target, "height"));
-                call(&self.queue, "copyExternalImageToTexture", &[&source, &dest, &size.into()])?;
-                return Ok(());
+                return self.copy(target, frame);
             }
             let external =
                 call(&self.device, "importExternalTexture", &[&obj(&[("source", frame.clone())])])?;
@@ -320,6 +331,42 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
             let commands = call(&encoder, "finish", &[])?;
             call(&self.queue, "submit", &[&Array::of1(&commands).into()])?;
             Ok(())
+        }
+    }
+
+    impl WebGpu {
+        /// `frame` copied into `target` with `copyExternalImageToTexture`: as it is, or drawn
+        /// into a canvas by the browser first where the copy takes no frames (never read back
+        /// to memory either way).
+        fn copy(&self, target: &JsValue, frame: &JsValue) -> Result<(), JsValue> {
+            let (width, height) = (get(target, "width"), get(target, "height"));
+            let copy = |source: &JsValue| {
+                let source = obj(&[("source", source.clone())]);
+                let dest = obj(&[("texture", target.clone())]);
+                let size = Array::of2(&width, &height);
+                call(&self.queue, "copyExternalImageToTexture", &[&source, &dest, &size.into()])
+            };
+            if self.copies_frames.get() {
+                if copy(frame).is_ok() {
+                    return Ok(());
+                }
+                self.copies_frames.set(false);
+            }
+            let mut slot = self.canvas.borrow_mut();
+            if slot.is_none() {
+                let class: Function = get(&js_sys::global(), "OffscreenCanvas").dyn_into()?;
+                let canvas = Reflect::construct(&class, &Array::of2(&width, &height))?;
+                let context = call(&canvas, "getContext", &[&"2d".into()])?;
+                *slot = Some((canvas, context));
+            }
+            let Some((canvas, context)) = slot.as_ref() else { return Err("no canvas".into()) };
+            for (k, v) in [("width", &width), ("height", &height)] {
+                if get(canvas, k) != *v {
+                    Reflect::set(canvas, &JsValue::from_str(k), v)?;
+                }
+            }
+            call(context, "drawImage", &[frame, &0.into(), &0.into()])?;
+            copy(canvas).map(drop)
         }
     }
 
