@@ -1863,14 +1863,16 @@ fn a_click_on_a_control_hands_the_keys_back_to_the_player_in_the_arrows_scheme()
     assert!(p.is_muted());
     p.pause();
     s.wait("paused", |_| p.state() == PlaybackState::Paused);
+    // It played a moment before pausing (longer on a busy machine): skips are from there.
+    let at = p.position().as_secs_f64();
     assert!(press(&s.ui, Key::ArrowRight));
-    s.wait("10 s on", |_| near(p.position(), 40.0, 0.001));
+    s.wait("10 s on", |_| near(p.position(), at + 10.0, 0.001));
     // A tap on the volume slider: the arrows then skip, not nudge the slider.
     let volume = el(&view, "Volume");
     presses(&mut s, &volume, &[2000], Touch);
     assert!(!volume.is_focused() && view.is_focused());
     assert!(press(&s.ui, Key::ArrowLeft));
-    s.wait("10 s back", |_| near(p.position(), 30.0, 0.001));
+    s.wait("10 s back", |_| near(p.position(), at, 0.001));
     // Tab leaves the player as usual, and it is a plain group again.
     assert!(press(&s.ui, Key::Tab));
     assert!(!view.is_focused());
