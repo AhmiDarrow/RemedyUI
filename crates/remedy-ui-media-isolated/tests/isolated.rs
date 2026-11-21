@@ -79,9 +79,15 @@ fn probe_network(addrs: &str) -> String {
         Err(e) => format!("bad address {e}"),
     });
     let udp = guarded(&|| attempt(UdpSocket::bind("127.0.0.1:0").and_then(|s| s.send_to(b"escaped", udp))));
-    // Code that skips Windows Sockets opens the socket driver itself.
+    // Code that skips Windows Sockets opens the socket driver itself: below the device, as
+    // Windows Sockets does (an open the device leaves to the driver), and the device itself.
     let afd = if cfg!(windows) {
-        format!("; socket driver: {}", attempt(std::fs::File::open(r"\\?\GLOBALROOT\Device\Afd\Endpoint")))
+        let open = |p: &str| attempt(std::fs::File::open(p));
+        format!(
+            "; socket driver: {}; socket device: {}",
+            open(r"\\?\GLOBALROOT\Device\Afd\Endpoint"),
+            open(r"\\?\GLOBALROOT\Device\Afd")
+        )
     } else {
         String::new()
     };
@@ -305,12 +311,35 @@ fn the_helper_cannot_reach_the_network() {
     };
     println!("    in the helper: {there}");
     // No socket can be made: seccomp on Linux; on Windows the less privileged AppContainer
-    // cannot start Windows Sockets at all. (The socket driver itself still opens there; what
-    // a socket made through it sends is dropped by AppContainer network isolation, which is
-    // what the listeners check below.)
+    // cannot start Windows Sockets at all (and the socket driver is closed to it, see below).
     assert!(there.contains("tcp: blocked") && there.contains("udp send: blocked"), "{there}");
     assert!(!accepted(&listener), "a connection from the helper arrived");
     assert!(!received(&udp), "a datagram from the helper arrived");
+}
+
+/// Windows: a decoder that skips Windows Sockets and opens the socket driver (`\Device\Afd`)
+/// itself, to make a socket and connect, is refused the driver.
+fn the_helper_cannot_open_the_socket_driver() {
+    if !cfg!(windows) {
+        println!("    skipped: Windows only");
+        return;
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| unreachable!("{e}"));
+    let addr = listener.local_addr().unwrap_or_else(|e| unreachable!("{e}"));
+    let bytes = hostile(&format!("net:{addr},{addr}"));
+    let probe = |r: Result<Decoded, DecodeError>| match r {
+        Err(DecodeError::Malformed(r)) => r,
+        other => unreachable!("{:?}", other.map(|d| d.source_size)),
+    };
+    // In the app the driver opens below the device, as Windows Sockets opens it: the test is real.
+    let here = probe(decode(&bytes, None));
+    println!("    in the app:    {here}");
+    assert!(here.contains("socket driver: ALLOWED"), "{here}");
+    let there = probe(decode_for_box(&bytes, None, false));
+    println!("    in the helper: {there}");
+    for what in ["tcp: blocked", "socket driver: blocked", "socket device: blocked"] {
+        assert!(there.contains(what), "{what}: {there}");
+    }
 }
 
 /// Passed to a program the helper tries to start: started, this binary leaves a file named
@@ -445,6 +474,7 @@ fn main() -> ExitCode {
         ),
         ("the_helper_cannot_touch_files", the_helper_cannot_touch_files),
         ("the_helper_cannot_reach_the_network", the_helper_cannot_reach_the_network),
+        ("the_helper_cannot_open_the_socket_driver", the_helper_cannot_open_the_socket_driver),
         ("the_helper_cannot_start_programs", the_helper_cannot_start_programs),
         (
             "an_image_element_shows_its_error_state_and_the_app_carries_on",
