@@ -52,9 +52,3 @@ overflow-checks = false
 
 [profile.release]
 overflow-checks = true
-
-# vello_cpu 0.4.0 with a fix for drop shadows thrown off the canvas's top or left edge; see
-# vendor/vello_cpu/PATCHED.md.
-# shortcut: wgpu with present-with-damage plus kept surface contents and buffer age, ported to
-# v30.0.2 (vello 0.4 needs wgpu 30). Upstream: gfx-rs/wgpu#10152 (merged after 30.0.2) and
-# gfx-rs/wgpu#11036; back to crates.io wgpu once both are released.
