@@ -160,5 +160,8 @@ fn a_slow_stream_reports_what_has_arrived_growing_within_the_media() {
         most = most.max(end);
     }
     let steps = seen.iter().zip(seen.iter().skip(1)).filter(|(a, b)| reach(&b.1) > reach(&a.1)).count();
-    assert!(steps >= 2, "it grew in steps as the bytes came, not all at once: {seen:?}");
+    // Media Foundation's HTTP byte stream caches in 16 KB blocks: the ~29 KB clip is only two
+    // of them, and the first has arrived by the time `open` returns.
+    let want = if cfg!(windows) { 1 } else { 2 };
+    assert!(steps >= want, "it grew in steps as the bytes came, not all at once: {seen:?}");
 }

@@ -13,17 +13,18 @@ use windows::Win32::Media::Audio::{
 };
 use windows::Win32::Media::MediaFoundation::{
     IMF2DBuffer, IMFAttributes, IMFByteStream, IMFByteStreamCacheControl2, IMFMediaType, IMFSample,
-    IMFSourceReader, MF_BYTE_STREAM_CACHE_RANGE, MF_BYTESTREAM_SERVICE, MF_MT_AUDIO_NUM_CHANNELS,
-    MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE,
-    MF_MT_MAJOR_TYPE, MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_SUBTYPE, MF_MT_VIDEO_NOMINAL_RANGE,
-    MF_MT_YUV_MATRIX, MF_PD_DURATION, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READER_ALL_STREAMS,
-    MF_SOURCE_READER_ANY_STREAM, MF_SOURCE_READER_D3D_MANAGER,
+    IMFSourceReader, MF_BYTE_STREAM_CACHE_RANGE, MF_MT_AUDIO_NUM_CHANNELS, MF_MT_AUDIO_SAMPLES_PER_SECOND,
+    MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE,
+    MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_SUBTYPE, MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_YUV_MATRIX,
+    MF_OBJECT_TYPE, MF_PD_DURATION, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_RESOLUTION_BYTESTREAM,
+    MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_ANY_STREAM, MF_SOURCE_READER_D3D_MANAGER,
     MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, MF_SOURCE_READER_MEDIASOURCE,
     MF_SOURCE_READER_MEDIASOURCE_CHARACTERISTICS, MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED,
     MF_SOURCE_READERF_ENDOFSTREAM, MF_SOURCE_READERF_ERROR, MF_VERSION, MFAudioFormat_Float,
-    MFCreateAttributes, MFCreateMediaType, MFCreateSourceReaderFromURL, MFMEDIASOURCE_CAN_SEEK,
-    MFMediaType_Audio, MFMediaType_Video, MFNominalRange_0_255, MFSTARTUP_FULL, MFShutdown, MFStartup,
-    MFVideoArea, MFVideoFormat_NV12, MFVideoTransferMatrix_BT601, MFVideoTransferMatrix_BT709,
+    MFCreateAttributes, MFCreateMediaType, MFCreateSourceReaderFromByteStream, MFCreateSourceReaderFromURL,
+    MFCreateSourceResolver, MFMEDIASOURCE_CAN_SEEK, MFMediaType_Audio, MFMediaType_Video,
+    MFNominalRange_0_255, MFSTARTUP_FULL, MFShutdown, MFStartup, MFVideoArea, MFVideoFormat_NV12,
+    MFVideoTransferMatrix_BT601, MFVideoTransferMatrix_BT709,
 };
 use windows::Win32::System::Com::StructuredStorage::{
     PROPVARIANT, PropVariantClear, PropVariantToUInt32, PropVariantToUInt64,
@@ -154,6 +155,9 @@ fn copy_path(why: &str) {
 
 struct MfDecoder {
     reader: IMFSourceReader,
+    /// A URL's byte stream, made here so its download cache can be asked (the MPEG-4 source
+    /// does not hand out the one it reads from). `None` for files and non-byte-stream URLs.
+    stream: Option<IMFByteStream>,
     /// Hardware decoding into textures shared with the renderer, when one takes them.
     gpu: Option<super::d3d11::Gpu>,
     info: MediaInfo,
@@ -242,7 +246,7 @@ impl MfDecoder {
             }
             _ => None,
         };
-        let make = |gpu: Option<&super::d3d11::Gpu>| -> Result<IMFSourceReader, MediaError> {
+        let make = |gpu: Option<&super::d3d11::Gpu>| -> Result<(IMFSourceReader, Option<IMFByteStream>), MediaError> {
             // SAFETY: Media Foundation calls on objects made here; every pointer passed lives
             // across the call.
             unsafe {
@@ -262,11 +266,35 @@ impl MfDecoder {
                         .SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1)
                         .map_err(|e| MediaError::Unsupported(e.message()))?;
                 }
+                if matches!(source, MediaSource::Url(_)) {
+                    // A URL that resolves to a byte stream (HTTP): read through one kept here.
+                    // Other schemes (RTSP) fail to and go the URL way.
+                    let stream = MFCreateSourceResolver().and_then(|r| {
+                        let mut kind = MF_OBJECT_TYPE::default();
+                        let mut object = None;
+                        r.CreateObjectFromURL(
+                            &HSTRING::from(url.as_str()),
+                            MF_RESOLUTION_BYTESTREAM.0 as u32,
+                            None::<&windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore>,
+                            &mut kind,
+                            &mut object,
+                        )?;
+                        object
+                            .ok_or_else(|| windows::core::Error::from(windows::Win32::Foundation::E_POINTER))
+                            .and_then(|o| o.cast::<IMFByteStream>())
+                    });
+                    if let Ok(stream) = stream {
+                        let reader = MFCreateSourceReaderFromByteStream(&stream, &attrs)
+                            .map_err(|e| format_error(&e))?;
+                        return Ok((reader, Some(stream)));
+                    }
+                }
                 MFCreateSourceReaderFromURL(&HSTRING::from(url.as_str()), &attrs)
+                    .map(|r| (r, None))
                     .map_err(|e| format_error(&e))
             }
         };
-        let reader = match make(gpu.as_ref()) {
+        let (reader, stream) = match make(gpu.as_ref()) {
             Err(e) if gpu.is_some() => {
                 copy_path(&format!("the source reader would not open on the GPU ({e})"));
                 gpu = None;
@@ -351,6 +379,7 @@ impl MfDecoder {
             }
             Ok(MfDecoder {
                 reader,
+                stream,
                 gpu,
                 info,
                 video,
@@ -533,29 +562,16 @@ impl Decoder for MfDecoder {
     }
 
     fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
-        // What the source's byte stream has in its cache: a network byte stream (HTTP) says
+        // What the URL's byte stream has in its cache: a network byte stream (HTTP) says
         // which byte ranges it has downloaded. They become times in proportion to the
         // stream's length (Media Foundation does not map bytes to times), so they are an
-        // estimate of where each stretch lies. A file's byte stream keeps no cache: `None`.
+        // estimate of where each stretch lies. A file has no kept byte stream: `None`.
         com();
         let length = self.info.duration?;
-        // SAFETY: the source's byte stream asked of the live reader for the interface the
-        // pointer is then owned as; the cache's range list is read for the count it gives
-        // and freed with the COM allocator it came from.
+        let stream = self.stream.as_ref()?;
+        // SAFETY: the kept byte stream asked for its cache; the cache's range list is read
+        // for the count it gives and freed with the COM allocator it came from.
         unsafe {
-            let mut p: *mut std::ffi::c_void = std::ptr::null_mut();
-            self.reader
-                .GetServiceForStream(
-                    MF_SOURCE_READER_MEDIASOURCE.0 as u32,
-                    &MF_BYTESTREAM_SERVICE,
-                    &IMFByteStream::IID,
-                    &mut p,
-                )
-                .ok()?;
-            if p.is_null() {
-                return None;
-            }
-            let stream = IMFByteStream::from_raw(p);
             let cache: IMFByteStreamCacheControl2 = stream.cast().ok()?;
             let bytes = stream.GetLength().ok().filter(|l| *l > 0 && *l != u64::MAX)?;
             let (mut n, mut list) = (0u32, std::ptr::null_mut::<MF_BYTE_STREAM_CACHE_RANGE>());
