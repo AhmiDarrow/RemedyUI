@@ -22,50 +22,83 @@ fn engine() -> TextEngine {
     for face in remedy_ui_fonts::all() {
         fonts.add_static(face.data).unwrap_or_else(|e| unreachable!("a bundled face: {e}"));
     }
+    for fb in remedy_ui_fonts::script_fallbacks() {
+        let _ = fonts.add_script_fallback(fb.script, fb.locale, fb.family);
+    }
     TextEngine::new(fonts)
 }
 
 /// About `bytes` of words of different lengths, as prose has.
 fn prose(bytes: usize) -> String {
-    const WORDS: &[&str] = &[
-        "the",
-        "quick",
-        "brown",
-        "fox",
-        "jumps",
-        "over",
-        "a",
-        "lazy",
-        "dog",
-        "while",
-        "seventeen",
-        "typographers",
-        "argue",
-        "about",
-        "kerning",
-        "and",
-        "ligatures",
-        "in",
-        "paragraphs",
-        "of",
-        "unusual",
-        "length,",
-        "which",
-        "nobody",
-        "reads",
-        "to",
-        "the",
-        "end.",
-    ];
+    words(
+        bytes,
+        &[
+            "the",
+            "quick",
+            "brown",
+            "fox",
+            "jumps",
+            "over",
+            "a",
+            "lazy",
+            "dog",
+            "while",
+            "seventeen",
+            "typographers",
+            "argue",
+            "about",
+            "kerning",
+            "and",
+            "ligatures",
+            "in",
+            "paragraphs",
+            "of",
+            "unusual",
+            "length,",
+            "which",
+            "nobody",
+            "reads",
+            "to",
+            "the",
+            "end.",
+        ],
+    )
+}
+
+/// English with Hebrew and Arabic phrases and numbers among them.
+fn mixed(bytes: usize) -> String {
+    words(
+        bytes,
+        &[
+            "Open",
+            "the",
+            "files",
+            "now",
+            "\u{5e9}\u{5dc}\u{5d5}\u{5dd}",
+            "42",
+            "(\u{5e7}\u{5d1}\u{5e6}\u{5d9}\u{5dd})",
+            "\u{645}\u{644}\u{641}\u{627}\u{62a}",
+            "\u{663}",
+            "and",
+            "later",
+            "3.14",
+        ],
+    )
+}
+
+fn words(bytes: usize, list: &[&str]) -> String {
     let mut s = String::with_capacity(bytes + 16);
     let mut x: u32 = 12345;
     while s.len() < bytes {
         x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345);
-        s.push_str(WORDS.get((x >> 16) as usize % WORDS.len()).copied().unwrap_or("a"));
+        s.push_str(list.get((x >> 16) as usize % list.len()).copied().unwrap_or("a"));
         s.push(' ');
     }
     s
 }
+
+/// A paragraph to time: its name, what makes its text, its length and how many runs.
+type Case = (&'static str, fn(usize) -> String, usize, usize);
 
 fn options() -> ParagraphOptions {
     ParagraphOptions::default().max_width(WIDTH)
@@ -90,8 +123,13 @@ fn main() {
     let mut engine = engine();
     let style = TextStyle::default();
     println!("paragraph | first frame | keystroke");
-    for (name, bytes, runs) in [("1 MB", 1usize << 20, 5), ("10 MB", 10usize << 20, 3)] {
-        let text = prose(bytes);
+    let cases: [Case; 3] = [
+        ("1 MB", prose, 1 << 20, 5),
+        ("10 MB", prose, 10 << 20, 3),
+        ("1 MB, Arabic and Hebrew in English", mixed, 1 << 20, 5),
+    ];
+    for (name, make, bytes, runs) in cases {
+        let text = make(bytes);
         let rich = RichText::plain(text.clone());
         let mut first = Vec::new();
         for _ in 0..runs {
