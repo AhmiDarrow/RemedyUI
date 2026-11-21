@@ -14,10 +14,10 @@ use remedy_ui_bridge_linux::LinuxHooks as Hooks;
 #[cfg(windows)]
 use remedy_ui_bridge_windows::WindowsHooks as Hooks;
 use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
-#[cfg(target_os = "linux")]
-use remedy_ui_bridge_winit::winit::platform::x11::EventLoopBuilderExtX11;
 #[cfg(windows)]
 use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
+#[cfg(target_os = "linux")]
+use remedy_ui_bridge_winit::winit::platform::x11::EventLoopBuilderExtX11;
 use remedy_ui_bridge_winit::{UserEvent, run_on};
 use remedy_ui_compositor::{Compositor, Layer, LayerId, LayerTree};
 use remedy_ui_core::{Color, CornerRadii, Rect, Size};
@@ -75,10 +75,19 @@ fn tree(x: f32) -> LayerTree {
 /// Presents whose swapchain image is read back and compared; more follow unchecked.
 const CHECKED: usize = 40;
 
+/// Frames the window's second resize takes to reach the surface.
+const LAG: usize = 8;
+
 #[derive(Default)]
 struct Probe {
     /// How far the dot has moved.
     x: f32,
+    /// Frames presented since the window's second resize while the surface was not told.
+    lagged: usize,
+    withheld: Option<(u32, u32)>,
+    /// Presents in a row that asked to be drawn again, and the most seen.
+    retries: usize,
+    most_retries: usize,
     gpu: Option<GpuCompositor>,
     compositor: Option<Compositor>,
     surface: Option<GpuSurface>,
@@ -113,6 +122,12 @@ impl App for Probe {
             HostEvent::Resized { window, width, height, scale } => {
                 let Some(gpu) = self.gpu.as_ref() else { return };
                 match self.surface.as_mut() {
+                    // The second resize reaches the surface only some frames later, as when
+                    // events lag behind the window: the swapchain must keep presenting.
+                    Some(_) if self.resized == 2 && self.lagged < LAG => {
+                        self.withheld = Some((width, height));
+                        return host.request_frame(window);
+                    }
                     Some(s) => gpu.resize_surface(s, width, height),
                     None => {
                         let made = host.window_handles(window).map_err(|e| e.to_string()).and_then(|h| {
@@ -152,10 +167,21 @@ impl App for Probe {
                 }
                 c.commit(tree(10.0 + self.x));
                 let plan = c.frame(at);
-                match gpu.present_to_surface(&plan, s, Color::WHITE) {
+                let presented = gpu.present_to_surface(&plan, s, Color::WHITE);
+                self.retries = if matches!(presented, Ok(Presented::Retry)) { self.retries + 1 } else { 0 };
+                self.most_retries = self.most_retries.max(self.retries);
+                match presented {
                     Ok(Presented::Shown) => self.shown += 1,
                     Ok(_) => {}
                     Err(e) => self.errors.push(e.to_string()),
+                }
+                if self.resized == 2 && self.lagged < LAG {
+                    self.lagged += 1;
+                    if self.lagged == LAG
+                        && let Some((w, h)) = self.withheld.take()
+                    {
+                        gpu.resize_surface(s, w, h);
+                    }
                 }
                 self.errors.extend(gpu.renderer().context().take_errors());
                 if self.shown == 15 && self.resized == 0 {
@@ -216,6 +242,9 @@ fn presenting_only_what_changed_shows_the_whole_frame() {
     assert!(validation.is_empty(), "validation: {validation:#?}");
     assert!(!probe.deadline_hit, "finished in time; errors: {:?}", probe.errors);
     assert!(probe.errors.is_empty(), "{:?}", probe.errors);
+    // A swapchain the window outgrew is built again at once (a retry or two), never left to
+    // ask for frames it cannot show until the surface hears of the new size.
+    assert!(probe.most_retries <= 2, "presents in a row that showed nothing: {}", probe.most_retries);
     let c = probe.checks;
     eprintln!("{}: {c:?}, own swapchain: {}, reports damage: {}", probe.backend, probe.own, probe.reports);
     // D3D12 always can; Vulkan where the device offers VK_KHR_incremental_present (Mesa and
