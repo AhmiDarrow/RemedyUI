@@ -405,6 +405,8 @@ type CastHandler = Rc<dyn Fn(&El)>;
 type SeekOutsideHandler = Rc<dyn Fn(Duration)>;
 /// Hears that a next made later is due.
 type NextNeededHandler = Rc<dyn Fn(&NextUp)>;
+/// Hears Cancel pressed while the app works.
+type CancelHandler = Rc<dyn Fn()>;
 
 struct Inner {
     id: u64,
@@ -476,6 +478,11 @@ struct Inner {
     /// Why the app could not make the next, until something else happens.
     next_error: Signal<Option<String>>,
     next_needed_handlers: RefCell<Vec<NextNeededHandler>>,
+    /// The app can stop its work (starting the next, or a skip) now: Cancel shows.
+    cancel_offered: Signal<bool>,
+    /// Cancel was pressed: the app is stopping its work.
+    canceling: Signal<bool>,
+    cancel_handlers: RefCell<Vec<CancelHandler>>,
     /// What the engine was told, to tell the next one: the picture's sink and whether it is
     /// seen.
     sink: RefCell<Option<VideoSink>>,
@@ -614,6 +621,7 @@ impl Inner {
             remedy_ui_reactive::batch(|| {
                 self.next_error.set_if_changed(None);
                 self.starting_detail.set_if_changed(None);
+                self.end_cancel();
                 self.starting.set(Some(next.title.clone()));
             });
             // As Portal's page leaves the old episode: nothing plays while the next starts.
@@ -628,6 +636,12 @@ impl Inner {
         if let Some(NextUp { source: Some(source), timeline, .. }) = next {
             self.load(source, timeline, false, false);
         }
+    }
+
+    /// The app's work ended (or a new one began): no Cancel until it offers one again.
+    fn end_cancel(&self) {
+        self.cancel_offered.set_if_changed(false);
+        self.canceling.set_if_changed(false);
     }
 
     fn is_starting(&self) -> bool {
@@ -738,6 +752,7 @@ impl Inner {
             self.starting.set_if_changed(None);
             self.starting_detail.set_if_changed(None);
             self.next_error.set_if_changed(None);
+            self.end_cancel();
         });
         self.embedded.borrow_mut().clear();
         self.play_on_open.set(self.remote.with_untracked(Option::is_none).unwrap_or(true));
@@ -892,6 +907,9 @@ impl Player {
             starting_detail: Signal::new(None),
             next_error: Signal::new(None),
             next_needed_handlers: RefCell::new(Vec::new()),
+            cancel_offered: Signal::new(false),
+            canceling: Signal::new(false),
+            cancel_handlers: RefCell::new(Vec::new()),
             sink: RefCell::new(None),
             visible: Cell::new(true),
             options,
@@ -957,7 +975,52 @@ impl Player {
     /// presses made meanwhile; the current stream stays, paused.
     pub fn cancel_skip(&self) {
         self.0.queued_skip.set(None);
+        self.0.end_cancel();
         self.0.skipping.set_if_changed(None);
+    }
+
+    /// Offers a Cancel button (or takes it away) while the app works on
+    /// [starting the next](Self::starting_next) or a [skip](Self::skipping), when that work
+    /// can be stopped now: as Portal's page does while the add-on, which says whether it may
+    /// be stopped, finds sources. It shows under the spinner in the middle of the picture,
+    /// in the tab order; pressing it calls [`on_cancel`](Self::on_cancel), disables it and
+    /// says "Canceling." until the app ends the work ([`cancel_next`](Self::cancel_next),
+    /// [`next_failed`](Self::next_failed), [`cancel_skip`](Self::cancel_skip) or a new
+    /// source). Each new start or skip begins without one.
+    pub fn offer_cancel(&self, on: bool) {
+        self.0.cancel_offered.set_if_changed(on);
+    }
+
+    /// Calls `f` when Cancel ([`offer_cancel`](Self::offer_cancel)) is pressed: the app stops
+    /// its server's work (Portal answers the add-on's prompt with cancel) and then ends it
+    /// here. [`starting_next`](Self::starting_next) and [`skipping`](Self::skipping) say
+    /// which work it was.
+    pub fn on_cancel(&self, f: impl Fn() + 'static) {
+        self.0.cancel_handlers.borrow_mut().push(Rc::new(f));
+    }
+
+    /// Whether Cancel shows: offered, while starting the next or skipping here. Tracked.
+    pub(crate) fn cancel_shown(&self) -> bool {
+        self.0.cancel_offered.get()
+            && !self.is_remote()
+            && (self.0.starting.with(Option::is_some) || self.0.skipping.with(Option::is_some))
+    }
+
+    /// Whether Cancel was pressed and the app is stopping its work. Tracked.
+    pub(crate) fn canceling(&self) -> bool {
+        self.0.canceling.get()
+    }
+
+    /// Cancel was pressed.
+    pub(crate) fn press_cancel(&self) {
+        if self.0.canceling.get_untracked().unwrap_or(false) {
+            return;
+        }
+        self.0.canceling.set(true);
+        let handlers = self.0.cancel_handlers.borrow().clone();
+        for h in handlers {
+            h();
+        }
     }
 
     /// Plays `source` in place of the current stream, on `timeline`: a stream of the same
@@ -1085,6 +1148,7 @@ impl Player {
             }
             _ => {
                 self.0.queued_skip.set(None);
+                self.0.end_cancel();
                 self.0.skipping.set(Some(to));
                 self.0.send(Cmd::Pause);
                 let handlers = self.0.seek_outside_handlers.borrow().clone();
@@ -1626,6 +1690,7 @@ impl Player {
     pub fn next_failed(&self, message: impl Into<String>) {
         self.0.declined.set(true);
         remedy_ui_reactive::batch(|| {
+            self.0.end_cancel();
             self.0.starting.set_if_changed(None);
             self.0.starting_detail.set_if_changed(None);
             self.0.next_error.set(Some(message.into()));
@@ -1637,6 +1702,7 @@ impl Player {
     pub fn cancel_next(&self) {
         self.0.declined.set(true);
         remedy_ui_reactive::batch(|| {
+            self.0.end_cancel();
             self.0.starting.set_if_changed(None);
             self.0.starting_detail.set_if_changed(None);
         });

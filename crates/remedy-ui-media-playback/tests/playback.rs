@@ -2456,3 +2456,81 @@ fn a_tv_starting_its_next_by_itself_says_so_then_switches_to_the_new_job_at_once
     let problems = remedy_ui_devtools::audit(&s.ui);
     assert!(problems.is_empty(), "{problems:?}");
 }
+
+/// The Cancel button in the middle of the picture (not the Up next card's).
+fn stage_cancel(view: &El) -> Option<El> {
+    find(view, "player_busy_center").first().and_then(|c| named(c, "Cancel"))
+}
+
+fn shown_enabled(e: &El) -> (bool, bool) {
+    e.info().map_or((false, false), |i| (!i.hidden, !i.states.contains(remedy_ui_style::States::DISABLED)))
+}
+
+#[test]
+fn cancel_while_the_next_starts_asks_the_app_which_ends_it_as_portal_does() {
+    let mut s = Screen::new();
+    let (p, view, _asked) = portal_later(&mut s, Some(Duration::ZERO));
+    let cancels = Arc::new(Mutex::new(Vec::new()));
+    let (c, q) = (cancels.clone(), p.clone());
+    p.on_cancel(move || c.lock().unwrap_or_else(|e| e.into_inner()).push(q.starting_next()));
+    let cancel = stage_cancel(&view).unwrap_or_else(|| unreachable!("a stage Cancel"));
+    p.seek(Duration::from_secs(85));
+    p.play();
+    s.wait("the card", |_| card_shown(&view));
+    p.play_next();
+    s.pump();
+    assert!(!shown_enabled(&cancel).0, "not until the app says its work can stop");
+    // The add-on finds sources, and says it may be stopped.
+    p.next_status(Some("The add-on is finding sources.".into()));
+    p.offer_cancel(true);
+    s.pump();
+    assert_eq!(shown_enabled(&cancel), (true, true));
+    assert_eq!(alert(&view).as_deref(), Some("Starting Episode 2\nThe add-on is finding sources."));
+    cancel.focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert_eq!(*cancels.lock().unwrap_or_else(|e| e.into_inner()), [Some("Episode 2".to_string())]);
+    assert_eq!(shown_enabled(&cancel), (true, false), "disabled once pressed");
+    assert_eq!(alert(&view).as_deref(), Some("Starting Episode 2\nCanceling."), "announced");
+    let _ = press(&s.ui, Key::Enter);
+    s.pump();
+    assert_eq!(cancels.lock().unwrap_or_else(|e| e.into_inner()).len(), 1, "a second press does nothing");
+    // The add-on stopped: the job failed, as Portal's poll then hears.
+    p.next_failed("Canceled. Press Play to try again.");
+    s.pump();
+    assert!(!shown_enabled(&cancel).0);
+    assert_eq!(alert(&view).as_deref(), Some("Canceled. Press Play to try again."));
+    assert!(!seek_disabled(&view));
+    // A new start begins without Cancel.
+    p.play_next();
+    s.pump();
+    assert!(!shown_enabled(&cancel).0);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+#[test]
+fn cancel_while_skipping_asks_the_app_which_keeps_the_stream() {
+    let mut s = Screen::new();
+    let (p, view, asked) = film(&mut s);
+    let cancels = Arc::new(Mutex::new(Vec::new()));
+    let (c, q) = (cancels.clone(), p.clone());
+    p.on_cancel(move || c.lock().unwrap_or_else(|e| e.into_inner()).push(q.skipping()));
+    let cancel = stage_cancel(&view).unwrap_or_else(|| unreachable!("a stage Cancel"));
+    p.seek(Duration::from_secs(100));
+    assert_eq!(*asked.lock().unwrap_or_else(|e| e.into_inner()), [100]);
+    p.offer_cancel(true);
+    s.pump();
+    assert_eq!(shown_enabled(&cancel), (true, true));
+    cancel.focus();
+    assert!(press(&s.ui, Key::Space));
+    s.pump();
+    assert_eq!(*cancels.lock().unwrap_or_else(|e| e.into_inner()), [Some(Duration::from_secs(100))]);
+    assert_eq!(alert(&view).as_deref(), Some("Skipping to 1:40\nCanceling."));
+    p.cancel_skip();
+    s.pump();
+    assert_eq!(p.skipping(), None);
+    assert!(!shown_enabled(&cancel).0);
+    assert_eq!(alert(&view), None);
+    assert!(!seek_disabled(&view), "the current stream stays, usable");
+}

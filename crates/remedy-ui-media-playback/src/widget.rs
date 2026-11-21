@@ -156,7 +156,8 @@ fn nudge_volume(p: &Player, up: bool) {
 ///
 /// While the app makes a next made [later](crate::NextUp::later) ("Starting …" over the
 /// picture, as an alert), or a device starts its next by itself, the seek bar is disabled
-/// and the time blank.
+/// and the time blank. While starting the next or skipping, a Cancel button shows under the
+/// spinner when the app offers one ([`Player::offer_cancel`]); Escape does not press it.
 ///
 /// Sound-only media shows the transport bar alone. Media with pictures pauses while the
 /// player is unseen (see [`UnseenPolicy`](crate::UnseenPolicy)), and does not start by itself
@@ -210,7 +211,12 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         let text = match (p.state(), p.skipping()) {
             (PlaybackState::Failed, _) if !p.is_remote() => Some(failure(&mu.locale(), p.error())),
             (_, Some(at)) if !p.is_remote() => {
-                Some(crate::STRINGS.format(&mu, "playback-skipping", &[("position", format_time(at).into())]))
+                let head =
+                    crate::STRINGS.format(&mu, "playback-skipping", &[("position", format_time(at).into())]);
+                Some(match p.canceling() {
+                    true => format!("{head}\n{}", tr(&mu, "playback-canceling")),
+                    false => head,
+                })
             }
             // The next, while the app makes it, as Portal's page says it: the title, then
             // what the app is doing.
@@ -219,7 +225,12 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                 Some(title) => {
                     let head =
                         crate::STRINGS.format(&mu, "playback-starting-next", &[("title", title.into())]);
-                    Some(match p.starting_detail() {
+                    // As Portal's page: once Cancel is pressed, that is what it is doing.
+                    let detail = match p.canceling() {
+                        true => Some(tr(&mu, "playback-canceling")),
+                        false => p.starting_detail(),
+                    };
+                    Some(match detail {
                         Some(d) => format!("{head}\n{d}"),
                         None => head,
                     })
@@ -241,10 +252,18 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: 0.0 };
         })
         .pass_through()
-        .child(w::spinner(ui, {
-            let u = ui.clone();
-            move || tr(&u, "playback-loading")
-        }));
+        .child(
+            ui.el("player_busy_center")
+                .column()
+                .align(Align::Center)
+                .gap(u * 1.5)
+                .pass_through()
+                .child(w::spinner(ui, {
+                    let u = ui.clone();
+                    move || tr(&u, "playback-loading")
+                }))
+                .child(stage_cancel(ui, player)),
+        );
     let cast = cast_stage(ui, player);
     let p = player.clone();
     // The picture fills the stage (letterboxed by the surface); the rest sits over it.
@@ -293,7 +312,8 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         let state = p.state();
         let remote = p.is_remote();
         let waiting = matches!(state, PlaybackState::Opening | PlaybackState::Buffering);
-        let _ = busy.clone().hidden(!waiting && p.starting_next().is_none());
+        let working = p.starting_next().is_some() || (p.skipping().is_some() && !remote);
+        let _ = busy.clone().hidden(!waiting && !working);
         let _ = surface.clone().hidden(remote);
         // Sound alone needs no picture; what failed to open shows its message there.
         let pictures = p.info().is_none_or(|i| i.video.is_some());
@@ -569,6 +589,26 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             }
             true
         })
+}
+
+/// Cancel under the spinner, while the app's work (starting the next, a skip) can be stopped
+/// ([`Player::offer_cancel`]), as on Portal's page; disabled once pressed.
+#[track_caller]
+fn stage_cancel(ui: &Ui, player: &Player) -> El {
+    let p = player.clone();
+    let button = w::button(
+        ui,
+        {
+            let u = ui.clone();
+            move || tr(&u, "playback-next-cancel")
+        },
+        move || p.press_cancel(),
+    );
+    drops_focus_after_click(ui, player, &button);
+    let (b, p) = (button.clone(), player.clone());
+    button.bind(move || {
+        let _ = b.clone().hidden(!p.cancel_shown()).disabled(p.canceling());
+    })
 }
 
 /// What plays where, in remote mode: the device's name and state over the app's poster, in
