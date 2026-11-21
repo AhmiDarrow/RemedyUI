@@ -125,6 +125,10 @@ impl Session {
             Reflect::construct(&ctor, &Array::of1(&init)).ok()
         });
         set(&self.ms, "metadata", &meta.unwrap_or(JsValue::NULL));
+        if now.is_none() {
+            // Out of the controls, as Windows' SMTC is turned off.
+            set(&self.ms, "playbackState", &JsValue::from_str("none"));
+        }
     }
 
     pub(crate) fn playback(&self, state: MediaState, position: Duration, length: Option<Duration>) {
@@ -160,6 +164,5 @@ impl Drop for Session {
         }
         self.set_action("nexttrack", None);
         self.now_playing(None);
-        set(&self.ms, "playbackState", &JsValue::from_str("none"));
     }
 }

@@ -19,6 +19,8 @@ pub(crate) enum Press {
     Next,
     Previous,
     SeekBy(f64),
+    /// Only the system's media controls seek to a place.
+    #[cfg(feature = "media-session")]
     SeekTo(Duration),
 }
 
@@ -53,6 +55,7 @@ pub(crate) fn apply(p: &Player, press: Press) -> bool {
         Press::Next => return false,
         Press::Previous => p.seek(Duration::ZERO),
         Press::SeekBy(s) => p.seek_by(s),
+        #[cfg(feature = "media-session")]
         Press::SeekTo(t) => p.seek(t),
     }
     true

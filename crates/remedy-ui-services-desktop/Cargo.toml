@@ -37,6 +37,10 @@ js-sys = { version = "=0.3.107" }
 wasm-bindgen = { version = "=0.2.130" }
 web-sys = { version = "=0.3.107", features = ["Blob", "BlobPropertyBag", "Url", "Window", "Navigator"] }
 
+# The browser test (the web bridge's `tools/web-test.sh`).
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = { version = "=0.3.80" }
+
 [target.'cfg(windows)'.dev-dependencies]
 # The SMTC test presses the session's buttons from the controlling side.
 windows = { version = "=0.62.2", features = ["Foundation", "Foundation_Collections", "Media", "Media_Control"] }
