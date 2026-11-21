@@ -8,13 +8,13 @@ use std::ffi::CStr;
 use std::time::{Duration, Instant};
 
 use super::gstreamer::{
-    CLOCK_TIME_NONE, GST_MAP_WRITE, Gst, GstMapInfo, GstStreamDecoder, gst, launch_error, map_error,
-    nv12_picture,
+    CLOCK_TIME_NONE, GST_MAP_WRITE, Gst, GstMapInfo, GstStreamDecoder, RESOURCE_NOT_FOUND, gst, launch_error,
+    map_error, nv12_picture,
 };
 use super::gstreamer_stream::{Pipe, pull};
 use crate::hls::{
     AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
-    file_path, timed_out,
+    file_path, missing, timed_out,
 };
 use crate::host::{MediaError, Sample, VideoCodec};
 
@@ -290,6 +290,10 @@ impl Fetch for GstFetch {
             // 404) posts its error, then ends the stream.
             let eos = unsafe { (g.app_sink_is_eos)(p.get(0)) } != 0;
             if let Some((code, text)) = g.bus_error(p.pipeline) {
+                // souphttpsrc says an HTTP 404 or 410 is a resource not found.
+                if code == RESOURCE_NOT_FOUND {
+                    return Err(missing(url, &text));
+                }
                 return Err(map_error(code, format!("{url}: {text}")));
             }
             if eos {

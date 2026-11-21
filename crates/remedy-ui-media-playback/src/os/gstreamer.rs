@@ -50,7 +50,7 @@ pub(crate) const GST_MAP_READ: c_int = 1;
 pub(crate) const GST_MAP_WRITE: c_int = 2;
 pub(crate) const CLOCK_TIME_NONE: u64 = u64::MAX;
 /// GST_RESOURCE_ERROR_NOT_FOUND and _OPEN_READ, the codes for a missing or unreadable source.
-const RESOURCE_NOT_FOUND: c_int = 3;
+pub(crate) const RESOURCE_NOT_FOUND: c_int = 3;
 const RESOURCE_OPEN_READ: c_int = 5;
 
 /// How long a source may take to give its first picture or sound before it is reported as

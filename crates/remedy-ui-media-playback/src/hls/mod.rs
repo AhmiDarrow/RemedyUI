@@ -165,6 +165,30 @@ pub(crate) const LOAD: Duration = Duration::from_secs(60);
 pub(crate) const QUIET: Duration = Duration::from_millis(2500);
 /// How a fetch that gave up waiting ends its error, so it is told from one that failed.
 const TIMED_OUT: &str = "(timed out)";
+/// How a fetch the server said does not exist (HTTP 404 or 410) ends its error.
+const MISSING: &str = "(no such file)";
+/// A playlist the server says does not exist, before it was ever read, is tried again this
+/// many times (a second apart: a live stream's playlist may be moments from being written)
+/// and then fails, rather than riding out the retries and recoveries a playing stream gets.
+const MISSING_RETRIES: u32 = 2;
+
+/// The error of a fetch of `url` the server answered with HTTP `status`: one that says the
+/// file does not exist (404, 410) is told apart, so an open fails promptly.
+pub(crate) fn answered(url: &str, status: u32) -> MediaError {
+    match status {
+        404 | 410 => missing(url, &format!("the server answered {status}")),
+        _ => MediaError::NotFound(format!("{url}: the server answered {status}")),
+    }
+}
+
+/// The error of a fetch of `url` that the server says does not exist (`why`).
+pub(crate) fn missing(url: &str, why: &str) -> MediaError {
+    MediaError::NotFound(format!("{url}: {why} {MISSING}"))
+}
+
+fn is_missing(e: &MediaError) -> bool {
+    matches!(e, MediaError::NotFound(m) if m.ends_with(MISSING))
+}
 
 /// The error of a fetch of `url` that gave up waiting (`why`): retried as a timeout.
 pub(crate) fn timed_out(url: &str, why: &str) -> MediaError {
@@ -362,6 +386,9 @@ impl Hls {
             Ok(d) => d,
             Err(e) => {
                 self.failures += 1;
+                if !self.loaded && is_missing(&e) && self.failures > MISSING_RETRIES {
+                    return Err(e);
+                }
                 let retries = if is_timeout(&e) { TIMEOUT_RETRIES } else { ERROR_RETRIES };
                 if self.failures > retries {
                     if self.recoveries >= RECOVERIES {
