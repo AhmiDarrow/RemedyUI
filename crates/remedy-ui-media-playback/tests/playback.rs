@@ -2063,6 +2063,7 @@ fn on_a_timeline_everything_is_in_film_time_and_seeks_inside_the_stream_stay_in_
         start: Duration::from_secs(404),
         end: Duration::from_secs(407),
         text: "Whatever it takes".into(),
+        ..Default::default()
     };
     let i = p.add_subtitles(SubtitleTrack { label: "English".into(), language: None, cues: vec![cue] });
     p.set_caption_track(Some(i));
@@ -2115,8 +2116,12 @@ fn a_seek_outside_the_stream_goes_to_the_app_which_hands_over_a_new_one() {
 fn a_new_stream_keeps_the_captions_and_remote_mode() {
     let mut s = Screen::new();
     let (p, _view, _asked) = film(&mut s);
-    let cue =
-        Cue { start: Duration::from_secs(600), end: Duration::from_secs(604), text: "On your left".into() };
+    let cue = Cue {
+        start: Duration::from_secs(600),
+        end: Duration::from_secs(604),
+        text: "On your left".into(),
+        ..Default::default()
+    };
     let i = p.add_subtitles(SubtitleTrack { label: "English".into(), language: None, cues: vec![cue] });
     p.set_caption_track(Some(i));
     p.set_caption_delay(250);
@@ -2866,8 +2871,12 @@ fn left_alone(s: &mut Screen, calls: &AtomicU64) -> bool {
 fn a_hold_for_a_new_source_stops_fetching_queues_presses_and_keeps_the_settings() {
     let mut s = Screen::new();
     let (p, view, asked, calls) = counted_film(&mut s);
-    let cue =
-        Cue { start: Duration::from_secs(430), end: Duration::from_secs(434), text: "On your left".into() };
+    let cue = Cue {
+        start: Duration::from_secs(430),
+        end: Duration::from_secs(434),
+        text: "On your left".into(),
+        ..Default::default()
+    };
     let i = p.add_subtitles(SubtitleTrack { label: "English".into(), language: None, cues: vec![cue] });
     p.set_caption_track(Some(i));
     p.set_caption_delay(250);
