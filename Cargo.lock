@@ -4848,8 +4848,11 @@ name = "remedy-ui-text"
 version = "1.0.0-rc.1"
 dependencies = [
  "fontique",
+ "icu_properties",
  "icu_segmenter",
  "parley",
+ "parley_data",
+ "parley_engine",
  "remedy-ui-core",
  "remedy-ui-fonts",
  "remedy-ui-fonts-cjk",
