@@ -120,6 +120,11 @@ pub(crate) struct VkChain {
     current: Option<(u32, usize)>,
     /// wgpu's surface, never configured: it owns the `VkSurfaceKHR` and outlives the swapchain.
     _surface: wgpu::Surface<'static>,
+    /// wgpu's device, kept so the `VkDevice` outlives the swapchain made on it.
+    wgpu_device: wgpu::Device,
+    /// Images wrapped as wgpu textures that wgpu has not let go of yet: an image must stay
+    /// valid until then.
+    wrapped: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 // SAFETY: Vulkan handles are plain values; the chain is used from one thread at a time.
@@ -198,6 +203,8 @@ impl VkChain {
             presents: 0,
             current: None,
             _surface: surface,
+            wgpu_device: device.clone(),
+            wrapped: Default::default(),
         };
         // A surface with no size yet (a minimized window) gets its swapchain once it has one.
         Ok(match chain.rebuild() {
@@ -277,7 +284,7 @@ impl VkChain {
                 .present_mode(mode)
                 .clipped(true)
                 .old_swapchain(old);
-            let _ = self.device.device_wait_idle();
+            self.let_go();
             // The old swapchain is retired by this call even when it fails.
             self.stale = true;
             let raw = self.swapchain_fns.create_swapchain(&info, None).map_err(failed("create swapchain"))?;
@@ -307,6 +314,20 @@ impl VkChain {
             self.stale = false;
         }
         Ok(())
+    }
+
+    /// Waits until the device has finished everything submitted and wgpu has let go of every
+    /// texture wrapped from an image, so the images, and what waited on the semaphores, may go.
+    fn let_go(&self) {
+        // wgpu frees a texture once the submissions using it are done and it polls.
+        let _ = self.wgpu_device.poll(wgpu::PollType::wait_indefinitely());
+        // SAFETY: a call on wgpu's device, from the thread that submits to its queue.
+        let _ = unsafe { self.device.device_wait_idle() };
+        debug_assert_eq!(
+            self.wrapped.load(std::sync::atomic::Ordering::Relaxed),
+            0,
+            "wgpu still holds a swapchain image",
+        );
     }
 
     /// Whether presents tell the presentation engine which rectangles changed.
@@ -360,8 +381,11 @@ impl VkChain {
         let size = wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 };
         let usage =
             wgpu::TextureUses::COPY_DST | wgpu::TextureUses::COPY_SRC | wgpu::TextureUses::COLOR_TARGET;
+        let wrapped = self.wrapped.clone();
+        wrapped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // SAFETY: the image is this swapchain's, of this format and size; the drop callback
-        // leaves it to the swapchain. It is in the present layout once it has been presented,
+        // leaves it to the swapchain, which is destroyed only once wgpu let go of every
+        // texture wrapped from it (`let_go`). It is in the present layout once it has been presented,
         // and holds nothing (undefined) before.
         let texture = unsafe {
             let hal = device.as_hal::<Vk>().ok_or(ChainError::Lost)?;
@@ -378,7 +402,9 @@ impl VkChain {
                     memory_flags: wgpu::hal::MemoryFlags::empty(),
                     view_formats: Vec::new(),
                 },
-                Some(Box::new(|| {})),
+                Some(Box::new(move || {
+                    wrapped.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                })),
                 wgpu::hal::vulkan::TextureMemory::External,
             );
             drop(hal);
@@ -540,10 +566,11 @@ impl VkChain {
 
 impl Drop for VkChain {
     fn drop(&mut self) {
-        // SAFETY: the device is idle before the swapchain and semaphores go; wgpu's surface,
-        // which owns the VkSurfaceKHR, is dropped after (a field).
+        self.let_go();
+        // SAFETY: the device is idle and wgpu holds no image before the swapchain and
+        // semaphores go; wgpu's surface, which owns the VkSurfaceKHR, and wgpu's device are
+        // dropped after (fields).
         unsafe {
-            let _ = self.device.device_wait_idle();
             for image in self.images.drain(..) {
                 self.device.destroy_semaphore(image.rendered, None);
             }
