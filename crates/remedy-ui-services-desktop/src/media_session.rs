@@ -5,8 +5,11 @@
 //! - Windows: the System Media Transport Controls (SMTC), through a `Windows.Media.Playback`
 //!   `MediaPlayer` whose own command handling is off, so no window is needed
 //! - Browser: `navigator.mediaSession`
-//! - Linux (MPRIS), macOS (`MPNowPlayingInfoCenter`) and Android (`MediaSession`):
-//!   [`DesktopError::Unsupported`] for now
+//! - Linux: MPRIS on the session bus (`org.mpris.MediaPlayer2.<app>.instance<pid>`); artwork
+//!   given as bytes goes to a temporary file, since MPRIS takes a URL
+//! - Android: a `MediaSession` with its media notification, through the Android bridge's
+//!   Java (`dev.remedyui.android.MediaControls`, in the APK as `cargo remedy package` makes it)
+//! - macOS (`MPNowPlayingInfoCenter`): [`DesktopError::Unsupported`] for now
 //!
 //! The media-playback pack keeps one in step with a player (`Player::now_playing`).
 
@@ -150,7 +153,22 @@ mod platform {
     pub(super) use crate::web_media::Session;
 }
 
-#[cfg(not(any(windows, all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod platform {
+    pub(super) use crate::mpris::Session;
+}
+
+#[cfg(target_os = "android")]
+mod platform {
+    pub(super) use crate::os::android_media::Session;
+}
+
+#[cfg(not(any(
+    windows,
+    all(target_arch = "wasm32", target_os = "unknown"),
+    target_os = "android",
+    all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))
+)))]
 mod platform {
     use super::{DesktopError, Handler, MediaState, NowPlaying};
     use std::time::Duration;
@@ -161,10 +179,8 @@ mod platform {
         pub(super) fn new(_: Handler) -> Result<Session, DesktopError> {
             let reason = if cfg!(target_os = "macos") {
                 "MPNowPlayingInfoCenter is not wired up yet"
-            } else if cfg!(target_os = "android") {
-                "Android's MediaSession is not wired up yet"
-            } else if cfg!(unix) {
-                "MPRIS over D-Bus is not wired up yet"
+            } else if cfg!(target_os = "ios") {
+                "MPNowPlayingInfoCenter is not wired up on iOS yet"
             } else {
                 "this platform has no media controls"
             };

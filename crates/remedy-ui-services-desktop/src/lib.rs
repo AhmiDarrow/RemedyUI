@@ -10,7 +10,8 @@
 //! - [`reveal`]: show a file in the file manager, selected
 //! - [`known_folder`]: the user's Documents, Pictures, Downloads and other usual folders
 //! - [`media_session`]: what plays now in the system's media controls, and their buttons and
-//!   the media keys passed back (SMTC on Windows, `navigator.mediaSession` in a browser)
+//!   the media keys passed back (SMTC on Windows, MPRIS on Linux, `MediaSession` on Android,
+//!   `navigator.mediaSession` in a browser)
 //!
 //! Notifications, the tray and badges need the event loop, so they are part of the host
 //! contract (`remedy_ui_host::Host::show_notification`, `set_tray`, `set_badge`) and every
@@ -27,6 +28,8 @@ mod ini;
 pub mod jump;
 mod known;
 pub mod media_session;
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod mpris;
 pub use known::{KnownFolder, known_folder, xdg_user_dir};
 pub mod power;
 mod reveal;
