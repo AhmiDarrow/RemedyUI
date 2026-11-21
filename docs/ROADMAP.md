@@ -222,7 +222,7 @@ Next: the macOS run, which needs a Mac.
 - Full-screen windows: `Host::set_fullscreen` (borderless on the window's display on every winit desktop, recorded by the headless host) and `Window::set_fullscreen`/`is_fullscreen`.
 - Media icons in `widgets-core` (play, pause, volume, muted, full screen in and out, captions).
 
-Not yet in `media-playback`: buffered ranges from Media Foundation, AVFoundation, MediaCodec and the browser (only what is decoded ahead shows there), embedded caption tracks from Media Foundation, AVFoundation and MediaCodec (their readers do not hand out text samples), and zero-copy GPU frames from the decoders.
+Not yet in `media-playback`: buffered ranges from Media Foundation, AVFoundation, MediaCodec and the browser (only what is decoded ahead shows there), embedded caption tracks other than MP4 timed text from Media Foundation, AVFoundation and MediaCodec (their readers do not hand out text samples; MP4 timed text is read from the file by the crate's own MP4 reader, so it shows on every platform), and zero-copy GPU frames from the decoders.
 
 **Also:** progressive zoom in the compositor: old tiles shown scaled while tiles at the new scale raster within a per-frame budget (docs/design/04-rendering.md, Tiles).
 

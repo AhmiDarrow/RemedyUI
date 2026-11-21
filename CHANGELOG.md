@@ -21,6 +21,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   plays in the same player, taken off the queue as it starts, until the queue is empty;
   the widget's "Up next" card shows each in turn. `set_next_up` now sets the queue to the
   one given (or empties it), and `next_up` is the queue's first.
+- **Captions inside MP4 files on every platform**: MPEG-4 timed-text (`tx3g`) tracks, with
+  their language, are read from the file by the media crate's own MP4 reader (only the movie
+  box and the cue samples are read) and show in the player's captions menu where the
+  platform's decoder hands out none (Media Foundation, AVFoundation, MediaCodec).
 - **Playback speed in the media player, with the pitch kept**: `Player::set_speed` (0.25× to
   4×, `MIN_SPEED`/`MAX_SPEED`; not-a-number is 1×), `Player::speed`, `step_speed` and `SPEEDS`.
   Sound goes through a pitch-preserving WSOLA time stretcher of the crate's own (no new
