@@ -57,6 +57,16 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   plays in the same player, taken off the queue as it starts, until the queue is empty;
   the widget's "Up next" card shows each in turn. `set_next_up` now sets the queue to the
   one given (or empties it), and `next_up` is the queue's first.
+- **Captions inside Matroska and WebM files on every native platform**: SubRip
+  (`S_TEXT/UTF8`), ASS/SSA (`S_TEXT/ASS`, `S_TEXT/SSA`) and WebVTT (`S_TEXT/WEBVTT`, WebM's
+  `D_WEBVTT/SUBTITLES` and `D_WEBVTT/CAPTIONS`) tracks, with their language or name, are read
+  from the file by the media crate's own Matroska reader and show in the player's captions
+  menu on Windows, macOS, Android and Linux (in place of GStreamer's late copy). Only the
+  header elements, the cue index and the subtitle blocks are read; a file without an index
+  (written to a pipe) is walked cluster by cluster, skipping the pictures and sound unread.
+  Every size is checked against its parent and the file, and a damaged file shows no
+  embedded captions rather than wrong ones. Bitmap subtitles (PGS, VobSub, DVB) are not
+  read, nor text tracks compressed with zlib or encrypted (header stripping is undone).
 - **Captions inside MP4 files on every platform**: MPEG-4 timed-text (`tx3g`) tracks, with
   their language, are read from the file by the media crate's own MP4 reader (only the movie
   box and the cue samples are read) and show in the player's captions menu where the
