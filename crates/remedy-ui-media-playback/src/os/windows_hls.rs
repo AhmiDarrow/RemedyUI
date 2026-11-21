@@ -699,16 +699,18 @@ impl Fetch for HttpFetch {
                 if started.elapsed() > LOAD {
                     return Err(timed_out(url, "the download took too long"));
                 }
-                // Waiting here keeps to the receive timeout; a read of a large buffer did not.
-                let mut n = 0u32;
-                WinHttpQueryDataAvailable(request.0, &mut n).map_err(failed)?;
-                if n == 0 {
+                // Wait here, then read only what has come: this wait keeps to the receive
+                // timeout, where a read waiting to fill a large buffer did not.
+                let mut ready = 0u32;
+                WinHttpQueryDataAvailable(request.0, &mut ready).map_err(failed)?;
+                if ready == 0 {
                     return Ok(out);
                 }
                 let mut n = 0u32;
-                WinHttpReadData(request.0, chunk.as_mut_ptr().cast(), chunk.len() as u32, &mut n).map_err(
-                    |e| if timeout(&e) { timed_out(url, "nothing arrived") } else { format_error(&e) },
-                )?;
+                let want = ready.min(chunk.len() as u32);
+                WinHttpReadData(request.0, chunk.as_mut_ptr().cast(), want, &mut n).map_err(|e| {
+                    if timeout(&e) { timed_out(url, "nothing arrived") } else { format_error(&e) }
+                })?;
                 if n == 0 {
                     return Ok(out);
                 }
