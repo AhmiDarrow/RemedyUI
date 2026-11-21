@@ -4518,7 +4518,9 @@ version = "1.0.0-rc.1"
 dependencies = [
  "gif",
  "image",
+ "jni 0.21.1",
  "libc",
+ "ndk-context",
  "remedy-ui-core",
  "remedy-ui-fonts",
  "remedy-ui-media-anim",

@@ -1,6 +1,6 @@
 [package]
 name = "remedy-ui-media-isolated"
-description = "RemedyUI isolated decoding: images decoded in a sandboxed helper process (AppContainer with a restricted token on Windows, seccomp-bpf and Landlock on Linux, the App Sandbox on macOS) that gets bytes and returns pixels over shared memory, so a decoder that crashes, hangs or is exploited takes down only the helper."
+description = "RemedyUI isolated decoding: images decoded in a sandboxed helper process (AppContainer with a restricted token on Windows, seccomp-bpf and Landlock on Linux, the App Sandbox on macOS, an isolated service process on Android) that gets bytes and returns pixels over shared memory, so a decoder that crashes, hangs or is exploited takes down only the helper."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -29,6 +29,12 @@ windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Secu
 [target.'cfg(unix)'.dependencies]
 libc = { version = "=0.2.191" }
 
+# The helper is an isolated service the bridge's Java declares, started through JNI with the
+# app's Context from ndk-context (which android-activity fills in).
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "=0.21.1" }
+ndk-context = { version = "=0.1.1" }
+
 [dev-dependencies]
 remedy-ui-media-anim = { path = "../remedy-ui-media-anim", version = "1.0.0-rc.1" }
 gif = { version = "=0.14.2" }
@@ -46,6 +52,12 @@ image = { version = "=0.25.10", default-features = false, features = ["png", "jp
 name = "isolated"
 # The test binary is also the helper: its own `main` enters helper mode first, as an app's does.
 harness = false
+
+# The same tests on Android, as a library an instrumentation runs inside an app
+# (tools/android-check.sh): there a helper is an isolated service process, not a program.
+[[example]]
+name = "android-isolated-check"
+crate-type = ["cdylib"]
 
 [lints]
 workspace = true
