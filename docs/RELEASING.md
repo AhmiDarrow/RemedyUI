@@ -28,7 +28,9 @@ bash ~/budget-gate.sh               # the reference scenes' budgets
 
 The gate runs formatting, clippy for Windows, Linux, macOS, Android and wasm32, the tests,
 the docs with warnings denied, `cargo xtask check` (the layer graph, the unsafe-code boundary,
-and publishing metadata on every published crate) and `cargo deny check`.
+publishing metadata on every published crate, the docs index and `cargo vet --locked`) and
+`cargo deny check`. Install cargo-vet (`cargo install cargo-vet --locked`) on the gate
+machine: without it `cargo xtask check` skips the audits with a note.
 
 ## Before every release
 

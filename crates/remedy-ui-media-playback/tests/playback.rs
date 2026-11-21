@@ -918,6 +918,69 @@ fn under_reduced_motion_the_next_waits_for_the_person() {
 }
 
 #[test]
+fn a_queue_plays_each_in_turn_then_stops() {
+    let mut s = Screen::new();
+    let options = PlayerOptions::default().next_up_delay(Some(Duration::from_millis(200)));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:1"), options);
+    let view = player(&s.ui, &p, "Scripted");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.set_queue(vec![
+        NextUp::new(MediaSource::url("script:2"), "Two"),
+        NextUp::new(MediaSource::url("script:3"), "Three"),
+    ]);
+    assert_eq!(p.queue().len(), 2);
+    assert_eq!(p.next_up().map(|n| n.title), Some("Two".into()));
+    p.play();
+    s.wait("counting down to two", |_| p.countdown().is_some());
+    assert!(texts(&view, "label").iter().any(|t| t == "Up next: Two"));
+    s.wait("two playing", |_| {
+        p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(2))
+    });
+    // Taken off the queue as it starts: three is next now, and its card waits for the end.
+    assert_eq!(p.queue().iter().map(|n| n.title.as_str()).collect::<Vec<_>>(), ["Three"]);
+    assert!(!card_shown(&view));
+    s.wait("counting down to three", |_| p.countdown().is_some());
+    assert!(card_shown(&view));
+    assert!(texts(&view, "label").iter().any(|t| t == "Up next: Three"));
+    s.wait("three playing", |_| {
+        p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(3))
+    });
+    assert!(p.queue().is_empty());
+    s.wait("the last end", |_| p.state() == PlaybackState::Ended);
+    s.idle(300);
+    assert_eq!(p.countdown(), None);
+    assert!(!card_shown(&view), "nothing next: no card");
+}
+
+#[test]
+fn enqueueing_at_the_end_counts_down_and_emptying_the_queue_stops_it() {
+    let mut s = Screen::new();
+    let options = PlayerOptions::default().next_up_delay(Some(Duration::from_secs(5)));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:1"), options);
+    let view = player(&s.ui, &p, "Scripted");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.play();
+    s.wait("ended", |_| p.state() == PlaybackState::Ended);
+    assert_eq!(p.countdown(), None, "nothing queued");
+    p.enqueue(NextUp::new(MediaSource::url("script:2"), "Two"));
+    p.enqueue(NextUp::new(MediaSource::url("script:3"), "Three"));
+    s.wait("counting down", |_| p.countdown().is_some());
+    assert_eq!(p.next_up().map(|n| n.title), Some("Two".into()), "first in, first next");
+    assert!(card_shown(&view));
+    p.set_queue(Vec::new());
+    s.pump();
+    assert_eq!(p.countdown(), None, "an empty queue stops the countdown");
+    assert!(!card_shown(&view));
+    assert_eq!(p.state(), PlaybackState::Ended);
+    // Play now with nothing queued does nothing.
+    p.play_next();
+    s.idle(100);
+    assert_eq!(p.state(), PlaybackState::Ended);
+}
+
+#[test]
 fn speed_runs_the_clock_faster_or_slower_without_a_sound_device() {
     for (speed, seconds, want) in [(2.0, 2u64, 1.0f64), (0.5, 1, 2.0)] {
         let mut s = Screen::new();
