@@ -83,7 +83,8 @@ fn captions_control_pictures() {
 fn full_screen_pictures() {
     let make = |ui: &Ui| {
         let p = portal(ui);
-        let vtt = "WEBVTT\n\n00:00.000 --> 01:00.000\nThe captions sit above the bar\n";
+        let vtt =
+            "WEBVTT\n\n00:00.000 --> 01:00.000\nThe captions sit above the bar,\ncentred line by line\n";
         let cues = parse_subtitles(vtt, SubtitleFormat::WebVtt);
         p.set_caption_track(Some(p.add_subtitles(SubtitleTrack {
             label: "Shown".into(),
@@ -96,6 +97,22 @@ fn full_screen_pictures() {
     };
     shot("full-screen-shown", move |ui| {
         let p = make(ui);
+        player(ui, &p, "Episode")
+    });
+    // The last 20 seconds of a 1:40 work (a timeline 1:30 in): "Up next" over the picture.
+    shot("full-screen-up-next", move |ui| {
+        let options = PlayerOptions::default()
+            .two_rows(true)
+            .skip_buttons(true)
+            .speed_button(false)
+            .next_up_lead(Some(std::time::Duration::from_secs(20)));
+        let p = Player::empty_platform(ui, options);
+        p.set_timeline(Some(
+            Timeline::new(std::time::Duration::from_secs(90)).length(std::time::Duration::from_secs(100)),
+        ));
+        p.set_next_up(Some(NextUp::new(MediaSource::url("next:"), "Episode 5 · The Morning After")));
+        p.set_title(Some("Episode 4 · The Long Night".into()));
+        p.request_fullscreen(true);
         player(ui, &p, "Episode")
     });
     shot("full-screen-rested", move |ui| {

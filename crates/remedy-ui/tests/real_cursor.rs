@@ -20,7 +20,7 @@ use remedy_ui_bridge_winit::run_on;
 
 #[cfg(windows)]
 mod os {
-    pub use remedy_ui_bridge_windows::pointer::{move_to, position, screen_size, showing};
+    pub use remedy_ui_bridge_windows::pointer::{click, move_to, position, screen_size, showing};
     use remedy_ui_bridge_winit::UserEvent;
     use remedy_ui_bridge_winit::winit::event_loop::EventLoop;
     use remedy_ui_bridge_winit::winit::platform::windows::EventLoopBuilderExtWindows;
@@ -44,7 +44,9 @@ mod os {
     use remedy_ui_bridge_winit::winit::platform::x11::EventLoopBuilderExtX11;
     use x11rb::connection::Connection;
     use x11rb::protocol::xfixes::ConnectionExt as _;
-    use x11rb::protocol::xproto::{ConnectionExt as _, MOTION_NOTIFY_EVENT};
+    use x11rb::protocol::xproto::{
+        BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, ConnectionExt as _, MOTION_NOTIFY_EVENT,
+    };
     use x11rb::protocol::xtest::ConnectionExt as _;
 
     fn x() -> (x11rb::rust_connection::RustConnection, u32, (i32, i32)) {
@@ -73,7 +75,18 @@ mod os {
         let (x16, y16) = (i16::try_from(x_).unwrap_or(0), i16::try_from(y).unwrap_or(0));
         let _ = c.xtest_fake_input(MOTION_NOTIFY_EVENT, 0, 0, root, x16, y16, 0);
         let _ = c.flush();
-        let _ = c.sync();
+        // A round trip, so the motion has reached the server.
+        let _ = c.get_input_focus().ok().and_then(|r| r.reply().ok());
+    }
+
+    /// A left click where the pointer is.
+    pub fn click() {
+        let (c, root, _) = x();
+        for kind in [BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT] {
+            let _ = c.xtest_fake_input(kind, 1, 0, root, 0, 0, 0);
+        }
+        let _ = c.flush();
+        let _ = c.get_input_focus().ok().and_then(|r| r.reply().ok());
     }
 
     pub fn screen_size() -> (i32, i32) {
@@ -164,6 +177,9 @@ fn full_screen_hides_the_pointer_with_the_resting_controls() {
                 );
                 let w = window.clone();
                 p.on_fullscreen(move |on| w.set_fullscreen(on));
+                // Over whatever window has the screen, so the pointer is over this one.
+                window.set_always_on_top(true);
+                window.focus();
                 ui.root().child(player(ui, &p, "Silence"));
                 p.play();
                 p.request_fullscreen(true);
@@ -187,14 +203,22 @@ fn full_screen_hides_the_pointer_with_the_resting_controls() {
                         // Full screen and playing: the pointer comes over the picture.
                         0 if p.is_fullscreen() && playing && since.get() > 8 => {
                             pointer::move_to(at.0, at.1);
+                            // A click brings the window to the front, as a person would: Windows
+                            // hides the pointer only over the window in front.
+                            pointer::click();
                             step.set(1);
                             since.set(0);
                         }
-                        1 if since.get() == 1 => pointer::move_to(at.0 + 4, at.1 + 4),
-                        1 if since.get() == 3 => {
+                        // Until the window has the pointer (a full-screen switch can take a
+                        // moment): the controls show for movement over it.
+                        1 if since.get() > 2 && p.controls_shown() => {
                             note();
                             step.set(2);
                             since.set(0);
+                        }
+                        1 => {
+                            let d = 4 * i32::from(since.get() % 2 == 1);
+                            pointer::move_to(at.0 + d, at.1 + d);
                         }
                         // Rested: a moment for the platform, then a move brings it all back.
                         2 if !p.controls_shown() => {

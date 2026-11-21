@@ -489,6 +489,23 @@ pub(crate) mod pointer {
         let _ = unsafe { SetCursorPos(x, y) };
     }
 
+    /// Clicks the left button where the pointer is (`SendInput`): the window under it comes to
+    /// the front, as Windows gives the foreground to whoever the person clicks.
+    pub fn click() {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+            INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT, SendInput,
+        };
+        let press = |flags| INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT { dx: 0, dy: 0, mouseData: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 },
+            },
+        };
+        let inputs = [press(MOUSEEVENTF_LEFTDOWN), press(MOUSEEVENTF_LEFTUP)];
+        // SAFETY: `inputs` holds two INPUTs of the size passed.
+        let _ = unsafe { SendInput(inputs.len() as u32, inputs.as_ptr(), size_of::<INPUT>() as i32) };
+    }
+
     /// The primary screen's size in pixels.
     pub fn screen_size() -> (i32, i32) {
         // SAFETY: GetSystemMetrics takes only the metric's index.

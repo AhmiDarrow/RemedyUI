@@ -22,12 +22,24 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   (Portal's paused or pressed what could not be seen); a hold ending gives a whole 2.6 s
   before the fade; going full screen brings focus to the player when it is elsewhere, so
   its keys work; the gradient is the theme's background, so the theme's own colors read
-  over it; and under reduced motion the controls show and hide without fading.
+  over it; and under reduced motion the controls show and hide without fading. The "Up
+  next" card floats over the picture's end side above the bar, on a raised panel, as
+  Portal's does: it does not fade or move with the bar, coming up shows the controls,
+  under the pointer or with keyboard focus it holds them, and Tab reaches its buttons.
+- **Captions are centred**, each line in its own box as a browser draws a cue (Portal's
+  page): they were one box across the picture with the text at its start edge. Cue
+  settings (WebVTT `align`, `position`, `line`; SRT and ASS `{\an}`) are still dropped by
+  the parser, so every cue shows at the foot, centred.
 - **Hiding the mouse pointer.** `El::cursor_hidden(true)` hides the pointer while it is over
   the element; the runner tells the platform through the new `Host::set_cursor_hidden`
   (a default no-op): winit's `set_cursor_visible` on Windows, macOS, X11 and Wayland
   (Android has no pointer), `cursor: none` on a page's window, recorded by the headless host
   (`HeadlessWindow::is_cursor_hidden`). `Ui::cursor_hidden` says what the window wants.
+  Checked on real windows with a full-screen player: `GetCursorInfo` on Windows, XFixes'
+  cursor image on X11 (WSLg's XWayland) (`remedy-ui/tests/real_cursor.rs`, run with
+  `--ignored`: it takes the screen and the mouse), and the canvas's computed `cursor` in
+  headless Firefox (`media-playback/tests/web_cursor.rs`, in `web-test.sh`). On Windows
+  winit hides the pointer while it is over the window.
 - The accessibility audit skips the contrast of text faded out entirely (opacity 0): there
   is nothing to read.
 - **Portal's control bar and mini player** in `media-playback`. The captions control
