@@ -47,10 +47,22 @@ fn failed(what: &'static str) -> impl Fn(vk::Result) -> ChainError {
     }
 }
 
+/// The device extensions that let decoded pictures in DMA-BUFs be imported (`ffi::dmabuf`):
+/// the first two are needed, the others used where the device has them (layouts other than
+/// linear, the foreign queue family for the hand-over, and fences as sync files).
+pub(crate) const DMA_BUF_EXTENSIONS: [&std::ffi::CStr; 5] = [
+    ash::khr::external_memory_fd::NAME,
+    ash::ext::external_memory_dma_buf::NAME,
+    ash::ext::image_drm_format_modifier::NAME,
+    ash::ext::queue_family_foreign::NAME,
+    ash::khr::external_semaphore_fd::NAME,
+];
+
 /// Opens `adapter`'s Vulkan device as wgpu would, with `VK_KHR_incremental_present` added
-/// where the device has it, and on Android `VK_ANDROID_external_memory_android_hardware_buffer`
-/// with the Y'CbCr sampler feature (decoded pictures sampled where the decoder left them;
-/// [`super::video`]). Returns the device and whether presents can report what changed. `None`
+/// where the device has it, plus what importing decoded pictures needs where the device has
+/// it: on Linux the DMA-BUF extensions ([`DMA_BUF_EXTENSIONS`]), on Android
+/// `VK_ANDROID_external_memory_android_hardware_buffer` with the Y'CbCr sampler feature
+/// ([`super::video`]). Returns the device and whether presents can report what changed. `None`
 /// when the adapter is not Vulkan or has none of these (the caller opens the device the usual
 /// way). An error says why a device that has them would not open with them.
 pub(crate) fn open_device(
@@ -67,62 +79,91 @@ pub(crate) fn open_device(
         let extensions = instance.enumerate_device_extension_properties(physical).ok()?;
         let has = |name: &std::ffi::CStr| extensions.iter().any(|e| e.extension_name_as_c_str() == Ok(name));
         let incremental = has(ash::khr::incremental_present::NAME);
+        let api = instance.get_physical_device_properties(physical).api_version;
+        // DMA-BUF import needs Vulkan 1.1 (external memory, dedicated allocations, bind
+        // memory 2) and both of the first two extensions; only Linux imports DMA-BUFs.
+        let mut dma_buf: Vec<&'static std::ffi::CStr> = Vec::new();
+        if cfg!(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))
+            && vk::api_version_minor(api) >= 1
+            && DMA_BUF_EXTENSIONS.iter().take(2).all(|n| has(n))
+        {
+            dma_buf.extend(DMA_BUF_EXTENSIONS.iter().copied().filter(|n| has(n)));
+            // The modifier extension needs `VK_KHR_image_format_list`, core from 1.2.
+            if dma_buf.contains(&ash::ext::image_drm_format_modifier::NAME) && vk::api_version_minor(api) < 2
+            {
+                if has(ash::khr::image_format_list::NAME) {
+                    dma_buf.push(ash::khr::image_format_list::NAME);
+                } else {
+                    dma_buf.retain(|n| *n != ash::ext::image_drm_format_modifier::NAME);
+                }
+            }
+        }
         let wanted = super::video::wanted_extensions();
         let video = !wanted.is_empty() && wanted.iter().all(|n| has(n)) && {
             let mut ycbcr = vk::PhysicalDeviceSamplerYcbcrConversionFeatures::default();
             let mut f = vk::PhysicalDeviceFeatures2::default().push_next(&mut ycbcr);
             instance.get_physical_device_features2(physical, &mut f);
-            let version = instance.get_physical_device_properties(physical).api_version;
-            ycbcr.sampler_ycbcr_conversion == vk::TRUE && version >= vk::API_VERSION_1_1
+            ycbcr.sampler_ycbcr_conversion == vk::TRUE && api >= vk::API_VERSION_1_1
         };
-        if !incremental && !video {
+        if !incremental && !video && dma_buf.is_empty() {
             return None;
         }
-        let mut names = hal.required_device_extensions(desc.required_features);
-        let mut add = |n: &'static std::ffi::CStr| {
-            if !names.contains(&n) {
-                names.push(n);
-            }
-        };
-        if incremental {
-            add(ash::khr::incremental_present::NAME);
-        }
-        if video {
-            wanted.iter().for_each(|n| add(n));
-        }
-        let mut features = hal.physical_device_features(&names, desc.required_features);
-        let pointers: Vec<_> = names.iter().map(|n| n.as_ptr()).collect();
-        let queues = [vk::DeviceQueueCreateInfo::default().queue_family_index(0).queue_priorities(&[1.0])];
-        let info = features.add_to_device_create(
-            vk::DeviceCreateInfo::default().queue_create_infos(&queues).enabled_extension_names(&pointers),
-        );
-        if video {
-            // wgpu chains the Y'CbCr conversion feature but leaves it off; it is turned on.
-            let mut at = info.p_next as *mut vk::BaseOutStructure<'_>;
-            while let Some(s) = at.as_mut() {
-                if s.s_type == vk::StructureType::PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES {
-                    (*(at as *mut vk::PhysicalDeviceSamplerYcbcrConversionFeatures<'_>))
-                        .sampler_ycbcr_conversion = vk::TRUE;
+        let open = |dma_buf: &[&'static std::ffi::CStr]| {
+            let mut names = hal.required_device_extensions(desc.required_features);
+            let mut add = |n: &'static std::ffi::CStr| {
+                if !names.contains(&n) {
+                    names.push(n);
                 }
-                at = s.p_next;
+            };
+            if incremental {
+                add(ash::khr::incremental_present::NAME);
             }
-        }
-        let raw = match instance.create_device(physical, &info, None) {
-            Ok(d) => d,
-            Err(e) => return Some(Err(e.to_string())),
+            if video {
+                wanted.iter().for_each(|n| add(n));
+            }
+            dma_buf.iter().for_each(|n| add(n));
+            let mut features = hal.physical_device_features(&names, desc.required_features);
+            let pointers: Vec<_> = names.iter().map(|n| n.as_ptr()).collect();
+            let queues =
+                [vk::DeviceQueueCreateInfo::default().queue_family_index(0).queue_priorities(&[1.0])];
+            let info = features.add_to_device_create(
+                vk::DeviceCreateInfo::default()
+                    .queue_create_infos(&queues)
+                    .enabled_extension_names(&pointers),
+            );
+            if video {
+                // wgpu chains the Y'CbCr conversion feature but leaves it off; it is turned on.
+                let mut at = info.p_next as *mut vk::BaseOutStructure<'_>;
+                while let Some(s) = at.as_mut() {
+                    if s.s_type == vk::StructureType::PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES {
+                        (*(at as *mut vk::PhysicalDeviceSamplerYcbcrConversionFeatures<'_>))
+                            .sampler_ycbcr_conversion = vk::TRUE;
+                    }
+                    at = s.p_next;
+                }
+            }
+            let raw = instance.create_device(physical, &info, None).map_err(|e| e.to_string())?;
+            hal.device_from_raw(
+                raw,
+                None,
+                &names,
+                desc.required_features,
+                &desc.required_limits,
+                &desc.memory_hints,
+                0,
+                0,
+            )
+            .map_err(|e| e.to_string())
         };
-        let open = match hal.device_from_raw(
-            raw,
-            None,
-            &names,
-            desc.required_features,
-            &desc.required_limits,
-            &desc.memory_hints,
-            0,
-            0,
-        ) {
+        let open = match open(&dma_buf) {
             Ok(open) => open,
-            Err(e) => return Some(Err(e.to_string())),
+            // A device that will not take the DMA-BUF extensions still gets the rest; pictures
+            // then come through CPU memory.
+            Err(_) if (incremental || video) && !dma_buf.is_empty() => match open(&[]) {
+                Ok(open) => open,
+                Err(e) => return Some(Err(e)),
+            },
+            Err(e) => return Some(Err(e)),
         };
         drop(hal);
         Some(

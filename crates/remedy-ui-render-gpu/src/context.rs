@@ -241,8 +241,8 @@ impl GpuContext {
             ..Default::default()
         };
         // On Vulkan the device also gets `VK_KHR_incremental_present` where it has it, so a
-        // window's own swapchain can report only what changed (and on Android what importing
-        // decoded pictures needs).
+        // window's own swapchain can report only what changed, and what importing decoded
+        // pictures needs (DMA-BUFs on Linux, AHardwareBuffers on Android).
         #[cfg(any(
             all(unix, not(any(target_os = "macos", target_os = "ios"))),
             all(windows, feature = "windows-vulkan")

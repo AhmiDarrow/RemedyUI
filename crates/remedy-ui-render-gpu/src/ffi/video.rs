@@ -8,10 +8,20 @@
 //! texture back in the common state (wgpu leaves it in the shader-resource state), so D3D11
 //! may write the next picture into it. The picture is held until that list has run.
 //!
+//! Linux: a picture in DMA-BUFs is imported on wgpu's Vulkan device, one image per plane
+//! (`ffi::dmabuf`).
+//!
 //! Android: a MediaCodec picture's `AHardwareBuffer` is imported into wgpu's Vulkan device and
 //! drawn into the stream's converted picture by a pass of ours ([`android`]).
+//!
+//! [`Shared::open`] gives the views the conversion shader samples (luma, then chroma);
+//! [`Shared::submit`] submits the commands that read them.
 
-#[cfg(not(any(windows, target_os = "android")))]
+#[cfg(not(any(
+    windows,
+    target_os = "android",
+    all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))
+)))]
 use remedy_ui_paint::GpuFrame;
 
 #[cfg(target_os = "android")]
@@ -20,6 +30,9 @@ mod android;
 pub(crate) use android::{Shared, wanted_extensions};
 #[cfg(windows)]
 pub(crate) use windows_shared::Shared;
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+pub(crate) use super::dmabuf::Shared;
 
 /// Device extensions importing pictures needs, which [`super::vulkan::open_device`] adds
 /// where the device has them all (none: nothing is imported on this platform).
@@ -33,27 +46,33 @@ pub(crate) fn wanted_extensions() -> &'static [&'static std::ffi::CStr] {
 }
 
 /// A stream's pictures opened on this device, and those the GPU is still reading.
-#[cfg(not(any(windows, target_os = "android")))]
+#[cfg(not(any(
+    windows,
+    target_os = "android",
+    all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))
+)))]
 #[derive(Default)]
 pub(crate) struct Shared(());
 
-#[cfg(not(any(windows, target_os = "android")))]
+#[cfg(not(any(
+    windows,
+    target_os = "android",
+    all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))
+)))]
 impl Shared {
-    /// `picture`'s texture opened on `device`; `None` when this device cannot open it.
-    pub(crate) fn open(&mut self, device: &wgpu::Device, picture: &GpuFrame) -> Option<wgpu::Texture> {
+    /// The views of `picture`'s planes opened on `device`; `None` when it cannot open them.
+    pub(crate) fn open(
+        &mut self,
+        device: &wgpu::Device,
+        picture: &GpuFrame,
+    ) -> Option<Vec<wgpu::TextureView>> {
         let _ = (device, picture);
         None
     }
 
-    /// Submits `commands`, which read `texture` (from [`Shared::open`]).
-    pub(crate) fn submit(
-        &mut self,
-        queue: &wgpu::Queue,
-        commands: wgpu::CommandBuffer,
-        picture: &GpuFrame,
-        texture: wgpu::Texture,
-    ) {
-        let _ = (picture, texture);
+    /// Submits `commands`, which read the views [`Shared::open`] gave.
+    pub(crate) fn submit(&mut self, queue: &wgpu::Queue, commands: wgpu::CommandBuffer, picture: &GpuFrame) {
+        let _ = picture;
         queue.submit([commands]);
     }
 }
@@ -64,6 +83,13 @@ pub(crate) fn announce(device: &wgpu::Device) {
     {
         if let Some(luid) = windows_shared::adapter(device) {
             remedy_ui_paint::set_gpu_video_adapter(Some(remedy_ui_paint::GpuAdapter::Luid(luid)));
+        }
+    }
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+    {
+        if let Some((uuid, modifiers)) = super::dmabuf::adapter(device) {
+            remedy_ui_paint::set_gpu_video_dma_buf_modifiers(modifiers);
+            remedy_ui_paint::set_gpu_video_adapter(Some(remedy_ui_paint::GpuAdapter::Uuid(uuid)));
         }
     }
     #[cfg(target_arch = "wasm32")]
@@ -78,7 +104,12 @@ pub(crate) fn announce(device: &wgpu::Device) {
             remedy_ui_paint::set_gpu_video_adapter(Some(remedy_ui_paint::GpuAdapter::Only));
         }
     }
-    #[cfg(not(any(windows, target_os = "android", target_arch = "wasm32")))]
+    #[cfg(not(any(
+        windows,
+        target_os = "android",
+        target_arch = "wasm32",
+        all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))
+    )))]
     let _ = device;
 }
 
@@ -411,6 +442,7 @@ mod windows_shared {
 
     /// One picture's texture on this device, between `open` and `submit`.
     struct Opening {
+        texture: wgpu::Texture,
         resource: ID3D12Resource,
         fence: ID3D12Fence,
         value: u64,
@@ -444,7 +476,11 @@ mod windows_shared {
             }
         }
 
-        pub(crate) fn open(&mut self, device: &wgpu::Device, picture: &GpuFrame) -> Option<wgpu::Texture> {
+        pub(crate) fn open(
+            &mut self,
+            device: &wgpu::Device,
+            picture: &GpuFrame,
+        ) -> Option<Vec<wgpu::TextureView>> {
             self.release();
             let GpuTexture::D3dNv12 {
                 adapter: luid,
@@ -516,8 +552,20 @@ mod windows_shared {
                     wgpu::TextureUses::PRESENT,
                 )
             };
-            self.opening = Some(Opening { resource, fence, value });
-            Some(t)
+            // The Y and UV planes, sampled in place.
+            let views = [wgpu::TextureAspect::Plane0, wgpu::TextureAspect::Plane1]
+                .into_iter()
+                .zip([wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm])
+                .map(|(aspect, format)| {
+                    t.create_view(&wgpu::TextureViewDescriptor {
+                        format: Some(format),
+                        aspect,
+                        ..Default::default()
+                    })
+                })
+                .collect();
+            self.opening = Some(Opening { texture: t, resource, fence, value });
+            Some(views)
         }
 
         pub(crate) fn submit(
@@ -525,7 +573,6 @@ mod windows_shared {
             queue: &wgpu::Queue,
             commands: wgpu::CommandBuffer,
             picture: &GpuFrame,
-            texture: wgpu::Texture,
         ) {
             let Some(o) = self.opening.take() else {
                 queue.submit([commands]);
@@ -541,7 +588,7 @@ mod windows_shared {
                 })
             };
             queue.submit([commands]);
-            drop(texture);
+            drop(o.texture);
             match raw_queue.and_then(|q| self.give_back(&q, &o.resource)) {
                 Some(()) => self.held.push_back((self.done_value, picture.clone())),
                 None => {

@@ -19,8 +19,8 @@ use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_core::{CornerRadii, Rect};
 use remedy_ui_paint::{Brush, Item};
 pub use remedy_ui_paint::{
-    CpuPixels, GpuAdapter, GpuFrame, GpuPicture, GpuTexture, PixelFormat, Plane, VideoFrame, YuvMatrix,
-    gpu_video_adapter,
+    CpuPixels, DRM_FORMAT_MOD_LINEAR, DRM_FORMAT_NV12, DmaBufPlane, GpuAdapter, GpuFrame, GpuPicture,
+    GpuTexture, PixelFormat, Plane, VideoFrame, YuvMatrix, gpu_video_adapter, gpu_video_dma_buf_modifiers,
 };
 use remedy_ui_reactive::Signal;
 use remedy_ui_view::{El, Ui};
