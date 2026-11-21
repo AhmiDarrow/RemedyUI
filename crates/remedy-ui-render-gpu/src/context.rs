@@ -237,7 +237,8 @@ impl GpuContext {
             ..Default::default()
         };
         // On Vulkan the device also gets `VK_KHR_incremental_present` where it has it, so a
-        // window's own swapchain can report only what changed.
+        // window's own swapchain can report only what changed (and on Android what importing
+        // decoded pictures needs).
         #[cfg(any(
             all(unix, not(any(target_os = "macos", target_os = "ios"))),
             all(windows, feature = "windows-vulkan")
@@ -247,16 +248,16 @@ impl GpuContext {
             all(unix, not(any(target_os = "macos", target_os = "ios"))),
             all(windows, feature = "windows-vulkan")
         )))]
-        let opened: Option<Result<(wgpu::Device, wgpu::Queue), String>> = None;
-        let incremental_present = matches!(opened, Some(Ok(_)));
+        let opened: Option<Result<(wgpu::Device, wgpu::Queue, bool), String>> = None;
+        let incremental_present = matches!(opened, Some(Ok((_, _, true))));
         // A device that offers the extension but would not open with it is reported (below),
         // never passed over quietly: presents would then report the whole window.
         let mut open_failure = None;
         let (device, queue) = match opened {
-            Some(Ok(pair)) => pair,
+            Some(Ok((d, q, _))) => (d, q),
             other => {
                 if let Some(Err(e)) = other {
-                    open_failure = Some(format!("opening the Vulkan device with incremental presents: {e}"));
+                    open_failure = Some(format!("opening the Vulkan device with its extensions: {e}"));
                 }
                 adapter.request_device(&desc).await.map_err(|e| GpuError::Device(e.to_string()))?
             }
