@@ -1696,14 +1696,12 @@ impl Ui {
         self.0.borrow_mut().wake = Some(wake);
     }
 
-    /// Marks `id` and everything under it for restyling (it moved under a new parent).
-    pub(crate) fn restyle_subtree(&self, id: ElementId) {
-        let i = self.0.borrow();
-        let mut stack = vec![id];
-        while let Some(e) = stack.pop() {
-            i.tree.mark(e, Dirty::STYLE);
-            stack.extend(i.tree.children(e));
-        }
+    /// Marks `id` for restyling: it moved under a new parent. Only `id` itself: what its
+    /// children inherit comes from its resolved style alone, so the style pass restyles them
+    /// when that changes, level by level. Attaching a subtree costs the same at any size, so
+    /// a tree built from the leaves up is built in linear time.
+    pub(crate) fn restyle_moved(&self, id: ElementId) {
+        self.0.borrow().tree.mark(id, Dirty::STYLE);
     }
 
     pub(crate) fn mark(&self, id: ElementId, flags: Dirty) {
@@ -1937,7 +1935,7 @@ impl El {
             i.structure_changed = true;
         }
         self.ui.mark(self.id, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
-        self.ui.restyle_subtree(child.id);
+        self.ui.restyle_moved(child.id);
         self
     }
 
@@ -1967,7 +1965,7 @@ impl El {
             i.structure_changed = true;
         }
         self.ui.mark(self.id, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
-        self.ui.restyle_subtree(child.id);
+        self.ui.restyle_moved(child.id);
     }
 
     /// The element's children, in order.
@@ -2008,11 +2006,13 @@ impl El {
                     i.text_sel = None;
                     i.selecting = false;
                 }
-                i.hovered.retain(|h| h != id);
                 if i.pressed == Some(*id) {
                     i.pressed = None;
                 }
             }
+            // Once for all of them: the hover chain can be as long as the tree is deep.
+            let gone: std::collections::HashSet<ElementId> = ids.iter().copied().collect();
+            i.hovered.retain(|h| !gone.contains(h));
             i.structure_changed = true;
         }
         // Removing from the tree disposes the elements' scopes, which runs the app's clean-ups

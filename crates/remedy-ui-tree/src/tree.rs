@@ -304,12 +304,14 @@ impl Tree {
             if !d.nodes.contains(parent) {
                 return Err(TreeError::NotFound);
             }
-            match d.nodes.get(child) {
+            let leaf = match d.nodes.get(child) {
                 None => return Err(TreeError::NotFound),
                 Some(c) if c.parent.is_some() => return Err(TreeError::AlreadyAttached),
-                Some(_) => {}
-            }
-            if d.is_ancestor_or_self(child, parent) {
+                Some(c) => c.children.is_empty(),
+            };
+            // An element with no children is an ancestor of nothing but itself: only a subtree
+            // needs the walk up from `parent`, so a tree is built in linear time at any depth.
+            if child == parent || (!leaf && d.is_ancestor_or_self(child, parent)) {
                 return Err(TreeError::WouldCycle);
             }
             if let Some(p) = d.nodes.get_mut(parent) {
@@ -922,20 +924,40 @@ impl Data {
         self.preorder(self.root).into_iter().enumerate().map(|(i, e)| (e, i)).collect()
     }
 
+    /// The topmost element under `p` at or below `id`: children before their parent, the
+    /// last child first; an element that takes no hits, or clips and misses, hides its
+    /// subtree. An explicit stack, not recursion: a tree any number of levels deep is hit
+    /// tested on any thread's stack.
     fn hit(&self, id: ElementId, p: Point) -> Option<ElementId> {
-        let n = self.nodes.get(id)?;
-        if n.hit == HitMode::None {
-            return None;
-        }
-        if n.clips && !n.bounds.contains(p) {
-            return None;
-        }
-        for &c in n.children.iter().rev() {
-            if let Some(h) = self.hit(c, p) {
-                return Some(h);
+        // The node, if `p` can hit it or something under it.
+        let open = |id: ElementId| {
+            self.nodes.get(id).filter(|n| n.hit != HitMode::None && (!n.clips || n.bounds.contains(p)))
+        };
+        // The elements being searched, outermost first, each with how many of its children
+        // (from the first) are still to try.
+        let mut stack = vec![(id, open(id)?.children.len())];
+        while let Some((at, left)) = stack.last_mut() {
+            let Some(n) = self.nodes.get(*at) else {
+                stack.pop();
+                continue;
+            };
+            if *left > 0 {
+                *left -= 1;
+                if let Some(&c) = n.children.get(*left)
+                    && let Some(child) = open(c)
+                {
+                    stack.push((c, child.children.len()));
+                }
+                continue;
             }
+            // Nothing under it was hit: the element itself, if it takes hits there.
+            let at = *at;
+            if n.hit == HitMode::Normal && n.bounds.contains(p) {
+                return Some(at);
+            }
+            stack.pop();
         }
-        (n.hit == HitMode::Normal && n.bounds.contains(p)).then_some(id)
+        None
     }
 
     fn route(&self, target: ElementId, event: TypeId) -> Vec<(ElementId, Phase, HandlerFn)> {

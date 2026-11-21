@@ -343,6 +343,29 @@ pub struct Compositor {
     ambient_last: Option<Duration>,
 }
 
+/// What a layer's children are walked within: its parent's content-to-device transform,
+/// static scale, opacity and clip (device pixels).
+#[derive(Clone, Copy)]
+struct Within {
+    transform: Affine,
+    static_scale: f32,
+    opacity: f32,
+    clip: Rect,
+}
+
+/// A layer being walked: what its children are walked within, and what to close after them.
+struct Entered {
+    within: Within,
+    /// Whether the walk was inside a scroll container before the layer.
+    was_scrolling: bool,
+    /// Where the layer's `PushFilter`s are in the plan, to fill in their region.
+    filter_at: usize,
+    /// How far its filters carry drawing (device pixels).
+    reach: f32,
+    /// Whether it pushed an opacity group.
+    grouped: bool,
+}
+
 struct Walk<'a> {
     now: Duration,
     viewport: Rect,
@@ -728,7 +751,8 @@ impl Compositor {
         let base = Affine::scale(self.scale, self.scale);
         let roots = self.tree.roots.clone();
         for root in &roots {
-            self.walk(root, base, self.scale, 1.0, viewport, &mut walk);
+            let within = Within { transform: base, static_scale: self.scale, opacity: 1.0, clip: viewport };
+            self.walk(root, within, &mut walk);
         }
         let Walk { drawn, hits, replaced, deferred, looping, backdrops, .. } = walk;
         plan.animating |= plan.pending > 0 || deferred > 0;
@@ -789,16 +813,42 @@ impl Compositor {
         plan
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn walk(
-        &mut self,
-        layer: &Layer,
-        parent: Affine,
-        parent_static_scale: f32,
-        parent_opacity: f32,
-        parent_clip: Rect,
-        w: &mut Walk<'_>,
-    ) {
+    /// Walks `root` and the layers under it, parents before children, with an explicit stack
+    /// rather than recursion: a layer tree nesting thousands deep is walked on any thread's
+    /// stack.
+    fn walk(&mut self, root: &Layer, parent: Within, w: &mut Walk<'_>) {
+        let Some(first) = self.enter(root, parent, w) else { return };
+        // The layers being walked, outermost first: each, the next child to walk, and what
+        // its children are walked within and it closes after them.
+        let mut stack: Vec<(&Layer, usize, Entered)> = vec![(root, 0, first)];
+        while let Some((layer, next, entered)) = stack.last_mut() {
+            let within = entered.within;
+            match layer.children.get(*next) {
+                Some(child) => {
+                    *next += 1;
+                    if let Some(e) = self.enter(child, within, w) {
+                        stack.push((child, 0, e));
+                    }
+                }
+                None => {
+                    let Some((layer, _, entered)) = stack.pop() else { break };
+                    self.leave(layer, entered, w);
+                }
+            }
+        }
+    }
+
+    /// Walks `layer` itself, within its parent: its ops, tiles and what it draws. `None` when
+    /// it is invisible (wholly transparent or clipped away), and nothing of it or its
+    /// children is walked; otherwise what its children are walked within and what
+    /// [`leave`](Self::leave) closes after them.
+    fn enter(&mut self, layer: &Layer, parent: Within, w: &mut Walk<'_>) -> Option<Entered> {
+        let Within {
+            transform: parent,
+            static_scale: parent_static_scale,
+            opacity: parent_opacity,
+            clip: parent_clip,
+        } = parent;
         let (o_opacity, o_offset, o_scale) = match self.overrides.get(&layer.id) {
             Some(o) => (o.opacity.sample(w.now), o.offset.sample(w.now), o.scale.sample(w.now)),
             None => (1.0, Vec2::ZERO, 1.0),
@@ -813,7 +863,7 @@ impl Compositor {
         if total_opacity <= 0.0 {
             // A pulse fading through zero must still come back.
             w.looping |= l_opacity <= 0.0 && parent_opacity > 0.0;
-            return;
+            return None;
         }
         let c = layer.local_box().center();
         let scale_about_center = Affine::translate(Vec2::new(-c.x, -c.y))
@@ -839,7 +889,7 @@ impl Compositor {
         let clip = match layer.clip {
             Some(_) => match local_to_device.apply_rect(layer.local_box()).intersect(parent_clip) {
                 Some(r) if !r.is_empty() => r,
-                _ => return,
+                _ => return None,
             },
             None => parent_clip,
         };
@@ -938,11 +988,20 @@ impl Compositor {
 
         let was_scrolling = w.scrolling;
         w.scrolling |= layer.scroll.is_some();
-        for child in &layer.children {
-            self.walk(child, content_to_device, static_scale, total_opacity, clip, w);
-        }
+        Some(Entered {
+            within: Within { transform: content_to_device, static_scale, opacity: total_opacity, clip },
+            was_scrolling,
+            filter_at,
+            reach,
+            grouped,
+        })
+    }
+
+    /// Closes what [`enter`](Self::enter) opened for `layer`, once its children are walked.
+    fn leave(&mut self, layer: &Layer, entered: Entered, w: &mut Walk<'_>) {
+        let Entered { was_scrolling, filter_at, reach, grouped, .. } = entered;
         w.scrolling = was_scrolling;
-        if filtered {
+        if !layer.filters.is_empty() {
             w.grow -= reach;
             let drawn = w.regions.pop().flatten();
             let region = drawn

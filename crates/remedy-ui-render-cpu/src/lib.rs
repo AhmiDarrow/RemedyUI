@@ -23,8 +23,8 @@ use std::sync::Arc;
 
 use remedy_ui_core::{Color, CornerRadii, Point, Rect};
 use remedy_ui_paint::{
-    Affine, Blend, Brush, DisplayList, ExternalTexture, FilterBudget, GlyphRun, Image, Item, Path, PathEl,
-    Sampling, Stroke, StrokeCap, StrokeJoin, VideoFrame,
+    Affine, Blend, Brush, DisplayList, ExternalTexture, FilterBudget, GlyphRun, Image, Item, MAX_GROUP_DEPTH,
+    Path, PathEl, Sampling, Stroke, StrokeCap, StrokeJoin, VideoFrame,
 };
 use remedy_ui_text::{Antialias, GlyphRasterizer, Hinting, size_64, subpixel_bin};
 use vello_cpu::color::{AlphaColor, Srgb};
@@ -509,15 +509,17 @@ impl Painter {
     ) {
         self.sweep_images();
         // Groups the list leaves open are closed: a list is drawn as a whole, balanced.
-        self.draw_items(s, list.items(), base, area, 0, FilterBudget::FULL, true);
+        self.draw_items(s, list.items(), base, area, 0, 0, FilterBudget::FULL, true);
         s.set_transform(kurbo::Affine::IDENTITY);
         s.reset_paint_transform();
     }
 
     /// Draws `items` through `base`. `outer_groups` is how many opacity, blend or filter
     /// groups are open around them (LCD text inside one falls back to grayscale), and
-    /// `budget` what the filters around them leave the filters inside. With `close`, groups
-    /// the items leave open are closed at the end (a backdrop's replay).
+    /// `depth` how many surface layers, and `budget` what the filters around them leave the
+    /// filters inside. With `close`, groups the items leave open are closed at the end (a
+    /// backdrop's replay). At most [`MAX_GROUP_DEPTH`] layers are open at once: a push past it
+    /// opens none, and its pop closes none.
     #[allow(clippy::too_many_arguments)]
     fn draw_items<S: Surface>(
         &mut self,
@@ -526,6 +528,7 @@ impl Painter {
         base: Affine,
         area: Option<Rect>,
         outer_groups: usize,
+        depth: usize,
         budget: FilterBudget,
         close: bool,
     ) {
@@ -536,8 +539,11 @@ impl Painter {
         // The culling area: inside a filter group, grown by what the filter carries in.
         // With each, what the filter groups open around it leave the filters inside them.
         let mut areas = vec![(area, budget)];
-        // Surface layers open (clips and groups), to close at the end of a replay.
-        let mut open = 0usize;
+        // The pushes open (clips and groups), innermost last: whether each opened a surface
+        // layer (false past `MAX_GROUP_DEPTH`), so its pop closes one only if it did.
+        let mut open: Vec<bool> = Vec::new();
+        // Surface layers open, around the items and among them.
+        let mut layers = depth;
         // Backdrop roots: where the innermost open group's content starts, and the transform
         // it starts under.
         let mut roots: Vec<(usize, Affine)> = vec![(0, base)];
@@ -608,22 +614,35 @@ impl Painter {
                 }
                 Item::Video { frame, rect, radii } => self.video(s, frame, *rect, *radii),
                 Item::Texture { texture, rect, radii } => texture_item(s, texture, *rect, *radii),
+                // Past the depth bound a push opens nothing (it is remembered, so its pop
+                // closes nothing): what it holds is drawn into the group around it.
+                Item::PushClip { .. } | Item::PushLayer { .. } | Item::PushFilter(_)
+                    if layers >= MAX_GROUP_DEPTH =>
+                {
+                    open.push(false);
+                }
                 Item::PushClip { rect, radii } => {
                     s.push_clip_layer(&rounded(*rect, *radii));
-                    open += 1;
+                    open.push(true);
+                    layers += 1;
                 }
                 // A pop with nothing open (a list with one pop too many) is skipped: the
                 // surface's own layers are not the list's to close.
-                Item::PopClip if open == 0 => {}
-                Item::PopLayer | Item::PopFilter if open == 0 => {}
+                Item::PopClip | Item::PopLayer | Item::PopFilter if open.is_empty() => {}
+                // The pop of a push that opened nothing.
+                Item::PopClip | Item::PopLayer | Item::PopFilter if open.last() == Some(&false) => {
+                    open.pop();
+                }
                 Item::PopClip => {
                     s.pop_layer();
-                    open -= 1;
+                    open.pop();
+                    layers -= 1;
                 }
                 Item::PopLayer | Item::PopFilter => {
                     groups = groups.saturating_sub(1);
                     s.pop_layer();
-                    open -= 1;
+                    open.pop();
+                    layers -= 1;
                     if roots.len() > 1 {
                         roots.pop();
                     }
@@ -640,7 +659,8 @@ impl Painter {
                         Blend::Plus => peniko::BlendMode::new(peniko::Mix::Normal, peniko::Compose::Plus),
                     };
                     s.push_group(mode, *opacity);
-                    open += 1;
+                    open.push(true);
+                    layers += 1;
                     roots.push((i + 1, t));
                 }
                 Item::PushFilter(f) => {
@@ -651,7 +671,8 @@ impl Painter {
                         Some(vf) => s.push_filter_layer(vf),
                         None => s.push_group(peniko::BlendMode::default(), 1.0),
                     }
-                    open += 1;
+                    open.push(true);
+                    layers += 1;
                     roots.push((i + 1, t));
                     // What the group draws around the area can reach into it.
                     let reach = filter_reach(&f, t);
@@ -660,7 +681,9 @@ impl Painter {
                 Item::Backdrop { rect, radii, blur } => {
                     let sigma = if blur.is_finite() { blur.max(0.0) } else { 0.0 };
                     let Some(&(start, root_t)) = roots.last() else { continue };
-                    if sigma == 0.0 && start == i {
+                    // Glass needs two layers of its own, and replays what is under it inside
+                    // them: past the depth bound it is not drawn.
+                    if (sigma == 0.0 && start == i) || layers + 2 > MAX_GROUP_DEPTH {
                         continue;
                     }
                     s.push_clip_layer(&rounded(*rect, *radii));
@@ -676,7 +699,7 @@ impl Painter {
                     let reach = filter_reach(&f, t);
                     let under = cull.map(|a| grow(a, reach));
                     if let Some(prefix) = items.get(start..i) {
-                        self.draw_items(s, prefix, root_t, under, groups + 1, inside, true);
+                        self.draw_items(s, prefix, root_t, under, groups + 1, layers + 2, inside, true);
                     }
                     s.set_transform(kaffine(t));
                     s.pop_layer();
@@ -691,7 +714,7 @@ impl Painter {
             }
         }
         if close {
-            for _ in 0..open {
+            for _ in open.into_iter().filter(|&opened| opened) {
                 s.pop_layer();
             }
         }

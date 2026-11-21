@@ -23,7 +23,7 @@
 //! assert_eq!(update, Some(2));
 //! ```
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use accesskit::{Node, NodeId, Rect as AkRect, TreeId, TreeInfo, TreeUpdate};
 use remedy_ui_core::Rect;
@@ -524,31 +524,59 @@ impl A11yTree {
         self.dirty.clear();
     }
 
+    /// Marks `id` changed. The merging nodes above it, whose labels it changes too, are
+    /// found when the update is built, once for all that changed.
     fn mark(&mut self, id: u64) {
-        if !self.connected {
-            return;
-        }
-        self.dirty.insert(id);
-        // A change inside a merged node changes the merged label.
-        let mut cur = id;
-        while let Some(&p) = self.parents.get(&cur) {
-            if self.nodes.get(&p).is_some_and(|(s, _)| s.merge) {
-                self.dirty.insert(p);
-            }
-            cur = p;
+        if self.connected {
+            self.dirty.insert(id);
         }
     }
 
-    /// True when `id` is inside a merging ancestor (and so not exposed on its own).
-    fn merged_away(&self, id: u64) -> bool {
-        let mut cur = id;
-        while let Some(&p) = self.parents.get(&cur) {
-            if self.nodes.get(&p).is_some_and(|(s, _)| s.merge) {
-                return true;
+    /// The merging elements above `ids`, whose labels change with them, and for `ids` and
+    /// those: whether each is inside a merging ancestor (and so not exposed on its own). Each
+    /// path up is walked once however many of `ids` share it, so this is linear in the
+    /// tree's size at any depth.
+    fn merge_context(&self, ids: &[u64]) -> (BTreeSet<u64>, HashMap<u64, bool>) {
+        let merges = |id: u64| self.nodes.get(&id).is_some_and(|(s, _)| s.merge);
+        // Up from each element, collecting mergers, to the first element already walked
+        // past: everything above that one was collected by the walk that first got there.
+        let mut walked: HashSet<u64> = HashSet::new();
+        let mut mergers = BTreeSet::new();
+        for &id in ids {
+            if !walked.insert(id) {
+                continue;
             }
-            cur = p;
+            let mut cur = id;
+            while let Some(&p) = self.parents.get(&cur) {
+                if merges(p) {
+                    mergers.insert(p);
+                }
+                if !walked.insert(p) {
+                    break;
+                }
+                cur = p;
+            }
         }
-        false
+        // Inside a merger: the parent merges or is inside one. Up to the first element known,
+        // then down, so each is worked out once.
+        let mut inside: HashMap<u64, bool> = HashMap::new();
+        let mut path = Vec::new();
+        for &id in ids.iter().chain(&mergers) {
+            path.clear();
+            let mut cur = Some(id);
+            while let Some(e) = cur.filter(|e| !inside.contains_key(e)) {
+                path.push(e);
+                cur = self.parents.get(&e).copied();
+            }
+            for &e in path.iter().rev() {
+                let here = self
+                    .parents
+                    .get(&e)
+                    .is_some_and(|&p| merges(p) || inside.get(&p).copied().unwrap_or(false));
+                inside.insert(e, here);
+            }
+        }
+        (mergers, inside)
     }
 
     /// The label a merging node exposes: its own, then its descendants' labels and values,
@@ -730,8 +758,12 @@ impl A11yTree {
         if !self.connected {
             return None;
         }
-        let ids: Vec<u64> = if self.sent_once {
-            std::mem::take(&mut self.dirty).into_iter().collect()
+        let (ids, inside): (Vec<u64>, HashMap<u64, bool>) = if self.sent_once {
+            let changed: Vec<u64> = std::mem::take(&mut self.dirty).into_iter().collect();
+            // A change inside a merging element changes its label too.
+            let (mergers, inside) = self.merge_context(&changed);
+            let ids: BTreeSet<u64> = changed.into_iter().chain(mergers).collect();
+            (ids.into_iter().collect(), inside)
         } else {
             self.dirty.clear();
             let mut all = Vec::new();
@@ -744,11 +776,12 @@ impl A11yTree {
                     stack.extend(c.iter().rev().copied());
                 }
             }
-            all
+            // The walk never goes into a merging element: nothing in it is merged away.
+            (all, HashMap::new())
         };
         let nodes: Vec<(NodeId, Node)> = ids
             .into_iter()
-            .filter(|id| !self.merged_away(*id))
+            .filter(|id| !inside.get(id).copied().unwrap_or(false))
             .filter_map(|id| self.build(id).map(|n| (NodeId(id), n)))
             .collect();
         if nodes.is_empty() && self.sent_once {

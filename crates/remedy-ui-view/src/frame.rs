@@ -386,6 +386,11 @@ impl Walk<'_> {
     /// where the parent sits in `b`'s layer: a scroll container inside becomes a layer at
     /// its full offset there, while drawing nests transforms relative to each parent.
     fn element(&mut self, b: &mut Builder, id: ElementId, origin: Point) {
+        crate::deep::deeper(|| self.element_here(b, id, origin));
+    }
+
+    /// [`Walk::element`], on this stack.
+    fn element_here(&mut self, b: &mut Builder, id: ElementId, origin: Point) {
         let Some(d) = self.inner.els.get(&id) else { return };
         let Some(rect) = self.rects.get(&id).copied() else { return };
         let at = Point::new(origin.x + rect.min.x, origin.y + rect.min.y);
@@ -481,7 +486,7 @@ impl Walk<'_> {
                         || d.isolate.is_some()
                         || d.ambient_layer
                         || d.resolved.backdrop_blur > 0.0
-                        || self.layers_below(k))
+                        || crate::deep::deeper(|| self.layers_below(k)))
             })
         });
         self.layered.insert(id, found);
@@ -700,13 +705,27 @@ impl Ui {
         // Parents before children: text properties inherit, so a child resolves against its
         // parent's new style, and a parent whose inherited values changed restyles its
         // children.
-        let depth = |tree: &remedy_ui_tree::Tree, id: ElementId| {
-            let (mut n, mut cur) = (0usize, tree.parent(id));
-            while let Some(p) = cur {
-                n += 1;
-                cur = tree.parent(p);
+        // Each element's depth, remembered on the way up: a path to the root is walked once
+        // for all the dirty elements on it, not once for each.
+        let mut depths: HashMap<ElementId, usize> = HashMap::new();
+        let mut depth = |tree: &remedy_ui_tree::Tree, id: ElementId| {
+            let mut path = Vec::new();
+            let mut cur = Some(id);
+            let mut base = 0usize;
+            while let Some(e) = cur {
+                if let Some(&d) = depths.get(&e) {
+                    base = d + 1;
+                    break;
+                }
+                path.push(e);
+                cur = tree.parent(e);
             }
-            n
+            // `path` runs from `id` up to the first element whose depth was known (or the
+            // root): its last element sits at `base`.
+            for (k, e) in path.iter().rev().enumerate() {
+                depths.insert(*e, base + k);
+            }
+            depths.get(&id).copied().unwrap_or(0)
         };
         let mut queue: std::collections::BTreeMap<(usize, u64), ElementId> =
             std::collections::BTreeMap::new();
