@@ -125,6 +125,7 @@ mod tests {
             web_theme: crate::project::DEFAULT_THEME_COLOR.into(),
             web_icon: None,
             uses_remedy_ui: true,
+            url_schemes: Vec::new(),
         }
     }
 

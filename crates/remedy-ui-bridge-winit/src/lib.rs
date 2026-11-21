@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Point, Rect, Size, Vec2};
 use remedy_ui_host::{
-    AccessibilityEvent, App, DialogStarted, DragData, DragEvent, DragStarted, DropEffect, FileDialog,
+    AccessibilityEvent, App, Badge, DialogStarted, DragData, DragEvent, DragStarted, DropEffect, FileDialog,
     ForegroundTask, Host, HostEvent, ImeEvent, MemoryPressure, Notification, Permission, PermissionStarted,
     Pixels, ResizeEdge, SafeArea, ShareOptions, ShareStarted, SystemSettings, TextInputState, TimerId,
     TrayIcon, Unsupported, Waker, WindowHandles, WindowIcon, WindowId, WindowOptions,
@@ -141,6 +141,18 @@ pub trait PlatformHooks: 'static {
     fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
         let _ = id;
         Err(Unsupported::new("system notifications", "this platform bridge has none"))
+    }
+    /// Shows the app's badge on `windows`' taskbar buttons, the Dock tile or the launcher
+    /// entry `app_id` names (see [`Host::set_badge`]); a platform that badges per window
+    /// remembers it for windows opened later. By default the platform shows none.
+    fn set_badge(
+        &mut self,
+        windows: &[&Window],
+        app_id: &str,
+        badge: Option<Badge>,
+    ) -> Result<(), Unsupported> {
+        let _ = (windows, app_id, badge);
+        Err(Unsupported::new("app badges", "this platform's bridge shows no badges"))
     }
     /// Keeps the app running out of sight for `task` (Android's foreground service). Desktop
     /// platforms keep apps running anyway: `Ok`, nothing to do.
@@ -845,6 +857,12 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
 
     fn withdraw_notification(&mut self, id: u64) -> Result<(), Unsupported> {
         self.hooks.withdraw_notification(id)
+    }
+
+    fn set_badge(&mut self, app_id: &str, badge: Option<Badge>) -> Result<(), Unsupported> {
+        let windows: Vec<Arc<Window>> = self.state.windows.values().map(|(_, w)| w.window.clone()).collect();
+        let refs: Vec<&Window> = windows.iter().map(|w| &**w).collect();
+        self.hooks.set_badge(&refs, app_id, badge)
     }
     fn share(&mut self, window: Option<WindowId>, share: &ShareOptions) -> Result<ShareStarted, Unsupported> {
         let named = window.and_then(|id| self.win(id)).map(|w| w.window.clone());

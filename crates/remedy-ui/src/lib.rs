@@ -199,6 +199,11 @@ pub use remedy_ui_script_rhai as script_rhai;
 /// Scripted widgets in WebAssembly.
 #[cfg(feature = "script-wasm")]
 pub use remedy_ui_script_wasm as script_wasm;
+/// Desktop services: starting with the session, URL schemes, jump lists and recent files,
+/// power (battery, sleep and resume, keeping awake), showing files in the file manager, and
+/// the user's usual folders. Notifications, badges and the tray are on [`App`].
+#[cfg(feature = "desktop")]
+pub use remedy_ui_services_desktop as desktop;
 #[cfg(feature = "i18n")]
 pub use remedy_ui_services_i18n as i18n;
 #[cfg(feature = "spell")]

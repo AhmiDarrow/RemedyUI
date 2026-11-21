@@ -16,6 +16,9 @@ use std::time::Duration;
 use remedy_ui_core::{Color, Point, Rect, Size};
 use remedy_ui_input::{KeyEvent, PinchEvent, Platform, PointerEvent, WheelEvent};
 
+mod badge;
+pub use badge::Badge;
+
 pub use accesskit;
 pub use raw_window_handle;
 
@@ -1310,6 +1313,14 @@ pub trait Host {
     fn update_accessibility(&mut self, window: WindowId, update: accesskit::TreeUpdate);
     /// Shows, updates (`Some`) or removes (`None`) the app's tray icon.
     fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported>;
+    /// Shows `badge` on the app's taskbar button, Dock tile or launcher icon, or takes it
+    /// away (`None`). `app_id` is the app's reverse-domain id, which names its desktop entry
+    /// on Linux (`<app_id>.desktop`, where docks look the badge up); empty when the app gave
+    /// none, and other platforms ignore it. By default the platform shows no badges.
+    fn set_badge(&mut self, app_id: &str, badge: Option<Badge>) -> Result<(), Unsupported> {
+        let _ = (app_id, badge);
+        Err(Unsupported::new("app badges", "this platform shows no badges"))
+    }
     /// Runs a native open or save dialog, modal to `window`. Desktop dialogs finish inside the
     /// call with the chosen paths (empty when cancelled); others return at once and report
     /// the choice with [`HostEvent::FileDialog`].
