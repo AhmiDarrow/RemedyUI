@@ -228,7 +228,7 @@ impl Child {
             let fl = libc::fcntl(err.as_raw_fd(), libc::F_GETFL);
             libc::fcntl(err.as_raw_fd(), libc::F_SETFL, fl | libc::O_NONBLOCK);
         }
-        let instance = format!("remedy-decoder-{}", NEXT.fetch_add(1, Ordering::Relaxed));
+        let instance = format!("remedy_decoder_{}", NEXT.fetch_add(1, Ordering::Relaxed));
         let conn = with_env(&j.vm, |env| {
             let class: &JClass<'_> = j.class.as_obj().into();
             let instance = env.new_string(&instance)?;
