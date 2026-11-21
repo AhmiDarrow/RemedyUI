@@ -194,7 +194,7 @@ impl Feed {
                 if before {
                     return;
                 }
-                let bytes = picture.data.len();
+                let bytes = picture.bytes();
                 self.video_newest = self.video_newest.max(at);
                 self.video.push_back(VideoItem { at, picture });
                 self.video_bytes += bytes;
@@ -202,7 +202,7 @@ impl Feed {
                 // already past or nearly so.
                 while self.video_bytes > self.budget_bytes && self.video.len() > 1 {
                     if let Some(old) = self.video.pop_front() {
-                        self.video_bytes -= old.picture.data.len();
+                        self.video_bytes -= old.picture.bytes();
                         self.dropped += 1;
                     }
                 }
@@ -1111,7 +1111,7 @@ impl Presenter {
             let mut latest: Option<VideoItem> = None;
             while f.video.front().is_some_and(|v| v.at <= t) {
                 if let Some(v) = f.video.pop_front() {
-                    f.video_bytes -= v.picture.data.len();
+                    f.video_bytes -= v.picture.bytes();
                     if latest.replace(v).is_some() {
                         self.stats.frames_dropped += 1;
                     }
@@ -1121,7 +1121,7 @@ impl Presenter {
         } else if self.preview {
             let v = f.video.pop_front();
             if let Some(v) = &v {
-                f.video_bytes -= v.picture.data.len();
+                f.video_bytes -= v.picture.bytes();
             }
             v
         } else {
