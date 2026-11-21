@@ -72,14 +72,27 @@ export function probe() {
   let gl = null; try { gl = c.getContext('webgl2'); } catch (e) { gl = String(e); }
   return `navigator.gpu=${!!navigator.gpu} webgl2=${gl ? 'yes' : 'no'} OffscreenCanvas=${typeof OffscreenCanvas}`;
 }
-// WebGL2 canvases keep what was last drawn, so a paused player's picture reads back after
-// the frame it was drawn in (the page clears it otherwise).
+// GPU canvases keep what was last drawn, so a paused player's picture reads back after the
+// frame it was drawn in (the page clears it otherwise): WebGL2's with preserveDrawingBuffer.
 export function preserveWebgl() {
   const get = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = function (kind, opts) {
     if (kind === 'webgl2') opts = { ...(opts || {}), preserveDrawingBuffer: true };
     return get.call(this, kind, opts);
   };
+  // A WebGPU canvas keeps nothing: each frame drawn on one is copied once its task is done.
+  if (window.GPUCanvasContext) {
+    const current = GPUCanvasContext.prototype.getCurrentTexture;
+    GPUCanvasContext.prototype.getCurrentTexture = function (...a) {
+      const canvas = this.canvas;
+      queueMicrotask(() => {
+        const snap = canvas.__snapshot || (canvas.__snapshot = document.createElement('canvas'));
+        snap.width = canvas.width; snap.height = canvas.height;
+        snap.getContext('2d').drawImage(canvas, 0, 0);
+      });
+      return current.apply(this, a);
+    };
+  }
 }
 export function frameCount(what) { return window.__frames[what]; }
 export function context(canvas) {
@@ -90,8 +103,8 @@ export function context(canvas) {
 }
 // A pixel of the largest element labelled `label` on `canvas`, at mid-height. A WebGL2
 // canvas is read with its own context's readPixels (drawing it into another canvas stalls a
-// software GPU), from the drawing buffer it keeps; a WebGPU one is drawn into a 2D canvas
-// after the next frame.
+// software GPU), from the drawing buffer it keeps; a WebGPU one from the copy of the last
+// frame drawn on it.
 export function pixelUnder(canvas, label) {
   return new Promise((resolve) => requestAnimationFrame(() => {
     let best = null, area = 0;
@@ -118,11 +131,9 @@ export function pixelUnder(canvas, label) {
       resolve(Array.from(px));
       return;
     }
-    const copy = document.createElement('canvas');
-    copy.width = canvas.width; copy.height = canvas.height;
-    const g = copy.getContext('2d');
-    g.drawImage(canvas, 0, 0);
-    resolve(Array.from(g.getImageData(x, y, 1, 1).data));
+    const snap = canvas.__snapshot;
+    if (!snap) { console.log('no snapshot of the WebGPU canvas'); resolve([0, 0, 0, 0]); return; }
+    resolve(Array.from(snap.getContext('2d').getImageData(x, y, 1, 1).data));
   }));
 }
 "#)]
@@ -340,7 +351,17 @@ async fn the_gpu_renderer_shows_frames_imported_where_they_are() {
             }
             wait_ms(10).await;
         }
-        web_sys::console::log_1(&format!("{kind}: at {ms} ms the screen shows {:?}", seen.1).into());
+        web_sys::console::log_1(
+            &format!(
+                "{kind}: at {ms} ms the screen shows {:?} (so far imported {}, GPU-copied {}, texSubImage2D {}, read back {})",
+                seen.1,
+                count("imported") - imported,
+                count("gpuCopied") - gpu_copied,
+                count("texImage") - tex_image,
+                count("readBack") - read_back
+            )
+            .into(),
+        );
         assert_eq!(seen.0, want, "the picture at {ms} ms on the {kind} canvas: {:?}", seen.1);
     }
     // Playing to the end.
