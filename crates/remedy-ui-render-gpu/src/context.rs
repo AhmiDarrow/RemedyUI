@@ -89,6 +89,8 @@ pub struct GpuContext {
     pub(crate) readback: Arc<Mutex<Option<wgpu::Buffer>>>,
     /// Textures the app renders and display lists place (`Item::Texture`).
     pub(crate) textures: crate::external::Registry,
+    /// The effect kernels, made on first use; they go with the device's last context.
+    pub(crate) effect_kernels: Arc<std::sync::OnceLock<Arc<crate::effects::Kernels>>>,
     pub(crate) serial: u64,
     pub(crate) timer: crate::gputime::GpuTimer,
     /// The one window a browser's WebGL2 context draws on (its `data-raw-handle` id): a
@@ -301,6 +303,7 @@ impl GpuContext {
             errors,
             readback: Arc::default(),
             textures,
+            effect_kernels: Arc::default(),
             serial,
             timer: Default::default(),
             bound_canvas,
