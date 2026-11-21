@@ -1,5 +1,5 @@
 //! RemedyUI media playback: sound and video from files and streams, decoded by the
-//! platform's own decoders, for VoiceRemedy, Quickcast, Portal and any app that plays media.
+//! platform's own decoders, for VoiceRemedy, Portal and any app that plays media.
 //!
 //! - [`Player`]: opens a [`MediaSource`] on its own threads and plays it. Its state,
 //!   position, length, volume, captions and errors are signals.

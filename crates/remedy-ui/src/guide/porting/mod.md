@@ -9,7 +9,7 @@ doctests that compile and run), and lists the habits that cause trouble.
 | [`egui`](crate::guide::porting::egui) | egui and eframe apps | FreeSpeak |
 | [`react`](crate::guide::porting::react) | React apps in Tauri or Capacitor, and PWAs | SecretSticky, SecretFolder, Alex's Craft Calc, GuitarRemedy, VoiceRemedy, the RemedyAI desktop |
 | [`qt`](crate::guide::porting::qt) | Qt Widgets, PyQt and PySide apps | RemedyPDF |
-| [`web`](crate::guide::porting::web) | pywebview and other HTML-in-a-window apps | Hearth, Quickcast, TheOven |
+| [`web`](crate::guide::porting::web) | pywebview and other HTML-in-a-window apps | Hearth |
 
 ## What is the same in every guide
 

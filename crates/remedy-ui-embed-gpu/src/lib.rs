@@ -1,4 +1,4 @@
-//! The app's own GPU rendering as an element: TheOven's 3D preview, a game view, a shader
+//! The app's own GPU rendering as an element: a 3D preview, a game view, a shader
 //! canvas. The app renders with wgpu on RemedyUI's own device (the one its windows draw
 //! with), into textures the element owns, and the GPU renderer places the picture like any
 //! image, with the element's clips, corners, opacity and scrolling.

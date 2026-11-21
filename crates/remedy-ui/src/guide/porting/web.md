@@ -1,6 +1,6 @@
 # Moving from pywebview or an HTML app
 
-Hearth, Quickcast and TheOven are Python apps whose UI is a web page: pywebview shows HTML,
+Hearth is a Python app whose UI is a web page: pywebview shows HTML,
 CSS and JavaScript, and a bridge calls Python. This guide is for any app built that way,
 including Electron-style and Tauri apps whose UI is plain HTML.
 
@@ -250,7 +250,7 @@ assert!(ui.reader_view().iter().any(|n| n.name.as_deref() == Some("Help")));
 
 ## When the page drew with WebGL
 
-TheOven's 3D preview draws with WebGL in its web studio. [`crate::gpu_embed`] puts the app's
+A 3D preview drawn with WebGL moves to [`crate::gpu_embed`], which puts the app's
 own wgpu rendering in an element, on the same GPU device RemedyUI's windows draw with. The
 app implements [`crate::gpu_embed::GpuContent`]: `prepare` makes pipelines (again after a
 device loss), and `render` records one picture into the element's texture.
@@ -279,7 +279,7 @@ impl GpuContent for Preview {
 }
 
 fn app(app: &App) {
-    app.open(WindowSpec::new("TheOven"), |ui, _| {
+    app.open(WindowSpec::new("Preview"), |ui, _| {
         let (el, view) = gpu_view(ui, "3D preview", Preview);
         view.set_animating(true); // render every frame while the model turns
         ui.root().child(el);
@@ -287,7 +287,7 @@ fn app(app: &App) {
 }
 
 fn main() -> Result<(), remedy_ui::RunError> {
-    remedy_ui::run(AppConfig::new("TheOven"), app)
+    remedy_ui::run(AppConfig::new("Preview"), app)
 }
 ```
 
