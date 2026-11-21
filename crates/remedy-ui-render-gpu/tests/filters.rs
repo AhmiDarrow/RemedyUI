@@ -243,6 +243,97 @@ fn shadows_thrown_off_the_top_or_left_edge_are_not_drawn_on_both_renderers() {
     assert!(g.context().take_errors().is_empty());
 }
 
+#[test]
+fn nested_filters_share_one_bound_on_both_renderers() {
+    // Shadows nested at the bound: each level's buffers would be thousands of pixels wider
+    // than the last, past what the GPU holds and with work growing with the square of the
+    // depth. The chain reaches as far as one filter at the bound: drawn quickly, alike on both
+    // renderers, and exactly as the bound draws it (the outer shadow at the bound, the ones
+    // inside it with nothing left).
+    let nested = |shadows: &[Filter]| {
+        let mut l = DisplayList::new();
+        for f in shadows {
+            l.push_filter(*f);
+        }
+        l.fill_rect(Rect::new(10.0, 10.0, 60.0, 60.0), Brush::Solid(Color::rgb8(200, 40, 40)));
+        for _ in shadows {
+            l.pop_filter();
+        }
+        l
+    };
+    let color = Color::rgba8(0, 0, 0, 128);
+    let shadow = |offset: Vec2, blur: f32| Filter::DropShadow { offset, blur, color };
+    let mut g = gpu();
+    let mut c = CpuRenderer::new();
+    for (x, y) in [(1.0e9, 0.0), (1.0e9, 1.0e9), (-1.0e9, -1.0e9)] {
+        let started = std::time::Instant::now();
+        let deep = nested(&[shadow(Vec2::new(x, y), 1.0e9); 8]);
+        let (Ok(a), Ok(b)) =
+            (c.render(&deep, 96, 96, 1.0, Color::WHITE), g.render(&deep, 96, 96, 1.0, Color::WHITE))
+        else {
+            unreachable!("({x}, {y}): both render")
+        };
+        assert!(started.elapsed() < Duration::from_secs(20), "({x}, {y}): bounded work");
+        let bound = remedy_ui_paint::MAX_FILTER_OFFSET;
+        let at_bound =
+            Vec2::new(bound.copysign(x) * f32::from(x != 0.0), bound.copysign(y) * f32::from(y != 0.0));
+        let mut want = vec![shadow(at_bound, remedy_ui_paint::MAX_FILTER_STD_DEV * 2.0)];
+        want.extend([shadow(Vec2::ZERO, 0.0); 7]);
+        let Ok(want) = c.render(&nested(&want), 96, 96, 1.0, Color::WHITE) else { unreachable!("renders") };
+        assert_eq!(differing(&a, &want, 0).0, 0, "({x}, {y}): drawn exactly as the bound");
+        let (visible, worst) = differing(&a, &b, 8);
+        assert!(visible * 1000 <= 96 * 96, "({x}, {y}): GPU and CPU agree ({visible} differ, by {worst})");
+    }
+    assert!(g.context().take_errors().is_empty());
+}
+
+#[test]
+fn nested_layer_filters_share_one_bound_on_both_compositors() {
+    // The same through the compositor: layers nested in layers, each with a shadow at the
+    // bound, drawn as the bound draws them, quickly, alike on the CPU and the GPU.
+    let color = Color::rgba8(0, 0, 0, 128);
+    let shadow = |offset: Vec2, blur: f32| Filter::DropShadow { offset, blur, color };
+    let tree = |shadows: &[Filter]| {
+        let mut card = DisplayList::new();
+        card.fill_rect(Rect::new(0.0, 0.0, 50.0, 50.0), Brush::Solid(Color::rgb8(200, 40, 40)));
+        let mut layer = Layer::new(LayerId(100), Rect::new(10.0, 10.0, 60.0, 60.0), card);
+        for (i, f) in shadows.iter().enumerate().rev() {
+            let id = LayerId(10 + i as u64);
+            layer = Layer::new(id, Rect::new(0.0, 0.0, 96.0, 96.0), DisplayList::new())
+                .with_filters(vec![*f])
+                .with_child(layer);
+        }
+        LayerTree::new(vec![layer])
+    };
+    let present = |tree: LayerTree, gpu: Option<&mut GpuCompositor>| {
+        let mut comp = Compositor::new(96, 96, 1.0, ScrollPhysics::CLAMPED);
+        comp.commit(tree);
+        let plan = comp.frame(Duration::ZERO);
+        match gpu {
+            Some(g) => g.present_to_frame(&plan, 96, 96, Color::WHITE).ok(),
+            None => CpuCompositor::new().present(&plan, 96, 96, Color::WHITE).ok(),
+        }
+    };
+    let mut g = GpuCompositor::new(gpu(), LadderOptions::default());
+    let bound = remedy_ui_paint::MAX_FILTER_OFFSET;
+    for (x, y) in [(1.0e9f32, 1.0e9f32), (-1.0e9, 0.0)] {
+        let started = std::time::Instant::now();
+        let deep = [shadow(Vec2::new(x, y), 1.0e9); 6];
+        let (Some(a), Some(b)) = (present(tree(&deep), None), present(tree(&deep), Some(&mut g))) else {
+            unreachable!("({x}, {y}): both composite")
+        };
+        assert!(started.elapsed() < Duration::from_secs(20), "({x}, {y}): bounded work");
+        let at_bound =
+            Vec2::new(bound.copysign(x) * f32::from(x != 0.0), bound.copysign(y) * f32::from(y != 0.0));
+        let mut want = vec![shadow(at_bound, remedy_ui_paint::MAX_FILTER_STD_DEV * 2.0)];
+        want.extend([shadow(Vec2::ZERO, 0.0); 5]);
+        let Some(want) = present(tree(&want), None) else { unreachable!("composites") };
+        assert_eq!(differing(&a, &want, 0).0, 0, "({x}, {y}): drawn exactly as the bound");
+        let (visible, worst) = differing(&a, &b, 8);
+        assert!(visible * 1000 <= 96 * 96, "({x}, {y}): GPU and CPU agree ({visible} differ, by {worst})");
+    }
+}
+
 /// A small deterministic generator (xorshift), so a failing list can be found again.
 struct Rng(u64);
 

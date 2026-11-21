@@ -4,6 +4,7 @@
 
 use remedy_ui_compositor::{CompositeOp, LayerId, TileKey};
 use remedy_ui_core::{Color, CornerRadii, Rect};
+use remedy_ui_paint::FilterBudget;
 use vello_cpu::kurbo;
 
 use crate::{kaffine, krect, rounded};
@@ -55,16 +56,34 @@ pub fn record_ops<T: CompositeTarget>(
     shift: kurbo::Affine,
     background: Color,
 ) {
+    record_within(target, all, first, area, FilterBudget::FULL, close, shift, background);
+}
+
+/// [`record_ops`] inside filters that leave `budget` to the filters within (a backdrop's
+/// replay is drawn inside its blur and the filter groups around it).
+#[allow(clippy::too_many_arguments)]
+fn record_within<T: CompositeTarget>(
+    target: &mut T,
+    all: &[CompositeOp],
+    first: usize,
+    area: Rect,
+    budget: FilterBudget,
+    close: bool,
+    shift: kurbo::Affine,
+    background: Color,
+) {
     let ops = all.get(first..).unwrap_or(&[]);
     // Inside a skipped subtree: how many pushes deep.
     let mut skip = 0u32;
     // What is open: true for a clip path, false for a layer.
     let mut open: Vec<bool> = Vec::new();
     // What is culled against: inside a filter group, its whole region, so the group's source
-    // is the same whatever part of the frame is drawn.
-    let mut areas = vec![area];
-    let misses =
-        |r: Rect, areas: &[Rect]| r.intersect(*areas.last().unwrap_or(&area)).is_none_or(|r| r.is_empty());
+    // is the same whatever part of the frame is drawn. With each, what the filter groups open
+    // around it leave the filters inside them (see `FilterBudget`).
+    let mut areas = vec![(area, budget)];
+    let misses = |r: Rect, areas: &[(Rect, FilterBudget)]| {
+        r.intersect(areas.last().map_or(area, |a| a.0)).is_none_or(|r| r.is_empty())
+    };
     for (k, op) in ops.iter().enumerate() {
         if skip > 0 {
             match op {
@@ -108,7 +127,9 @@ pub fn record_ops<T: CompositeTarget>(
             }
             CompositeOp::PushFilter { transform, filter, region } => {
                 target.set_transform(shift * kaffine(*transform));
-                match crate::layer_filter(filter, transform.scale_factor()) {
+                let left = areas.last().map_or(budget, |a| a.1);
+                let (filter, inside) = left.limit(filter, transform.scale_factor());
+                match crate::vello_filter(&filter) {
                     Some(f) => target.push_filter_layer(f),
                     None => target.push_opacity_layer(1.0),
                 }
@@ -119,7 +140,7 @@ pub fn record_ops<T: CompositeTarget>(
                 // A filter group is a layer and a clip path, closed in that order.
                 open.push(false);
                 open.push(true);
-                areas.push(*region);
+                areas.push((*region, inside));
             }
             CompositeOp::PopFilter => {
                 target.pop_clip();
@@ -146,7 +167,12 @@ pub fn record_ops<T: CompositeTarget>(
                 if *opacity < 1.0 {
                     target.push_opacity_layer(*opacity);
                 }
-                match crate::backdrop_filter(*blur, transform.scale_factor()) {
+                // What is under the glass is drawn inside its blur, and inside the filter
+                // groups around it.
+                let left = areas.last().map_or(budget, |a| a.1);
+                let glass = remedy_ui_paint::Filter::Blur { radius: *blur };
+                let (glass, inside) = left.limit(&glass, transform.scale_factor());
+                match crate::vello_filter(&glass) {
                     Some(f) => target.push_filter_layer(f),
                     None => target.push_opacity_layer(1.0),
                 }
@@ -161,7 +187,7 @@ pub fn record_ops<T: CompositeTarget>(
                 // each root's picture once into a texture both renderers sample would make it
                 // linear, if stacks of glass become common.
                 if let Some(prefix) = all.get(..at) {
-                    record_ops(target, prefix, root, under, true, shift, background);
+                    record_within(target, prefix, root, under, inside, true, shift, background);
                 }
                 target.pop_clip();
                 target.pop_layer();

@@ -27,7 +27,7 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | Secret buffers | `zeroize` | 1.9.1 | `text`, `secure` | Zeroing that the compiler cannot optimize away |
 | Layout algorithms | `taffy` | 0.15.1 (flexbox, grid, block, content-size) | `layout` | CSS flexbox, grid and block, faithful to the specs. Its leaf callback runs `compute_leaf_layout` so styles apply; it keeps padding physical, so RemedyUI mirrors logical insets for right to left itself |
 | GPU | `wgpu` | 30.0.2 | `render-gpu` | D3D12, Vulkan, Metal, GL 3.3 / GLES 3.0 |
-| Paths | `vello_gpu`, `vello_cpu` | 0.4.0 | `render-gpu`, `render-cpu` | Sparse-strip paths without compute shaders; fast multithreaded CPU rendering. Pre-1.0: behind RemedyUI's path type |
+| Paths | `vello_gpu`, `vello_cpu` | 0.4.0 (`vello_cpu` patched, from `vendor/vello_cpu`) | `render-gpu`, `render-cpu` | Sparse-strip paths without compute shaders; fast multithreaded CPU rendering. Pre-1.0: behind RemedyUI's path type. `vello_cpu` is the published 0.4.0 with one fix (drop shadows thrown off the canvas's top or left edge were drawn unshifted), applied through `[patch.crates-io]` until a release carries it; [vendor/vello_cpu/PATCHED.md](../vendor/vello_cpu/PATCHED.md) says what changed and how to drop it |
 | Shader validation | `naga` | wgpu's | `render-gpu` | Validates app-supplied WGSL effects |
 | CPU present | `softbuffer` | 0.4.8 | `render-cpu` | Pixel blit on every desktop |
 | Windows and events | `winit` | 0.30.13 (0.31 when stable) | desktop and Android bridges | Each bridge adds its own modules where winit stops short |
