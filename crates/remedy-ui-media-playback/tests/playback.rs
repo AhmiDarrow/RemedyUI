@@ -949,8 +949,12 @@ fn card_shown(view: &El) -> bool {
 fn texts(el: &El, widget: &str) -> Vec<String> {
     find(el, widget)
         .iter()
-        .filter_map(|l| l.info().filter(|i| !i.hidden).and_then(|i| i.text))
-        .map(|t| plain(&t))
+        .filter_map(|l| l.info().filter(|i| !i.hidden))
+        .filter_map(|i| match widget {
+            // The clock is in parts; its name says it whole.
+            "player_clock" => i.semantics.and_then(|s| s.name().map(str::to_owned)),
+            _ => i.text.map(|t| plain(&t)),
+        })
         .collect()
 }
 
@@ -2666,7 +2670,7 @@ fn dragging_the_seek_bar_previews_and_seeks_once_on_release() {
     );
     assert_eq!(seek_value(&view).as_deref(), Some("0:30 of 1:00"));
     // The tip: the time under the pointer.
-    assert!(texts(&view, "label").iter().any(|t| t == "0:30"), "{:?}", texts(&view, "label"));
+    assert!(texts(&view, "player_tip").iter().any(|t| t == "0:30"), "{:?}", texts(&view, "player_tip"));
     s.idle(50);
     assert_eq!(p.position(), Duration::ZERO, "still no seek");
     // Let go: one seek, there.
@@ -2696,12 +2700,12 @@ fn dragging_the_seek_bar_previews_and_seeks_once_on_release() {
     s.ui.pointer(&touch(Up, 0.2005, false));
     s.wait("the touch seek", |_| near(p.position(), 12.0, 0.2));
     s.pump();
-    assert!(!texts(&view, "label").iter().any(|t| t == "0:12"), "a lifted finger leaves no tip");
+    assert!(!texts(&view, "player_tip").iter().any(|t| t == "0:12"), "a lifted finger leaves no tip");
 
     // Hovering shows the tip alone; the keys still seek at once.
     s.ui.pointer(&on_bar(&view, Move, 0.7505, false));
     s.pump();
-    assert!(texts(&view, "label").iter().any(|t| t == "0:45"), "{:?}", texts(&view, "label"));
+    assert!(texts(&view, "player_tip").iter().any(|t| t == "0:45"), "{:?}", texts(&view, "player_tip"));
     assert_eq!(p.scrubbing(), None);
     el(&view, "Seek").focus();
     assert!(press(&s.ui, Key::ArrowRight));
@@ -2731,9 +2735,9 @@ fn on_a_tv_and_on_a_timeline_only_the_release_seeks() {
     s.ui.pointer(&on_bar(&view, remedy_ui_input::PointerPhase::Move, 0.50005, false));
     s.pump();
     assert!(
-        texts(&view, "label").iter().any(|t| t == "1:30:46"),
+        texts(&view, "player_tip").iter().any(|t| t == "1:30:46"),
         "the tip in film time: {:?}",
-        texts(&view, "label")
+        texts(&view, "player_tip")
     );
     drag(&mut s, &view, 0.2, &[0.4, 0.50005]);
     assert_eq!(p.scrubbing(), None);
@@ -3529,7 +3533,9 @@ fn full_screen_controls_rest_after_a_pause_in_activity_and_any_input_wakes_them(
     assert!(p.controls_shown() && !s.ui.cursor_hidden());
     assert!(title.info().is_some_and(|i| !i.hidden && i.text.is_none()), "the title line shows");
     assert!(
-        find(&title, "label").iter().any(|l| l.info().and_then(|i| i.text).as_deref() == Some("Episode 4"))
+        find(&title, "player_title_text")
+            .iter()
+            .any(|l| l.info().and_then(|i| i.text).as_deref() == Some("Episode 4"))
     );
     // The bar floats over the picture: the stage reaches the bottom of the player.
     let (stage, bar) =

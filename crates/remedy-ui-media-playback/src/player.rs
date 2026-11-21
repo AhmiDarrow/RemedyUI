@@ -82,6 +82,10 @@ pub struct PlayerOptions {
     /// The widget's bar in two rows, as Portal's: the seek bar above; below, Play (and the
     /// skip buttons), mute and volume and the time at the start, the rest at the end.
     pub two_rows: bool,
+    /// The widget shows the volume only while the pointer is over the mute button or the
+    /// volume, or keyboard focus is in them, as Portal's (it stays in the tab order and the
+    /// accessibility tree, and Tab onto it shows it).
+    pub volume_on_hover: bool,
     /// Starts in the compact layout ([`Player::set_compact`]).
     pub compact: bool,
     /// Keeps the screen on while video plays here ([`Player::set_keep_awake`]); off by
@@ -493,6 +497,12 @@ impl PlayerOptions {
         self
     }
 
+    /// Sets `volume_on_hover`: the volume shows on hover or focus.
+    pub fn volume_on_hover(mut self, value: bool) -> Self {
+        self.volume_on_hover = value;
+        self
+    }
+
     /// Sets `compact`: starts in the compact layout.
     pub fn compact(mut self, value: bool) -> Self {
         self.compact = value;
@@ -517,6 +527,7 @@ impl Default for PlayerOptions {
             skip_buttons: false,
             speed_button: true,
             two_rows: false,
+            volume_on_hover: false,
             compact: false,
             keep_awake: false,
         }

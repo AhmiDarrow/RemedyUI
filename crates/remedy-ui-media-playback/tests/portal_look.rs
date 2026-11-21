@@ -1,15 +1,20 @@
-//! The player in Portal's theme with Portal's own glyphs, drawn by the developer tools' preview
-//! renderer, checked against the values Portal's page has (`web/src/styles.css`,
-//! `web/src/themes.ts`, the SVGs in `web/index.html`), so its look cannot drift.
-//! `REMEDY_SHOTS=<dir>` also writes the pictures.
+//! The player as a Portal app sets it up (Portal's theme and style sheet, its SVG glyphs, its
+//! picture-in-picture button through `PlayerParts::end`), playing a still of Portal's test
+//! file, drawn by the CPU renderer and checked against the values Portal's page has
+//! (`web/src/styles.css`, `web/src/themes.ts`, the SVGs in `web/index.html`), so its look
+//! cannot drift. `REMEDY_SHOTS=<dir>` also writes every state's picture.
 
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use remedy_ui_devtools::{Preview, Snapshot};
+use remedy_ui_compositor::Compositor;
+use remedy_ui_core::{Point, Size};
+use remedy_ui_devtools::Snapshot;
+use remedy_ui_input::{PointerEvent, PointerPhase, ScrollPhysics};
 use remedy_ui_media_playback::*;
+use remedy_ui_media_video::{Picture, PixelFormat};
+use remedy_ui_render_cpu::CpuCompositor;
+use remedy_ui_text::FontCollection;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core::Icon;
 
@@ -42,10 +47,12 @@ fn portal_svg(icon: Icon) -> Option<&'static str> {
     })
 }
 
-/// What a Portal app hands the player: its SVGs, with the page's CSS for `.line` and `text`
-/// written onto them.
-fn portal_icons(ui: &Ui, icon: Icon, size: f32) -> Option<El> {
-    let body = portal_svg(icon)?
+/// Portal's picture-in-picture glyph (its own control, not the player's).
+const PIP: &str = r#"<rect class="line" x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11.5" width="7" height="5.5" rx="1"/>"#;
+
+/// An SVG of Portal's, with the page's CSS for `.line` and `text` written onto it.
+fn svg(ui: &Ui, body: &str, size: f32) -> El {
+    let body = body
         .replace(
             r#"class="line""#,
             r#"fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round""#,
@@ -54,38 +61,215 @@ fn portal_icons(ui: &Ui, icon: Icon, size: f32) -> Option<El> {
     let svg = format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">{body}</svg>"#
     );
-    Some(remedy_ui_media_svg::icon(ui, Arc::from(svg.into_bytes()), size, ""))
+    remedy_ui_media_svg::icon(ui, Arc::from(svg.into_bytes()), size, "")
 }
 
-/// Portal's dock player: two rows, the skips, no speed button, a minute into three.
-fn portal_player(ui: &Ui) -> El {
-    let options = PlayerOptions::default().two_rows(true).skip_buttons(true).speed_button(false);
-    let p = Player::empty_platform(ui, options);
-    p.set_timeline(Some(Timeline::new(Duration::from_secs(60)).length(Duration::from_secs(180))));
-    player_with(ui, &p, "RemedyUI cast test", PlayerParts::default().icons(portal_icons))
+/// What a Portal app hands the player for its glyphs.
+fn portal_icons(ui: &Ui, icon: Icon, size: f32) -> Option<El> {
+    Some(svg(ui, portal_svg(icon)?, size))
 }
 
-/// Renders the player at Portal's stage width in Portal's palette `id`; the picture, and the
-/// player's element.
-fn render(id: &str) -> (Snapshot, El) {
-    let made: Rc<RefCell<Option<El>>> = Rc::default();
-    let keep = made.clone();
-    let preview = Preview::new(format!("portal-{id}"), move |ui| {
-        let view = portal_player(ui);
-        *keep.borrow_mut() = Some(view.clone());
-        view
-    })
-    .themes(&[&format!("portal:{id}")])
-    .sizes(&[(730.0, 480.0)]);
-    let v = preview.variations().into_iter().next().unwrap_or_else(|| unreachable!("one variation"));
-    let shot = preview.render(&v);
-    if let Ok(dir) = std::env::var("REMEDY_SHOTS") {
-        let png = shot.to_png().unwrap_or_else(|e| unreachable!("{e:?}"));
-        std::fs::write(std::path::Path::new(&dir).join(format!("portal-{id}.png")), png)
-            .unwrap_or_else(|e| unreachable!("{e}"));
+/// Portal's picture-in-picture button, styled as the player's own buttons.
+fn pip_button(ui: &Ui) -> El {
+    let size = ui.theme().metric("player-glyph", 16.0);
+    ui.el("player_button")
+        .row()
+        .align(remedy_ui_layout::Align::Center)
+        .justify(remedy_ui_layout::Justify::Center)
+        .child(svg(ui, PIP, size))
+        .semantics(remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Button).label("Picture in picture"))
+}
+
+/// A frame of Portal's test file (tests/fixtures/portal-frame.png), as a decoder gives it.
+fn still() -> Picture {
+    let png = include_bytes!("fixtures/portal-frame.png");
+    let s = Snapshot::from_png(png).unwrap_or_else(|e| unreachable!("{e:?}"));
+    Picture::packed(s.width, s.height, PixelFormat::Rgba, s.rgba)
+}
+
+/// Three minutes of the still, ten pictures a second, no sound.
+struct Still(Picture);
+
+struct StillDecoder {
+    info: MediaInfo,
+    picture: Picture,
+    next: u64,
+}
+
+impl Decoder for StillDecoder {
+    fn info(&self) -> &MediaInfo {
+        &self.info
     }
-    let el = made.borrow().clone().unwrap_or_else(|| unreachable!("built"));
-    (shot, el)
+    fn read(&mut self) -> Result<Option<Sample>, MediaError> {
+        if self.next >= 1800 {
+            return Ok(None);
+        }
+        let at = Duration::from_millis(self.next * 100);
+        self.next += 1;
+        Ok(Some(Sample::Video {
+            at,
+            duration: Some(Duration::from_millis(100)),
+            picture: self.picture.clone(),
+        }))
+    }
+    fn seek(&mut self, to: Duration) -> Result<(), MediaError> {
+        self.next = to.as_millis() as u64 / 100;
+        Ok(())
+    }
+}
+
+impl MediaHost for Still {
+    fn name(&self) -> &str {
+        "still"
+    }
+    fn open(&self, _: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
+        let mut info = MediaInfo::default();
+        info.duration = Some(Duration::from_secs(180));
+        info.seekable = true;
+        info.video = Some(VideoInfo::new(self.0.width, self.0.height, Some(10.0)));
+        Ok(Box::new(StillDecoder { info, picture: self.0.clone(), next: 0 }))
+    }
+    fn audio_output(&self, _: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
+        Err(MediaError::Device("no sound in a still".into()))
+    }
+}
+
+/// A window with Portal's theme `id` and sheet, run by hand and drawn on the CPU.
+struct Window {
+    ui: Ui,
+    size: Size,
+    comp: Compositor,
+    cpu: CpuCompositor,
+    timers: Vec<(u64, Instant)>,
+    started: Instant,
+}
+
+impl Window {
+    fn new(id: &str, size: Size) -> Window {
+        let theme = remedy_ui_themes::portal_theme(id).unwrap_or_else(|| unreachable!("Portal has {id}"));
+        let mut fonts = FontCollection::new();
+        for face in remedy_ui_fonts::all() {
+            let _ = fonts.add_static(face.data);
+        }
+        // SVG text (the "10" in the skips) in the app's faces, once for the process.
+        static SVG_FONTS: std::sync::Once = std::sync::Once::new();
+        SVG_FONTS.call_once(|| {
+            remedy_ui_fonts::all().into_iter().for_each(|f| remedy_ui_media_svg::add_font(f.data.to_vec()))
+        });
+        let ui = Ui::new(theme.clone(), remedy_ui_themes::portal_sheet(&theme), fonts);
+        ui.set_reduced_motion(true);
+        let (w, h) = (size.width as u32, size.height as u32);
+        Window {
+            ui,
+            size,
+            comp: Compositor::new(w, h, 1.0, ScrollPhysics::CLAMPED),
+            cpu: CpuCompositor::new(),
+            timers: Vec::new(),
+            started: Instant::now(),
+        }
+    }
+
+    fn pump(&mut self) {
+        let _ = remedy_ui_reactive::run_posted();
+        let f = self.ui.frame(self.size, 1.0);
+        if let Some(l) = f.layers {
+            self.comp.commit(l);
+        }
+        for r in self.ui.take_requests() {
+            match r {
+                remedy_ui_view::Request::Timer { id, delay } => {
+                    self.timers.push((id, Instant::now() + delay))
+                }
+                remedy_ui_view::Request::CancelTimer(id) => self.timers.retain(|(t, _)| *t != id),
+                _ => {}
+            }
+        }
+        let now = Instant::now();
+        let due: Vec<u64> = self.timers.iter().filter(|(_, at)| *at <= now).map(|(id, _)| *id).collect();
+        self.timers.retain(|(_, at)| *at > now);
+        for id in due {
+            self.ui.fire_timer(id);
+        }
+    }
+
+    fn wait(&mut self, what: &str, ok: impl Fn() -> bool) {
+        let start = Instant::now();
+        while !ok() {
+            self.pump();
+            assert!(start.elapsed() < Duration::from_secs(30), "waited for {what}");
+            std::thread::sleep(Duration::from_millis(3));
+        }
+        for _ in 0..4 {
+            self.pump();
+        }
+    }
+
+    fn shot(&mut self) -> Snapshot {
+        self.pump();
+        let (w, h) = (self.size.width as u32, self.size.height as u32);
+        let plan = self.comp.frame(self.started.elapsed());
+        let bg = self.ui.theme().colors.bg;
+        let rgba = self.cpu.present(&plan, w, h, bg).map(|f| f.pixels).unwrap_or_default();
+        Snapshot { width: w, height: h, rgba }
+    }
+
+    fn hover(&mut self, at: Point) {
+        let _ = self.ui.pointer(&PointerEvent::new(PointerPhase::Move, at));
+        self.pump();
+    }
+}
+
+/// What to show.
+#[derive(Clone, Copy, PartialEq)]
+enum Look {
+    Paused,
+    Playing,
+    HoverBar,
+    Theater,
+    Full,
+    FullNext,
+}
+
+/// Portal's dock player in `win`: two rows, the skips, no speed button, the volume on hover,
+/// captions on offer, theater mode, the app's picture-in-picture; 20 seconds into the still.
+fn portal_player(win: &mut Window, look: Look) -> (Player, El) {
+    let ui = win.ui.clone();
+    let options = PlayerOptions::default()
+        .two_rows(true)
+        .skip_buttons(true)
+        .speed_button(false)
+        .volume_on_hover(true)
+        .next_up_lead(Some(Duration::from_secs(20)));
+    let p = Player::open(&ui, Arc::new(Still(still())), MediaSource::url("still:portal"), options);
+    p.on_caption_pick(|_| {});
+    p.add_subtitles(SubtitleTrack { label: "English".into(), language: Some("en".into()), cues: Vec::new() });
+    p.on_theater(|_| {});
+    p.on_fullscreen(|_| {});
+    p.set_title(Some("RemedyUI cast test".into()));
+    let parts = PlayerParts::default().icons(portal_icons).end(vec![pip_button(&ui)]);
+    let view = player_with(&ui, &p, "RemedyUI cast test", parts);
+    let _ = ui.root().child(view.clone());
+    win.wait("open", || p.info().is_some());
+    let at = if look == Look::FullNext { 165 } else { 20 };
+    if look == Look::FullNext {
+        p.set_next_up(Some(NextUp::later("Episode 2")));
+    }
+    p.seek(Duration::from_secs(at));
+    p.play();
+    win.wait("playing", || p.state() == PlaybackState::Playing);
+    if !matches!(look, Look::Playing | Look::Full | Look::FullNext) {
+        p.pause();
+        win.wait("paused", || p.state() == PlaybackState::Paused);
+    }
+    match look {
+        Look::Theater => p.request_theater(true),
+        Look::Full | Look::FullNext => p.request_fullscreen(true),
+        _ => {}
+    }
+    for _ in 0..6 {
+        win.pump();
+    }
+    (p, view)
 }
 
 /// The first shown element named `widget` under `root`, depth first.
@@ -93,12 +277,35 @@ fn find(root: &El, widget: &str) -> El {
     let mut stack = vec![root.clone()];
     while let Some(e) = stack.pop() {
         let shown = e.bounds().is_some_and(|b| b.width() > 0.0);
-        if shown && e.info().is_some_and(|i| i.widget == widget) {
+        if shown && e.info().is_some_and(|i| i.widget == widget && !i.hidden) {
             return e;
         }
         stack.extend(e.child_elements().into_iter().rev());
     }
     unreachable!("no {widget}")
+}
+
+fn bounds(view: &El, widget: &str) -> remedy_ui_core::Rect {
+    find(view, widget).bounds().unwrap_or_else(|| unreachable!("{widget} laid out"))
+}
+
+/// Renders the player in Portal's palette `id` at `size`, `look`, writing the picture as
+/// `name` when asked; the picture and the player's element.
+fn render(name: &str, id: &str, size: (f32, f32), look: Look) -> (Snapshot, El) {
+    let mut win = Window::new(id, Size::new(size.0, size.1));
+    let (_p, view) = portal_player(&mut win, look);
+    if look == Look::HoverBar {
+        let seek = bounds(&view, "player_seek");
+        win.hover(Point::new(seek.min.x + seek.width() * 0.5, seek.center().y));
+        win.pump();
+    }
+    let shot = win.shot();
+    if let Ok(dir) = std::env::var("REMEDY_SHOTS") {
+        let png = shot.to_png().unwrap_or_else(|e| unreachable!("{e:?}"));
+        std::fs::write(std::path::Path::new(&dir).join(format!("{name}.png")), png)
+            .unwrap_or_else(|e| unreachable!("{e}"));
+    }
+    (shot, view)
 }
 
 /// The largest difference between two colors' channels (alpha left out).
@@ -116,45 +323,90 @@ fn assert_pixel(shot: &Snapshot, x: f32, y: f32, want: &str, what: &str) {
     let got =
         shot.pixel(x.round() as u32, y.round() as u32).unwrap_or_else(|| unreachable!("in the picture"));
     let want = hex(want);
-    let close = off(&got, &want) <= 3;
-    assert!(close, "{what} at ({x}, {y}): {got:?}, Portal's is {want:?}");
+    assert!(off(&got, &want) <= 3, "{what} at ({x}, {y}): {got:?}, Portal's is {want:?}");
+}
+
+/// Whether any pixel in the box is within 24 of `want` on every channel.
+fn has_color(shot: &Snapshot, b: remedy_ui_core::Rect, want: &str) -> bool {
+    let want = hex(want);
+    let (x0, y0, x1, y1) = (b.min.x as u32, b.min.y as u32, b.max.x as u32, b.max.y as u32);
+    (y0..y1).any(|y| (x0..x1).any(|x| shot.pixel(x, y).is_some_and(|p| off(&p, &want) <= 24)))
 }
 
 #[test]
 fn player_wears_portals_look() {
-    for (id, raised, line, accent, track) in [
-        ("portal", "#211e18", "#3a3428", "#e2b15a", "#2c281f"),
-        ("light", "#ffffff", "#a8a8b8", "#7c3aed", "#a8a8b8"),
-        ("deutan", "#121821", "#34465a", "#56b4e9", "#34465a"),
+    for (id, raised, line, accent, track, text, muted) in [
+        ("portal", "#211e18", "#3a3428", "#e2b15a", "#2c281f", "#f4efe4", "#b3a894"),
+        ("light", "#ffffff", "#a8a8b8", "#7c3aed", "#a8a8b8", "#14141f", "#3d3d52"),
+        ("deutan", "#121821", "#34465a", "#56b4e9", "#34465a", "#e9f0f6", "#a9b9c7"),
     ] {
-        let (shot, view) = render(id);
-        let bounds = |w: &str| find(&view, w).bounds().unwrap_or_else(|| unreachable!("{w} laid out"));
-        // `.chrome`: on the raised surface, under a 1 px line.
-        let rule = bounds("player_rule");
+        let (shot, view) = render(&format!("portal-{id}-paused"), id, (730.0, 480.0), Look::Paused);
+        // `.chrome`: on the raised surface under a 1 px line.
+        let rule = bounds(&view, "player_rule");
         assert_eq!(rule.height(), 1.0, "{id}: the line over the bar");
-        // Portal's bar is 67.8 px high (fractional, as its 0.15 rem and 0.4 rem padding make it),
-        // so the line straddles two pixel rows: the brighter one is 80% the line.
-        let want = hex(line);
-        let row_off = |y: f32| {
-            let p = shot.pixel(40, y as u32).unwrap_or_default();
-            off(&p, &want)
-        };
-        let near = row_off(rule.min.y.floor()).min(row_off(rule.max.y.floor()));
-        let far = off(&want, &hex(raised));
-        assert!(near <= far / 4 + 3, "{id}: the line over the bar is {near} off");
-        let gap = bounds("player_gap");
+        // The bar is 67.4 px high (Portal's is 67.375), so the line straddles two rows of
+        // pixels: the row under the picture shows a good part of it over the raised surface.
+        let (want, under) = (hex(line), hex(raised));
+        let px = shot.pixel(40, rule.max.y.floor() as u32).unwrap_or_default();
+        assert!(off(&px, &under) >= off(&want, &under) / 5, "{id}: no line over the bar: {px:?}");
+        let gap = bounds(&view, "player_gap");
         assert_pixel(&shot, gap.center().x, gap.center().y, raised, "the bar");
-        // `.icon-btn`: 2.25 rem round buttons, 1.3 rem glyphs.
-        let play = bounds("player_button");
-        assert_eq!((play.width(), play.height()), (36.0, 36.0), "{id}: Play's size");
+        // `.icon-btn`: 2.25 rem round buttons with 1.3 rem glyphs, 0.1 rem apart.
+        let play = bounds(&view, "player_button");
+        assert_eq!((play.width().round(), play.height().round()), (36.0, 36.0), "{id}: Play's size");
+        // `.volume-bar`: folded until hover or focus.
+        assert_eq!(bounds(&view, "player_sound").width().round(), 36.0, "{id}: the volume folds");
         // `.seek-bar`: 1.35 rem high, a 4 px track, played in the accent, the rest the track.
-        let seek = bounds("player_seek");
-        assert_eq!(seek.height(), 22.0, "{id}: the seek bar's height");
+        let seek = bounds(&view, "player_seek");
+        assert_eq!(seek.height().round(), 22.0, "{id}: the seek bar's height");
         let mid = seek.center().y;
-        assert_pixel(&shot, seek.min.x + seek.width() / 6.0, mid, accent, "the played part");
-        assert_pixel(&shot, seek.min.x + seek.width() * 5.0 / 6.0, mid, track, "the track");
-        assert_pixel(&shot, seek.min.x + seek.width() * 5.0 / 6.0, mid - 4.0, raised, "above the 4 px track");
-        // The thumb at a third, in the accent.
-        assert_pixel(&shot, seek.min.x + 5.5 + (seek.width() - 11.0) / 3.0, mid - 4.0, accent, "the thumb");
+        assert_pixel(&shot, seek.min.x + seek.width() * 0.05, mid, accent, "the played part");
+        assert_pixel(&shot, seek.min.x + seek.width() * 0.8, mid, track, "the track");
+        assert_pixel(&shot, seek.min.x + seek.width() * 0.8, mid - 4.0, raised, "above the 4 px track");
+        // `.clock`: the elapsed time in the text color, the rest muted.
+        assert!(has_color(&shot, bounds(&view, "player_clock_now"), text), "{id}: the elapsed time");
+        let clock = bounds(&view, "player_clock");
+        let rest = remedy_ui_core::Rect::new(
+            bounds(&view, "player_clock_now").max.x,
+            clock.min.y,
+            clock.max.x,
+            clock.max.y,
+        );
+        assert!(has_color(&shot, rest, muted), "{id}: the duration muted");
+        // `.stage-play`: 4.25 rem across.
+        let big = bounds(&view, "player_big_play");
+        assert_eq!((big.width().round(), big.height().round()), (68.0, 68.0), "{id}: the big Play");
     }
+}
+
+#[test]
+fn the_seek_bar_grows_under_the_pointer_and_full_screen_takes_portals_sizes() {
+    let (shot, view) = render("portal-portal-hover-bar", "portal", (730.0, 480.0), Look::HoverBar);
+    let seek = bounds(&view, "player_seek");
+    // `.seek-bar:hover`: a 6 px track.
+    let x = seek.min.x + seek.width() * 0.8;
+    assert_pixel(&shot, x, seek.center().y - 2.5, "#2c281f", "the 6 px track under the pointer");
+    assert!(find(&view, "player_tip").info().is_some_and(|i| i.text.is_some()), "the time under the pointer");
+    let (_, view) = render("portal-portal-full", "portal", (1280.0, 720.0), Look::Full);
+    // `.is-full .icon-btn`: 2.7 rem.
+    let play = bounds(&view, "player_button");
+    assert_eq!(play.width().round(), 43.0, "full screen's buttons");
+    // `.is-full > .chrome`: no surface under the bar; `.stage-top`: the heading face at 1.3 rem.
+    let bar = find(&view, "player_bar").info().unwrap_or_else(|| unreachable!());
+    assert_eq!((bar.variant, bar.style.background.a), ("full", 0.0), "the bar over the picture");
+    let title = find(&view, "player_title_text").info().unwrap_or_else(|| unreachable!());
+    assert!(title.style.heading && (title.style.text_size - 20.8).abs() < 0.01, "{:?}", title.style);
+}
+
+/// Pictures of every state for comparing with Portal's page side by side.
+#[test]
+#[ignore = "writes pictures for review"]
+fn portal_state_pictures() {
+    if std::env::var("REMEDY_SHOTS").is_err() {
+        return;
+    }
+    let _ = render("portal-portal-playing", "portal", (730.0, 480.0), Look::Playing);
+    let _ = render("portal-portal-theater", "portal", (1280.0, 600.0), Look::Theater);
+    let _ = render("portal-portal-narrow-390", "portal", (370.0, 280.0), Look::Paused);
+    let _ = render("portal-portal-full-next", "portal", (1280.0, 720.0), Look::FullNext);
 }
