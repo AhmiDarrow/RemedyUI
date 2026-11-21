@@ -1,4 +1,4 @@
-//! The one unsafe call in the GPU renderer.
+//! The GPU renderer's unsafe calls.
 
 /// Creates a pipeline cache seeded with `data`.
 ///
@@ -17,6 +17,9 @@ pub(crate) fn create_pipeline_cache(device: &wgpu::Device, data: Option<&[u8]>) 
         })
     }
 }
+
+/// Decoded pictures on the GPU, opened on the renderer's device.
+pub(crate) mod video;
 
 /// Windows: a swapchain of RemedyUI's own on wgpu's D3D12 device, presenting only what changed.
 #[cfg(windows)]
