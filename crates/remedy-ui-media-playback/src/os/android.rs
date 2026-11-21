@@ -64,6 +64,9 @@ struct Ndk {
     extractor_get_sample_time: unsafe extern "C" fn(Ptr) -> i64,
     extractor_advance: unsafe extern "C" fn(Ptr) -> bool,
     extractor_seek_to: unsafe extern "C" fn(Ptr, i64, i32) -> Status,
+    /// How far ahead of the read position the extractor holds a network source, in
+    /// microseconds, or -1 (API 21; `None` where the library lacks it).
+    extractor_get_cached_duration: Option<unsafe extern "C" fn(Ptr) -> i64>,
     format_delete: unsafe extern "C" fn(Ptr) -> Status,
     format_get_int32: unsafe extern "C" fn(Ptr, *const c_char, *mut i32) -> bool,
     format_get_int64: unsafe extern "C" fn(Ptr, *const c_char, *mut i64) -> bool,
@@ -152,6 +155,10 @@ impl Ndk {
             extractor_get_sample_time: sym!(l, "AMediaExtractor_getSampleTime"),
             extractor_advance: sym!(l, "AMediaExtractor_advance"),
             extractor_seek_to: sym!(l, "AMediaExtractor_seekTo"),
+            // SAFETY: as for `sym!`; optional, so a missing one is `None`.
+            extractor_get_cached_duration: unsafe { l.get(b"AMediaExtractor_getCachedDuration\0") }
+                .ok()
+                .map(|f| *f),
             format_delete: sym!(l, "AMediaFormat_delete"),
             format_get_int32: sym!(l, "AMediaFormat_getInt32"),
             format_get_int64: sym!(l, "AMediaFormat_getInt64"),
@@ -317,6 +324,8 @@ struct NdkDecoder {
     info: MediaInfo,
     /// The file the extractor reads through its descriptor, kept open while it does.
     _file: Option<std::fs::File>,
+    /// The source is a stream the extractor downloads (not a file).
+    network: bool,
 }
 
 // SAFETY: the extractor and codecs are used from one thread at a time.
@@ -377,6 +386,7 @@ impl NdkDecoder {
                 pending: VecDeque::new(),
                 info: MediaInfo::default(),
                 _file: None,
+                network: file.is_none(),
             };
             let status = match &file {
                 Some(f) => {
@@ -716,6 +726,25 @@ impl Decoder for NdkDecoder {
         }
         self.extractor_done = false;
         Ok(())
+    }
+
+    fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
+        // A network source's cache, from where the extractor reads next on: what it has
+        // downloaded ahead. A file holds it all (the player counts it whole).
+        let cached = self.ndk.extractor_get_cached_duration.filter(|_| self.network)?;
+        // SAFETY: queries of a live extractor.
+        let (ahead, at) =
+            unsafe { (cached(self.extractor), (self.ndk.extractor_get_sample_time)(self.extractor)) };
+        if ahead < 0 {
+            // Not a source with a cache it can say about.
+            return None;
+        }
+        if at < 0 {
+            // Read to the end: nothing ahead of the extractor is left to download.
+            return Some(Vec::new());
+        }
+        let us = |x: i64| Duration::from_micros(u64::try_from(x).unwrap_or(0));
+        Some(vec![us(at)..us(at.saturating_add(ahead))])
     }
 }
 
