@@ -8,10 +8,10 @@ use std::ffi::CStr;
 use std::time::{Duration, Instant};
 
 use super::gstreamer::{
-    CLOCK_TIME_NONE, GST_MAP_WRITE, Gst, GstMapInfo, GstStreamDecoder, RESOURCE_NOT_FOUND, gst, launch_error,
-    map_error, nv12_picture,
+    CLOCK_TIME_NONE, GST_MAP_READ, GST_MAP_WRITE, Gst, GstMapInfo, GstStreamDecoder, RESOURCE_NOT_FOUND, gst,
+    launch_error, map_error, nv12_picture,
 };
-use super::gstreamer_stream::{Pipe, pull};
+use super::gstreamer_stream::{Pipe, pull, pull_sample};
 use crate::hls::{
     AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
     file_path, missing, timed_out,
@@ -102,30 +102,39 @@ impl Stream {
     fn take(&mut self, g: &Gst, wait: Duration) -> Result<Option<Sample>, MediaError> {
         check(g, &self.pipe)?;
         let sink = self.pipe.get(1);
-        let Some((bytes, _, s)) = pull(g, sink, wait) else {
+        let Some(s) = pull_sample(g, sink, wait) else {
             // SAFETY: asking a live app sink.
             self.eos |= unsafe { (g.app_sink_is_eos)(sink) } != 0;
             return Ok(None);
         };
         self.held = self.held.saturating_sub(1);
-        // SAFETY: reading the times of the sample `pull` handed over, then releasing it once.
-        let (pts, duration) = unsafe {
+        // SAFETY: the sample `pull_sample` handed over, its buffer mapped for reading while its
+        // bytes are copied once into the picture or the sound, then released once.
+        unsafe {
             let buf = (g.sample_get_buffer)(s);
-            if buf.is_null() { (CLOCK_TIME_NONE, CLOCK_TIME_NONE) } else { ((*buf).pts, (*buf).duration) }
-        };
-        let at = if pts == CLOCK_TIME_NONE { Duration::ZERO } else { Duration::from_nanos(pts) };
-        let out = if self.video {
-            nv12_picture(g, s, &bytes).map(|picture| {
-                let duration = (duration != CLOCK_TIME_NONE).then(|| Duration::from_nanos(duration));
-                Some(Sample::Video { at, duration, picture })
-            })
-        } else {
-            let samples: Vec<f32> = bytes.as_chunks::<4>().0.iter().map(|b| f32::from_ne_bytes(*b)).collect();
-            Ok((!samples.is_empty()).then_some(Sample::Audio { at, samples }))
-        };
-        // SAFETY: as above.
-        unsafe { (g.mini_object_unref)(s) };
-        out
+            let mut map = GstMapInfo::default();
+            if buf.is_null() || (g.buffer_map)(buf, &mut map, GST_MAP_READ) == 0 {
+                (g.mini_object_unref)(s);
+                return Err(MediaError::Decode("a decoded HLS sample could not be read".into()));
+            }
+            let (pts, duration) = ((*buf).pts, (*buf).duration);
+            let bytes: &[u8] =
+                if map.data.is_null() { &[] } else { std::slice::from_raw_parts(map.data, map.size) };
+            let at = if pts == CLOCK_TIME_NONE { Duration::ZERO } else { Duration::from_nanos(pts) };
+            let out = if self.video {
+                nv12_picture(g, s, bytes).map(|picture| {
+                    let duration = (duration != CLOCK_TIME_NONE).then(|| Duration::from_nanos(duration));
+                    Some(Sample::Video { at, duration, picture })
+                })
+            } else {
+                let samples: Vec<f32> =
+                    bytes.as_chunks::<4>().0.iter().map(|b| f32::from_ne_bytes(*b)).collect();
+                Ok((!samples.is_empty()).then_some(Sample::Audio { at, samples }))
+            };
+            (g.buffer_unmap)(buf, &mut map);
+            (g.mini_object_unref)(s);
+            out
+        }
     }
 }
 
