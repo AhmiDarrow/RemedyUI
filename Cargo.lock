@@ -4654,7 +4654,9 @@ name = "remedy-ui-render-gpu"
 version = "1.0.0-rc.1"
 dependencies = [
  "ash",
+ "log",
  "raw-window-handle",
+ "remedy-ui-bridge-linux",
  "remedy-ui-bridge-windows",
  "remedy-ui-bridge-winit",
  "remedy-ui-compositor",

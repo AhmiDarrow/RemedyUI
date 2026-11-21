@@ -74,6 +74,10 @@ pub struct GpuContext {
     /// The device.
     pub device: wgpu::Device,
     /// Its queue.
+    ///
+    /// Submit to it only from the thread that presents windows (the UI thread): on Vulkan a
+    /// window's own swapchain presents on this queue outside wgpu's lock, so a submission
+    /// from another thread at the same time is undefined behaviour.
     pub queue: wgpu::Queue,
     /// The rung it came from.
     pub rung: Rung,
@@ -301,6 +305,16 @@ impl GpuContext {
     /// [`force_loss`]: GpuContext::force_loss
     pub fn is_lost(&self) -> bool {
         self.lost.load(Ordering::SeqCst)
+    }
+
+    /// Records that the device is lost, found by a call outside wgpu (a window's own
+    /// swapchain): the next frame recovers, as after a loss wgpu reports.
+    #[cfg_attr(
+        not(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios"))))),
+        allow(dead_code)
+    )]
+    pub(crate) fn mark_lost(&self) {
+        self.lost.store(true, Ordering::SeqCst);
     }
 
     /// Destroys the device as a driver reset would, to exercise recovery.
