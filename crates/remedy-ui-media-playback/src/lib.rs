@@ -88,7 +88,7 @@ pub use host::{
 };
 pub use player::{
     KeyScheme, NEXT_UP_DELAY, NextUp, Player, PlayerOptions, Remote, RemoteControl, RemoteStatus,
-    UnseenPolicy,
+    RemoteStatusSender, UnseenPolicy,
 };
 pub use stretch::{MAX_SPEED, MIN_SPEED, SPEEDS, clamp_speed};
 pub use subtitles::{Cue, SubtitleFormat, SubtitleTrack, parse_subtitles};

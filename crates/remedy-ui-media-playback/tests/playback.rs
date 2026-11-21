@@ -1450,7 +1450,14 @@ fn casting_hands_every_control_to_the_remote_and_back() {
     let problems = remedy_ui_devtools::audit(&s.ui);
     assert!(problems.is_empty(), "{problems:?}");
 
-    // The TV's word wins.
+    // Until the TV says it reached the End press's target, the bar stays there.
+    p.set_remote_status(RemoteStatus { state: PlaybackState::Buffering, ..status.clone() });
+    s.pump();
+    assert_eq!(value().as_deref(), Some("1:40 of 1:40"), "a report from before the seek");
+    p.set_remote_status(RemoteStatus { position: Duration::from_secs(99), ..status.clone() });
+    s.pump();
+    assert_eq!(value().as_deref(), Some("1:39 of 1:40"), "landed");
+    // Then the TV's word wins.
     p.set_remote_status(RemoteStatus { state: PlaybackState::Buffering, ..status });
     s.pump();
     assert!(visible(&view, "Loading on The Ris"));
@@ -1878,4 +1885,98 @@ fn in_the_classic_scheme_a_click_leaves_focus_on_the_control() {
     assert!(press(&s.ui, Key::Space), "Space presses it again");
     s.pump();
     assert!(!p.is_muted());
+}
+
+/// The casting stage as Portal draws it: the poster behind a dark scrim, "Playing on" small
+/// and the device's name large, centered. Writes `cast_stage.png` to the test's temp folder.
+#[test]
+fn the_casting_stage_centers_the_device_over_the_darkened_poster() {
+    let preview = remedy_ui_devtools::Preview::new("cast stage", |ui| {
+        let host = Arc::new(Scripted {
+            heard: Arc::new(AtomicU64::new(0)),
+            buffer: Duration::from_millis(200),
+            device: false,
+            seconds: 3,
+        });
+        let p = Player::open(ui, host, MediaSource::url("script:"), PlayerOptions::default());
+        let art = ui.el("art").grow(1.0).fill_width().style(
+            remedy_ui_style::StylePatch::default().background(remedy_ui_core::Color::rgb8(200, 60, 40)),
+        );
+        p.set_remote(Some(Remote::new("The Ris", Tv(Arc::default())).poster(art)));
+        p.set_remote_status(RemoteStatus::new(PlaybackState::Playing, Duration::from_secs(30)));
+        // Kept alive with the view.
+        let view = player(ui, &p, "Scripted");
+        let keep = p.clone();
+        view.on_removed(move || drop(keep))
+    })
+    .sizes(&[(640.0, 400.0)]);
+    let first = preview.variations().into_iter().next().unwrap_or_else(|| unreachable!("a size"));
+    let shot = preview.render(&first);
+    let png = shot.to_png().unwrap_or_else(|e| unreachable!("{e:?}"));
+    let out = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("cast_stage.png");
+    std::fs::write(&out, png).unwrap_or_else(|e| unreachable!("{e}"));
+    println!("{}", out.display());
+    let px = |x: u32, y: u32| {
+        let i = ((y * shot.width + x) * 4) as usize;
+        match shot.rgba.get(i..i + 3) {
+            Some(&[r, g, b]) => (r, g, b),
+            _ => unreachable!("({x}, {y}) is in the picture"),
+        }
+    };
+    // A corner of the stage: the poster's red, darkened, not black.
+    let (r, g, _) = px(10, 10);
+    assert!(r > 40 && r < 120 && g < 40, "darkened red: {:?}", px(10, 10));
+}
+
+#[test]
+fn speed_is_the_devices_own_while_casting() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 3, PlayerOptions::default());
+    let speed_shown = |v: &El| named(v, "Speed 1×").and_then(|b| b.info()).is_some_and(|i| !i.hidden);
+    assert!(speed_shown(&view), "{:?}", texts(&view, "label"));
+    p.set_remote(Some(Remote::new("The Ris", Tv(Arc::default()))));
+    s.pump();
+    assert!(!speed_shown(&view), "no speed while casting");
+    el(&view, "Mute").focus();
+    assert!(!letter(&s.ui, ">", true) && !letter(&s.ui, "<", true));
+    p.step_speed(true);
+    assert_eq!(p.speed(), 1.0, "the local media keeps its speed");
+    p.set_remote(None);
+    s.pump();
+    assert!(speed_shown(&view), "back with the local media");
+    assert!(letter(&s.ui, ">", true) && p.speed() > 1.0);
+}
+
+#[test]
+fn status_news_comes_from_any_thread_and_a_stale_poll_does_not_undo_a_seek() {
+    let mut s = Screen::new();
+    let (p, _view) = scripted_with(&mut s, 3, PlayerOptions::default());
+    let log = Arc::new(Mutex::new(Vec::new()));
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    let at = |secs| Duration::from_secs(secs);
+    let polled = move |secs| RemoteStatus::new(PlaybackState::Playing, at(secs)).length(at(100)).volume(0.5);
+    // A poll on its own thread.
+    let sender = p.remote_status_sender();
+    let sent = std::thread::spawn(move || sender.send(polled(30))).join().unwrap_or(false);
+    assert!(sent);
+    s.wait("the news", |_| p.position() == at(30));
+    assert_eq!((p.duration(), p.volume(), p.state()), (Some(at(100)), 0.5, PlaybackState::Playing));
+    // A seek: the bar shows its target at once, and a poll from before the TV moved does not
+    // pull it back.
+    p.seek(at(60));
+    assert_eq!(p.position(), at(60));
+    p.set_remote_status(polled(31));
+    assert_eq!(p.position(), at(60), "a stale poll is held off");
+    assert_eq!(p.volume(), 0.5, "the rest of the news still counts");
+    // The TV has landed (within 4 s of the target): its word wins again.
+    p.set_remote_status(polled(62));
+    assert_eq!(p.position(), at(62));
+    p.set_remote_status(polled(10));
+    assert_eq!(p.position(), at(10), "no seek in flight: believed");
+    assert_eq!(*log.lock().unwrap_or_else(|e| e.into_inner()), ["seek 60"]);
+    // Gone UI thread or not, a sender outliving the player drops the news quietly.
+    let sender = p.remote_status_sender();
+    drop(p);
+    assert!(sender.send(polled(5)));
+    s.pump();
 }
