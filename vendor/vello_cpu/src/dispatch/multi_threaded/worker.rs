@@ -23,11 +23,7 @@ impl Worker {
         let strip_generator = StripGenerator::new(width, height, level);
         let strip_storage = StripStorage::default();
 
-        Self {
-            strip_generator,
-            strip_storage,
-            thread_id,
-        }
+        Self { strip_generator, strip_storage, thread_id }
     }
 
     pub(crate) fn init(&mut self, alphas: Vec<u8>) {
@@ -49,48 +45,28 @@ impl Worker {
     ) {
         let num_tasks = render_task.allocation_group.render_tasks.len();
         self.strip_storage.strips.clear();
-        self.strip_storage
-            .set_generation_mode(GenerationMode::Append);
+        self.strip_storage.set_generation_mode(GenerationMode::Append);
         let task_idx = render_task.idx;
         let path_clip = render_task.clip_path.as_ref().map(|c| ClipRef {
-            path: PathDataRef {
-                strips: c.strips.as_ref(),
-                alphas: c.alphas.as_ref(),
-                bbox: c.bbox,
-            },
+            path: PathDataRef { strips: c.strips.as_ref(), alphas: c.alphas.as_ref(), bbox: c.bbox },
             shape: c.shape,
         });
 
-        for task in render_task
-            .allocation_group
-            .render_tasks
-            .drain(0..num_tasks)
-        {
+        for task in render_task.allocation_group.render_tasks.drain(0..num_tasks) {
             match task {
-                RenderTaskType::FillRect {
-                    rect,
-                    paint,
-                    blend_mode,
-                    mask,
-                } => {
+                RenderTaskType::FillRect { rect, paint, blend_mode, mask } => {
                     let start = self.strip_storage.strips.len() as u32;
 
-                    self.strip_generator.generate_filled_rect_fast(
-                        &rect,
-                        &mut self.strip_storage,
-                        path_clip,
-                    );
+                    self.strip_generator.generate_filled_rect_fast(&rect, &mut self.strip_storage, path_clip);
                     let end = self.strip_storage.strips.len() as u32;
 
-                    render_task.allocation_group.recorded_commands.push(
-                        RecordedCommand::RenderPath {
-                            thread_id: self.thread_id,
-                            strips: start..end,
-                            blend_mode,
-                            paint,
-                            mask,
-                        },
-                    );
+                    render_task.allocation_group.recorded_commands.push(RecordedCommand::RenderPath {
+                        thread_id: self.thread_id,
+                        strips: start..end,
+                        blend_mode,
+                        paint,
+                        mask,
+                    });
                 }
                 RenderTaskType::FillPath {
                     path_range,
@@ -123,10 +99,7 @@ impl Worker {
                         mask,
                     };
 
-                    render_task
-                        .allocation_group
-                        .recorded_commands
-                        .push(recorded_command);
+                    render_task.allocation_group.recorded_commands.push(recorded_command);
                 }
                 RenderTaskType::StrokePath {
                     path_range,
@@ -159,10 +132,7 @@ impl Worker {
                         mask,
                     };
 
-                    render_task
-                        .allocation_group
-                        .recorded_commands
-                        .push(recorded_command);
+                    render_task.allocation_group.recorded_commands.push(recorded_command);
                 }
                 RenderTaskType::PushLayer {
                     clip_path,
@@ -188,10 +158,9 @@ impl Worker {
 
                         let end = self.strip_storage.strips.len() as u32;
                         let range = start..end;
-                        let bbox = strip_bbox(
-                            &self.strip_storage.strips[range.start as usize..range.end as usize],
-                        )
-                        .unwrap_or(RectU16::ZERO);
+                        let bbox =
+                            strip_bbox(&self.strip_storage.strips[range.start as usize..range.end as usize])
+                                .unwrap_or(RectU16::ZERO);
 
                         (Some(range), Some(bbox))
                     } else {
@@ -207,29 +176,19 @@ impl Worker {
                         opacity,
                     };
 
-                    render_task
-                        .allocation_group
-                        .recorded_commands
-                        .push(recorded_command);
+                    render_task.allocation_group.recorded_commands.push(recorded_command);
                 }
                 RenderTaskType::PopLayer => {
-                    render_task
-                        .allocation_group
-                        .recorded_commands
-                        .push(RecordedCommand::PopLayer);
+                    render_task.allocation_group.recorded_commands.push(RecordedCommand::PopLayer);
                 }
             }
         }
 
-        let taken_strips = std::mem::replace(
-            &mut self.strip_storage.strips,
-            render_task.allocation_group.strips,
-        );
+        let taken_strips =
+            std::mem::replace(&mut self.strip_storage.strips, render_task.allocation_group.strips);
         render_task.allocation_group.strips = taken_strips;
 
-        let task = RecordedCommandTask {
-            allocation_group: render_task.allocation_group,
-        };
+        let task = RecordedCommandTask { allocation_group: render_task.allocation_group };
 
         result_sender.send(task_idx as usize, task).unwrap();
     }

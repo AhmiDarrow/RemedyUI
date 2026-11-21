@@ -37,11 +37,7 @@ pub(crate) struct PaintFill {
 
 impl PaintFill {
     pub(crate) fn new(span: TileAlignedSpan, alpha_idx: Option<u32>, attrs_idx: u32) -> Self {
-        Self {
-            span,
-            alpha_idx: alpha_idx.map(AlphaIdx::new),
-            attrs_idx,
-        }
+        Self { span, alpha_idx: alpha_idx.map(AlphaIdx::new), attrs_idx }
     }
 
     pub(crate) fn alpha_idx(self) -> Option<u32> {
@@ -58,10 +54,7 @@ pub(crate) struct DepthFill {
 
 impl DepthFill {
     pub(crate) fn new(bucket_range: BucketRange, attrs_idx: u32) -> Self {
-        Self {
-            bucket_range,
-            attrs_idx,
-        }
+        Self { bucket_range, attrs_idx }
     }
 
     pub(crate) fn bucket_range(self) -> BucketRange {
@@ -84,11 +77,7 @@ pub(crate) struct LayerFill {
 
 impl LayerFill {
     pub(crate) fn new(span: TileAlignedSpan, alpha_idx: Option<u32>, attrs_idx: u32) -> Self {
-        Self {
-            span,
-            alpha_idx: alpha_idx.map(AlphaIdx::new),
-            attrs_idx,
-        }
+        Self { span, alpha_idx: alpha_idx.map(AlphaIdx::new), attrs_idx }
     }
 
     pub(crate) fn alpha_idx(self) -> Option<u32> {

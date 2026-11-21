@@ -187,9 +187,7 @@ pub mod region;
 #[doc(hidden)]
 pub mod span;
 
-pub use render::{
-    PixelFormat, RasterizerSettings, RenderContext, RenderSettings, Resources, TargetInit,
-};
+pub use render::{PixelFormat, RasterizerSettings, RenderContext, RenderSettings, Resources, TargetInit};
 // Note: The first one is not something that should be
 // exposed, but is currently needed by vello_tests.
 #[cfg(feature = "text")]

@@ -52,10 +52,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     /// Applies a filter effect to a rendered layer.
     ///
     /// Delegates to the u8-specific filter implementation.
-    #[expect(
-        private_interfaces,
-        reason = "`FineKernel` is public but this specific method is not needed."
-    )]
+    #[expect(private_interfaces, reason = "`FineKernel` is public but this specific method is not needed.")]
     fn filter_layer(
         pixmap: &mut Pixmap,
         filter: &Filter,
@@ -78,11 +75,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     ///
     /// Returns a painter that evaluates the gradient at each pixel position.
     #[simd]
-    fn gradient_painter<'a>(
-        simd: S,
-        gradient: &'a EncodedGradient,
-        t_vals: &'a [f32],
-    ) -> impl Painter + 'a {
+    fn gradient_painter<'a>(simd: S, gradient: &'a EncodedGradient, t_vals: &'a [f32]) -> impl Painter + 'a {
         gradient::GradientPainter::new(simd, gradient, t_vals)
     }
 
@@ -120,11 +113,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     /// Used for anti-aliasing and clipping effects. Each pixel is multiplied by
     /// its corresponding mask value and normalized.
     #[simd]
-    fn apply_mask(
-        simd: S,
-        dest: &mut [Self::Numeric],
-        mut src: impl Iterator<Item = Self::NumericVec>,
-    ) {
+    fn apply_mask(simd: S, dest: &mut [Self::Numeric], mut src: impl Iterator<Item = Self::NumericVec>) {
         for el in dest.as_chunks_mut::<16>().0 {
             let loaded = u8x16::from_slice(simd, el);
             let mulled = narrow(normalized_mul_u8(loaded, src.next().unwrap()));
@@ -203,11 +192,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         src: &[Self::Numeric],
         alphas: Option<&[u8]>,
     ) {
-        let src_iter = src
-            .as_chunks::<32>()
-            .0
-            .iter()
-            .map(|el| u8x32::from_slice(simd, el));
+        let src_iter = src.as_chunks::<32>().0.iter().map(|el| u8x32::from_slice(simd, el));
 
         if let Some(alphas) = alphas {
             alpha_fill::alpha_composite(
@@ -240,11 +225,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         let mask_iter = mask.map(|m| {
             iter::from_fn(|| {
                 let sample = |x: u16, y: u16| {
-                    if x < m.width() && y < m.height() {
-                        m.sample(x, y)
-                    } else {
-                        255
-                    }
+                    if x < m.width() && y < m.height() { m.sample(x, y) } else { 255 }
                 };
 
                 let samples = [
@@ -302,23 +283,15 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
 
 #[inline(always)]
 fn pack<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Region<'_>) {
-    let block_width = if region.height == Tile::HEIGHT {
-        (width / Tile::WIDTH as usize) * Tile::WIDTH as usize
-    } else {
-        0
-    };
+    let block_width =
+        if region.height == Tile::HEIGHT { (width / Tile::WIDTH as usize) * Tile::WIDTH as usize } else { 0 };
     if block_width > 0 {
         pack_block(simd, scratch, block_width, region);
     }
 
     let tail_width = width - block_width;
     if tail_width > 0 {
-        pack_tail(
-            &scratch[block_width * TILE_HEIGHT_COMPONENTS..],
-            block_width,
-            tail_width,
-            region,
-        );
+        pack_tail(&scratch[block_width * TILE_HEIGHT_COMPONENTS..], block_width, tail_width, region);
     }
 }
 
@@ -333,15 +306,11 @@ fn pack_block<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Regio
     let mut row2 = &mut row2[..row_len];
     let mut row3 = &mut row3[..row_len];
 
-    for col in scratch[..width * TILE_HEIGHT_COMPONENTS]
-        .as_chunks::<CHUNK_LENGTH>()
-        .0
-    {
+    for col in scratch[..width * TILE_HEIGHT_COMPONENTS].as_chunks::<CHUNK_LENGTH>().0 {
         let casted: &[u32; 16] = cast_slice::<u8, u32>(col).try_into().unwrap();
 
-        let [loaded_1, loaded_2, loaded_3, loaded_4] = simd
-            .load_four_interleaved_u32x4(casted)
-            .map(u32x4::to_bytes);
+        let [loaded_1, loaded_2, loaded_3, loaded_4] =
+            simd.load_four_interleaved_u32x4(casted).map(u32x4::to_bytes);
 
         let (dest0, rest0) = row0.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
         let (dest1, rest1) = row1.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
@@ -364,12 +333,7 @@ fn pack_block<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Regio
 fn pack_tail(scratch: &[u8], x: usize, width: usize, region: &mut Region<'_>) {
     for y in region.tile_rows() {
         let row = &mut region.row_mut(y)[x * COLOR_COMPONENTS..(x + width) * COLOR_COMPONENTS];
-        for (dx, pixel) in row
-            .as_chunks_mut::<COLOR_COMPONENTS>()
-            .0
-            .iter_mut()
-            .enumerate()
-        {
+        for (dx, pixel) in row.as_chunks_mut::<COLOR_COMPONENTS>().0.iter_mut().enumerate() {
             let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
             pixel.copy_from_slice(&scratch[idx..idx + COLOR_COMPONENTS]);
         }
@@ -378,23 +342,15 @@ fn pack_tail(scratch: &[u8], x: usize, width: usize, region: &mut Region<'_>) {
 
 #[inline(always)]
 fn unpack<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [u8]) {
-    let block_width = if region.height == Tile::HEIGHT {
-        width / Tile::WIDTH as usize * Tile::WIDTH as usize
-    } else {
-        0
-    };
+    let block_width =
+        if region.height == Tile::HEIGHT { width / Tile::WIDTH as usize * Tile::WIDTH as usize } else { 0 };
     if block_width > 0 {
         unpack_block(simd, region, block_width, scratch);
     }
 
     let tail_width = width - block_width;
     if tail_width > 0 {
-        unpack_tail(
-            region,
-            block_width,
-            tail_width,
-            &mut scratch[block_width * TILE_HEIGHT_COMPONENTS..],
-        );
+        unpack_tail(region, block_width, tail_width, &mut scratch[block_width * TILE_HEIGHT_COMPONENTS..]);
     }
 }
 
@@ -468,11 +424,7 @@ mod fill {
         let default_mix = matches!(blend_mode.mix, Mix::Normal);
         for (next_dest, next_src) in dest.as_chunks_mut::<32>().0.iter_mut().zip(src) {
             let bg_v = u8x32::from_slice(simd, next_dest);
-            let src_v = if default_mix {
-                next_src
-            } else {
-                blend::mix(next_src, bg_v, blend_mode)
-            };
+            let src_v = if default_mix { next_src } else { blend::mix(next_src, bg_v, blend_mode) };
             let res = blend_mode.compose(simd, src_v, bg_v, None);
             res.store_slice(next_dest);
         }
@@ -502,11 +454,7 @@ mod fill {
     ///
     /// Each source pixel is composited individually based on its alpha channel.
     #[simd]
-    pub(super) fn alpha_composite<S: Simd, T: Iterator<Item = u8x32<S>>>(
-        simd: S,
-        dest: &mut [u8],
-        src: T,
-    ) {
+    pub(super) fn alpha_composite<S: Simd, T: Iterator<Item = u8x32<S>>>(simd: S, dest: &mut [u8], src: T) {
         for (next_dest, next_src) in dest.as_chunks_mut::<32>().0.iter_mut().zip(src) {
             let one_minus_alpha = 255 - next_src.splat_4th();
             let bg_v = u8x32::from_slice(simd, next_dest);
@@ -554,15 +502,9 @@ mod alpha_fill {
     ) {
         let default_mix = matches!(blend_mode.mix, Mix::Normal);
 
-        for ((next_bg, next_mask), next_src) in
-            dest.as_chunks_mut::<32>().0.iter_mut().zip(alphas).zip(src)
-        {
+        for ((next_bg, next_mask), next_src) in dest.as_chunks_mut::<32>().0.iter_mut().zip(alphas).zip(src) {
             let bg_v = u8x32::from_slice(simd, next_bg);
-            let src_c = if default_mix {
-                next_src
-            } else {
-                blend::mix(next_src, bg_v, blend_mode)
-            };
+            let src_c = if default_mix { next_src } else { blend::mix(next_src, bg_v, blend_mode) };
             let mask_v = u64x2::splat(simd, u64::from_ne_bytes(next_mask)).to_bytes();
             let masks = expand_alphas(simd, mask_v);
             let res = blend_mode.compose(simd, src_c, bg_v, Some(masks));
@@ -601,8 +543,7 @@ mod alpha_fill {
         src: T,
         alphas: impl Iterator<Item = [u8; 8]>,
     ) {
-        for ((next_dest, next_mask), next_src) in
-            dest.as_chunks_mut::<32>().0.iter_mut().zip(alphas).zip(src)
+        for ((next_dest, next_mask), next_src) in dest.as_chunks_mut::<32>().0.iter_mut().zip(alphas).zip(src)
         {
             let (lo, hi) = simd.split_u8x32(next_src);
             let odd = lo.unzip_high(hi);
@@ -643,10 +584,8 @@ mod alpha_fill {
 
 #[inline(always)]
 fn expand_alphas<S: Simd>(simd: S, alphas: u8x16<S>) -> u8x32<S> {
-    const INDICES: [u8; 32] = [
-        0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7,
-        7, 7,
-    ];
+    const INDICES: [u8; 32] =
+        [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7];
     u8x32::block_splat(alphas).swizzle_dyn_within_blocks(u8x32::from_slice(simd, &INDICES))
 }
 
@@ -667,9 +606,7 @@ mod tests {
         let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
 
         // Just some pseudo-random numbers.
-        let scratch = (0..scratch_len)
-            .map(|n| ((n * 7 + 13) % 256) as u8)
-            .collect::<Vec<_>>();
+        let scratch = (0..scratch_len).map(|n| ((n * 7 + 13) % 256) as u8).collect::<Vec<_>>();
 
         let mut pixmap = Pixmap::new(width, height);
         let mut pixmap = pixmap.as_mut();

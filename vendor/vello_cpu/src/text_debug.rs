@@ -99,9 +99,7 @@ pub(crate) fn save_pixmap_to_png(pixmap: &Pixmap, path: &std::path::Path) -> std
 
     let mut writer = encoder.write_header().map_err(std::io::Error::other)?;
 
-    writer
-        .write_image_data(pixmap.data_as_u8_slice())
-        .map_err(std::io::Error::other)?;
+    writer.write_image_data(pixmap.data_as_u8_slice()).map_err(std::io::Error::other)?;
 
     Ok(())
 }

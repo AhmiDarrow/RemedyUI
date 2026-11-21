@@ -92,10 +92,7 @@ pub(crate) fn split_opaque_span(span: TileAlignedSpan, mut segment: impl FnMut(D
     }
 
     if x < aligned_x {
-        segment(DepthSegment::Regular(TileAlignedSpan::from_tiles(
-            x,
-            aligned_x - x,
-        )));
+        segment(DepthSegment::Regular(TileAlignedSpan::from_tiles(x, aligned_x - x)));
     }
 
     if aligned_x < aligned_end {
@@ -106,10 +103,7 @@ pub(crate) fn split_opaque_span(span: TileAlignedSpan, mut segment: impl FnMut(D
     }
 
     if aligned_end < end {
-        segment(DepthSegment::Regular(TileAlignedSpan::from_tiles(
-            aligned_end,
-            end - aligned_end,
-        )));
+        segment(DepthSegment::Regular(TileAlignedSpan::from_tiles(aligned_end, end - aligned_end)));
     }
 }
 
@@ -169,18 +163,12 @@ pub(crate) struct DepthBuffer {
 
 impl DepthBuffer {
     pub(crate) fn new(buffer_width: u16) -> Self {
-        Self {
-            data: vec![0; usize::from(buffer_width.div_ceil(DEPTH_BUCKET_WIDTH))],
-        }
+        Self { data: vec![0; usize::from(buffer_width.div_ceil(DEPTH_BUCKET_WIDTH))] }
     }
 
     /// Calls `f` for every subspan of `span` that is not covered by any entry in the
     /// depth buffer.
-    pub(crate) fn for_each_unset_run(
-        &self,
-        span: TileAlignedSpan,
-        mut f: impl FnMut(TileAlignedSpan),
-    ) {
+    pub(crate) fn for_each_unset_run(&self, span: TileAlignedSpan, mut f: impl FnMut(TileAlignedSpan)) {
         let (mut idx, depth_end) = self.range(span);
         while let Some((span, _)) = self.next_unset_run(&mut idx, depth_end, span) {
             f(span);
@@ -201,10 +189,8 @@ impl DepthBuffer {
         let depth_end = usize::from(bucket_range.end);
 
         while let Some((_, depth_range)) = self.next_unset_run(&mut idx, depth_end, bounds) {
-            let bucket_start =
-                u16::try_from(depth_range.start).expect("depth bucket range start overflow");
-            let bucket_end =
-                u16::try_from(depth_range.end).expect("depth bucket range end overflow");
+            let bucket_start = u16::try_from(depth_range.start).expect("depth bucket range start overflow");
+            let bucket_end = u16::try_from(depth_range.end).expect("depth bucket range end overflow");
             f(BucketRange::new(bucket_start, bucket_end));
             self.mark(depth_range, draw_id);
         }
@@ -261,10 +247,7 @@ impl DepthBuffer {
             return None;
         }
 
-        Some((
-            bucket_span(run_start, *idx).intersect(bounds)?,
-            run_start..*idx,
-        ))
+        Some((bucket_span(run_start, *idx).intersect(bounds)?, run_start..*idx))
     }
 
     /// Finds the next consecutive run visible to `draw_id`.
@@ -311,17 +294,10 @@ mod tests {
     }
 
     fn bucket_range(span: TileAlignedSpan) -> (usize, usize) {
-        (
-            usize::from(span.pixel_x() / DEPTH_BUCKET_WIDTH),
-            usize::from(span.pixel_end() / DEPTH_BUCKET_WIDTH),
-        )
+        (usize::from(span.pixel_x() / DEPTH_BUCKET_WIDTH), usize::from(span.pixel_end() / DEPTH_BUCKET_WIDTH))
     }
 
-    fn visible_runs(
-        buffer: &DepthBuffer,
-        span: TileAlignedSpan,
-        draw_id: u32,
-    ) -> Vec<(usize, usize)> {
+    fn visible_runs(buffer: &DepthBuffer, span: TileAlignedSpan, draw_id: u32) -> Vec<(usize, usize)> {
         let mut runs = Vec::new();
         buffer.for_each_visible_run(span, draw_id, |span| {
             runs.push(bucket_range(span));
@@ -357,12 +333,9 @@ mod tests {
     #[test]
     fn split_opaque_span_extracts_aligned_middle() {
         let mut segments = Vec::new();
-        split_opaque_span(
-            TileAlignedSpan::from_tiles(1, DEPTH_BUCKET_TILE_WIDTH * 3),
-            |segment| {
-                segments.push(segment);
-            },
-        );
+        split_opaque_span(TileAlignedSpan::from_tiles(1, DEPTH_BUCKET_TILE_WIDTH * 3), |segment| {
+            segments.push(segment);
+        });
 
         assert_eq!(
             segments,
@@ -394,10 +367,7 @@ mod tests {
         write_buckets(&mut buffer, 1..2, 10);
         write_buckets(&mut buffer, 3..4, 10);
 
-        assert_eq!(
-            visible_runs(&buffer, buckets(0, 5), 9),
-            [(0, 1), (2, 3), (4, 5)]
-        );
+        assert_eq!(visible_runs(&buffer, buckets(0, 5), 9), [(0, 1), (2, 3), (4, 5)]);
         assert_eq!(visible_runs(&buffer, buckets(0, 5), 10), [(0, 5)]);
     }
 
@@ -414,10 +384,7 @@ mod tests {
             written_runs.push((usize::from(range.start), usize::from(range.end)));
         });
         assert_eq!(written_runs, [(0, 1), (2, 3), (4, 5)]);
-        assert_depth(
-            &buffer,
-            [(0..1, 7), (1..2, 10), (2..3, 7), (3..4, 10), (4..5, 7)].as_slice(),
-        );
+        assert_depth(&buffer, [(0..1, 7), (1..2, 10), (2..3, 7), (3..4, 10), (4..5, 7)].as_slice());
     }
 
     #[test]
@@ -440,10 +407,7 @@ mod tests {
             runs.push((span.pixel_x(), span.pixel_end()));
         });
 
-        assert_eq!(
-            runs,
-            [(Tile::WIDTH * 2, DEPTH_BUCKET_WIDTH + Tile::WIDTH * 5)]
-        );
+        assert_eq!(runs, [(Tile::WIDTH * 2, DEPTH_BUCKET_WIDTH + Tile::WIDTH * 5)]);
     }
 
     #[test]
@@ -455,10 +419,7 @@ mod tests {
         write_buckets(&mut buffer, 3..4, 12);
         write_buckets(&mut buffer, 5..6, 2);
 
-        assert_eq!(
-            visible_runs(&buffer, buckets(0, 6), 6),
-            [(0, 1), (2, 3), (4, 6)]
-        );
+        assert_eq!(visible_runs(&buffer, buckets(0, 6), 6), [(0, 1), (2, 3), (4, 6)]);
     }
 
     #[test]

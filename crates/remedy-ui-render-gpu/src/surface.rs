@@ -27,11 +27,26 @@ pub enum Presented {
     Retry,
 }
 
+/// What presents a window's frames.
+enum Swap {
+    /// wgpu's surface.
+    Wgpu(wgpu::Surface<'static>),
+    /// RemedyUI's own swapchain on wgpu's D3D12 device, which presents only what changed.
+    #[cfg(windows)]
+    Dxgi(crate::ffi::dxgi::DxgiChain),
+    /// RemedyUI's own swapchain on wgpu's Vulkan device, which presents only what changed.
+    #[cfg(any(
+        all(unix, not(any(target_os = "macos", target_os = "ios"))),
+        all(windows, feature = "windows-vulkan")
+    ))]
+    Vulkan(Box<crate::ffi::vulkan::VkChain>),
+}
+
 /// A window's GPU surface.
 pub struct GpuSurface {
     handles: Arc<dyn WindowHandles>,
     /// `None` only between dropping a dead swapchain and building its replacement.
-    surface: Option<wgpu::Surface<'static>>,
+    surface: Option<Swap>,
     config: wgpu::SurfaceConfiguration,
     vello: vello_gpu::Renderer,
     resources: vello_gpu::Resources,
@@ -83,11 +98,98 @@ impl GpuSurface {
         self.config.usage |= wgpu::TextureUsages::COPY_SRC;
     }
 
+    /// Whether the window presents through RemedyUI's own swapchain (D3D12) rather than
+    /// wgpu's surface. For tests.
+    #[doc(hidden)]
+    pub fn own_swapchain(&self) -> bool {
+        match &self.surface {
+            #[cfg(windows)]
+            Some(Swap::Dxgi(_)) => true,
+            #[cfg(any(
+                all(unix, not(any(target_os = "macos", target_os = "ios"))),
+                all(windows, feature = "windows-vulkan")
+            ))]
+            Some(Swap::Vulkan(_)) => true,
+            _ => false,
+        }
+    }
+
+    /// Whether presents tell the system which rectangles changed (so it composites only
+    /// them). For tests.
+    #[doc(hidden)]
+    pub fn reports_damage(&self) -> bool {
+        match &self.surface {
+            #[cfg(windows)]
+            Some(Swap::Dxgi(_)) => true,
+            #[cfg(any(
+                all(unix, not(any(target_os = "macos", target_os = "ios"))),
+                all(windows, feature = "windows-vulkan")
+            ))]
+            Some(Swap::Vulkan(chain)) => chain.reports_damage(),
+            _ => false,
+        }
+    }
+
     /// What [`check_presents`](Self::check_presents) found so far.
     #[doc(hidden)]
     pub fn present_checks(&self) -> PresentChecks {
         self.checks.unwrap_or_default()
     }
+}
+
+impl GpuSurface {
+    /// What a swapchain image that showed a frame `age` presents ago needs copied in: this
+    /// frame's rectangles and those of the presents in between. `None` when the image holds
+    /// nothing known (age `0`, or older than the history kept): all of it. Only this window's
+    /// own swapchains keep what they showed.
+    #[cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))]
+    fn changed_since(&self, age: usize) -> Option<Vec<(u16, u16, u16, u16)>> {
+        (age > 0 && self.history.len() + 1 >= age).then(|| {
+            self.pending.iter().chain(self.history.iter().take(age - 1).flatten()).copied().collect()
+        })
+    }
+}
+
+/// Records copying `changed` (or, for `None`, all of it) from the window's frame into a
+/// swapchain image. `None` when there is nothing to copy.
+fn copy_in(
+    ctx: &GpuContext,
+    kept: &wgpu::Texture,
+    image: &wgpu::Texture,
+    changed: Option<&[(u16, u16, u16, u16)]>,
+    (w, h): (u32, u32),
+) -> Option<wgpu::CommandBuffer> {
+    let mut encoder = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RemedyUI show frame") });
+    let mut copied = false;
+    match changed {
+        Some(changed) => {
+            for &(x0, y0, x1, y1) in changed {
+                let (x1, y1) = (u32::from(x1).min(w), u32::from(y1).min(h));
+                let (x0, y0) = (u32::from(x0), u32::from(y0));
+                if x1 <= x0 || y1 <= y0 {
+                    continue;
+                }
+                let origin = wgpu::Origin3d { x: x0, y: y0, z: 0 };
+                encoder.copy_texture_to_texture(
+                    wgpu::TexelCopyTextureInfo { origin, ..kept.as_image_copy() },
+                    wgpu::TexelCopyTextureInfo { origin, ..image.as_image_copy() },
+                    wgpu::Extent3d { width: x1 - x0, height: y1 - y0, depth_or_array_layers: 1 },
+                );
+                copied = true;
+            }
+        }
+        None => {
+            encoder.copy_texture_to_texture(
+                kept.as_image_copy(),
+                image.as_image_copy(),
+                wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            );
+            copied = true;
+        }
+    }
+    copied.then(|| encoder.finish())
 }
 
 impl std::fmt::Debug for GpuSurface {
@@ -103,10 +205,7 @@ fn build(
     height: u32,
     transparent: bool,
     vsync: bool,
-) -> Result<
-    (wgpu::Surface<'static>, wgpu::SurfaceConfiguration, vello_gpu::Renderer, vello_gpu::Resources),
-    GpuError,
-> {
+) -> Result<(Swap, wgpu::SurfaceConfiguration, vello_gpu::Renderer, vello_gpu::Resources), GpuError> {
     if let Some(bound) = ctx.bound_canvas
         && crate::context::canvas_id(&**handles) != Some(bound)
     {
@@ -118,6 +217,7 @@ fn build(
     let surface =
         ctx.instance.create_surface(handles.clone()).map_err(|e| GpuError::Surface(e.to_string()))?;
     let caps = surface.get_capabilities(&ctx.adapter);
+    let premultiplied = transparent && caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PreMultiplied);
     let format = PREFERRED
         .into_iter()
         .find(|f| caps.formats.contains(f))
@@ -127,9 +227,6 @@ fn build(
         .ok_or_else(|| GpuError::Surface("the adapter cannot present to this window".into()))?;
     config.format = format;
     config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
-    // Swapchain images keep what they showed, so a present copies in and reports only what
-    // changed since ([`GpuSurface`]'s history): the compositor redraws only that on screen.
-    config.preserve_contents = true;
     // The frame is kept in a texture of its own and copied to the swapchain image, where the
     // swapchain allows copies.
     if caps.usages.contains(wgpu::TextureUsages::COPY_DST) {
@@ -141,14 +238,99 @@ fn build(
     if transparent && caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PreMultiplied) {
         config.alpha_mode = wgpu::CompositeAlphaMode::PreMultiplied;
     }
-    surface.configure(&ctx.device, &config);
+    // On D3D12 a window opaque to the system gets a swapchain of RemedyUI's own, which
+    // presents only what changed; wgpu's surface (never configured, so it made no swapchain)
+    // goes first, as a window has one swapchain.
+    #[cfg(windows)]
+    let swap = match (!premultiplied)
+        .then(|| {
+            crate::ffi::dxgi::DxgiChain::new(
+                &ctx.device,
+                &**handles,
+                config.width,
+                config.height,
+                format,
+                vsync,
+            )
+        })
+        .flatten()
+    {
+        Some(made) => {
+            drop(surface);
+            let chain = made.map_err(chain_error)?;
+            config.usage |= wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC;
+            Swap::Dxgi(chain)
+        }
+        None => own_vulkan_or_wgpu(ctx, surface, &mut config, premultiplied, format, vsync)?,
+    };
+    #[cfg(not(windows))]
+    let swap = own_vulkan_or_wgpu(ctx, surface, &mut config, premultiplied, format, vsync)?;
     let target = vello_gpu::RenderTargetConfig {
         format,
         width: u16::try_from(config.width).map_err(|_| GpuError::BadSize)?,
         height: u16::try_from(config.height).map_err(|_| GpuError::BadSize)?,
     };
     let (vello, resources) = vello_gpu::Renderer::new(&ctx.device, &ctx.queue, &target);
-    Ok((surface, config, vello, resources))
+    Ok((swap, config, vello, resources))
+}
+
+/// On Vulkan, a window opaque to the system gets a swapchain of RemedyUI's own on wgpu's
+/// surface; otherwise wgpu's surface is configured.
+fn own_vulkan_or_wgpu(
+    ctx: &GpuContext,
+    surface: wgpu::Surface<'static>,
+    config: &mut wgpu::SurfaceConfiguration,
+    premultiplied: bool,
+    format: wgpu::TextureFormat,
+    vsync: bool,
+) -> Result<Swap, GpuError> {
+    #[cfg(any(
+        all(unix, not(any(target_os = "macos", target_os = "ios"))),
+        all(windows, feature = "windows-vulkan")
+    ))]
+    let surface = if premultiplied {
+        surface
+    } else {
+        match crate::ffi::vulkan::VkChain::new(
+            &ctx.device,
+            surface,
+            config.width,
+            config.height,
+            format,
+            vsync,
+            ctx.incremental_present,
+        ) {
+            Ok(made) => {
+                let chain = made.map_err(vk_error)?;
+                config.usage |= wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC;
+                return Ok(Swap::Vulkan(Box::new(chain)));
+            }
+            Err(surface) => surface,
+        }
+    };
+    let _ = (premultiplied, format, vsync);
+    surface.configure(&ctx.device, config);
+    Ok(Swap::Wgpu(surface))
+}
+
+#[cfg(any(
+    all(unix, not(any(target_os = "macos", target_os = "ios"))),
+    all(windows, feature = "windows-vulkan")
+))]
+fn vk_error(e: crate::ffi::vulkan::ChainError) -> GpuError {
+    match e {
+        crate::ffi::vulkan::ChainError::Lost => GpuError::Lost,
+        crate::ffi::vulkan::ChainError::OutOfDate => GpuError::Surface("the swapchain no longer fits".into()),
+        crate::ffi::vulkan::ChainError::Failed(why) => GpuError::Surface(why),
+    }
+}
+
+#[cfg(windows)]
+fn chain_error(e: crate::ffi::dxgi::ChainError) -> GpuError {
+    match e {
+        crate::ffi::dxgi::ChainError::Lost => GpuError::Lost,
+        crate::ffi::dxgi::ChainError::Failed(why) => GpuError::Surface(why),
+    }
 }
 
 impl GpuCompositor {
@@ -198,8 +380,26 @@ impl GpuCompositor {
     pub fn resize_surface(&self, surface: &mut GpuSurface, width: u32, height: u32) {
         surface.config.width = width.max(1);
         surface.config.height = height.max(1);
-        if let Some(s) = &surface.surface {
-            s.configure(&self.renderer().context().device, &surface.config);
+        let device = &self.renderer().context().device;
+        match &mut surface.surface {
+            Some(Swap::Wgpu(s)) => s.configure(device, &surface.config),
+            #[cfg(windows)]
+            Some(Swap::Dxgi(chain)) => {
+                if chain.resize(device, surface.config.width, surface.config.height).is_err() {
+                    // Built again at the next present.
+                    surface.surface = None;
+                }
+            }
+            #[cfg(any(
+                all(unix, not(any(target_os = "macos", target_os = "ios"))),
+                all(windows, feature = "windows-vulkan")
+            ))]
+            Some(Swap::Vulkan(chain)) => {
+                if chain.resize(surface.config.width, surface.config.height).is_err() {
+                    surface.surface = None;
+                }
+            }
+            None => {}
         }
     }
 
@@ -275,7 +475,18 @@ impl GpuCompositor {
             surface.pending = vec![all];
         }
         drop(raster);
-        let Some(swapchain) = surface.surface.as_ref() else { return Ok(Presented::Retry) };
+        #[cfg(windows)]
+        if let Some(Swap::Dxgi(_)) = &surface.surface {
+            return self.present_dxgi(surface);
+        }
+        #[cfg(any(
+            all(unix, not(any(target_os = "macos", target_os = "ios"))),
+            all(windows, feature = "windows-vulkan")
+        ))]
+        if let Some(Swap::Vulkan(_)) = &surface.surface {
+            return self.present_vulkan(surface);
+        }
+        let Some(Swap::Wgpu(swapchain)) = surface.surface.as_ref() else { return Ok(Presented::Retry) };
         // Waiting for the swapchain to hand out an image is part of presenting.
         let acquire = remedy_ui_trace::phase!("present").entered();
         let frame = match swapchain.get_current_texture() {
@@ -301,47 +512,13 @@ impl GpuCompositor {
         let (w, h) = (frame.texture.width().min(kept.width()), frame.texture.height().min(kept.height()));
         let ctx = self.renderer().context();
         let copies = surface.copies && frame.texture.format() == kept.format();
-        // A swapchain image that kept what it showed `age` presents ago needs only what
-        // changed since: this frame's rectangles and those of the presents in between. The
-        // presentation engine is told the same rectangles, and updates only them on screen.
-        let age = frame.buffer_age() as usize;
-        let changed: Option<Vec<(u16, u16, u16, u16)>> =
-            (copies && age > 0 && surface.history.len() + 1 >= age).then(|| {
-                surface
-                    .pending
-                    .iter()
-                    .chain(surface.history.iter().take(age - 1).flatten())
-                    .copied()
-                    .collect()
-            });
-        if let Some(changed) = &changed {
-            let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("RemedyUI show damage"),
-            });
-            for &(x0, y0, x1, y1) in changed {
-                let (x1, y1) = (u32::from(x1).min(w), u32::from(y1).min(h));
-                let (x0, y0) = (u32::from(x0), u32::from(y0));
-                if x1 <= x0 || y1 <= y0 {
-                    continue;
-                }
-                let origin = wgpu::Origin3d { x: x0, y: y0, z: 0 };
-                encoder.copy_texture_to_texture(
-                    wgpu::TexelCopyTextureInfo { origin, ..kept.as_image_copy() },
-                    wgpu::TexelCopyTextureInfo { origin, ..frame.texture.as_image_copy() },
-                    wgpu::Extent3d { width: x1 - x0, height: y1 - y0, depth_or_array_layers: 1 },
-                );
+        // wgpu's images hold nothing known: the whole frame goes in (only this window's own
+        // swapchains, on D3D12 and Vulkan, keep what they showed).
+        let changed: Option<Vec<(u16, u16, u16, u16)>> = None;
+        if copies {
+            if let Some(copies) = copy_in(ctx, kept, &frame.texture, None, (w, h)) {
+                ctx.queue.submit([copies]);
             }
-            ctx.queue.submit([encoder.finish()]);
-        } else if copies {
-            let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("RemedyUI show frame"),
-            });
-            encoder.copy_texture_to_texture(
-                kept.as_image_copy(),
-                frame.texture.as_image_copy(),
-                wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
-            );
-            ctx.queue.submit([encoder.finish()]);
         } else {
             let (sw, sh) = crate::renderer::size16(w, h)?;
             let mut scene = vello_gpu::Scene::new(sw, sh);
@@ -373,27 +550,159 @@ impl GpuCompositor {
             let (shown, want) = (ctx.read_back(&frame.texture)?, ctx.read_back(kept)?);
             checks.compared += 1;
             checks.damaged += usize::from(changed.is_some());
-            checks.unknown += usize::from(age == 0);
+            checks.unknown += 1;
             checks.mismatched += usize::from(shown.pixels != want.pixels);
         }
-        match changed {
-            Some(changed) => {
-                let damage: Vec<wgpu::DamageRect> = changed
-                    .iter()
-                    .map(|&(x0, y0, x1, y1)| wgpu::DamageRect {
-                        x: u32::from(x0),
-                        y: u32::from(y0),
-                        width: u32::from(x1 - x0),
-                        height: u32::from(y1 - y0),
-                    })
-                    .collect();
-                ctx.queue.present_with_damage(frame, &damage);
-            }
-            None => ctx.queue.present(frame),
-        }
+        ctx.queue.present(frame);
         surface.history.push_front(std::mem::take(&mut surface.pending));
         // A swapchain has at most 16 images (DXGI's limit; presentation engines keep fewer):
         // an image older than that is drawn whole.
+        surface.history.truncate(16);
+        Ok(Presented::Shown)
+    }
+
+    /// Presents through RemedyUI's own swapchain: the back buffer keeps what it showed, so
+    /// only what changed since is copied in and reported to the system.
+    #[cfg(windows)]
+    fn present_dxgi(&mut self, surface: &mut GpuSurface) -> Result<Presented, GpuError> {
+        use crate::ffi::dxgi::LastUse;
+        let ctx = self.renderer().context();
+        let Some(Swap::Dxgi(chain)) = surface.surface.as_mut() else { return Ok(Presented::Retry) };
+        if chain.size() != (surface.config.width, surface.config.height)
+            && let Err(e) = chain.resize(&ctx.device, surface.config.width, surface.config.height)
+        {
+            surface.surface = None;
+            return match chain_error(e) {
+                GpuError::Lost => Err(GpuError::Lost),
+                _ => Ok(Presented::Retry),
+            };
+        }
+        let acquire = remedy_ui_trace::phase!("present").entered();
+        let acquired = match chain.acquire(&ctx.device) {
+            Ok(Some(a)) => a,
+            Ok(None) => return Ok(Presented::Occluded),
+            Err(e) => {
+                surface.surface = None;
+                return Err(chain_error(e));
+            }
+        };
+        drop(acquire);
+        let _present = remedy_ui_trace::phase!("present").entered();
+        let Some(kept) = surface.frame.as_ref() else {
+            // Nothing drawn yet: the buffer goes back as it came.
+            drop(acquired);
+            if let Some(Swap::Dxgi(chain)) = surface.surface.as_mut() {
+                chain.present(LastUse::Untouched, Some(&[])).map_err(chain_error)?;
+            }
+            return Ok(Presented::Retry);
+        };
+        let back = &acquired.texture;
+        let (w, h) = (back.width().min(kept.width()), back.height().min(kept.height()));
+        let changed = surface.changed_since(acquired.age as usize);
+        let copies = copy_in(ctx, kept, back, changed.as_deref(), (w, h));
+        let mut last = if copies.is_some() { LastUse::Written } else { LastUse::Untouched };
+        if let Some(copies) = copies {
+            ctx.queue.submit([copies]);
+        }
+        if let Some(checks) = surface.checks.as_mut() {
+            let (shown, want) = (ctx.read_back(back)?, ctx.read_back(kept)?);
+            checks.compared += 1;
+            checks.damaged += usize::from(changed.is_some());
+            checks.unknown += usize::from(acquired.age == 0);
+            checks.mismatched += usize::from(shown.pixels != want.pixels);
+            last = LastUse::Read;
+        }
+        drop(acquired);
+        let Some(Swap::Dxgi(chain)) = surface.surface.as_mut() else { return Ok(Presented::Retry) };
+        if let Err(e) = chain.present(last, changed.as_deref()) {
+            surface.surface = None;
+            return Err(chain_error(e));
+        }
+        surface.history.push_front(std::mem::take(&mut surface.pending));
+        surface.history.truncate(16);
+        Ok(Presented::Shown)
+    }
+
+    /// Presents through RemedyUI's own Vulkan swapchain: the image keeps what it showed, so
+    /// only what changed since is copied in and reported to the presentation engine.
+    #[cfg(any(
+        all(unix, not(any(target_os = "macos", target_os = "ios"))),
+        all(windows, feature = "windows-vulkan")
+    ))]
+    fn present_vulkan(&mut self, surface: &mut GpuSurface) -> Result<Presented, GpuError> {
+        use crate::ffi::LastUse;
+        let ctx = self.renderer().context();
+        let Some(Swap::Vulkan(chain)) = surface.surface.as_mut() else { return Ok(Presented::Retry) };
+        if chain.size() != (surface.config.width, surface.config.height)
+            && let Err(e) = chain.resize(surface.config.width, surface.config.height)
+        {
+            return match e {
+                crate::ffi::vulkan::ChainError::OutOfDate => Ok(Presented::Occluded),
+                e => {
+                    surface.surface = None;
+                    Err(vk_error(e))
+                }
+            };
+        }
+        let acquire = remedy_ui_trace::phase!("present").entered();
+        let acquired = match chain.acquire(&ctx.device) {
+            Ok(Some(a)) => a,
+            Ok(None) => return Ok(Presented::Occluded),
+            Err(crate::ffi::vulkan::ChainError::OutOfDate) => {
+                let (w, h) = (surface.config.width, surface.config.height);
+                return Ok(if chain.resize(w, h).is_ok() { Presented::Retry } else { Presented::Occluded });
+            }
+            Err(e) => {
+                surface.surface = None;
+                return Err(vk_error(e));
+            }
+        };
+        chain.wait_for_image(&ctx.queue);
+        drop(acquire);
+        let _present = remedy_ui_trace::phase!("present").entered();
+        let back = &acquired.texture;
+        let (mut last, changed, mut copies) = match surface.frame.as_ref() {
+            Some(kept) => {
+                let (w, h) = (back.width().min(kept.width()), back.height().min(kept.height()));
+                let changed = surface.changed_since(acquired.age as usize);
+                let copies = copy_in(ctx, kept, back, changed.as_deref(), (w, h));
+                (if copies.is_some() { LastUse::Written } else { LastUse::Untouched }, changed, copies)
+            }
+            None => (LastUse::Untouched, Some(Vec::new()), None),
+        };
+        if let (Some(checks), Some(kept)) = (surface.checks.as_mut(), surface.frame.as_ref()) {
+            // Read back only once the copies ran.
+            if let Some(c) = copies.take() {
+                ctx.queue.submit([c]);
+            }
+            let (shown, want) = (ctx.read_back(back)?, ctx.read_back(kept)?);
+            checks.compared += 1;
+            checks.damaged += usize::from(changed.is_some());
+            checks.unknown += usize::from(acquired.age == 0);
+            checks.mismatched += usize::from(shown.pixels != want.pixels);
+            last = LastUse::Read;
+        }
+        drop(acquired);
+        let drawn = surface.frame.is_some();
+        let Some(Swap::Vulkan(chain)) = surface.surface.as_mut() else { return Ok(Presented::Retry) };
+        match chain.present(&ctx.device, &ctx.queue, copies, last, changed.as_deref()) {
+            Ok(rebuild) => {
+                if rebuild {
+                    let (w, h) = (surface.config.width, surface.config.height);
+                    if chain.resize(w, h).is_err() {
+                        surface.surface = None;
+                    }
+                }
+            }
+            Err(e) => {
+                surface.surface = None;
+                return Err(vk_error(e));
+            }
+        }
+        if !drawn {
+            return Ok(Presented::Retry);
+        }
+        surface.history.push_front(std::mem::take(&mut surface.pending));
         surface.history.truncate(16);
         Ok(Presented::Shown)
     }
