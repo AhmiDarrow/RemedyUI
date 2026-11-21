@@ -30,6 +30,10 @@ playback-mute-tip = Mute (M)
 playback-mute = Mute
 playback-unmute = Unmute
 playback-volume = Volume
+# While casting, as Portal's page says it: the device's volume and mute.
+playback-volume-tv = TV volume
+playback-mute-tv = Mute the TV
+playback-unmute-tv = Unmute the TV
 playback-captions-tip = Captions (C)
 # { $track } is the caption track's name ("English", "fr").
 playback-captions-track = Captions: { $track }
