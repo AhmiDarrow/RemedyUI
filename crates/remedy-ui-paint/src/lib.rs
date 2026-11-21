@@ -558,7 +558,7 @@ pub enum Item {
     /// frosted glass. It sees what was drawn before it since the start of the list or of the
     /// innermost open [`Item::PushLayer`] or [`Item::PushFilter`] group around it (its
     /// backdrop root, as on the web), and draws nothing elsewhere. Elements in a window get
-    /// theirs from the compositor instead ([`remedy_ui_compositor`]'s layer backdrops), which
+    /// theirs from the compositor instead (`remedy-ui-compositor`'s layer backdrops), which
     /// sees every layer below; this item is for display lists drawn on their own.
     Backdrop {
         /// The glass.
