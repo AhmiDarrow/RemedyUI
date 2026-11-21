@@ -7,6 +7,11 @@
 //!   and pause, time, a keyboard-operable seek bar, mute and volume, captions, a full-screen
 //!   request, and a theater-mode request for apps that lay one out). Captions can be shifted
 //!   earlier or later ([`Player::set_caption_delay`]) when a subtitle file is out of step.
+//! - Casting: [`Player::on_cast`] shows a Cast button whose press hands the app the button to
+//!   anchor its own menu of devices to; [`Player::set_remote`] puts the player in remote mode,
+//!   where the local media pauses in place, a casting stage replaces the picture, and every
+//!   control and key acts on the app's [`RemoteControl`] while the bar shows the
+//!   [`RemoteStatus`] the app feeds in.
 //! - [`MediaHost`]: where decoding and sound come from. [`platform_host`] gives the
 //!   platform's: Media Foundation and WASAPI on Windows; the system's GStreamer on Linux,
 //!   loaded at run time and never bundled; AVFoundation and Audio Queues on macOS;
@@ -81,7 +86,9 @@ pub use host::{
     VideoCodec, VideoEncoderOptions, VideoInfo, VideoStreamDecoder, VideoStreamEncoder, YuvMatrix,
     merge_ranges,
 };
-pub use player::{NEXT_UP_DELAY, NextUp, Player, PlayerOptions, UnseenPolicy};
+pub use player::{
+    NEXT_UP_DELAY, NextUp, Player, PlayerOptions, Remote, RemoteControl, RemoteStatus, UnseenPolicy,
+};
 pub use stretch::{MAX_SPEED, MIN_SPEED, SPEEDS, clamp_speed};
 pub use subtitles::{Cue, SubtitleFormat, SubtitleTrack, parse_subtitles};
 pub use widget::{format_time, player};
