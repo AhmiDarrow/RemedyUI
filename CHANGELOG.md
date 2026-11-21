@@ -38,6 +38,16 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   seen while any of its pictures is, so moving the picture to a picture-in-picture or another
   window never pauses it. The widget uses it, so its root no longer reports visibility itself.
 
+- **HLS on Android.** A `.m3u8` source plays through the crate's own HLS reader, as on
+  Windows and Linux (it said `Unsupported` before): MediaCodec decodes the H.264, AAC and MP3
+  streams (pictures on the GPU path as for files), and playlists and segments come over
+  HTTP/1.1 on a socket of the crate's own (http), through Java's `HttpURLConnection` on the
+  app's VM (https), or from disk. A Java fetch that waits too long is ended by a watchdog
+  thread that disconnects it (12 s to the first byte, 2.5 s quiet, 60 s in all), as WinHTTP's is
+  on Windows. `tests/hls.rs` passes on an Android 14 emulator, and
+  `tools/android-hls-check.sh` plays the clip over https inside `app_process` (a real Java VM)
+  from a local server with a self-signed certificate: answering at once, 5 s slow to answer,
+  and stalling mid-segment (fetched again).
 - **Media keys and the system's media controls.** The `player` widget answers the media keys
   (Play/Pause, Play, Pause, Stop, Next, Previous, Rewind and Fast-forward ±10 s, as Portal's
   TV page), and `Player::now_playing(Some(NowPlaying::new(title).subtitle(..).art(..)))`

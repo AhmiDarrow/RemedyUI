@@ -3268,7 +3268,8 @@ fn the_captions_pick_carries_to_the_next_media() {
     p.set_caption_pick(CaptionPick::Track(0));
     p.set_caption_delay(500);
     p.start_next(MediaSource::url("script:"), None);
-    s.wait("the next", |_| p.state() == PlaybackState::Paused);
+    // The next plays once open (it may never be seen paused): wait for it to open.
+    s.wait("the next", |_| p.info().is_some());
     // The app adds the next media's tracks: the one named as before is picked again.
     let cues = parse_subtitles("WEBVTT\n\n00:00.000 --> 00:01.000\nHallo\n", SubtitleFormat::WebVtt);
     p.add_subtitles(SubtitleTrack { label: "Deutsch".into(), language: None, cues });
@@ -3281,7 +3282,7 @@ fn the_captions_pick_carries_to_the_next_media() {
     // Auto is asked again for each new media.
     p.set_caption_pick(CaptionPick::Auto);
     p.start_next(MediaSource::url("script:"), None);
-    s.wait("the one after", |_| p.state() == PlaybackState::Paused);
+    s.wait("the one after", |_| p.info().is_some());
     let picks = heard.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert_eq!(picks.iter().filter(|p| **p == CaptionPick::Auto).count(), 2, "{picks:?}");
     assert_eq!(p.caption_pick(), CaptionPick::Auto);
