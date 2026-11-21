@@ -295,6 +295,8 @@ fn a_cue_no_caption_could_be_fails_the_stream() {
 
 #[derive(Clone, Copy)]
 enum Serve {
+    /// Every file as it is.
+    Plain,
     NotFound,
     BadSegment,
     /// Every segment after the first answers nothing for 4 s.
@@ -402,6 +404,33 @@ fn a_stream_dropped_mid_fetch() {
         // Seen counted while it plays (with GST_TRACERS=leaks on Linux, its elements too).
         eprintln!("mid-fetch: {} platform objects live", live_platform_objects());
     });
+}
+
+#[test]
+fn a_stream_dropped_after_its_decoders_went_to_the_next() {
+    // The next stream takes the last one's decoders (kept by the player's host): dropping
+    // the player still ends them.
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let Ok(host) = platform_host() else {
+        eprintln!("no platform host here, skipping");
+        return;
+    };
+    let url = server(Serve::Plain);
+    let none = AtomicUsize::new(0);
+    let (before, threads) = (census(&none), process_threads());
+    let ui = ui();
+    let p = Player::open(&ui, host, MediaSource::Url(url.clone()), PlayerOptions::default());
+    wait("opened", || p.state() == PlaybackState::Paused);
+    for _ in 0..2 {
+        p.start_next(MediaSource::Url(url.clone()), None);
+        wait("the next opened", || matches!(p.state(), PlaybackState::Playing | PlaybackState::Paused));
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(p.error().is_none(), "{:?}", p.error());
+    }
+    eprintln!("after two next streams: {} platform objects live", live_platform_objects());
+    drop(p);
+    drop(ui);
+    settles("after the drop", before, &threads, &none);
 }
 
 #[test]

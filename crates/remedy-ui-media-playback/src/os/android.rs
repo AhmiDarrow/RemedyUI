@@ -404,11 +404,14 @@ fn aaudio() -> Result<&'static AAudio, MediaError> {
         .map_err(|e| MediaError::Unsupported(format!("AAudio is not available (Android 8 or later): {e}")))
 }
 
-struct AndroidHost;
+struct AndroidHost {
+    /// The last HLS stream's decoders, for the next.
+    spare: crate::hls::Spare,
+}
 
 pub(super) fn host() -> Result<Arc<dyn MediaHost>, MediaError> {
     ndk()?;
-    Ok(Arc::new(AndroidHost))
+    Ok(Arc::new(AndroidHost { spare: crate::hls::Spare::default() }))
 }
 
 impl MediaHost for AndroidHost {
@@ -422,7 +425,8 @@ impl MediaHost for AndroidHost {
             return crate::hls::open(
                 &source.to_url(),
                 Box::new(hls::NdkFetch),
-                Box::new(hls::NdkElementary::new(ndk()?)),
+                &self.spare,
+                || Ok(Box::new(hls::NdkElementary::new(ndk()?))),
             );
         }
         Ok(Box::new(NdkDecoder::open(ndk()?, source)?))

@@ -159,7 +159,7 @@ fn start(dir: &str, mem: Mem) -> Result<Run, MediaError> {
     let es = Echo::default();
     let units = es.units.clone();
     let asked = mem.asked.clone();
-    let dec = open_with(&format!("{ROOT}{dir}/index.m3u8"), Box::new(mem), Box::new(es), CLOCK)?;
+    let dec = open_with(&format!("{ROOT}{dir}/index.m3u8"), Box::new(mem), None, || Ok(Box::new(es)), CLOCK)?;
     Ok(Run { dec, units, asked })
 }
 
@@ -232,7 +232,7 @@ fn the_decoders_are_set_up_from_the_first_segment() {
     let es = Echo::default();
     let configured = es.configured.clone();
     let url = format!("{ROOT}aac/index.m3u8");
-    let opened = open_with(&url, Box::new(Mem::of("aac", None)), Box::new(es), CLOCK);
+    let opened = open_with(&url, Box::new(Mem::of("aac", None)), None, || Ok(Box::new(es)), CLOCK);
     assert!(opened.is_ok());
     let Some((Some(v), Some(a))) = lock(&configured).clone() else { unreachable!("both set up") };
     assert!(v.codec.starts_with("avc1.64"));
@@ -240,6 +240,30 @@ fn the_decoders_are_set_up_from_the_first_segment() {
     assert_eq!(v.pps[0] & 0x1f, 8);
     assert_eq!(a.codec, AudioCodec::Aac { asc: vec![0x11, 0x90] });
     assert_eq!(a.codec_string, "mp4a.40.2");
+}
+
+#[test]
+fn the_next_stream_takes_the_last_ones_decoders() {
+    let spare = Spare::default();
+    let url = format!("{ROOT}aac/index.m3u8");
+    let es = Echo::default();
+    let units = es.units.clone();
+    let mut d = open_with(&url, Box::new(Mem::of("aac", None)), Some(&spare), || Ok(Box::new(es)), CLOCK)
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(read_all(&mut d).is_ok());
+    let read = lock(&units).len();
+    assert!(lock(&spare).is_none(), "held while the stream plays");
+    drop(d);
+    assert!(lock(&spare).is_some(), "handed back on the drop");
+    let mut d = open_with(&url, Box::new(Mem::of("aac", None)), Some(&spare), || unreachable!("made anew"), CLOCK)
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(read_all(&mut d).is_ok());
+    assert_eq!(lock(&units).len(), 2 * read, "the same decoders decoded the second stream");
+    // Dropped with the host: nothing holds them past it.
+    drop(d);
+    let weak = std::sync::Arc::downgrade(&spare);
+    drop(spare);
+    assert!(weak.upgrade().is_none());
 }
 
 #[test]
