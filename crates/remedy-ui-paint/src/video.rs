@@ -115,6 +115,19 @@ pub enum GpuTexture {
         /// The texture's height.
         height: u32,
     },
+    /// A browser page: a WebCodecs `VideoFrame`, which the page's GPU device imports where it
+    /// is (`GPUDevice.importExternalTexture` on WebGPU, `texImage2D` from the frame on
+    /// WebGL2). The picture holds the frame open and closes it when it is dropped.
+    WebVideoFrame {
+        /// wasm-bindgen's handle to the picture's own reference to the frame (the `u32` a
+        /// `&JsValue` passes as), valid while the picture lives. A renderer clones the
+        /// reference for as long as it uses the frame; it never drops this one.
+        frame: u32,
+        /// The frame's size as shown (`displayWidth`), which is what an import gives.
+        width: u32,
+        /// Its `displayHeight`.
+        height: u32,
+    },
 }
 
 /// A frame's [`GpuPicture`], cheap to clone; equal when it is the same picture.
@@ -142,6 +155,9 @@ impl std::fmt::Debug for GpuFrame {
 pub enum GpuAdapter {
     /// A DXGI adapter's LUID (Windows), low part in the low 32 bits.
     Luid(u64),
+    /// A browser page's GPU (WebGPU or WebGL2): a page's `VideoFrame`s import into any of its
+    /// devices, so there is nothing to tell them apart by.
+    Browser,
 }
 
 static GPU_VIDEO: Mutex<Option<GpuAdapter>> = Mutex::new(None);
