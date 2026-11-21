@@ -145,6 +145,7 @@ struct Inner {
     audio_error: Signal<Option<MediaError>>,
     stats: Signal<PlaybackStats>,
     buffered: Signal<Vec<std::ops::Range<Duration>>>,
+    speed: Signal<f64>,
     volume: Signal<f32>,
     muted: Signal<bool>,
     tracks: Signal<Vec<SubtitleTrack>>,
@@ -328,6 +329,7 @@ impl Inner {
         self.send(Cmd::PauseUnseen(self.options.unseen == UnseenPolicy::PauseVideo));
         self.send(Cmd::Sink(self.sink.borrow().clone()));
         self.send(Cmd::Visible(self.visible.get()));
+        self.send(Cmd::Speed(self.speed.get_untracked().unwrap_or(1.0)));
     }
 
     fn on_opened(&self, info: Option<&MediaInfo>) {
@@ -433,6 +435,7 @@ impl Player {
             audio_error: Signal::new(None),
             stats: Signal::new(PlaybackStats::default()),
             buffered: Signal::new(Vec::new()),
+            speed: Signal::new(1.0),
             volume: Signal::new(volume),
             muted: Signal::new(false),
             tracks: Signal::new(Vec::new()),
@@ -463,6 +466,35 @@ impl Player {
     /// says) and what is decoded ahead of the playhead. The seek bar shows them. Tracked.
     pub fn buffered(&self) -> Vec<std::ops::Range<Duration>> {
         self.0.buffered.get()
+    }
+
+    /// The playback speed: 1 is normal, 2 twice as fast. Tracked.
+    pub fn speed(&self) -> f64 {
+        self.0.speed.get()
+    }
+
+    /// Plays at `speed` (1 is normal), within [`MIN_SPEED`](crate::MIN_SPEED) to
+    /// [`MAX_SPEED`](crate::MAX_SPEED) (a value that is not a number is 1). Sound keeps its
+    /// pitch: it is time-stretched, not sped up. Pictures follow the same clock. It carries
+    /// over to the next media ([`set_next_up`](Self::set_next_up)).
+    pub fn set_speed(&self, speed: f64) {
+        let speed = crate::stretch::clamp_speed(speed);
+        self.0.speed.set_if_changed(speed);
+        self.0.send(Cmd::Speed(speed));
+    }
+
+    /// Steps the speed to the next of [`SPEEDS`](crate::SPEEDS) up (`faster`) or down from
+    /// the current one, staying at the ends.
+    pub fn step_speed(&self, faster: bool) {
+        let now = self.0.speed.get_untracked().unwrap_or(1.0);
+        let next = if faster {
+            crate::SPEEDS.iter().copied().find(|s| *s > now + 1e-9)
+        } else {
+            crate::SPEEDS.iter().rev().copied().find(|s| *s < now - 1e-9)
+        };
+        if let Some(s) = next {
+            self.set_speed(s);
+        }
     }
 
     /// Plays (from the start again, once ended).

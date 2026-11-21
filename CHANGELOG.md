@@ -10,6 +10,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Playback speed in the media player, with the pitch kept**: `Player::set_speed` (0.25× to
+  4×, `MIN_SPEED`/`MAX_SPEED`; not-a-number is 1×), `Player::speed`, `step_speed` and `SPEEDS`.
+  Sound goes through a pitch-preserving WSOLA time stretcher of the crate's own (no new
+  dependency), and pictures follow the same clock, on the sound device or the wall. The
+  widget gains a speed button (in all 11 languages) and Shift+> / Shift+<. The speed carries
+  over to what plays next.
 - **A start-up self-test frame and a present watchdog for the GPU** (`remedy_ui_render_gpu::health`).
   Each rung of the backend ladder draws a small reference scene that must match the CPU
   renderer before it is used (`LadderOptions::self_test`, on by default), or the ladder moves

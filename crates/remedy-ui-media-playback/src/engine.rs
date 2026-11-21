@@ -79,6 +79,8 @@ pub(crate) enum Cmd {
     Seek(Duration),
     /// Linear volume, 0 to 1 (0 when muted).
     Volume(f32),
+    /// Playback speed (1 is normal), pitch kept.
+    Speed(f64),
     Visible(bool),
     /// Pause, rather than only stop showing pictures, while unseen.
     PauseUnseen(bool),
@@ -412,8 +414,15 @@ struct Presenter {
     base: Duration,
     anchor: Option<Instant>,
     audio_clock: bool,
-    /// Where each run of written sound starts: (device frame, media time).
-    chunks: VecDeque<(u64, Duration)>,
+    /// Where each run of written sound starts: (device frame, media time, the speed it
+    /// plays at: media time per device frame).
+    chunks: VecDeque<(u64, Duration, f64)>,
+    /// Playback speed: media time per wall or device time.
+    speed: f64,
+    /// Sound on its way to the device at a speed other than 1, and the media time of its
+    /// first input frame (`None` while it holds nothing).
+    stretcher: Option<crate::stretch::Stretcher>,
+    stretch_from: Option<Duration>,
     written: u64,
     last_t: Duration,
     starved: bool,
@@ -468,6 +477,9 @@ impl Presenter {
             anchor: None,
             audio_clock: false,
             chunks: VecDeque::new(),
+            speed: 1.0,
+            stretcher: None,
+            stretch_from: None,
             written: 0,
             last_t: Duration::ZERO,
             starved: false,
@@ -577,6 +589,8 @@ impl Presenter {
     /// Sizes the look-ahead from the stream, the sound device and the machine.
     fn size_buffers(&mut self) {
         let lead = self.out.as_ref().map(|o| o.buffer() * 2).unwrap_or(MIN_LEAD).max(MIN_LEAD);
+        // Played faster, the same device buffer holds more media.
+        let lead = lead.mul_f64(self.speed.max(1.0));
         let mut f = lock(&self.feed.feed);
         f.want_audio_frames = self.info.audio.map(|a| a.frames_in(lead)).unwrap_or(0);
         f.lead = lead;
@@ -684,6 +698,7 @@ impl Presenter {
             Cmd::Pause => self.playing = false,
             Cmd::Seek(t) => self.seek(t),
             Cmd::Volume(v) => self.gain = v.clamp(0.0, 1.0),
+            Cmd::Speed(r) => self.set_speed(r),
             Cmd::Visible(v) => self.visible = v,
             Cmd::PauseUnseen(p) => self.pause_unseen = p,
             Cmd::Sink(s) => {
@@ -754,6 +769,22 @@ impl Presenter {
         self.publish(self.last_t, true);
     }
 
+    /// Plays at `speed` from now: the wall clock is set going again at the new rate, sound
+    /// already with the device plays out at the rate it was stretched at (the clock knows), and
+    /// what is written next is stretched to the new one.
+    fn set_speed(&mut self, speed: f64) {
+        let speed = crate::stretch::clamp_speed(speed);
+        if speed == self.speed {
+            return;
+        }
+        let t = self.now();
+        self.base = t;
+        self.anchor = self.running().then(Instant::now);
+        self.speed = speed;
+        self.size_buffers();
+        self.publish(t, true);
+    }
+
     fn seek(&mut self, to: Duration) {
         if !self.opened || !self.info.seekable {
             return;
@@ -776,6 +807,10 @@ impl Presenter {
         }
         self.chunks.clear();
         self.written = 0;
+        if let Some(s) = self.stretcher.as_mut() {
+            s.reset();
+        }
+        self.stretch_from = None;
         self.heard = None;
         self.finished = false;
         self.stalled = false;
@@ -811,7 +846,7 @@ impl Presenter {
             return self.last_t;
         }
         let mut t = match self.anchor {
-            Some(a) => self.base + a.elapsed(),
+            Some(a) => self.base + a.elapsed().mul_f64(self.speed),
             None => self.base,
         };
         self.starved = false;
@@ -829,7 +864,9 @@ impl Presenter {
                         self.chunks.pop_front();
                     }
                     t = match self.chunks.front() {
-                        Some(&(start, at)) if p >= start => at + fmt.duration_of(p - start),
+                        Some(&(start, at, speed)) if p >= start => {
+                            at + fmt.duration_of(p - start).mul_f64(speed)
+                        }
                         _ => self.base,
                     };
                     if p >= self.written {
@@ -904,18 +941,26 @@ impl Presenter {
             // What the stalled device cannot take is dropped as its time passes.
             self.drop_passed_sound(fmt);
         }
-        let Some(out) = self.out.as_mut() else {
+        let mut room = match self.out.as_mut().map(|o| o.room()) {
+            Some(Ok(r)) => r,
+            Some(Err(e)) => return self.lose_audio(e),
             // No sound device: sound is dropped as its time passes.
-            return self.drop_passed_sound(fmt);
-        };
-        let mut room = match out.room() {
-            Ok(r) => r,
-            Err(e) => return self.lose_audio(e),
+            None => return self.drop_passed_sound(fmt),
         };
         // Loudness follows the square of the volume, so the slider's middle sounds half as loud.
         let gain = self.gain * self.gain;
         let mut failed = None;
         let mut wrote = false;
+        if self.speed != 1.0 || self.stretch_from.is_some() {
+            // At another speed (or while sound stretched before is still held): through the
+            // time stretcher, so the pitch stays.
+            match self.feed_stretched(fmt, room, gain) {
+                Ok(w) => wrote = w,
+                Err(e) => failed = Some(e),
+            }
+            room = 0;
+        }
+        let Some(out) = self.out.as_mut() else { return };
         {
             let mut f = lock(&self.feed.feed);
             while room > 0 {
@@ -928,7 +973,7 @@ impl Presenter {
                     failed = Some(e);
                     break;
                 }
-                self.chunks.push_back((self.written, item.at));
+                self.chunks.push_back((self.written, item.at, 1.0));
                 self.written += n as u64;
                 self.stats.audio_frames += n as u64;
                 room -= n;
@@ -957,6 +1002,56 @@ impl Presenter {
             // Sound is flowing again after a gap: it sets the time again.
             self.audio_clock = true;
         }
+    }
+
+    /// Writes up to `room` frames of sound stretched to the current speed (see `stretch`). True
+    /// when something was written.
+    fn feed_stretched(&mut self, fmt: AudioFormat, mut room: usize, gain: f32) -> Result<bool, MediaError> {
+        let ch = usize::from(fmt.channels.max(1));
+        let speed = self.speed;
+        let stretcher = self
+            .stretcher
+            .get_or_insert_with(|| crate::stretch::Stretcher::new(fmt.channels, fmt.sample_rate));
+        let Some(out) = self.out.as_mut() else { return Ok(false) };
+        let hop = stretcher.hop();
+        let mut wrote = false;
+        let mut block = Vec::with_capacity(hop * ch);
+        let mut f = lock(&self.feed.feed);
+        while room >= hop {
+            block.clear();
+            let from = self.stretch_from.unwrap_or_default();
+            let at = from + fmt.duration_of(stretcher.position().max(0.0) as u64);
+            if stretcher.step(speed, &mut block).is_some() {
+                let samples: Vec<f32> = block.iter().map(|v| v * gain).collect();
+                out.write(&samples)?;
+                self.chunks.push_back((self.written, at, speed));
+                self.written += hop as u64;
+                self.stats.audio_frames += hop as u64;
+                room -= hop;
+                wrote = true;
+                continue;
+            }
+            // More input: the next decoded sound, unless it does not follow on from what the
+            // stretcher holds (a gap): then what it holds is dropped and it starts again.
+            let Some(item) = f.audio.pop_front() else { break };
+            let frames = (item.samples.len() / ch) as u64;
+            f.audio_frames -= frames;
+            let held_end = from + fmt.duration_of(stretcher.input_end());
+            let follows = self.stretch_from.is_some()
+                && item.at.abs_diff(held_end) < Duration::from_millis(5).max(fmt.duration_of(hop as u64));
+            if !follows {
+                stretcher.reset();
+                self.stretch_from = Some(item.at);
+            }
+            stretcher.push(&item.samples);
+        }
+        if speed == 1.0 && stretcher.held() < hop {
+            // Back at normal speed with nothing much held: plain writing takes over.
+            stretcher.reset();
+            self.stretch_from = None;
+        }
+        drop(f);
+        Ok(wrote)
     }
 
     /// Shows the newest picture whose time has come (or, paused after a seek or at the start,
