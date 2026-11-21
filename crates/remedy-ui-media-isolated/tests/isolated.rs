@@ -4,6 +4,9 @@
 //!
 //! Each test is run in order (they share the one enabled engine); a failure is reported and
 //! the run carries on. Arguments that are not flags filter tests by name.
+//!
+//! On Android the same tests run inside an app (`examples/android-isolated-check.rs`,
+//! `tools/android-check.sh`), whose helpers are isolated service processes.
 
 use std::hint::black_box;
 use std::io::{Read, Write};
@@ -127,8 +130,16 @@ impl Format for Hostile {
         if let Some(addr) = what.strip_prefix("net:") {
             return Err(DecodeError::Malformed(probe_network(addr)));
         }
-        if let Some(program) = what.strip_prefix("spawn:") {
-            let r = std::process::Command::new(program).arg(MARKER).spawn().and_then(|mut c| c.wait());
+        if let Some(spawn) = what.strip_prefix("spawn:") {
+            // `program`, or on Android the shell, which leaves the marker itself.
+            let (program, marker) = spawn.split_once('\n').unwrap_or((spawn, ""));
+            let mut c = std::process::Command::new(program);
+            if cfg!(target_os = "android") {
+                c.arg("-c").arg(format!("echo started > '{marker}'"));
+            } else {
+                c.arg(MARKER);
+            }
+            let r = c.spawn().and_then(|mut c| c.wait());
             return Err(DecodeError::Malformed(format!("spawn: {}", attempt(r))));
         }
         Err(DecodeError::Unrecognized)
@@ -185,6 +196,10 @@ fn helpers_start_sandboxed() {
         if landlock {
             assert!(iso.layers.iter().any(|l| matches!(l, Layer::Landlock { .. })), "{:?}", iso.layers);
         }
+    }
+    if cfg!(target_os = "android") {
+        assert!(iso.layers.contains(&Layer::IsolatedProcess), "{:?}", iso.layers);
+        assert!(iso.layers.contains(&Layer::ResourceLimits), "{:?}", iso.layers);
     }
     // Enabling again answers the same.
     assert_eq!(enable().ok(), Some(iso));
@@ -353,8 +368,13 @@ fn spawn_marker() -> std::path::PathBuf {
 fn the_helper_cannot_start_programs() {
     let marker = spawn_marker();
     let _ = std::fs::remove_file(&marker);
-    let exe = std::env::current_exe().unwrap_or_else(|e| unreachable!("{e}"));
-    let bytes = hostile(&format!("spawn:{}", exe.display()));
+    // An app's own executable on Android is the system's app_process: the shell stands in.
+    let exe = if cfg!(target_os = "android") {
+        std::path::PathBuf::from("/system/bin/sh")
+    } else {
+        std::env::current_exe().unwrap_or_else(|e| unreachable!("{e}"))
+    };
+    let bytes = hostile(&format!("spawn:{}\n{}", exe.display(), marker.display()));
 
     let here = match decode(&bytes, None) {
         Err(DecodeError::Malformed(r)) => r,
@@ -450,16 +470,31 @@ fn disabling_decodes_in_the_app_again() {
 #[path = "isolated/anim.rs"]
 mod anim;
 
-fn main() -> ExitCode {
+/// The hostile formats, in the app and (registered before `helper_main`, or on Android from
+/// `remedy_ui_media_isolated_formats`) in the helper.
+pub(crate) fn register_formats() {
     add_format(Arc::new(Hostile));
     remedy_ui_media_anim::route::add_format(Arc::new(anim::HostileAnimation));
+}
+
+pub(crate) fn main() -> ExitCode {
+    register_formats();
     remedy_ui_media_isolated::helper_main();
     if std::env::args().any(|a| a == MARKER) {
         let _ = std::fs::write(spawn_marker(), "started");
         return ExitCode::SUCCESS;
     }
 
-    let filter: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect();
+    // An Android app's arguments are the system's: its filter comes in the environment.
+    let filter: Vec<String> = if cfg!(target_os = "android") {
+        std::env::var("REMEDY_TEST_FILTER")
+            .unwrap_or_default()
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect()
+    } else {
+        std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect()
+    };
     let tests: &[(&str, fn())] = &[
         ("helpers_start_sandboxed", helpers_start_sandboxed),
         ("images_decode_in_the_helper_as_in_the_app", images_decode_in_the_helper_as_in_the_app),
