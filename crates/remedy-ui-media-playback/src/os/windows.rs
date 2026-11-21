@@ -343,6 +343,7 @@ impl MfDecoder {
                     matrix: l.matrix,
                     full_range: l.full_range,
                     data: Arc::from(bytes),
+                    gpu: None,
                 })
             };
             if let Ok(b2) = buffer.cast::<IMF2DBuffer>() {

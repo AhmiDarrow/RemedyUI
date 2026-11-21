@@ -765,6 +765,7 @@ impl GstDecoder {
             matrix: self.matrix,
             full_range: self.full_range,
             data: Arc::from(bytes.get(..need).unwrap_or_default()),
+            gpu: None,
         })
     }
 
@@ -1788,6 +1789,7 @@ fn nv12_picture(g: &Gst, s: Ptr, bytes: &[u8]) -> Result<Picture, MediaError> {
         matrix,
         full_range,
         data: Arc::from(bytes.get(..need).unwrap_or_default()),
+        gpu: None,
     })
 }
 
