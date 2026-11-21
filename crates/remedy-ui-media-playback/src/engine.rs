@@ -513,6 +513,16 @@ impl Presenter {
         self.local = source.local_path().is_some();
         match self.host.open(source) {
             Ok(dec) => {
+                // Timed text inside an MP4, which Media Foundation, AVFoundation and
+                // MediaCodec do not hand out.
+                if dec.info().text_tracks.is_empty()
+                    && let Some(path) = source.local_path()
+                {
+                    let found = crate::mp4::text_tracks(path);
+                    if !found.is_empty() {
+                        lock(&self.shared.status).new_tracks.extend(found);
+                    }
+                }
                 self.opening = Some(dec);
                 self.finish_open();
             }
