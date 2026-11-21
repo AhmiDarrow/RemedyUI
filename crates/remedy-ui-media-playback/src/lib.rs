@@ -7,6 +7,15 @@
 //!   and pause, time, a keyboard-operable seek bar, mute and volume, captions, a full-screen
 //!   request, and a theater-mode request for apps that lay one out). Captions can be shifted
 //!   earlier or later ([`Player::set_caption_delay`]) when a subtitle file is out of step.
+//! - Captions: one button says what shows and opens a menu of Off, Auto (the app's pick,
+//!   [`Player::on_caption_pick`]), the tracks, the app's not-yet-loaded
+//!   [choices](Player::set_caption_choices) with their details (hearing impaired), and the
+//!   timing; the app says when its pick is [loading](Player::set_captions_loading). The pick
+//!   carries to the next media.
+//! - Portal's bar ([`player_with`], [`PlayerOptions`]): Back and Forward 10 seconds, no speed
+//!   button, two rows, the app's own controls ([`PlayerParts`]), and a compact mini player ([`Player::set_compact`]). The picture alone
+//!   is [`player_picture`]: the player is seen while any of its pictures is, so a
+//!   picture-in-picture or a second window keeps it playing.
 //! - Casting: [`Player::on_cast`] shows a Cast button whose press hands the app the button to
 //!   anchor its own menu of devices to; [`Player::set_remote`] puts the player in remote mode,
 //!   where the local media pauses in place, a casting stage replaces the picture, and every
@@ -95,14 +104,14 @@ pub use host::{
     merge_ranges,
 };
 pub use player::{
-    KeyScheme, NEXT_UP_DELAY, NextUp, Player, PlayerOptions, Remote, RemoteControl, RemoteStatus,
-    RemoteStatusSender, StageStatus, Timeline, UnseenPolicy,
+    CaptionChoice, CaptionPick, KeyScheme, NEXT_UP_DELAY, NextUp, Player, PlayerOptions, Remote,
+    RemoteControl, RemoteStatus, RemoteStatusSender, StageStatus, Timeline, UnseenPolicy,
 };
 #[cfg(feature = "media-session")]
 pub use remedy_ui_services_desktop::media_session::{Artwork, NowPlaying};
 pub use stretch::{MAX_SPEED, MIN_SPEED, SPEEDS, clamp_speed};
 pub use subtitles::{Cue, SubtitleFormat, SubtitleTrack, parse_subtitles};
-pub use widget::{format_time, player};
+pub use widget::{PlayerParts, format_time, player, player_picture, player_with};
 
 /// The platform's own decoders and sound output, or [`MediaError::Unsupported`] with the
 /// reason where there are none (no GStreamer installed on a Linux machine, a platform with
