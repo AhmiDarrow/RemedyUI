@@ -35,7 +35,7 @@ use super::{Layout, Mf, MfDecoder, com, copy_path, format_error, from_hns, hns, 
 use crate::capture::Converter;
 use crate::hls::{
     AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
-    file_path, timed_out,
+    answered, file_path, timed_out,
 };
 use crate::host::{AudioFormat, MediaError, Picture, Sample};
 
@@ -720,7 +720,7 @@ unsafe fn transfer(
         )
         .map_err(failed)?;
         if status != 200 {
-            return Err(MediaError::NotFound(format!("{url}: the server answered {status}")));
+            return Err(answered(url, status));
         }
         let mut out = Vec::new();
         let mut chunk = vec![0u8; 1 << 20];
