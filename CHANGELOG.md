@@ -10,6 +10,23 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Portal's control bar and mini player** in `media-playback`. `Player::on_captions(f)`: the
+  captions button and C hand the app the button to anchor its own menu (tracks, timing).
+  `PlayerOptions::captions_toggle(true)`: the button is Portal's CC, on or off with a loading
+  state the app sets (`Player::set_captions_state(CaptionsState::on(true).loading(true))`,
+  named "Captions: on, loading", "Captions: English"), heard through `on_captions_toggle`,
+  with a "Caption options" arrow that calls `on_captions`. `skip_buttons(true)` adds Back and
+  Forward 10 seconds (new `Icon::Back10` and `Icon::Forward10` in `widgets-core`),
+  `speed_button(false)` hides speed, `two_rows(true)` puts the seek bar above the buttons.
+  `player_with(ui, &p, label, PlayerParts::default().end(vec![pip]).title(heading))` adds the
+  app's controls after captions (where Portal's PiP is) and its title for the compact layout.
+  `Player::set_compact(true)` (or `PlayerOptions::compact`) shows the mini player: the
+  picture, play and pause, the time and the title, playback carrying on; it leaves full
+  screen and theater mode, and coming back restores theater mode. `player_picture(ui, &p,
+  label)` is the picture alone: the newest one shown takes the pictures and the player is
+  seen while any of its pictures is, so moving the picture to a picture-in-picture or another
+  window never pauses it. The widget uses it, so its root no longer reports visibility itself.
+
 - **Retry after a failure, and the app's words on the picture**, as on Portal's page.
   `Player::on_retry(f)`: after playback fails here, Play, K, Space or a click on the picture
   (in either key scheme) calls `f` with the last position (film time on a timeline), and the
