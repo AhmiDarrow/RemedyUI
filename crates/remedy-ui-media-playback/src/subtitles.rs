@@ -393,9 +393,9 @@ mod tests {
     #[test]
     fn huge_subtitle_files_are_refused() {
         let path = std::env::temp_dir().join(format!("remedy-huge-{}.srt", std::process::id()));
-        let file = std::fs::File::create(&path).unwrap_or_else(|e| unreachable!("{e}"));
-        file.set_len(MAX_SUBTITLE_BYTES + 1).unwrap_or_else(|e| unreachable!("{e}"));
-        drop(file);
+        std::fs::File::create(&path)
+            .and_then(|f| f.set_len(MAX_SUBTITLE_BYTES + 1))
+            .unwrap_or_else(|e| unreachable!("{e}"));
         let got = read_subtitle_file(&path);
         let _ = std::fs::remove_file(&path);
         assert!(matches!(&got, Err(MediaError::Format(m)) if m.contains("too big")), "{got:?}");
