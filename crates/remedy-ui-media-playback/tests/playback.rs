@@ -192,6 +192,73 @@ fn the_player_shows_captions_embedded_in_an_mp4() {
     s.wait("the cue at 2 s", |_| p.caption_text().as_deref() == Some("Two & more"));
 }
 
+/// Text subtitles carried inside Matroska and WebM (SRT, ASS and WebVTT tracks made from
+/// `clip.vtt` and `clip.fr.srt`) reach the player on every platform decoder, read from the
+/// file: Media Foundation, AVFoundation and MediaCodec do not hand them out.
+#[test]
+fn the_player_shows_captions_embedded_in_matroska_and_webm() {
+    let Some(host) = platform() else { return };
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    // GStreamer may lack the WebM decoders (VP8, Opus) where it has H.264 and AAC.
+    let webm = host.open(&MediaSource::file(dir.join("clip-subs.webm"))).is_ok();
+    // Each file, and the label and language of each of its tracks.
+    type Tracks = &'static [(&'static str, Option<&'static str>)];
+    let files: &[(&str, Tracks)] = &[
+        ("clip-subs.mkv", &[("eng", Some("eng")), ("fre", Some("fre")), ("Subtitles", None)]),
+        ("clip-subs.webm", &[("eng", Some("eng"))]),
+    ];
+    for (name, want) in files {
+        if *name == "clip-subs.webm" && !webm {
+            eprintln!("the platform media host cannot decode WebM here, skipping it");
+            continue;
+        }
+        let mut s = Screen::new();
+        let p =
+            Player::open(&s.ui, host.clone(), MediaSource::file(dir.join(name)), PlayerOptions::default());
+        s.ui.root().child(player(&s.ui, &p, "Test clip"));
+        s.wait("opened with its captions", |_| {
+            p.state() == PlaybackState::Paused && !p.subtitle_tracks().is_empty()
+        });
+        let tracks = p.subtitle_tracks();
+        let got: Vec<_> = tracks.iter().map(|t| (t.label.as_str(), t.language.as_deref())).collect();
+        assert_eq!(&got, want, "{name}: the file's own tracks, not the decoder's too");
+        p.set_caption_track(Some(0));
+        p.seek(Duration::from_millis(1200));
+        s.wait("the cue at 1.2 s", |_| p.caption_text().as_deref() == Some("One"));
+        p.seek(Duration::from_millis(2000));
+        s.wait("the cue at 2 s", |_| p.caption_text().as_deref() == Some("Two & more"));
+        if name.ends_with(".mkv") {
+            // The ASS track.
+            p.set_caption_track(Some(1));
+            s.wait("the French cue", |_| p.caption_text().as_deref() == Some("Un"));
+        }
+    }
+}
+
+/// The captions come from the file, whatever decoder plays it: a scripted one that hands out
+/// no text at all shows the Matroska file's tracks too.
+#[test]
+fn embedded_matroska_captions_do_not_depend_on_the_decoder() {
+    let host = Arc::new(Scripted {
+        heard: Arc::new(AtomicU64::new(0)),
+        buffer: Duration::from_millis(200),
+        device: false,
+        seconds: 3,
+    });
+    let mut s = Screen::new();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/clip-subs-streamed.mkv");
+    let p = Player::open(&s.ui, host, MediaSource::file(path), PlayerOptions::default());
+    s.ui.root().child(player(&s.ui, &p, "Scripted"));
+    s.wait("opened with its captions", |_| {
+        p.state() == PlaybackState::Paused && p.subtitle_tracks().len() == 3
+    });
+    p.set_caption_track(Some(0));
+    p.seek(Duration::from_millis(1200));
+    s.wait("the cue at 1.2 s", |_| p.caption_text().as_deref() == Some("One"));
+    p.seek(Duration::from_millis(2000));
+    s.wait("the cue at 2 s", |_| p.caption_text().as_deref() == Some("Two & more"));
+}
+
 #[test]
 fn a_missing_file_says_so() {
     let Some(host) = platform() else { return };

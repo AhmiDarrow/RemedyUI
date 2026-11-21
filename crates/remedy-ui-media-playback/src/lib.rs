@@ -18,7 +18,10 @@
 //!   GStreamer on Linux, AAudio on Android and `getUserMedia` with an audio worklet in a
 //!   browser page.
 //! - Subtitles: WebVTT, SRT and the basics of ASS/SSA, found next to a file, added by the
-//!   app, or carried in the media where the platform's decoder gives them.
+//!   app, or carried in the media: MP4 timed text and the text tracks of Matroska and WebM
+//!   (SRT, ASS/SSA, WebVTT) are read from a local file by the crate's own readers, so they
+//!   show on every platform; others where the platform's decoder gives them. Bitmap
+//!   subtitles (PGS, VobSub, DVB) are pictures, not text, and are not shown.
 //!
 //! Pictures go to a [`video_surface`](remedy_ui_media_video::video_surface)'s
 //! [`VideoSink`](remedy_ui_media_video::VideoSink) as NV12 (converted on the GPU). Sound goes
@@ -42,6 +45,9 @@ mod capture;
 pub mod deps;
 mod engine;
 mod host;
+// Matroska and WebM text subtitles, read from local files on every platform (the
+// platforms' readers do not hand them out).
+mod mkv;
 // The MP4 reader feeds the browser's decoders, and reads MP4 timed text everywhere (the
 // platforms' readers do not hand it out).
 #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), allow(dead_code))]
