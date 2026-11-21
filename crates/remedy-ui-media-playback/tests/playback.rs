@@ -33,13 +33,22 @@ fn ui() -> Ui {
 /// The platform's host, or `None` (with the reason printed) where this machine has none:
 /// Linux without GStreamer. On Windows it must be there.
 fn platform() -> Option<Arc<dyn MediaHost>> {
-    match platform_host() {
-        Ok(h) => Some(h),
+    let host = match platform_host() {
+        Ok(h) => h,
         Err(e) if cfg!(windows) => unreachable!("Media Foundation must be available on Windows: {e}"),
         Err(e) => {
             eprintln!("no platform media host here, skipping: {e}");
+            return None;
+        }
+    };
+    // GStreamer's core can be installed without the plugins that decode (its base plugins
+    // hold `playbin`): the host opens, then every file says what is missing.
+    match host.open(&MediaSource::file(clip())) {
+        Err(MediaError::Missing(d)) if !cfg!(windows) => {
+            eprintln!("the platform media host cannot decode here, skipping: {d}");
             None
         }
+        _ => Some(host),
     }
 }
 
@@ -160,7 +169,8 @@ fn the_platform_decoder_reads_pictures_and_sound_in_time() {
 }
 
 /// Captions carried inside an MP4 (timed text, the cues of `clip.vtt`) reach the player on
-/// every platform decoder: GStreamer hands them out, and the others are read from the file.
+/// every platform decoder: they are read from the file on all of them (GStreamer hands its
+/// cues out seconds late), and shown paused right after a seek.
 #[test]
 fn the_player_shows_captions_embedded_in_an_mp4() {
     let Some(host) = platform() else { return };
@@ -173,10 +183,8 @@ fn the_player_shows_captions_embedded_in_an_mp4() {
     });
     let tracks = p.subtitle_tracks();
     assert_eq!(tracks.len(), 1, "one embedded track, not two: {tracks:?}");
-    if cfg!(windows) {
-        let first = tracks.first().map(|t| (t.label.as_str(), t.language.as_deref()));
-        assert_eq!(first, Some(("eng", Some("eng"))));
-    }
+    let first = tracks.first().map(|t| (t.label.as_str(), t.language.as_deref()));
+    assert_eq!(first, Some(("eng", Some("eng"))), "the file's own track, as it names itself");
     p.set_caption_track(Some(0));
     p.seek(Duration::from_millis(1200));
     s.wait("the cue at 1.2 s", |_| p.caption_text().as_deref() == Some("One"));
