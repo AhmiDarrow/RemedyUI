@@ -21,6 +21,12 @@ targets = [
 version = 2
 db-path = "~/.cargo/advisory-dbs"
 yanked = "deny"
+# Unmaintained crates are reported wherever they are in the graph, not only when the workspace
+# depends on them directly: an app ships its transitive dependencies too, and the exceptions
+# below are kept so each one is a decision with a reason and a condition for removing it.
+# cargo-deny 0.22 changed the default to "workspace", which hid all of them; this keeps the
+# check the same whichever version runs.
+unmaintained = "all"
 # AccessKit's Linux adapter (accesskit_unix 0.24, through atspi 0.29) is still on the zbus 5
 # line, whose name/variant crates are marked unmaintained since zbus 6 merged them. These are
 # maintenance notices, not vulnerabilities; RemedyUI's own D-Bus code uses zbus 6. Remove
