@@ -21,7 +21,7 @@ The open items of every milestone in one place. Each milestone's section has the
 
 ## M1. Foundations
 
-**Status:** built, except `cargo vet`. The crates, their tests and the local checks pass, with 10 of 10 repeat runs green. `cargo vet` is not set up yet: installing the tool failed on the build machine with an access-denied error. GitHub Actions cannot run on this private repository until the account's Actions billing is sorted, so the same checks run locally before each merge.
+**Status:** built. The crates, their tests and the local checks pass, with 10 of 10 repeat runs green. `cargo vet` is set up in `supply-chain/`: it imports the Mozilla, Google, Bytecode Alliance, Zcash, Embark and ISRG audits and exempts the rest at their current versions, and `cargo xtask check` runs `cargo vet --locked` (skipping it, with a note, where the tool is not installed). GitHub Actions cannot run on this private repository until the account's Actions billing is sorted, so the same checks run locally before each merge.
 
 **Crates:** `core`, `reactive`, `tree`, and the first cut of `test` (the headless runner with a fake clock and scripted input).
 
