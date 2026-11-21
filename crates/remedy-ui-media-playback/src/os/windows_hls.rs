@@ -579,7 +579,7 @@ impl HttpFetch {
 }
 
 impl Fetch for HttpFetch {
-    fn get(&mut self, url: &str) -> Result<Vec<u8>, MediaError> {
+    fn get(&mut self, url: &str, stop: &AtomicBool) -> Result<Vec<u8>, MediaError> {
         if let Some(path) = file_path(url) {
             return std::fs::read(&path).map_err(|e| MediaError::NotFound(format!("{path}: {e}")));
         }
@@ -642,7 +642,7 @@ impl Fetch for HttpFetch {
         unsafe { WinHttpSetTimeouts(request.0, first, first, first, first) }.map_err(failed)?;
         // WinHTTP's own receive timeout did not end a body gone quiet, so a watchdog closes the
         // request, which ends the call waiting on it: no answer for FIRST_BYTE, no byte for
-        // QUIET once it answered, or LOAD in all.
+        // QUIET once it answered, or LOAD in all; or at once when the reader has gone (`stop`).
         let req = request.0;
         let watched = (std::sync::Mutex::new(Some(request)), std::sync::Condvar::new());
         // When something last came (ms from `started`) and how long it may stop for.
@@ -658,7 +658,10 @@ impl Fetch for HttpFetch {
                 while open.is_some() {
                     let since = started.elapsed().as_millis() as u64;
                     let quiet = since.saturating_sub(last.load(Ordering::Relaxed));
-                    if since > LOAD.as_millis() as u64 || quiet > limit.load(Ordering::Relaxed) {
+                    if since > LOAD.as_millis() as u64
+                        || quiet > limit.load(Ordering::Relaxed)
+                        || stop.load(Ordering::Relaxed)
+                    {
                         gave_up.store(true, Ordering::Relaxed);
                         *open = None;
                         return;

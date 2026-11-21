@@ -68,6 +68,8 @@ fn serve(mut s: TcpStream, files: &Files, rate: Option<usize>) -> std::io::Resul
         files.entry("asked".into()).or_default().extend(format!("{path}\n").bytes());
         (files.get(&path).cloned(), files.remove(&format!("stall:{path}")).is_some())
     };
+    let trickle =
+        files.lock().unwrap_or_else(PoisonError::into_inner).contains_key(&format!("trickle:{path}"));
     let (status, body) = match body {
         Some(b) => ("200 OK", b),
         None => ("404 Not Found", Vec::new()),
@@ -77,6 +79,22 @@ fn serve(mut s: TcpStream, files: &Files, rate: Option<usize>) -> std::io::Resul
         "HTTP/1.1 {status}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
         body.len()
     )?;
+    if trickle {
+        // A byte every tenth of a second, never quiet long enough to time out, until the client
+        // hangs up; when it did is kept under `closed:` (ms since the Unix epoch).
+        let (head, rest) = body.split_at(body.len() / 2);
+        s.write_all(head)?;
+        for b in rest.chunks(1) {
+            if s.write_all(b).and_then(|()| s.flush()).is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+        let at = now.as_millis().to_string().into_bytes();
+        files.lock().unwrap_or_else(PoisonError::into_inner).insert(format!("closed:{path}"), at);
+        return Ok(());
+    }
     if stall {
         let (head, rest) = body.split_at(body.len() / 2);
         s.write_all(head)?;
@@ -530,4 +548,31 @@ fn pictures_on_the_gpu() {
         n += 1;
     }
     assert_eq!(n, 75, "pictures");
+}
+
+/// A stream dropped while a segment is still coming (slowly, but never quiet long enough to
+/// time out): the fetch is given up at once, not run on for up to a minute.
+#[test]
+fn dropping_a_stream_mid_fetch_hangs_up_promptly() {
+    let (url, files) = server(playlist());
+    let marked = |k: &str| files.lock().unwrap_or_else(PoisonError::into_inner).get(k).cloned();
+    files.lock().unwrap_or_else(PoisonError::into_inner).insert("trickle:seg00001.ts".into(), Vec::new());
+    let Some(mut d) = open(&url) else { return };
+    let asked = |p: &str| marked("asked").is_some_and(|a| String::from_utf8_lossy(&a).contains(p));
+    // Read until the trickling segment is being fetched.
+    let started = std::time::Instant::now();
+    while !asked("seg00001.ts") {
+        assert!(started.elapsed() < Duration::from_secs(10), "the second segment is asked for");
+        let _ = d.buffered();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(marked("closed:seg00001.ts").is_none(), "still coming");
+    let dropped = std::time::Instant::now();
+    drop(d);
+    while marked("closed:seg00001.ts").is_none() {
+        assert!(dropped.elapsed() < Duration::from_secs(2), "the fetch hung up within 2 s of the drop");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    eprintln!("hung up {:?} after the drop", dropped.elapsed());
 }
