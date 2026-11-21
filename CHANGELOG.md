@@ -10,6 +10,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Media keys and the system's media controls.** The `player` widget answers the media keys
+  (Play/Pause, Play, Pause, Stop, Next, Previous, Rewind and Fast-forward ±10 s, as Portal's
+  TV page), and `Player::now_playing(Some(NowPlaying::new(title).subtitle(..).art(..)))`
+  (feature `media-session`) shows what plays in Windows' SMTC or a browser's
+  `navigator.mediaSession`, kept in step with the player's state, position, timeline and
+  remote mode, its buttons coming back to the player (`desktop::media_session` for apps
+  without the player). Linux (MPRIS), macOS and Android say `Unsupported` for now.
 - **A next made later** (`NextUp::later(title)`), for an app whose server makes the next
   episode's stream only when it is due, as Portal's does. At the end (after the countdown, at
   once with a zero `next_up_delay`), on Play now, Shift+N (N) or `play_next`, the player asks
