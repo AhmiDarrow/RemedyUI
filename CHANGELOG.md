@@ -891,6 +891,14 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **On Android, tapping a text field now opens the on-screen keyboard.** The input-method
+  view was a full-screen overlay; once a field focused it, it ate every later tap, and
+  `showSoftInput` was asked before the view had focus and a window token, so the keyboard
+  often never appeared. The view is now 1 px, it never takes touches (they stay with the
+  app), and the keyboard is shown after focus, including through `WindowInsetsController`
+  on Android 11 and later. A finger tap also always asks for a frame, so the field paints
+  and the text session starts.
+
 - A cancelled pointer (`PointerPhase::Cancel`) over a pressed element panicked in the view.
 - The media player could end before the last of the sound was played on a busy machine:
   the end was declared once the decoded sound was taken, while the time stretcher still held
