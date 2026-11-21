@@ -3484,7 +3484,11 @@ fn middle(e: &El) -> remedy_ui_core::Point {
 /// A scripted minute playing full screen, with a title and a caption on all the while, the
 /// pointer resting over the picture.
 fn full_screen(s: &mut Screen) -> (Player, El) {
-    let (p, view) = scripted_with(s, 60, PlayerOptions::default().two_rows(true));
+    full_screen_with(s, 60, PlayerOptions::default().two_rows(true))
+}
+
+fn full_screen_with(s: &mut Screen, seconds: u64, options: PlayerOptions) -> (Player, El) {
+    let (p, view) = scripted_with(s, seconds, options);
     let cues = parse_subtitles("WEBVTT\n\n00:00.000 --> 01:00.000\nAll along\n", SubtitleFormat::WebVtt);
     let track = SubtitleTrack { label: "English".into(), language: None, cues };
     p.set_caption_track(Some(p.add_subtitles(track)));
@@ -3676,4 +3680,98 @@ fn the_rest_fades_without_motion_under_reduced_motion_and_keeps_the_controls_rea
         s.idle(400);
         assert_eq!(opacity(&chrome), 1.0);
     }
+}
+
+#[test]
+fn in_full_screen_up_next_floats_over_the_picture_and_keeps_its_keys() {
+    let mut s = Screen::new();
+    let options = PlayerOptions::default().two_rows(true).next_up_lead(Some(Duration::from_secs(20)));
+    let (p, view) = full_screen_with(&mut s, 90, options);
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:"), "Episode 5")));
+    s.pump();
+    let (card, chrome, stage) =
+        (part(&view, "player_next"), part(&view, "player_chrome"), part(&view, "player_stage"));
+    assert!(card.info().is_some_and(|i| i.hidden), "not yet");
+    rested(&mut s);
+    assert!(!p.controls_shown());
+    // The last 20 seconds: the card comes up over the picture and shows the controls with it.
+    p.seek(Duration::from_secs(75));
+    s.wait("the card", |_| card.info().is_some_and(|i| !i.hidden));
+    s.pump();
+    s.pump();
+    assert!(p.controls_shown(), "the card coming up wakes the controls");
+    let (c, b, st) = (
+        card.bounds().unwrap_or_default(),
+        chrome.bounds().unwrap_or_default(),
+        stage.bounds().unwrap_or_default(),
+    );
+    assert!(c.max.y <= b.min.y + 0.5, "above the bar: {c:?} {b:?}");
+    assert!(c.min.y >= st.min.y && c.max.y <= st.max.y, "over the picture: {c:?} {st:?}");
+    assert!(st.max.x - c.max.x < 20.0 && c.min.x > st.min.x + 20.0, "at the end side: {c:?}");
+    // It does not fade with the bar, nor move. (The pointer away from it: over the card it
+    // holds the controls.)
+    let away = remedy_ui_core::Point::new(st.min.x + 10.0, st.min.y + st.height() / 2.0);
+    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, away));
+    rested(&mut s);
+    s.idle(400);
+    assert!(!p.controls_shown());
+    assert_eq!(card.info().map(|i| (i.hidden, i.style.opacity)), Some((false, 1.0)));
+    assert_eq!(card.bounds().unwrap_or_default(), c, "it stays where it was");
+    // Under the pointer it holds the controls.
+    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, middle(&card)));
+    s.advance(Duration::from_secs(8));
+    assert!(p.controls_shown(), "hovered");
+    s.ui.pointer(&remedy_ui_input::PointerEvent::new(remedy_ui_input::PointerPhase::Move, away));
+    rested(&mut s);
+    assert!(!p.controls_shown());
+    // The keyboard reaches it, which wakes the controls; screen readers read it.
+    let now = named(&view, "Play now").unwrap_or_else(|| unreachable!("Play now"));
+    let mut tabs = 0;
+    while !now.is_focused() && tabs < 30 {
+        let _ = press(&s.ui, Key::Tab);
+        tabs += 1;
+    }
+    s.pump();
+    assert!(now.is_focused() && p.controls_shown());
+    assert!(
+        s.ui.reader_view()
+            .iter()
+            .any(|n| n.name.as_deref().map(plain).as_deref() == Some("Up next: Episode 5"))
+    );
+    // Once the controls have faded in.
+    s.idle(400);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+    // Out of full screen it is back under the picture.
+    p.request_fullscreen(false);
+    s.pump();
+    s.pump();
+    let (c, st) = (card.bounds().unwrap_or_default(), stage.bounds().unwrap_or_default());
+    assert!(c.min.y >= st.max.y - 0.5, "under the picture: {c:?} {st:?}");
+}
+
+#[test]
+fn caption_lines_are_centred_each_in_its_own_box() {
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 3, PlayerOptions::default());
+    let vtt = "WEBVTT\n\n00:00.000 --> 00:03.000\nA long first line of the caption\nShort\n";
+    let cues = parse_subtitles(vtt, SubtitleFormat::WebVtt);
+    p.set_caption_track(Some(p.add_subtitles(SubtitleTrack {
+        label: "English".into(),
+        language: None,
+        cues,
+    })));
+    s.pump();
+    s.pump();
+    let lines = find(&part(&view, "player_captions"), "player_caption");
+    let texts: Vec<_> = lines.iter().filter_map(|l| l.info().and_then(|i| i.text)).collect();
+    assert_eq!(texts, ["A long first line of the caption", "Short"]);
+    let stage = part(&view, "player_stage").bounds().unwrap_or_default();
+    let mid = (stage.min.x + stage.max.x) / 2.0;
+    for l in &lines {
+        let b = l.bounds().unwrap_or_default();
+        assert!(((b.min.x + b.max.x) / 2.0 - mid).abs() < 1.0, "centred: {b:?} in {stage:?}");
+    }
+    let (a, b) = (lines[0].bounds().unwrap_or_default(), lines[1].bounds().unwrap_or_default());
+    assert!(b.width() < a.width(), "each line its own box");
 }

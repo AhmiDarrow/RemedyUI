@@ -366,5 +366,5 @@ pub use hooks::{WindowsHooks, claim_single_instance, run};
 #[cfg(windows)]
 #[doc(hidden)]
 pub mod pointer {
-    pub use crate::os::pointer::{move_to, position, screen_size, showing};
+    pub use crate::os::pointer::{click, move_to, position, screen_size, showing};
 }
