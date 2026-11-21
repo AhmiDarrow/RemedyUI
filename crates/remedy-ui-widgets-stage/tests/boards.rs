@@ -173,7 +173,11 @@ fn board_text_is_real_text_padded_to_its_cells() {
     let w = line(&el).bounds().unwrap_or_default().width();
     text.set("GATE 12".to_owned());
     let _ = (frame(&ui), frame(&ui));
-    assert!((line(&el).bounds().unwrap_or_default().width() - w).abs() < 0.5, "cells keep the width {w} {:?}", line(&el).bounds());
+    assert!(
+        (line(&el).bounds().unwrap_or_default().width() - w).abs() < 0.5,
+        "cells keep the width {w} {:?}",
+        line(&el).bounds()
+    );
     assert!(audit(&ui).is_empty(), "{:?}", audit(&ui));
 }
 
@@ -223,7 +227,12 @@ fn long_text_scrolls_as_a_marquee_but_not_under_reduced_motion() {
     assert_eq!(pending_timers(&ui, &clock), 0);
     let ui = common::ui();
     let clock = Clock::manual();
-    let el = display_text(&ui, "A long line that does not fit".to_owned(), DisplayOptions::default().marquee(Marquee::Off).clock(clock.clone())).width(60.0);
+    let el = display_text(
+        &ui,
+        "A long line that does not fit".to_owned(),
+        DisplayOptions::default().marquee(Marquee::Off).clock(clock.clone()),
+    )
+    .width(60.0);
     mount(&ui, &el);
     assert_eq!(pending_timers(&ui, &clock), 0);
 }

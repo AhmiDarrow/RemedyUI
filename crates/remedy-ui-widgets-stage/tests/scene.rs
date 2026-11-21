@@ -46,21 +46,33 @@ fn children_stay_on_their_anchor_as_the_stage_resizes() {
     mount(&ui, &el);
     let b = el.bounds().unwrap_or_default();
     // Scale 2: the pier is at (100, 50) in the box; the chip keeps its own size.
-    assert!(near_rect(point.bounds().unwrap_or_default(), Rect::new(90.0, 45.0, 110.0, 55.0).translate(b.min.to_vec2())));
+    assert!(near_rect(
+        point.bounds().unwrap_or_default(),
+        Rect::new(90.0, 45.0, 110.0, 55.0).translate(b.min.to_vec2())
+    ));
     // The dock fills its scaled rectangle.
-    assert!(near_rect(filler.bounds().unwrap_or_default(), Rect::new(0.0, 80.0, 200.0, 100.0).translate(b.min.to_vec2())));
+    assert!(near_rect(
+        filler.bounds().unwrap_or_default(),
+        Rect::new(0.0, 80.0, 200.0, 100.0).translate(b.min.to_vec2())
+    ));
 
     // A wider box letterboxes: scale stays 2, the design is centered.
     let _ = el.clone().width(300.0);
     let _ = (frame(&ui), frame(&ui));
     assert_eq!(stage.transform().offset.x, 50.0);
-    assert!(near_rect(point.bounds().unwrap_or_default(), Rect::new(140.0, 45.0, 160.0, 55.0).translate(b.min.to_vec2())));
+    assert!(near_rect(
+        point.bounds().unwrap_or_default(),
+        Rect::new(140.0, 45.0, 160.0, 55.0).translate(b.min.to_vec2())
+    ));
     let _ = w;
 
     // Moving the anchor moves the child.
     stage.set_anchor("pier", Anchor::point(0.0, 0.0).place(Place::Start, Place::Start));
     let _ = (frame(&ui), frame(&ui));
-    assert!(near_rect(point.bounds().unwrap_or_default(), Rect::new(50.0, 0.0, 70.0, 10.0).translate(b.min.to_vec2())));
+    assert!(near_rect(
+        point.bounds().unwrap_or_default(),
+        Rect::new(50.0, 0.0, 70.0, 10.0).translate(b.min.to_vec2())
+    ));
     assert!(audit(&ui).is_empty(), "{:?}", audit(&ui));
 }
 
@@ -111,7 +123,13 @@ fn sprites_are_crisp_and_change_state() {
     let ui = ui();
     let state = Signal::new("idle".to_owned());
     let clock = remedy_ui_viz::Clock::manual();
-    let el = sprite(&ui, "Alex", blinker(), state, SpriteOptions::default().scale(PixelScale::Fixed(8)).clock(clock.clone()));
+    let el = sprite(
+        &ui,
+        "Alex",
+        blinker(),
+        state,
+        SpriteOptions::default().scale(PixelScale::Fixed(8)).clock(clock.clone()),
+    );
     mount(&ui, &el);
     let b = el.bounds().unwrap_or_default();
     assert_eq!(b.size(), Size::new(16.0, 16.0));
@@ -164,11 +182,21 @@ fn anchors_keep_to_the_art_in_right_to_left_windows() {
     let stage = scene(&ui, "Map", Size::new(100.0, 50.0), SceneOptions::default())
         .place_at(Anchor::point(0.0, 0.0).place(Place::Start, Place::Start), a.clone());
     let el: El = stage.into();
-    let holder = ui.el("holder").layout(|l| l.direction = remedy_ui_layout::Direction::Rtl).child(el.clone().width(200.0).height(100.0));
+    let holder = ui
+        .el("holder")
+        .layout(|l| l.direction = remedy_ui_layout::Direction::Rtl)
+        .child(el.clone().width(200.0).height(100.0));
     mount(&ui, &holder);
     let b = el.bounds().unwrap_or_default();
     // The art is a picture: its left stays left.
-    assert!(near_rect(a.bounds().unwrap_or_default(), Rect::new(b.min.x, b.min.y, b.min.x + 20.0, b.min.y + 10.0)), "{:?} {b:?}", a.bounds());
+    assert!(
+        near_rect(
+            a.bounds().unwrap_or_default(),
+            Rect::new(b.min.x, b.min.y, b.min.x + 20.0, b.min.y + 10.0)
+        ),
+        "{:?} {b:?}",
+        a.bounds()
+    );
 }
 
 #[test]
@@ -193,7 +221,12 @@ fn parallax_follows_the_pointer_but_not_under_reduced_motion() {
     let at = |s: &Shot, x: f32| s.at((b.min.x + x) as u32, (b.min.y + 50.0) as u32);
     assert!(near(at(&shot, 41.0), accent, 3));
     // The pointer at the right edge moves a depth-1 layer the full ten units right.
-    pointer(&ui, remedy_ui_core::Point::new(b.max.x - 1.0, b.center().y), PointerPhase::Move, Buttons::default());
+    pointer(
+        &ui,
+        remedy_ui_core::Point::new(b.max.x - 1.0, b.center().y),
+        PointerPhase::Move,
+        Buttons::default(),
+    );
     shot.take(&ui);
     assert!(!near(at(&shot, 45.0), accent, 3), "moved right");
     assert!(near(at(&shot, 65.0), accent, 3));
