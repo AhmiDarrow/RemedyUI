@@ -144,6 +144,9 @@ struct Feed {
     audio: VecDeque<AudioItem>,
     audio_frames: u64,
     cues: Vec<(usize, Cue)>,
+    /// The decoder's text samples are dropped: the source's timed text was read from the
+    /// file instead.
+    skip_text: bool,
     eof: bool,
     error: Option<MediaError>,
     closed: bool,
@@ -225,7 +228,7 @@ impl Feed {
                 self.audio.push_back(AudioItem { at, samples });
             }
             Sample::Text { track, at, until, text } => {
-                if until > at {
+                if until > at && !self.skip_text {
                     self.cues.push((track, Cue { start: at, end: until, text }));
                 }
             }
@@ -327,7 +330,7 @@ fn decode_step(st: &mut Decoding) -> Next {
         // A seek came while this was read: it is from before it.
         return Next::Now;
     }
-    let (no_video, no_audio) = (f.video.is_empty(), f.audio.is_empty());
+    let (no_video, no_audio, no_cues) = (f.video.is_empty(), f.audio.is_empty(), f.cues.is_empty());
     let ended = match read {
         Ok(Some(s)) => {
             f.insert(s);
@@ -343,9 +346,13 @@ fn decode_step(st: &mut Decoding) -> Next {
             true
         }
     };
-    // The presenting worker hears of the first picture or sound after it ran out, and of
-    // the end; the rest it takes on its own schedule.
-    let arrived = (no_video && !f.video.is_empty()) || (no_audio && !f.audio.is_empty());
+    // The presenting worker hears of the first picture or sound after it ran out, of the
+    // first cue it has not taken, and of the end; the rest it takes on its own schedule.
+    // Cues are heard of too: paused, the presenter runs only when woken, and a cue decoded
+    // after the picture a seek shows would otherwise wait for the next play or seek.
+    let arrived = (no_video && !f.video.is_empty())
+        || (no_audio && !f.audio.is_empty())
+        || (no_cues && !f.cues.is_empty());
     drop(f);
     if (arrived || ended) && !(st.wake)() {
         return Next::Idle;
@@ -449,6 +456,8 @@ struct Presenter {
     done: bool,
     /// The source is a file on this machine: all of it is there to play.
     local: bool,
+    /// The source's timed text was read from the file (an MP4's), not from the decoder.
+    own_text: bool,
     /// The device holds sound it is not playing; the wall clock leads meanwhile.
     stalled: bool,
 }
@@ -498,6 +507,7 @@ impl Presenter {
             own: None,
             done: false,
             local: false,
+            own_text: false,
         }
     }
 
@@ -513,13 +523,15 @@ impl Presenter {
         self.local = source.local_path().is_some();
         match self.host.open(source) {
             Ok(dec) => {
-                // Timed text inside an MP4, which Media Foundation, AVFoundation and
-                // MediaCodec do not hand out.
-                if dec.info().text_tracks.is_empty()
-                    && let Some(path) = source.local_path()
-                {
+                // Timed text inside an MP4 is read from the file, whole, on every platform:
+                // Media Foundation, AVFoundation and MediaCodec do not hand it out, and
+                // GStreamer hands each cue out well after the pictures around it (seconds
+                // late, past its end, for a player reading just ahead of the clock). The
+                // decoder's copy of the same track is then left out.
+                if let Some(path) = source.local_path() {
                     let found = crate::mp4::text_tracks(path);
                     if !found.is_empty() {
+                        self.own_text = true;
                         lock(&self.shared.status).new_tracks.extend(found);
                     }
                 }
@@ -550,9 +562,13 @@ impl Presenter {
             Poll::Ready(Err(e)) => self.failed = Some(e),
             Poll::Ready(Ok(())) => {
                 self.info = dec.info().clone();
+                if self.own_text {
+                    self.info.text_tracks.clear();
+                }
                 self.opened = true;
                 {
                     let mut f = lock(&self.feed.feed);
+                    f.skip_text = self.own_text;
                     f.audio_format = self.info.audio;
                     f.frame_time = self
                         .info
