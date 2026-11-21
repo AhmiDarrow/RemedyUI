@@ -208,7 +208,24 @@ fn walk<T: CompositeTarget>(
             }
             CompositeOp::PushFilter { transform, filter, region } => {
                 target.set_transform(shift * kaffine(*transform));
-                match crate::layer_filter(filter, transform.scale_factor()) {
+                // The region is what the group draws grown by its filters' reach (offsets
+                // included) on every side; shrunk by this filter's own reach it still holds
+                // the drawing. A shadow wholly outside the target shows nothing and is not
+                // drawn (the vello renderers mishandle one; see `shadow_beyond_target`).
+                let in_target = {
+                    let r = CompositeOp::filter_reach(transform, filter);
+                    let drawn =
+                        Rect::new(region.min.x + r, region.min.y + r, region.max.x - r, region.max.y - r);
+                    let k = shift.transform_rect_bbox(krect(drawn));
+                    Rect::new(k.x0 as f32, k.y0 as f32, k.x1 as f32, k.y1 as f32)
+                };
+                // vello's buffer never reaches past the target: what is drawn there.
+                let (w, h) = target.size();
+                let whole = Rect::new(0.0, 0.0, f32::from(w), f32::from(h));
+                let unseen = in_target
+                    .intersect(whole)
+                    .is_some_and(|d| crate::shadow_beyond_target(filter, *transform, d, whole));
+                match crate::layer_filter(filter, transform.scale_factor()).filter(|_| !unseen) {
                     Some(f) => target.push_filter_layer(f),
                     None => target.push_opacity_layer(1.0),
                 }

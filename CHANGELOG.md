@@ -612,6 +612,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **Drop shadows moved wholly off the target drew wrong.** The CPU renderer drew a shadow moved
+  past the left or top edge of a tile or window under its shape (vello_cpu's shift wraps its
+  bounds check), and the GPU renderer failed the whole frame for nested shadows moved far off
+  (vello_gpu asked for textures past the device's limit). A shadow wholly outside what is drawn
+  shows nothing, so both renderers now draw such a group without it, in display lists and on
+  filtered layers. Also, a colour-matrix group whose clips and groups do not nest is pictured
+  over the whole target, so nothing it draws is cut off.
 - Prism: an `if` that changed two or more variables merged them in a hash map's order, so
   the same source could compile to differently ordered (equally correct) programs. They now
   merge in name order.

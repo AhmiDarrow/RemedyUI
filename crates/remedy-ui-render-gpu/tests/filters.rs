@@ -546,3 +546,114 @@ fn colour_matrix_cost() {
         eprintln!("{name}: cpu {cpu:?} gpu {gpu:?} ({})", g.context().adapter.get_info().name);
     }
 }
+
+#[test]
+fn shadows_beyond_the_left_or_top_edge_are_not_drawn_unmoved() {
+    // vello_cpu shifts a shadow inside the filter's buffer, and a shift past the buffer's left
+    // or top edge wrapped and left the shadow under the shape. Such a shadow shows nothing:
+    // the frame must equal the shape drawn with no shadow at all, on both renderers, directly
+    // and through tiles and filtered layers.
+    let shadow =
+        |off: Vec2| Filter::DropShadow { offset: off, blur: 0.714, color: Color::rgba8(125, 23, 239, 252) };
+    let shape = |l: &mut DisplayList| {
+        l.fill_rounded(
+            Rect::new(-5.84, -15.488, 28.8195, 30.1691),
+            CornerRadii::all(8.16),
+            Brush::Solid(Color::rgba8(246, 193, 234, 207)),
+        );
+        l.fill_rect(Rect::new(40.0, 50.0, 70.0, 90.0), Brush::Solid(Color::rgb8(30, 120, 200)));
+    };
+    // The shape drawn as a group, as a filter group without its shadow draws.
+    let mut plain = DisplayList::new();
+    plain.push(Item::PushLayer { opacity: 1.0, blend: remedy_ui_paint::Blend::Normal });
+    shape(&mut plain);
+    plain.push(Item::PopLayer);
+    let mut g = gpu();
+    let mut c = CpuRenderer::new();
+    let (Ok(want), Ok(want_gpu)) =
+        (c.render(&plain, 96, 96, 1.0, Color::WHITE), g.render(&plain, 96, 96, 1.0, Color::WHITE))
+    else {
+        unreachable!("both render")
+    };
+    for off in [
+        Vec2::new(-1.0e9, -4.622),
+        Vec2::new(-200.0, 0.0),
+        Vec2::new(-100.0, 3.0),
+        Vec2::new(0.0, -150.0),
+        Vec2::new(-120.0, -120.0),
+        // Past the right and bottom: vello_gpu sized buffers to reach these.
+        Vec2::new(1.0e9, 0.0),
+        Vec2::new(150.0, 150.0),
+    ] {
+        for (closed, layer) in [(true, false), (false, false), (false, true)] {
+            let mut l = DisplayList::new();
+            l.push(Item::PushFilter(shadow(off)));
+            if layer {
+                l.push(Item::PushLayer { opacity: 0.0531, blend: remedy_ui_paint::Blend::Normal });
+                l.push(Item::PopLayer);
+            }
+            shape(&mut l);
+            if closed {
+                l.pop_filter();
+            }
+            let (Ok(a), Ok(b)) =
+                (c.render(&l, 96, 96, 1.0, Color::WHITE), g.render(&l, 96, 96, 1.0, Color::WHITE))
+            else {
+                unreachable!("both render")
+            };
+            assert_eq!(differing(&a, &want, 0).0, 0, "{off:?}: the CPU draws no shadow");
+            let (n, worst) = differing(&b, &want_gpu, 2);
+            assert_eq!(n, 0, "{off:?}: the GPU draws no shadow (worst {worst})");
+        }
+    }
+    // The same through the compositor: the shadow on a layer's list, and on a filtered layer.
+    for as_layer in [false, true] {
+        let off = Vec2::new(-150.0, -2.0);
+        let tree = if as_layer {
+            let content = Layer::new(LayerId(3), Rect::new(0.0, 0.0, 96.0, 96.0), plain.clone());
+            LayerTree::new(vec![
+                Layer::new(LayerId(2), Rect::new(0.0, 0.0, 96.0, 96.0), DisplayList::new())
+                    .with_filters(vec![shadow(off)])
+                    .with_child(content),
+            ])
+        } else {
+            let mut l = DisplayList::new();
+            l.push_filter(shadow(off));
+            shape(&mut l);
+            l.pop_filter();
+            LayerTree::new(vec![Layer::new(LayerId(1), Rect::new(0.0, 0.0, 96.0, 96.0), l)])
+        };
+        let mut comp = Compositor::new(96, 96, 1.0, ScrollPhysics::CLAMPED);
+        comp.commit(tree);
+        let plan = comp.frame(Duration::ZERO);
+        let mut gc = GpuCompositor::new(gpu(), LadderOptions::default());
+        let (Ok(a), Ok(b)) = (
+            CpuCompositor::new().present(&plan, 96, 96, Color::WHITE),
+            gc.present_to_frame(&plan, 96, 96, Color::WHITE),
+        ) else {
+            unreachable!("both composite")
+        };
+        assert_eq!(differing(&a, &want, 2).0, 0, "layer {as_layer}: the CPU composite draws no shadow");
+        assert_eq!(differing(&b, &want_gpu, 2).0, 0, "layer {as_layer}: the GPU composite draws no shadow");
+    }
+    // Shadows moved far off the target, nested: the GPU asked for a texture past the device's
+    // limit and failed the whole frame (inside a colour-matrix group, the group vanished).
+    for matrix in [false, true] {
+        let mut l = DisplayList::new();
+        if matrix {
+            l.push_filter(Filter::ColorMatrix { matrix: ColorMatrix::invert(0.7) });
+        }
+        l.push_filter(shadow(Vec2::new(1.0e9, 0.0)));
+        l.push_filter(shadow(Vec2::new(1.0e9, 0.0)));
+        shape(&mut l);
+        let (Ok(a), Ok(b)) =
+            (c.render(&l, 96, 96, 1.0, Color::WHITE), g.render(&l, 96, 96, 1.0, Color::WHITE))
+        else {
+            unreachable!("matrix {matrix}: both render")
+        };
+        let (n, worst) = differing(&a, &b, 8);
+        assert_eq!(n, 0, "matrix {matrix}: the renderers agree (worst {worst})");
+        assert!(a.pixel(50, 70).is_some_and(|p| p != [255; 4]), "matrix {matrix}: the shape is drawn");
+    }
+    assert!(g.context().take_errors().is_empty());
+}
