@@ -96,6 +96,15 @@ fn the_platform_decoder_reads_pictures_and_sound_in_time() {
     let Some(host) = platform() else { return };
     let mut dec = host.open(&MediaSource::file(clip())).unwrap_or_else(|e| unreachable!("open: {e}"));
     let info = dec.info().clone();
+    // The pipeline's buffering answer, when it gives one, lies within the media.
+    if let Some(ranges) = dec.buffered() {
+        eprintln!("the decoder holds {ranges:?}");
+        let end = info.duration.unwrap_or(Duration::MAX);
+        assert!(
+            ranges.iter().all(|r| r.start <= r.end && r.end <= end + Duration::from_millis(100)),
+            "{ranges:?}"
+        );
+    }
     assert!(info.duration.is_some_and(|d| near(d, 3.0, 0.1)), "{info:?}");
     assert!(info.seekable);
     let v = info.video.clone().unwrap_or_else(|| unreachable!("a picture: {info:?}"));
@@ -157,6 +166,10 @@ fn a_missing_file_says_so() {
 struct Screen {
     ui: Ui,
     frame: Option<VideoFrame>,
+    /// The layers of the latest frame that drew any.
+    layers: Vec<Arc<Layer>>,
+    /// Timers the window asked for, and when each is due.
+    timers: Vec<(u64, Instant)>,
 }
 
 fn videos(layer: &Layer, out: &mut Option<VideoFrame>) {
@@ -172,7 +185,7 @@ fn videos(layer: &Layer, out: &mut Option<VideoFrame>) {
 
 impl Screen {
     fn new() -> Screen {
-        Screen { ui: ui(), frame: None }
+        Screen { ui: ui(), frame: None, layers: Vec::new(), timers: Vec::new() }
     }
 
     fn pump(&mut self) {
@@ -186,8 +199,23 @@ impl Screen {
             if v.is_some() {
                 self.frame = v;
             }
+            self.layers = tree.roots.clone();
         }
-        let _ = self.ui.take_requests();
+        for r in self.ui.take_requests() {
+            match r {
+                remedy_ui_view::Request::Timer { id, delay } => {
+                    self.timers.push((id, Instant::now() + delay))
+                }
+                remedy_ui_view::Request::CancelTimer(id) => self.timers.retain(|(t, _)| *t != id),
+                _ => {}
+            }
+        }
+        let now = Instant::now();
+        let due: Vec<u64> = self.timers.iter().filter(|(_, at)| *at <= now).map(|(id, _)| *id).collect();
+        self.timers.retain(|(_, at)| *at > now);
+        for id in due {
+            self.ui.fire_timer(id);
+        }
     }
 
     fn wait(&mut self, what: &str, ok: impl Fn(&Screen) -> bool) {
@@ -260,6 +288,10 @@ fn the_player_plays_seeks_and_ends_on_the_platform_decoders() {
     s.ui.root().child(view.clone());
     s.wait("opened", |_| p.state() == PlaybackState::Paused);
     assert!(p.duration().is_some_and(|d| near(d, 3.0, 0.1)));
+    // A file on this machine is there to play whole.
+    let len = p.duration().unwrap_or_default();
+    s.wait("buffered", |_| !p.buffered().is_empty());
+    assert_eq!(p.buffered(), vec![Duration::ZERO..len], "a local file is held whole");
     // Paused at the start, the first picture shows.
     s.wait("the first picture", |s| s.hue() == 'r');
     assert!(near(p.position(), 0.0, 0.001));
@@ -655,4 +687,232 @@ fn a_device_that_stops_playing_hands_the_clock_to_the_wall() {
 fn every_locale_has_every_message_with_its_plurals() {
     let problems = remedy_ui_view::strings::check(&remedy_ui_media_playback::STRINGS);
     assert!(problems.is_empty(), "{problems:#?}");
+}
+
+#[test]
+fn ranges_merge_in_order_within_the_media() {
+    let ms = Duration::from_millis;
+    assert_eq!(merge_ranges(vec![], None), vec![]);
+    assert_eq!(
+        merge_ranges(vec![ms(500)..ms(900), ms(0)..ms(200), ms(150)..ms(300), ms(900)..ms(1000)], None),
+        vec![ms(0)..ms(300), ms(500)..ms(1000)],
+        "sorted; overlapping and touching ones joined"
+    );
+    assert_eq!(merge_ranges(vec![ms(100)..ms(100), ms(300)..ms(200)], None), vec![], "empty ones dropped");
+    assert_eq!(
+        merge_ranges(vec![ms(0)..ms(5000), ms(6000)..ms(7000)], Some(ms(3000))),
+        vec![ms(0)..ms(3000)],
+        "cut to the media's length"
+    );
+}
+
+/// A scripted host whose source says how much of it has arrived, like a stream downloading.
+struct Downloading {
+    inner: Scripted,
+    arrived: Arc<Mutex<Option<Vec<std::ops::Range<Duration>>>>>,
+}
+
+struct DownloadingDecoder {
+    inner: Box<dyn Decoder>,
+    arrived: Arc<Mutex<Option<Vec<std::ops::Range<Duration>>>>>,
+}
+
+impl Decoder for DownloadingDecoder {
+    fn info(&self) -> &MediaInfo {
+        self.inner.info()
+    }
+    fn read(&mut self) -> Result<Option<Sample>, MediaError> {
+        self.inner.read()
+    }
+    fn seek(&mut self, to: Duration) -> Result<(), MediaError> {
+        self.inner.seek(to)
+    }
+    fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
+        self.arrived.lock().ok().and_then(|a| a.clone())
+    }
+}
+
+impl MediaHost for Downloading {
+    fn name(&self) -> &str {
+        "downloading"
+    }
+    fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
+        Ok(Box::new(DownloadingDecoder { inner: self.inner.open(source)?, arrived: self.arrived.clone() }))
+    }
+    fn audio_output(&self, f: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
+        self.inner.audio_output(f)
+    }
+}
+
+#[test]
+fn the_seek_bar_shows_what_has_arrived_and_what_is_decoded_ahead() {
+    let ms = Duration::from_millis;
+    let arrived = Arc::new(Mutex::new(Some(vec![ms(0)..ms(1500)])));
+    let host = Arc::new(Downloading {
+        inner: Scripted { heard: Arc::new(AtomicU64::new(0)), buffer: ms(200), device: false, seconds: 10 },
+        arrived: arrived.clone(),
+    });
+    let mut s = Screen::new();
+    let p = Player::open(&s.ui, host, MediaSource::url("script:"), PlayerOptions::default());
+    s.ui.root().child(player(&s.ui, &p, "Scripted"));
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    s.wait("what arrived", |_| p.buffered().first().is_some_and(|r| r.start == ms(0) && r.end >= ms(1500)));
+    // More arrives, in two stretches (a seek ahead made the source fetch from 6 s).
+    if let Ok(mut a) = arrived.lock() {
+        *a = Some(vec![ms(0)..ms(3000), ms(6000)..ms(8000), ms(9000)..ms(20_000)]);
+    }
+    s.wait("both stretches", |_| {
+        let b = p.buffered();
+        b.len() == 3 && b.get(1) == Some(&(ms(6000)..ms(8000))) && b.last().map(|r| r.end) == Some(ms(10_000))
+    });
+    // A source that says nothing: what is decoded ahead of the playhead still shows.
+    if let Ok(mut a) = arrived.lock() {
+        *a = None;
+    }
+    p.seek(ms(4000));
+    s.wait("decoded ahead of 4 s", |_| {
+        let b = p.buffered();
+        b.len() == 1 && b.first().is_some_and(|r| r.start == ms(4000) && r.end > ms(4000))
+    });
+    // The bar draws the buffered stretch from the playhead on: a translucent tone of the text
+    // color over the line (the played part, 0 to 4 s, is the accent).
+    fn fills(layer: &Layer, out: &mut Vec<(remedy_ui_core::Rect, remedy_ui_core::Color)>) {
+        for item in layer.content.items() {
+            if let Item::FillRect { rect, brush: remedy_ui_paint::Brush::Solid(c), .. } = item {
+                out.push((*rect, *c));
+            }
+        }
+        for c in &layer.children {
+            fills(c, out);
+        }
+    }
+    s.idle(50);
+    let mut all = Vec::new();
+    for l in &s.layers {
+        fills(l, &mut all);
+    }
+    let toned: Vec<_> = all.iter().filter(|(_, c)| (c.a - 0.35).abs() < 0.01).collect();
+    assert_eq!(toned.len(), 1, "one buffered stretch drawn: {toned:?}");
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+/// Scripted clips by name: `script:N` lasts N seconds, with no sound device.
+struct Clips;
+
+impl MediaHost for Clips {
+    fn name(&self) -> &str {
+        "clips"
+    }
+    fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
+        let seconds = source.to_url().trim_start_matches("script:").parse().unwrap_or(1);
+        Scripted {
+            heard: Arc::new(AtomicU64::new(0)),
+            buffer: Duration::from_millis(200),
+            device: false,
+            seconds,
+        }
+        .open(source)
+    }
+    fn audio_output(&self, _: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
+        Err(MediaError::Device("no device in this script".into()))
+    }
+}
+
+/// Whether the "up next" card shows.
+fn card_shown(view: &El) -> bool {
+    find(view, "player_next").iter().any(|c| c.info().is_some_and(|i| !i.hidden))
+}
+
+fn texts(el: &El, widget: &str) -> Vec<String> {
+    find(el, widget)
+        .iter()
+        .filter_map(|l| l.info().filter(|i| !i.hidden).and_then(|i| i.text))
+        .map(|t| plain(&t))
+        .collect()
+}
+
+#[test]
+fn next_up_counts_down_at_the_end_and_plays_in_the_same_player() {
+    let mut s = Screen::new();
+    let options = PlayerOptions::default().next_up_delay(Some(Duration::from_millis(1500)));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:1"), options);
+    let view = player(&s.ui, &p, "Scripted");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:3"), "The long one")));
+    assert!(!card_shown(&view), "no card before the end");
+    p.play();
+    s.wait("ended", |_| p.state() == PlaybackState::Ended);
+    s.wait("counting down", |_| p.countdown().is_some());
+    assert!(card_shown(&view));
+    let shown = texts(&view, "label");
+    assert!(shown.iter().any(|t| t == "Up next: The long one"), "{shown:?}");
+    assert!(shown.iter().any(|t| t == "Playing in 2 seconds"), "{shown:?}");
+    s.wait("one second left", |_| texts(&view, "label").iter().any(|t| t == "Playing in 1 second"));
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "the card passes the audit: {problems:?}");
+    // The countdown ends: the next plays here, from its start, with every signal its own.
+    s.wait("the next playing", |_| {
+        p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(3))
+    });
+    assert_eq!(p.next_up(), None);
+    assert_eq!(p.countdown(), None);
+    assert!(p.position() < Duration::from_secs(1));
+    assert!(!card_shown(&view), "the card went");
+    // It ends with nothing next: nothing counts down.
+    s.wait("the second end", |_| p.state() == PlaybackState::Ended);
+    s.idle(100);
+    assert_eq!(p.countdown(), None);
+}
+
+#[test]
+fn cancelling_keeps_the_next_for_when_the_person_asks() {
+    let mut s = Screen::new();
+    let options = PlayerOptions::default().next_up_delay(Some(Duration::from_millis(300)));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:1"), options);
+    let view = player(&s.ui, &p, "Scripted");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:2"), "Two")));
+    p.play();
+    s.wait("counting down", |_| p.countdown().is_some());
+    // Cancel on the card: the countdown stops and the card goes.
+    named(&view, "Cancel").unwrap_or_else(|| unreachable!("a cancel button")).focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.idle(600);
+    assert_eq!(p.state(), PlaybackState::Ended, "it stays at the end");
+    assert_eq!(p.countdown(), None);
+    assert!(p.next_up().is_some(), "the next is kept");
+    // Shift+N plays it.
+    s.pump();
+    let shift = remedy_ui_input::Modifiers { shift: true, ..Default::default() };
+    assert!(!card_shown(&view), "cancelled: the card is put away");
+    named(&view, "Seek").unwrap_or_else(|| unreachable!("a seek bar")).focus();
+    assert!(s.ui.key(&KeyEvent::press(Key::Character("N".into())).with_modifiers(shift).with_text(None)));
+    s.wait("the next playing", |_| {
+        p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(2))
+    });
+}
+
+#[test]
+fn under_reduced_motion_the_next_waits_for_the_person() {
+    let mut s = Screen::new();
+    s.ui.set_reduced_motion(true);
+    let options = PlayerOptions::default().next_up_delay(Some(Duration::from_millis(200)));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:1"), options);
+    let view = player(&s.ui, &p, "Scripted");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    p.set_next_up(Some(NextUp::new(MediaSource::url("script:2"), "Two")));
+    p.play();
+    s.wait("ended", |_| p.state() == PlaybackState::Ended);
+    s.idle(500);
+    assert_eq!(p.countdown(), None, "no countdown");
+    assert_eq!(p.state(), PlaybackState::Ended);
+    assert!(card_shown(&view), "the card still offers it");
+    assert!(texts(&view, "label").iter().any(|t| t == "Up next: Two"));
+    // Play now, though: chosen, it plays even under reduced motion.
+    p.play_next();
+    s.wait("the next playing", |_| p.state() == PlaybackState::Playing);
 }

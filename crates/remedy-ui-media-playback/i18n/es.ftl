@@ -24,3 +24,11 @@ playback-full-screen = Pantalla completa
 playback-exit-full-screen = Salir de pantalla completa
 playback-seek = Posición de reproducción
 playback-seek-value = { $position } de { $duration }
+playback-next-up = A continuación: { $title }
+playback-next-up-in = { $count ->
+    [one] Empieza en { $count } segundo
+    [many] Empieza en { $count } segundos
+   *[other] Empieza en { $count } segundos
+}
+playback-play-now = Reproducir ahora
+playback-next-cancel = Cancelar

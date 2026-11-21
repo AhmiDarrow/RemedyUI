@@ -21,6 +21,7 @@ mod path;
 mod video;
 
 pub use path::{Path, PathEl, Stroke, StrokeCap, StrokeJoin};
+pub use remedy_ui_core::ColorMatrix;
 pub use video::{Coefficients, PixelFormat, Plane, VideoFrame, YuvMatrix};
 
 use std::sync::Arc;
@@ -226,6 +227,15 @@ pub enum Filter {
         /// The shadow's color (its alpha scales the shadow).
         color: Color,
     },
+    /// A colour matrix on every pixel the group draws (CSS `saturate()`, `hue-rotate()`,
+    /// `grayscale()`, `sepia()`, `brightness()`, `contrast()`, `invert()`; SVG
+    /// `feColorMatrix`): the group is drawn to pixels of its own, unpremultiplied, run
+    /// through the matrix, clamped and premultiplied again. It reaches no further than the
+    /// group draws, and pixels the group leaves transparent stay transparent.
+    ColorMatrix {
+        /// The matrix ([`ColorMatrix`]'s presets build the CSS ones).
+        matrix: ColorMatrix,
+    },
 }
 
 /// The most a filter blurs, as a standard deviation in the filter's own units (device pixels
@@ -245,6 +255,22 @@ pub const MAX_FILTER_OFFSET: f32 = 2048.0;
 /// keeps it within any thread's stack. RemedyUI's own walks (the compositor's layer tree)
 /// use explicit stacks and take any depth.
 pub const MAX_GROUP_DEPTH: usize = 256;
+/// How deep glass seen through glass is drawn: glass ([`Item::Backdrop`]) draws again what
+/// is under it, and glass under glass draws again what is under that, so a stack of panes
+/// would cost twice as much for every pane. Past this depth a pane seen through others is
+/// drawn without its frost.
+pub const MAX_BACKDROP_DEPTH: usize = 2;
+/// The most panes of glass drawn with their frost in one raster (a tile, a frame); the rest
+/// are drawn without it, so a theme stacking glass cannot stall a frame.
+pub const MAX_BACKDROP_REPLAYS: usize = 128;
+/// The most colour-matrix groups ([`Filter::ColorMatrix`]) renderers draw nested inside one
+/// another. Each open one holds a picture of its own, so a theme nesting a thousand of them
+/// does not hold a thousand pictures: groups deeper than this are drawn without their matrix.
+pub const MAX_FILTER_MATRIX_DEPTH: usize = 4;
+/// The most colour-matrix groups a renderer draws through their matrix in one raster (a tile,
+/// a snapshot). Each costs a picture and a pass of its own, so a theme putting one on every
+/// row of a long list is bounded: the groups past this many are drawn without their matrix.
+pub const MAX_FILTER_MATRIX_GROUPS: usize = 64;
 
 /// How much blur and offset a chain of nested filters has left to draw with.
 ///
@@ -281,6 +307,8 @@ impl FilterBudget {
         let std_dev = (self.std_dev - sigma * unit).max(0.0);
         match *filter {
             Filter::Blur { .. } => (Filter::Blur { radius: sigma }, FilterBudget { std_dev, ..self }),
+            // A matrix neither blurs nor moves: it takes none of the budget.
+            Filter::ColorMatrix { matrix } => (Filter::ColorMatrix { matrix: matrix.limited() }, self),
             Filter::DropShadow { offset, color, .. } => {
                 let o = |v: f32, left: f32| if v.is_finite() { v.clamp(-left / k, left / k) } else { 0.0 };
                 let offset = Vec2::new(o(offset.x, self.offset.x), o(offset.y, self.offset.y));
@@ -317,6 +345,7 @@ impl Filter {
         let s = match self {
             Filter::Blur { radius } => *radius,
             Filter::DropShadow { blur, .. } => *blur / 2.0,
+            Filter::ColorMatrix { .. } => 0.0,
         };
         if s.is_finite() { s.max(0.0) } else { 0.0 }
     }
@@ -324,10 +353,13 @@ impl Filter {
     /// How far past the group's own drawing the filter can draw: three standard deviations
     /// (where a Gaussian has all but 0.3% of its weight) on each side, and the shadow's offset.
     pub fn outset(&self, r: Rect) -> Rect {
+        if let Filter::ColorMatrix { .. } = self {
+            return r;
+        }
         let reach = (self.std_dev() * 3.0).ceil();
         let grown = Rect::new(r.min.x - reach, r.min.y - reach, r.max.x + reach, r.max.y + reach);
         match self {
-            Filter::Blur { .. } => grown,
+            Filter::Blur { .. } | Filter::ColorMatrix { .. } => grown,
             Filter::DropShadow { offset, .. } if offset.x.is_finite() && offset.y.is_finite() => {
                 r.union(grown.translate(*offset))
             }
@@ -338,10 +370,13 @@ impl Filter {
     /// The reverse of [`outset`](Self::outset): the area whose drawing the filter can carry
     /// into `r` (a tile draws what is within it).
     pub fn inset_source(&self, r: Rect) -> Rect {
+        if let Filter::ColorMatrix { .. } = self {
+            return r;
+        }
         let reach = (self.std_dev() * 3.0).ceil();
         let grown = Rect::new(r.min.x - reach, r.min.y - reach, r.max.x + reach, r.max.y + reach);
         match self {
-            Filter::Blur { .. } => grown,
+            Filter::Blur { .. } | Filter::ColorMatrix { .. } => grown,
             Filter::DropShadow { offset, .. } if offset.x.is_finite() && offset.y.is_finite() => {
                 r.union(grown.translate(Vec2::new(-offset.x, -offset.y)))
             }
@@ -349,9 +384,13 @@ impl Filter {
         }
     }
 
-    /// True when the filter changes nothing (a blur of zero).
+    /// True when the filter changes nothing (a blur of zero, the identity matrix).
     pub fn is_identity(&self) -> bool {
-        matches!(self, Filter::Blur { .. }) && self.std_dev() == 0.0
+        match self {
+            Filter::Blur { .. } => self.std_dev() == 0.0,
+            Filter::ColorMatrix { matrix } => matrix.is_identity(),
+            Filter::DropShadow { .. } => false,
+        }
     }
 }
 
@@ -653,6 +692,11 @@ impl DisplayList {
     /// to bounds as boxes). What a filter group draws is grown by how far its filter reaches
     /// ([`Filter::outset`]). `None` for a list that draws nothing.
     pub fn bounds(&self) -> Option<Rect> {
+        DisplayList::bounds_of(&self.items)
+    }
+
+    /// [`bounds`](Self::bounds) of a run of items, such as the inside of one group.
+    pub fn bounds_of(items: &[Item]) -> Option<Rect> {
         let mut out: Option<Rect> = None;
         let mut transforms = vec![Affine::IDENTITY];
         let mut clips: Vec<Rect> = Vec::new();
@@ -668,7 +712,7 @@ impl DisplayList {
                 *out = Some(out.map_or(r, |o| o.union(r)));
             }
         }
-        for item in &self.items {
+        for item in items {
             let t = transforms.last().copied().unwrap_or(Affine::IDENTITY);
             let r = match item {
                 Item::PushClip { rect, .. } => {

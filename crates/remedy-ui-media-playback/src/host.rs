@@ -252,6 +252,37 @@ pub trait Decoder: Send {
     /// Moves to `to`: the samples read next start at or before it (a decoder may start at the
     /// key frame before it; the player drops what comes before `to`).
     fn seek(&mut self, to: Duration) -> Result<(), MediaError>;
+    /// The stretches of the media the source holds without waiting (downloaded, for a
+    /// stream), as positions in the media, when the decoder knows; `None` when it does not.
+    /// The player asks a few times a second, from the decoding thread, and adds what it has
+    /// decoded ahead itself; a local file counts as held whole.
+    fn buffered(&mut self) -> Option<Vec<std::ops::Range<Duration>>> {
+        None
+    }
+}
+
+/// `ranges` sorted, with those that touch or overlap joined and empty ones dropped, each cut
+/// to `0..limit` when there is a limit.
+pub fn merge_ranges(
+    mut ranges: Vec<std::ops::Range<Duration>>,
+    limit: Option<Duration>,
+) -> Vec<std::ops::Range<Duration>> {
+    if let Some(l) = limit {
+        for r in &mut ranges {
+            r.end = r.end.min(l);
+            r.start = r.start.min(r.end);
+        }
+    }
+    ranges.retain(|r| r.start < r.end);
+    ranges.sort_by_key(|r| r.start);
+    let mut out: Vec<std::ops::Range<Duration>> = Vec::with_capacity(ranges.len());
+    for r in ranges {
+        match out.last_mut() {
+            Some(last) if r.start <= last.end => last.end = last.end.max(r.end),
+            _ => out.push(r),
+        }
+    }
+    out
 }
 
 /// The platform's sound output for one stream: samples written are queued in the device's

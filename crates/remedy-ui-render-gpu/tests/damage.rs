@@ -186,10 +186,21 @@ fn filtered_scene(x: f32) -> LayerTree {
             blur: 10.0,
             color: Color::rgba8(0, 0, 0, 180),
         }])
-        .with_child(Layer::new(LayerId(31), Rect::new(10.0 + x * 0.3, 10.0, 32.0 + x * 0.3, 32.0), dot));
+        .with_child(Layer::new(
+            LayerId(31),
+            Rect::new(10.0 + x * 0.3, 10.0, 32.0 + x * 0.3, 32.0),
+            dot.clone(),
+        ));
+    // A colour matrix over a layer whose child moves: only the damage is recoloured again.
+    let mut tint = DisplayList::new();
+    tint.fill_rect(Rect::new(0.0, 0.0, 90.0, 60.0), Brush::Solid(Color::rgba8(220, 120, 30, 200)));
+    let recoloured = Layer::new(LayerId(40), Rect::new(20.0, 110.0, 110.0, 170.0), tint)
+        .with_filters(vec![Filter::ColorMatrix { matrix: remedy_ui_core::ColorMatrix::hue_rotate(150.0) }])
+        .with_child(Layer::new(LayerId(41), Rect::new(x * 0.5, 20.0, x * 0.5 + 22.0, 42.0), dot));
     let root = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 320.0, 200.0), back_list)
         .with_child(blurred)
-        .with_child(shadowed);
+        .with_child(shadowed)
+        .with_child(recoloured);
     LayerTree::new(vec![root])
 }
 

@@ -74,6 +74,22 @@ pub trait Surface {
         let _ = texture;
         None
     }
+    /// The size of what the surface draws into, in its pixels.
+    fn size(&self) -> (u16, u16);
+    /// Draws a colour-matrix group: what `draw` draws (onto this surface, which inside it is a
+    /// transparent picture `rect`'s size, `[x, y, width, height]` in this surface's pixels)
+    /// run through `matrix` ([`ColorMatrix::apply_premultiplied`]) and placed at `rect`, one
+    /// pixel for one. False, without calling `draw`, when the surface cannot.
+    ///
+    /// [`ColorMatrix::apply_premultiplied`]: remedy_ui_core::ColorMatrix::apply_premultiplied
+    fn color_matrix_group(
+        &mut self,
+        rect: [u16; 4],
+        matrix: &remedy_ui_core::ColorMatrix,
+        draw: &mut dyn FnMut(&mut Self),
+    ) -> bool
+    where
+        Self: Sized;
 }
 
 impl Surface for RenderContext {
@@ -127,5 +143,26 @@ impl Surface for RenderContext {
     }
     fn image_source(&mut self, _key: ImageKey, pixmap: &Arc<Pixmap>, _filtered: bool) -> Option<ImageSource> {
         Some(ImageSource::Pixmap(pixmap.clone()))
+    }
+    fn size(&self) -> (u16, u16) {
+        (self.width(), self.height())
+    }
+    fn color_matrix_group(
+        &mut self,
+        rect: [u16; 4],
+        matrix: &remedy_ui_core::ColorMatrix,
+        draw: &mut dyn FnMut(&mut Self),
+    ) -> bool {
+        let [_, _, w, h] = rect;
+        if w == 0 || h == 0 {
+            return true;
+        }
+        // This context becomes the picture while the group draws, then is itself again.
+        let outer = std::mem::replace(self, RenderContext::new(w, h));
+        draw(self);
+        let picture = std::mem::replace(self, outer);
+        let pix = crate::matrix::finish(picture, matrix);
+        crate::matrix::place(self, ImageSource::Pixmap(Arc::new(pix)), rect);
+        true
     }
 }

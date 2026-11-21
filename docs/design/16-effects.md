@@ -107,9 +107,10 @@ scale. `EffectStats` reports the step and the latest GPU time.
   only coarse frame time in.
 - **Total arithmetic**: no NaN or infinity reaches a pixel; parameters are clamped to their
   ranges.
-- **Filters on element content are not Prism programs.** The blur, drop-shadow and backdrop
-  filters a style can ask for ([04](04-rendering.md)) are fixed engine operations: their cost
-  depends on the size of what they blur, never on its pixels, and nothing they compute flows
+- **Filters on element content are not Prism programs.** The blur, drop-shadow, colour-matrix
+  (saturate, hue-rotate, grayscale and the rest) and backdrop filters a style can ask for
+  ([04](04-rendering.md)) are fixed engine operations: their cost depends on the size of what
+  they filter, never on its pixels, and nothing they compute flows
   back to the theme, so reading what is behind an element opens no timing channel. Prism
   programs still sample only their own inputs.
 
@@ -134,9 +135,6 @@ GPU numbers are an upper bound):
 
 ## Not yet
 
-- **Colour-matrix filters on element content** (saturate, hue-rotate, grayscale). Blur, drop
-  shadows of any shape and backdrop blur exist ([04](04-rendering.md)); they run as vello
-  filter layers on both renderers.
 - **Compute and stateful particles** (collisions, flocking): stateless particles cover ambient
   decoration; stateful ones need compute, which GL 3.3 and WebGL2 lack.
 - **RemedyLua bindings**: the element and `Instance` are shaped for them (parameters by name

@@ -11,6 +11,8 @@
 //! right-to-left before they paint.
 
 mod composite;
+mod matrix;
+mod mip;
 mod record;
 mod surface;
 
@@ -108,6 +110,11 @@ pub struct Painter {
     /// Streams whose frames are all gone since the last [`Painter::take_evicted_videos`].
     evicted_videos: Vec<u64>,
     next_glyph: u64,
+    /// Colour-matrix groups open and drawn in the current raster.
+    matrices: matrix::Budget,
+    /// Mipmaps of app images drawn scaled down, by the image's id, with its pixels (gone
+    /// when the app drops the image).
+    mips: HashMap<u64, (std::sync::Weak<[u8]>, mip::Levels)>,
 }
 
 impl std::fmt::Debug for Painter {
@@ -308,6 +315,9 @@ pub(crate) fn vello_filter(f: &remedy_ui_paint::Filter) -> Option<vello_cpu::fil
             color: color(*c),
             edge_mode: EdgeMode::None,
         },
+        // vello runs no colour matrices (its CPU filter graph panics on them): matrix groups
+        // are pictured and filtered by RemedyUI (`matrix.rs`), never handed to vello.
+        remedy_ui_paint::Filter::ColorMatrix { .. } => return None,
     };
     Some(Filter::from_primitive(primitive))
 }
@@ -335,7 +345,7 @@ fn filter_reach(f: &remedy_ui_paint::Filter, t: Affine) -> f32 {
     let k = t.scale_factor();
     let off = match f {
         remedy_ui_paint::Filter::DropShadow { offset, .. } => offset.x.abs().max(offset.y.abs()),
-        remedy_ui_paint::Filter::Blur { .. } => 0.0,
+        remedy_ui_paint::Filter::Blur { .. } | remedy_ui_paint::Filter::ColorMatrix { .. } => 0.0,
     };
     let r = ((f.std_dev() * 3.0 + if off.is_finite() { off } else { 0.0 }) * k).ceil() + 1.0;
     if r.is_finite() { r } else { 0.0 }
@@ -442,11 +452,16 @@ impl Painter {
             videos: HashMap::new(),
             evicted_videos: Vec::new(),
             next_glyph: 0,
+            matrices: matrix::Budget::default(),
+            mips: HashMap::new(),
         }
     }
 
     /// Drops cached images the app no longer holds. Runs at the start of every draw.
     fn sweep_images(&mut self) {
+        // An image's levels go with it; their own cache entries follow in the sweep below,
+        // so a renderer frees what it uploaded for them.
+        self.mips.retain(|_, (source, _)| source.strong_count() > 0);
         let before = self.images.len();
         let evicted = &mut self.evicted;
         self.images.retain(|id, (source, _)| {
@@ -489,6 +504,7 @@ impl Painter {
         self.glyphs.clear();
         self.evicted.extend(self.images.keys().copied());
         self.images.clear();
+        self.mips.clear();
         self.raster.clear();
     }
 
@@ -508,6 +524,7 @@ impl Painter {
         area: Option<Rect>,
     ) {
         self.sweep_images();
+        self.matrices = matrix::Budget::default();
         // Groups the list leaves open are closed: a list is drawn as a whole, balanced.
         self.draw_items(s, list.items(), base, area, 0, 0, FilterBudget::FULL, true);
         s.set_transform(kurbo::Affine::IDENTITY);
@@ -547,7 +564,12 @@ impl Painter {
         // Backdrop roots: where the innermost open group's content starts, and the transform
         // it starts under.
         let mut roots: Vec<(usize, Affine)> = vec![(0, base)];
+        // Items before this were drawn already (a colour-matrix group, as one picture).
+        let mut resume = 0usize;
         for (i, item) in items.iter().enumerate() {
+            if i < resume {
+                continue;
+            }
             let t = transforms.last().copied().unwrap_or(base);
             let (cull, left) = areas.last().copied().unwrap_or((area, budget));
             // Culling is conservative: transformed bounds are boxes around the item.
@@ -610,7 +632,7 @@ impl Painter {
                 }
                 Item::Glyphs(run) => self.glyph_run(s, run, t, scale, groups == 0),
                 Item::Image { image, rect, radii, sampling } => {
-                    self.image(s, image, *rect, *radii, *sampling)
+                    self.image(s, image, *rect, *radii, *sampling, t.scale_factor())
                 }
                 Item::Video { frame, rect, radii } => self.video(s, frame, *rect, *radii),
                 Item::Texture { texture, rect, radii } => texture_item(s, texture, *rect, *radii),
@@ -663,6 +685,43 @@ impl Painter {
                     layers += 1;
                     roots.push((i + 1, t));
                 }
+                Item::PushFilter(remedy_ui_paint::Filter::ColorMatrix { matrix })
+                    if let Some(m) = self.matrices.admit(matrix) =>
+                {
+                    let end = matrix::group_end(items, i);
+                    let inner = items.get(i + 1..end).unwrap_or(&[]);
+                    let (sw, sh) = s.size();
+                    let target = Rect::new(0.0, 0.0, f32::from(sw), f32::from(sh));
+                    let drawn =
+                        matrix::drawn_box(inner, t, cull.and_then(|c| c.intersect(target)).unwrap_or(target));
+                    let Some(rect) = drawn.and_then(|d| matrix::picture_rect(d, s.size())) else {
+                        // Nothing of it shows here.
+                        resume = end + 1;
+                        continue;
+                    };
+                    let [x, y, w, h] = rect;
+                    let shift = Affine::translate(remedy_ui_core::Vec2::new(-f32::from(x), -f32::from(y)));
+                    let (sub_base, sub_area) =
+                        (t.then(shift), Rect::new(0.0, 0.0, f32::from(w), f32::from(h)));
+                    self.matrices.depth += 1;
+                    self.matrices.drawn += 1;
+                    let ok = s.color_matrix_group(rect, &m, &mut |sub| {
+                        // The picture is a surface of its own: its layers start from none.
+                        self.draw_items(sub, inner, sub_base, Some(sub_area), groups + 1, 0, left, true);
+                    });
+                    self.matrices.depth -= 1;
+                    if ok {
+                        resume = end + 1;
+                    } else {
+                        // Drawn as a plain group, closed by its pop as any other.
+                        groups += 1;
+                        s.push_group(peniko::BlendMode::default(), 1.0);
+                        open.push(true);
+                        layers += 1;
+                        roots.push((i + 1, t));
+                        areas.push((cull, left));
+                    }
+                }
                 Item::PushFilter(f) => {
                     groups += 1;
                     // Bounded with the filters around it: see `FilterBudget`.
@@ -682,8 +741,12 @@ impl Painter {
                     let sigma = if blur.is_finite() { blur.max(0.0) } else { 0.0 };
                     let Some(&(start, root_t)) = roots.last() else { continue };
                     // Glass needs two layers of its own, and replays what is under it inside
-                    // them: past the depth bound it is not drawn.
-                    if (sigma == 0.0 && start == i) || layers + 2 > MAX_GROUP_DEPTH {
+                    // them: past the depth bound, or past the glass budget (each pane draws again
+                    // what is under it, glass included), it is not drawn.
+                    if (sigma == 0.0 && start == i)
+                        || layers + 2 > MAX_GROUP_DEPTH
+                        || !self.matrices.admit_glass()
+                    {
                         continue;
                     }
                     s.push_clip_layer(&rounded(*rect, *radii));
@@ -699,7 +762,9 @@ impl Painter {
                     let reach = filter_reach(&f, t);
                     let under = cull.map(|a| grow(a, reach));
                     if let Some(prefix) = items.get(start..i) {
+                        self.matrices.glass_depth += 1;
                         self.draw_items(s, prefix, root_t, under, groups + 1, layers + 2, inside, true);
+                        self.matrices.glass_depth -= 1;
                     }
                     s.set_transform(kaffine(t));
                     s.pop_layer();
@@ -727,7 +792,25 @@ impl Painter {
         rect: Rect,
         radii: CornerRadii,
         sampling: Sampling,
+        scale: f32,
     ) {
+        // Drawn smoothly at less than half its size: from the mipmap level drawn at more
+        // than half its own.
+        let level = (sampling == Sampling::Linear)
+            .then(|| {
+                let sx = scale * rect.width().abs() / image.width.max(1) as f32;
+                let sy = scale * rect.height().abs() / image.height.max(1) as f32;
+                mip::level_for(sx.max(sy), mip::level_count(image.width, image.height))
+            })
+            .filter(|k| *k > 0)
+            .and_then(|k| {
+                let (_, levels) = self
+                    .mips
+                    .entry(image.id)
+                    .or_insert_with(|| (Arc::downgrade(&image.pixels), mip::Levels::default()));
+                levels.get(image, k)
+            });
+        let image = level.as_ref().unwrap_or(image);
         let pix = match self.images.get(&image.id) {
             Some((_, p)) => p.clone(),
             None => {

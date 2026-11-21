@@ -24,3 +24,7 @@ playback-full-screen = 全画面表示
 playback-exit-full-screen = 全画面表示を終了
 playback-seek = 再生位置
 playback-seek-value = { $duration } 中 { $position }
+playback-next-up = 次に再生: { $title }
+playback-next-up-in = { $count } 秒後に再生します
+playback-play-now = 今すぐ再生
+playback-next-cancel = キャンセル

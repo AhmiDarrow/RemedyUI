@@ -11,6 +11,7 @@ use vello_gpu::peniko::{BlendMode, Fill};
 use vello_gpu::{ImageSource, PaintType, Pixmap, Scene, TextureId, Tint};
 
 use crate::images::GpuImages;
+use crate::matrix::MatrixPass;
 use crate::video::GpuVideos;
 
 use crate::{GpuContext, GpuError, PipelineCacheStore};
@@ -26,6 +27,12 @@ pub(crate) struct GpuScene<'a> {
     videos: &'a mut GpuVideos,
     externals: &'a mut HashMap<u64, TextureId>,
     ctx: &'a GpuContext,
+    /// What renders colour-matrix groups' pictures before the scene that shows them.
+    vello: &'a mut vello_gpu::Renderer,
+    resources: &'a mut vello_gpu::Resources,
+    matrix: &'a MatrixPass,
+    /// Colour-matrix pictures bound for this scene, unbound once it is drawn.
+    pictures: Vec<TextureId>,
 }
 
 impl Surface for GpuScene<'_> {
@@ -108,6 +115,35 @@ impl Surface for GpuScene<'_> {
         };
         Some(ImageSource::external_texture(id, vello_gpu::TextureRegion::Full, true))
     }
+    fn size(&self) -> (u16, u16) {
+        (self.scene.width(), self.scene.height())
+    }
+    fn color_matrix_group(
+        &mut self,
+        rect: [u16; 4],
+        matrix: &remedy_ui_core::ColorMatrix,
+        draw: &mut dyn FnMut(&mut Self),
+    ) -> bool {
+        let [_, _, w, h] = rect;
+        if w == 0 || h == 0 {
+            return true;
+        }
+        // The scene becomes the picture while the group draws, then is itself again.
+        let outer = std::mem::replace(&mut self.scene, Scene::new(w, h));
+        draw(self);
+        let picture = std::mem::replace(&mut self.scene, outer);
+        let bindings = self.images.bindings.clone();
+        // A failure here is a lost device, which the frame reports when it is submitted.
+        if let Ok(texture) =
+            self.matrix.picture(self.ctx, self.vello, self.resources, &picture, FORMAT, &bindings, matrix)
+        {
+            let id = self.images.fresh_id();
+            self.images.bind_external(id, texture.create_view(&wgpu::TextureViewDescriptor::default()));
+            self.pictures.push(id);
+            crate::matrix::place(&mut self.scene, id, rect);
+        }
+        true
+    }
 }
 
 pub(crate) fn size16(width: u32, height: u32) -> Result<(u16, u16), GpuError> {
@@ -130,6 +166,8 @@ pub struct GpuRenderer {
     videos: GpuVideos,
     /// Registered app textures bound for drawing: registration id to the bound id.
     externals: HashMap<u64, TextureId>,
+    /// The colour-matrix pass.
+    pub(crate) matrix: MatrixPass,
     pipeline_cache: Option<wgpu::PipelineCache>,
     store: Option<PipelineCacheStore>,
 }
@@ -160,7 +198,9 @@ impl GpuRenderer {
         let (vello, resources) = vello_gpu::Renderer::new_with(&ctx.device, &ctx.queue, &config, settings);
         let images = GpuImages::new(&ctx.device);
         let videos = GpuVideos::new(&ctx.device, pipeline_cache.as_ref());
+        let matrix = MatrixPass::new(&ctx.device, pipeline_cache.as_ref());
         GpuRenderer {
+            matrix,
             ctx,
             vello,
             resources,
@@ -248,6 +288,10 @@ impl GpuRenderer {
             videos: &mut self.videos,
             externals: &mut self.externals,
             ctx: &self.ctx,
+            vello: &mut self.vello,
+            resources: &mut self.resources,
+            matrix: &self.matrix,
+            pictures: Vec::new(),
         };
         for (list, base, [x, y, sw, sh]) in jobs {
             let (x, y, sw, sh) = (*x as f32, *y as f32, *sw as f32, *sh as f32);
@@ -263,7 +307,7 @@ impl GpuRenderer {
             self.painter.draw_within(&mut scene, list, moved, Some(area));
             scene.scene.pop_clip();
         }
-        let scene = scene.scene;
+        let (scene, pictures) = (scene.scene, scene.pictures);
         let gone = self.painter.take_evicted();
         if !gone.is_empty() {
             self.images.evict(&gone);
@@ -274,6 +318,7 @@ impl GpuRenderer {
             self.images.unbind(&ids);
         }
         let bindings = self.images.bindings.clone();
+        self.images.unbind(&pictures);
         self.submit(&scene, Color::TRANSPARENT, target, &bindings)
     }
 
@@ -303,10 +348,14 @@ impl GpuRenderer {
             videos: &mut self.videos,
             externals: &mut self.externals,
             ctx: &self.ctx,
+            vello: &mut self.vello,
+            resources: &mut self.resources,
+            matrix: &self.matrix,
+            pictures: Vec::new(),
         };
         let area = remedy_ui_core::Rect::new(0.0, 0.0, f32::from(w), f32::from(h));
         self.painter.draw_within(&mut scene, list, base, Some(area));
-        let scene = scene.scene;
+        let (scene, pictures) = (scene.scene, scene.pictures);
         let gone = self.painter.take_evicted();
         if !gone.is_empty() {
             self.images.evict(&gone);
@@ -317,6 +366,7 @@ impl GpuRenderer {
             self.images.unbind(&ids);
         }
         let bindings = self.images.bindings.clone();
+        self.images.unbind(&pictures);
         self.submit(&scene, background, target, &bindings)
     }
 

@@ -99,12 +99,55 @@ fn a_blur_looks_the_same_at_high_dpi() {
 }
 
 #[test]
+fn colour_matrices_reach_no_further_than_the_group_draws() {
+    let m = Filter::ColorMatrix { matrix: ColorMatrix::grayscale(1.0) };
+    let r = Rect::new(3.0, 4.0, 20.0, 30.0);
+    assert_eq!(m.outset(r), r);
+    assert_eq!(m.inset_source(r), r);
+    assert_eq!(m.std_dev(), 0.0);
+    assert!(!m.is_identity());
+    assert!(Filter::ColorMatrix { matrix: ColorMatrix::IDENTITY }.is_identity());
+    assert!(Filter::ColorMatrix { matrix: ColorMatrix::saturate(1.0) }.limited(2.0).is_identity());
+    // A matrix group's bounds are its content's.
+    let mut l = DisplayList::new();
+    l.push(Item::PushTransform(Affine::scale(2.0, 2.0)));
+    l.push_filter(m);
+    l.fill_rect(Rect::new(10.0, 10.0, 20.0, 20.0), Brush::Solid(Color::BLACK));
+    l.pop_filter();
+    l.push(Item::PopTransform);
+    assert_eq!(l.bounds(), Some(Rect::new(20.0, 20.0, 40.0, 40.0)));
+    assert!(l.has_filters());
+    assert_eq!(
+        DisplayList::bounds_of(l.items().get(2..3).unwrap_or(&[])),
+        Some(Rect::new(10.0, 10.0, 20.0, 20.0))
+    );
+}
+
+#[test]
+fn hostile_colour_matrices_are_limited() {
+    let wild = Filter::ColorMatrix { matrix: ColorMatrix([f32::NAN; 20]) };
+    assert!(wild.limited(1.0).is_identity(), "NaN entries become the identity's");
+    let Filter::ColorMatrix { matrix } =
+        (Filter::ColorMatrix { matrix: ColorMatrix([f32::INFINITY; 20]) }).limited(1.0)
+    else {
+        unreachable!("stays a matrix")
+    };
+    assert!(
+        matrix
+            .0
+            .iter()
+            .all(|v| v.is_finite() && v.abs() <= remedy_ui_core::color_matrix::MAX_COLOR_MATRIX_ENTRY)
+    );
+    const { assert!(MAX_FILTER_MATRIX_DEPTH >= 1 && MAX_FILTER_MATRIX_GROUPS >= MAX_FILTER_MATRIX_DEPTH) };
+}
+
+#[test]
 fn nested_filters_share_one_bound() {
     let shadow =
         |x: f32, y: f32, blur: f32| Filter::DropShadow { offset: Vec2::new(x, y), blur, color: Color::BLACK };
     let offset = |f: Filter| match f {
         Filter::DropShadow { offset, .. } => offset,
-        Filter::Blur { .. } => Vec2::ZERO,
+        Filter::Blur { .. } | Filter::ColorMatrix { .. } => Vec2::ZERO,
     };
     // Alone, a filter gets the whole bound, exactly as `limited` draws it.
     let hostile = shadow(1.0e9, -1.0e9, 1.0e9);

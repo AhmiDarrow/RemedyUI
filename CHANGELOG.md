@@ -10,6 +10,43 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **A start-up self-test frame and a present watchdog for the GPU** (`remedy_ui_render_gpu::health`).
+  Each rung of the backend ladder draws a small reference scene that must match the CPU
+  renderer before it is used (`LadderOptions::self_test`, on by default), or the ladder moves
+  down. Every present is watched from a thread: one running past `PRESENT_HANG` (3 s) marks
+  the backend hung at once and lets the device go, and recovery walks the ladder past it.
+  Verdicts (`health::Verdict`) are remembered per adapter, driver and backend in the app's
+  data folder (`health::remember_in`, set by the runner), so the test runs once per driver and
+  a backend that hung is skipped from the next start.
+- **Next-up in the media player**: `Player::set_next_up(Some(NextUp::new(source, title)))`
+  sets what plays after the end. At the end a countdown runs (`PlayerOptions::next_up_delay`,
+  `NEXT_UP_DELAY` = 5 s; `None` waits for the person; no countdown under reduced motion),
+  then the next plays in the same player, every signal about the media starting over and its
+  volume, picture and visibility carried over. `Player::countdown`, `cancel_countdown` and
+  `play_next`. The `player` widget shows "Up next: …" with the countdown, Play now and Cancel,
+  in every shipped language; Shift+N plays it.
+- **Buffered ranges on the player's seek bar**: `Player::buffered()` (a signal of time ranges)
+  holds what can play without waiting: all of a local file; for a stream, what has arrived
+  where the decoder says (`Decoder::buffered`, a new provided method; GStreamer answers its
+  buffering query) joined with what the player has decoded ahead. The seek bar draws them
+  in a light tone behind the played part. `merge_ranges` sorts and joins ranges.
+- **Mipmaps for images drawn scaled down**, on both renderers alike: an image drawn smoothly
+  at half its size or less is drawn from a halved copy (built once in the shared painter,
+  freed with the image), so it no longer shimmers, and only the level drawn is uploaded to
+  the GPU (a 1024² image shown at 64² uploads 16 KB, not 4 MB). Pixel art (nearest sampling)
+  is untouched.
+- **Colour-matrix filters** on any element and in display lists, on both renderers with
+  matching results: `Style::saturate`, `hue_rotate`, `grayscale`, `sepia`, `brightness`,
+  `contrast`, `invert` (the CSS filter functions) and `Style::color_matrix` (SVG
+  `feColorMatrix`), chained into one matrix (`StylePatch::color_matrix`,
+  `ResolvedStyle::color_matrix`); `Filter::ColorMatrix` and `ColorMatrix` (in
+  `remedy_ui_core`, re-exported by `remedy_ui_paint`: presets, `then`, `limited`, `apply`,
+  `apply_premultiplied`). vello runs no colour matrices, so RemedyUI draws the group into a
+  picture of its own and runs the matrix itself (unpremultiply, matrix, clamp, premultiply),
+  on the CPU and in a GPU pass; it works inside display lists and on layers the compositor
+  filters. Bounded for untrusted themes: finite entries within `MAX_COLOR_MATRIX_ENTRY`, at
+  most `MAX_FILTER_MATRIX_DEPTH` nested and `MAX_FILTER_MATRIX_GROUPS` per raster.
+  `DisplayList::bounds_of` gives the bounds of a run of items.
 - **Blur, shadows and frosted glass on any element**, on both renderers with matching results
   (within two levels): `Style::shadow` (CSS `box-shadow`, a `Shadow` value),
   `Style::blur` (`filter: blur()`), `Style::drop_shadow` (`filter: drop-shadow()`, a shadow
@@ -476,6 +513,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- **`Surface` and `CompositeTarget` gain `size` and `color_matrix_group`** (required): what
+  draws a colour-matrix group's picture. Only a custom renderer implements these traits; it
+  renders what the callback draws into a picture of its own, runs
+  `ColorMatrix::apply_to_pixels` over it, and places it back (see the CPU renderer's).
 - **The GPU compositor draws only what changed.** Each window's frame is kept in a texture;
   a present composites only the plan's damage into it (each damaged rectangle a scene of its
   own size placed at its corner, only that rectangle cleared), before acquiring the swapchain
@@ -571,6 +612,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **Stacked glass could stall a frame for minutes.** Each pane of glass draws again what is
+  under it, glass included, so every pane doubled the cost (16 stacked panes took 40 s on the
+  CPU). Glass seen through more than `MAX_BACKDROP_DEPTH` (2) panes, and panes past
+  `MAX_BACKDROP_REPLAYS` (128) in a raster, are now drawn without their frost, on both
+  renderers and in the compositor: 40 stacked panes draw in milliseconds.
 - A display list nesting thousands of groups crashed the GPU renderer: vello's layer handling
   recurses per level, so about 2000 nested `PushLayer`s overflowed a 2 MB thread stack
   (deeply nested compositor layers did the same in the composite walk). Renderers now keep

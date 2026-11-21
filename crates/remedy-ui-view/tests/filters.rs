@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use remedy_ui_compositor::{Compositor, LayerTree};
-use remedy_ui_core::{Color, Size};
+use remedy_ui_core::{Color, ColorMatrix, Size};
 use remedy_ui_input::ScrollPhysics;
 use remedy_ui_layout::Length;
 use remedy_ui_paint::{Filter, Item};
@@ -228,4 +228,60 @@ fn a_filter_takes_children_that_are_layers_of_their_own() {
     assert!(edge[0] > 20 && edge[0] < 240, "the layer inside is blurred: {edge:?}");
     let inside = frame.pixel(60, 60).unwrap_or([255; 4]);
     assert!(inside[0] < 20, "its middle stays dark: {inside:?}");
+}
+
+#[test]
+fn colour_filters_recolour_the_element() {
+    let ui = ui();
+    ui.root()
+        .padding(20.0)
+        .child(boxed(&ui, Style::new().background(Color::rgb8(200, 30, 30)).grayscale(1.0)))
+        .child(boxed(&ui, Style::new().background(Color::rgb8(200, 30, 30)).invert(1.0).saturate(1.0)));
+    let (tree, frame) = draw(&ui);
+    let all = items(&tree);
+    let matrices: Vec<_> = all
+        .iter()
+        .filter_map(|i| match i {
+            Item::PushFilter(Filter::ColorMatrix { matrix }) => Some(*matrix),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(matrices.len(), 2, "one matrix per element (chained presets are one matrix)");
+    assert_eq!(matrices.first(), Some(&ColorMatrix::grayscale(1.0)));
+    assert_eq!(matrices.get(1), Some(&ColorMatrix::invert(1.0).then(&ColorMatrix::saturate(1.0))));
+    // The first box is grey, exactly as the matrix says.
+    let want = ColorMatrix::grayscale(1.0).apply_premultiplied([200, 30, 30, 255]);
+    assert_eq!(frame.pixel(60, 40), Some(want));
+    let [r, g, b, _] = want;
+    assert!(r == g && g == b, "grey: {want:?}");
+    // The second is the negative of red.
+    assert_eq!(frame.pixel(60, 80), Some([55, 225, 225, 255]));
+    // The window around them is untouched.
+    assert_eq!(frame.pixel(190, 110), Some([255, 255, 255, 255]));
+}
+
+#[test]
+fn a_colour_filter_takes_children_that_are_layers_of_their_own() {
+    let ui = ui();
+    let square = ui
+        .el("square")
+        .style(Style::new().background(Color::rgb8(30, 200, 60)))
+        .layout(|l| {
+            l.width = Length::Px(40.0);
+            l.height = Length::Px(40.0);
+        })
+        .isolate_paint();
+    let panel = ui.el("panel").style(Style::new().hue_rotate(180.0)).padding(20.0).child(square);
+    ui.root().padding(20.0).child(panel);
+    let (tree, frame) = draw(&ui);
+    let mut filtered = None;
+    tree.for_each(|l| {
+        if !l.filters.is_empty() {
+            filtered = Some(l.filters.clone());
+        }
+    });
+    assert_eq!(filtered, Some(vec![Filter::ColorMatrix { matrix: ColorMatrix::hue_rotate(180.0) }]));
+    let want = ColorMatrix::hue_rotate(180.0).apply_premultiplied([30, 200, 60, 255]);
+    assert_eq!(frame.pixel(60, 60), Some(want), "the layer inside is recoloured by the compositor");
+    assert_eq!(frame.pixel(190, 110), Some([255, 255, 255, 255]));
 }

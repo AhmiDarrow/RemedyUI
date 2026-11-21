@@ -101,6 +101,8 @@ pub(crate) struct Status {
     pub new_tracks: Vec<SubtitleTrack>,
     /// Cues from embedded text tracks, not yet taken.
     pub cues: Vec<(usize, Cue)>,
+    /// What can play without waiting, merged ([`crate::host::merge_ranges`]).
+    pub buffered: Vec<std::ops::Range<Duration>>,
 }
 
 /// The status and whether a delivery to the UI thread is on its way.
@@ -156,6 +158,8 @@ struct Feed {
     /// Where the newest sound decoded ends, and when the newest picture shows.
     audio_end: Duration,
     video_newest: Duration,
+    /// What the source holds without waiting, as its decoder last said.
+    source_ranges: Option<Vec<std::ops::Range<Duration>>>,
 }
 
 impl Feed {
@@ -260,14 +264,40 @@ struct Decoding {
     shared: Arc<FeedShared>,
     wake: WakePresenter,
     waker: Waker,
+    /// When the decoder was last asked what the source holds.
+    asked: Option<Instant>,
 }
+
+/// How often the decoder is asked what the source holds (a query of the platform's pipeline).
+const BUFFERED_INTERVAL: Duration = Duration::from_millis(250);
 
 /// One step of decoding: a seek, or one sample read into the feed when it wants more.
 fn decode_step(st: &mut Decoding) -> Next {
+    // What the source holds, a few times a second: a stream goes on arriving while the
+    // decoded buffer is full or playback is paused.
+    let mut keep_asking = false;
+    if st.asked.is_none_or(|a| a.elapsed() >= BUFFERED_INTERVAL) {
+        st.asked = Some(Instant::now());
+        let ranges = st.dec.buffered();
+        let mut f = lock(&st.shared.feed);
+        let changed = f.source_ranges != ranges;
+        // Asked again later, even with nothing to decode, while the source says what it holds.
+        keep_asking = ranges.is_some();
+        f.source_ranges = ranges;
+        drop(f);
+        if changed && !(st.wake)() {
+            return Next::Idle;
+        }
+    } else if lock(&st.shared.feed).source_ranges.is_some() {
+        keep_asking = true;
+    }
     let (generation, seek) = {
         let mut f = lock(&st.shared.feed);
-        if f.closed || !(f.seek.is_some() || f.needs_more()) {
+        if f.closed {
             return Next::Idle;
+        }
+        if !(f.seek.is_some() || f.needs_more()) {
+            return if keep_asking { Next::After(BUFFERED_INTERVAL) } else { Next::Idle };
         }
         (f.generation, f.seek.take())
     };
@@ -408,6 +438,8 @@ struct Presenter {
     own: Option<Bell>,
     /// Closed: nothing more is done.
     done: bool,
+    /// The source is a file on this machine: all of it is there to play.
+    local: bool,
     /// The device holds sound it is not playing; the wall clock leads meanwhile.
     stalled: bool,
 }
@@ -453,6 +485,7 @@ impl Presenter {
             wake: None,
             own: None,
             done: false,
+            local: false,
         }
     }
 
@@ -465,6 +498,7 @@ impl Presenter {
         }
         self.wake = Some(wake);
         self.own = Some(own);
+        self.local = source.local_path().is_some();
         match self.host.open(source) {
             Ok(dec) => {
                 self.opening = Some(dec);
@@ -517,7 +551,13 @@ impl Presenter {
                     "remedy-player-decode",
                     move |bell| {
                         *lock(&shared.decoder) = Some(bell.clone());
-                        Decoding { dec, shared, wake: tell, waker: Waker::from(Arc::new(BellWake(bell))) }
+                        Decoding {
+                            dec,
+                            shared,
+                            wake: tell,
+                            waker: Waker::from(Arc::new(BellWake(bell))),
+                            asked: None,
+                        }
                     },
                     decode_step,
                 );
@@ -1014,6 +1054,32 @@ impl Presenter {
         }
     }
 
+    /// What can play from `t` without waiting: all of a local file; otherwise what the
+    /// source holds (when its decoder says) and what is decoded ahead of `t`.
+    fn buffered(&self, t: Duration) -> Vec<std::ops::Range<Duration>> {
+        if !self.opened {
+            return Vec::new();
+        }
+        let length = self.info.duration;
+        if self.local
+            && let Some(d) = length
+        {
+            return crate::host::merge_ranges(vec![Duration::ZERO..d], Some(d));
+        }
+        let f = lock(&self.feed.feed);
+        let mut ranges = f.source_ranges.clone().unwrap_or_default();
+        let ahead = if f.eof {
+            length.unwrap_or(f.audio_end.max(f.video_newest))
+        } else {
+            f.audio_end.max(f.video_newest)
+        };
+        if ahead > t {
+            ranges.push(t..ahead);
+        }
+        drop(f);
+        crate::host::merge_ranges(ranges, length)
+    }
+
     /// Tells the UI thread, when something it shows changed.
     fn publish(&mut self, t: Duration, force: bool) {
         // Positions shown stay within the stated length: the last picture may run a little
@@ -1021,12 +1087,15 @@ impl Presenter {
         let t = self.info.duration.map_or(t, |d| t.min(d));
         let state = self.state();
         let due = self.last_publish.is_none_or(|p| p.elapsed() >= POSITION_INTERVAL);
+        let buffered = self.buffered(t);
         {
             let mut s = lock(&self.shared.status);
             let changed = force
                 || s.state != state
                 || self.new_picture
                 || (t != s.position && due)
+                // While playing, with the position; while paused, as it arrives.
+                || (buffered != s.buffered && (due || !self.running()))
                 || !s.cues.is_empty()
                 || !s.new_tracks.is_empty();
             if !changed {
@@ -1034,6 +1103,7 @@ impl Presenter {
             }
             s.state = state;
             s.position = t;
+            s.buffered = buffered;
             s.stats = self.stats;
             s.error = self.failed.clone();
             s.audio_error = self.audio_error.clone();
