@@ -127,6 +127,10 @@ pub enum Icon {
     Casting,
     /// A box with lines of text: captions and subtitles.
     Captions,
+    /// A circular arrow turning back around a 10: back 10 seconds.
+    Back10,
+    /// A circular arrow turning forward around a 10: forward 10 seconds.
+    Forward10,
     /// A house: the home screen or start page.
     Home,
     /// A framed picture with a mountain and a sun: an image or photo.
@@ -225,6 +229,8 @@ impl Icon {
             Icon::Cast => "Cast",
             Icon::Casting => "Casting",
             Icon::Captions => "Captions",
+            Icon::Back10 => "Back 10 seconds",
+            Icon::Forward10 => "Forward 10 seconds",
             Icon::Home => "Home",
             Icon::Image => "Image",
             Icon::Dot => "Selected",
@@ -299,6 +305,8 @@ impl Icon {
             Icon::Cast => "icon-cast",
             Icon::Casting => "icon-casting",
             Icon::Captions => "icon-captions",
+            Icon::Back10 => "icon-back-10",
+            Icon::Forward10 => "icon-forward-10",
             Icon::Home => "icon-home",
             Icon::Image => "icon-image",
             Icon::Dot => "icon-selected",
@@ -691,6 +699,40 @@ fn strokes(icon: Icon) -> Path {
             s.move_to(p(6.5, 11.0)).line_to(p(11.0, 11.0)).move_to(p(13.0, 11.0)).line_to(p(17.5, 11.0));
             s.move_to(p(6.5, 15.0)).line_to(p(14.0, 15.0));
         }
+        Icon::Back10 | Icon::Forward10 => {
+            // Portal's: a ring open at the upper left, its arrowhead there, a 10 inside; the
+            // forward one mirrored.
+            let mut b = Path::new();
+            arc(&mut b, p(12.0, 12.0), 7.5, PI, -0.75 * PI);
+            b.move_to(p(4.5, 4.5)).line_to(p(4.5, 8.2)).line_to(p(8.2, 8.2));
+            b.move_to(p(9.3, 10.4)).line_to(p(10.3, 9.6)).line_to(p(10.3, 14.4));
+            for i in 0..=24 {
+                let a = i as f32 / 24.0 * std::f32::consts::TAU;
+                let q = p(13.9 + 1.5 * a.cos(), 12.0 + 2.4 * a.sin());
+                if i == 0 {
+                    b.move_to(q);
+                } else {
+                    b.line_to(q);
+                }
+            }
+            if icon == Icon::Back10 {
+                s = b;
+            } else {
+                // Mirrored, the 10 kept readable: only the ring and the arrowhead flip.
+                for (n, el) in b.elements().iter().enumerate() {
+                    let flip = n <= 27;
+                    match *el {
+                        remedy_ui_paint::PathEl::MoveTo(q) => {
+                            s.move_to(if flip { p(24.0 - q.x, q.y) } else { q });
+                        }
+                        remedy_ui_paint::PathEl::LineTo(q) => {
+                            s.line_to(if flip { p(24.0 - q.x, q.y) } else { q });
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
         Icon::Home => {
             // A roof over a body with a door, on the grid the other outlines use.
             s.move_to(p(3.0, 11.0)).line_to(p(12.0, 3.5)).line_to(p(21.0, 11.0));
@@ -958,6 +1000,8 @@ mod tests {
             Icon::Cast,
             Icon::Casting,
             Icon::Captions,
+            Icon::Back10,
+            Icon::Forward10,
             Icon::Home,
             Icon::Image,
             Icon::Dot,
