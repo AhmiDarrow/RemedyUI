@@ -9,7 +9,7 @@ use super::{
 };
 use crate::hls::{
     AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Hls, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
-    WAIT_SLICE, Want, WantKind, timed_out,
+    WAIT_SLICE, Want, WantKind, answered, timed_out,
 };
 use crate::host::{Decoder, MediaError, MediaInfo, Sample};
 use js_sys::{Object, Promise, Uint8Array};
@@ -323,7 +323,7 @@ async fn fetch_all(url: &str) -> Result<Vec<u8>, MediaError> {
             .map_err(not_found)?
             .unchecked_into();
         if !resp.ok() {
-            return Err(MediaError::NotFound(format!("{url}: the server answered {}", resp.status())));
+            return Err(answered(url, u32::from(resp.status())));
         }
         watch.set((js_sys::Date::now(), QUIET));
         let Some(body) = resp.body() else { return Ok(Vec::new()) };
