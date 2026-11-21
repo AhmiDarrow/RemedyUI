@@ -55,6 +55,11 @@ fn platform(path: &Path) -> Result<(), String> {
     run(std::process::Command::new("xdg-open").arg(folder))
 }
 
+#[cfg(not(any(windows, unix)))]
+fn platform(_: &Path) -> Result<(), String> {
+    Err("this platform has no file manager".into())
+}
+
 #[cfg(unix)]
 fn run(c: &mut std::process::Command) -> Result<(), String> {
     let out = c.stdin(std::process::Stdio::null()).output().map_err(|e| e.to_string())?;
