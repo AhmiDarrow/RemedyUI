@@ -4570,6 +4570,7 @@ dependencies = [
  "wasm-bindgen-test",
  "web-sys",
  "windows",
+ "zbus 6.3.0",
 ]
 
 [[package]]
