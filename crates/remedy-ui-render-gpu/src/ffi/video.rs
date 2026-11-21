@@ -17,7 +17,11 @@
 //! [`Shared::open`] gives the views the conversion shader samples (luma, then chroma);
 //! [`Shared::submit`] submits the commands that read them.
 
-#[cfg(not(any(windows, target_os = "android", all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))))]
+#[cfg(not(any(
+    windows,
+    target_os = "android",
+    all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))
+)))]
 use remedy_ui_paint::GpuFrame;
 
 #[cfg(target_os = "android")]
@@ -42,11 +46,19 @@ pub(crate) fn wanted_extensions() -> &'static [&'static std::ffi::CStr] {
 }
 
 /// A stream's pictures opened on this device, and those the GPU is still reading.
-#[cfg(not(any(windows, target_os = "android", all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))))]
+#[cfg(not(any(
+    windows,
+    target_os = "android",
+    all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))
+)))]
 #[derive(Default)]
 pub(crate) struct Shared(());
 
-#[cfg(not(any(windows, target_os = "android", all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))))]
+#[cfg(not(any(
+    windows,
+    target_os = "android",
+    all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))
+)))]
 impl Shared {
     /// The views of `picture`'s planes opened on `device`; `None` when it cannot open them.
     pub(crate) fn open(
@@ -92,7 +104,12 @@ pub(crate) fn announce(device: &wgpu::Device) {
             remedy_ui_paint::set_gpu_video_adapter(Some(remedy_ui_paint::GpuAdapter::Only));
         }
     }
-    #[cfg(not(any(windows, target_os = "android", target_arch = "wasm32", all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))))]
+    #[cfg(not(any(
+        windows,
+        target_os = "android",
+        target_arch = "wasm32",
+        all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))
+    )))]
     let _ = device;
 }
 

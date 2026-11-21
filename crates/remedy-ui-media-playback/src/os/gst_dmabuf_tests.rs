@@ -15,8 +15,8 @@
 use std::ffi::{c_char, c_int, c_uint};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::FileExt as _;
-use std::sync::{Mutex, OnceLock};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use libloading::Library;
@@ -259,7 +259,12 @@ unsafe extern "C" fn probe(_pad: Ptr, info: *mut GstPadProbeInfo, _data: Ptr) ->
         }
         let fd = OwnedFd::from(file);
         let raw = fd.as_raw_fd();
-        let mem = (p.dmabuf_allocator_alloc_with_flags)(p.allocator as Ptr, raw, size, GST_FD_MEMORY_FLAG_DONT_CLOSE);
+        let mem = (p.dmabuf_allocator_alloc_with_flags)(
+            p.allocator as Ptr,
+            raw,
+            size,
+            GST_FD_MEMORY_FLAG_DONT_CLOSE,
+        );
         ALL.lock().unwrap_or_else(|e| e.into_inner()).push(fd);
         let dst = (p.buffer_new)();
         (p.buffer_append_memory)(dst, mem);
