@@ -270,7 +270,7 @@ impl DxgiChain {
         self.current = None;
         // wgpu lets go of the textures it wrapped once the GPU is done with them.
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
-        self.wait_lists();
+        self.wait_idle();
         self.buffers.clear();
         let dxgi = dxgi_format(self.format).ok_or_else(|| ChainError::Failed("no DXGI format".into()))?;
         // SAFETY: no reference to the old buffers is left (above).
@@ -282,10 +282,17 @@ impl DxgiChain {
         self.take_buffers()
     }
 
-    /// Waits until the GPU has run every barrier list submitted.
-    fn wait_lists(&self) {
-        // SAFETY: a null event makes the call return once the fence reaches the value.
+    /// Waits until the queue has run everything sent to it so far: the barrier lists, and
+    /// the presents, which use the back buffers after the lists' own fence values (the debug
+    /// layer reports their release while a present is in flight as corruption).
+    fn wait_idle(&mut self) {
+        // SAFETY: a signal on the queue the chain presents on; a null event makes the wait
+        // return once the fence reaches the value.
         unsafe {
+            self.fence_value += 1;
+            if self.queue.Signal(&self.fence, self.fence_value).is_err() {
+                return;
+            }
             if self.fence.GetCompletedValue() < self.fence_value {
                 let _ = self.fence.SetEventOnCompletion(self.fence_value, HANDLE::default());
             }
@@ -441,9 +448,10 @@ impl DxgiChain {
 impl Drop for DxgiChain {
     fn drop(&mut self) {
         // wgpu lets go of the back buffers it wrapped once the GPU is done with them, and the
-        // GPU may still run a barrier list: the lists, buffers and swapchain go only after.
+        // GPU may still run a barrier list or a present: the lists, buffers and swapchain go
+        // only after.
         let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        self.wait_lists();
+        self.wait_idle();
         // SAFETY: the waitable object is the swapchain's, closed once.
         unsafe {
             let _ = windows::Win32::Foundation::CloseHandle(self.waitable);

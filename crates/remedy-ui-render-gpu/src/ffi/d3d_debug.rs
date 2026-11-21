@@ -45,7 +45,7 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
             _ => return EXCEPTION_CONTINUE_SEARCH,
         }
     };
-    if is_failure(&message) {
+    if is_failure(&message) && !(at_exit(&message) && crate::external::shared_made()) {
         let at = std::backtrace::Backtrace::force_capture();
         // Straight to stderr: the test harness's capture would be lost with the process.
         let line = format!("\nREMEDY_D3D_DEBUG: {}\n{at}\n", message.trim_end_matches(['\n', '\0']));
@@ -54,6 +54,17 @@ unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
     }
     // Let wgpu's handler (or a debugger) have it too.
     EXCEPTION_CONTINUE_SEARCH
+}
+
+/// The layer's report of the objects alive when the process ends. Statics are never torn
+/// down, so the process's shared device (`GpuContext::shared`) is alive then by design; any
+/// other object alive then was leaked.
+fn at_exit(message: &str) -> bool {
+    ["D3D12 WARNING:", "DXGI WARNING:"]
+        .iter()
+        .find_map(|p| message.strip_prefix(p))
+        .map(str::trim_start)
+        .is_some_and(|m| m.starts_with("Process is terminating") || m.starts_with("Live "))
 }
 
 /// A debug-layer warning, error or corruption, less the layer's known false positives.
@@ -69,13 +80,31 @@ fn is_failure(message: &str) -> bool {
     // WebGPU allows. And #1361 (a comparison function on a non-comparison sampler, "This is
     // OK" in the layer's own words): wgpu-hal 30 fills `ComparisonFunc` with
     // `compare.unwrap_or_default()` (dx12/device.rs:777), so every plain sampler raises it.
+    // And #1318 (a write-combined heap "can have a large performance impact" when the CPU
+    // reads it): gpu-allocator 0.28 makes wgpu's upload heaps write-combined
+    // (d3d12/mod.rs:290), which the CPU only writes.
     !(message.starts_with("D3D12 WARNING:")
-        && ["#820:", "#821:", "DRAW_EMPTY_SCISSOR_RECTANGLE", "#1361:"].iter().any(|id| rest.contains(id)))
+        && ["#820:", "#821:", "DRAW_EMPTY_SCISSOR_RECTANGLE", "#1361:", "#1318:"]
+            .iter()
+            .any(|id| rest.contains(id)))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::is_failure;
+    use super::{at_exit, is_failure};
+
+    #[test]
+    fn the_exit_report_is_told_apart() {
+        assert!(at_exit(
+            "D3D12 WARNING: \tLive Object at 0x1, Refcount: 0. [ STATE_CREATION WARNING #0: UNKNOWN]"
+        ));
+        assert!(at_exit(
+            "D3D12 WARNING: Live                         Object :    570 [ STATE_CREATION WARNING #0: UNKNOWN]"
+        ));
+        assert!(at_exit("D3D12 WARNING: Process is terminating. Using simple reporting."));
+        assert!(at_exit("DXGI WARNING: Live Producer at 0x1, Refcount: 3. [ STATE_CREATION WARNING #0: ]"));
+        assert!(!at_exit("D3D12 WARNING: ID3D12Device::CreateHeap: x"));
+    }
 
     #[test]
     fn failures_are_warnings_and_worse_from_the_layers() {
