@@ -401,11 +401,12 @@ impl GpuCompositor {
                 all(unix, not(any(target_os = "macos", target_os = "ios"))),
                 all(windows, feature = "windows-vulkan")
             ))]
-            Some(Swap::Vulkan(chain)) => {
-                if chain.resize(surface.config.width, surface.config.height).is_err() {
-                    surface.surface = None;
-                }
-            }
+            Some(Swap::Vulkan(chain)) => match chain.resize(surface.config.width, surface.config.height) {
+                // No size to build at (minimized): built when presents find it has one.
+                Ok(()) | Err(crate::ffi::vulkan::ChainError::OutOfDate) => {}
+                // Built again at the next present.
+                Err(_) => surface.surface = None,
+            },
             None => {}
         }
     }
@@ -694,11 +695,12 @@ impl GpuCompositor {
         let Some(Swap::Vulkan(chain)) = surface.surface.as_mut() else { return Ok(Presented::Retry) };
         match chain.present(&ctx.device, &ctx.queue, copies, last, changed.as_deref()) {
             Ok(rebuild) => {
-                if rebuild {
-                    let (w, h) = (surface.config.width, surface.config.height);
-                    if chain.resize(w, h).is_err() {
-                        surface.surface = None;
-                    }
+                let (w, h) = (surface.config.width, surface.config.height);
+                if rebuild
+                    && let Err(e) = chain.resize(w, h)
+                    && !matches!(e, crate::ffi::vulkan::ChainError::OutOfDate)
+                {
+                    surface.surface = None;
                 }
             }
             Err(e) => {
