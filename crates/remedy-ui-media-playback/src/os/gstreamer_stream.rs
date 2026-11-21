@@ -212,15 +212,15 @@ fn installed(g: &Gst, name: &str) -> bool {
 }
 
 /// A pipeline with a named source and sink, started.
-struct Pipe {
+pub(crate) struct Pipe {
     g: &'static Gst,
-    pipeline: Ptr,
+    pub(crate) pipeline: Ptr,
     named: Vec<Ptr>,
 }
 
 impl Pipe {
     /// Builds `desc` and looks up `names`; nothing is started.
-    fn build(g: &'static Gst, desc: &str, names: &[&CStr]) -> Result<Pipe, MediaError> {
+    pub(crate) fn build(g: &'static Gst, desc: &str, names: &[&CStr]) -> Result<Pipe, MediaError> {
         let desc = CString::new(desc).map_err(|e| MediaError::Unsupported(e.to_string()))?;
         let mut err: *mut GError = std::ptr::null_mut();
         // SAFETY: building a pipeline from a description; errors come back in `err`.
@@ -243,11 +243,11 @@ impl Pipe {
         Ok(p)
     }
 
-    fn get(&self, i: usize) -> Ptr {
+    pub(crate) fn get(&self, i: usize) -> Ptr {
         self.named.get(i).copied().unwrap_or(std::ptr::null_mut())
     }
 
-    fn start(&self, what: &str) -> Result<(), MediaError> {
+    pub(crate) fn start(&self, what: &str) -> Result<(), MediaError> {
         // SAFETY: a state change on a live pipeline.
         if unsafe { (self.g.element_set_state)(self.pipeline, GST_STATE_PLAYING) } == GST_STATE_CHANGE_FAILURE
         {
@@ -274,7 +274,7 @@ impl Drop for Pipe {
 
 /// Pulls one sample from `sink`, waiting up to `wait`, and copies its bytes out with the
 /// buffer's flags.
-fn pull(g: &Gst, sink: Ptr, wait: Duration) -> Option<(Vec<u8>, c_uint, Ptr)> {
+pub(crate) fn pull(g: &Gst, sink: Ptr, wait: Duration) -> Option<(Vec<u8>, c_uint, Ptr)> {
     let ns = u64::try_from(wait.as_nanos()).unwrap_or(u64::MAX);
     // SAFETY: pulling from a live app sink; the sample is ours until unref'd (by the caller,
     // through the returned pointer), its buffer mapped for reading while copied.
