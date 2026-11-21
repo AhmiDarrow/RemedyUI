@@ -255,8 +255,9 @@ fn the_next_stream_takes_the_last_ones_decoders() {
     assert!(lock(&spare).is_none(), "held while the stream plays");
     drop(d);
     assert!(lock(&spare).is_some(), "handed back on the drop");
-    let mut d = open_with(&url, Box::new(Mem::of("aac", None)), Some(&spare), || unreachable!("made anew"), CLOCK)
-        .unwrap_or_else(|e| unreachable!("{e}"));
+    let mut d =
+        open_with(&url, Box::new(Mem::of("aac", None)), Some(&spare), || unreachable!("made anew"), CLOCK)
+            .unwrap_or_else(|e| unreachable!("{e}"));
     assert!(read_all(&mut d).is_ok());
     assert_eq!(lock(&units).len(), 2 * read, "the same decoders decoded the second stream");
     // Dropped with the host: nothing holds them past it.

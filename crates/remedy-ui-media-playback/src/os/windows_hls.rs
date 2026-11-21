@@ -314,7 +314,15 @@ impl Audio {
             t.SetInputType(0, &input, 0).map_err(|e| MediaError::Format(e.message()))?;
         }
         let none = AudioFormat::new(0, 0);
-        let mut a = Audio { t, config: config.clone(), float: true, format: none, actual: none, convert: None, out: VecDeque::new() };
+        let mut a = Audio {
+            t,
+            config: config.clone(),
+            float: true,
+            format: none,
+            actual: none,
+            convert: None,
+            out: VecDeque::new(),
+        };
         a.set_output()?;
         a.format = a.actual;
         a.reset();
@@ -930,7 +938,12 @@ mod tests {
         assert_eq!(sound(&e), a, "the same sound config keeps its decoder");
         e.configure(Some(&config()), Some(&aac(44100))).unwrap_or_else(|e| unreachable!("{e}"));
         assert_ne!(sound(&e), a, "another sound config gets a new decoder");
-        let mp3 = AudioConfig { codec: AudioCodec::Mp3, codec_string: String::new(), sample_rate: 44100, channels: 2 };
+        let mp3 = AudioConfig {
+            codec: AudioCodec::Mp3,
+            codec_string: String::new(),
+            sample_rate: 44100,
+            channels: 2,
+        };
         let a = sound(&e);
         e.configure(Some(&config()), Some(&mp3)).unwrap_or_else(|e| unreachable!("{e}"));
         assert_ne!(sound(&e), a, "another codec gets a new decoder");

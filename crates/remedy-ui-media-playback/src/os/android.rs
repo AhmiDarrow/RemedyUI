@@ -422,12 +422,9 @@ impl MediaHost for AndroidHost {
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
         // The extractor takes no HLS of its own that seeks and grows as elsewhere: the crate's reader.
         if crate::hls::is_hls(source) {
-            return crate::hls::open(
-                &source.to_url(),
-                Box::new(hls::NdkFetch),
-                &self.spare,
-                || Ok(Box::new(hls::NdkElementary::new(ndk()?))),
-            );
+            return crate::hls::open(&source.to_url(), Box::new(hls::NdkFetch), &self.spare, || {
+                Ok(Box::new(hls::NdkElementary::new(ndk()?)))
+            });
         }
         Ok(Box::new(NdkDecoder::open(ndk()?, source)?))
     }

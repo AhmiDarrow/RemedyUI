@@ -181,12 +181,9 @@ impl MediaHost for WindowsHost {
         // Media Foundation's source reader refuses playlists: the crate's own reader takes HLS
         // apart and Media Foundation's transforms decode its streams.
         if crate::hls::is_hls(source) {
-            return crate::hls::open(
-                &source.to_url(),
-                Box::new(hls::HttpFetch::new()?),
-                &self.spare,
-                || Ok(Box::new(hls::MftElementary::new()?)),
-            );
+            return crate::hls::open(&source.to_url(), Box::new(hls::HttpFetch::new()?), &self.spare, || {
+                Ok(Box::new(hls::MftElementary::new()?))
+            });
         }
         Ok(Box::new(MfDecoder::open(source)?))
     }
