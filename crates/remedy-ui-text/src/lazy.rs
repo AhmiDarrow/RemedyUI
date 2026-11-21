@@ -325,6 +325,36 @@ fn floor_boundary(s: &str, mut i: usize) -> usize {
     i
 }
 
+/// How many bytes `a` and `b` start with alike (compared a block at a time).
+fn common_prefix(a: &[u8], b: &[u8]) -> usize {
+    const BLOCK: usize = 4096;
+    let n = a.len().min(b.len());
+    let mut i = 0;
+    while i + BLOCK <= n && a.get(i..i + BLOCK) == b.get(i..i + BLOCK) {
+        i += BLOCK;
+    }
+    i + a
+        .get(i..n)
+        .unwrap_or_default()
+        .iter()
+        .zip(b.get(i..n).unwrap_or_default())
+        .take_while(|(x, y)| x == y)
+        .count()
+}
+
+/// How many bytes `a` and `b` end with alike.
+fn common_suffix(a: &[u8], b: &[u8]) -> usize {
+    const BLOCK: usize = 4096;
+    let n = a.len().min(b.len());
+    let (ea, eb) = (a.len(), b.len());
+    let mut i = 0;
+    while i + BLOCK <= n && a.get(ea - i - BLOCK..ea - i) == b.get(eb - i - BLOCK..eb - i) {
+        i += BLOCK;
+    }
+    let (ra, rb) = (a.get(..ea - i).unwrap_or_default(), b.get(..eb - i).unwrap_or_default());
+    i + ra.iter().rev().zip(rb.iter().rev()).take(n - i).take_while(|(x, y)| x == y).count()
+}
+
 /// Why a piece could not be used where it was laid out.
 struct Mismatch;
 
@@ -806,10 +836,9 @@ impl Lazy {
             return None;
         }
         let (a, b) = (old.text.as_str(), text.as_str());
-        let prefix = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
-        let prefix = floor_boundary(a, prefix.min(b.len()));
+        let prefix = floor_boundary(a, common_prefix(a.as_bytes(), b.as_bytes()));
         let room = a.len().min(b.len()) - prefix;
-        let suffix = a.bytes().rev().zip(b.bytes().rev()).take(room).take_while(|(x, y)| x == y).count();
+        let suffix = common_suffix(a.as_bytes(), b.as_bytes()).min(room);
         let (old_end, new_end) = (a.len() - suffix, b.len() - suffix);
         let delta = b.len() as isize - a.len() as isize;
         // Spans and objects must be the old ones, moved by the edit.
