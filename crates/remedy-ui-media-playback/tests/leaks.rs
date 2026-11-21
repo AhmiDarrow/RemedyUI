@@ -369,7 +369,16 @@ fn streamed_within(how: Serve, within: Duration, then: impl FnOnce(&Player)) {
 
 #[test]
 fn a_stream_answered_404() {
-    streamed(Serve::NotFound, |p| wait("the error", || p.error().is_some()));
+    // A playlist the server says is not there fails after a grace of two retries (about
+    // 2 s), not the half minute a late segment is ridden out for.
+    streamed(Serve::NotFound, |p| {
+        let start = Instant::now();
+        wait("the error", || p.error().is_some());
+        let took = start.elapsed();
+        assert!(took < Duration::from_secs(4), "failed after {took:?}");
+        assert!(matches!(p.error(), Some(MediaError::NotFound(_))), "{:?}", p.error());
+        eprintln!("a 404 playlist failed the open after {took:?}");
+    });
 }
 
 #[test]
