@@ -99,6 +99,7 @@ pub(super) struct Gpu {
     value: u64,
     adapter: u64,
     pool: Arc<Mutex<Vec<Slot>>>,
+    _live: super::Live,
 }
 
 // SAFETY: D3D11 objects of a multithread-protected device and the DXGI device manager are
@@ -160,6 +161,7 @@ impl Gpu {
                 value: 0,
                 adapter,
                 pool: Arc::new(Mutex::new(Vec::new())),
+                _live: super::Live::new(),
             })
         }
     }
@@ -248,6 +250,7 @@ impl Gpu {
                 value: self.value,
                 adapter: self.adapter,
                 dev: self.dev.clone(),
+                _live: super::Live::new(),
             };
             Ok(Picture::on_gpu(width, height, matrix, full_range, Arc::new(shown)))
         }
@@ -262,6 +265,7 @@ struct Shown {
     value: u64,
     adapter: u64,
     dev: Device,
+    _live: super::Live,
 }
 
 impl Drop for Shown {

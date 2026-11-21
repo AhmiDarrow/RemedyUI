@@ -14,7 +14,9 @@ use remedy_ui_view::{El, Ui};
 
 use crate::engine::{self, Cmd, PlaybackState, PlaybackStats, Shared, lock};
 use crate::host::{MediaError, MediaHost, MediaInfo, MediaSource};
-use crate::subtitles::{SubtitleFormat, SubtitleTrack, cue_reach, parse_subtitles, read_subtitle_file};
+use crate::subtitles::{
+    SubtitleFormat, SubtitleTrack, add_streamed_cues, cue_reach, parse_subtitles, read_subtitle_file,
+};
 
 /// What a player does while it cannot be seen (scrolled away, hidden, its window minimized
 /// or covered).
@@ -713,11 +715,14 @@ impl Inner {
             if !cues.is_empty() {
                 let map = self.embedded.borrow().clone();
                 self.tracks.update(|t| {
+                    let mut each = vec![Vec::new(); t.len()];
                     for (track, cue) in cues {
-                        if let Some(tr) = map.get(track).and_then(|&i| t.get_mut(i)) {
-                            let at = tr.cues.partition_point(|c| c.start <= cue.start);
-                            tr.cues.insert(at, cue);
+                        if let Some(new) = map.get(track).and_then(|&i| each.get_mut(i)) {
+                            new.push(cue);
                         }
+                    }
+                    for (tr, new) in t.iter_mut().zip(each).filter(|(_, n)| !n.is_empty()) {
+                        add_streamed_cues(&mut tr.cues, new);
                     }
                 });
             }
