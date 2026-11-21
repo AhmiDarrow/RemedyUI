@@ -51,5 +51,6 @@ playback-play-now = Reproducir ahora
 playback-next-cancel = Cancelar
 playback-starting-next = Iniciando { $title }
 playback-canceling = Cancelando.
+playback-retry = { $message } Pulsa Reproducir para volver a intentarlo.
 playback-speed = Velocidad { $speed }×
 playback-speed-tip = Velocidad de reproducción (Shift+> más rápido, Shift+< más lento)

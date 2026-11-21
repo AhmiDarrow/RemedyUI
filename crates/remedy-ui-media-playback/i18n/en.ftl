@@ -72,6 +72,8 @@ playback-next-cancel = Cancel
 playback-starting-next = Starting { $title }
 # Over the picture once Cancel is pressed, while the app stops its work.
 playback-canceling = Canceling.
+# After a failure the app can try again from ({ $message } is why it failed), as Portal's page says it.
+playback-retry = { $message } Press Play to try again.
 
 ## The speed button: { $speed } is the playback speed (1, 1.5, 0.75), written the locale's way.
 playback-speed = Speed { $speed }×
