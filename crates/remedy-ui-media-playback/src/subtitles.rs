@@ -3,6 +3,43 @@
 
 use std::time::Duration;
 
+use crate::host::MediaError;
+
+/// The largest subtitle file read (a feature film's SRT is about 100 KB, a styled ASS a few MB).
+pub(crate) const MAX_SUBTITLE_BYTES: u64 = 16 << 20;
+
+/// Reads the subtitle file at `path` as text, refusing one over [`MAX_SUBTITLE_BYTES`].
+pub(crate) fn read_subtitle_file(path: &std::path::Path) -> Result<String, MediaError> {
+    use std::io::Read;
+    let failed = |e: std::io::Error| MediaError::NotFound(format!("{}: {e}", path.display()));
+    let mut text = String::new();
+    // Read one byte past the limit, so a file growing while read is caught too.
+    std::fs::File::open(path)
+        .map_err(failed)?
+        .take(MAX_SUBTITLE_BYTES + 1)
+        .read_to_string(&mut text)
+        .map_err(failed)?;
+    if text.len() as u64 > MAX_SUBTITLE_BYTES {
+        return Err(MediaError::Format(format!(
+            "{} is over {} MB, too big for a subtitle file",
+            path.display(),
+            MAX_SUBTITLE_BYTES >> 20
+        )));
+    }
+    Ok(text)
+}
+
+/// For each cue, the latest end of it and every cue before it: never falls, so
+/// [`SubtitleTrack::text_at_with`] can search it.
+pub(crate) fn cue_reach(cues: &[Cue]) -> Vec<Duration> {
+    cues.iter()
+        .scan(Duration::ZERO, |latest, c| {
+            *latest = (*latest).max(c.end);
+            Some(*latest)
+        })
+        .collect()
+}
+
 /// One caption: text shown from `start` until `end`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cue {
@@ -66,11 +103,23 @@ pub struct SubtitleTrack {
 impl SubtitleTrack {
     /// The text showing at `t`: every cue covering it, joined by line breaks, or `None`.
     pub fn text_at(&self, t: Duration) -> Option<String> {
+        self.covering(0, t)
+    }
+
+    /// [`text_at`](Self::text_at) in O(log n) plus the cues near `t`, with `reach` the
+    /// track's [`cue_reach`].
+    pub(crate) fn text_at_with(&self, reach: &[Duration], t: Duration) -> Option<String> {
+        // No cue before the first whose reach passes `t` can cover it.
+        self.covering(reach.partition_point(|&r| r <= t), t)
+    }
+
+    /// The text of the cues from `from` on that cover `t`.
+    fn covering(&self, from: usize, t: Duration) -> Option<String> {
         // Cues are sorted by start: everything after the first cue starting past `t` is out.
         let end = self.cues.partition_point(|c| c.start <= t);
         let lines: Vec<&str> = self
             .cues
-            .get(..end)
+            .get(from.min(end)..end)
             .unwrap_or_default()
             .iter()
             .filter(|c| t < c.end)
@@ -312,5 +361,43 @@ mod tests {
         assert_eq!(parse_time("1:02:03.5"), Some(Duration::new(3723, 500_000_000)));
         assert_eq!(parse_time("x:00"), None);
         assert!(parse_subtitles("00:02.000 --> 00:01.000\nbackwards", SubtitleFormat::WebVtt).is_empty());
+    }
+
+    /// The indexed lookup finds what the scan does, a long cue spanning others included, and
+    /// (printed) how much faster it is on a large track.
+    #[test]
+    fn indexed_lookup_matches_the_scan() {
+        let mut cues: Vec<Cue> = (0..20_000u64)
+            .map(|i| Cue { start: ms(i * 1000), end: ms(i * 1000 + 700 + i % 3 * 400), text: i.to_string() })
+            .collect();
+        cues.push(Cue { start: ms(5_000_500), end: ms(5_100_000), text: "long".into() });
+        cues.sort_by_key(|c| c.start);
+        let track = SubtitleTrack { label: "x".into(), language: None, cues };
+        let reach = cue_reach(&track.cues);
+        for t in (0..21_000_000u64).step_by(250).map(ms) {
+            assert_eq!(track.text_at_with(&reach, t), track.text_at(t), "at {t:?}");
+        }
+        let late = ms(19_000_300);
+        let timed = |f: &dyn Fn() -> Option<String>| {
+            let started = std::time::Instant::now();
+            for _ in 0..1000 {
+                std::hint::black_box(f());
+            }
+            started.elapsed() / 1000
+        };
+        let scan = timed(&|| track.text_at(late));
+        let indexed = timed(&|| track.text_at_with(&reach, late));
+        eprintln!("20k cues, one lookup: scan {scan:?}, indexed {indexed:?}");
+    }
+
+    #[test]
+    fn huge_subtitle_files_are_refused() {
+        let path = std::env::temp_dir().join(format!("remedy-huge-{}.srt", std::process::id()));
+        let file = std::fs::File::create(&path).unwrap_or_else(|e| unreachable!("{e}"));
+        file.set_len(MAX_SUBTITLE_BYTES + 1).unwrap_or_else(|e| unreachable!("{e}"));
+        drop(file);
+        let got = read_subtitle_file(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(matches!(&got, Err(MediaError::Format(m)) if m.contains("too big")), "{got:?}");
     }
 }
