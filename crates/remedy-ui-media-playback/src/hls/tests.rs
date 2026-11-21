@@ -532,3 +532,131 @@ fn file_urls_name_paths() {
         assert_eq!(p("file://localhost/tmp/a.ts"), "/tmp/a.ts");
     }
 }
+
+/// How long reading a real segment takes: `REMEDY_HLS_BENCH=<a .ts file> cargo test --release
+/// -p remedy-ui-media-playback --lib reading_a_big_segment -- --ignored --nocapture`.
+#[test]
+#[ignore = "a benchmark: needs REMEDY_HLS_BENCH"]
+fn reading_a_big_segment() {
+    let Ok(path) = std::env::var("REMEDY_HLS_BENCH") else { return };
+    let seg = std::fs::read(&path).unwrap_or_else(|e| unreachable!("{path}: {e}"));
+    let text = "#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2,\nseg.ts\n#EXT-X-ENDLIST\n";
+    let rounds = 50;
+    let t = std::time::Instant::now();
+    for _ in 0..rounds {
+        std::hint::black_box(ts::demux(&seg));
+    }
+    let demux = t.elapsed() / rounds;
+    let t = std::time::Instant::now();
+    let mut units = 0;
+    for _ in 0..rounds {
+        let mut hls = Hls::new(&format!("{ROOT}index.m3u8"));
+        let p = Want { url: format!("{ROOT}index.m3u8"), kind: WantKind::Playlist, after: Duration::ZERO };
+        assert!(hls.deliver(&p, Ok(text.as_bytes().to_vec())).is_ok());
+        let Some(w) = hls.wanted() else { unreachable!("the segment") };
+        assert!(hls.deliver(&w, Ok(seg.clone())).is_ok());
+        while hls.next_unit().is_some() {
+            units += 1;
+        }
+    }
+    let read = t.elapsed() / rounds;
+    eprintln!("{} bytes: demux {demux:?}, read whole {read:?}, {} units", seg.len(), units / rounds);
+}
+
+/// A few thousand damaged segments and playlists (bytes flipped, cut, spliced, made up) are
+/// read without panicking or overflowing (the tests are built with overflow checks).
+#[test]
+fn damaged_input_is_read_without_panicking() {
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut rand = move |n: usize| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed % n.max(1) as u64) as usize
+    };
+    let segs: Vec<Vec<u8>> = ["aac", "mp3", "video", "wrap", "surround", "mono24"]
+        .iter()
+        .map(|d| fixture(&format!("{d}/seg00000.ts")))
+        .collect();
+    let index = Want { url: format!("{ROOT}index.m3u8"), kind: WantKind::Playlist, after: Duration::ZERO };
+    let text = "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\na.ts\n#EXTINF:1,\nb.ts\n#EXT-X-ENDLIST\n";
+    let tags = [
+        "#EXTM3U",
+        "#EXTINF:",
+        "#EXT-X-MEDIA-SEQUENCE:",
+        "#EXT-X-TARGETDURATION:",
+        "#EXT-X-ENDLIST",
+        "#EXT-X-DISCONTINUITY",
+        "#EXT-X-STREAM-INF:BANDWIDTH=",
+        "a.ts",
+        "//h/x.m3u8",
+        "1e19,",
+        "-1",
+        "18446744073709551615",
+        "NaN",
+        "\u{feff}",
+        "=\"",
+        ",",
+    ];
+    for round in 0..3000 {
+        let mut seg = segs[round % segs.len()].clone();
+        match rand(4) {
+            0 => seg.truncate(rand(seg.len())),
+            1 => {
+                for _ in 0..1 + rand(64) {
+                    let i = rand(seg.len());
+                    seg[i] = rand(256) as u8;
+                }
+            }
+            2 => {
+                let other = &segs[rand(segs.len())];
+                let (a, b) = (rand(seg.len()), rand(other.len()));
+                seg.truncate(a);
+                seg.extend_from_slice(&other[b..]);
+            }
+            _ => seg = (0..rand(4000)).map(|i| if i % 188 == 0 { 0x47 } else { rand(256) as u8 }).collect(),
+        }
+        let mut hls = Hls::new(&index.url);
+        assert!(hls.deliver(&index, Ok(text.as_bytes().to_vec())).is_ok());
+        for _ in 0..2 {
+            let Some(w) = hls.wanted() else { break };
+            let _ = hls.deliver(&w, Ok(seg.clone()));
+        }
+        while hls.next_unit().is_some() {}
+        assert_eq!(hls.queued, 0);
+        // Playlists: tags and numbers, shuffled and run together.
+        let mut p = String::from("#EXTM3U\n");
+        for _ in 0..rand(40) {
+            p.push_str(tags[rand(tags.len())]);
+            if rand(2) == 0 {
+                p.push('\n');
+            }
+        }
+        let mut hls = Hls::new(&index.url);
+        let _ = hls.deliver(&index, Ok(p.into_bytes()));
+        let _ = (hls.wanted(), hls.info(), hls.buffered());
+        hls.seek(Duration::from_secs(rand(1 << 20) as u64));
+        let _ = hls.wanted();
+    }
+}
+
+/// No more is fetched ahead once the units held reach `MAX_HELD` bytes, but the segment to
+/// read next is always fetched.
+#[test]
+fn what_is_fetched_ahead_is_bounded_in_bytes() {
+    let text =
+        format!("#EXTM3U\n#EXT-X-TARGETDURATION:1\n{}#EXT-X-ENDLIST\n", "#EXTINF:1,\na.ts\n".repeat(8));
+    let mut hls = Hls::new(&format!("{ROOT}index.m3u8"));
+    let index = Want { url: format!("{ROOT}index.m3u8"), kind: WantKind::Playlist, after: Duration::ZERO };
+    assert!(hls.deliver(&index, Ok(text.into_bytes())).is_ok());
+    let seg = fixture("aac/seg00000.ts");
+    let Some(w) = hls.wanted() else { unreachable!("the first segment") };
+    assert!(hls.deliver(&w, Ok(seg.clone())).is_ok());
+    assert!(hls.queued > 0 && hls.queued < seg.len(), "{} bytes held", hls.queued);
+    assert!(hls.wanted().is_some(), "a few segments ahead");
+    // As if the segment were 60 MB.
+    hls.queued += MAX_HELD;
+    assert_eq!(hls.wanted(), None, "enough bytes held");
+    while hls.next_unit().is_some() {}
+    assert!(hls.wanted().is_some(), "nothing held: the next is fetched");
+}

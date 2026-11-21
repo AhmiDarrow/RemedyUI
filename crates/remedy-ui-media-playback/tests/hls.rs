@@ -3,10 +3,10 @@
 //! sought, played while its playlist grows, and failing on a missing segment; the other
 //! fixtures in `tests/fixtures/hls` played to the end; and a playlist opened as a local file.
 //!
-//! Skips, saying why, where there is no platform host. Not built for macOS and Android, whose
-//! hosts refuse HLS for now.
+//! Skips, saying why, where there is no platform host. Not built for macOS, whose host refuses
+//! HLS for now.
 
-#![cfg(not(any(target_arch = "wasm32", target_os = "macos", target_os = "android")))]
+#![cfg(not(any(target_arch = "wasm32", target_os = "macos")))]
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -325,11 +325,15 @@ fn big_segments_are_read_at_the_pace_they_play() {
         let _ = std::fs::remove_dir_all(&folder);
         return eprintln!("skipped: no ffmpeg on the PATH to make the stream");
     }
-    let (url, _files) = serve_path(&folder, None, Some(6_000_000));
+    let (url, files) = serve_path(&folder, None, Some(6_000_000));
     let _ = std::fs::remove_dir_all(&folder);
     let opening = std::time::Instant::now();
     let Some(mut d) = open(&url) else { return };
     let opened = opening.elapsed();
+    let asked_at_open = String::from_utf8_lossy(
+        files.lock().unwrap_or_else(PoisonError::into_inner).get("asked").map_or(&[][..], |a| a),
+    )
+    .into_owned();
     let start = std::time::Instant::now();
     let (mut slowest, mut behind, mut pictures) = (Duration::ZERO, Duration::ZERO, 0);
     loop {
@@ -350,8 +354,11 @@ fn big_segments_are_read_at_the_pace_they_play() {
         "opened in {opened:?}; slowest read {slowest:?}; at most {behind:?} behind; {pictures} pictures"
     );
     assert_eq!(pictures, 150, "pictures");
-    // Opening fetches the playlist and one 4 MB segment (0.7 s at this rate), no more.
-    assert!(opened < Duration::from_millis(2000), "opening took {opened:?}");
+    // Opening fetches the playlist and one 4 MB segment (0.7 s at this rate), no more: told by
+    // what was asked, not by the clock, which a loaded machine (other builds, GStreamer's
+    // first start) slows to several seconds. The clock only catches a hang.
+    assert_eq!(asked_at_open, "index.m3u8\nseg00000.ts\n", "what opening fetched");
+    assert!(opened < Duration::from_secs(15), "opening took {opened:?}");
     assert!(slowest < Duration::from_millis(200), "a read waited {slowest:?}");
     assert!(behind < Duration::from_millis(300), "fell {behind:?} behind");
 }
