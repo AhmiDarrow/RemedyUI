@@ -47,5 +47,6 @@ playback-play-now = 今すぐ再生
 playback-next-cancel = キャンセル
 playback-starting-next = { $title } を開始しています
 playback-canceling = キャンセルしています。
+playback-retry = { $message }「再生」を押すと再試行します。
 playback-speed = 速度 { $speed }×
 playback-speed-tip = 再生速度（Shift+> で速く、Shift+< で遅く）

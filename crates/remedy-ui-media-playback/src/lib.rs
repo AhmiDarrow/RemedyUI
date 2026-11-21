@@ -99,7 +99,7 @@ pub use host::{
 };
 pub use player::{
     KeyScheme, NEXT_UP_DELAY, NextUp, Player, PlayerOptions, Remote, RemoteControl, RemoteStatus,
-    RemoteStatusSender, Timeline, UnseenPolicy,
+    RemoteStatusSender, StageStatus, Timeline, UnseenPolicy,
 };
 #[cfg(feature = "media-session")]
 pub use remedy_ui_services_desktop::media_session::{Artwork, NowPlaying};
