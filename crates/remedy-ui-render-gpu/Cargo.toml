@@ -69,6 +69,9 @@ remedy-ui-render-gpu = { path = ".", features = ["windows-vulkan"] }
 # Resource counters prove no pipeline or shader is created after start-up (tests only).
 wgpu = { version = "=30.0.2", features = ["counters"] }
 remedy-ui-bridge-windows = { path = "../remedy-ui-bridge-windows", version = "1.0.0-rc.1" }
+# Validation-layer messages reach tests through wgpu's log output.
+log = { version = "=0.4.35" }
+remedy-ui-bridge-linux = { path = "../remedy-ui-bridge-linux", version = "1.0.0-rc.1" }
 remedy-ui-bridge-winit = { path = "../remedy-ui-bridge-winit", version = "1.0.0-rc.1" }
 remedy-ui-host = { path = "../remedy-ui-host", version = "1.0.0-rc.1" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "remedy-sans", "ahmi-print"] }

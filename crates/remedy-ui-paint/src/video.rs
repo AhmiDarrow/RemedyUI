@@ -128,6 +128,22 @@ pub enum GpuTexture {
         /// Its `displayHeight`.
         height: u32,
     },
+    /// Android: an `AHardwareBuffer` a MediaCodec decoder wrote (through an `AImageReader`),
+    /// already complete, imported into Vulkan with
+    /// `VK_ANDROID_external_memory_android_hardware_buffer` and sampled through a
+    /// `VkSamplerYcbcrConversion` for its format.
+    HardwareBuffer {
+        /// The `AHardwareBuffer*`, valid while the picture lives.
+        buffer: usize,
+        /// The buffer's size in pixels (at least the frame's).
+        width: u32,
+        /// The buffer's height.
+        height: u32,
+        /// Where the frame's pixels start in the buffer (its crop).
+        left: u32,
+        /// As `left`, downwards.
+        top: u32,
+    },
 }
 
 /// A frame's [`GpuPicture`], cheap to clone; equal when it is the same picture.
@@ -158,6 +174,8 @@ pub enum GpuAdapter {
     /// A browser page's GPU (WebGPU or WebGL2): a page's `VideoFrame`s import into any of its
     /// devices, so there is nothing to tell them apart by.
     Browser,
+    /// The device's only GPU (Android: decoders have no say in which).
+    Only,
 }
 
 static GPU_VIDEO: Mutex<Option<GpuAdapter>> = Mutex::new(None);
