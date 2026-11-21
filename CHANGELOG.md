@@ -27,13 +27,20 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   open, as Portal's page does. `widgets-core`'s new `close_menus_in(&el)` closes every open
   menu opened from `el` or from inside it, without moving focus.
 - **Caption cue settings** in `media-playback`: WebVTT's `line` (a percentage or a line
-  number), `position` (with its anchor), `size`, `align` and `vertical` (read; laid out across),
-  SRT's `{\anN}`, and ASS/SSA's `\anN` with its styles' alignment and margins in the script's
-  `PlayResX` by `PlayResY` are read into `Cue::settings` (`CueSettings`), from files and from
-  Matroska's and MP4's embedded tracks. The `player` widget lays each such cue out by
-  WebVTT's rules (`CueSettings::box_across`); cues with none stay centred at the foot,
-  above the bar in full screen. `Player::caption_cues` gives the cues showing with their
-  settings. `Cue` has a new `settings` field (`..Default::default()` in literals).
+  number, with its alignment: `line:50%,center`), `position` (with its anchor), `size`,
+  `align` and `vertical`, SRT's `{\anN}`, and ASS/SSA's `\anN` with its styles' alignment and
+  margins in the script's `PlayResX` by `PlayResY` (MarginV above a bottom line) are read into
+  `Cue::settings` (`CueSettings`), from files and from Matroska's and MP4's embedded tracks
+  (a Matroska ASS track's styles from its codec private data). While any cue showing has
+  settings, the `player` widget lays every cue showing out by WebVTT's rules on the
+  letterboxed picture (its video viewport): cues are moved apart where they meet (lines
+  stepped away for snapped cues, a percentage cue past the cues it meets the way its line
+  alignment points, so two ASS lines of one alignment stack as ASS stacks them) and kept
+  above the bar; `vertical` cues run down the picture, characters set upright one under
+  another (the text stack lays out lines across only, so each character is drawn on its
+  own). Cues with no settings stay centred lines at the foot, above the bar in full screen.
+  `Player::caption_cues` gives the cues showing with their settings. `Cue` has a new
+  `settings` field (`..Default::default()` in literals).
 
 - **Portal's full-screen overlay** in `media-playback`. In full screen the `player`
   widget's bar floats over the foot of the picture on a gradient, the title the app gives
