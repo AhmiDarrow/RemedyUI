@@ -7,6 +7,7 @@ playback-failed-device = Dies kann wegen eines Problems mit dem Audiogerät nich
 playback-failed-denied = Dies kann nicht wiedergegeben werden, weil der Zugriff nicht erlaubt wurde: { $detail }
 playback-failed-missing = Dies kann nicht wiedergegeben werden: { $detail }
 playback-loading = Wird geladen
+playback-keep-awake = Video wird abgespielt
 playback-play-pause-tip = Wiedergabe oder Pause (K)
 playback-play = Wiedergeben
 playback-pause = Pausieren

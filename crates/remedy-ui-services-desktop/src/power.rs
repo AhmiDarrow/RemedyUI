@@ -13,6 +13,11 @@
 //!   (`org.freedesktop.ScreenSaver`, which GNOME, KDE and the others provide) to keep the screen
 //!   on
 //!
+//! - Android: the activity's `FLAG_KEEP_SCREEN_ON` to keep the screen on (through the Android
+//!   bridge's Java, which the APK carries); no power state
+//! - A browser: the Screen Wake Lock (`navigator.wakeLock`) to keep the screen on, while the
+//!   page shows; no power state
+//!
 //! Where a system has none of these (a container without UPower or logind), the calls say
 //! [`DesktopError::Unsupported`].
 
@@ -169,7 +174,7 @@ mod platform {
     }
 }
 
-#[cfg(not(any(windows, unix)))]
+#[cfg(not(any(windows, unix, all(target_arch = "wasm32", target_os = "unknown"))))]
 mod platform {
     use super::{Callback, DesktopError, Inhibit};
 
@@ -193,7 +198,101 @@ mod platform {
     }
 }
 
-#[cfg(all(unix, any(target_os = "ios", target_os = "android")))]
+/// A browser page: no power state, and only the screen kept on, with the Screen Wake Lock
+/// (`navigator.wakeLock`, reached by name). The browser lets go of it while the page is
+/// hidden; a hold taken again once the page shows asks again.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+mod platform {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use js_sys::{Function, Reflect};
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::{JsCast, JsValue};
+
+    use super::{Callback, DesktopError, Inhibit};
+
+    pub(super) type Watch = ();
+
+    /// The sentinel the browser hands back once it holds the lock, and whether the hold went
+    /// before it came (then it is let go at once).
+    #[derive(Default)]
+    struct Lock {
+        sentinel: Option<JsValue>,
+        dropped: bool,
+    }
+
+    pub(crate) struct Hold(Rc<RefCell<Lock>>);
+
+    fn release(sentinel: &JsValue) {
+        if let Ok(f) = Reflect::get(sentinel, &"release".into()).and_then(|f| f.dyn_into::<Function>()) {
+            let _ = f.call0(sentinel);
+        }
+    }
+
+    impl Drop for Hold {
+        fn drop(&mut self) {
+            let mut l = self.0.borrow_mut();
+            l.dropped = true;
+            if let Some(s) = l.sentinel.take() {
+                release(&s);
+            }
+        }
+    }
+
+    fn no() -> DesktopError {
+        DesktopError::unsupported("power status", "a page reports no power state")
+    }
+
+    pub(super) fn on_battery() -> Result<bool, DesktopError> {
+        Err(no())
+    }
+
+    pub(super) fn watch(_: Callback) -> Result<Watch, DesktopError> {
+        Err(no())
+    }
+
+    pub(super) fn inhibit(kind: Inhibit, _: &str, _: &str) -> Result<Hold, DesktopError> {
+        if kind != Inhibit::Display {
+            return Err(DesktopError::unsupported(
+                "keeping the system awake",
+                "a page can keep only the screen on",
+            ));
+        }
+        let unsupported =
+            || DesktopError::unsupported("keeping the screen on", "this browser has no Screen Wake Lock");
+        let nav = web_sys::window().ok_or_else(unsupported)?.navigator();
+        let wake =
+            Reflect::get(&nav, &"wakeLock".into()).ok().filter(|v| v.is_object()).ok_or_else(unsupported)?;
+        let request: Function = Reflect::get(&wake, &"request".into())
+            .ok()
+            .and_then(|f| f.dyn_into().ok())
+            .ok_or_else(unsupported)?;
+        let promise = request
+            .call1(&wake, &"screen".into())
+            .map_err(|e| DesktopError::platform(format!("navigator.wakeLock.request: {e:?}")))?;
+        let lock = Rc::new(RefCell::new(Lock::default()));
+        let l = lock.clone();
+        let held = Closure::once_into_js(move |sentinel: JsValue| {
+            let mut l = l.borrow_mut();
+            match l.dropped {
+                true => release(&sentinel),
+                false => l.sentinel = Some(sentinel),
+            }
+        });
+        // Refused (the page hidden, a permissions policy): nothing is held.
+        let refused = Closure::once_into_js(|_: JsValue| {});
+        let then: Function = Reflect::get(&promise, &"then".into())
+            .ok()
+            .and_then(|f| f.dyn_into().ok())
+            .ok_or_else(|| DesktopError::platform("navigator.wakeLock.request returned no promise"))?;
+        then.call2(&promise, &held, &refused)
+            .map_err(|e| DesktopError::platform(format!("navigator.wakeLock.request: {e:?}")))?;
+        Ok(Hold(lock))
+    }
+}
+
+#[cfg(target_os = "ios")]
 mod platform {
     use super::{Callback, DesktopError, Inhibit};
 
@@ -217,6 +316,41 @@ mod platform {
 
     pub(super) fn inhibit(_: Inhibit, _: &str, _: &str) -> Result<Hold, DesktopError> {
         Err(no())
+    }
+}
+
+/// Android: power comes through the app's lifecycle; the screen is kept on with the
+/// activity's `FLAG_KEEP_SCREEN_ON` (no permission needed), through the bridge's Java.
+#[cfg(target_os = "android")]
+mod platform {
+    use super::{Callback, DesktopError, Inhibit};
+
+    pub(super) type Watch = ();
+    pub(super) type Hold = crate::os::android_media::ScreenOn;
+
+    fn no() -> DesktopError {
+        DesktopError::unsupported(
+            "power status",
+            "the mobile bridges report power through the app's lifecycle",
+        )
+    }
+
+    pub(super) fn on_battery() -> Result<bool, DesktopError> {
+        Err(no())
+    }
+
+    pub(super) fn watch(_: Callback) -> Result<Watch, DesktopError> {
+        Err(no())
+    }
+
+    pub(super) fn inhibit(kind: Inhibit, _: &str, _: &str) -> Result<Hold, DesktopError> {
+        match kind {
+            Inhibit::Display => Hold::hold(),
+            Inhibit::Sleep => Err(DesktopError::unsupported(
+                "keeping the system awake",
+                "an Android app keeps working while its screen is on; for work out of sight, use a foreground service",
+            )),
+        }
     }
 }
 

@@ -7,6 +7,7 @@ playback-failed-device = Impossible de lire ce média en raison d’un problème
 playback-failed-denied = Impossible de lire ce média, car l’accès n’a pas été autorisé : { $detail }
 playback-failed-missing = Impossible de lire ce média : { $detail }
 playback-loading = Chargement
+playback-keep-awake = Lecture de la vidéo
 playback-play-pause-tip = Lecture ou pause (K)
 playback-play = Lecture
 playback-pause = Pause
