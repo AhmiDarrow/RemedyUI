@@ -52,5 +52,11 @@ wasm-bindgen-test = { version = "=0.3.80" }
 # The SMTC test presses the session's buttons from the controlling side.
 windows = { version = "=0.62.2", features = ["Foundation", "Foundation_Collections", "Media", "Media_Control"] }
 
+# The media controls on Android, as a library an instrumentation runs inside an app
+# (tools/android-media-check.sh).
+[[example]]
+name = "android-media-check"
+crate-type = ["cdylib"]
+
 [lints]
 workspace = true
