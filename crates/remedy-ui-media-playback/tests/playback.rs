@@ -3964,7 +3964,11 @@ fn subtitles_cut_to_the_stream_follow_the_timeline_across_new_sources() {
         MediaSource::url("script:20"),
         Timeline::new(Duration::from_secs(99)).length(Duration::from_secs(200)),
     );
-    s.wait("opened", |_| p.info().is_some());
+    // It plays once open; paused again, so each seek's position holds still to be seen (a
+    // playing clock moves past the 1 ms window before a loaded machine looks).
+    s.wait("playing the new stream", |_| p.state() == PlaybackState::Playing);
+    p.pause();
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
     assert_eq!(at(&mut s, 101_000).as_deref(), Some("One"), "after the new origin");
     assert_eq!(at(&mut s, 103_000), None);
 }
