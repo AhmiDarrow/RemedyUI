@@ -1034,6 +1034,11 @@ criteria = "safe-to-deploy"
 version = "0.2.2"
 criteria = "safe-to-deploy"
 
+[[exemptions.objc2-user-notifications]]
+version = "0.3.2"
+criteria = "safe-to-deploy"
+notes = "Generated framework bindings from the objc2 project, the same release line as the exempted objc2 0.3.2 crates; no imported audit covers it. See docs/dependencies.md."
+
 [[exemptions.object]]
 version = "0.39.1"
 criteria = "safe-to-deploy"
