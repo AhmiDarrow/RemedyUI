@@ -83,6 +83,8 @@ pub(crate) fn known_folder(k: crate::KnownFolder) -> Option<std::path::PathBuf> 
 #[cfg(target_os = "macos")]
 pub(crate) mod macos;
 #[cfg(windows)]
+pub(crate) mod media;
+#[cfg(windows)]
 pub(crate) mod power;
 
 #[cfg(windows)]

@@ -110,6 +110,9 @@ isolated = ["image", "anim", "dep:remedy-ui-media-isolated"]
 ## (`App::on_url`), jump lists and recent files, power (`App::on_power`, keeping awake),
 ## showing files in the file manager and the user's usual folders.
 desktop = ["dep:remedy-ui-services-desktop"]
+## The player in the system's media controls (`Player::now_playing`): Windows' SMTC, a
+## browser's `navigator.mediaSession`.
+media-session = ["playback", "desktop", "remedy-ui-media-playback/media-session"]
 ## Signed updates from GitHub releases or a feed (`remedy_ui::update`).
 update = ["widgets", "dep:remedy-ui-services-update"]
 ## The in-memory host for tests (`remedy_ui::headless`).
@@ -119,7 +122,7 @@ headless = ["dep:remedy-ui-bridge-headless"]
 ## only the module's types (`WebConfig`, `Mount`) and its documentation, with no web code.
 web = ["dep:remedy-ui-bridge-web"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts", "script-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-rhai", "script-wasm", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "effects", "customize", "web", "macros", "isolated", "webstorage", "desktop"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "script-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-rhai", "script-wasm", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "effects", "customize", "web", "macros", "isolated", "webstorage", "desktop", "media-session"]
 
 [dependencies]
 remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "1.0.0-rc.1" }
