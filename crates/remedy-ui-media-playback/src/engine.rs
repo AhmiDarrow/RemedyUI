@@ -147,8 +147,6 @@ struct Feed {
     audio: VecDeque<AudioItem>,
     audio_frames: u64,
     cues: Vec<(usize, Cue)>,
-    /// The bytes of cue text the decoder has handed out, against the subtitle file limit.
-    text_bytes: u64,
     /// The decoder's text samples are dropped: the source's captions were read from the
     /// file instead.
     skip_text: bool,
@@ -240,8 +238,9 @@ impl Feed {
             }
             Sample::Text { track, at, until, text } => {
                 if until > at && !self.skip_text {
-                    if crate::subtitles::over_cue_budget(&mut self.text_bytes, &text) {
-                        self.error = Some(MediaError::Format(crate::subtitles::CUES_TOO_BIG.into()));
+                    // The player keeps a window of a stream's cues; one cue this long is no caption.
+                    if text.len() > crate::subtitles::MAX_STREAMED_CUE {
+                        self.error = Some(MediaError::Format(crate::subtitles::CUE_TOO_BIG.into()));
                         self.eof = true;
                         return;
                     }
@@ -1212,7 +1211,20 @@ impl Presenter {
     }
 
     fn check_end(&mut self, t: Duration) {
-        if !self.playing || self.ended {
+        if self.ended || self.failed.is_some() {
+            return;
+        }
+        if !self.playing {
+            // Paused, nothing plays the decoded queue out: a decoder that failed (a seek
+            // refused) fails the player now, as playing to the error would.
+            let error = {
+                let f = lock(&self.feed.feed);
+                f.error.clone().filter(|_| f.eof)
+            };
+            if let Some(e) = error {
+                self.failed = Some(e);
+                self.publish(t, true);
+            }
             return;
         }
         let f = lock(&self.feed.feed);

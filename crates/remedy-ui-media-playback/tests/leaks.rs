@@ -107,8 +107,10 @@ enum Script {
     ReadFails,
     /// Seeking fails.
     SeekFails,
-    /// Each read is a long cue (a stream's captions with no end).
+    /// Nine 64 KB cues to each picture, 10 ms apart: a stream's captions with no end.
     EndlessCues,
+    /// The first read is a 2 MB cue.
+    HugeCue,
 }
 
 struct Host {
@@ -135,14 +137,18 @@ impl Decoder for Dec {
     }
     fn read(&mut self) -> Result<Option<Sample>, MediaError> {
         self.n += 1;
-        let at = Duration::from_millis(self.n * 100);
+        let mut at = Duration::from_millis(self.n * 100);
+        let cue = |at: Duration, text: String| Sample::Text { track: 0, at, until: at + Duration::from_millis(5), text };
         match self.script {
             Script::SlowRead => std::thread::sleep(Duration::from_millis(50)),
             Script::ReadFails if self.n == 3 => return Err(MediaError::Decode("scripted failure".into())),
             Script::EndlessCues => {
-                let text = "x".repeat(64 << 10);
-                return Ok(Some(Sample::Text { track: 0, at, until: at + Duration::from_millis(50), text }));
+                at = Duration::from_millis(self.n * 10);
+                if !self.n.is_multiple_of(10) {
+                    return Ok(Some(cue(at, format!("{}{}", self.n, "x".repeat(64 << 10)))));
+                }
             }
+            Script::HugeCue if self.n == 1 => return Ok(Some(cue(at, "x".repeat(2 << 20)))),
             _ => {}
         }
         if self.n > 600 {
@@ -174,6 +180,7 @@ impl MediaHost for Host {
         info.duration = Some(Duration::from_secs(60));
         info.seekable = true;
         info.video = Some(VideoInfo::new(8, 8, Some(10.0)));
+        info.text_tracks = vec![TextTrackInfo::new("Live", None)];
         self.alive.fetch_add(1, Ordering::SeqCst);
         Ok(Box::new(Dec { script: self.script, info, n: 0, alive: self.alive.clone() }))
     }
@@ -223,7 +230,22 @@ fn a_seek_failure() {
     scripted(Script::SeekFails, |p| {
         wait("opened", || p.state() == PlaybackState::Paused);
         p.seek(Duration::from_secs(30));
-        std::thread::sleep(Duration::from_millis(200));
+        // Paused, the failure shows at once, as any decoder failure: Failed, with why.
+        wait("failed", || p.state() == PlaybackState::Failed);
+        let e = p.error().map(|e| e.to_string()).unwrap_or_default();
+        assert!(e.contains("scripted seek failure"), "{e}");
+    });
+}
+
+#[test]
+fn a_seek_failure_while_playing() {
+    scripted(Script::SeekFails, |p| {
+        wait("opened", || p.state() == PlaybackState::Paused);
+        p.play();
+        wait("playing", || p.state() == PlaybackState::Playing);
+        p.seek(Duration::from_secs(30));
+        wait("failed", || p.state() == PlaybackState::Failed);
+        assert!(p.error().is_some_and(|e| e.to_string().contains("scripted seek failure")));
     });
 }
 
@@ -237,12 +259,28 @@ fn fail_called_by_the_app() {
 }
 
 #[test]
-fn captions_in_a_stream_are_bounded() {
+fn captions_in_a_stream_keep_a_window_of_the_latest() {
     scripted(Script::EndlessCues, |p| {
         p.play();
-        wait("the error", || p.error().is_some());
+        let cues = || p.subtitle_tracks().into_iter().flat_map(|t| t.cues).collect::<Vec<_>>();
+        // Past 16 MB of captions, the earliest go and playback goes on.
+        wait("the earliest cues dropped", || cues().first().is_some_and(|c| c.start > Duration::from_secs(1)));
+        let kept = cues();
+        let bytes: usize = kept.iter().map(|c| c.text.len()).sum();
+        assert!(bytes <= 16 << 20, "{bytes} bytes of cues kept");
+        assert!(bytes > 15 << 20, "the window is full: {bytes}");
+        assert!(kept.windows(2).all(|w| matches!(w, [a, b] if a.start < b.start)), "in order, none twice");
+        assert_ne!(p.state(), PlaybackState::Failed, "{:?}", p.error());
+    });
+}
+
+#[test]
+fn a_cue_no_caption_could_be_fails_the_stream() {
+    scripted(Script::HugeCue, |p| {
+        p.play();
+        wait("failed", || p.state() == PlaybackState::Failed);
         let e = p.error().map(|e| e.to_string()).unwrap_or_default();
-        assert!(e.contains("subtitles inside this media are over 16 MB"), "{e}");
+        assert!(e.contains("cue inside this stream is over 1 MB"), "{e}");
     });
 }
 
