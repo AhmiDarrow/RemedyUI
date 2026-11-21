@@ -72,13 +72,18 @@ fn tree(x: f32) -> LayerTree {
     ])
 }
 
+/// Presents whose swapchain image is read back and compared; more follow unchecked.
+const CHECKED: usize = 40;
+
 #[derive(Default)]
 struct Probe {
+    /// How far the dot has moved.
+    x: f32,
     gpu: Option<GpuCompositor>,
     compositor: Option<Compositor>,
     surface: Option<GpuSurface>,
     shown: usize,
-    resized: bool,
+    resized: usize,
     checks: PresentChecks,
     own: bool,
     reports: bool,
@@ -138,9 +143,14 @@ impl App for Probe {
                 else {
                     return;
                 };
-                // The dot moves on most frames and holds still on every fourth.
-                let step = if self.shown % 4 == 3 { 0.0 } else { 7.0 };
-                c.commit(tree(10.0 + (self.shown as f32 * step) % 250.0));
+                // The dot moves on most frames and holds still on every fourth; after the
+                // checked presents it also holds still long enough that every image is
+                // presented untouched.
+                let still = self.shown % 4 == 3 || (CHECKED + 4..CHECKED + 12).contains(&self.shown);
+                if !still {
+                    self.x = (self.x + 7.0) % 250.0;
+                }
+                c.commit(tree(10.0 + self.x));
                 let plan = c.frame(at);
                 match gpu.present_to_surface(&plan, s, Color::WHITE) {
                     Ok(Presented::Shown) => self.shown += 1,
@@ -148,12 +158,19 @@ impl App for Probe {
                     Err(e) => self.errors.push(e.to_string()),
                 }
                 self.errors.extend(gpu.renderer().context().take_errors());
-                if self.shown == 15 && !self.resized {
-                    self.resized = true;
+                if self.shown == 15 && self.resized == 0 {
+                    self.resized = 1;
                     let _ = host.set_size(window, Size::new(340.0, 220.0));
                 }
-                if self.shown >= 40 {
-                    self.checks = s.present_checks();
+                if self.shown == CHECKED && self.resized == 1 {
+                    // The rest present as an app's frames do, unchecked (a read back changes
+                    // how a present returns the image), through another resize: the
+                    // validation layer watches those.
+                    self.checks = s.stop_checking_presents();
+                    self.resized = 2;
+                    let _ = host.set_size(window, Size::new(320.0, 240.0));
+                }
+                if self.shown >= CHECKED + 25 {
                     self.own = s.own_swapchain();
                     self.reports = s.reports_damage();
                     host.close_window(window);
