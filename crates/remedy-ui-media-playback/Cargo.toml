@@ -28,6 +28,9 @@ remedy-ui-services-desktop = { path = "../remedy-ui-services-desktop", version =
 ## `Player::now_playing`: the player in the system's media controls (SMTC, a browser's
 ## `navigator.mediaSession`), through the desktop services.
 media-session = ["dep:remedy-ui-services-desktop"]
+## `Player::set_keep_awake`: the screen held on while video plays, through the desktop
+## services' power inhibit (Windows, macOS, Linux, Android, a browser's Screen Wake Lock).
+keep-awake = ["dep:remedy-ui-services-desktop"]
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "=0.62.2", features = [
@@ -96,6 +99,10 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = ["
 # the DMA-BUF tests in src/os/gst_dmabuf.rs (Linux).
 remedy-ui-render-gpu = { path = "../remedy-ui-render-gpu", version = "1.0.0-rc.1" }
 
+# The keep-awake test on Linux serves a stand-in for the session's screen saver
+# (org.freedesktop.ScreenSaver) on the session bus it runs under (dbus-run-session).
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dev-dependencies]
+zbus = { version = "=6.3.0", default-features = false, features = ["default-rt", "proxy", "service"] }
 
 [dev-dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }

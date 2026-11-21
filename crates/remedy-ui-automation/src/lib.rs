@@ -15,6 +15,11 @@
 //!   named for it ("Undo turn on Noise suppression, by assistant"), and commands the app marks
 //!   destructive ask the person first.
 //!
+//! Tests and harnesses that need real input (a key press where the keyboard's goes, a click
+//! at a point) use the facade's `Window::send_key`, `press_key`, `send_pointer` and
+//! `click_at` instead, which hand events to a live window as the platform would, and
+//! `Window::snapshot_png` for its picture; agents never get those.
+//!
 //! [`Agents::handle`] answers requests in a small JSON protocol, for a transport (a local
 //! socket the app opens only while access is granted, or the RemedyOS semantics wire).
 

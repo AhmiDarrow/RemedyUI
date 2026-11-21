@@ -31,10 +31,10 @@ mod windows;
 static LIVE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// One counted platform object, held as a field of what it counts.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, feature = "keep-awake")), allow(dead_code))]
 pub(crate) struct Live;
 
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, feature = "keep-awake")), allow(dead_code))]
 impl Live {
     pub(crate) fn new() -> Live {
         if cfg!(debug_assertions) {

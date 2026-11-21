@@ -1,7 +1,8 @@
 //! Leak checks: a player dropped mid-open, mid-decode and mid-fetch, and each error path (a
 //! decoder failing, a seek failing, `fail()`, a 404, a bad segment, captions over the limit),
 //! leaves no thread, decoder or platform object behind (Media Foundation starts, D3D11
-//! devices and pictures on the GPU, counted by debug builds). Its own test binary, so no
+//! devices, pictures on the GPU and, with the keep-awake feature, the screen's hold;
+//! counted by debug builds). Its own test binary, so no
 //! other test's threads are counted; its tests take turns.
 
 #![cfg(not(target_arch = "wasm32"))]
@@ -147,7 +148,7 @@ fn scripted(script: Script, then: impl FnOnce(&Player)) {
     let before = census(&alive);
     let ui = ui();
     let host = Arc::new(Host { script, alive: alive.clone() });
-    let p = Player::open(&ui, host, MediaSource::url("script:"), PlayerOptions::default());
+    let p = Player::open(&ui, host, MediaSource::url("script:"), PlayerOptions::default().keep_awake(true));
     then(&p);
     drop(p);
     drop(ui);
@@ -264,7 +265,7 @@ fn streamed(how: Serve, then: impl FnOnce(&Player)) {
     let none = AtomicUsize::new(0);
     let before = census(&none);
     let ui = ui();
-    let p = Player::open(&ui, host, MediaSource::Url(url), PlayerOptions::default());
+    let p = Player::open(&ui, host, MediaSource::Url(url), PlayerOptions::default().keep_awake(true));
     then(&p);
     drop(p);
     drop(ui);
