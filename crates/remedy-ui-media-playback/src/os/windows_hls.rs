@@ -34,8 +34,8 @@ use super::super::d3d11::Gpu;
 use super::{Layout, Mf, MfDecoder, com, copy_path, format_error, from_hns, hns, video_layout};
 use crate::capture::Converter;
 use crate::hls::{
-    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, QUIET, Unit, VideoConfig, file_path,
-    timed_out,
+    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
+    file_path, timed_out,
 };
 use crate::host::{AudioFormat, MediaError, Picture, Sample};
 
@@ -735,6 +735,9 @@ unsafe fn transfer(
                 return Ok(out);
             }
             out.extend_from_slice(chunk.get(..n as usize).unwrap_or_default());
+            if out.len() > MAX_FETCH {
+                return Err(MediaError::Format(format!("{url}: over {MAX_FETCH} bytes")));
+            }
             progress(QUIET);
         }
     }
