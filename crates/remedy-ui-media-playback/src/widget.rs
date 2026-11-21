@@ -407,12 +407,15 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             let (p, u) = (player.clone(), ui.clone());
             // While casting, as Portal's page says it: the TV's.
             move || {
-                tr(&u, match (sounds_muted(&p), p.is_remote()) {
-                    (true, false) => "playback-unmute",
-                    (false, false) => "playback-mute",
-                    (true, true) => "playback-unmute-tv",
-                    (false, true) => "playback-mute-tv",
-                })
+                tr(
+                    &u,
+                    match (sounds_muted(&p), p.is_remote()) {
+                        (true, false) => "playback-unmute",
+                        (false, false) => "playback-mute",
+                        (true, true) => "playback-unmute-tv",
+                        (false, true) => "playback-mute-tv",
+                    },
+                )
             }
         },
         move || toggle_mute(&p),
@@ -991,7 +994,8 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
         .style(
             remedy_ui_style::StylePatch::default()
                 .background(theme.colors.card)
-                .foreground(theme.colors.accent)
+                // Portal's text is its accent too; the theme's may not read on a card.
+                .foreground(theme.colors.text)
                 .border(theme.colors.accent)
                 .border_width(1.0)
                 .radius(6.0)
@@ -1023,123 +1027,125 @@ fn seek_bar(ui: &Ui, player: &Player) -> El {
     let (tip_hover, tip_moves) = (show_tip.clone(), show_tip);
     let bar = bar
         .paint(move |cx| {
-        let pos = painted.scrubbing().unwrap_or_else(|| painted.position());
-        let t = match len() {
-            Some(d) => (pos.as_secs_f64() / d.as_secs_f64()).clamp(0.0, 1.0) as f32,
-            None => 0.0,
-        };
-        let d = cx.theme.derive();
-        let mid = cx.size.height / 2.0;
-        let r = cx_radius(cx.size.height);
-        let (x0, x1) = (r, cx.size.width - r);
-        let x = x0 + (x1 - x0) * t;
-        cx.list.fill_rounded(
-            Rect::new(x0, mid - 2.0, x1, mid + 2.0),
-            CornerRadii::all(2.0),
-            Brush::Solid(d.line),
-        );
-        if let Some(len) = len() {
-            let at =
-                |d: Duration| x0 + (x1 - x0) * (d.as_secs_f64() / len.as_secs_f64()).clamp(0.0, 1.0) as f32;
-            for r in if painted.is_remote() { Vec::new() } else { painted.buffered() } {
-                let (a, b) = (at(r.start), at(r.end));
-                if b > a {
-                    cx.list.fill_rounded(
-                        Rect::new(a, mid - 2.0, b, mid + 2.0),
-                        CornerRadii::all(2.0),
-                        Brush::Solid(d.text.with_alpha(0.35)),
-                    );
+            let pos = painted.scrubbing().unwrap_or_else(|| painted.position());
+            let t = match len() {
+                Some(d) => (pos.as_secs_f64() / d.as_secs_f64()).clamp(0.0, 1.0) as f32,
+                None => 0.0,
+            };
+            let d = cx.theme.derive();
+            let mid = cx.size.height / 2.0;
+            let r = cx_radius(cx.size.height);
+            let (x0, x1) = (r, cx.size.width - r);
+            let x = x0 + (x1 - x0) * t;
+            cx.list.fill_rounded(
+                Rect::new(x0, mid - 2.0, x1, mid + 2.0),
+                CornerRadii::all(2.0),
+                Brush::Solid(d.line),
+            );
+            if let Some(len) = len() {
+                let at = |d: Duration| {
+                    x0 + (x1 - x0) * (d.as_secs_f64() / len.as_secs_f64()).clamp(0.0, 1.0) as f32
+                };
+                for r in if painted.is_remote() { Vec::new() } else { painted.buffered() } {
+                    let (a, b) = (at(r.start), at(r.end));
+                    if b > a {
+                        cx.list.fill_rounded(
+                            Rect::new(a, mid - 2.0, b, mid + 2.0),
+                            CornerRadii::all(2.0),
+                            Brush::Solid(d.text.with_alpha(0.35)),
+                        );
+                    }
                 }
             }
-        }
-        cx.list.fill_rounded(
-            Rect::new(x0, mid - 2.0, x, mid + 2.0),
-            CornerRadii::all(2.0),
-            Brush::Solid(cx.theme.colors.accent),
-        );
-        cx.list.fill_rounded(
-            Rect::new(x - r, mid - r, x + r, mid + r),
-            CornerRadii::all(r),
-            Brush::Solid(d.text),
-        );
-    })
-    .on_hover(move |inside| {
-        if !inside {
-            tip_hover(None);
-        }
-    })
-    .on_pointer({
-        let p = player.clone();
-        move |e| {
-            let held = remedy_ui_reactive::untrack(|| p.scrubbing());
-            let x = e.position.x;
-            match e.phase {
-                PointerPhase::Down if e.buttons.contains(Buttons::PRIMARY) => p.set_scrubbing(time(x)),
-                PointerPhase::Move if held.is_some() => p.set_scrubbing(time(x).or(held)),
-                PointerPhase::Up if held.is_some() => {
-                    p.set_scrubbing(None);
-                    p.seek(held.unwrap_or_default());
+            cx.list.fill_rounded(
+                Rect::new(x0, mid - 2.0, x, mid + 2.0),
+                CornerRadii::all(2.0),
+                Brush::Solid(cx.theme.colors.accent),
+            );
+            cx.list.fill_rounded(
+                Rect::new(x - r, mid - r, x + r, mid + r),
+                CornerRadii::all(r),
+                Brush::Solid(d.text),
+            );
+        })
+        .on_hover(move |inside| {
+            if !inside {
+                tip_hover(None);
+            }
+        })
+        .on_pointer({
+            let p = player.clone();
+            move |e| {
+                let held = remedy_ui_reactive::untrack(|| p.scrubbing());
+                let x = e.position.x;
+                match e.phase {
+                    PointerPhase::Down if e.buttons.contains(Buttons::PRIMARY) => p.set_scrubbing(time(x)),
+                    PointerPhase::Move if held.is_some() => p.set_scrubbing(time(x).or(held)),
+                    PointerPhase::Up if held.is_some() => {
+                        p.set_scrubbing(None);
+                        p.seek(held.unwrap_or_default());
+                    }
+                    PointerPhase::Cancel => p.set_scrubbing(None),
+                    PointerPhase::Move => {
+                        tip_moves(Some(x));
+                        return false;
+                    }
+                    _ => return false,
                 }
-                PointerPhase::Cancel => p.set_scrubbing(None),
-                PointerPhase::Move => {
-                    tip_moves(Some(x));
-                    return false;
-                }
+                // A finger leaves no pointer over the bar once lifted.
+                let gone = matches!(e.phase, PointerPhase::Up | PointerPhase::Cancel)
+                    && e.kind != PointerKind::Mouse;
+                tip_moves(if gone { None } else { Some(x) });
+                true
+            }
+        })
+        .on_key(move |e| {
+            if !e.pressed {
+                return false;
+            }
+            if e.key == Key::Space {
+                p.toggle();
+                return true;
+            }
+            let Some(d) = len2() else { return false };
+            let total = d.as_secs_f64();
+            match e.key {
+                Key::ArrowRight | Key::ArrowUp => p.seek_by(ARROW_SEEK),
+                Key::ArrowLeft | Key::ArrowDown => p.seek_by(-ARROW_SEEK),
+                Key::PageUp => p.seek_by(total / 10.0),
+                Key::PageDown => p.seek_by(-total / 10.0),
+                Key::Home => p.seek(Duration::ZERO),
+                Key::End => p.seek(d),
                 _ => return false,
             }
-            // A finger leaves no pointer over the bar once lifted.
-            let gone = matches!(e.phase, PointerPhase::Up | PointerPhase::Cancel) && e.kind != PointerKind::Mouse;
-            tip_moves(if gone { None } else { Some(x) });
             true
-        }
-    })
-    .on_key(move |e| {
-        if !e.pressed {
-            return false;
-        }
-        if e.key == Key::Space {
-            p.toggle();
-            return true;
-        }
-        let Some(d) = len2() else { return false };
-        let total = d.as_secs_f64();
-        match e.key {
-            Key::ArrowRight | Key::ArrowUp => p.seek_by(ARROW_SEEK),
-            Key::ArrowLeft | Key::ArrowDown => p.seek_by(-ARROW_SEEK),
-            Key::PageUp => p.seek_by(total / 10.0),
-            Key::PageDown => p.seek_by(-total / 10.0),
-            Key::Home => p.seek(Duration::ZERO),
-            Key::End => p.seek(d),
-            _ => return false,
-        }
-        true
-    })
-    .bind(move || {
-        let pos = p2.scrubbing().unwrap_or_else(|| p2.position());
-        // Repainted as more arrives.
-        let _ = p2.buffered();
-        let len = length();
-        // On a timeline a seek the stream cannot take goes to the app; skipping, none does.
-        let seekable = p2.is_remote() || p2.timeline().is_some() || p2.info().is_some_and(|i| i.seekable);
-        let _ = b3
-            .clone()
-            .disabled(len.is_none() || !seekable || p2.skipping().is_some() || p2.starting_next().is_some());
-        let total = len.unwrap_or_default();
-        let said = crate::STRINGS.format(
-            &u,
-            "playback-seek-value",
-            &[("position", format_time(pos).into()), ("duration", format_time(total).into())],
-        );
-        let _ = b3.clone().semantics(
-            Semantics::new(Role::Slider)
-                .label(tr(&u, "playback-seek"))
-                .numeric(pos.as_secs_f64(), 0.0, total.as_secs_f64())
-                .value(said)
-                .action(Action::Increment)
-                .action(Action::Decrement),
-        );
-        b3.repaint();
-    });
+        })
+        .bind(move || {
+            let pos = p2.scrubbing().unwrap_or_else(|| p2.position());
+            // Repainted as more arrives.
+            let _ = p2.buffered();
+            let len = length();
+            // On a timeline a seek the stream cannot take goes to the app; skipping, none does.
+            let seekable = p2.is_remote() || p2.timeline().is_some() || p2.info().is_some_and(|i| i.seekable);
+            let _ = b3.clone().disabled(
+                len.is_none() || !seekable || p2.skipping().is_some() || p2.starting_next().is_some(),
+            );
+            let total = len.unwrap_or_default();
+            let said = crate::STRINGS.format(
+                &u,
+                "playback-seek-value",
+                &[("position", format_time(pos).into()), ("duration", format_time(total).into())],
+            );
+            let _ = b3.clone().semantics(
+                Semantics::new(Role::Slider)
+                    .label(tr(&u, "playback-seek"))
+                    .numeric(pos.as_secs_f64(), 0.0, total.as_secs_f64())
+                    .value(said)
+                    .action(Action::Increment)
+                    .action(Action::Decrement),
+            );
+            b3.repaint();
+        });
     drops_focus_after_click(ui, player, &bar);
     scrub.child(bar).child(tip)
 }
