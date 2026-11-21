@@ -25,6 +25,8 @@ struct Mem {
     asked: Arc<Mutex<Vec<String>>>,
     /// URLs that fail this many more times before they are served, and whether as timeouts.
     late: HashMap<String, (u32, bool)>,
+    /// After this many fetches, each next one waits for a permit (the test sets the pace).
+    gate: Option<(usize, std::sync::mpsc::Receiver<()>)>,
 }
 
 impl Mem {
@@ -48,6 +50,11 @@ impl Mem {
 impl Fetch for Mem {
     fn get(&mut self, url: &str) -> Result<Vec<u8>, MediaError> {
         lock(&self.asked).push(url.to_string());
+        if let Some((free, permits)) = &self.gate
+            && lock(&self.asked).len() > *free
+        {
+            let _ = permits.recv();
+        }
         if let Some((n, timeout)) = self.late.get_mut(url)
             && *n > 0
         {
@@ -358,20 +365,30 @@ fn a_growing_playlist_waits_the_longest_pause_between_tries() {
 
 #[test]
 fn what_is_held_grows_as_segments_arrive() {
-    let mut r = run("aac");
-    let first = r.dec.buffered();
-    assert_eq!(first, Some(vec![ms(0)..ms(1000)]));
-    // Segments come ahead on the fetching thread, so a step may be passed between reads.
-    let mut seen = vec![first.unwrap_or_default()];
-    while let Ok(Some(_)) = r.dec.read() {
-        if let Some(b) = r.dec.buffered()
-            && seen.last() != Some(&b)
-        {
-            seen.push(b);
+    // The playlist and the first segment come at open; each next segment only when let through,
+    // so every step is seen (a free fetch thread could bring two between two looks).
+    let (permit, permits) = std::sync::mpsc::channel();
+    let mut mem = Mem::of("aac", None);
+    mem.gate = Some((2, permits));
+    let Ok(mut r) = start("aac", mem) else { unreachable!("opens") };
+    let mut seen = vec![r.dec.buffered().unwrap_or_default()];
+    assert_eq!(seen, [vec![ms(0)..ms(1000)]]);
+    for _ in 1..3 {
+        let _ = permit.send(());
+        let asked = std::time::Instant::now();
+        loop {
+            let b = r.dec.buffered().unwrap_or_default();
+            if seen.last() != Some(&b) {
+                seen.push(b);
+                break;
+            }
+            assert!(asked.elapsed() < Duration::from_secs(10), "the segment let through arrives");
+            std::thread::sleep(Duration::from_millis(1));
         }
     }
-    assert_eq!(seen.last(), Some(&vec![ms(0)..ms(3000)]));
-    assert!(seen.len() >= 3, "grew segment by segment: {seen:?}");
+    assert_eq!(seen, [vec![ms(0)..ms(1000)], vec![ms(0)..ms(2000)], vec![ms(0)..ms(3000)]]);
+    drop(permit);
+    assert!(read_all(&mut r.dec).is_ok_and(|s| !s.is_empty()), "and it all reads");
 }
 
 #[test]
