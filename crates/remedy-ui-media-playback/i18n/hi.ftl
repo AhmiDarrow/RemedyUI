@@ -12,6 +12,7 @@ playback-play = चलाएँ
 playback-pause = रोकें
 playback-time = { $position } / { $duration }
 playback-time-live = { $position } · लाइव
+playback-skipping = { $position } पर जा रहे हैं
 playback-mute-tip = म्यूट करें (M)
 playback-mute = म्यूट करें
 playback-unmute = अनम्यूट करें

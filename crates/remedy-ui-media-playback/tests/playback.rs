@@ -1980,3 +1980,194 @@ fn status_news_comes_from_any_thread_and_a_stale_poll_does_not_undo_a_seek() {
     assert!(sender.send(polled(5)));
     s.pump();
 }
+
+/// Endgame resumed at 396.7 s: the stream's time 0 is the film's 396.7 s, and the film lasts
+/// 10892 s.
+const ORIGIN: Duration = Duration::from_millis(396_700);
+const FILM: Duration = Duration::from_secs(10_892);
+
+/// A 20-second stream of the film from `ORIGIN`, in a player widget; and the seeks handed to
+/// the app.
+fn film(s: &mut Screen) -> (Player, El, Arc<Mutex<Vec<u64>>>) {
+    let options = PlayerOptions::default().timeline(Timeline::new(ORIGIN).length(FILM));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:20"), options);
+    let view = player(&s.ui, &p, "Endgame");
+    s.ui.root().child(view.clone());
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let a = asked.clone();
+    p.on_seek_outside(move |to| a.lock().unwrap_or_else(|e| e.into_inner()).push(to.as_secs()));
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    (p, view, asked)
+}
+
+fn seek_value(view: &El) -> Option<String> {
+    named(view, "Seek")
+        .and_then(|b| b.info())
+        .and_then(|i| i.semantics)
+        .and_then(|s| s.value_text().map(plain))
+}
+
+fn seek_disabled(view: &El) -> bool {
+    named(view, "Seek")
+        .and_then(|b| b.info())
+        .is_some_and(|i| i.states.contains(remedy_ui_style::States::DISABLED))
+}
+
+#[test]
+fn on_a_timeline_everything_is_in_film_time_and_seeks_inside_the_stream_stay_in_place() {
+    let mut s = Screen::new();
+    let (p, view, asked) = film(&mut s);
+    assert_eq!(p.position(), ORIGIN);
+    assert_eq!(p.duration(), Some(FILM), "the film's length, not the stream's");
+    s.idle(30);
+    assert!(texts(&view, "label").iter().any(|t| t == "6:36 / 3:01:32"), "{:?}", texts(&view, "label"));
+    assert_eq!(seek_value(&view).as_deref(), Some("6:36 of 3:01:32"));
+    assert!(!seek_disabled(&view));
+    assert!(p.buffered().iter().all(|r| r.start >= ORIGIN), "{:?}", p.buffered());
+    // Inside what the stream holds: in place, in whole seconds.
+    p.seek(Duration::from_millis(410_600));
+    s.wait("the seek in place", |_| p.position() == Duration::from_secs(410));
+    p.seek_by(-5.0);
+    s.wait("back 5 s", |_| p.position() == Duration::from_secs(405));
+    assert!(asked.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
+    assert_eq!(p.skipping(), None);
+    // A caption track the app adds is read in film time.
+    let cue = Cue {
+        start: Duration::from_secs(404),
+        end: Duration::from_secs(407),
+        text: "Whatever it takes".into(),
+    };
+    let i = p.add_subtitles(SubtitleTrack { label: "English".into(), language: None, cues: vec![cue] });
+    p.set_caption_track(Some(i));
+    assert_eq!(p.caption_text().as_deref(), Some("Whatever it takes"));
+}
+
+#[test]
+fn a_seek_outside_the_stream_goes_to_the_app_which_hands_over_a_new_one() {
+    let mut s = Screen::new();
+    let (p, view, asked) = film(&mut s);
+    let asked_for = || asked.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    // Before the origin.
+    p.seek(Duration::from_secs(100));
+    assert_eq!(asked_for(), [100]);
+    assert_eq!(p.skipping(), Some(Duration::from_secs(100)));
+    s.idle(30);
+    assert_eq!(texts(&view, "player_caption"), ["Skipping to 1:40"]);
+    assert!(seek_disabled(&view), "the bar waits for the new stream");
+    // Presses of ±10 meanwhile add up; seeks wait.
+    p.seek_by(10.0);
+    p.seek_by(10.0);
+    p.seek(Duration::from_secs(5000));
+    assert_eq!(asked_for(), [100]);
+    // The app's new stream starts at 100 s; the presses then run from there: 120 s, which the
+    // new stream does not hold yet (it is still opening), so the app is asked again, as
+    // Portal's page does.
+    p.set_volume(0.4);
+    p.replace_source(MediaSource::url("script:20"), Timeline::new(Duration::from_secs(100)).length(FILM));
+    assert_eq!(asked_for(), [100, 120]);
+    p.replace_source(MediaSource::url("script:20"), Timeline::new(Duration::from_secs(120)).length(FILM));
+    assert_eq!(p.skipping(), None);
+    assert_eq!(p.position(), Duration::from_secs(120));
+    s.wait("plays the new stream", |_| p.state() == PlaybackState::Playing);
+    assert_eq!(p.volume(), 0.4);
+    assert!(!seek_disabled(&view));
+    // Past what the stream holds (within 2 s of its end): to the app.
+    p.pause();
+    p.seek(Duration::from_secs(139));
+    assert_eq!(asked_for(), [100, 120, 139]);
+    p.cancel_skip();
+    assert_eq!(p.skipping(), None);
+    p.seek(Duration::from_secs(137));
+    s.wait("in place, 17 s into the stream", |_| p.position() == Duration::from_secs(137));
+    assert_eq!(asked_for(), [100, 120, 139]);
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+#[test]
+fn a_new_stream_keeps_the_captions_and_remote_mode() {
+    let mut s = Screen::new();
+    let (p, _view, _asked) = film(&mut s);
+    let cue =
+        Cue { start: Duration::from_secs(600), end: Duration::from_secs(604), text: "On your left".into() };
+    let i = p.add_subtitles(SubtitleTrack { label: "English".into(), language: None, cues: vec![cue] });
+    p.set_caption_track(Some(i));
+    p.set_caption_delay(250);
+    p.set_remote(Some(Remote::new("The Ris", Tv(Arc::new(Mutex::new(Vec::new()))))));
+    p.replace_source(MediaSource::url("script:20"), Timeline::new(Duration::from_secs(599)).length(FILM));
+    assert_eq!((p.subtitle_tracks().len(), p.caption_track(), p.caption_delay()), (1, Some(0), 250));
+    assert!(p.is_remote());
+    p.set_remote(None);
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    s.idle(50);
+    assert_eq!(p.state(), PlaybackState::Paused, "opened while remote: it does not play here");
+    p.seek(Duration::from_secs(601));
+    s.wait("601 s", |_| p.position() == Duration::from_secs(601));
+    assert_eq!(p.caption_text().as_deref(), Some("On your left"));
+}
+
+#[test]
+fn a_hand_off_to_a_tv_and_back_lands_at_the_same_film_time() {
+    let mut s = Screen::new();
+    let (p, _view, asked) = film(&mut s);
+    p.seek(Duration::from_secs(405));
+    s.wait("405 s", |_| p.position() == Duration::from_secs(405));
+    // To the TV: the app casts at the film time the player shows.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let here = p.position();
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Paused, here).length(FILM));
+    assert_eq!(p.position(), Duration::from_secs(405));
+    assert_eq!(p.duration(), Some(FILM));
+    // The TV takes film time.
+    p.seek(Duration::from_millis(2_000_400));
+    assert_eq!(*log.lock().unwrap_or_else(|e| e.into_inner()), ["seek 2000"]);
+    assert!(asked.lock().unwrap_or_else(|e| e.into_inner()).is_empty(), "the TV seeks itself");
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Paused, Duration::from_secs(2000)).length(FILM));
+    // Back here: the same film time, which this stream does not hold, goes to the app.
+    let there = p.position();
+    p.set_remote(None);
+    p.seek(there);
+    assert_eq!(*asked.lock().unwrap_or_else(|e| e.into_inner()), [2000]);
+    p.replace_source(MediaSource::url("script:20"), Timeline::new(there).length(FILM));
+    assert_eq!(p.position(), Duration::from_secs(2000));
+}
+
+#[test]
+fn a_playing_tv_moves_on_between_reports_and_a_paused_one_does_not() {
+    let mut s = Screen::new();
+    let (p, _view) = scripted_with(&mut s, 3, PlayerOptions::default());
+    p.set_remote(Some(Remote::new("The Ris", Tv(Arc::new(Mutex::new(Vec::new()))))));
+    let at = Duration::from_secs;
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Playing, at(30)).length(at(100)));
+    assert_eq!(p.position(), at(30), "the report as it is, at first");
+    s.idle(700);
+    let moved = p.position().as_secs_f64();
+    assert!((30.4..31.5).contains(&moved), "moved on by the time since: {moved}");
+    p.pause();
+    let paused = p.position();
+    s.idle(400);
+    assert_eq!(p.position(), paused, "paused: held");
+    // Never past the end.
+    p.set_remote_status(
+        RemoteStatus::new(PlaybackState::Playing, Duration::from_millis(99_800)).length(at(100)),
+    );
+    s.idle(700);
+    assert_eq!(p.position(), at(100));
+    // A seek in flight shows its target, not a moving guess.
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Playing, at(10)).length(at(100)));
+    p.seek(at(50));
+    s.idle(400);
+    assert_eq!(p.position(), at(50));
+}
+
+#[test]
+fn without_a_timeline_seeks_are_the_streams_own_and_not_whole_seconds() {
+    let mut s = Screen::new();
+    let (p, _view) = scripted(&mut s);
+    assert_eq!(p.timeline(), None);
+    p.seek(Duration::from_millis(1500));
+    s.wait("1.5 s", |_| p.position() == Duration::from_millis(1500));
+    assert_eq!(p.duration(), Some(Duration::from_secs(3)));
+    assert!(p.buffered().first().is_some_and(|r| r.start < Duration::from_millis(1500)));
+}

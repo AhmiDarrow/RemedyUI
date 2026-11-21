@@ -12,6 +12,7 @@ playback-play = Wiedergeben
 playback-pause = Pausieren
 playback-time = { $position } / { $duration }
 playback-time-live = { $position } · Live
+playback-skipping = Springe zu { $position }
 playback-mute-tip = Stummschalten (M)
 playback-mute = Stummschalten
 playback-unmute = Stummschaltung aufheben

@@ -12,6 +12,7 @@ playback-play = 播放
 playback-pause = 暂停
 playback-time = { $position } / { $duration }
 playback-time-live = { $position } · 直播
+playback-skipping = 正在跳转到 { $position }
 playback-mute-tip = 静音 (M)
 playback-mute = 静音
 playback-unmute = 取消静音

@@ -64,6 +64,35 @@ pub struct PlayerOptions {
     pub next_up_delay: Option<Duration>,
     /// Which keys the widget answers to; [`KeyScheme::Classic`] by default.
     pub keys: KeyScheme,
+    /// Where the source sits in a longer work, if it is part of one ([`Player::set_timeline`]).
+    pub timeline: Option<Timeline>,
+}
+
+/// Where a stream sits in the work it was made from: a film converted to a stream from a
+/// resume or skip point, as a media server does. With one set ([`Player::set_timeline`]),
+/// every position the player shows or takes is the work's ("film time"): stream time plus
+/// [`origin`](Self::origin).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Timeline {
+    /// The work's time at the stream's time 0.
+    pub origin: Duration,
+    /// How long the whole work lasts, when known: the seek bar spans it. Unknown, the
+    /// stream's length plus the origin.
+    pub length: Option<Duration>,
+}
+
+impl Timeline {
+    /// The stream starts `origin` into the work: `Timeline::new(at).length(full)`.
+    pub fn new(origin: Duration) -> Self {
+        Timeline { origin, length: None }
+    }
+
+    /// Sets `length`: how long the whole work lasts.
+    pub fn length(mut self, value: Duration) -> Self {
+        self.length = Some(value);
+        self
+    }
 }
 
 /// Media queued to play after the current one ends ([`Player::set_next_up`],
@@ -75,12 +104,20 @@ pub struct NextUp {
     pub source: MediaSource,
     /// What to call it ("Episode 4: The Long Night"), shown and read out.
     pub title: String,
+    /// Its timeline, if it is a stream of a longer work; none by default.
+    pub timeline: Option<Timeline>,
 }
 
 impl NextUp {
     /// `source`, called `title`.
     pub fn new(source: MediaSource, title: impl Into<String>) -> Self {
-        NextUp { source, title: title.into() }
+        NextUp { source, title: title.into(), timeline: None }
+    }
+
+    /// Plays it on `timeline`.
+    pub fn timeline(mut self, value: Timeline) -> Self {
+        self.timeline = Some(value);
+        self
     }
 }
 
@@ -216,6 +253,27 @@ impl RemoteStatusSender {
 const SEEK_LAND: Duration = Duration::from_secs(8);
 /// How near the target a device's report counts as having landed.
 const SEEK_LANDED: Duration = Duration::from_secs(4);
+/// How long a playing device's last report is moved on by the time since, before the shown
+/// position waits for news (Portal's `DEVICE_STALE_MS`).
+const REMOTE_STALE: Duration = Duration::from_secs(15);
+/// How often a playing device's shown position moves on between reports.
+const REMOTE_TICK: Duration = Duration::from_millis(250);
+/// How far from the end of what a stream can play a seek in place may land (the next
+/// segment may not exist yet), as in Portal's `seekInPlace`.
+const STREAM_EDGE: Duration = Duration::from_secs(2);
+
+/// A device's report `at`, `elapsed` ago, moved on while it plays: at most [`REMOTE_STALE`]
+/// and never past `end`.
+fn moved_on(at: Duration, elapsed: Duration, end: Option<Duration>) -> Duration {
+    let to = at + elapsed.min(REMOTE_STALE);
+    end.map_or(to, |e| to.min(e))
+}
+
+/// A seek target on a work's timeline: whole seconds, within its length (Portal's `clampSkip`).
+fn clamp_skip(to: Duration, length: Option<Duration>) -> Duration {
+    let at = Duration::from_secs(to.as_secs());
+    length.map_or(at, |l| at.min(Duration::from_secs(l.as_secs())))
+}
 
 impl Default for RemoteStatus {
     fn default() -> Self {
@@ -266,6 +324,12 @@ impl PlayerOptions {
         self.keys = value;
         self
     }
+
+    /// Sets `timeline`: where the source sits in a longer work.
+    pub fn timeline(mut self, value: Timeline) -> Self {
+        self.timeline = Some(value);
+        self
+    }
 }
 
 /// How long the "up next" countdown runs by default.
@@ -280,6 +344,7 @@ impl Default for PlayerOptions {
             volume: 1.0,
             next_up_delay: Some(NEXT_UP_DELAY),
             keys: KeyScheme::Classic,
+            timeline: None,
         }
     }
 }
@@ -301,6 +366,8 @@ fn deliver(id: u64) {
 type FullscreenHandler = Rc<dyn Fn(bool)>;
 /// Hears a press on the cast button.
 type CastHandler = Rc<dyn Fn(&El)>;
+/// Hears a seek outside what the stream holds.
+type SeekOutsideHandler = Rc<dyn Fn(Duration)>;
 
 struct Inner {
     id: u64,
@@ -338,6 +405,19 @@ struct Inner {
     remote_status: Signal<RemoteStatus>,
     /// A seek sent to the device: its target and when, until the device reports it landed.
     remote_seek: Cell<Option<(Duration, remedy_ui_core::time::Instant)>>,
+    /// The device's last known position and when: moved on from there while it plays.
+    remote_seen: Cell<Option<(Duration, remedy_ui_core::time::Instant)>>,
+    remote_timer: Cell<Option<u64>>,
+    /// Where the stream sits in a longer work.
+    timeline: Signal<Option<Timeline>>,
+    /// A seek outside the stream handed to the app: its target, until a new source comes.
+    skipping: Signal<Option<Duration>>,
+    /// Seconds pressed while skipping, from its target: run once the new source comes.
+    queued_skip: Cell<Option<f64>>,
+    seek_outside_handlers: RefCell<Vec<SeekOutsideHandler>>,
+    /// The embedded track (by its order) chosen before the source was replaced: chosen again
+    /// in the new source once open.
+    rechoose_embedded: Cell<Option<usize>>,
     /// Where each embedded text track sits in `tracks`.
     embedded: RefCell<Vec<usize>>,
     autoplayed: Cell<bool>,
@@ -481,8 +561,47 @@ impl Inner {
         let mut next = None;
         self.queue.update(|q| next = Some(q.remove(0)));
         if let Some(next) = next {
-            self.load(next.source);
+            self.load(next.source, next.timeline, false);
         }
+    }
+
+    /// Moves a playing device's shown position on in a while, and again after, until news
+    /// comes or its last report is [stale](REMOTE_STALE).
+    fn schedule_remote_tick(&self) {
+        let Some(ui) = self.ui.upgrade() else { return };
+        if let Some(t) = self.remote_timer.take() {
+            ui.cancel_timer(t);
+        }
+        let playing =
+            self.remote_status.with_untracked(|s| s.state == PlaybackState::Playing).unwrap_or(false);
+        let fresh = self.remote_seen.get().is_some_and(|(_, seen)| seen.elapsed() < REMOTE_STALE);
+        // A seek in flight shows its target, not a report from before it.
+        if !playing || !fresh || self.remote_seek.get().is_some() {
+            return;
+        }
+        let id = self.id;
+        let timer = ui.after(REMOTE_TICK, move || {
+            if let Some(p) = PLAYERS.with(|p| p.borrow().get(&id).and_then(Weak::upgrade)) {
+                p.remote_timer.set(None);
+                if let Some((at, seen)) = p.remote_seen.get() {
+                    let end = p.timeline.with_untracked(|t| t.and_then(|t| t.length)).ok().flatten();
+                    let end = end.or_else(|| p.remote_status.with_untracked(|s| s.length).ok().flatten());
+                    let to = moved_on(at, seen.elapsed(), end);
+                    if p.remote_status.with_untracked(|s| s.position).ok() != Some(to) {
+                        p.remote_status.update(|s| s.position = to);
+                    }
+                }
+                p.schedule_remote_tick();
+            }
+        });
+        self.remote_timer.set(Some(timer));
+    }
+
+    /// The device's shown position, from now on, is where it moves on from.
+    fn anchor_remote(&self) {
+        let at = self.remote_status.with_untracked(|s| s.position).unwrap_or_default();
+        self.remote_seen.set(Some((at, remedy_ui_core::time::Instant::now())));
+        self.schedule_remote_tick();
     }
 
     /// The queue changed: a new next lets the countdown start again at this end, and an
@@ -496,10 +615,28 @@ impl Inner {
         }
     }
 
-    /// Replaces the media with `source` and plays it once open: a new engine, every signal
-    /// about the media back to its start, the player's own settings (volume, picture, seen)
-    /// carried over.
-    fn load(&self, source: MediaSource) {
+    /// Replaces the media with `source` on `timeline` and plays it once open (not in remote
+    /// mode): a new engine, every signal about the media back to its start, the player's own
+    /// settings (volume, picture, seen) carried over. `same_work` keeps the tracks the app
+    /// added, the caption choice and its delay: the new source is more of the same work.
+    fn load(&self, source: MediaSource, timeline: Option<Timeline>, same_work: bool) {
+        // The app's tracks (on the work's timeline) stay; the old source's embedded ones go.
+        let mut kept = (Vec::new(), None, None, 0);
+        if same_work {
+            let embedded = self.embedded.borrow().clone();
+            let chosen = self.caption.get_untracked().ok().flatten();
+            for (i, t) in self.tracks.get_untracked().unwrap_or_default().into_iter().enumerate() {
+                if let Some(k) = embedded.iter().position(|&e| e == i) {
+                    kept.2 = kept.2.or((chosen == Some(i)).then_some(k));
+                } else {
+                    kept.1 = kept.1.or((chosen == Some(i)).then_some(kept.0.len()));
+                    kept.0.push(t);
+                }
+            }
+            kept.3 = self.caption_delay.get_untracked().unwrap_or(0);
+        }
+        let (tracks, caption, rechoose, delay) = kept;
+        self.rechoose_embedded.set(rechoose);
         self.send(Cmd::Close);
         let shared = Arc::new(Shared::default());
         let started = launch(self.id, &self.host, source, self.options.find_subtitles, shared.clone());
@@ -522,13 +659,15 @@ impl Inner {
             self.audio_error.set(None);
             self.stats.set(PlaybackStats::default());
             self.buffered.set(Vec::new());
-            self.tracks.set(Vec::new());
-            self.caption.set(None);
+            self.tracks.set(tracks);
+            self.caption.set(caption);
             // A shift fixes one subtitle file's timing, so it goes with the tracks.
-            self.caption_delay.set(0);
+            self.caption_delay.set(delay);
+            self.timeline.set(timeline);
+            self.skipping.set(None);
         });
         self.embedded.borrow_mut().clear();
-        self.play_on_open.set(true);
+        self.play_on_open.set(self.remote.with_untracked(Option::is_none).unwrap_or(true));
         let muted = self.muted.get_untracked().unwrap_or(false);
         self.send(Cmd::Volume(if muted { 0.0 } else { self.volume.get_untracked().unwrap_or(1.0) }));
         self.send(Cmd::PauseUnseen(self.options.unseen == UnseenPolicy::PauseVideo));
@@ -551,6 +690,9 @@ impl Inner {
                     });
                 }
             });
+            if let Some(&i) = self.rechoose_embedded.take().and_then(|k| map.get(k)) {
+                self.caption.set(Some(i));
+            }
             *self.embedded.borrow_mut() = map;
         }
         if self.play_on_open.replace(false) {
@@ -568,8 +710,10 @@ impl Inner {
 impl Drop for Inner {
     fn drop(&mut self) {
         self.send(Cmd::Close);
-        if let (Some(t), Some(ui)) = (self.timer.take(), self.ui.upgrade()) {
-            ui.cancel_timer(t);
+        if let Some(ui) = self.ui.upgrade() {
+            for t in [self.timer.take(), self.remote_timer.take()].into_iter().flatten() {
+                ui.cancel_timer(t);
+            }
         }
         let id = self.id;
         let _ = PLAYERS.try_with(|p| p.borrow_mut().remove(&id));
@@ -656,6 +800,13 @@ impl Player {
             remote: Signal::new(None),
             remote_status: Signal::new(RemoteStatus::default()),
             remote_seek: Cell::new(None),
+            remote_seen: Cell::new(None),
+            remote_timer: Cell::new(None),
+            timeline: Signal::new(options.timeline),
+            skipping: Signal::new(None),
+            queued_skip: Cell::new(None),
+            seek_outside_handlers: RefCell::new(Vec::new()),
+            rechoose_embedded: Cell::new(None),
             embedded: RefCell::new(Vec::new()),
             autoplayed: Cell::new(false),
             queue: Signal::new(Vec::new()),
@@ -677,9 +828,73 @@ impl Player {
 
     /// The stretches of the media that can play without waiting for the source, in order:
     /// all of a local file; for a stream, what has arrived (where the platform's decoder
-    /// says) and what is decoded ahead of the playhead. The seek bar shows them. Tracked.
+    /// says) and what is decoded ahead of the playhead. The seek bar shows them. On a
+    /// [timeline](Self::set_timeline), in the work's time. Tracked.
     pub fn buffered(&self) -> Vec<std::ops::Range<Duration>> {
-        self.0.buffered.get()
+        let origin = self.origin();
+        self.0.buffered.with(|b| b.iter().map(|r| r.start + origin..r.end + origin).collect())
+    }
+
+    /// The work's time at the stream's time 0: the [timeline](Self::set_timeline)'s origin, or
+    /// 0. Tracked.
+    fn origin(&self) -> Duration {
+        self.0.timeline.with(|t| t.map(|t| t.origin)).unwrap_or_default()
+    }
+
+    /// Where the stream sits in a longer work, if set. Tracked.
+    pub fn timeline(&self) -> Option<Timeline> {
+        self.0.timeline.get()
+    }
+
+    /// Puts the stream on `timeline` (`None`: the stream is the whole media), for a stream
+    /// that holds part of a longer work, such as a film a media server converts from a resume
+    /// or skip point: [`position`](Self::position), [`duration`](Self::duration),
+    /// [`seek`](Self::seek), [`seek_by`](Self::seek_by), [`buffered`](Self::buffered), the
+    /// caption timing of tracks the app adds, and the widget's seek bar and time are then in
+    /// the work's time (stream time plus the origin), and the bar spans the work's length. A
+    /// seek outside what the stream holds goes to [`on_seek_outside`](Self::on_seek_outside).
+    /// A remote device's positions are taken as the work's already.
+    pub fn set_timeline(&self, timeline: Option<Timeline>) {
+        self.0.timeline.set_if_changed(timeline);
+    }
+
+    /// Calls `f` with a seek's target (in the work's time, whole seconds) when it lies outside
+    /// what the stream can play now: before its start, or past what it holds (within 2
+    /// seconds of the end of what has been converted so far, where the next segment may not
+    /// exist yet). The player pauses and shows it is skipping ([`skipping`](Self::skipping)),
+    /// the seek bar disabled, while presses of ±10 add up for later; the app makes a stream
+    /// from there and hands it over with [`replace_source`](Self::replace_source), or gives up
+    /// with [`cancel_skip`](Self::cancel_skip). Only on a [timeline](Self::set_timeline);
+    /// with no app listening, such seeks are clamped to the stream as before.
+    pub fn on_seek_outside(&self, f: impl Fn(Duration) + 'static) {
+        self.0.seek_outside_handlers.borrow_mut().push(Rc::new(f));
+    }
+
+    /// The target of a seek handed to the app ([`on_seek_outside`](Self::on_seek_outside))
+    /// while it makes a new stream. Tracked.
+    pub fn skipping(&self) -> Option<Duration> {
+        self.0.skipping.get()
+    }
+
+    /// Stops [skipping](Self::skipping) (the app could not make the new stream), dropping
+    /// presses made meanwhile; the current stream stays, paused.
+    pub fn cancel_skip(&self) {
+        self.0.queued_skip.set(None);
+        self.0.skipping.set_if_changed(None);
+    }
+
+    /// Plays `source` in place of the current stream, on `timeline`: a stream of the same
+    /// work made from elsewhere in it, after a [seek outside](Self::on_seek_outside). Volume,
+    /// speed, the caption choice and delay, tracks the app added (in the work's time) and
+    /// remote mode stay; it plays once open, unless remote. Presses made while
+    /// [skipping](Self::skipping) then run from its target.
+    pub fn replace_source(&self, source: MediaSource, timeline: Timeline) {
+        let queued = self.0.queued_skip.take();
+        let target = self.0.skipping.get_untracked().ok().flatten();
+        self.0.load(source, Some(timeline), true);
+        if let (Some(q), Some(t)) = (queued, target) {
+            self.seek(Duration::try_from_secs_f64((t.as_secs_f64() + q).max(0.0)).unwrap_or_default());
+        }
     }
 
     /// The playback speed: 1 is normal, 2 twice as fast. Tracked.
@@ -721,6 +936,7 @@ impl Player {
             Some(c) => {
                 c.play();
                 self.0.remote_status.update(|s| s.state = PlaybackState::Playing);
+                self.0.anchor_remote();
             }
             None => self.0.send(Cmd::Play),
         }
@@ -732,6 +948,7 @@ impl Player {
             Some(c) => {
                 c.pause();
                 self.0.remote_status.update(|s| s.state = PlaybackState::Paused);
+                self.0.anchor_remote();
             }
             None => self.0.send(Cmd::Pause),
         }
@@ -752,15 +969,49 @@ impl Player {
     /// Moves to `to` (clamped to the media's length, unless that may still grow: then it
     /// waits for the media to get there). Does nothing in media that cannot seek.
     /// In remote mode, tells the device.
+    ///
+    /// On a [timeline](Self::set_timeline), `to` is in the work's time, taken in whole
+    /// seconds within its length: inside what the stream can play now it moves there in
+    /// place; outside, it goes to [`on_seek_outside`](Self::on_seek_outside). While
+    /// [skipping](Self::skipping) it does nothing.
     pub fn seek(&self, to: Duration) {
+        let timeline = self.0.timeline.get_untracked().ok().flatten();
+        let length = remedy_ui_reactive::untrack(|| self.duration());
+        let to = if timeline.is_some() { clamp_skip(to, length) } else { to };
         if let Some(c) = self.control() {
-            let to =
-                self.0.remote_status.with_untracked(|s| s.length).ok().flatten().map_or(to, |d| to.min(d));
+            let to = length.map_or(to, |d| to.min(d));
             c.seek(to);
             self.0.remote_status.update(|s| s.position = to);
             self.0.remote_seek.set(Some((to, remedy_ui_core::time::Instant::now())));
+            self.0.anchor_remote();
             return;
         }
+        let Some(timeline) = timeline else { return self.seek_stream(to) };
+        if self.0.skipping.get_untracked().ok().flatten().is_some() {
+            return;
+        }
+        let info = self.info_untracked();
+        let local = to.checked_sub(timeline.origin);
+        let end = info.as_ref().filter(|i| i.seekable).and_then(|i| i.duration);
+        match (local, end) {
+            (Some(l), Some(end)) if l + STREAM_EDGE <= end => self.seek_stream(l),
+            _ if self.0.seek_outside_handlers.borrow().is_empty() => {
+                self.seek_stream(local.unwrap_or_default())
+            }
+            _ => {
+                self.0.queued_skip.set(None);
+                self.0.skipping.set(Some(to));
+                self.0.send(Cmd::Pause);
+                let handlers = self.0.seek_outside_handlers.borrow().clone();
+                for h in handlers {
+                    h(to);
+                }
+            }
+        }
+    }
+
+    /// Moves the stream to `to`, its own time.
+    fn seek_stream(&self, to: Duration) {
         let info = self.info_untracked();
         let to = match info.as_ref().and_then(|i| i.duration) {
             Some(d) if !info.as_ref().is_some_and(|i| i.growing) => to.min(d),
@@ -773,13 +1024,19 @@ impl Player {
     }
 
     /// Moves `seconds` forward (or back, when negative) from the current position.
+    /// While [skipping](Self::skipping), the press is kept, to run from where the skip lands.
     pub fn seek_by(&self, seconds: f64) {
-        let now = match self.control() {
-            Some(_) => self.0.remote_status.with_untracked(|s| s.position).unwrap_or_default(),
-            None => self.0.position.get_untracked().unwrap_or_default(),
-        };
+        if self.0.skipping.get_untracked().ok().flatten().is_some() && !self.is_remote_untracked() {
+            self.0.queued_skip.set(Some(self.0.queued_skip.get().unwrap_or(0.0) + seconds));
+            return;
+        }
+        let now = remedy_ui_reactive::untrack(|| self.position());
         let to = (now.as_secs_f64() + seconds).max(0.0);
         self.seek(Duration::try_from_secs_f64(to).unwrap_or_default());
+    }
+
+    fn is_remote_untracked(&self) -> bool {
+        self.0.remote.with_untracked(Option::is_some).unwrap_or(false)
     }
 
     /// What it is doing (in remote mode, the device). Tracked.
@@ -790,21 +1047,27 @@ impl Player {
         }
     }
 
-    /// Where it is in the media (in remote mode, the device). Tracked: changes as it plays
+    /// Where it is in the media (in remote mode, the device, moved on by the time since its
+    /// last report while it plays, for at most 15 seconds). On a
+    /// [timeline](Self::set_timeline), in the work's time. Tracked: changes as it plays
     /// (with each picture shown, and ten times a second for sound alone).
     pub fn position(&self) -> Duration {
         match self.is_remote() {
             true => self.0.remote_status.with(|s| s.position),
-            false => self.0.position.get(),
+            false => self.0.position.get() + self.origin(),
         }
     }
 
     /// How long the media lasts, once known (in remote mode, as the device says); `None`
-    /// for live streams. Tracked.
+    /// for live streams. On a [timeline](Self::set_timeline), the work's length when given
+    /// (remote or not), else the stream's plus the origin. Tracked.
     pub fn duration(&self) -> Option<Duration> {
+        if let Some(l) = self.0.timeline.with(|t| t.and_then(|t| t.length)) {
+            return Some(l);
+        }
         match self.is_remote() {
             true => self.0.remote_status.with(|s| s.length),
-            false => self.0.info.with(|i| i.as_ref().and_then(|i| i.duration)),
+            false => self.0.info.with(|i| i.as_ref().and_then(|i| i.duration)).map(|d| d + self.origin()),
         }
     }
 
@@ -930,10 +1193,13 @@ impl Player {
     }
 
     /// The caption showing now, if captions are on and a cue covers the position (shifted
-    /// by the [caption delay](Self::caption_delay)). Tracked.
+    /// by the [caption delay](Self::caption_delay)). On a [timeline](Self::set_timeline),
+    /// tracks the media carries are read in the stream's time and the rest in the work's.
+    /// Tracked.
     pub fn caption_text(&self) -> Option<String> {
         let sel = self.0.caption.get()?;
         let at = self.0.position.get();
+        let at = if self.0.embedded.borrow().contains(&sel) { at } else { at + self.origin() };
         let delay = self.0.caption_delay.get();
         // Cues shown later are looked up earlier in the track, and the other way round.
         let at = if delay >= 0 {
@@ -1057,7 +1323,9 @@ impl Player {
             });
         }
         self.0.remote_seek.set(None);
+        self.0.remote_seen.set(None);
         self.0.remote.set(remote);
+        self.0.schedule_remote_tick();
     }
 
     /// The device's name, in remote mode. Tracked.
@@ -1071,6 +1339,10 @@ impl Player {
     /// After a seek, the shown position stays at the seek's target until the device reports a
     /// position within 4 seconds of it while playing or paused, or for at most 8 seconds: a
     /// poll answered before the device moved does not pull the seek bar back.
+    ///
+    /// Between reports, a playing device's shown position moves on by the time since the last
+    /// one, for at most 15 seconds and never past the length (as Portal's page does); a report
+    /// older than when it is handed over is best moved on by its age first.
     pub fn set_remote_status(&self, mut status: RemoteStatus) {
         if let Some((to, at)) = self.0.remote_seek.get() {
             let landed = matches!(status.state, PlaybackState::Playing | PlaybackState::Paused)
@@ -1082,6 +1354,7 @@ impl Player {
             }
         }
         self.0.remote_status.set_if_changed(status);
+        self.0.anchor_remote();
     }
 
     /// A handle that hands [`RemoteStatus`] news to this player from any thread.
@@ -1228,4 +1501,24 @@ pub(crate) fn sidecar_subtitles(media: &Path) -> Vec<SubtitleTrack> {
     }
     found.sort_by(|a, b| a.0.cmp(&b.0));
     found.into_iter().map(|(_, t)| t).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_playing_device_moves_on_until_its_report_is_stale_and_never_past_the_end() {
+        let s = Duration::from_secs;
+        assert_eq!(moved_on(s(100), s(3), None), s(103));
+        assert_eq!(moved_on(s(100), s(60), None), s(115), "15 s at most");
+        assert_eq!(moved_on(s(100), s(3), Some(s(102))), s(102), "not past the end");
+    }
+
+    #[test]
+    fn skips_are_whole_seconds_within_the_work() {
+        let ms = Duration::from_millis;
+        assert_eq!(clamp_skip(ms(396_700), None), ms(396_000));
+        assert_eq!(clamp_skip(ms(20_000_000), Some(ms(10_892_500))), ms(10_892_000));
+    }
 }
