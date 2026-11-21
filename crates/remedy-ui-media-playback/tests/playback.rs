@@ -1397,9 +1397,9 @@ fn casting_hands_every_control_to_the_remote_and_back() {
     assert_eq!(said.role(), remedy_ui_a11y::Role::Status);
     assert_eq!(said.live_state(), remedy_ui_a11y::Live::Polite, "announced as it changes");
     assert!(
-        texts(&view, "label").iter().any(|t| t == "0:30 / 1:40"),
+        texts(&view, "player_clock").iter().any(|t| t == "0:30 / 1:40"),
         "the TV's time: {:?}",
-        texts(&view, "label")
+        texts(&view, "player_clock")
     );
     let seek = named(&view, "Seek").unwrap_or_else(|| unreachable!("a seek bar"));
     let value = || {
@@ -2035,7 +2035,11 @@ fn on_a_timeline_everything_is_in_film_time_and_seeks_inside_the_stream_stay_in_
     assert_eq!(p.position(), ORIGIN);
     assert_eq!(p.duration(), Some(FILM), "the film's length, not the stream's");
     s.idle(30);
-    assert!(texts(&view, "label").iter().any(|t| t == "6:36 / 3:01:32"), "{:?}", texts(&view, "label"));
+    assert!(
+        texts(&view, "player_clock").iter().any(|t| t == "6:36 / 3:01:32"),
+        "{:?}",
+        texts(&view, "player_clock")
+    );
     assert_eq!(seek_value(&view).as_deref(), Some("6:36 of 3:01:32"));
     assert!(!seek_disabled(&view));
     assert!(p.buffered().iter().all(|r| r.start >= ORIGIN), "{:?}", p.buffered());
@@ -2461,7 +2465,11 @@ fn a_tv_starting_its_next_by_itself_says_so_then_switches_to_the_new_job_at_once
     s.pump();
     assert!(p.is_remote());
     assert_eq!((p.position(), p.duration()), (at(0), Some(at(2497))));
-    assert!(texts(&view, "label").iter().any(|t| t == "0:00 / 41:37"), "{:?}", texts(&view, "label"));
+    assert!(
+        texts(&view, "player_clock").iter().any(|t| t == "0:00 / 41:37"),
+        "{:?}",
+        texts(&view, "player_clock")
+    );
     assert!(!seek_disabled(&view));
     assert!(visible(&view, "Playing on The Ris"));
     let on_stage =
@@ -2639,7 +2647,11 @@ fn dragging_the_seek_bar_previews_and_seeks_once_on_release() {
     s.pump();
     assert!(p.scrubbing().is_some_and(|d| near(d, 30.0, 0.2)), "{:?}", p.scrubbing());
     assert_eq!(p.position(), Duration::ZERO, "no seek while held");
-    assert!(texts(&view, "label").iter().any(|t| t == "0:30 / 1:00"), "{:?}", texts(&view, "label"));
+    assert!(
+        texts(&view, "player_clock").iter().any(|t| t == "0:30 / 1:00"),
+        "{:?}",
+        texts(&view, "player_clock")
+    );
     assert_eq!(seek_value(&view).as_deref(), Some("0:30 of 1:00"));
     // The tip: the time under the pointer.
     assert!(texts(&view, "label").iter().any(|t| t == "0:30"), "{:?}", texts(&view, "label"));
@@ -3402,7 +3414,7 @@ fn the_compact_layout_keeps_playing_and_shows_only_the_mini_parts() {
     s.pump();
     assert!(p.is_compact() && !p.is_theater(), "compact leaves theater mode");
     assert!(shown(&view, "Pause") && seen(&title));
-    assert!(texts(&view, "label").iter().any(|t| t.ends_with("/ 0:30")), "the time");
+    assert!(texts(&view, "player_clock").iter().any(|t| t.ends_with("/ 0:30")), "the time");
     for gone in ["Seek", "Mute", "Volume", "Back 10 seconds", "Full screen", "Theater mode"] {
         assert!(!shown(&view, gone), "{gone} in the mini player");
     }
