@@ -54,14 +54,13 @@ The open items of every milestone in one place. Each milestone's section has the
 
 - deceptive text: invisible bidi and zero-width controls revealed (Trojan Source), UTS #39 confusable skeletons for look-alike names
 - measured: 50,000 combining marks on one letter lay out in about 11 ms and a 1 MB single paragraph in about 150 ms (release build), both linear
+- reference shapes: fixed Arabic, Hebrew and Chinese paragraphs (joining, lam-alef, marks and points, numbers inside right-to-left text, full-width punctuation) shape to HarfBuzz's glyph ids, clusters, advances and mark offsets, their runs come out in the order GNU FriBidi's levels give, and they wrap where ICU4C allows (never before a full stop); the fixtures are Noto subsets of the test text under OFL, built with `tools/shape_references.py`
 
 Open:
 
 - Per-platform IME protocols. These arrive with each bridge (TSF in M4).
-- The Arabic and CJK reference-shape test. It needs OFL fixture fonts for those scripts, since the Remedy families have none.
 - The FreeType comparison of hinted glyphs. FreeType is C and not in the build, so the current check is crispness: hinted stems and crossbars land on whole pixels where unhinted ones do not.
 - Laziness inside one huge paragraph. This comes with `doc-rich`, where documents lay out line by line.
-- the Arabic shaping reference test, which needs an OFL Arabic fixture font (the Remedy families have no Arabic)
 
 **Crates:** `text` and `fonts` (the Remedy families, for tests and apps).
 
