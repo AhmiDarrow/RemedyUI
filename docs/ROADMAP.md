@@ -9,7 +9,7 @@ Nothing is merged as a placeholder: a crate enters the workspace with its first 
 The open items of every milestone in one place. Each milestone's section has the details.
 
 - **M1:** `cargo vet` is not set up. GitHub Actions do not run on this repository, so the checks run locally before each merge.
-- **M2:** per-platform IME protocols beyond TSF (each arrives with its bridge); the Arabic and CJK reference-shape test (CJK faces now ship in `fonts-cjk`; there is still no OFL Arabic fixture font); the FreeType comparison of hinted glyphs (a crispness check stands in); laziness inside one huge paragraph (with `doc-rich`).
+- **M2:** per-platform IME protocols beyond TSF (each arrives with its bridge); the Arabic and CJK reference-shape test (CJK faces now ship in `fonts-cjk`; there is still no OFL Arabic fixture font); the FreeType comparison of hinted glyphs (a crispness check stands in).
 - **M3:** AccessKit ships no schema validator, so the tests check roles, names, values and structure instead.
 - **M4:** GPU windows present whole frames (wgpu has no partial presents). `bridge-macos` has not been run on a Mac.
 - **M5:** the rest of `services-desktop` (see the M5 status). The tray, dialogs and single instance have not been run on macOS.
@@ -54,13 +54,13 @@ The open items of every milestone in one place. Each milestone's section has the
 
 - deceptive text: invisible bidi and zero-width controls revealed (Trojan Source), UTS #39 confusable skeletons for look-alike names
 - measured: 50,000 combining marks on one letter lay out in about 11 ms and a 1 MB single paragraph in about 150 ms (release build), both linear
+- laziness inside one huge paragraph: a paragraph of 32 KB or more that wraps is laid out in pieces of about 8 KB, only those a view shows (and a window's height around them) and those its caret, selection and pointer reach, each piece starting at a line start the one before found (a checkpoint), with exactly the line breaks, glyphs, hit tests, carets and selections of a whole layout: seams are accepted only where two pieces lay out their shared lines alike, and bidi levels are those of the whole paragraph (left-to-right text before the first character needing bidi resolution has level 0 whatever follows; past it the whole paragraph's levels are resolved once, and after each edit, and pieces must match them, so right-to-left text pays that pass). Edits keep the pieces before and after them. Text elements and multi-line fields draw only the lines that show (so `doc-rich`'s paragraphs do too). `cargo bench -p remedy-ui-text --bench huge_paragraph`: first frame 1 MB about 400 ms before, 2.6 ms now; 10 MB 4.2 s, 7 ms; a keystroke 390 ms, 3 ms and 4.4 s, 5.5 ms; 1 MB of Arabic and Hebrew in English 1.5 s, 76 ms (the bidi pass); paragraphs under 32 KB as before. Tested against whole layout in Latin, mixed Arabic, Hebrew and English in both base directions, Arabic and Chinese
 - reference shapes: fixed Arabic, Hebrew and Chinese paragraphs (joining, lam-alef, marks and points, numbers inside right-to-left text, full-width punctuation) shape to HarfBuzz's glyph ids, clusters, advances and mark offsets, their runs come out in the order GNU FriBidi's levels give, and they wrap where ICU4C allows (never before a full stop); the fixtures are Noto subsets of the test text under OFL, built with `tools/shape_references.py`
 
 Open:
 
 - Per-platform IME protocols. These arrive with each bridge (TSF in M4).
 - The FreeType comparison of hinted glyphs. FreeType is C and not in the build, so the current check is crispness: hinted stems and crossbars land on whole pixels where unhinted ones do not.
-- Laziness inside one huge paragraph. This comes with `doc-rich`, where documents lay out line by line.
 
 **Crates:** `text` and `fonts` (the Remedy families, for tests and apps).
 
