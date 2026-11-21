@@ -25,6 +25,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   their language, are read from the file by the media crate's own MP4 reader (only the movie
   box and the cue samples are read) and show in the player's captions menu where the
   platform's decoder hands out none (Media Foundation, AVFoundation, MediaCodec).
+- **Media playback runs on Android**: the whole playback suite passes on an Android 14
+  emulator (MediaCodec and AAudio).
 - **Playback speed in the media player, with the pitch kept**: `Player::set_speed` (0.25× to
   4×, `MIN_SPEED`/`MAX_SPEED`; not-a-number is 1×), `Player::speed`, `step_speed` and `SPEEDS`.
   Sound goes through a pitch-preserving WSOLA time stretcher of the crate's own (no new
@@ -633,6 +635,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- On Android, local files now play: they are opened by the app and handed to MediaCodec's
+  extractor as a descriptor, since the media server may not open an app's own files by path.
 - **Stacked glass could stall a frame for minutes.** Each pane of glass draws again what is
   under it, glass included, so every pane doubled the cost (16 stacked panes took 40 s on the
   CPU). Glass seen through more than `MAX_BACKDROP_DEPTH` (2) panes, and panes past

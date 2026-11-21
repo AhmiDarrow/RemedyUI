@@ -55,6 +55,7 @@ struct Ndk {
     extractor_new: unsafe extern "C" fn() -> Ptr,
     extractor_delete: unsafe extern "C" fn(Ptr) -> Status,
     extractor_set_data_source: unsafe extern "C" fn(Ptr, *const c_char) -> Status,
+    extractor_set_data_source_fd: unsafe extern "C" fn(Ptr, std::ffi::c_int, i64, i64) -> Status,
     extractor_get_track_count: unsafe extern "C" fn(Ptr) -> usize,
     extractor_get_track_format: unsafe extern "C" fn(Ptr, usize) -> Ptr,
     extractor_select_track: unsafe extern "C" fn(Ptr, usize) -> Status,
@@ -142,6 +143,7 @@ impl Ndk {
             extractor_new: sym!(l, "AMediaExtractor_new"),
             extractor_delete: sym!(l, "AMediaExtractor_delete"),
             extractor_set_data_source: sym!(l, "AMediaExtractor_setDataSource"),
+            extractor_set_data_source_fd: sym!(l, "AMediaExtractor_setDataSourceFd"),
             extractor_get_track_count: sym!(l, "AMediaExtractor_getTrackCount"),
             extractor_get_track_format: sym!(l, "AMediaExtractor_getTrackFormat"),
             extractor_select_track: sym!(l, "AMediaExtractor_selectTrack"),
@@ -313,6 +315,8 @@ struct NdkDecoder {
     extractor_done: bool,
     pending: VecDeque<Sample>,
     info: MediaInfo,
+    /// The file the extractor reads through its descriptor, kept open while it does.
+    _file: Option<std::fs::File>,
 }
 
 // SAFETY: the extractor and codecs are used from one thread at a time.
@@ -344,14 +348,15 @@ fn picture_layout(ndk: &Ndk, f: Ptr) -> Result<Layout, MediaError> {
 
 impl NdkDecoder {
     fn open(ndk: &'static Ndk, source: &MediaSource) -> Result<NdkDecoder, MediaError> {
-        let location = match source {
+        // A file is opened here and handed over as a descriptor: the extractor reads in the
+        // media server, which may not open the app's own files (or the shell's) by path.
+        let (file, location) = match source {
             MediaSource::File(p) => {
-                if !p.exists() {
-                    return Err(MediaError::NotFound(p.display().to_string()));
-                }
-                p.to_string_lossy().into_owned()
+                let f = std::fs::File::open(p)
+                    .map_err(|e| MediaError::NotFound(format!("{}: {e}", p.display())))?;
+                (Some(f), p.to_string_lossy().into_owned())
             }
-            MediaSource::Url(u) => u.clone(),
+            MediaSource::Url(u) => (None, u.clone()),
         };
         let location = CString::new(location).map_err(|e| MediaError::NotFound(e.to_string()))?;
         // SAFETY: NDK calls on objects made here, released in `Drop` (or below on failure).
@@ -371,8 +376,19 @@ impl NdkDecoder {
                 extractor_done: false,
                 pending: VecDeque::new(),
                 info: MediaInfo::default(),
+                _file: None,
             };
-            if (ndk.extractor_set_data_source)(extractor, location.as_ptr()) != AMEDIA_OK {
+            let status = match &file {
+                Some(f) => {
+                    use std::os::fd::AsRawFd;
+                    let len = f.metadata().map_or(0, |m| m.len());
+                    let len = i64::try_from(len).unwrap_or(i64::MAX);
+                    (ndk.extractor_set_data_source_fd)(extractor, f.as_raw_fd(), 0, len)
+                }
+                None => (ndk.extractor_set_data_source)(extractor, location.as_ptr()),
+            };
+            d._file = file;
+            if status != AMEDIA_OK {
                 return Err(MediaError::NotFound(format!(
                     "{} could not be read",
                     location.to_string_lossy()

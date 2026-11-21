@@ -119,7 +119,13 @@ fn the_platform_decoder_reads_pictures_and_sound_in_time() {
             Sample::Video { at, picture, .. } => {
                 assert!(last_video.is_none_or(|l| at > l), "pictures in time order");
                 last_video = Some(at);
-                assert_eq!((picture.width, picture.height, picture.format), (176, 100, PixelFormat::Nv12));
+                assert_eq!((picture.width, picture.height), (176, 100));
+                // MediaCodec gives I420 on some devices; the others give NV12.
+                assert!(
+                    matches!(picture.format, PixelFormat::Nv12 | PixelFormat::I420),
+                    "{:?}",
+                    picture.format
+                );
                 frames.push((at, picture_hue(&picture)));
             }
             Sample::Audio { samples, .. } => sound += samples.len() as u64 / 2,
