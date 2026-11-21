@@ -867,7 +867,7 @@ struct Progress {
 const WATCH: Duration = Duration::from_millis(50);
 
 impl Watchdog {
-    unsafe fn start(j: &Jni, conn: Ptr, disconnect: Ptr, stop: &AtomicBool) -> Result<Watchdog, MediaError> {
+    unsafe fn start(j: &Jni, conn: Ptr, disconnect: Ptr, halt: &AtomicBool) -> Result<Watchdog, MediaError> {
         // SAFETY: a global reference (usable from any thread) to a live local one.
         let global = unsafe { j.f::<unsafe extern "C" fn(Ptr, Ptr) -> Ptr>(NEW_GLOBAL_REF)(j.0, conn) };
         if global.is_null() {
@@ -883,7 +883,7 @@ impl Watchdog {
         let p = progress.clone();
         // The thread is joined before the watchdog goes (`stop` or drop), so `stop` outlives it.
         let (conn_ref, method, halt) =
-            (global as usize, disconnect as usize, stop as *const AtomicBool as usize);
+            (global as usize, disconnect as usize, halt as *const AtomicBool as usize);
         let thread = std::thread::Builder::new()
             .name("remedy-hls-watchdog".into())
             .spawn(move || {
