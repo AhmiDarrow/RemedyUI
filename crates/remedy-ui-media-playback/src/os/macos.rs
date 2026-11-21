@@ -442,6 +442,10 @@ impl AvDecoder {
     }
 }
 
+// `buffered` is left at its default (`None`): the asset reader has no buffering query, and
+// AVFoundation's `loadedTimeRanges` belongs to a player item, which is main-thread-only and
+// loads the media on its own rather than saying what the reader has. The seek bar shows what
+// is decoded ahead.
 impl Decoder for AvDecoder {
     fn info(&self) -> &MediaInfo {
         &self.info
