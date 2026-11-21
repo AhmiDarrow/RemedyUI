@@ -1245,6 +1245,11 @@ pub trait Host {
         let _ = (window, icon);
         Err(Unsupported::new("window icons", "this host shows no icons for windows"))
     }
+    /// Hides the mouse pointer while it is over the window, or shows it again (a video
+    /// playing full screen with its controls faded). Hosts without a pointer ignore it.
+    fn set_cursor_hidden(&mut self, window: WindowId, hidden: bool) {
+        let _ = (window, hidden);
+    }
     /// Asks for a [`HostEvent::Frame`] at the next display refresh. Several requests before
     /// it arrives merge into one.
     fn request_frame(&mut self, window: WindowId);

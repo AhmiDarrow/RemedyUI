@@ -525,6 +525,11 @@ impl Win {
         }
     }
 
+    /// Hides the pointer over the window's content (CSS `cursor: none`), or shows it again.
+    pub(crate) fn set_cursor_hidden(&self, hidden: bool) {
+        dom::style(&self.surface, &[("cursor", if hidden { "none" } else { "" })]);
+    }
+
     /// Shows `icon` for the window: as the page's icon when the window is the page (its
     /// title is the page's), or in a floating window's title bar. `None` takes it away.
     pub(crate) fn set_icon(&self, icon: Option<&WindowIcon>, page_title: bool) -> Result<(), Unsupported> {

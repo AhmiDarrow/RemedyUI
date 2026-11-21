@@ -46,6 +46,7 @@ playback-back = 10 秒戻る
 playback-forward-tip = 10 秒進む (L)
 playback-forward = 10 秒進む
 playback-full-screen-tip = 全画面表示 (F)
+playback-wake-tip = いずれかのキーでコントロールを表示
 playback-full-screen = 全画面表示
 playback-exit-full-screen = 全画面表示を終了
 playback-theater-tip = シアターモード (T)

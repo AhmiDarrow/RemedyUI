@@ -76,3 +76,32 @@ fn captions_control_pictures() {
         open_menu(ui, view)
     });
 }
+
+/// Full screen with a title and a caption: the bar over the picture's foot, and rested.
+#[test]
+#[ignore = "writes pictures for review"]
+fn full_screen_pictures() {
+    let make = |ui: &Ui| {
+        let p = portal(ui);
+        let vtt = "WEBVTT\n\n00:00.000 --> 01:00.000\nThe captions sit above the bar\n";
+        let cues = parse_subtitles(vtt, SubtitleFormat::WebVtt);
+        p.set_caption_track(Some(p.add_subtitles(SubtitleTrack {
+            label: "Shown".into(),
+            language: None,
+            cues,
+        })));
+        p.set_title(Some("Episode 4 · The Long Night".into()));
+        p.request_fullscreen(true);
+        p
+    };
+    shot("full-screen-shown", move |ui| {
+        let p = make(ui);
+        player(ui, &p, "Episode")
+    });
+    shot("full-screen-rested", move |ui| {
+        let p = make(ui);
+        let view = player(ui, &p, "Episode");
+        p.rest_controls();
+        view
+    });
+}

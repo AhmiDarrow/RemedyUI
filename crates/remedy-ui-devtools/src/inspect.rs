@@ -384,9 +384,11 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
                 1.0,
             );
             let ratio = seen.contrast(behind);
+            // Text faded out entirely (a player's resting controls) shows nothing to read.
+            let faded = opacity <= 0.0;
             let large = i.style.text_size >= 24.0 || (i.style.text_size >= 18.66 && i.style.weight >= 700.0);
             let needed = if large { 3.0 } else { 4.5 };
-            if ratio + 0.005 < needed {
+            if ratio + 0.005 < needed && !faded {
                 out.push(Problem {
                     element: i.id,
                     kind: ProblemKind::LowContrast { ratio, needed },

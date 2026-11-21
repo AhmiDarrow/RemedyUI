@@ -46,6 +46,7 @@ playback-back = Voltar 10 segundos
 playback-forward-tip = Avançar 10 segundos (L)
 playback-forward = Avançar 10 segundos
 playback-full-screen-tip = Tela cheia (F)
+playback-wake-tip = Qualquer tecla mostra os controles
 playback-full-screen = Tela cheia
 playback-exit-full-screen = Sair da tela cheia
 playback-theater-tip = Modo teatro (T)
