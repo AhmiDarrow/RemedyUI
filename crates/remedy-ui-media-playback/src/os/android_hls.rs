@@ -19,8 +19,8 @@ use super::{
     decoder, java_env, output,
 };
 use crate::hls::{
-    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, QUIET, Unit, VideoConfig, file_path,
-    timed_out,
+    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
+    file_path, timed_out,
 };
 use crate::host::{AudioFormat, MediaError, Sample};
 
@@ -575,6 +575,9 @@ fn read_body(
             Ok(0) => return Ok(()),
             Ok(n) => {
                 into.extend_from_slice(room.get(..n).unwrap_or_default());
+                if into.len() > MAX_FETCH {
+                    return Err(MediaError::Format(format!("{url}: over {MAX_FETCH} bytes")));
+                }
                 left = left.map(|l| l - n);
             }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
@@ -798,6 +801,9 @@ impl Jni {
                 let Ok(len) = usize::try_from(n) else { break Ok(()) };
                 dog.progress(QUIET);
                 let at = out.len();
+                if at + len > MAX_FETCH {
+                    break Err(MediaError::Format(format!("{url}: over {MAX_FETCH} bytes")));
+                }
                 out.resize(at + len, 0);
                 region(env, buf, 0, n.min(CHUNK), out.as_mut_ptr().add(at).cast());
             };
