@@ -13,6 +13,7 @@ playback-pause = Пауза
 playback-time = { $position } / { $duration }
 playback-time-live = { $position } · Прямой эфир
 playback-skipping = Переход к { $position }
+playback-preparing = Подготовка видео.
 playback-mute-tip = Выключить звук (M)
 playback-mute = Выключить звук
 playback-unmute = Включить звук
