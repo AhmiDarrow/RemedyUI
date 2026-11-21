@@ -62,9 +62,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Unpremultiply for viewing.
             let px: Vec<u8> = pic
                 .pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .flat_map(|p| {
-                    let [r, g, b, a] = <[u8; 4]>::try_from(p).unwrap_or([0; 4]);
+                    let [r, g, b, a] = *p;
                     let un = |c: u8| {
                         if a == 0 {
                             0
