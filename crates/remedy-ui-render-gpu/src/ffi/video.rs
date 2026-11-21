@@ -11,24 +11,42 @@
 //! Linux: a picture in DMA-BUFs is imported on wgpu's Vulkan device, one image per plane
 //! (`ffi::dmabuf`).
 //!
+//! Android: a MediaCodec picture's `AHardwareBuffer` is imported into wgpu's Vulkan device and
+//! drawn into the stream's converted picture by a pass of ours ([`android`]).
+//!
 //! [`Shared::open`] gives the views the conversion shader samples (luma, then chroma);
 //! [`Shared::submit`] submits the commands that read them.
 
-#[cfg(not(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios"))))))]
+#[cfg(not(any(windows, target_os = "android", all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))))]
 use remedy_ui_paint::GpuFrame;
 
+#[cfg(target_os = "android")]
+mod android;
+#[cfg(target_os = "android")]
+pub(crate) use android::{Shared, wanted_extensions};
 #[cfg(windows)]
 pub(crate) use windows_shared::Shared;
 
-#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 pub(crate) use super::dmabuf::Shared;
 
+/// Device extensions importing pictures needs, which [`super::vulkan::open_device`] adds
+/// where the device has them all (none: nothing is imported on this platform).
+#[cfg(not(target_os = "android"))]
+#[cfg(any(
+    all(unix, not(any(target_os = "macos", target_os = "ios"))),
+    all(windows, feature = "windows-vulkan")
+))]
+pub(crate) fn wanted_extensions() -> &'static [&'static std::ffi::CStr] {
+    &[]
+}
+
 /// A stream's pictures opened on this device, and those the GPU is still reading.
-#[cfg(not(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios"))))))]
+#[cfg(not(any(windows, target_os = "android", all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))))]
 #[derive(Default)]
 pub(crate) struct Shared(());
 
-#[cfg(not(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios"))))))]
+#[cfg(not(any(windows, target_os = "android", all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))))]
 impl Shared {
     /// The views of `picture`'s planes opened on `device`; `None` when it cannot open them.
     pub(crate) fn open(
@@ -55,14 +73,20 @@ pub(crate) fn announce(device: &wgpu::Device) {
             remedy_ui_paint::set_gpu_video_adapter(Some(remedy_ui_paint::GpuAdapter::Luid(luid)));
         }
     }
-    #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
     {
         if let Some((uuid, modifiers)) = super::dmabuf::adapter(device) {
             remedy_ui_paint::set_gpu_video_dma_buf_modifiers(modifiers);
             remedy_ui_paint::set_gpu_video_adapter(Some(remedy_ui_paint::GpuAdapter::Uuid(uuid)));
         }
     }
-    #[cfg(not(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios"))))))]
+    #[cfg(target_os = "android")]
+    {
+        if android::can_import(device) {
+            remedy_ui_paint::set_gpu_video_adapter(Some(remedy_ui_paint::GpuAdapter::Only));
+        }
+    }
+    #[cfg(not(any(windows, target_os = "android", all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))))]
     let _ = device;
 }
 

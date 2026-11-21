@@ -4,7 +4,7 @@
 //!
 //! Without a hardware decoder, a stand-in hands the decoded pictures over as a VA-API or V4L2
 //! decoder does: a probe after the software decoder puts each picture into a buffer of its
-//! own made with GStreamer's DMA-BUF allocator, both planes in it with rows padded to 64
+//! own made with GStreamer's DMA-BUF allocator (from a pool, as a decoder's are), both planes in it with rows padded to 64
 //! bytes and the chroma plane page-aligned, described by a `GstVideoMeta`, and says so in the
 //! caps (`video/x-raw(memory:DMABuf)`). The buffer is a memfd: this machine has no DMA-BUF
 //! exporter (no dma-heap, udmabuf or DRM device), and Mesa's lavapipe imports a DMA-BUF by
@@ -13,9 +13,9 @@
 //! The test runs in a child process of its own: which GPU takes pictures is process-wide.
 
 use std::ffi::{c_char, c_int, c_uint};
-use std::io::Write as _;
-use std::os::fd::{FromRawFd, IntoRawFd, OwnedFd};
-use std::sync::OnceLock;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::unix::fs::FileExt as _;
+use std::sync::{Mutex, OnceLock};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
@@ -38,6 +38,8 @@ const GST_VIDEO_FORMAT_NV12: c_uint = 23;
 /// Row padding and plane alignment of the stand-in's buffers.
 const ROW_ALIGN: usize = 64;
 const PAGE: usize = 4096;
+/// `GST_FD_MEMORY_FLAG_DONT_CLOSE`: the pool keeps its descriptors.
+const GST_FD_MEMORY_FLAG_DONT_CLOSE: c_uint = 1 << 2;
 
 #[repr(C)]
 struct GstPadProbeInfo {
@@ -65,7 +67,8 @@ struct Producer {
     caps_set_features: unsafe extern "C" fn(Ptr, c_uint, Ptr),
     buffer_new: unsafe extern "C" fn() -> *mut GstBuffer,
     buffer_append_memory: unsafe extern "C" fn(*mut GstBuffer, Ptr),
-    dmabuf_allocator_alloc: unsafe extern "C" fn(Ptr, c_int, usize) -> Ptr,
+    dmabuf_allocator_alloc_with_flags: unsafe extern "C" fn(Ptr, c_int, usize, c_uint) -> Ptr,
+    mini_object_weak_ref: unsafe extern "C" fn(Ptr, unsafe extern "C" fn(Ptr, Ptr), Ptr),
     add_video_meta_full: unsafe extern "C" fn(
         *mut GstBuffer,
         c_uint,
@@ -140,7 +143,8 @@ fn producer() -> &'static Producer {
                 caps_set_features: f!(core, "gst_caps_set_features"),
                 buffer_new: f!(core, "gst_buffer_new"),
                 buffer_append_memory: f!(core, "gst_buffer_append_memory"),
-                dmabuf_allocator_alloc: f!(alloc, "gst_dmabuf_allocator_alloc"),
+                dmabuf_allocator_alloc_with_flags: f!(alloc, "gst_dmabuf_allocator_alloc_with_flags"),
+                mini_object_weak_ref: f!(core, "gst_mini_object_weak_ref"),
                 add_video_meta_full: f!(video, "gst_buffer_add_video_meta_full"),
                 allocator: dmabuf_allocator_new() as usize,
                 _libs: vec![core, alloc, video],
@@ -152,6 +156,20 @@ fn producer() -> &'static Producer {
 /// CPU time the stand-in spends copying pictures into its buffers, in nanoseconds: the
 /// measurement takes it off, as a hardware decoder writes its own.
 static STAND_IN_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The stand-in's buffer pool: memfds no picture holds, as a decoder's pool hands the same few
+/// buffers out again (so the renderer's per-buffer imports are used again too).
+static POOL: Mutex<Vec<OwnedFd>> = Mutex::new(Vec::new());
+static ALL: Mutex<Vec<OwnedFd>> = Mutex::new(Vec::new());
+
+/// A picture's buffer was freed: its memfd goes back to the pool.
+unsafe extern "C" fn back_to_pool(fd: Ptr, _buffer: Ptr) {
+    let fd = fd as usize as c_int;
+    let mut all = ALL.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(i) = all.iter().position(|f| f.as_raw_fd() == fd) {
+        POOL.lock().unwrap_or_else(|e| e.into_inner()).push(all.swap_remove(i));
+    }
+}
 
 static WIDTH: AtomicU32 = AtomicU32::new(0);
 static HEIGHT: AtomicU32 = AtomicU32::new(0);
@@ -217,17 +235,35 @@ unsafe extern "C" fn probe(_pad: Ptr, info: *mut GstPadProbeInfo, _data: Ptr) ->
             }
         }
         (g.buffer_unmap)(src, &mut map);
-        let fd = memfd_create(c"remedy-test-picture".as_ptr(), 0);
-        if fd < 0 {
+        let pooled = {
+            let mut pool = POOL.lock().unwrap_or_else(|e| e.into_inner());
+            let fit = pool.iter().position(|f| {
+                let len = f.try_clone().ok().and_then(|f| std::fs::File::from(f).metadata().ok());
+                len.is_some_and(|m| m.len() == size as u64)
+            });
+            fit.map(|i| pool.swap_remove(i))
+        };
+        let fd = match pooled {
+            Some(fd) => fd,
+            None => {
+                let fd = memfd_create(c"remedy-test-picture".as_ptr(), 0);
+                if fd < 0 {
+                    return GST_PAD_PROBE_OK;
+                }
+                OwnedFd::from_raw_fd(fd)
+            }
+        };
+        let file = std::fs::File::from(fd);
+        if file.write_all_at(&out, 0).is_err() {
             return GST_PAD_PROBE_OK;
         }
-        let mut file = std::fs::File::from(OwnedFd::from_raw_fd(fd));
-        if file.write_all(&out).is_err() {
-            return GST_PAD_PROBE_OK;
-        }
-        let mem = (p.dmabuf_allocator_alloc)(p.allocator as Ptr, file.into_raw_fd(), size);
+        let fd = OwnedFd::from(file);
+        let raw = fd.as_raw_fd();
+        let mem = (p.dmabuf_allocator_alloc_with_flags)(p.allocator as Ptr, raw, size, GST_FD_MEMORY_FLAG_DONT_CLOSE);
+        ALL.lock().unwrap_or_else(|e| e.into_inner()).push(fd);
         let dst = (p.buffer_new)();
         (p.buffer_append_memory)(dst, mem);
+        (p.mini_object_weak_ref)(dst.cast(), back_to_pool, raw as usize as Ptr);
         let offsets = [0usize, uv_at, 0, 0];
         let strides = [stride as c_int, stride as c_int, 0, 0];
         (p.add_video_meta_full)(

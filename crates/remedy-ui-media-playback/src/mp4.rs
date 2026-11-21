@@ -180,6 +180,48 @@ pub(crate) fn parse(data: &[u8]) -> Result<Mp4, Error> {
     Ok(Mp4 { tracks })
 }
 
+/// Reads an MP4 file `len` bytes long from `head`, the start of it that has arrived (a
+/// download under way): `Ok(None)` until all of its movie box is in. The samples it lists
+/// may lie past `head`.
+pub(crate) fn parse_head(head: &[u8], len: u64) -> Result<Option<Mp4>, Error> {
+    // Walk the top-level boxes by their headers alone until the movie box.
+    let mut at = 0u64;
+    loop {
+        if at.saturating_add(8) > len {
+            return Err("no movie box (moov): not an MP4 file, or a fragmented one".into());
+        }
+        let start = usize::try_from(at).map_err(|_| "the file is too large")?;
+        let h = head.get(start..head.len().min(start.saturating_add(16))).unwrap_or_default();
+        if h.len() < 8 {
+            return Ok(None);
+        }
+        let (header, size) = match be32(h, 0)? {
+            0 => (8, len - at),
+            1 if h.len() < 16 => return Ok(None),
+            1 => (16, be64(h, 8)?),
+            s => (8, u64::from(s)),
+        };
+        if size < header || size > len - at {
+            return Err("a box runs past the end of the file".into());
+        }
+        if h.get(4..8) == Some(b"moov".as_slice()) {
+            if size > MAX_MOOV {
+                return Err("the movie box is too large".into());
+            }
+            // Within MAX_MOOV of `at`, which fits: `start` did.
+            let Some(body) = head.get(start + header as usize..start + size as usize) else {
+                return Ok(None);
+            };
+            let tracks = moov_tracks(body, len)?;
+            if tracks.iter().all(|t| matches!(t.kind, Kind::Text { .. })) {
+                return Err("no H.264 video or AAC sound in the file".into());
+            }
+            return Ok(Some(Mp4 { tracks }));
+        }
+        at += size;
+    }
+}
+
 fn moov_tracks(moov: &[u8], file_len: u64) -> Result<Vec<Track>, Error> {
     let moov = atoms(moov)?;
     let mut tracks = Vec::new();
@@ -532,6 +574,27 @@ mod tests {
         for s in v.samples.iter().chain(&a.samples) {
             assert!(s.offset + u64::from(s.size) <= data.len() as u64);
         }
+    }
+
+    #[test]
+    fn a_download_under_way_reads_once_its_movie_box_is_in() {
+        let data = clip();
+        let len = data.len() as u64;
+        let Ok(whole) = parse(&data) else { unreachable!("the clip parses") };
+        // The clip's movie box follows its 32-byte file type box.
+        let moov_end = 32 + 3033;
+        for cut in [0, 7, 8, 31, 40, moov_end - 1] {
+            let head = data.get(..cut).unwrap_or_default();
+            assert!(matches!(parse_head(head, len), Ok(None)), "{cut} bytes in: not yet");
+        }
+        for cut in [moov_end, moov_end + 100, data.len()] {
+            let head = data.get(..cut).unwrap_or_default();
+            let Ok(Some(m)) = parse_head(head, len) else { unreachable!("{cut} bytes in: the movie box") };
+            assert_eq!(m, whole, "{cut} bytes in");
+        }
+        // Not an MP4, or a length the boxes run past, says so instead of waiting.
+        assert!(parse_head(b"not an mp4 at all", 17).is_err());
+        assert!(parse_head(data.get(..moov_end).unwrap_or_default(), 1000).is_err());
     }
 
     #[test]

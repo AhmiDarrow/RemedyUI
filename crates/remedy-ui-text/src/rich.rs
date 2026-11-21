@@ -139,6 +139,27 @@ impl RichText {
         self.text.is_empty()
     }
 
+    /// The part of the text in `range` (on character boundaries), with the spans and objects
+    /// in it, moved to start at 0.
+    pub(crate) fn slice(&self, range: Range<usize>) -> RichText {
+        let text = self.text.get(range.clone()).unwrap_or_default().to_owned();
+        let spans = self
+            .spans
+            .iter()
+            .filter_map(|s| {
+                let (a, b) = (s.range.start.max(range.start), s.range.end.min(range.end));
+                (a < b).then(|| Span { range: a - range.start..b - range.start, patch: s.patch.clone() })
+            })
+            .collect();
+        let objects = self
+            .objects
+            .iter()
+            .filter(|(at, _)| range.contains(at))
+            .map(|&(at, o)| (at - range.start, o))
+            .collect();
+        RichText { text, spans, objects }
+    }
+
     fn floor_boundary(&self, i: usize) -> usize {
         let mut i = i.min(self.text.len());
         while !self.text.is_char_boundary(i) {
