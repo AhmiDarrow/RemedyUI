@@ -1481,7 +1481,9 @@ fn next_up_card(ui: &Ui, player: &Player) -> El {
             move || tr(&u, "playback-play-now")
         },
         move || p.play_next(),
-    );
+    )
+    // A sheet can set it apart (Portal's is in the accent); the shared one leaves it a button.
+    .variant("player_play_now");
     let p = player.clone();
     let cancel = w::button(
         ui,

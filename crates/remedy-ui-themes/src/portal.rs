@@ -227,6 +227,11 @@ pub fn portal_sheet(t: &Theme) -> StyleSheet {
     rule("player_clock", Some("full"), States::NONE, clock(15.2, c.text.with_alpha(0.72)));
     rule("player_clock_now", None, States::NONE, StylePatch::default().foreground(c.text));
     rule("player_seek", None, States::DISABLED, StylePatch::default().opacity(0.45));
+    // #dock-upnext-play: the accent, the background's color on it.
+    let gold = StylePatch::default().background(c.accent).border(c.accent).foreground(c.bg).weight(600.0);
+    rule("button", Some("player_play_now"), States::NONE, gold);
+    let lift = c.accent.mix_oklab(Color::WHITE, 0.18);
+    rule("button", Some("player_play_now"), States::HOVER, StylePatch::default().background(lift));
     // .scrub-tip: the accent on the well, 0.82rem, lifted.
     rule(
         "player_tip",
