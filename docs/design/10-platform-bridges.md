@@ -9,7 +9,7 @@ A bridge implements a small set of traits:
 | Trait | What the engine asks for |
 |---|---|
 | `Host` | Event loop integration, a wake handle for other threads, timers, the vsync source, system settings as signals (theme, accent, contrast, text scale, motion, transparency, locale), memory pressure, power state |
-| `WindowHost` | Create, show, hide, move, resize, minimize, maximize, fullscreen, always on top, frameless with native hit regions (drag area, caption buttons, resize edges), parent and child windows, per-window scale, safe-area insets, capture protection, cover in the task switcher |
+| `WindowHost` | Create, show, hide, move, resize, minimize, maximize, fullscreen, always on top, frameless with native hit regions (drag area, caption buttons, resize edges), parent and child windows, per-window scale, safe-area insets, capture protection, cover in the task switcher, the mouse pointer hidden over it (`set_cursor_hidden`: what `El::cursor_hidden` asks, a no-op without a pointer) |
 | `SurfaceHost` | A drawable for the GPU renderer (raw window handle) and/or a pixel buffer with damage for the CPU renderer; presentation timing feedback |
 | `TextInputHost` | IME sessions with the caret rect, surrounding text, composition, private-input hints, the on-screen keyboard |
 | `ClipboardHost` | Read and write typed items, sensitive items, change notifications |

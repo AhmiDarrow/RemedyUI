@@ -655,6 +655,13 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         Ok(())
     }
 
+    fn set_cursor_hidden(&mut self, window: WindowId, hidden: bool) {
+        // winit hides it over the window only (Windows, macOS, X11, Wayland; Android has none).
+        if let Some(w) = self.win(window) {
+            w.window.set_cursor_visible(!hidden);
+        }
+    }
+
     fn set_capture_protected(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported> {
         let Some(wid) = self.state.ids.get(&window) else { return Ok(()) };
         let Some((_, w)) = self.state.windows.get(wid) else { return Ok(()) };

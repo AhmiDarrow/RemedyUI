@@ -10,6 +10,26 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Portal's full-screen overlay** in `media-playback`. In full screen the `player`
+  widget's bar floats over the foot of the picture on a gradient, the title the app gives
+  (`Player::set_title(Some(..))`) over its head, and both fade 2.6 s after the last pointer,
+  touch or key activity; they stay while paused or busy, while the app's status shows, while
+  scrubbing, with the captions menu open, under the pointer, or with keyboard focus in the
+  bar. The mouse pointer hides with them; captions sit above the bar while it shows;
+  `Player::controls_shown` says which. Better than Portal's page: a faded bar stays in the
+  accessibility tree and the tab order, so nothing is announced as it fades, and focus
+  moving into it brings it back; a tap or press on the faded controls only brings them back
+  (Portal's paused or pressed what could not be seen); a hold ending gives a whole 2.6 s
+  before the fade; going full screen brings focus to the player when it is elsewhere, so
+  its keys work; the gradient is the theme's background, so the theme's own colors read
+  over it; and under reduced motion the controls show and hide without fading.
+- **Hiding the mouse pointer.** `El::cursor_hidden(true)` hides the pointer while it is over
+  the element; the runner tells the platform through the new `Host::set_cursor_hidden`
+  (a default no-op): winit's `set_cursor_visible` on Windows, macOS, X11 and Wayland
+  (Android has no pointer), `cursor: none` on a page's window, recorded by the headless host
+  (`HeadlessWindow::is_cursor_hidden`). `Ui::cursor_hidden` says what the window wants.
+- The accessibility audit skips the contrast of text faded out entirely (opacity 0): there
+  is nothing to read.
 - **Portal's control bar and mini player** in `media-playback`. The captions control
   does all Portal's CC does, without its problems: one button (not a toggle beside a 22 px
   arrow) that says what shows in words, "Off", "Auto · English" or "Loading…" (Portal showed

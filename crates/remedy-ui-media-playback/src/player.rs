@@ -628,6 +628,10 @@ struct Inner {
     caption_note: Signal<Option<String>>,
     captions_loading: Signal<bool>,
     compact: Signal<bool>,
+    /// What plays, shown at the top of the picture in full screen ([`Player::set_title`]).
+    title: Signal<Option<String>>,
+    /// In full screen, the controls are showing (not faded after a rest).
+    awake: Signal<bool>,
     /// Theater was on when the player went compact, so leaving it brings it back (Portal's).
     theater_before_compact: Cell<bool>,
 }
@@ -1202,6 +1206,8 @@ impl Player {
             caption_note: Signal::new(None),
             captions_loading: Signal::new(false),
             compact: Signal::new(options.compact),
+            title: Signal::new(None),
+            awake: Signal::new(true),
             theater_before_compact: Cell::new(false),
             options,
         });
@@ -2037,6 +2043,37 @@ impl Player {
     /// Whether the widget is in its compact layout. Tracked.
     pub fn is_compact(&self) -> bool {
         self.0.compact.get()
+    }
+
+    /// Names what plays ("Episode 4 · The Long Night"): the [`player`](crate::player) widget
+    /// shows it at the top of the picture in full screen while its controls show. `None`
+    /// shows no title line.
+    pub fn set_title(&self, title: Option<String>) {
+        self.0.title.set_if_changed(title);
+    }
+
+    /// The [title](Player::set_title). Tracked.
+    pub fn title(&self) -> Option<String> {
+        self.0.title.get()
+    }
+
+    /// Whether the [`player`](crate::player) widget shows its controls: always, except in
+    /// full screen after 2.6 s with no pointer, touch or key activity while playing (they
+    /// stay while paused, busy, hovered, focused from the keyboard, scrubbed or with a menu
+    /// open). Tracked.
+    pub fn controls_shown(&self) -> bool {
+        !self.is_fullscreen() || self.0.awake.get()
+    }
+
+    /// Rests the controls now, as 2.6 s with no activity would: for pictures of the faded
+    /// state (a preview fires no timers).
+    #[doc(hidden)]
+    pub fn rest_controls(&self) {
+        self.set_awake(false);
+    }
+
+    pub(crate) fn set_awake(&self, on: bool) {
+        self.0.awake.set_if_changed(on);
     }
 
     /// Whether an app listens for the cast button. Tracked.

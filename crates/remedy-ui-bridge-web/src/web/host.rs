@@ -193,6 +193,12 @@ impl Host for WebHost<'_> {
         self.win(window).ok_or_else(closed)?.set_icon(icon, page_title)
     }
 
+    fn set_cursor_hidden(&mut self, window: WindowId, hidden: bool) {
+        if let Some(w) = self.win(window) {
+            w.set_cursor_hidden(hidden);
+        }
+    }
+
     fn set_capture_protected(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported> {
         let _ = window;
         if on {

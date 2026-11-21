@@ -46,6 +46,7 @@ playback-back = 后退 10 秒
 playback-forward-tip = 前进 10 秒 (L)
 playback-forward = 前进 10 秒
 playback-full-screen-tip = 全屏 (F)
+playback-wake-tip = 按任意键显示控件
 playback-full-screen = 全屏
 playback-exit-full-screen = 退出全屏
 playback-theater-tip = 影院模式 (T)

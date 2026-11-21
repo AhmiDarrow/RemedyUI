@@ -1788,6 +1788,8 @@ struct Win {
     held: Option<TimerId>,
     /// A finger that is not yet a tap or a scroll, or that is scrolling.
     pan: Option<TouchPan>,
+    /// What the host was last told about the mouse pointer ([`Ui::cursor_hidden`]).
+    cursor_hidden: bool,
 }
 
 /// How long a finger rests before a press is a long press (Android's default).
@@ -2126,6 +2128,7 @@ impl Runner {
                         last_frame: None,
                         held: None,
                         pan: None,
+                        cursor_hidden: false,
                         host: id,
                         ui: ui.clone(),
                         comp: None,
@@ -2414,6 +2417,13 @@ impl Runner {
     fn requests(&mut self, host: &mut dyn Host, key: u64) {
         let Some(w) = self.wins.get(&key) else { return };
         let (h, ui) = (w.host, w.ui.clone());
+        let hide = ui.cursor_hidden();
+        if hide != w.cursor_hidden {
+            host.set_cursor_hidden(h, hide);
+            if let Some(w) = self.wins.get_mut(&key) {
+                w.cursor_hidden = hide;
+            }
+        }
         for r in ui.take_requests() {
             match r {
                 Request::Frame => host.request_frame(h),
