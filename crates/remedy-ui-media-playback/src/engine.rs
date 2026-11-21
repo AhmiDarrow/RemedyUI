@@ -238,7 +238,7 @@ impl Feed {
             }
             Sample::Text { track, at, until, text } => {
                 if until > at && !self.skip_text {
-                    self.cues.push((track, Cue { start: at, end: until, text }));
+                    self.cues.push((track, Cue { start: at, end: until, text, ..Default::default() }));
                 }
             }
         }

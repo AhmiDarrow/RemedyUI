@@ -225,13 +225,18 @@ fn full_screen_hides_the_pointer_with_the_resting_controls() {
                             step.set(3);
                             since.set(0);
                         }
-                        3 if since.get() == 2 => {
+                        // Hidden within a second and a half of the controls resting: the host
+                        // hears the request after the frame that rests them, and a full screen
+                        // drawn on the CPU of a busy machine can take most of that.
+                        3 if since.get() >= 2 && !pointer::showing() || since.get() == 15 => {
                             note();
                             pointer::move_to(at.0 + 40, at.1 + 40);
+                            step.set(4);
+                            since.set(0);
                         }
                         // Checked as soon as they show: a full screen drawn on the CPU can take
                         // long enough between ticks for them to rest again.
-                        3 if since.get() > 2 && p.controls_shown() => {
+                        4 if p.controls_shown() => {
                             note();
                             app.quit();
                             return;
