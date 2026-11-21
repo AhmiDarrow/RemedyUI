@@ -27,9 +27,16 @@
 //!   system lets unprivileged programs have one, and an address-space limit for each image.
 //! - **macOS**: a deny-by-default Seatbelt profile (the mechanism the App Sandbox is built
 //!   on) and a memory watch for each image.
-//! - **Android** and **RemedyOS** (an isolated service process; a kernel isolation domain)
-//!   need their bridges, and other platforms have no helper: [`enable`] says
-//!   [`EnableError::Unsupported`] with the reason, and decoding stays in the app.
+//! - **Android** (10 and later): an isolated service process (`android:isolatedProcess`, the
+//!   Android bridge's `dev.remedyui.android.Decoder`, which `cargo remedy package` declares)
+//!   for each helper: a fresh user id with no permissions (no network, none of the app's files,
+//!   no other apps' services) in the `isolated_app` SELinux domain, and an address-space limit
+//!   for each image. The helper runs no `main` there: an app that registers its own formats
+//!   exports `#[unsafe(no_mangle)] extern "C" fn remedy_ui_media_isolated_formats()` doing so,
+//!   which the helper calls before it reads anything.
+//! - **RemedyOS** (a kernel isolation domain) needs its bridge, and other platforms have no
+//!   helper: [`enable`] says [`EnableError::Unsupported`] with the reason, and decoding stays
+//!   in the app.
 //!
 //! Nothing is a fixed number. The time a helper gets for an image comes from the image's
 //! pixel and byte count and this machine's measured speed (timed when the first helper
@@ -48,13 +55,13 @@
 #[allow(unsafe_code)]
 mod os;
 
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))]
 mod engine;
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))]
 mod helper;
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))]
 mod protocol;
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))]
 mod watchdog;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -82,9 +89,9 @@ static WIRED: AtomicBool = AtomicBool::new(false);
 pub fn helper_main() {
     WIRED.store(true, Ordering::Relaxed);
     if std::env::args_os().nth(1).is_some_and(|a| a == HELPER_ARG) {
-        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))]
         std::process::exit(helper::run());
-        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos", target_os = "android")))]
         std::process::exit(2);
     }
 }
@@ -114,11 +121,16 @@ pub enum Layer {
     },
     /// Linux: a new, empty network namespace (where unprivileged user namespaces are allowed).
     NetworkNamespace,
-    /// Linux and macOS: limits set for each image (address space on Linux, watched memory on
-    /// macOS) and no more open files than a request carries.
+    /// Linux, macOS and Android: limits set for each image (address space on Linux and
+    /// Android, watched memory on macOS) and, on Linux and macOS, no more open files than a
+    /// request carries.
     ResourceLimits,
     /// macOS: a deny-by-default Seatbelt profile, the sandbox the App Sandbox is built on.
     AppSandbox,
+    /// Android: an isolated service process: a user id of its own with no permissions (no
+    /// network, none of the app's files, no other apps' services), in the `isolated_app`
+    /// SELinux domain.
+    IsolatedProcess,
 }
 
 /// How decoding is isolated, once [`enable`] has succeeded.
@@ -222,11 +234,11 @@ pub fn enable() -> Result<Isolation, EnableError> {
     if !WIRED.load(Ordering::Relaxed) {
         return Err(EnableError::NotWired);
     }
-    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))]
     {
         engine::enable()
     }
-    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos", target_os = "android")))]
     {
         Err(EnableError::Unsupported(os::unsupported_reason()))
     }
@@ -236,17 +248,17 @@ pub fn enable() -> Result<Isolation, EnableError> {
 /// their helpers. On Windows it also removes the AppContainer profile the helpers ran under,
 /// so nothing stays registered on the machine (enabling again registers it again).
 pub fn disable() {
-    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))]
     engine::disable();
 }
 
 /// How decoding is isolated now, or `None` while it is not.
 pub fn isolation() -> Option<Isolation> {
-    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))]
     {
         engine::isolation()
     }
-    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos", target_os = "android")))]
     {
         None
     }
