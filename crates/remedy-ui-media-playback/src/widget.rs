@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use remedy_ui_a11y::{Action, Live, Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Insets, Rect};
-use remedy_ui_input::{Buttons, Key, PointerPhase};
+use remedy_ui_input::{Buttons, Key, PointerKind, PointerPhase};
 use remedy_ui_layout::{AUTO, Align, Justify, Position};
 use remedy_ui_media_video::{VideoFit, video_surface};
 use remedy_ui_paint::Brush;
@@ -108,12 +108,36 @@ fn drops_focus_after_click(ui: &Ui, p: &Player, control: &El) {
     });
 }
 
-/// The volume up or down a step, on the 5% grid, unmuting.
+/// The volume up or down a step, on the 5% grid, unmuting; nothing while a device's volume
+/// is unknown (a step from a level it has not said could jump it to full).
 fn nudge_volume(p: &Player, up: bool) {
+    if !p.volume_known() {
+        return;
+    }
     let step = if up { VOLUME_STEP } else { -VOLUME_STEP };
     p.set_volume(((p.volume() + step) * 20.0).round().clamp(0.0, 20.0) / 20.0);
     if p.is_muted() {
         p.set_muted(false);
+    }
+}
+
+/// Shown as muted: muted, or at volume 0 (as Portal's page shows it).
+fn sounds_muted(p: &Player) -> bool {
+    p.is_muted() || (p.volume_known() && p.volume() <= 0.0)
+}
+
+/// Mute and unmute, as Portal's page does: unmuting at volume 0 sets it to half. A device is
+/// only muted or unmuted.
+fn toggle_mute(p: &Player) {
+    if p.is_remote() {
+        p.set_muted(!p.is_muted());
+    } else if sounds_muted(p) {
+        p.set_muted(false);
+        if p.volume() <= 0.0 {
+            p.set_volume(0.5);
+        }
+    } else {
+        p.set_muted(true);
     }
 }
 
@@ -271,6 +295,13 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                 .child(stage_cancel(ui, player)),
         );
     let cast = cast_stage(ui, player);
+    let (big_play, glyph) = big_play(ui, player);
+    let on_glyph = {
+        let (layer, glyph) = (big_play.clone(), glyph.clone());
+        move |at: remedy_ui_core::Point| {
+            layer.info().is_some_and(|i| !i.hidden) && glyph.bounds().is_some_and(|b| b.contains(at))
+        }
+    };
     let p = player.clone();
     // The picture fills the stage (letterboxed by the surface); the rest sits over it.
     let stage = ui
@@ -282,6 +313,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         .child(message)
         .child(cast)
         .child(busy.clone())
+        .child(big_play)
         .on_pointer({
             let (u, held) = (ui.clone(), std::rc::Rc::new(std::cell::Cell::new(None)));
             move |e| {
@@ -296,7 +328,8 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                     toggle_fullscreen(&p);
                     return true;
                 }
-                if p.key_scheme() != KeyScheme::Arrows {
+                // The big Play glyph plays in either scheme, after the same wait.
+                if p.key_scheme() != KeyScheme::Arrows && !on_glyph(e.position) {
                     return false;
                 }
                 let (q, h) = (p.clone(), held.clone());
@@ -353,7 +386,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         if p.starting_next().is_some() {
             return String::new();
         }
-        let pos = format_time(p.position());
+        let pos = format_time(p.scrubbing().unwrap_or_else(|| p.position()));
         match p.duration() {
             Some(d) => crate::STRINGS.format(
                 &tu,
@@ -374,20 +407,51 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
         "playback-mute-tip",
         {
             let p = player.clone();
-            move || usize::from(p.is_muted())
+            move || usize::from(sounds_muted(&p))
         },
         {
             let (p, u) = (player.clone(), ui.clone());
-            move || tr(&u, if p.is_muted() { "playback-unmute" } else { "playback-mute" })
+            // While casting, as Portal's page says it: the TV's.
+            move || {
+                tr(
+                    &u,
+                    match (sounds_muted(&p), p.is_remote()) {
+                        (true, false) => "playback-unmute",
+                        (false, false) => "playback-mute",
+                        (true, true) => "playback-unmute-tv",
+                        (false, true) => "playback-mute-tv",
+                    },
+                )
+            }
         },
-        move || p.set_muted(!p.is_muted()),
+        move || toggle_mute(&p),
     );
     let level: Signal<f64> = Signal::new(f64::from(player.volume()));
     // The core slider takes its name once: in the window's language when the player is made.
     let slider = w::slider(ui, tr(ui, "playback-volume"), level, 0.0, 1.0, f64::from(VOLUME_STEP));
+    // Named "TV volume" while casting, as Portal's page; disabled while the device's volume
+    // is unknown. Bound after the core slider's own semantics, so this name wins.
+    let (sl, p, tu) = (slider.clone(), player.clone(), ui.clone());
+    let slider = slider.bind(move || {
+        let v = level.get();
+        let name = tr(&tu, if p.is_remote() { "playback-volume-tv" } else { "playback-volume" });
+        let _ = sl.clone().disabled(!p.volume_known()).semantics(
+            Semantics::new(Role::Slider)
+                .label(name)
+                .numeric(v, 0.0, 1.0)
+                .action(Action::Increment)
+                .action(Action::Decrement),
+        );
+    });
     let volume = ui.el("player_volume").width(u * 14.0).layout(|l| l.shrink = 0.0).child(slider.clone());
     let p = player.clone();
-    let volume = volume.bind(move || p.set_volume(level.get() as f32));
+    let volume = volume.bind(move || {
+        let v = level.get() as f32;
+        // Following an unknown device volume (the local one, shown) is not setting it.
+        if remedy_ui_reactive::untrack(|| p.volume_known()) {
+            p.set_volume(v);
+        }
+    });
     // The slider follows the volume: the device's in remote mode.
     let p = player.clone();
     let volume = volume.bind(move || level.set_if_changed(f64::from(p.volume())));
@@ -525,7 +589,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             cb.state(remedy_ui_style::States::CHECKED, p.is_remote());
         }
     });
-    for c in [&play, &seek, &mute, &slider, &speed, &captions, &theater, &cast, &full] {
+    for c in [&play, &mute, &slider, &speed, &captions, &theater, &cast, &full] {
         drops_focus_after_click(ui, player, c);
     }
     let bar = ui
@@ -585,7 +649,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
                     "k" => p.toggle(),
                     "j" => p.seek_by(-JUMP_SEEK),
                     "l" => p.seek_by(JUMP_SEEK),
-                    "m" => p.set_muted(!p.is_muted()),
+                    "m" => toggle_mute(&p),
                     ">" if !p.is_remote() => p.step_speed(true),
                     "<" if !p.is_remote() => p.step_speed(false),
                     "c" if !p.subtitle_tracks().is_empty() => cycle_captions(&p),
@@ -598,6 +662,55 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             }
             true
         })
+}
+
+/// A big Play glyph in the middle of a paused picture, as on Portal's page: a dark disc that
+/// takes the accent under the pointer; a click on it plays (the stage's handler, so a double
+/// click is still full screen alone). Not in the tab order and not announced (the transport
+/// bar's Play is); hidden while busy, casting, or with no picture. The layer, and the glyph.
+#[track_caller]
+fn big_play(ui: &Ui, player: &Player) -> (El, El) {
+    let u = ui.theme().spacing.unit;
+    let size = u * 8.5;
+    let look = move |hover: bool, accent: Color| {
+        remedy_ui_style::StylePatch::default()
+            .background(if hover { accent } else { Color::BLACK.with_alpha(0.55) })
+            .foreground(Color::WHITE)
+            .radius(size / 2.0)
+    };
+    let accent = ui.theme().colors.accent;
+    let button = ui
+        .el("player_big_play")
+        .width(size)
+        .height(size)
+        .row()
+        .align(Align::Center)
+        .justify(Justify::Center)
+        .style(look(false, accent))
+        .child(w::icon(ui, Icon::Play, u * 4.0));
+    let b = button.clone();
+    let button = button.on_hover(move |on| {
+        let _ = b.clone().style(look(on, accent));
+    });
+    let layer = ui
+        .el("player_big_play_layer")
+        .row()
+        .align(Align::Center)
+        .justify(Justify::Center)
+        .layout(|l| {
+            l.position = Position::Absolute;
+            l.inset = Insets { top: 0.0, start: 0.0, end: 0.0, bottom: 0.0 };
+        })
+        .pass_through()
+        .child(button.clone());
+    let (l, p) = (layer.clone(), player.clone());
+    let layer = layer.bind(move || {
+        let paused = matches!(p.state(), PlaybackState::Paused | PlaybackState::Ended);
+        let pictures = p.info().is_some_and(|i| i.video.is_some());
+        let busy = p.skipping().is_some() || p.starting_next().is_some();
+        let _ = l.clone().hidden(!paused || !pictures || busy || p.is_remote());
+    });
+    (layer, button)
 }
 
 /// Cancel under the spinner, while the app's work (starting the next, a skip) can be stopped
@@ -853,128 +966,197 @@ fn glyph_button(
 
 /// The seek bar: the played part in the accent color, what can play without waiting
 /// ([`Player::buffered`]) in a lighter tone of the text color, and a thumb at the playhead.
-/// Drag or click to move; arrows move 5 seconds, Page Up and Down a tenth, Home and End to the ends.
+/// Pressing or dragging (mouse, pen or touch) holds the thumb and the time at the pointer
+/// ([`Player::scrubbing`]) and seeks once, on release; a cancelled drag goes back. A tip over
+/// the bar shows the time under the pointer, as on Portal's page. Arrows move 5 seconds,
+/// Page Up and Down a tenth, Home and End to the ends, at once.
 #[track_caller]
 fn seek_bar(ui: &Ui, player: &Player) -> El {
     let h = ui.theme().spacing.control_height;
+    let unit = ui.theme().spacing.unit;
     let bar = ui.el("slider").height(h).grow(1.0).focusable(true);
     let length = {
         let p = player.clone();
         move || p.duration().filter(|d| !d.is_zero())
     };
-    let b2 = bar.clone();
-    let p = player.clone();
-    let len = length.clone();
-    let seek_to_x = move |x: f32| {
-        if let (Some(b), Some(d)) = (b2.bounds(), len()) {
-            let r = (cx_radius(b.height()), b.width());
-            let t = ((x - b.min.x - r.0) / (r.1 - 2.0 * r.0).max(1.0)).clamp(0.0, 1.0);
-            p.seek(d.mul_f64(f64::from(t)));
-        }
+    // The time under `x`: on a timeline in whole seconds, as its seeks are.
+    let (b2, p, len) = (bar.clone(), player.clone(), length.clone());
+    let time_at = move |x: f32| -> Option<Duration> {
+        let (b, d) = (b2.bounds()?, remedy_ui_reactive::untrack(&len)?);
+        let r = (cx_radius(b.height()), b.width());
+        let t = ((x - b.min.x - r.0) / (r.1 - 2.0 * r.0).max(1.0)).clamp(0.0, 1.0);
+        let at = d.mul_f64(f64::from(t));
+        let film = remedy_ui_reactive::untrack(|| p.timeline().is_some());
+        Some(if film { Duration::from_secs(at.as_secs()) } else { at })
     };
-    let p = player.clone();
-    let len = length.clone();
+    // The tip with the time under the pointer: Portal's #dock-hover, above the bar.
+    let theme = ui.theme();
+    let tip = ui
+        .el("label")
+        .nowrap()
+        .pass_through()
+        .hidden(true)
+        .layout(move |l| {
+            l.position = Position::Absolute;
+            l.inset = Insets { top: AUTO, start: 0.0, end: AUTO, bottom: h + unit * 0.5 };
+        })
+        .style(
+            remedy_ui_style::StylePatch::default()
+                .background(theme.colors.card)
+                // Portal's text is its accent too; the theme's may not read on a card.
+                .foreground(theme.colors.text)
+                .border(theme.colors.accent)
+                .border_width(1.0)
+                .radius(6.0)
+                .text_size(theme.type_scale.body * 0.82)
+                .padding(Insets { top: unit * 0.25, bottom: unit * 0.25, start: unit, end: unit }),
+        );
+    let scrub = ui.el("player_scrub").grow(1.0).row().align(Align::Center);
+    let (t2, s2, p, time) = (tip.clone(), scrub.clone(), player.clone(), time_at.clone());
+    let show_tip = move |x: Option<f32>| {
+        let busy = remedy_ui_reactive::untrack(|| p.skipping().is_some() || p.starting_next().is_some());
+        let (Some(x), Some(host), false) = (x, s2.bounds(), busy) else {
+            let _ = t2.clone().hidden(true);
+            return;
+        };
+        let Some(at) = time(x) else { return };
+        let _ = t2.clone().hidden(false).text(remedy_ui_view::RichText::plain(format_time(at)));
+        // Centered on the pointer, kept 4 px inside the bar's ends.
+        let half = t2.bounds().map_or(0.0, |b| b.width() / 2.0);
+        let x = (x - host.min.x).max(half + 4.0).min((host.width() - half - 4.0).max(half + 4.0));
+        let from = if s2.is_rtl() { host.width() - x - half } else { x - half };
+        let _ = t2.clone().layout(|l| l.inset.start = from);
+    };
+    let (p, len, time) = (player.clone(), length.clone(), time_at);
     let painted = player.clone();
     let b3 = bar.clone();
     let p2 = player.clone();
     let u = ui.clone();
     let len2 = length.clone();
-    bar.paint(move |cx| {
-        let pos = painted.position();
-        let t = match len() {
-            Some(d) => (pos.as_secs_f64() / d.as_secs_f64()).clamp(0.0, 1.0) as f32,
-            None => 0.0,
-        };
-        let d = cx.theme.derive();
-        let mid = cx.size.height / 2.0;
-        let r = cx_radius(cx.size.height);
-        let (x0, x1) = (r, cx.size.width - r);
-        let x = x0 + (x1 - x0) * t;
-        cx.list.fill_rounded(
-            Rect::new(x0, mid - 2.0, x1, mid + 2.0),
-            CornerRadii::all(2.0),
-            Brush::Solid(d.line),
-        );
-        if let Some(len) = len() {
-            let at =
-                |d: Duration| x0 + (x1 - x0) * (d.as_secs_f64() / len.as_secs_f64()).clamp(0.0, 1.0) as f32;
-            for r in if painted.is_remote() { Vec::new() } else { painted.buffered() } {
-                let (a, b) = (at(r.start), at(r.end));
-                if b > a {
-                    cx.list.fill_rounded(
-                        Rect::new(a, mid - 2.0, b, mid + 2.0),
-                        CornerRadii::all(2.0),
-                        Brush::Solid(d.text.with_alpha(0.35)),
-                    );
+    let (tip_hover, tip_moves) = (show_tip.clone(), show_tip);
+    let bar = bar
+        .paint(move |cx| {
+            let pos = painted.scrubbing().unwrap_or_else(|| painted.position());
+            let t = match len() {
+                Some(d) => (pos.as_secs_f64() / d.as_secs_f64()).clamp(0.0, 1.0) as f32,
+                None => 0.0,
+            };
+            let d = cx.theme.derive();
+            let mid = cx.size.height / 2.0;
+            let r = cx_radius(cx.size.height);
+            let (x0, x1) = (r, cx.size.width - r);
+            let x = x0 + (x1 - x0) * t;
+            cx.list.fill_rounded(
+                Rect::new(x0, mid - 2.0, x1, mid + 2.0),
+                CornerRadii::all(2.0),
+                Brush::Solid(d.line),
+            );
+            if let Some(len) = len() {
+                let at = |d: Duration| {
+                    x0 + (x1 - x0) * (d.as_secs_f64() / len.as_secs_f64()).clamp(0.0, 1.0) as f32
+                };
+                for r in if painted.is_remote() { Vec::new() } else { painted.buffered() } {
+                    let (a, b) = (at(r.start), at(r.end));
+                    if b > a {
+                        cx.list.fill_rounded(
+                            Rect::new(a, mid - 2.0, b, mid + 2.0),
+                            CornerRadii::all(2.0),
+                            Brush::Solid(d.text.with_alpha(0.35)),
+                        );
+                    }
                 }
             }
-        }
-        cx.list.fill_rounded(
-            Rect::new(x0, mid - 2.0, x, mid + 2.0),
-            CornerRadii::all(2.0),
-            Brush::Solid(cx.theme.colors.accent),
-        );
-        cx.list.fill_rounded(
-            Rect::new(x - r, mid - r, x + r, mid + r),
-            CornerRadii::all(r),
-            Brush::Solid(d.text),
-        );
-    })
-    .on_pointer(move |e| {
-        let drag = e.phase == PointerPhase::Down
-            || (e.phase == PointerPhase::Move && e.buttons.contains(Buttons::PRIMARY));
-        if drag {
-            seek_to_x(e.position.x);
-        }
-        drag
-    })
-    .on_key(move |e| {
-        if !e.pressed {
-            return false;
-        }
-        if e.key == Key::Space {
-            p.toggle();
-            return true;
-        }
-        let Some(d) = len2() else { return false };
-        let total = d.as_secs_f64();
-        match e.key {
-            Key::ArrowRight | Key::ArrowUp => p.seek_by(ARROW_SEEK),
-            Key::ArrowLeft | Key::ArrowDown => p.seek_by(-ARROW_SEEK),
-            Key::PageUp => p.seek_by(total / 10.0),
-            Key::PageDown => p.seek_by(-total / 10.0),
-            Key::Home => p.seek(Duration::ZERO),
-            Key::End => p.seek(d),
-            _ => return false,
-        }
-        true
-    })
-    .bind(move || {
-        let pos = p2.position();
-        // Repainted as more arrives.
-        let _ = p2.buffered();
-        let len = length();
-        // On a timeline a seek the stream cannot take goes to the app; skipping, none does.
-        let seekable = p2.is_remote() || p2.timeline().is_some() || p2.info().is_some_and(|i| i.seekable);
-        let _ = b3
-            .clone()
-            .disabled(len.is_none() || !seekable || p2.skipping().is_some() || p2.starting_next().is_some());
-        let total = len.unwrap_or_default();
-        let said = crate::STRINGS.format(
-            &u,
-            "playback-seek-value",
-            &[("position", format_time(pos).into()), ("duration", format_time(total).into())],
-        );
-        let _ = b3.clone().semantics(
-            Semantics::new(Role::Slider)
-                .label(tr(&u, "playback-seek"))
-                .numeric(pos.as_secs_f64(), 0.0, total.as_secs_f64())
-                .value(said)
-                .action(Action::Increment)
-                .action(Action::Decrement),
-        );
-        b3.repaint();
-    })
+            cx.list.fill_rounded(
+                Rect::new(x0, mid - 2.0, x, mid + 2.0),
+                CornerRadii::all(2.0),
+                Brush::Solid(cx.theme.colors.accent),
+            );
+            cx.list.fill_rounded(
+                Rect::new(x - r, mid - r, x + r, mid + r),
+                CornerRadii::all(r),
+                Brush::Solid(d.text),
+            );
+        })
+        .on_hover(move |inside| {
+            if !inside {
+                tip_hover(None);
+            }
+        })
+        .on_pointer({
+            let p = player.clone();
+            move |e| {
+                let held = remedy_ui_reactive::untrack(|| p.scrubbing());
+                let x = e.position.x;
+                match e.phase {
+                    PointerPhase::Down if e.buttons.contains(Buttons::PRIMARY) => p.set_scrubbing(time(x)),
+                    PointerPhase::Move if held.is_some() => p.set_scrubbing(time(x).or(held)),
+                    PointerPhase::Up if held.is_some() => {
+                        p.set_scrubbing(None);
+                        p.seek(held.unwrap_or_default());
+                    }
+                    PointerPhase::Cancel => p.set_scrubbing(None),
+                    PointerPhase::Move => {
+                        tip_moves(Some(x));
+                        return false;
+                    }
+                    _ => return false,
+                }
+                // A finger leaves no pointer over the bar once lifted.
+                let gone = matches!(e.phase, PointerPhase::Up | PointerPhase::Cancel)
+                    && e.kind != PointerKind::Mouse;
+                tip_moves(if gone { None } else { Some(x) });
+                true
+            }
+        })
+        .on_key(move |e| {
+            if !e.pressed {
+                return false;
+            }
+            if e.key == Key::Space {
+                p.toggle();
+                return true;
+            }
+            let Some(d) = len2() else { return false };
+            let total = d.as_secs_f64();
+            match e.key {
+                Key::ArrowRight | Key::ArrowUp => p.seek_by(ARROW_SEEK),
+                Key::ArrowLeft | Key::ArrowDown => p.seek_by(-ARROW_SEEK),
+                Key::PageUp => p.seek_by(total / 10.0),
+                Key::PageDown => p.seek_by(-total / 10.0),
+                Key::Home => p.seek(Duration::ZERO),
+                Key::End => p.seek(d),
+                _ => return false,
+            }
+            true
+        })
+        .bind(move || {
+            let pos = p2.scrubbing().unwrap_or_else(|| p2.position());
+            // Repainted as more arrives.
+            let _ = p2.buffered();
+            let len = length();
+            // On a timeline a seek the stream cannot take goes to the app; skipping, none does.
+            let seekable = p2.is_remote() || p2.timeline().is_some() || p2.info().is_some_and(|i| i.seekable);
+            let _ = b3.clone().disabled(
+                len.is_none() || !seekable || p2.skipping().is_some() || p2.starting_next().is_some(),
+            );
+            let total = len.unwrap_or_default();
+            let said = crate::STRINGS.format(
+                &u,
+                "playback-seek-value",
+                &[("position", format_time(pos).into()), ("duration", format_time(total).into())],
+            );
+            let _ = b3.clone().semantics(
+                Semantics::new(Role::Slider)
+                    .label(tr(&u, "playback-seek"))
+                    .numeric(pos.as_secs_f64(), 0.0, total.as_secs_f64())
+                    .value(said)
+                    .action(Action::Increment)
+                    .action(Action::Decrement),
+            );
+            b3.repaint();
+        });
+    drops_focus_after_click(ui, player, &bar);
+    scrub.child(bar).child(tip)
 }
 
 /// The thumb's radius on a bar `h` tall (as the core slider draws it).
