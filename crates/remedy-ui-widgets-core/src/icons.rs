@@ -119,6 +119,8 @@ pub enum Icon {
     Fullscreen,
     /// Four corners pointing in: leave full screen.
     FullscreenExit,
+    /// A wide frame: theater mode, the picture wide in the page.
+    Theater,
     /// A box with lines of text: captions and subtitles.
     Captions,
     /// A house: the home screen or start page.
@@ -215,6 +217,7 @@ impl Icon {
             Icon::VolumeMuted => "Muted",
             Icon::Fullscreen => "Full screen",
             Icon::FullscreenExit => "Exit full screen",
+            Icon::Theater => "Theater mode",
             Icon::Captions => "Captions",
             Icon::Home => "Home",
             Icon::Image => "Image",
@@ -286,6 +289,7 @@ impl Icon {
             Icon::VolumeMuted => "icon-muted",
             Icon::Fullscreen => "icon-full-screen",
             Icon::FullscreenExit => "icon-exit-full-screen",
+            Icon::Theater => "icon-theater-mode",
             Icon::Captions => "icon-captions",
             Icon::Home => "icon-home",
             Icon::Image => "icon-image",
@@ -652,6 +656,10 @@ fn strokes(icon: Icon) -> Path {
             s.move_to(p(20.0, 15.0)).line_to(p(15.0, 15.0)).line_to(p(15.0, 20.0));
             s.move_to(p(9.0, 20.0)).line_to(p(9.0, 15.0)).line_to(p(4.0, 15.0));
         }
+        Icon::Theater => {
+            // Wider than the screen's corners, as the picture is in the page.
+            rect(&mut s, 2.0, 7.0, 22.0, 17.0);
+        }
         Icon::Dot => {
             // Rings drawn close together read as a filled dot at menu sizes.
             for r in [1.0, 2.0, 3.0, 4.0] {
@@ -926,6 +934,7 @@ mod tests {
             Icon::VolumeMuted,
             Icon::Fullscreen,
             Icon::FullscreenExit,
+            Icon::Theater,
             Icon::Captions,
             Icon::Home,
             Icon::Image,

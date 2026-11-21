@@ -83,6 +83,7 @@ icon-volume = Volume
 icon-muted = Muted
 icon-full-screen = Full screen
 icon-exit-full-screen = Exit full screen
+icon-theater-mode = Theater mode
 icon-captions = Captions
 icon-home = Home
 icon-image = Image

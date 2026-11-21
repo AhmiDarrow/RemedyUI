@@ -128,7 +128,7 @@ fn deliver(id: u64) {
     }
 }
 
-/// Hears a full-screen request.
+/// Hears a full-screen or theater request.
 type FullscreenHandler = Rc<dyn Fn(bool)>;
 
 struct Inner {
@@ -151,8 +151,14 @@ struct Inner {
     muted: Signal<bool>,
     tracks: Signal<Vec<SubtitleTrack>>,
     caption: Signal<Option<usize>>,
+    /// Milliseconds every caption is shifted by: positive shows cues later.
+    caption_delay: Signal<i64>,
     fullscreen: Signal<bool>,
     fullscreen_handlers: RefCell<Vec<FullscreenHandler>>,
+    theater: Signal<bool>,
+    theater_handlers: RefCell<Vec<FullscreenHandler>>,
+    /// An app heard theater requests ([`Player::on_theater`]): the widget offers them.
+    theater_offered: Signal<bool>,
     /// Where each embedded text track sits in `tracks`.
     embedded: RefCell<Vec<usize>>,
     autoplayed: Cell<bool>,
@@ -339,6 +345,8 @@ impl Inner {
             self.buffered.set(Vec::new());
             self.tracks.set(Vec::new());
             self.caption.set(None);
+            // A shift fixes one subtitle file's timing, so it goes with the tracks.
+            self.caption_delay.set(0);
         });
         self.embedded.borrow_mut().clear();
         self.play_on_open.set(true);
@@ -458,8 +466,12 @@ impl Player {
             muted: Signal::new(false),
             tracks: Signal::new(Vec::new()),
             caption: Signal::new(None),
+            caption_delay: Signal::new(0),
             fullscreen: Signal::new(false),
             fullscreen_handlers: RefCell::new(Vec::new()),
+            theater: Signal::new(false),
+            theater_handlers: RefCell::new(Vec::new()),
+            theater_offered: Signal::new(false),
             embedded: RefCell::new(Vec::new()),
             autoplayed: Cell::new(false),
             queue: Signal::new(Vec::new()),
@@ -667,11 +679,33 @@ impl Player {
         self.0.caption.set_if_changed(i);
     }
 
-    /// The caption showing now, if captions are on and a cue covers the position. Tracked.
+    /// The caption showing now, if captions are on and a cue covers the position (shifted
+    /// by the [caption delay](Self::caption_delay)). Tracked.
     pub fn caption_text(&self) -> Option<String> {
         let sel = self.0.caption.get()?;
         let at = self.0.position.get();
+        let delay = self.0.caption_delay.get();
+        // Cues shown later are looked up earlier in the track, and the other way round.
+        let at = if delay >= 0 {
+            at.checked_sub(Duration::from_millis(delay.unsigned_abs()))?
+        } else {
+            at + Duration::from_millis(delay.unsigned_abs())
+        };
         self.0.tracks.with(|t| t.get(sel).and_then(|tr| tr.text_at(at)))
+    }
+
+    /// How far every caption track is shifted, in milliseconds: positive shows each cue
+    /// later, negative earlier. Tracked.
+    pub fn caption_delay(&self) -> i64 {
+        self.0.caption_delay.get()
+    }
+
+    /// Shifts every caption track (added, found next to the file, or embedded) by `ms`
+    /// milliseconds, for subtitles out of step with the media: positive shows each cue later.
+    /// Like the caption track chosen, it goes back to 0 when the next media plays
+    /// ([`set_next_up`](Self::set_next_up)), whose subtitles are other files.
+    pub fn set_caption_delay(&self, ms: i64) {
+        self.0.caption_delay.set_if_changed(ms);
     }
 
     /// Whether the player asked to fill the screen. Tracked.
@@ -692,6 +726,34 @@ impl Player {
     /// Calls `f` when the player asks to fill the screen (`true`) or leave it.
     pub fn on_fullscreen(&self, f: impl Fn(bool) + 'static) {
         self.0.fullscreen_handlers.borrow_mut().push(Rc::new(f));
+    }
+
+    /// Whether the player asked for theater mode (the picture wide in the page). Tracked.
+    pub fn is_theater(&self) -> bool {
+        self.0.theater.get()
+    }
+
+    /// Asks for theater mode, or to leave it. The app decides: it hears the request through
+    /// [`Player::on_theater`] and lays its page out around the wide picture.
+    pub fn request_theater(&self, on: bool) {
+        self.0.theater.set_if_changed(on);
+        let handlers = self.0.theater_handlers.borrow().clone();
+        for h in handlers {
+            h(on);
+        }
+    }
+
+    /// Calls `f` when the player asks for theater mode (`true`) or to leave it. Theater mode
+    /// is the app's to lay out, so the widget offers it (a button and the T key) only once an
+    /// app listens.
+    pub fn on_theater(&self, f: impl Fn(bool) + 'static) {
+        self.0.theater_handlers.borrow_mut().push(Rc::new(f));
+        self.0.theater_offered.set_if_changed(true);
+    }
+
+    /// Whether an app listens for theater requests. Tracked.
+    pub(crate) fn theater_offered(&self) -> bool {
+        self.0.theater_offered.get()
     }
 
     /// Shows pictures in `sink` (the [`player`](crate::player) widget attaches its surface).
