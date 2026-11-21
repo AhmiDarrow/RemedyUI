@@ -155,7 +155,11 @@ pub(crate) struct Motion {
 
 impl Motion {
     /// Attaches the loop to `el` and returns the element.
-    pub(crate) fn attach(el: El, clock: Clock, step: impl FnMut(Duration) -> Moved + 'static) -> (El, Motion) {
+    pub(crate) fn attach(
+        el: El,
+        clock: Clock,
+        step: impl FnMut(Duration) -> Moved + 'static,
+    ) -> (El, Motion) {
         Self::attach_kind(el, clock, TickKind::Ambient, step)
     }
 

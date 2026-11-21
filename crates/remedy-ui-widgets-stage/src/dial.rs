@@ -434,7 +434,8 @@ pub fn tuner(
     let shape = options.shape;
     let ticks = options.ticks;
     let start = spots.get(selected.get_untracked().unwrap_or(0)).copied().unwrap_or(0.5);
-    let needle = Rc::new(Needle { shown: Cell::new(start), target: Cell::new(start), dragging: Cell::new(false) });
+    let needle =
+        Rc::new(Needle { shown: Cell::new(start), target: Cell::new(start), dragging: Cell::new(false) });
 
     let el = ui.el("tuner").focusable(true);
     let el = match shape {
@@ -475,19 +476,39 @@ pub fn tuner(
                     let p = g.at(t, 1.0);
                     line(cx, Point::new(p.x, p.y - pad * 1.4), p, w * 2.0, color);
                     let at = Point::new(p.x, p.y + pad * 0.6);
-                    let sz = cx.text(&s.label, at, Vec2::new(0.5, 0.0), TextPaint { size: body, weight, color, mono: false });
+                    let sz = cx.text(
+                        &s.label,
+                        at,
+                        Vec2::new(0.5, 0.0),
+                        TextPaint { size: body, weight, color, mono: false },
+                    );
                     if let Some(detail) = &s.detail {
                         let at = Point::new(p.x, at.y + sz.height);
-                        let _ = cx.text(detail, at, Vec2::new(0.5, 0.0), TextPaint { size: small, weight, color, mono: true });
+                        let _ = cx.text(
+                            detail,
+                            at,
+                            Vec2::new(0.5, 0.0),
+                            TextPaint { size: small, weight, color, mono: true },
+                        );
                     }
                 }
                 TunerShape::Arc => {
                     line(cx, g.at(t, 0.8), g.at(t, 1.0), w * 2.0, color);
                     let at = g.at(t, 0.66);
-                    let sz = cx.text(&s.label, at, Vec2::new(0.5, 0.5), TextPaint { size: small, weight, color, mono: false });
+                    let sz = cx.text(
+                        &s.label,
+                        at,
+                        Vec2::new(0.5, 0.5),
+                        TextPaint { size: small, weight, color, mono: false },
+                    );
                     if let Some(detail) = &s.detail {
                         let at = Point::new(at.x, at.y + sz.height);
-                        let _ = cx.text(detail, at, Vec2::new(0.5, 0.5), TextPaint { size: small, weight, color, mono: true });
+                        let _ = cx.text(
+                            detail,
+                            at,
+                            Vec2::new(0.5, 0.5),
+                            TextPaint { size: small, weight, color, mono: true },
+                        );
                     }
                 }
             }
@@ -503,7 +524,11 @@ pub fn tuner(
             TunerShape::Arc => {
                 let c = g.center();
                 line(cx, c, g.at(t, 1.02), w * 3.0, accent);
-                cx.list.push(Item::FillPath { path: Path::circle(c, pad * 0.5), brush: Brush::Solid(accent), even_odd: false });
+                cx.list.push(Item::FillPath {
+                    path: Path::circle(c, pad * 0.5),
+                    brush: Brush::Solid(accent),
+                    even_odd: false,
+                });
             }
         }
     });

@@ -121,7 +121,11 @@ impl PixelArt {
 fn raster(g: &Grid, colors: &[Color]) -> Image {
     let mut px = Vec::with_capacity(g.cells.len() * 4);
     for &c in &g.cells {
-        let color = if c == 0 { Color::TRANSPARENT } else { colors.get(c as usize - 1).copied().unwrap_or(Color::TRANSPARENT) };
+        let color = if c == 0 {
+            Color::TRANSPARENT
+        } else {
+            colors.get(c as usize - 1).copied().unwrap_or(Color::TRANSPARENT)
+        };
         let [r, gg, b, a] = color.premultiplied();
         let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
         px.extend_from_slice(&[q(r), q(gg), q(b), q(a)]);

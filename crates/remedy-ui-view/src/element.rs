@@ -701,6 +701,8 @@ pub(crate) struct Inner {
     pub(crate) hovered: Vec<ElementId>,
     pub(crate) pressed: Option<ElementId>,
     pub(crate) focus_visible: bool,
+    /// The keyboard came up: the next frame scrolls the focused element back into view.
+    pub(crate) reveal_focus: bool,
     pub(crate) a11y: A11yTree,
     pub(crate) structure_changed: bool,
     /// A layer's transform changed: the next frame rebuilds layers without repainting.
@@ -962,6 +964,7 @@ impl Ui {
             hovered: Vec::new(),
             pressed: None,
             focus_visible: false,
+            reveal_focus: false,
             a11y: A11yTree::new(root_key(root)),
             structure_changed: true,
             layers_changed: false,
@@ -1326,8 +1329,13 @@ impl Ui {
             let i = self.0.borrow();
             (i.safe_area, i.overlays, i.trusted)
         };
-        if signal.get_untracked().ok() == Some(area) {
+        let old = signal.get_untracked().ok();
+        if old == Some(area) {
             return;
+        }
+        // A soft keyboard rising over the field being typed in.
+        if area.bottom > old.map_or(0.0, |o| o.bottom) {
+            self.0.borrow_mut().reveal_focus = true;
         }
         let root = self.tree().root();
         signal.set_if_changed(area);
@@ -1696,14 +1704,12 @@ impl Ui {
         self.0.borrow_mut().wake = Some(wake);
     }
 
-    /// Marks `id` and everything under it for restyling (it moved under a new parent).
-    pub(crate) fn restyle_subtree(&self, id: ElementId) {
-        let i = self.0.borrow();
-        let mut stack = vec![id];
-        while let Some(e) = stack.pop() {
-            i.tree.mark(e, Dirty::STYLE);
-            stack.extend(i.tree.children(e));
-        }
+    /// Marks `id` for restyling: it moved under a new parent. Only `id` itself: what its
+    /// children inherit comes from its resolved style alone, so the style pass restyles them
+    /// when that changes, level by level. Attaching a subtree costs the same at any size, so
+    /// a tree built from the leaves up is built in linear time.
+    pub(crate) fn restyle_moved(&self, id: ElementId) {
+        self.0.borrow().tree.mark(id, Dirty::STYLE);
     }
 
     pub(crate) fn mark(&self, id: ElementId, flags: Dirty) {
@@ -1937,7 +1943,7 @@ impl El {
             i.structure_changed = true;
         }
         self.ui.mark(self.id, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
-        self.ui.restyle_subtree(child.id);
+        self.ui.restyle_moved(child.id);
         self
     }
 
@@ -1967,7 +1973,7 @@ impl El {
             i.structure_changed = true;
         }
         self.ui.mark(self.id, Dirty::LAYOUT | Dirty::PAINT | Dirty::SEMANTICS);
-        self.ui.restyle_subtree(child.id);
+        self.ui.restyle_moved(child.id);
     }
 
     /// The element's children, in order.
@@ -2008,16 +2014,22 @@ impl El {
                     i.text_sel = None;
                     i.selecting = false;
                 }
-                i.hovered.retain(|h| h != id);
                 if i.pressed == Some(*id) {
                     i.pressed = None;
                 }
             }
+            // Once for all of them: the hover chain can be as long as the tree is deep.
+            let gone: std::collections::HashSet<ElementId> = ids.iter().copied().collect();
+            i.hovered.retain(|h| !gone.contains(h));
             i.structure_changed = true;
         }
         // Removing from the tree disposes the elements' scopes, which runs the app's clean-ups
         // (a view closing the dialog it opened on the overlay): the view is not borrowed then.
         let _ = self.ui.tree().remove(self.id);
+        // Focus went with it (to an element around it, or nowhere): the view follows.
+        if self.ui.0.borrow().focus_shown != self.ui.tree().focused() {
+            crate::events::focus_changed(&self.ui);
+        }
         for e in effects {
             e.dispose();
         }

@@ -307,3 +307,54 @@ fn a_disposed_reaction_still_runs_what_it_tracks_and_may_read_signals() {
     lit.set(false);
     assert_eq!(lit.get_untracked().ok(), Some(false));
 }
+
+#[test]
+fn nested_scopes_dispose_what_they_own_first_the_last_made_first() {
+    let order = Rc::new(RefCell::new(Vec::new()));
+    let note = |o: &Rc<RefCell<Vec<&'static str>>>, name: &'static str| {
+        let o = o.clone();
+        on_cleanup(move || o.borrow_mut().push(name));
+    };
+    let o = order.clone();
+    let ((), parent) = Scope::new(move || {
+        note(&o, "parent");
+        for (child, grandchild) in [("first", "first's child"), ("second", "second's child")] {
+            let o = o.clone();
+            let _ = Scope::new(move || {
+                note(&o, child);
+                let o = o.clone();
+                let _ = Scope::new(move || note(&o, grandchild));
+            });
+        }
+    });
+    parent.dispose();
+    assert_eq!(*order.borrow(), ["second's child", "second", "first's child", "first", "parent"]);
+}
+
+#[test]
+fn ownership_and_memo_chains_of_any_depth_on_a_threads_stack() {
+    // Tens of thousands deep, on a test thread's stack (2 MB): scopes owned by scopes are
+    // disposed, and a chain of memos each reading the last is read and updated.
+    const N: u64 = 20_000;
+    let cleaned = Rc::new(Cell::new(0u64));
+    let (_, outer) = Scope::new(|| ());
+    let mut owner = outer;
+    for _ in 0..N {
+        let c = cleaned.clone();
+        let next = owner.run(move || Scope::new(move || on_cleanup(move || c.set(c.get() + 1))).1);
+        let Ok(next) = next else { unreachable!("the owner is alive") };
+        owner = next;
+    }
+    outer.dispose();
+    assert_eq!(cleaned.get(), N, "every level cleaned up");
+
+    let s = Signal::new(1u64);
+    let mut last = Memo::new(move || s.get());
+    for _ in 0..N {
+        let below = last;
+        last = Memo::new(move || below.get() + 1);
+    }
+    assert_eq!(last.get(), 1 + N);
+    s.set(2);
+    assert_eq!(last.get(), 2 + N, "a write reaches the end of the chain");
+}

@@ -222,7 +222,10 @@ impl<T: Clone + 'static> State<T> {
         }
         // Near the oldest item: ask for more history, once per oldest item.
         let oldest = self.oldest.get();
-        if lo < oldest && self.asked_at.get() != Some(oldest) && untrack(|| self.items.with(|v| !v.is_empty())) {
+        if lo < oldest
+            && self.asked_at.get() != Some(oldest)
+            && untrack(|| self.items.with(|v| !v.is_empty()))
+        {
             self.asked_at.set(Some(oldest));
             let f = self.near_oldest.borrow().clone();
             if let Some(f) = f {
@@ -319,7 +322,13 @@ pub fn timeline<T: Clone + 'static>(
     let (el, motion) = Motion::attach_kind(el, options.clock, remedy_ui_view::TickKind::Live, move |dt| {
         let (from, to) = (s.shown_head.get(), s.head.get());
         // A glide in screen pixels, so it settles the same at any scale.
-        let px = smooth((from - to) as f32 * s.scale as f32, 0.0, dt, Duration::from_millis(90), Duration::from_millis(90));
+        let px = smooth(
+            (from - to) as f32 * s.scale as f32,
+            0.0,
+            dt,
+            Duration::from_millis(90),
+            Duration::from_millis(90),
+        );
         let next = if px == 0.0 { to } else { to + f64::from(px) / s.scale };
         s.shown_head.set(next);
         s.refresh();

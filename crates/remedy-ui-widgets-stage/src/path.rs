@@ -85,7 +85,10 @@ impl Route {
                 let t = s as f32 / SPAN_STEPS as f32;
                 let (t2, t3) = (t * t, t * t * t);
                 let f = |a: f32, b: f32, c: f32, d: f32| {
-                    0.5 * (2.0 * b + (-a + c) * t + (2.0 * a - 5.0 * b + 4.0 * c - d) * t2 + (-a + 3.0 * b - 3.0 * c + d) * t3)
+                    0.5 * (2.0 * b
+                        + (-a + c) * t
+                        + (2.0 * a - 5.0 * b + 4.0 * c - d) * t2
+                        + (-a + 3.0 * b - 3.0 * c + d) * t3)
                 };
                 out.push(Point::new(f(p0.x, p1.x, p2.x, p3.x), f(p0.y, p1.y, p2.y, p3.y)));
             }

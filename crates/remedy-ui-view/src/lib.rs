@@ -17,6 +17,7 @@
 mod ambient;
 mod client;
 mod decoration;
+mod deep;
 pub mod device;
 mod dnd;
 mod element;

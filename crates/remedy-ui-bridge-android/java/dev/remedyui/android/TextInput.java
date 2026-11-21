@@ -29,6 +29,7 @@ final class TextInput extends View {
     private boolean active;
     private boolean secret;
     private boolean multiline;
+    private boolean numeric;
     private float caretX;
     private float caretTop;
     private float caretBottom;
@@ -52,13 +53,15 @@ final class TextInput extends View {
     }
 
     /** Starts or updates a session with the field's text around the caret (UTF-16 offsets). */
-    void update(String text, int selStart, int selEnd, float x, float top, float bottom, boolean secret, boolean multiline) {
+    void update(String text, int selStart, int selEnd, float x, float top, float bottom, boolean secret, boolean multiline, boolean numeric) {
         caretX = x;
         caretTop = top;
         caretBottom = bottom;
-        boolean restart = !active || secret != this.secret || multiline != this.multiline;
+        boolean restart = !active || secret != this.secret || multiline != this.multiline
+                || numeric != this.numeric;
         this.secret = secret;
         this.multiline = multiline;
+        this.numeric = numeric;
         boolean composing = BaseInputConnection.getComposingSpanStart(editable) >= 0;
         boolean textChanged = !editable.toString().equals(text);
         // The field changed without the input method (keys, the app): the copy follows, and
@@ -138,7 +141,9 @@ final class TextInput extends View {
             return null;
         }
         int type = InputType.TYPE_CLASS_TEXT;
-        if (secret) {
+        if (numeric && !secret && !multiline) {
+            type = InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL;
+        } else if (secret) {
             type |= InputType.TYPE_TEXT_VARIATION_PASSWORD;
         } else {
             type |= InputType.TYPE_TEXT_FLAG_AUTO_CORRECT;

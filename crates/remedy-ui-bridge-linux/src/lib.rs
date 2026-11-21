@@ -201,9 +201,13 @@ mod linux {
 
     /// Running on a battery that is discharging, or the firmware's low-power profile is on.
     fn power_saving() -> bool {
-        let read = |p: std::path::PathBuf| std::fs::read_to_string(p).map(|s| s.trim().to_owned()).unwrap_or_default();
+        let read = |p: std::path::PathBuf| {
+            std::fs::read_to_string(p).map(|s| s.trim().to_owned()).unwrap_or_default()
+        };
         let discharging = std::fs::read_dir("/sys/class/power_supply").is_ok_and(|dir| {
-            dir.flatten().any(|e| read(e.path().join("type")) == "Battery" && read(e.path().join("status")) == "Discharging")
+            dir.flatten().any(|e| {
+                read(e.path().join("type")) == "Battery" && read(e.path().join("status")) == "Discharging"
+            })
         });
         discharging || read("/sys/firmware/acpi/platform_profile".into()) == "low-power"
     }
