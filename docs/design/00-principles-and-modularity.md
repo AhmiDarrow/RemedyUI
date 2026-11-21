@@ -80,11 +80,11 @@ Image and icon *sources* are a trait in `paint`, so `widgets-core` can show imag
 | `media-anim` | Animated GIF, WebP and APNG; vector animation | FreeSpeak, onboarding |
 | `media-svg` | SVG icons and illustrations | Most apps |
 | `media-video` | Video surfaces (YUV, RGBA, zero-copy import), external textures | FreeSpeak, Portal |
-| `media-playback` | Player transport, subtitles, platform decoders behind a trait | Portal, Quickcast |
+| `media-playback` | Player transport, subtitles, platform decoders behind a trait | Portal |
 | `media-isolated` | Decoding in a sandboxed helper process | FreeSpeak, Hearth, RemedyPDF |
 | `viz` | Meters, pitch graph, waveform, spectrum, gauge, sparkline, charts, timeline; retained primitives the compositor draws straight from streaming ring buffers | FreeSpeak voice ring, VoiceRemedy, GuitarRemedy, RemedyAI, RemedyOS Monitor |
 | `embed-webview` | Platform web view as an element | RemedyAI |
-| `embed-gpu` | The app's own wgpu rendering as an element | TheOven |
+| `embed-gpu` | The app's own wgpu rendering as an element | Game views, 3D previews |
 | `services-desktop` | Tray, notifications, badges, jump lists, file dialogs, single instance, URL activation, autostart, power; each its own sub-feature | Desktop apps |
 | `services-update` | Signed updates from GitHub releases or a feed the app names; opt-in, the only networked pack | Most shipped apps |
 | `themes` | The shared Remedy theme set | Every Remedy app |
