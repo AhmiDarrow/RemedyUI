@@ -28,5 +28,13 @@ export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner
 export WASM_BINDGEN_TEST_TIMEOUT="${WASM_BINDGEN_TEST_TIMEOUT:-120}"
 export WASM_BINDGEN_TEST_WEBDRIVER_JSON="$crate/tools/webdriver.json"
 cargo test --manifest-path "$crate/Cargo.toml" --target wasm32-unknown-unknown --test browser
-cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web
+# The media test's slow download: the clip served a chunk at a time from this machine.
+port_file="$(mktemp)"
+python3 "$root/crates/remedy-ui-media-playback/tools/slow-serve.py" \
+    "$root/crates/remedy-ui-media-playback/tests/fixtures/clip.mp4" > "$port_file" &
+slow=$!
+trap 'kill $slow 2>/dev/null; rm -f "$port_file"' EXIT
+for _ in $(seq 50); do [ -s "$port_file" ] && break; sleep 0.1; done
+REMEDY_SLOW_CLIP_URL="http://127.0.0.1:$(cat "$port_file")/clip.mp4" \
+    cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web
 cargo test --manifest-path "$root/crates/remedy-ui-widgets-board/Cargo.toml" --target wasm32-unknown-unknown --test web

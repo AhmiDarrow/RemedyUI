@@ -122,6 +122,81 @@ async fn picture_at(dec: &mut Box<dyn Decoder>, t: Duration) -> (Duration, Pictu
     }
 }
 
+/// The URL of the test clip served slowly (`tools/slow-serve.py`, started by the web
+/// bridge's `tools/web-test.sh`), when the build was given one.
+const SLOW_CLIP: Option<&str> = option_env!("REMEDY_SLOW_CLIP_URL");
+
+#[wasm_bindgen_test]
+async fn a_slow_download_reports_what_has_arrived_growing_within_the_media() {
+    let Some(url) = SLOW_CLIP else {
+        web_sys::console::log_1(
+            &"REMEDY_SLOW_CLIP_URL not set at build time: skipping the slow download".into(),
+        );
+        return;
+    };
+    let started = js_sys::Date::now();
+    let mut dec = host().open(&MediaSource::url(url)).must("opening the slow clip");
+    let mut seen: Vec<(f64, Vec<std::ops::Range<Duration>>)> = Vec::new();
+    let ask = |dec: &mut Box<dyn Decoder>, seen: &mut Vec<(f64, Vec<std::ops::Range<Duration>>)>| {
+        if let Some(r) = dec.buffered()
+            && seen.last().is_none_or(|(_, last)| *last != r)
+        {
+            seen.push((js_sys::Date::now() - started, r));
+        }
+    };
+    // It opens once the movie box is in, at the front of the file, long before the rest.
+    let mut ready = false;
+    for _ in 0..2000 {
+        match dec.poll_ready(&mut Context::from_waker(std::task::Waker::noop())) {
+            Poll::Ready(r) => {
+                r.must("the decoders take the clip");
+                ready = true;
+                break;
+            }
+            Poll::Pending => wait_ms(2).await,
+        }
+    }
+    assert!(ready, "the slow clip opened");
+    let opened_at = js_sys::Date::now() - started;
+    let length = dec.info().duration.must("a length");
+    ask(&mut dec, &mut seen);
+    let mut ended = false;
+    for _ in 0..3000 {
+        match dec.poll_read(&mut Context::from_waker(std::task::Waker::noop())) {
+            Poll::Ready(Ok(Some(_))) => {}
+            Poll::Ready(Ok(None)) => {
+                ended = true;
+                break;
+            }
+            Poll::Ready(Err(e)) => unreachable!("decoding the slow clip: {e}"),
+            Poll::Pending => wait_ms(5).await,
+        }
+        ask(&mut dec, &mut seen);
+    }
+    assert!(ended, "the slow clip played to its end");
+    ask(&mut dec, &mut seen);
+    let log = seen.iter().map(|(at, r)| format!("  at {at:>6.0} ms: {r:?}")).collect::<Vec<_>>().join("\n");
+    web_sys::console::log_1(&format!("opened at {opened_at:.0} ms; the page held:\n{log}").into());
+    for (at, r) in &seen {
+        assert!(
+            r.iter().all(|r| r.start <= r.end && r.end <= length),
+            "at {at} ms a range outside 0..{length:?}: {r:?}"
+        );
+    }
+    let reach = |r: &[std::ops::Range<Duration>]| r.iter().map(|r| r.end).max().unwrap_or_default();
+    let first = seen.first().map(|(_, r)| reach(r)).unwrap_or_default();
+    let last = seen.last().map(|(_, r)| reach(r)).unwrap_or_default();
+    assert!(first < length, "it opened before all of it arrived: {first:?} of {length:?}");
+    assert_eq!(last, length, "all of it arrived by the end");
+    let mut most = Duration::ZERO;
+    for (at, r) in &seen {
+        assert!(reach(r) >= most, "at {at} ms it shrank: {r:?}");
+        most = reach(r);
+    }
+    let steps = seen.iter().zip(seen.iter().skip(1)).filter(|(a, b)| reach(&b.1) > reach(&a.1)).count();
+    assert!(steps >= 3, "it grew in steps as the bytes came: {log}");
+}
+
 #[wasm_bindgen_test]
 async fn the_browser_decodes_the_clip_and_plays_it() {
     let host = host();
