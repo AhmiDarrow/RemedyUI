@@ -272,7 +272,8 @@ fn plugin_set(factory: &str) -> PluginSet {
             || f == "matroskademux"
             || f == "qtdemux"
             || f == "vp8dec"
-            || f == "vp8enc" =>
+            || f == "vp8enc"
+            || f == "souphttpsrc" =>
         {
             PluginSet::Good
         }
