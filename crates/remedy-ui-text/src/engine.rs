@@ -70,6 +70,7 @@ pub const DEFAULT_SYMBOL_FALLBACKS: &[&str] = &[
 /// When a character still has no glyph after the style's families and its script's
 /// fallback fonts (a symbol from Unicode's Common script, typically), layout tries the
 /// [symbol fallbacks](Self::set_symbol_fallbacks) for that character.
+#[derive(Clone)]
 pub struct FontCollection {
     fcx: FontContext,
     /// The faces added by the app, by family (lowercase): what a further part of a family is
@@ -97,6 +98,7 @@ type OwnFallback = (
 );
 
 /// Faces a collection adds when text first needs them.
+#[derive(Clone)]
 struct OnDemand {
     needed: fn(char) -> bool,
     load: Arc<dyn Fn() -> Vec<FontFile> + Send + Sync>,
@@ -334,7 +336,7 @@ impl FontCollection {
     }
 
     /// Loads the on-demand faces `text` needs. Returns whether any were added.
-    fn load_needed(&mut self, text: &str) -> bool {
+    pub(crate) fn load_needed(&mut self, text: &str) -> bool {
         if self.on_demand.is_empty() {
             return false;
         }
@@ -602,10 +604,48 @@ impl TextEngine {
     /// its script's fallback fonts have) are laid out once more with the collection's
     /// [symbol fallbacks](FontCollection::set_symbol_fallbacks) after the style's families,
     /// for those characters only.
+    ///
+    /// A huge paragraph that wraps (at least [`LAZY_MIN_BYTES`](crate::LAZY_MIN_BYTES) and a
+    /// finite `max_width`) is laid out lazily: only the lines asked for (those a view shows,
+    /// and those its caret, selection and pointer reach) are shaped, a piece at a time, with
+    /// exactly the lines, glyphs and carets a whole layout gives. See [`Paragraph`].
     pub fn layout(&mut self, text: &RichText, base: &TextStyle, options: ParagraphOptions) -> Paragraph {
         self.fonts.load_needed(text.as_str());
+        if crate::lazy::eligible(text, &options) {
+            return Paragraph::lazy(crate::lazy::Lazy::new(self.snapshot(), text, base, options));
+        }
+        Paragraph::whole(self.layout_piece(text, base, options, 0.0))
+    }
+
+    /// Lays out `text` whole, however long it is: every line shaped now, as
+    /// [`TextEngine::layout`] does for paragraphs of ordinary length.
+    pub fn layout_whole(
+        &mut self,
+        text: &RichText,
+        base: &TextStyle,
+        options: ParagraphOptions,
+    ) -> Paragraph {
+        self.fonts.load_needed(text.as_str());
+        Paragraph::whole(self.layout_piece(text, base, options, 0.0))
+    }
+
+    /// A copy of the engine for one lazy paragraph to lay its pieces out with later: the same
+    /// fonts (sharing their data) and language, its own scratch space.
+    fn snapshot(&self) -> TextEngine {
+        TextEngine { fonts: self.fonts.clone(), lcx: LayoutContext::new(), language: self.language }
+    }
+
+    /// Shapes and lays out all of `text` (fonts already loaded for it), its first line's top
+    /// at `y0` device pixels before rounding (where the lines before it would leave it).
+    pub(crate) fn layout_piece(
+        &mut self,
+        text: &RichText,
+        base: &TextStyle,
+        options: ParagraphOptions,
+        y0: f64,
+    ) -> Piece {
         let segments = flatten(text, base);
-        let first = self.build(text, base, &segments, options, &[]);
+        let first = self.build(text, base, &segments, options, &[], y0);
         if self.fonts.symbols.is_empty() {
             return first;
         }
@@ -628,11 +668,13 @@ impl TextEngine {
                 (range, families)
             })
             .collect();
-        self.build(text, base, &segments, options, &overrides)
+        self.build(text, base, &segments, options, &overrides, y0)
     }
 
     /// Lays out `text`, the edited text of `before` (laid out with the same style and
-    /// options). Gives the same paragraph as [`TextEngine::layout`].
+    /// options). Gives the same paragraph as [`TextEngine::layout`]; for a huge paragraph laid
+    /// out lazily, the lines before the edit and those after it (once their line breaks agree
+    /// again) are kept rather than laid out again, so typing costs about one piece.
     pub fn layout_after_edit(
         &mut self,
         before: &Paragraph,
@@ -640,7 +682,9 @@ impl TextEngine {
         base: &TextStyle,
         options: ParagraphOptions,
     ) -> Paragraph {
-        let _ = before;
+        if let Some(p) = crate::lazy::Lazy::after_edit(&before.inner, text, base, options) {
+            return Paragraph::lazy(p);
+        }
         self.layout(text, base, options)
     }
 
@@ -652,7 +696,8 @@ impl TextEngine {
         segments: &[Segment],
         options: ParagraphOptions,
         families: &[(Range<usize>, Vec<FontFamilyName<'static>>)],
-    ) -> Paragraph {
+        y0: f64,
+    ) -> Piece {
         let mut run_styles = Vec::with_capacity(segments.len() + 1);
         let content = text.as_str();
         let base_stack = self.fonts.stack(&base.families);
@@ -700,8 +745,8 @@ impl TextEngine {
         };
         // Parley aligns while it breaks lines: set the alignment first.
         layout.set_alignment(alignment, AlignmentOptions::default());
-        layout.break_all_lines(options.max_width.map(|w| w * scale));
-        Paragraph { layout, run_styles, align: alignment, wrap: options.max_width, scale }
+        break_lines(&mut layout, options.max_width.map(|w| w * scale), y0);
+        Piece { layout, run_styles, align: alignment, wrap: options.max_width, scale, y0 }
     }
 }
 
@@ -931,9 +976,9 @@ pub struct GlyphRunInfo {
     pub strikethrough: Option<Rect>,
 }
 
-/// A laid-out paragraph: lines, glyph runs, inline objects, and caret geometry, all in
-/// logical pixels whatever scale it was shaped at.
-pub struct Paragraph {
+/// One laid-out piece of text: a whole paragraph, or one piece of a lazy one (in the piece's
+/// own coordinates: byte 0 is its first byte, y 0 the top of its first line).
+pub(crate) struct Piece {
     /// Shaped at `scale`: its sizes and positions are in device pixels.
     layout: Layout<u32>,
     run_styles: Vec<RunStyle>,
@@ -942,7 +987,18 @@ pub struct Paragraph {
     /// the longest line).
     wrap: Option<f32>,
     /// Device pixels per logical pixel the layout was shaped at.
-    scale: f32,
+    pub(crate) scale: f32,
+    /// Where its first line's top is, in device pixels before rounding.
+    y0: f64,
+}
+
+/// Breaks `layout`'s lines at `max_advance`, its first line's top at `y0`: parley rounds each
+/// line's top from the sum of the unrounded heights above it, so a piece laid out from the
+/// sum the lines before it reach is placed exactly where a whole layout places it.
+fn break_lines(layout: &mut Layout<u32>, max_advance: Option<f32>, y0: f64) {
+    let mut lines = layout.break_lines();
+    lines.state_mut().set_line_y(y0);
+    lines.break_remaining(max_advance.unwrap_or(f32::MAX));
 }
 
 /// A usable device scale: positive and finite, else 1.
@@ -952,7 +1008,11 @@ fn device_scale(scale: f32) -> f32 {
 
 impl std::fmt::Debug for Paragraph {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Paragraph").field("width", &self.width()).field("height", &self.height()).finish()
+        f.debug_struct("Paragraph")
+            .field("width", &self.width())
+            .field("height", &self.height())
+            .field("lazy", &matches!(self.inner, Inner::Lazy(_)))
+            .finish()
     }
 }
 
@@ -976,7 +1036,7 @@ fn bbox(b: parley::BoundingBox, scale: f32) -> Rect {
     Rect::new((b.x0 / s) as f32, (b.y0 / s) as f32, (b.x1 / s) as f32, (b.y1 / s) as f32)
 }
 
-impl Paragraph {
+impl Piece {
     /// The byte ranges of `text`'s clusters (this paragraph's text) that are drawn but came
     /// out with the font's missing-glyph box (glyph 0), in order.
     fn missing_glyphs(&self, text: &str) -> Vec<Range<usize>> {
@@ -1003,7 +1063,7 @@ impl Paragraph {
     /// Lays the paragraph out again at a new width, without shaping again.
     pub fn rewrap(&mut self, max_width: Option<f32>) {
         self.layout.set_alignment(self.align, AlignmentOptions::default());
-        self.layout.break_all_lines(max_width.map(|w| w * self.scale));
+        break_lines(&mut self.layout, max_width.map(|w| w * self.scale), self.y0);
         self.wrap = max_width;
     }
 
@@ -1048,28 +1108,54 @@ impl Paragraph {
 
     /// The lines, top to bottom.
     pub fn lines(&self) -> Vec<LineInfo> {
-        self.layout
-            .lines()
-            .map(|line| {
-                let m = line.metrics();
-                let s = self.scale;
-                LineInfo {
-                    range: line.text_range(),
-                    baseline: m.baseline / s,
-                    top: m.block_min_coord / s,
-                    bottom: m.block_max_coord / s,
-                    width: m.advance / s,
-                    left: m.offset / s,
-                }
-            })
-            .collect()
+        (0..self.layout.len()).filter_map(|i| self.line(i)).collect()
     }
 
     /// Glyph runs in drawing order, with positions from the paragraph's top-left.
     pub fn glyph_runs(&self) -> Vec<GlyphRunInfo> {
+        self.runs_of(0..self.layout.len())
+    }
+
+    /// Line `i`'s height before rounding, in device pixels: what the next line's top is
+    /// reached by.
+    pub(crate) fn line_height(&self, i: usize) -> f32 {
+        self.layout.get(i).map_or(0.0, |l| l.metrics().line_height)
+    }
+
+    /// What line `i` adds to the paragraph's width, in device pixels: as parley measures the
+    /// widest line (its hanging white space left out).
+    pub(crate) fn line_extent(&self, i: usize) -> f32 {
+        self.layout.get(i).map_or(0.0, |l| {
+            let m = l.metrics();
+            m.inline_min_coord + m.advance + m.indent.max(0.0) - m.hanging_advance
+        })
+    }
+
+    /// The number of lines.
+    pub(crate) fn line_count(&self) -> usize {
+        self.layout.len()
+    }
+
+    /// Line `i`, if there is one.
+    pub(crate) fn line(&self, i: usize) -> Option<LineInfo> {
+        let line = self.layout.get(i)?;
+        let m = line.metrics();
+        let s = self.scale;
+        Some(LineInfo {
+            range: line.text_range(),
+            baseline: m.baseline / s,
+            top: m.block_min_coord / s,
+            bottom: m.block_max_coord / s,
+            width: m.advance / s,
+            left: m.offset / s,
+        })
+    }
+
+    /// The glyph runs of lines `lines`, in drawing order.
+    pub(crate) fn runs_of(&self, lines: Range<usize>) -> Vec<GlyphRunInfo> {
         let s = self.scale;
         let mut out = Vec::new();
-        for line in self.layout.lines() {
+        for line in self.layout.lines().skip(lines.start).take(lines.len()) {
             for item in line.items() {
                 let PositionedLayoutItem::GlyphRun(run) = item else { continue };
                 let style = run.style();
@@ -1135,25 +1221,15 @@ impl Paragraph {
         out
     }
 
-    /// The glyph runs of the lines that reach into `ys` (from the paragraph's top), in
-    /// drawing order: what a view draws for the part of the paragraph it shows.
-    pub fn glyph_runs_in(&self, ys: Range<f32>) -> Vec<GlyphRunInfo> {
-        let lines: Vec<Range<usize>> = self
-            .lines()
-            .into_iter()
-            .filter(|l| l.bottom > ys.start && l.top < ys.end)
-            .map(|l| l.range)
-            .collect();
-        self.glyph_runs()
-            .into_iter()
-            .filter(|r| lines.iter().any(|l| l.contains(&r.range.start) || l.start == r.range.start))
-            .collect()
-    }
-
     /// Inline objects with their boxes, by the ids the caller gave them.
     pub fn inline_objects(&self) -> Vec<(u64, Rect)> {
+        self.objects_of(0..self.layout.len())
+    }
+
+    /// The inline objects on lines `lines`.
+    pub(crate) fn objects_of(&self, lines: Range<usize>) -> Vec<(u64, Rect)> {
         let mut out = Vec::new();
-        for line in self.layout.lines() {
+        for line in self.layout.lines().skip(lines.start).take(lines.len()) {
             for item in line.items() {
                 if let PositionedLayoutItem::InlineBox(b) = item {
                     let s = self.scale;
@@ -1230,4 +1306,246 @@ impl Paragraph {
             if rightward { c.next_visual_word(&self.layout) } else { c.previous_visual_word(&self.layout) };
         TextPosition { index: n.index(), affinity: to_affinity(n.affinity()) }
     }
+}
+
+/// A laid-out paragraph: lines, glyph runs, inline objects, and caret geometry, all in
+/// logical pixels whatever scale it was shaped at.
+///
+/// A huge paragraph that wraps is laid out lazily ([`TextEngine::layout`]): its lines are
+/// shaped a piece at a time, when something asks for them. Asking for the lines, glyphs or
+/// objects in a band ([`Paragraph::lines_in`], [`Paragraph::glyph_runs_in`],
+/// [`Paragraph::inline_objects_in`]), or for a caret, selection, hit test or movement, lays
+/// out the pieces it reaches and no more; [`Paragraph::lines`], [`Paragraph::glyph_runs`]
+/// and [`Paragraph::inline_objects`] lay out everything. Whatever has been laid out is
+/// exactly what a whole layout ([`TextEngine::layout_whole`]) gives. Until the last line has
+/// been laid out, [`Paragraph::height`] adds an estimate for the lines not laid out yet
+/// (from the lines that have been), and [`Paragraph::width`] is the widest line so far;
+/// [`Paragraph::is_complete`] says whether they are exact.
+pub struct Paragraph {
+    pub(crate) inner: Inner,
+}
+
+pub(crate) enum Inner {
+    Whole(Piece),
+    Lazy(crate::lazy::Lazy),
+}
+
+impl Paragraph {
+    pub(crate) fn whole(piece: Piece) -> Self {
+        Paragraph { inner: Inner::Whole(piece) }
+    }
+
+    pub(crate) fn lazy(lazy: crate::lazy::Lazy) -> Self {
+        Paragraph { inner: Inner::Lazy(lazy) }
+    }
+
+    /// Lays the paragraph out again at a new width, without shaping again (a lazy paragraph
+    /// starts over at the new width, shaping only what is asked for again).
+    pub fn rewrap(&mut self, max_width: Option<f32>) {
+        match &mut self.inner {
+            Inner::Whole(p) => p.rewrap(max_width),
+            Inner::Lazy(l) => {
+                if let Some(whole) = l.rewrap(max_width) {
+                    self.inner = Inner::Whole(whole);
+                }
+            }
+        }
+    }
+
+    /// True when it is laid out lazily, a piece at a time.
+    pub fn is_lazy(&self) -> bool {
+        matches!(self.inner, Inner::Lazy(_))
+    }
+
+    /// True when every line has been laid out, so [`Paragraph::height`] and
+    /// [`Paragraph::width`] are exact (always, for a paragraph laid out whole).
+    pub fn is_complete(&self) -> bool {
+        match &self.inner {
+            Inner::Whole(_) => true,
+            Inner::Lazy(l) => l.is_complete(),
+        }
+    }
+
+    /// Where to draw the paragraph inside a box `box_width` wide so it sits as aligned.
+    /// Wrapped paragraphs are already aligned within their wrap width (0); one laid out
+    /// without one is only as wide as its longest line, so it moves to the box's right edge
+    /// or center as its alignment says.
+    pub fn x_offset(&self, box_width: f32) -> f32 {
+        match &self.inner {
+            Inner::Whole(p) => p.x_offset(box_width),
+            // Lazy paragraphs always wrap.
+            Inner::Lazy(_) => 0.0,
+        }
+    }
+
+    /// Width of the widest line (of those laid out so far, for a lazy paragraph).
+    pub fn width(&self) -> f32 {
+        match &self.inner {
+            Inner::Whole(p) => p.width(),
+            Inner::Lazy(l) => l.width(),
+        }
+    }
+
+    /// Total height (for a lazy paragraph not yet complete, the lines laid out and an estimate
+    /// for the rest).
+    pub fn height(&self) -> f32 {
+        match &self.inner {
+            Inner::Whole(p) => p.height(),
+            Inner::Lazy(l) => l.height(),
+        }
+    }
+
+    /// True when the paragraph's base direction is right to left.
+    pub fn is_rtl(&self) -> bool {
+        match &self.inner {
+            Inner::Whole(p) => p.is_rtl(),
+            Inner::Lazy(l) => l.is_rtl(),
+        }
+    }
+
+    /// The first line's baseline, from the top.
+    pub fn first_baseline(&self) -> Option<f32> {
+        match &self.inner {
+            Inner::Whole(p) => p.first_baseline(),
+            Inner::Lazy(l) => l.first_baseline(),
+        }
+    }
+
+    /// The lines, top to bottom (all of them: a lazy paragraph lays out the rest).
+    pub fn lines(&self) -> Vec<LineInfo> {
+        match &self.inner {
+            Inner::Whole(p) => p.lines(),
+            Inner::Lazy(l) => l.lines_in(f32::NEG_INFINITY..f32::INFINITY),
+        }
+    }
+
+    /// The lines that reach into `ys` (from the paragraph's top), top to bottom.
+    pub fn lines_in(&self, ys: Range<f32>) -> Vec<LineInfo> {
+        match &self.inner {
+            Inner::Whole(p) => p.lines().into_iter().filter(|l| reaches(l, &ys)).collect(),
+            Inner::Lazy(l) => l.lines_in(ys),
+        }
+    }
+
+    /// Glyph runs in drawing order, with positions from the paragraph's top-left (all of
+    /// them: a lazy paragraph lays out the rest).
+    pub fn glyph_runs(&self) -> Vec<GlyphRunInfo> {
+        match &self.inner {
+            Inner::Whole(p) => p.glyph_runs(),
+            Inner::Lazy(l) => l.glyph_runs_in(f32::NEG_INFINITY..f32::INFINITY),
+        }
+    }
+
+    /// The glyph runs of the lines that reach into `ys` (from the paragraph's top), in
+    /// drawing order: what a view draws for the part of the paragraph it shows.
+    pub fn glyph_runs_in(&self, ys: Range<f32>) -> Vec<GlyphRunInfo> {
+        match &self.inner {
+            Inner::Whole(p) => {
+                let lines = p.lines();
+                let first = lines.iter().position(|l| reaches(l, &ys));
+                let last = lines.iter().rposition(|l| reaches(l, &ys));
+                match (first, last) {
+                    (Some(a), Some(b)) => p.runs_of(a..b + 1),
+                    _ => Vec::new(),
+                }
+            }
+            Inner::Lazy(l) => l.glyph_runs_in(ys),
+        }
+    }
+
+    /// Inline objects with their boxes, by the ids the caller gave them (all of them: a lazy
+    /// paragraph lays out the rest).
+    pub fn inline_objects(&self) -> Vec<(u64, Rect)> {
+        self.inline_objects_in(f32::NEG_INFINITY..f32::INFINITY)
+    }
+
+    /// The inline objects on the lines that reach into `ys`.
+    pub fn inline_objects_in(&self, ys: Range<f32>) -> Vec<(u64, Rect)> {
+        match &self.inner {
+            Inner::Whole(p) => {
+                if ys.start == f32::NEG_INFINITY && ys.end == f32::INFINITY {
+                    return p.inline_objects();
+                }
+                let lines = p.lines();
+                let first = lines.iter().position(|l| reaches(l, &ys));
+                let last = lines.iter().rposition(|l| reaches(l, &ys));
+                match (first, last) {
+                    (Some(a), Some(b)) => p.objects_of(a..b + 1),
+                    _ => Vec::new(),
+                }
+            }
+            Inner::Lazy(l) => l.objects_in(ys),
+        }
+    }
+
+    /// The text position nearest `point` (from the paragraph's top-left).
+    pub fn hit_test(&self, point: Point) -> TextPosition {
+        match &self.inner {
+            Inner::Whole(p) => p.hit_test(point),
+            Inner::Lazy(l) => l.hit_test(point),
+        }
+    }
+
+    /// The link under `point`, if the point is on linked text.
+    pub fn link_at(&self, point: Point) -> Option<u64> {
+        match &self.inner {
+            Inner::Whole(p) => p.link_at(point),
+            Inner::Lazy(l) => l.link_at(point),
+        }
+    }
+
+    /// Rectangles covering the text of link `link`, one or more per line it is on, in visual
+    /// order; empty when no text carries it.
+    pub fn link_rects(&self, link: u64) -> Vec<Rect> {
+        match &self.inner {
+            Inner::Whole(p) => p.link_rects(link),
+            Inner::Lazy(l) => l.link_rects(link),
+        }
+    }
+
+    /// The caret's rectangle at `pos`, `width` logical pixels wide.
+    pub fn caret(&self, pos: TextPosition, width: f32) -> Rect {
+        match &self.inner {
+            Inner::Whole(p) => p.caret(pos, width),
+            Inner::Lazy(l) => l.caret(pos, width),
+        }
+    }
+
+    /// Rectangles covering `range`, one or more per line, in visual order.
+    pub fn selection_rects(&self, range: Range<usize>) -> Vec<Rect> {
+        match &self.inner {
+            Inner::Whole(p) => p.selection_rects(range),
+            Inner::Lazy(l) => l.selection_rects(range),
+        }
+    }
+
+    /// The word around `point`, as a byte range.
+    pub fn word_at(&self, point: Point) -> Range<usize> {
+        match &self.inner {
+            Inner::Whole(p) => p.word_at(point),
+            Inner::Lazy(l) => l.word_at(point),
+        }
+    }
+
+    /// The position one character to the visual right (or left) of `pos`, as the arrow keys
+    /// move in mixed-direction text.
+    pub fn move_visual(&self, pos: TextPosition, rightward: bool) -> TextPosition {
+        match &self.inner {
+            Inner::Whole(p) => p.move_visual(pos, rightward),
+            Inner::Lazy(l) => l.moved(pos, |p, at| p.move_visual(at, rightward)),
+        }
+    }
+
+    /// The position one word to the visual right (or left) of `pos`.
+    pub fn move_word(&self, pos: TextPosition, rightward: bool) -> TextPosition {
+        match &self.inner {
+            Inner::Whole(p) => p.move_word(pos, rightward),
+            Inner::Lazy(l) => l.moved(pos, |p, at| p.move_word(at, rightward)),
+        }
+    }
+}
+
+/// True when `line` reaches into the band `ys`.
+fn reaches(line: &LineInfo, ys: &Range<f32>) -> bool {
+    line.bottom > ys.start && line.top < ys.end
 }

@@ -14,6 +14,12 @@ categories.workspace = true
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 parley = { version = "=0.13.0", default-features = false, features = ["std"] }
+# The analysis parley runs before shaping (bidi levels by UAX #9) and the character table it
+# reads bidi classes from, used on their own so a huge paragraph can be laid out in pieces
+# with the levels a whole layout resolves.
+parley_engine = { version = "=0.13.0", default-features = false, features = ["std"] }
+parley_data = { version = "=0.13.0", default-features = false, features = ["std"] }
+icu_properties = { version = "=2.3.0", default-features = false }
 # Only to load fontconfig at run time (with `system-fonts`).
 fontique = { version = "=0.13.0", default-features = false, optional = true }
 # The same skrifa parley uses, for outlines and hinting.
