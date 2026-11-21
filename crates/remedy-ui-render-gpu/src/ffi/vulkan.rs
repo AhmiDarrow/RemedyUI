@@ -35,38 +35,90 @@ fn failed(what: &'static str) -> impl Fn(vk::Result) -> ChainError {
     }
 }
 
-/// Opens `adapter`'s Vulkan device as wgpu would, with `VK_KHR_incremental_present` added
-/// where the device has it. `None` when the adapter is not Vulkan or lacks the extension (the
-/// caller opens the device the usual way; presents then report the whole window). An error
-/// says why a device that has the extension would not open with it.
+/// The device extensions that let decoded pictures in DMA-BUFs be imported (`ffi::dmabuf`):
+/// the first two are needed, the others used where the device has them (layouts other than
+/// linear, the foreign queue family for the hand-over, and fences as sync files).
+pub(crate) const DMA_BUF_EXTENSIONS: [&std::ffi::CStr; 5] = [
+    ash::khr::external_memory_fd::NAME,
+    ash::ext::external_memory_dma_buf::NAME,
+    ash::ext::image_drm_format_modifier::NAME,
+    ash::ext::queue_family_foreign::NAME,
+    ash::khr::external_semaphore_fd::NAME,
+];
+
+/// Opens `adapter`'s Vulkan device as wgpu would, with `VK_KHR_incremental_present` and the
+/// DMA-BUF import extensions ([`DMA_BUF_EXTENSIONS`]) added where the device has them. `None`
+/// when the adapter is not Vulkan or has none of them (the caller opens the device the usual
+/// way; presents then report the whole window). The flag says whether incremental presents
+/// are on. An error says why a device that has the extensions would not open with them.
 pub(crate) fn open_device(
     adapter: &wgpu::Adapter,
     desc: &wgpu::DeviceDescriptor<'_>,
-) -> Option<Result<(wgpu::Device, wgpu::Queue), String>> {
-    // SAFETY: wgpu's own adapter; the callback only adds an extension the device reports.
+) -> Option<Result<(wgpu::Device, wgpu::Queue, bool), String>> {
+    // SAFETY: wgpu's own adapter; the callback only adds extensions the device reports.
     unsafe {
         let hal = adapter.as_hal::<Vk>()?;
         let instance = hal.shared_instance().raw_instance();
-        let extensions = instance.enumerate_device_extension_properties(hal.raw_physical_device()).ok()?;
-        let name = ash::khr::incremental_present::NAME;
-        if !extensions.iter().any(|e| e.extension_name_as_c_str() == Ok(name)) {
+        let physical = hal.raw_physical_device();
+        let extensions = instance.enumerate_device_extension_properties(physical).ok()?;
+        let has = |name: &std::ffi::CStr| extensions.iter().any(|e| e.extension_name_as_c_str() == Ok(name));
+        let incremental = has(ash::khr::incremental_present::NAME);
+        let api = instance.get_physical_device_properties(physical).api_version;
+        // DMA-BUF import needs Vulkan 1.1 (external memory, dedicated allocations, bind
+        // memory 2) and both of the first two extensions.
+        let mut dma_buf: Vec<&'static std::ffi::CStr> = Vec::new();
+        if vk::api_version_minor(api) >= 1 && DMA_BUF_EXTENSIONS.iter().take(2).all(|n| has(n)) {
+            dma_buf.extend(DMA_BUF_EXTENSIONS.iter().copied().filter(|n| has(n)));
+            // The modifier extension needs `VK_KHR_image_format_list`, core from 1.2.
+            if dma_buf.contains(&ash::ext::image_drm_format_modifier::NAME) && vk::api_version_minor(api) < 2
+            {
+                if has(ash::khr::image_format_list::NAME) {
+                    dma_buf.push(ash::khr::image_format_list::NAME);
+                } else {
+                    dma_buf.retain(|n| *n != ash::ext::image_drm_format_modifier::NAME);
+                }
+            }
+        }
+        let mut wanted = dma_buf.clone();
+        if incremental {
+            wanted.push(ash::khr::incremental_present::NAME);
+        }
+        if wanted.is_empty() {
             return None;
         }
-        let open = match hal.open_with_callback(
-            desc.required_features,
-            &desc.required_limits,
-            &desc.memory_hints,
-            Some(Box::new(move |args| {
-                if !args.extensions.contains(&name) {
-                    args.extensions.push(name);
-                }
-            })),
-        ) {
+        let open = |wanted: Vec<&'static std::ffi::CStr>| {
+            hal.open_with_callback(
+                desc.required_features,
+                &desc.required_limits,
+                &desc.memory_hints,
+                Some(Box::new(move |args| {
+                    for name in &wanted {
+                        if !args.extensions.contains(name) {
+                            args.extensions.push(name);
+                        }
+                    }
+                })),
+            )
+        };
+        let open = match open(wanted) {
             Ok(open) => open,
+            // A device that will not take the DMA-BUF extensions still gets incremental
+            // presents; pictures then come through CPU memory.
+            Err(_) if incremental && !dma_buf.is_empty() => {
+                match open(vec![ash::khr::incremental_present::NAME]) {
+                    Ok(open) => open,
+                    Err(e) => return Some(Err(e.to_string())),
+                }
+            }
             Err(e) => return Some(Err(e.to_string())),
         };
         drop(hal);
-        Some(adapter.create_device_from_hal::<Vk>(open, desc).map_err(|e| e.to_string()))
+        Some(
+            adapter
+                .create_device_from_hal::<Vk>(open, desc)
+                .map(|(d, q)| (d, q, incremental))
+                .map_err(|e| e.to_string()),
+        )
     }
 }
 
