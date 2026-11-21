@@ -1,7 +1,7 @@
 //! Media playback in a real browser (run with the web bridge's `tools/web-test.sh`): the test
 //! clip decoded by the browser's WebCodecs decoders (pictures in the right colors at their
-//! times, sound, seeks), WebAudio's clock advancing, and a player playing and seeking on
-//! them.
+//! times, sound, seeks), the same as HLS (AAC, MP3, no sound), WebAudio's clock advancing,
+//! and a player playing and seeking on them.
 
 #![cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 
@@ -323,4 +323,101 @@ async fn the_browser_decodes_the_clip_and_plays_it() {
     if p.audio_error().is_none() {
         assert!(p.stats().audio_frames > 0, "sound went to WebAudio");
     }
+}
+
+/// Where `fixtures/hls/` is served (`tools/serve-dir.py`, started by the web bridge's
+/// `tools/web-test.sh`), when the build was given it: a playlist names its segments by
+/// relative URLs, which blob URLs cannot hold.
+const HLS_DIR: Option<&str> = option_env!("REMEDY_HLS_URL");
+
+/// Plays `fixtures/hls/{name}/index.m3u8` (the test clip, `length` of it): pictures in the
+/// right colors at their times, sound in `audio`'s format, seeks into later segments, and the
+/// end with the decoders' held pictures out.
+async fn plays_hls(name: &str, audio: Option<AudioFormat>, length: Duration) {
+    let Some(dir) = HLS_DIR else {
+        web_sys::console::log_1(&"REMEDY_HLS_URL not set at build time: skipping HLS".into());
+        return;
+    };
+    let url = format!("{dir}/{name}/index.m3u8");
+    let mut dec = host().open(&MediaSource::url(url)).must("opening the HLS stream");
+    let mut ready = false;
+    for _ in 0..2000 {
+        match dec.poll_ready(&mut Context::from_waker(std::task::Waker::noop())) {
+            Poll::Ready(r) => {
+                r.must("the decoders take the HLS stream");
+                ready = true;
+                break;
+            }
+            Poll::Pending => wait_ms(2).await,
+        }
+    }
+    assert!(ready, "the HLS stream opened");
+    let info = dec.info().clone();
+    web_sys::console::log_1(&format!("HLS {name}: {info:?}").into());
+    let video = info.video.clone().must("the stream's picture");
+    assert_eq!((video.width, video.height), (176, 100));
+    assert_eq!(info.audio, audio);
+    assert_eq!(info.duration, Some(length));
+
+    // Pictures in the right colors at their times, and sound with them.
+    let (at, first) = picture_at(&mut dec, Duration::ZERO).await;
+    assert!(at < Duration::from_millis(50), "the first picture at the start: {at:?}");
+    assert_eq!(hue(&first), 'r', "the first second is red ({:?})", first.format);
+    // Sound with them, while still in the first second (40 samples of both).
+    let mut sound = 0usize;
+    for _ in 0..40 {
+        match next(&mut dec).await {
+            Some(Sample::Audio { samples, .. }) => sound += samples.len(),
+            Some(Sample::Video { at, .. }) if at > Duration::from_millis(800) => break,
+            _ => {}
+        }
+    }
+    assert_eq!(sound > 0, audio.is_some(), "sound decoded with the pictures: {sound} samples");
+    let (at, red) = picture_at(&mut dec, Duration::from_millis(900)).await;
+    assert!(at < Duration::from_millis(1000), "{at:?}");
+    assert_eq!(hue(&red), 'r', "0.9 s is red");
+
+    // Seeks land in the right segment.
+    dec.seek(Duration::from_millis(1500)).must("seeking to 1.5 s");
+    let (at, green) = picture_at(&mut dec, Duration::from_millis(1500)).await;
+    assert!(at < Duration::from_millis(1600), "{at:?}");
+    assert_eq!(hue(&green), 'g', "1.5 s is green");
+    let mut last = at;
+    if length > Duration::from_secs(2) {
+        dec.seek(Duration::from_millis(2500)).must("seeking to 2.5 s");
+        let (at, blue) = picture_at(&mut dec, Duration::from_millis(2500)).await;
+        assert!(at < Duration::from_millis(2600), "{at:?}");
+        assert_eq!(hue(&blue), 'b', "2.5 s is blue");
+        last = at;
+    }
+
+    // To the end, the decoders' held pictures included.
+    let mut ended = false;
+    for _ in 0..400 {
+        match next(&mut dec).await {
+            Some(Sample::Video { at, .. }) => last = last.max(at),
+            Some(_) => {}
+            None => {
+                ended = true;
+                break;
+            }
+        }
+    }
+    assert!(ended, "the HLS stream ends");
+    assert!(last + Duration::from_millis(100) >= length, "the last picture came out at the end: {last:?}");
+}
+
+#[wasm_bindgen_test]
+async fn the_browser_plays_hls_with_aac() {
+    plays_hls("aac", Some(AudioFormat::new(48_000, 2)), Duration::from_secs(3)).await;
+}
+
+#[wasm_bindgen_test]
+async fn the_browser_plays_hls_with_mp3() {
+    plays_hls("mp3", Some(AudioFormat::new(44_100, 2)), Duration::from_secs(2)).await;
+}
+
+#[wasm_bindgen_test]
+async fn the_browser_plays_hls_without_sound() {
+    plays_hls("video", None, Duration::from_secs(3)).await;
 }
