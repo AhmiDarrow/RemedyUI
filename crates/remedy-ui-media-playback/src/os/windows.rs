@@ -84,7 +84,7 @@ fn com() {
 }
 
 /// Media Foundation, kept started while decoders live.
-struct Mf;
+struct Mf(super::Live);
 
 impl Mf {
     fn start() -> Result<Mf, MediaError> {
@@ -92,7 +92,7 @@ impl Mf {
         // SAFETY: MFStartup counts calls; each successful one is matched by `Drop`.
         unsafe { MFStartup(MF_VERSION, MFSTARTUP_FULL) }
             .map_err(|e| MediaError::Missing(crate::deps::media_foundation(&e.to_string())))?;
-        Ok(Mf)
+        Ok(Mf(super::Live::new()))
     }
 }
 
@@ -103,6 +103,63 @@ impl Drop for Mf {
     }
 }
 
+/// The threads this process runs, from a ToolHelp snapshot: each one's name (its thread
+/// description; Rust sets it from the thread's name) and the module its start address is in.
+pub(super) fn process_threads() -> Vec<(String, String)> {
+    use windows::Wdk::System::Threading::{NtQueryInformationThread, ThreadQuerySetWin32StartAddress};
+    use windows::Win32::Foundation::{CloseHandle, HLOCAL, LocalFree};
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+    };
+    use windows::Win32::System::LibraryLoader::{
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        GetModuleFileNameW, GetModuleHandleExW,
+    };
+    use windows::Win32::System::Threading::{GetThreadDescription, OpenThread, THREAD_QUERY_INFORMATION};
+    use windows::core::PCWSTR;
+    let me = std::process::id();
+    let mut out = Vec::new();
+    // SAFETY: a snapshot and thread handles made, read and closed here; every out-pointer is
+    // a local the size the call asks for, and the description is freed as documented.
+    unsafe {
+        let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) else { return out };
+        let mut e = THREADENTRY32 { dwSize: size_of::<THREADENTRY32>() as u32, ..Default::default() };
+        let mut ok = Thread32First(snap, &mut e).is_ok();
+        while ok {
+            if e.th32OwnerProcessID == me {
+                let (mut name, mut module) = (String::new(), String::new());
+                if let Ok(h) = OpenThread(THREAD_QUERY_INFORMATION, false, e.th32ThreadID) {
+                    if let Ok(d) = GetThreadDescription(h) {
+                        name = d.to_string().unwrap_or_default();
+                        let _ = LocalFree(Some(HLOCAL(d.0.cast())));
+                    }
+                    let mut start = 0usize;
+                    let got = NtQueryInformationThread(
+                        h,
+                        ThreadQuerySetWin32StartAddress,
+                        (&raw mut start).cast(),
+                        size_of::<usize>() as u32,
+                        std::ptr::null_mut(),
+                    );
+                    let mut m = windows::Win32::Foundation::HMODULE::default();
+                    let flags =
+                        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
+                    if got.is_ok() && GetModuleHandleExW(flags, PCWSTR(start as *const u16), &mut m).is_ok() {
+                        let mut path = [0u16; 260];
+                        let n = GetModuleFileNameW(Some(m), &mut path) as usize;
+                        let path = String::from_utf16_lossy(path.get(..n).unwrap_or_default());
+                        module = path.rsplit('\\').next().unwrap_or_default().to_owned();
+                    }
+                    let _ = CloseHandle(h);
+                }
+                out.push((name, module));
+            }
+            ok = Thread32Next(snap, &mut e).is_ok();
+        }
+        let _ = CloseHandle(snap);
+    }
+    out
+}
 struct WindowsHost;
 
 pub(super) fn host() -> Result<Arc<dyn MediaHost>, MediaError> {
