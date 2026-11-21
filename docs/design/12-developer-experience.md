@@ -89,5 +89,5 @@ fn unlock_screen_preview(ui: &Ui) -> El { unlock_screen(ui, Vault::fake_locked()
 
 - **API docs.** Every public item has docs with a runnable example, enforced by `#![deny(missing_docs)]` and doc-tests.
 - **Guides** cover thinking in signals, layout, theming, text, lists, motion, accessibility, testing, packaging and performance.
-- **Porting guides.** One guide each for moving from egui, from React (most Remedy apps today), from Qt or PyQt (RemedyPDF), and from pywebview or HTML apps (Hearth, Quickcast, TheOven). Each has side-by-side equivalents.
+- **Porting guides.** One guide each for moving from egui, from React (most Remedy apps today), from Qt or PyQt (RemedyPDF), and from pywebview or HTML apps (Hearth). Each has side-by-side equivalents.
 - **Recipes**: chat feed, file explorer, document viewer, settings page, tray app, sticky-note windows, audio meter, unlock screen.
