@@ -1040,7 +1040,7 @@ pub fn menu_press_through(ui: &Ui, anchor: &El, items: Vec<MenuItem>) -> El {
         press_through: true,
     };
     let _ = ui;
-    Chain::open(&from, items, o).layer.clone()
+    Chain::open(from, items, o).layer.clone()
 }
 
 /// Opens a menu at the pointer on a secondary press (right click) on `target`, or with the
