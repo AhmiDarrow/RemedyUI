@@ -160,13 +160,16 @@ pub(super) fn process_threads() -> Vec<(String, String)> {
     }
     out
 }
-struct WindowsHost;
+struct WindowsHost {
+    /// The last HLS stream's decoders, for the next.
+    spare: crate::hls::Spare,
+}
 
 pub(super) fn host() -> Result<Arc<dyn MediaHost>, MediaError> {
     // Starting it once proves Media Foundation is there (it is absent on "N" editions
     // without the Media Feature Pack).
     drop(Mf::start()?);
-    Ok(Arc::new(WindowsHost))
+    Ok(Arc::new(WindowsHost { spare: crate::hls::Spare::default() }))
 }
 
 impl MediaHost for WindowsHost {
@@ -181,7 +184,8 @@ impl MediaHost for WindowsHost {
             return crate::hls::open(
                 &source.to_url(),
                 Box::new(hls::HttpFetch::new()?),
-                Box::new(hls::MftElementary::new()?),
+                &self.spare,
+                || Ok(Box::new(hls::MftElementary::new()?)),
             );
         }
         Ok(Box::new(MfDecoder::open(source)?))

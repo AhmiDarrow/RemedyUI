@@ -628,9 +628,10 @@ fn dropping_a_stream_mid_fetch_hangs_up_promptly() {
     eprintln!("hung up {:?} after the drop", dropped.elapsed());
 }
 
-/// Prints what a first picture costs, median of 5: opening the stream (what `replace_source`
-/// and `start_next` wait for) and seeking inside it, back to a segment already held and
-/// ahead to one that is not yet. For before-and-after numbers, not a pass mark.
+/// Prints what a first picture costs, median of 5: opening the stream on a new host, and on
+/// one that opened it before (what `replace_source` and `start_next` wait for: the decoders
+/// are kept), and seeking inside it, back to a segment already held and ahead to one that is
+/// not yet. For before-and-after numbers, not a pass mark.
 #[test]
 fn first_picture_costs() {
     let (url, _files) = server(playlist());
@@ -646,12 +647,23 @@ fn first_picture_costs() {
         v.sort();
         v.get(v.len() / 2).copied().unwrap_or_default()
     };
-    let (mut opens, mut backs, mut aheads) = (Vec::new(), Vec::new(), Vec::new());
+    let Ok(host) = platform_host() else { return eprintln!("skipped: no platform host") };
+    let (mut opens, mut reopens, mut backs, mut aheads) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for _ in 0..5 {
         let started = std::time::Instant::now();
         let Some(mut d) = open(&url) else { return };
         assert!(first(d.as_mut(), Duration::ZERO).is_some(), "a first picture");
         opens.push(started.elapsed());
+        // Again on a host that opened it before (a player's replace_source or start_next):
+        // the last stream's decoders are taken over.
+        let mut again = host.open(&MediaSource::Url(url.clone())).unwrap_or_else(|e| unreachable!("{e}"));
+        assert!(first(again.as_mut(), Duration::ZERO).is_some(), "a first picture");
+        drop(again);
+        let started = std::time::Instant::now();
+        let mut again = host.open(&MediaSource::Url(url.clone())).unwrap_or_else(|e| unreachable!("{e}"));
+        assert!(first(again.as_mut(), Duration::ZERO).is_some(), "a first picture, reused");
+        reopens.push(started.elapsed());
+        drop(again);
         // Into the second segment, so the first is held, then back to it and on to the third.
         d.seek(Duration::from_millis(1200)).unwrap_or_else(|e| unreachable!("seeking: {e}"));
         let _ = first(d.as_mut(), Duration::from_millis(1200));
@@ -663,8 +675,9 @@ fn first_picture_costs() {
         }
     }
     eprintln!(
-        "first picture: open {:?}, seek back {:?}, seek ahead {:?}",
+        "first picture: open {:?}, open on the same host {:?}, seek back {:?}, seek ahead {:?}",
         median(opens),
+        median(reopens),
         median(backs),
         median(aheads)
     );

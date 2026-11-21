@@ -88,7 +88,9 @@ pub(crate) enum WantKind {
 /// The platform's decoders for the compressed streams. Used from one thread at a time.
 pub(crate) trait Elementary: Send {
     /// Sets the decoders up for the streams the media holds (either may be absent). Called
-    /// once, before the first [`Elementary::push`].
+    /// before the first [`Elementary::push`], and again when a host's next stream reuses
+    /// these decoders ([`Spare`]): what they hold goes, and decoders that cannot take the
+    /// new streams are made anew.
     fn configure(
         &mut self,
         video: Option<&VideoConfig>,
@@ -107,6 +109,30 @@ pub(crate) trait Elementary: Send {
     /// AAC decoder's SBR doubles the rate); known once configured.
     fn audio_format(&self) -> Option<AudioFormat> {
         None
+    }
+}
+
+/// A host's decoders between streams: the last stream's, handed back when it is dropped and
+/// taken by the next stream the host opens, so making the decoders again (tens of
+/// milliseconds, hundreds cold) is saved. Dropped with the host, so with its player.
+pub(crate) type Spare = std::sync::Arc<std::sync::Mutex<Option<Box<dyn Elementary>>>>;
+
+/// No decoders: before configuring, and once handed back.
+impl Elementary for () {
+    fn configure(&mut self, _: Option<&VideoConfig>, _: Option<&AudioConfig>) -> Result<(), MediaError> {
+        Ok(())
+    }
+    fn push(&mut self, _: Unit) -> Result<(), MediaError> {
+        Err(MediaError::Decode("no decoders".into()))
+    }
+    fn pull(&mut self) -> Result<Option<Sample>, MediaError> {
+        Ok(None)
+    }
+    fn end(&mut self) -> Result<(), MediaError> {
+        Ok(())
+    }
+    fn flush(&mut self) -> Result<(), MediaError> {
+        Ok(())
     }
 }
 
@@ -701,6 +727,8 @@ pub(crate) struct HlsDecoder {
     fetched: (std::time::Instant, std::time::Instant),
     /// A fetch handed over outside a read failed for good: the next read says so.
     failed: Option<MediaError>,
+    /// Where the decoders go back to when this is dropped, once configured.
+    spare: Option<std::sync::Weak<std::sync::Mutex<Option<Box<dyn Elementary>>>>>,
 }
 
 impl HlsDecoder {
@@ -819,6 +847,10 @@ impl HlsDecoder {
 impl Drop for HlsDecoder {
     fn drop(&mut self) {
         self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(spare) = self.spare.take().and_then(|s| s.upgrade()) {
+            let es = std::mem::replace(&mut self.es, Box::new(()));
+            *spare.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(es);
+        }
     }
 }
 
@@ -867,14 +899,17 @@ impl Decoder for HlsDecoder {
 }
 
 /// Opens the HLS stream at `url`: fetches its playlist (and the variant a master playlist
-/// chooses) and its first segment, so what it holds is known, then sets `es` up for it.
+/// chooses) and its first segment, so what it holds is known, then sets decoders up for it:
+/// `spare`'s, when it holds some that take the streams, else made by `make`. They go back to
+/// `spare` when the stream is dropped.
 pub(crate) fn open(
     url: &str,
     fetch: Box<dyn Fetch>,
-    es: Box<dyn Elementary>,
+    spare: &Spare,
+    make: impl FnOnce() -> Result<Box<dyn Elementary>, MediaError>,
 ) -> Result<Box<dyn Decoder>, MediaError> {
     let clock = Clock { now: std::time::Instant::now, sleep: std::thread::sleep };
-    Ok(Box::new(open_with(url, fetch, es, clock)?))
+    Ok(Box::new(open_with(url, fetch, Some(spare), make, clock)?))
 }
 
 thread_local! {
@@ -899,7 +934,8 @@ pub(crate) fn opening_until<R>(
 fn open_with(
     url: &str,
     mut fetch: Box<dyn Fetch>,
-    es: Box<dyn Elementary>,
+    spare: Option<&Spare>,
+    make: impl FnOnce() -> Result<Box<dyn Elementary>, MediaError>,
     clock: Clock,
 ) -> Result<HlsDecoder, MediaError> {
     let (asks, wants) = std::sync::mpsc::channel::<Want>();
@@ -926,12 +962,13 @@ fn open_with(
         stop,
         done,
         in_flight: None,
-        es,
+        es: Box::new(()),
         info,
         ended: false,
         clock,
         fetched: (now, now),
         failed: None,
+        spare: None,
     };
     // The playlist and the first segment only: the rest comes while playing.
     while !d.hls.started() {
@@ -954,7 +991,18 @@ fn open_with(
     if d.hls.video().is_none() && d.hls.audio().is_none() {
         return Err(MediaError::Unsupported("HLS segments hold no H.264 video, AAC or MP3 sound".into()));
     }
-    d.es.configure(d.hls.video(), d.hls.audio())?;
+    // Taken now, not on opening: the stream this one replaces has had the playlist's and the
+    // first segment's fetch to hand its decoders back.
+    let kept = spare.and_then(|s| s.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
+    d.es = match kept.and_then(|mut es| es.configure(d.hls.video(), d.hls.audio()).map(|()| es).ok()) {
+        Some(es) => es,
+        None => {
+            let mut es = make()?;
+            es.configure(d.hls.video(), d.hls.audio())?;
+            es
+        }
+    };
+    d.spare = spare.map(std::sync::Arc::downgrade);
     d.refresh_info();
     Ok(d)
 }
