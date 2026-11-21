@@ -37,7 +37,6 @@ use windows::core::{GUID, HSTRING, Interface};
 
 // HLS: Media Foundation transforms decode the streams the crate's own reader takes apart.
 #[path = "windows_hls.rs"]
-#[allow(dead_code)] // shortcut: until WindowsHost opens HLS through crate::hls::open
 mod hls;
 
 use crate::host::{
@@ -110,6 +109,15 @@ impl MediaHost for WindowsHost {
     }
 
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
+        // Media Foundation's source reader refuses playlists: the crate's own reader takes HLS
+        // apart and Media Foundation's transforms decode its streams.
+        if crate::hls::is_hls(source) {
+            return crate::hls::open(
+                &source.to_url(),
+                Box::new(hls::MfFetch::new()?),
+                Box::new(hls::MftElementary::new()?),
+            );
+        }
         Ok(Box::new(MfDecoder::open(source)?))
     }
 
