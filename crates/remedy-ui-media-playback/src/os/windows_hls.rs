@@ -695,6 +695,50 @@ mod tests {
     }
 
     #[test]
+    fn fetch_over_http() {
+        use std::io::{BufRead, BufReader, Write};
+        // Answers `/n` with `n` bytes of `n % 256` and a different body for every request to
+        // `/grows` (a playlist fetched again must not come from a cache); anything else is 404.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| unreachable!("{e}"));
+        let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
+        std::thread::spawn(move || {
+            for (k, s) in listener.incoming().flatten().enumerate() {
+                let mut line = String::new();
+                let mut r = BufReader::new(&s);
+                let _ = r.read_line(&mut line);
+                let path = line.split(' ').nth(1).unwrap_or_default().trim_start_matches('/').to_string();
+                while r.read_line(&mut line).is_ok_and(|n| n > 2) {}
+                let body = match path.parse::<usize>() {
+                    Ok(n) => Some(vec![(n % 256) as u8; n]),
+                    Err(_) if path == "grows" => Some(format!("request {k}").into_bytes()),
+                    Err(_) => None,
+                };
+                let mut s = &s;
+                let _ = match body {
+                    Some(b) => write!(
+                        s,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        b.len()
+                    )
+                    .and_then(|()| s.write_all(&b)),
+                    None => {
+                        write!(s, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    }
+                };
+            }
+        });
+        let mut f = MfFetch::new().unwrap_or_else(|e| unreachable!("{e}"));
+        let url = |p: &str| format!("http://127.0.0.1:{port}/{p}");
+        let big = f.get(&url("200000")).unwrap_or_else(|e| unreachable!("{e}"));
+        assert!(big.len() == 200_000 && big.iter().all(|b| *b == (200_000 % 256) as u8));
+        let a = f.get(&url("grows")).unwrap_or_else(|e| unreachable!("{e}"));
+        let b = f.get(&url("grows")).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_ne!(a, b, "fetched again, not cached");
+        let r = f.get(&url("missing.ts"));
+        assert!(matches!(r, Err(MediaError::NotFound(_))), "{r:?}");
+    }
+
+    #[test]
     fn fetch_missing() {
         let mut f = MfFetch::new().unwrap_or_else(|e| unreachable!("{e}"));
         let r = f.get("http://127.0.0.1:9/nothing.m3u8");
