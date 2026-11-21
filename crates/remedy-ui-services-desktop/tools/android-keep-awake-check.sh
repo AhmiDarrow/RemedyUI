@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# Keeping the screen on on the Android device or emulator adb sees: builds
+# examples/android-keep-awake-check/, packages it with the Android bridge's dex
+# (MediaControls.keepScreenOn) and an instrumentation (tools/KeepAwakeCheck.java) that opens
+# an activity, installs it and starts it. The instrumentation takes two
+# power::inhibit(Inhibit::Display) holds (the player's keep-awake hold), lets one go, then the
+# other; at each step the script reads the activity's window flags from `dumpsys window` and
+# checks FLAG_KEEP_SCREEN_ON is set while any hold lives and cleared after. Uninstalls the
+# app at the end. No Gradle, as tools/build-apk.sh.
+#
+#   tools/android-keep-awake-check.sh
+#
+# Settings (environment): ANDROID_HOME (required), ANDROID_NDK_HOME, TARGET
+# (x86_64-linux-android, default, or aarch64-linux-android), PROFILE (dev, default, or
+# release), TARGET_API (default 35). Needs a JDK. Exits non-zero when a check fails.
+set -euo pipefail
+
+crate="$(cd "$(dirname "$0")/.." && pwd)"
+root="$(cd "$crate/../.." && pwd)"
+bridge="$root/crates/remedy-ui-bridge-android"
+sdk="${ANDROID_HOME:?set ANDROID_HOME to the Android SDK}"
+ndk="${ANDROID_NDK_HOME:-$sdk/ndk/$(ls "$sdk/ndk" | sort -V | tail -n 1)}"
+target="${TARGET:-x86_64-linux-android}"
+profile="${PROFILE:-dev}"
+api="${TARGET_API:-35}"
+min_api=29
+tools="$sdk/build-tools/$(ls "$sdk/build-tools" | sort -V | tail -n 1)"
+jar="$sdk/platforms/android-$api/android.jar"
+target_dir="${CARGO_TARGET_DIR:-$root/target}"
+app=dev.remedyui.keepawakecheck
+lib=android_keep_awake_check
+
+case "$target" in
+    x86_64-linux-android) abi=x86_64 ;;
+    aarch64-linux-android) abi=arm64-v8a ;;
+    *) echo "unsupported TARGET $target" >&2; exit 2 ;;
+esac
+exe() { if [ -f "$1.exe" ]; then echo "$1.exe"; elif [ -f "$1.bat" ]; then echo "$1.bat"; else echo "$1"; fi; }
+host_tag=$(ls "$ndk/toolchains/llvm/prebuilt" | head -n 1)
+bin="$ndk/toolchains/llvm/prebuilt/$host_tag/bin"
+clang="$bin/$target$min_api-clang"
+[ -f "$clang.cmd" ] && clang="$clang.cmd"
+upper=$(echo "$target" | tr 'a-z-' 'A-Z_')
+lower=$(echo "$target" | tr '-' '_')
+export "CARGO_TARGET_${upper}_LINKER=$clang" "CC_${lower}=$clang" "AR_${lower}=$(exe "$bin/llvm-ar")"
+
+(cd "$root" && cargo build -p remedy-ui-services-desktop --example android-keep-awake-check --target "$target" --profile "$profile")
+dir="$profile"
+[ "$profile" = dev ] && dir=debug
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/lib/$abi"
+cp "$target_dir/$target/$dir/examples/lib$lib.so" "$work/lib/$abi/"
+"$(exe "$bin/llvm-strip")" --strip-debug "$work/lib/$abi/lib$lib.so"
+# The bridge's dex holds MediaControls; the instrumentation and its activity go in a second.
+cp "$bridge/dex/classes.dex" "$work/classes.dex"
+javac --release 11 -nowarn -classpath "$jar" -d "$work/classes" "$crate/tools/KeepAwakeCheck.java"
+mkdir -p "$work/check"
+"$(exe "$tools/d8")" --min-api "$min_api" --lib "$jar" --output "$work/check" $(find "$work/classes" -name '*.class')
+cp "$work/check/classes.dex" "$work/classes2.dex"
+
+cat > "$work/AndroidManifest.xml" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="$app">
+    <uses-sdk android:minSdkVersion="$min_api" android:targetSdkVersion="$api" />
+    <application android:label="RemedyUI keep-awake check" android:hasCode="true">
+        <activity android:name="$app.KeepAwakeCheck\$Screen" android:exported="false" />
+    </application>
+    <instrumentation android:name=".KeepAwakeCheck" android:targetPackage="$app" />
+</manifest>
+EOF
+"$(exe "$tools/aapt2")" link -o "$work/base.apk" -I "$jar" --manifest "$work/AndroidManifest.xml"
+(cd "$work" && "$(exe "$tools/aapt")" add -f base.apk classes.dex classes2.dex "lib/$abi/lib$lib.so" >/dev/null)
+"$(exe "$tools/zipalign")" -f -p 4 "$work/base.apk" "$work/aligned.apk"
+keytool -genkeypair -keystore "$work/k.jks" -storepass android -keypass android -alias k \
+    -keyalg RSA -keysize 2048 -validity 1 -dname "CN=RemedyUI keep-awake check" >/dev/null 2>&1
+"$(exe "$tools/apksigner")" sign --ks "$work/k.jks" --ks-pass pass:android --key-pass pass:android \
+    --out "$work/check.apk" "$work/aligned.apk" 2>/dev/null
+
+adb="$(exe "$sdk/platform-tools/adb")"
+sh() { MSYS_NO_PATHCONV=1 "$adb" shell "$@" | tr -d '\r'; }
+pause() { sleep "$1" 2>/dev/null || ping -n "$(($1 + 1))" 127.0.0.1 >/dev/null; }
+"$adb" install -r "$work/check.apk" >/dev/null
+sh input keyevent KEYCODE_WAKEUP || true
+sh wm dismiss-keyguard || true
+MSYS_NO_PATHCONV=1 "$adb" logcat -c
+MSYS_NO_PATHCONV=1 "$adb" shell am instrument -w "$app/.KeepAwakeCheck" | tr -d '\r' > "$work/report.txt" &
+runner=$!
+
+fail=0
+# Waits for the instrumentation's `phase`, then reads the activity window's flags.
+flags_at() {
+    for _ in $(seq 1 60); do
+        MSYS_NO_PATHCONV=1 "$adb" logcat -d -s RemedyUI:I | tr -d '\r' | grep -q "keep-awake: $1" && break
+        pause 1
+    done
+    pause 2
+    sh dumpsys window windows > "$work/windows-$1.txt"
+    grep -A40 "Window{.*$app" "$work/windows-$1.txt" | grep -m1 " fl=\|flags=" || true
+}
+expect() {
+    local what="$1" line="$2" want="$3"
+    echo "  $what: $line"
+    if [ "$want" = set ] && echo "$line" | grep -q KEEP_SCREEN_ON; then echo "ok: $what, FLAG_KEEP_SCREEN_ON set"
+    elif [ "$want" = clear ] && [ -n "$line" ] && ! echo "$line" | grep -q KEEP_SCREEN_ON; then echo "ok: $what, FLAG_KEEP_SCREEN_ON clear"
+    else echo "FAILED: $what (wanted it $want)"; fail=1; fi
+}
+expect "before any hold" "$(flags_at before)" clear
+expect "two holds" "$(flags_at held)" set
+expect "one hold let go, one left" "$(flags_at one-left)" set
+expect "both let go" "$(flags_at released)" clear
+wait "$runner" || true
+if [ -n "${EVIDENCE:-}" ]; then mkdir -p "$EVIDENCE" && cp "$work"/windows-*.txt "$EVIDENCE/"; fi
+"$adb" uninstall "$app" >/dev/null
+
+echo "--- the instrumentation"
+cat "$work/report.txt"
+grep -q "keep-awake: done" "$work/report.txt" || { echo "FAILED: the instrumentation did not finish"; fail=1; }
+[ "$fail" = 0 ] && echo "keep-awake-check: PASSED" || echo "keep-awake-check: FAILED"
+exit "$fail"

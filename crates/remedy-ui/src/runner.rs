@@ -631,6 +631,9 @@ enum Cmd {
 type SheetBuilder = Rc<dyn Fn(&Theme) -> StyleSheet>;
 /// What a [`Window::snapshot`] calls with its picture.
 type SnapshotDone = Box<dyn FnOnce(Option<remedy_ui_paint::Image>)>;
+/// Input handed to a live window ([`Window::send_key`], [`Window::send_pointer`]), made into
+/// the host's event once the window's host id is known.
+type Injected = Box<dyn FnOnce(WindowId) -> HostEvent>;
 
 #[derive(Default)]
 struct Shared {
@@ -718,6 +721,8 @@ struct Shared {
     on_closed: HashMap<u64, Vec<Box<dyn FnOnce()>>>,
     /// Waiting for a picture of the window's next frame ([`Window::snapshot`]).
     snapshots: HashMap<u64, Vec<SnapshotDone>>,
+    /// Keys and pointer events sent to a window by the app ([`Window::send_key`]), in order.
+    injected: Vec<(u64, Injected)>,
     /// The effect keeping the tray in step with [`App::tray_dyn`], while it does.
     tray_effect: Option<remedy_ui_reactive::Effect>,
     /// Agents' access to each window that took them ([`Window::attach_agents`]).
@@ -1640,6 +1645,65 @@ impl Window {
         };
         self.app.0.borrow_mut().snapshots.entry(self.key).or_default().push(Box::new(done));
         ui.request_frame();
+    }
+
+    /// [`snapshot`](Self::snapshot) as PNG bytes (straight alpha, as PNG stores it): a picture
+    /// to save or attach. `None` as for `snapshot`, or when it cannot be encoded.
+    #[cfg(feature = "devtools")]
+    pub fn snapshot_png(&self, done: impl FnOnce(Option<Vec<u8>>) + 'static) {
+        self.snapshot(move |img| {
+            done(img.and_then(|i| {
+                let snap = remedy_ui_devtools::Snapshot {
+                    width: i.width,
+                    height: i.height,
+                    rgba: i.pixels.to_vec(),
+                };
+                snap.to_png().ok()
+            }));
+        });
+    }
+
+    /// Hands `event` to the window as if the platform sent it: a key press or release goes
+    /// where a keyboard's would (the focused element, then the window's shortcuts), for
+    /// automation and end-to-end tests of a running app. It arrives with the next event the
+    /// app handles (the window is asked for a frame). [`press_key`](Self::press_key) sends a
+    /// press and its release.
+    pub fn send_key(&self, event: remedy_ui_input::KeyEvent) {
+        self.inject(Box::new(move |w| HostEvent::Key(w, event)));
+    }
+
+    /// Presses and releases `event`'s key ([`send_key`](Self::send_key) twice).
+    pub fn press_key(&self, event: remedy_ui_input::KeyEvent) {
+        let release = remedy_ui_input::KeyEvent::release(event.key.clone())
+            .with_modifiers(event.modifiers)
+            .with_physical(event.physical.clone());
+        let mut press = event;
+        press.pressed = true;
+        self.send_key(press);
+        self.send_key(release);
+    }
+
+    /// Hands a pointer event to the window as if the platform sent it, at a position in the
+    /// window's logical pixels (before the window's [zoom](Self::set_zoom)): hover, press,
+    /// drag and release reach elements as the mouse's or a finger's would, gestures included.
+    /// [`click_at`](Self::click_at) sends a press and its release.
+    pub fn send_pointer(&self, event: PointerEvent) {
+        self.inject(Box::new(move |w| HostEvent::Pointer(w, event)));
+    }
+
+    /// Clicks the primary mouse button at `at` (window logical pixels): a move there, a press
+    /// and a release.
+    pub fn click_at(&self, at: Point) {
+        for phase in [PointerPhase::Move, PointerPhase::Down, PointerPhase::Up] {
+            self.send_pointer(PointerEvent::new(phase, at));
+        }
+    }
+
+    fn inject(&self, event: Injected) {
+        self.app.0.borrow_mut().injected.push((self.key, event));
+        if let Some(ui) = self.ui() {
+            ui.request_frame();
+        }
     }
 
     /// Runs `f` once when the window is gone, however it closed.
@@ -3486,6 +3550,13 @@ impl remedy_ui_host::App for Runner {
                 remedy_ui_view::device::memory_pressure(level);
             }
             _ => {}
+        }
+        // Input the app sent its windows: handled as the platform's, in order.
+        let injected = std::mem::take(&mut self.app.0.borrow_mut().injected);
+        for (key, make) in injected {
+            if let Some(window) = self.wins.get(&key).map(|w| w.host) {
+                self.event(host, make(window));
+            }
         }
         self.drain(host);
         self.app.0.borrow_mut().in_event = false;

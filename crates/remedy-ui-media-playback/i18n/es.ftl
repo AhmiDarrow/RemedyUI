@@ -7,6 +7,7 @@ playback-failed-device = No se puede reproducir por un problema con el dispositi
 playback-failed-denied = No se puede reproducir porque no se permitió el acceso: { $detail }
 playback-failed-missing = No se puede reproducir: { $detail }
 playback-loading = Cargando
+playback-keep-awake = Reproduciendo vídeo
 playback-play-pause-tip = Reproducir o pausar (K)
 playback-play = Reproducir
 playback-pause = Pausar

@@ -15,6 +15,8 @@ playback-failed-denied = This can't be played because access wasn't allowed: { $
 playback-failed-missing = This can't be played: { $detail }
 # While the media opens or waits for data.
 playback-loading = Loading
+# Where the system lists what keeps the screen on (Windows powercfg, a Linux session).
+playback-keep-awake = Playing video
 
 ## The transport bar. Names are read by screen readers; tips show on hover.
 playback-play-pause-tip = Play or pause (K)
