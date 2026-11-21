@@ -5,9 +5,18 @@
 //!
 //! wgpu copies into the images as textures wrapped from them each frame. The image's acquire
 //! semaphore gates wgpu's submission and a semaphore wgpu signals gates the present; a command
-//! buffer of ours, submitted with wgpu's, returns the image to the present layout. Presents
-//! go on wgpu's queue: like every submit to it, they come from one thread at a time (the UI
-//! thread, where windows present and embedded GPU content submits).
+//! buffer of ours, submitted with wgpu's, returns the image to the present layout.
+//!
+//! One thread: Vulkan needs a queue's users kept apart, and wgpu does that only among its
+//! own calls. This chain presents on wgpu's queue and waits for the device idle outside
+//! wgpu's lock, and the acquire's semaphore is waited on by wgpu's *next* submission,
+//! whichever thread makes it. So every submission to the device's queue must come from the
+//! thread that presents windows. In this workspace it does: the runner, embedded GPU
+//! content (`remedy-ui-embed-gpu`), effects (`remedy-ui-media-effects`) and video all submit
+//! on the UI thread, and no other thread touches the GPU ([`GpuContext::queue`] says so to
+//! apps). wgpu's own swapchain, which RemedyUI uses everywhere else, has no such rule.
+//!
+//! [`GpuContext::queue`]: crate::GpuContext::queue
 
 use ash::vk;
 
@@ -19,8 +28,10 @@ const ACQUIRE_TIMEOUT_NS: u64 = 1_000_000_000;
 /// Why a swapchain call failed.
 #[derive(Debug)]
 pub(crate) enum ChainError {
-    /// The device or surface was lost: recover, then build again.
+    /// The device was lost: recover it, then build again.
     Lost,
+    /// The window's surface was lost: build again on a new one.
+    SurfaceLost,
     /// The swapchain no longer fits the surface: build it again at the next present.
     OutOfDate,
     /// Anything else, with what was being done.
@@ -29,15 +40,16 @@ pub(crate) enum ChainError {
 
 fn failed(what: &'static str) -> impl Fn(vk::Result) -> ChainError {
     move |r| match r {
-        vk::Result::ERROR_DEVICE_LOST | vk::Result::ERROR_SURFACE_LOST_KHR => ChainError::Lost,
+        vk::Result::ERROR_DEVICE_LOST => ChainError::Lost,
+        vk::Result::ERROR_SURFACE_LOST_KHR => ChainError::SurfaceLost,
         vk::Result::ERROR_OUT_OF_DATE_KHR => ChainError::OutOfDate,
         other => ChainError::Failed(format!("{what}: {other}")),
     }
 }
 
-/// The device extensions that let decoded pictures in DMA-BUFs be imported (`ffi::dmabuf`):
-/// the first two are needed, the others used where the device has them (layouts other than
-/// linear, the foreign queue family for the hand-over, and fences as sync files).
+/// The device extensions that let decoded pictures in DMA-BUFs be imported (`ffi::dmabuf`,
+/// Linux): the first two are needed, the others used where the device has them (layouts
+/// other than linear, the foreign queue family for the hand-over, and fences as sync files).
 pub(crate) const DMA_BUF_EXTENSIONS: [&std::ffi::CStr; 5] = [
     ash::khr::external_memory_fd::NAME,
     ash::ext::external_memory_dma_buf::NAME,
@@ -46,16 +58,21 @@ pub(crate) const DMA_BUF_EXTENSIONS: [&std::ffi::CStr; 5] = [
     ash::khr::external_semaphore_fd::NAME,
 ];
 
-/// Opens `adapter`'s Vulkan device as wgpu would, with `VK_KHR_incremental_present` and the
-/// DMA-BUF import extensions ([`DMA_BUF_EXTENSIONS`]) added where the device has them. `None`
-/// when the adapter is not Vulkan or has none of them (the caller opens the device the usual
-/// way; presents then report the whole window). The flag says whether incremental presents
-/// are on. An error says why a device that has the extensions would not open with them.
+/// Opens `adapter`'s Vulkan device as wgpu would, with `VK_KHR_incremental_present` added
+/// where the device has it; on Android `VK_ANDROID_external_memory_android_hardware_buffer`
+/// with the Y'CbCr sampler feature, and on Linux the DMA-BUF import extensions
+/// ([`DMA_BUF_EXTENSIONS`]), so decoded pictures are sampled where the decoder left them
+/// ([`super::video`]). A device that will not open with the DMA-BUF extensions is opened
+/// without them. Returns the device and whether presents can report what changed. `None`
+/// when the adapter is not Vulkan or has none of these (the caller opens the device the usual
+/// way). An error says why a device that has them would not open with them.
 pub(crate) fn open_device(
     adapter: &wgpu::Adapter,
     desc: &wgpu::DeviceDescriptor<'_>,
 ) -> Option<Result<(wgpu::Device, wgpu::Queue, bool), String>> {
-    // SAFETY: wgpu's own adapter; the callback only adds extensions the device reports.
+    // SAFETY: wgpu's own adapter. The device is made as `open_with_callback` makes it, from
+    // wgpu-hal's own extension and feature lists, plus extensions the device reports and the
+    // one feature bit (in wgpu's own feature struct) that the device reports too.
     unsafe {
         let hal = adapter.as_hal::<Vk>()?;
         let instance = hal.shared_instance().raw_instance();
@@ -63,15 +80,24 @@ pub(crate) fn open_device(
         let extensions = instance.enumerate_device_extension_properties(physical).ok()?;
         let has = |name: &std::ffi::CStr| extensions.iter().any(|e| e.extension_name_as_c_str() == Ok(name));
         let incremental = has(ash::khr::incremental_present::NAME);
-        let api = instance.get_physical_device_properties(physical).api_version;
-        // DMA-BUF import needs Vulkan 1.1 (external memory, dedicated allocations, bind
-        // memory 2) and both of the first two extensions.
+        let version = instance.get_physical_device_properties(physical).api_version;
+        let wanted = super::video::wanted_extensions();
+        let video = !wanted.is_empty() && wanted.iter().all(|n| has(n)) && {
+            let mut ycbcr = vk::PhysicalDeviceSamplerYcbcrConversionFeatures::default();
+            let mut f = vk::PhysicalDeviceFeatures2::default().push_next(&mut ycbcr);
+            instance.get_physical_device_features2(physical, &mut f);
+            ycbcr.sampler_ycbcr_conversion == vk::TRUE && version >= vk::API_VERSION_1_1
+        };
+        // DMA-BUF import (Linux) needs Vulkan 1.1 (external memory, dedicated allocations,
+        // bind memory 2) and both of the first two extensions.
         let mut dma_buf: Vec<&'static std::ffi::CStr> = Vec::new();
-        if vk::api_version_minor(api) >= 1 && DMA_BUF_EXTENSIONS.iter().take(2).all(|n| has(n)) {
+        if cfg!(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))
+            && version >= vk::API_VERSION_1_1
+            && DMA_BUF_EXTENSIONS.iter().take(2).all(|n| has(n))
+        {
             dma_buf.extend(DMA_BUF_EXTENSIONS.iter().copied().filter(|n| has(n)));
             // The modifier extension needs `VK_KHR_image_format_list`, core from 1.2.
-            if dma_buf.contains(&ash::ext::image_drm_format_modifier::NAME) && vk::api_version_minor(api) < 2
-            {
+            if dma_buf.contains(&ash::ext::image_drm_format_modifier::NAME) && version < vk::API_VERSION_1_2 {
                 if has(ash::khr::image_format_list::NAME) {
                     dma_buf.push(ash::khr::image_format_list::NAME);
                 } else {
@@ -79,38 +105,65 @@ pub(crate) fn open_device(
                 }
             }
         }
-        let mut wanted = dma_buf.clone();
-        if incremental {
-            wanted.push(ash::khr::incremental_present::NAME);
-        }
-        if wanted.is_empty() {
+        if !incremental && !video && dma_buf.is_empty() {
             return None;
         }
-        let open = |wanted: Vec<&'static std::ffi::CStr>| {
-            hal.open_with_callback(
+        let make = |dma_buf: &[&'static std::ffi::CStr]| {
+            let mut names = hal.required_device_extensions(desc.required_features);
+            let mut add = |n: &'static std::ffi::CStr| {
+                if !names.contains(&n) {
+                    names.push(n);
+                }
+            };
+            if incremental {
+                add(ash::khr::incremental_present::NAME);
+            }
+            if video {
+                wanted.iter().for_each(|n| add(n));
+            }
+            dma_buf.iter().for_each(|n| add(n));
+            let mut features = hal.physical_device_features(&names, desc.required_features);
+            let pointers: Vec<_> = names.iter().map(|n| n.as_ptr()).collect();
+            let queues =
+                [vk::DeviceQueueCreateInfo::default().queue_family_index(0).queue_priorities(&[1.0])];
+            let info = features.add_to_device_create(
+                vk::DeviceCreateInfo::default()
+                    .queue_create_infos(&queues)
+                    .enabled_extension_names(&pointers),
+            );
+            if video {
+                // wgpu chains the Y'CbCr conversion feature but leaves it off; it is turned on.
+                let mut at = info.p_next as *mut vk::BaseOutStructure<'_>;
+                while let Some(s) = at.as_mut() {
+                    if s.s_type == vk::StructureType::PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES {
+                        (*(at as *mut vk::PhysicalDeviceSamplerYcbcrConversionFeatures<'_>))
+                            .sampler_ycbcr_conversion = vk::TRUE;
+                    }
+                    at = s.p_next;
+                }
+            }
+            let raw = instance.create_device(physical, &info, None).map_err(|e| e.to_string())?;
+            hal.device_from_raw(
+                raw,
+                None,
+                &names,
                 desc.required_features,
                 &desc.required_limits,
                 &desc.memory_hints,
-                Some(Box::new(move |args| {
-                    for name in &wanted {
-                        if !args.extensions.contains(name) {
-                            args.extensions.push(name);
-                        }
-                    }
-                })),
+                0,
+                0,
             )
+            .map_err(|e| e.to_string())
         };
-        let open = match open(wanted) {
+        let open = match make(&dma_buf) {
             Ok(open) => open,
-            // A device that will not take the DMA-BUF extensions still gets incremental
-            // presents; pictures then come through CPU memory.
-            Err(_) if incremental && !dma_buf.is_empty() => {
-                match open(vec![ash::khr::incremental_present::NAME]) {
-                    Ok(open) => open,
-                    Err(e) => return Some(Err(e.to_string())),
-                }
-            }
-            Err(e) => return Some(Err(e.to_string())),
+            // A device that will not take the DMA-BUF extensions still gets the rest; its
+            // pictures then come through CPU memory.
+            Err(_) if !dma_buf.is_empty() && (incremental || video) => match make(&[]) {
+                Ok(open) => open,
+                Err(e) => return Some(Err(e)),
+            },
+            Err(e) => return Some(Err(e)),
         };
         drop(hal);
         Some(
@@ -154,8 +207,14 @@ pub(crate) struct VkChain {
     next_acquire: usize,
     format: wgpu::TextureFormat,
     vk_format: vk::Format,
+    /// The size asked for (the window's), and the size the images have (the surface's,
+    /// which can differ while the window is being resized).
+    want: (u32, u32),
     width: u32,
     height: u32,
+    /// The swapchain no longer fits the surface (or there is none, while the surface has no
+    /// size): it is built again before the next image, whatever size is asked for.
+    stale: bool,
     vsync: bool,
     incremental: bool,
     presents: u64,
@@ -163,9 +222,16 @@ pub(crate) struct VkChain {
     current: Option<(u32, usize)>,
     /// wgpu's surface, never configured: it owns the `VkSurfaceKHR` and outlives the swapchain.
     _surface: wgpu::Surface<'static>,
+    /// wgpu's device, kept so the `VkDevice` outlives the swapchain made on it.
+    wgpu_device: wgpu::Device,
+    /// Images wrapped as wgpu textures that wgpu has not let go of yet: an image must stay
+    /// valid until then.
+    wrapped: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
-// SAFETY: Vulkan handles are plain values; the chain is used from one thread at a time.
+// SAFETY: Vulkan handles are plain values, used from one thread at a time (`&mut self`). That
+// thread must also be the one that submits to wgpu's queue (see the module's docs): moving
+// the chain to another thread moves the window's presents with it.
 unsafe impl Send for VkChain {}
 
 fn vk_format(format: wgpu::TextureFormat) -> Option<vk::Format> {
@@ -232,18 +298,27 @@ impl VkChain {
             next_acquire: 0,
             format,
             vk_format,
-            width: width.max(1),
-            height: height.max(1),
+            want: (width.max(1), height.max(1)),
+            width: 0,
+            height: 0,
+            stale: true,
             vsync,
             incremental,
             presents: 0,
             current: None,
             _surface: surface,
+            wgpu_device: device.clone(),
+            wrapped: Default::default(),
         };
-        Ok(chain.rebuild().map(|()| chain))
+        // A surface with no size yet (a minimized window) gets its swapchain once it has one.
+        Ok(match chain.rebuild() {
+            Ok(()) | Err(ChainError::OutOfDate) => Ok(chain),
+            Err(e) => Err(e),
+        })
     }
 
-    /// Makes the swapchain (again) at the chain's size, replacing the old one.
+    /// Makes the swapchain (again) at the size asked for, replacing the old one.
+    /// `OutOfDate` while the surface has no size (the old swapchain, if any, stays).
     fn rebuild(&mut self) -> Result<(), ChainError> {
         // SAFETY: Vulkan calls on handles this chain owns; the device is idle before anything
         // it may still use is destroyed or replaced.
@@ -267,14 +342,15 @@ impl VkChain {
             };
             let extent = if caps.current_extent.width == u32::MAX {
                 vk::Extent2D {
-                    width: self.width.clamp(caps.min_image_extent.width, caps.max_image_extent.width),
-                    height: self.height.clamp(caps.min_image_extent.height, caps.max_image_extent.height),
+                    width: self.want.0.clamp(caps.min_image_extent.width, caps.max_image_extent.width),
+                    height: self.want.1.clamp(caps.min_image_extent.height, caps.max_image_extent.height),
                 }
             } else {
                 caps.current_extent
             };
             if extent.width == 0 || extent.height == 0 {
                 // A minimized window: nothing to build until it has a size again.
+                self.stale = true;
                 return Err(ChainError::OutOfDate);
             }
             let mut count = caps.min_image_count.max(3);
@@ -289,6 +365,14 @@ impl VkChain {
             if caps.supported_usage_flags.contains(vk::ImageUsageFlags::TRANSFER_SRC) {
                 usage |= vk::ImageUsageFlags::TRANSFER_SRC;
             }
+            // Frames are drawn upright: the presentation engine rotates them for a rotated
+            // display (as with wgpu's swapchain). The surface's current transform would say
+            // they are already rotated.
+            let transform = if caps.supported_transforms.contains(vk::SurfaceTransformFlagsKHR::IDENTITY) {
+                vk::SurfaceTransformFlagsKHR::IDENTITY
+            } else {
+                caps.current_transform
+            };
             let old = self.raw;
             let info = vk::SwapchainCreateInfoKHR::default()
                 .surface(self.raw_surface)
@@ -299,12 +383,14 @@ impl VkChain {
                 .image_array_layers(1)
                 .image_usage(usage)
                 .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-                .pre_transform(caps.current_transform)
+                .pre_transform(transform)
                 .composite_alpha(alpha)
                 .present_mode(mode)
                 .clipped(true)
                 .old_swapchain(old);
-            let _ = self.device.device_wait_idle();
+            self.let_go();
+            // The old swapchain is retired by this call even when it fails.
+            self.stale = true;
             let raw = self.swapchain_fns.create_swapchain(&info, None).map_err(failed("create swapchain"))?;
             for image in self.images.drain(..) {
                 self.device.destroy_semaphore(image.rendered, None);
@@ -329,8 +415,24 @@ impl VkChain {
             }
             self.images = made;
             self.current = None;
+            self.stale = false;
         }
         Ok(())
+    }
+
+    /// Waits until the device has finished everything submitted and wgpu has let go of every
+    /// texture wrapped from an image, so the images, and what waited on the semaphores, may go.
+    fn let_go(&self) {
+        // wgpu frees a texture once the submissions using it are done and it polls.
+        let _ = self.wgpu_device.poll(wgpu::PollType::wait_indefinitely());
+        // SAFETY: a call on wgpu's device, from the only thread that submits to its queue
+        // (the module's docs).
+        let _ = unsafe { self.device.device_wait_idle() };
+        debug_assert_eq!(
+            self.wrapped.load(std::sync::atomic::Ordering::Relaxed),
+            0,
+            "wgpu still holds a swapchain image",
+        );
     }
 
     /// Whether presents tell the presentation engine which rectangles changed.
@@ -338,24 +440,28 @@ impl VkChain {
         self.incremental
     }
 
-    /// The size the images have.
+    /// The size asked for last (the images have the surface's, which may differ).
     pub(crate) fn size(&self) -> (u32, u32) {
-        (self.width, self.height)
+        self.want
     }
 
-    /// Gives the swapchain a new size.
+    /// Gives the swapchain a new size, or builds it again at the same size when it no longer
+    /// fits the surface. `OutOfDate` while the surface has no size.
     pub(crate) fn resize(&mut self, width: u32, height: u32) -> Result<(), ChainError> {
-        let (width, height) = (width.max(1), height.max(1));
-        if (width, height) == (self.width, self.height) && self.raw != vk::SwapchainKHR::null() {
+        let want = (width.max(1), height.max(1));
+        if want == self.want && !self.stale {
             return Ok(());
         }
-        (self.width, self.height) = (width, height);
+        self.want = want;
         self.rebuild()
     }
 
     /// The next image, once the swapchain hands one out. `Ok(None)` when none came within a
     /// second (the window is hidden): draw again later.
     pub(crate) fn acquire(&mut self, device: &wgpu::Device) -> Result<Option<Acquired>, ChainError> {
+        if self.stale {
+            self.rebuild()?;
+        }
         let slot = self.next_acquire;
         let (semaphore, used) =
             self.acquires.get(slot).map(|(s, u)| (*s, u.clone())).ok_or(ChainError::OutOfDate)?;
@@ -369,7 +475,10 @@ impl VkChain {
         } {
             Ok((index, _suboptimal)) => index,
             Err(vk::Result::TIMEOUT | vk::Result::NOT_READY) => return Ok(None),
-            Err(e) => return Err(failed("acquire")(e)),
+            Err(e) => {
+                self.stale |= e == vk::Result::ERROR_OUT_OF_DATE_KHR;
+                return Err(failed("acquire")(e));
+            }
         };
         self.next_acquire = (slot + 1) % self.acquires.len();
         let image = self.images.get(index as usize).ok_or(ChainError::OutOfDate)?;
@@ -377,8 +486,11 @@ impl VkChain {
         let size = wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 };
         let usage =
             wgpu::TextureUses::COPY_DST | wgpu::TextureUses::COPY_SRC | wgpu::TextureUses::COLOR_TARGET;
+        let wrapped = self.wrapped.clone();
+        wrapped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // SAFETY: the image is this swapchain's, of this format and size; the drop callback
-        // leaves it to the swapchain. It is in the present layout once it has been presented,
+        // leaves it to the swapchain, which is destroyed only once wgpu let go of every
+        // texture wrapped from it (`let_go`). It is in the present layout once it has been presented,
         // and holds nothing (undefined) before.
         let texture = unsafe {
             let hal = device.as_hal::<Vk>().ok_or(ChainError::Lost)?;
@@ -395,7 +507,9 @@ impl VkChain {
                     memory_flags: wgpu::hal::MemoryFlags::empty(),
                     view_formats: Vec::new(),
                 },
-                Some(Box::new(|| {})),
+                Some(Box::new(move || {
+                    wrapped.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                })),
                 wgpu::hal::vulkan::TextureMemory::External,
             );
             drop(hal);
@@ -427,7 +541,8 @@ impl VkChain {
     pub(crate) fn wait_for_image(&self, queue: &wgpu::Queue) {
         let Some((_, slot)) = self.current else { return };
         let Some(&(semaphore, _)) = self.acquires.get(slot) else { return };
-        // SAFETY: the semaphore is the one the acquire signals; wgpu waits on it once.
+        // SAFETY: the semaphore is the one the acquire signals; wgpu's next submission waits on
+        // it once, and that is this frame's (only this thread submits: the module's docs).
         if let Some(hal) = unsafe { queue.as_hal::<Vk>() } {
             hal.add_wait_semaphore(semaphore, None, vk::PipelineStageFlags::ALL_COMMANDS);
         }
@@ -507,6 +622,19 @@ impl VkChain {
         if let Some(a) = self.acquires.get_mut(slot) {
             a.1 = Some(submitted);
         }
+        // A submission wgpu rejected (an invalid command buffer) never reached the queue, and
+        // the semaphores staged for it would go with the next one, whoever makes it; the
+        // present would wait for a signal that never comes. The image cannot be shown.
+        // SAFETY: the semaphores are this chain's, staged above.
+        if let Some(hal) = unsafe { queue.as_hal::<Vk>() }
+            && hal.remove_signal_semaphore(rendered)
+        {
+            if let Some(&(acquired, _)) = self.acquires.get(slot) {
+                hal.remove_wait_semaphore(acquired);
+            }
+            self.stale = true;
+            return Err(ChainError::Failed("wgpu rejected the frame's submission".into()));
+        }
         let rects: Vec<vk::RectLayerKHR> = damage
             .unwrap_or_default()
             .iter()
@@ -536,27 +664,32 @@ impl VkChain {
         if self.incremental && damage.is_some() {
             info = info.push_next(&mut region_info);
         }
-        // SAFETY: presenting this chain's acquired image on wgpu's queue, from the thread that
-        // submits to it.
+        // SAFETY: presenting this chain's acquired image on wgpu's queue, outside wgpu's lock:
+        // this is the only thread that submits to it (the module's docs).
         let result = unsafe { self.swapchain_fns.queue_present(self.queue, &info) };
         self.presents += 1;
         if let Some(image) = self.images.get_mut(index as usize) {
             image.last_presented = self.presents;
         }
-        match result {
-            Ok(suboptimal) => Ok(suboptimal),
-            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => Ok(true),
-            Err(e) => Err(failed("present")(e)),
-        }
+        let rebuild = match result {
+            // Android reports every present suboptimal while the display is rotated away from
+            // the swapchain's transform; the compositor rotates (as with wgpu's swapchain).
+            Ok(suboptimal) => suboptimal && cfg!(not(target_os = "android")),
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => true,
+            Err(e) => return Err(failed("present")(e)),
+        };
+        self.stale |= rebuild;
+        Ok(rebuild)
     }
 }
 
 impl Drop for VkChain {
     fn drop(&mut self) {
-        // SAFETY: the device is idle before the swapchain and semaphores go; wgpu's surface,
-        // which owns the VkSurfaceKHR, is dropped after (a field).
+        self.let_go();
+        // SAFETY: the device is idle and wgpu holds no image before the swapchain and
+        // semaphores go; wgpu's surface, which owns the VkSurfaceKHR, and wgpu's device are
+        // dropped after (fields).
         unsafe {
-            let _ = self.device.device_wait_idle();
             for image in self.images.drain(..) {
                 self.device.destroy_semaphore(image.rendered, None);
             }
