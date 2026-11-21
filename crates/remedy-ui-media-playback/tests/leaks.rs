@@ -359,6 +359,7 @@ fn streamed_within(how: Serve, within: Duration, then: impl FnOnce(&Player)) {
         eprintln!("no platform host here, skipping");
         return;
     };
+    gpu_renderer();
     let url = server(how);
     let none = AtomicUsize::new(0);
     let (before, threads) = (census(&none), process_threads());
@@ -368,6 +369,31 @@ fn streamed_within(how: Serve, within: Duration, then: impl FnOnce(&Player)) {
     drop(p);
     drop(ui);
     settles_within("after the drop", within, before, &threads, &none);
+    // Under REMEDY_D3D_DEBUG=1 on Windows: nothing alive on the decoder's D3D11 device but
+    // the device, once everything above has gone.
+    let (devices, leaked) = live_d3d_objects();
+    if devices > 0 {
+        eprintln!(
+            "D3D11 live-object report on {devices} decoder device(s): {} beyond the device",
+            leaked.len()
+        );
+    }
+    assert!(leaked.is_empty(), "alive on the decoder's D3D11 device: {leaked:#?}");
+}
+
+/// Windows: a GPU renderer on the process's shared device, made once, so the platform's
+/// decoder decodes on a D3D11 device of its own the leak cases can look at. Kept for the
+/// process (the shared device is, by design).
+fn gpu_renderer() {
+    #[cfg(windows)]
+    {
+        use remedy_ui_render_gpu::{GpuContext, GpuRenderer, LadderOptions};
+        static MADE: std::sync::Once = std::sync::Once::new();
+        MADE.call_once(|| match GpuContext::shared(&LadderOptions::default()) {
+            Ok(ctx) => std::mem::forget(GpuRenderer::new(ctx, None)),
+            Err(e) => eprintln!("no GPU renderer ({e}): the decoder stays on the CPU"),
+        });
+    }
 }
 
 #[test]

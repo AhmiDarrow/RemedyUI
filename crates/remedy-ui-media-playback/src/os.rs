@@ -61,6 +61,19 @@ pub(crate) fn live_objects() -> usize {
     live
 }
 
+/// The D3D11 debug layer's lines for objects alive on decoder devices beyond the devices
+/// themselves (Windows, `REMEDY_D3D_DEBUG=1`); empty elsewhere.
+pub(crate) fn live_d3d_objects() -> (usize, Vec<String>) {
+    #[cfg(windows)]
+    {
+        d3d11::live_objects_report()
+    }
+    #[cfg(not(windows))]
+    {
+        (0, Vec::new())
+    }
+}
+
 /// The threads this process runs: each one's name, and where the platform says, the module
 /// it started in.
 pub(crate) fn process_threads() -> Vec<(String, String)> {
