@@ -34,6 +34,7 @@ playback-cast-paused = Пауза на { $device }
 playback-cast-buffering = Загрузка на { $device }
 playback-cast-ended = Завершено на { $device }
 playback-cast-failed = Не удаётся воспроизвести на { $device }
+playback-cast-next = Запуск { $title } на { $device }
 playback-seek = Позиция воспроизведения
 playback-seek-value = { $position } из { $duration }
 playback-next-up = Далее: { $title }

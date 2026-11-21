@@ -154,6 +154,10 @@ fn nudge_volume(p: &Player, up: bool) {
 /// remote mode the full-screen and theater buttons are disabled and F, T and a double-click
 /// do nothing, except to leave full screen or theater mode when casting started in it.
 ///
+/// While the app makes a next made [later](crate::NextUp::later) ("Starting …" over the
+/// picture, as an alert), or a device starts its next by itself, the seek bar is disabled
+/// and the time blank.
+///
 /// Sound-only media shows the transport bar alone. Media with pictures pauses while the
 /// player is unseen (see [`UnseenPolicy`](crate::UnseenPolicy)), and does not start by itself
 /// under reduced motion.
@@ -210,6 +214,7 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
             }
             // The next, while the app makes it, as Portal's page says it: the title, then
             // what the app is doing.
+            _ if p.is_remote() => None,
             _ => match p.starting_next() {
                 Some(title) => {
                     let head =
@@ -317,6 +322,11 @@ pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     );
     let (p, tu) = (player.clone(), ui.clone());
     let time = ui.el("label").nowrap().layout(|l| l.shrink = 0.0).text(move || {
+        // Starting the next, the old media's numbers no longer hold and the new one's are
+        // not known yet.
+        if p.starting_next().is_some() {
+            return String::new();
+        }
         let pos = format_time(p.position());
         match p.duration() {
             Some(d) => crate::STRINGS.format(
@@ -620,7 +630,9 @@ fn cast_stage(ui: &Ui, player: &Player) -> El {
         let name = p.remote_name();
         let _ = pa.clone().hidden(name.is_none());
         let Some(name) = name else { return };
+        let next = p.starting_next();
         let id = match p.state() {
+            _ if next.is_some() => "playback-cast-next",
             PlaybackState::Opening => "playback-cast-connecting",
             PlaybackState::Paused => "playback-cast-paused",
             PlaybackState::Playing => "playback-cast-playing",
@@ -628,7 +640,11 @@ fn cast_stage(ui: &Ui, player: &Player) -> El {
             PlaybackState::Ended => "playback-cast-ended",
             PlaybackState::Failed => "playback-cast-failed",
         };
-        let said = crate::STRINGS.format(&tu, id, &[("device", name.clone().into())]);
+        let said = crate::STRINGS.format(
+            &tu,
+            id,
+            &[("device", name.clone().into()), ("title", next.unwrap_or_default().into())],
+        );
         // The words either side of the name (which the catalog may isolate, U+2068 ... U+2069).
         let clean = said.replace(['\u{2068}', '\u{2069}'], "");
         let (lead, trail) = clean.split_once(name.as_str()).unwrap_or(("", ""));

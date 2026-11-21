@@ -1383,6 +1383,7 @@ fn casting_hands_every_control_to_the_remote_and_back() {
         length: Some(Duration::from_secs(100)),
         volume: 0.5,
         muted: false,
+        next: None,
     };
     p.set_remote_status(status.clone());
     s.pump();
@@ -2401,4 +2402,57 @@ fn while_casting_a_next_made_later_is_never_asked_for() {
     assert!(asked.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
     assert_eq!(p.starting_next(), None);
     assert_eq!(*log.lock().unwrap_or_else(|e| e.into_inner()), ["next"], "the device is told");
+}
+
+#[test]
+fn a_tv_starting_its_next_by_itself_says_so_then_switches_to_the_new_job_at_once() {
+    let mut s = Screen::new();
+    let at = Duration::from_secs;
+    let options = PlayerOptions::default()
+        .next_up_lead(Some(at(20)))
+        .next_up_delay(Some(Duration::ZERO))
+        .timeline(Timeline::new(at(0)).length(at(2500)));
+    let p = Player::open(&s.ui, Arc::new(Clips), MediaSource::url("script:70"), options);
+    let view = player(&s.ui, &p, "S4E1");
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    let visible = |v: &El, name: &str| named(v, name).and_then(|b| b.info()).is_some_and(|i| !i.hidden);
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let old_art = s.ui.el("label").text("Season 4 episode 1");
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone())).poster(old_art)));
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Ended, at(2500)).length(at(2500)));
+    s.pump();
+    assert!(visible(&view, "Finished on The Ris"));
+    // Portal's device state "next": position 0, no length, the next's title.
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Opening, at(0)).starting_next("4x02. Switchback"));
+    s.pump();
+    assert!(announced(&view, "Starting 4x02. Switchback on The Ris"), "the stage says it, politely");
+    assert_eq!(p.starting_next().as_deref(), Some("4x02. Switchback"));
+    assert!(seek_disabled(&view), "the bar waits");
+    assert!(
+        !texts(&view, "label").iter().any(|t| t.contains(" / ")),
+        "no 0:00 / 0:00: {:?}",
+        texts(&view, "label")
+    );
+    assert!(!card_shown(&view));
+    // The app adopts the new job while still remote: its timeline, its poster, then the TV
+    // playing from 0.
+    let new_art = s.ui.el("label").text("Season 4 episode 2");
+    p.set_timeline(Some(Timeline::new(at(0)).length(at(2497))));
+    p.set_remote_poster(Some(new_art.clone()));
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Playing, at(0)).length(at(2497)));
+    s.pump();
+    assert!(p.is_remote());
+    assert_eq!((p.position(), p.duration()), (at(0), Some(at(2497))));
+    assert!(texts(&view, "label").iter().any(|t| t == "0:00 / 41:37"), "{:?}", texts(&view, "label"));
+    assert!(!seek_disabled(&view));
+    assert!(visible(&view, "Playing on The Ris"));
+    let on_stage =
+        find(&view, "player_poster").iter().flat_map(El::child_elements).map(|e| e.id()).collect::<Vec<_>>();
+    assert_eq!(on_stage, [new_art.id()], "the new poster");
+    s.idle(400);
+    assert!(p.position() < at(2), "moves on from 0, never back to the old job's numbers");
+    assert!(log.lock().unwrap_or_else(|e| e.into_inner()).is_empty(), "the TV was told nothing");
+    let problems = remedy_ui_devtools::audit(&s.ui);
+    assert!(problems.is_empty(), "{problems:?}");
 }

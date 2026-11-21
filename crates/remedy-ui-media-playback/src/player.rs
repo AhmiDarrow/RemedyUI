@@ -205,6 +205,9 @@ pub struct RemoteStatus {
     pub volume: f32,
     /// Whether it is muted.
     pub muted: bool,
+    /// The title of what the device starts next by itself (a media server's autoplay), while
+    /// it starts it: the casting stage says so and the seek bar waits.
+    pub next: Option<String>,
 }
 
 impl RemoteStatus {
@@ -229,6 +232,12 @@ impl RemoteStatus {
     /// Sets `muted`.
     pub fn muted(mut self, value: bool) -> Self {
         self.muted = value;
+        self
+    }
+
+    /// Sets `next`: the device is starting `title` by itself.
+    pub fn starting_next(mut self, title: impl Into<String>) -> Self {
+        self.next = Some(title.into());
         self
     }
 }
@@ -301,6 +310,7 @@ impl Default for RemoteStatus {
             length: None,
             volume: 1.0,
             muted: false,
+            next: None,
         }
     }
 }
@@ -1421,6 +1431,18 @@ impl Player {
         self.0.schedule_remote_tick();
     }
 
+    /// Shows `poster` on the casting stage in place of the remote's (the device moved on to
+    /// other media), staying in remote mode. Nothing outside it.
+    pub fn set_remote_poster(&self, poster: Option<El>) {
+        if self.is_remote_untracked() {
+            self.0.remote.update(|r| {
+                if let Some(r) = r {
+                    r.poster = poster;
+                }
+            });
+        }
+    }
+
     /// The device's name, in remote mode. Tracked.
     pub fn remote_name(&self) -> Option<String> {
         self.0.remote.with(|r| r.as_ref().map(|r| r.name.clone()))
@@ -1555,10 +1577,14 @@ impl Player {
         self.0.next_needed_handlers.borrow_mut().push(Rc::new(f));
     }
 
-    /// The title of the next while the app makes it ([`on_next_needed`](Self::on_next_needed)).
+    /// The title of the next while the app makes it ([`on_next_needed`](Self::on_next_needed));
+    /// in remote mode, while the device starts it by itself ([`RemoteStatus::next`]).
     /// Tracked.
     pub fn starting_next(&self) -> Option<String> {
-        self.0.starting.get()
+        match self.is_remote() {
+            true => self.0.remote_status.with(|s| s.next.clone()),
+            false => self.0.starting.get(),
+        }
     }
 
     /// What the app is doing to start the next, shown and announced under "Starting …"
