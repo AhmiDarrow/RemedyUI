@@ -297,6 +297,16 @@ impl GpuContext {
         self.lost.load(Ordering::SeqCst)
     }
 
+    /// Records that the device is lost, found by a call outside wgpu (a window's own
+    /// swapchain): the next frame recovers, as after a loss wgpu reports.
+    #[cfg_attr(
+        not(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios"))))),
+        allow(dead_code)
+    )]
+    pub(crate) fn mark_lost(&self) {
+        self.lost.store(true, Ordering::SeqCst);
+    }
+
     /// Destroys the device as a driver reset would, to exercise recovery.
     pub fn force_loss(&self) {
         self.device.destroy();

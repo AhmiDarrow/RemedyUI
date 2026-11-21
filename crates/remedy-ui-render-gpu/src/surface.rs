@@ -327,9 +327,71 @@ fn own_vulkan_or_wgpu(
 fn vk_error(e: crate::ffi::vulkan::ChainError) -> GpuError {
     match e {
         crate::ffi::vulkan::ChainError::Lost => GpuError::Lost,
+        crate::ffi::vulkan::ChainError::SurfaceLost => {
+            GpuError::Surface("the window's surface was lost".into())
+        }
         crate::ffi::vulkan::ChainError::OutOfDate => GpuError::Surface("the swapchain no longer fits".into()),
         crate::ffi::vulkan::ChainError::Failed(why) => GpuError::Surface(why),
     }
+}
+
+/// How a window's own swapchain failed.
+#[cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))]
+enum Failure {
+    /// The device is lost.
+    Device,
+    /// The window's surface is lost, or the swapchain no longer fits it (Vulkan).
+    #[cfg_attr(all(windows, not(feature = "windows-vulkan")), allow(dead_code))]
+    Surface,
+    /// Anything else.
+    Other(GpuError),
+}
+
+/// A window's own swapchain failed presenting: it is dropped, and the next present builds
+/// another. A lost device is marked lost, so the next frame recovers it as when wgpu finds a
+/// loss; only other failures are errors, which move the window to the CPU renderer.
+#[cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))]
+fn chain_failed(ctx: &GpuContext, surface: &mut GpuSurface, failure: Failure) -> Result<Presented, GpuError> {
+    surface.surface = None;
+    match failure {
+        Failure::Device => {
+            ctx.mark_lost();
+            Ok(Presented::Retry)
+        }
+        Failure::Surface => Ok(Presented::Retry),
+        Failure::Other(e) => Err(e),
+    }
+}
+
+#[cfg(any(
+    all(unix, not(any(target_os = "macos", target_os = "ios"))),
+    all(windows, feature = "windows-vulkan")
+))]
+fn vk_failed(
+    ctx: &GpuContext,
+    surface: &mut GpuSurface,
+    e: crate::ffi::vulkan::ChainError,
+) -> Result<Presented, GpuError> {
+    use crate::ffi::vulkan::ChainError;
+    let failure = match e {
+        ChainError::Lost => Failure::Device,
+        ChainError::SurfaceLost | ChainError::OutOfDate => Failure::Surface,
+        e => Failure::Other(vk_error(e)),
+    };
+    chain_failed(ctx, surface, failure)
+}
+
+#[cfg(windows)]
+fn dxgi_failed(
+    ctx: &GpuContext,
+    surface: &mut GpuSurface,
+    e: crate::ffi::dxgi::ChainError,
+) -> Result<Presented, GpuError> {
+    let failure = match e {
+        crate::ffi::dxgi::ChainError::Lost => Failure::Device,
+        e => Failure::Other(chain_error(e)),
+    };
+    chain_failed(ctx, surface, failure)
 }
 
 #[cfg(windows)]
@@ -438,14 +500,22 @@ impl GpuCompositor {
             surface.surface = None;
             let transparent = surface.config.alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied;
             let vsync = surface.config.present_mode != wgpu::PresentMode::AutoNoVsync;
-            let (s, c, v, r) = build(
+            let (s, c, v, r) = match build(
                 self.renderer().context(),
                 &surface.handles,
                 surface.config.width,
                 surface.config.height,
                 transparent,
                 vsync,
-            )?;
+            ) {
+                Ok(built) => built,
+                // A device lost under a window's own swapchain: the next frame recovers it.
+                Err(GpuError::Lost) => {
+                    self.renderer().context().mark_lost();
+                    return Ok(Presented::Retry);
+                }
+                Err(e) => return Err(e),
+            };
             (surface.surface, surface.config, surface.vello, surface.resources) = (Some(s), c, v, r);
             surface.copies = surface.config.usage.contains(wgpu::TextureUsages::COPY_DST);
             // Tiles and the kept frame are device textures: a lost swapchain on a living
@@ -579,28 +649,30 @@ impl GpuCompositor {
         if chain.size() != (surface.config.width, surface.config.height)
             && let Err(e) = chain.resize(&ctx.device, surface.config.width, surface.config.height)
         {
-            surface.surface = None;
-            return match chain_error(e) {
-                GpuError::Lost => Err(GpuError::Lost),
-                _ => Ok(Presented::Retry),
+            // Built again at the next present.
+            return match e {
+                crate::ffi::dxgi::ChainError::Failed(_) => {
+                    surface.surface = None;
+                    Ok(Presented::Retry)
+                }
+                e => dxgi_failed(ctx, surface, e),
             };
         }
         let acquire = remedy_ui_trace::phase!("present").entered();
         let acquired = match chain.acquire(&ctx.device) {
             Ok(Some(a)) => a,
             Ok(None) => return Ok(Presented::Occluded),
-            Err(e) => {
-                surface.surface = None;
-                return Err(chain_error(e));
-            }
+            Err(e) => return dxgi_failed(ctx, surface, e),
         };
         drop(acquire);
         let _present = remedy_ui_trace::phase!("present").entered();
         let Some(kept) = surface.frame.as_ref() else {
             // Nothing drawn yet: the buffer goes back as it came.
             drop(acquired);
-            if let Some(Swap::Dxgi(chain)) = surface.surface.as_mut() {
-                chain.present(LastUse::Untouched, Some(&[])).map_err(chain_error)?;
+            if let Some(Swap::Dxgi(chain)) = surface.surface.as_mut()
+                && let Err(e) = chain.present(LastUse::Untouched, Some(&[]))
+            {
+                return dxgi_failed(ctx, surface, e);
             }
             return Ok(Presented::Retry);
         };
@@ -623,8 +695,7 @@ impl GpuCompositor {
         drop(acquired);
         let Some(Swap::Dxgi(chain)) = surface.surface.as_mut() else { return Ok(Presented::Retry) };
         if let Err(e) = chain.present(last, changed.as_deref()) {
-            surface.surface = None;
-            return Err(chain_error(e));
+            return dxgi_failed(ctx, surface, e);
         }
         surface.history.push_front(std::mem::take(&mut surface.pending));
         surface.history.truncate(16);
@@ -646,10 +717,7 @@ impl GpuCompositor {
         {
             return match e {
                 crate::ffi::vulkan::ChainError::OutOfDate => Ok(Presented::Occluded),
-                e => {
-                    surface.surface = None;
-                    Err(vk_error(e))
-                }
+                e => vk_failed(ctx, surface, e),
             };
         }
         let acquire = remedy_ui_trace::phase!("present").entered();
@@ -660,10 +728,7 @@ impl GpuCompositor {
                 let (w, h) = (surface.config.width, surface.config.height);
                 return Ok(if chain.resize(w, h).is_ok() { Presented::Retry } else { Presented::Occluded });
             }
-            Err(e) => {
-                surface.surface = None;
-                return Err(vk_error(e));
-            }
+            Err(e) => return vk_failed(ctx, surface, e),
         };
         chain.wait_for_image(&ctx.queue);
         drop(acquire);
@@ -703,10 +768,7 @@ impl GpuCompositor {
                     surface.surface = None;
                 }
             }
-            Err(e) => {
-                surface.surface = None;
-                return Err(vk_error(e));
-            }
+            Err(e) => return vk_failed(ctx, surface, e),
         }
         if !drawn {
             return Ok(Presented::Retry);

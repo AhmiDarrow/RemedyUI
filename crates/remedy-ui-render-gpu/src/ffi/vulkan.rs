@@ -19,8 +19,10 @@ const ACQUIRE_TIMEOUT_NS: u64 = 1_000_000_000;
 /// Why a swapchain call failed.
 #[derive(Debug)]
 pub(crate) enum ChainError {
-    /// The device or surface was lost: recover, then build again.
+    /// The device was lost: recover it, then build again.
     Lost,
+    /// The window's surface was lost: build again on a new one.
+    SurfaceLost,
     /// The swapchain no longer fits the surface: build it again at the next present.
     OutOfDate,
     /// Anything else, with what was being done.
@@ -29,7 +31,8 @@ pub(crate) enum ChainError {
 
 fn failed(what: &'static str) -> impl Fn(vk::Result) -> ChainError {
     move |r| match r {
-        vk::Result::ERROR_DEVICE_LOST | vk::Result::ERROR_SURFACE_LOST_KHR => ChainError::Lost,
+        vk::Result::ERROR_DEVICE_LOST => ChainError::Lost,
+        vk::Result::ERROR_SURFACE_LOST_KHR => ChainError::SurfaceLost,
         vk::Result::ERROR_OUT_OF_DATE_KHR => ChainError::OutOfDate,
         other => ChainError::Failed(format!("{what}: {other}")),
     }
