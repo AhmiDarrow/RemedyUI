@@ -320,8 +320,9 @@ impl GpuVideos {
             // A picture on the GPU is sampled where it is when this device can open it.
             let opened = frame.gpu.as_ref().and_then(|g| s.shared.open(device, g));
             let in_place = opened.is_some();
-            let views: Vec<wgpu::TextureView> = match opened {
-                Some(views) => views,
+            // What the views hold: the picture's own format, or a read-back's (RGBA).
+            let (views, format): (Vec<wgpu::TextureView>, PixelFormat) = match opened {
+                Some(views) => (views, frame.format),
                 None => {
                     // Otherwise its bytes are uploaded, read back first when it is on the GPU.
                     let cpu = frame.in_cpu_memory()?;
@@ -345,11 +346,17 @@ impl GpuVideos {
                     }
                     upload(queue, &cpu, &s.planes)?;
 
-                    s.planes.iter().map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())).collect()
+                    (
+                        s.planes
+                            .iter()
+                            .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()))
+                            .collect(),
+                        cpu.format,
+                    )
                 }
             };
             let k = Coefficients::new(frame.matrix, frame.full_range);
-            let kind: u32 = match frame.format {
+            let kind: u32 = match format {
                 PixelFormat::Rgba => 0,
                 PixelFormat::Nv12 => 1,
                 PixelFormat::I420 => 2,

@@ -48,11 +48,12 @@ const CLIP: &[u8] = include_bytes!("fixtures/clip.mp4");
 export function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 export function blobUrl(bytes) { return URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' })); }
 // Counts, from now on, every VideoFrame.copyTo and close in the page, and each way a frame
-// reaches a texture: imported (WebGPU), copied on the GPU (WebGPU), given to texSubImage2D
-// (WebGL2), or drawn into a 2D canvas to be read back (the CPU's way).
+// reaches a texture: imported (WebGPU), copied on the GPU (WebGPU: the frame, or a canvas it
+// was drawn into), given to texSubImage2D (WebGL2), or read back from a 2D canvas (the CPU's
+// way). Only calls that succeed are counted.
 export function spyOnFrames() {
   if (window.__frames) return;
-  const counts = { copyTo: 0, close: 0, imported: 0, gpuCopied: 0, texImage: 0, readBack: 0, gpuErrors: 0 };
+  const counts = { copyTo: 0, close: 0, imported: 0, gpuCopied: 0, canvasCopied: 0, texImage: 0, readBack: 0, gpuErrors: 0 };
   window.__frames = counts;
   // Every WebGPU device made from now on reports its uncaught errors here too (wgpu's own
   // handler keeps them to itself).
@@ -69,15 +70,22 @@ export function spyOnFrames() {
   const wrap = (proto, name, key, test) => {
     if (!proto || !proto[name]) return;
     const f = proto[name];
-    proto[name] = function (...a) { if (!test || test(a)) counts[key]++; return f.apply(this, a); };
+    proto[name] = function (...a) { const r = f.apply(this, a); if (!test || test(a)) counts[key]++; return r; };
   };
   const frame = (v) => v instanceof VideoFrame;
   wrap(VideoFrame.prototype, 'copyTo', 'copyTo');
   wrap(VideoFrame.prototype, 'close', 'close');
   wrap(window.GPUDevice && GPUDevice.prototype, 'importExternalTexture', 'imported');
-  wrap(window.GPUQueue && GPUQueue.prototype, 'copyExternalImageToTexture', 'gpuCopied', (a) => frame(a[0] && a[0].source));
+  const canvas = (v) => window.OffscreenCanvas && v instanceof OffscreenCanvas;
+  wrap(window.GPUQueue && GPUQueue.prototype, 'copyExternalImageToTexture', 'gpuCopied', (a) => a[0] && (frame(a[0].source) || canvas(a[0].source)));
+  wrap(window.GPUQueue && GPUQueue.prototype, 'copyExternalImageToTexture', 'canvasCopied', (a) => a[0] && canvas(a[0].source));
   wrap(WebGL2RenderingContext.prototype, 'texSubImage2D', 'texImage', (a) => frame(a[a.length - 1]));
-  wrap(window.OffscreenCanvasRenderingContext2D && OffscreenCanvasRenderingContext2D.prototype, 'drawImage', 'readBack', (a) => frame(a[0]));
+  wrap(window.OffscreenCanvasRenderingContext2D && OffscreenCanvasRenderingContext2D.prototype, 'getImageData', 'readBack');
+}
+// Test-only: a WebGPU device that cannot import frames, so the renderer copies them instead
+// (`copyExternalImageToTexture`), as on a browser without external textures.
+export function hideImport() {
+  if (window.GPUDevice) delete GPUDevice.prototype.importExternalTexture;
 }
 export function probe() {
   const c = document.createElement('canvas');
@@ -161,6 +169,8 @@ extern "C" {
     fn probe() -> String;
     #[wasm_bindgen(js_name = preserveWebgl)]
     fn preserve_webgl();
+    #[wasm_bindgen(js_name = hideImport)]
+    fn hide_import();
     #[wasm_bindgen(js_name = pixelUnder)]
     fn pixel_under(canvas: &web_sys::HtmlCanvasElement, label: &str) -> js_sys::Promise;
 }
@@ -297,6 +307,12 @@ async fn hue_on_screen(canvas: &web_sys::HtmlCanvasElement) -> (char, Vec<u8>) {
 async fn the_gpu_renderer_shows_frames_imported_where_they_are() {
     spy_on_frames();
     preserve_webgl();
+    // Built with `REMEDY_WEB_GPU_NO_IMPORT=1`, the page's WebGPU cannot import frames, so the
+    // copy that browsers without external textures get is checked in any browser.
+    let no_import = option_env!("REMEDY_WEB_GPU_NO_IMPORT").is_some();
+    if no_import {
+        hide_import();
+    }
     let url = blob_url(CLIP);
     let app: Rc<RefCell<Option<App>>> = Rc::default();
     let slot: Rc<RefCell<Option<Player>>> = Rc::default();
@@ -387,6 +403,7 @@ async fn the_gpu_renderer_shows_frames_imported_where_they_are() {
     assert_eq!(p.state(), PlaybackState::Ended, "the clip plays to the end");
     let stats = p.stats();
     let copied = count("copyTo") - copies;
+    let canvas_copied = count("canvasCopied");
     let (imported, gpu_copied, tex_image, read_back) = (
         count("imported") - imported,
         count("gpuCopied") - gpu_copied,
@@ -396,7 +413,7 @@ async fn the_gpu_renderer_shows_frames_imported_where_they_are() {
     web_sys::console::log_1(
         &format!(
             "{kind}: {stats:?}; copyTo {copied}, importExternalTexture {imported}, \
-             copyExternalImageToTexture {gpu_copied}, texSubImage2D {tex_image}, read back {read_back}"
+             copyExternalImageToTexture {gpu_copied} ({canvas_copied} from a canvas), texSubImage2D {tex_image}, read back {read_back}"
         )
         .into(),
     );
@@ -412,6 +429,9 @@ async fn the_gpu_renderer_shows_frames_imported_where_they_are() {
         // frames (the pipeline's error scope), and those are read back.
         assert_eq!(tex_image, 0, "WebGPU has no WebGL2 context");
         assert!(read_back <= 2, "{read_back} pictures read back");
+        if no_import {
+            assert_eq!(imported, 0, "nothing is imported where WebGPU cannot");
+        }
     }
     assert_eq!(count("gpuErrors"), 0, "WebGPU reported no errors");
     if let Some(a) = app.borrow().as_ref() {
