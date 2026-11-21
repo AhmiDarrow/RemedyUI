@@ -579,7 +579,7 @@ impl HttpFetch {
 }
 
 impl Fetch for HttpFetch {
-    fn get(&mut self, url: &str) -> Result<Vec<u8>, MediaError> {
+    fn get(&mut self, url: &str, stop: &AtomicBool) -> Result<Vec<u8>, MediaError> {
         if let Some(path) = file_path(url) {
             return std::fs::read(&path).map_err(|e| MediaError::NotFound(format!("{path}: {e}")));
         }
@@ -642,7 +642,7 @@ impl Fetch for HttpFetch {
         unsafe { WinHttpSetTimeouts(request.0, first, first, first, first) }.map_err(failed)?;
         // WinHTTP's own receive timeout did not end a body gone quiet, so a watchdog closes the
         // request, which ends the call waiting on it: no answer for FIRST_BYTE, no byte for
-        // QUIET once it answered, or LOAD in all.
+        // QUIET once it answered, or LOAD in all; or at once when the reader has gone (`stop`).
         let req = request.0;
         let watched = (std::sync::Mutex::new(Some(request)), std::sync::Condvar::new());
         // When something last came (ms from `started`) and how long it may stop for.
@@ -658,7 +658,10 @@ impl Fetch for HttpFetch {
                 while open.is_some() {
                     let since = started.elapsed().as_millis() as u64;
                     let quiet = since.saturating_sub(last.load(Ordering::Relaxed));
-                    if since > LOAD.as_millis() as u64 || quiet > limit.load(Ordering::Relaxed) {
+                    if since > LOAD.as_millis() as u64
+                        || quiet > limit.load(Ordering::Relaxed)
+                        || stop.load(Ordering::Relaxed)
+                    {
                         gave_up.store(true, Ordering::Relaxed);
                         *open = None;
                         return;
@@ -939,6 +942,9 @@ mod tests {
         // `/grows` (a playlist fetched again must not come from a cache); anything else is 404.
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| unreachable!("{e}"));
         let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
+        // Every path asked, in order.
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let log = asked.clone();
         std::thread::spawn(move || {
             for (k, s) in listener.incoming().flatten().enumerate() {
                 let mut line = String::new();
@@ -946,6 +952,7 @@ mod tests {
                 let _ = r.read_line(&mut line);
                 let path = line.split(' ').nth(1).unwrap_or_default().trim_start_matches('/').to_string();
                 while r.read_line(&mut line).is_ok_and(|n| n > 2) {}
+                log.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(path.clone());
                 let body = match path.parse::<usize>() {
                     Ok(n) => Some(vec![(n % 256) as u8; n]),
                     Err(_) if path == "grows" => Some(format!("request {k}").into_bytes()),
@@ -967,26 +974,32 @@ mod tests {
         });
         let mut f = HttpFetch::new().unwrap_or_else(|e| unreachable!("{e}"));
         let url = |p: &str| format!("http://127.0.0.1:{port}/{p}");
-        let big = f.get(&url("200000")).unwrap_or_else(|e| unreachable!("{e}"));
+        let big = f.get(&url("200000"), &AtomicBool::new(false)).unwrap_or_else(|e| unreachable!("{e}"));
         assert!(big.len() == 200_000 && big.iter().all(|b| *b == (200_000 % 256) as u8));
-        // A 1080p segment's size, from this machine: curl takes a few milliseconds.
+        // A 1080p segment's size, from this machine: curl takes a few milliseconds. Whole, in one
+        // request (no retries, no ranges); the clock only catches a hang, as a loaded machine
+        // (tests in loops, a parallel build) stretches any download.
         let started = std::time::Instant::now();
-        let seg = f.get(&url("4317044")).unwrap_or_else(|e| unreachable!("{e}"));
+        let seg = f.get(&url("4317044"), &AtomicBool::new(false)).unwrap_or_else(|e| unreachable!("{e}"));
         let took = started.elapsed();
         eprintln!("fetched 4,317,044 bytes in {took:?}");
-        assert_eq!(seg.len(), 4_317_044);
-        assert!(took < std::time::Duration::from_millis(500), "a 4 MB segment took {took:?}");
-        let a = f.get(&url("grows")).unwrap_or_else(|e| unreachable!("{e}"));
-        let b = f.get(&url("grows")).unwrap_or_else(|e| unreachable!("{e}"));
+        assert!(seg.len() == 4_317_044 && seg.iter().all(|b| *b == (4_317_044 % 256) as u8));
+        let asked_for = |p: &str| {
+            asked.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().filter(|a| *a == p).count()
+        };
+        assert_eq!(asked_for("4317044"), 1, "one request for the segment");
+        assert!(took < std::time::Duration::from_secs(10), "a 4 MB segment took {took:?}");
+        let a = f.get(&url("grows"), &AtomicBool::new(false)).unwrap_or_else(|e| unreachable!("{e}"));
+        let b = f.get(&url("grows"), &AtomicBool::new(false)).unwrap_or_else(|e| unreachable!("{e}"));
         assert_ne!(a, b, "fetched again, not cached");
-        let r = f.get(&url("missing.ts"));
+        let r = f.get(&url("missing.ts"), &AtomicBool::new(false));
         assert!(matches!(r, Err(MediaError::NotFound(_))), "{r:?}");
     }
 
     #[test]
     fn fetch_missing() {
         let mut f = HttpFetch::new().unwrap_or_else(|e| unreachable!("{e}"));
-        let r = f.get("http://127.0.0.1:9/nothing.m3u8");
+        let r = f.get("http://127.0.0.1:9/nothing.m3u8", &AtomicBool::new(false));
         assert!(matches!(r, Err(MediaError::NotFound(_))), "{r:?}");
     }
 }
