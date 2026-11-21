@@ -618,3 +618,28 @@ fn a_menu_button_says_whether_its_menu_is_open() {
     assert!(chosen.get() && b.is_focused());
     assert_eq!(t.node(Role::Button, "More").and_then(|n| n.expanded), Some(false));
 }
+
+#[test]
+fn a_press_through_menu_lets_the_press_that_closes_it_reach_what_is_under_it() {
+    for through in [false, true] {
+        let mut t = T::new();
+        let pressed = Rc::new(Cell::new(0));
+        let p = pressed.clone();
+        let anchor = w::button(&t.ui, "View", || {});
+        let under = w::button(&t.ui, "Under", move || p.set(p.get() + 1));
+        t.ui.root().child(t.ui.el("row").row().gap(300.0).child(anchor.clone()).child(under.clone()));
+        t.frame();
+        let items = vec![MenuItem::new("Zoom In", || {})];
+        let _ = if through {
+            w::menu_press_through(&t.ui, &anchor, items)
+        } else {
+            w::menu(&t.ui, &anchor, items)
+        };
+        t.frame();
+        assert_eq!(t.menus().len(), 1);
+        t.click_at(under.bounds().unwrap_or_default().center());
+        t.frame();
+        assert!(t.menus().is_empty(), "the press closes it either way");
+        assert_eq!(pressed.get(), usize::from(through), "through: {through}");
+    }
+}

@@ -161,6 +161,7 @@ impl Bar {
                 restore: None,
                 bar: Some(BarLink { bar: Rc::downgrade(self) }),
                 rtl: self.el.is_rtl(),
+                press_through: false,
             },
         );
         self.opening.set(false);

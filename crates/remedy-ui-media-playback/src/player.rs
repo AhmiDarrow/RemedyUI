@@ -940,7 +940,9 @@ impl Player {
     /// Calls `f` with the cast button when it is pressed: the app opens its menu of devices
     /// anchored to it (with [`menu`](remedy_ui_widgets_core::menu)), and on a choice puts the
     /// player in [remote mode](Self::set_remote). The widget shows the button only once an app
-    /// listens.
+    /// listens. Opened with [`menu_press_through`](remedy_ui_widgets_core::menu_press_through),
+    /// a press on the picture that closes the menu also plays or pauses, as in a web page's
+    /// player.
     pub fn on_cast(&self, f: impl Fn(&El) + 'static) {
         self.0.cast_handlers.borrow_mut().push(Rc::new(f));
         self.0.cast_offered.set_if_changed(true);
