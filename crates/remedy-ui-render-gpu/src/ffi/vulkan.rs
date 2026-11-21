@@ -81,9 +81,12 @@ pub(crate) fn open_device(
         let incremental = has(ash::khr::incremental_present::NAME);
         let api = instance.get_physical_device_properties(physical).api_version;
         // DMA-BUF import needs Vulkan 1.1 (external memory, dedicated allocations, bind
-        // memory 2) and both of the first two extensions. Android imports AHardwareBuffers.
+        // memory 2) and both of the first two extensions; only Linux imports DMA-BUFs.
         let mut dma_buf: Vec<&'static std::ffi::CStr> = Vec::new();
-        if !cfg!(target_os = "android") && vk::api_version_minor(api) >= 1 && DMA_BUF_EXTENSIONS.iter().take(2).all(|n| has(n)) {
+        if cfg!(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))
+            && vk::api_version_minor(api) >= 1
+            && DMA_BUF_EXTENSIONS.iter().take(2).all(|n| has(n))
+        {
             dma_buf.extend(DMA_BUF_EXTENSIONS.iter().copied().filter(|n| has(n)));
             // The modifier extension needs `VK_KHR_image_format_list`, core from 1.2.
             if dma_buf.contains(&ash::ext::image_drm_format_modifier::NAME) && vk::api_version_minor(api) < 2
@@ -121,9 +124,12 @@ pub(crate) fn open_device(
             dma_buf.iter().for_each(|n| add(n));
             let mut features = hal.physical_device_features(&names, desc.required_features);
             let pointers: Vec<_> = names.iter().map(|n| n.as_ptr()).collect();
-            let queues = [vk::DeviceQueueCreateInfo::default().queue_family_index(0).queue_priorities(&[1.0])];
+            let queues =
+                [vk::DeviceQueueCreateInfo::default().queue_family_index(0).queue_priorities(&[1.0])];
             let info = features.add_to_device_create(
-                vk::DeviceCreateInfo::default().queue_create_infos(&queues).enabled_extension_names(&pointers),
+                vk::DeviceCreateInfo::default()
+                    .queue_create_infos(&queues)
+                    .enabled_extension_names(&pointers),
             );
             if video {
                 // wgpu chains the Y'CbCr conversion feature but leaves it off; it is turned on.
