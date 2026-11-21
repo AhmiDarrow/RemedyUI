@@ -7,6 +7,8 @@
 //!   and pause, time, a keyboard-operable seek bar, mute and volume, captions, a full-screen
 //!   request, and a theater-mode request for apps that lay one out). Captions can be shifted
 //!   earlier or later ([`Player::set_caption_delay`]) when a subtitle file is out of step.
+//!   [`Player::keys_from`] hears the player's keys from the whole window, as a web page's
+//!   player does, leaving text fields, menus and dialogs theirs.
 //! - Captions: one button says what shows and opens a menu of Off, Auto (the app's pick,
 //!   [`Player::on_caption_pick`]), the tracks, the app's not-yet-loaded
 //!   [choices](Player::set_caption_choices) with their details (hearing impaired), and the
@@ -111,7 +113,9 @@ pub use player::{
 #[cfg(feature = "media-session")]
 pub use remedy_ui_services_desktop::media_session::{Artwork, NowPlaying};
 pub use stretch::{MAX_SPEED, MIN_SPEED, SPEEDS, clamp_speed};
-pub use subtitles::{Cue, SubtitleFormat, SubtitleTrack, parse_subtitles};
+pub use subtitles::{
+    Cue, CueAlign, CueAnchor, CueLine, CueSettings, SubtitleFormat, SubtitleTrack, Vertical, parse_subtitles,
+};
 pub use widget::{PlayerIcons, PlayerParts, format_time, player, player_picture, player_with};
 
 /// The platform's own decoders and sound output, or [`MediaError::Unsupported`] with the
