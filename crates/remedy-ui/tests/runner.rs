@@ -2045,6 +2045,7 @@ fn a_rising_keyboard_scrolls_the_focused_field_above_it() {
 }
 
 #[test]
+#[cfg(feature = "desktop")]
 fn the_badge_names_the_app_and_links_reach_on_url() {
     use remedy_ui::host::Badge;
     use std::cell::RefCell;

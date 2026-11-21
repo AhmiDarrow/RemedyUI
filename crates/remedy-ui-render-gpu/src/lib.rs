@@ -27,7 +27,7 @@ mod video;
 
 pub use cache::PipelineCacheStore;
 pub use composite::{AdapterSummary, GpuCompositor};
-pub use context::{GpuContext, LadderOptions, Rung};
+pub use context::{GpuContext, LadderOptions, MAX_KEPT_ERRORS, Rung};
 pub use renderer::{FORMAT, GpuRenderer};
 pub use surface::{GpuSurface, PresentChecks, Presented};
 pub use wgpu;

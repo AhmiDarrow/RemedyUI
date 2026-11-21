@@ -664,6 +664,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- The media player could end before the last of the sound was played on a busy machine:
+  the end was declared once the decoded sound was taken, while the time stretcher still held
+  its last blocks (or an output a last partial block). It now waits until the output has
+  been told nothing follows.
 - On Linux, a notification's button press could be lost when its close came right after:
   the two signals were heard on separate threads and the close could be handled first. They
   are now heard in order on one stream.
