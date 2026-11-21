@@ -8,6 +8,16 @@ use crate::host::MediaError;
 /// The largest subtitle file read (a feature film's SRT is about 100 KB, a styled ASS a few MB).
 pub(crate) const MAX_SUBTITLE_BYTES: u64 = 16 << 20;
 
+/// Why the cues inside a media file or stream were refused: their text passed
+/// [`MAX_SUBTITLE_BYTES`], as a subtitle file may not.
+pub(crate) const CUES_TOO_BIG: &str = "the subtitles inside this media are over 16 MB";
+
+/// Counts `text` against the cues read so far; true once they pass [`MAX_SUBTITLE_BYTES`].
+pub(crate) fn over_cue_budget(total: &mut u64, text: &str) -> bool {
+    *total = total.saturating_add(text.len() as u64);
+    *total > MAX_SUBTITLE_BYTES
+}
+
 /// Reads the subtitle file at `path` as text, refusing one over [`MAX_SUBTITLE_BYTES`].
 pub(crate) fn read_subtitle_file(path: &std::path::Path) -> Result<String, MediaError> {
     use std::io::Read;

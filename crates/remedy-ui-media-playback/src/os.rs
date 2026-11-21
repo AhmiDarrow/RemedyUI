@@ -26,6 +26,51 @@ mod web;
 #[cfg(windows)]
 mod windows;
 
+/// Platform objects alive (Media Foundation starts, D3D11 devices, pictures on the GPU): debug
+/// builds count them, so tests can tell a drop or an error path left none behind.
+static LIVE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// One counted platform object, held as a field of what it counts.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) struct Live;
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl Live {
+    pub(crate) fn new() -> Live {
+        if cfg!(debug_assertions) {
+            LIVE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        Live
+    }
+}
+
+impl Drop for Live {
+    fn drop(&mut self) {
+        if cfg!(debug_assertions) {
+            LIVE.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+}
+
+pub(crate) fn live_objects() -> usize {
+    LIVE.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+pub(crate) fn process_threads() -> usize {
+    #[cfg(windows)]
+    {
+        windows::process_threads()
+    }
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        std::fs::read_dir("/proc/self/task").map(|d| d.count()).unwrap_or(0)
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "android")))]
+    {
+        0
+    }
+}
+
 pub(crate) fn platform_host() -> Result<Arc<dyn MediaHost>, MediaError> {
     #[cfg(windows)]
     {

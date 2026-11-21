@@ -19,7 +19,8 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::Duration;
 
-use crate::subtitles::{Cue, SubtitleTrack, ass_text, clean_markup};
+use crate::host::MediaError;
+use crate::subtitles::{CUES_TOO_BIG, Cue, SubtitleTrack, ass_text, clean_markup, over_cue_budget};
 
 /// Why a file could not be read as Matroska.
 pub(crate) type Error = String;
@@ -78,11 +79,14 @@ const LAST_CUE: Duration = Duration::from_secs(5);
 
 /// The text subtitle tracks in the Matroska or WebM file at `path`; none when it is not one
 /// or holds none (or cannot be read: a damaged file shows no embedded captions rather than
-/// wrong ones).
-pub(crate) fn text_tracks(path: &Path) -> Vec<SubtitleTrack> {
-    let Ok(f) = std::fs::File::open(path) else { return Vec::new() };
-    let Ok(len) = f.metadata().map(|m| m.len()) else { return Vec::new() };
-    read(BufReader::with_capacity(16 << 10, f), len).unwrap_or_default()
+/// wrong ones). Their text over the subtitle file limit is an error.
+pub(crate) fn text_tracks(path: &Path) -> Result<Vec<SubtitleTrack>, MediaError> {
+    let Ok(f) = std::fs::File::open(path) else { return Ok(Vec::new()) };
+    let Ok(len) = f.metadata().map(|m| m.len()) else { return Ok(Vec::new()) };
+    match read(BufReader::with_capacity(16 << 10, f), len) {
+        Err(e) if e == CUES_TOO_BIG => Err(MediaError::Format(e)),
+        r => Ok(r.unwrap_or_default()),
+    }
 }
 
 /// How a track's block holds its text.
@@ -307,7 +311,7 @@ fn read<R: Read + Seek>(r: BufReader<R>, len: u64) -> Result<Vec<SubtitleTrack>,
             places.dedup();
         }
     }
-    let mut reader = Blocks { src: &mut src, tracks: &mut tracks, scale, seg_end, seen: Vec::new() };
+    let mut reader = Blocks { src: &mut src, tracks: &mut tracks, scale, seg_end, seen: Vec::new(), text_bytes: 0 };
     if places.is_empty() {
         let mut at = first_cluster.unwrap_or(seg_end);
         while at < seg_end {
@@ -479,6 +483,8 @@ struct Blocks<'a, R> {
     seg_end: u64,
     /// Blocks already read (an index may name one twice).
     seen: Vec<u64>,
+    /// The bytes of cue text read, against the subtitle file limit.
+    text_bytes: u64,
 }
 
 impl<R: Read + Seek> Blocks<'_, R> {
@@ -595,6 +601,9 @@ impl<R: Read + Seek> Blocks<'_, R> {
         payload.extend_from_slice(block.get(n + 3..).unwrap_or_default());
         let text = cue_text(&payload, t.format);
         if !text.is_empty() {
+            if over_cue_budget(&mut self.text_bytes, &text) {
+                return Err(CUES_TOO_BIG.into());
+            }
             t.cues.push((start, end, text));
         }
         Ok(())
@@ -691,13 +700,13 @@ mod tests {
 
     #[test]
     fn srt_ass_and_webvtt_tracks_are_read_with_their_languages() {
-        let tracks = text_tracks(&fixture("clip-subs.mkv"));
+        let tracks = text_tracks(&fixture("clip-subs.mkv")).unwrap_or_default();
         assert_eq!(summary(&tracks), mkv_tracks());
     }
 
     #[test]
     fn a_webm_file_s_webvtt_track_is_read_across_its_clusters() {
-        let tracks = text_tracks(&fixture("clip-subs.webm"));
+        let tracks = text_tracks(&fixture("clip-subs.webm")).unwrap_or_default();
         assert_eq!(
             summary(&tracks),
             [("eng", Some("eng"), vec![(500, 1500, "One"), (1500, 2500, "Two & more")])]
@@ -707,14 +716,14 @@ mod tests {
     #[test]
     fn a_file_without_an_index_is_walked_cluster_by_cluster() {
         // Written to a pipe: a segment of unknown size, no cue index; the clusters differ.
-        let tracks = text_tracks(&fixture("clip-subs-streamed.mkv"));
+        let tracks = text_tracks(&fixture("clip-subs-streamed.mkv")).unwrap_or_default();
         assert_eq!(summary(&tracks), mkv_tracks());
     }
 
     #[test]
     fn other_files_have_none() {
         for name in ["clip.mp4", "clip-subs.mp4", "clip.vtt", "no-such-file.mkv"] {
-            assert!(text_tracks(&fixture(name)).is_empty(), "{name}");
+            assert!(text_tracks(&fixture(name)).unwrap_or_default().is_empty(), "{name}");
         }
         assert_eq!(parse(b""), Ok(Vec::new()));
         // An EBML document of another type.

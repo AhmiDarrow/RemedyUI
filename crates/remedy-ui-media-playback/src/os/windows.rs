@@ -84,7 +84,7 @@ fn com() {
 }
 
 /// Media Foundation, kept started while decoders live.
-struct Mf;
+struct Mf(super::Live);
 
 impl Mf {
     fn start() -> Result<Mf, MediaError> {
@@ -92,7 +92,7 @@ impl Mf {
         // SAFETY: MFStartup counts calls; each successful one is matched by `Drop`.
         unsafe { MFStartup(MF_VERSION, MFSTARTUP_FULL) }
             .map_err(|e| MediaError::Missing(crate::deps::media_foundation(&e.to_string())))?;
-        Ok(Mf)
+        Ok(Mf(super::Live::new()))
     }
 }
 
@@ -101,6 +101,27 @@ impl Drop for Mf {
         // SAFETY: matches the MFStartup in `start`.
         let _ = unsafe { MFShutdown() };
     }
+}
+
+/// The threads this process runs, from a ToolHelp snapshot.
+pub(super) fn process_threads() -> usize {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+    };
+    let me = std::process::id();
+    let mut n = 0;
+    // SAFETY: a snapshot made, walked and closed here; the entry's size is set as the API asks.
+    unsafe {
+        let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) else { return 0 };
+        let mut e = THREADENTRY32 { dwSize: size_of::<THREADENTRY32>() as u32, ..Default::default() };
+        let mut ok = Thread32First(snap, &mut e).is_ok();
+        while ok {
+            n += usize::from(e.th32OwnerProcessID == me);
+            ok = Thread32Next(snap, &mut e).is_ok();
+        }
+        let _ = windows::Win32::Foundation::CloseHandle(snap);
+    }
+    n
 }
 
 struct WindowsHost;
