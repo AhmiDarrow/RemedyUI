@@ -1321,7 +1321,7 @@ mod tests {
     #[cfg(feature = "text")]
     #[test]
     fn glyph_atlas_resources_are_lazy() {
-        const ROBOTO_FONT: &[u8] = include_bytes!("../../assets/roboto/Roboto-Regular.ttf");
+        const ROBOTO_FONT: &[u8] = include_bytes!("../assets/roboto/Roboto-Regular.ttf");
 
         let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
         let glyphs = [Glyph { id: 1, x: 0.0, y: 0.0 }];
