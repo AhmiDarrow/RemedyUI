@@ -8,7 +8,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use crate::subtitles::{Cue, SubtitleTrack};
+use crate::subtitles::{Cue, SubtitleTrack, clean_markup, srt_settings};
 
 /// Why a file could not be read as MP4.
 pub(crate) type Error = String;
@@ -292,7 +292,10 @@ fn read_text_tracks(path: &Path) -> Result<Vec<SubtitleTrack>, Error> {
             let text = cue_text(&b);
             let (start, end) = (t.time(s.pts), t.time(s.pts.saturating_add(i64::from(s.duration))));
             if !text.is_empty() && end > start {
-                cues.push(Cue { start, end, text });
+                // 3GPP timed text has no tags, but `{\anN}` is carried by some muxers from SRT.
+                let settings = srt_settings(&text);
+                let text = if settings == Default::default() { text } else { clean_markup(&text) };
+                cues.push(Cue { start, end, text, settings });
             }
         }
         cues.sort_by_key(|c| c.start);
