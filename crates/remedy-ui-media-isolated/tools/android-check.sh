@@ -81,9 +81,9 @@ keytool -genkeypair -keystore "$work/k.jks" -storepass android -keypass android 
     --out "$work/check.apk" "$work/aligned.apk" 2>/dev/null
 
 adb="$(exe "$sdk/platform-tools/adb")"
-export MSYS_NO_PATHCONV=1
 "$adb" install -r "$work/check.apk" >/dev/null
-out="$("$adb" shell am instrument -w -e filter "'$*'" "$app/.IsolatedCheck" | tr -d '\r')"
+# (Git Bash on Windows would turn the device paths into Windows ones.)
+out="$(MSYS_NO_PATHCONV=1 "$adb" shell am instrument -w -e filter "'$*'" "$app/.IsolatedCheck" | tr -d '\r')"
 "$adb" uninstall "$app" >/dev/null
 echo "$out"
 echo "$out" | grep -q "isolated-check: PASSED"
