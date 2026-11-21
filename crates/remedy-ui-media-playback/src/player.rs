@@ -2228,8 +2228,9 @@ impl Player {
         let reported = status.reported_at.filter(|t| *t <= now).unwrap_or(now);
         // Where the device made the report, and when: the shown position moves on from there.
         let mut seen = (status.position, reported);
-        if status.state == PlaybackState::Playing {
-            status.position = moved_on(status.position, reported.elapsed(), self.0.remote_end_for(&status));
+        if status.state == PlaybackState::Playing && reported < now {
+            status.position =
+                moved_on(status.position, now.duration_since(reported), self.0.remote_end_for(&status));
         }
         if let Some((to, at)) = self.0.remote_seek.get() {
             let landed = matches!(status.state, PlaybackState::Playing | PlaybackState::Paused)
