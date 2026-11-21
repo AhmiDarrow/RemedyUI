@@ -128,6 +128,13 @@ pub struct TextTrackInfo {
     pub language: Option<String>,
 }
 
+impl TextTrackInfo {
+    /// A track called `label`, in `language` (BCP 47) when the media says.
+    pub fn new(label: impl Into<String>, language: Option<String>) -> Self {
+        TextTrackInfo { label: label.into(), language }
+    }
+}
+
 /// What an opened source holds.
 #[derive(Clone, Debug, Default, PartialEq)]
 #[non_exhaustive]
