@@ -145,7 +145,14 @@ impl GpuRenderer {
     /// pipeline cache; every pipeline is created here, at start-up, never mid-frame.
     pub fn new(ctx: GpuContext, store: Option<PipelineCacheStore>) -> Self {
         let pipeline_cache = store.as_ref().and_then(|s| s.open(&ctx));
-        let mut settings = vello_gpu::RenderSettings::default();
+        let mut memory = vello_gpu::MemorySettings::default();
+        // No fixed cap on a layer's or filter's intermediate texture: vello_gpu's default of
+        // 4096 pixels refused nested drop shadows near `MAX_FILTER_OFFSET` that the CPU
+        // renderer draws. The bound is the device's own (vello clamps this to its texture
+        // limit, which the ladder asks for in full). The textures grow only as large as a
+        // frame's layers need, and `clear_caches` (memory pressure) shrinks them again.
+        memory.layers_config.max_texture_size = vello_gpu::SizeU16::new(u16::MAX);
+        let mut settings = vello_gpu::RenderSettings::default().with_memory_settings(memory);
         if let Some(c) = &pipeline_cache {
             settings = settings.with_pipeline_cache(c.clone());
         }

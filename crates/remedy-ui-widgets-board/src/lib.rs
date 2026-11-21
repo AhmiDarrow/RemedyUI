@@ -36,9 +36,8 @@ mod settings;
 
 pub use board::{AreaLabelFn, BoardOptions, BoardState, Panel, Selection, board, board_panel};
 pub use kinds::{
-    AppElement, ChoosePictureFn, Context, ElementFn, HandlerFn, PictureFn, Registry, ScriptHooks, ScriptKind, SharedWidget, WidgetKind,
-    build_node, build_node_with, mount_script,
-    parse_links, value,
+    AppElement, ChoosePictureFn, Context, ElementFn, HandlerFn, PictureFn, Registry, ScriptHooks, ScriptKind,
+    SharedWidget, WidgetKind, build_node, build_node_with, mount_script, parse_links, value,
 };
 pub use labels::{BoardLabels, ReactionLabels};
 pub use model::{Area, Board, BoardError, FORMAT, Placed};

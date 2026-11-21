@@ -22,7 +22,9 @@ fn mount(ui: &Ui, el: &El) {
 fn dot(ui: &Ui, name: &str) -> El {
     let n = name.to_owned();
     ui.el("dot").width(24.0).height(24.0).focusable(true).on_click(|| {}).semantics(
-        remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Button).label(n).action(remedy_ui_a11y::Action::Click),
+        remedy_ui_a11y::Semantics::new(remedy_ui_a11y::Role::Button)
+            .label(n)
+            .action(remedy_ui_a11y::Action::Click),
     )
 }
 
@@ -67,8 +69,12 @@ fn a_turning_orbit_stops_under_reduced_motion() {
     let ui = ui();
     let clock = Clock::manual();
     let a = dot(&ui, "a");
-    let o = orbit(&ui, "Moons", OrbitOptions::default().inset(0.0).period(Duration::from_secs(4)).clock(clock.clone()))
-        .child(a.clone());
+    let o = orbit(
+        &ui,
+        "Moons",
+        OrbitOptions::default().inset(0.0).period(Duration::from_secs(4)).clock(clock.clone()),
+    )
+    .child(a.clone());
     let el: El = o.clone().into();
     let el = el.width(100.0).height(100.0);
     mount(&ui, &el);
@@ -116,7 +122,9 @@ fn routes_measure_and_flatten() {
     // A smooth route still passes through its points.
     assert!(flat.iter().any(|p| (p.x - 5.0).abs() < 1e-3 && (p.y - 5.0).abs() < 1e-3));
     assert_eq!(flat.last().copied(), Some(Point::new(10.0, 0.0)));
-    let square = Route::new([Point::new(0.0, 0.0), Point::new(1.0, 0.0), Point::new(1.0, 1.0), Point::new(0.0, 1.0)]).closed();
+    let square =
+        Route::new([Point::new(0.0, 0.0), Point::new(1.0, 0.0), Point::new(1.0, 1.0), Point::new(0.0, 1.0)])
+            .closed();
     assert_eq!(square.length(), 4.0);
 }
 
@@ -130,7 +138,9 @@ fn a_path_layout_places_stations_and_travellers() {
         &ui,
         "Line 1",
         route,
-        PathOptions::default().design(Size::new(100.0, 200.0)).line(LineStyle::dashed(ColorRole::Accent).width(4.0)),
+        PathOptions::default()
+            .design(Size::new(100.0, 200.0))
+            .line(LineStyle::dashed(ColorRole::Accent).width(4.0)),
     )
     .child(s1.clone())
     .child(s2.clone())
@@ -163,9 +173,14 @@ fn a_path_layout_places_stations_and_travellers() {
 fn centered_spread_leaves_the_ends_free() {
     let ui = ui();
     let (a, b) = (dot(&ui, "a"), dot(&ui, "b"));
-    let p = path_layout(&ui, "River", Route::new([Point::new(0.0, 0.5), Point::new(1.0, 0.5)]), PathOptions::default().spread(Spread::Centered))
-        .child(a.clone())
-        .child(b.clone());
+    let p = path_layout(
+        &ui,
+        "River",
+        Route::new([Point::new(0.0, 0.5), Point::new(1.0, 0.5)]),
+        PathOptions::default().spread(Spread::Centered),
+    )
+    .child(a.clone())
+    .child(b.clone());
     let el: El = p.into();
     let el = el.width(200.0).height(100.0);
     mount(&ui, &el);

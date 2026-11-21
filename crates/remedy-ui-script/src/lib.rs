@@ -611,7 +611,11 @@ pub fn describe(v: &Value, limits: &Limits) -> Result<Described, ScriptError> {
 /// Reads a description like [`describe`], also accepting the app's own elements of the kinds
 /// `offered` says yes to (`{ "kind": "scene", ..., "children": [...] }`; see [`Node::Element`]).
 /// A kind the app does not offer is refused, as any unknown element is.
-pub fn describe_with(v: &Value, limits: &Limits, offered: &dyn Fn(&str) -> bool) -> Result<Described, ScriptError> {
+pub fn describe_with(
+    v: &Value,
+    limits: &Limits,
+    offered: &dyn Fn(&str) -> bool,
+) -> Result<Described, ScriptError> {
     let mut handlers = Vec::new();
     let node = node(v, &mut handlers, 0, limits.nesting, offered)?;
     Ok(Described { node, handlers })
@@ -647,7 +651,9 @@ fn node(
     let children = |handlers: &mut Vec<Value>| -> Result<Vec<Node>, ScriptError> {
         match t.get("children") {
             None | Some(Value::Null) => Ok(Vec::new()),
-            Some(Value::Array(list)) => list.iter().map(|c| node(c, handlers, depth + 1, nesting, offered)).collect(),
+            Some(Value::Array(list)) => {
+                list.iter().map(|c| node(c, handlers, depth + 1, nesting, offered)).collect()
+            }
             Some(_) => Err(shape("children must be a list")),
         }
     };
@@ -677,7 +683,9 @@ fn node(
         }
         "divider" => Node::Divider,
         "image" => {
-            let side = |k: &str| number(t, k).filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, MAX_IMAGE_SIDE) as f32;
+            let side = |k: &str| {
+                number(t, k).filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, MAX_IMAGE_SIDE) as f32
+            };
             Node::Image { src: text("src"), alt: text("alt"), width: side("width"), height: side("height") }
         }
         other if offered(other) => {
@@ -937,7 +945,12 @@ mod tests {
         let Node::Column { children, .. } = &d.node else { unreachable!("{:?}", d.node) };
         assert_eq!(
             children.first(),
-            Some(&Node::Image { src: "art/fire.png".into(), alt: "A fire".into(), width: 4096.0, height: 0.0 })
+            Some(&Node::Image {
+                src: "art/fire.png".into(),
+                alt: "A fire".into(),
+                width: 4096.0,
+                height: 0.0
+            })
         );
         let Some(Node::Element { kind, props, handlers, children }) = children.get(1) else { unreachable!() };
         assert_eq!(kind, "scene");
@@ -951,7 +964,8 @@ mod tests {
 
     #[test]
     fn a_description_cannot_hold_endless_handlers() {
-        let many: Vec<Value> = (0..5000).map(|i| json!({ "kind": "button", "label": "x", "on": i })).collect();
+        let many: Vec<Value> =
+            (0..5000).map(|i| json!({ "kind": "button", "label": "x", "on": i })).collect();
         let r = describe(&json!({ "kind": "column", "children": many }), &Limits::default());
         assert!(matches!(r, Err(ScriptError::Shape(_))), "{r:?}");
     }

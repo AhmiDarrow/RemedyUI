@@ -6,7 +6,7 @@ use std::time::Duration;
 use remedy_ui_compositor::{Compositor, Layer, LayerId, LayerTree};
 use remedy_ui_core::{Color, CornerRadii, Point, Rect, Vec2};
 use remedy_ui_input::ScrollPhysics;
-use remedy_ui_paint::{Brush, DisplayList, Filter, Item, Path};
+use remedy_ui_paint::{Blend, Brush, DisplayList, Filter, Item, Path};
 use remedy_ui_render_cpu::{CpuCompositor, CpuRenderer, Frame};
 use remedy_ui_render_gpu::*;
 
@@ -187,6 +187,151 @@ fn hostile_filter_sizes_are_bounded_on_both_renderers() {
         assert!(visible * 1000 <= (320 * 240) as usize, "{blur}: GPU and CPU agree");
     }
     assert!(g.context().take_errors().is_empty());
+}
+
+#[test]
+fn shadows_thrown_off_the_top_or_left_edge_are_not_drawn_on_both_renderers() {
+    // A drop shadow thrown further up or left than its content's filter area is wide or tall
+    // lands wholly off the canvas: nothing of it shows. (vello_cpu 0.4.0 once drew it unshifted
+    // instead; found by `random_unbalanced_lists_draw_without_failing_on_both_renderers`.)
+    let card = |l: &mut DisplayList| {
+        l.fill_rounded(
+            Rect::new(-5.84, -15.488, 28.8195, 30.1691),
+            CornerRadii::all(8.16),
+            Brush::Solid(Color::rgba8(246, 193, 234, 207)),
+        );
+    };
+    let shadowed = |offset: Vec2| {
+        let mut l = DisplayList::new();
+        l.push(Item::PushFilter(Filter::DropShadow {
+            offset,
+            blur: 0.714,
+            color: Color::rgba8(125, 23, 239, 252),
+        }));
+        l.push(Item::PushLayer { opacity: 0.0531, blend: Blend::Normal });
+        l.push(Item::PopLayer);
+        card(&mut l);
+        // Left open: the painter closes the group at the end.
+        l
+    };
+    let mut plain = DisplayList::new();
+    card(&mut plain);
+    let mut g = gpu();
+    let mut c = CpuRenderer::new();
+    let Ok(want) = c.render(&plain, 96, 96, 1.0, Color::WHITE) else { unreachable!("renders") };
+    for offset in [Vec2::new(-1.0e9, -4.622), Vec2::new(-60.0, 3.0), Vec2::new(2.0, -2048.0)] {
+        let list = shadowed(offset);
+        let (Ok(a), Ok(b)) =
+            (c.render(&list, 96, 96, 1.0, Color::WHITE), g.render(&list, 96, 96, 1.0, Color::WHITE))
+        else {
+            unreachable!("both render")
+        };
+        assert_eq!(a.pixel(10, 10), Some([248, 205, 238, 255]), "{offset:?}: CPU, no shadow");
+        // Drawn through a filter layer, edges may round a little differently: no more.
+        assert_eq!(
+            differing(&a, &want, 2),
+            (0, differing(&a, &want, 2).1),
+            "{offset:?}: CPU draws no shadow"
+        );
+        assert_eq!(
+            differing(&b, &want, 2),
+            (0, differing(&b, &want, 2).1),
+            "{offset:?}: GPU draws no shadow"
+        );
+        assert_eq!(differing(&a, &b, 2), (0, differing(&a, &b, 2).1), "{offset:?}: GPU and CPU agree");
+    }
+    assert!(g.context().take_errors().is_empty());
+}
+
+#[test]
+fn nested_filters_share_one_bound_on_both_renderers() {
+    // Shadows nested at the bound: each level's buffers would be thousands of pixels wider
+    // than the last, past what the GPU holds and with work growing with the square of the
+    // depth. The chain reaches as far as one filter at the bound: drawn quickly, alike on both
+    // renderers, and exactly as the bound draws it (the outer shadow at the bound, the ones
+    // inside it with nothing left).
+    let nested = |shadows: &[Filter]| {
+        let mut l = DisplayList::new();
+        for f in shadows {
+            l.push_filter(*f);
+        }
+        l.fill_rect(Rect::new(10.0, 10.0, 60.0, 60.0), Brush::Solid(Color::rgb8(200, 40, 40)));
+        for _ in shadows {
+            l.pop_filter();
+        }
+        l
+    };
+    let color = Color::rgba8(0, 0, 0, 128);
+    let shadow = |offset: Vec2, blur: f32| Filter::DropShadow { offset, blur, color };
+    let mut g = gpu();
+    let mut c = CpuRenderer::new();
+    for (x, y) in [(1.0e9, 0.0), (1.0e9, 1.0e9), (-1.0e9, -1.0e9)] {
+        let started = std::time::Instant::now();
+        let deep = nested(&[shadow(Vec2::new(x, y), 1.0e9); 8]);
+        let (Ok(a), Ok(b)) =
+            (c.render(&deep, 96, 96, 1.0, Color::WHITE), g.render(&deep, 96, 96, 1.0, Color::WHITE))
+        else {
+            unreachable!("({x}, {y}): both render")
+        };
+        assert!(started.elapsed() < Duration::from_secs(20), "({x}, {y}): bounded work");
+        let bound = remedy_ui_paint::MAX_FILTER_OFFSET;
+        let at_bound =
+            Vec2::new(bound.copysign(x) * f32::from(x != 0.0), bound.copysign(y) * f32::from(y != 0.0));
+        let mut want = vec![shadow(at_bound, remedy_ui_paint::MAX_FILTER_STD_DEV * 2.0)];
+        want.extend([shadow(Vec2::ZERO, 0.0); 7]);
+        let Ok(want) = c.render(&nested(&want), 96, 96, 1.0, Color::WHITE) else { unreachable!("renders") };
+        assert_eq!(differing(&a, &want, 0).0, 0, "({x}, {y}): drawn exactly as the bound");
+        let (visible, worst) = differing(&a, &b, 8);
+        assert!(visible * 1000 <= 96 * 96, "({x}, {y}): GPU and CPU agree ({visible} differ, by {worst})");
+    }
+    assert!(g.context().take_errors().is_empty());
+}
+
+#[test]
+fn nested_layer_filters_share_one_bound_on_both_compositors() {
+    // The same through the compositor: layers nested in layers, each with a shadow at the
+    // bound, drawn as the bound draws them, quickly, alike on the CPU and the GPU.
+    let color = Color::rgba8(0, 0, 0, 128);
+    let shadow = |offset: Vec2, blur: f32| Filter::DropShadow { offset, blur, color };
+    let tree = |shadows: &[Filter]| {
+        let mut card = DisplayList::new();
+        card.fill_rect(Rect::new(0.0, 0.0, 50.0, 50.0), Brush::Solid(Color::rgb8(200, 40, 40)));
+        let mut layer = Layer::new(LayerId(100), Rect::new(10.0, 10.0, 60.0, 60.0), card);
+        for (i, f) in shadows.iter().enumerate().rev() {
+            let id = LayerId(10 + i as u64);
+            layer = Layer::new(id, Rect::new(0.0, 0.0, 96.0, 96.0), DisplayList::new())
+                .with_filters(vec![*f])
+                .with_child(layer);
+        }
+        LayerTree::new(vec![layer])
+    };
+    let present = |tree: LayerTree, gpu: Option<&mut GpuCompositor>| {
+        let mut comp = Compositor::new(96, 96, 1.0, ScrollPhysics::CLAMPED);
+        comp.commit(tree);
+        let plan = comp.frame(Duration::ZERO);
+        match gpu {
+            Some(g) => g.present_to_frame(&plan, 96, 96, Color::WHITE).ok(),
+            None => CpuCompositor::new().present(&plan, 96, 96, Color::WHITE).ok(),
+        }
+    };
+    let mut g = GpuCompositor::new(gpu(), LadderOptions::default());
+    let bound = remedy_ui_paint::MAX_FILTER_OFFSET;
+    for (x, y) in [(1.0e9f32, 1.0e9f32), (-1.0e9, 0.0)] {
+        let started = std::time::Instant::now();
+        let deep = [shadow(Vec2::new(x, y), 1.0e9); 6];
+        let (Some(a), Some(b)) = (present(tree(&deep), None), present(tree(&deep), Some(&mut g))) else {
+            unreachable!("({x}, {y}): both composite")
+        };
+        assert!(started.elapsed() < Duration::from_secs(20), "({x}, {y}): bounded work");
+        let at_bound =
+            Vec2::new(bound.copysign(x) * f32::from(x != 0.0), bound.copysign(y) * f32::from(y != 0.0));
+        let mut want = vec![shadow(at_bound, remedy_ui_paint::MAX_FILTER_STD_DEV * 2.0)];
+        want.extend([shadow(Vec2::ZERO, 0.0); 5]);
+        let Some(want) = present(tree(&want), None) else { unreachable!("composites") };
+        assert_eq!(differing(&a, &want, 0).0, 0, "({x}, {y}): drawn exactly as the bound");
+        let (visible, worst) = differing(&a, &b, 8);
+        assert!(visible * 1000 <= 96 * 96, "({x}, {y}): GPU and CPU agree ({visible} differ, by {worst})");
+    }
 }
 
 /// A small deterministic generator (xorshift), so a failing list can be found again.

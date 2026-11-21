@@ -18,7 +18,7 @@ remedy-ui-trace = { path = "../remedy-ui-trace", version = "1.0.0-rc.1" }
 # A pure-Rust interpreter (no JIT, no C), so it runs in a browser page too; modules are
 # validated before they run. `auto-dispatch` picks the tail-call interpreter loop only where
 # the build guarantees tail calls, the portable loop elsewhere.
-wasmi = { version = "=2.0.1", default-features = false, features = ["std", "validate", "deterministic", "auto-dispatch"] }
+wasmi = { version = "=2.0.2", default-features = false, features = ["std", "validate", "deterministic", "auto-dispatch"] }
 serde_json = { version = "=1.0.154" }
 
 [dev-dependencies]
