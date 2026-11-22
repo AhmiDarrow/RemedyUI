@@ -323,7 +323,9 @@ fn toggle_mute(p: &Player) {
 /// window width (none by default) at or under which the bar and its parts take the sheet's
 /// `narrow` variant (their size and spacing, as a page's `@media (max-width: …)`) and the
 /// compact picture its `-narrow` metrics where the theme has them
-/// (`player-compact-width-narrow`).
+/// (`player-compact-width-narrow`). A long caption track name on the captions button ends in
+/// "…" as the bar runs out of room, and at most `player-captions-max-width` wide (none by
+/// default).
 #[track_caller]
 pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     player_with(ui, player, label, PlayerParts::default())
@@ -1918,13 +1920,24 @@ fn captions_control(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player, open:
     let size = glyph_size(ui);
     let glyph = glyph(ui, icons, Icon::Captions, size);
     let (p, tu) = (player.clone(), ui.clone());
-    let words = ui.el("label").nowrap().text(move || caption_words(&tu, &p, true));
+    // A long track name ends in "…" within the theme's `player-captions-max-width` (none by
+    // default) and shrinks with the bar, so the buttons after it stay on it.
+    let max = ui.theme().metric("player-captions-max-width", 0.0);
+    let words = ui
+        .el("label")
+        .max_lines(1)
+        .layout(move |l| {
+            if max > 0.0 {
+                l.max_width = Length::Px(max);
+            }
+        })
+        .text(move || caption_words(&tu, &p, true));
+    let glyph = glyph.layout(|l| l.shrink = 0.0);
     let button = ui
         .el("button")
         .row()
         .align(Align::Center)
         .gap(u * 1.5)
-        .layout(|l| l.shrink = 0.0)
         .child(glyph.clone())
         .child(words);
     let (me, p, mu) = (button.clone(), player.clone(), ui.clone());

@@ -10,6 +10,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **`Player::leave_remote_paused(at, status)`**: a cast can end with the player paused here
+  at `at` (where the device was), an optional `StageStatus` shown as the app's polite status
+  (not a failure or an alert), waiting for Play, which seeks there and plays (through
+  `on_seek_outside` outside the stream). `set_remote(None)` is unchanged.
 - **Per-corner radii**: `StylePatch::corners(CornerRadii)` and `Style::corners(top_start,
   top_end, bottom_end, bottom_start)` round each corner on its own (CSS
   `border-radius: 16px 16px 0 0`); a `radius` set over them rounds every corner alike again.

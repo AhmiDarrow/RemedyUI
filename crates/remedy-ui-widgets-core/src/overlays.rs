@@ -215,8 +215,10 @@ pub fn tooltip(target: &El, text: impl remedy_ui_view::IntoProp<String>) {
 }
 
 /// A transparent full-window layer that closes `content` when pressed outside it, and on
-/// Escape.
+/// Escape, which gives focus back to what had it when it opened.
 pub(crate) fn dismissable(ui: &Ui, content: El) -> El {
+    let restore = ui.tree().focused().map(|f| ui.element(f));
+    let u = ui.clone();
     let layer = fill_window(ui.el("dismiss_layer")).focus_scope();
     let l2 = layer.clone();
     let l3 = layer.clone();
@@ -234,6 +236,9 @@ pub(crate) fn dismissable(ui: &Ui, content: El) -> El {
         .on_key(move |e| {
             if e.pressed && e.key == Key::Escape {
                 l3.remove();
+                if let Some(r) = restore.as_ref().filter(|r| u.tree().contains(r.id())) {
+                    r.focus();
+                }
                 return true;
             }
             false
@@ -247,7 +252,7 @@ pub(crate) fn dismissable(ui: &Ui, content: El) -> El {
     ui.overlay(layer)
 }
 
-/// Shows `content` below `anchor` until a press outside or Escape.
+/// Shows `content` below `anchor` until a press outside or Escape (which gives focus back).
 #[track_caller]
 pub fn popover(ui: &Ui, anchor: &El, content: El) -> El {
     let b = anchor.bounds().unwrap_or(Rect::ZERO);

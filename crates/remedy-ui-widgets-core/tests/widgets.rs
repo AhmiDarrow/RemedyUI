@@ -608,6 +608,58 @@ fn a_popover_keeps_presses_on_its_own_buttons() {
 }
 
 #[test]
+fn escape_closes_popups_and_focus_goes_back_to_their_trigger() {
+    let mut t = T::new();
+    let anchor = w::button(&t.ui, "Open", || {});
+    let sel = w::select(&t.ui, "Fruit", vec!["Apple".into(), "Pear".into()], Signal::new(0));
+    t.ui.root().child(t.ui.el("col").column().child(anchor.clone()).child(sel.clone()));
+    t.frame();
+
+    // A popover.
+    anchor.focus();
+    let layer = w::popover(&t.ui, &anchor, w::button(&t.ui, "Apply", || {}));
+    t.frame();
+    assert!(!anchor.is_focused(), "focus moved inside");
+    assert!(t.key(Key::Escape));
+    t.frame();
+    assert!(!t.ui.tree().contains(layer.id()), "Escape closes the popover");
+    assert!(anchor.is_focused(), "focus goes back to its trigger");
+
+    // A select's list box.
+    sel.focus();
+    assert!(t.key(Key::Enter));
+    t.frame();
+    assert!(!sel.is_focused());
+    assert!(t.key(Key::Escape));
+    t.frame();
+    assert!(sel.is_focused(), "focus goes back to the select");
+
+    // An app's own menu in an overlay, as Portal's Cast and Theme menus: Escape reaches the
+    // list's key handler from the focused entry.
+    anchor.focus();
+    let slot: Rc<std::cell::RefCell<Option<El>>> = Rc::default();
+    let entry = w::button(&t.ui, "The Ris", || {});
+    let (s2, a2) = (slot.clone(), anchor.clone());
+    let list = t.ui.el("col").column().child(entry.clone()).on_key(move |e| {
+        if e.pressed && e.key == Key::Escape {
+            if let Some(l) = s2.borrow_mut().take() {
+                l.remove();
+            }
+            a2.focus();
+            return true;
+        }
+        false
+    });
+    let layer = t.ui.overlay(list);
+    *slot.borrow_mut() = Some(layer.clone());
+    entry.focus();
+    t.frame();
+    assert!(t.key(Key::Escape));
+    t.frame();
+    assert!(!t.ui.tree().contains(layer.id()) && anchor.is_focused());
+}
+
+#[test]
 fn a_virtual_list_fills_its_height_and_shows_changed_items() {
     let mut t = T::new();
     let items = Signal::new((0..5).map(|i| format!("row {i}")).collect::<Vec<_>>());
