@@ -45,7 +45,6 @@ fn every_palette_parses_and_forest_is_the_default_dark_forest() {
     );
 }
 
-
 #[test]
 fn colorblind_palette_ids_keep_their_short_display_names() {
     for (id, name) in [("deutan", "Deutan"), ("protan", "Protan"), ("tritan", "Tritan")] {
