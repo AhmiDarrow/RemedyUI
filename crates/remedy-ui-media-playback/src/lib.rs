@@ -157,6 +157,13 @@ pub fn live_d3d_objects() -> (usize, Vec<String>) {
     os::live_d3d_objects()
 }
 
+/// For tests and measurements: the HLS decoders made (not reused from the stream before on
+/// the same host) since the process started.
+#[doc(hidden)]
+pub fn hls_decoders_made() -> usize {
+    hls::decoders_made()
+}
+
 /// For leak tests: the threads this process runs, as (name, module it started in); empty
 /// where the platform cannot tell, and the module empty where it does not say.
 #[doc(hidden)]
