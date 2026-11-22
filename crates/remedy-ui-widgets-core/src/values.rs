@@ -16,6 +16,12 @@ fn snap(v: f64, min: f64, max: f64, step: f64) -> f64 {
 /// A horizontal slider over `min..=max` in steps of `step` (0 for continuous). Drag it, or
 /// use arrows (one step), Page Up/Down (a tenth) and Home/End. Right to left, the minimum is
 /// at the right and the Left arrow increases the value, as it moves the thumb that way.
+///
+/// It draws with the theme's colors `slider-track`, `slider-fill` and `slider-thumb` when the
+/// theme has them (else the line, the accent and the text), and its sizes `slider-thumb` (the
+/// thumb's width) and `slider-track` (the track's thickness) from
+/// [`Theme::metrics`](remedy_ui_style::Theme::metrics) (else a thumb 0.6 of its height, at
+/// least 10, on a 4 px track).
 #[track_caller]
 pub fn slider(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, max: f64, step: f64) -> El {
     let label = label.into();
@@ -39,26 +45,30 @@ pub fn slider(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, m
     s.paint(move |cx| {
         let t = ((painter_value.get_untracked().unwrap_or(min) - min) / span).clamp(0.0, 1.0) as f32;
         let d = cx.theme.derive();
+        let token = |name: &str| cx.theme.colors.custom.get(name).copied();
+        let (track, fill) = (token("slider-track").unwrap_or(d.line), token("slider-fill"));
+        let thumb = token("slider-thumb").unwrap_or(d.text);
         let mid = cx.size.height / 2.0;
-        let r = (cx.size.height * 0.3).max(5.0);
+        let r = cx.theme.metrics.get("slider-thumb").map_or((cx.size.height * 0.3).max(5.0), |w| w / 2.0);
+        let half = cx.theme.metric("slider-track", 4.0) / 2.0;
         let (x0, x1) = (r, cx.size.width - r);
         let x = if cx.rtl { x1 - (x1 - x0) * t } else { x0 + (x1 - x0) * t };
         // The filled part runs from the minimum's end to the thumb.
         let (f0, f1) = if cx.rtl { (x, x1) } else { (x0, x) };
         cx.list.fill_rounded(
-            Rect::new(x0, mid - 2.0, x1, mid + 2.0),
-            CornerRadii::all(2.0),
-            Brush::Solid(d.line),
+            Rect::new(x0, mid - half, x1, mid + half),
+            CornerRadii::all(half),
+            Brush::Solid(track),
         );
         cx.list.fill_rounded(
-            Rect::new(f0, mid - 2.0, f1, mid + 2.0),
-            CornerRadii::all(2.0),
-            Brush::Solid(cx.theme.colors.accent),
+            Rect::new(f0, mid - half, f1, mid + half),
+            CornerRadii::all(half),
+            Brush::Solid(fill.unwrap_or(cx.theme.colors.accent)),
         );
         cx.list.fill_rounded(
             Rect::new(x - r, mid - r, x + r, mid + r),
             CornerRadii::all(r),
-            Brush::Solid(d.text),
+            Brush::Solid(thumb),
         );
     })
     .on_pointer(move |e| {
@@ -103,6 +113,38 @@ pub fn slider(ui: &Ui, label: impl Into<String>, value: Signal<f64>, min: f64, m
         );
         s3.repaint();
     })
+}
+
+/// Shows `target` (a [`slider`], say) only while the pointer is over `group` or keyboard focus
+/// is inside it, `width` wide then and folded to nothing otherwise, as a player's volume
+/// beside its mute button. Folded, it stays in the tab order and the accessibility tree: Tab
+/// reaches it (which unfolds it) and screen readers find it. It fades in and out with the
+/// theme's quick motion (at once under reduced motion). Returns `group`.
+pub fn reveal_on_hover(group: El, target: &El, width: f32) -> El {
+    let (hover, focus) = (Signal::new(false), Signal::new(false));
+    let t = target.clone();
+    let ui = group.ui().clone();
+    let quick = ui.theme().motion.quick;
+    group
+        .on_hover(move |on| hover.set_if_changed(on))
+        .on_focus_within(move |on| focus.set_if_changed(on))
+        .bind(move || {
+            let shown = hover.get() || focus.get();
+            let _ = t
+                .clone()
+                .layout(move |l| l.width = remedy_ui_layout::Length::Px(if shown { width } else { 0.0 }));
+            let to = remedy_ui_view::motion::Target::Opacity(if shown { 1.0 } else { 0.0 });
+            match ui.reduced_motion() {
+                true => t.set_animated(to),
+                false => t.animate(
+                    to,
+                    remedy_ui_view::motion::Motion::Tween {
+                        duration: quick,
+                        easing: remedy_ui_view::motion::Easing::EASE_IN_OUT,
+                    },
+                ),
+            }
+        })
 }
 
 /// A number with − and + buttons, in steps of `step` within `min..=max`.

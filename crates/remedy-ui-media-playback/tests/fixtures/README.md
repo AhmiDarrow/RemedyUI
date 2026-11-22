@@ -115,3 +115,11 @@ ffmpeg -i clip.mp4 -map 0:a -c copy -f adts clip.aac
 ffmpeg -i clip.mp4 -map 0:a -c:a libmp3lame -b:a 64k -write_xing 0 -id3v2_version 0 \
   -map_metadata -1 -fflags +bitexact -f mp3 clip.mp3
 ```
+
+`portal-frame.png` is the picture 20 seconds into the synthetic test pattern Portal's page is
+compared with (colour bars, a moving line, a checkerboard; no third-party content), scaled to
+480 wide, the picture `tests/portal_look.rs` plays. It was made with:
+
+```
+ffmpeg -ss 20 -i remedyui-cast-test.mp4 -frames:v 1 -vf scale=480:-2 -pix_fmt rgba portal-frame.png
+```

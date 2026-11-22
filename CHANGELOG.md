@@ -10,6 +10,66 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Routes and deep links** (`remedy_ui::router`, feature `widgets`), for Portal's
+  `#/home`, `#/browse/<path>` and `#/settings/<id>`: a `Router` holds the route (a signal of
+  `Route`: path, decoded segments, query, `matches("/settings/:id")` and `"/browse/*path"`)
+  with `push`, `replace`, `back` and `forward`, titles the window after each route
+  (`set_title`; `document.title` in a page), and keeps each entry's scroll position
+  (`remember_scroll`). `Router::view` builds the route's page, rebuilt on each change; Alt+Left
+  and Alt+Right, the system back key (Android's back) and the mouse's back and forward buttons
+  move through the history, and a `NavStack` inside a page pops its own pages first. In a
+  browser page `Router::for_window` keeps the route in the address's fragment through the
+  History API (read at load, so a deep link opens its page; the browser's back and forward and
+  a typed address route too). On the desktop `Router::follow_links(app, &["portal"])` opens
+  links in the app's scheme, also from a second launch. `Router::link_to` is a link whose
+  `Semantics::url` (new, in `a11y`; `ReaderNode::url`) makes the web ARIA mirror an
+  `<a href="#/…">`, so middle and Ctrl clicks open a new tab. `App::reload` reloads the page,
+  or natively rebuilds every `Router::view`. `web::history` exposes the page's history.
+- **Fluid poster grids** in `widgets-data`, as Portal's library: `Tiles::fluid(min_width,
+  aspect, extra_height, draw)` fills the width as CSS `repeat(auto-fill, minmax(min, 1fr))`
+  does (`GridGeometry::fluid`), recomputed as the width changes; `grid_view_with(.., GridOptions
+  { own_scroll, interactive_tiles }, ..)` puts the grid in the page's scroll (virtual rows
+  follow the window through any scroll around it) and keeps a card's buttons (Play, Details,
+  Watchlist, Bookmark, Info) for the keyboard and screen readers: Enter moves into the
+  cursor's card, the arrow keys between its buttons, Escape back. `grid_view` is unchanged.
+  The 2,000-poster scene (`widgets-data/tests/poster_grid.rs`) holds the 8 ms frame budget.
+- **Repeated grid tracks** in `layout`: `Track::Repeat(Repeat::AutoFill | AutoFit |
+  Count(n), tracks)`, as CSS `repeat()`, through taffy's own.
+- `El::scroll_rect_into_view(rect)` shows part of an element through the scroll containers
+  around it, and `El::focus_step(forward)` moves focus between the focusable elements inside
+  one, wrapping.
+- **The player's keys from anywhere in the window** in `media-playback`, as Portal's page
+  hears them page-wide: `Player::keys_from(&ui.root())` routes the keys nothing focused took
+  to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),
+  except that a focused text field keeps every key, a focused slider its own, a focused
+  button Space and Enter, and nothing reaches the player while a menu or dialog has focus or
+  is open; keys with Ctrl, Alt or the system key held never do. It acts only while the
+  player shows (a `player` widget or `player_picture` of it is seen, compact and remote
+  included), as Portal's keys only while its dock is open, so the app need not switch it.
+  `Player::handle_key` applies the same key map to one key and says whether it took it; the
+  `player` widget uses it too, so there is one key map. Each key either of them hears wakes the
+  full-screen controls, as a key inside the player does (Portal's `wake()`).
+- **Going compact closes the player's menus** in `media-playback`, as Portal's mini player
+  does: `Player::set_compact(true)` closes the captions menu and any menu the app opened
+  anchored to the player's buttons (the cast menu from `on_cast`). Full screen leaves them
+  open, as Portal's page does. `widgets-core`'s new `close_menus_in(&el)` closes every open
+  menu opened from `el` or from inside it, without moving focus.
+- **Caption cue settings** in `media-playback`: WebVTT's `line` (a percentage or a line
+  number, with its alignment: `line:50%,center`), `position` (with its anchor), `size`,
+  `align` and `vertical`, SRT's `{\anN}`, and ASS/SSA's `\anN` with its styles' alignment and
+  margins in the script's `PlayResX` by `PlayResY` (MarginV above a bottom line) are read into
+  `Cue::settings` (`CueSettings`), from files and from Matroska's and MP4's embedded tracks
+  (a Matroska ASS track's styles from its codec private data). While any cue showing has
+  settings, the `player` widget lays every cue showing out by WebVTT's rules on the
+  letterboxed picture (its video viewport): cues are moved apart where they meet (lines
+  stepped away for snapped cues, a percentage cue past the cues it meets the way its line
+  alignment points, so two ASS lines of one alignment stack as ASS stacks them) and kept
+  above the bar; `vertical` cues run down the picture as CSS's `text-orientation: mixed`
+  sets them, CJK, kana and Hangul upright one under another and Latin runs turned to read
+  downward. Cues with no settings stay centred lines at the foot, above the bar in full screen.
+  `Player::caption_cues` gives the cues showing with their settings. `Cue` has a new
+  `settings` field (`..Default::default()` in literals).
+
 - **Portal's full-screen overlay** in `media-playback`. In full screen the `player`
   widget's bar floats over the foot of the picture on a gradient, the title the app gives
   (`Player::set_title(Some(..))`) over its head, and both fade 2.6 s after the last pointer,
@@ -781,6 +841,17 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- `media-playback`: an HLS stream's decoders are kept by the player's host for the next
+  stream (`replace_source`, `start_next`) and reconfigured when its streams allow (on
+  Windows the H.264 transform always, the sound one for the same config; on Android the
+  MediaCodec decoders for H.264 of the same size and the same sound, flushed), so the next
+  stream's first picture comes sooner (release, the test stream: Windows 9-11 ms to 4-5 ms,
+  the Android emulator about 120 ms to about 75 ms). They still go when the player drops.
+  The player's next stream waits briefly, on its own worker, for the closed one's decoders
+  to come back, so it reuses them every time. GStreamer keeps its pipelines too, emptied by
+  a flush through the app source, across streams and seeks. Through the player, release,
+  from the call to the first picture: Windows 32-43 ms to 4 ms, Linux with nvh264dec
+  220-300 ms to 8-12 ms, the Android emulator 62 ms to 20-27 ms.
 - `RemoteStatus` in `media-playback` has a new public field, `reported_at`: a struct
   literal adds `reported_at: None` (or `..RemoteStatus::default()`).
 - `RemoteStatus::volume` is now `Option<f32>`, `None` (unknown) by default and on
@@ -899,6 +970,28 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   on Android 11 and later. A finger tap also always asks for a frame, so the field paints
   and the text session starts.
 
+- **An HLS stream on GStreamer's software H.264 decoder shows its first picture at once**,
+  not half a second late, on opening and on every seek. `avdec_h264` holds a picture for
+  each of its frame threads (19 units on a 16-thread machine) before giving any out, and
+  the reader waited 250 ms each time a decoder held 8, then 16, before handing it more. A
+  decoder that has given nothing out yet is now handed more at once, and the depth it shows
+  with its first picture sets how much it may hold from then on, across seeks. WSL, release:
+  first picture and seeks 510 ms to 4-7 ms with `avdec_h264`; `nvh264dec` unchanged.
+- **Text turns, skews and stretches with its drawing** on the CPU and GPU renderers. Glyphs
+  were cached upright at one size and placed at their turned origins, so text under a
+  rotation stayed upright letter by letter, and an uneven scale drew them at the average
+  size. The painter (shared by both renderers) now rasterizes a run under any transform but
+  a plain uniform scale through the transform itself (`GlyphRasterizer::rasterize_transformed`:
+  the outline mapped by its linear part, the origin's subpixel offset on both axes, unhinted
+  and grayscale), cached per transform. Upright text is drawn pixel for pixel as before.
+
+- **The pointer hides reliably over a full-screen player on Windows.** winit hides it with
+  `ShowCursor` only while it believes the pointer is inside the window; the Windows bridge
+  now also answers `WM_SETCURSOR` with no cursor while it is hidden and clears the cursor
+  at once when the pointer is over the window (`PlatformHooks::set_cursor_hidden`).
+
+- The `remedy-ui` runner tests build for wasm32 again: the PNG check of
+  `Window::snapshot_png`, which comes with the `devtools` feature, runs only with it.
 - A cancelled pointer (`PointerPhase::Cancel`) over a pressed element panicked in the view.
 - The media player could end before the last of the sound was played on a busy machine:
   the end was declared once the decoded sound was taken, while the time stretcher still held

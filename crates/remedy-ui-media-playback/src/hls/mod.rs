@@ -88,7 +88,9 @@ pub(crate) enum WantKind {
 /// The platform's decoders for the compressed streams. Used from one thread at a time.
 pub(crate) trait Elementary: Send {
     /// Sets the decoders up for the streams the media holds (either may be absent). Called
-    /// once, before the first [`Elementary::push`].
+    /// before the first [`Elementary::push`], and again when a host's next stream reuses
+    /// these decoders ([`Spare`]): what they hold goes, and decoders that cannot take the
+    /// new streams are made anew.
     fn configure(
         &mut self,
         video: Option<&VideoConfig>,
@@ -107,6 +109,70 @@ pub(crate) trait Elementary: Send {
     /// AAC decoder's SBR doubles the rate); known once configured.
     fn audio_format(&self) -> Option<AudioFormat> {
         None
+    }
+}
+
+/// A host's decoders between streams: the last stream's, handed back when it is dropped and
+/// taken by the next stream the host opens, so making the decoders again (tens of
+/// milliseconds, hundreds cold) is saved. Dropped with the host, so with its player.
+pub(crate) type Spare = std::sync::Arc<SpareSlot>;
+
+/// What a [`Spare`] holds.
+pub(crate) type SpareSlot = std::sync::Mutex<Option<Box<dyn Elementary>>>;
+
+/// HLS decoders made (not taken from a [`Spare`]) since the process started: tests tell
+/// reuse from it.
+static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub(crate) fn decoders_made() -> usize {
+    MADE.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Set once an engine is done with its decoder (dropped on both its workers): an HLS
+/// stream's decoders are then back in the host's [`Spare`] for the stream after it.
+#[derive(Default)]
+pub(crate) struct Retired {
+    gone: std::sync::Mutex<bool>,
+    ring: std::sync::Condvar,
+}
+
+impl Retired {
+    pub(crate) fn retire(&self) {
+        *self.gone.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        self.ring.notify_all();
+    }
+
+    /// Waits up to `up_to` for it; whether it came.
+    fn wait(&self, up_to: Duration) -> bool {
+        let gone = self.gone.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (gone, _) = self
+            .ring
+            .wait_timeout_while(gone, up_to, |g| !*g)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *gone
+    }
+}
+
+/// How long a stream waits, once its decoders are wanted, for the one it replaces to hand
+/// its own back (that one's workers end on their own threads, within a read).
+const HANDBACK: Duration = Duration::from_millis(500);
+
+/// No decoders: before configuring, and once handed back.
+impl Elementary for () {
+    fn configure(&mut self, _: Option<&VideoConfig>, _: Option<&AudioConfig>) -> Result<(), MediaError> {
+        Ok(())
+    }
+    fn push(&mut self, _: Unit) -> Result<(), MediaError> {
+        Err(MediaError::Decode("no decoders".into()))
+    }
+    fn pull(&mut self) -> Result<Option<Sample>, MediaError> {
+        Ok(None)
+    }
+    fn end(&mut self) -> Result<(), MediaError> {
+        Ok(())
+    }
+    fn flush(&mut self) -> Result<(), MediaError> {
+        Ok(())
     }
 }
 
@@ -165,6 +231,31 @@ pub(crate) const LOAD: Duration = Duration::from_secs(60);
 pub(crate) const QUIET: Duration = Duration::from_millis(2500);
 /// How a fetch that gave up waiting ends its error, so it is told from one that failed.
 const TIMED_OUT: &str = "(timed out)";
+/// How a fetch the server said does not exist (HTTP 404 or 410) ends its error.
+const MISSING: &str = "(no such file)";
+/// A playlist the server says does not exist, before it was ever read, is tried again this
+/// many times (a second apart: a live stream's playlist may be moments from being written)
+/// and then fails, rather than riding out the retries and recoveries a playing stream gets.
+const MISSING_RETRIES: u32 = 2;
+
+/// The error of a fetch of `url` the server answered with HTTP `status`: one that says the
+/// file does not exist (404, 410) is told apart, so an open fails promptly.
+#[cfg_attr(not(any(windows, target_os = "android", target_arch = "wasm32")), allow(dead_code))]
+pub(crate) fn answered(url: &str, status: u32) -> MediaError {
+    match status {
+        404 | 410 => missing(url, &format!("the server answered {status}")),
+        _ => MediaError::NotFound(format!("{url}: the server answered {status}")),
+    }
+}
+
+/// The error of a fetch of `url` that the server says does not exist (`why`).
+pub(crate) fn missing(url: &str, why: &str) -> MediaError {
+    MediaError::NotFound(format!("{url}: {why} {MISSING}"))
+}
+
+fn is_missing(e: &MediaError) -> bool {
+    matches!(e, MediaError::NotFound(m) if m.ends_with(MISSING))
+}
 
 /// The error of a fetch of `url` that gave up waiting (`why`): retried as a timeout.
 pub(crate) fn timed_out(url: &str, why: &str) -> MediaError {
@@ -362,6 +453,9 @@ impl Hls {
             Ok(d) => d,
             Err(e) => {
                 self.failures += 1;
+                if !self.loaded && is_missing(&e) && self.failures > MISSING_RETRIES {
+                    return Err(e);
+                }
                 let retries = if is_timeout(&e) { TIMEOUT_RETRIES } else { ERROR_RETRIES };
                 if self.failures > retries {
                     if self.recoveries >= RECOVERIES {
@@ -673,6 +767,8 @@ pub(crate) struct HlsDecoder {
     fetched: (std::time::Instant, std::time::Instant),
     /// A fetch handed over outside a read failed for good: the next read says so.
     failed: Option<MediaError>,
+    /// Where the decoders go back to when this is dropped, once configured.
+    spare: Option<std::sync::Weak<SpareSlot>>,
 }
 
 impl HlsDecoder {
@@ -791,6 +887,10 @@ impl HlsDecoder {
 impl Drop for HlsDecoder {
     fn drop(&mut self) {
         self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(spare) = self.spare.take().and_then(|s| s.upgrade()) {
+            let es = std::mem::replace(&mut self.es, Box::new(()));
+            *spare.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(es);
+        }
     }
 }
 
@@ -839,25 +939,55 @@ impl Decoder for HlsDecoder {
 }
 
 /// Opens the HLS stream at `url`: fetches its playlist (and the variant a master playlist
-/// chooses) and its first segment, so what it holds is known, then sets `es` up for it.
+/// chooses) and its first segment, so what it holds is known, then sets decoders up for it:
+/// `spare`'s, when it holds some that take the streams, else made by `make`. They go back to
+/// `spare` when the stream is dropped.
 pub(crate) fn open(
     url: &str,
     fetch: Box<dyn Fetch>,
-    es: Box<dyn Elementary>,
+    spare: &Spare,
+    make: impl FnOnce() -> Result<Box<dyn Elementary>, MediaError>,
 ) -> Result<Box<dyn Decoder>, MediaError> {
     let clock = Clock { now: std::time::Instant::now, sleep: std::thread::sleep };
-    Ok(Box::new(open_with(url, fetch, es, clock)?))
+    Ok(Box::new(open_with(url, fetch, Some(spare), make, clock)?))
+}
+
+thread_local! {
+    /// The stop flag of the open running on this thread ([opening_until]).
+    static OPEN_STOP: std::cell::RefCell<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>> =
+        const { std::cell::RefCell::new(None) };
+    /// The engine the open running on this thread replaces ([opening_until]).
+    static OPEN_AFTER: std::cell::RefCell<Option<std::sync::Arc<Retired>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs open (a host's) with stop as the stop flag of any HLS stream it opens: once set,
+/// an open still fetching gives up within a fetch watchdog's tick, and the stream's fetching
+/// thread stops. `after` is the engine it replaces: an HLS stream waits briefly for its
+/// decoders to come back before making its own.
+pub(crate) fn opening_until<R>(
+    stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    after: Option<std::sync::Arc<Retired>>,
+    open: impl FnOnce() -> R,
+) -> R {
+    let before = OPEN_STOP.with(|s| s.replace(Some(stop.clone())));
+    let before_after = OPEN_AFTER.with(|a| a.replace(after));
+    let r = open();
+    OPEN_STOP.with(|s| *s.borrow_mut() = before);
+    OPEN_AFTER.with(|a| *a.borrow_mut() = before_after);
+    r
 }
 
 fn open_with(
     url: &str,
     mut fetch: Box<dyn Fetch>,
-    es: Box<dyn Elementary>,
+    spare: Option<&Spare>,
+    make: impl FnOnce() -> Result<Box<dyn Elementary>, MediaError>,
     clock: Clock,
 ) -> Result<HlsDecoder, MediaError> {
     let (asks, wants) = std::sync::mpsc::channel::<Want>();
     let (back, done) = std::sync::mpsc::channel::<Fetched>();
-    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop = OPEN_STOP.with(|s| s.borrow().clone()).unwrap_or_default();
     let stopped = stop.clone();
     std::thread::Builder::new()
         .name("remedy-hls-fetch".into())
@@ -879,32 +1009,58 @@ fn open_with(
         stop,
         done,
         in_flight: None,
-        es,
+        es: Box::new(()),
         info,
         ended: false,
         clock,
         fetched: (now, now),
         failed: None,
+        spare: None,
     };
     // The playlist and the first segment only: the rest comes while playing.
     while !d.hls.started() {
+        if d.stop.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(MediaError::Decode("closed while opening".into()));
+        }
         if d.hls.ended() {
             return Err(MediaError::Format("the HLS playlist lists no segments".into()));
         }
         match d.start() {
-            Some(wait) => (d.clock.sleep)(wait),
+            Some(wait) => (d.clock.sleep)(wait.min(WAIT_SLICE)),
             None if d.in_flight.is_none() => {
                 return Err(MediaError::Format("the HLS playlist lists no segments".into()));
             }
             None => {
-                d.take(Duration::MAX)?;
+                d.take(WAIT_SLICE)?;
             }
         }
     }
     if d.hls.video().is_none() && d.hls.audio().is_none() {
         return Err(MediaError::Unsupported("HLS segments hold no H.264 video, AAC or MP3 sound".into()));
     }
-    d.es.configure(d.hls.video(), d.hls.audio())?;
+    // Taken now, not on opening: the stream this one replaces has had the playlist's and the
+    // first segment's fetch to hand its decoders back.
+    if spare.is_some()
+        && let Some(after) = OPEN_AFTER.with(|a| a.borrow().clone())
+    {
+        // A slice at a time, so a close meanwhile is heard.
+        let until = std::time::Instant::now() + HANDBACK;
+        while !after.wait(WAIT_SLICE.min(until.saturating_duration_since(std::time::Instant::now())))
+            && !d.stop.load(std::sync::atomic::Ordering::Relaxed)
+            && std::time::Instant::now() < until
+        {}
+    }
+    let kept = spare.and_then(|s| s.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
+    d.es = match kept.and_then(|mut es| es.configure(d.hls.video(), d.hls.audio()).map(|()| es).ok()) {
+        Some(es) => es,
+        None => {
+            MADE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let mut es = make()?;
+            es.configure(d.hls.video(), d.hls.audio())?;
+            es
+        }
+    };
+    d.spare = spare.map(std::sync::Arc::downgrade);
     d.refresh_info();
     Ok(d)
 }

@@ -4,6 +4,8 @@
 //!   files and bytes like any other image, sharp at every size
 //! - [`render`] draws an SVG to pixels
 //! - [`icon`] draws an icon in the element's text color (`currentColor`)
+//! - [`add_font`] adds the app's fonts for text in SVG files (with the `text` feature, on by
+//!   default, which also uses the system's fonts off the web)
 //!
 //! SVG files are untrusted: references to other files and to the network are never
 //! followed; only images embedded as `data:` URLs are drawn.
@@ -34,11 +36,82 @@ fn options(color: Option<Color>) -> usvg::Options<'static> {
     }
     #[cfg(feature = "text")]
     {
-        let mut db = usvg::fontdb::Database::new();
-        db.load_system_fonts();
-        o.fontdb = Arc::new(db);
+        o.fontdb = fonts::database();
+        o.font_resolver.select_font = fonts::select_font();
     }
     o
+}
+
+#[cfg(feature = "text")]
+pub use fonts::add_font;
+
+#[cfg(feature = "text")]
+mod fonts {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, LazyLock, Mutex, PoisonError};
+
+    use resvg::usvg::{self, FontFamily, FontStyle, fontdb};
+
+    /// The one font database every parse uses: the system's fonts plus the app's.
+    static DB: LazyLock<Mutex<Arc<fontdb::Database>>> = LazyLock::new(|| {
+        #[allow(unused_mut, reason = "no system fonts on the web")]
+        let mut db = fontdb::Database::new();
+        #[cfg(not(target_arch = "wasm32"))]
+        db.load_system_fonts();
+        Mutex::new(Arc::new(db))
+    });
+
+    /// Whether the app has added a font yet (its first family becomes the sans-serif default).
+    static ADDED: AtomicBool = AtomicBool::new(false);
+
+    pub(crate) fn database() -> Arc<fontdb::Database> {
+        DB.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Adds a font (a TrueType/OpenType file, or a collection) for text in SVG files: the app's
+    /// own faces, e.g. from `remedy-ui-fonts`, so SVG text uses the app's fonts. The first
+    /// family added becomes the default sans-serif family, which text naming a missing family
+    /// falls back to. Applies to later renders only, and [`icon`](crate::icon) keeps its last
+    /// drawing until its size or color changes, so add fonts at start-up.
+    pub fn add_font(data: Vec<u8>) {
+        let mut guard = DB.lock().unwrap_or_else(PoisonError::into_inner);
+        let db = Arc::make_mut(&mut guard);
+        let first = !ADDED.swap(true, Ordering::Relaxed);
+        let ids = db.load_font_source(fontdb::Source::Binary(Arc::new(data)));
+        if first {
+            let family = ids.first().and_then(|id| db.face(*id)).and_then(|f| f.families.first());
+            if let Some((name, _)) = family.cloned() {
+                db.set_sans_serif_family(name);
+            }
+        }
+    }
+
+    /// usvg's selection, except a family the database lacks falls back to sans-serif, not serif.
+    pub(crate) fn select_font() -> usvg::FontSelectionFn<'static> {
+        let default = usvg::FontResolver::default_font_selector();
+        Box::new(move |font, db| {
+            let known = font.families().iter().any(|f| match f {
+                FontFamily::Named(n) => {
+                    db.faces().any(|face| face.families.iter().any(|(name, _)| name == n))
+                }
+                _ => true,
+            });
+            if known {
+                return default(font, db);
+            }
+            let style = match font.style() {
+                FontStyle::Normal => fontdb::Style::Normal,
+                FontStyle::Italic => fontdb::Style::Italic,
+                FontStyle::Oblique => fontdb::Style::Oblique,
+            };
+            db.query(&fontdb::Query {
+                families: &[fontdb::Family::SansSerif, fontdb::Family::Serif],
+                weight: fontdb::Weight(font.weight()),
+                style,
+                ..fontdb::Query::default()
+            })
+        })
+    }
 }
 
 fn parse(bytes: &[u8], color: Option<Color>) -> Result<usvg::Tree, DecodeError> {

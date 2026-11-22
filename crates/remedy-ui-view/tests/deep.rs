@@ -58,7 +58,8 @@ fn present(ui: &Ui, comp: &mut Compositor, cpu: &mut CpuCompositor, t: u64) -> O
         comp.commit(layers);
     }
     let plan = comp.frame(Duration::from_millis(t));
-    cpu.present(&plan, 200, 120, Color::BLACK).ok().and_then(|f| f.pixel(5, 5))
+    // A corner of the leaf its text does not reach.
+    cpu.present(&plan, 200, 120, Color::BLACK).ok().and_then(|f| f.pixel(57, 18))
 }
 
 #[test]

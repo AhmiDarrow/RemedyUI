@@ -7,6 +7,8 @@
 //!   and pause, time, a keyboard-operable seek bar, mute and volume, captions, a full-screen
 //!   request, and a theater-mode request for apps that lay one out). Captions can be shifted
 //!   earlier or later ([`Player::set_caption_delay`]) when a subtitle file is out of step.
+//!   [`Player::keys_from`] hears the player's keys from the whole window, as a web page's
+//!   player does, leaving text fields, menus and dialogs theirs.
 //! - Captions: one button says what shows and opens a menu of Off, Auto (the app's pick,
 //!   [`Player::on_caption_pick`]), the tracks, the app's not-yet-loaded
 //!   [choices](Player::set_caption_choices) with their details (hearing impaired), and the
@@ -68,6 +70,7 @@ pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_st
 
 mod awake;
 mod capture;
+mod cue_layout;
 pub mod deps;
 mod engine;
 mod host;
@@ -111,12 +114,59 @@ pub use player::{
 #[cfg(feature = "media-session")]
 pub use remedy_ui_services_desktop::media_session::{Artwork, NowPlaying};
 pub use stretch::{MAX_SPEED, MIN_SPEED, SPEEDS, clamp_speed};
-pub use subtitles::{Cue, SubtitleFormat, SubtitleTrack, parse_subtitles};
-pub use widget::{PlayerParts, format_time, player, player_picture, player_with};
+pub use subtitles::{
+    Cue, CueAlign, CueAnchor, CueLine, CueSettings, SubtitleFormat, SubtitleTrack, Vertical, parse_subtitles,
+};
+pub use widget::{PlayerIcons, PlayerParts, format_time, player, player_picture, player_with};
 
 /// The platform's own decoders and sound output, or [`MediaError::Unsupported`] with the
 /// reason where there are none (no GStreamer installed on a Linux machine, a platform with
 /// no backend).
 pub fn platform_host() -> Result<Arc<dyn MediaHost>, MediaError> {
     os::platform_host()
+}
+
+/// For leak tests: the platform objects alive (Media Foundation starts, D3D11 devices,
+/// pictures on the GPU). Debug builds count them; release builds always say 0.
+#[doc(hidden)]
+pub fn live_platform_objects() -> usize {
+    os::live_objects()
+}
+
+/// For measurements in a browser: a WebCodecs `VideoFrame`'s bytes copied into a picture as
+/// the decoder copies each one it does not hand over on the GPU.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[doc(hidden)]
+pub async fn copy_video_frame(frame: &wasm_bindgen::JsValue) -> Result<Picture, String> {
+    os::web::copy_frame(frame).await
+}
+
+/// For leak tests under `REMEDY_D3D_DEBUG=1` on Windows: decoder D3D11 devices made from
+/// now on are kept for [`live_d3d_objects`] (each until it reports on them). Without this
+/// call none are kept, so no device outlives its decoder to the end of the process.
+#[doc(hidden)]
+pub fn watch_d3d_devices() {
+    os::watch_d3d_devices();
+}
+
+/// For leak tests under `REMEDY_D3D_DEBUG=1` on Windows: `ReportLiveDeviceObjects` on every
+/// decoder D3D11 device made since [`watch_d3d_devices`] or the last call, then those devices let go; the debug
+/// layer's line for each object alive beyond the device itself. Empty elsewhere.
+#[doc(hidden)]
+pub fn live_d3d_objects() -> (usize, Vec<String>) {
+    os::live_d3d_objects()
+}
+
+/// For tests and measurements: the HLS decoders made (not reused from the stream before on
+/// the same host) since the process started.
+#[doc(hidden)]
+pub fn hls_decoders_made() -> usize {
+    hls::decoders_made()
+}
+
+/// For leak tests: the threads this process runs, as (name, module it started in); empty
+/// where the platform cannot tell, and the module empty where it does not say.
+#[doc(hidden)]
+pub fn process_threads() -> Vec<(String, String)> {
+    os::process_threads()
 }

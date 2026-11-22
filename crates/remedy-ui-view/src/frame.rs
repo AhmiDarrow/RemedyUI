@@ -69,7 +69,8 @@ fn segment_id(owner: LayerId, n: u64) -> LayerId {
 pub(crate) fn text_style_for(d: &ElData, theme: &remedy_ui_style::Theme) -> remedy_ui_text::TextStyle {
     {
         let mut v_ = remedy_ui_text::TextStyle::default();
-        v_.families = if d.resolved.mono { theme.mono_families.clone() } else { theme.font_families.clone() };
+        v_.families = theme.families(d.resolved.mono, d.resolved.heading);
+        v_.letter_spacing = d.resolved.letter_spacing.px(d.resolved.text_size);
         v_.size = d.resolved.text_size;
         v_.weight = d.resolved.weight;
         v_.color = d.resolved.foreground;
@@ -792,15 +793,21 @@ impl Ui {
             let passes_on = resolved.foreground != d.resolved.foreground
                 || resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight
-                || resolved.mono != d.resolved.mono;
+                || resolved.mono != d.resolved.mono
+                || resolved.heading != d.resolved.heading
+                || resolved.letter_spacing != d.resolved.letter_spacing;
             let text_changed = reshape
                 || resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight
                 || resolved.mono != d.resolved.mono
+                || resolved.heading != d.resolved.heading
+                || resolved.letter_spacing != d.resolved.letter_spacing
                 || resolved.foreground != d.resolved.foreground;
             let layout_changed = (reshape && (d.text.is_some() || d.field.is_some()))
                 || resolved.padding != d.resolved.padding
                 || resolved.mono != d.resolved.mono
+                || resolved.heading != d.resolved.heading
+                || resolved.letter_spacing != d.resolved.letter_spacing
                 || resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight
                 || resolved.border_width != d.resolved.border_width;
