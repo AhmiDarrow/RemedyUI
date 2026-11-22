@@ -23,10 +23,11 @@ use objc2_user_notifications::{
     UNAuthorizationOptions, UNMutableNotificationContent, UNNotification, UNNotificationAction,
     UNNotificationActionOptions, UNNotificationAttachment, UNNotificationCategory,
     UNNotificationCategoryOptions, UNNotificationDefaultActionIdentifier,
-    UNNotificationDismissActionIdentifier, UNNotificationPresentationOptions, UNNotificationRequest,
-    UNNotificationResponse, UNNotificationSound, UNUserNotificationCenter, UNUserNotificationCenterDelegate,
+    UNNotificationDismissActionIdentifier, UNNotificationInterruptionLevel,
+    UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationResponse, UNNotificationSound,
+    UNUserNotificationCenter, UNUserNotificationCenterDelegate,
 };
-use remedy_ui_host::{HostEvent, Notification, NotificationResponse, TrayImage, Unsupported, Waker};
+use remedy_ui_host::{HostEvent, Notification, NotificationResponse, TrayImage, Unsupported, Urgency, Waker};
 
 #[derive(Default)]
 struct Shared {
@@ -187,6 +188,11 @@ pub(crate) fn show(n: &Notification) -> Result<(), Unsupported> {
     content.setBody(&NSString::from_str(&n.body));
     if !n.silent {
         content.setSound(Some(&UNNotificationSound::defaultSound()));
+    }
+    // Time-sensitive breaks through Focus where the app has the entitlement (macOS 12 and
+    // later; earlier versions have no interruption levels).
+    if n.urgency != Urgency::Info && content.respondsToSelector(objc2::sel!(setInterruptionLevel:)) {
+        content.setInterruptionLevel(UNNotificationInterruptionLevel::TimeSensitive);
     }
     let category_id = NSString::from_str(&format!("remedy-{}", n.id));
     let actions: Vec<Retained<UNNotificationAction>> = n
