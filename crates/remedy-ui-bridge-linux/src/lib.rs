@@ -30,6 +30,8 @@ mod os;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod services;
 
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod devices;
 #[cfg_attr(
     not(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))),
     allow(dead_code)
@@ -37,6 +39,11 @@ mod services;
 mod evdev;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod gamepad;
+#[cfg_attr(
+    not(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))),
+    allow(dead_code)
+)]
+mod pointers;
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod notify;
@@ -94,6 +101,8 @@ mod linux {
         wayland: Option<crate::dnd_wayland::Wayland>,
         /// Window icons on Wayland, once one is set: `Err` says why the compositor shows none.
         icons: Option<Result<crate::icon_wayland::Icons, Unsupported>>,
+        /// Pointing devices coming and going.
+        devices: crate::devices::DeviceWatch,
     }
 
     impl std::fmt::Debug for LinuxHooks {
@@ -288,6 +297,7 @@ mod linux {
                     None
                 };
                 v_.power_saving = power_saving();
+                v_.pointer_devices = crate::devices::caps();
                 let keyboard = |key| {
                     p.u32("org.gnome.desktop.peripherals.keyboard", key)
                         .map(|ms| Duration::from_millis(u64::from(ms)))
@@ -438,7 +448,8 @@ mod linux {
 
         fn set_waker(&mut self, waker: Waker) {
             self.notifier.set_waker(waker.clone());
-            self.tray.set_waker(waker);
+            self.tray.set_waker(waker.clone());
+            self.devices.set_waker(waker);
         }
 
         fn show_notification(
@@ -501,6 +512,9 @@ mod linux {
             let mut events: Vec<HostEvent> =
                 self.tray.take_events().into_iter().map(HostEvent::Tray).collect();
             events.extend(self.notifier.take_events());
+            if self.devices.take_changed() {
+                events.push(HostEvent::Settings(self.settings()));
+            }
             events
         }
 

@@ -55,6 +55,8 @@ mod hooks {
         sharing: os::share::Sharing,
         /// The badge every taskbar button shows, for windows opened later too.
         badge: Option<remedy_ui_host::Badge>,
+        /// Pointing devices coming and going.
+        devices: os::devices::DeviceWatch,
     }
 
     impl std::fmt::Debug for WindowsHooks {
@@ -112,6 +114,7 @@ mod hooks {
                 v_.caret_blink = s.caret_blink;
                 v_.subpixel_text = s.subpixel_text;
                 v_.power_saving = s.power_saving;
+                v_.pointer_devices = os::devices::caps();
                 if let Some((delay, interval)) = s.key_repeat {
                     v_.key_repeat_delay = delay;
                     v_.key_repeat_interval = interval;
@@ -172,11 +175,15 @@ mod hooks {
                 os::tray::take_events().into_iter().map(HostEvent::Tray).collect();
             events.extend(os::toast::take_events());
             events.extend(self.sharing.take_events());
+            if self.devices.take_changed() {
+                events.push(HostEvent::Settings(self.settings()));
+            }
             events
         }
 
         fn set_waker(&mut self, waker: remedy_ui_host::Waker) {
             os::toast::set_waker(waker.clone());
+            self.devices.set_waker(waker.clone());
             self.sharing.set_waker(waker);
         }
 

@@ -6,7 +6,7 @@
 use std::ffi::{CString, c_char, c_int, c_void};
 use std::sync::{Arc, OnceLock};
 
-use jni::objects::{GlobalRef, JClass, JObject, JObjectArray, JString, JValue};
+use jni::objects::{GlobalRef, JClass, JIntArray, JObject, JObjectArray, JString, JValue};
 use jni::sys::{jint, jlong};
 use jni::{JNIEnv, JavaVM, NativeMethod};
 use winit::platform::android::activity::AndroidApp;
@@ -186,7 +186,37 @@ impl Java {
                 Ok(env.get_field(&c, "uiMode", "I")?.i()? & 0x0f == 0x04)
             })
             .unwrap_or(false);
+        let input_sources = self
+            .call(|env, _| {
+                const DEVICE: &str = "android/view/InputDevice";
+                let ids = JIntArray::from(env.call_static_method(DEVICE, "getDeviceIds", "()[I", &[])?.l()?);
+                let n = env.get_array_length(&ids)?;
+                let mut buf = vec![0; usize::try_from(n).unwrap_or(0)];
+                env.get_int_array_region(&ids, 0, &mut buf)?;
+                let mut sources = Vec::new();
+                for id in buf {
+                    let d = env
+                        .call_static_method(
+                            DEVICE,
+                            "getDevice",
+                            "(I)Landroid/view/InputDevice;",
+                            &[JValue::Int(id)],
+                        )?
+                        .l()?;
+                    if d.is_null() {
+                        continue;
+                    }
+                    // The virtual keyboard every device has is no hardware.
+                    if !env.call_method(&d, "isVirtual", "()Z", &[])?.z()? {
+                        sources.push(env.call_method(&d, "getSources", "()I", &[])?.i()?);
+                    }
+                    env.delete_local_ref(d)?;
+                }
+                Ok(sources)
+            })
+            .ok();
         AndroidSettings {
+            input_sources,
             night,
             font_scale,
             locale,

@@ -2261,6 +2261,9 @@ impl Runner {
                 ui.set_power_saving(self.settings.power_saving);
                 ui.set_system_spatial_navigation(self.settings.spatial_navigation);
                 ui.set_pointer_caps(self.settings.pointer);
+                if let Some(hw) = self.settings.pointer_devices {
+                    ui.set_pointer_hardware(hw);
+                }
                 if let Some(p) = self.app.0.borrow().ambient {
                     ui.set_ambient_policy(p);
                 }
@@ -3265,6 +3268,12 @@ impl remedy_ui_host::App for Runner {
                     w.ui.set_power_saving(s.power_saving);
                     w.ui.set_system_spatial_navigation(s.spatial_navigation);
                     w.ui.set_pointer_caps(s.pointer);
+                    // Only when the hardware changed: other settings leave the last pointer's say.
+                    if s.pointer_devices != self.settings.pointer_devices
+                        && let Some(hw) = s.pointer_devices
+                    {
+                        w.ui.set_pointer_hardware(hw);
+                    }
                 }
                 let appearance = (s.dark, s.high_contrast);
                 self.app.0.borrow_mut().preferred_locales.clone_from(&s.locales);

@@ -957,6 +957,10 @@ pub struct SystemSettings {
     /// and `(pointer: fine)` media queries). `None` where the engine goes by the pointer
     /// last used.
     pub pointer: Option<PointerCaps>,
+    /// What the pointing hardware attached can do ([`PointerCaps::of_devices`]), where the
+    /// platform can tell, read again when devices come and go: the caps start from it and the
+    /// pointer last used refines them. Ignored while [`pointer`](Self::pointer) is set.
+    pub pointer_devices: Option<PointerCaps>,
 }
 
 /// What the pointer in use can do: widgets show hover-only affordances where it hovers, and
@@ -981,6 +985,21 @@ impl PointerCaps {
     /// The caps from what the pointer does.
     pub fn new(hover: bool, fine: bool) -> PointerCaps {
         PointerCaps { hover, fine }
+    }
+
+    /// The caps of the pointing hardware attached: a mouse or touchpad hovers and points
+    /// finely; without one, a touch screen is a finger (pens are usually beside one); a pen
+    /// alone is a pen. `None` with none of them.
+    pub fn of_devices(mouse: bool, touch: bool, pen: bool) -> Option<PointerCaps> {
+        if mouse {
+            Some(PointerCaps::MOUSE)
+        } else if touch {
+            Some(PointerCaps::TOUCH)
+        } else if pen {
+            Some(PointerCaps::PEN)
+        } else {
+            None
+        }
     }
 }
 
@@ -1016,6 +1035,7 @@ impl Default for SystemSettings {
             power_saving: false,
             spatial_navigation: false,
             pointer: None,
+            pointer_devices: None,
         }
     }
 }
