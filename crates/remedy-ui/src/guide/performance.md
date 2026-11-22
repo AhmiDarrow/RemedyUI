@@ -236,6 +236,8 @@ a markup file, a theme) cheap; raising one lets such input cost that much more.
 | How long a terminal's synchronized update may hold the screen | 150 ms | `term::TerminalOptions::sync_timeout` |
 | How long the devtools Remote page waits for an app | 10 s | `devtools::set_remote_timeout` |
 | How long a second launch tries to reach the first (Windows) | 5 s | `AppConfig::single_instance_wait` |
+| How long a second launch waits for the first's reply / for its exit | none (hands over and exits) / none; 30 s reply when only the exit wait is set | `AppConfig::single_instance_reply`, `single_instance_await_exit` |
+| A question's window: width / tallest before its text scrolls | 420 / 640 logical px | `ConfirmSpec::width`, `max_height` |
 | Reading a drop from another app / serving a drag out (Linux) | 2 s / 10 s | `AppConfig::drop_waits` |
 
 Text, network and media limits are in [`crate::guide::text`], [`crate::guide::network`] and

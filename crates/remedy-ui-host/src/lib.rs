@@ -1458,6 +1458,13 @@ pub trait Host {
     fn window_position(&self, window: WindowId) -> Option<Point>;
     /// Moves the window's top-left to a desktop position in logical pixels.
     fn set_position(&mut self, window: WindowId, position: Point) -> Result<(), Unsupported>;
+    /// Moves the window to the middle of the display it is on, as a message box opens.
+    /// [`Unsupported`] where the app may not place windows (Wayland, a browser, Android): the
+    /// platform places them itself there.
+    fn center_window(&mut self, window: WindowId) -> Result<(), Unsupported> {
+        let _ = window;
+        Err(Unsupported::new("centering windows", "this platform places windows itself"))
+    }
     /// Brings the window to the front and gives it keyboard focus.
     fn focus_window(&mut self, window: WindowId);
     /// Minimizes or restores.

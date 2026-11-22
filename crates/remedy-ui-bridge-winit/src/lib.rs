@@ -597,6 +597,21 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         Ok(())
     }
 
+    fn center_window(&mut self, window: WindowId) -> Result<(), Unsupported> {
+        let Some(w) = self.win(window) else { return Ok(()) };
+        let Some(m) = w.window.current_monitor().or_else(|| self.el.primary_monitor()) else {
+            return Err(Unsupported::new("centering windows", "no display was found"));
+        };
+        let (at, room, size) = (m.position(), m.size(), w.window.outer_size());
+        let half = |room: u32, size: u32| i32::try_from(room.saturating_sub(size) / 2).unwrap_or(0);
+        // Where the platform cannot move windows (Wayland) this does nothing, as documented.
+        w.window.set_outer_position(PhysicalPosition::new(
+            at.x.saturating_add(half(room.width, size.width)),
+            at.y.saturating_add(half(room.height, size.height)),
+        ));
+        Ok(())
+    }
+
     fn focus_window(&mut self, window: WindowId) {
         if let Some(w) = self.win(window) {
             w.window.focus_window();
