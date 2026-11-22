@@ -133,6 +133,8 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-embed-gpu", 5),
     ("remedy-ui-services-desktop", 5),
     ("remedy-ui-services-update", 5),
+    // The HTTP client: JSON, errors, uploads, keepalive and cancellation, natively and in a page.
+    ("remedy-ui-services-net", 5),
     ("remedy-ui-services-spell", 5),
     ("remedy-ui-services-i18n", 5),
     // Reads a web view's localStorage store (LevelDB) so apps moving off one keep their data.
