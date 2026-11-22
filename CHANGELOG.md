@@ -23,6 +23,22 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   (AccessKit `ListBox` and `ListBoxOption`, ARIA `listbox` and `option` in a page's mirror),
   each option `selected` or not, and `Semantics::multiselectable` (`aria-multiselectable`,
   AccessKit's multiselectable) for a list box that takes several.
+- **Where a picture sits in its box** (CSS `object-position`): `ImageOptions::position(x, y)`,
+  fractions of the room left on each axis (`position(0.5, 0.25)` is `center 25%`); centred
+  by default.
+- **Lazy images** (`loading="lazy"`): `ImageOptions::lazy(margin)` fetches and decodes a
+  picture only once its element comes within `margin` logical pixels of the window and of the
+  scroll containers around it. Underneath, `El::on_visibility_within(margin, f)` is
+  `on_visibility` with a margin (as `IntersectionObserver`'s `rootMargin`).
+- **The CSS `ch` unit**: `Length::Ch(n)` is `n` advances of "0" in the element's own font, for
+  widths, heights, their limits and flex bases (`LayoutStyle::ch`, set by the view).
+- **Modal inertness and popups**: `Semantics::modal` (ARIA `aria-modal`, AccessKit's modal)
+  makes everything outside a showing modal inert to assistive technology (hidden from it, and
+  in a page's mirror `aria-hidden` and `inert`); the engine's modal, trusted prompt and
+  drawers are modal. `Semantics::has_popup(Popup::Menu | ListBox | Tree | Grid | Dialog)` is
+  `aria-haspopup` (AccessKit's `has_popup`).
+- **Search fields are search boxes**: a single-line field with `InputPurpose::Search` is
+  `Role::SearchInput` (AccessKit `SearchInput`, ARIA `searchbox`).
 - `PaintCx::pixel_box`: the element's box with its edges on the device-pixel grid, where its
   background and border are drawn, for painters that place pictures as browsers do.
 - **Line height as a style property** (CSS `line-height`): `Style::line_height`,
