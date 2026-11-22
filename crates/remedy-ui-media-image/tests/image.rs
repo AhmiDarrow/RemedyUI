@@ -444,3 +444,38 @@ fn work_can_be_queued_on_the_image_workers() {
     });
     assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
 }
+
+#[test]
+fn a_lazy_image_loads_only_once_it_comes_near_the_viewport() {
+    let ui = ui();
+    let bytes: Arc<[u8]> = Arc::from(png(64, 64, |_, _| [0, 200, 0, 255], None));
+    let steps = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let s2 = steps.clone();
+    let pic = image_ext(
+        &ui,
+        Source::Bytes(bytes),
+        "Far down",
+        Fit::Cover,
+        ImageOptions::new().lazy(200.0).on_state(move |s| {
+            if !matches!(s, ImageState::Loading) {
+                s2.lock().map(|mut v| v.push(format!("{s:?}").chars().take(5).collect::<String>())).ok();
+            }
+        }),
+    )
+    .width(80.0)
+    .height(80.0);
+    let spacer = ui.el("spacer").height(2000.0);
+    let scroller = ui.el("scroll").scroll().column().height(600.0).child(spacer).child(pic.clone());
+    ui.root().child(scroller.clone());
+    settle(&ui);
+    assert!(steps.lock().map(|v| v.is_empty()).unwrap_or(false), "1400 px below the fold: nothing loaded");
+    assert_eq!(cached(), 0);
+    // Scrolled to 150 px above it (within the 200 px margin): it loads.
+    ui.set_scroll_offset(scroller.id(), remedy_ui_core::Vec2::new(0.0, 1250.0));
+    settle(&ui);
+    assert!(steps.lock().map(|v| v.iter().any(|s| s.starts_with("Ready"))).unwrap_or(false), "{steps:?}");
+    assert_eq!(cached(), 1);
+    ui.root().clear();
+    frame(&ui);
+    frame(&ui);
+}

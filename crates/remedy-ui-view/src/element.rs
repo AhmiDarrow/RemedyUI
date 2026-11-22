@@ -569,6 +569,8 @@ pub(crate) struct ElData {
     /// Told when the element becomes seen or unseen, and the last answer it was given.
     pub(crate) on_visibility: Option<Rc<dyn Fn(bool)>>,
     pub(crate) last_visible: Option<bool>,
+    /// How near the window counts as seen for `on_visibility` ([`El::on_visibility_within`]).
+    pub(crate) visibility_margin: f32,
     /// Told where the element is on the window after a frame where that changed.
     pub(crate) on_placed: Option<crate::frame::PlacedHandler>,
     pub(crate) last_placed: Option<Option<crate::Placement>>,
@@ -1880,6 +1882,20 @@ impl Ui {
     pub fn reader_view(&self) -> Vec<remedy_ui_a11y::ReaderNode> {
         self.0.borrow().a11y.reader_view()
     }
+
+    /// True when a showing modal (`Semantics::modal`) makes `el` or one of its ancestors
+    /// inert: it is behind the modal, out of a screen reader's reach on purpose.
+    pub fn behind_modal(&self, el: ElementId) -> bool {
+        let i = self.0.borrow();
+        let mut cur = Some(el);
+        while let Some(id) = cur {
+            if i.a11y.is_inert(root_key(id)) {
+                return true;
+            }
+            cur = i.tree.parent(id);
+        }
+        false
+    }
 }
 
 impl El {
@@ -1940,6 +1956,7 @@ impl ElData {
             last_size: None,
             on_visibility: None,
             last_visible: None,
+            visibility_margin: 0.0,
             on_placed: None,
             last_placed: None,
             scroll_follow: None,
@@ -2468,9 +2485,18 @@ impl El {
     /// transparent, and the window is not minimized or covered ([`Ui::set_occluded`]).
     /// Animations pause while unseen; lazy content loads when first seen.
     pub fn on_visibility(self, f: impl Fn(bool) + 'static) -> Self {
+        self.on_visibility_within(0.0, f)
+    }
+
+    /// Like [`on_visibility`](Self::on_visibility), counting the element as seen once it is
+    /// within `margin` logical pixels of the window and of every scroll container or clipping
+    /// element around it (CSS `IntersectionObserver`'s `rootMargin`): content near the
+    /// viewport loads before it scrolls in, as `loading="lazy"` does on the web.
+    pub fn on_visibility_within(self, margin: f32, f: impl Fn(bool) + 'static) -> Self {
         if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
             d.on_visibility = Some(Rc::new(f));
             d.last_visible = None;
+            d.visibility_margin = if margin.is_finite() { margin.max(0.0) } else { 0.0 };
         }
         self.ui.request(Request::Frame);
         self

@@ -1073,6 +1073,16 @@ impl Ui {
             for id in &layout_dirty {
                 let Some(d) = i.els.get(id) else { continue };
                 let mut style = d.layout.clone();
+                // Lengths in `ch` are advances of "0" in the element's own font (CSS `ch`).
+                if uses_ch(&style) {
+                    let text = text_style_for(d, &theme);
+                    let zero = i.engine.borrow_mut().layout(
+                        &remedy_ui_text::RichText::plain("0"),
+                        &text,
+                        remedy_ui_text::ParagraphOptions::default(),
+                    );
+                    style.ch = zero.width();
+                }
                 // Hidden elements take no space, as the `hidden` attribute does on the web, and
                 // neither do the engine's empty wrappers (a `show` showing nothing).
                 if d.hidden || d.collapsed {
@@ -1288,7 +1298,8 @@ impl Ui {
         let watchers: Vec<ElementId> =
             i.els.iter().filter(|(_, d)| d.on_visibility.is_some()).map(|(id, _)| *id).collect();
         for id in watchers {
-            let now = is_seen(i, id, window);
+            let margin = i.els.get(&id).map_or(0.0, |d| d.visibility_margin);
+            let now = is_seen_within(i, id, window, margin);
             if let Some(d) = i.els.get_mut(&id)
                 && d.last_visible != Some(now)
                 && let Some(cb) = d.on_visibility.clone()
@@ -1529,6 +1540,14 @@ fn crisp_width(width: f32, scale: f32) -> f32 {
     }
 }
 
+/// True when a length of `s` is in `ch`, so its font's "0" must be measured.
+fn uses_ch(s: &remedy_ui_layout::LayoutStyle) -> bool {
+    use remedy_ui_layout::Length::Ch;
+    [s.width, s.height, s.min_width, s.min_height, s.max_width, s.max_height, s.basis]
+        .iter()
+        .any(|l| matches!(l, Ch(_)))
+}
+
 /// The box `size` large at `at` (logical pixels) with each edge moved to the nearest device
 /// pixel of `grid`, relative to `at`: what is drawn crisp for the box at `at`. Without a
 /// usable grid, the box as it is.
@@ -1570,6 +1589,13 @@ fn lazy_text_moved(i: &Inner, rects: &HashMap<ElementId, Rect>, size: Size) -> V
 /// True when some of `id` shows: it and its ancestors are not hidden or transparent, the window
 /// is not covered, and its box overlaps the window and every clipping ancestor.
 pub(crate) fn is_seen(i: &Inner, id: ElementId, window: Rect) -> bool {
+    is_seen_within(i, id, window, 0.0)
+}
+
+/// [`is_seen`], with the window and every clipping ancestor grown by `margin` on each side.
+fn is_seen_within(i: &Inner, id: ElementId, window: Rect, margin: f32) -> bool {
+    let grow = |r: Rect| r.deflate(Insets::all(-margin));
+    let window = grow(window);
     if i.occluded {
         return false;
     }
@@ -1582,7 +1608,7 @@ pub(crate) fn is_seen(i: &Inner, id: ElementId, window: Rect) -> bool {
         }
         if c != id && (d.scroll || d.clip) {
             let Some(b) = i.tree.bounds(c) else { return false };
-            let Some(r) = shown.intersect(b) else { return false };
+            let Some(r) = shown.intersect(grow(b)) else { return false };
             shown = r;
         }
         cur = i.tree.parent(c);
