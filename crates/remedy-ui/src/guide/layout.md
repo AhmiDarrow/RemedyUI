@@ -157,6 +157,13 @@ column whose own height is bounded (the window is). `widgets::scroll` grows and 
 minimum height go to zero for this reason. [`El::scroll_into_view`](crate::El::scroll_into_view)
 and [`El::scroll_to`](crate::El::scroll_to) move it from code.
 
+A shelf of cards can rest on card edges, as CSS scroll snapping does:
+[`El::scroll_snap`](crate::El::scroll_snap) on the container (an axis, and `Mandatory` or
+`Proximity`) and [`El::snap_align`](crate::El::snap_align) on each card. After a fling, a
+wheel gesture, a drag release or a keyboard page or arrow step, it eases to the nearest snap
+point (or jumps, under reduced motion). `scroll_to` does not snap;
+[`El::scroll_to_snapped`](crate::El::scroll_to_snapped) does.
+
 ```
 use remedy_ui::testing::TestApp;
 use remedy_ui::widgets as w;

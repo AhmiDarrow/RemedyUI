@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_core::Point;
+use remedy_ui_core::{Point, Vec2};
 use remedy_ui_host::ImeEvent;
 use remedy_ui_input::{Key, KeyEvent, Platform, PointerEvent, PointerPhase};
 use remedy_ui_style::States;
@@ -516,6 +516,16 @@ impl Ui {
                 focus_changed(self);
                 moved.is_some()
             }
+            Key::PageUp
+            | Key::PageDown
+            | Key::ArrowUp
+            | Key::ArrowDown
+            | Key::ArrowLeft
+            | Key::ArrowRight
+                if !cmd && !e.modifiers.alt && !e.modifiers.shift =>
+            {
+                self.key_scroll(focused, &e.key)
+            }
             Key::Enter | Key::Space if !e.repeat => match focused {
                 Some(f) if self.clickable(f) => {
                     let _ = tree.dispatch(f, &Click { position: None });
@@ -525,6 +535,47 @@ impl Ui {
             },
             _ => false,
         }
+    }
+
+    /// Pages or steps the scroll container around `from` (else under the pointer) that can
+    /// move that way, settling on its snap points. Returns true when one moved.
+    fn key_scroll(&self, from: Option<ElementId>, key: &Key) -> bool {
+        const STEP: f32 = 40.0;
+        let tree = self.tree();
+        let start = from.or_else(|| self.0.borrow().hovered.first().copied());
+        let mut cur = start;
+        while let Some(p) = cur {
+            cur = tree.parent(p);
+            if !self.0.borrow().els.get(&p).is_some_and(|d| d.scroll) {
+                continue;
+            }
+            let Some(view) = tree.bounds(p) else { continue };
+            let off = self.scroll_offset(p);
+            // How far the content reaches past the viewport on each axis.
+            let content =
+                tree.children(p).iter().filter_map(|k| tree.bounds(*k)).fold(view, |u, r| u.union(r));
+            let room = Vec2::new(content.max.x - view.max.x + off.x, content.max.y - view.max.y + off.y);
+            let page_x = room.y <= 0.5;
+            let by = match key {
+                Key::PageDown if page_x => Vec2::new(view.width() * 0.9, 0.0),
+                Key::PageUp if page_x => Vec2::new(-view.width() * 0.9, 0.0),
+                Key::PageDown => Vec2::new(0.0, view.height() * 0.9),
+                Key::PageUp => Vec2::new(0.0, -view.height() * 0.9),
+                Key::ArrowDown => Vec2::new(0.0, STEP),
+                Key::ArrowUp => Vec2::new(0.0, -STEP),
+                Key::ArrowRight => Vec2::new(STEP, 0.0),
+                _ => Vec2::new(-STEP, 0.0),
+            };
+            let next = Vec2::new(
+                (off.x + by.x).clamp(0.0, room.x.max(0.0)),
+                (off.y + by.y).clamp(0.0, room.y.max(0.0)),
+            );
+            if next != off {
+                self.request(Request::ScrollToSnapped { scroller: p, offset: next });
+                return true;
+            }
+        }
+        false
     }
 
     pub(crate) fn field_edited(&self, id: ElementId, field: &Rc<RefCell<Field>>, changed: bool) {

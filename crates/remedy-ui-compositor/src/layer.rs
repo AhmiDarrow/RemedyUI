@@ -34,6 +34,18 @@ pub struct ScrollFollow {
     pub y: bool,
 }
 
+/// Where a scroll container comes to rest after a fling, a wheel gesture, a drag release or
+/// a snapped scroll ([`Compositor::scroll_to_snapped`](crate::Compositor::scroll_to_snapped)).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ScrollSnap {
+    /// Horizontal snap offsets (empty: the axis does not snap).
+    pub x: Vec<f32>,
+    /// Vertical snap offsets (empty: the axis does not snap).
+    pub y: Vec<f32>,
+    /// Always rest on a snap point; otherwise only when one is near.
+    pub mandatory: bool,
+}
+
 /// Coordinates: the layer sits at `bounds` in its parent's content space. Its local space
 /// has the origin at `bounds.min`. Its content (the display list and the child layers) is in
 /// content space, which is local space moved by the scroll offset. A clip applies in local
@@ -60,6 +72,8 @@ pub struct Layer {
     /// A scroll container that moves with another one on some axes, in the same frame
     /// (frozen table columns follow the body vertically; a header follows it horizontally).
     pub scroll_follow: Option<ScrollFollow>,
+    /// Snap points of a scroll container.
+    pub scroll_snap: Option<ScrollSnap>,
     /// What the layer draws, in content space.
     pub content: Arc<DisplayList>,
     /// Bumped by the UI thread whenever `content` changes; tiles re-raster on a new version.
@@ -89,6 +103,7 @@ impl Layer {
             scroll: None,
             scroll_origin: Vec2::ZERO,
             scroll_follow: None,
+            scroll_snap: None,
             content: Arc::new(content),
             content_version: 0,
             children: Vec::new(),

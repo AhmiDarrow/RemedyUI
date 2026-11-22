@@ -304,6 +304,7 @@ struct Builder {
     scroll: Option<Size>,
     origin: Vec2,
     follow: Option<remedy_ui_compositor::ScrollFollow>,
+    snap: Option<remedy_ui_compositor::ScrollSnap>,
     list: DisplayList,
     /// Push items open in `list`, re-opened when a segment starts.
     open: Vec<Item>,
@@ -319,6 +320,7 @@ impl Builder {
             scroll: None,
             origin: Vec2::ZERO,
             follow: None,
+            snap: None,
             list: DisplayList::new(),
             open: Vec::new(),
             children: Vec::new(),
@@ -388,6 +390,7 @@ impl Builder {
             layer.scroll_origin = self.origin;
         }
         layer.scroll_follow = self.follow;
+        layer.scroll_snap = self.snap;
         layer
     }
 }
@@ -539,6 +542,40 @@ impl Walk<'_> {
         }
     }
 
+    /// The snap offsets of a snapping scroll container's children (direct ones: shortcut,
+    /// grandchildren with `snap_align` are not seen; walk deeper if a layout needs it).
+    fn snap_points(
+        &self,
+        kids: &[ElementId],
+        axis: crate::SnapAxis,
+        strictness: crate::SnapStrictness,
+        view: Size,
+        lead: f32,
+    ) -> remedy_ui_compositor::ScrollSnap {
+        let mut snap = remedy_ui_compositor::ScrollSnap {
+            mandatory: strictness == crate::SnapStrictness::Mandatory,
+            ..Default::default()
+        };
+        let at = |a: crate::SnapAlign, min: f32, max: f32, extent: f32| match a {
+            crate::SnapAlign::Start => min,
+            crate::SnapAlign::Center => (min + max - extent) / 2.0,
+            crate::SnapAlign::End => max - extent,
+        };
+        for k in kids {
+            let (Some(a), Some(r)) = (self.inner.els.get(k).and_then(|d| d.snap_align), self.rects.get(k))
+            else {
+                continue;
+            };
+            if axis != crate::SnapAxis::Y {
+                snap.x.push(at(a, r.min.x + lead, r.max.x + lead, view.width));
+            }
+            if axis != crate::SnapAxis::X {
+                snap.y.push(at(a, r.min.y, r.max.y, view.height));
+            }
+        }
+        snap
+    }
+
     /// Paints `id` at `rect` (in its parent's space; `at` in `b`'s layer) and its subtree
     /// into `b`, with what `paint` says.
     fn body(&mut self, b: &mut Builder, id: ElementId, rect: Rect, at: Point, paint: Paint) {
@@ -588,6 +625,9 @@ impl Walk<'_> {
                 x,
                 y,
             });
+            vb.snap = d
+                .scroll_snap
+                .map(|(axis, strictness)| self.snap_points(&kids, axis, strictness, rect.size(), lead));
             let mut cb = Builder::new(content_id, Rect::from_origin_size(Point::ZERO, content_size));
             if lead > 0.0 {
                 cb.push(Item::PushTransform(Affine::translate(Vec2::new(lead, 0.0))));
