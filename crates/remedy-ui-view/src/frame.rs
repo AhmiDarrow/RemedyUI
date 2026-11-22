@@ -840,9 +840,10 @@ fn scrollbars(
         return None;
     }
     // The platform's overlay thumb: the text color, half seen, on no track.
-    let colors = s
-        .scrollbar_color
-        .unwrap_or(remedy_ui_core::ScrollbarColor::new(theme.derive().text.with_alpha(0.5), Color::TRANSPARENT));
+    let colors = s.scrollbar_color.unwrap_or(remedy_ui_core::ScrollbarColor::new(
+        theme.derive().text.with_alpha(0.5),
+        Color::TRANSPARENT,
+    ));
     Some(remedy_ui_compositor::Scrollbars {
         width,
         thumb: colors.thumb,
@@ -1510,7 +1511,11 @@ fn shown_band(i: &Inner, id: ElementId, window: Rect) -> Option<std::ops::Range<
 
 /// What an element's recorded paint depends on besides its state: its size, and its box on
 /// the device grid.
-fn chunk_key(rects: &HashMap<ElementId, Rect>, boxes: &HashMap<ElementId, Rect>, id: ElementId) -> (Size, Rect) {
+fn chunk_key(
+    rects: &HashMap<ElementId, Rect>,
+    boxes: &HashMap<ElementId, Rect>,
+    id: ElementId,
+) -> (Size, Rect) {
     let size = rects.get(&id).map(|r| r.size()).unwrap_or(Size::ZERO);
     (size, boxes.get(&id).copied().unwrap_or(Rect::from_origin_size(Point::ZERO, size)))
 }

@@ -63,10 +63,11 @@ fn borders_and_fills_at_fractional_positions_are_crisp() {
     let white = Color::WHITE;
     // A box 30.4 px from the top: browsers draw its edge on pixel row 30, whole.
     let spacer = ui.el("spacer").layout(|l| l.height = Length::Px(30.4));
-    let boxed = ui.el("panel").style(Style::new().background(red).border(white).border_width(1.0)).layout(|l| {
-        l.width = Length::Px(50.6);
-        l.height = Length::Px(20.3);
-    });
+    let boxed =
+        ui.el("panel").style(Style::new().background(red).border(white).border_width(1.0)).layout(|l| {
+            l.width = Length::Px(50.6);
+            l.height = Length::Px(20.3);
+        });
     ui.root().child(ui.el("column").column().child(spacer).child(boxed));
     let (_, frame) = draw(&ui);
     let px = |x: u32, y: u32| frame.pixel(x, y).unwrap_or([0; 4]);
@@ -117,9 +118,14 @@ fn scroll_containers_give_the_compositor_their_scroll_bars() {
     });
     assert_eq!(bars.len(), 3, "three scroll containers");
     let styled = bars.iter().flatten().find(|b| b.thumb == thumb);
-    assert!(styled.is_some_and(|b| b.width == 8.0 && b.visibility == ScrollbarVisibility::Always), "{bars:?}");
     assert!(
-        bars.iter().flatten().any(|b| b.visibility == ScrollbarVisibility::Auto && b.width == ScrollbarWidth::AUTO_PX),
+        styled.is_some_and(|b| b.width == 8.0 && b.visibility == ScrollbarVisibility::Always),
+        "{bars:?}"
+    );
+    assert!(
+        bars.iter()
+            .flatten()
+            .any(|b| b.visibility == ScrollbarVisibility::Auto && b.width == ScrollbarWidth::AUTO_PX),
         "an unstyled container gets the platform's overlay bars: {bars:?}"
     );
     assert_eq!(bars.iter().filter(|b| b.is_none()).count(), 1, "`scrollbar-width: none` draws none");
