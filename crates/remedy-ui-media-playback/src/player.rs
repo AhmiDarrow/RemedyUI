@@ -1034,8 +1034,10 @@ impl Inner {
         let (tracks, caption, rechoose, delay) = kept;
         self.rechoose_embedded.set(rechoose);
         self.send(Cmd::Close);
+        // The new stream takes the closed one's decoders once they are back (on its worker).
+        let after = self.tx.borrow().as_ref().map(|c| c.retired.clone());
         let shared = Arc::new(Shared::default());
-        let started = launch(self.id, &self.host, source, self.options.find_subtitles, shared.clone());
+        let started = launch(self.id, &self.host, source, self.options.find_subtitles, shared.clone(), after);
         *self.shared.borrow_mut() = shared;
         let failed = match started {
             Ok(tx) => {
@@ -1238,7 +1240,7 @@ impl Player {
         static IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let id = IDS.fetch_add(1, Ordering::Relaxed);
         let shared = Arc::new(Shared::default());
-        let started = source.map(|s| launch(id, &host, s, options.find_subtitles, shared.clone()));
+        let started = source.map(|s| launch(id, &host, s, options.find_subtitles, shared.clone(), None));
         let (tx, failed) = match started {
             Some(Ok(tx)) => (Some(tx), None),
             Some(Err(e)) => (None, Some(e)),
@@ -2735,12 +2737,13 @@ fn launch(
     source: MediaSource,
     find_subtitles: bool,
     shared: Arc<Shared>,
+    after: Option<Arc<crate::hls::Retired>>,
 ) -> Result<engine::Control, MediaError> {
     let waker = remedy_ui_reactive::waker();
     match (host, waker) {
         (Ok(host), Ok(waker)) => {
             let notify: engine::Notify = Box::new(move || waker.post(move || deliver(id)).is_ok());
-            engine::start(host.clone(), source, find_subtitles, shared, notify)
+            engine::start(host.clone(), source, find_subtitles, shared, notify, after)
         }
         (Err(e), _) => Err(e.clone()),
         (_, Err(e)) => Err(MediaError::Unsupported(format!("no UI thread to report to: {e}"))),
