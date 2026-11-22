@@ -142,8 +142,8 @@ export function insertText(text) {
   // As automation, a paste from the context menu or a password manager inserts: no keys.
   return document.execCommand('insertText', false, text);
 }
-export function hidePage() {
-  window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+export function hidePage(persisted) {
+  window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: !!persisted }));
 }
 "#)]
 extern "C" {
@@ -169,7 +169,7 @@ extern "C" {
     fn close_opened();
     /// What the browser sends as the page is put away (and before a reload).
     #[wasm_bindgen(js_name = hidePage)]
-    fn hide_page();
+    fn hide_page_as(cached: bool);
     /// Text inserted into the focused field without key presses; false if the browser refused.
     #[wasm_bindgen(js_name = insertText)]
     fn insert_text(text: &str) -> bool;
@@ -875,7 +875,7 @@ async fn a_reload_brings_the_entries_back_in_their_places() {
     assert!(until(120, || mirrored_text("Page /settings").is_some()).await);
 
     // The page is put away and loaded again: a new app in the same history entry.
-    hide_page();
+    hide_page_as(false);
     app.quit();
     assert!(until(30, || !remedy_ui::web::is_running()).await);
     drop((app, router, scroller));
@@ -911,11 +911,11 @@ async fn corners_draw_one_by_one_and_the_app_hears_the_page_go_at_once() {
     use remedy_ui::core::{Color, CornerRadii};
     use remedy_ui::layout::Length;
     let theme_bg = AppConfig::new("x").theme.colors.bg.to_rgba8();
-    let left = Rc::new(Cell::new(0u32));
+    let left: Rc<RefCell<Vec<remedy_ui::Leaving>>> = Rc::default();
     let held: Rc<RefCell<Option<App>>> = Rc::default();
     let (l, h) = (left.clone(), held.clone());
     let run = remedy_ui::run(AppConfig::new("Corners test").cpu_only(), move |app: &App| {
-        app.on_leaving(move || l.set(l.get() + 1));
+        app.on_leave(move |why| l.borrow_mut().push(why));
         *h.borrow_mut() = Some(app.clone());
         app.open(WindowSpec::new("Corners"), |ui, _| {
             // Round at the top only (CSS `border-radius: 24px 24px 0 0`).
@@ -958,9 +958,11 @@ async fn corners_draw_one_by_one_and_the_app_hears_the_page_go_at_once() {
 
     // The page going: the app hears it inside the browser's `pagehide`, before it returns,
     // while a keepalive request could still go out.
-    let before = left.get();
-    hide_page();
-    assert!(left.get() > before, "told at once");
+    // Into the back-forward cache it is frozen; closed for good it is closing.
+    hide_page_as(true);
+    assert_eq!(left.borrow().last(), Some(&remedy_ui::Leaving::Frozen), "told at once, frozen");
+    hide_page_as(false);
+    assert_eq!(left.borrow().last(), Some(&remedy_ui::Leaving::Closing), "told at once, closing");
     let app = held.borrow_mut().take().must("the app");
     app.quit();
     assert!(until(30, || !remedy_ui::web::is_running()).await);

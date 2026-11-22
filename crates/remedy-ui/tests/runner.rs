@@ -1603,6 +1603,34 @@ fn shares_reach_the_sheet_and_how_they_ended_reaches_the_app() {
 }
 
 #[test]
+fn the_app_hears_why_it_may_be_ended() {
+    use remedy_ui::Leaving;
+    let heard: Rc<std::cell::RefCell<Vec<Leaving>>> = Rc::default();
+    let held: Rc<std::cell::RefCell<Option<App>>> = Rc::default();
+    let (h, a) = (heard.clone(), held.clone());
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let h = h.clone();
+        app.on_leave(move |why| h.borrow_mut().push(why));
+        *a.borrow_mut() = Some(app.clone());
+        app.open(WindowSpec::new("Leaving"), |_, _| {});
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    host.send(HostEvent::Occluded(id, true));
+    host.send(HostEvent::Occluded(id, false));
+    host.send(HostEvent::Suspended);
+    host.send(HostEvent::Resumed);
+    host.send(HostEvent::Closing);
+    host.run_frames(&mut runner, 1);
+    if let Some(app) = held.borrow().as_ref() {
+        app.quit();
+    }
+    host.run_frames(&mut runner, 1);
+    assert_eq!(*heard.borrow(), [Leaving::Hidden, Leaving::Frozen, Leaving::Closing, Leaving::Quitting]);
+}
+
+#[test]
 fn suspended_windows_draw_again_after_resume() {
     let mut runner = red_block_app();
     let mut host = HeadlessHost::new();
