@@ -79,7 +79,9 @@ WebGL2 in a browser.
   CPU renderer onto a `vello_gpu` scene (sparse strips): shapes, paths, gradients, clips,
   opacity and blend groups, filter groups and backdrops go through vello. Glyphs are
   rasterized by RemedyUI once per size and subpixel position (grayscale and LCD) and drawn as
-  tinted images, so both renderers draw the same text.
+  tinted images, so both renderers draw the same text. A run under a rotation, skew, mirror or
+  uneven scale is rasterized through its transform (unhinted, grayscale, the origin's subpixel
+  offset on both axes), cached per transform, so turned text turns letter by letter too.
 - **Pipelines** are vello's, RemedyUI's video conversion and Prism's effect kernels, all made
   when the renderer is created, through a **persistent pipeline cache** on disk where the
   driver supports one. Nothing compiles mid-frame (a test counts pipelines and shaders after

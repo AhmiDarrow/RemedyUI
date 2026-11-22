@@ -164,6 +164,29 @@ impl GlyphRasterizer {
         })
     }
 
+    /// Rasterizes `glyph` of `font` at `size` pixels, unhinted, with each point mapped by
+    /// `linear` (`[a, b, c, d]`: x' = a·x + c·y, y' = b·x + d·y, y down, in device pixels per
+    /// pixel of `size`) and the origin moved by `offset` (the fraction of a device pixel the
+    /// origin falls at). For runs drawn turned, skewed, mirrored or stretched unevenly; hinting
+    /// grid-fits to axes that are not the device's there, so it is off. Grayscale.
+    pub fn rasterize_transformed(
+        &mut self,
+        font: &RunFont,
+        glyph: u32,
+        size: f32,
+        linear: [f32; 4],
+        offset: (f32, f32),
+    ) -> Option<GlyphImage> {
+        let font_ref = FontRef::from_index(font.bytes(), font.index()).ok()?;
+        let outlines = font_ref.outline_glyphs();
+        let outline = outlines.get(GlyphId::new(glyph))?;
+        let mut path = PathRecorder::default();
+        outline.draw(DrawSettings::unhinted(Size::new(size), LocationRef::default()), &mut path).ok()?;
+        let [a, b, c, d] = linear;
+        // Font y is up; the transform works in y down.
+        path.rasterize_mapped(|x, y| (a * x - c * y + offset.0, b * x - d * y + offset.1))
+    }
+
     /// Drops cached hinting instances (for example under memory pressure).
     pub fn clear(&mut self) {
         self.instances.clear();
@@ -233,9 +256,16 @@ impl PathRecorder {
     /// Coverage of the outline moved right by `dx` and stretched horizontally by `x_scale`,
     /// with font units' y-up turned into bitmap y-down.
     pub(crate) fn rasterize(&self, dx: f32, x_scale: f32) -> Option<GlyphImage> {
+        self.rasterize_mapped(|x, y| ((x + dx) * x_scale, -y))
+    }
+
+    /// Coverage of the outline with each point (y up, from the glyph origin) moved by `map`
+    /// to pixels (y down, from the glyph origin): any affine map, so a glyph can be drawn
+    /// turned, skewed or stretched as its run is.
+    pub(crate) fn rasterize_mapped(&self, map: impl Fn(f32, f32) -> (f32, f32)) -> Option<GlyphImage> {
         let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
         for (x, y) in self.points() {
-            let x = (x + dx) * x_scale;
+            let (x, y) = map(x, y);
             x0 = x0.min(x);
             x1 = x1.max(x);
             y0 = y0.min(y);
@@ -245,17 +275,20 @@ impl PathRecorder {
             return None;
         }
         let left = x0.floor();
-        let top = y1.ceil();
+        // The image's top edge, in pixels down from the baseline (negative: above it).
+        let top = y0.floor();
         let width = (x1.ceil() - left).max(1.0);
-        let height = (top - y0.floor()).max(1.0);
+        let height = (y1.ceil() - top).max(1.0);
         if width > 16_384.0 || height > 16_384.0 {
             // A glyph this large belongs on the path renderer, not in a coverage bitmap.
             return None;
         }
         let (w, h) = (width as usize, height as usize);
         let mut r = Raster::new(w, h);
-        let tx = |x: f32| (x + dx) * x_scale - left;
-        let ty = |y: f32| top - y;
+        let at = |x: f32, y: f32| {
+            let (x, y) = map(x, y);
+            (x - left, y - top)
+        };
         let (mut start, mut cur) = ((0.0, 0.0), (0.0, 0.0));
         for s in &self.segs {
             match *s {
@@ -263,16 +296,16 @@ impl PathRecorder {
                     if cur != start {
                         r.line(cur, start);
                     }
-                    start = (tx(x), ty(y));
+                    start = at(x, y);
                     cur = start;
                 }
                 Seg::Line(x, y) => {
-                    let p = (tx(x), ty(y));
+                    let p = at(x, y);
                     r.line(cur, p);
                     cur = p;
                 }
                 Seg::Quad(a, b, x, y) => {
-                    let (c, p) = ((tx(a), ty(b)), (tx(x), ty(y)));
+                    let (c, p) = (at(a, b), at(x, y));
                     let dd = ((cur.0 - 2.0 * c.0 + p.0).powi(2) + (cur.1 - 2.0 * c.1 + p.1).powi(2)).sqrt();
                     let n = ((dd / (8.0 * FLATTEN_TOLERANCE)).sqrt().ceil() as usize).clamp(1, 256);
                     let mut last = cur;
@@ -289,7 +322,7 @@ impl PathRecorder {
                     cur = p;
                 }
                 Seg::Cubic(a, b, c, d, x, y) => {
-                    let (c1, c2, p) = ((tx(a), ty(b)), (tx(c), ty(d)), (tx(x), ty(y)));
+                    let (c1, c2, p) = (at(a, b), at(c, d), at(x, y));
                     let dd1 =
                         ((cur.0 - 2.0 * c1.0 + c2.0).powi(2) + (cur.1 - 2.0 * c1.1 + c2.1).powi(2)).sqrt();
                     let dd2 = ((c1.0 - 2.0 * c2.0 + p.0).powi(2) + (c1.1 - 2.0 * c2.1 + p.1).powi(2)).sqrt();
@@ -329,7 +362,7 @@ impl PathRecorder {
             width: w as u32,
             height: h as u32,
             left: left as i32,
-            top: top as i32,
+            top: -top as i32,
             data: r.coverage(),
         })
     }
