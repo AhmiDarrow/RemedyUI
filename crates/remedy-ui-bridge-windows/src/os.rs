@@ -2,6 +2,7 @@
 //! safe wrapper that checks each result.
 
 pub(crate) mod badge;
+pub(crate) mod devices;
 pub(crate) mod dnd;
 pub(crate) mod gamepad;
 pub(crate) mod icon;

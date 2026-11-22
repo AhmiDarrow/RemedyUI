@@ -10,6 +10,22 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Pointer hardware detection**: `SystemSettings::pointer_devices` says what the pointing
+  hardware attached can do (`PointerCaps::of_devices`: a mouse or touchpad, else a touch
+  screen, else a pen) and `Ui::set_pointer_hardware` starts `Ui::pointer_caps()` from it; the
+  pointer last used still refines it. Windows reads the system metrics (mouse, digitizers,
+  tablet posture) and hears of devices through `CM_Register_Notification`, Linux reads
+  `/proc/bus/input/devices` and watches `/dev/input`, Android reads `InputDevice` sources and
+  listens for devices; each hot-plug delivers the settings again.
+- **The touch keyboard's Enter key** (`EnterKey`: `Enter`, `Done`, `Go`, `Next`, `Previous`,
+  `Search`, `Send`): `TextField::enter_key` picks it, `TextInputState::enter` carries it and
+  `TextInputState::enter_key` resolves the default (a line break for several lines, search,
+  go for an address, else done). The web sets `enterkeyhint` from it and Android the IME
+  action; `Next` and `Previous` move focus as Tab and Shift+Tab do. Addresses now show "go"
+  on the web too, as on Android.
+- **Android autofill**: a field's `InputPurpose` sets the view's autofill hints (username,
+  email, password, new password, SMS code) and the field reports to `AutofillManager`, so
+  password managers and SMS code autofill fill it.
 - **Scroll snapping**, as CSS's: `El::scroll_snap(SnapAxis, SnapStrictness)` on a scroll
   container and `El::snap_align(SnapAlign)` on its cards, with `scroll_padding`,
   `snap_margin` and `snap_stop_always`. It settles after flings (from where the fling would
@@ -1267,6 +1283,18 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **The X11 tray's submenus cascade and take the keyboard** as the top-level menu does: a
+  submenu opens beside its row (hovering it, clicking it, Right or Enter) and closes with Left
+  or Escape; Up and Down skip what cannot be chosen; access keys pick an entry (the letter
+  after `&` in a label, as on Windows, else the first letter; several entries sharing one
+  take turns) and are underlined. Before, submenus were drawn inline and the keyboard only
+  stepped through rows. StatusNotifierItem menus send the `&` access key as dbusmenu's `_`.
+- `media-svg` recognises an SVG by its root element: the sniffer skips a byte order mark,
+  the XML declaration, processing instructions, comments and a DOCTYPE (internal subset
+  included) instead of looking for `<svg` in the first 1024 bytes, so an SVG behind a long
+  licence comment loads and an XML file that merely mentions `<svg>` is no longer taken for
+  one. It reads up to `DEFAULT_SNIFF_LIMIT` (64 KiB), set with `set_sniff_limit`; the image
+  loader reads a whole file to sniff it when its header is no raster format.
 - `media-anim` without its format features (as `media-isolated` takes it) compiles again,
   which also fixes `media-isolated` for `wasm32-unknown-unknown`; there `media-isolated` no
   longer pulls in dependencies it does not use.

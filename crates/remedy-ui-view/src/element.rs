@@ -1326,8 +1326,10 @@ impl Ui {
     /// What the pointer in use can do: whether it hovers, whether it points finely. Widgets
     /// show hover-only affordances where it hovers and keep them on screen where it does not.
     /// On the web it follows the `(hover: hover)` and `(pointer: fine)` media queries;
-    /// natively the pointer last used (a mouse, a finger, a pen), so a convertible switching
-    /// to tablet changes it with the first touch.
+    /// natively it starts from the pointing hardware attached (Windows, Linux and Android
+    /// read it, and again when devices come and go) and follows the pointer last used (a
+    /// mouse, a finger, a pen), so a convertible switching to tablet changes it with the first
+    /// touch.
     pub fn pointer_caps(&self) -> remedy_ui_reactive::Signal<remedy_ui_host::PointerCaps> {
         self.0.borrow().pointer_caps
     }
@@ -1342,6 +1344,19 @@ impl Ui {
         };
         if let Some(c) = caps {
             s.set_if_changed(c);
+        }
+    }
+
+    /// Starts the caps from the pointing hardware attached (the runner sets it at start and
+    /// when devices come and go); the pointer last used still refines them. Does nothing while
+    /// the platform reports the caps ([`set_pointer_caps`](Self::set_pointer_caps)).
+    pub fn set_pointer_hardware(&self, caps: remedy_ui_host::PointerCaps) {
+        let (reported, s) = {
+            let i = self.0.borrow();
+            (i.pointer_reported, i.pointer_caps)
+        };
+        if !reported {
+            s.set_if_changed(caps);
         }
     }
 

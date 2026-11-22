@@ -60,6 +60,26 @@ pub struct AndroidSettings {
     pub double_tap_ms: Option<i32>,
     /// `Configuration.uiMode` type bits say television (Android TV, Google TV, Fire TV).
     pub television: bool,
+    /// `InputDevice.getSources()` of each input device that is not virtual, when they could
+    /// be read.
+    pub input_sources: Option<Vec<i32>>,
+}
+
+/// `InputDevice.SOURCE_MOUSE`, `SOURCE_TOUCHPAD`, `SOURCE_TOUCHSCREEN` and `SOURCE_STYLUS`.
+const SOURCE_MOUSE: i32 = 0x0000_2002;
+const SOURCE_TOUCHPAD: i32 = 0x0010_0008;
+const SOURCE_TOUCHSCREEN: i32 = 0x0000_1002;
+const SOURCE_STYLUS: i32 = 0x0000_4002;
+
+/// What the input devices with these sources can do as a pointer (a mouse or touchpad, a
+/// touch screen, a stylus).
+pub fn pointer_devices(sources: &[i32]) -> Option<remedy_ui_host::PointerCaps> {
+    let any = |s: i32| sources.iter().any(|d| d & s == s);
+    remedy_ui_host::PointerCaps::of_devices(
+        any(SOURCE_MOUSE) || any(SOURCE_TOUCHPAD),
+        any(SOURCE_TOUCHSCREEN),
+        any(SOURCE_STYLUS),
+    )
 }
 
 /// The caret blink interval of Android's own text fields (`Editor`'s fixed 500 ms).
@@ -93,6 +113,7 @@ impl AndroidSettings {
         s.caret_blink = Some(CARET_BLINK);
         // A TV is driven by its remote's d-pad.
         s.spatial_navigation = self.television;
+        s.pointer_devices = self.input_sources.as_deref().and_then(pointer_devices);
         s
     }
 }
@@ -117,6 +138,21 @@ pub fn purpose_code(p: remedy_ui_host::InputPurpose) -> i32 {
         P::NewPassword => 8,
         P::OneTimeCode => 9,
         _ => 0,
+    }
+}
+
+/// An Enter key as the `EditorInfo.IME_ACTION_*` the keyboard's action key shows
+/// (`IME_ACTION_NONE`, 1: a line break).
+pub fn ime_action(k: remedy_ui_host::EnterKey) -> i32 {
+    use remedy_ui_host::EnterKey as K;
+    match k {
+        K::Go => 2,
+        K::Search => 3,
+        K::Send => 4,
+        K::Next => 5,
+        K::Done => 6,
+        K::Previous => 7,
+        _ => 1,
     }
 }
 
@@ -206,6 +242,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn enter_keys_are_androids_ime_actions() {
+        use remedy_ui_host::{EnterKey, InputPurpose, TextInputState};
+        let mut s = TextInputState::default();
+        assert_eq!(ime_action(s.enter_key()), 6, "done");
+        s.purpose = InputPurpose::Search;
+        assert_eq!(ime_action(s.enter_key()), 3, "search");
+        s.purpose = InputPurpose::Url;
+        assert_eq!(ime_action(s.enter_key()), 2, "go");
+        s.enter = Some(EnterKey::Next);
+        assert_eq!(ime_action(s.enter_key()), 5, "next, as the app asked");
+        assert_eq!(ime_action(EnterKey::Previous), 7);
+        assert_eq!(ime_action(EnterKey::Send), 4);
+        s.enter = None;
+        s.multiline = true;
+        assert_eq!(ime_action(s.enter_key()), 1, "several lines: a line break, no action");
+    }
+
+    #[test]
     fn foreground_kinds_are_androids_service_types() {
         assert_eq!(foreground_types(&[]), Some(0));
         assert_eq!(foreground_types(&[ForegroundKind::Microphone, ForegroundKind::MediaPlayback]), Some(130));
@@ -265,6 +319,23 @@ mod tests {
     }
 
     #[test]
+    fn input_sources_say_what_the_pointer_can_do() {
+        use remedy_ui_host::PointerCaps;
+        // A keyboard (SOURCE_KEYBOARD) is no pointer.
+        assert_eq!(pointer_devices(&[0x0000_0101]), None);
+        assert_eq!(pointer_devices(&[SOURCE_TOUCHSCREEN]), Some(PointerCaps::TOUCH), "a phone");
+        assert_eq!(
+            pointer_devices(&[SOURCE_TOUCHSCREEN, SOURCE_MOUSE]),
+            Some(PointerCaps::MOUSE),
+            "a mouse paired"
+        );
+        assert_eq!(pointer_devices(&[SOURCE_TOUCHPAD]), Some(PointerCaps::MOUSE), "a Chromebook's touchpad");
+        assert_eq!(pointer_devices(&[SOURCE_STYLUS]), Some(PointerCaps::PEN));
+        // SOURCE_STYLUS shares SOURCE_CLASS_POINTER with the touch screen: the class alone is not a stylus.
+        assert_eq!(pointer_devices(&[0x0000_0002]), None);
+    }
+
+    #[test]
     fn settings_follow_android() {
         let s = AndroidSettings {
             night: Some(true),
@@ -276,6 +347,7 @@ mod tests {
             accent: Some(0xFF33_66CC_u32 as i32),
             double_tap_ms: Some(300),
             television: true,
+            input_sources: Some(vec![0x0000_0101, SOURCE_TOUCHSCREEN | SOURCE_STYLUS]),
         }
         .to_settings();
         assert_eq!(s.dark, Some(true));
@@ -288,6 +360,7 @@ mod tests {
         assert_eq!(s.double_click, Duration::from_millis(300));
         assert_eq!(s.caret_blink, Some(CARET_BLINK));
         assert!(s.spatial_navigation, "a TV moves focus with its d-pad");
+        assert_eq!(s.pointer_devices, Some(remedy_ui_host::PointerCaps::TOUCH), "its touch screen");
     }
 
     #[test]

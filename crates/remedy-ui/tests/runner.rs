@@ -845,6 +845,40 @@ fn an_app_language_outlasts_the_system_s_until_it_is_cleared() {
 }
 
 #[test]
+fn pointer_hardware_sets_the_caps_only_when_it_changes() {
+    use remedy_ui::PointerCaps;
+    let ui_slot: Rc<std::cell::RefCell<Option<remedy_ui::Ui>>> = Rc::default();
+    let u2 = ui_slot.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let u3 = u2.clone();
+        app.open(WindowSpec::new("Caps").size(100.0, 60.0), move |ui, _| {
+            *u3.borrow_mut() = Some(ui.clone());
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let caps = || ui_slot.borrow().as_ref().and_then(|u| u.pointer_caps().get_untracked().ok());
+    let mut s = remedy_ui::host::SystemSettings::default();
+    s.pointer_devices = Some(PointerCaps::TOUCH);
+    host.send(HostEvent::Settings(s.clone()));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(caps(), Some(PointerCaps::TOUCH), "a tablet: its touch screen");
+    // A pen used since (what the view does with the pointer last used).
+    if let Some(u) = ui_slot.borrow().as_ref() {
+        u.set_pointer_caps(Some(PointerCaps::PEN));
+        u.set_pointer_caps(None);
+    }
+    s.dark = Some(true);
+    host.send(HostEvent::Settings(s.clone()));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(caps(), Some(PointerCaps::PEN), "another setting leaves the pointer's say");
+    s.pointer_devices = Some(PointerCaps::MOUSE);
+    host.send(HostEvent::Settings(s));
+    host.run_frames(&mut runner, 1);
+    assert_eq!(caps(), Some(PointerCaps::MOUSE), "a mouse plugged in");
+}
+
+#[test]
 fn capture_protection_is_a_request_and_windows_open_without_it() {
     for supported in [true, false] {
         let slot: Rc<std::cell::RefCell<Option<remedy_ui::Window>>> = Rc::default();

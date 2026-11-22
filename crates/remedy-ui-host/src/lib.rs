@@ -316,7 +316,9 @@ pub struct TrayImage {
     pub rgba: Vec<u8>,
 }
 
-/// One tray menu entry.
+/// One tray menu entry. In a label, `&` before a character makes it the access key (the key
+/// that picks the entry while the menu is open, underlined on Windows and X11), as on Windows;
+/// `&&` is a literal `&`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 // Exhaustive on purpose: part of the host contract every bridge must show completely, so a new kind is a major change.
 pub enum TrayItem {
@@ -955,6 +957,10 @@ pub struct SystemSettings {
     /// and `(pointer: fine)` media queries). `None` where the engine goes by the pointer
     /// last used.
     pub pointer: Option<PointerCaps>,
+    /// What the pointing hardware attached can do ([`PointerCaps::of_devices`]), where the
+    /// platform can tell, read again when devices come and go: the caps start from it and the
+    /// pointer last used refines them. Ignored while [`pointer`](Self::pointer) is set.
+    pub pointer_devices: Option<PointerCaps>,
 }
 
 /// What the pointer in use can do: widgets show hover-only affordances where it hovers, and
@@ -979,6 +985,21 @@ impl PointerCaps {
     /// The caps from what the pointer does.
     pub fn new(hover: bool, fine: bool) -> PointerCaps {
         PointerCaps { hover, fine }
+    }
+
+    /// The caps of the pointing hardware attached: a mouse or touchpad hovers and points
+    /// finely; without one, a touch screen is a finger (pens are usually beside one); a pen
+    /// alone is a pen. `None` with none of them.
+    pub fn of_devices(mouse: bool, touch: bool, pen: bool) -> Option<PointerCaps> {
+        if mouse {
+            Some(PointerCaps::MOUSE)
+        } else if touch {
+            Some(PointerCaps::TOUCH)
+        } else if pen {
+            Some(PointerCaps::PEN)
+        } else {
+            None
+        }
     }
 }
 
@@ -1014,6 +1035,7 @@ impl Default for SystemSettings {
             power_saving: false,
             spatial_navigation: false,
             pointer: None,
+            pointer_devices: None,
         }
     }
 }
@@ -1075,6 +1097,47 @@ pub struct TextInputState {
     /// What the field holds, so keyboards show the right keys and password managers and
     /// autofill know what to offer.
     pub purpose: InputPurpose,
+    /// What the touch keyboard's Enter key says and does; `None` picks it from the field
+    /// ([`TextInputState::enter_key`]).
+    pub enter: Option<EnterKey>,
+}
+
+impl TextInputState {
+    /// The Enter key this field shows: [`enter`](Self::enter) when set, otherwise a line
+    /// break for several lines, "search" for a search, "go" for an address, else "done".
+    pub fn enter_key(&self) -> EnterKey {
+        match self.enter {
+            Some(k) => k,
+            None if self.multiline => EnterKey::Enter,
+            None => match self.purpose {
+                InputPurpose::Search => EnterKey::Search,
+                InputPurpose::Url => EnterKey::Go,
+                _ => EnterKey::Done,
+            },
+        }
+    }
+}
+
+/// What a touch keyboard's Enter key says and does (the web's `enterkeyhint`, Android's IME
+/// action). [`Next`](Self::Next) and [`Previous`](Self::Previous) move focus as Tab and
+/// Shift+Tab do; the others press Enter, which submits a one-line field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum EnterKey {
+    /// A line break.
+    Enter,
+    /// Finished with this field.
+    Done,
+    /// Go to what was typed (an address).
+    Go,
+    /// On to the next field.
+    Next,
+    /// Back to the previous field.
+    Previous,
+    /// Search for what was typed.
+    Search,
+    /// Send what was typed (a message).
+    Send,
 }
 
 /// What a text field holds: picks the touch keyboard's layout, the input method's mode, and
