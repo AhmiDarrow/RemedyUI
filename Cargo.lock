@@ -5028,6 +5028,7 @@ dependencies = [
  "remedy-ui-fonts",
  "remedy-ui-input",
  "remedy-ui-layout",
+ "remedy-ui-paint",
  "remedy-ui-reactive",
  "remedy-ui-style",
  "remedy-ui-text",

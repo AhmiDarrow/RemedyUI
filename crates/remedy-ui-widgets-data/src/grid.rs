@@ -1,9 +1,10 @@
-//! Icon grids (a file explorer's large-icon view): fixed-size tiles that wrap to the width,
-//! virtual rows for any number of items, the table's selection model, rubber-band selection,
+//! Icon grids (a file explorer's large-icon view, a media library's posters): fixed-size or
+//! fluid tiles that wrap to the width, virtual rows for any number of items (in their own
+//! scroll or the page's), the table's selection model, rubber-band selection,
 //! keyboard movement in two dimensions, and drag and drop.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::rc::Rc;
 
@@ -24,17 +25,52 @@ type DropFn<K> = Rc<dyn Fn(&Drag, Option<&K>, DropEffect)>;
 type DropHooks<K> = (AcceptFn<K>, DropFn<K>);
 type TileFn<T> = Rc<dyn Fn(&Ui, &T) -> El>;
 
-/// How a grid draws its items: each in a box of `size`, by `draw`.
+/// How a grid draws its items: each in a box of `size` (or a fluid one), by `draw`.
 pub struct Tiles<T> {
-    /// One tile's size.
+    /// One tile's size; for fluid tiles, the size at the narrowest.
     pub size: Size,
+    /// Fluid tiles: (height over width of the part that scales, height added below it).
+    fluid: Option<(f32, f32)>,
     draw: TileFn<T>,
 }
 
 impl<T> Tiles<T> {
     /// Tiles of `size` drawn by `draw`.
     pub fn new(size: Size, draw: impl Fn(&Ui, &T) -> El + 'static) -> Self {
-        Tiles { size, draw: Rc::new(draw) }
+        Tiles { size, fluid: None, draw: Rc::new(draw) }
+    }
+
+    /// Tiles that fill the width, as CSS `repeat(auto-fill, minmax(min_width, 1fr))`: as many
+    /// columns as fit at `min_width`, stretched to share the rest. A tile is `aspect` times
+    /// its width tall (1.5 for a 2:3 poster) plus `extra_height` (a caption under it).
+    /// Columns and sizes follow the width as it changes.
+    pub fn fluid(
+        min_width: f32,
+        aspect: f32,
+        extra_height: f32,
+        draw: impl Fn(&Ui, &T) -> El + 'static,
+    ) -> Self {
+        let (w, a, e) = (min_width.max(1.0), aspect.max(0.0), extra_height.max(0.0));
+        Tiles { size: Size::new(w, w * a + e), fluid: Some((a, e)), draw: Rc::new(draw) }
+    }
+}
+
+/// How a grid sits in its page and what its tiles hold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct GridOptions {
+    /// The grid scrolls by itself (true, the default) or grows to all its rows inside the
+    /// page's scroll, building only the rows that scroll shows.
+    pub own_scroll: bool,
+    /// Tiles keep their own controls (Play, Details, a bookmark) for the keyboard and screen
+    /// readers: Enter moves into the cursor's tile, the arrow keys between its controls, and
+    /// Escape back to the grid. Off (the default), a tile reads as one list item.
+    pub interactive_tiles: bool,
+}
+
+impl Default for GridOptions {
+    fn default() -> Self {
+        GridOptions { own_scroll: true, interactive_tiles: false }
     }
 }
 
@@ -108,6 +144,14 @@ impl GridGeometry {
         ((room / (tile.width + gap)).floor() as usize).max(1)
     }
 
+    /// Fluid tiles across `width` ([`Tiles::fluid`]): as many columns as fit at `min_width`,
+    /// stretched to fill it, `aspect` times their width tall plus `extra_height`.
+    pub fn fluid(width: f32, min_width: f32, aspect: f32, extra_height: f32, gap: f32, pad: f32) -> Self {
+        let cols = Self::columns_for(width, Size::new(min_width, 0.0), gap, pad);
+        let w = ((width - pad * 2.0 - gap * (cols - 1) as f32) / cols as f32).max(1.0);
+        GridGeometry { cols, tile: Size::new(w, w * aspect + extra_height), gap, pad }
+    }
+
     /// The height of one row of tiles with the gap under it.
     pub fn row_height(&self) -> f32 {
         self.tile.height + self.gap
@@ -154,7 +198,6 @@ impl GridGeometry {
 /// Page Up and Page Down by a screenful, Home and End to the ends (Shift extends, Ctrl moves
 /// without selecting, Space selects), Ctrl+A selects all, Enter activates.
 #[track_caller]
-#[allow(clippy::too_many_lines)]
 pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
     ui: &Ui,
     label: impl Into<String>,
@@ -164,11 +207,31 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
     state: &GridState<K>,
     on_activate: impl Fn(&K) + 'static,
 ) -> El {
+    grid_view_with(ui, label, items, key, tiles, state, GridOptions::default(), on_activate)
+}
+
+/// [`grid_view`] with `options`: in the page's scroll, and tiles whose controls the keyboard
+/// and screen readers reach ([`GridOptions`]).
+#[track_caller]
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+pub fn grid_view_with<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
+    ui: &Ui,
+    label: impl Into<String>,
+    items: Signal<Vec<T>>,
+    key: impl Fn(&T) -> K + 'static,
+    tiles: Tiles<T>,
+    state: &GridState<K>,
+    options: GridOptions,
+    on_activate: impl Fn(&K) + 'static,
+) -> El {
     let label = label.into();
     let unit = ui.theme().spacing.unit;
     let (gap, pad) = (unit * 2.0, unit * 2.0);
     let key: Rc<dyn Fn(&T) -> K> = Rc::new(key);
-    let (tile, tile_size) = (tiles.draw, tiles.size);
+    let (tile, tile_size, fluid) = (tiles.draw, tiles.size, tiles.fluid);
+    let GridOptions { own_scroll, interactive_tiles: interactive } = options;
+    // Built tiles by index, for Enter to move into (cleared when the rows rebuild).
+    let built: Rc<RefCell<HashMap<usize, El>>> = Rc::default();
     let on_activate: Rc<dyn Fn(&K)> = Rc::new(on_activate);
     let state = state.clone();
     let geo = Rc::new(Cell::new(GridGeometry { cols: 1, tile: tile_size, gap, pad }));
@@ -176,6 +239,8 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
     let keys: Rc<RefCell<Vec<K>>> = Rc::default();
     let focused = Signal::new(false);
     let root = ui.el("grid").on_focus_change(move |on| focused.set(on));
+    // The part of the grid that shows: (offset from its top, height).
+    let view = Rc::new(Cell::new((0.0f32, 400.0f32)));
 
     // ---- one tile
     let build_tile = {
@@ -188,7 +253,9 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
             tile.clone(),
         );
         let (drag_fn, drop_fns) = (state.drag.clone(), state.drop.clone());
+        let (geo, built, root) = (geo.clone(), built.clone(), root.clone());
         Rc::new(move |i: usize, item: &T| -> El {
+            let tile_size = geo.get().tile;
             let k = key(item);
             let total = keys.borrow().len();
             let content = tile(&ui2, item);
@@ -231,6 +298,31 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                     true
                 })
                 .keyboard_alternative(crate::tr_fn(&ui2, "grid-item-keys"));
+            if interactive {
+                // Inside a tile: arrows between its controls, Escape back to the grid; focus
+                // on a control puts the grid's cursor on its tile.
+                let (me, root2, sel7, k10) = (el.clone(), root.clone(), sel.clone(), k.clone());
+                el = el
+                    .on_key(move |e| {
+                        if !e.pressed {
+                            return false;
+                        }
+                        match e.key {
+                            Key::Escape => {
+                                root2.focus();
+                                true
+                            }
+                            Key::ArrowRight | Key::ArrowDown => me.focus_step(true),
+                            Key::ArrowLeft | Key::ArrowUp => me.focus_step(false),
+                            _ => false,
+                        }
+                    })
+                    .on_focus_within(move |on| {
+                        if on && sel7.cursor.get_untracked().ok().flatten().as_ref() != Some(&k10) {
+                            sel7.cursor.set(Some(k10.clone()));
+                        }
+                    });
+            }
             let drag = drag_fn.borrow().clone();
             if let Some(make) = drag {
                 let (sel6, k6) = (sel.clone(), k.clone());
@@ -259,13 +351,16 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                 e2.state(States::FOCUS_VISIBLE, cursor);
             });
             let (sel4, k9) = (sel.clone(), key(item));
-            el.semantics(move || {
-                Semantics::new(Role::ListItem)
+            let el = el.semantics(move || {
+                let s = Semantics::new(Role::ListItem)
                     .set_position(i + 1, total)
                     .selected(sel4.contains(&k9))
-                    .action(Action::Click)
-                    .merge_descendants()
-            })
+                    .action(Action::Click);
+                // Interactive tiles keep their buttons in the tree.
+                if interactive { s } else { s.merge_descendants() }
+            });
+            built.borrow_mut().insert(i, el.clone());
+            el
         })
     };
 
@@ -303,28 +398,26 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .padding(Insets { top: pad, bottom: pad, start: 0.0, end: 0.0 })
         .child(rows_column)
         .child(band_el.clone());
-    let body = ui
-        .el("scroll")
-        .scroll()
-        .column()
-        .grow(1.0)
-        .fill_width()
-        .layout(|l| l.min_height = Length::Px(0.0))
-        .child(content.clone());
-    let viewport = Rc::new(Cell::new(Size::new(600.0, 400.0)));
+    let body = if own_scroll {
+        ui.el("scroll").scroll().column().grow(1.0).fill_width().layout(|l| l.min_height = Length::Px(0.0))
+    } else {
+        ui.el("grid_body").column().fill_width().layout(|l| l.shrink = 0.0)
+    }
+    .child(content.clone());
 
     let show = {
-        let (rows, body, vp, ui2) = (rows.clone(), body.clone(), viewport.clone(), ui.clone());
+        let (rows, view) = (rows.clone(), view.clone());
         Rc::new(move || {
-            let y = ui2.scroll_offset(body.id()).y;
+            let (y, h) = view.get();
             // Rows count from below the top padding.
-            rows.borrow_mut().show((y - pad).max(0.0), vp.get().height);
+            rows.borrow_mut().show((y - pad).max(0.0), h);
         })
     };
     let rebuild = {
-        let (rows, show, geo) = (rows.clone(), show.clone(), geo.clone());
+        let (rows, show, geo, built) = (rows.clone(), show.clone(), geo.clone(), built.clone());
         Rc::new(move |n: usize| {
             let g = geo.get();
+            built.borrow_mut().clear();
             let mut r = rows.borrow_mut();
             r.set_row_height(g.row_height());
             r.set_count(n.div_ceil(g.cols), true);
@@ -346,21 +439,44 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         });
     });
 
-    // The width decides the columns.
-    let (s1, vp2, geo2, rebuild3, s2) =
-        (show.clone(), viewport.clone(), geo.clone(), rebuild.clone(), show.clone());
-    let body = body.on_scroll(move |_| s1()).on_resize(move |sz: Size| {
-        vp2.set(sz);
-        let mut g = geo2.get();
-        let cols = GridGeometry::columns_for(sz.width, g.tile, g.gap, g.pad);
-        if cols == g.cols {
-            s2();
-        } else {
-            g.cols = cols;
-            geo2.set(g);
-            rebuild3(items.with_untracked(Vec::len).unwrap_or(0));
+    // The width decides the columns (and a fluid tile's size).
+    let relayout = {
+        let (geo, rebuild, show) = (geo.clone(), rebuild.clone(), show.clone());
+        move |width: f32| {
+            let old = geo.get();
+            let g = match fluid {
+                Some((aspect, extra)) => GridGeometry::fluid(width, tile_size.width, aspect, extra, gap, pad),
+                None => GridGeometry { cols: GridGeometry::columns_for(width, tile_size, gap, pad), ..old },
+            };
+            if g == old {
+                show();
+            } else {
+                geo.set(g);
+                rebuild(items.with_untracked(Vec::len).unwrap_or(0));
+            }
         }
-    });
+    };
+    let body = if own_scroll {
+        let (s1, v1, v2, body2, ui2) = (show.clone(), view.clone(), view.clone(), body.clone(), ui.clone());
+        body.on_scroll(move |o| {
+            v1.set((o.y, v1.get().1));
+            s1();
+        })
+        .on_resize(move |sz: Size| {
+            v2.set((ui2.scroll_offset(body2.id()).y, sz.height));
+            relayout(sz.width);
+        })
+    } else {
+        // In the page's scroll: the rows the window shows of the grid, wherever it scrolls.
+        let (s1, v1) = (show.clone(), view.clone());
+        body.on_placed(move |p| {
+            if let Some(p) = p {
+                v1.set((p.visible.min.y - p.bounds.min.y, p.visible.height()));
+                s1();
+            }
+        })
+        .on_resize(move |sz: Size| relayout(sz.width))
+    };
 
     // ---- the band: a drag on the space between tiles
     let to_content = {
@@ -458,14 +574,15 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         .keyboard_alternative(crate::tr_fn(ui, "grid-keys"));
 
     // ---- keyboard
-    let (keys4, sel3, act, ui4, geo4, vp3, body3) = (
+    let (keys4, sel3, act, ui4, geo4, vp3, body3, built2) = (
         keys.clone(),
         state.selection.clone(),
         on_activate.clone(),
         ui.clone(),
         geo.clone(),
-        viewport.clone(),
+        view.clone(),
         body.clone(),
+        built.clone(),
     );
     let on_key = move |e: &KeyEvent| {
         if !e.pressed {
@@ -478,7 +595,7 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         let g = geo4.get();
         let cur = sel3.cursor.get_untracked().ok().flatten().and_then(|c| order.iter().position(|k| *k == c));
         let last = order.len() - 1;
-        let page = (((vp3.get().height / g.row_height()) as usize).max(1)) * g.cols;
+        let page = (((vp3.get().1 / g.row_height()) as usize).max(1)) * g.cols;
         let target = match e.key {
             Key::ArrowRight => Some(cur.map_or(0, |c| (c + 1).min(last))),
             Key::ArrowLeft => Some(cur.map_or(0, |c| c.saturating_sub(1))),
@@ -499,7 +616,10 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
                 return true;
             }
             Key::Enter => {
-                if let Some(k) = cur.and_then(|c| order.get(c)) {
+                // An interactive tile takes the focus onto its first control.
+                let entered = interactive
+                    && cur.and_then(|c| built2.borrow().get(&c).cloned()).is_some_and(|t| t.focus_first());
+                if !entered && let Some(k) = cur.and_then(|c| order.get(c)) {
                     act(k);
                 }
                 return true;
@@ -515,9 +635,19 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         }
         // Keep the cursor's row in view.
         let r = g.rect_of(t);
+        if !own_scroll {
+            // Its tile may not be built yet: show its box through the page's scroll.
+            body3.scroll_rect_into_view(Rect::new(
+                r.min.x,
+                r.min.y + pad - g.gap,
+                r.max.x,
+                r.max.y + pad + g.gap,
+            ));
+            return true;
+        }
         let (top, bottom) = (r.min.y + pad, r.max.y + pad + g.gap);
         let off = ui4.scroll_offset(body3.id());
-        let vh = vp3.get().height;
+        let vh = vp3.get().1;
         let y = if top < off.y {
             top - pad
         } else if bottom > off.y + vh {
@@ -539,22 +669,21 @@ pub fn grid_view<T: Clone + 'static, K: Clone + Eq + Hash + 'static>(
         None => root,
     };
     let (n_items, u) = (items, ui.clone());
-    root.column()
-        .grow(1.0)
-        .fill_width()
-        .layout(|l| l.min_height = Length::Px(0.0))
-        .focusable(true)
-        .on_key(on_key)
-        .child(body)
-        .child(watcher)
-        .semantics(move || {
+    let root = if own_scroll {
+        root.grow(1.0).layout(|l| l.min_height = Length::Px(0.0))
+    } else {
+        root.layout(|l| l.shrink = 0.0)
+    };
+    root.column().fill_width().focusable(true).on_key(on_key).child(body).child(watcher).semantics(
+        move || {
             let count = n_items.with(Vec::len);
             Semantics::new(Role::List).label(label.clone()).description(crate::STRINGS.format(
                 &u,
                 "grid-count",
                 &[("count", count.into())],
             ))
-        })
+        },
+    )
 }
 
 #[cfg(test)]
