@@ -518,8 +518,8 @@ mod linux {
             events
         }
 
-        fn utc_offset(&self, unix_seconds: i64) -> Option<i32> {
-            crate::os::utc_offset(unix_seconds)
+        fn utc_offsets(&self) -> fn(i64) -> Option<i32> {
+            crate::os::utc_offset
         }
 
         fn file_dialog(

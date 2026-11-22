@@ -14,7 +14,7 @@ use remedy_ui_input::Key;
 
 use crate::menus::{MenuItem, OpenMenu, open_menu};
 
-fn centered(el: El) -> El {
+pub(crate) fn centered(el: El) -> El {
     el.row().align(Align::Center).justify(remedy_ui_layout::Justify::Center)
 }
 

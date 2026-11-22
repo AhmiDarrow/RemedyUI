@@ -279,6 +279,19 @@ impl NumberSymbols {
     }
 }
 
+/// Which way [`CalendarSymbols::format_date_time`] writes a date with a time.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum DateTimeStyle {
+    /// The month abbreviated where the locale does, to the minute: "Nov 21, 2026, 2:30 PM"
+    /// ([`CalendarSymbols::date_time`]).
+    #[default]
+    Medium,
+    /// All numbers, to the second, as a browser's `Date.toLocaleString()` writes it:
+    /// "11/21/2026, 1:32:31 PM" in en-US, "21.11.2026, 13:32:31" in de.
+    Numeric,
+}
+
 /// How a locale writes dates and times.
 #[derive(Clone, Debug)]
 pub struct CalendarSymbols {
@@ -295,6 +308,7 @@ pub struct CalendarSymbols {
     full_date: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YMD>>>,
     medium_date: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YMD>>>,
     date_time: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YMDT>>>,
+    numeric: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YMDT>>>,
 }
 
 impl CalendarSymbols {
@@ -373,6 +387,15 @@ impl CalendarSymbols {
         )
         .ok()
         .map(Rc::new);
+        // `toLocaleString`'s numeric year, month, day, hour, minute and second.
+        let numeric = FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new(
+            (&loc).into(),
+            fieldsets::YMDT::short()
+                .with_year_style(icu_datetime::options::YearStyle::Full)
+                .with_time_precision(icu_datetime::options::TimePrecision::Second),
+        )
+        .ok()
+        .map(Rc::new);
         CalendarSymbols {
             first_weekday,
             weekdays,
@@ -383,6 +406,7 @@ impl CalendarSymbols {
             full_date,
             medium_date,
             date_time,
+            numeric,
         }
     }
 
@@ -425,6 +449,38 @@ impl CalendarSymbols {
             }
             _ => format!("{}, {}", self.medium_date(date), self.format_time(time)),
         }
+    }
+
+    /// A date and a time at `second` past the minute, written the `style` way.
+    pub fn format_date_time(
+        &self,
+        date: Date,
+        time: crate::calendar::Time,
+        second: u8,
+        style: DateTimeStyle,
+    ) -> String {
+        if style == DateTimeStyle::Medium {
+            return self.date_time(date, time);
+        }
+        let second = second.min(59);
+        let d = icu_calendar::Date::try_new_gregorian(date.year, date.month, date.day).ok();
+        let t = icu_datetime::input::Time::try_new(time.hour, time.minute, second, 0).ok();
+        match (&self.numeric, d, t) {
+            // Browsers write the narrow no-break space CLDR puts before AM and PM as a space.
+            (Some(f), Some(date), Some(time)) => {
+                f.format(&icu_datetime::input::DateTime { date, time }).to_string().replace('\u{202F}', " ")
+            }
+            _ => format!("{date}, {:02}:{:02}:{second:02}", time.hour, time.minute),
+        }
+    }
+
+    /// The instant `local_seconds` (seconds since 1970 on the local wall clock, as
+    /// `LocalTime::local_seconds` gives them) written the `style` way.
+    pub fn format_instant(&self, local_seconds: i64, style: DateTimeStyle) -> String {
+        let date = Date::from_days_since_epoch(local_seconds.div_euclid(86_400));
+        let s = local_seconds.rem_euclid(86_400);
+        let time = crate::calendar::Time { hour: (s / 3600) as u8, minute: (s / 60 % 60) as u8 };
+        self.format_date_time(date, time, (s % 60) as u8, style)
     }
 
     /// A time as the locale writes it (`14:30`, `2:30 PM`, or with Arabic digits and the

@@ -101,6 +101,8 @@ pub struct Node {
     /// Drawn over its in-flow siblings (a sticky element), so hit before them.
     raised: bool,
     focusable: bool,
+    /// Out of the Tab order while focusable (HTML's `tabindex="-1"`).
+    skip_tab: bool,
     focus_order: Option<i32>,
     focus_scope: bool,
     boundary: Option<Signal<Option<Failure>>>,
@@ -734,6 +736,18 @@ impl Tree {
         self.0.borrow().nodes.get(id).is_some_and(|n| n.focusable)
     }
 
+    /// Keeps a focusable element out of the Tab order (`false`), as HTML's `tabindex="-1"`:
+    /// Tab, Shift+Tab and arrow navigation pass it by, while [`focus`](Self::focus) and a
+    /// click still focus it. Elements are in the order by default.
+    pub fn set_tab_stop(&self, id: ElementId, on: bool) -> Result<(), TreeError> {
+        self.edit(id, |n| n.skip_tab = !on)
+    }
+
+    /// Whether Tab stops at the element when it is focusable.
+    pub fn is_tab_stop(&self, id: ElementId) -> bool {
+        self.0.borrow().nodes.get(id).is_some_and(|n| !n.skip_tab)
+    }
+
     /// Sets the element's position in the tab order (lower first; `None` follows the tree).
     pub fn set_focus_order(&self, id: ElementId, order: Option<i32>) -> Result<(), TreeError> {
         self.edit(id, |n| n.focus_order = order)
@@ -797,27 +811,30 @@ impl Tree {
     /// The focusable elements in `scope`'s tab order, nested focus scopes left out: what Tab
     /// and arrow navigation choose from.
     pub fn focus_candidates(&self, scope: ElementId) -> Vec<ElementId> {
-        self.0.borrow().tab_order(scope)
+        self.0.borrow().tab_order(scope, false)
     }
 
     fn focus_step(&self, forward: bool) -> Option<ElementId> {
-        let order = {
+        // Elements out of the Tab order are in this list too, so Tab from one goes on from
+        // where it stands, as from an HTML element with `tabindex="-1"`.
+        let order: Vec<(ElementId, bool)> = {
             let d = self.0.borrow();
             let scope = d.focus_scope_of(d.focus.unwrap_or(d.root));
-            d.tab_order(scope)
+            d.tab_order(scope, true)
+                .into_iter()
+                .map(|e| (e, d.nodes.get(e).is_some_and(|n| !n.skip_tab)))
+                .collect()
         };
-        if order.is_empty() {
-            return None;
-        }
-        let current = self.focused().and_then(|f| order.iter().position(|&e| e == f));
         let len = order.len();
-        let next = match (current, forward) {
-            (None, true) => 0,
-            (None, false) => len - 1,
-            (Some(i), true) => (i + 1) % len,
-            (Some(i), false) => (i + len - 1) % len,
-        };
-        let target = *order.get(next)?;
+        let current = self.focused().and_then(|f| order.iter().position(|&(e, _)| e == f));
+        let target = (1..=len)
+            .map(|k| match (current, forward) {
+                (None, true) => k - 1,
+                (None, false) => len - k,
+                (Some(i), true) => (i + k) % len,
+                (Some(i), false) => (i + len * k - k) % len,
+            })
+            .find_map(|i| order.get(i).filter(|(_, stop)| *stop).map(|(e, _)| *e))?;
         self.focus(target).ok().filter(|&ok| ok).map(|_| target)
     }
 
@@ -860,6 +877,7 @@ impl Node {
             hit: HitMode::Normal,
             raised: false,
             focusable: false,
+            skip_tab: false,
             focus_order: None,
             focus_scope: false,
             boundary: None,
@@ -1042,7 +1060,8 @@ impl Data {
     }
 
     /// Focusable elements in `scope`, not entering nested focus scopes, in tab order.
-    fn tab_order(&self, scope: ElementId) -> Vec<ElementId> {
+    /// With `all`, elements out of the Tab order too, where they stand.
+    fn tab_order(&self, scope: ElementId, all: bool) -> Vec<ElementId> {
         let mut ordered: Vec<(i32, usize, ElementId)> = Vec::new();
         let mut plain = Vec::new();
         let mut stack = vec![scope];
@@ -1056,7 +1075,7 @@ impl Data {
             if n.hit == HitMode::None {
                 continue;
             }
-            if n.focusable {
+            if n.focusable && (all || !n.skip_tab) {
                 match n.focus_order {
                     Some(o) => ordered.push((o, index, e)),
                     None => plain.push(e),

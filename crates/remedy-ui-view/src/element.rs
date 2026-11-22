@@ -275,6 +275,8 @@ pub(crate) struct TextSlot {
     /// At most this many lines, the last cut short with "…" ([`El::max_lines`]); 0 for no
     /// limit.
     pub(crate) max_lines: u32,
+    /// Where each line sits across the box ([`El::text_align`]).
+    pub(crate) align: remedy_ui_text::Align,
     pub(crate) scale: f32,
     /// The element lays out right to left: start-aligned text goes to the right edge.
     pub(crate) rtl: bool,
@@ -382,6 +384,7 @@ impl TextSlot {
             v_.scale = self.scale;
             v_.container = container(self.rtl);
             v_.max_lines = (self.max_lines > 0).then_some(self.max_lines as usize);
+            v_.align = self.align;
             v_
         };
         let shown;
@@ -760,6 +763,7 @@ pub(crate) struct Inner {
     /// The window's undo history (changes outside text fields).
     pub(crate) history: crate::history::History,
     pub(crate) local_time: remedy_ui_reactive::Signal<remedy_ui_host::LocalTime>,
+    pub(crate) time_zone: remedy_ui_host::TimeZone,
     pub(crate) content: ElementId,
     pub(crate) overlays: ElementId,
     pub(crate) interceptor: Option<PointerInterceptor>,
@@ -1019,6 +1023,7 @@ impl Ui {
             rich_clip: None,
             history: crate::history::History::default(),
             local_time: remedy_ui_reactive::Signal::new(remedy_ui_host::LocalTime::default()),
+            time_zone: remedy_ui_host::TimeZone::default(),
             content: root,
             overlays: root,
             interceptor: None,
@@ -1130,6 +1135,25 @@ impl Ui {
     pub fn local_time(&self) -> remedy_ui_host::LocalTime {
         let t = self.0.borrow().local_time;
         t.get()
+    }
+
+    /// The local time at `unix_seconds`, any instant past or future, with that instant's UTC
+    /// offset: across a daylight-saving change it is the other side's. Tracked as
+    /// [`local_time`](Self::local_time) is; where the time zone cannot say, today's offset
+    /// stands in.
+    pub fn local_time_at(&self, unix_seconds: i64) -> remedy_ui_host::LocalTime {
+        let now = self.local_time();
+        let utc_offset = self.0.borrow().time_zone.offset_at(unix_seconds).unwrap_or(now.utc_offset);
+        remedy_ui_host::LocalTime { unix_seconds, utc_offset }
+    }
+
+    /// Sets the time zone [`local_time_at`](Self::local_time_at) asks (the runner sets the
+    /// system's; tests may set their own).
+    pub fn set_time_zone(&self, zone: remedy_ui_host::TimeZone) {
+        self.0.borrow_mut().time_zone = zone;
+        let t = self.0.borrow().local_time;
+        // Readers of other instants format again.
+        t.update(|_| {});
     }
 
     /// Sets the wall clock and offset (the runner does; tests may).
@@ -2842,11 +2866,13 @@ impl El {
             None => {
                 // The style the element has now: a frame restyles text only when its style
                 // changes, which it may not after this.
-                let (style, max_lines) = {
+                let (style, max_lines, align) = {
                     let i = self.ui.0.borrow();
                     i.els
                         .get(&self.id)
-                        .map(|d| (crate::frame::text_style_for(d, &i.theme), d.resolved.max_lines))
+                        .map(|d| {
+                            (crate::frame::text_style_for(d, &i.theme), d.resolved.max_lines, d.resolved.text_align)
+                        })
                         .unwrap_or_default()
                 };
                 let slot = Rc::new(RefCell::new(TextSlot {
@@ -2854,6 +2880,7 @@ impl El {
                     style,
                     wrap: true,
                     max_lines,
+                    align,
                     scale: engine_scale,
                     rtl: false,
                     pseudo,
@@ -2926,6 +2953,14 @@ impl El {
         self.style(remedy_ui_style::Style::default().max_lines(n))
     }
 
+    /// Sets where each line of the element's text sits across its box (CSS `text-align`):
+    /// start, center, end, or justified to both edges, wrapped lines too; inherited by the
+    /// text inside. Style sheets set the same with
+    /// [`Style::text_align`](remedy_ui_style::Style::text_align).
+    pub fn text_align(self, align: remedy_ui_style::TextAlign) -> Self {
+        self.style(remedy_ui_style::Style::default().text_align(align))
+    }
+
     /// Draws the text cased by `t` (CSS `text-transform`): capitals for a label above a title,
     /// say. Casing follows the window's locale (Turkish dotted İ, German ß as SS, Greek final
     /// sigma); screen readers, copying and selection get the text as written. Style sheets set
@@ -2970,6 +3005,7 @@ impl El {
                 style: TextStyle::default(),
                 wrap: true,
                 max_lines: 0,
+                align: remedy_ui_text::Align::Start,
                 scale: 1.0,
                 rtl: false,
                 pseudo: None,
@@ -3069,7 +3105,20 @@ impl El {
 
     /// Lets the element take keyboard focus.
     pub fn focusable(self, on: bool) -> Self {
-        let _ = self.ui.tree().set_focusable(self.id, on);
+        let tree = self.ui.tree();
+        let _ = tree.set_focusable(self.id, on);
+        let _ = tree.set_tab_stop(self.id, true);
+        self
+    }
+
+    /// Lets the element take focus from code ([`focus`](Self::focus)) and from a click,
+    /// without joining the Tab order: HTML's `tabindex="-1"` (a heading a skip link moves
+    /// to, a list whose rows move focus themselves). [`focusable`](Self::focusable) puts it
+    /// in the Tab order again.
+    pub fn focus_target(self) -> Self {
+        let tree = self.ui.tree();
+        let _ = tree.set_focusable(self.id, true);
+        let _ = tree.set_tab_stop(self.id, false);
         self
     }
 
