@@ -37,7 +37,8 @@ particles, starfields, grain, CRT screens, raymarched 3D objects and volumes, de
 
 - **Values** are four floats; scalars are splatted across the lanes, so component-wise
   instructions broadcast for free. Types (float, vec2–4, mat3/4) exist only in the compiler.
-- **Programs** are straight-line code for a register machine (at most 64 registers). The
+- **Programs** are straight-line code for a register machine (64 registers by default,
+  `Limits::max_registers`, up to 255). The
   instructions are the kernel library: arithmetic, transcendental functions, comparisons and
   selects, swizzle and combine, hashing, value/gradient/simplex/cellular noise (2D and 3D),
   sampling. There are no jumps, so a program's cost is a sum known at compile time and does
@@ -62,10 +63,15 @@ particles, starfields, grain, CRT screens, raymarched 3D objects and volumes, de
 One fragment shader interprets every program. The program's instructions live in an
 `Rgba32Uint` texture and its constants in an `Rgba32Float` texture, so programs of thousands
 of instructions run on every backend, GL 3.3 and WebGL2 included (no storage buffers needed).
-The kernel runs at most 16,384 instructions a pixel whatever the data says. Its bindings are
-the effect's four textures, eight of its earlier passes (mapped per pass) and its last frame;
-nothing else. Pipelines are made once per device; loading a theme or changing an effect
-compiles nothing. Effects render into buffers the element owns, copied into one of two
+The kernel runs exactly the program's instructions, as many as the effect's `Limits` let it
+have (the CPU interpreter runs the same). Its bindings are the effect's four textures
+(`MAX_TEXTURES`), eight of its earlier passes (`MAX_SAMPLED_PASSES`, mapped per pass) and its
+last frame; nothing else. With the code and constant textures that is 15 sampled textures,
+and WebGPU guarantees 16 to one shader stage, so these two counts are fixed by the GPU API,
+not settings. Its register file is a WGSL private array of 64 (a size fixed when the shader
+is built; a larger one costs every pixel of every effect); a program needing more, up to the
+encoding's 255, runs on a wide form with 256, built the first time one does. Pipelines are
+otherwise made once per device; loading a theme or changing an effect compiles nothing. Effects render into buffers the element owns, copied into one of two
 registered textures the display list places (`Item::Texture`).
 
 Every eighth frame an effect brackets its passes with two timestamp queries (a query set kept
@@ -101,6 +107,11 @@ scale. `EffectStats` reports the step and the latest GPU time.
   sources (deep nesting, exponential inlining, recursion, nested and huge loops, huge sources,
   too many of everything, garbage bytes) and require each to fail within milliseconds with a
   located reason.
+- **Bounded cost while it runs**, on both renderers alike: all of one effect's buffers hold
+  at most `MAX_EFFECT_PIXELS` (4 Mi) pixels, a larger element drawing its effect at a lower
+  resolution, and particles cover at most `MAX_OVERDRAW` (8) times their buffer's pixels a
+  frame. Both are defaults: `set_max_effect_pixels` and `set_max_overdraw` change them for
+  the process.
 - **No side channels.** Effects sample only their own inputs (§5 of the FreeSpeak effects
   research: filters that read other pixels leak them through timing), programs have no
   data-dependent control flow, and nothing flows back to the theme: no readback, no timing,

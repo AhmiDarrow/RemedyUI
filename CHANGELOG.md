@@ -23,6 +23,21 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `LANGUAGE` then `LC_ALL`/`LC_MESSAGES`/`LANG` on Linux, `NSLocale.preferredLanguages` on
   macOS, Android's locale list; `[locale]` where there is no list), read by apps as
   `App::preferred_locales()`. `SystemSettings::locale` is unchanged.
+- **Every drawing and rendering limit is configurable**, each default kept and public, and
+  read the same by the CPU and GPU renderers: `paint` `PaintLimits` with `set_paint_limits`
+  (groups open at once, glass depth and panes per raster, colour-matrix depth and groups per
+  raster, the blur and offset of filter chains; the `MAX_*` constants are its defaults, and
+  `FilterBudget::full` reads it); `effects` `set_max_effect_pixels` and `set_max_overdraw`;
+  `render-gpu` `GpuLimits` with `set_gpu_limits` (errors kept, health-file entries and line
+  length, present hang, Vulkan and DXGI swapchain wait, DMA-BUF video wait, hardware video
+  imports kept), reachable as `remedy_ui::gpu`. The performance guide has a table of them.
+- The GPU effect kernel runs programs past 64 registers (up to the encoding's 255, with
+  `Limits::max_registers` raised) on a wide form built the first time one needs it, and runs
+  every instruction a program has instead of stopping at 16,384, so raised `Limits` draw on
+  the GPU as on the CPU. `effects::MAX_TEXTURES` (4) names the texture bindings; a
+  `Limits::max_textures` above it is held to it, where the GPU used to draw the extra
+  textures as transparent. An effect buffer's side is bounded by the renderer's texture limit
+  alone (it was also held to 16,384).
 - **Every media limit is configurable**, each default kept and public:
   `media-image` `set_memory_limit` (64 MiB), `set_disk_limit` (256 MiB) and
   `set_known_sizes_limit` (1024); `media-playback` `MediaLimits` with `set_media_limits` (HLS

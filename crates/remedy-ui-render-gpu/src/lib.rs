@@ -20,6 +20,7 @@ mod ffi;
 mod gputime;
 pub mod health;
 mod images;
+mod limits;
 mod matrix;
 mod renderer;
 mod surface;
@@ -28,6 +29,10 @@ mod video;
 pub use cache::PipelineCacheStore;
 pub use composite::{AdapterSummary, GpuCompositor};
 pub use context::{GpuContext, LadderOptions, MAX_KEPT_ERRORS, Rung};
+pub use limits::{
+    GpuLimits, MAX_HEALTH_ENTRIES, MAX_HEALTH_LINE, MAX_VIDEO_IMPORTS, SWAPCHAIN_WAIT, VIDEO_FENCE_WAIT,
+    gpu_limits, set_gpu_limits,
+};
 pub use renderer::{FORMAT, GpuRenderer};
 pub use surface::{GpuSurface, PresentChecks, Presented};
 pub use wgpu;
