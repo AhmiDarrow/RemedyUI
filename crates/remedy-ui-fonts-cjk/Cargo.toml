@@ -18,6 +18,9 @@ default = ["sc", "jp"]
 sc = []
 # Noto Sans JP: Japanese (kana, every kanji of JIS X 0208 and more), Regular and Bold.
 jp = []
+# Builds the faces into a browser page's module too, instead of fetching them from beside the
+# page when Chinese or Japanese text first shows (for a page not packaged by `cargo remedy`).
+embed = ["remedy-ui-fonts/embed"]
 
 [dependencies]
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", default-features = false }

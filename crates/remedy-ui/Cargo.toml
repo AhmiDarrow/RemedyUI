@@ -25,8 +25,17 @@ system-fonts = ["remedy-ui-text/system-fonts", "remedy-ui-devtools?/system-fonts
 ## Bundled fallback faces for the scripts Remedy Sans UI does not write: Arabic, Devanagari,
 ## Bengali, Simplified Chinese and Japanese (Noto Sans, about 10 MB), so an interface in any
 ## of them never shows empty boxes, even where no such font is installed (the web, a
-## minimal Linux, a CI machine). Without it, those scripts need the system's fonts.
-script-fonts = ["remedy-ui-fonts/scripts", "dep:remedy-ui-fonts-cjk"]
+## minimal Linux, a CI machine). Without it, those scripts need the system's fonts. In a
+## browser page they are not in the module: each is a file beside the page, fetched the
+## first time text needs it (`cargo remedy package --target web` writes them).
+script-fonts = ["remedy-ui-fonts/scripts", "cjk-fonts"]
+## Just the Chinese and Japanese faces of `script-fonts` (Noto Sans SC and JP, 8.6 MB), for
+## an app that turns `script-fonts` off and picks its scripts' faces itself
+## (`remedy-ui-fonts/noto-arabic` and the like).
+cjk-fonts = ["dep:remedy-ui-fonts-cjk"]
+## Builds the fallback faces into a browser page's module, as on the desktop, instead of
+## fetching them from beside the page: for a page not packaged by `cargo remedy`.
+web-embed-fonts = ["remedy-ui-fonts/embed", "remedy-ui-fonts-cjk?/embed"]
 ## The core widgets and the Remedy themes (`remedy_ui::widgets`, `remedy_ui::themes`); apps
 ## start styled with the first Remedy palette.
 widgets = ["dep:remedy-ui-widgets-core", "dep:remedy-ui-themes"]
@@ -237,6 +246,15 @@ remedy-ui = { path = ".", features = ["full"] }
 # packs that build C or C++ need toolchains those lints do not set up.
 [target.'cfg(any(target_os = "android", target_arch = "wasm32"))'.dev-dependencies]
 remedy-ui = { path = ".", features = ["customize", "markup", "macros", "agents", "headless", "data", "viz", "pages", "webstorage"] }
+
+# tests/web_assets.rs, in a browser (`remedy-ui-bridge-web/tools/web-test.sh`): what a page
+# fetches or reads rather than carries.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+remedy-ui = { path = ".", features = ["web", "script-fonts", "language-names", "webstorage"] }
+wasm-bindgen-test = { version = "=0.3.80" }
+wasm-bindgen-futures = { version = "=0.4.80" }
+js-sys = { version = "=0.3.107" }
+web-sys = { version = "=0.3.107", features = ["Window", "Storage", "Performance", "console"] }
 
 [lints]
 workspace = true

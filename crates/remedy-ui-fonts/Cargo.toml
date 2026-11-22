@@ -25,6 +25,9 @@ noto-arabic = []
 noto-devanagari = []
 noto-bengali = []
 scripts = ["noto-arabic", "noto-devanagari", "noto-bengali"]
+# Builds the fallback faces into a browser page's module too, instead of fetching each from
+# beside the page when text first needs it (for a page not packaged by `cargo remedy`).
+embed = []
 
 [dependencies]
 

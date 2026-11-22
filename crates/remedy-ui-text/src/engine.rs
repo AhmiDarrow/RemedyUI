@@ -319,6 +319,11 @@ impl FontCollection {
     /// process, so later windows only register it) and makes them fallbacks for scripts as
     /// [`FontCollection::add_script_fallback`] does, in `fallbacks`' order. For large faces
     /// most windows never use: an app that never shows Chinese never unpacks a Chinese font.
+    ///
+    /// A `load` that cannot have the faces yet (a browser page fetching them over the
+    /// network) returns none and starts getting them; the collection asks again for the next
+    /// text that needs them. Once they are there, shape the text again (`Ui::fonts_changed`
+    /// in `remedy-ui-view`) so what was waiting picks them up.
     pub fn add_on_demand<'a>(
         &mut self,
         needed: fn(char) -> bool,
@@ -343,15 +348,54 @@ impl FontCollection {
         let (now, later): (Vec<OnDemand>, Vec<OnDemand>) =
             std::mem::take(&mut self.on_demand).into_iter().partition(|d| text.chars().any(d.needed));
         self.on_demand = later;
-        for d in &now {
-            for file in (d.load)() {
-                let _ = self.add_file(&file);
+        let mut added = false;
+        for d in now {
+            let files = (d.load)();
+            if files.is_empty() {
+                // Not there yet (still on its way over the network): asked again later.
+                self.on_demand.push(d);
+                continue;
+            }
+            for file in &files {
+                let _ = self.add_file(file);
             }
             for (script, locale, family) in &d.fallbacks {
                 let _ = self.add_script_fallback(script, locale.as_deref(), family);
             }
+            added = true;
         }
-        !now.is_empty()
+        added
+    }
+
+    /// The families the CSS generic family `generic` (`system-ui`, `monospace`, …) draws in,
+    /// in order: the system's choice with `system-fonts`, or what
+    /// [`FontCollection::set_generic_family`] set; empty when it draws in none.
+    pub fn generic_family(&mut self, generic: &str) -> Vec<String> {
+        let Some(g) = parley::fontique::GenericFamily::parse(generic) else { return Vec::new() };
+        let ids: Vec<_> = self.fcx.collection.generic_families(g).collect();
+        ids.into_iter().filter_map(|id| self.fcx.collection.family_name(id).map(str::to_owned)).collect()
+    }
+
+    /// Makes the CSS generic family `generic` (`system-ui`, `sans-serif`, `serif`,
+    /// `monospace`, `ui-monospace`, `emoji`, …) stand for `families`, in order, all of which
+    /// the collection has: a text style naming `system-ui` then draws in them. With
+    /// `system-fonts` the system's own choice is there already; this replaces it, and where
+    /// there are no system fonts (a browser page) it is the only way a generic name draws.
+    /// Returns false, changing nothing, for a name that is not a generic family or a family
+    /// the collection does not have.
+    ///
+    /// ```
+    /// # use remedy_ui_text::FontCollection;
+    /// let mut fonts = FontCollection::new();
+    /// assert!(!fonts.set_generic_family("system-ui", &["Segoe UI"]), "not added yet");
+    /// assert!(!fonts.set_generic_family("not-generic", &[]));
+    /// ```
+    pub fn set_generic_family(&mut self, generic: &str, families: &[&str]) -> bool {
+        let Some(g) = parley::fontique::GenericFamily::parse(generic) else { return false };
+        let ids: Option<Vec<_>> = families.iter().map(|f| self.fcx.collection.family_id(f)).collect();
+        let Some(ids) = ids else { return false };
+        self.fcx.collection.set_generic_families(g, ids.into_iter());
+        true
     }
 
     /// Whether faces are waiting to be loaded on demand ([`FontCollection::add_on_demand`]).

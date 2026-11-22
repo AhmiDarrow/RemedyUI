@@ -1598,8 +1598,22 @@ impl Ui {
     /// missing shows. Bytes that are not a font this engine can read add nothing and return an
     /// error.
     pub fn add_font(&self, data: Vec<u8>) -> Result<Vec<String>, remedy_ui_text::FontError> {
+        self.update_fonts(|fonts| fonts.add_owned(data))
+    }
+
+    /// Changes this window's fonts with `f` (adds faces, maps a generic family such as
+    /// `system-ui`), then shapes every text again so the change shows.
+    pub fn update_fonts<R>(&self, f: impl FnOnce(&mut remedy_ui_text::FontCollection) -> R) -> R {
         let engine = self.0.borrow().engine.clone();
-        let names = engine.borrow_mut().fonts().add_owned(data)?;
+        let out = f(engine.borrow_mut().fonts());
+        self.fonts_changed();
+        out
+    }
+
+    /// Shapes every text again with the window's fonts: after faces arrive that text was
+    /// waiting for (a browser page's fallback faces, fetched when text first needed them;
+    /// `FontCollection::add_on_demand`), so what showed without them is drawn with them.
+    pub fn fonts_changed(&self) {
         let mut i = self.0.borrow_mut();
         i.reshape_text = true;
         let ids: Vec<ElementId> = i.els.keys().copied().collect();
@@ -1608,7 +1622,6 @@ impl Ui {
         }
         drop(i);
         self.request(Request::Frame);
-        Ok(names)
     }
 
     /// Every font family this window can draw with (its own and those added).
