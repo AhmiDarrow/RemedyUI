@@ -31,6 +31,12 @@ const STALL: Duration = Duration::from_millis(250);
 const DRAIN: Duration = Duration::from_secs(10);
 const POLL: Duration = Duration::from_millis(5);
 
+thread_local! {
+    /// Debug builds: the `STALL` waits `pull` gave up on, on this thread (it pulls on the
+    /// reader's), so a test can tell a decoder that is only filling is never waited on.
+    static STALLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
 /// `desc` built, a missing element (or URI handler) named as the package to install.
 fn build(g: &'static Gst, desc: &str, names: &[&CStr]) -> Result<Pipe, MediaError> {
     Pipe::build(g, desc, names).map_err(|e| match e {
@@ -170,6 +176,8 @@ impl Stream {
 /// [`Elementary`] on GStreamer.
 pub(crate) struct GstElementary {
     g: &'static Gst,
+    /// The H.264 decoder to use, when not the best this machine has (tests).
+    h264: Option<&'static str>,
     config: (Option<VideoConfig>, Option<AudioConfig>),
     video: Option<Stream>,
     audio: Option<Stream>,
@@ -182,7 +190,14 @@ unsafe impl Send for GstElementary {}
 
 impl GstElementary {
     pub(crate) fn new() -> Result<GstElementary, MediaError> {
-        Ok(GstElementary { g: gst()?, config: (None, None), video: None, audio: None, ended: false })
+        Ok(GstElementary {
+            g: gst()?,
+            h264: None,
+            config: (None, None),
+            video: None,
+            audio: None,
+            ended: false,
+        })
     }
 
     /// The pipelines for the configured streams: those there emptied and started again (new
@@ -196,7 +211,10 @@ impl GstElementary {
             }
         }
         if self.config.0.is_some() && self.video.is_none() {
-            let dec = GstStreamDecoder::choice(g, VideoCodec::H264, true)?;
+            let dec = match self.h264 {
+                Some(name) => name,
+                None => GstStreamDecoder::choice(g, VideoCodec::H264, true)?,
+            };
             let desc = format!(
                 "appsrc name=src format=time caps=video/x-h264,stream-format=byte-stream,alignment=au \
                  ! h264parse ! {dec} ! videoconvert ! video/x-raw,format=NV12 \
@@ -291,6 +309,9 @@ impl Elementary for GstElementary {
                 return Ok(None);
             }
             if since.elapsed() > if ended { DRAIN } else { STALL } {
+                if cfg!(debug_assertions) && !ended {
+                    STALLS.set(STALLS.get() + 1);
+                }
                 s.hold *= 2;
                 s.eos |= ended;
                 continue;
@@ -374,6 +395,73 @@ impl Fetch for GstFetch {
                 None if started.elapsed() > LOAD => return Err(timed_out(url, "the download took too long")),
                 None => {}
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::host::Decoder;
+
+    /// The fixture stream (H.264, three segments of 25 pictures) on `h264`, through the crate's
+    /// HLS reader; `None` when that decoder will not start here.
+    fn open(h264: &'static str) -> Option<Box<dyn Decoder>> {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hls/video/index.m3u8");
+        let url = crate::host::MediaSource::file(path).to_url();
+        let make = || -> Result<Box<dyn Elementary>, MediaError> {
+            let mut es = GstElementary::new()?;
+            es.h264 = Some(h264);
+            Ok(Box::new(es))
+        };
+        match crate::hls::open(&url, Box::new(GstFetch::new().ok()?), &crate::hls::Spare::default(), make) {
+            Ok(d) => Some(d),
+            Err(e) => {
+                eprintln!("skipped {h264}: {e}");
+                None
+            }
+        }
+    }
+
+    /// The first picture at or past `from`.
+    fn first(d: &mut dyn Decoder, from: Duration) -> Duration {
+        loop {
+            match d.read().unwrap_or_else(|e| unreachable!("reading: {e}")) {
+                Some(Sample::Video { at, .. }) if at + Duration::from_millis(41) > from => return at,
+                Some(_) => {}
+                None => unreachable!("the end before a picture at {from:?}"),
+            }
+        }
+    }
+
+    /// A decoder only filling (nothing out yet: on opening, after each seek) is handed more at
+    /// once, never waited on: no `STALL` on opening and seeking around, whatever its depth
+    /// (`avdec_h264` holds one picture a frame thread, `nvh264dec` a few).
+    #[test]
+    fn a_filling_decoder_is_never_waited_on() {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+        let mut tried = 0;
+        for h264 in ["avdec_h264", "nvh264dec"] {
+            let Some(mut d) = open(h264) else { continue };
+            tried += 1;
+            let before = STALLS.get();
+            assert_eq!(first(d.as_mut(), Duration::ZERO), Duration::ZERO);
+            for to in [1200, 300, 2700, 0, 2000] {
+                let to = Duration::from_millis(to);
+                d.seek(to).unwrap_or_else(|e| unreachable!("seeking: {e}"));
+                let at = first(d.as_mut(), to);
+                assert!(
+                    at.abs_diff(to) <= Duration::from_millis(40),
+                    "{h264}: a picture at {at:?} for {to:?}"
+                );
+            }
+            assert_eq!(STALLS.get() - before, 0, "{h264} was waited on while only filling");
+        }
+        if tried == 0 {
+            eprintln!("skipped: neither avdec_h264 nor nvh264dec starts here");
         }
     }
 }
