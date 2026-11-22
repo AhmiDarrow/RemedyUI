@@ -222,3 +222,26 @@ fn resizing_rebuilds_and_redraws_everything() {
         Some(vec![Rect::new(0.0, 0.0, 320.0, 240.0)])
     );
 }
+
+#[test]
+fn tray_menus_checks_submenus_and_urgency_are_recorded() {
+    use remedy_ui_host::{Notification, TrayIcon, TrayImage, TrayItem, Urgency};
+    let mut host = HeadlessHost::new();
+    let menu = vec![
+        TrayItem::Item { id: 1, label: "Open".into(), enabled: true, default: true },
+        TrayItem::check(2, "Start with the session", true),
+        TrayItem::submenu("Server", vec![TrayItem::item(3, "Restart"), TrayItem::Separator]),
+    ];
+    let tray = TrayIcon::new("App", TrayImage { size: 1, rgba: vec![255; 4] }, menu.clone());
+    assert!(host.set_tray(Some(&tray)).is_ok());
+    let shown = host.tray().map(|t| t.menu.clone());
+    assert_eq!(shown.as_deref(), Some(menu.as_slice()));
+    assert_eq!(menu.get(1).and_then(TrayItem::chosen_id), Some(2));
+    assert_eq!(menu.get(2).and_then(TrayItem::chosen_id), None, "a submenu is not chosen itself");
+    assert!(
+        host.show_notification(&Notification::new(9, "Disk almost full", "").urgency(Urgency::Warning))
+            .is_ok()
+    );
+    assert_eq!(host.notifications().last().map(|n| n.urgency), Some(Urgency::Warning));
+    assert_eq!(Notification::new(1, "", "").urgency, Urgency::Info, "news by default");
+}
