@@ -1511,6 +1511,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **A closing tab's last requests** (web): `App::on_leave` never heard `Closing` when a tab
+  was really closed in Firefox, and its keepalive requests never left. Firefox cuts off the
+  first call into the module while a tab closes, so the `pagehide` listener is added twice
+  and whichever call gets through reports it, once per event. And `fetch` is now called
+  before `Http::send` returns, not on a later task: a closing page only sends what it
+  starts inside `pagehide`.
 - **Phones in Chrome's device emulation** (DevTools, automation): a page drew at CSS
   resolution stretched by the device pixel ratio, so it looked twice or three times too big.
   Chrome reports the device-pixel box in CSS pixels there; a size that disagrees with the CSS

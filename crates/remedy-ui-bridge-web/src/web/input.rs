@@ -460,10 +460,21 @@ pub(crate) fn install_globals(d: &Rc<Driver>, win: &web_sys::Window, doc: &web_s
     // Put away into the cache (`persisted`), or closed or reloaded for good: either way the
     // app may not run again, so it lets go and is told it may be ended (`App::on_leave`,
     // `Frozen` or `Closing`) while the browser still lets the page send its last requests.
-    d.add_global(Listener::new(win, "pagehide", |e| {
-        let cached = dom::get(&e, "persisted").as_bool() == Some(true);
-        post(if cached { HostEvent::Suspended } else { HostEvent::Closing });
-    }));
+    // Firefox cuts off the first call into the module made while a tab closes: it neither
+    // returns nor throws, and the calls after it run. So the listener is added twice, and
+    // whichever call gets through tells the app, once for each event.
+    let told: Rc<std::cell::RefCell<Option<web_sys::Event>>> = Rc::default();
+    for _ in 0..2 {
+        let told = told.clone();
+        d.add_global(Listener::new(win, "pagehide", move |e| {
+            if told.borrow().as_ref().is_some_and(|t| js_sys::Object::is(t, &e)) {
+                return;
+            }
+            *told.borrow_mut() = Some(e.clone());
+            let cached = dom::get(&e, "persisted").as_bool() == Some(true);
+            post(if cached { HostEvent::Suspended } else { HostEvent::Closing });
+        }));
+    }
     d.add_global(Listener::new(win, "pageshow", |e| {
         if dom::get(&e, "persisted").as_bool() == Some(true) {
             post(HostEvent::Resumed);
