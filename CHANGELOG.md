@@ -10,6 +10,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Pointer hardware detection**: `SystemSettings::pointer_devices` says what the pointing
+  hardware attached can do (`PointerCaps::of_devices`: a mouse or touchpad, else a touch
+  screen, else a pen) and `Ui::set_pointer_hardware` starts `Ui::pointer_caps()` from it; the
+  pointer last used still refines it. Windows reads the system metrics (mouse, digitizers,
+  tablet posture) and hears of devices through `CM_Register_Notification`, Linux reads
+  `/proc/bus/input/devices` and watches `/dev/input`, Android reads `InputDevice` sources and
+  listens for devices; each hot-plug delivers the settings again.
 - **The touch keyboard's Enter key** (`EnterKey`: `Enter`, `Done`, `Go`, `Next`, `Previous`,
   `Search`, `Send`): `TextField::enter_key` picks it, `TextInputState::enter` carries it and
   `TextInputState::enter_key` resolves the default (a line break for several lines, search,

@@ -1706,4 +1706,13 @@ fn pointer_caps_follow_the_pointer_used_unless_the_platform_reports_them() {
     ui.set_pointer_caps(None);
     at(PointerKind::Mouse);
     assert_eq!(caps.get_untracked().ok(), Some(PointerCaps::MOUSE));
+    // The hardware attached sets where they start (a mouse unplugged from a tablet); use
+    // still refines them.
+    ui.set_pointer_hardware(PointerCaps::TOUCH);
+    assert_eq!(caps.get_untracked().ok(), Some(PointerCaps::TOUCH));
+    at(PointerKind::Pen);
+    assert_eq!(caps.get_untracked().ok(), Some(PointerCaps::PEN));
+    ui.set_pointer_caps(Some(PointerCaps::MOUSE));
+    ui.set_pointer_hardware(PointerCaps::TOUCH);
+    assert_eq!(caps.get_untracked().ok(), Some(PointerCaps::MOUSE), "what the platform reports wins");
 }
