@@ -121,8 +121,8 @@ pub(crate) struct Field {
     editor: Editor,
     style: TextStyle,
     placeholder: String,
-    /// Holds a number: the input method shows its number pad.
-    numeric: bool,
+    /// What the field holds, for keyboards, input methods and password managers.
+    purpose: remedy_ui_host::InputPurpose,
     /// The pseudo-locale placeholders are shown in, if one is active.
     pseudo: Option<remedy_ui_text::Pseudo>,
     label: Option<String>,
@@ -599,7 +599,8 @@ impl Field {
                     v_.caret = caret;
                     v_.private = false;
                     v_.multiline = matches!(self.kind, FieldKind::Multi | FieldKind::Rich | FieldKind::Code);
-                    v_.numeric = self.numeric;
+                    v_.numeric = self.purpose.is_numeric();
+                    v_.purpose = self.purpose;
                     v_
                 }
             }
@@ -610,6 +611,12 @@ impl Field {
                 v_.caret = caret;
                 v_.private = true;
                 v_.multiline = false;
+                v_.numeric = self.purpose.is_numeric();
+                // A secret is a password unless the app says it is a code or a PIN.
+                v_.purpose = match self.purpose {
+                    remedy_ui_host::InputPurpose::Text => remedy_ui_host::InputPurpose::CurrentPassword,
+                    p => p,
+                };
                 v_
             }
         }
@@ -1239,7 +1246,7 @@ impl Ui {
             },
             style: TextStyle::default(),
             placeholder: String::new(),
-            numeric: false,
+            purpose: remedy_ui_host::InputPurpose::Text,
             pseudo: self.0.borrow().pseudo,
             label: None,
             reveal: false,
@@ -1414,9 +1421,17 @@ impl TextField {
         self
     }
 
-    /// Marks the field as holding a number, so touch keyboards show their number pad.
+    /// Marks the field as holding a number, so touch keyboards show their number pad:
+    /// [`purpose`](Self::purpose) with [`InputPurpose::Decimal`](remedy_ui_host::InputPurpose::Decimal).
     pub fn numeric(self) -> Self {
-        self.field.borrow_mut().numeric = true;
+        self.purpose(remedy_ui_host::InputPurpose::Decimal)
+    }
+
+    /// Says what the field holds: touch keyboards show the matching keys, input methods
+    /// switch mode, and password managers and autofill know what to offer. A secret field
+    /// is [`CurrentPassword`](remedy_ui_host::InputPurpose::CurrentPassword) unless set.
+    pub fn purpose(self, purpose: remedy_ui_host::InputPurpose) -> Self {
+        self.field.borrow_mut().purpose = purpose;
         self
     }
 

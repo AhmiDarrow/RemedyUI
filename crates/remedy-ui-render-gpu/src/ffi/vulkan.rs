@@ -22,9 +22,6 @@ use ash::vk;
 
 type Vk = wgpu::hal::api::Vulkan;
 
-/// How long to wait for the next image before reporting the swapchain busy.
-const ACQUIRE_TIMEOUT_NS: u64 = 1_000_000_000;
-
 /// Why a swapchain call failed.
 #[derive(Debug)]
 pub(crate) enum ChainError {
@@ -469,9 +466,11 @@ impl VkChain {
             // The submission that waited on this semaphore has to be done before it is reused.
             let _ = device.poll(wgpu::PollType::Wait { submission_index: Some(index), timeout: None });
         }
+        // How long to wait for the next image before reporting the swapchain busy.
+        let wait = u64::try_from(crate::gpu_limits().swapchain_wait.as_nanos()).unwrap_or(u64::MAX);
         // SAFETY: an acquire on this chain's swapchain with an unsignalled semaphore of its own.
         let index = match unsafe {
-            self.swapchain_fns.acquire_next_image(self.raw, ACQUIRE_TIMEOUT_NS, semaphore, vk::Fence::null())
+            self.swapchain_fns.acquire_next_image(self.raw, wait, semaphore, vk::Fence::null())
         } {
             Ok((index, _suboptimal)) => index,
             Err(vk::Result::TIMEOUT | vk::Result::NOT_READY) => return Ok(None),

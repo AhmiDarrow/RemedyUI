@@ -26,9 +26,9 @@ use crate::raster::{
 use crate::source::{Cancel, PageSource, PageText};
 use crate::text::{self, Match, SearchStatus, TextPos, TextState};
 
-/// The smallest zoom: 1%.
+/// The smallest zoom unless the view is told otherwise ([`PageView::set_zoom_range`]): 1%.
 pub const MIN_ZOOM: f32 = 0.01;
-/// The largest zoom: 6400%.
+/// The largest zoom unless the view is told otherwise ([`PageView::set_zoom_range`]): 6400%.
 pub const MAX_ZOOM: f32 = 64.0;
 
 /// The zooms Ctrl+Plus and Ctrl+Minus step through, as other document viewers do.
@@ -121,6 +121,8 @@ struct State {
     text: TextState,
     moved_at: Option<Instant>,
     settle_timer: Option<u64>,
+    /// The zooms the view keeps to ([`PageView::set_zoom_range`]).
+    zoom_range: (f32, f32),
     gesture: Gesture,
     touches: HashMap<u32, Point>,
     thumb_flight: HashMap<usize, Cancel>,
@@ -225,6 +227,7 @@ impl PageView {
                     text: TextState::default(),
                     moved_at: None,
                     settle_timer: None,
+                    zoom_range: (MIN_ZOOM, MAX_ZOOM),
                     gesture: Gesture::None,
                     touches: HashMap::new(),
                     thumb_flight: HashMap::new(),
@@ -325,7 +328,25 @@ impl PageView {
         }
     }
 
-    /// Sets the zoom (clamped to 1%–6400%) keeping what is at `anchor` (the view's own
+    /// Sets the zooms the view keeps to, 1 being 100% (default [`MIN_ZOOM`] to [`MAX_ZOOM`],
+    /// 1% to 6400%); a zoom outside it now moves inside it. A bound that is not a positive
+    /// number takes its default. Past the default range a page's coordinates, kept as `f32`,
+    /// lose the precision to place a caret or a selection on a glyph.
+    pub fn set_zoom_range(&self, min: f32, max: f32) {
+        let ok = |z: f32| z.is_finite() && z > 0.0;
+        let (min, max) = (if ok(min) { min } else { MIN_ZOOM }, if ok(max) { max } else { MAX_ZOOM });
+        let range = (min.min(max), min.max(max));
+        let zoom = {
+            let mut st = self.0.st.borrow_mut();
+            st.zoom_range = range;
+            st.zoom
+        };
+        if zoom < range.0 || zoom > range.1 {
+            self.set_zoom(zoom, None);
+        }
+    }
+
+    /// Sets the zoom (clamped to the zoom range) keeping what is at `anchor` (the view's own
     /// logical pixels; `None`: its middle) where it is. Stops fitting.
     pub fn set_zoom(&self, zoom: f32, anchor: Option<Point>) {
         self.zoom_to(zoom, anchor, Fit::Free);
@@ -335,7 +356,8 @@ impl PageView {
         if !zoom.is_finite() {
             return;
         }
-        let zoom = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+        let (min, max) = self.0.st.borrow().zoom_range;
+        let zoom = zoom.clamp(min, max);
         let gesture = fit == Fit::Free;
         if gesture {
             self.freeze();
@@ -389,15 +411,21 @@ impl PageView {
 
     /// Zooms in one step (Ctrl+Plus).
     pub fn zoom_in(&self) {
-        let z = self.0.st.borrow().zoom;
-        let next = ZOOM_STEPS.iter().copied().find(|s| *s > z * 1.001).unwrap_or(MAX_ZOOM);
+        let (z, max) = {
+            let st = self.0.st.borrow();
+            (st.zoom, st.zoom_range.1)
+        };
+        let next = ZOOM_STEPS.iter().copied().find(|s| *s > z * 1.001).unwrap_or(max);
         self.set_zoom(next, self.caret_anchor());
     }
 
     /// Zooms out one step (Ctrl+Minus).
     pub fn zoom_out(&self) {
-        let z = self.0.st.borrow().zoom;
-        let next = ZOOM_STEPS.iter().rev().copied().find(|s| *s < z / 1.001).unwrap_or(MIN_ZOOM);
+        let (z, min) = {
+            let st = self.0.st.borrow();
+            (st.zoom, st.zoom_range.0)
+        };
+        let next = ZOOM_STEPS.iter().rev().copied().find(|s| *s < z / 1.001).unwrap_or(min);
         self.set_zoom(next, self.caret_anchor());
     }
 
@@ -1623,7 +1651,8 @@ impl PageView {
             let page = self.0.page.get_untracked().unwrap_or(0);
             if let Some(z) = st.layout.fit_zoom(fit, st.viewport, page).filter(|z| z.is_finite()) {
                 let top = Point::new(st.viewport.width / 2.0, 0.0);
-                st.apply_zoom(z.clamp(MIN_ZOOM, MAX_ZOOM), Some(top), fit);
+                let (min, max) = st.zoom_range;
+                st.apply_zoom(z.clamp(min, max), Some(top), fit);
             }
         }
         st.clamp();

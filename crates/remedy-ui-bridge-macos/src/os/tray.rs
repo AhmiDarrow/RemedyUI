@@ -135,30 +135,51 @@ pub(crate) fn set(tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
         }
         return Ok(());
     }
+    item.setMenu(Some(&build_menu(mtm, &t.menu, &target)));
+    Ok(())
+}
+
+/// A menu of `items` whose choices go to `target`. macOS menus have no default item, so
+/// `default` changes nothing here.
+fn build_menu(mtm: MainThreadMarker, items: &[TrayItem], target: &Target) -> Retained<NSMenu> {
     let menu = NSMenu::new(mtm);
-    for entry in &t.menu {
-        match entry {
+    let entry = |label: &str, id: u32, enabled: bool| {
+        // SAFETY: a standard menu item whose action is implemented by `Target`.
+        let mi = unsafe {
+            NSMenuItem::initWithTitle_action_keyEquivalent(
+                NSMenuItem::alloc(mtm),
+                &NSString::from_str(label),
+                Some(sel!(menuItemChosen:)),
+                &NSString::from_str(""),
+            )
+        };
+        // SAFETY: the target outlives the menu (both kept in ITEM).
+        unsafe { mi.setTarget(Some(target)) };
+        mi.setTag(isize::try_from(id).unwrap_or(0));
+        mi.setEnabled(enabled);
+        mi
+    };
+    for it in items {
+        match it {
             TrayItem::Separator => menu.addItem(&NSMenuItem::separatorItem(mtm)),
-            TrayItem::Item { id, label, enabled } => {
-                // SAFETY: a standard menu item whose action is implemented by `Target`.
-                let mi = unsafe {
-                    NSMenuItem::initWithTitle_action_keyEquivalent(
-                        NSMenuItem::alloc(mtm),
-                        &NSString::from_str(label),
-                        Some(sel!(menuItemChosen:)),
-                        &NSString::from_str(""),
-                    )
-                };
-                // SAFETY: the target outlives the menu (both kept in ITEM).
-                unsafe { mi.setTarget(Some(&target)) };
-                mi.setTag(isize::try_from(*id).unwrap_or(0));
-                mi.setEnabled(*enabled);
+            TrayItem::Item { id, label, enabled, .. } => menu.addItem(&entry(label, *id, *enabled)),
+            TrayItem::Check { id, label, enabled, checked } => {
+                let mi = entry(label, *id, *enabled);
+                mi.setState(isize::from(*checked));
+                menu.addItem(&mi);
+            }
+            TrayItem::Submenu { label, items } => {
+                let mi = NSMenuItem::new(mtm);
+                mi.setTitle(&NSString::from_str(label));
+                let sub = build_menu(mtm, items, target);
+                sub.setTitle(&NSString::from_str(label));
+                mi.setSubmenu(Some(&sub));
+                mi.setEnabled(!items.is_empty());
                 menu.addItem(&mi);
             }
         }
     }
     // Item enablement is ours, not the responder chain's.
     menu.setAutoenablesItems(false);
-    item.setMenu(Some(&menu));
-    Ok(())
+    menu
 }

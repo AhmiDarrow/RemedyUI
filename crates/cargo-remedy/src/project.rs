@@ -44,6 +44,9 @@ pub struct Project {
     pub android_icon_background: Vec<String>,
     /// The code-signing certificate's thumbprint, if any.
     pub sign_thumbprint: Option<String>,
+    /// The arguments the installer's "start when I sign in" choice runs the app with
+    /// (`[windows] autostart_args`); unset for no such choice.
+    pub windows_autostart: Option<String>,
     /// The timestamp server for signatures.
     pub timestamp_url: String,
     /// The Rust target Android packages build for (`[android] target`).
@@ -265,6 +268,7 @@ impl Project {
             android_icon_foreground: string(&remedy, "android", "icon_foreground").map(|p| root.join(p)),
             android_icon_background: android_icon_background(&remedy)?,
             sign_thumbprint: string(&remedy, "windows", "sign_thumbprint"),
+            windows_autostart: string(&remedy, "windows", "autostart_args"),
             timestamp_url: string(&remedy, "windows", "timestamp_url")
                 .unwrap_or_else(|| "http://timestamp.digicert.com".into()),
             android_target: string(&remedy, "android", "target")
@@ -350,6 +354,7 @@ pub(crate) mod tests {
             android_icon_foreground: None,
             android_icon_background: Vec::new(),
             sign_thumbprint: None,
+            windows_autostart: None,
             timestamp_url: String::new(),
             android_target: "aarch64-linux-android".into(),
             android_min_api: 26,

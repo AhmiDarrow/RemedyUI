@@ -25,12 +25,12 @@
 //! count is how many times it repeats after its first play. A file damaged after its first
 //! frame plays the frames before the damage; one damaged before that cannot be shown.
 
-#[cfg(any(feature = "gif", feature = "apng", feature = "webp"))]
 /// The animation view's own words (its play button's names) in every language the engine
 /// ships, from `i18n/*.ftl`. Apps reword them, or add a language, with
 /// [`remedy_ui_view::strings::add_messages`] under the name `media-anim`.
 pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("media-anim");
 
+#[cfg(any(feature = "gif", feature = "apng", feature = "webp"))]
 mod canvas;
 mod formats;
 mod policy;

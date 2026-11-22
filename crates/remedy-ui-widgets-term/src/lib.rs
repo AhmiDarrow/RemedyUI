@@ -31,6 +31,7 @@ pub use keys::{MouseAction, MouseButton, encode_focus, encode_key, encode_mouse,
 pub use palette::{ansi, background, cursor, foreground};
 pub use shared::Feeder;
 pub use term::{
-    CursorShape, CursorState, Emulator, Modes, MouseEncoding, MouseMode, Scrollback, default_string_limit,
+    CursorShape, CursorState, Emulator, Modes, MouseEncoding, MouseMode, SYNC_TIMEOUT, Scrollback,
+    default_string_limit,
 };
 pub use view::{GridSize, Terminal, TerminalOptions, terminal};

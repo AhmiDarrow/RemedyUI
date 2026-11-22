@@ -19,7 +19,9 @@ mod sheet;
 mod tokens;
 
 pub use palettes::{PALETTES, Palette};
-pub use portal::{PORTAL_PALETTES, PortalPalette, portal_sheet, portal_theme};
+pub use portal::{
+    PORTAL_PAGE_CSS, PORTAL_PALETTES, PortalPalette, portal_page_layers, portal_sheet, portal_theme,
+};
 pub use sheet::sheet;
 pub use tokens::{TokenError, from_tokens, to_tokens};
 

@@ -10,6 +10,292 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **The rest of the engine's limits are configurable**, each default kept and public:
+  `text` `LazyLimits` with `set_lazy_limits` (shortest lazy paragraph 32 KiB, piece size
+  8 KiB, pieces kept 48), `GlyphAtlas::set_page_size` (1024), `set_max_list_level` (5) and
+  `set_undo_pause_ms` (1000); `view` `set_paint_cache_limit` (512 pictures) and
+  `AmbientPolicy::max_dt` (250 ms); `core` `set_max_color_matrix_entry` (256);
+  `script` `Limits::handlers` (4096), `image_side` (4096), `gap` (64) and `expr_depth`
+  (64 / 32, Rhai's parser); `rui` `set_max_depth` (128); `widgets-term`
+  `TerminalOptions::sync_timeout` (150 ms); `devtools` `set_remote_timeout` (10 s);
+  `media-effects` `EffectView::set_max_side` (4096, `FrameInput::DEFAULT_MAX_SIDE`);
+  `widgets-stage` `fx::set_fx_limits` (noise side 4096, textures kept 64); `doc-pages`
+  `PageView::set_zoom_range` (1% to 6400%); `services-net` `PoolLimits` with
+  `set_pool_limits` (idle connections 10, 3 to one host, kept 15 s); `AppConfig`
+  `keepalive_grace` (10 s, natively and on Android), `single_instance_wait` (5 s, Windows) and
+  `drop_waits` (2 s and 10 s, Linux), with `bridge-android` `set_held_grace`,
+  `bridge-windows` `set_instance_wait` and `bridge-linux` `set_drop_waits` beneath them. The
+  safety bounds say what raising them risks. The text, network and performance guides have
+  tables of them.
+- **Gradient backgrounds** in `style`: `StylePatch::background_layers` and
+  `Style::background_layers` take `Gradient`s drawn over the background colour, the first on
+  top, as CSS `background-image`: `Gradient::linear(angle, stops)`, `Gradient::ellipse(at,
+  stops)` and `Gradient::circle(at, stops)` with `.size(RadialSize::Extent(Extent::ClosestSide
+  | ClosestCorner | FarthestSide | FarthestCorner))` or explicit radii, and
+  `Gradient::conic(from, at, stops)`. Stops (`GradientStop::new(color).at(0.62).alpha(0.16)`)
+  take theme roles, which resolve through the theme and again on each theme change, and an
+  alpha, as `color-mix(in srgb, var(--gold) 16%, transparent)`. `Gradient::parse` and
+  `parse_layers` read CSS gradient text (`var(--role)`, `rgb()`, `#hex`, `color-mix` with
+  `transparent`, `px`/`rem`/`%`, angles and `to <side>`); `Gradient::geometry` places one in a
+  box as CSS does, and `remedy_ui_view::gradient_brush` turns it into a brush. Portal's
+  gradients (page glow, poster art, cast screen, hero and info scrims, full-screen scrims,
+  seek track) match Chrome drawing the same CSS to within 5 levels
+  (`devtools/tests/portal_gradients.rs`); the GPU matches the CPU.
+- `paint`: `Brush::Elliptical { center, radii, stops }` (an axis-aligned elliptical radial
+  gradient) and `Brush::Conic { center, start_angle, stops }`, drawn the same by the CPU and
+  GPU renderers (a unit gradient under a paint transform).
+- `themes`: Portal's CSS variable names as custom colours of `portal_theme` (`gold`, `raised`,
+  `well`), and `portal_page_layers()` / `PORTAL_PAGE_CSS`, Portal's page background.
+
+- **Locale formats** in `services-i18n`, as Portal writes dates, counts and languages:
+  `CalendarSymbols::medium_date` ("Nov 21, 2026", `21.11.2026` in de, `2026/11/21` in ja),
+  `CalendarSymbols::date_time` (a date and a time to the minute on the locale's 12- or 24-hour
+  clock: "Nov 21, 2026, 2:30 PM", `21.11.2026, 14:30`), `NumberSymbols::compact` ("1.2K",
+  "3.4M"; `340万` in ja, `34 লা` in bn) from ICU4X's compiled data (`icu_decimal`'s compact
+  formatter, no new crate; `compact_with` and `CompactOptions` set where shortening starts and
+  how many significant digits stay, defaults 2 and the locale's first unit), and `language_name(ui, code)` / `language_name_in(locale, code)`
+  ("Französisch" for `fr` in de, "Brazilian Portuguese" for `pt-BR`, "German" for `ger`):
+  every language CLDR names in every locale CLDR has, from ICU4X's display names
+  (`icu_locale`, the `language-names` feature, on by default in `remedy-ui`, about 3 MB;
+  without it, the engine's shipped languages), ISO 639-2 codes as media files tag tracks, and
+  apps' own `language-<code>` messages (`add_messages`) first. `SystemSettings::locales` is the user's
+  preferred languages in order (`navigator.languages`, the Windows display languages,
+  `LANGUAGE` then `LC_ALL`/`LC_MESSAGES`/`LANG` on Linux, `NSLocale.preferredLanguages` on
+  macOS, Android's locale list; `[locale]` where there is no list), read by apps as
+  `App::preferred_locales()`. `SystemSettings::locale` is unchanged.
+- **Every drawing and rendering limit is configurable**, each default kept and public, and
+  read the same by the CPU and GPU renderers: `paint` `PaintLimits` with `set_paint_limits`
+  (groups open at once, glass depth and panes per raster, colour-matrix depth and groups per
+  raster, the blur and offset of filter chains; the `MAX_*` constants are its defaults, and
+  `FilterBudget::full` reads it); `effects` `set_max_effect_pixels` and `set_max_overdraw`;
+  `render-gpu` `GpuLimits` with `set_gpu_limits` (errors kept, health-file entries and line
+  length, present hang, Vulkan and DXGI swapchain wait, DMA-BUF video wait, hardware video
+  imports kept), reachable as `remedy_ui::gpu`. The performance guide has a table of them.
+- The GPU effect kernel runs programs past 64 registers (up to the encoding's 255, with
+  `Limits::max_registers` raised) on a wide form built the first time one needs it, and runs
+  every instruction a program has instead of stopping at 16,384, so raised `Limits` draw on
+  the GPU as on the CPU. `effects::MAX_TEXTURES` (4) names the texture bindings; a
+  `Limits::max_textures` above it is held to it, where the GPU used to draw the extra
+  textures as transparent. An effect buffer's side is bounded by the renderer's texture limit
+  alone (it was also held to 16,384).
+- **Every media limit is configurable**, each default kept and public:
+  `media-image` `set_memory_limit` (64 MiB), `set_disk_limit` (256 MiB) and
+  `set_known_sizes_limit` (1024); `media-playback` `MediaLimits` with `set_media_limits` (HLS
+  read-ahead, held bytes, fetch and playlist sizes, retries, pauses and timeouts; subtitle
+  file and cue sizes; Matroska and MP4 header caps; Linux system-sound queue) and
+  `PlayerOptions::caption_step` and `caption_delay_limit`; `media-isolated` `IsolationLimits`
+  with `set_isolation_limits` (the sandboxed helper's time slack and memory budget). The
+  media guide has a table of them.
+- The `media-image` disk cache reads `Expires` when there is no `max-age` (RFC 9111: less
+  the server's `Date`; an `Expires` that is not a date is already stale), in all three HTTP
+  date forms.
+- **`services-net` reaches the local network on request**: `Http::policy(HttpPolicy::PrivateNetworks)`
+  allows plain `http` to RFC 1918, link-local and unique-local IPv6 addresses and `.local`
+  names, for a native app talking to a Portal server at home. Off by default
+  (`HttpPolicy::LoopbackOnly`). Natively the resolved address is checked before connecting
+  (no DNS-rebinding way round it), plain `http` skips proxies, and redirects are followed hop
+  by hop with each hop checked; in a page Chrome's local network access is asked for.
+- **A real cookie jar** in `services-net` natively (RFC 6265): `Domain` and host-only cookies,
+  `Path`, `Secure`, `HttpOnly`, `Expires` and `Max-Age`, `SameSite` kept; `CookieJar::cookies`
+  lists them as `Cookie`s. Each redirect hop sends and keeps its own address's cookies.
+- **Streaming bodies**: `Http::stream` hands the body over chunk by chunk (natively from
+  ureq's reader, in a page from the `fetch` body's `ReadableStream`), cancellable between
+  chunks, ending with `NetError::TooLarge` past the size limit.
+- **Every `services-net` limit is configurable**: `Http::max_body` and `Request::max_body`
+  (256 MiB by default), `Http::timeout` and `Request::timeout` (30 s), `Http::max_redirects`
+  (10), `CookieJar::max_cookies` (3000); `None` lifts one. The defaults are public constants.
+- **Keepalive requests finish in the background on Android**: while one is under way the
+  bridge's new `Keepalive` service (declared by `cargo remedy package`) keeps the process
+  from being frozen, and the way out waits for them as on the desktop
+  (`remedy_ui_bridge_android::hold_process`, `remedy_ui_services_net::on_keepalive`).
+- `HttpError` carries the response headers (`HttpError::header`), so a `304 Not Modified`
+  exposes its new `ETag`, `Last-Modified` and `Cache-Control`. The `media-image` disk cache
+  now keeps them, so a revalidated image gets the new validators and freshness.
+- **Android: an app can offer an APK it already has to the system installer** (`android::install_apk`), served through the existing share `FileProvider`. The person taps Install, and their data is kept. If the “install unknown apps” setting is off, the settings page for this app is opened instead (`android::can_request_package_installs`). Share cleanup leaves named (non-numeric) folders under the share cache, so a downloaded APK is not deleted when a later share starts. Launch extras and these installer calls keep working after the event loop has started (the activity is no longer taken out of the process hook when the loop begins).
+
+- **Spatial navigation** for TVs, remotes and d-pads (engine gap #4 of Portal's whole-app
+  audit): `Ui::set_spatial_navigation(true)` makes an arrow the focused element does not take
+  move focus to the nearest focusable element that way, inside the current focus scope (an
+  open dialog keeps it), by the W3C CSS Spatial Navigation draft's distance (edge to edge,
+  plus along the axis, plus the cross axis weighted, less the cross-axis overlap), and
+  scrolls it into view. Sliders, lists, menus, text fields and the player's keys still get
+  their arrows first; modified arrows are left alone. `El::focus_group()` keeps arrows
+  inside a row or grid while it has something that way, lets them out at its edge, and returns
+  focus to the child it last had; `El::focus_wrap()` comes round at its ends instead (a
+  carousel). `Ui::set_spatial_tuning(SpatialTuning)` changes the distance weights. A gamepad's
+  d-pad, A and B arrive as arrows, Enter and `Key::Back` on Android and the web (Gamepad API). On by default on TVs and in touch-only browsers (`SystemSettings::
+  spatial_navigation`, new: Android's `UI_MODE_TYPE_TELEVISION`; a browser's
+  `(any-pointer: coarse)` without a fine pointer, or a TV browser's user agent), off on
+  desktops; `Ui::set_system_spatial_navigation` is what the runner sets. With it on, an Escape
+  nothing took goes back as `Key::Back` (the `Router`'s back), and a Tizen remote's
+  `XF86Back` arrives as `Key::Back`. `Tree::focus_candidates` lists a scope's focusables.
+- **Gamepads on Windows and Linux, and held directions that repeat.** The d-pad and left
+  stick arrive as arrow keys, A as Enter and B as `Key::Back` on Windows (XInput: Xbox and
+  XInput-compatible pads, found within a second of being plugged in) and Linux (evdev under
+  `/dev/input`, with pads plugged in later found through inotify; devices the user may not
+  read, or no `/dev/input` at all in a sandbox, mean no pads rather than an error), going to
+  the focused window as the keyboard's keys do. A held d-pad or stick now repeats on every
+  platform that reads pads itself (Windows, Linux, the web) after the system's keyboard repeat
+  delay and at its rate (`SystemSettings::key_repeat_delay` and `key_repeat_interval`, new:
+  Windows' keyboard settings, GNOME's through the desktop portal, 500 ms and 33 ms elsewhere);
+  the web also reads the left stick now. `App::set_gamepad_tuning(GamepadTuning)` sets the
+  app's own delay, interval and stick dead zone (0.5 by default), through
+  `Host::set_gamepad_tuning`. `remedy_ui_input::GamepadKeys` is the shared state machine,
+  and a platform bridge hands the shared core its pads through `PlatformHooks::gamepads`.
+- **Every controller on Windows, and the real keyboard repeat on any Linux desktop.**
+  Windows now also reads PlayStation, Switch Pro and generic HID gamepads through
+  Windows.Gaming.Input (`RawGameController`), in the slots after XInput's four: A and B are
+  the south and east face buttons by the driver's labels (Nintendo's letters swapped to their
+  position), or by the vendor's HID layout when it labels none; the first hat is the d-pad
+  and the first two axes the stick, an axis counting only once it has been near its center
+  (so a resting pedal or throttle holds nothing). Xbox-class pads stay XInput's and are not
+  reported twice. Linux reads the keyboard repeat from the Wayland compositor
+  (`wl_keyboard.repeat_info`), else the X server (XKB), then GNOME's settings, then KDE's
+  `kcminputrc` (Plasma's 600 ms and 25 a second where it sets none); 500 ms and 33 ms only
+  when none of them answers.
+- **Images from addresses** in `media-image`: `Source::Url(String)` fetches the image off
+  the UI thread. Elements showing the same address share one fetch, cancelled when they all
+  go. The bytes stay in a bounded memory cache (64 MiB). Natively they are also kept on
+  disk in the app's cache folder (256 MiB, least recently used dropped first; `remedy_ui::run`
+  sets it, `set_cache_dir` changes it), following `Cache-Control` (`max-age`, `no-cache`,
+  `no-store`) and revalidated with `ETag` and `Last-Modified`. In a page the browser's
+  HTTP cache does that. The fetch goes through `services-net` (feature `http`, on by
+  default): natively ureq with rustls and the platform's certificates, refusing plain `http`
+  beyond the loopback interface; in a page `fetch` with an `AbortController`. An app can use its own client by implementing the `Fetch` trait and
+  installing it with `set_fetcher`. A failed fetch is `DecodeError::Network`.
+- **`image_ext` and `ImageOptions`** in `media-image`: the app's own `placeholder` while
+  loading, a `fallback` built when the image cannot be shown (Portal's letter tile) that sizes
+  the element when nothing else does, and `on_state`, whose `Sized` and `Ready` carry the
+  image's real size, for framing wide or square art.
+- In a browser page an image from another site is fetched with CORS. When its server does not
+  allow that, the engine tries once more through the app's own proxy if `set_web_proxy`
+  names one (`/image-proxy?url=` plus the encoded address). Otherwise the load fails with a
+  reason that says so and the element shows its fallback. The engine does not lay a DOM
+  `<img>` over the canvas, because that image could not be clipped, rounded, layered under
+  popups, faded or hit-tested with the rest of the UI.
+- **The router survives a reload and opens links elsewhere**: in a browser page each history
+  entry carries the router's entries (routes and scroll positions) in `history.state`,
+  written again on `pagehide`, so after a reload (`App::reload` too) the router has every
+  entry back in its place and back and forward land where they did, scrolled as they were
+  (`web::history::entries`; `write` takes the list, `listen` a `hiding` callback). A middle
+  or Ctrl (Cmd) click on a `link_to` link, drawn or on the mirror's `<a href>`, opens the
+  route in a new tab; on the desktop `Router::open_windows(spec, build)` opens it in a new
+  window with its own router at that route, and without it the click navigates in place
+  (`Router::open_elsewhere` does the same from code). In a page the mouse's back and forward
+  buttons now go through the router, and the bridge cancels the browser's own move on their
+  release, so each press moves one entry. Tested in headless Firefox and on the headless
+  host.
+- **Text in at most n lines (CSS `line-clamp`).** `El::max_lines(n)`, `Style::max_lines(n)`
+  and `StylePatch::max_lines(n)` for style sheets, and `ParagraphOptions::max_lines(n)` in
+  `remedy-ui-text`: text that would take more lines ends the last one in "…", cut at the last
+  grapheme boundary that fits as the shaper measures it (letter spacing, every alignment and
+  right-to-left text included; the "…" follows the text in logical order, so it lands on the
+  line's visual end either way). Screen readers, copying and searching get the whole text;
+  `widgets::full_text_tooltip(&el)` shows it on hover. `El::truncate()` is now `max_lines(1)`,
+  so a hard line break in truncated text ends its first line in "…" too. A long text is laid
+  out only as far as its first lines reach (growing starts of it), so clamping 50,000
+  characters to 3 lines takes about 1 ms instead of 37 ms (release build).
+- **Text transforms (CSS `text-transform`).** `TextTransform::{None, Upper, Lower,
+  Capitalize}` on `TextStyle::transform`, `TextStylePatch::transform(..)` for spans,
+  `El::text_transform(..)`, and `Style::text_transform` / `StylePatch::text_transform` for
+  style sheets (inherited, as in CSS). The text is cased at shaping time by the window's
+  locale (Turkish and Azerbaijani dotted İ and dotless ı, German ß as SS in capitals and Ss in
+  title case, Greek final sigma, Greek capitals without accents or breathings as ICU's Greek
+  upper case (dialytika kept, and added where a dropped accent broke a diphthong: άι → ΑΪ),
+  Dutch "IJsland", the dž lj nj dz title forms); the paragraph's offsets (hit
+  tests, carets, selections, lines, glyph clusters) stay those of the text as written, so
+  selection, copying and screen readers get the original. The player's "Up next" label uses
+  it instead of upper-casing its string in code.
+- **Input purposes.** `TextField::purpose(InputPurpose)` (on `text_input`, `secret_input`
+  and the forms' fields; `search` sets `Search`, `number_input` `Digits` or `Decimal`) tells
+  keyboards, input methods and password managers what a field holds: text, digits, a
+  decimal, a URL, an email address, a search, a username, the current or a new password, or
+  a one-time code. `TextInputState::purpose` carries it to every bridge. On the web, one-line
+  fields now edit in a hidden `<input>` carrying `type`, `inputmode`, `autocomplete` and
+  `enterkeyhint`, so password managers fill the username and current password; on Android it
+  sets `EditorInfo.inputType` and `imeOptions`; on Windows the touch keyboard's input scope
+  through TSF; on Linux winit's password purpose.
+- **Pointer capabilities.** `Ui::pointer_caps()` returns a `Signal<PointerCaps>` (`hover`,
+  `fine`): the web's `(hover: hover)` and `(pointer: fine)` media queries, followed live;
+  natively the pointer last used (mouse, finger or pen), so a convertible switching modes
+  updates it. `SystemSettings::pointer` carries what a platform reports.
+
+- **Tray menus with check marks, submenus and a bold default**, as Portal's launcher has
+  (Server submenu; Allow TVs, GPU encode and Start with Windows checked; Open Portal bold):
+  `TrayItem::Check { id, label, enabled, checked }`, `TrayItem::Submenu { label, items }` and
+  `TrayItem::Item`'s `default`, with `TrayItem::item`, `check`, `submenu`, `chosen_id` and
+  `label`. Windows builds them as native menus (`MF_CHECKED`, `MF_POPUP`,
+  `SetMenuDefaultItem`); Linux's StatusNotifierItem sends dbusmenu `toggle-type` checkmark
+  entries and submenus (and answers `GetLayout` for a submenu); the X11 tray's menu draws the
+  mark, the default in bold and a submenu's entries indented under it; macOS uses `setState`
+  and `setSubmenu` (macOS menus have no default item). The headless host records them.
+- **Notification urgency**: `Notification::urgency(Urgency::Warning)` (`Info`, the default,
+  `Warning`, `Error`). Linux sends the spec's urgency (critical for errors) with the stock
+  `dialog-warning` or `dialog-error` icon when the app gives no picture; Windows raises the
+  toast's priority, and an error is Windows 11's urgent toast; macOS asks for time-sensitive
+  delivery (macOS 12 and later); Android files it as `CATEGORY_ERROR`; a browser keeps it until
+  dismissed (`requireInteraction`).
+- **Autostart from the Windows Run key** in `services-desktop`:
+  `autostart::Entry::windows_run_key(true)` starts the app from its value under
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (`autostart::RUN_KEY`) rather than a
+  Startup-folder shortcut, as Portal does. Either way, a Run value already there (an
+  installer's) reads as enabled and is adopted rather than doubled with a shortcut, and turning
+  autostart on in one place removes the other, so the app never starts twice.
+  `enabled_at` and `set_at` take the folder and Run key to use (tests use their own).
+- **The installer's "Start when I sign in" choice**: `[windows] autostart_args` in
+  `remedy.toml` makes `cargo remedy package` add an unchecked task that writes that Run value
+  (removed on uninstall) and no Startup shortcut beside it, as Portal's installer does.
+
+- **Landmarks and the current item** in `a11y`: `Role::{Navigation, Main, Banner, Region,
+  Search, Article, ContentInfo, Complementary}` and `Semantics::current(Current::{Page, Step,
+  Location, Date, Time, True})`, mapped to AccessKit's roles and `aria_current` on every
+  platform and to `role=` and `aria-current` in the web bridge's ARIA mirror; screen readers
+  hear "current page". The nav rail's and bottom bar's chosen item is `Current::Page`.
+- **`remedy-ui-services-net`, an HTTP client for native apps and browser pages** (facade
+  feature `net`, `remedy_ui::net`, in `full`). `Http::new(base)` with default headers, a
+  timeout and natively an optional `CookieJar`; `Request::get/post/put/delete` with headers,
+  JSON, raw or `Multipart` bodies, a per-request timeout and `keepalive()` for a last save
+  that must finish while the page or app closes (`fetch` keepalive in a page; natively
+  `finish_keepalive`, which `remedy_ui::run` calls on the way out). `Http::send` and
+  `send_json::<T>` never block; a status outside 200-299 is `NetError::Http(HttpError {
+  status, body, detail })`, `detail` read from a JSON body's `detail` field.
+  `Http::resource` is a reactive `Resource` whose fetch is a request: a new key aborts the
+  old one (`AbortController` in a page). Natively ureq on rustls with the platform verifier
+  (the updater's stack, no new crates), refusing plain `http` beyond loopback; in a page,
+  `fetch` with same-origin cookies. Tested against a loopback server natively and in
+  headless Firefox (`tools/web-test.sh`).
+- **`Resource::with_reply`** in `reactive`: a resource whose fetch answers later through a
+  `Reply` sent from any thread, instead of blocking a worker, which is how fetches run in a
+  browser page. `Resource::with_executor` is built on it.
+
+- **Routes and deep links** (`remedy_ui::router`, feature `widgets`), for Portal's
+  `#/home`, `#/browse/<path>` and `#/settings/<id>`: a `Router` holds the route (a signal of
+  `Route`: path, decoded segments, query, `matches("/settings/:id")` and `"/browse/*path"`)
+  with `push`, `replace`, `back` and `forward`, titles the window after each route
+  (`set_title`; `document.title` in a page), and keeps each entry's scroll position
+  (`remember_scroll`). `Router::view` builds the route's page, rebuilt on each change; Alt+Left
+  and Alt+Right, the system back key (Android's back) and the mouse's back and forward buttons
+  move through the history, and a `NavStack` inside a page pops its own pages first. In a
+  browser page `Router::for_window` keeps the route in the address's fragment through the
+  History API (read at load, so a deep link opens its page; the browser's back and forward and
+  a typed address route too). On the desktop `Router::follow_links(app, &["portal"])` opens
+  links in the app's scheme, also from a second launch. `Router::link_to` is a link whose
+  `Semantics::url` (new, in `a11y`; `ReaderNode::url`) makes the web ARIA mirror an
+  `<a href="#/…">`, so middle and Ctrl clicks open a new tab. `App::reload` reloads the page,
+  or natively rebuilds every `Router::view`. `web::history` exposes the page's history.
+- **Fluid poster grids** in `widgets-data`, as Portal's library: `Tiles::fluid(min_width,
+  aspect, extra_height, draw)` fills the width as CSS `repeat(auto-fill, minmax(min, 1fr))`
+  does (`GridGeometry::fluid`), recomputed as the width changes; `grid_view_with(.., GridOptions
+  { own_scroll, interactive_tiles }, ..)` puts the grid in the page's scroll (virtual rows
+  follow the window through any scroll around it) and keeps a card's buttons (Play, Details,
+  Watchlist, Bookmark, Info) for the keyboard and screen readers: Enter moves into the
+  cursor's card, the arrow keys between its buttons, Escape back. `grid_view` is unchanged.
+  The 2,000-poster scene (`widgets-data/tests/poster_grid.rs`) holds the 8 ms frame budget.
+- **Repeated grid tracks** in `layout`: `Track::Repeat(Repeat::AutoFill | AutoFit |
+  Count(n), tracks)`, as CSS `repeat()`, through taffy's own.
+- `El::scroll_rect_into_view(rect)` shows part of an element through the scroll containers
+  around it, and `El::focus_step(forward)` moves focus between the focusable elements inside
+  one, wrapping.
 - **The player's keys from anywhere in the window** in `media-playback`, as Portal's page
   hears them page-wide: `Player::keys_from(&ui.root())` routes the keys nothing focused took
   to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),
@@ -813,6 +1099,24 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- `Brush` has two new variants (`Elliptical`, `Conic`); code matching every variant adds them.
+- `Theme::families` puts the body's families after a heading or monospace list, as a CSS font
+  list ends in a face the page has: a heading face the app did not bundle draws in the body
+  face instead of not at all (Portal's "Films" heading drew nothing in previews, which bundle
+  Remedy Sans UI but not Ahmi Pixel or Remedy Sans; its colour was fine).
+- **`TrayItem` has two more kinds and `Item` one more field** (a major change of the host
+  contract, which is exhaustive on purpose). What to do: write `TrayItem::item(id, label)`
+  (or add `default: false` to a `TrayItem::Item { .. }` literal), and give a `match` on
+  `TrayItem` arms for `Check` and `Submenu` (`TrayItem::chosen_id` and `TrayItem::label`
+  cover most of them). Not mechanical, so not in the migration table. A bridge outside this
+  repository must show both kinds.
+- `autostart::Entry` has a `run_key` field: add `run_key: false` to a struct literal, or use
+  `Entry::current`. `enabled` and `set` now also see the Run key on Windows; `enabled_in` and
+  `set_in` still see only the folder.
+- `services-update` reads its feeds, signatures and checksum files through
+  `remedy-ui-services-net` (same 60-second timeout, headers and https-only rule); the
+  download keeps its own reader for its progress.
+
 - `media-playback`: an HLS stream's decoders are kept by the player's host for the next
   stream (`replace_source`, `start_next`) and reconfigured when its streams allow (on
   Windows the H.264 transform always, the sound one for the same config; on Android the
@@ -933,6 +1237,36 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   change the board (it no longer builds again on each keystroke).
 
 ### Fixed
+
+- `media-anim` without its format features (as `media-isolated` takes it) compiles again,
+  which also fixes `media-isolated` for `wasm32-unknown-unknown`; there `media-isolated` no
+  longer pulls in dependencies it does not use.
+- **`El::scroll_to` on content built this frame scrolls it**: the runner dropped a scroll
+  asked for before the container had its scrolling layer (a page a router brings back, a
+  list just filled); it now keeps it and applies it in the first frame that gives the
+  container a layer, for as long as the container lives.
+- **The Windows tray icon answers the keyboard and opens its menu where asked**: the icon
+  is set to `NOTIFYICON_VERSION_4`, so Win+B then Enter or Space (`NIN_KEYSELECT`) activates it,
+  and the menu opens at the point the shell names, for Shift+F10 and the menu key as well as a
+  right-click, not at the mouse pointer. A double-click activates once, not twice: selects
+  within the double-click time count as one, as Portal's launcher debounces them. The
+  tooltip still shows (`NIF_SHOWTIP`).
+
+- **An image's remembered size is never another image's** (`media-image`). Byte sources are
+  keyed by address and length; the size and decode caches now hold a `Weak` to the bytes, so
+  the address cannot be reused by a new download while an entry exists, and drop the entry
+  once the bytes are freed. `probe` checks a file's size and modification time (off the UI
+  thread) and re-reads its size when the file changed. Remembered sizes are capped at 1024,
+  least recently used first (`known_sizes()` counts them).
+- **On Android, tapping a text field now opens the on-screen keyboard.** The input-method
+  view was a full-screen overlay; once a field focused it, it ate every later tap, and
+  `showSoftInput` was asked before the view had focus and a window token, so the keyboard
+  often never appeared. The view is now 1 px, it never takes touches (they stay with the
+  app), and the keyboard is shown after focus, including through `WindowInsetsController`
+  on Android 11 and later. A finger tap also always asks for a frame, so the field paints
+  and the text session starts.
+
+- **On Android, underlined keyboard text is kept when you leave a field, Save, or tap another control.** Words still being composed (the last underlined word, like “bar” in “Lavender bar”) were dropped because a field end, a restart, or a tap on another control finished the input session before the composition was committed. The input method now commits that text first (`commitCompositionIfAny` on end and update; a pointer-down flush of the runner’s preedit, without a second commit from `finishComposition`).
 
 - **An HLS stream on GStreamer's software H.264 decoder shows its first picture at once**,
   not half a second late, on opening and on every seek. `avdec_h264` holds a picture for

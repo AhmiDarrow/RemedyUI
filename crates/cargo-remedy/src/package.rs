@@ -179,6 +179,28 @@ fn iss_string(s: &str) -> String {
     s.replace('"', "\"\"")
 }
 
+/// The unchecked "start when I sign in" task, when `[windows] autostart_args` is set.
+fn autostart_task(p: &Project) -> String {
+    if p.windows_autostart.is_none() {
+        return String::new();
+    }
+    format!(
+        r#"Name: "startup"; Description: "Start {} when I sign in"; Flags: unchecked"#,
+        iss_string(&p.name).replace('{', "{{")
+    )
+}
+
+/// What the task writes: the Run value `autostart::Entry::windows_run_key` reads (removed on
+/// uninstall), and no Startup-folder shortcut beside it, so the app starts once.
+fn autostart_entries(p: &Project, exe_name: &str) -> String {
+    let Some(args) = &p.windows_autostart else { return String::new() };
+    let name = iss_string(&p.name).replace('{', "{{");
+    let args = iss_string(args).replace('{', "{{");
+    format!(
+        "[Registry]\nRoot: HKCU; Subkey: \"Software\\Microsoft\\Windows\\CurrentVersion\\Run\"; ValueType: string; ValueName: \"{name}\"; ValueData: \"\"\"{{app}}\\{exe_name}\"\" {args}\"; Flags: uninsdeletevalue; Tasks: startup\n\n[InstallDelete]\nType: files; Name: \"{{userstartup}}\\{name}.lnk\"; Tasks: startup\n\n"
+    )
+}
+
 /// The Inno Setup script: a per-user install with a Start menu entry and an uninstaller.
 pub fn inno_script(p: &Project, exe: &Path, ico: &Path, out: &Path, base: &str) -> String {
     let exe_name = exe.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -204,6 +226,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 
 [Tasks]
 Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"; Flags: unchecked
+{autostart_task}
 
 [Files]
 Source: "{exe}"; DestDir: "{{app}}"; Flags: ignoreversion
@@ -212,9 +235,11 @@ Source: "{exe}"; DestDir: "{{app}}"; Flags: ignoreversion
 Name: "{{autoprograms}}\{name}"; Filename: "{{app}}\{exe_name}"
 Name: "{{autodesktop}}\{name}"; Filename: "{{app}}\{exe_name}"; Tasks: desktopicon
 
-[Run]
+{autostart_entries}[Run]
 Filename: "{{app}}\{exe_name}"; Description: "{{cm:LaunchProgram,{name_esc}}}"; Flags: nowait postinstall skipifsilent
 "#,
+        autostart_task = autostart_task(p),
+        autostart_entries = autostart_entries(p, &exe_name),
         // Inno takes AppId literally; braces would start a constant.
         id = p.id.replace(['{', '}'], ""),
         name = iss_string(&p.name),
@@ -300,6 +325,7 @@ mod tests {
             android_icon_foreground: None,
             android_icon_background: Vec::new(),
             sign_thumbprint: None,
+            windows_autostart: None,
             timestamp_url: String::new(),
             lib_name: "notes".into(),
             android_target: "aarch64-linux-android".into(),
@@ -358,6 +384,25 @@ mod tests {
         assert!(
             iss.contains("{localappdata}") && iss.contains("{cm:LaunchProgram,Notes%2c \"Plus\"}"),
             "{iss}"
+        );
+        assert!(!iss.contains("startup"), "no sign-in choice unless asked");
+        let mut p = p;
+        p.windows_autostart = Some("--background".into());
+        let iss =
+            inno_script(&p, Path::new("C:/x/notes.exe"), Path::new("C:/x/app.ico"), Path::new("C:/out"), "n");
+        assert!(
+            iss.contains(
+                r#"Name: "startup"; Description: "Start Notes, ""Plus"" when I sign in"; Flags: unchecked"#
+            ),
+            "{iss}"
+        );
+        assert!(
+            iss.contains(r#"ValueName: "Notes, ""Plus"""; ValueData: """{app}\notes.exe"" --background"; Flags: uninsdeletevalue; Tasks: startup"#),
+            "{iss}"
+        );
+        assert!(
+            iss.contains(r#"Name: "{userstartup}\Notes, ""Plus"".lnk"; Tasks: startup"#),
+            "never a second start: {iss}"
         );
     }
 }

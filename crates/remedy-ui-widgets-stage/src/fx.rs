@@ -230,16 +230,46 @@ thread_local! {
     static BLURRED: RefCell<HashMap<(u64, u32), Image>> = RefCell::new(HashMap::new());
 }
 
-/// Most textures [`noise_image`] and [`blur`] keep each; past it the cache starts again.
-const KEEP: usize = 64;
+/// Most textures [`noise_image`] and [`blur`] keep each unless the app says otherwise
+/// ([`set_fx_limits`]); past it the cache starts again.
+pub const FX_KEPT: usize = 64;
+
+/// The largest noise texture [`noise_image`] makes unless the app says otherwise
+/// ([`set_fx_limits`]), in pixels a side.
+pub const FX_NOISE_SIDE: u32 = 4096;
+
+static KEEP: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(FX_KEPT);
+static NOISE_SIDE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(FX_NOISE_SIDE);
+
+/// Sets how many textures [`noise_image`] and [`blur`] keep each on a UI thread (default
+/// [`FX_KEPT`], 64) and the largest noise texture made, a side (default [`FX_NOISE_SIDE`],
+/// 4096). Each kept texture costs its pixels at 4 bytes each; a noise side costs with its
+/// square once, and must stay within the renderer's texture limit to be drawn on the GPU.
+pub fn set_fx_limits(kept: usize, noise_side: u32) {
+    KEEP.store(kept, std::sync::atomic::Ordering::Relaxed);
+    NOISE_SIDE.store(noise_side, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Keeps `img` under `key` in `cache`, starting the cache again past the limit.
+fn keep<K: std::hash::Hash + Eq>(cache: &mut HashMap<K, Image>, key: K, img: &Image) {
+    let max = KEEP.load(std::sync::atomic::Ordering::Relaxed);
+    if cache.len() >= max {
+        cache.clear();
+    }
+    if max > 0 {
+        cache.insert(key, img.clone());
+    }
+}
 
 /// A seeded noise texture colored through the spec's ramp, made the first time a spec is asked
 /// for and then shared (the same spec gives the same [`Image`], so the GPU uploads it once).
 /// It tiles seamlessly when `cells` is whole, so [`scroll_tiled`] can move it forever. `None`
-/// for an empty or huge size (over 4096 a side).
+/// for an empty or huge size (over [`FX_NOISE_SIDE`], 4096, a side, unless [`set_fx_limits`]
+/// says otherwise).
 pub fn noise_image(spec: &NoiseSpec) -> Option<Image> {
     let (w, h) = (spec.width, spec.height);
-    if w == 0 || h == 0 || w > 4096 || h > 4096 {
+    let max = NOISE_SIDE.load(std::sync::atomic::Ordering::Relaxed);
+    if w == 0 || h == 0 || w > max || h > max {
         return None;
     }
     let key = spec.key();
@@ -259,13 +289,7 @@ pub fn noise_image(spec: &NoiseSpec) -> Option<Image> {
         }
     }
     let img = Image::new(w, h, Arc::from(px));
-    NOISE.with(|c| {
-        let mut c = c.borrow_mut();
-        if c.len() >= KEEP {
-            c.clear();
-        }
-        c.insert(key, img.clone());
-    });
+    NOISE.with(|c| keep(&mut c.borrow_mut(), key, &img));
     Some(img)
 }
 
@@ -328,13 +352,7 @@ pub fn blur(image: &Image, radius: u32) -> Image {
         box_pass(&b, &mut a, w, h, r, false);
     }
     let img = Image::new(image.width, image.height, Arc::from(a));
-    BLURRED.with(|c| {
-        let mut c = c.borrow_mut();
-        if c.len() >= KEEP {
-            c.clear();
-        }
-        c.insert(key, img.clone());
-    });
+    BLURRED.with(|c| keep(&mut c.borrow_mut(), key, &img));
     img
 }
 

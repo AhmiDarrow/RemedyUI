@@ -6,6 +6,7 @@
 //! and the particle simulation ([`particles`], which runs here for both).
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use remedy_ui_paint::Blend;
 
@@ -26,14 +27,18 @@ pub struct FrameInput {
     pub time: f32,
     /// Draw lighter: ambient light mode or power saving (half the particles; `light` reads 1).
     pub light: bool,
-    /// The most a buffer may be on a side, in pixels (the renderer's texture limit).
+    /// The most a buffer may be on a side, in pixels (the renderer's texture limit). Default
+    /// [`FrameInput::DEFAULT_MAX_SIDE`]; the GPU renderer also holds it to its device's limit.
     pub max_side: u32,
 }
 
 impl FrameInput {
+    /// The side a buffer is held to unless the frame says otherwise (4096 pixels).
+    pub const DEFAULT_MAX_SIDE: u32 = 4096;
+
     /// A frame of `width` × `height` logical pixels at `scale`, at `time`.
     pub fn new(width: f32, height: f32, scale: f32, time: f32) -> Self {
-        FrameInput { width, height, scale, time, light: false, max_side: 4096 }
+        FrameInput { width, height, scale, time, light: false, max_side: Self::DEFAULT_MAX_SIDE }
     }
 
     fn time(&self) -> f32 {
@@ -56,28 +61,57 @@ pub struct Picture {
     pub pixels: Vec<u8>,
 }
 
-/// Pixels all of one effect's buffers may hold together: 16 MiB of RGBA8. A huge element
-/// draws its effect at a lower resolution rather than allocating without bound.
+/// The default of [`set_max_effect_pixels`]: 4 Mi pixels (16 MiB of RGBA8).
 pub const MAX_EFFECT_PIXELS: u64 = 4 << 20;
+
+static EFFECT_PIXELS: AtomicU64 = AtomicU64::new(MAX_EFFECT_PIXELS);
+static OVERDRAW: AtomicU64 = AtomicU64::new(MAX_OVERDRAW);
+
+/// Pixels all of one effect's buffers may hold together, on both renderers (default
+/// [`MAX_EFFECT_PIXELS`]). A huge element draws its effect at a lower resolution rather than
+/// allocating without bound. Raising it lets one effect take that many pixels of memory (four
+/// bytes each, per buffer) and that much work a frame; applies from the next frame.
+pub fn set_max_effect_pixels(pixels: u64) {
+    EFFECT_PIXELS.store(pixels, Ordering::Relaxed);
+}
+
+/// The pixel budget of one effect now ([`set_max_effect_pixels`]).
+pub fn max_effect_pixels() -> u64 {
+    EFFECT_PIXELS.load(Ordering::Relaxed)
+}
+
+/// How many times their buffer's pixels particles may cover a frame, on both renderers
+/// (default [`MAX_OVERDRAW`]); the rest are not drawn. Raising it lets a hostile emitter cost
+/// that many more pixel writes a frame; applies from the next frame.
+pub fn set_max_overdraw(times: u64) {
+    OVERDRAW.store(times, Ordering::Relaxed);
+}
+
+/// The particle overdraw budget now ([`set_max_overdraw`]).
+pub fn max_overdraw() -> u64 {
+    OVERDRAW.load(Ordering::Relaxed)
+}
 
 /// The lowest device scale an effect is drawn at (for absurdly large elements).
 const MIN_SCALE: f32 = 1.0e-4;
 
 /// Particles may cover at most this many times their buffer's pixels a frame (counting each
 /// particle's box); the rest are not drawn. Keeps a hostile emitter (thousands of huge
-/// particles) from costing billions of pixel writes on either renderer.
+/// particles) from costing billions of pixel writes on either renderer. The default of
+/// [`set_max_overdraw`].
 pub const MAX_OVERDRAW: u64 = 8;
 
 /// `input` made safe to render `effect` with: finite sizes and time, and a scale lowered
 /// until every buffer fits within the texture limit and all of them within
-/// [`MAX_EFFECT_PIXELS`]. Both renderers render what this gives.
+/// [`max_effect_pixels`]. Both renderers render what this gives.
 pub fn fit(effect: &Effect, input: &FrameInput) -> FrameInput {
     let mut f = *input;
     let clean = |v: f32, hi: f32| if v.is_finite() { v.clamp(0.0, hi) } else { 0.0 };
     f.width = clean(f.width, 100_000.0);
     f.height = clean(f.height, 100_000.0);
     f.scale = if f.scale.is_finite() && f.scale > 0.0 { f.scale.clamp(MIN_SCALE, 8.0) } else { 1.0 };
-    f.max_side = f.max_side.clamp(1, 16_384);
+    f.max_side = f.max_side.max(1);
+    let budget = max_effect_pixels().max(1);
     for _ in 0..8 {
         let total: u64 = effect
             .stages
@@ -87,18 +121,18 @@ pub fn fit(effect: &Effect, input: &FrameInput) -> FrameInput {
                 u64::from(w) * u64::from(h)
             })
             .sum();
-        if total <= MAX_EFFECT_PIXELS || f.scale <= MIN_SCALE {
+        if total <= budget || f.scale <= MIN_SCALE {
             break;
         }
-        f.scale = (f.scale * (MAX_EFFECT_PIXELS as f32 / total as f32).sqrt() * 0.97).max(MIN_SCALE);
+        f.scale = (f.scale * (budget as f32 / total as f32).sqrt() * 0.97).max(MIN_SCALE);
     }
     f
 }
 
 /// Drops the particles past the overdraw budget for a buffer of `buffer_px` pixels, `k`
-/// buffer pixels per logical pixel ([`MAX_OVERDRAW`]).
+/// buffer pixels per logical pixel ([`max_overdraw`]).
 pub fn cap_overdraw(sprites: &mut Vec<Sprite>, k: f32, buffer_px: u64) {
-    let budget = (buffer_px * MAX_OVERDRAW).max(65_536);
+    let budget = buffer_px.saturating_mul(max_overdraw()).max(65_536);
     let mut spent = 0u64;
     let keep = sprites
         .iter()
