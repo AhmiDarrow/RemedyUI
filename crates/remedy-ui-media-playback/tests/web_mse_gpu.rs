@@ -147,7 +147,9 @@ async fn the_gpu_renderer_uploads_the_element_itself() {
     })
     .must("the app starts");
     let renderer = || app.borrow().as_ref().and_then(|a| a.windows().first().and_then(|w| w.renderer()));
-    for _ in 0..1200 {
+    // The window draws on the CPU until the browser has started its GL, which can take
+    // minutes in headless Firefox on a loaded machine: wait for it as long as it takes.
+    for _ in 0..36_000 {
         if renderer() == Some(RendererKind::Gpu) {
             break;
         }
