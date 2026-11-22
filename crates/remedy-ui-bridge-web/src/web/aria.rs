@@ -286,6 +286,9 @@ fn apply(el: &HtmlElement, node: &Node, _id: NodeId) {
     for (name, value) in convert::aria_attributes(node) {
         dom::attr(el, name, value.as_deref());
     }
+    // Hidden from assistive technology (behind an open modal, or decorative) is inert too:
+    // not focusable or clickable, as the rest of a page is behind a modal `<dialog>`.
+    dom::attr(el, "inert", node.is_hidden().then_some(""));
     if node.children().is_empty() {
         let text = convert::text_content(node);
         if el.text_content() != text {
