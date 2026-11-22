@@ -214,6 +214,13 @@ a tested tolerance.
    engine version (`health::remember_in`, which the runner points at the app's data folder),
    so it runs once per driver: about 120 ms on llvmpipe in a release build. Browsers cannot
    read pixels back mid-frame, so there it is skipped.
+   In a page the ladder is WebGPU, then WebGL2. A canvas's `getContext("webgl2")` blocks
+   the page's thread until the browser's GL is up, which headless Firefox on Windows took
+   minutes to do, so the WebGL2 rung first has a worker make a context on an
+   `OffscreenCanvas` and waits for it without blocking: the window draws on the CPU renderer
+   meanwhile and moves to the GPU once the browser's GL answers (the page's own context is
+   then made at once). A browser whose workers cannot tell asks on the page's thread as
+   before.
 2. **Which renderer a window uses.** By default (`RendererChoice::Auto`) a window starts on
    the CPU renderer, which costs no GPU driver memory, and moves to the GPU once its frames
    take longer than 6 ms on average; heavy content (a Prism effect over its cost threshold)
