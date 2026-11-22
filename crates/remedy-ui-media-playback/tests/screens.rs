@@ -364,3 +364,14 @@ fn vertical_cues_are_laid_out_vertically() {
         "{lr:?}"
     );
 }
+
+/// A mixed vertical line (CSS's `text-orientation: mixed`): the Japanese upright, one
+/// character under another, the Latin turned to read downward, all in one tall column.
+#[test]
+fn mixed_vertical_lines_set_cjk_upright_and_latin_sideways() {
+    let vtt = "WEBVTT\n\n00:00.000 --> 01:00.000 vertical:rl line:0\n字幕とcaptions\n";
+    let shot = cue_shot("cue-vertical-mixed", cues_of(vtt, SubtitleFormat::WebVtt), None, false);
+    let t = shot.text((0.85, 1.0), (0.0, 1.0));
+    let (w, h) = (shot.stage.width(), shot.stage.height());
+    assert!(t.is_some_and(|t| t.2 > 0.95 && (t.3 - t.1) * h > 4.0 * (t.2 - t.0) * w), "{t:?}");
+}
