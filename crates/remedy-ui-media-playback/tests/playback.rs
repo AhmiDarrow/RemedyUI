@@ -4252,3 +4252,44 @@ fn keys_from_the_window_wake_the_full_screen_controls_and_wait_for_a_shown_playe
     assert!(letter(&s.ui, "k", false));
     s.wait("playing", |_| p.state() == PlaybackState::Playing);
 }
+
+/// The next HLS stream in a player (`replace_source`, `start_next`) takes the last one's
+/// decoders: none is made for it. Prints the time from the call to its first picture, median
+/// of 3 each.
+#[test]
+fn the_next_hls_stream_in_a_player_takes_the_last_ones_decoders() {
+    let Some(host) = platform() else { return };
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hls/video/index.m3u8");
+    let source = || MediaSource::file(path.clone());
+    let mut s = Screen::new();
+    let p = Player::open(&s.ui, host, source(), PlayerOptions::default());
+    s.ui.root().child(player(&s.ui, &p, "HLS"));
+    s.wait("the first picture", |s| p.state() == PlaybackState::Paused && s.hue() == 'r');
+    let made = hls_decoders_made();
+    let (mut replaced, mut next) = (Vec::new(), Vec::new());
+    for i in 0..6 {
+        // Away from red, so the next stream's first picture is seen arriving.
+        p.pause();
+        p.seek(Duration::from_millis(2500));
+        s.wait("the blue picture", |s| s.hue() == 'b');
+        let started = Instant::now();
+        if i % 2 == 0 {
+            p.replace_source(source(), Timeline::new(Duration::ZERO));
+        } else {
+            p.start_next(source(), None);
+        }
+        s.wait("the next stream's first picture", |s| s.hue() == 'r');
+        if i % 2 == 0 { &mut replaced } else { &mut next }.push(started.elapsed());
+    }
+    let median = |mut v: Vec<Duration>| {
+        v.sort();
+        v.get(v.len() / 2).copied().unwrap_or_default()
+    };
+    eprintln!(
+        "first picture through the player: replace_source {:?}, start_next {:?}; HLS decoders made {}",
+        median(replaced),
+        median(next),
+        hls_decoders_made() - made
+    );
+    assert_eq!(hls_decoders_made(), made, "every next stream took the last one's decoders");
+}
