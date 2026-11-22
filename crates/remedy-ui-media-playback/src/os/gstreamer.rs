@@ -50,7 +50,7 @@ pub(crate) const GST_MAP_READ: c_int = 1;
 pub(crate) const GST_MAP_WRITE: c_int = 2;
 pub(crate) const CLOCK_TIME_NONE: u64 = u64::MAX;
 /// GST_RESOURCE_ERROR_NOT_FOUND and _OPEN_READ, the codes for a missing or unreadable source.
-const RESOURCE_NOT_FOUND: c_int = 3;
+pub(crate) const RESOURCE_NOT_FOUND: c_int = 3;
 const RESOURCE_OPEN_READ: c_int = 5;
 
 /// How long a source may take to give its first picture or sound before it is reported as
@@ -145,6 +145,9 @@ pub(crate) struct Gst {
     pub(crate) element_query_duration: unsafe extern "C" fn(Ptr, c_int, *mut i64) -> GBoolean,
     pub(crate) element_query_position: unsafe extern "C" fn(Ptr, c_int, *mut i64) -> GBoolean,
     pub(crate) element_seek_simple: unsafe extern "C" fn(Ptr, c_int, c_int, i64) -> GBoolean,
+    pub(crate) element_send_event: unsafe extern "C" fn(Ptr, Ptr) -> GBoolean,
+    pub(crate) event_new_flush_start: unsafe extern "C" fn() -> Ptr,
+    pub(crate) event_new_flush_stop: unsafe extern "C" fn(GBoolean) -> Ptr,
     pub(crate) element_get_bus: unsafe extern "C" fn(Ptr) -> Ptr,
     pub(crate) element_query: unsafe extern "C" fn(Ptr, Ptr) -> GBoolean,
     pub(crate) query_new_seeking: unsafe extern "C" fn(c_int) -> Ptr,
@@ -226,6 +229,9 @@ impl Gst {
             element_query_duration: sym!(gst, "gst_element_query_duration"),
             element_query_position: sym!(gst, "gst_element_query_position"),
             element_seek_simple: sym!(gst, "gst_element_seek_simple"),
+            element_send_event: sym!(gst, "gst_element_send_event"),
+            event_new_flush_start: sym!(gst, "gst_event_new_flush_start"),
+            event_new_flush_stop: sym!(gst, "gst_event_new_flush_stop"),
             element_get_bus: sym!(gst, "gst_element_get_bus"),
             element_query: sym!(gst, "gst_element_query"),
             query_new_seeking: sym!(gst, "gst_query_new_seeking"),
@@ -378,11 +384,14 @@ pub(crate) fn gst() -> Result<&'static Gst, MediaError> {
     })
 }
 
-struct GstHost;
+struct GstHost {
+    /// The last HLS stream's decoders, for the next.
+    spare: crate::hls::Spare,
+}
 
 pub(super) fn host() -> Result<Arc<dyn MediaHost>, MediaError> {
     gst()?;
-    Ok(Arc::new(GstHost))
+    Ok(Arc::new(GstHost { spare: crate::hls::Spare::default() }))
 }
 
 impl MediaHost for GstHost {
@@ -395,7 +404,8 @@ impl MediaHost for GstHost {
             return crate::hls::open(
                 &source.to_url(),
                 Box::new(super::gstreamer_hls::GstFetch::new()?),
-                Box::new(super::gstreamer_hls::GstElementary::new()?),
+                &self.spare,
+                || Ok(Box::new(super::gstreamer_hls::GstElementary::new()?)),
             );
         }
         Ok(Box::new(GstDecoder::open(gst()?, source)?))
@@ -454,6 +464,8 @@ struct Branch {
 
 pub(crate) struct GstDecoder {
     g: &'static Gst,
+    /// Counted while it lives (debug builds), as every pipeline here is.
+    _live: super::Live,
     playbin: Ptr,
     video: Option<Branch>,
     audio: Option<Branch>,
@@ -572,6 +584,7 @@ impl GstDecoder {
         let playbin = g.make("playbin")?;
         let mut d = GstDecoder {
             g,
+            _live: super::Live::new(),
             playbin,
             video: None,
             audio: None,
@@ -1122,6 +1135,7 @@ impl Drop for GstDecoder {
 /// Sound out through `appsrc ! audioconvert ! audioresample ! autoaudiosink`.
 struct GstOutput {
     g: &'static Gst,
+    _live: super::Live,
     pipeline: Ptr,
     src: Ptr,
     format: AudioFormat,
@@ -1177,7 +1191,16 @@ impl GstOutput {
                 return Err(MediaError::Device(reason));
             }
         }
-        Ok(GstOutput { g, pipeline, src, format, queue_bytes, written: 0, playing: false })
+        Ok(GstOutput {
+            g,
+            _live: super::Live::new(),
+            pipeline,
+            src,
+            format,
+            queue_bytes,
+            written: 0,
+            playing: false,
+        })
     }
 
     fn check(&self) -> Result<(), MediaError> {
@@ -1324,6 +1347,7 @@ impl Drop for GstOutput {
 /// asked for.
 struct GstInput {
     g: &'static Gst,
+    _live: super::Live,
     pipeline: Ptr,
     sink: Ptr,
     format: AudioFormat,
@@ -1380,7 +1404,7 @@ impl GstInput {
                 return Err(MediaError::NotFound(reason));
             }
         }
-        Ok(GstInput { g, pipeline, sink, format })
+        Ok(GstInput { g, _live: super::Live::new(), pipeline, sink, format })
     }
 }
 
@@ -1652,6 +1676,7 @@ impl Bits {
 /// `appsrc ! h264parse ! <decoder> ! videoconvert ! video/x-raw,format=NV12 ! appsink`.
 pub(crate) struct GstStreamDecoder {
     g: &'static Gst,
+    _live: super::Live,
     pipeline: Ptr,
     src: Ptr,
     sink: Ptr,
@@ -1789,6 +1814,7 @@ impl GstStreamDecoder {
         }
         Ok(GstStreamDecoder {
             g,
+            _live: super::Live::new(),
             pipeline,
             src,
             sink,

@@ -421,3 +421,56 @@ async fn the_browser_plays_hls_with_mp3() {
 async fn the_browser_plays_hls_without_sound() {
     plays_hls("video", None, Duration::from_secs(3)).await;
 }
+
+/// A measurement, logged: a 1080p NV12 frame's bytes out of `copyTo` the way the decoder
+/// took them before (into a JS array, out into a `Vec`, into the picture's `Arc`) and now
+/// (straight into the picture's buffer in wasm memory).
+#[wasm_bindgen_test]
+async fn measure_1080p_picture_copies() {
+    use js_sys::{Function, Object, Reflect, Uint8Array};
+    use std::sync::Arc;
+    let (w, h) = (1920u32, 1080u32);
+    let len = (w * h * 3 / 2) as usize;
+    let init = Object::new();
+    for (k, v) in [
+        ("format", JsValue::from("NV12")),
+        ("codedWidth", w.into()),
+        ("codedHeight", h.into()),
+        ("timestamp", 0.into()),
+    ] {
+        let _ = Reflect::set(&init, &k.into(), &v);
+    }
+    let ctor: Function = Reflect::get(&js_sys::global(), &"VideoFrame".into()).must("VideoFrame").into();
+    let src = Uint8Array::new_with_length(len as u32);
+    let frame = Reflect::construct(&ctor, &js_sys::Array::of2(&src, &init)).must("a frame");
+    let copy_to: Function = Reflect::get(&frame, &"copyTo".into()).must("copyTo").into();
+    let copy = |dest: &Uint8Array| {
+        let p: js_sys::Promise = copy_to.call1(&frame, dest).must("copyTo").into();
+        JsFuture::from(p)
+    };
+    let n = 60;
+    let started = js_sys::Date::now();
+    for _ in 0..n {
+        let buf = Uint8Array::new_with_length(len as u32);
+        copy(&buf).await.must("copied");
+        let data: Arc<[u8]> = Arc::from(buf.to_vec());
+        assert_eq!(data.len(), len);
+    }
+    let before = (js_sys::Date::now() - started) / f64::from(n);
+    let started = js_sys::Date::now();
+    for _ in 0..n {
+        let p = remedy_ui_media_playback::copy_video_frame(&frame).await.must("copied");
+        assert_eq!((p.width, p.height, p.data.len()), (w, h, len));
+    }
+    let after = (js_sys::Date::now() - started) / f64::from(n);
+    let mb = len as f64 / 1e6;
+    web_sys::console::log_1(
+        &format!(
+            "1080p NV12 copy out of copyTo: before {before:.2} ms a frame ({:.0} MB/s), after {after:.2} ms ({:.0} MB/s)",
+            mb / before * 1e3,
+            mb / after * 1e3
+        )
+        .into(),
+    );
+    let _ = Reflect::get(&frame, &"close".into()).map(|c| Function::from(c).call0(&frame));
+}

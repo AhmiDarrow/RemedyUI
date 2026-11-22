@@ -216,6 +216,8 @@ pub(crate) struct Pipe {
     g: &'static Gst,
     pub(crate) pipeline: Ptr,
     named: Vec<Ptr>,
+    /// Counted while it lives (debug builds).
+    _live: super::Live,
 }
 
 impl Pipe {
@@ -228,7 +230,7 @@ impl Pipe {
         if pipeline.is_null() {
             return Err(MediaError::Unsupported(g.take_error(err)));
         }
-        let mut p = Pipe { g, pipeline, named: Vec::new() };
+        let mut p = Pipe { g, pipeline, named: Vec::new(), _live: super::Live::new() };
         if !err.is_null() {
             return Err(MediaError::Unsupported(g.take_error(err)));
         }
@@ -275,14 +277,10 @@ impl Drop for Pipe {
 /// Pulls one sample from `sink`, waiting up to `wait`, and copies its bytes out with the
 /// buffer's flags.
 pub(crate) fn pull(g: &Gst, sink: Ptr, wait: Duration) -> Option<(Vec<u8>, c_uint, Ptr)> {
-    let ns = u64::try_from(wait.as_nanos()).unwrap_or(u64::MAX);
-    // SAFETY: pulling from a live app sink; the sample is ours until unref'd (by the caller,
-    // through the returned pointer), its buffer mapped for reading while copied.
+    let s = pull_sample(g, sink, wait)?;
+    // SAFETY: the sample is ours until unref'd (by the caller, through the returned pointer),
+    // its buffer mapped for reading while copied.
     unsafe {
-        let s = (g.app_sink_try_pull_sample)(sink, ns);
-        if s.is_null() {
-            return None;
-        }
         let buf = (g.sample_get_buffer)(s);
         if buf.is_null() {
             (g.mini_object_unref)(s);
@@ -302,6 +300,15 @@ pub(crate) fn pull(g: &Gst, sink: Ptr, wait: Duration) -> Option<(Vec<u8>, c_uin
         (g.buffer_unmap)(buf, &mut map);
         Some((bytes, flags, s))
     }
+}
+
+/// The next sample from `sink`, waiting up to `wait`, its bytes not copied; the caller
+/// unrefs it.
+pub(crate) fn pull_sample(g: &Gst, sink: Ptr, wait: Duration) -> Option<Ptr> {
+    let ns = u64::try_from(wait.as_nanos()).unwrap_or(u64::MAX);
+    // SAFETY: pulling from a live app sink.
+    let s = unsafe { (g.app_sink_try_pull_sample)(sink, ns) };
+    (!s.is_null()).then_some(s)
 }
 
 /// `appsrc ! videoconvert ! <encoder> ! h264parse ! appsink`, one picture at a time.

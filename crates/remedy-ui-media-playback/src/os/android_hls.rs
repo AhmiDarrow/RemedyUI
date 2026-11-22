@@ -20,7 +20,7 @@ use super::{
 };
 use crate::hls::{
     AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
-    file_path, timed_out,
+    answered, file_path, timed_out,
 };
 use crate::host::{AudioFormat, MediaError, Sample};
 
@@ -41,6 +41,8 @@ struct Codec {
     output_done: bool,
     /// It has given output (a format or a buffer): a flush keeps its setup from then on.
     began: bool,
+    /// Counted while it lives (debug builds).
+    _live: super::super::Live,
 }
 
 impl Drop for Codec {
@@ -79,7 +81,14 @@ fn open(
         (ndk.format_delete)(f);
         codec?
     };
-    Some(Codec { ndk, codec, input_done: false, output_done: false, began: false })
+    Some(Codec {
+        ndk,
+        codec,
+        input_done: false,
+        output_done: false,
+        began: false,
+        _live: super::super::Live::new(),
+    })
 }
 
 /// A parameter set with its Annex B start code, as MediaCodec takes `csd-0` and `csd-1`.
@@ -334,9 +343,24 @@ impl Elementary for NdkElementary {
         video: Option<&VideoConfig>,
         audio: Option<&AudioConfig>,
     ) -> Result<(), MediaError> {
+        // The last stream's decoders stay where the format matches, flushed: H.264 of the same
+        // size (its image reader is that size; parameter sets come in-band), the same sound.
+        if !matches!((&self.config.0, video), (Some(o), Some(n)) if (o.width, o.height) == (n.width, n.height))
+        {
+            self.video = None;
+        }
+        if self.config.1.as_ref() != audio {
+            self.audio = None;
+        }
         self.config = (video.cloned(), audio.cloned());
-        self.open_video()?;
-        self.open_audio()
+        self.flush()?;
+        if self.video.is_none() {
+            self.open_video()?;
+        }
+        if self.audio.is_none() {
+            self.open_audio()?;
+        }
+        Ok(())
     }
 
     fn push(&mut self, unit: Unit) -> Result<(), MediaError> {
@@ -486,7 +510,8 @@ fn http(url: &str, rest: &str, hops: u32, stop: &AtomicBool) -> Result<Vec<u8>, 
     let watched = s.try_clone().map_err(|e| io_error(url, &e, "no answer"))?;
     let (done, finished) = std::sync::mpsc::channel::<()>();
     std::thread::scope(|scope| {
-        scope.spawn(move || {
+        // Named, so the leak tests count it; without it the socket's own timeouts still end the call.
+        let _ = std::thread::Builder::new().name("remedy-hls-stop".into()).spawn_scoped(scope, move || {
             while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = finished.recv_timeout(WATCH) {
                 if stop.load(Ordering::Relaxed) {
                     let _ = watched.shutdown(std::net::Shutdown::Both);
@@ -556,7 +581,7 @@ fn exchange(
         return fetch(&to, hops + 1, stop);
     }
     if !(200..300).contains(&status) {
-        return Err(MediaError::NotFound(format!("{url}: HTTP {status}")));
+        return Err(answered(url, u32::from(status)));
     }
     r.get_ref().set_read_timeout(Some(QUIET)).map_err(io)?;
     let mut body = Vec::with_capacity(length.unwrap_or(0).min(64 << 20));
@@ -805,7 +830,7 @@ impl Jni {
             self.check(url)?;
             dog.progress(QUIET);
             if !(200..300).contains(&code) {
-                return Err(MediaError::NotFound(format!("{url}: HTTP {code}")));
+                return Err(answered(url, code.unsigned_abs()));
             }
             let input = obj(
                 env,

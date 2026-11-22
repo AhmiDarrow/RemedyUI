@@ -74,6 +74,8 @@ playback-next-up-in = { $count ->
    *[other] يبدأ التشغيل خلال { $count } ثانية
 }
 playback-play-now = شغّل الآن
+playback-next-up-label = التالي
+playback-next-dismiss = تجاهل
 playback-next-cancel = إلغاء
 playback-starting-next = جارٍ بدء { $title }
 playback-canceling = جارٍ الإلغاء.

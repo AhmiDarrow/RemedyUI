@@ -8,7 +8,8 @@
 use std::path::Path;
 use std::time::Duration;
 
-use crate::subtitles::{Cue, SubtitleTrack};
+use crate::host::MediaError;
+use crate::subtitles::{CUES_TOO_BIG, Cue, SubtitleTrack, clean_markup, over_cue_budget, srt_settings};
 
 /// Why a file could not be read as MP4.
 pub(crate) type Error = String;
@@ -242,8 +243,12 @@ const MAX_CUE: u32 = 64 << 10;
 /// The MPEG-4 timed-text tracks in the file at `path`, as subtitle tracks; none when it is
 /// not an MP4 or holds none. Only the movie box and the text samples are read, so a long
 /// film costs a few small reads.
-pub(crate) fn text_tracks(path: &Path) -> Vec<SubtitleTrack> {
-    read_text_tracks(path).unwrap_or_default()
+/// Their text over the subtitle file limit is an error.
+pub(crate) fn text_tracks(path: &Path) -> Result<Vec<SubtitleTrack>, MediaError> {
+    match read_text_tracks(path) {
+        Err(e) if e == CUES_TOO_BIG => Err(MediaError::Format(e)),
+        r => Ok(r.unwrap_or_default()),
+    }
 }
 
 fn read_text_tracks(path: &Path) -> Result<Vec<SubtitleTrack>, Error> {
@@ -282,6 +287,7 @@ fn read_text_tracks(path: &Path) -> Result<Vec<SubtitleTrack>, Error> {
         at += size;
     };
     let mut out = Vec::new();
+    let mut text_bytes = 0;
     for t in moov_tracks(&moov, len)? {
         let Kind::Text { language } = &t.kind else { continue };
         let mut cues = Vec::new();
@@ -292,7 +298,13 @@ fn read_text_tracks(path: &Path) -> Result<Vec<SubtitleTrack>, Error> {
             let text = cue_text(&b);
             let (start, end) = (t.time(s.pts), t.time(s.pts.saturating_add(i64::from(s.duration))));
             if !text.is_empty() && end > start {
-                cues.push(Cue { start, end, text });
+                if over_cue_budget(&mut text_bytes, &text) {
+                    return Err(CUES_TOO_BIG.into());
+                }
+                // 3GPP timed text has no tags, but `{\anN}` is carried by some muxers from SRT.
+                let settings = srt_settings(&text);
+                let text = if settings == Default::default() { text } else { clean_markup(&text) };
+                cues.push(Cue { start, end, text, settings });
             }
         }
         cues.sort_by_key(|c| c.start);
@@ -600,7 +612,7 @@ mod tests {
     #[test]
     fn timed_text_is_read_from_the_file_with_its_language() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/clip-subs.mp4");
-        let tracks = text_tracks(&path);
+        let tracks = text_tracks(&path).unwrap_or_default();
         assert_eq!(tracks.len(), 1, "{tracks:?}");
         let Some(t) = tracks.first() else { unreachable!("a track") };
         assert_eq!(t.language.as_deref(), Some("eng"));
@@ -608,8 +620,8 @@ mod tests {
         let cues: Vec<_> = t.cues.iter().map(|c| (ms(c.start), ms(c.end), c.text.as_str())).collect();
         assert_eq!(cues, [(500, 1500, "One"), (1500, 2500, "Two & more")]);
         // The plain clip has none, and something that is not an MP4 has none.
-        assert!(text_tracks(&path.with_file_name("clip.mp4")).is_empty());
-        assert!(text_tracks(&path.with_file_name("clip.vtt")).is_empty());
+        assert!(text_tracks(&path.with_file_name("clip.mp4")).unwrap_or_default().is_empty());
+        assert!(text_tracks(&path.with_file_name("clip.vtt")).unwrap_or_default().is_empty());
     }
 
     #[test]

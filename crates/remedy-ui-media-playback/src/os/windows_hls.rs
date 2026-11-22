@@ -35,7 +35,7 @@ use super::{Layout, Mf, MfDecoder, com, copy_path, format_error, from_hns, hns, 
 use crate::capture::Converter;
 use crate::hls::{
     AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
-    file_path, timed_out,
+    answered, file_path, timed_out,
 };
 use crate::host::{AudioFormat, MediaError, Picture, Sample};
 
@@ -170,6 +170,13 @@ fn message(
     unsafe { t.ProcessMessage(m, 0) }.map_err(decode_error)
 }
 
+/// Readies a transform for a new stream: what it holds goes, and a stream starts (after the
+/// last one's end, when it had one).
+fn restart(t: &IMFTransform) -> Result<(), MediaError> {
+    message(t, MFT_MESSAGE_COMMAND_FLUSH)?;
+    message(t, MFT_MESSAGE_NOTIFY_START_OF_STREAM)
+}
+
 fn time_of(s: &IMFSample) -> Duration {
     // SAFETY: reading a property of a live sample.
     from_hns(unsafe { s.GetSampleTime() }.unwrap_or(0))
@@ -220,6 +227,13 @@ impl Video {
         Ok(v)
     }
 
+    /// Again for a new stream: what it holds goes.
+    fn restart(mut self) -> Result<Video, MediaError> {
+        restart(&self.t)?;
+        self.out.clear();
+        Ok(self)
+    }
+
     fn set_output(&mut self) -> Result<(), MediaError> {
         if !set_output(&self.t, &MFVideoFormat_NV12).map_err(decode_error)? {
             return Err(MediaError::Format("the H.264 decoder gives no NV12 pictures".into()));
@@ -262,6 +276,7 @@ impl Video {
 
 struct Audio {
     t: IMFTransform,
+    config: AudioConfig,
     /// The output is 32-bit float; else 16-bit integers.
     float: bool,
     /// The format the decoder said it would give when opened: the one the player is told,
@@ -299,7 +314,15 @@ impl Audio {
             t.SetInputType(0, &input, 0).map_err(|e| MediaError::Format(e.message()))?;
         }
         let none = AudioFormat::new(0, 0);
-        let mut a = Audio { t, float: true, format: none, actual: none, convert: None, out: VecDeque::new() };
+        let mut a = Audio {
+            t,
+            config: config.clone(),
+            float: true,
+            format: none,
+            actual: none,
+            convert: None,
+            out: VecDeque::new(),
+        };
         a.set_output()?;
         a.format = a.actual;
         a.reset();
@@ -327,6 +350,14 @@ impl Audio {
         self.actual = AudioFormat::new(rate, u16::try_from(channels).unwrap_or(u16::MAX));
         self.reset();
         Ok(())
+    }
+
+    /// Again for a new stream of the same config: what it holds goes.
+    fn restart(mut self) -> Result<Audio, MediaError> {
+        restart(&self.t)?;
+        self.out.clear();
+        self.reset();
+        Ok(self)
     }
 
     /// Starts converting afresh (after a format change or a seek).
@@ -395,6 +426,9 @@ fn feed(
 
 /// [`Elementary`] with Media Foundation transforms.
 pub(crate) struct MftElementary {
+    /// The renderer's adapter the device was made for.
+    adapter: Option<u64>,
+    /// The device, while no video decoder holds it.
     gpu: Option<Gpu>,
     video: Option<Video>,
     audio: Option<Audio>,
@@ -416,7 +450,8 @@ impl MftElementary {
     }
 
     fn with_gpu(gpu: Option<Gpu>) -> Result<MftElementary, MediaError> {
-        Ok(MftElementary { gpu, video: None, audio: None, _mf: Mf::start()? })
+        let adapter = gpu.as_ref().map(Gpu::adapter);
+        Ok(MftElementary { adapter, gpu, video: None, audio: None, _mf: Mf::start()? })
     }
 
     fn each(&mut self, f: impl Fn(&IMFTransform) -> Result<(), MediaError>) -> Result<(), MediaError> {
@@ -437,8 +472,20 @@ impl Elementary for MftElementary {
         audio: Option<&AudioConfig>,
     ) -> Result<(), MediaError> {
         com();
-        self.video = match video {
-            Some(c) => Some(match Video::open(c, self.gpu.take()) {
+        let mut old = self.video.take();
+        // The renderer on another adapter now: a device there, and a decoder on it.
+        if let Some(remedy_ui_paint::GpuAdapter::Luid(l)) = remedy_ui_paint::gpu_video_adapter()
+            && self.adapter != Some(l)
+        {
+            old = None;
+            self.adapter = Some(l);
+            self.gpu = Gpu::new(l).map_err(|e| copy_path(&e)).ok();
+        }
+        self.video = match (video, old) {
+            // The H.264 decoder takes a new stream's parameter sets in-band, and a new size
+            // through its stream change.
+            (Some(_), Some(v)) => Some(v.restart()?),
+            (Some(c), None) => Some(match Video::open(c, self.gpu.take()) {
                 Ok(v) => v,
                 Err(e @ MediaError::Unsupported(_)) => return Err(e),
                 // The GPU way would not take it: the CPU way.
@@ -447,9 +494,18 @@ impl Elementary for MftElementary {
                     Video::open(c, None)?
                 }
             }),
-            None => None,
+            (None, Some(mut v)) => {
+                self.gpu = self.gpu.take().or_else(|| v.gpu.take());
+                None
+            }
+            (None, None) => None,
         };
-        self.audio = audio.map(Audio::open).transpose()?;
+        // Sound is set up from its config (the AudioSpecificConfig, rate and channels): the
+        // same one keeps its decoder, another gets a new one.
+        self.audio = match (audio, self.audio.take()) {
+            (Some(c), Some(a)) if a.config == *c => Some(a.restart()?),
+            (c, _) => c.map(Audio::open).transpose()?,
+        };
         Ok(())
     }
 
@@ -653,7 +709,8 @@ impl Fetch for HttpFetch {
             limit.store(quiet.as_millis() as u64, Ordering::Relaxed);
         };
         let got = std::thread::scope(|s| {
-            s.spawn(|| {
+            // Named, so the leak tests count it; without it WinHTTP's timeouts still end the call.
+            let _ = std::thread::Builder::new().name("remedy-hls-watchdog".into()).spawn_scoped(s, || {
                 let mut open = watched.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 while open.is_some() {
                     let since = started.elapsed().as_millis() as u64;
@@ -719,7 +776,7 @@ unsafe fn transfer(
         )
         .map_err(failed)?;
         if status != 200 {
-            return Err(MediaError::NotFound(format!("{url}: the server answered {status}")));
+            return Err(answered(url, status));
         }
         let mut out = Vec::new();
         let mut chunk = vec![0u8; 1 << 20];
@@ -856,6 +913,44 @@ mod tests {
         let pictures = decode_video(&mut e);
         assert!(pictures.iter().all(|(_, p)| p.gpu.is_some()), "pictures on the GPU");
         check_video(&pictures);
+    }
+
+    #[test]
+    fn decoders_kept_for_the_next_stream() {
+        let mut e = MftElementary::with_gpu(None).unwrap_or_else(|e| unreachable!("{e}"));
+        check_video(&decode_video(&mut e));
+        let raw = |e: &MftElementary| e.video.as_ref().map(|v| v.t.as_raw());
+        let first = raw(&e);
+        // Configured again after its end (the next stream): the same decoder, right pictures.
+        check_video(&decode_video(&mut e));
+        assert_eq!(raw(&e), first, "the H.264 decoder kept");
+        // Sound: kept for the same config, new for another.
+        let aac = |rate| AudioConfig {
+            codec: AudioCodec::Aac { asc: vec![0x11, 0x90] },
+            codec_string: String::new(),
+            sample_rate: rate,
+            channels: 2,
+        };
+        let sound = |e: &MftElementary| e.audio.as_ref().map(|a| a.t.as_raw());
+        e.configure(Some(&config()), Some(&aac(48000))).unwrap_or_else(|e| unreachable!("{e}"));
+        let a = sound(&e);
+        e.configure(Some(&config()), Some(&aac(48000))).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(sound(&e), a, "the same sound config keeps its decoder");
+        e.configure(Some(&config()), Some(&aac(44100))).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_ne!(sound(&e), a, "another sound config gets a new decoder");
+        let mp3 = AudioConfig {
+            codec: AudioCodec::Mp3,
+            codec_string: String::new(),
+            sample_rate: 44100,
+            channels: 2,
+        };
+        let a = sound(&e);
+        e.configure(Some(&config()), Some(&mp3)).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_ne!(sound(&e), a, "another codec gets a new decoder");
+        assert_eq!(raw(&e), first, "the video decoder still kept");
+        // No video in the next stream: its decoder goes.
+        e.configure(None, Some(&mp3)).unwrap_or_else(|e| unreachable!("{e}"));
+        assert!(e.video.is_none());
     }
 
     #[test]
