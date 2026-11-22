@@ -68,6 +68,10 @@ pub struct TerminalOptions {
     /// Characters that count as part of a word when double-clicking, besides letters and
     /// digits (so a path or a URL selects whole).
     pub word_chars: String,
+    /// How long a program's synchronized update may hold the screen before it is shown
+    /// anyway (default [`SYNC_TIMEOUT`], 150 ms). Longer lets a slow program finish a frame
+    /// whole; a program that never ends one holds the screen this long each time.
+    pub sync_timeout: Duration,
 }
 
 impl TerminalOptions {
@@ -100,6 +104,12 @@ impl TerminalOptions {
         self.word_chars = value;
         self
     }
+
+    /// Sets `sync_timeout`: how long a synchronized update may hold the screen.
+    pub fn sync_timeout(mut self, value: Duration) -> Self {
+        self.sync_timeout = value;
+        self
+    }
 }
 
 impl TerminalOptions {
@@ -122,6 +132,7 @@ impl Default for TerminalOptions {
             string_limit: None,
             families: None,
             word_chars: "-_.~/:@?&=%+#".into(),
+            sync_timeout: SYNC_TIMEOUT,
         }
     }
 }
@@ -767,9 +778,9 @@ impl Terminal {
             let s = &mut emu.state;
             if s.modes.synchronized
                 && let Some(since) = s.sync_since
-                && since.elapsed() < SYNC_TIMEOUT
+                && since.elapsed() < self.0.options.sync_timeout
             {
-                let wait = SYNC_TIMEOUT.saturating_sub(since.elapsed());
+                let wait = self.0.options.sync_timeout.saturating_sub(since.elapsed());
                 drop(emu);
                 let already = std::mem::replace(&mut self.0.st.borrow_mut().sync_waiting, true);
                 if !already {
