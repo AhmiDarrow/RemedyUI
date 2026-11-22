@@ -1025,3 +1025,59 @@ async fn a_held_gamepad_direction_repeats_and_a_presses_once() {
     app.quit();
     assert!(until(30, || !remedy_ui::web::is_running()).await);
 }
+
+#[wasm_bindgen(inline_js = r#"
+export function watchGaps() {
+  window.__worstGap = 0;
+  let last = performance.now();
+  window.__gapTimer = setInterval(() => {
+    const now = performance.now();
+    window.__worstGap = Math.max(window.__worstGap, now - last);
+    last = now;
+  }, 20);
+}
+export function worstGap() {
+  clearInterval(window.__gapTimer);
+  return window.__worstGap;
+}
+"#)]
+extern "C" {
+    /// Starts noting the longest time the page's thread went without running a 20 ms timer.
+    #[wasm_bindgen(js_name = watchGaps)]
+    fn watch_gaps();
+    /// The longest gap since `watch_gaps`, in milliseconds.
+    #[wasm_bindgen(js_name = worstGap)]
+    fn worst_gap() -> f64;
+}
+
+/// A cold start that asks for the GPU draws at once on the CPU renderer and never stalls the
+/// page while the browser makes the GPU device: making a WebGL2 context blocks the thread
+/// that asks until the browser's GL is up (minutes in headless Firefox on Windows), so the
+/// renderer waits for a worker's context first. Repeated, as a page is loaded again and again.
+#[wasm_bindgen_test]
+async fn starting_on_the_gpu_never_stalls_the_page() {
+    for round in 0..3 {
+        watch_gaps();
+        let seen = Rc::new(Seen::default());
+        start(AppConfig::new("Busy start"), seen.clone());
+        let started = js_sys::Date::now();
+        assert!(until(600, || renderer(&seen).is_some()).await, "round {round}: the window drew");
+        let drew_in = js_sys::Date::now() - started;
+        // Long enough for the browser to make the device where its GL is ready, or to be seen
+        // still making it where it is slow: either way the page runs on.
+        wait_ms(6000).await;
+        let gap = worst_gap();
+        web_sys::console::log_1(
+            &format!(
+                "round {round}: drew in {drew_in:.0} ms, longest stall {gap:.0} ms, now {:?}",
+                renderer(&seen)
+            )
+            .into(),
+        );
+        assert!(drew_in < 5000.0, "round {round}: the first frame came within seconds ({drew_in:.0} ms)");
+        assert!(gap < 2000.0, "round {round}: the page's thread was never stalled for long ({gap:.0} ms)");
+        let app = seen.app.borrow().clone().must("the app");
+        app.quit();
+        assert!(until(30, || !remedy_ui::web::is_running()).await);
+    }
+}
