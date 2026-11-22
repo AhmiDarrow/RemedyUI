@@ -121,6 +121,7 @@ comment saying why. Per crate:
 | `remedy-ui-rui` | enums: Binding, Bound, BuildError, Kind, SaveError, Space, Value; structs: RuiError |
 | `remedy-ui-services-desktop` | enums: DesktopError, KnownFolder |
 | `remedy-ui-services-i18n` | enums: Arg, DecimalError, Problem; structs: OverrideProblem; kept exhaustive: Weekday |
+| `remedy-ui-services-net` | enums: NetError; structs: HttpError, Response |
 | `remedy-ui-services-spell` | enums: Availability, Prepared, SpellError; structs: BackendError, BackendReport, MenuLabels, SpellOptions |
 | `remedy-ui-services-update` | enums: Apply, Feed, SignatureStatus, Trust, UpdateError, UpdateState; structs: BannerText, Release, UpdateConfig |
 | `remedy-ui-style` | enums: Density; structs: ColorRoles, DerivedTokens, MotionTokens, Radii, Spacing, StylePatch, Theme, ThemeAssets, TypeScale |
