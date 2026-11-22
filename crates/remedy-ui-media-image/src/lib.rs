@@ -32,7 +32,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use remedy_ui_a11y::{Role, Semantics};
-use remedy_ui_core::{CornerRadii, Point, Rect};
+use remedy_ui_core::{Point, Rect};
 use remedy_ui_paint::{Brush, Image, Item, Path, Sampling, Stroke};
 use remedy_ui_reactive::{Effect, Signal};
 use remedy_ui_view::{El, Ui, show};
@@ -347,12 +347,7 @@ fn build(ui: &Ui, source: Source, alt: String, fit: Fit, loader: Loader, options
         let scale = cx.scale.max(0.5);
         let natural = (source.0 as f32 / scale, source.1 as f32 / scale);
         let rect = place(fit, (source.0 as f32, source.1 as f32), natural, w, h);
-        cx.list.push(Item::Image {
-            image: img,
-            rect,
-            radii: CornerRadii::all(cx.style.radius),
-            sampling: Sampling::Linear,
-        });
+        cx.list.push(Item::Image { image: img, rect, radii: cx.corners(), sampling: Sampling::Linear });
     })
 }
 

@@ -177,7 +177,7 @@ fn record(
     let mut list = DisplayList::new();
     let s = &d.resolved;
     let rect = Rect::from_origin_size(Point::ZERO, size);
-    let radii = CornerRadii::all(s.radius);
+    let radii = corners(s, rtl);
     if s.background.a > 0.0 {
         list.fill_rounded(rect, radii, Brush::Solid(s.background));
     }
@@ -503,7 +503,17 @@ struct Walk<'a> {
     layered: HashMap<ElementId, bool>,
 }
 
+/// The corners of a box styled `s`, physical: start and end swapped in right-to-left layout.
+pub(crate) fn corners(s: &remedy_ui_style::ResolvedStyle, rtl: bool) -> CornerRadii {
+    if rtl { s.corners.mirrored() } else { s.corners }
+}
+
 impl Walk<'_> {
+    /// True when `d` is laid out right to left.
+    fn rtl(&self, d: &ElData) -> bool {
+        self.inner.layout.is_rtl(d.node)
+    }
+
     /// Paints `id` (at `rect`, relative to its parent) and its subtree into `b`. `origin` is
     /// where the parent sits in `b`'s layer: a scroll container inside becomes a layer at
     /// its full offset there, while drawing nests transforms relative to each parent.
@@ -553,7 +563,8 @@ impl Walk<'_> {
             // paint and children in a layer the compositor transforms. The box's shadow and
             // the focus ring go around the box, outside the clip, in the layer below.
             // Filtered, the shadow is filtered with the rest, inside the layer.
-            if !layer_filters && let Some(shadow) = box_shadow(&d.resolved, rect.size(), opacity) {
+            if !layer_filters && let Some(shadow) = box_shadow(&d.resolved, self.rtl(d), rect.size(), opacity)
+            {
                 b.push(Item::PushTransform(Affine::translate(rect.min.to_vec2())));
                 b.list.push(shadow);
                 b.pop(Item::PopTransform);
@@ -573,7 +584,7 @@ impl Walk<'_> {
             layer.transform = transform;
             layer.ambient = d.loops.clone();
             ob.children.push(layer);
-            let radii = CornerRadii::all(d.resolved.radius);
+            let radii = corners(&d.resolved, self.rtl(d));
             let mut outer = ob.finish_into(self.state);
             // A filtered element draws past its box (a blur, a shadow): only an element that
             // clips its children, or one the compositor moves, keeps the clip at its box.
@@ -640,8 +651,16 @@ impl Walk<'_> {
         if d.states.contains(States::FOCUS_VISIBLE) && s.shows_focus_ring() {
             let grow = s.outline_offset + s.outline_width;
             let ring = local.deflate(Insets::all(-grow));
-            let radius = if s.radius > 0.0 { (s.radius + grow).max(0.0) } else { 0.0 };
-            b.list.border(ring, CornerRadii::all(radius), s.outline_width, s.outline);
+            // Each round corner grows with the ring; a square one stays square.
+            let c = corners(s, self.rtl(d));
+            let out = |r: f32| if r > 0.0 { (r + grow).max(0.0) } else { 0.0 };
+            let radii = CornerRadii {
+                top_start: out(c.top_start),
+                top_end: out(c.top_end),
+                bottom_end: out(c.bottom_end),
+                bottom_start: out(c.bottom_start),
+            };
+            b.list.border(ring, radii, s.outline_width, s.outline);
         }
     }
 
@@ -737,7 +756,7 @@ impl Walk<'_> {
         for f in &filters {
             b.push(Item::PushFilter(*f));
         }
-        if shadow && let Some(s) = box_shadow(&d.resolved, rect.size(), 1.0) {
+        if shadow && let Some(s) = box_shadow(&d.resolved, self.rtl(d), rect.size(), 1.0) {
             b.list.push(s);
         }
         if let Some((_, chunk)) = &d.chunk
@@ -780,14 +799,14 @@ impl Walk<'_> {
             vb.children.push(cb.finish_into(self.state));
             let mut layer = vb.finish_into(self.state);
             if glass_scroll {
-                layer = layer.with_backdrop(d.resolved.backdrop_blur, CornerRadii::all(d.resolved.radius));
+                layer = layer.with_backdrop(d.resolved.backdrop_blur, corners(&d.resolved, self.rtl(d)));
                 layer.opacity = if own_opacity { d.resolved.opacity } else { 1.0 };
             }
             b.children.push(layer);
             self.state.scrollers.push((viewport, id));
         } else {
             if d.clip {
-                b.push(Item::PushClip { rect: local, radii: CornerRadii::all(d.resolved.radius) });
+                b.push(Item::PushClip { rect: local, radii: corners(&d.resolved, self.rtl(d)) });
             }
             for k in kids {
                 self.element(b, k, at);
@@ -799,8 +818,7 @@ impl Walk<'_> {
         // Something dragged over it would be taken: the theme's accent outline, inside.
         if d.states.contains(States::DROP_TARGET) {
             let w = 2.0;
-            let radius = d.resolved.radius;
-            b.list.border(local, CornerRadii::all(radius), w, self.inner.theme.colors.accent);
+            b.list.border(local, corners(&d.resolved, self.rtl(d)), w, self.inner.theme.colors.accent);
         }
         // The focus ring goes over the element and its children, so nothing inside hides it.
         for _ in &filters {
@@ -835,7 +853,7 @@ impl Paint {
 
 /// The shadow a box styled `s` of `size` casts, faded by `opacity`, as a display item at the
 /// box's origin; `None` for none.
-fn box_shadow(s: &remedy_ui_style::ResolvedStyle, size: Size, opacity: f32) -> Option<Item> {
+fn box_shadow(s: &remedy_ui_style::ResolvedStyle, rtl: bool, size: Size, opacity: f32) -> Option<Item> {
     let sh = s.shadow;
     if !sh.is_visible() || opacity <= 0.0 {
         return None;
@@ -844,7 +862,7 @@ fn box_shadow(s: &remedy_ui_style::ResolvedStyle, size: Size, opacity: f32) -> O
     color.a *= opacity.min(1.0);
     Some(Item::Shadow {
         rect: Rect::from_origin_size(Point::ZERO, size),
-        radii: CornerRadii::all(s.radius),
+        radii: corners(s, rtl),
         offset: sh.offset,
         blur: if sh.blur.is_finite() { sh.blur.max(0.0) } else { 0.0 },
         spread: if sh.spread.is_finite() { sh.spread } else { 0.0 },

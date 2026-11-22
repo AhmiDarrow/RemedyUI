@@ -2899,7 +2899,14 @@ fn focus_keeps(ui: &Ui, e: &remedy_ui_input::KeyEvent) -> bool {
     let role = info.semantics.as_ref().map(|s| s.role());
     let text = matches!(
         role,
-        Some(Role::TextInput | Role::MultilineTextInput | Role::PasswordInput | Role::SpinButton)
+        Some(
+            Role::TextInput
+                | Role::MultilineTextInput
+                | Role::PasswordInput
+                | Role::SpinButton
+                // A drop-down takes its arrows and letters, as a page's `<select>` does.
+                | Role::ComboBox
+        )
     );
     let slider_key = matches!(
         e.key,

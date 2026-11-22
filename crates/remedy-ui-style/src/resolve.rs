@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use remedy_ui_core::{Color, ColorMatrix, Insets, LineHeight, TextTransform, Vec2};
+use remedy_ui_core::{Color, ColorMatrix, CornerRadii, Insets, LineHeight, TextTransform, Vec2};
 
 use crate::states::States;
 
@@ -79,6 +79,9 @@ pub struct StylePatch {
     pub border_width: Option<f32>,
     /// Corner radius.
     pub radius: Option<f32>,
+    /// Each corner's radius (CSS's `border-radius: 16px 16px 0 0`): set, it takes the place
+    /// of `radius`; a `radius` set over it (a later patch's) takes its place again.
+    pub corners: Option<CornerRadii>,
     /// Padding.
     pub padding: Option<Insets>,
     /// Text size.
@@ -216,9 +219,19 @@ impl StylePatch {
         self
     }
 
-    /// Sets the corner radius.
+    /// Sets the corner radius: every corner's.
     pub fn radius(mut self, value: f32) -> Self {
         self.radius = Some(value);
+        self.corners = None;
+        self
+    }
+
+    /// Sets each corner's radius, as CSS's four-value `border-radius`: a surface round at
+    /// the top only is `CornerRadii { top_start: 16.0, top_end: 16.0, ..CornerRadii::ZERO }`.
+    /// `radius` becomes the largest of them.
+    pub fn corners(mut self, value: CornerRadii) -> Self {
+        self.radius = Some(value.top_start.max(value.top_end).max(value.bottom_end).max(value.bottom_start));
+        self.corners = Some(value);
         self
     }
 
@@ -347,6 +360,7 @@ impl StylePatch {
             border: Some(Color::TRANSPARENT),
             border_width: Some(0.0),
             radius: Some(0.0),
+            corners: None,
             padding: Some(Insets::ZERO),
             text_size: Some(theme.type_scale.body),
             weight: Some(400.0),
@@ -378,6 +392,12 @@ impl StylePatch {
             border: other.border.or(self.border),
             border_width: other.border_width.or(self.border_width),
             radius: other.radius.or(self.radius),
+            // A radius alone over corners rounds every corner alike again.
+            corners: match (other.corners, other.radius) {
+                (Some(c), _) => Some(c),
+                (None, Some(_)) => None,
+                (None, None) => self.corners,
+            },
             padding: other.padding.or(self.padding),
             text_size: other.text_size.or(self.text_size),
             weight: other.weight.or(self.weight),
@@ -442,8 +462,10 @@ pub struct ResolvedStyle {
     pub border: Color,
     /// Border width.
     pub border_width: f32,
-    /// Corner radius.
+    /// Corner radius (the largest corner's when they differ).
     pub radius: f32,
+    /// Each corner's radius: `radius` at every corner unless the style set them one by one.
+    pub corners: CornerRadii,
     /// Padding.
     pub padding: Insets,
     /// Text size.
@@ -493,6 +515,7 @@ impl ResolvedStyle {
             border: p.border.unwrap_or(Color::TRANSPARENT),
             border_width: p.border_width.unwrap_or(0.0),
             radius: p.radius.unwrap_or(0.0),
+            corners: p.corners.unwrap_or(CornerRadii::all(p.radius.unwrap_or(0.0))),
             padding: p.padding.unwrap_or(Insets::ZERO),
             text_size: p.text_size.unwrap_or(14.0),
             weight: p.weight.unwrap_or(400.0),

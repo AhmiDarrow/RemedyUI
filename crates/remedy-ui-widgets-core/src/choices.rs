@@ -197,7 +197,8 @@ pub fn segmented_unavailable(
     })
 }
 
-/// A drop-down choice: shows the chosen option; pressing opens the list. Typing a letter
+/// A drop-down choice (a [`Role::ComboBox`], as a page's `<select>`): shows the chosen option;
+/// pressing opens the list. Typing a letter
 /// jumps to the next option starting with it; arrows step through the options.
 #[track_caller]
 pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected: Signal<usize>) -> El {
@@ -207,11 +208,14 @@ pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected:
     let opts = options.clone();
     let anchor: std::rc::Rc<std::cell::RefCell<Option<El>>> = std::rc::Rc::default();
     let a2 = anchor.clone();
+    // Whether its list is open, for screen readers (`aria-expanded`).
+    let open = Signal::new(false);
     let b = crate::button(ui, "", move || {
         let Some(a) = a2.borrow().clone() else { return };
         let items =
             opts.iter().enumerate().map(|(i, o)| MenuItem::new(o.clone(), move || selected.set(i))).collect();
-        let _ = menu(&ui2, &a, items);
+        open.set(true);
+        let _ = menu(&ui2, &a, items).on_removed(move || open.set(false));
     });
     let shown = ui.el("select_value").nowrap();
     let b = b.child(shown.clone()).child(crate::icon(
@@ -227,9 +231,13 @@ pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected:
         let i = selected.get();
         let v = opts2.get(i).cloned().unwrap_or_default();
         let _ = shown.clone().text(remedy_ui_view::RichText::plain(v.clone()));
-        let _ = b2
-            .clone()
-            .semantics(Semantics::new(Role::Button).label(label.clone()).value(v).action(Action::Click));
+        let _ = b2.clone().semantics(
+            Semantics::new(Role::ComboBox)
+                .label(label.clone())
+                .value(v)
+                .expanded(open.get())
+                .action(Action::Click),
+        );
     })
     .on_key(move |e| {
         if arrows(e, selected, n) && !matches!(e.key, Key::ArrowLeft | Key::ArrowRight) {

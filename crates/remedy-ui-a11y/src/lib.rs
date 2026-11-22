@@ -96,6 +96,10 @@ pub enum Role {
     Label,
     /// A number field stepped with arrows.
     SpinButton,
+    /// A drop-down choice (ARIA's `combobox`, as an HTML `<select>`): it shows the chosen
+    /// option as its [`value`](Semantics::value) and opens a list of the others, saying
+    /// whether it is [`expanded`](Semantics::expanded).
+    ComboBox,
     /// A color chooser.
     ColorWell,
     /// A date chooser.
@@ -970,6 +974,7 @@ pub fn is_control_role(r: Role) -> bool {
             | Role::MenuItemCheckBox
             | Role::MenuItemRadio
             | Role::SpinButton
+            | Role::ComboBox
             | Role::ColorWell
             | Role::DateInput
             | Role::TimeInput
@@ -1009,6 +1014,7 @@ pub fn role_name(r: Role) -> String {
         Role::Progress => "progress bar".into(),
         Role::Label => "text".into(),
         Role::SpinButton => "spin button".into(),
+        Role::ComboBox => "combo box".into(),
         Role::ColorWell => "color well".into(),
         Role::DateInput => "date picker".into(),
         Role::TimeInput => "time picker".into(),
@@ -1069,6 +1075,7 @@ fn role(r: Role) -> accesskit::Role {
         Role::Progress => R::ProgressIndicator,
         Role::Label => R::Label,
         Role::SpinButton => R::SpinButton,
+        Role::ComboBox => R::ComboBox,
         Role::ColorWell => R::ColorWell,
         Role::DateInput => R::DateInput,
         Role::TimeInput => R::TimeInput,
