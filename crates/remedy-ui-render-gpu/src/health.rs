@@ -22,7 +22,8 @@ use std::time::Duration;
 
 use crate::{GpuContext, GpuError};
 
-/// How long a present may run before the backend counts as hung. Windows resets a GPU that
+/// How long a present may run before the backend counts as hung, by default
+/// ([`GpuLimits::present_hang`](crate::GpuLimits::present_hang)). Windows resets a GPU that
 /// does not answer for two seconds; a present this long is not a slow frame.
 pub const PRESENT_HANG: Duration = Duration::from_secs(3);
 
@@ -71,10 +72,6 @@ impl Verdict {
     }
 }
 
-/// The most backends remembered: a machine has a handful; a hand-edited file cannot grow it.
-const MAX_ENTRIES: usize = 64;
-/// The longest line read from the file.
-const MAX_LINE: usize = 512;
 const FILE: &str = "gpu-health.txt";
 
 struct Health {
@@ -106,7 +103,10 @@ pub fn key(ctx: &GpuContext) -> String {
         i.device_type,
         env!("CARGO_PKG_VERSION")
     );
-    raw.chars().map(|c| if c.is_control() || c == '\t' { ' ' } else { c }).take(MAX_LINE / 2).collect()
+    raw.chars()
+        .map(|c| if c.is_control() || c == '\t' { ' ' } else { c })
+        .take(crate::gpu_limits().health_line / 2)
+        .collect()
 }
 
 /// Keeps verdicts in `dir` (an app's data or cache folder) from now on, reading what an
@@ -131,7 +131,7 @@ pub fn verdict(key: &str) -> Option<Verdict> {
 /// Records `verdict` for the backend `key` (written through when a folder is set).
 pub fn record(key: &str, verdict: Verdict) {
     with(|h| {
-        if h.verdicts.len() >= MAX_ENTRIES && !h.verdicts.contains_key(key) {
+        if h.verdicts.len() >= crate::gpu_limits().health_entries && !h.verdicts.contains_key(key) {
             return;
         }
         h.verdicts.insert(key.to_string(), verdict);
@@ -155,13 +155,14 @@ pub fn self_tests_run() -> u64 {
 
 fn read_file(dir: &std::path::Path) -> Vec<(String, Verdict)> {
     let Ok(text) = std::fs::read_to_string(dir.join(FILE)) else { return Vec::new() };
+    let limits = crate::gpu_limits();
     text.lines()
-        .filter(|l| l.len() <= MAX_LINE)
+        .filter(|l| l.len() <= limits.health_line)
         .filter_map(|l| {
             let (k, v) = l.split_once('\t')?;
             Some((k.to_string(), Verdict::parse(v)?))
         })
-        .take(MAX_ENTRIES)
+        .take(limits.health_entries)
         .collect()
 }
 
@@ -333,10 +334,9 @@ impl PresentWatchdog {
     /// browser has no thread to watch from, and its presents never block).
     pub fn new(ctx: &GpuContext) -> Self {
         // GPU-based validation (`REMEDY_D3D_DEBUG`) makes a first present take seconds.
+        let hang = crate::gpu_limits().present_hang;
         #[cfg(windows)]
-        let hang = if crate::ffi::d3d_debug::enabled() { PRESENT_HANG * 20 } else { PRESENT_HANG };
-        #[cfg(not(windows))]
-        let hang = PRESENT_HANG;
+        let hang = if crate::ffi::d3d_debug::enabled() { hang.saturating_mul(20) } else { hang };
         let inner = Arc::new(Watch {
             key: key(ctx),
             started: AtomicU64::new(0),
@@ -376,7 +376,8 @@ impl PresentWatchdog {
         self.inner.hung.load(Ordering::Acquire)
     }
 
-    /// Sets how long a present may run (for tests; [`PRESENT_HANG`] by default).
+    /// Sets how long a present may run, for this watchdog only (tests;
+    /// [`GpuLimits::present_hang`](crate::GpuLimits::present_hang) by default).
     #[doc(hidden)]
     pub fn set_threshold(&self, d: Duration) {
         self.inner.hang.store(u64::try_from(d.as_nanos()).unwrap_or(u64::MAX), Ordering::Relaxed);
@@ -395,7 +396,7 @@ mod tests {
         assert_eq!(Verdict::parse("maybe"), None);
         let dir = std::env::temp_dir().join(format!("remedy-health-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let long = "x".repeat(MAX_LINE * 2);
+        let long = "x".repeat(crate::MAX_HEALTH_LINE * 2);
         let _ = std::fs::write(
             dir.join(FILE),
             format!("good\tpassed\nbad\tnonsense\nnotab\n{long}\thung\nslow\thung\nwrong\tfailed garbage\n"),

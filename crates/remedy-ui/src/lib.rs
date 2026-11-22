@@ -180,6 +180,16 @@ pub use remedy_ui_media_video as video;
 /// Drawing: display lists, paths, brushes, transforms and images, for painters
 /// (`El::paint`), canvases and page sources.
 pub use remedy_ui_paint as paint;
+/// The GPU renderer's own bounds (feature `gpu`): errors kept, the health file, how long it
+/// waits for swapchains, presents and video ([`gpu::set_gpu_limits`]). What both renderers
+/// draw is bounded by [`paint::set_paint_limits`].
+#[cfg(feature = "gpu")]
+pub mod gpu {
+    pub use remedy_ui_render_gpu::{
+        GpuLimits, MAX_HEALTH_ENTRIES, MAX_HEALTH_LINE, MAX_KEPT_ERRORS, MAX_VIDEO_IMPORTS, SWAPCHAIN_WAIT,
+        VIDEO_FENCE_WAIT, gpu_limits, health::PRESENT_HANG, set_gpu_limits,
+    };
+}
 /// Motion: elements animate a property, style value, offset or scale to a target with a
 /// spring or an easing curve on the frame clock (`El::animate`), interruptibly and instantly
 /// under reduced motion; `Transition`s for content that appears and leaves.

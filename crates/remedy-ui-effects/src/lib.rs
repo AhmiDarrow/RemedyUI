@@ -67,10 +67,11 @@ pub mod vm;
 
 use std::sync::{Arc, OnceLock};
 
-pub use compile::MAX_SAMPLED_PASSES;
+pub use compile::{MAX_SAMPLED_PASSES, MAX_TEXTURES};
 pub use cpu::{
     CpuEffect, FrameInput, MAX_EFFECT_PIXELS, MAX_OVERDRAW, Picture, Sprite, blur_radius, blur_weights,
-    buffer_size, cap_overdraw, constants, fit, particles, uniforms,
+    buffer_size, cap_overdraw, constants, fit, max_effect_pixels, max_overdraw, particles,
+    set_max_effect_pixels, set_max_overdraw, uniforms,
 };
 pub use ir::{Effect, Param, ParamType};
 pub use library::{LIBRARY, library, library_source};
@@ -97,7 +98,9 @@ pub struct Limits {
     pub max_values: usize,
     /// Instructions in one program.
     pub max_instructions: usize,
-    /// Registers one program may use.
+    /// Registers one program may use, up to 255 (the instruction encoding's 8-bit register
+    /// fields). The GPU kernel holds 64 in its fast form and builds a wider one the first
+    /// time a program needs more.
     pub max_registers: u8,
     /// Cost of one pass per pixel (summed instruction weights).
     pub max_pass_cost: u32,
@@ -108,7 +111,7 @@ pub struct Limits {
     pub max_stages: usize,
     /// Parameters.
     pub max_params: usize,
-    /// Texture parameters.
+    /// Texture parameters, at most [`MAX_TEXTURES`] (the GPU kernel's bindings).
     pub max_textures: usize,
     /// Particles in one emitter.
     pub max_particles: u32,

@@ -108,20 +108,26 @@ pub struct GpuContext {
     pub(crate) incremental_present: bool,
 }
 
-/// The most GPU errors kept between calls to [`GpuContext::take_errors`]. An app that never
-/// asks must not grow without bound when one error repeats every frame.
+/// The default of [`GpuLimits::kept_errors`](crate::GpuLimits::kept_errors): the most GPU
+/// errors kept between calls to [`GpuContext::take_errors`]. An app that never asks must not
+/// grow without bound when one error repeats every frame.
 pub const MAX_KEPT_ERRORS: usize = 64;
 
 /// Keeps the first errors (the cause is usually among them), then one line saying more came.
 fn keep_error(v: &mut Vec<String>, e: String) {
-    if v.len() < MAX_KEPT_ERRORS {
+    keep_error_within(v, e, crate::gpu_limits().kept_errors);
+}
+
+fn keep_error_within(v: &mut Vec<String>, e: String, most: usize) {
+    if v.len() < most {
         v.push(e);
-    } else if v.len() == MAX_KEPT_ERRORS {
+    } else if v.len() == most {
         v.push(DROPPED_ERRORS.into());
     }
 }
 
-/// The last of the errors kept when more came than [`MAX_KEPT_ERRORS`].
+/// The last of the errors kept when more came than
+/// [`GpuLimits::kept_errors`](crate::GpuLimits::kept_errors).
 const DROPPED_ERRORS: &str = "more GPU errors came and were dropped";
 
 /// The browser canvas id behind a window's handles, if it is one.
@@ -345,7 +351,8 @@ impl GpuContext {
     }
 
     /// GPU validation errors recorded since the last call (an empty list in a healthy run): the
-    /// first [`MAX_KEPT_ERRORS`], then a line saying more were dropped.
+    /// first [`GpuLimits::kept_errors`](crate::GpuLimits::kept_errors), then a line saying more
+    /// were dropped.
     pub fn take_errors(&self) -> Vec<String> {
         self.errors.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default()
     }
@@ -376,6 +383,12 @@ mod tests {
         assert_eq!(v.len(), super::MAX_KEPT_ERRORS + 1);
         assert_eq!(v.first().map(String::as_str), Some("error 0"), "the first errors are kept");
         assert_eq!(v.last().map(String::as_str), Some(super::DROPPED_ERRORS));
+        // A raised bound keeps more.
+        let mut v = Vec::new();
+        for i in 0..1000 {
+            super::keep_error_within(&mut v, format!("error {i}"), 500);
+        }
+        assert_eq!(v.len(), 501);
     }
 
     #[test]
