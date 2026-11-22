@@ -59,6 +59,11 @@ browser cannot do.
   across tabs: a second tab hands its launch arguments to the first.
 - **Media.** [`playback`](crate::playback) plays in the page, decoding with the browser's
   WebCodecs and playing sound through WebAudio, with pictures kept in step with its clock.
+  A page that is not a secure context (served over `http:` from a LAN address, as an app's
+  own server is from a phone) has no WebCodecs: there a hidden `<video>` element plays, HLS
+  fed to it through Media Source Extensions, and its frames are drawn into the page
+  ([`WebBackend`](crate::playback::WebBackend)). Such a page has no WebGPU either; the GPU
+  renderer draws with WebGL2.
 
 ## The app's entry point
 

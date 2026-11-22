@@ -35,7 +35,9 @@
 //!   platform's: Media Foundation and WASAPI on Windows; the system's GStreamer on Linux,
 //!   loaded at run time and never bundled; AVFoundation and Audio Queues on macOS;
 //!   MediaCodec and AAudio on Android; in a browser page, the browser's WebCodecs decoders (MP4
-//!   with H.264 and AAC, taken apart here) and WebAudio. An app with its own decoder
+//!   with H.264 and AAC, taken apart here) and WebAudio, or, where a page may not use
+//!   WebCodecs (one not served securely), a hidden media element fed through Media Source
+//!   Extensions ([`WebBackend`]). An app with its own decoder
 //!   implements the trait. HLS (`.m3u8` of MPEG-TS with H.264 and AAC or MP3) is taken apart
 //!   by the crate's own reader and decoded by Media Foundation on Windows and GStreamer on
 //!   Linux; macOS and Android refuse it as unsupported for now.
@@ -104,14 +106,15 @@ pub use deps::{DependencyState, MissingDependency};
 pub use engine::{PlaybackState, PlaybackStats};
 pub use host::{
     AudioFormat, AudioInput, AudioOutput, Decoder, EncodedPiece, MediaError, MediaHost, MediaInfo,
-    MediaSource, Picture, PixelFormat, Plane, Sample, ScreenFrame, ScreenSource, ScreenStream, TextTrackInfo,
-    VideoCodec, VideoEncoderOptions, VideoInfo, VideoStreamDecoder, VideoStreamEncoder, YuvMatrix,
-    merge_ranges,
+    MediaSource, Picture, PixelFormat, Plane, Playout, Sample, ScreenFrame, ScreenSource, ScreenStream,
+    TextTrackInfo, VideoCodec, VideoEncoderOptions, VideoInfo, VideoStreamDecoder, VideoStreamEncoder,
+    YuvMatrix, merge_ranges,
 };
 pub use limits::{MediaLimits, media_limits, set_media_limits};
 pub use player::{
-    CaptionChoice, CaptionPick, KeyScheme, NEXT_UP_DELAY, NextUp, Player, PlayerOptions, Remote,
-    RemoteControl, RemoteStatus, RemoteStatusSender, StageStatus, Timeline, UnseenPolicy,
+    CaptionChoice, CaptionPick, KeyScheme, NEXT_UP_DELAY, NextUp, PipWindowOpener, Player, PlayerOptions,
+    Remote, RemoteControl, RemoteStatus, RemoteStatusSender, StageStatus, Timeline, UnseenPolicy,
+    set_pip_window,
 };
 #[cfg(feature = "media-session")]
 pub use remedy_ui_services_desktop::media_session::{Artwork, NowPlaying};
@@ -125,7 +128,33 @@ pub use widget::{PlayerIcons, PlayerParts, format_time, player, player_picture, 
 /// reason where there are none (no GStreamer installed on a Linux machine, a platform with
 /// no backend).
 pub fn platform_host() -> Result<Arc<dyn MediaHost>, MediaError> {
-    os::platform_host()
+    os::platform_host(WebBackend::Auto)
+}
+
+/// The platform's own host, as [`platform_host`], playing through `backend` in a browser page
+/// (elsewhere `backend` makes no difference).
+pub fn platform_host_with(backend: WebBackend) -> Result<Arc<dyn MediaHost>, MediaError> {
+    os::platform_host(backend)
+}
+
+/// Which of a browser's ways to play media a page uses ([`PlayerOptions::web_backend`]).
+/// Elsewhere there is one way, and this makes no difference.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum WebBackend {
+    /// WebCodecs where the page may use it, else Media Source Extensions. Browsers offer
+    /// WebCodecs only to secure pages (`https:`, or `localhost`), so a page opened at a
+    /// machine's LAN address (`http://192.168.1.20:8490`) plays through the media element.
+    #[default]
+    Auto,
+    /// The browser's WebCodecs decoders, with sound through WebAudio and the crate's own
+    /// MP4 and HLS readers: every picture passes through the player.
+    WebCodecs,
+    /// A hidden `<video>` element plays: HLS remuxed here from MPEG-TS to fragmented MP4 and
+    /// fed to a Media Source Extensions `SourceBuffer`, any other source given to the element
+    /// as it is. Its sound and clock are the element's; each frame it shows is drawn into the
+    /// engine (uploaded from the element on the GPU, through a 2D canvas on the CPU renderer).
+    MediaSource,
 }
 
 /// For leak tests: the platform objects alive (Media Foundation starts, D3D11 devices,
