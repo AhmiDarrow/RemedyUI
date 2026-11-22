@@ -83,6 +83,9 @@ struct GlyphKey {
     hinting: Hinting,
     /// `Some(bgr)` for LCD coverage.
     lcd: Option<bool>,
+    /// For a run drawn turned, skewed, mirrored or stretched unevenly: its transform's linear
+    /// part in 1/4096ths, and the vertical subpixel bin (`bin` is the horizontal one).
+    turn: Option<([i32; 4], u8)>,
 }
 
 struct CachedGlyph {
@@ -903,9 +906,11 @@ impl Painter {
         let [a, b, c, d, _, _] = t.0;
         let device_scale = ((a * a + b * b).sqrt() + (c * c + d * d).sqrt()) / 2.0;
         let px_size = run.size * if device_scale > 0.0 { device_scale } else { scale };
-        let axis_aligned = b == 0.0 && c == 0.0;
+        // Bitmaps cached upright at one size only fit a plain uniform scale (and a move);
+        // anything else is rasterized through the transform itself, in grayscale.
+        let upright = b == 0.0 && c == 0.0 && a == d && a > 0.0;
         let lcd = match run.antialias {
-            Antialias::Lcd { bgr } if axis_aligned && flat => Some(bgr),
+            Antialias::Lcd { bgr } if upright && flat => Some(bgr),
             _ => None,
         };
         ctx.set_transform(kurbo::Affine::IDENTITY);
@@ -920,8 +925,14 @@ impl Painter {
         let mask_tint = vello_cpu::Tint { color: color(run.color), mode: vello_cpu::TintMode::AlphaMask };
         for (id, origin) in &run.glyphs {
             let dev = t.apply(*origin);
-            let hinting = if axis_aligned { run.hinting } else { Hinting::None };
+            let hinting = if upright { run.hinting } else { Hinting::None };
             let bin = subpixel_bin(dev.x, hinting);
+            let bins = f32::from(remedy_ui_text::SUBPIXEL_BINS);
+            let turn = (!upright).then(|| {
+                let q = |v: f32| (v * 4096.0).round() as i32;
+                let ybin = ((dev.y - dev.y.floor()) * bins).floor().clamp(0.0, bins - 1.0) as u8;
+                ([q(a), q(b), q(c), q(d)], ybin)
+            });
             let key = GlyphKey {
                 font: run.font.id(),
                 face: run.font.index(),
@@ -930,10 +941,21 @@ impl Painter {
                 bin,
                 hinting,
                 lcd,
+                turn,
             };
             if !self.glyphs.contains_key(&key) {
                 let aa = lcd.map_or(Antialias::Grayscale, |bgr| Antialias::Lcd { bgr });
-                let img = self.raster.rasterize(&run.font, *id, px_size, bin, hinting, aa);
+                let img = match turn {
+                    // The run's size in logical pixels, mapped by the whole linear part.
+                    Some((_, ybin)) => self.raster.rasterize_transformed(
+                        &run.font,
+                        *id,
+                        run.size,
+                        [a, b, c, d],
+                        (f32::from(bin) / bins, f32::from(ybin) / bins),
+                    ),
+                    None => self.raster.rasterize(&run.font, *id, px_size, bin, hinting, aa),
+                };
                 let id = self.next_glyph;
                 self.next_glyph += 2;
                 let cached = img.and_then(|g| {
@@ -972,7 +994,9 @@ impl Painter {
             }
             let Some(Some(gl)) = self.glyphs.get(&key) else { continue };
             let x = (dev.x.floor() as i32 + gl.left) as f64;
-            let y = (dev.y.round() as i32 - gl.top) as f64;
+            // A turned glyph's image already holds the origin's vertical fraction.
+            let base_y = if turn.is_some() { dev.y.floor() } else { dev.y.round() };
+            let y = (base_y as i32 - gl.top) as f64;
             let rect =
                 kurbo::Rect::new(x, y, x + f64::from(gl.image.width()), y + f64::from(gl.image.height()));
             let sampler = ImageSampler { quality: ImageQuality::Low, ..Default::default() };

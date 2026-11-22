@@ -244,6 +244,8 @@ pub(crate) struct DmaPicture {
     modifier: u64,
     width: u32,
     height: u32,
+    /// Counted while it holds its buffer (debug builds).
+    _live: super::Live,
 }
 
 // SAFETY: a GstBuffer reference may be held and released from any thread; it is only read.
@@ -306,7 +308,7 @@ impl DmaPicture {
                 };
             }
             (f.mini_object_ref)(buffer.cast());
-            Ok(DmaPicture { g, buffer, planes, layout, modifier, width, height })
+            Ok(DmaPicture { g, buffer, planes, layout, modifier, width, height, _live: super::Live::new() })
         }
     }
 }

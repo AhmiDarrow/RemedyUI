@@ -19,7 +19,11 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::Duration;
 
-use crate::subtitles::{Cue, SubtitleTrack, ass_text, clean_markup};
+use crate::host::MediaError;
+use crate::subtitles::{
+    AssHeader, CUES_TOO_BIG, Cue, CueSettings, SubtitleTrack, ass_text, clean_markup, over_cue_budget,
+    srt_settings,
+};
 
 /// Why a file could not be read as Matroska.
 pub(crate) type Error = String;
@@ -40,6 +44,7 @@ const TRACK_NUMBER: u32 = 0xD7;
 const TRACK_TYPE: u32 = 0x83;
 const CODEC_ID: u32 = 0x86;
 const NAME: u32 = 0x536E;
+const CODEC_PRIVATE: u32 = 0x63A2;
 const LANGUAGE: u32 = 0x22_B59C;
 const LANGUAGE_BCP47: u32 = 0x22_B59D;
 const CONTENT_ENCODINGS: u32 = 0x6D80;
@@ -78,11 +83,14 @@ const LAST_CUE: Duration = Duration::from_secs(5);
 
 /// The text subtitle tracks in the Matroska or WebM file at `path`; none when it is not one
 /// or holds none (or cannot be read: a damaged file shows no embedded captions rather than
-/// wrong ones).
-pub(crate) fn text_tracks(path: &Path) -> Vec<SubtitleTrack> {
-    let Ok(f) = std::fs::File::open(path) else { return Vec::new() };
-    let Ok(len) = f.metadata().map(|m| m.len()) else { return Vec::new() };
-    read(BufReader::with_capacity(16 << 10, f), len).unwrap_or_default()
+/// wrong ones). Their text over the subtitle file limit is an error.
+pub(crate) fn text_tracks(path: &Path) -> Result<Vec<SubtitleTrack>, MediaError> {
+    let Ok(f) = std::fs::File::open(path) else { return Ok(Vec::new()) };
+    let Ok(len) = f.metadata().map(|m| m.len()) else { return Ok(Vec::new()) };
+    match read(BufReader::with_capacity(16 << 10, f), len) {
+        Err(e) if e == CUES_TOO_BIG => Err(MediaError::Format(e)),
+        r => Ok(r.unwrap_or_default()),
+    }
 }
 
 /// How a track's block holds its text.
@@ -107,7 +115,9 @@ struct TextTrack {
     language: Option<String>,
     /// Bytes every block of the track had taken off its front ("header stripping").
     prefix: Vec<u8>,
-    cues: Vec<(Duration, Option<Duration>, String)>,
+    cues: Vec<(Duration, Option<Duration>, String, CueSettings)>,
+    /// An ASS track's script header (its codec private data): size and styles.
+    ass: AssHeader,
 }
 
 /// An element: its ID, where its data starts and how long it is (`None`: unknown, running
@@ -307,7 +317,8 @@ fn read<R: Read + Seek>(r: BufReader<R>, len: u64) -> Result<Vec<SubtitleTrack>,
             places.dedup();
         }
     }
-    let mut reader = Blocks { src: &mut src, tracks: &mut tracks, scale, seg_end, seen: Vec::new() };
+    let mut reader =
+        Blocks { src: &mut src, tracks: &mut tracks, scale, seg_end, seen: Vec::new(), text_bytes: 0 };
     if places.is_empty() {
         let mut at = first_cluster.unwrap_or(seg_end);
         while at < seg_end {
@@ -407,7 +418,13 @@ fn text_track<'a>(number: u64, format: Format, field: &impl Fn(u32) -> Option<&'
     let language = field(LANGUAGE_BCP47).or_else(|| field(LANGUAGE)).map_or_else(|| "eng".to_owned(), string);
     let language = (!language.is_empty() && language != "und").then_some(language);
     let name = field(NAME).map(string).filter(|n| !n.is_empty());
-    TextTrack { number, format, name, language, prefix: Vec::new(), cues: Vec::new() }
+    let ass = match format {
+        Format::Ass => {
+            field(CODEC_PRIVATE).map(|d| AssHeader::parse(&String::from_utf8_lossy(d))).unwrap_or_default()
+        }
+        _ => AssHeader::default(),
+    };
+    TextTrack { number, format, name, language, prefix: Vec::new(), cues: Vec::new(), ass }
 }
 
 /// What header stripping takes off each block, `Some(empty)` for nothing; `None` when the
@@ -479,6 +496,8 @@ struct Blocks<'a, R> {
     seg_end: u64,
     /// Blocks already read (an index may name one twice).
     seen: Vec<u64>,
+    /// The bytes of cue text read, against the subtitle file limit.
+    text_bytes: u64,
 }
 
 impl<R: Read + Seek> Blocks<'_, R> {
@@ -595,7 +614,11 @@ impl<R: Read + Seek> Blocks<'_, R> {
         payload.extend_from_slice(block.get(n + 3..).unwrap_or_default());
         let text = cue_text(&payload, t.format);
         if !text.is_empty() {
-            t.cues.push((start, end, text));
+            if over_cue_budget(&mut self.text_bytes, &text) {
+                return Err(CUES_TOO_BIG.into());
+            }
+            let settings = cue_settings(&payload, t.format, &t.ass);
+            t.cues.push((start, end, text, settings));
         }
         Ok(())
     }
@@ -626,6 +649,26 @@ fn cue_text(b: &[u8], format: Format) -> String {
     lines.join("\n").trim().to_owned()
 }
 
+/// Where a subtitle block's cue goes: WebM's WebVTT settings line, SRT's `{\anN}`, and an
+/// ASS block's `\anN`, style and margins read against the track's script header.
+fn cue_settings(b: &[u8], format: Format, ass: &AssHeader) -> CueSettings {
+    let s = String::from_utf8_lossy(b).replace("\r\n", "\n");
+    match format {
+        // ReadOrder, Layer, Style, Name, MarginL, MarginR, MarginV, Effect, Text.
+        Format::Ass => {
+            let f: Vec<&str> = s.splitn(9, ',').collect();
+            let num = |i: usize| f.get(i).and_then(|v| v.trim().parse().ok()).unwrap_or(0.0);
+            ass.settings(
+                f.get(2).copied().unwrap_or_default(),
+                [num(4), num(5), num(6)],
+                f.get(8).copied().unwrap_or_default(),
+            )
+        }
+        Format::WebmVtt => CueSettings::parse_webvtt(s.split('\n').nth(1).unwrap_or_default()),
+        Format::Srt | Format::Vtt => srt_settings(&s),
+    }
+}
+
 /// A track's cues in time order, those without a duration lasting until the next; `None`
 /// when it has none.
 fn finish(t: TextTrack) -> Option<SubtitleTrack> {
@@ -635,7 +678,7 @@ fn finish(t: TextTrack) -> Option<SubtitleTrack> {
     let cues: Vec<Cue> = raw
         .into_iter()
         .enumerate()
-        .filter_map(|(i, (start, end, text))| {
+        .filter_map(|(i, (start, end, text, settings))| {
             let end = end.unwrap_or_else(|| {
                 starts
                     .get(i + 1..)
@@ -645,7 +688,7 @@ fn finish(t: TextTrack) -> Option<SubtitleTrack> {
                     .find(|s| *s > start)
                     .unwrap_or(start + LAST_CUE)
             });
-            (end > start).then_some(Cue { start, end, text })
+            (end > start).then_some(Cue { start, end, text, settings })
         })
         .collect();
     if cues.is_empty() {
@@ -691,13 +734,13 @@ mod tests {
 
     #[test]
     fn srt_ass_and_webvtt_tracks_are_read_with_their_languages() {
-        let tracks = text_tracks(&fixture("clip-subs.mkv"));
+        let tracks = text_tracks(&fixture("clip-subs.mkv")).unwrap_or_default();
         assert_eq!(summary(&tracks), mkv_tracks());
     }
 
     #[test]
     fn a_webm_file_s_webvtt_track_is_read_across_its_clusters() {
-        let tracks = text_tracks(&fixture("clip-subs.webm"));
+        let tracks = text_tracks(&fixture("clip-subs.webm")).unwrap_or_default();
         assert_eq!(
             summary(&tracks),
             [("eng", Some("eng"), vec![(500, 1500, "One"), (1500, 2500, "Two & more")])]
@@ -707,18 +750,45 @@ mod tests {
     #[test]
     fn a_file_without_an_index_is_walked_cluster_by_cluster() {
         // Written to a pipe: a segment of unknown size, no cue index; the clusters differ.
-        let tracks = text_tracks(&fixture("clip-subs-streamed.mkv"));
+        let tracks = text_tracks(&fixture("clip-subs-streamed.mkv")).unwrap_or_default();
         assert_eq!(summary(&tracks), mkv_tracks());
     }
 
     #[test]
     fn other_files_have_none() {
         for name in ["clip.mp4", "clip-subs.mp4", "clip.vtt", "no-such-file.mkv"] {
-            assert!(text_tracks(&fixture(name)).is_empty(), "{name}");
+            assert!(text_tracks(&fixture(name)).unwrap_or_default().is_empty(), "{name}");
         }
         assert_eq!(parse(b""), Ok(Vec::new()));
         // An EBML document of another type.
         assert_eq!(parse(b"\x1A\x45\xDF\xA3\x87\x42\x82\x84abcd"), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn block_placement_in_each_format() {
+        use crate::subtitles::{CueAlign, CueLine};
+        assert_eq!(
+            cue_settings(b"{\\an8}Top", Format::Srt, &AssHeader::default()).line,
+            Some(CueLine::Percent(0.0))
+        );
+        let s = cue_settings(b"3,0,Default,,96,0,0,,{\\an1}Hi", Format::Ass, &AssHeader::default());
+        assert_eq!(
+            (s.line, s.align, s.position),
+            (Some(CueLine::Percent(100.0)), CueAlign::Left, Some(25.0))
+        );
+        // The track's script header (codec private data): a style's alignment and margins.
+        let header = AssHeader::parse(
+            "[Script Info]\nPlayResX: 400\nPlayResY: 200\n\n[V4+ Styles]\nFormat: Name, Alignment, MarginL, MarginR, MarginV\nStyle: Sign,8,40,40,20\n",
+        );
+        let s = cue_settings(b"3,0,Sign,,0,0,0,,Hi", Format::Ass, &header);
+        assert_eq!(
+            (s.line, s.align, s.box_across()),
+            (Some(CueLine::Percent(10.0)), CueAlign::Center, (10.0, 80.0))
+        );
+        assert_eq!(cue_settings(b"3,0,Default,,0,0,0,,Hi", Format::Ass, &header), CueSettings::default());
+        let s = cue_settings(b"id\nline:0 align:start\nHi", Format::WebmVtt, &AssHeader::default());
+        assert_eq!((s.line, s.align), (Some(CueLine::Number(0)), CueAlign::Start));
+        assert_eq!(cue_settings(b"plain", Format::Vtt, &AssHeader::default()), CueSettings::default());
     }
 
     #[test]
@@ -746,6 +816,29 @@ mod tests {
         let encrypted = b"\x62\x40\x83\x50\x35\x80";
         assert_eq!(stripped_prefix(encrypted), Ok(None));
         assert!(stripped_prefix(b"\x62\x40\x8F\x50").is_err(), "an encoding longer than its list");
+    }
+
+    #[test]
+    fn an_ass_tracks_codec_private_gives_its_styles() {
+        // EBML elements with one-byte sizes.
+        fn el(id: &[u8], body: &[u8]) -> Vec<u8> {
+            let mut v = id.to_vec();
+            v.push(0x80 | u8::try_from(body.len()).unwrap_or_else(|_| unreachable!("short")));
+            v.extend_from_slice(body);
+            v
+        }
+        let header =
+            b"[Script Info]\nPlayResY: 200\n\n[V4+ Styles]\nFormat: Name, Alignment\nStyle: Sign,8\n";
+        let entry =
+            [el(&[0xD7], &[1]), el(&[0x83], &[17]), el(&[0x86], b"S_TEXT/ASS"), el(&[0x63, 0xA2], header)]
+                .concat();
+        let tracks = text_track_list(&el(&[0xAE], &entry)).unwrap_or_else(|e| unreachable!("{e}"));
+        let t = tracks.first().unwrap_or_else(|| unreachable!("one track"));
+        let s = cue_settings(b"1,0,Sign,,0,0,0,,Hi", t.format, &t.ass);
+        assert_eq!(
+            (s.line, s.align),
+            (Some(crate::subtitles::CueLine::Percent(0.0)), crate::subtitles::CueAlign::Center)
+        );
     }
 
     #[test]

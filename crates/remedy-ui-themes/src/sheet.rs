@@ -109,6 +109,31 @@ pub fn sheet(t: &Theme) -> StyleSheet {
             .radius(r.small),
     );
     rule("player_stage", None, States::NONE, StylePatch::default().background(Color::BLACK));
+    // The player's bar row: a toolbar; the title over a full-screen picture, title size.
+    rule("player_row", None, States::NONE, StylePatch::default().background(c.panel).padding(Insets::all(u)));
+    rule("player_title_text", None, States::NONE, StylePatch::default().text_size(t.type_scale.title));
+    // The Up next card: a small muted label over the title.
+    rule(
+        "player_next_label",
+        None,
+        States::NONE,
+        StylePatch::default().foreground(d.muted).text_size(t.type_scale.small),
+    );
+    rule("player_next_title", None, States::NONE, StylePatch::default().weight(600.0));
+    // The time under the pointer over the seek bar: the text on a card ringed in the accent.
+    rule(
+        "player_tip",
+        None,
+        States::NONE,
+        StylePatch::default()
+            .background(c.card)
+            .foreground(c.text)
+            .border(c.accent)
+            .border_width(1.0)
+            .radius(6.0)
+            .text_size(t.type_scale.body * 0.82)
+            .padding(Insets { top: u * 0.25, bottom: u * 0.25, start: u, end: u }),
+    );
     // Documents: quotes get a bar, code a box, tables lines between cells.
     rule("md_quote_bar", None, States::NONE, StylePatch::default().background(line));
     rule("md_quote_body", None, States::NONE, StylePatch::default().foreground(d.muted));
@@ -177,19 +202,19 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         "heading",
         Some("1"),
         States::NONE,
-        StylePatch::default().text_size(t.type_scale.title + 6.0).weight(700.0),
+        StylePatch::default().heading(true).text_size(t.type_scale.title + 6.0).weight(700.0),
     );
     rule(
         "heading",
         Some("2"),
         States::NONE,
-        StylePatch::default().text_size(t.type_scale.title).weight(650.0),
+        StylePatch::default().heading(true).text_size(t.type_scale.title).weight(650.0),
     );
     rule(
         "heading",
         Some("3"),
         States::NONE,
-        StylePatch::default().text_size(t.type_scale.body + 2.0).weight(600.0),
+        StylePatch::default().heading(true).text_size(t.type_scale.body + 2.0).weight(600.0),
     );
 
     // Buttons.
@@ -201,7 +226,7 @@ pub fn sheet(t: &Theme) -> StyleSheet {
         .radius(r.medium)
         .padding(pad(u * 1.5, u * 3.0))
         .weight(600.0);
-    for w in ["button", "icon_button"] {
+    for w in ["button", "icon_button", "player_button"] {
         rule(w, None, States::NONE, base.clone());
         rule(w, None, States::HOVER, StylePatch::default().background(d.hover));
         rule(w, None, States::PRESSED, StylePatch::default().background(d.pressed));
@@ -249,12 +274,9 @@ pub fn sheet(t: &Theme) -> StyleSheet {
             StylePatch::default().background(solid.mix_oklab(Color::BLACK, 0.1)),
         );
     }
-    rule(
-        "icon_button",
-        None,
-        States::NONE,
-        StylePatch::default().padding(Insets::all(u * 1.5)).radius(r.small),
-    );
+    for w in ["icon_button", "player_button"] {
+        rule(w, None, States::NONE, StylePatch::default().padding(Insets::all(u * 1.5)).radius(r.small));
+    }
 
     // Inputs.
     for w in ["text_input", "secret_input", "text_area", "search"] {

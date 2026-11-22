@@ -4,6 +4,7 @@ mod aria;
 mod clipboard;
 mod dialog;
 mod dom;
+pub(crate) mod history;
 mod host;
 mod input;
 pub(crate) mod instance;

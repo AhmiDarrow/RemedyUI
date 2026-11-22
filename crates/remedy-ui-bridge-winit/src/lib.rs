@@ -96,6 +96,11 @@ pub trait PlatformHooks: 'static {
     fn window_closed(&mut self, window: &Window) {
         let _ = window;
     }
+    /// Called after winit has been asked to hide or show the pointer over a window, for a
+    /// platform whose winit hiding needs help (Windows).
+    fn set_cursor_hidden(&mut self, window: &Window, hidden: bool) {
+        let _ = (window, hidden);
+    }
     /// Takes over a text-input session with the platform's own text services (TSF on
     /// Windows). Returns false to let winit's input-method support handle it.
     fn set_text_input(&mut self, window: &Window, state: Option<&TextInputState>) -> bool {
@@ -657,9 +662,10 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
 
     fn set_cursor_hidden(&mut self, window: WindowId, hidden: bool) {
         // winit hides it over the window only (Windows, macOS, X11, Wayland; Android has none).
-        if let Some(w) = self.win(window) {
-            w.window.set_cursor_visible(!hidden);
-        }
+        let Some(wid) = self.state.ids.get(&window) else { return };
+        let Some((_, w)) = self.state.windows.get(wid) else { return };
+        w.window.set_cursor_visible(!hidden);
+        self.hooks.set_cursor_hidden(&w.window, hidden);
     }
 
     fn set_capture_protected(&mut self, window: WindowId, on: bool) -> Result<(), Unsupported> {
