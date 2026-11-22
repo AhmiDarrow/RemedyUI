@@ -57,6 +57,23 @@ impl Feature {
     pub const TABULAR_FIGURES: Feature = Feature { tag: *b"tnum", value: 1 };
 }
 
+/// How letters are cased when drawn (CSS `text-transform`). Copying, selection and screen
+/// readers keep the text as written. Casing follows the text engine's locale: Turkish and
+/// Azerbaijani dotted and dotless i, German ß as SS in capitals, Greek final sigma.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+// Exhaustive on purpose: the cases CSS has.
+pub enum TextTransform {
+    /// As written.
+    #[default]
+    None,
+    /// All capitals.
+    Upper,
+    /// All small letters.
+    Lower,
+    /// The first letter of each word a capital (title case), the rest as written.
+    Capitalize,
+}
+
 /// A complete text style.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -75,6 +92,8 @@ pub struct TextStyle {
     pub color: Color,
     /// Extra space between letters, in logical pixels.
     pub letter_spacing: f32,
+    /// How letters are cased when drawn.
+    pub transform: TextTransform,
     /// Line height.
     pub line_height: LineHeight,
     /// Underline.
@@ -94,6 +113,7 @@ impl Default for TextStyle {
             italic: false,
             color: Color::BLACK,
             letter_spacing: 0.0,
+            transform: TextTransform::None,
             line_height: LineHeight::Relative(1.33),
             underline: false,
             strikethrough: false,
@@ -118,6 +138,8 @@ pub struct TextStylePatch {
     pub color: Option<Color>,
     /// Letter spacing.
     pub letter_spacing: Option<f32>,
+    /// Casing.
+    pub transform: Option<TextTransform>,
     /// Underline.
     pub underline: Option<bool>,
     /// Strikethrough.
@@ -149,6 +171,11 @@ impl TextStylePatch {
         TextStylePatch { link: Some(id), underline: Some(true), ..Self::default() }
     }
 
+    /// Letters cased by `t` when drawn ([`TextTransform`]).
+    pub fn transform(t: TextTransform) -> Self {
+        TextStylePatch { transform: Some(t), ..Self::default() }
+    }
+
     /// Strikethrough.
     pub fn strikethrough() -> Self {
         TextStylePatch { strikethrough: Some(true), ..Self::default() }
@@ -174,6 +201,9 @@ impl TextStylePatch {
         }
         if let Some(v) = self.letter_spacing {
             s.letter_spacing = v;
+        }
+        if let Some(v) = self.transform {
+            s.transform = v;
         }
         if let Some(v) = self.underline {
             s.underline = v;
