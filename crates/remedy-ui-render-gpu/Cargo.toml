@@ -58,7 +58,7 @@ wasm-bindgen-futures = { version = "=0.4.80" }
 # at the versions wgpu itself uses.
 wasm-bindgen = { version = "=0.2.130" }
 js-sys = { version = "=0.3.107" }
-web-sys = { version = "=0.3.107", features = ["WebGl2RenderingContext"] }
+web-sys = { version = "=0.3.107", features = ["Blob", "BlobPropertyBag", "MessageEvent", "Url", "WebGl2RenderingContext", "Window", "Worker"] }
 glow = { version = "=0.17.0" }
 
 [features]

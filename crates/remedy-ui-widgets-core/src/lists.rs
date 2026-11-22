@@ -469,7 +469,8 @@ where
 ///
 /// Each row tells screen readers its name (what it shows, merged into one phrase), its
 /// place in the list ("3 of 12") and whether it is selected; assistive technology clicks a
-/// row to select or open it as a pointer would.
+/// row to select or open it as a pointer would. It is a list box of options to them
+/// (ARIA `listbox` and `option`), one selected at a time.
 pub fn list<T, K>(
     ui: &Ui,
     label: impl Into<String>,
@@ -486,7 +487,8 @@ where
     let items: ListItems<T> = items.into();
     let on_open: Rc<dyn Fn(&K)> = Rc::new(on_open);
     let gap = ui.theme().spacing.unit * 0.5;
-    let container = ui.el("list").column().gap(gap).semantics(Semantics::new(Role::List).label(label.into()));
+    let container =
+        ui.el("list").column().gap(gap).semantics(Semantics::new(Role::ListBox).label(label.into()));
     let order = Order { keys: Rc::default(), version: Signal::new(0) };
     let row_key = key.clone();
     let open = on_open.clone();
@@ -514,7 +516,7 @@ where
             .semantics(move || {
                 let on = selected.get().as_ref() == Some(&k2);
                 let mut s =
-                    Semantics::new(Role::ListItem).selected(on).action(Action::Click).merge_descendants();
+                    Semantics::new(Role::Option).selected(on).action(Action::Click).merge_descendants();
                 if let Some((pos, n)) = o3.place(&k2) {
                     s = s.set_position(pos, n);
                 }

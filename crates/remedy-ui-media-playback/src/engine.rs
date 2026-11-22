@@ -24,7 +24,9 @@ use remedy_ui_core::time::Instant;
 
 use remedy_ui_media_video::{Picture, VideoSink};
 
-use crate::host::{AudioFormat, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Sample};
+use crate::host::{
+    AudioFormat, AudioOutput, Decoder, MediaError, MediaHost, MediaInfo, MediaSource, Playout, Sample,
+};
 use crate::subtitles::{Cue, SubtitleTrack};
 
 /// How far ahead pictures are decoded when there is no sound device buffer to go by, and the
@@ -88,10 +90,17 @@ pub(crate) enum Cmd {
     /// Stop (or go on) asking the decoder for anything, so a stream is not fetched: while
     /// the app makes a new one, or a TV plays it. The last picture stays.
     Suspend(bool),
+    /// Opens or closes the playout's own picture-in-picture window ([`Playout::set_pip`]).
+    Pip(bool),
+    /// Also hands each picture shown to this (a picture-in-picture window of the app's own).
+    Mirror(Option<Mirror>),
     /// The decoder has something new.
     Wake,
     Close,
 }
+
+/// What else each picture shown goes to ([`Cmd::Mirror`]).
+pub(crate) type Mirror = Arc<dyn Fn(&Picture) + Send + Sync>;
 
 /// What the presenting thread tells the UI thread.
 #[derive(Default)]
@@ -108,6 +117,9 @@ pub(crate) struct Status {
     pub cues: Vec<(usize, Cue)>,
     /// What can play without waiting, merged ([`crate::host::merge_ranges`]).
     pub buffered: Vec<std::ops::Range<Duration>>,
+    /// The playout can show its picture in a picture-in-picture window of its own, and does.
+    pub pip_able: bool,
+    pub in_pip: bool,
 }
 
 /// The status and whether a delivery to the UI thread is on its way.
@@ -461,8 +473,12 @@ struct Presenter {
     opened: bool,
     failed: Option<MediaError>,
     sink: Option<VideoSink>,
+    mirror: Option<Mirror>,
     last_picture: Option<Picture>,
     out: Option<Box<dyn AudioOutput>>,
+    /// What plays a source that plays by itself (a browser's media element,
+    /// [`Decoder::playout`]): its clock is the clock, and it plays the sound.
+    playout: Option<Box<dyn Playout>>,
     audio_error: Option<MediaError>,
     audio_tried: bool,
     gain: f32,
@@ -536,8 +552,10 @@ impl Presenter {
             opened: false,
             failed: None,
             sink: None,
+            mirror: None,
             last_picture: None,
             out: None,
+            playout: None,
             audio_error: None,
             audio_tried: false,
             gain: 1.0,
@@ -645,6 +663,11 @@ impl Presenter {
             Poll::Ready(Err(e)) => self.failed = Some(e),
             Poll::Ready(Ok(())) => {
                 self.info = dec.info().clone();
+                self.playout = dec.playout();
+                if let Some(p) = self.playout.as_mut() {
+                    p.set_volume(self.gain * self.gain);
+                    p.set_speed(self.speed);
+                }
                 if self.own_text {
                     self.info.text_tracks.clear();
                 }
@@ -652,7 +675,8 @@ impl Presenter {
                 {
                     let mut f = lock(&self.feed.feed);
                     f.skip_text = self.own_text;
-                    f.audio_format = self.info.audio;
+                    // A playout plays its own sound: none is decoded here.
+                    f.audio_format = self.info.audio.filter(|_| self.playout.is_none());
                     f.frame_time = self
                         .info
                         .video
@@ -703,7 +727,8 @@ impl Presenter {
         // Played faster, the same device buffer holds more media.
         let lead = lead.mul_f64(self.speed.max(1.0));
         let mut f = lock(&self.feed.feed);
-        f.want_audio_frames = self.info.audio.map(|a| a.frames_in(lead)).unwrap_or(0);
+        f.want_audio_frames =
+            self.info.audio.filter(|_| self.playout.is_none()).map(|a| a.frames_in(lead)).unwrap_or(0);
         f.lead = lead;
         match &self.info.video {
             Some(v) => {
@@ -790,6 +815,9 @@ impl Presenter {
         if let Some(mut out) = self.out.take() {
             let _ = out.pause();
         }
+        if let Some(mut p) = self.playout.take() {
+            p.pause();
+        }
     }
 
     fn apply(&mut self, cmd: Cmd) {
@@ -808,7 +836,13 @@ impl Presenter {
             }
             Cmd::Pause => self.playing = false,
             Cmd::Seek(t) => self.seek(t),
-            Cmd::Volume(v) => self.gain = v.clamp(0.0, 1.0),
+            Cmd::Volume(v) => {
+                self.gain = v.clamp(0.0, 1.0);
+                // Loudness follows the square of the volume, as for sound written here.
+                if let Some(p) = self.playout.as_mut() {
+                    p.set_volume(self.gain * self.gain);
+                }
+            }
             Cmd::Speed(r) => self.set_speed(r),
             Cmd::Visible(v) => self.visible = v,
             Cmd::PauseUnseen(p) => self.pause_unseen = p,
@@ -816,6 +850,17 @@ impl Presenter {
                 self.sink = s;
                 if let (Some(sink), Some(p)) = (&self.sink, &self.last_picture) {
                     sink.push(p.clone());
+                }
+            }
+            Cmd::Pip(on) => {
+                if let Some(p) = self.playout.as_mut() {
+                    p.set_pip(on);
+                }
+            }
+            Cmd::Mirror(m) => {
+                self.mirror = m;
+                if let (Some(m), Some(p)) = (&self.mirror, &self.last_picture) {
+                    m(p);
                 }
             }
             Cmd::Suspend(on) => {
@@ -835,6 +880,9 @@ impl Presenter {
         // A paused device's clock stands still: that is no stall.
         self.heard = None;
         self.stalled = false;
+        if let Some(p) = self.playout.as_mut() {
+            if on { p.play() } else { p.pause() }
+        }
         if on {
             self.anchor = Some(Instant::now());
             if let Some(out) = self.out.as_mut()
@@ -855,7 +903,7 @@ impl Presenter {
     }
 
     fn open_audio(&mut self) {
-        if self.audio_tried {
+        if self.audio_tried || self.playout.is_some() {
             return;
         }
         self.audio_tried = true;
@@ -896,6 +944,9 @@ impl Presenter {
         self.base = t;
         self.anchor = self.running().then(Instant::now);
         self.speed = speed;
+        if let Some(p) = self.playout.as_mut() {
+            p.set_speed(speed);
+        }
         self.size_buffers();
         self.publish(t, true);
     }
@@ -917,6 +968,9 @@ impl Presenter {
             f.clear();
         }
         self.feed.ring();
+        if let Some(p) = self.playout.as_mut() {
+            p.seek(to);
+        }
         let running = self.running();
         if let Some(out) = self.out.as_mut() {
             let flushed = out.flush().and_then(|()| if running { out.resume() } else { Ok(()) });
@@ -969,7 +1023,10 @@ impl Presenter {
             None => self.base,
         };
         self.starved = false;
-        if self.audio_clock
+        if let Some(p) = self.playout.as_mut() {
+            t = p.position();
+            self.starved = p.waiting();
+        } else if self.audio_clock
             && let (Some(out), Some(fmt)) = (self.out.as_mut(), self.info.audio)
         {
             match out.played() {
@@ -1197,6 +1254,7 @@ impl Presenter {
     /// the first one).
     fn show_due(&mut self, t: Duration, running: bool) {
         let mut f = lock(&self.feed.feed);
+
         let taken = if running {
             let mut latest: Option<VideoItem> = None;
             while f.video.front().is_some_and(|v| v.at <= t) {
@@ -1235,6 +1293,9 @@ impl Presenter {
                 self.stats.frames_dropped += 1;
             }
         }
+        if let Some(m) = &self.mirror {
+            m(&v.picture);
+        }
         self.last_picture = Some(v.picture);
         self.new_picture = true;
     }
@@ -1257,9 +1318,13 @@ impl Presenter {
             return;
         }
         let f = lock(&self.feed.feed);
-        let done = f.eof && f.video.is_empty() && f.audio.is_empty();
+        // A playout's end is its own: the last picture it showed may say a time just past it.
+        let done = f.eof && f.audio.is_empty() && (f.video.is_empty() || self.playout.is_some());
         let error = f.error.clone();
         drop(f);
+        if done && self.playout.is_some() {
+            self.show_due(Duration::MAX, true);
+        }
         // Sound taken from the queue is not yet written while the time stretcher holds it (or
         // an output holds a last partial block): the end waits for the output to be told
         // nothing follows, unless the sound is not leading the clock (no device, stalled).
@@ -1352,6 +1417,10 @@ impl Presenter {
             _ => t,
         };
         let state = self.state();
+        let (pip_able, in_pip) = match self.playout.as_mut() {
+            Some(p) => (p.can_pip(), p.in_pip()),
+            None => (false, false),
+        };
         let due = self.last_publish.is_none_or(|p| p.elapsed() >= POSITION_INTERVAL);
         let buffered = self.buffered(t);
         {
@@ -1363,7 +1432,8 @@ impl Presenter {
                 // While playing, with the position; while paused, as it arrives.
                 || (buffered != s.buffered && (due || !self.running()))
                 || !s.cues.is_empty()
-                || !s.new_tracks.is_empty();
+                || !s.new_tracks.is_empty()
+                || (s.pip_able, s.in_pip) != (pip_able, in_pip);
             if !changed {
                 return;
             }
@@ -1373,6 +1443,7 @@ impl Presenter {
             s.stats = self.stats;
             s.error = self.failed.clone();
             s.audio_error = self.audio_error.clone();
+            (s.pip_able, s.in_pip) = (pip_able, in_pip);
         }
         self.new_picture = false;
         self.last_publish = Some(Instant::now());

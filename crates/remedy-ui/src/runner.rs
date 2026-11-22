@@ -141,6 +141,10 @@ fn on_demand_faces(faces: &[&'static remedy_ui_fonts::Face]) -> Vec<FontFile> {
     faces.iter().filter_map(|face| FontFile::new(face.data).ok()).collect()
 }
 
+/// How long a later launch waits for the running instance's reply when
+/// [`AppConfig::single_instance_await_exit`] turns replies on without a wait of its own.
+pub const SINGLE_INSTANCE_REPLY: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// App-wide settings.
 #[derive(Clone)]
 #[non_exhaustive]
@@ -178,6 +182,12 @@ pub struct AppConfig {
     /// How long a second launch keeps trying to reach the first (Windows;
     /// [`AppConfig::single_instance_wait`]). Default 5 s.
     pub single_instance_wait: std::time::Duration,
+    /// A second launch waits this long for the running instance's reply and exits with it
+    /// ([`AppConfig::single_instance_reply`]); `None` (the default) hands over and exits at once.
+    pub single_instance_reply: Option<std::time::Duration>,
+    /// A second launch that waits for a reply then also waits this long for the running
+    /// instance's process to exit ([`AppConfig::single_instance_await_exit`]).
+    pub single_instance_exit: Option<std::time::Duration>,
     /// How long a drop from another app may take to read, and a drag out of the app serves
     /// its data once released (Linux; [`AppConfig::drop_waits`]). Default 2 s and 10 s.
     pub drop_waits: (std::time::Duration, std::time::Duration),
@@ -220,6 +230,8 @@ impl AppConfig {
             web: remedy_ui_bridge_web::WebConfig::default(),
             keepalive_grace: std::time::Duration::from_secs(10),
             single_instance_wait: std::time::Duration::from_secs(5),
+            single_instance_reply: None,
+            single_instance_exit: None,
             drop_waits: (std::time::Duration::from_secs(2), std::time::Duration::from_secs(10)),
         }
     }
@@ -240,6 +252,41 @@ impl AppConfig {
     /// does not wait.
     pub fn single_instance_wait(mut self, wait: std::time::Duration) -> Self {
         self.single_instance_wait = wait;
+        self
+    }
+
+    /// Runs as a [single instance](Self::single_instance) whose later launches wait up to
+    /// `timeout` for the running instance's reply (what its
+    /// [`App::on_second_instance`] returns), then exit the process with that code, as a
+    /// command-line tool asking the running app to do something would (an installer's
+    /// `--stop`). A reply that does not come in time, or a running instance that ends
+    /// without one, makes `run` fail with `RunError::SingleInstance` instead.
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use remedy_ui::AppConfig;
+    ///
+    /// let config = AppConfig::new("Portal")
+    ///     .single_instance_reply(Duration::from_secs(30))
+    ///     .single_instance_await_exit(Duration::from_secs(30));
+    /// assert!(config.single_instance);
+    /// assert_eq!(config.single_instance_reply, Some(Duration::from_secs(30)));
+    /// ```
+    pub fn single_instance_reply(mut self, timeout: std::time::Duration) -> Self {
+        self.single_instance = true;
+        self.single_instance_reply = Some(timeout);
+        self
+    }
+
+    /// After the reply ([`AppConfig::single_instance_reply`], which this turns on with a 30 s
+    /// wait when it is not set), a later launch also waits up to `timeout` for the running
+    /// instance's process to exit, so whoever started it knows the files are free (an
+    /// installer replacing them). Past `timeout`, `run` fails with `RunError::SingleInstance`.
+    pub fn single_instance_await_exit(mut self, timeout: std::time::Duration) -> Self {
+        if self.single_instance_reply.is_none() {
+            self = self.single_instance_reply(SINGLE_INSTANCE_REPLY);
+        }
+        self.single_instance_exit = Some(timeout);
         self
     }
 
@@ -470,6 +517,9 @@ pub struct WindowSpec {
     /// Covers the content while the window is not focused, so the task switcher and
     /// screen glances show nothing.
     pub privacy_cover: bool,
+    /// Opened hidden, it stays unminimized where windows cannot hide (Wayland, where a
+    /// window shows only once it first draws): the confirm dialog sizes itself first.
+    pub(crate) hidden_until_drawn: bool,
 }
 
 impl WindowSpec {
@@ -486,6 +536,7 @@ impl WindowSpec {
             persist: None,
             background: None,
             privacy_cover: false,
+            hidden_until_drawn: false,
         }
     }
 
@@ -685,6 +736,8 @@ enum Cmd {
     Focus(u64),
     OnTop(u64, bool),
     Title(u64, String),
+    Size(u64, Size),
+    Center(u64),
     BeginMove(u64),
     BeginResize(u64, ResizeEdge),
     Minimize(u64, bool),
@@ -783,7 +836,7 @@ struct Shared {
     next_job: u64,
     jobs: HashMap<u64, Job>,
     done: Arc<Mutex<Vec<(u64, JobResult)>>>,
-    on_launch: Option<Rc<dyn Fn(Vec<String>)>>,
+    on_launch: Option<Rc<dyn Fn(Vec<String>) -> crate::instance::InstanceReply>>,
     /// The app's id, for its badge ([`AppConfig::app_id`]).
     app_id: String,
     /// Links in these schemes reach [`App::on_url`].
@@ -1479,15 +1532,65 @@ impl App {
         self.0.borrow_mut().on_foreground_stopped = Some(Rc::new(f));
     }
 
+    /// Asks the person a question in a small window of the app's own, drawn in the app's
+    /// theme, then calls `done` with the answer: true for the yes button, false for the no
+    /// button, Escape, or closing the window. It works with no other window open (a tray
+    /// app asking "Quit?"): the window opens centered, above other windows, in front and
+    /// focused, as a message box that sets itself in front does. Enter presses the focused
+    /// button (the no button when [`ConfirmSpec::danger`](crate::ConfirmSpec::danger)), Tab
+    /// moves between the buttons, and screen readers meet it as a dialog with its title and
+    /// text. Its window is one of the app's, so an app without
+    /// [`App::keep_running`] quits when it closes and no other window is open.
+    ///
+    /// ```no_run
+    /// # fn setup(app: &remedy_ui::App) {
+    /// use remedy_ui::ConfirmSpec;
+    ///
+    /// let a = app.clone();
+    /// let ask = ConfirmSpec::new("Quit Portal?", "Anything playing will stop.").ok("Yes").cancel("No").danger(true);
+    /// app.confirm(ask, move |yes| if yes { a.quit() });
+    /// # }
+    /// ```
+    #[cfg(feature = "widgets")]
+    pub fn confirm(&self, spec: crate::ConfirmSpec, done: impl FnOnce(bool) + 'static) -> Window {
+        crate::confirm::open(self, spec, Box::new(done))
+    }
+
     /// Called when the tray icon is used.
     pub fn on_tray(&self, f: impl Fn(TrayEvent) + 'static) {
         self.0.borrow_mut().on_tray = Some(Rc::new(f));
     }
 
     /// Called when the app is launched again while running (with
-    /// [`AppConfig::single_instance`]), with that launch's arguments.
-    pub fn on_second_instance(&self, f: impl Fn(Vec<String>) + 'static) {
-        self.0.borrow_mut().on_launch = Some(Rc::new(f));
+    /// [`AppConfig::single_instance`]), with that launch's arguments. What it returns is the
+    /// reply a launch waiting for one gets ([`AppConfig::single_instance_reply`]): nothing
+    /// (`()`, which answers 0), an exit code, or [`InstanceReply::later`](crate::InstanceReply::later)
+    /// for a code sent once slower work is done.
+    ///
+    /// ```no_run
+    /// # fn setup(app: &remedy_ui::App) {
+    /// use remedy_ui::InstanceReply;
+    ///
+    /// let a = app.clone();
+    /// app.on_second_instance(move |args| {
+    ///     if args.iter().any(|x| x == "--stop") {
+    ///         let (reply, later) = InstanceReply::later();
+    ///         let a2 = a.clone();
+    ///         a.background(|| 0, move |code| {
+    ///             later.send(code);
+    ///             a2.quit();
+    ///         });
+    ///         return reply;
+    ///     }
+    ///     InstanceReply::code(0)
+    /// });
+    /// # }
+    /// ```
+    pub fn on_second_instance<R: Into<crate::instance::InstanceReply>>(
+        &self,
+        f: impl Fn(Vec<String>) -> R + 'static,
+    ) {
+        self.0.borrow_mut().on_launch = Some(Rc::new(move |args| f(args).into()));
     }
 
     /// Runs a native open or save dialog (modal to `window`), then `done` with the chosen
@@ -1727,6 +1830,18 @@ impl Window {
         let title = title.into();
         self.app.0.borrow_mut().titles.insert(self.key, title.clone());
         self.app.push(Cmd::Title(self.key, title));
+    }
+
+    /// Resizes the content to `width` × `height` logical pixels (the platform may adjust it;
+    /// [`Window::on_geometry`] reports what it chose).
+    pub fn set_size(&self, width: f32, height: f32) {
+        self.app.push(Cmd::Size(self.key, Size::new(width, height)));
+    }
+
+    /// Moves the window to the middle of its display, as a message box opens. Where the
+    /// platform places windows itself (Wayland, a browser, Android) it stays where it is.
+    pub fn center(&self) {
+        self.app.push(Cmd::Center(self.key));
     }
 
     /// The window's title (empty once it closed).
@@ -2335,12 +2450,16 @@ impl Runner {
         self
     }
 
-    fn launched(&mut self, args: Vec<String>) {
+    fn launched(&mut self, args: Vec<String>, reply: Option<std::sync::mpsc::Sender<i32>>) {
         #[cfg(feature = "desktop")]
         self.app.links_in(&args);
         let cb = self.app.0.borrow().on_launch.clone();
-        if let Some(cb) = cb {
-            cb(args);
+        let answer = match cb {
+            Some(cb) => cb(args),
+            None => crate::instance::InstanceReply::code(0),
+        };
+        if let Some(to) = reply {
+            answer.deliver(to);
         }
     }
 
@@ -2429,7 +2548,9 @@ impl Runner {
                 // A window asked to open hidden where windows cannot hide opens minimized:
                 // the platform shows it regardless.
                 if unhideable && !spec.options.visible {
-                    host.set_minimized(id, true);
+                    if !spec.hidden_until_drawn {
+                        host.set_minimized(id, true);
+                    }
                     self.app.note_visible(key, true);
                 }
                 self.by_host.insert(id, key);
@@ -2508,6 +2629,17 @@ impl Runner {
             Cmd::Title(key, t) => {
                 if let Some(h) = self.host_of(key) {
                     host.set_title(h, &t);
+                }
+            }
+            Cmd::Size(key, size) => {
+                if let Some(h) = self.host_of(key) {
+                    let _ = host.set_size(h, size);
+                }
+            }
+            Cmd::Center(key) => {
+                if let Some(h) = self.host_of(key) {
+                    // Where the platform places windows itself, it already chose.
+                    let _ = host.center_window(h);
                 }
             }
             Cmd::BeginMove(key) => {
@@ -3396,14 +3528,19 @@ impl remedy_ui_host::App for Runner {
         let launches = std::mem::take(
             &mut self.inbox.lock().unwrap_or_else(std::sync::PoisonError::into_inner).launches,
         );
-        for args in launches {
-            self.launched(args);
+        for l in launches {
+            self.launched(l.args, l.reply);
         }
         match event {
             HostEvent::Resumed => {
                 self.suspended = false;
                 remedy_ui_view::device::set_total_memory(host.total_memory());
                 if let Some(setup) = self.setup.take() {
+                    #[cfg(all(
+                        feature = "playback",
+                        not(any(target_arch = "wasm32", target_os = "android", target_os = "ios"))
+                    ))]
+                    crate::pip::install(&self.app);
                     setup(&self.app);
                 } else {
                     // Back from a suspension: the windows are seen again, on new surfaces.
@@ -3826,7 +3963,7 @@ impl remedy_ui_host::App for Runner {
                     cb(e);
                 }
             }
-            HostEvent::SecondInstance(args) => self.launched(args),
+            HostEvent::SecondInstance(args) => self.launched(args, None),
             HostEvent::MemoryPressure(level) => {
                 for w in self.wins.values_mut() {
                     if let Some(c) = w.comp.as_mut() {

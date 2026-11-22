@@ -165,7 +165,11 @@ impl NumberSymbols {
             let whole = magnitude - i16::from(exponent) + 1;
             let mut sig = d.clone();
             sig.multiply_pow10(-i16::from(exponent));
-            sig.round(-(i16::from(options.significant_digits) - whole).max(0));
+            let keep = match options.max_fraction_digits {
+                Some(n) => i16::from(n),
+                None => (i16::from(options.significant_digits) - whole).max(0),
+            };
+            sig.round(-keep);
             if f.compact_exponent_for_magnitude(sig.nonzero_magnitude_start() + i16::from(exponent))
                 != exponent
             {
@@ -467,11 +471,15 @@ pub struct CompactOptions {
     /// Significant digits kept, whole digits never dropped: 2, the default, gives `1.2K`,
     /// `12K`, `123K`; 3 gives `1.23K`, `12.3K`, `123K`; 1 gives `1K`.
     pub significant_digits: u8,
+    /// At most this many digits after the point, whatever the size, as `Intl.NumberFormat`'s
+    /// `maximumFractionDigits` does with compact notation: 1 gives `1.2K`, `12.3K`, `123.5K`.
+    /// `None`, the default, follows [`CompactOptions::significant_digits`].
+    pub max_fraction_digits: Option<u8>,
 }
 
 impl Default for CompactOptions {
     fn default() -> Self {
-        CompactOptions { threshold: None, significant_digits: 2 }
+        CompactOptions { threshold: None, significant_digits: 2, max_fraction_digits: None }
     }
 }
 
@@ -487,6 +495,13 @@ impl CompactOptions {
     #[must_use]
     pub fn significant_digits(mut self, n: u8) -> Self {
         self.significant_digits = n;
+        self
+    }
+
+    /// Sets [`CompactOptions::max_fraction_digits`].
+    #[must_use]
+    pub fn max_fraction_digits(mut self, n: u8) -> Self {
+        self.max_fraction_digits = Some(n);
         self
     }
 }

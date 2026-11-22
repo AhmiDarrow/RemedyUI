@@ -241,15 +241,32 @@ fn finish(mut rgba: RgbaImage, srgb: Option<&Srgb>, show_at: Option<(u32, u32)>)
     match show_at {
         Some((tw, th)) if tw > 0 && th > 0 && (tw < rgba.width() || th < rgba.height()) => {
             let (tw, th) = (tw.min(rgba.width()), th.min(rgba.height()));
-            // Premultiplied, so transparent pixels do not bleed their color into edges.
-            if rgba.width() >= tw * 2 && rgba.height() >= th * 2 {
-                imageops::thumbnail(&rgba, tw, th)
-            } else {
-                imageops::resize(&rgba, tw, th, imageops::FilterType::Triangle)
-            }
+            scale_down(&rgba, tw, th)
         }
         _ => rgba,
     }
+}
+
+/// Premultiplied pixels scaled down to `tw`×`th` with a Lanczos-3 filter, the filter browsers
+/// downscale pictures with as they decode them (Firefox, Skia), so an image looks as sharp as
+/// an `<img>` of that size. A picture many times larger is first averaged down to twice the
+/// size (cheap, and exact enough for what Lanczos then does).
+fn scale_down(rgba: &RgbaImage, tw: u32, th: u32) -> RgbaImage {
+    let staged;
+    let from = if rgba.width() >= tw * 4 && rgba.height() >= th * 4 {
+        staged = imageops::thumbnail(rgba, tw * 2, th * 2);
+        &staged
+    } else {
+        rgba
+    };
+    let mut out = imageops::resize(from, tw, th, imageops::FilterType::Lanczos3);
+    // Lanczos rings: keep each color within its alpha, as premultiplied pixels must be.
+    for [r, g, b, a] in out.as_chunks_mut::<4>().0 {
+        *r = (*r).min(*a);
+        *g = (*g).min(*a);
+        *b = (*b).min(*a);
+    }
+    out
 }
 
 /// Makes `width`×`height` straight-alpha RGBA8 pixels (`rgba`, row by row) ready to draw, the
@@ -309,7 +326,8 @@ impl Srgb {
     }
 }
 
-fn premultiply(rgba: &mut RgbaImage) {
+/// Straight-alpha RGBA pixels to premultiplied, in place.
+pub(crate) fn premultiply(rgba: &mut [u8]) {
     for [r, g, b, a] in rgba.as_chunks_mut::<4>().0 {
         if *a < 255 {
             let m = |c: u8| ((u16::from(c) * u16::from(*a) + 127) / 255) as u8;

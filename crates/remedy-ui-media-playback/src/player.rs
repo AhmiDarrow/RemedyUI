@@ -90,6 +90,13 @@ pub struct PlayerOptions {
     pub volume_on_hover: bool,
     /// Starts in the compact layout ([`Player::set_compact`]).
     pub compact: bool,
+    /// Going compact pauses what plays here, as Portal's mini player does; a device the
+    /// player [casts](Player::set_remote) to plays on, and coming back does not play again.
+    /// Off by default: the compact layout keeps playing ([`Player::set_compact_pauses`]).
+    pub compact_pauses: bool,
+    /// Which of a browser's ways to play media a page's player uses (ignored elsewhere): for
+    /// the platform's own host ([`Player::open_platform`], [`Player::empty_platform`]).
+    pub web_backend: crate::WebBackend,
     /// Keeps the screen on while video plays here ([`Player::set_keep_awake`]); off by
     /// default.
     pub keep_awake: bool,
@@ -517,6 +524,18 @@ impl PlayerOptions {
         self
     }
 
+    /// Sets `compact_pauses`: going compact pauses what plays here.
+    pub fn compact_pauses(mut self, value: bool) -> Self {
+        self.compact_pauses = value;
+        self
+    }
+
+    /// Sets `web_backend`: which of a browser's ways to play media a page's player uses.
+    pub fn web_backend(mut self, value: crate::WebBackend) -> Self {
+        self.web_backend = value;
+        self
+    }
+
     /// Sets `caption_step`: how far each captions Earlier or Later press moves the timing.
     pub fn caption_step(mut self, value: Duration) -> Self {
         self.caption_step = value;
@@ -549,6 +568,8 @@ impl Default for PlayerOptions {
             two_rows: false,
             volume_on_hover: false,
             compact: false,
+            compact_pauses: false,
+            web_backend: crate::WebBackend::Auto,
             keep_awake: false,
             caption_step: Duration::from_millis(500),
             caption_delay_limit: Duration::from_secs(600),
@@ -560,6 +581,35 @@ thread_local! {
     /// Each player on this (UI) thread, by number: what takes its news. The wake a player's
     /// thread posts carries only the number.
     static PLAYERS: RefCell<HashMap<u64, Weak<Inner>>> = RefCell::new(HashMap::new());
+    /// What opens a desktop picture-in-picture window ([`set_pip_window`]).
+    static PIP_WINDOW: RefCell<Option<PipWindow>> = const { RefCell::new(None) };
+}
+
+/// Opens a picture-in-picture window for a player; returns what closes it ([`set_pip_window`]).
+type PipWindow = Rc<dyn Fn(&Player) -> Option<Box<dyn FnOnce()>>>;
+
+/// What opens a player's picture-in-picture window and returns what closes it
+/// ([`set_pip_window`]).
+pub type PipWindowOpener = Box<dyn Fn(&Player) -> Option<Box<dyn FnOnce()>>>;
+
+/// Where a player's picture-in-picture window comes from on this (UI) thread, where the
+/// platform has none of its own (a desktop): `open` opens a window showing the player's
+/// [`player_picture`](crate::player_picture) over other windows and returns what closes it,
+/// or `None` when it could not; it tells the player with [`Player::pip_closed`] when the
+/// person closes it. `remedy_ui::run` sets one on Windows, macOS and Linux (an always-on-top
+/// frameless window that moves and resizes by dragging); `None` takes it away.
+pub fn set_pip_window(open: Option<PipWindowOpener>) {
+    PIP_WINDOW.with(|w| *w.borrow_mut() = open.map(|f| Rc::from(f) as PipWindow));
+}
+
+/// Whether a picture-in-picture window of the app's own can open here: the desktop's
+/// ([`set_pip_window`]), or a page's Document Picture-in-Picture (Chrome).
+fn pip_window_offered() -> bool {
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    if crate::os::web::pip::supported() {
+        return true;
+    }
+    PIP_WINDOW.with(|w| w.borrow().is_some())
 }
 
 fn deliver(id: u64) {
@@ -691,6 +741,17 @@ struct Inner {
     caption_note: Signal<Option<String>>,
     captions_loading: Signal<bool>,
     compact: Signal<bool>,
+    /// The picture is in a picture-in-picture window.
+    pip: Signal<bool>,
+    /// The engine's playout can open one of its own (a page's media element).
+    pip_engine: Signal<bool>,
+    /// Closes the picture-in-picture window of the app's own, while one is open.
+    pip_close: RefCell<Option<Box<dyn FnOnce()>>>,
+    /// What else each picture goes to while that window is open (a page's Document
+    /// Picture-in-Picture): handed to each new engine.
+    mirror: RefCell<Option<engine::Mirror>>,
+    /// Going compact pauses what plays here ([`Player::set_compact_pauses`]).
+    compact_pauses: Cell<bool>,
     /// What plays, shown at the top of the picture in full screen ([`Player::set_title`]).
     title: Signal<Option<String>>,
     /// In full screen, the controls are showing (not faded after a rest).
@@ -726,7 +787,7 @@ impl Inner {
     fn pull(&self) {
         let shared = self.shared.borrow().clone();
         shared.posted.store(false, Ordering::Release);
-        let (state, position, info, error, audio_error, stats, new_tracks, cues, buffered) = {
+        let (state, position, info, error, audio_error, stats, new_tracks, cues, buffered, pip) = {
             let mut s = lock(&shared.status);
             (
                 s.state,
@@ -738,6 +799,7 @@ impl Inner {
                 std::mem::take(&mut s.new_tracks),
                 std::mem::take(&mut s.cues),
                 s.buffered.clone(),
+                (s.pip_able, s.in_pip),
             )
         };
         remedy_ui_reactive::batch(|| {
@@ -768,6 +830,11 @@ impl Inner {
             self.audio_error.set_if_changed(audio_error);
             self.stats.set_if_changed(stats);
             self.buffered.set_if_changed(buffered);
+            self.pip_engine.set_if_changed(pip.0);
+            // The playout's own window says whether it is open (the person may close it).
+            if self.pip_close.borrow().is_none() {
+                self.pip.set_if_changed(pip.1);
+            }
         });
         self.sync_awake();
         // The end starts the countdown to what is next; leaving it (playing again, seeking
@@ -1102,6 +1169,9 @@ impl Inner {
         self.send(Cmd::Sink(self.sink.borrow().clone()));
         self.send(Cmd::Visible(self.visible.get()));
         self.send(Cmd::Speed(self.speed.get_untracked().unwrap_or(1.0)));
+        if let Some(m) = self.mirror.borrow().clone() {
+            self.send(Cmd::Mirror(Some(m)));
+        }
         self.sync_suspend();
     }
 
@@ -1235,7 +1305,8 @@ impl Player {
 
     /// Opens `source` with the platform's own decoders ([`platform_host`](crate::platform_host)).
     pub fn open_platform(ui: &Ui, source: MediaSource, options: PlayerOptions) -> Player {
-        Self::start(ui, crate::platform_host(), Some(source), options)
+        let host = crate::platform_host_with(options.web_backend);
+        Self::start(ui, host, Some(source), options)
     }
 
     /// A player with nothing to play here yet, in [`PlaybackState::Opening`]: put in
@@ -1248,7 +1319,8 @@ impl Player {
 
     /// [`empty`](Self::empty), with the platform's own decoders.
     pub fn empty_platform(ui: &Ui, options: PlayerOptions) -> Player {
-        Self::start(ui, crate::platform_host(), None, options)
+        let host = crate::platform_host_with(options.web_backend);
+        Self::start(ui, host, None, options)
     }
 
     fn start(
@@ -1340,6 +1412,11 @@ impl Player {
             caption_note: Signal::new(None),
             captions_loading: Signal::new(false),
             compact: Signal::new(options.compact),
+            pip: Signal::new(false),
+            pip_engine: Signal::new(false),
+            pip_close: RefCell::new(None),
+            mirror: RefCell::new(None),
+            compact_pauses: Cell::new(options.compact_pauses),
             title: Signal::new(None),
             controls_awake: Signal::new(true),
             key_wakes: Signal::new(0),
@@ -2239,7 +2316,9 @@ impl Player {
     /// Puts the [`player`](crate::player) widget in its compact layout (`true`), as Portal's
     /// mini player: the picture, play and pause, the time and the app's
     /// [title](crate::PlayerParts::title) alone, the "Up next" card under them; or back.
-    /// Playback carries on. Going compact closes the menus opened from the widget (its
+    /// Playback carries on, unless [`set_compact_pauses`](Self::set_compact_pauses) says
+    /// going compact pauses what plays here (a device the player casts to plays on); coming
+    /// back never plays again by itself. Going compact closes the menus opened from the widget (its
     /// captions menu, the app's [cast](Self::on_cast) menu anchored to its button), leaves
     /// full screen and theater mode, and coming back
     /// asks for theater mode again if it was on. A full-screen or theater request from the
@@ -2257,11 +2336,99 @@ impl Player {
             if theater {
                 self.request_theater(false);
             }
+            if self.0.compact_pauses.get() && !self.is_remote_untracked() {
+                self.pause();
+            }
         }
         self.0.compact.set(on);
         if !on && self.0.theater_before_compact.replace(false) {
             self.request_theater(true);
         }
+    }
+
+    /// Whether going compact pauses what plays here ([`PlayerOptions::compact_pauses`]),
+    /// changed while the player lives. A device the player casts to plays on either way.
+    pub fn set_compact_pauses(&self, on: bool) {
+        self.0.compact_pauses.set(on);
+    }
+
+    /// Whether going compact pauses what plays here ([`set_compact_pauses`](Self::set_compact_pauses)).
+    pub fn compact_pauses(&self) -> bool {
+        self.0.compact_pauses.get()
+    }
+
+    /// Whether the picture can go to a picture-in-picture window here: media with pictures,
+    /// played here (not remote), where there is a window to go to. In a page that plays through
+    /// its media element ([`WebBackend::MediaSource`](crate::WebBackend)), the browser's own
+    /// `<video>` picture-in-picture; else Document Picture-in-Picture (Chrome) showing the
+    /// picture; on the desktop, an always-on-top frameless window showing
+    /// [`player_picture`](crate::player_picture) ([`set_pip_window`]). Where there is none
+    /// (Firefox without the media element, a phone app) it is false and the widget's button
+    /// stays hidden. Tracked.
+    pub fn pip_available(&self) -> bool {
+        let pictures = self.info().is_none_or(|i| i.video.is_some());
+        pictures && !self.is_remote() && (self.0.pip_engine.get() || pip_window_offered())
+    }
+
+    /// Whether the picture is in its picture-in-picture window. Tracked.
+    pub fn is_pip(&self) -> bool {
+        self.0.pip.get()
+    }
+
+    /// Moves the picture to a picture-in-picture window ([`pip_available`](Self::pip_available)
+    /// says where), playing on; nothing when there is none or one is open. A browser opens one
+    /// only soon after the person pressed something in the page (the widget's button, a key).
+    pub fn request_pip(&self) {
+        if self.0.pip.get_untracked().unwrap_or(false) || self.is_remote_untracked() {
+            return;
+        }
+        if self.0.pip_engine.get_untracked().unwrap_or(false) {
+            self.0.send(Cmd::Pip(true));
+            return;
+        }
+        match PIP_WINDOW.with(|w| w.borrow().clone()) {
+            Some(open) => {
+                if let Some(close) = open(self) {
+                    self.pip_opened(close, None);
+                }
+            }
+            #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+            None => crate::os::web::pip::open(self),
+            #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+            None => {}
+        }
+    }
+
+    /// Brings the picture back from its picture-in-picture window.
+    pub fn exit_pip(&self) {
+        let close = self.0.pip_close.borrow_mut().take();
+        if let Some(close) = close {
+            self.pip_closed();
+            close();
+        } else if self.0.pip.get_untracked().unwrap_or(false) {
+            self.0.send(Cmd::Pip(false));
+        }
+    }
+
+    /// A picture-in-picture window of the app's own opened: `close` closes it, and `mirror`
+    /// (if any) is handed each picture shown.
+    pub(crate) fn pip_opened(&self, close: Box<dyn FnOnce()>, mirror: Option<engine::Mirror>) {
+        *self.0.pip_close.borrow_mut() = Some(close);
+        if let Some(m) = mirror {
+            *self.0.mirror.borrow_mut() = Some(m.clone());
+            self.0.send(Cmd::Mirror(Some(m)));
+        }
+        self.0.pip.set(true);
+    }
+
+    /// Tells the player its picture-in-picture window of the app's own has closed (the person
+    /// closed it): for what [`set_pip_window`] opens.
+    pub fn pip_closed(&self) {
+        self.0.pip_close.borrow_mut().take();
+        if self.0.mirror.borrow_mut().take().is_some() {
+            self.0.send(Cmd::Mirror(None));
+        }
+        self.0.pip.set_if_changed(false);
     }
 
     /// Whether the widget is in its compact layout. Tracked.
@@ -2330,6 +2497,8 @@ impl Player {
             ui.cancel_timer(t);
         }
         if remote.is_some() {
+            // The picture gives way to the casting stage: its window closes.
+            self.exit_pip();
             self.0.send(Cmd::Pause);
             // Connecting, its volume unknown, until the app hears from the device.
             let muted = self.0.muted.get_untracked();

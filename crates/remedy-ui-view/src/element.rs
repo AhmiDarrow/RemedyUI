@@ -25,6 +25,10 @@ pub struct PaintCx<'a> {
     pub list: &'a mut DisplayList,
     /// The element's size in logical pixels.
     pub size: Size,
+    /// The element's box with each edge on the nearest device pixel, in local logical
+    /// coordinates (near `0, 0, size`): where its background and border are drawn. Pictures
+    /// placed on it land on whole device pixels, as browsers place an `<img>`.
+    pub pixel_box: remedy_ui_core::Rect,
     /// Its resolved style.
     pub style: &'a ResolvedStyle,
     /// The window's theme.
@@ -141,6 +145,7 @@ impl PaintCx<'_> {
                     let mut inner = PaintCx {
                         list: &mut list,
                         size,
+                        pixel_box: remedy_ui_core::Rect::from_origin_size(remedy_ui_core::Point::ZERO, size),
                         style: self.style,
                         theme: self.theme,
                         states: self.states,
@@ -326,6 +331,17 @@ pub(crate) fn with_alts(
     }
     out.push_str(&s[at.min(range.end)..range.end]);
     out
+}
+
+/// `v` rounded up to the 1/64 px grid layout keeps text boxes on, as browsers do (Chrome's
+/// layout unit is 1/64 px): a 21.12 px line stays 21.125 px instead of becoming 22, so stacked
+/// lines do not drift, and a box sized to its text's width never wraps that text when laid
+/// out again. Float noise just above a grid line stays on it.
+pub(crate) fn layout_unit_ceil(v: f32) -> f32 {
+    if !v.is_finite() {
+        return v;
+    }
+    ((v * 64.0 - 1.0 / 256.0).ceil() / 64.0).max(0.0)
 }
 
 /// The paragraph container direction for an element's layout direction.
@@ -553,6 +569,8 @@ pub(crate) struct ElData {
     /// Told when the element becomes seen or unseen, and the last answer it was given.
     pub(crate) on_visibility: Option<Rc<dyn Fn(bool)>>,
     pub(crate) last_visible: Option<bool>,
+    /// How near the window counts as seen for `on_visibility` ([`El::on_visibility_within`]).
+    pub(crate) visibility_margin: f32,
     /// Told where the element is on the window after a frame where that changed.
     pub(crate) on_placed: Option<crate::frame::PlacedHandler>,
     pub(crate) last_placed: Option<Option<crate::Placement>>,
@@ -585,8 +603,8 @@ pub(crate) struct ElData {
     pub(crate) collapsed: bool,
     pub(crate) removed: Vec<Box<dyn FnOnce()>>,
     pub(crate) on_scroll: Option<Rc<dyn Fn(Vec2)>>,
-    /// The last recorded paint chunk, and the size it was recorded at.
-    pub(crate) chunk: Option<(Size, Rc<DisplayList>)>,
+    /// The last recorded paint chunk, and the size and device-grid box it was recorded at.
+    pub(crate) chunk: Option<((Size, remedy_ui_core::Rect), Rc<DisplayList>)>,
     /// Bindings owned by this element, disposed with it.
     pub(crate) effects: Vec<Effect>,
     /// Bindings of properties set by name ([`crate::IntoProp`]): setting the property again
@@ -1877,6 +1895,20 @@ impl Ui {
     pub fn reader_view(&self) -> Vec<remedy_ui_a11y::ReaderNode> {
         self.0.borrow().a11y.reader_view()
     }
+
+    /// True when a showing modal (`Semantics::modal`) makes `el` or one of its ancestors
+    /// inert: it is behind the modal, out of a screen reader's reach on purpose.
+    pub fn behind_modal(&self, el: ElementId) -> bool {
+        let i = self.0.borrow();
+        let mut cur = Some(el);
+        while let Some(id) = cur {
+            if i.a11y.is_inert(root_key(id)) {
+                return true;
+            }
+            cur = i.tree.parent(id);
+        }
+        false
+    }
 }
 
 impl El {
@@ -1937,6 +1969,7 @@ impl ElData {
             last_size: None,
             on_visibility: None,
             last_visible: None,
+            visibility_margin: 0.0,
             on_placed: None,
             last_placed: None,
             scroll_follow: None,
@@ -2465,9 +2498,18 @@ impl El {
     /// transparent, and the window is not minimized or covered ([`Ui::set_occluded`]).
     /// Animations pause while unseen; lazy content loads when first seen.
     pub fn on_visibility(self, f: impl Fn(bool) + 'static) -> Self {
+        self.on_visibility_within(0.0, f)
+    }
+
+    /// Like [`on_visibility`](Self::on_visibility), counting the element as seen once it is
+    /// within `margin` logical pixels of the window and of every scroll container or clipping
+    /// element around it (CSS `IntersectionObserver`'s `rootMargin`): content near the
+    /// viewport loads before it scrolls in, as `loading="lazy"` does on the web.
+    pub fn on_visibility_within(self, margin: f32, f: impl Fn(bool) + 'static) -> Self {
         if let Some(d) = self.ui.0.borrow_mut().els.get_mut(&self.id) {
             d.on_visibility = Some(Rc::new(f));
             d.last_visible = None;
+            d.visibility_margin = if margin.is_finite() { margin.max(0.0) } else { 0.0 };
         }
         self.ui.request(Request::Frame);
         self
@@ -2886,6 +2928,14 @@ impl El {
         self.style(remedy_ui_style::Style::default().text_transform(t))
     }
 
+    /// Sets how tall each line of text is (CSS `line-height`), inherited by descendants:
+    /// `LineHeight::Relative(1.5)` for CSS `line-height: 1.5`, `LineHeight::Absolute(24.0)` for
+    /// `24px`. The default is `Relative(1.33)`. Style sheets set the same with
+    /// [`Style::line_height`](remedy_ui_style::Style::line_height).
+    pub fn line_height(self, h: remedy_ui_style::LineHeight) -> Self {
+        self.style(remedy_ui_style::Style::default().line_height(h))
+    }
+
     /// Keeps the text on one line instead of wrapping.
     pub fn nowrap(self) -> Self {
         {
@@ -2942,7 +2992,7 @@ impl El {
                 Some(w) if p.is_lazy() && !p.is_complete() => w.max(p.width()),
                 _ => p.width(),
             };
-            Size::new(w.ceil(), p.height().ceil())
+            Size::new(layout_unit_ceil(w), layout_unit_ceil(p.height()))
         };
         let Ok(node) = i.layout.measured(&style, measure) else { return };
         let parent = i.tree.parent(self.id).and_then(|p| i.els.get(&p).map(|d| d.node));
@@ -3030,6 +3080,13 @@ impl El {
         let tree = self.ui.tree();
         let _ = tree.focus(self.id);
         crate::events::focus_changed(&self.ui);
+    }
+
+    /// Moves keyboard focus here with its focus ring shown, as a Tab there would: a dialog's
+    /// default button, which Enter presses, looks chosen before any key is pressed.
+    pub fn focus_visibly(&self) {
+        self.ui.0.borrow_mut().focus_visible = true;
+        self.focus();
     }
 
     /// The style the element would have in `states`, from the window's style sheet (and its

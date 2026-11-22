@@ -714,7 +714,7 @@ type ReaderRow = (Option<String>, Option<(usize, usize)>, Vec<&'static str>, u64
 fn list_rows(t: &T) -> Vec<ReaderRow> {
     t.ui.reader_view()
         .into_iter()
-        .filter(|n| n.role == remedy_ui_a11y::Role::ListItem)
+        .filter(|n| n.role == remedy_ui_a11y::Role::Option)
         .map(|n| (n.name, n.position, n.states, n.id))
         .collect()
 }
