@@ -580,7 +580,7 @@ fn tray_dialogs_and_second_launches_reach_the_app() {
         app.set_tray(Some(TrayIcon::new(
             "SecretSticky",
             TrayImage { size: 2, rgba: vec![255; 16] },
-            vec![TrayItem::Item { id: 7, label: "New note".into(), enabled: true }, TrayItem::Separator],
+            vec![TrayItem::item(7, "New note"), TrayItem::Separator],
         )));
         app.on_tray(move |e| e2.borrow_mut().push(e));
         app.on_second_instance(move |a| l2.borrow_mut().push(a));
@@ -800,14 +800,17 @@ fn an_app_language_outlasts_the_system_s_until_it_is_cleared() {
     let mut s = {
         let mut v_ = remedy_ui::host::SystemSettings::default();
         v_.locale = "de-DE".into();
+        v_.locales = vec!["de-DE".into(), "fr".into(), "en".into()];
         v_
     };
     host.send(HostEvent::Settings(s.clone()));
     host.run_frames(&mut runner, 1);
     assert_eq!(locale(&ui_slot).as_deref(), Some("de-DE"));
+    assert_eq!(runner.app().preferred_locales(), ["de-DE", "fr", "en"]);
     runner.app().set_locale(Some("ja".into()));
     host.run_frames(&mut runner, 1);
     assert_eq!(locale(&ui_slot).as_deref(), Some("ja"));
+    assert_eq!(runner.app().preferred_locales(), ["de-DE", "fr", "en"], "the user's list, not the app's");
     s.locale = "fr-FR".into();
     host.send(HostEvent::Settings(s));
     host.run_frames(&mut runner, 1);
@@ -2005,6 +2008,38 @@ fn a_finger_swipe_scrolls_and_a_tap_still_clicks() {
     host.send(HostEvent::Pointer(id, finger(100.0, PointerPhase::Up)));
     host.run_frames(&mut runner, 1);
     assert_eq!((menus.get(), taps.get()), (1, 1), "lifting after a long press is not a tap");
+}
+
+#[test]
+fn a_finger_tap_on_a_field_opens_the_keyboard() {
+    let field_el = Rc::new(std::cell::RefCell::new(None));
+    let f2 = field_el.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let f3 = f2.clone();
+        app.open(WindowSpec::new("Form").size(200.0, 200.0), move |ui, _| {
+            let field = ui.text_field("text_input", FieldKind::Single).el().height(40.0);
+            *f3.borrow_mut() = Some(field.clone());
+            ui.root().child(field);
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    let field = field_el.borrow().clone().unwrap_or_else(|| unreachable!("the field"));
+    let b = field.bounds().unwrap_or_default();
+    let (x, y) = ((b.min.x + b.max.x) * 0.5, (b.min.y + b.max.y) * 0.5);
+    assert!(b.width() > 0.0 && b.height() > 0.0, "the field is laid out: {b:?}");
+    let finger = |phase| {
+        press(x, y, phase).with_id(1).with_kind(remedy_ui::input::PointerKind::Touch)
+    };
+    host.send(HostEvent::Pointer(id, finger(PointerPhase::Down)));
+    host.send(HostEvent::Pointer(id, finger(PointerPhase::Up)));
+    host.run_frames(&mut runner, 1);
+    assert!(field.is_focused(), "a tap focuses the field");
+    assert!(
+        host.window(id).is_some_and(|w| w.text_input().is_some()),
+        "focus opened a text-input session"
+    );
 }
 
 #[test]

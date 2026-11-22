@@ -3,10 +3,12 @@
 //! Effects never reach the GPU as shader code. A compiled program is data: instructions in
 //! a small integer texture and its constants in a float texture. The kernel below is written
 //! and tested by us, interprets those instructions for every pixel (the same specification
-//! as the CPU interpreter in `remedy_ui_effects::vm`), and stops after a fixed number of
-//! instructions whatever the data says. Next to it: a separable Gaussian blur and instanced
-//! particle splats. All pipelines are made once per device, so loading a theme compiles
-//! nothing.
+//! as the CPU interpreter in `remedy_ui_effects::vm`), and runs exactly the program's
+//! instructions (as many as the effect's [`Limits`](remedy_ui_effects::Limits) let it have).
+//! Next to it: a separable Gaussian blur and instanced particle splats. All pipelines are
+//! made once per device, so loading a theme compiles nothing; the one exception is the
+//! kernel's wide form, built the first time a program needs more than 64 registers (an app
+//! raising [`Limits::max_registers`](remedy_ui_effects::Limits) past 64).
 //!
 //! Every texture stage reads only what the effect owns: its own textures, its earlier passes
 //! and its last frame.
@@ -25,8 +27,20 @@ use crate::{GpuContext, GpuError};
 const CODE_ROW: u32 = 2048;
 /// Constants per row of the constant texture.
 const CONST_ROW: u32 = 256;
-/// The most instructions the kernel runs for one pixel, whatever the program says.
-const MAX_CODE: u32 = 16_384;
+/// Registers the kernel's fast form holds; a program needing more (up to the encoding's 256)
+/// runs on a wider form, built the first time one does. A WGSL private array has a size fixed
+/// when the shader is built, and a larger one costs every pixel of every effect (more private
+/// memory a thread, fewer threads in flight), so the common size stays the fast one.
+const KERNEL_REGS: u32 = 64;
+/// Registers of the wide form: every register an instruction can name (8-bit fields).
+const WIDE_REGS: u32 = 256;
+
+/// The kernel's source with a register file of `regs` (a power of two).
+fn kernel_source(regs: u32) -> String {
+    KERNEL
+        .replace("array<vec4<f32>, 64>", &format!("array<vec4<f32>, {regs}>"))
+        .replace("& 63u", &format!("& {}u", regs - 1))
+}
 
 const KERNEL: &str = r"
 struct Header {
@@ -242,7 +256,7 @@ fn mask(n: u32) -> vec4<f32> { return vec4<f32>(1.0, f32(n >= 2u), f32(n >= 3u),
 @fragment
 fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     let uv = pos.xy / H.view.xy;
-    let n = min(H.info.x, 16384u);
+    let n = H.info.x;
     for (var pc = 0u; pc < n; pc++) {
         let half = pc / 2u;
         let w = textureLoad(code, vec2<i32>(i32(half % 1024u), i32(half / 1024u)), 0);
@@ -435,6 +449,8 @@ fn fs(o: Out) -> @location(0) vec4<f32> {
 #[derive(Debug)]
 pub(crate) struct Kernels {
     shade: wgpu::RenderPipeline,
+    /// The kernel with [`WIDE_REGS`] registers, made the first time a program needs it.
+    wide: std::sync::OnceLock<wgpu::RenderPipeline>,
     shade_layout: wgpu::BindGroupLayout,
     blur: wgpu::RenderPipeline,
     blur_layout: wgpu::BindGroupLayout,
@@ -530,7 +546,7 @@ impl Kernels {
         });
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("RemedyUI effect kernel"),
-            source: wgpu::ShaderSource::Wgsl(KERNEL.into()),
+            source: wgpu::ShaderSource::Wgsl(kernel_source(KERNEL_REGS).into()),
         });
         let shade = fullscreen(device, "RemedyUI effect kernel", &module, &shade_layout, None);
 
@@ -631,6 +647,7 @@ impl Kernels {
         );
         Kernels {
             shade,
+            wide: std::sync::OnceLock::new(),
             shade_layout,
             blur,
             blur_layout,
@@ -640,6 +657,20 @@ impl Kernels {
             clamp: sampler(wgpu::AddressMode::ClampToEdge),
             empty: empty.create_view(&wgpu::TextureViewDescriptor::default()),
         }
+    }
+
+    /// The shading kernel for a program using `regs` registers.
+    fn shade_for(&self, device: &wgpu::Device, regs: u8) -> &wgpu::RenderPipeline {
+        if u32::from(regs) <= KERNEL_REGS {
+            return &self.shade;
+        }
+        self.wide.get_or_init(|| {
+            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("RemedyUI effect kernel (wide)"),
+                source: wgpu::ShaderSource::Wgsl(kernel_source(WIDE_REGS).into()),
+            });
+            fullscreen(device, "RemedyUI effect kernel (wide)", &module, &self.shade_layout, None)
+        })
     }
 
     /// The kernels of `ctx`'s device, made on first use.
@@ -1027,7 +1058,7 @@ impl GpuEffect {
                     let aspect = if input.height > 0.0 { input.width / input.height } else { 1.0 };
                     let time = if input.time.is_finite() { input.time.rem_euclid(3600.0) } else { 0.0 };
                     let mut header = bytes_u32(&[
-                        (program.code.len() as u32).min(MAX_CODE),
+                        u32::try_from(program.code.len()).unwrap_or(u32::MAX),
                         u32::from(program.outputs.first().copied().unwrap_or(0)),
                         0,
                         0,
@@ -1090,7 +1121,7 @@ impl GpuEffect {
                         entries: &entries,
                     });
                     let mut rp = pass(&mut encoder, view, wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT));
-                    rp.set_pipeline(&k.shade);
+                    rp.set_pipeline(k.shade_for(device, program.regs));
                     rp.set_bind_group(0, &bind, &[]);
                     rp.draw(0..3, 0..1);
                     let px = u64::from(w) * u64::from(h);

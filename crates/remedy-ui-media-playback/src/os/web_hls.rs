@@ -8,8 +8,8 @@ use super::{
     has_global, js_error, obj, video_output,
 };
 use crate::hls::{
-    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Hls, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
-    WAIT_SLICE, Want, WantKind, answered, timed_out,
+    AudioCodec, AudioConfig, Elementary, Hls, Unit, VideoConfig, WAIT_SLICE, Want, WantKind, answered,
+    first_byte, load, max_fetch, quiet, timed_out,
 };
 use crate::host::{Decoder, MediaError, MediaInfo, Sample};
 use js_sys::{Object, Promise, Uint8Array};
@@ -282,8 +282,8 @@ async fn sleep(d: Duration) {
 }
 
 /// Fetches `url` whole. Aborted, as a timeout the reader retries, when no answer comes for
-/// [`FIRST_BYTE`], the body goes quiet for [`QUIET`] (a stalled download, started again), or
-/// the whole takes [`LOAD`].
+/// `first_byte()`, the body goes quiet for `quiet()` (a stalled download, started again), or
+/// the whole takes `load()`.
 async fn fetch_all(url: &str) -> Result<Vec<u8>, MediaError> {
     let not_found = |e: JsValue| MediaError::NotFound(js_error(url, &e));
     let win = web_sys::window().ok_or_else(|| MediaError::Unsupported("no browser window".into()))?;
@@ -292,7 +292,7 @@ async fn fetch_all(url: &str) -> Result<Vec<u8>, MediaError> {
     init.set_signal(Some(&abort.signal()));
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;
     // When bytes last came (the start, until the answer) and how long they may stop; NaN once done.
-    let watch = Rc::new(Cell::new((js_sys::Date::now(), FIRST_BYTE)));
+    let watch = Rc::new(Cell::new((js_sys::Date::now(), first_byte())));
     let timed = Rc::new(Cell::new(None::<&'static str>));
     {
         let (watch, timed, abort, started) =
@@ -304,7 +304,7 @@ async fn fetch_all(url: &str) -> Result<Vec<u8>, MediaError> {
                 let now = js_sys::Date::now();
                 let why = if last.is_nan() {
                     return;
-                } else if now - started > ms(LOAD) {
+                } else if now - started > ms(load()) {
                     "the download took too long"
                 } else if now - last > ms(limit) {
                     "nothing arrived"
@@ -325,7 +325,7 @@ async fn fetch_all(url: &str) -> Result<Vec<u8>, MediaError> {
         if !resp.ok() {
             return Err(answered(url, u32::from(resp.status())));
         }
-        watch.set((js_sys::Date::now(), QUIET));
+        watch.set((js_sys::Date::now(), quiet()));
         let Some(body) = resp.body() else { return Ok(Vec::new()) };
         let reader: web_sys::ReadableStreamDefaultReader = body.get_reader().unchecked_into();
         let mut out = Vec::new();
@@ -342,14 +342,14 @@ async fn fetch_all(url: &str) -> Result<Vec<u8>, MediaError> {
             if let Some(to) = out.get_mut(at..) {
                 bytes.copy_to(to);
             }
-            if out.len() > MAX_FETCH {
-                return Err(MediaError::Format(format!("{url}: over {MAX_FETCH} bytes")));
+            if out.len() > max_fetch() {
+                return Err(MediaError::Format(format!("{url}: over {} bytes", max_fetch())));
             }
-            watch.set((js_sys::Date::now(), QUIET));
+            watch.set((js_sys::Date::now(), quiet()));
         }
     }
     .await;
-    watch.set((f64::NAN, QUIET));
+    watch.set((f64::NAN, quiet()));
     got.map_err(|e| timed.get().map_or(e, |why| timed_out(url, why)))
 }
 

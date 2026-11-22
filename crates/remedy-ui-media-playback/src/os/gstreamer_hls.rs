@@ -13,8 +13,8 @@ use super::gstreamer::{
 };
 use super::gstreamer_stream::{Pipe, pull, pull_sample};
 use crate::hls::{
-    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
-    file_path, missing, timed_out,
+    AudioCodec, AudioConfig, Elementary, Fetch, Unit, VideoConfig, file_path, first_byte, load, max_fetch,
+    missing, quiet, timed_out,
 };
 use crate::host::{MediaError, Sample, VideoCodec};
 
@@ -383,16 +383,18 @@ impl Fetch for GstFetch {
                     // SAFETY: the sample `pull` handed over, released once.
                     unsafe { (g.mini_object_unref)(s) };
                     out.extend_from_slice(&bytes);
-                    if out.len() > MAX_FETCH {
-                        return Err(MediaError::Format(format!("{url}: over {MAX_FETCH} bytes")));
+                    if out.len() > max_fetch() {
+                        return Err(MediaError::Format(format!("{url}: over {} bytes", max_fetch())));
                     }
                     last = Instant::now();
                 }
                 // Nothing yet waits for the first byte; a download gone quiet is started again.
-                None if last.elapsed() > if out.is_empty() { FIRST_BYTE } else { QUIET } => {
+                None if last.elapsed() > if out.is_empty() { first_byte() } else { quiet() } => {
                     return Err(timed_out(url, "nothing arrived"));
                 }
-                None if started.elapsed() > LOAD => return Err(timed_out(url, "the download took too long")),
+                None if started.elapsed() > load() => {
+                    return Err(timed_out(url, "the download took too long"));
+                }
                 None => {}
             }
         }

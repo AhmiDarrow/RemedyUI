@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use remedy_ui_core::{Color, Point, Rect, Size};
-use remedy_ui_input::{KeyEvent, PinchEvent, Platform, PointerEvent, WheelEvent};
+use remedy_ui_input::{GamepadTuning, KeyEvent, PinchEvent, Platform, PointerEvent, WheelEvent};
 
 mod badge;
 pub use badge::Badge;
@@ -328,9 +328,66 @@ pub enum TrayItem {
         label: String,
         /// Whether it can be chosen.
         enabled: bool,
+        /// The menu's default command (what activating the icon does), shown in bold where
+        /// the platform has a default item (Windows, the X11 tray's menu).
+        default: bool,
+    },
+    /// A command with a check mark; its id comes back in [`TrayEvent::Menu`] and the app
+    /// flips `checked` itself.
+    Check {
+        /// The app's id for it.
+        id: u32,
+        /// What it says.
+        label: String,
+        /// Whether it can be chosen.
+        enabled: bool,
+        /// Whether the mark shows.
+        checked: bool,
+    },
+    /// A nested menu.
+    Submenu {
+        /// What it says.
+        label: String,
+        /// Its entries.
+        items: Vec<TrayItem>,
     },
     /// A separator line.
     Separator,
+}
+
+impl TrayItem {
+    /// An enabled command that is not the default.
+    pub fn item(id: u32, label: impl Into<String>) -> Self {
+        TrayItem::Item { id, label: label.into(), enabled: true, default: false }
+    }
+
+    /// An enabled command with a check mark.
+    pub fn check(id: u32, label: impl Into<String>, checked: bool) -> Self {
+        TrayItem::Check { id, label: label.into(), enabled: true, checked }
+    }
+
+    /// A nested menu.
+    pub fn submenu(label: impl Into<String>, items: Vec<TrayItem>) -> Self {
+        TrayItem::Submenu { label: label.into(), items }
+    }
+
+    /// The id a choice of this entry reports, if it is an enabled command.
+    pub fn chosen_id(&self) -> Option<u32> {
+        match self {
+            TrayItem::Item { id, enabled: true, .. } | TrayItem::Check { id, enabled: true, .. } => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// What it says (empty for a separator).
+    pub fn label(&self) -> &str {
+        match self {
+            TrayItem::Item { label, .. }
+            | TrayItem::Check { label, .. }
+            | TrayItem::Submenu { label, .. } => label,
+            TrayItem::Separator => "",
+        }
+    }
 }
 
 /// What the user did with the tray icon.
@@ -415,9 +472,32 @@ pub struct Notification {
     pub app: String,
     /// The picture shown with it (the app's icon when unset): premultiplied RGBA8.
     pub icon: Option<TrayImage>,
+    /// How much it matters: platforms mark warnings and errors (Linux's urgency and stock
+    /// icon, Windows' toast priority, macOS's interruption level, Android's category, a
+    /// browser keeping it until dismissed).
+    pub urgency: Urgency,
+}
+
+/// How much a [`Notification`] matters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Urgency {
+    /// News: the default.
+    #[default]
+    Info,
+    /// Something the person should look at.
+    Warning,
+    /// Something went wrong.
+    Error,
 }
 
 impl Notification {
+    /// Sets how much it matters.
+    pub fn urgency(mut self, value: Urgency) -> Self {
+        self.urgency = value;
+        self
+    }
+
     /// A notification numbered `id` with a title and a body.
     pub fn new(id: u64, title: impl Into<String>, body: impl Into<String>) -> Self {
         Notification { id, title: title.into(), body: body.into(), ..Notification::default() }
@@ -845,10 +925,21 @@ pub struct SystemSettings {
     pub reduced_transparency: bool,
     /// BCP 47 locale, such as `en-US`.
     pub locale: String,
+    /// The user's preferred languages (BCP 47), most preferred first: `navigator.languages`
+    /// on the web, the Windows display-language list, `LANGUAGE` then `LC_ALL`,
+    /// `LC_MESSAGES` or `LANG` on Linux, `NSLocale.preferredLanguages` on macOS, the
+    /// configuration's locale list on Android. Never empty: `[locale]` where the platform
+    /// gives no list. For choosing among content languages (subtitles, audio tracks).
+    pub locales: Vec<String>,
     /// Longest gap between the clicks of a double click.
     pub double_click: Duration,
     /// Caret blink interval; `None` when the user turned blinking off.
     pub caret_blink: Option<Duration>,
+    /// How long a key is held before it repeats (gamepad directions follow it unless the app
+    /// tunes them: `GamepadTuning`).
+    pub key_repeat_delay: Duration,
+    /// The time between a held key's repeats.
+    pub key_repeat_interval: Duration,
     /// The system draws text with subpixel antialiasing (ClearType on Windows): `Some(bgr)`,
     /// true where the panel's subpixels run blue, green, red; `None` for grayscale or unknown.
     pub subpixel_text: Option<bool>,
@@ -856,6 +947,51 @@ pub struct SystemSettings {
     /// motion slows down or stops (the view's `AmbientPolicy`). False where the platform
     /// does not say.
     pub power_saving: bool,
+    /// The device is driven by arrow keys or a d-pad rather than a pointer: a TV, or a
+    /// browser with only a coarse (touch) pointer. Windows turn spatial navigation on unless
+    /// the app chose (the view's `Ui::set_spatial_navigation`). False on desktops.
+    pub spatial_navigation: bool,
+    /// What the primary pointer can do, where the platform says (the web's `(hover: hover)`
+    /// and `(pointer: fine)` media queries). `None` where the engine goes by the pointer
+    /// last used.
+    pub pointer: Option<PointerCaps>,
+}
+
+/// What the pointer in use can do: widgets show hover-only affordances where it hovers, and
+/// larger targets where it is coarse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct PointerCaps {
+    /// It can hover over things without pressing them (a mouse, a touchpad).
+    pub hover: bool,
+    /// It points precisely (a mouse or a pen, not a finger).
+    pub fine: bool,
+}
+
+impl PointerCaps {
+    /// A mouse or touchpad: hovers and points finely.
+    pub const MOUSE: PointerCaps = PointerCaps { hover: true, fine: true };
+    /// A finger: neither.
+    pub const TOUCH: PointerCaps = PointerCaps { hover: false, fine: false };
+    /// A stylus: fine, but most do not hover in a way pages can count on.
+    pub const PEN: PointerCaps = PointerCaps { hover: false, fine: true };
+
+    /// The caps from what the pointer does.
+    pub fn new(hover: bool, fine: bool) -> PointerCaps {
+        PointerCaps { hover, fine }
+    }
+}
+
+impl Default for PointerCaps {
+    /// What a device starts with before any pointer is used: a finger on phones and
+    /// tablets, a mouse elsewhere.
+    fn default() -> Self {
+        if cfg!(any(target_os = "android", target_os = "ios")) {
+            PointerCaps::TOUCH
+        } else {
+            PointerCaps::MOUSE
+        }
+    }
 }
 
 impl Default for SystemSettings {
@@ -869,10 +1005,15 @@ impl Default for SystemSettings {
             reduced_motion: false,
             reduced_transparency: false,
             locale: String::from("en-US"),
+            locales: vec![String::from("en-US")],
             double_click: Duration::from_millis(500),
             caret_blink: Some(Duration::from_millis(530)),
+            key_repeat_delay: Duration::from_millis(500),
+            key_repeat_interval: Duration::from_millis(33),
             subpixel_text: None,
             power_saving: false,
+            spatial_navigation: false,
+            pointer: None,
         }
     }
 }
@@ -928,8 +1069,52 @@ pub struct TextInputState {
     pub private: bool,
     /// Several lines (Enter inserts a line break instead of submitting).
     pub multiline: bool,
-    /// A number: input methods show their number pad (with a decimal separator).
+    /// A number: input methods show their number pad (with a decimal separator). True for
+    /// [`InputPurpose::Digits`], [`InputPurpose::Decimal`] and [`InputPurpose::OneTimeCode`].
     pub numeric: bool,
+    /// What the field holds, so keyboards show the right keys and password managers and
+    /// autofill know what to offer.
+    pub purpose: InputPurpose,
+}
+
+/// What a text field holds: picks the touch keyboard's layout, the input method's mode, and
+/// what password managers and autofill offer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum InputPurpose {
+    /// Ordinary text.
+    #[default]
+    Text,
+    /// Whole numbers: the number pad, no decimal separator.
+    Digits,
+    /// A number with a decimal separator.
+    Decimal,
+    /// A web address.
+    Url,
+    /// An email address.
+    Email,
+    /// A search query: Enter shows as "search".
+    Search,
+    /// An account name, for password managers.
+    Username,
+    /// The account's existing password, for password managers to fill.
+    CurrentPassword,
+    /// A new password, for password managers to suggest and save.
+    NewPassword,
+    /// A one-time code sent by text or email, for the keyboard to offer.
+    OneTimeCode,
+}
+
+impl InputPurpose {
+    /// Shows the number pad.
+    pub fn is_numeric(self) -> bool {
+        matches!(self, InputPurpose::Digits | InputPurpose::Decimal | InputPurpose::OneTimeCode)
+    }
+
+    /// A password: never learned or predicted.
+    pub fn is_password(self) -> bool {
+        matches!(self, InputPurpose::CurrentPassword | InputPurpose::NewPassword)
+    }
 }
 
 /// What an input method did.
@@ -1325,6 +1510,12 @@ pub trait Host {
     fn set_badge(&mut self, app_id: &str, badge: Option<Badge>) -> Result<(), Unsupported> {
         let _ = (app_id, badge);
         Err(Unsupported::new("app badges", "this platform shows no badges"))
+    }
+    /// How gamepads' held directions repeat and how far their sticks must lean
+    /// (`remedy_ui_input::GamepadTuning`). Hosts that read no gamepads (headless, or
+    /// platforms whose gamepads arrive as the system's own keys) ignore it.
+    fn set_gamepad_tuning(&mut self, tuning: GamepadTuning) {
+        let _ = tuning;
     }
     /// Runs a native open or save dialog, modal to `window`. Desktop dialogs finish inside the
     /// call with the chosen paths (empty when cancelled); others return at once and report
