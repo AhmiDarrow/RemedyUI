@@ -26,7 +26,19 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - **`Resource::with_reply`** in `reactive`: a resource whose fetch answers later through a
   `Reply` sent from any thread, instead of blocking a worker, which is how fetches run in a
   browser page. `Resource::with_executor` is built on it.
-
+- **Fluid poster grids** in `widgets-data`, as Portal's library: `Tiles::fluid(min_width,
+  aspect, extra_height, draw)` fills the width as CSS `repeat(auto-fill, minmax(min, 1fr))`
+  does (`GridGeometry::fluid`), recomputed as the width changes; `grid_view_with(.., GridOptions
+  { own_scroll, interactive_tiles }, ..)` puts the grid in the page's scroll (virtual rows
+  follow the window through any scroll around it) and keeps a card's buttons (Play, Details,
+  Watchlist, Bookmark, Info) for the keyboard and screen readers: Enter moves into the
+  cursor's card, the arrow keys between its buttons, Escape back. `grid_view` is unchanged.
+  The 2,000-poster scene (`widgets-data/tests/poster_grid.rs`) holds the 8 ms frame budget.
+- **Repeated grid tracks** in `layout`: `Track::Repeat(Repeat::AutoFill | AutoFit |
+  Count(n), tracks)`, as CSS `repeat()`, through taffy's own.
+- `El::scroll_rect_into_view(rect)` shows part of an element through the scroll containers
+  around it, and `El::focus_step(forward)` moves focus between the focusable elements inside
+  one, wrapping.
 - **The player's keys from anywhere in the window** in `media-playback`, as Portal's page
   hears them page-wide: `Player::keys_from(&ui.root())` routes the keys nothing focused took
   to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),
