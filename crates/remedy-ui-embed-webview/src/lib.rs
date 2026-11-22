@@ -10,7 +10,9 @@
 //! **Isolation.** The page runs in the platform's own browser processes. Nothing of the app
 //! is reachable from it: no signals, no host objects, no files. One JSON message channel
 //! crosses, in both directions ([`WebView::post_message`], [`WebView::on_message`]); the page
-//! sees it as `window.remedy`:
+//! sees it as `window.remedy`. The app can also run a script ([`WebView::eval`]), set the
+//! user agent ([`WebView::set_user_agent`]) and, on WebView2, call the DevTools protocol
+//! ([`WebView::devtools`]). Those are app calls; the page has no way to invoke them:
 //!
 //! ```js
 //! remedy.onMessage((value) => console.log("from the app", value));
@@ -44,6 +46,7 @@
 mod os;
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -146,6 +149,10 @@ type NavigationFilter = Rc<dyn Fn(&NavigationRequest) -> bool>;
 type MessageListener = Rc<dyn Fn(&serde_json::Value)>;
 type BlockedListener = Rc<dyn Fn(&Blocked)>;
 type DownloadFilter = Rc<dyn Fn(&DownloadRequest) -> bool>;
+type ScriptCallback = Box<dyn FnOnce(Result<String, String>)>;
+
+/// Why a script or DevTools call will not run.
+const VIEW_MISSING: &str = "the web view is missing";
 
 /// How to make a web view.
 #[derive(Clone)]
@@ -229,6 +236,10 @@ pub(crate) struct Hub {
     /// Messages from the page that were not JSON (never delivered).
     malformed: Cell<u64>,
     closed: Cell<bool>,
+    /// The next id for [`begin_script`](Self::begin_script).
+    script_next: Cell<u64>,
+    /// Script and DevTools callbacks waiting for the platform, keyed by id.
+    script_wait: RefCell<HashMap<u64, ScriptCallback>>,
 }
 
 /// A navigation the app started, as the platform will report it.
@@ -373,6 +384,49 @@ impl Hub {
     pub(crate) fn data_dir(&self) -> Option<&std::path::Path> {
         self.options.data_dir.as_deref()
     }
+
+    /// Registers `cb` for one script or DevTools result. The id goes on the [`Command`].
+    pub(crate) fn begin_script(&self, cb: ScriptCallback) -> u64 {
+        let id = self.script_next.get();
+        self.script_next.set(id.wrapping_add(1));
+        self.script_wait.borrow_mut().insert(id, cb);
+        id
+    }
+
+    /// Delivers the result of script `id` once. A second call does nothing.
+    pub(crate) fn finish_script(&self, id: u64, result: Result<String, String>) {
+        let cb = self.script_wait.borrow_mut().remove(&id);
+        if let Some(cb) = cb {
+            cb(result);
+        }
+    }
+
+    /// `c` will never run. A script or DevTools command reports that; other commands have
+    /// nothing waiting.
+    pub(crate) fn abandon(&self, c: &Command) {
+        match c {
+            Command::Eval { id, .. } | Command::Devtools { id, .. } => {
+                self.finish_script(*id, Err(VIEW_MISSING.into()));
+            }
+            _ => {}
+        }
+    }
+
+    /// Reports every script still waiting. In-flight platform callbacks then find nothing.
+    pub(crate) fn abandon_pending(&self) {
+        let pending: Vec<ScriptCallback> = self.script_wait.borrow_mut().drain().map(|(_, cb)| cb).collect();
+        for cb in pending {
+            cb(Err(VIEW_MISSING.into()));
+        }
+    }
+}
+
+/// Wraps `script` so WebKitGTK's string result matches WebView2's `ExecuteScript`: one JSON
+/// value, with `undefined` encoded as `null`. Windows does not use this; WebView2 already
+/// JSON-encodes the completion value.
+pub(crate) fn json_eval(script: &str) -> String {
+    let src = serde_json::to_string(script).unwrap_or_else(|_| "\"\"".into());
+    format!("(function(){{const __v=eval({src});return JSON.stringify(__v===undefined?null:__v);}})()")
 }
 
 /// What the app asks of the platform's view.
@@ -387,6 +441,13 @@ pub(crate) enum Command {
     /// A message to the page, as JSON text.
     Post(String),
     Focus,
+    /// Runs `script` in the page. The platform calls [`Hub::finish_script`] with JSON text.
+    Eval { id: u64, script: String },
+    /// The page's user agent. Empty restores the engine default.
+    UserAgent(String),
+    /// A Chrome DevTools protocol call. `params` is a JSON object. The platform calls
+    /// [`Hub::finish_script`] with the protocol's JSON result.
+    Devtools { id: u64, method: String, params: String },
 }
 
 struct Shared {
@@ -408,10 +469,13 @@ impl std::fmt::Debug for WebView {
 impl WebView {
     fn command(&self, c: Command) {
         if self.0.hub.closed.get() {
+            self.0.hub.abandon(&c);
             return;
         }
         if let Some(n) = self.0.native.borrow().as_ref() {
             n.command(c);
+        } else {
+            self.0.hub.abandon(&c);
         }
     }
 
@@ -448,6 +512,40 @@ impl WebView {
     /// Moves keyboard focus into the page.
     pub fn focus(&self) {
         self.command(Command::Focus);
+    }
+
+    /// Runs `script` in the top frame and calls `f` once, on the UI thread, with the result
+    /// as JSON text. WebView2's `ExecuteScript` already returns that shape (`undefined` is
+    /// `null`, a string is a JSON string, an object is JSON). WebKitGTK runs the script
+    /// inside a wrapper that produces the same text. `f` is called with an error when the
+    /// view is missing, still starting and then fails, or already closed, so a caller never
+    /// waits on a callback that cannot run. The page cannot call this.
+    pub fn eval(&self, script: impl Into<String>, f: impl FnOnce(Result<String, String>) + 'static) {
+        let id = self.0.hub.begin_script(Box::new(f));
+        self.command(Command::Eval { id, script: script.into() });
+    }
+
+    /// Sets the user agent sent with the page's requests. An empty string restores the
+    /// engine's own agent. The change applies to later loads.
+    pub fn set_user_agent(&self, ua: impl Into<String>) {
+        self.command(Command::UserAgent(ua.into()));
+    }
+
+    /// Calls the Chrome DevTools protocol method `method` with `params` (a JSON object,
+    /// `"{}"` when the method takes none) and calls `f` once with the protocol's JSON
+    /// result. On WebView2 this is `CallDevToolsProtocolMethod`, which does not depend on
+    /// the context-menu developer-tools switch, though some input methods are only accepted
+    /// when [`WebViewOptions::devtools`] was turned on for this view. WebKitGTK has no
+    /// DevTools protocol, so `f` is called with an error there and the app can fall back.
+    /// `f` runs on the UI thread. The page cannot call this.
+    pub fn devtools(
+        &self,
+        method: impl Into<String>,
+        params: impl Into<String>,
+        f: impl FnOnce(Result<String, String>) + 'static,
+    ) {
+        let id = self.0.hub.begin_script(Box::new(f));
+        self.command(Command::Devtools { id, method: method.into(), params: params.into() });
     }
 
     /// Sends `value` to the page, which receives it in its `remedy.onMessage` listeners.
@@ -542,6 +640,8 @@ pub fn web_view(ui: &Ui, options: WebViewOptions) -> (El, WebView) {
         blocked: RefCell::new(Vec::new()),
         malformed: Cell::new(0),
         closed: Cell::new(false),
+        script_next: Cell::new(0),
+        script_wait: RefCell::new(HashMap::new()),
     });
     let native = match ui.window_handles() {
         Some(handles) => match os::Native::new(&*handles, hub.clone(), ui.downgrade()) {
@@ -635,6 +735,8 @@ mod tests {
             blocked: RefCell::new(Vec::new()),
             malformed: Cell::new(0),
             closed: Cell::new(false),
+            script_next: Cell::new(0),
+            script_wait: RefCell::new(HashMap::new()),
         }
     }
 
@@ -707,5 +809,46 @@ mod tests {
         assert!(s.contains("Object.freeze"));
         assert!(s.contains("writable: false"));
         assert!(s.contains("window.x.post(value);"));
+    }
+
+    #[test]
+    fn a_script_callback_fires_once() {
+        let h = hub(WebViewOptions::new("Help"));
+        let got = Rc::new(RefCell::new(Vec::new()));
+        let g2 = got.clone();
+        let id = h.begin_script(Box::new(move |r| g2.borrow_mut().push(r)));
+        h.finish_script(id, Ok("\"ok\"".into()));
+        h.finish_script(id, Ok("again".into()));
+        let got = got.borrow();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got.first(), Some(&Ok("\"ok\"".into())));
+    }
+
+    #[test]
+    fn abandoning_eval_or_devtools_reports_the_view_missing() {
+        let h = hub(WebViewOptions::new("Help"));
+        let eval_got = Rc::new(RefCell::new(None));
+        let dev_got = Rc::new(RefCell::new(None));
+        let e2 = eval_got.clone();
+        let d2 = dev_got.clone();
+        let eval_id = h.begin_script(Box::new(move |r| *e2.borrow_mut() = Some(r)));
+        let dev_id = h.begin_script(Box::new(move |r| *d2.borrow_mut() = Some(r)));
+        h.abandon(&Command::Eval { id: eval_id, script: "1".into() });
+        h.abandon(&Command::Devtools { id: dev_id, method: "Browser.getVersion".into(), params: "{}".into() });
+        h.abandon(&Command::Navigate("https://help.example".into()));
+        assert!(matches!(eval_got.borrow().as_ref(), Some(Err(e)) if e.contains("missing")));
+        assert!(matches!(dev_got.borrow().as_ref(), Some(Err(e)) if e.contains("missing")));
+        assert!(h.script_wait.borrow().is_empty(), "a navigation has no callback to leak");
+    }
+
+    #[test]
+    fn webkit_eval_matches_webview2_json() {
+        let src = "return \"hi\"";
+        let wrapped = json_eval(src);
+        let encoded = serde_json::to_string(src).unwrap_or_default();
+        assert!(wrapped.contains("JSON.stringify"));
+        assert!(wrapped.contains("undefined"));
+        assert!(wrapped.contains(&format!("eval({encoded})")));
+        assert!(!wrapped.contains("ExecuteScript"));
     }
 }

@@ -26,7 +26,7 @@ use remedy_ui_host::raw_window_handle::RawWindowHandle;
 use remedy_ui_view::{Placement, WeakUi};
 
 use super::{Layout, PxRect};
-use crate::{BlockReason, Command, Expected, Hub, NativeView, WebViewStatus};
+use crate::{BlockReason, Command, Expected, Hub, NativeView, WebViewStatus, json_eval};
 
 /// How often GLib's main context is serviced while a web view exists: twice a 60 Hz frame,
 /// so input, painting and WebKit's replies from its processes keep up with the display,
@@ -56,6 +56,14 @@ struct CairoRect {
 type Ptr = *mut c_void;
 type GCallback = *const c_void;
 type DestroyNotify = unsafe extern "C" fn(Ptr, Ptr);
+
+/// `GError`. The message is a glib string freed with [`Api::g_error_free`].
+#[repr(C)]
+struct GError {
+    _domain: u32,
+    _code: i32,
+    message: *mut c_char,
+}
 
 /// The GTK, GDK, GLib, cairo and WebKitGTK functions used, from the loaded libraries.
 struct Api {
@@ -127,6 +135,10 @@ struct Api {
     webkit_download_cancel: unsafe extern "C" fn(Ptr),
     webkit_javascript_result_get_js_value: unsafe extern "C" fn(Ptr) -> Ptr,
     jsc_value_to_string: unsafe extern "C" fn(Ptr) -> *mut c_char,
+    webkit_web_view_run_javascript_finish: unsafe extern "C" fn(Ptr, Ptr, *mut *mut GError) -> Ptr,
+    webkit_javascript_result_unref: unsafe extern "C" fn(Ptr),
+    g_error_free: unsafe extern "C" fn(*mut GError),
+    webkit_settings_set_user_agent: unsafe extern "C" fn(Ptr, *const c_char),
 }
 
 /// Looks up `name` in `lib` as a function of type `T`.
@@ -251,6 +263,10 @@ impl Api {
                 webkit_download_cancel: sym(lib, "webkit_download_cancel")?,
                 webkit_javascript_result_get_js_value: sym(lib, "webkit_javascript_result_get_js_value")?,
                 jsc_value_to_string: sym(lib, "jsc_value_to_string")?,
+                webkit_web_view_run_javascript_finish: sym(lib, "webkit_web_view_run_javascript_finish")?,
+                webkit_javascript_result_unref: sym(lib, "webkit_javascript_result_unref")?,
+                g_error_free: sym(lib, "g_error_free")?,
+                webkit_settings_set_user_agent: sym(lib, "webkit_settings_set_user_agent")?,
             })
         }
     }
@@ -599,6 +615,7 @@ impl Native {
     pub(crate) fn command(&self, c: Command) {
         let i = &self.0;
         if i.closed.get() {
+            i.hub.abandon(&c);
             return;
         }
         let api = i.api;
@@ -643,6 +660,33 @@ impl Native {
                     );
                 }
                 Command::Focus => (api.gtk_widget_grab_focus)(i.view),
+                Command::Eval { id, script } => {
+                    let wrapped = cstring(&json_eval(&script));
+                    let ctx = Box::into_raw(Box::new(ScriptCtx { hub: Rc::clone(&i.hub), id }));
+                    (api.webkit_web_view_run_javascript)(
+                        i.view,
+                        wrapped.as_ptr(),
+                        std::ptr::null_mut(),
+                        on_javascript as GCallback,
+                        ctx.cast::<c_void>(),
+                    );
+                }
+                Command::UserAgent(ua) => {
+                    let settings = (api.webkit_web_view_get_settings)(i.view);
+                    if ua.is_empty() {
+                        // NULL restores WebKit's own agent.
+                        (api.webkit_settings_set_user_agent)(settings, std::ptr::null());
+                    } else {
+                        let agent = cstring(&ua);
+                        (api.webkit_settings_set_user_agent)(settings, agent.as_ptr());
+                    }
+                }
+                Command::Devtools { id, .. } => {
+                    i.hub.finish_script(
+                        id,
+                        Err("the DevTools protocol is not available in WebKitGTK".into()),
+                    );
+                }
             }
         }
     }
@@ -730,10 +774,67 @@ impl Native {
         if i.closed.replace(true) {
             return;
         }
+        i.hub.abandon_pending();
         // SAFETY: destroying our own popup window destroys the view in it; the signal data
         // is freed by GLib as the handlers go.
         unsafe { (i.api.gtk_widget_destroy)(i.window) };
     }
+}
+
+/// The hub and id for one `webkit_web_view_run_javascript` completion.
+struct ScriptCtx {
+    hub: Rc<Hub>,
+    id: u64,
+}
+
+/// `GAsyncReadyCallback` for [`json_eval`]. Frees `data`.
+///
+/// # Safety
+/// `data` is the `Box<ScriptCtx>` passed to `webkit_web_view_run_javascript`. `source` and
+/// `result` are the live web view and its async result, on the GTK thread.
+unsafe extern "C" fn on_javascript(source: Ptr, result: Ptr, data: Ptr) {
+    // SAFETY: `data` was `Box::into_raw` of a `ScriptCtx` and this is the one callback.
+    let ctx = unsafe { Box::from_raw(data.cast::<ScriptCtx>()) };
+    let Ok(api) = Api::get() else {
+        ctx.hub.finish_script(ctx.id, Err("WebKitGTK is not loaded".into()));
+        return;
+    };
+    let mut error: *mut GError = std::ptr::null_mut();
+    // SAFETY: `source` and `result` come from WebKit for this call.
+    let js = unsafe { (api.webkit_web_view_run_javascript_finish)(source, result, &mut error) };
+    if !error.is_null() {
+        // SAFETY: a GError WebKit allocated; its message is a C string.
+        let msg = unsafe {
+            if (*error).message.is_null() {
+                "WebKit script failed".into()
+            } else {
+                CStr::from_ptr((*error).message).to_string_lossy().into_owned()
+            }
+        };
+        unsafe { (api.g_error_free)(error) };
+        ctx.hub.finish_script(ctx.id, Err(msg));
+        return;
+    }
+    if js.is_null() {
+        ctx.hub.finish_script(ctx.id, Err("WebKit returned no script result".into()));
+        return;
+    }
+    // SAFETY: `js` is a WebKitJavascriptResult. Its JSC value is borrowed until unref.
+    // `jsc_value_to_string` returns a new string.
+    let text = unsafe {
+        let value = (api.webkit_javascript_result_get_js_value)(js);
+        let raw = (api.jsc_value_to_string)(value);
+        let text = if raw.is_null() {
+            String::new()
+        } else {
+            let text = CStr::from_ptr(raw).to_string_lossy().into_owned();
+            (api.g_free)(raw.cast());
+            text
+        };
+        (api.webkit_javascript_result_unref)(js);
+        text
+    };
+    ctx.hub.finish_script(ctx.id, Ok(text));
 }
 
 // The signal handlers' signatures, checked against GLib's untyped callback slot.
@@ -742,3 +843,4 @@ const _: [unsafe extern "C" fn(Ptr, c_int, Ptr); 2] = [on_load, on_crash];
 const _: [unsafe extern "C" fn(Ptr, Ptr, Ptr); 4] = [on_title, on_uri, on_message, on_download];
 const _: [unsafe extern "C" fn(Ptr, Ptr, Ptr) -> c_int; 1] = [on_permission];
 const _: [unsafe extern "C" fn(Ptr, Ptr, Ptr) -> Ptr; 1] = [on_create];
+const _: [unsafe extern "C" fn(Ptr, Ptr, Ptr); 1] = [on_javascript];
