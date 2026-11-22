@@ -33,7 +33,8 @@ final class TextInput extends View {
     private boolean active;
     private boolean secret;
     private boolean multiline;
-    private boolean numeric;
+    /** What the field holds: the order of remedy_ui_host::InputPurpose (see PURPOSE_*). */
+    private int purpose;
     private float caretX;
     private float caretTop;
     private float caretBottom;
@@ -51,6 +52,56 @@ final class TextInput extends View {
         setClickable(false);
         setWillNotDraw(true);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+    }
+
+    static final int PURPOSE_TEXT = 0;
+    static final int PURPOSE_DIGITS = 1;
+    static final int PURPOSE_DECIMAL = 2;
+    static final int PURPOSE_URL = 3;
+    static final int PURPOSE_EMAIL = 4;
+    static final int PURPOSE_SEARCH = 5;
+    static final int PURPOSE_USERNAME = 6;
+    static final int PURPOSE_CURRENT_PASSWORD = 7;
+    static final int PURPOSE_NEW_PASSWORD = 8;
+    static final int PURPOSE_ONE_TIME_CODE = 9;
+
+    /** The keyboard a field asks for: its class, variation and flags. */
+    static int inputType(int purpose, boolean secret, boolean multiline) {
+        int type;
+        switch (purpose) {
+            case PURPOSE_DIGITS:
+            case PURPOSE_ONE_TIME_CODE:
+                type = InputType.TYPE_CLASS_NUMBER;
+                break;
+            case PURPOSE_DECIMAL:
+                type = InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL
+                        | InputType.TYPE_NUMBER_FLAG_SIGNED;
+                break;
+            case PURPOSE_URL:
+                type = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI;
+                break;
+            case PURPOSE_EMAIL:
+            case PURPOSE_USERNAME:
+                type = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS;
+                break;
+            case PURPOSE_CURRENT_PASSWORD:
+            case PURPOSE_NEW_PASSWORD:
+                type = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD;
+                break;
+            default:
+                type = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_AUTO_CORRECT;
+                break;
+        }
+        boolean number = (type & InputType.TYPE_MASK_CLASS) == InputType.TYPE_CLASS_NUMBER;
+        if (secret) {
+            // A secret PIN keeps the number pad; anything else is a password.
+            type = number ? InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                    : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD;
+        }
+        if (multiline && !number && !secret) {
+            type |= InputType.TYPE_TEXT_FLAG_MULTI_LINE;
+        }
+        return type;
     }
 
     // Touches belong to the native activity (the drawing surface), not this view. This
@@ -93,15 +144,15 @@ final class TextInput extends View {
     }
 
     /** Starts or updates a session with the field's text around the caret (UTF-16 offsets). */
-    void update(String text, int selStart, int selEnd, float x, float top, float bottom, boolean secret, boolean multiline, boolean numeric) {
+    void update(String text, int selStart, int selEnd, float x, float top, float bottom, boolean secret, boolean multiline, int purpose) {
         caretX = x;
         caretTop = top;
         caretBottom = bottom;
         boolean restart = !active || secret != this.secret || multiline != this.multiline
-                || numeric != this.numeric;
+                || purpose != this.purpose;
         this.secret = secret;
         this.multiline = multiline;
-        this.numeric = numeric;
+        this.purpose = purpose;
         boolean composing = BaseInputConnection.getComposingSpanStart(editable) >= 0;
         boolean textChanged = !editable.toString().equals(text);
         // The field changed without the input method (keys, the app): the copy follows, and
@@ -206,21 +257,15 @@ final class TextInput extends View {
         if (!active) {
             return null;
         }
-        int type = InputType.TYPE_CLASS_TEXT;
-        if (numeric && !secret && !multiline) {
-            type = InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL;
-        } else if (secret) {
-            type |= InputType.TYPE_TEXT_VARIATION_PASSWORD;
-        } else {
-            type |= InputType.TYPE_TEXT_FLAG_AUTO_CORRECT;
-        }
-        if (multiline) {
-            type |= InputType.TYPE_TEXT_FLAG_MULTI_LINE;
-        }
-        out.inputType = type;
-        out.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI
-                | (multiline ? EditorInfo.IME_ACTION_NONE : EditorInfo.IME_ACTION_DONE)
-                | (secret ? EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING : 0);
+        out.inputType = inputType(purpose, secret, multiline);
+        int action = multiline ? EditorInfo.IME_ACTION_NONE
+                : purpose == PURPOSE_SEARCH ? EditorInfo.IME_ACTION_SEARCH
+                : purpose == PURPOSE_URL ? EditorInfo.IME_ACTION_GO
+                : EditorInfo.IME_ACTION_DONE;
+        boolean learns = !secret && purpose != PURPOSE_CURRENT_PASSWORD && purpose != PURPOSE_NEW_PASSWORD
+                && purpose != PURPOSE_ONE_TIME_CODE;
+        out.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI | action
+                | (learns ? 0 : EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
         out.initialSelStart = Selection.getSelectionStart(editable);
         out.initialSelEnd = Selection.getSelectionEnd(editable);
         return new Connection();

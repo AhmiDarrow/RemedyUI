@@ -230,7 +230,7 @@ pub use remedy_ui_view as view;
 /// closure for its content, so a retry builds it again) and [`suspense`] (a placeholder
 /// while resources load), with what they return and hand to callbacks.
 pub use remedy_ui_view::{CaughtError, Retry, Show, SuspenseBoundary, catch_errors, show, suspense};
-pub use remedy_ui_view::{El, FieldKind, PaintCx, TextField, Ui, WindowDirection};
+pub use remedy_ui_view::{El, FieldKind, InputPurpose, PaintCx, PointerCaps, TextField, Ui, WindowDirection};
 #[cfg(feature = "viz")]
 pub use remedy_ui_viz as viz;
 #[cfg(feature = "board")]
