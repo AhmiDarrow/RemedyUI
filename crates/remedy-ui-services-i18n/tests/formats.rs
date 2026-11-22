@@ -125,6 +125,15 @@ fn compact_counts_take_options() {
     assert_eq!(with("ar", 1234, three), "1.23\u{A0}ألف");
     assert_eq!(with("en", 1234, CompactOptions::default().significant_digits(1)), "1K");
     assert_eq!(with("en", 999_999, three), "1M", "rounds up into the next unit");
+    // At most one digit after the point, as `Intl.NumberFormat` with
+    // `maximumFractionDigits: 1` writes compact counts.
+    let one = CompactOptions::default().max_fraction_digits(1);
+    assert_eq!(with("en", 1234, one), "1.2K");
+    assert_eq!(with("en", 12_345, one), "12.3K");
+    assert_eq!(with("en", 123_456, one), "123.5K");
+    assert_eq!(with("en", 120_000, one), "120K");
+    assert_eq!(with("en", 999_960, one), "1M", "rounds up into the next unit");
+    assert_eq!(with("en", 1_234_567, one), "1.2M");
     // A threshold keeps smaller counts whole.
     let ten_k = CompactOptions::default().threshold(n(10_000));
     assert_eq!(with("en", 5432, ten_k), "5,432");
