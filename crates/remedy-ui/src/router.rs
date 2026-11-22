@@ -158,11 +158,12 @@ struct Entry {
 }
 
 type TitleFn = Rc<dyn Fn(&Route) -> String>;
+type BuildFn = Box<dyn Fn(&Ui, &Window, &Router)>;
 
 /// How links opened elsewhere get their own window ([`Router::open_windows`]).
 struct NewWindows {
     spec: WindowSpec,
-    build: Box<dyn Fn(&Ui, &Window, &Router)>,
+    build: BuildFn,
 }
 
 struct Inner {
