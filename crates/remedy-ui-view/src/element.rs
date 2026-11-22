@@ -429,7 +429,7 @@ pub struct DirtyRecord {
     /// while reactive tracing is on ([`remedy_ui_reactive::debug::trace`]). `None` when the
     /// mark came from outside any recorded run: input, focus, or a direct call.
     pub cause: Option<remedy_ui_reactive::debug::Update>,
-    /// The trace clock's time of the mark ([`remedy_ui_trace::now_ns`]).
+    /// The trace clock's time of the mark ([`remedy_ui_core::trace::now_ns`]).
     pub at_ns: u64,
 }
 
@@ -1861,7 +1861,7 @@ impl Ui {
                 paint: flags.contains(Dirty::PAINT),
                 semantics: flags.contains(Dirty::SEMANTICS),
                 cause: remedy_ui_reactive::debug::current(),
-                at_ns: remedy_ui_trace::now_ns(),
+                at_ns: remedy_ui_core::trace::now_ns(),
             };
             for observe in observers {
                 observe(&record);

@@ -59,7 +59,7 @@ fn fetch(file: &'static str) {
         let slot = match got.and_then(|b| FontFile::from_vec(b).map_err(|e| e.to_string())) {
             Ok(ff) => Slot::Ready(ff),
             Err(e) => {
-                remedy_ui_trace::tracing::warn!("the font {file} could not be loaded: {e}");
+                remedy_ui_core::trace::tracing::warn!("the font {file} could not be loaded: {e}");
                 Slot::Failed
             }
         };

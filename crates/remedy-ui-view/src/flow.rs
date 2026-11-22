@@ -220,7 +220,7 @@ impl Ui {
                 true
             }
             None => {
-                remedy_ui_trace::tracing::error!("{} at {} ({:?})", err, err.element_path, err.phase);
+                remedy_ui_core::trace::tracing::error!("{} at {} ({:?})", err, err.element_path, err.phase);
                 false
             }
         }

@@ -185,7 +185,7 @@ impl Ui {
 
     /// Routes pointer input. Returns true when an element took it.
     pub fn pointer(&self, e: &PointerEvent) -> bool {
-        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
+        let _events = remedy_ui_core::phase!("events", ui = self.id()).entered();
         self.pointer_used(e.kind);
         self.0.borrow_mut().consumed = false;
         let tap = self.0.borrow().interceptor.clone();
@@ -342,14 +342,14 @@ impl Ui {
     /// ([`El::on_wheel`](crate::El::on_wheel)), innermost first. Returns true when one used it;
     /// otherwise the host scrolls the scroll containers under the pointer.
     pub fn wheel(&self, e: &remedy_ui_input::WheelEvent) -> bool {
-        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
+        let _events = remedy_ui_core::phase!("events", ui = self.id()).entered();
         self.positioned(e.position, e)
     }
 
     /// Routes a touchpad pinch to the elements under it that zoom
     /// ([`El::on_pinch`](crate::El::on_pinch)). Returns true when one used it.
     pub fn pinch(&self, e: &remedy_ui_input::PinchEvent) -> bool {
-        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
+        let _events = remedy_ui_core::phase!("events", ui = self.id()).entered();
         // A pinch stays with the element it started on, as a press does.
         let tree = self.tree();
         let held = self.0.borrow().pinching.filter(|p| tree.contains(*p));
@@ -395,7 +395,7 @@ impl Ui {
     /// remote's back key often arrives: a router or navigation stack listening for
     /// [`Key::Back`] goes back.
     pub fn key(&self, e: &KeyEvent) -> bool {
-        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
+        let _events = remedy_ui_core::phase!("events", ui = self.id()).entered();
         if let Some(k) = self.menu_key(e)
             && self.offer_menu_key(&k)
         {
@@ -641,7 +641,7 @@ impl Ui {
 
     /// Routes an input-method event to the focused field.
     pub fn ime(&self, e: &ImeEvent) -> bool {
-        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
+        let _events = remedy_ui_core::phase!("events", ui = self.id()).entered();
         let tree = self.tree();
         let Some(f) = tree.focused() else { return false };
         let Some(field) = self.field_of(f) else {
@@ -659,7 +659,7 @@ impl Ui {
     /// some. A rich field takes the HTML's allowed formatting (and a copy of its own whole);
     /// other fields take the text.
     pub fn paste_html(&self, text: &str, html: Option<&str>) {
-        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
+        let _events = remedy_ui_core::phase!("events", ui = self.id()).entered();
         let tree = self.tree();
         let Some(f) = tree.focused() else { return };
         let Some(field) = self.field_of(f) else {
@@ -679,7 +679,7 @@ impl Ui {
 
     /// Delivers clipboard text after a [`Request::Paste`].
     pub fn paste(&self, text: &str) {
-        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
+        let _events = remedy_ui_core::phase!("events", ui = self.id()).entered();
         let tree = self.tree();
         let Some(f) = tree.focused() else { return };
         let Some(field) = self.field_of(f) else {

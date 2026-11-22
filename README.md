@@ -68,11 +68,10 @@ cargo doc -p remedy-ui --all-features --open
 Apps use the facade, `remedy-ui` (`run`, `App`, `Window`, and the packs behind features). Each line below is a crate with real code and tests; a crate joins the workspace only when it has both.
 
 **Foundations**
-- `remedy-ui-core`: geometry, scale and snapping, colors, generational arena
+- `remedy-ui-core`: geometry, scale and snapping, colors, generational arena, and the phase spans every layer emits, with their clock
 - `remedy-ui-reactive`: glitch-free signals, memos, effects, scopes, context, resources fetched off the UI thread, persisted signals, `Waker`, `SignalVec`, stores, and the signal graph for devtools
 - `remedy-ui-macros`: `#[derive(Store)]`, `#[preview]` and `#[previews]`
 - `remedy-ui-tree`: elements, dirty flags and boundaries, events, hit testing, focus, error boundaries
-- `remedy-ui-trace`: the phase spans every layer emits, and their clock
 - `remedy-ui-test`: the low-level headless harness
 
 **Text, layout, style, input, accessibility, motion**
@@ -119,7 +118,7 @@ Apps use the facade, `remedy-ui` (`run`, `App`, `Window`, and the packs behind f
 - `remedy-ui-doc-code`: syntax highlighting, diffs, code views and a code editor with several cursors
 
 **Media and embedding**
-- `remedy-ui-media-image` and `remedy-ui-media-svg`: images decoded off the UI thread at the size shown, color managed; SVG at exactly the size shown, and tinted icons
+- `remedy-ui-media-image`: images decoded off the UI thread at the size shown, color managed; with the `svg` feature, SVG at exactly the size shown, and tinted icons
 - `remedy-ui-media-anim`: GIF, APNG and animated WebP
 - `remedy-ui-media-isolated`: images and animations decoded in a sandboxed helper process
 - `remedy-ui-media-video`: video surfaces fed from any thread, converted on the GPU
@@ -132,7 +131,6 @@ Apps use the facade, `remedy-ui` (`run`, `App`, `Window`, and the packs behind f
 - `remedy-ui-customize`: what people change about an app (their theme, shortcuts, toolbars and menus, text and screen layouts) as readable files with undo, resets and safe loading, and the editors for them
 - `remedy-ui-automation`: agents reading and operating a window under the person's consent, with every change undoable
 - `remedy-ui-devtools`: the inspector (F12) with the accessibility check, the signal graph, the performance overlay, Perfetto traces, remote devtools, and previews that double as golden-image tests
-- `remedy-ui-secure`: idle lock and secret copies that clear themselves
 - `cargo-remedy`: `cargo remedy new` (basic, tray, multi-window, document and android templates), `run` (devtools, `--watch`), `package` (Windows installer and zip with signing and update signatures, Linux `.tar.gz`, Android APK, macOS `.app`) and `migrate` (applies the renames between releases)
 
 **Services**

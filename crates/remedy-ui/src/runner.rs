@@ -1226,7 +1226,7 @@ impl App {
         // A thread that cannot start drops the completion, which forgets `done`.
         let _ = remedy_ui_core::exec::spawn("remedy-ui background", move || {
             let out = {
-                let _span = remedy_ui_trace::phase!("background").entered();
+                let _span = remedy_ui_core::phase!("background").entered();
                 work(&cancelled)
             };
             if !cancelled.is_cancelled() {
@@ -2332,7 +2332,7 @@ pub struct Runner {
     locale: Option<String>,
     /// Where every window's layout direction comes from ([`App::set_direction`]).
     direction: remedy_ui_view::WindowDirection,
-    idle: Option<(remedy_ui_secure::IdleTimer, Rc<dyn Fn()>)>,
+    idle: Option<(crate::secure::IdleTimer, Rc<dyn Fn()>)>,
     activity_reported: Option<Duration>,
     idle_timer: Option<TimerId>,
     /// Fires at the next local midnight, so dates roll over in idle windows.
@@ -2345,7 +2345,7 @@ pub struct Runner {
     permissions: HashMap<remedy_ui_host::PermissionId, PermissionDone>,
     /// Share sheets the platform closes later, and what to call with how they ended.
     shares: HashMap<remedy_ui_host::ShareId, ShareDone>,
-    secret: Option<(remedy_ui_secure::SensitiveCopy, TimerId)>,
+    secret: Option<(crate::secure::SensitiveCopy, TimerId)>,
     inbox: crate::instance::SharedInbox,
     #[cfg(feature = "gpu")]
     gpu: Option<Option<remedy_ui_render_gpu::GpuCompositor>>,
@@ -2797,7 +2797,7 @@ impl Runner {
                 let now = host.now();
                 match (&mut self.idle, cb) {
                     (Some((timer, _)), None) => timer.set_timeout(timeout),
-                    (slot, Some(cb)) => *slot = Some((remedy_ui_secure::IdleTimer::new(timeout, now), cb)),
+                    (slot, Some(cb)) => *slot = Some((crate::secure::IdleTimer::new(timeout, now), cb)),
                     (None, None) => {}
                 }
                 self.schedule_idle(host);
@@ -2889,7 +2889,7 @@ impl Runner {
     /// if the clipboard still holds it; a newer secret replaces the older one's timer.
     fn copy_secret(&mut self, host: &mut dyn Host, text: &str, keep: Duration) {
         if host.set_clipboard_text(text, true).is_ok() {
-            let copy = remedy_ui_secure::SensitiveCopy::new(text, host.now(), keep);
+            let copy = crate::secure::SensitiveCopy::new(text, host.now(), keep);
             if let Some((_, old)) = self.secret.take() {
                 host.cancel_timer(old);
             }
@@ -3217,7 +3217,7 @@ impl Runner {
         }
         let Some(w) = self.wins.get_mut(&key) else { return };
         w.last_frame = Some(now);
-        let _frame = remedy_ui_trace::phase!("frame", ui = w.ui.id()).entered();
+        let _frame = remedy_ui_core::phase!("frame", ui = w.ui.id()).entered();
         let (pw, ph, s) = (w.size.0, w.size.1, w.scale());
         // Animations and painters sample the frame's presentation time.
         w.ui.set_frame_time(at);
@@ -3344,7 +3344,7 @@ impl Runner {
                     let started = remedy_ui_core::time::Instant::now();
                     if changed && let Ok(frame) = cpu.present_frame(&plan, pw, ph, background) {
                         let pixels = Pixels { width: pw, height: ph, data: &frame.pixels };
-                        let present = remedy_ui_trace::phase!("present").entered();
+                        let present = remedy_ui_core::phase!("present").entered();
                         let _ = host.present_pixels(w.host, pixels, plan.damage.rects());
                         drop(present);
                         // What rastering cost here sizes the next zoom's per-frame budget.

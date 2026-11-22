@@ -525,7 +525,7 @@ pub(crate) fn submit_scene_with(
     if ctx.is_lost() {
         return Err(GpuError::Lost);
     }
-    let _raster = remedy_ui_trace::phase!("raster").entered();
+    let _raster = remedy_ui_core::phase!("raster").entered();
     let mut encoder =
         ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RemedyUI frame") });
     let timing = ctx.timer.begin(&ctx.device, &mut encoder);
@@ -542,7 +542,7 @@ pub(crate) fn submit_scene_with(
     if let Some(t) = &timing {
         ctx.timer.end(t, &mut encoder);
     }
-    let submitted = remedy_ui_trace::now_ns();
+    let submitted = remedy_ui_core::trace::now_ns();
     ctx.queue.submit([encoder.finish()]);
     match timing {
         Some(t) => ctx.timer.submitted(t, submitted, &ctx.queue),

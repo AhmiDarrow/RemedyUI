@@ -14,7 +14,6 @@ categories.workspace = true
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-script = { path = "../remedy-ui-script", version = "1.0.0-rc.1" }
-remedy-ui-trace = { path = "../remedy-ui-trace", version = "1.0.0-rc.1" }
 # No clock (`no_time`): scripts are deterministic, and the clock would panic in a page.
 # Modules stay on for the `ui` functions; `import` is switched off in the engine. The
 # debugger interface is how the engine measures what a running call holds.

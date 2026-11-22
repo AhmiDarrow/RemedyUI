@@ -492,7 +492,7 @@ fn frame(s: &FrameSample) -> RemoteFrame {
     RemoteFrame {
         start_ns: s.start_ns,
         frame_ns: s.frame_ns,
-        phases: remedy_ui_trace::phases::ALL.iter().map(|p| ((*p).to_owned(), s.phase(p))).collect(),
+        phases: remedy_ui_core::trace::phases::ALL.iter().map(|p| ((*p).to_owned(), s.phase(p))).collect(),
         other_ns: s.other_ns,
     }
 }

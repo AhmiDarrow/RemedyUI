@@ -776,7 +776,7 @@ impl Runtime {
             return;
         }
         let _f = swap(&self.flushing, true);
-        let _span = remedy_ui_trace::phase!("binds").entered();
+        let _span = remedy_ui_core::phase!("binds").entered();
         let mut runs: std::collections::HashMap<NodeId, u32> = std::collections::HashMap::new();
         loop {
             let next = self.pending.borrow_mut().pop_front();
