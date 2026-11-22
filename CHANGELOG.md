@@ -36,9 +36,9 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   letterboxed picture (its video viewport): cues are moved apart where they meet (lines
   stepped away for snapped cues, a percentage cue past the cues it meets the way its line
   alignment points, so two ASS lines of one alignment stack as ASS stacks them) and kept
-  above the bar; `vertical` cues run down the picture, characters set upright one under
-  another (the text stack lays out lines across only, so each character is drawn on its
-  own). Cues with no settings stay centred lines at the foot, above the bar in full screen.
+  above the bar; `vertical` cues run down the picture as CSS's `text-orientation: mixed`
+  sets them, CJK, kana and Hangul upright one under another and Latin runs turned to read
+  downward. Cues with no settings stay centred lines at the foot, above the bar in full screen.
   `Player::caption_cues` gives the cues showing with their settings. `Cue` has a new
   `settings` field (`..Default::default()` in literals).
 
@@ -922,6 +922,14 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   change the board (it no longer builds again on each keystroke).
 
 ### Fixed
+
+- **Text turns, skews and stretches with its drawing** on the CPU and GPU renderers. Glyphs
+  were cached upright at one size and placed at their turned origins, so text under a
+  rotation stayed upright letter by letter, and an uneven scale drew them at the average
+  size. The painter (shared by both renderers) now rasterizes a run under any transform but
+  a plain uniform scale through the transform itself (`GlyphRasterizer::rasterize_transformed`:
+  the outline mapped by its linear part, the origin's subpixel offset on both axes, unhinted
+  and grayscale), cached per transform. Upright text is drawn pixel for pixel as before.
 
 - **The pointer hides reliably over a full-screen player on Windows.** winit hides it with
   `ShowCursor` only while it believes the pointer is inside the window; the Windows bridge
