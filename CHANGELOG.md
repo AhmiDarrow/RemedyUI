@@ -76,6 +76,30 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   desktops; `Ui::set_system_spatial_navigation` is what the runner sets. With it on, an Escape
   nothing took goes back as `Key::Back` (the `Router`'s back), and a Tizen remote's
   `XF86Back` arrives as `Key::Back`. `Tree::focus_candidates` lists a scope's focusables.
+- **Gamepads on Windows and Linux, and held directions that repeat.** The d-pad and left
+  stick arrive as arrow keys, A as Enter and B as `Key::Back` on Windows (XInput: Xbox and
+  XInput-compatible pads, found within a second of being plugged in) and Linux (evdev under
+  `/dev/input`, with pads plugged in later found through inotify; devices the user may not
+  read, or no `/dev/input` at all in a sandbox, mean no pads rather than an error), going to
+  the focused window as the keyboard's keys do. A held d-pad or stick now repeats on every
+  platform that reads pads itself (Windows, Linux, the web) after the system's keyboard repeat
+  delay and at its rate (`SystemSettings::key_repeat_delay` and `key_repeat_interval`, new:
+  Windows' keyboard settings, GNOME's through the desktop portal, 500 ms and 33 ms elsewhere);
+  the web also reads the left stick now. `App::set_gamepad_tuning(GamepadTuning)` sets the
+  app's own delay, interval and stick dead zone (0.5 by default), through
+  `Host::set_gamepad_tuning`. `remedy_ui_input::GamepadKeys` is the shared state machine,
+  and a platform bridge hands the shared core its pads through `PlatformHooks::gamepads`.
+- **Every controller on Windows, and the real keyboard repeat on any Linux desktop.**
+  Windows now also reads PlayStation, Switch Pro and generic HID gamepads through
+  Windows.Gaming.Input (`RawGameController`), in the slots after XInput's four: A and B are
+  the south and east face buttons by the driver's labels (Nintendo's letters swapped to their
+  position), or by the vendor's HID layout when it labels none; the first hat is the d-pad
+  and the first two axes the stick, an axis counting only once it has been near its center
+  (so a resting pedal or throttle holds nothing). Xbox-class pads stay XInput's and are not
+  reported twice. Linux reads the keyboard repeat from the Wayland compositor
+  (`wl_keyboard.repeat_info`), else the X server (XKB), then GNOME's settings, then KDE's
+  `kcminputrc` (Plasma's 600 ms and 25 a second where it sets none); 500 ms and 33 ms only
+  when none of them answers.
 - **Images from addresses** in `media-image`: `Source::Url(String)` fetches the image off
   the UI thread. Elements showing the same address share one fetch, cancelled when they all
   go. The bytes stay in a bounded memory cache (64 MiB). Natively they are also kept on
