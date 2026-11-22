@@ -2,7 +2,33 @@
 //! it: files as `text/uri-list` (and their paths as text), links as `text/uri-list`, text as
 //! UTF-8 under the names X11 and Wayland apps ask for.
 
+use std::sync::{Mutex, PoisonError};
+use std::time::Duration;
+
 use remedy_ui_host::{DragData, DropEffect};
+
+/// How long reading a dropped offer from another app may take (Wayland) unless the app says
+/// otherwise ([`set_drop_waits`]).
+pub const DROP_READ_WAIT: Duration = Duration::from_secs(2);
+/// How long a drag out of the app serves its data once released (X11) unless the app says
+/// otherwise ([`set_drop_waits`]).
+pub const DROP_FINISH_WAIT: Duration = Duration::from_secs(10);
+
+static WAITS: Mutex<(Duration, Duration)> = Mutex::new((DROP_READ_WAIT, DROP_FINISH_WAIT));
+
+/// Sets how long a drop from another app may take to read (Wayland; default
+/// [`DROP_READ_WAIT`], 2 s) and how long a drag out of the app serves its data once released
+/// (X11; default [`DROP_FINISH_WAIT`], 10 s). Each guards against an app that never answers:
+/// longer lets a slow app hand over a large drop, at a drop that waits that long when the
+/// other app hangs. `remedy_ui::run` sets them from `AppConfig::drop_waits`.
+pub fn set_drop_waits(read: Duration, finish: Duration) {
+    *WAITS.lock().unwrap_or_else(PoisonError::into_inner) = (read, finish);
+}
+
+/// The waits [`set_drop_waits`] set: (read, finish).
+pub(crate) fn drop_waits() -> (Duration, Duration) {
+    *WAITS.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// One way of reading the dragged data: a MIME type (or X11 target name) and its bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -96,5 +122,18 @@ mod tests {
         assert_eq!(preferred(&[DropEffect::Move, DropEffect::Copy]), DropEffect::Copy);
         assert_eq!(preferred(&[DropEffect::Move]), DropEffect::Move);
         assert_eq!(preferred(&[]), DropEffect::None);
+    }
+}
+
+#[cfg(test)]
+mod wait_tests {
+    use super::*;
+
+    #[test]
+    fn the_app_sets_the_drop_waits() {
+        assert_eq!(drop_waits(), (DROP_READ_WAIT, DROP_FINISH_WAIT));
+        set_drop_waits(Duration::from_secs(30), Duration::from_secs(1));
+        assert_eq!(drop_waits(), (Duration::from_secs(30), Duration::from_secs(1)));
+        set_drop_waits(DROP_READ_WAIT, DROP_FINISH_WAIT);
     }
 }

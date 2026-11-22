@@ -149,8 +149,23 @@ pub struct Markup {
 /// on the UI thread, whose stack is fixed when the thread starts (1 MiB on Windows), so a
 /// file from a stranger nested a million deep must be refused rather than crash the app.
 /// Real screens nest a few dozen deep; this leaves room for any of them within the smallest
-/// UI-thread stack the bridges run on.
+/// UI-thread stack the bridges run on. The default of [`set_max_depth`].
 pub const MAX_DEPTH: usize = 128;
+
+static DEPTH: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(MAX_DEPTH);
+
+/// Sets how deeply elements may nest in every file parsed from now on (default
+/// [`MAX_DEPTH`], 128). A safety bound: parsing, checking and building recurse once a level
+/// on the UI thread's stack, so a much deeper bound lets a file from a stranger overflow it.
+/// Raise it only for markup you trust, on a UI thread with the stack for it.
+pub fn set_max_depth(depth: usize) {
+    DEPTH.store(depth, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// How deeply elements may nest now ([`set_max_depth`]).
+pub fn max_depth() -> usize {
+    DEPTH.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 #[derive(Clone, Debug, PartialEq)]
 enum Tok {
@@ -376,8 +391,9 @@ impl Parser<'_> {
 
     fn node(&mut self, depth: usize) -> Result<Node, RuiError> {
         let (name, at) = self.ident("an element name")?;
-        if depth >= MAX_DEPTH {
-            return Err(RuiError::new(self.file, at, format!("elements nest more than {MAX_DEPTH} deep"))
+        let max = max_depth();
+        if depth >= max {
+            return Err(RuiError::new(self.file, at, format!("elements nest more than {max} deep"))
                 .help("flatten the layout"));
         }
         let mut args: Vec<Arg> = Vec::new();

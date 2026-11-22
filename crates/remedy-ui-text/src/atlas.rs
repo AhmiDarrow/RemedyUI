@@ -11,8 +11,9 @@ use std::collections::HashMap;
 use crate::engine::RunFont;
 use crate::raster::{Antialias, GlyphImage, GlyphRasterizer, Hinting, size_64, subpixel_bin};
 
-/// Side of a normal atlas page in pixels. A tuning constant: large enough for hundreds of
-/// glyphs at interface sizes, small enough to upload quickly and to drop whole.
+/// Side of a normal atlas page in pixels unless the atlas is told otherwise
+/// ([`GlyphAtlas::set_page_size`]): large enough for hundreds of glyphs at interface sizes,
+/// small enough to upload quickly and to drop whole.
 pub const PAGE_SIZE: u32 = 1024;
 
 /// What identifies one rasterized glyph.
@@ -182,6 +183,7 @@ pub struct GlyphAtlas {
     empty: HashMap<GlyphKey, ()>,
     raster: GlyphRasterizer,
     frame: u64,
+    page_size: u32,
 }
 
 impl std::fmt::Debug for GlyphAtlas {
@@ -191,6 +193,15 @@ impl std::fmt::Debug for GlyphAtlas {
 }
 
 impl GlyphAtlas {
+    /// Sets the side of the pages this atlas adds from now on, in pixels (default
+    /// [`PAGE_SIZE`], 1024); pages it has keep theirs. A larger page holds more glyphs per
+    /// texture but costs its side squared (times the format's bytes a pixel) at once and
+    /// uploads and drops whole; keep it within the renderer's texture limit. A glyph larger
+    /// than a page still gets a page of its own size.
+    pub fn set_page_size(&mut self, side: u32) {
+        self.page_size = side;
+    }
+
     /// An empty atlas for one coverage format.
     pub fn new(aa: Antialias) -> Self {
         GlyphAtlas {
@@ -200,6 +211,7 @@ impl GlyphAtlas {
             empty: HashMap::new(),
             raster: GlyphRasterizer::new(),
             frame: 0,
+            page_size: PAGE_SIZE,
         }
     }
 
@@ -267,7 +279,8 @@ impl GlyphAtlas {
         }
         // A new page: normal size, or the glyph's own size if it is larger. Reuse a dropped
         // page's slot so page indices stay small.
-        let (w, h) = (PAGE_SIZE.max(img.width + 1), PAGE_SIZE.max(img.height + 1));
+        let side = self.page_size.max(1);
+        let (w, h) = (side.max(img.width + 1), side.max(img.height + 1));
         let mut page = Page::new(w, h, bpp);
         let (x, y) = page.alloc(img.width, img.height)?;
         page.blit(x, y, img, bpp);

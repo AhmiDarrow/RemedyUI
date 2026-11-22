@@ -214,3 +214,41 @@ binds every texture a pass reads at once (15 in all), and WebGPU guarantees no m
 sampled textures to one shader stage. A program names at most 255 registers (the
 instruction encoding's 8-bit fields); one past 64 runs on a wider form of the kernel, built
 the first time a program needs it.
+
+## Engine limits
+
+The rest of the engine works within bounds of the same kind: each has a default and a public
+way to change it. The safety bounds (marked *safety*) keep input from a stranger (a script,
+a markup file, a theme) cheap; raising one lets such input cost that much more.
+
+| Limit | Default | How to change it |
+| --- | --- | --- |
+| Pictures `PaintCx::cached` keeps per UI thread | 512 | `view::set_paint_cache_limit` |
+| Longest step an `AmbientTick` reports | 250 ms | `view::AmbientPolicy::max_dt` |
+| Largest colour-matrix entry (*safety*: far larger sums can overflow) | ±256 | `core::color_matrix::set_max_color_matrix_entry` |
+| Side of an effect element's frames | 4096 px (and the GPU's texture limit) | `effects::EffectView::set_max_side` |
+| Noise texture side / textures `fx::noise_image` and `fx::blur` keep | 4096 px / 64 | `stage::fx::set_fx_limits` |
+| Zoom of a page view | 1% to 6400% | `pages::PageView::set_zoom_range` |
+| Handlers in one script description (*safety*) | 4096 | `script::Limits::handlers` |
+| Picture side / gap a script asks for | 4096 / 64 logical px | `script::Limits::image_side`, `gap` |
+| Rhai expression nesting, top level / in a function (*safety*: the parser recurses on the stack) | 64 / 32 | `script::Limits::expr_depth` |
+| Markup nesting (*safety*: parsing and building recurse on the UI thread's stack) | 128 | `markup::set_max_depth` |
+| How long a terminal's synchronized update may hold the screen | 150 ms | `term::TerminalOptions::sync_timeout` |
+| How long the devtools Remote page waits for an app | 10 s | `devtools::set_remote_timeout` |
+| How long a second launch tries to reach the first (Windows) | 5 s | `AppConfig::single_instance_wait` |
+| Reading a drop from another app / serving a drag out (Linux) | 2 s / 10 s | `AppConfig::drop_waits` |
+
+Text, network and media limits are in [`crate::guide::text`], [`crate::guide::network`] and
+[`crate::guide::media`].
+
+```no_run
+use remedy_ui::view::set_paint_cache_limit;
+
+// A dashboard of many cached sparklines.
+set_paint_cache_limit(4096);
+```
+
+Some numbers are internal tuning rather than limits on what an app can do, and stay fixed:
+the lines a lazy piece shares with the next, how much text is read around a position to find
+a grapheme boundary, how much terminal input is parsed between checks, how often gamepads are
+looked for, and the stack segments deep trees grow on (they grow as far as the tree goes).
