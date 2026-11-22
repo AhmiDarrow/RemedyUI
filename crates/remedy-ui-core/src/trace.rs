@@ -7,7 +7,7 @@
 //! callsite's interest: nothing is allocated or timed.
 //!
 //! ```
-//! let _layout = remedy_ui_trace::phase!("layout").entered();
+//! let _layout = remedy_ui_core::phase!("layout").entered();
 //! ```
 //!
 //! Work that is not a span on a thread (the GPU running what the renderer submitted) is
@@ -15,11 +15,8 @@
 //! ([`gpu_slice`]).
 
 use std::sync::OnceLock;
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-use std::time::Instant;
-// The page's clock in a browser, where std's panics.
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-use web_time::Instant;
+
+use crate::time::Instant;
 
 pub use tracing;
 
@@ -63,7 +60,7 @@ pub mod phases {
 #[macro_export]
 macro_rules! phase {
     ($name:literal $(, $($fields:tt)*)?) => {
-        $crate::tracing::trace_span!(target: "remedy_ui", $name $(, $($fields)*)?)
+        $crate::trace::tracing::trace_span!(target: "remedy_ui", $name $(, $($fields)*)?)
     };
 }
 

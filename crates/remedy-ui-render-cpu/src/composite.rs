@@ -20,7 +20,7 @@ pub struct CpuCompositor {
     tiles: HashMap<(LayerId, TileKey), Arc<Pixmap>>,
     last_raster: (u64, std::time::Duration),
     /// Bytes of tiles held, for tools.
-    gauge: remedy_ui_trace::gauges::Gauge,
+    gauge: remedy_ui_core::trace::gauges::Gauge,
     /// The last frame composited: parts the damage leaves alone are kept from it.
     last: Option<Frame>,
     /// The composite's render context, kept between frames.
@@ -48,7 +48,7 @@ impl CpuCompositor {
             renderer: CpuRenderer::new(),
             tiles: HashMap::new(),
             last_raster: (0, std::time::Duration::ZERO),
-            gauge: remedy_ui_trace::gauges::Gauge::new("cpu tiles"),
+            gauge: remedy_ui_core::trace::gauges::Gauge::new("cpu tiles"),
             last: None,
             ctx: crate::Reused::default(),
             composited: 0,
@@ -99,7 +99,7 @@ impl CpuCompositor {
         height: u32,
         background: Color,
     ) -> Result<&Frame, RenderError> {
-        let _raster = remedy_ui_trace::phase!("raster").entered();
+        let _raster = remedy_ui_core::phase!("raster").entered();
         let (w, h) = size16(width, height)?;
         for key in &plan.released {
             self.tiles.remove(key);

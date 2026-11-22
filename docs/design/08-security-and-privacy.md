@@ -33,7 +33,7 @@ The Remedy apps hold encrypted vaults (SecretFolder, SecretSticky), private conv
 
 ## Secrets on screen
 
-The `secure` crate (L3) and the zeroizing secret buffer in `text`, used by SecretFolder, SecretSticky, Hearth's passphrase and FreeSpeak's safety numbers:
+The `secure` module of `remedy-ui` (idle timing and sensitive copies) and the zeroizing secret buffer in `text`, used by SecretFolder, SecretSticky, Hearth's passphrase and FreeSpeak's safety numbers:
 
 - **`secret_input`.** Masked text with optional reveal.
   - Its storage zeroes on change and drop, and keeps one contiguous buffer to avoid copies.

@@ -44,7 +44,7 @@ pub struct GpuCompositor {
     /// Pixels the latest damage-aware present composited.
     composited: u64,
     /// Bytes of tiles and of uploaded images held, for tools.
-    gauges: (remedy_ui_trace::gauges::Gauge, remedy_ui_trace::gauges::Gauge),
+    gauges: (remedy_ui_core::trace::gauges::Gauge, remedy_ui_core::trace::gauges::Gauge),
     /// Watches presents: one that hangs lets this device go ([`crate::health`]).
     watchdog: crate::health::PresentWatchdog,
 }
@@ -229,8 +229,8 @@ impl GpuCompositor {
             retained: None,
             composited: 0,
             gauges: (
-                remedy_ui_trace::gauges::Gauge::new("gpu tiles"),
-                remedy_ui_trace::gauges::Gauge::new("gpu images"),
+                remedy_ui_core::trace::gauges::Gauge::new("gpu tiles"),
+                remedy_ui_core::trace::gauges::Gauge::new("gpu images"),
             ),
         }
     }

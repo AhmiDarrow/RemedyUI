@@ -10,6 +10,8 @@
 //! - [`set_router`]: decoding somewhere else (a sandboxed helper process)
 //! - [`set_fetcher`] and [`set_cache_dir`]: how images from addresses are fetched and kept
 //! - [`set_memory_limit`], [`set_disk_limit`] and [`set_known_sizes_limit`]: how much is kept
+//! - [`svg`] (the `svg` feature): SVG at exactly the size shown, through this loader, and
+//!   tinted icons
 //!
 //! In a browser page images are drawn on the page's canvas, so an image from another site
 //! shows only when its server allows it with CORS headers; otherwise the app fetches it
@@ -26,6 +28,8 @@ pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_st
 mod decode;
 mod load;
 mod remote;
+#[cfg(feature = "svg")]
+pub mod svg;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 mod web;
 

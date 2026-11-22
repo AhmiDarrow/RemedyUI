@@ -289,7 +289,7 @@ fn linker(engine: &Engine) -> Result<Linker<Host>, ScriptError> {
         .func_wrap(HOST_MODULE, "log", |caller: Caller<'_, Host>, ptr: i32, len: i32| {
             let Some(memory) = caller.data().memory else { return };
             if let Some(text) = read_text(memory.data(&caller), ptr, len) {
-                remedy_ui_trace::tracing::debug!(target: "remedy_ui::script", "{text}");
+                remedy_ui_core::trace::tracing::debug!(target: "remedy_ui::script", "{text}");
             }
         })
         .map_err(invalid)?;

@@ -1,6 +1,6 @@
 [package]
 name = "remedy-ui-media-image"
-description = "RemedyUI images: PNG, JPEG, GIF (first frame), WebP, BMP and ICO decoded off the UI thread at the size they are shown, color-managed to sRGB, EXIF-oriented, shared while in use and freed when not."
+description = "RemedyUI images: PNG, JPEG, GIF (first frame), WebP, BMP and ICO (and SVG, drawn at exactly the size shown) decoded off the UI thread at the size they are shown, color-managed to sRGB, EXIF-oriented, shared while in use and freed when not."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -23,6 +23,15 @@ webp = ["image/webp"]
 bmp = ["image/bmp"]
 ico = ["image/ico"]
 tiff = ["image/tiff"]
+## SVG through the image loader, and tinted icons (the `svg` module); untrusted files cannot
+## read local files.
+svg = ["dep:resvg"]
+## Gzipped SVG (.svgz).
+svgz = ["svg", "resvg?/svgz"]
+## Bitmaps embedded in SVG files (as data: URLs).
+svg-raster-images = ["svg", "resvg?/raster-images"]
+## Text in SVG files, drawn with the system's fonts (not on the web) and those added by `add_font`.
+svg-text = ["svg", "resvg?/text", "resvg?/system-fonts"]
 
 [dependencies]
 remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "1.0.0-rc.1" }
@@ -30,11 +39,11 @@ remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-layout = { path = "../remedy-ui-layout", version = "1.0.0-rc.1" }
 remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
 remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "1.0.0-rc.1" }
-remedy-ui-trace = { path = "../remedy-ui-trace", version = "1.0.0-rc.1" }
 remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
 remedy-ui-services-net = { path = "../remedy-ui-services-net", version = "1.0.0-rc.1", optional = true }
 image = { version = "=0.25.10", default-features = false }
 moxcms = { version = "=0.8.1" }
+resvg = { version = "=0.50.0", default-features = false, optional = true }
 
 # In a page the browser decodes and scales pictures (`createImageBitmap`), as it does `<img>`.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -45,7 +54,7 @@ web-sys = { version = "=0.3.107", features = ["Blob", "ImageBitmap", "ImageBitma
 
 [dev-dependencies]
 remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1" }
-remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui"] }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "remedy-sans"] }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
@@ -56,6 +65,14 @@ wasm-bindgen = { version = "=0.2.130" }
 wasm-bindgen-futures = { version = "=0.4.80" }
 wasm-bindgen-test = { version = "=0.3.80" }
 web-sys = { version = "=0.3.107", features = ["console", "Response", "Window"] }
+
+[[test]]
+name = "svg"
+required-features = ["svg"]
+
+[[test]]
+name = "text"
+required-features = ["svg", "svg-text"]
 
 [lints]
 workspace = true

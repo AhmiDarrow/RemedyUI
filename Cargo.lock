@@ -4081,7 +4081,6 @@ dependencies = [
  "remedy-ui-media-image",
  "remedy-ui-media-isolated",
  "remedy-ui-media-playback",
- "remedy-ui-media-svg",
  "remedy-ui-media-video",
  "remedy-ui-paint",
  "remedy-ui-reactive",
@@ -4091,7 +4090,6 @@ dependencies = [
  "remedy-ui-script",
  "remedy-ui-script-rhai",
  "remedy-ui-script-wasm",
- "remedy-ui-secure",
  "remedy-ui-services-desktop",
  "remedy-ui-services-i18n",
  "remedy-ui-services-net",
@@ -4101,7 +4099,6 @@ dependencies = [
  "remedy-ui-style",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-trace",
  "remedy-ui-tree",
  "remedy-ui-view",
  "remedy-ui-viz",
@@ -4120,6 +4117,7 @@ dependencies = [
  "wasm-bindgen-test",
  "web-sys",
  "x11rb",
+ "zeroize",
 ]
 
 [[package]]
@@ -4267,7 +4265,6 @@ dependencies = [
  "remedy-ui-input",
  "remedy-ui-motion",
  "remedy-ui-paint",
- "remedy-ui-trace",
 ]
 
 [[package]]
@@ -4275,6 +4272,7 @@ name = "remedy-ui-core"
 version = "1.0.0-rc.1"
 dependencies = [
  "cpu-time",
+ "tracing",
  "web-time",
 ]
 
@@ -4322,7 +4320,6 @@ dependencies = [
  "remedy-ui-style",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-trace",
  "remedy-ui-view",
  "remedy-ui-widgets-core",
  "remedy-ui-widgets-forms",
@@ -4366,7 +4363,6 @@ dependencies = [
  "remedy-ui-style",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-trace",
  "remedy-ui-view",
  "remedy-ui-widgets-core",
 ]
@@ -4545,8 +4541,8 @@ dependencies = [
  "remedy-ui-services-net",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-trace",
  "remedy-ui-view",
+ "resvg",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -4595,7 +4591,7 @@ dependencies = [
  "remedy-ui-fonts",
  "remedy-ui-input",
  "remedy-ui-layout",
- "remedy-ui-media-svg",
+ "remedy-ui-media-image",
  "remedy-ui-media-video",
  "remedy-ui-paint",
  "remedy-ui-reactive",
@@ -4613,23 +4609,6 @@ dependencies = [
  "web-sys",
  "windows",
  "zbus 6.3.0",
-]
-
-[[package]]
-name = "remedy-ui-media-svg"
-version = "1.0.0-rc.1"
-dependencies = [
- "image",
- "remedy-ui-a11y",
- "remedy-ui-core",
- "remedy-ui-fonts",
- "remedy-ui-media-image",
- "remedy-ui-paint",
- "remedy-ui-reactive",
- "remedy-ui-text",
- "remedy-ui-themes",
- "remedy-ui-view",
- "resvg",
 ]
 
 [[package]]
@@ -4671,7 +4650,6 @@ version = "1.0.0-rc.1"
 dependencies = [
  "remedy-ui-core",
  "remedy-ui-reactive",
- "remedy-ui-trace",
  "serde",
  "serde_json",
  "stacker",
@@ -4689,7 +4667,6 @@ dependencies = [
  "remedy-ui-input",
  "remedy-ui-paint",
  "remedy-ui-text",
- "remedy-ui-trace",
  "remedy-vello-cpu",
 ]
 
@@ -4717,7 +4694,6 @@ dependencies = [
  "remedy-ui-style",
  "remedy-ui-text",
  "remedy-ui-themes",
- "remedy-ui-trace",
  "remedy-ui-view",
  "vello_gpu",
  "wasm-bindgen",
@@ -4757,7 +4733,6 @@ version = "1.0.0-rc.1"
 dependencies = [
  "remedy-ui-core",
  "remedy-ui-script",
- "remedy-ui-trace",
  "rhai",
  "serde_json",
 ]
@@ -4768,17 +4743,9 @@ version = "1.0.0-rc.1"
 dependencies = [
  "remedy-ui-core",
  "remedy-ui-script",
- "remedy-ui-trace",
  "serde_json",
  "wasmi",
  "wat",
-]
-
-[[package]]
-name = "remedy-ui-secure"
-version = "1.0.0-rc.1"
-dependencies = [
- "zeroize",
 ]
 
 [[package]]
@@ -4953,14 +4920,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "remedy-ui-trace"
-version = "1.0.0-rc.1"
-dependencies = [
- "tracing",
- "web-time",
-]
-
-[[package]]
 name = "remedy-ui-tree"
 version = "1.0.0-rc.1"
 dependencies = [
@@ -4989,7 +4948,6 @@ dependencies = [
  "remedy-ui-render-cpu",
  "remedy-ui-style",
  "remedy-ui-text",
- "remedy-ui-trace",
  "remedy-ui-tree",
  "stacker",
  "unic-langid",

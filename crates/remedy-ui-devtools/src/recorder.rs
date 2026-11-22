@@ -12,11 +12,11 @@ use std::fmt::Write as _;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use remedy_ui_trace::phases;
-use remedy_ui_trace::tracing::field::{Field, Visit};
-use remedy_ui_trace::tracing::span::{Attributes, Id, Record};
-use remedy_ui_trace::tracing::subscriber::Interest;
-use remedy_ui_trace::tracing::{Dispatch, Event, Metadata, Subscriber};
+use remedy_ui_core::trace::phases;
+use remedy_ui_core::trace::tracing::field::{Field, Visit};
+use remedy_ui_core::trace::tracing::span::{Attributes, Id, Record};
+use remedy_ui_core::trace::tracing::subscriber::Interest;
+use remedy_ui_core::trace::tracing::{Dispatch, Event, Metadata, Subscriber};
 
 /// The thread id the GPU's track gets in exported traces.
 pub const GPU_TRACK: u64 = 0;
@@ -33,13 +33,13 @@ impl std::fmt::Display for InstallError {
 
 impl std::error::Error for InstallError {}
 
-/// One frame of one window, by phase ([`remedy_ui_trace::phases`]).
+/// One frame of one window, by phase ([`remedy_ui_core::trace::phases`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct FrameSample {
     /// The window's view ([`remedy_ui_view::Ui::id`]), when the frame span named it.
     pub ui: Option<u64>,
-    /// When the frame started, on the trace clock ([`remedy_ui_trace::now_ns`]).
+    /// When the frame started, on the trace clock ([`remedy_ui_core::trace::now_ns`]).
     pub start_ns: u64,
     /// How long the frame took, from its start to its end.
     pub frame_ns: u64,
@@ -264,7 +264,7 @@ impl Recorder {
             .get_or_init(|| {
                 let shared = Arc::new(Shared { next_span: AtomicU64::new(1), ..Shared::default() });
                 let sub = Sub { shared: shared.clone() };
-                match remedy_ui_trace::tracing::dispatcher::set_global_default(Dispatch::new(sub)) {
+                match remedy_ui_core::trace::tracing::dispatcher::set_global_default(Dispatch::new(sub)) {
                     Ok(()) => Ok(Recorder { shared }),
                     Err(_) => Err(InstallError),
                 }
@@ -363,7 +363,7 @@ impl Visit for Fields {
 }
 
 fn is_engine(meta: &Metadata<'_>) -> bool {
-    meta.target() == remedy_ui_trace::TARGET
+    meta.target() == remedy_ui_core::trace::TARGET
 }
 
 fn phase_index(name: &str) -> Option<usize> {
@@ -372,7 +372,7 @@ fn phase_index(name: &str) -> Option<usize> {
 
 impl Sub {
     fn wants(&self, meta: &Metadata<'_>) -> bool {
-        if meta.target() == remedy_ui_trace::GPU_TARGET {
+        if meta.target() == remedy_ui_core::trace::GPU_TARGET {
             return self.shared.capturing.load(Ordering::Relaxed);
         }
         self.shared.capturing.load(Ordering::Relaxed)
@@ -478,7 +478,7 @@ impl Subscriber for Sub {
         let meta = event.metadata();
         let mut fields = Fields::default();
         event.record(&mut fields);
-        if meta.target() == remedy_ui_trace::GPU_TARGET {
+        if meta.target() == remedy_ui_core::trace::GPU_TARGET {
             if let (Some(b), Some(e)) = (fields.begin_ns, fields.end_ns) {
                 self.push_capture(Slice {
                     track: GPU_TRACK,
@@ -499,7 +499,7 @@ impl Subscriber for Sub {
             track,
             name: meta.name().to_owned(),
             target: meta.target().to_owned(),
-            start_ns: remedy_ui_trace::now_ns(),
+            start_ns: remedy_ui_core::trace::now_ns(),
             dur_ns: None,
             args: fields.list.into_iter().map(|(k, v)| (k.to_owned(), v)).collect(),
         });
@@ -514,7 +514,7 @@ impl Subscriber for Sub {
             },
             Err(_) => return,
         };
-        let start_ns = remedy_ui_trace::now_ns();
+        let start_ns = remedy_ui_core::trace::now_ns();
         THREAD.with(|t| {
             let mut t = t.borrow_mut();
             let _ = self.track(&mut t);
@@ -528,7 +528,7 @@ impl Subscriber for Sub {
 
     fn exit(&self, span: &Id) {
         let id = span.into_u64();
-        let end = remedy_ui_trace::now_ns();
+        let end = remedy_ui_core::trace::now_ns();
         let Some((open, track)) = THREAD.with(|t| {
             let mut t = t.borrow_mut();
             let at = t.stack.iter().rposition(|o| o.id == id)?;

@@ -128,7 +128,7 @@ fn step() -> bool {
             None => return false,
         }
     };
-    let _span = remedy_ui_trace::phase!("page raster").entered();
+    let _span = remedy_ui_core::phase!("page raster").entered();
     (job.work)();
     true
 }

@@ -1337,6 +1337,14 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- **Three small crates folded into the crates that use them.** `remedy-ui-trace` is now
+  `remedy_ui_core::trace` (its `phase!` macro is `remedy_ui_core::phase!`);
+  `remedy-ui-media-svg` is `remedy-ui-media-image`'s `svg` feature and module (with `svgz`,
+  `svg-raster-images` and `svg-text`); `remedy-ui-secure` is a private module of `remedy-ui`.
+  Apps going through the facade change nothing: `remedy_ui::svg` and the `svg` feature stay.
+  Code that named the removed crates directly should use `remedy_ui_core::phase!` and
+  `remedy_ui_core::trace`, `remedy_ui::svg` (or `remedy_ui_media_image::svg`), and the
+  existing `App::idle_lock` / `App::copy_secret` APIs.
 - **Web pages load their large data when it is needed, not with the module.** The fallback
   faces (`script-fonts`: Noto Sans Arabic, Devanagari, Bengali, SC and JP, about 9.5 MB) are
   no longer built into a `wasm32` module: each is a file `cargo remedy package --target web`

@@ -269,7 +269,7 @@ impl Ui {
     /// A drag from another app over this window (or a drop). Returns what a drop would do
     /// now, for the platform to show.
     pub fn drag_event(&self, e: &DragEvent) -> DropEffect {
-        let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
+        let _events = remedy_ui_core::phase!("events", ui = self.id()).entered();
         match e {
             DragEvent::Enter { position, data } => {
                 let ours = self.0.borrow().drag.as_ref().is_some_and(|s| s.outside);

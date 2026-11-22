@@ -39,6 +39,7 @@ mod pip;
 #[cfg(feature = "widgets")]
 pub mod router;
 mod runner;
+mod secure;
 #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
 mod web_fonts;
 /// Driving an app in tests on the in-memory host: find by role and name, press, type.
@@ -178,14 +179,14 @@ pub use remedy_ui_macros::Store;
 pub use remedy_ui_media_anim as anim;
 #[cfg(feature = "image")]
 pub use remedy_ui_media_image as image;
+#[cfg(feature = "svg")]
+pub use remedy_ui_media_image::svg;
 /// Decoding in a sandboxed helper process: images and animations whose decoder crashes,
 /// hangs or runs away with memory take down only the helper.
 #[cfg(feature = "isolated")]
 pub use remedy_ui_media_isolated as isolated;
 #[cfg(feature = "playback")]
 pub use remedy_ui_media_playback as playback;
-#[cfg(feature = "svg")]
-pub use remedy_ui_media_svg as svg;
 #[cfg(feature = "video")]
 pub use remedy_ui_media_video as video;
 /// Drawing: display lists, paths, brushes, transforms and images, for painters
@@ -331,7 +332,7 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
     remedy_ui_bridge_android::set_held_grace(config.keepalive_grace);
     // SVG files show wherever images do.
     #[cfg(feature = "svg")]
-    remedy_ui_media_svg::install();
+    remedy_ui_media_image::svg::install();
     let inbox = instance::SharedInbox::default();
     // A browser settles the instance across tabs asynchronously: the first tab starts the
     // app once the browser grants it the instance.
