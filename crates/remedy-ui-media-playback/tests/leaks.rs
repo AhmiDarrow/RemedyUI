@@ -371,13 +371,13 @@ fn streamed_within(how: Serve, within: Duration, then: impl FnOnce(&Player)) {
     drop(p);
     drop(ui);
     settles_within("after the drop", within, before, &threads, &none);
-    no_d3d_leaks();
+    no_d3d_left();
 }
 
 /// Under REMEDY_D3D_DEBUG=1 on Windows: nothing alive on the decoder devices made since the
 /// last look but the devices, once the player and its host (which keeps the last stream's
 /// decoders for the next) have gone. How many devices were looked at.
-fn no_d3d_leaks() -> usize {
+fn no_d3d_left() -> usize {
     let (devices, leaked) = live_d3d_objects();
     if devices > 0 {
         eprintln!(
@@ -458,6 +458,7 @@ fn a_stream_dropped_after_its_decoders_went_to_the_next() {
     let ui = ui();
     let p = Player::open(&ui, host, MediaSource::Url(url.clone()), PlayerOptions::default());
     wait("opened", || p.state() == PlaybackState::Paused);
+    let made = hls_decoders_made();
     for _ in 0..2 {
         p.start_next(MediaSource::Url(url.clone()), None);
         wait("the next opened", || matches!(p.state(), PlaybackState::Playing | PlaybackState::Paused));
@@ -467,14 +468,14 @@ fn a_stream_dropped_after_its_decoders_went_to_the_next() {
     let held = live_platform_objects();
     eprintln!("after two next streams: {held} platform objects live");
     assert!(held > before.2, "the stream's decoders are live while it plays");
+    assert_eq!(hls_decoders_made(), made, "the next streams took the decoders over");
     drop(p);
     drop(ui);
     // Dropping the player drops its host, and with it the decoders it kept for the next.
     settles("after the drop", before, &threads, &none);
-    // shortcut: not asserted one device for three streams: the next stream opens while the
-    // last is still closing, so it can find nothing kept yet and make its own (seen: 2).
-    let devices = no_d3d_leaks();
-    eprintln!("{devices} decoder device(s) for three streams on one host");
+    // Three streams, one device: each next stream took the last one's decoder, device and all.
+    let devices = no_d3d_left();
+    assert!(devices <= 1, "{devices} decoder devices for three streams on one host");
 }
 
 #[test]
