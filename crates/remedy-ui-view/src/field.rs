@@ -1798,13 +1798,14 @@ impl TextField {
                 let i = self.el.ui.0.borrow();
                 (i.engine.clone(), i.els.get(&self.el.id).map(|d| d.resolved.clone())?)
             };
-            let inset = style.padding.start + style.border_width;
-            let width = (bounds.width() - inset - style.padding.end - style.border_width).max(1.0);
+            let inner = style.inner_insets();
+            let inset = inner.start;
+            let width = (bounds.width() - inset - inner.end).max(1.0);
             let mut f = self.field.borrow_mut();
             let p = f.paragraph(&mut engine.borrow_mut(), width);
             let o = Point::new(
                 inset + p.x_offset(width) - f.scroll.x,
-                style.padding.top + style.border_width - f.scroll.y,
+                inner.top - f.scroll.y,
             );
             if let Some(shown) = f.shown.as_mut() {
                 shown.2 = o;

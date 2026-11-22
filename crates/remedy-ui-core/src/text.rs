@@ -17,6 +17,21 @@ pub enum TextTransform {
     Capitalize,
 }
 
+/// Where each line of a paragraph sits across its width (CSS `text-align`); inherited.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum TextAlign {
+    /// Left in left-to-right text, right in right-to-left text.
+    #[default]
+    Start,
+    /// Right in left-to-right text, left in right-to-left text.
+    End,
+    /// Centered.
+    Center,
+    /// Stretched to both edges, except the last line of each paragraph.
+    Justify,
+}
+
 /// How tall each line of text is (CSS `line-height`); inherited.
 #[derive(Clone, Copy, Debug, PartialEq)]
 // Exhaustive on purpose: CSS `normal`, a number and a length (a percentage is a number).

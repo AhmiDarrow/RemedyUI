@@ -192,20 +192,16 @@ fn record(
         list.fill_rounded(Rect::from_origin_size(Point::ZERO, boxed.size()), radii, brush);
         list.push(Item::PopTransform);
     }
-    if s.border_width > 0.0 && s.border.a > 0.0 {
+    if s.has_border_sides() {
+        side_borders(&mut list, boxed, radii, s, rtl, scale);
+    } else if s.border_width > 0.0 && s.border.a > 0.0 {
         let w = crisp_width(s.border_width, scale);
         match s.border_style {
             BorderStyle::Solid => list.border(boxed, radii, w, s.border),
             style => list.push(broken_border(boxed, radii, w, s.border, style)),
         }
     }
-    let bw = s.border_width;
-    let content = rect.deflate(Insets {
-        top: s.padding.top + bw,
-        end: s.padding.end + bw,
-        bottom: s.padding.bottom + bw,
-        start: s.padding.start + bw,
-    });
+    let content = rect.deflate(s.inner_insets());
     if let Some(slot) = &d.text {
         let mut slot = slot.borrow_mut();
         slot.rtl = rtl;
@@ -1036,8 +1032,10 @@ impl Ui {
                 || resolved.heading != d.resolved.heading
                 || resolved.letter_spacing != d.resolved.letter_spacing
                 || resolved.text_transform != d.resolved.text_transform
-                || resolved.line_height != d.resolved.line_height;
+                || resolved.line_height != d.resolved.line_height
+                || resolved.text_align != d.resolved.text_align;
             let text_changed = reshape
+                || resolved.text_align != d.resolved.text_align
                 || resolved.text_transform != d.resolved.text_transform
                 || resolved.line_height != d.resolved.line_height
                 || resolved.max_lines != d.resolved.max_lines
@@ -1057,7 +1055,7 @@ impl Ui {
                 || resolved.max_lines != d.resolved.max_lines
                 || resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight
-                || resolved.border_width != d.resolved.border_width;
+                || resolved.border_insets() != d.resolved.border_insets();
             let changed = resolved != d.resolved;
             d.resolved = resolved;
             if text_changed {
@@ -1066,6 +1064,7 @@ impl Ui {
                     let mut t = t.borrow_mut();
                     t.style = style.clone();
                     t.max_lines = d.resolved.max_lines;
+                    t.align = d.resolved.text_align;
                     t.cache = None;
                 }
                 if let Some(f) = &d.field {
@@ -1136,12 +1135,12 @@ impl Ui {
                     pad.bottom += s.bottom;
                     pad.start += s.left;
                 }
-                let bw = d.resolved.border_width;
+                let bw = d.resolved.border_insets();
                 style.padding = Insets {
-                    top: pad.top + bw,
-                    end: pad.end + bw,
-                    bottom: pad.bottom + bw,
-                    start: pad.start + bw,
+                    top: pad.top + bw.top,
+                    end: pad.end + bw.end,
+                    bottom: pad.bottom + bw.bottom,
+                    start: pad.start + bw.start,
                 };
                 let node = d.node;
                 let _ = i.layout.set_style(node, &style);
@@ -1212,12 +1211,11 @@ impl Ui {
                 stuck.push((id, off != Vec2::ZERO));
                 stickies.insert(id, st);
             }
-            let (bw, p, scrolls) = (d.resolved.border_width, d.resolved.padding, d.scroll);
+            let (pad, scrolls) = (d.resolved.inner_insets(), d.scroll);
             // An element drawn in a compositor layer of its own puts its children in that
             // layer, which the compositor places on whole device pixels.
             let own_layer =
                 d.scroll || d.isolate.is_some() || d.ambient_layer || d.resolved.backdrop_blur > 0.0;
-            let pad = Insets { top: p.top + bw, end: p.end + bw, bottom: p.bottom + bw, start: p.start + bw };
             let pad = if i.layout.is_rtl(d.node) { pad.mirrored() } else { pad };
             let own = Rect::from_origin_size(Point::ZERO, r.size()).deflate(pad);
             if i.frame.bounds_stale {
@@ -1554,6 +1552,101 @@ fn chunk_key(boxes: &HashMap<ElementId, (Size, Rect)>, id: ElementId) -> (Size, 
 
 /// A border `width` logical pixels wide in whole device pixels at `scale`, as browsers draw
 /// line widths: at least one device pixel, never a blurred fraction.
+/// Borders that differ by side: each side a stroke along its middle, from halfway round a
+/// round corner (where the next side takes over) or from a square corner, top and bottom
+/// across the corners and the sides between them.
+fn side_borders(
+    list: &mut DisplayList,
+    rect: Rect,
+    radii: CornerRadii,
+    s: &remedy_ui_style::ResolvedStyle,
+    rtl: bool,
+    scale: f32,
+) {
+    use remedy_ui_paint::{Path, Stroke, StrokeCap};
+    use remedy_ui_style::BorderEdge as E;
+    // Physical sides clockwise from the top: top, right, bottom, left.
+    let (right, left) = if rtl { (E::Start, E::End) } else { (E::End, E::Start) };
+    let sides = [E::Top, right, E::Bottom, left].map(|e| s.border_on(e));
+    let w = sides.map(|b| if b.width > 0.0 { crisp_width(b.width, scale) } else { 0.0 });
+    let r = radii.fit(rect.size());
+    // Corners clockwise from the top left.
+    let radius = [r.top_start, r.top_end, r.bottom_end, r.bottom_start];
+    let (x0, y0, x1, y1) = (rect.min.x, rect.min.y, rect.max.x, rect.max.y);
+    let center = |k: usize, r: f32| match k {
+        0 => Point::new(x0 + r, y0 + r),
+        1 => Point::new(x1 - r, y0 + r),
+        2 => Point::new(x1 - r, y1 - r),
+        _ => Point::new(x0 + r, y1 - r),
+    };
+    // Where a side meets a square corner: top and bottom run to the box's edge, the sides
+    // between them start inside them.
+    let square = |side: usize, k: usize| {
+        let h = w.get(side).copied().unwrap_or(0.0) / 2.0;
+        let wi = |i: usize| w.get(i).copied().unwrap_or(0.0);
+        match (side, k) {
+            (0, 0) => Point::new(x0, y0 + h),
+            (0, _) => Point::new(x1, y0 + h),
+            (1, 1) => Point::new(x1 - h, y0 + wi(0)),
+            (1, _) => Point::new(x1 - h, y1 - wi(2)),
+            (2, 2) => Point::new(x1, y1 - h),
+            (2, _) => Point::new(x0, y1 - h),
+            (3, 3) => Point::new(x0 + h, y1 - wi(2)),
+            _ => Point::new(x0 + h, y0 + wi(0)),
+        }
+    };
+    // A 45 degree arc as one cubic.
+    const K: f32 = 0.265_216_1;
+    let at = |c: Point, a: f32, t: f32| Point::new(c.x + a * t.cos(), c.y + a * t.sin());
+    for side in 0..4 {
+        let (Some(b), Some(&width)) = (sides.get(side), w.get(side)) else { continue };
+        if width <= 0.0 || b.color.a <= 0.0 {
+            continue;
+        }
+        let mut path = Path::new();
+        // The corner this side starts at (its second half) and the one it ends at (its first).
+        for (n, k) in [side, (side + 1) % 4].into_iter().enumerate() {
+            let rk = radius.get(k).copied().unwrap_or(0.0);
+            let base = std::f32::consts::PI * (1.0 + k as f32 / 2.0);
+            if rk <= 0.0 {
+                let p = square(side, k);
+                if n == 0 {
+                    path.move_to(p);
+                } else {
+                    path.line_to(p);
+                }
+                continue;
+            }
+            let (c, a) = (center(k, rk), (rk - width / 2.0).max(0.0));
+            let (t0, t1) = if n == 0 {
+                (base + std::f32::consts::FRAC_PI_4, base + std::f32::consts::FRAC_PI_2)
+            } else {
+                (base, base + std::f32::consts::FRAC_PI_4)
+            };
+            let (p0, p3) = (at(c, a, t0), at(c, a, t1));
+            if n == 0 {
+                path.move_to(p0);
+            } else {
+                path.line_to(p0);
+            }
+            let c1 = Point::new(p0.x - K * a * t0.sin(), p0.y + K * a * t0.cos());
+            let c2 = Point::new(p3.x + K * a * t1.sin(), p3.y - K * a * t1.cos());
+            path.cubic_to(c1, c2, p3);
+        }
+        let mut stroke = Stroke::new(width);
+        stroke.dashes = match b.style {
+            BorderStyle::Solid => Vec::new(),
+            BorderStyle::Dotted if width >= 3.0 => {
+                stroke.cap = StrokeCap::Round;
+                vec![0.01, width * 2.0 - 0.01]
+            }
+            BorderStyle::Dotted => vec![width, width],
+            _ => vec![width * 3.0, width * 3.0],
+        };
+        list.push(Item::StrokePath { path, stroke, brush: Brush::Solid(b.color) });
+    }
+}
+
 /// A dashed or dotted border of `width` inside `rect`'s edge: a stroke along the middle of
 /// where a solid border would be, its corners rounded as that border's are.
 fn broken_border(rect: Rect, radii: CornerRadii, width: f32, color: Color, style: BorderStyle) -> Item {
@@ -1621,15 +1714,13 @@ fn lazy_text_moved(i: &Inner, rects: &HashMap<ElementId, Rect>, size: Size) -> V
     for (id, d) in &i.els {
         let Some(slot) = &d.text else { continue };
         let Some((painted, height)) = slot.borrow().painted.clone() else { continue };
-        let inset = d.resolved.padding.top + d.resolved.border_width;
+        let inner = d.resolved.inner_insets();
+        let inset = inner.top;
         let shown = shown_band(i, *id, window).map(|b| b.start - inset..b.end - inset);
         if shown.is_some_and(|b| b.start < painted.start || b.end > painted.end) {
             i.tree.mark(*id, Dirty::PAINT);
         }
-        let boxed = rects.get(id).map_or(0.0, |r| r.height())
-            - inset
-            - d.resolved.padding.bottom
-            - d.resolved.border_width;
+        let boxed = rects.get(id).map_or(0.0, |r| r.height()) - inset - inner.bottom;
         if (crate::element::layout_unit_ceil(height) - boxed).abs() > 0.5 {
             remeasure.push(*id);
         }

@@ -15,6 +15,20 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   widths long or as dots (round from 3 pixels wide), following the box's corners, per-corner
   radii included, on the CPU and GPU renderers and in a page. `Path::rounded_rect` builds the
   outline.
+- **A border per side**: `StylePatch::border_side(BorderEdge::Top, BorderSide::new(width,
+  color).style(BorderStyle::Dashed))` and `Style::border_side` (CSS `border-top`,
+  `border-inline-end` and the like) give a side its own width, color and line style in place
+  of the box's border. Round corners carry each side halfway round, per-corner radii
+  included, start and end swapped right to left, on the CPU and GPU renderers and in a page;
+  layout, text and fields sit inside each side's own width
+  (`ResolvedStyle::border_on`, `border_insets`, `inner_insets`).
+- **Text alignment from style**: `El::text_align(TextAlign::Center)`, `StylePatch::text_align`
+  and `Style::text_align` (CSS `text-align`: start, end, center, justify; inherited) set
+  where every line of an element's text sits, wrapped lines too. `TextAlign` lives in
+  `remedy-ui-core`; `remedy_ui_text::Align` is now the same type.
+- **A select's value can sit at the start**: `w::select` has no empty label in front of its
+  value any more, so `.justify(Justify::Start)` puts the value at the start edge and
+  `Justify::SpaceBetween` the chevron at the end too; it stays centered by default.
 - **Dates with seconds, all in numbers**: `CalendarSymbols::format_date_time(date, time,
   second, DateTimeStyle::Numeric)` and `format_instant(local_seconds, style)` write a date and
   time as a browser's `Date.toLocaleString()` does ("11/21/2026, 1:32:31 PM" in en-US,

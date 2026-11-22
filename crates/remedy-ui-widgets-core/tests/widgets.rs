@@ -836,6 +836,29 @@ fn keyed_rows_fade_in_fade_out_and_glide_to_new_places() {
 }
 
 #[test]
+fn a_select_puts_its_value_where_justify_says() {
+    let mut t = T::new();
+    let options = vec!["Apple".to_owned(), "Banana".to_owned()];
+    let centered = w::select(&t.ui, "Fruit", options.clone(), Signal::new(0usize)).width(240.0);
+    let started = w::select(&t.ui, "Fruit", options, Signal::new(0usize))
+        .width(240.0)
+        .justify(remedy_ui_layout::Justify::SpaceBetween);
+    t.ui.root().child(w::column(&t.ui).child(centered.clone()).child(started.clone()));
+    t.frame();
+    let value_x = |s: &El| {
+        let kids = s.child_elements();
+        let v = kids.first().and_then(|k| k.bounds()).unwrap_or_default();
+        let chevron = kids.last().and_then(|k| k.bounds()).unwrap_or_default();
+        (v.min.x - s.bounds().unwrap_or_default().min.x, s.bounds().unwrap_or_default().max.x - chevron.max.x)
+    };
+    let (c_start, _) = value_x(&centered);
+    let (s_start, s_end) = value_x(&started);
+    assert!(c_start > 40.0, "centered by default: {c_start}");
+    assert!(s_start < 24.0, "the value at the start, past the padding only: {s_start}");
+    assert!(s_end < 24.0, "the chevron at the end: {s_end}");
+}
+
+#[test]
 fn choices_with_nothing_chosen_take_arrows_and_letters() {
     let mut t = T::new();
     let options = vec!["Apple".to_owned(), "Banana".to_owned(), "Cherry".to_owned()];

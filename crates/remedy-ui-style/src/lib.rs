@@ -27,8 +27,8 @@ mod tokens;
 
 pub use contrast::{CONTRAST_AA, CONTRAST_AAA, ensure_contrast};
 pub use gradient::{Extent, Gradient, GradientGeometry, GradientStop, ParseGradientError, Pos, RadialSize};
-pub use remedy_ui_core::{LineHeight, TextTransform};
-pub use resolve::{BorderStyle, LetterSpacing, ResolvedStyle, Shadow, StickyInsets, StyleKey, StylePatch, StyleSheet};
+pub use remedy_ui_core::{LineHeight, TextAlign, TextTransform};
+pub use resolve::{BorderEdge, BorderSide, BorderStyle, LetterSpacing, ResolvedStyle, Shadow, StickyInsets, StyleKey, StylePatch, StyleSheet};
 pub use states::States;
 pub use theme::{
     ColorRoles, Density, DerivedTokens, MotionTokens, Radii, Spacing, Theme, ThemeAssets, TypeScale,

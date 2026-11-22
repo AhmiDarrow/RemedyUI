@@ -908,6 +908,8 @@ impl TextEngine {
             (Align::End, Direction::Auto) => Alignment::End,
             (Align::Center, _) => Alignment::Center,
             (Align::Justify, _) => Alignment::Justify,
+            // A kind of alignment added later sits at the start until the engine knows it.
+            _ => Alignment::Start,
         };
         // Parley aligns while it breaks lines: set the alignment first.
         layout.set_alignment(alignment, AlignmentOptions::default());
