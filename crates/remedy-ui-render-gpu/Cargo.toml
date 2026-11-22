@@ -79,6 +79,10 @@ remedy-ui-host = { path = "../remedy-ui-host", version = "1.0.0-rc.1" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "remedy-sans", "ahmi-print"] }
 remedy-ui-input = { path = "../remedy-ui-input", version = "1.0.0-rc.1" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
+# Portal's gradients come from its CSS through the style crate and the view's brushes.
+remedy-ui-style = { path = "../remedy-ui-style", version = "1.0.0-rc.1" }
+remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
+remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
 
 [lints]
 workspace = true
