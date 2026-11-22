@@ -109,9 +109,13 @@ entry, `replace` rewrites it, and the browser's back and forward buttons, Alt+Le
 Alt+Right and a typed address all move the route. A page opened at `#/settings/7` starts
 there. Each route's title (`Router::set_title`) becomes `document.title`; `Router::view`
 builds the route's page and `remember_scroll` brings its scroll position back on back and
-forward. `Router::link_to` is a link whose mirror element is an `<a href="#/…">`, so a
-middle or Ctrl click opens it in a new tab. `App::reload` reloads the page at the same
-route.
+forward. The mouse's back and forward buttons move one entry: the router takes them and the
+bridge cancels the browser's own move on their release. `Router::link_to` is a link whose
+mirror element is an `<a href="#/…">`; a middle or Ctrl (Cmd) click on it, drawn or in the
+mirror, opens the route in a new tab. `App::reload` reloads the page at the same route, and
+the router comes back with its entries in their places and their scroll positions: each
+history entry carries the router's list in `history.state`, written again as the page is
+put away.
 
 ```rust,no_run
 use remedy_ui::router::Router;
@@ -144,6 +148,24 @@ opens `portal://settings/7` as that route, both the link the app started with an
 the window forward. A tray item does the same with `app.on_tray(..)` calling
 `router.push("/settings")`. A `NavStack` inside a routed page keeps its own back: its back
 keys pop its pages first and reach the router on its first page.
+
+A middle or Ctrl click on a desktop link opens the route in a new window when the app says
+how to build one, and navigates in place when it does not (a single-window app has nowhere
+else to put it):
+
+```rust,no_run
+# use remedy_ui::router::Router;
+# use remedy_ui::{App, AppConfig, WindowSpec};
+# fn page(ui: &remedy_ui::view::Ui, router: &Router) {}
+let _ = remedy_ui::run(AppConfig::new("Portal"), |app: &App| {
+    app.open(WindowSpec::new("Portal"), |ui, window| {
+        let router = Router::for_window(window, "/home");
+        // Each new window gets its own router at the link's route, built like this one.
+        router.open_windows(WindowSpec::new("Portal"), |ui, _, router| page(ui, router));
+        page(ui, &router);
+    });
+});
+```
 
 ## Building a page
 

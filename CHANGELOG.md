@@ -30,6 +30,39 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   reason that says so and the element shows its fallback. The engine does not lay a DOM
   `<img>` over the canvas, because that image could not be clipped, rounded, layered under
   popups, faded or hit-tested with the rest of the UI.
+- **The router survives a reload and opens links elsewhere**: in a browser page each history
+  entry carries the router's entries (routes and scroll positions) in `history.state`,
+  written again on `pagehide`, so after a reload (`App::reload` too) the router has every
+  entry back in its place and back and forward land where they did, scrolled as they were
+  (`web::history::entries`; `write` takes the list, `listen` a `hiding` callback). A middle
+  or Ctrl (Cmd) click on a `link_to` link, drawn or on the mirror's `<a href>`, opens the
+  route in a new tab; on the desktop `Router::open_windows(spec, build)` opens it in a new
+  window with its own router at that route, and without it the click navigates in place
+  (`Router::open_elsewhere` does the same from code). In a page the mouse's back and forward
+  buttons now go through the router, and the bridge cancels the browser's own move on their
+  release, so each press moves one entry. Tested in headless Firefox and on the headless
+  host.
+- **Text in at most n lines (CSS `line-clamp`).** `El::max_lines(n)`, `Style::max_lines(n)`
+  and `StylePatch::max_lines(n)` for style sheets, and `ParagraphOptions::max_lines(n)` in
+  `remedy-ui-text`: text that would take more lines ends the last one in "…", cut at the last
+  grapheme boundary that fits as the shaper measures it (letter spacing, every alignment and
+  right-to-left text included; the "…" follows the text in logical order, so it lands on the
+  line's visual end either way). Screen readers, copying and searching get the whole text;
+  `widgets::full_text_tooltip(&el)` shows it on hover. `El::truncate()` is now `max_lines(1)`,
+  so a hard line break in truncated text ends its first line in "…" too. A long text is laid
+  out only as far as its first lines reach (growing starts of it), so clamping 50,000
+  characters to 3 lines takes about 1 ms instead of 37 ms (release build).
+- **Text transforms (CSS `text-transform`).** `TextTransform::{None, Upper, Lower,
+  Capitalize}` on `TextStyle::transform`, `TextStylePatch::transform(..)` for spans,
+  `El::text_transform(..)`, and `Style::text_transform` / `StylePatch::text_transform` for
+  style sheets (inherited, as in CSS). The text is cased at shaping time by the window's
+  locale (Turkish and Azerbaijani dotted İ and dotless ı, German ß as SS in capitals and Ss in
+  title case, Greek final sigma, Greek capitals without accents or breathings as ICU's Greek
+  upper case (dialytika kept, and added where a dropped accent broke a diphthong: άι → ΑΪ),
+  Dutch "IJsland", the dž lj nj dz title forms); the paragraph's offsets (hit
+  tests, carets, selections, lines, glyph clusters) stay those of the text as written, so
+  selection, copying and screen readers get the original. The player's "Up next" label uses
+  it instead of upper-casing its string in code.
 - **Input purposes.** `TextField::purpose(InputPurpose)` (on `text_input`, `secret_input`
   and the forms' fields; `search` sets `Search`, `number_input` `Digits` or `Decimal`) tells
   keyboards, input methods and password managers what a field holds: text, digits, a
@@ -1056,6 +1089,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **`El::scroll_to` on content built this frame scrolls it**: the runner dropped a scroll
+  asked for before the container had its scrolling layer (a page a router brings back, a
+  list just filled); it now keeps it and applies it in the first frame that gives the
+  container a layer, for as long as the container lives.
 - **The Windows tray icon answers the keyboard and opens its menu where asked**: the icon
   is set to `NOTIFYICON_VERSION_4`, so Win+B then Enter or Space (`NIN_KEYSELECT`) activates it,
   and the menu opens at the point the shell names, for Shift+F10 and the menu key as well as a
