@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use crate::host::MediaError;
 use crate::subtitles::{
-    AssHeader, CUES_TOO_BIG, Cue, CueSettings, SubtitleTrack, ass_text, clean_markup, over_cue_budget,
+    AssHeader, Cue, CueSettings, SubtitleTrack, ass_text, clean_markup, cues_too_big, over_cue_budget,
     srt_settings,
 };
 
@@ -70,14 +70,6 @@ const CUE_RELATIVE_POSITION: u32 = 0xF0;
 const TOP_LEVEL: [u32; 9] =
     [SEEK_HEAD, INFO, TRACKS, CLUSTER, CUES, 0x1043_A770, 0x1941_A469, 0x1254_C367, SEGMENT];
 
-/// The EBML header is a handful of short fields.
-const MAX_EBML_HEADER: u64 = 4 << 10;
-/// The largest seek head, segment info or track list read: far above any real file's.
-const MAX_HEADER: u64 = 16 << 20;
-/// The largest cue index read: a feature film's is a few megabytes.
-const MAX_CUES: u64 = 64 << 20;
-/// The largest subtitle block read; a cue is a line or two.
-const MAX_CUE: u64 = 64 << 10;
 /// How long a cue lasts when its block says nothing and no cue follows it.
 const LAST_CUE: Duration = Duration::from_secs(5);
 
@@ -88,7 +80,7 @@ pub(crate) fn text_tracks(path: &Path) -> Result<Vec<SubtitleTrack>, MediaError>
     let Ok(f) = std::fs::File::open(path) else { return Ok(Vec::new()) };
     let Ok(len) = f.metadata().map(|m| m.len()) else { return Ok(Vec::new()) };
     match read(BufReader::with_capacity(16 << 10, f), len) {
-        Err(e) if e == CUES_TOO_BIG => Err(MediaError::Format(e)),
+        Err(e) if e == cues_too_big() => Err(MediaError::Format(e)),
         r => Ok(r.unwrap_or_default()),
     }
 }
@@ -187,7 +179,8 @@ impl<R: Read + Seek> Src<R> {
         if size > max {
             return Err(format!("element {:#x} is too large", e.id));
         }
-        let mut b = vec![0u8; size as usize];
+        let size = usize::try_from(size).map_err(|_| format!("element {:#x} is too large", e.id))?;
+        let mut b = vec![0u8; size];
         self.read_at(e.data, &mut b)?;
         Ok(b)
     }
@@ -241,6 +234,7 @@ fn string(d: &[u8]) -> String {
 
 fn read<R: Read + Seek>(r: BufReader<R>, len: u64) -> Result<Vec<SubtitleTrack>, Error> {
     let mut src = Src { r, pos: 0, len };
+    let limits = crate::media_limits();
     if len < 4 {
         return Ok(Vec::new());
     }
@@ -251,7 +245,7 @@ fn read<R: Read + Seek>(r: BufReader<R>, len: u64) -> Result<Vec<SubtitleTrack>,
         return Ok(Vec::new());
     }
     let header = src.element(0, len)?;
-    let doc = src.body(&header, MAX_EBML_HEADER)?;
+    let doc = src.body(&header, limits.max_ebml_header)?;
     let doc_type = children(&doc)?.into_iter().find(|(id, _)| *id == DOC_TYPE).map(|(_, d)| string(d));
     if !matches!(doc_type.as_deref(), Some("matroska" | "webm")) {
         return Ok(Vec::new());
@@ -274,7 +268,7 @@ fn read<R: Read + Seek>(r: BufReader<R>, len: u64) -> Result<Vec<SubtitleTrack>,
         }
         let Some(size) = e.size else { return Err(format!("element {:#x} of unknown size", e.id)) };
         if e.id == SEEK_HEAD {
-            for (id, pos) in seek_head(&src.body(&e, MAX_HEADER)?)? {
+            for (id, pos) in seek_head(&src.body(&e, limits.max_mkv_header)?)? {
                 if let Some(p) = seg.checked_add(pos).filter(|p| *p < seg_end) {
                     found.push((id, p));
                 }
@@ -293,11 +287,11 @@ fn read<R: Read + Seek>(r: BufReader<R>, len: u64) -> Result<Vec<SubtitleTrack>,
         Ok(None)
     };
     let scale = match locate(&mut src, INFO)? {
-        Some(info) => timestamp_scale(&src.body(&info, MAX_HEADER)?)?,
+        Some(info) => timestamp_scale(&src.body(&info, limits.max_mkv_header)?)?,
         None => 1_000_000,
     };
     let Some(tracks) = locate(&mut src, TRACKS)? else { return Ok(Vec::new()) };
-    let mut tracks = text_track_list(&src.body(&tracks, MAX_HEADER)?)?;
+    let mut tracks = text_track_list(&src.body(&tracks, limits.max_mkv_header)?)?;
     if tracks.is_empty() {
         return Ok(Vec::new());
     }
@@ -307,7 +301,7 @@ fn read<R: Read + Seek>(r: BufReader<R>, len: u64) -> Result<Vec<SubtitleTrack>,
     let mut places: Vec<Place> = Vec::new();
     if let Some(cues) = locate(&mut src, CUES)? {
         let numbers: Vec<u64> = tracks.iter().map(|t| t.number).collect();
-        let (listed, p) = cue_places(&src.body(&cues, MAX_CUES)?, &numbers)?;
+        let (listed, p) = cue_places(&src.body(&cues, limits.max_mkv_cues)?, &numbers)?;
         if numbers.iter().all(|n| listed.contains(n)) {
             places = p
                 .into_iter()
@@ -573,11 +567,12 @@ impl<R: Read + Seek> Blocks<'_, R> {
         {
             return Ok(());
         }
-        if size > MAX_CUE {
+        let max = crate::media_limits().max_embedded_cue;
+        if size > max {
             return Ok(());
         }
         self.seen.push(e.data);
-        let body = self.src.body(e, MAX_CUE)?;
+        let body = self.src.body(e, max)?;
         let (block, duration) = if e.id == BLOCK_GROUP {
             let fields = children(&body)?;
             let block = fields
@@ -615,7 +610,7 @@ impl<R: Read + Seek> Blocks<'_, R> {
         let text = cue_text(&payload, t.format);
         if !text.is_empty() {
             if over_cue_budget(&mut self.text_bytes, &text) {
-                return Err(CUES_TOO_BIG.into());
+                return Err(cues_too_big());
             }
             let settings = cue_settings(&payload, t.format, &t.ass);
             t.cues.push((start, end, text, settings));

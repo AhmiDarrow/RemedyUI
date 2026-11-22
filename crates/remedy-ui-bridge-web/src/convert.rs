@@ -9,7 +9,7 @@ use std::time::Duration;
 use remedy_ui_core::{Color, Rect, Size, Vec2};
 use remedy_ui_host::SystemSettings;
 use remedy_ui_host::accesskit::{Node, Role, Toggled};
-use remedy_ui_input::{Buttons, Key, Modifiers, Platform, PointerKind};
+use remedy_ui_input::{Buttons, Key, Modifiers, PadButtons, Platform, PointerKind};
 
 /// CSS pixels one DOM "line" scrolls (`WheelEvent.DOM_DELTA_LINE`): a line of 16 px
 /// interface text. A wheel notch is usually three lines, 48 px, as on the desktop bridges.
@@ -99,6 +99,23 @@ pub fn pointer_id(dom_id: i32, kind: PointerKind) -> u32 {
     }
 }
 
+/// The buttons of a gamepad with the standard mapping that [`gamepad_button`] gives a meaning.
+pub const GAMEPAD_BUTTONS: [usize; 6] = [0, 1, 12, 13, 14, 15];
+
+/// What a standard-mapping gamepad button is for moving about an app: the d-pad (12 to 15),
+/// A (0, Enter) and B (1, back), as on a TV.
+pub fn gamepad_button(button: usize) -> Option<PadButtons> {
+    Some(match button {
+        0 => PadButtons::A,
+        1 => PadButtons::B,
+        12 => PadButtons::UP,
+        13 => PadButtons::DOWN,
+        14 => PadButtons::LEFT,
+        15 => PadButtons::RIGHT,
+        _ => return None,
+    })
+}
+
 /// A key's meaning from `KeyboardEvent.key`.
 pub fn key(dom: &str) -> Key {
     match dom {
@@ -116,7 +133,7 @@ pub fn key(dom: &str) -> Key {
         "End" => Key::End,
         "PageUp" => Key::PageUp,
         "PageDown" => Key::PageDown,
-        "BrowserBack" | "GoBack" => Key::Back,
+        "BrowserBack" | "GoBack" | "XF86Back" => Key::Back,
         other => {
             if let Some(n) = other.strip_prefix('F').and_then(|n| n.parse::<u8>().ok())
                 && (1..=24).contains(&n)
@@ -355,6 +372,22 @@ pub fn aria_attributes(node: &Node) -> Vec<(&'static str, Option<String>)> {
             }),
         ),
         ("aria-hidden", flag(node.is_hidden())),
+        (
+            "aria-current",
+            node.aria_current().and_then(|c| {
+                use remedy_ui_host::accesskit::AriaCurrent as C;
+                match c {
+                    C::False => None,
+                    C::True => Some("true"),
+                    C::Page => Some("page"),
+                    C::Step => Some("step"),
+                    C::Location => Some("location"),
+                    C::Date => Some("date"),
+                    C::Time => Some("time"),
+                }
+                .map(str::to_owned)
+            }),
+        ),
     ]
 }
 
@@ -477,12 +510,20 @@ pub struct PageSettings {
     pub high_contrast: bool,
     /// `(prefers-reduced-transparency: reduce)`.
     pub reduced_transparency: bool,
+    /// `(any-pointer: coarse)` matches and `(any-pointer: fine)` does not: touch only.
+    pub coarse_pointer_only: bool,
+    /// The browser is a TV's ([`is_tv`]).
+    pub tv: bool,
     /// `navigator.language`.
     pub language: String,
     /// `navigator.languages`, most preferred first.
     pub languages: Vec<String>,
     /// The browser runs on macOS, iOS or iPadOS.
     pub apple: bool,
+    /// `(hover: hover)`: the primary pointer hovers.
+    pub hover: bool,
+    /// `(pointer: fine)`: the primary pointer points finely.
+    pub fine_pointer: bool,
     /// The root element's font size in CSS pixels (the user's default text size).
     pub root_font_px: f32,
     /// The system accent color (CSS `AccentColor`), where the browser reveals it.
@@ -508,6 +549,7 @@ pub fn settings(page: &PageSettings) -> SystemSettings {
         if page.root_font_px.is_finite() && page.root_font_px > 0.0 { page.root_font_px / 16.0 } else { 1.0 };
     s.reduced_motion = page.reduced_motion;
     s.reduced_transparency = page.reduced_transparency;
+    s.spatial_navigation = page.tv || page.coarse_pointer_only;
     if !page.language.trim().is_empty() {
         s.locale = page.language.clone();
     }
@@ -516,6 +558,7 @@ pub fn settings(page: &PageSettings) -> SystemSettings {
     s.locales = if listed.is_empty() { vec![s.locale.clone()] } else { listed };
     // Browsers expose no double-click time; this is the platforms' default pages inherit.
     s.double_click = Duration::from_millis(500);
+    s.pointer = Some(remedy_ui_host::PointerCaps::new(page.hover, page.fine_pointer));
     s
 }
 
@@ -524,6 +567,30 @@ pub fn settings(page: &PageSettings) -> SystemSettings {
 pub fn is_apple(platform: &str) -> bool {
     let p = platform.to_ascii_lowercase();
     p.starts_with("mac") || p.contains("iphone") || p.contains("ipad") || p.contains("ipod") || p == "ios"
+}
+
+/// The user agent is a TV's browser (webOS, Tizen, Android TV, Fire TV, Chromecast and the
+/// like), driven by a remote's d-pad.
+pub fn is_tv(user_agent: &str) -> bool {
+    let ua = user_agent.to_ascii_lowercase();
+    [
+        "smart-tv",
+        "smarttv",
+        "web0s",
+        "webos",
+        "tizen",
+        "android tv",
+        "googletv",
+        "crkey",
+        "aftb",
+        "aftm",
+        "aftt",
+        "bravia",
+        "hbbtv",
+        "netcast",
+    ]
+    .iter()
+    .any(|m| ua.contains(m))
 }
 
 /// A CSS color as the browser serializes a computed one: `rgb(r, g, b)` or
@@ -622,6 +689,11 @@ mod tests {
         assert_eq!(key("F7"), Key::F(7));
         assert_eq!(key("F25"), Key::Named("F25".into()));
         assert_eq!(key("BrowserBack"), Key::Back);
+        assert_eq!(key("XF86Back"), Key::Back, "a Tizen remote's back");
+        assert_eq!(gamepad_button(1), Some(PadButtons::B), "a gamepad's B");
+        assert_eq!(gamepad_button(15), Some(PadButtons::RIGHT));
+        assert!(GAMEPAD_BUTTONS.iter().all(|b| gamepad_button(*b).is_some()));
+        assert_eq!(gamepad_button(2), None);
         assert_eq!(key("Insert"), Key::Named("Insert".into()));
         assert_eq!(key("Dead"), Key::Named("Dead".into()));
         assert_eq!(key("👍🏽"), Key::Character("👍🏽".into()));
@@ -730,6 +802,18 @@ mod tests {
         assert_eq!(aria_role(Role::MenuItemRadio), Some("menuitemradio"));
         assert_eq!(get("aria-checked").as_deref(), Some("false"));
         assert_eq!((get("aria-posinset").as_deref(), get("aria-setsize").as_deref()), (Some("2"), Some("3")));
+        // Landmarks and the current item.
+        assert_eq!(aria_role(Role::Navigation), Some("navigation"));
+        assert_eq!(aria_role(Role::Main), Some("main"));
+        let mut c = Node::new(Role::Link);
+        c.set_aria_current(remedy_ui_host::accesskit::AriaCurrent::Page);
+        let a = aria_attributes(&c);
+        let get = |k: &str| a.iter().find(|(n, _)| *n == k).and_then(|(_, v)| v.clone());
+        assert_eq!(get("aria-current").as_deref(), Some("page"));
+        assert!(
+            aria_attributes(&Node::new(Role::Link)).contains(&("aria-current", None)),
+            "listed unset, so a stale aria-current is removed"
+        );
         let mut p = Node::new(Role::PasswordInput);
         p.set_value("••••");
         assert_eq!(text_content(&p), None, "a password's text never reaches the page");
@@ -778,9 +862,13 @@ mod tests {
             reduced_motion: true,
             high_contrast: false,
             reduced_transparency: false,
+            coarse_pointer_only: true,
+            tv: false,
             language: "de-DE".into(),
             languages: vec!["de-DE".into(), "fr".into(), " ".into(), "en".into()],
             apple: true,
+            hover: false,
+            fine_pointer: true,
             root_font_px: 20.0,
             accent: parse_css_color("rgb(255, 0, 0)"),
         };
@@ -791,16 +879,25 @@ mod tests {
         assert_eq!(s.locale, "de-DE");
         assert_eq!(s.locales, ["de-DE", "fr", "en"], "navigator.languages in order, blanks dropped");
         assert!(s.reduced_motion);
+        assert!(s.spatial_navigation, "a touch-only browser moves focus with arrows");
+        assert_eq!(s.pointer, Some(remedy_ui_host::PointerCaps::PEN), "fine but not hovering");
         assert_eq!(s.accent, Some(Color::new(1.0, 0.0, 0.0, 1.0)));
         let quiet = settings(&PageSettings {
             prefers_dark: false,
             language: String::new(),
             languages: Vec::new(),
-            ..page
+            ..page.clone()
         });
         assert_eq!(quiet.dark, None, "neither scheme matched: the browser does not say");
         assert_eq!(quiet.locale, "en-US");
         assert_eq!(quiet.locales, ["en-US"], "no list: the one locale");
+        let desk = settings(&PageSettings { coarse_pointer_only: false, ..page.clone() });
+        assert!(!desk.spatial_navigation, "a mouse or touchpad keeps arrows for scrolling");
+        let tv = settings(&PageSettings { tv: true, coarse_pointer_only: false, ..page.clone() });
+        assert!(tv.spatial_navigation);
+        assert!(is_tv("Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36"));
+        assert!(is_tv("Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.0) AppleWebKit/537.36"));
+        assert!(!is_tv("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0"));
         assert!(
             is_apple("MacIntel") && is_apple("iPhone") && !is_apple("Win32") && !is_apple("Linux x86_64")
         );

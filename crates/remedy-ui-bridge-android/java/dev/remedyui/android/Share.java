@@ -140,9 +140,17 @@ public final class Share extends Fragment {
             return;
         }
         for (File f : old) {
+            // Only numeric share-request folders are temporary. A named folder (an APK
+            // offered to the system installer, for example) is left alone.
+            long id;
+            try {
+                id = Long.parseLong(f.getName());
+            } catch (NumberFormatException e) {
+                continue;
+            }
             boolean open;
             synchronized (OPEN) {
-                open = OPEN.contains(parse(f.getName()));
+                open = OPEN.contains(id);
             }
             if (!open) {
                 delete(f);

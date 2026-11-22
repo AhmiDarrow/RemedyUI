@@ -12,6 +12,8 @@
 #[cfg_attr(not(windows), allow(dead_code))]
 mod cf_html;
 #[cfg(windows)]
+mod gamepad;
+#[cfg(windows)]
 #[allow(unsafe_code)]
 mod os;
 
@@ -110,12 +112,20 @@ mod hooks {
                 v_.caret_blink = s.caret_blink;
                 v_.subpixel_text = s.subpixel_text;
                 v_.power_saving = s.power_saving;
+                if let Some((delay, interval)) = s.key_repeat {
+                    v_.key_repeat_delay = delay;
+                    v_.key_repeat_interval = interval;
+                }
                 v_
             }
         }
 
         fn clipboard_text(&mut self) -> Result<Option<String>, Unsupported> {
             os::clipboard_text()
+        }
+
+        fn gamepads(&mut self) -> Option<Box<dyn remedy_ui_bridge_winit::gamepad::PadSource>> {
+            Some(Box::new(crate::gamepad::WindowsPads::default()))
         }
 
         fn set_clipboard_text(&mut self, text: &str, sensitive: bool) -> Result<(), Unsupported> {

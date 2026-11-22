@@ -2,6 +2,7 @@
 //! and decoders that turn each unit into a sample at its time.
 
 use super::*;
+use crate::MediaLimits;
 use crate::host::{Picture, PixelFormat};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -348,8 +349,11 @@ fn a_missing_segment_is_retried_then_errors() {
     let Ok(mut r) = start("aac", mem) else { unreachable!("opens") };
     let result = read_all(&mut r.dec);
     assert!(matches!(result, Err(MediaError::NotFound(_))), "{result:?}");
-    let rounds = (1 + RECOVERIES) as usize;
-    assert_eq!(lock(&r.asked).iter().filter(|u| **u == gone).count(), (1 + ERROR_RETRIES as usize) * rounds);
+    let rounds = (1 + MediaLimits::DEFAULT.recoveries) as usize;
+    assert_eq!(
+        lock(&r.asked).iter().filter(|u| **u == gone).count(),
+        (1 + MediaLimits::DEFAULT.error_retries as usize) * rounds
+    );
 }
 
 #[test]
@@ -360,15 +364,23 @@ fn a_playlist_that_does_not_exist_fails_the_open_after_a_short_grace() {
     let asked = mem.asked.clone();
     let result = start("aac", mem).map(|_| ());
     assert!(matches!(&result, Err(MediaError::NotFound(m)) if m.contains("404")), "{result:?}");
-    assert_eq!(lock(&asked).len(), 1 + MISSING_RETRIES as usize, "asked, then twice again, then failed");
-    assert_eq!(MAX_RETRY_PAUSE * MISSING_RETRIES, Duration::from_secs(2), "the grace is about 2 s");
+    assert_eq!(
+        lock(&asked).len(),
+        1 + MediaLimits::DEFAULT.missing_retries as usize,
+        "asked, then twice again, then failed"
+    );
+    assert_eq!(
+        MediaLimits::DEFAULT.max_retry_pause * MediaLimits::DEFAULT.missing_retries,
+        Duration::from_secs(2),
+        "the grace is about 2 s"
+    );
 }
 
 #[test]
 fn a_playlist_written_within_the_grace_opens() {
     let url = format!("{ROOT}aac/index.m3u8");
     let mut mem = Mem::of("aac", None);
-    mem.absent.insert(url.clone(), MISSING_RETRIES);
+    mem.absent.insert(url.clone(), MediaLimits::DEFAULT.missing_retries);
     let mut r = start("aac", mem).unwrap_or_else(|e| unreachable!("opens: {e}"));
     assert!(read_all(&mut r.dec).is_ok_and(|s| !s.is_empty()));
 }
@@ -384,7 +396,12 @@ fn a_growing_playlist_that_goes_missing_keeps_its_patient_retries() {
     let result = read_all(&mut r.dec);
     assert!(matches!(result, Err(MediaError::NotFound(_))), "{result:?}");
     let reloads = lock(&r.asked).iter().filter(|u| **u == url).count() - 1;
-    assert!(reloads >= (1 + ERROR_RETRIES as usize) * (1 + RECOVERIES as usize), "{reloads} reloads");
+    assert!(
+        reloads
+            >= (1 + MediaLimits::DEFAULT.error_retries as usize)
+                * (1 + MediaLimits::DEFAULT.recoveries as usize),
+        "{reloads} reloads"
+    );
 }
 
 /// Plays the `aac` fixture with `late` failing as it says; how often each segment was asked.
@@ -430,9 +447,9 @@ fn a_growing_playlist_waits_the_longest_pause_between_tries() {
     growing(&mut mem);
     let mut r = start("aac", mem).unwrap_or_else(|e| unreachable!("opens: {e}"));
     r.dec.hls.failures = 1;
-    assert_eq!(r.dec.hls.wanted().map(|w| w.after), Some(MAX_RETRY_PAUSE), "growing");
+    assert_eq!(r.dec.hls.wanted().map(|w| w.after), Some(MediaLimits::DEFAULT.max_retry_pause), "growing");
     r.dec.hls.complete = true;
-    assert_eq!(r.dec.hls.retry_pause(), RETRY_PAUSE, "complete");
+    assert_eq!(r.dec.hls.retry_pause(), MediaLimits::DEFAULT.retry_pause, "complete");
 }
 
 #[test]
@@ -515,8 +532,18 @@ fn only_a_few_segments_are_fetched_ahead() {
         fetched += usize::from(w.kind != WantKind::Playlist);
         assert!(hls.deliver(&w, Ok(data)).is_ok());
     }
-    assert_eq!(fetched, AHEAD + 1, "the one being read and those ahead");
+    assert_eq!(fetched, MediaLimits::DEFAULT.hls_ahead + 1, "the one being read and those ahead");
     assert!(!hls.ended());
+    // The app's own bound: more ahead.
+    let mut hls = Hls::new(&format!("{ROOT}aac/index.m3u8"));
+    hls.limits = MediaLimits::DEFAULT.hls_ahead(6);
+    let mut fetched = 0;
+    while let Some(w) = hls.wanted() {
+        let data = if w.kind == WantKind::Playlist { text.as_bytes().to_vec() } else { seg.clone() };
+        fetched += usize::from(w.kind != WantKind::Playlist);
+        assert!(hls.deliver(&w, Ok(data)).is_ok());
+    }
+    assert_eq!(fetched, 7);
 }
 
 /// An event playlist of the `aac` fixture's segments that lists one more each version, the
@@ -729,7 +756,7 @@ fn damaged_input_is_read_without_panicking() {
     }
 }
 
-/// No more is fetched ahead once the units held reach `MAX_HELD` bytes, but the segment to
+/// No more is fetched ahead once the units held reach `hls_max_held` bytes, but the segment to
 /// read next is always fetched.
 #[test]
 fn what_is_fetched_ahead_is_bounded_in_bytes() {
@@ -744,7 +771,7 @@ fn what_is_fetched_ahead_is_bounded_in_bytes() {
     assert!(hls.queued > 0 && hls.queued < seg.len(), "{} bytes held", hls.queued);
     assert!(hls.wanted().is_some(), "a few segments ahead");
     // As if the segment were 60 MB.
-    hls.queued += MAX_HELD;
+    hls.queued += hls.limits.hls_max_held;
     assert_eq!(hls.wanted(), None, "enough bytes held");
     while hls.next_unit().is_some() {}
     assert!(hls.wanted().is_some(), "nothing held: the next is fetched");

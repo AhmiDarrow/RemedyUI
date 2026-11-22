@@ -19,8 +19,8 @@ use super::{
     decoder, java_env, output,
 };
 use crate::hls::{
-    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
-    answered, file_path, timed_out,
+    AudioCodec, AudioConfig, Elementary, Fetch, Unit, VideoConfig, answered, file_path, first_byte, load,
+    max_fetch, quiet, timed_out,
 };
 use crate::host::{AudioFormat, MediaError, Sample};
 
@@ -473,8 +473,8 @@ fn io_error(url: &str, e: &std::io::Error, quiet: &str) -> MediaError {
     }
 }
 
-/// GET `url` (`rest` is what follows `http://`) over HTTP/1.1: no answer for [`FIRST_BYTE`],
-/// no byte for [`QUIET`] once it answered, or [`LOAD`] in all is a timeout; set `stop` and the
+/// GET `url` (`rest` is what follows `http://`) over HTTP/1.1: no answer for `first_byte()`,
+/// no byte for `quiet()` once it answered, or `load()` in all is a timeout; set `stop` and the
 /// socket is shut at once (a watcher thread), ending the read waiting on it.
 fn http(url: &str, rest: &str, hops: u32, stop: &AtomicBool) -> Result<Vec<u8>, MediaError> {
     let started = Instant::now();
@@ -493,7 +493,7 @@ fn http(url: &str, rest: &str, hops: u32, stop: &AtomicBool) -> Result<Vec<u8>, 
     let mut last = None;
     let mut stream = None;
     for a in addrs {
-        match TcpStream::connect_timeout(&a, FIRST_BYTE) {
+        match TcpStream::connect_timeout(&a, first_byte()) {
             Ok(s) => {
                 stream = Some(s);
                 break;
@@ -536,8 +536,8 @@ fn exchange(
     stop: &AtomicBool,
 ) -> Result<Vec<u8>, MediaError> {
     let io = |e: std::io::Error| io_error(url, &e, "no answer");
-    s.set_read_timeout(Some(FIRST_BYTE)).map_err(io)?;
-    s.set_write_timeout(Some(FIRST_BYTE)).map_err(io)?;
+    s.set_read_timeout(Some(first_byte())).map_err(io)?;
+    s.set_write_timeout(Some(first_byte())).map_err(io)?;
     write!(
         s,
         "GET {path} HTTP/1.1\r\nHost: {authority}\r\nUser-Agent: remedy-ui-media-playback\r\n\
@@ -583,7 +583,7 @@ fn exchange(
     if !(200..300).contains(&status) {
         return Err(answered(url, u32::from(status)));
     }
-    r.get_ref().set_read_timeout(Some(QUIET)).map_err(io)?;
+    r.get_ref().set_read_timeout(Some(quiet())).map_err(io)?;
     let mut body = Vec::with_capacity(length.unwrap_or(0).min(64 << 20));
     if chunked {
         loop {
@@ -616,7 +616,7 @@ fn read_body(
     let mut buf = vec![0u8; 64 << 10];
     let mut left = len;
     while left != Some(0) {
-        if started.elapsed() > LOAD {
+        if started.elapsed() > load() {
             return Err(timed_out(url, "the download took too long"));
         }
         let want = left.map_or(buf.len(), |l| l.min(buf.len()));
@@ -628,8 +628,8 @@ fn read_body(
             Ok(0) => return Ok(()),
             Ok(n) => {
                 into.extend_from_slice(room.get(..n).unwrap_or_default());
-                if into.len() > MAX_FETCH {
-                    return Err(MediaError::Format(format!("{url}: over {MAX_FETCH} bytes")));
+                if into.len() > max_fetch() {
+                    return Err(MediaError::Format(format!("{url}: over {} bytes", max_fetch())));
                 }
                 left = left.map(|l| l - n);
             }
@@ -801,9 +801,9 @@ impl Jni {
             let set_connect = self.method(http, c"setConnectTimeout", c"(I)V")?;
             let set_read = self.method(http, c"setReadTimeout", c"(I)V")?;
             let disconnect = self.method(http, c"disconnect", c"()V")?;
-            void(env, conn, set_connect, [ms(FIRST_BYTE)].as_ptr());
+            void(env, conn, set_connect, [ms(first_byte())].as_ptr());
             // Java's own read timeout cannot change once connected: it only backs the watchdog up.
-            void(env, conn, set_read, [ms(FIRST_BYTE)].as_ptr());
+            void(env, conn, set_read, [ms(first_byte())].as_ptr());
             self.check(url)?;
             let dog = Watchdog::start(self, conn, disconnect, stop)?;
             let got = self.read_all(url, conn, &dog);
@@ -828,7 +828,7 @@ impl Jni {
             let void = self.f::<Call<()>>(CALL_VOID_METHOD_A);
             let code = int(env, conn, self.method(http, c"getResponseCode", c"()I")?, std::ptr::null());
             self.check(url)?;
-            dog.progress(QUIET);
+            dog.progress(quiet());
             if !(200..300).contains(&code) {
                 return Err(answered(url, code.unsigned_abs()));
             }
@@ -852,10 +852,10 @@ impl Jni {
                     break Err(e);
                 }
                 let Ok(len) = usize::try_from(n) else { break Ok(()) };
-                dog.progress(QUIET);
+                dog.progress(quiet());
                 let at = out.len();
-                if at + len > MAX_FETCH {
-                    break Err(MediaError::Format(format!("{url}: over {MAX_FETCH} bytes")));
+                if at + len > max_fetch() {
+                    break Err(MediaError::Format(format!("{url}: over {} bytes", max_fetch())));
                 }
                 out.resize(at + len, 0);
                 region(env, buf, 0, n.min(CHUNK), out.as_mut_ptr().add(at).cast());
@@ -867,8 +867,8 @@ impl Jni {
     }
 }
 
-/// Ends a Java fetch that waits too long: no answer for [`FIRST_BYTE`], no byte for [`QUIET`]
-/// once it answered, or [`LOAD`] in all, or at once when `stop` is set. A thread of its own calls the connection's
+/// Ends a Java fetch that waits too long: no answer for `first_byte()`, no byte for `quiet()`
+/// once it answered, or `load()` in all, or at once when `stop` is set. A thread of its own calls the connection's
 /// `disconnect()`, which ends the call waiting on it, as the WinHTTP watchdog does on Windows
 /// (Java's own read timeout cannot change once connected).
 struct Watchdog {
@@ -901,7 +901,7 @@ impl Watchdog {
         let progress = Arc::new(Progress {
             start: Instant::now(),
             last: AtomicU64::new(0),
-            limit: AtomicU64::new(FIRST_BYTE.as_millis() as u64),
+            limit: AtomicU64::new(first_byte().as_millis() as u64),
             gave_up: AtomicBool::new(false),
         });
         let (stop, stopped) = std::sync::mpsc::channel::<()>();
@@ -917,7 +917,9 @@ impl Watchdog {
                     let quiet = since.saturating_sub(p.last.load(Ordering::Relaxed));
                     // SAFETY: `halt` borrows the caller's flag, alive until this thread is joined.
                     let halted = unsafe { &*(halt as *const AtomicBool) }.load(Ordering::Relaxed);
-                    if !halted && since <= LOAD.as_millis() as u64 && quiet <= p.limit.load(Ordering::Relaxed)
+                    if !halted
+                        && since <= load().as_millis() as u64
+                        && quiet <= p.limit.load(Ordering::Relaxed)
                     {
                         continue;
                     }
@@ -964,9 +966,9 @@ impl Watchdog {
         unsafe { j.f::<unsafe extern "C" fn(Ptr, Ptr)>(DELETE_GLOBAL_REF)(j.0, self.conn) };
         let p = &self.progress;
         p.gave_up.load(Ordering::Relaxed).then(|| {
-            if p.start.elapsed() > LOAD {
+            if p.start.elapsed() > load() {
                 "the download took too long"
-            } else if p.limit.load(Ordering::Relaxed) == QUIET.as_millis() as u64 {
+            } else if p.limit.load(Ordering::Relaxed) == quiet().as_millis() as u64 {
                 "nothing arrived"
             } else {
                 "no answer"

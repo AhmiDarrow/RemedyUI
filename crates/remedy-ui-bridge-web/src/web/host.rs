@@ -341,6 +341,10 @@ impl Host for WebHost<'_> {
         Ok(())
     }
 
+    fn set_gamepad_tuning(&mut self, tuning: remedy_ui_input::GamepadTuning) {
+        super::gamepad::set_tuning(tuning);
+    }
+
     fn set_badge(&mut self, _app_id: &str, badge: Option<remedy_ui_host::Badge>) -> Result<(), Unsupported> {
         // The Badging API: on the icon of an installed web app (Chromium browsers, Safari).
         let Some(window) = web_sys::window() else {

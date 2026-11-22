@@ -122,23 +122,61 @@ impl NumberSymbols {
 
     /// A count written short, the locale's way: `1.2K` and `3.4M` in en, `1234` and `1.2万`
     /// in ja, `১.২ হা` in bn. Below a thousand it is the number itself; at most one fraction
-    /// digit, and only below ten.
+    /// digit, and only below ten. [`NumberSymbols::compact_with`] tunes both.
     pub fn compact(&self, v: Decimal) -> String {
-        thread_local!(static CACHE: RefCell<HashMap<String, Option<Rc<CompactDecimalFormatter>>>> = RefCell::new(HashMap::new()));
-        let f = CACHE.with(|c| {
+        self.compact_with(v, CompactOptions::default())
+    }
+
+    /// [`NumberSymbols::compact`] with `options`: where shortening starts and how many digits
+    /// stay.
+    pub fn compact_with(&self, v: Decimal, options: CompactOptions) -> String {
+        type Formatters = Option<Rc<(CompactDecimalFormatter, DecimalFormatter)>>;
+        thread_local!(static CACHE: RefCell<HashMap<String, Formatters>> = RefCell::new(HashMap::new()));
+        let fs = CACHE.with(|c| {
             c.borrow_mut()
                 .entry(self.tag.clone())
                 .or_insert_with(|| {
-                    CompactDecimalFormatter::try_new_short((&locale(&self.tag)).into(), Default::default())
-                        .ok()
-                        .map(Rc::new)
+                    let loc = locale(&self.tag);
+                    let compact = CompactDecimalFormatter::try_new_short((&loc).into(), Default::default()).ok()?;
+                    let plain = DecimalFormatter::try_new((&loc).into(), Default::default()).ok()?;
+                    Some(Rc::new((compact, plain)))
                 })
                 .clone()
         });
-        match (f, v.to_string().parse::<IcuDecimal>()) {
-            (Some(f), Ok(d)) => f.format(&d).to_string(),
-            _ => self.format(v, v.scale()),
+        let (m, s) = v.parts();
+        let below = options.threshold.is_some_and(|t| Decimal::new(m.abs(), s).is_some_and(|a| a < t));
+        let (Some(fs), Ok(mut d)) = (fs, v.to_string().parse::<IcuDecimal>()) else {
+            return self.format(v, v.scale());
+        };
+        let (f, plain) = (&fs.0, &fs.1);
+        if below {
+            return plain.format(&d).to_string();
         }
+        // Twice at most: rounding 999.95K up to 1000K moves it into the next unit (1M).
+        for _ in 0..2 {
+            let magnitude = d.nonzero_magnitude_start();
+            let exponent = f.compact_exponent_for_magnitude(magnitude);
+            if exponent == 0 {
+                // Below the locale's first unit: the count itself, grouped as CLDR groups
+                // compact numbers (1234 in de, 15.000).
+                return f.format(&d).to_string();
+            }
+            let whole = magnitude - i16::from(exponent) + 1;
+            let mut sig = d.clone();
+            sig.multiply_pow10(-i16::from(exponent));
+            sig.round(-(i16::from(options.significant_digits) - whole).max(0));
+            if f.compact_exponent_for_magnitude(sig.nonzero_magnitude_start() + i16::from(exponent)) != exponent {
+                sig.multiply_pow10(i16::from(exponent));
+                d = sig;
+                continue;
+            }
+            sig.trim_end();
+            if let Ok(w) = f.format_with_exponent(&sig, exponent) {
+                return w.to_string();
+            }
+            break;
+        }
+        f.format(&d).to_string()
     }
 
     /// Writes `v` with exactly `places` fraction digits (rounded), grouped.
@@ -413,6 +451,40 @@ impl CalendarSymbols {
     /// The short name of a weekday.
     pub fn weekday(&self, d: Weekday) -> &str {
         self.weekdays.get(d.index_from_monday()).map_or("", String::as_str)
+    }
+}
+
+/// How [`NumberSymbols::compact_with`] shortens a count.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CompactOptions {
+    /// Counts below this (ignoring the sign) are written whole and grouped, `5,432`; `None`,
+    /// the default, shortens from the locale's first unit (a thousand in en, ten thousand in
+    /// ja, a million in de).
+    pub threshold: Option<Decimal>,
+    /// Significant digits kept, whole digits never dropped: 2, the default, gives `1.2K`,
+    /// `12K`, `123K`; 3 gives `1.23K`, `12.3K`, `123K`; 1 gives `1K`.
+    pub significant_digits: u8,
+}
+
+impl Default for CompactOptions {
+    fn default() -> Self {
+        CompactOptions { threshold: None, significant_digits: 2 }
+    }
+}
+
+impl CompactOptions {
+    /// Sets [`CompactOptions::threshold`].
+    #[must_use]
+    pub fn threshold(mut self, at: Decimal) -> Self {
+        self.threshold = Some(at);
+        self
+    }
+
+    /// Sets [`CompactOptions::significant_digits`].
+    #[must_use]
+    pub fn significant_digits(mut self, n: u8) -> Self {
+        self.significant_digits = n;
+        self
     }
 }
 

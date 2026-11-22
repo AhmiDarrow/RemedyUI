@@ -1,7 +1,7 @@
 //! winit events into RemedyUI's event model.
 
 use remedy_ui_input::{Key, Modifiers};
-use winit::keyboard::{Key as WKey, ModifiersState, NamedKey, PhysicalKey};
+use winit::keyboard::{Key as WKey, ModifiersState, NamedKey, NativeKey, PhysicalKey};
 
 /// Logical pixels one wheel notch (one "line") scrolls: three lines of 16 px interface text,
 /// the long-standing desktop default. A tuning constant, not a cap.
@@ -36,6 +36,10 @@ pub(crate) fn key(k: &WKey) -> Key {
                 None => Key::Named(format!("{other:?}")),
             },
         },
+        // A gamepad's A and B (Android's KEYCODE_BUTTON_A and _B; its d-pad already arrives as
+        // arrows): activate and go back, as Android TV means them.
+        WKey::Unidentified(NativeKey::Android(96)) => Key::Enter,
+        WKey::Unidentified(NativeKey::Android(97)) => Key::Back,
         WKey::Unidentified(native) => Key::Named(format!("{native:?}")),
         WKey::Dead(c) => Key::Named(c.map_or_else(|| "Dead".to_owned(), |c| format!("Dead{c}"))),
     }
@@ -81,5 +85,7 @@ mod tests {
         assert_eq!(key(&WKey::Named(NamedKey::BrowserBack)), Key::Back);
         assert_eq!(key(&WKey::Named(NamedKey::Escape)), Key::Escape);
         assert_eq!(key(&WKey::Named(NamedKey::F7)), Key::F(7));
+        assert_eq!(key(&WKey::Unidentified(NativeKey::Android(97))), Key::Back, "a gamepad's B");
+        assert_eq!(key(&WKey::Unidentified(NativeKey::Android(96))), Key::Enter, "a gamepad's A");
     }
 }

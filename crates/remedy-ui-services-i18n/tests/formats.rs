@@ -1,7 +1,7 @@
 //! Medium dates, dates with times, compact counts and language names in every language the
 //! engine ships, as CLDR (through ICU4X's compiled data) writes them.
 
-use remedy_ui_services_i18n::{CalendarSymbols, Date, Decimal, NumberSymbols, Time, language_name_in};
+use remedy_ui_services_i18n::{CalendarSymbols, CompactOptions, Date, Decimal, NumberSymbols, Time, language_name_in};
 
 const LOCALES: [&str; 11] = ["en", "de", "fr", "es", "pt-BR", "ru", "ja", "zh-Hans", "ar", "hi", "bn"];
 
@@ -107,6 +107,30 @@ fn compact_counts_in_every_language() {
     assert_eq!(NumberSymbols::for_locale("en").compact(half), "1.3K");
     // An unknown locale gets the root's.
     assert_eq!(compact("xx", 1234), "1.2K");
+}
+
+#[test]
+fn compact_counts_take_options() {
+    let n = |v| Decimal::from_int(v);
+    let with = |l, v, o| NumberSymbols::for_locale(l).compact_with(n(v), o);
+    let three = CompactOptions::default().significant_digits(3);
+    assert_eq!(with("en", 1234, three), "1.23K");
+    assert_eq!(with("en", 12_345, three), "12.3K");
+    assert_eq!(with("en", 123_456, three), "123K");
+    assert_eq!(with("de", 3_456_789, three), "3,46\u{A0}Mio.");
+    assert_eq!(with("fr", -1234, three), "-1,23\u{A0}k");
+    assert_eq!(with("ja", 123_456, three), "12.3万");
+    assert_eq!(with("ar", 1234, three), "1.23\u{A0}ألف");
+    assert_eq!(with("en", 1234, CompactOptions::default().significant_digits(1)), "1K");
+    assert_eq!(with("en", 999_999, three), "1M", "rounds up into the next unit");
+    // A threshold keeps smaller counts whole.
+    let ten_k = CompactOptions::default().threshold(n(10_000));
+    assert_eq!(with("en", 5432, ten_k), "5,432");
+    assert_eq!(with("en", -5432, ten_k), "-5,432");
+    assert_eq!(with("en", 10_000, ten_k), "10K");
+    assert_eq!(with("de", 5432, ten_k), "5.432");
+    // The defaults are `compact`'s.
+    assert_eq!(with("en", 1234, CompactOptions::default()), compact("en", 1234));
 }
 
 #[test]

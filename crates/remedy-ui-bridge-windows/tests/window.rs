@@ -113,7 +113,7 @@ impl App for Probe {
                 let tray = TrayIcon::new(
                     "RemedyUI test",
                     TrayImage { size: 16, rgba: [40u8, 120, 70, 255].repeat(256) },
-                    vec![TrayItem::Item { id: 1, label: "Quit".into(), enabled: true }],
+                    vec![TrayItem::item(1, "Quit")],
                 );
                 self.tray = Some(
                     host.set_tray(Some(&tray)).and_then(|()| host.set_tray(None)).map_err(|e| e.to_string()),

@@ -27,6 +27,10 @@ pub enum DecodeError {
     /// (`remedy-ui-media-isolated`), it crashed, ran far longer than an image this size takes,
     /// or used more memory than the image needs. The reason says which.
     Stopped(String),
+    /// It could not be fetched from its address ([`Source::Url`](crate::Source::Url)): no
+    /// connection, an error status, or (in a page) a server of another site that does not
+    /// allow it. The reason says which.
+    Network(String),
 }
 
 impl std::fmt::Display for DecodeError {
@@ -39,6 +43,7 @@ impl std::fmt::Display for DecodeError {
             }
             DecodeError::Io(e) => write!(f, "the image could not be read: {e}"),
             DecodeError::Stopped(why) => write!(f, "the image's decoder was stopped: {why}"),
+            DecodeError::Network(why) => write!(f, "the image could not be fetched: {why}"),
         }
     }
 }

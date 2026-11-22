@@ -1,7 +1,10 @@
 //! Text input through a hidden field at the caret.
 //!
-//! While an engine text field edits, a transparent `<textarea>` (an `<input type=password>`
-//! for secrets, so input methods and soft keyboards learn nothing) holds focus at the caret:
+//! While an engine text field edits, a transparent `<textarea>` (multi-line fields) or
+//! `<input>` (one-line fields; `type=password` for secrets, so input methods and soft
+//! keyboards learn nothing) holds focus at the caret. The input carries the field's
+//! [`InputPurpose`] as `type`, `inputmode`, `autocomplete` and `enterkeyhint`, so soft
+//! keyboards show the right keys and password managers fill usernames and passwords:
 //! input methods compose in it and place their candidate windows by it, and soft keyboards
 //! open for it. It mirrors the field's text around the caret, so the composition, the
 //! soft keyboard's autocorrect and its deletions have context; what they change is read back
@@ -10,7 +13,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use remedy_ui_host::{HostEvent, ImeEvent, TextInputState, WindowId};
+use remedy_ui_host::{HostEvent, ImeEvent, InputPurpose, TextInputState, WindowId};
 use wasm_bindgen::JsCast;
 use web_sys::HtmlElement;
 
@@ -20,8 +23,10 @@ use crate::convert;
 
 /// The hidden fields of one window and the session they serve.
 pub(crate) struct TextInput {
+    /// Multi-line fields.
     area: web_sys::HtmlTextAreaElement,
-    secret: web_sys::HtmlInputElement,
+    /// One-line fields and secrets.
+    line: web_sys::HtmlInputElement,
     /// The field's state as last told by the engine, with the text the hidden field holds.
     state: RefCell<Option<TextInputState>>,
     /// An input method is composing.
@@ -60,22 +65,18 @@ fn hidden(el: &HtmlElement) {
 impl TextInput {
     pub(crate) fn new(surface: &HtmlElement) -> Option<TextInput> {
         let area: web_sys::HtmlTextAreaElement = dom::element("textarea")?;
-        let secret: web_sys::HtmlInputElement = dom::element("input")?;
-        secret.set_type("password");
+        let line: web_sys::HtmlInputElement = dom::element("input")?;
         hidden(&area);
-        hidden(&secret);
-        for el in [area.unchecked_ref::<web_sys::Element>(), secret.unchecked_ref()] {
+        hidden(&line);
+        for el in [area.unchecked_ref::<web_sys::Element>(), line.unchecked_ref()] {
             let _ = el.set_attribute("autocomplete", "off");
             let _ = el.set_attribute("data-remedy-text", "");
         }
-        let _ = secret.set_attribute("autocapitalize", "off");
-        let _ = secret.set_attribute("autocorrect", "off");
-        let _ = secret.set_attribute("spellcheck", "false");
         let _ = surface.append_child(&area);
-        let _ = surface.append_child(&secret);
+        let _ = surface.append_child(&line);
         Some(TextInput {
             area,
-            secret,
+            line,
             state: RefCell::new(None),
             composing: Cell::new(false),
             moving_focus: Cell::new(false),
@@ -86,7 +87,7 @@ impl TextInput {
     /// Listens to both hidden fields for `window`.
     pub(crate) fn attach(&self, window: WindowId) {
         let mut ls = Vec::new();
-        for el in [self.area.unchecked_ref::<web_sys::EventTarget>(), self.secret.unchecked_ref()] {
+        for el in [self.area.unchecked_ref::<web_sys::EventTarget>(), self.line.unchecked_ref()] {
             ls.push(Listener::new(el, "compositionstart", move |_| {
                 with(window, |t| t.composition_start(window))
             }));
@@ -107,18 +108,18 @@ impl TextInput {
         *self.listeners.borrow_mut() = ls;
     }
 
-    fn element(&self, private: bool) -> &HtmlElement {
-        if private { self.secret.unchecked_ref() } else { self.area.unchecked_ref() }
+    fn element(&self, area: bool) -> &HtmlElement {
+        if area { self.area.unchecked_ref() } else { self.line.unchecked_ref() }
     }
 
-    fn value(&self, private: bool) -> String {
-        if private { self.secret.value() } else { self.area.value() }
+    fn value(&self, area: bool) -> String {
+        if area { self.area.value() } else { self.line.value() }
     }
 
-    fn set_value(&self, private: bool, text: &str, selection: (u32, u32)) {
-        if private {
-            self.secret.set_value(text);
-            let _ = self.secret.set_selection_range(selection.0, selection.1);
+    fn set_value(&self, area: bool, text: &str, selection: (u32, u32)) {
+        if !area {
+            self.line.set_value(text);
+            let _ = self.line.set_selection_range(selection.0, selection.1);
         } else {
             self.area.set_value(text);
             let _ = self.area.set_selection_range(selection.0, selection.1);
@@ -127,8 +128,8 @@ impl TextInput {
 
     /// Names the hidden field after the engine field it stands in for.
     pub(crate) fn set_label(&self, label: Option<&str>) {
-        let private = self.state.borrow().as_ref().is_some_and(|s| s.private);
-        dom::attr(self.element(private), "aria-label", label);
+        let area = self.state.borrow().as_ref().is_some_and(in_area);
+        dom::attr(self.element(area), "aria-label", label);
     }
 
     /// True while a field edits.
@@ -139,9 +140,9 @@ impl TextInput {
     /// Starts or updates the session for the engine's field, `label` naming it for screen
     /// readers.
     pub(crate) fn update(&self, state: TextInputState, label: Option<String>) {
-        let private = state.private;
-        let el = self.element(private).clone();
-        let other = self.element(!private).clone();
+        let area = in_area(&state);
+        let el = self.element(area).clone();
+        let other = self.element(!area).clone();
         dom::style(&other, &[("display", "none")]);
         let caret = state.caret;
         dom::style(
@@ -154,8 +155,17 @@ impl TextInput {
                 ("font-size", &format!("{}px", caret.height().max(1.0))),
             ],
         );
-        let _ = el.set_attribute("enterkeyhint", if state.multiline { "enter" } else { "done" });
-        dom::attr(&el, "inputmode", state.numeric.then_some("decimal"));
+        if !area {
+            self.line.set_type(input_type(&state));
+        }
+        let hints = Hints::of(&state);
+        let _ = el.set_attribute("enterkeyhint", hints.enter);
+        dom::attr(&el, "inputmode", hints.mode);
+        let _ = el.set_attribute("autocomplete", hints.autocomplete);
+        let literal = (!hints.prose).then_some("off");
+        dom::attr(&el, "autocapitalize", literal);
+        dom::attr(&el, "autocorrect", literal);
+        dom::attr(&el, "spellcheck", (!hints.prose).then_some("false"));
         dom::attr(&el, "aria-label", label.as_deref());
         dom::attr(&el, "aria-multiline", state.multiline.then_some("true"));
         // Text changed under a composition would break it; the field catches up after.
@@ -165,8 +175,8 @@ impl TextInput {
                 convert::byte_to_utf16(&state.surrounding, range.start),
                 convert::byte_to_utf16(&state.surrounding, range.end),
             );
-            if self.value(private) != state.surrounding || !self.selection_is(private, sel) {
-                self.set_value(private, &state.surrounding, sel);
+            if self.value(area) != state.surrounding || !self.selection_is(area, sel) {
+                self.set_value(area, &state.surrounding, sel);
             }
         }
         *self.state.borrow_mut() = Some(state);
@@ -177,9 +187,9 @@ impl TextInput {
         }
     }
 
-    fn selection_is(&self, private: bool, (a, b): (u32, u32)) -> bool {
-        let (s, e) = if private {
-            (self.secret.selection_start().ok().flatten(), self.secret.selection_end().ok().flatten())
+    fn selection_is(&self, area: bool, (a, b): (u32, u32)) -> bool {
+        let (s, e) = if !area {
+            (self.line.selection_start().ok().flatten(), self.line.selection_end().ok().flatten())
         } else {
             (self.area.selection_start().ok().flatten(), self.area.selection_end().ok().flatten())
         };
@@ -191,9 +201,10 @@ impl TextInput {
     pub(crate) fn end(&self) {
         let was = self.state.borrow_mut().take();
         let Some(was) = was else { return };
-        let el = self.element(was.private).clone();
+        let area = in_area(&was);
+        let el = self.element(area).clone();
         let focused = dom::active_element().as_ref() == Some(el.unchecked_ref());
-        self.set_value(was.private, "", (0, 0));
+        self.set_value(area, "", (0, 0));
         dom::style(&el, &[("display", "none")]);
         self.composing.set(false);
         if focused && let Some(parent) = el.parent_element().and_then(|p| p.dyn_into::<HtmlElement>().ok()) {
@@ -217,7 +228,7 @@ impl TextInput {
         self.composing.set(false);
         // The field now holds the committed text; the engine's next state replaces it.
         if let Some(s) = self.state.borrow_mut().as_mut() {
-            s.surrounding = self.value(s.private);
+            s.surrounding = self.value(in_area(s));
             let caret = self.caret_byte(s);
             s.selection = caret..caret;
         }
@@ -229,8 +240,8 @@ impl TextInput {
     }
 
     fn caret_byte(&self, s: &TextInputState) -> usize {
-        let at = if s.private {
-            self.secret.selection_end().ok().flatten()
+        let at = if !in_area(s) {
+            self.line.selection_end().ok().flatten()
         } else {
             self.area.selection_end().ok().flatten()
         };
@@ -246,7 +257,7 @@ impl TextInput {
         let edit = {
             let mut st = self.state.borrow_mut();
             let Some(s) = st.as_mut() else { return };
-            let now = self.value(s.private);
+            let now = self.value(in_area(s));
             let caret = convert::clamp_range(&s.surrounding, &s.selection).end;
             let (before, after, inserted) = convert::edit_between(&s.surrounding, &now, caret);
             s.surrounding = now;
@@ -261,6 +272,64 @@ impl TextInput {
         if !inserted.is_empty() {
             post(HostEvent::Ime(window, ImeEvent::Commit(inserted)));
         }
+    }
+}
+
+/// The field edits in the `<textarea>` (several lines), not the `<input>`.
+fn in_area(s: &TextInputState) -> bool {
+    s.multiline && !s.private
+}
+
+/// The one-line input's `type`. Kinds without a selection (`email`, `number`) are left out:
+/// the hidden field mirrors the caret, so it must be selectable; `inputmode` picks their keys.
+fn input_type(s: &TextInputState) -> &'static str {
+    match s.purpose {
+        _ if s.private || s.purpose.is_password() => "password",
+        InputPurpose::Url => "url",
+        InputPurpose::Search => "search",
+        _ => "text",
+    }
+}
+
+/// What the hidden field tells soft keyboards and password managers.
+struct Hints {
+    /// `inputmode`, or none for the full keyboard.
+    mode: Option<&'static str>,
+    /// `autocomplete`.
+    autocomplete: &'static str,
+    /// `enterkeyhint`.
+    enter: &'static str,
+    /// Words: capitalizing, correcting and spell checking help.
+    prose: bool,
+}
+
+impl Hints {
+    fn of(s: &TextInputState) -> Hints {
+        use InputPurpose as P;
+        let mode = match s.purpose {
+            P::Digits | P::OneTimeCode => Some("numeric"),
+            P::Decimal => Some("decimal"),
+            P::Url => Some("url"),
+            P::Email => Some("email"),
+            P::Search => Some("search"),
+            _ if s.numeric => Some("decimal"),
+            _ => None,
+        };
+        let autocomplete = match s.purpose {
+            P::Username => "username",
+            P::CurrentPassword => "current-password",
+            P::NewPassword => "new-password",
+            P::OneTimeCode => "one-time-code",
+            P::Email => "email",
+            _ => "off",
+        };
+        let enter = match s.purpose {
+            _ if s.multiline => "enter",
+            P::Search => "search",
+            _ => "done",
+        };
+        let prose = !s.private && matches!(s.purpose, P::Text | P::Search);
+        Hints { mode, autocomplete, enter, prose }
     }
 }
 
