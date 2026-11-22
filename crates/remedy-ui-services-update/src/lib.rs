@@ -4,7 +4,8 @@
 //! nothing beyond what an HTTPS request carries (no identifiers). A release is accepted only
 //! if its download verifies against the app's minisign public key (the format Tauri's updater
 //! and the `minisign` tool produce) and, when the feed gives one, its SHA-256. Feeds are a
-//! GitHub repository's latest release or a small JSON document. Plain `http` is refused except
+//! GitHub repository's latest release or a JSON document (a flat `{version,url,signature}`
+//! feed, or Tauri's multi-platform `latest.json`). Plain `http` is refused except
 //! on the loopback interface (local testing). See `docs/design/08-security-and-privacy.md`.
 //!
 //! The calls block; run them off the UI thread (`App::background`).
@@ -45,8 +46,11 @@ pub enum Feed {
         /// The asset name or its ending.
         asset: String,
     },
-    /// A JSON document: `{"version", "url", "signature", "sha256"?, "notes"?}`, where
-    /// `signature` is the minisign signature (text, or base64 of it).
+    /// A JSON document: a flat `{"version", "url", "signature", "sha256"?, "notes"?}`, or
+    /// Tauri's `latest.json` (`version`, optional `notes` / `pub_date`, and
+    /// `platforms.<key>.{url, signature, sha256?}`). `signature` is the minisign signature
+    /// (text, or base64 of it). A Tauri document uses the entry for this OS and architecture
+    /// (`windows-x86_64`, `linux-x86_64`, `darwin-aarch64`, and the usual aliases).
     Json(String),
     /// A GitHub repository's newest release including prereleases (drafts skipped); `asset`
     /// as for [`Feed::GitHub`].
@@ -262,6 +266,61 @@ fn version(v: &str) -> Result<semver::Version, UpdateError> {
         .map_err(|e| UpdateError::Feed(format!("version {v}: {e}")))
 }
 
+
+/// Keys Tauri writes under `platforms` in `latest.json`, preferred first, including aliases.
+fn tauri_platform_keys_for(os: &str, arch: &str) -> &'static [&'static str] {
+    match (os, arch) {
+        ("windows", "x86_64") => &["windows-x86_64", "windows-x86-64"],
+        ("windows", "aarch64") => &["windows-aarch64", "windows-arm64"],
+        ("linux", "x86_64") => &["linux-x86_64", "linux-x86-64"],
+        ("linux", "aarch64") => &["linux-aarch64", "linux-arm64"],
+        ("macos", "aarch64") => &["darwin-aarch64", "darwin-arm64"],
+        ("macos", "x86_64") => &["darwin-x86_64", "darwin-x86-64"],
+        _ => &[],
+    }
+}
+
+fn json_str(v: &serde_json::Value, k: &str) -> Option<String> {
+    v.get(k).and_then(|x| x.as_str()).map(str::to_owned)
+}
+
+/// A release from a flat JSON feed or a Tauri `latest.json` document, for this host.
+fn json_release(v: &serde_json::Value) -> Result<Release, UpdateError> {
+    json_release_on(v, std::env::consts::OS, std::env::consts::ARCH)
+}
+
+fn json_release_on(v: &serde_json::Value, os: &str, arch: &str) -> Result<Release, UpdateError> {
+    let version = json_str(v, "version").ok_or_else(|| UpdateError::Feed("no version".into()))?;
+    let notes = json_str(v, "notes").unwrap_or_default();
+    if let Some(platforms) = v.get("platforms").and_then(|p| p.as_object()) {
+        let keys = tauri_platform_keys_for(os, arch);
+        if keys.is_empty() {
+            return Err(UpdateError::Feed(format!("no Tauri platform key for {os}-{arch}")));
+        }
+        for key in keys {
+            let Some(entry) = platforms.get(*key) else { continue };
+            let url = entry.get("url").and_then(|x| x.as_str()).unwrap_or("").trim();
+            let signature = entry.get("signature").and_then(|x| x.as_str()).unwrap_or("").trim();
+            if url.is_empty() {
+                return Err(UpdateError::Feed(format!("no url for {key}")));
+            }
+            if signature.is_empty() {
+                return Err(UpdateError::Feed(format!("no signature for {key}")));
+            }
+            let sha256 = entry.get("sha256").and_then(|x| x.as_str()).map(str::to_owned);
+            return Ok(Release { version, notes, url: url.to_owned(), signature: signature.to_owned(), sha256 });
+        }
+        return Err(UpdateError::Feed(format!("no platform in the feed for {os}-{arch}")));
+    }
+    Ok(Release {
+        version,
+        notes,
+        url: json_str(v, "url").ok_or_else(|| UpdateError::Feed("no url".into()))?,
+        signature: json_str(v, "signature").ok_or_else(|| UpdateError::Feed("no signature".into()))?,
+        sha256: json_str(v, "sha256"),
+    })
+}
+
 /// Looks for a release newer than the running version. `Ok(None)`: up to date.
 pub fn check(cfg: &UpdateConfig) -> Result<Option<Release>, UpdateError> {
     let current = version(&cfg.current)?;
@@ -269,14 +328,7 @@ pub fn check(cfg: &UpdateConfig) -> Result<Option<Release>, UpdateError> {
         Feed::Json(url) => {
             let v: serde_json::Value =
                 serde_json::from_str(&get_text(url)?).map_err(|e| UpdateError::Feed(e.to_string()))?;
-            let s = |k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_owned);
-            Release {
-                version: s("version").ok_or_else(|| UpdateError::Feed("no version".into()))?,
-                notes: s("notes").unwrap_or_default(),
-                url: s("url").ok_or_else(|| UpdateError::Feed("no url".into()))?,
-                signature: s("signature").ok_or_else(|| UpdateError::Feed("no signature".into()))?,
-                sha256: s("sha256"),
-            }
+            json_release(&v)?
         }
         Feed::GitHub { owner, repo, asset } => {
             let url =
@@ -456,6 +508,8 @@ pub fn download(
 #[non_exhaustive]
 pub enum Apply {
     /// Start the installer with these arguments; the app then quits so it can be replaced.
+    /// A silent Windows NSIS update passes `/S` and `/UPDATE` here. Stop sidecars (a local
+    /// runtime and the like) before calling [`apply`].
     RunInstaller(Vec<String>),
     /// Put the download in place of the running executable and start it; the app then quits.
     ReplaceExecutable,
@@ -633,4 +687,90 @@ pub fn update_banner_with(
         pct.set(progress.flatten());
         let _ = c2.clone().hidden(s == UpdateState::Idle);
     })
+}
+
+#[cfg(test)]
+mod json_feed_tests {
+    use super::{UpdateError, json_release_on, tauri_platform_keys_for};
+
+    fn tauri_doc() -> serde_json::Value {
+        serde_json::json!({
+            "version": "v1.0.0",
+            "notes": "first RemedyUI build",
+            "pub_date": "2026-11-22T21:00:00Z",
+            "platforms": {
+                "windows-x86_64": {
+                    "signature": "win-sig",
+                    "url": "https://example.com/Remedy.Desktop_1.0.0_x64-setup.exe"
+                },
+                "linux-x86-64": {
+                    "signature": "linux-alias-sig",
+                    "url": "https://example.com/Remedy.Desktop_1.0.0_amd64.AppImage"
+                },
+                "darwin-aarch64": {
+                    "signature": "mac-sig",
+                    "url": "https://example.com/Remedy.Desktop_1.0.0_aarch64.app.tar.gz"
+                },
+                "darwin-x86_64": {
+                    "signature": "mac-intel-sig",
+                    "url": "https://example.com/Remedy.Desktop_1.0.0_x64.app.tar.gz"
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn tauri_keys_match_the_usual_os_and_arch_names() {
+        assert_eq!(tauri_platform_keys_for("windows", "x86_64")[0], "windows-x86_64");
+        assert_eq!(tauri_platform_keys_for("linux", "x86_64"), &["linux-x86_64", "linux-x86-64"]);
+        assert_eq!(tauri_platform_keys_for("macos", "aarch64")[0], "darwin-aarch64");
+        assert!(tauri_platform_keys_for("fuchsia", "x86_64").is_empty());
+    }
+
+    #[test]
+    fn a_tauri_latest_json_picks_this_platform_and_its_alias() {
+        let v = tauri_doc();
+        let win = json_release_on(&v, "windows", "x86_64").expect("windows");
+        assert_eq!(win.version, "v1.0.0");
+        assert_eq!(win.notes, "first RemedyUI build");
+        assert!(win.url.ends_with("_x64-setup.exe"));
+        assert_eq!(win.signature, "win-sig");
+
+        // linux-x86_64 is absent; the linux-x86-64 alias still matches.
+        let linux = json_release_on(&v, "linux", "x86_64").expect("linux alias");
+        assert!(linux.url.ends_with(".AppImage"));
+        assert_eq!(linux.signature, "linux-alias-sig");
+
+        let mac = json_release_on(&v, "macos", "aarch64").expect("darwin");
+        assert!(mac.url.contains("aarch64"));
+        assert_eq!(mac.signature, "mac-sig");
+    }
+
+    #[test]
+    fn a_flat_json_feed_is_unchanged() {
+        let v = serde_json::json!({
+            "version": "2.0.0",
+            "url": "https://example.com/app.bin",
+            "signature": "sig",
+            "sha256": "ab",
+            "notes": "flat"
+        });
+        let r = json_release_on(&v, "linux", "x86_64").expect("flat");
+        assert_eq!((r.version.as_str(), r.url.as_str(), r.signature.as_str(), r.sha256.as_deref(), r.notes.as_str()),
+            ("2.0.0", "https://example.com/app.bin", "sig", Some("ab"), "flat"));
+    }
+
+    #[test]
+    fn a_tauri_feed_without_this_platform_or_a_signature_is_refused() {
+        let v = tauri_doc();
+        let err = json_release_on(&v, "linux", "aarch64").expect_err("no linux arm");
+        assert!(matches!(&err, UpdateError::Feed(e) if e.contains("linux-aarch64")), "{err:?}");
+
+        let empty_sig = serde_json::json!({
+            "version": "1.0.0",
+            "platforms": { "windows-x86_64": { "url": "https://example.com/app.exe", "signature": "" } }
+        });
+        let err = json_release_on(&empty_sig, "windows", "x86_64").expect_err("empty sig");
+        assert!(matches!(&err, UpdateError::Feed(e) if e.contains("signature")), "{err:?}");
+    }
 }
