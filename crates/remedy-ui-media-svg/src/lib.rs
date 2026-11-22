@@ -11,6 +11,7 @@
 //! followed; only images embedded as `data:` URLs are drawn.
 
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Once};
 
 use remedy_ui_a11y::{Role, Semantics};
@@ -150,15 +151,81 @@ pub fn render(bytes: &[u8], px: Option<(u32, u32)>, color: Option<Color>) -> Res
     Ok(Image::new(w, h, Arc::from(pixmap.take())))
 }
 
+/// How far into a file the sniffer [`install`] adds looks for the root element, by default:
+/// past the XML declaration, comments, processing instructions and DOCTYPE in front of it.
+pub const DEFAULT_SNIFF_LIMIT: usize = 64 * 1024;
+
+static SNIFF_LIMIT: AtomicUsize = AtomicUsize::new(DEFAULT_SNIFF_LIMIT);
+
+/// Sets how many bytes the sniffer reads looking for the `<svg>` root element (default
+/// [`DEFAULT_SNIFF_LIMIT`]): a file whose prolog runs longer is not recognised as SVG.
+pub fn set_sniff_limit(bytes: usize) {
+    SNIFF_LIMIT.store(bytes, Ordering::Relaxed);
+}
+
+/// How many bytes the sniffer reads looking for the root element.
+pub fn sniff_limit() -> usize {
+    SNIFF_LIMIT.load(Ordering::Relaxed)
+}
+
 fn looks_like_svg(head: &[u8]) -> bool {
     if head.starts_with(&[0x1f, 0x8b]) {
         // Gzipped: .svgz (no raster format is gzipped).
         return cfg!(feature = "svgz");
     }
-    let text = String::from_utf8_lossy(head.get(..head.len().min(1024)).unwrap_or_default());
-    let t = text.trim_start_matches('\u{feff}').trim_start();
-    (t.starts_with("<?xml") || t.starts_with("<!--") || t.starts_with("<!DOCTYPE") || t.starts_with("<svg"))
-        && t.contains("<svg")
+    root_is_svg(head.get(..head.len().min(sniff_limit())).unwrap_or_default()).unwrap_or(false)
+}
+
+/// Whether the document's root element is `svg` (any namespace prefix), skipping a byte order
+/// mark, whitespace, the XML declaration, processing instructions, comments and a DOCTYPE
+/// (internal subset included). `None` when `b` ends before the root element.
+fn root_is_svg(b: &[u8]) -> Option<bool> {
+    let find = |from: usize, pat: &[u8]| {
+        b.get(from..)?.windows(pat.len()).position(|w| w == pat).map(|p| from + p + pat.len())
+    };
+    let mut i = if b.starts_with(&[0xef, 0xbb, 0xbf]) { 3 } else { 0 };
+    loop {
+        while b.get(i)?.is_ascii_whitespace() {
+            i += 1;
+        }
+        let r = b.get(i..)?;
+        if r.starts_with(b"<?") {
+            i = find(i + 2, b"?>")?;
+        } else if r.starts_with(b"<!--") {
+            i = find(i + 4, b"-->")?;
+        } else if r.starts_with(b"<!DOCTYPE") {
+            i = doctype_end(b, i + 9)?;
+        } else if r.starts_with(b"<") {
+            let name = r.get(1..)?;
+            let end = name.iter().position(|c| c.is_ascii_whitespace() || matches!(c, b'>' | b'/'))?;
+            let name = name.get(..end)?;
+            let local = name.rsplit(|&c| c == b':').next().unwrap_or(name);
+            return Some(local == b"svg");
+        } else {
+            return Some(false);
+        }
+    }
+}
+
+/// Just past the `>` closing a DOCTYPE whose body starts at `i`: quoted strings, comments and
+/// the `[...]` internal subset may hold a `>` of their own.
+fn doctype_end(b: &[u8], mut i: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    loop {
+        let c = *b.get(i)?;
+        if b.get(i..)?.starts_with(b"<!--") {
+            i += 4 + b.get(i + 4..)?.windows(3).position(|w| w == b"-->")? + 3;
+            continue;
+        }
+        match c {
+            b'"' | b'\'' => i += 1 + b.get(i + 1..)?.iter().position(|&q| q == c)?,
+            b'[' => depth += 1,
+            b']' => depth = depth.saturating_sub(1),
+            b'>' if depth == 0 => return Some(i + 1),
+            _ => {}
+        }
+        i += 1;
+    }
 }
 
 struct Svg;
@@ -231,4 +298,35 @@ pub fn icon(ui: &Ui, bytes: Arc<[u8]>, size: f32, label: impl Into<String>) -> E
             sampling: Sampling::Linear,
         });
     })
+}
+
+#[cfg(test)]
+mod sniff_tests {
+    use super::root_is_svg;
+
+    #[test]
+    fn root_element_found_past_the_prolog() {
+        assert_eq!(root_is_svg(br#"<svg xmlns="http://www.w3.org/2000/svg"/>"#), Some(true));
+        let comment = format!("<!-- {} -->\n<svg/>", "x".repeat(5000));
+        assert_eq!(root_is_svg(comment.as_bytes()), Some(true), "a long comment first");
+        let bom = [&[0xef, 0xbb, 0xbf][..], b"  <?xml version=\"1.0\"?>\n<svg>"].concat();
+        assert_eq!(root_is_svg(&bom), Some(true), "a byte order mark and declaration");
+        let doctype = br#"<?xml version="1.0"?><?xml-stylesheet href="a.css"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd" [
+  <!ENTITY a "<b>">
+  <!-- it's ] here -->
+]>
+<svg:svg xmlns:svg="http://www.w3.org/2000/svg">"#;
+        assert_eq!(root_is_svg(doctype), Some(true), "a DOCTYPE with an internal subset");
+    }
+
+    #[test]
+    fn other_documents_are_not_svg() {
+        assert_eq!(root_is_svg(br#"<?xml version="1.0"?><html><svg/></html>"#), Some(false));
+        assert_eq!(root_is_svg(b"<!-- <svg> --><feed>"), Some(false), "svg only in a comment");
+        assert_eq!(root_is_svg(b"<svgx/>"), Some(false));
+        assert_eq!(root_is_svg(&[0x89, b'P', b'N', b'G']), Some(false));
+        assert_eq!(root_is_svg(b"<!-- unfinished"), None);
+        assert_eq!(root_is_svg(b""), None);
+    }
 }

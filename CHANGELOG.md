@@ -1238,6 +1238,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- `media-svg` recognises an SVG by its root element: the sniffer skips a byte order mark,
+  the XML declaration, processing instructions, comments and a DOCTYPE (internal subset
+  included) instead of looking for `<svg` in the first 1024 bytes, so an SVG behind a long
+  licence comment loads and an XML file that merely mentions `<svg>` is no longer taken for
+  one. It reads up to `DEFAULT_SNIFF_LIMIT` (64 KiB), set with `set_sniff_limit`; the image
+  loader reads a whole file to sniff it when its header is no raster format.
 - `media-anim` without its format features (as `media-isolated` takes it) compiles again,
   which also fixes `media-isolated` for `wasm32-unknown-unknown`; there `media-isolated` no
   longer pulls in dependencies it does not use.

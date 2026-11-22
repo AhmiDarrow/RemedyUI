@@ -86,7 +86,15 @@ impl Source {
                     return dimensions(&bytes);
                 }
                 r.rewind().map_err(|e| DecodeError::Io(e.to_string()))?;
-                dimensions_from(r)
+                match dimensions_from(r) {
+                    // Not a raster format: an added one may need more than the buffered head
+                    // to recognise (an SVG behind a long comment), so it sniffs the whole file.
+                    Err(DecodeError::Unrecognized) => {
+                        let bytes = std::fs::read(p).map_err(|e| DecodeError::Io(e.to_string()))?;
+                        dimensions(&bytes)
+                    }
+                    other => other,
+                }
             }
         }
     }
