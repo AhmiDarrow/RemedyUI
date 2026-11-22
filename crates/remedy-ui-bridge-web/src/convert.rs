@@ -9,7 +9,7 @@ use std::time::Duration;
 use remedy_ui_core::{Color, Rect, Size, Vec2};
 use remedy_ui_host::SystemSettings;
 use remedy_ui_host::accesskit::{Node, Role, Toggled};
-use remedy_ui_input::{Buttons, Key, Modifiers, Platform, PointerKind};
+use remedy_ui_input::{Buttons, Key, Modifiers, PadButtons, Platform, PointerKind};
 
 /// CSS pixels one DOM "line" scrolls (`WheelEvent.DOM_DELTA_LINE`): a line of 16 px
 /// interface text. A wheel notch is usually three lines, 48 px, as on the desktop bridges.
@@ -99,19 +99,19 @@ pub fn pointer_id(dom_id: i32, kind: PointerKind) -> u32 {
     }
 }
 
-/// The buttons of a gamepad with the standard mapping that [`gamepad_key`] gives a meaning.
+/// The buttons of a gamepad with the standard mapping that [`gamepad_button`] gives a meaning.
 pub const GAMEPAD_BUTTONS: [usize; 6] = [0, 1, 12, 13, 14, 15];
 
-/// What a standard-mapping gamepad button means for moving about an app: the d-pad (12 to
-/// 15) the arrows, A (0) Enter, B (1) back, as on a TV.
-pub fn gamepad_key(button: usize) -> Option<Key> {
+/// What a standard-mapping gamepad button is for moving about an app: the d-pad (12 to 15),
+/// A (0, Enter) and B (1, back), as on a TV.
+pub fn gamepad_button(button: usize) -> Option<PadButtons> {
     Some(match button {
-        0 => Key::Enter,
-        1 => Key::Back,
-        12 => Key::ArrowUp,
-        13 => Key::ArrowDown,
-        14 => Key::ArrowLeft,
-        15 => Key::ArrowRight,
+        0 => PadButtons::A,
+        1 => PadButtons::B,
+        12 => PadButtons::UP,
+        13 => PadButtons::DOWN,
+        14 => PadButtons::LEFT,
+        15 => PadButtons::RIGHT,
         _ => return None,
     })
 }
@@ -685,10 +685,10 @@ mod tests {
         assert_eq!(key("F25"), Key::Named("F25".into()));
         assert_eq!(key("BrowserBack"), Key::Back);
         assert_eq!(key("XF86Back"), Key::Back, "a Tizen remote's back");
-        assert_eq!(gamepad_key(1), Some(Key::Back), "a gamepad's B");
-        assert_eq!(gamepad_key(15), Some(Key::ArrowRight));
-        assert!(GAMEPAD_BUTTONS.iter().all(|b| gamepad_key(*b).is_some()));
-        assert_eq!(gamepad_key(2), None);
+        assert_eq!(gamepad_button(1), Some(PadButtons::B), "a gamepad's B");
+        assert_eq!(gamepad_button(15), Some(PadButtons::RIGHT));
+        assert!(GAMEPAD_BUTTONS.iter().all(|b| gamepad_button(*b).is_some()));
+        assert_eq!(gamepad_button(2), None);
         assert_eq!(key("Insert"), Key::Named("Insert".into()));
         assert_eq!(key("Dead"), Key::Named("Dead".into()));
         assert_eq!(key("👍🏽"), Key::Character("👍🏽".into()));

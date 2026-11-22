@@ -1,12 +1,14 @@
-//! Gamepads (the Gamepad API). With the standard mapping the d-pad, A and B arrive as arrow
-//! keys, Enter and Back, so spatial navigation and the router work with a controller as they
-//! do with a TV remote.
+//! Gamepads (the Gamepad API). With the standard mapping the d-pad and left stick arrive as
+//! arrow keys, A as Enter and B as Back, so spatial navigation and the router work with a
+//! controller as they do with a TV remote; a held direction repeats as a held arrow key does
+//! (`GamepadKeys`, tuned by `Host::set_gamepad_tuning`).
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Duration;
 
 use remedy_ui_host::HostEvent;
-use remedy_ui_input::KeyEvent;
+use remedy_ui_input::{GamepadKeys, GamepadTuning, PadButtons, PadState};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
@@ -23,13 +25,20 @@ thread_local! {
     /// the poll stops itself, and a closure may not be dropped while it runs).
     static POLL: Cell<Option<i32>> = const { Cell::new(None) };
     static CALLBACK: RefCell<Option<Closure<dyn FnMut()>>> = const { RefCell::new(None) };
-    /// The buttons each pad had down at the last poll, a bit per standard button.
-    static DOWN: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+    /// What the pads hold, turned into keys with repeats.
+    static KEYS: RefCell<GamepadKeys> = RefCell::new(GamepadKeys::new());
+    /// Which slots had a pad at the last poll.
+    static CONNECTED: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Starts reading pads when one connects (browsers announce one at its first press).
 pub(crate) fn install(d: &Rc<Driver>, win: &web_sys::Window) {
     d.add_global(Listener::new(win, "gamepadconnected", |_| start()));
+}
+
+/// The app's tuning ([`remedy_ui_host::Host::set_gamepad_tuning`]).
+pub(crate) fn set_tuning(tuning: GamepadTuning) {
+    KEYS.with_borrow_mut(|k| k.set_tuning(tuning));
 }
 
 fn start() {
@@ -47,58 +56,63 @@ fn start() {
     });
 }
 
+/// A standard-mapping pad's reading.
+fn reading(pad: &web_sys::Gamepad) -> PadState {
+    let buttons = pad.buttons();
+    let mut held = PadButtons::NONE;
+    for b in convert::GAMEPAD_BUTTONS {
+        let pressed = u32::try_from(b)
+            .ok()
+            .and_then(|n| buttons.get(n).dyn_into::<web_sys::GamepadButton>().ok())
+            .is_some_and(|g| g.pressed());
+        if pressed && let Some(p) = convert::gamepad_button(b) {
+            held |= p;
+        }
+    }
+    let axes = pad.axes();
+    let axis = |i| axes.get(i).as_f64().unwrap_or(0.0) as f32;
+    // The standard mapping's axes 0 and 1 are the left stick, y growing downward.
+    PadState { buttons: held, stick: [axis(0), axis(1)] }
+}
+
 fn poll() {
     let Some(win) = web_sys::window() else { return };
+    let Some(d) = driver() else { return };
+    let now =
+        win.performance().map_or(Duration::ZERO, |p| Duration::from_secs_f64(p.now().max(0.0) / 1000.0));
     let pads = win.navigator().get_gamepads().unwrap_or_default();
-    let mut any = false;
     let mut keys = Vec::new();
-    DOWN.with_borrow_mut(|down| {
-        for (i, pad) in pads.iter().enumerate() {
-            // Empty slots are null.
-            let Ok(pad) = pad.dyn_into::<web_sys::Gamepad>() else { continue };
-            if !pad.connected() {
-                continue;
-            }
-            any = true;
-            if down.len() <= i {
-                down.resize(i + 1, 0);
-            }
-            if pad.mapping() != web_sys::GamepadMappingType::Standard {
-                continue;
-            }
-            let buttons = pad.buttons();
-            let mut now = 0u64;
-            for b in convert::GAMEPAD_BUTTONS {
-                let pressed = u32::try_from(b)
+    let mut any = false;
+    KEYS.with_borrow_mut(|k| {
+        {
+            let s = d.state.borrow();
+            k.set_system_repeat(s.settings.key_repeat_delay, s.settings.key_repeat_interval);
+        }
+        CONNECTED.with_borrow_mut(|connected| {
+            let n = (pads.length() as usize).max(connected.len());
+            connected.resize(n, false);
+            for (i, was) in connected.iter_mut().enumerate() {
+                // Empty slots are null; pads without the standard mapping have no known d-pad.
+                let pad = u32::try_from(i)
                     .ok()
-                    .and_then(|n| buttons.get(n).dyn_into::<web_sys::GamepadButton>().ok())
-                    .is_some_and(|g| g.pressed());
-                let bit = 1u64 << b;
-                if pressed {
-                    now |= bit;
+                    .and_then(|i| pads.get(i).dyn_into::<web_sys::Gamepad>().ok())
+                    .filter(|p| p.connected() && p.mapping() == web_sys::GamepadMappingType::Standard);
+                let state = pad.as_ref().map(reading);
+                any |= pad.is_some();
+                if state.is_some() || *was {
+                    keys.extend(k.update(i, state.as_ref(), now));
                 }
-                if pressed != (down.get(i).is_some_and(|d| d & bit != 0))
-                    && let Some(k) = convert::gamepad_key(b)
-                {
-                    keys.push(KeyEvent::press(k).with_pressed(pressed));
-                }
+                *was = state.is_some();
             }
-            if let Some(d) = down.get_mut(i) {
-                *d = now;
-            }
-        }
-        if !any {
-            down.clear();
-        }
+        });
+        keys.extend(k.tick(now));
     });
     if !any {
         // Every pad is gone: stop until one connects again.
         if let Some(h) = POLL.take() {
             win.clear_interval_with_handle(h);
         }
-        return;
     }
-    let Some(d) = driver() else { return };
     let windows = d.windows();
     let Some(w) = windows.iter().find(|w| w.focused.get()).or(windows.first()) else { return };
     for k in keys {

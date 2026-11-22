@@ -26,6 +26,14 @@ mod os;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod services;
 
+#[cfg_attr(
+    not(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))),
+    allow(dead_code)
+)]
+mod evdev;
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod gamepad;
+
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod notify;
 
@@ -109,7 +117,7 @@ mod linux {
     /// Portal settings, read in one session-bus round trip set.
     struct Portal(std::collections::HashMap<(&'static str, &'static str), Value<'static>>);
 
-    const KEYS: [(&str, &str); 9] = [
+    const KEYS: [(&str, &str); 11] = [
         ("org.freedesktop.appearance", "color-scheme"),
         ("org.freedesktop.appearance", "accent-color"),
         ("org.freedesktop.appearance", "contrast"),
@@ -119,6 +127,8 @@ mod linux {
         ("org.gnome.desktop.interface", "cursor-blink"),
         ("org.gnome.desktop.interface", "cursor-blink-time"),
         ("org.gnome.desktop.peripherals.mouse", "double-click"),
+        ("org.gnome.desktop.peripherals.keyboard", "delay"),
+        ("org.gnome.desktop.peripherals.keyboard", "repeat-interval"),
     ];
 
     impl Portal {
@@ -272,6 +282,12 @@ mod linux {
                     None
                 };
                 v_.power_saving = power_saving();
+                let keyboard = |key| {
+                    p.u32("org.gnome.desktop.peripherals.keyboard", key)
+                        .map(|ms| Duration::from_millis(u64::from(ms)))
+                };
+                v_.key_repeat_delay = keyboard("delay").unwrap_or(base.key_repeat_delay);
+                v_.key_repeat_interval = keyboard("repeat-interval").unwrap_or(base.key_repeat_interval);
                 v_
             }
         }
@@ -407,6 +423,10 @@ mod linux {
 
         fn set_tray(&mut self, tray: Option<&TrayIcon>) -> Result<(), Unsupported> {
             self.tray.set(tray)
+        }
+
+        fn gamepads(&mut self) -> Option<Box<dyn remedy_ui_bridge_winit::gamepad::PadSource>> {
+            Some(Box::new(crate::gamepad::Evdev::default()))
         }
 
         fn set_waker(&mut self, waker: Waker) {

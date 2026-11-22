@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use remedy_ui_core::{Color, Point, Rect, Size};
-use remedy_ui_input::{KeyEvent, PinchEvent, Platform, PointerEvent, WheelEvent};
+use remedy_ui_input::{GamepadTuning, KeyEvent, PinchEvent, Platform, PointerEvent, WheelEvent};
 
 mod badge;
 pub use badge::Badge;
@@ -929,6 +929,11 @@ pub struct SystemSettings {
     pub double_click: Duration,
     /// Caret blink interval; `None` when the user turned blinking off.
     pub caret_blink: Option<Duration>,
+    /// How long a key is held before it repeats (gamepad directions follow it unless the app
+    /// tunes them: `GamepadTuning`).
+    pub key_repeat_delay: Duration,
+    /// The time between a held key's repeats.
+    pub key_repeat_interval: Duration,
     /// The system draws text with subpixel antialiasing (ClearType on Windows): `Some(bgr)`,
     /// true where the panel's subpixels run blue, green, red; `None` for grayscale or unknown.
     pub subpixel_text: Option<bool>,
@@ -996,6 +1001,8 @@ impl Default for SystemSettings {
             locale: String::from("en-US"),
             double_click: Duration::from_millis(500),
             caret_blink: Some(Duration::from_millis(530)),
+            key_repeat_delay: Duration::from_millis(500),
+            key_repeat_interval: Duration::from_millis(33),
             subpixel_text: None,
             power_saving: false,
             spatial_navigation: false,
@@ -1496,6 +1503,12 @@ pub trait Host {
     fn set_badge(&mut self, app_id: &str, badge: Option<Badge>) -> Result<(), Unsupported> {
         let _ = (app_id, badge);
         Err(Unsupported::new("app badges", "this platform shows no badges"))
+    }
+    /// How gamepads' held directions repeat and how far their sticks must lean
+    /// (`remedy_ui_input::GamepadTuning`). Hosts that read no gamepads (headless, or
+    /// platforms whose gamepads arrive as the system's own keys) ignore it.
+    fn set_gamepad_tuning(&mut self, tuning: GamepadTuning) {
+        let _ = tuning;
     }
     /// Runs a native open or save dialog, modal to `window`. Desktop dialogs finish inside the
     /// call with the chosen paths (empty when cancelled); others return at once and report
