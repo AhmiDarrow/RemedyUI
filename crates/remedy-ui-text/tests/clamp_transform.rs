@@ -123,8 +123,39 @@ fn transformed_text_keeps_offsets_of_the_text_as_written() {
     let tr = e.layout(&RichText::plain("i"), &style, ParagraphOptions::default());
     let dotted = e.layout(&RichText::plain("İ"), &TextStyle::default(), ParagraphOptions::default());
     assert!((tr.width() - dotted.width()).abs() < 0.01, "Turkish i capitalizes to İ");
+    // Greek capitals drop the tonos under the Greek locale, and Dutch capitalizes IJ.
+    e.set_locale("el");
+    let el = e.layout(&RichText::plain("άλφα"), &style, ParagraphOptions::default());
+    let plain = e.layout(&RichText::plain("ΑΛΦΑ"), &TextStyle::default(), ParagraphOptions::default());
+    assert!((el.width() - plain.width()).abs() < 0.01, "Greek capitals without accents");
+    e.set_locale("nl");
+    let mut title = TextStyle::default();
+    title.transform = TextTransform::Capitalize;
+    let nl = e.layout(&RichText::plain("ijsland"), &title, ParagraphOptions::default());
+    let plain = e.layout(&RichText::plain("IJsland"), &TextStyle::default(), ParagraphOptions::default());
+    assert!((nl.width() - plain.width()).abs() < 0.01, "IJsland");
+    e.set_locale("tr-TR");
     // Clamping composes with casing.
     let clamped =
         e.layout(&RichText::plain(LONG), &style, ParagraphOptions::default().max_width(120.0).max_lines(2));
     assert_eq!(clamped.lines().len(), 2);
+}
+
+#[test]
+fn clamping_a_huge_paragraph_lays_out_only_its_first_lines() {
+    let mut e = engine();
+    let text: String = LONG.chars().chain([' ']).cycle().take(50_000).collect();
+    let wrap = ParagraphOptions::default().max_width(300.0);
+    let whole = e.layout(&RichText::plain(&text), &TextStyle::default(), wrap);
+    let first: Vec<_> = whole.lines_in(0.0..60.0).into_iter().take(2).map(|l| l.range).collect();
+    let started = std::time::Instant::now();
+    let p = e.layout(&RichText::plain(&text), &TextStyle::default(), wrap.max_lines(3));
+    let took = started.elapsed();
+    eprintln!("clamping 50,000 characters to 3 lines took {took:?}");
+    let lines = p.lines();
+    assert_eq!(lines.len(), 3);
+    // The first two lines are the whole text's first two.
+    let got: Vec<_> = lines.iter().take(2).map(|l| l.range.clone()).collect();
+    assert_eq!(got, first);
+    assert!(ellipsis_x(&mut e, &p).is_some());
 }
