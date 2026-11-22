@@ -1,6 +1,7 @@
 //! Text styles.
 
 use remedy_ui_core::Color;
+pub use remedy_ui_core::TextTransform;
 
 /// How tall each line is.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -55,23 +56,6 @@ pub struct Feature {
 impl Feature {
     /// Tabular (same-width) figures.
     pub const TABULAR_FIGURES: Feature = Feature { tag: *b"tnum", value: 1 };
-}
-
-/// How letters are cased when drawn (CSS `text-transform`). Copying, selection and screen
-/// readers keep the text as written. Casing follows the text engine's locale: Turkish and
-/// Azerbaijani dotted and dotless i, German ß as SS in capitals, Greek final sigma.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-// Exhaustive on purpose: the cases CSS has.
-pub enum TextTransform {
-    /// As written.
-    #[default]
-    None,
-    /// All capitals.
-    Upper,
-    /// All small letters.
-    Lower,
-    /// The first letter of each word a capital (title case), the rest as written.
-    Capitalize,
 }
 
 /// A complete text style.

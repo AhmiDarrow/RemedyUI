@@ -420,7 +420,9 @@ fn up_next_reads_as_portals_card_with_a_spaced_label() {
     // `.upnext-label`: UP NEXT at 0.75 rem, 0.08 em apart, over the title.
     let label = find(&view, "player_next_label");
     let info = label.info().unwrap_or_else(|| unreachable!());
-    assert_eq!(info.text.as_deref(), Some("UP NEXT"));
+    // Drawn in capitals; its text (what is read and copied) as written.
+    assert_eq!(info.text.as_deref(), Some("Up next"));
+    assert_eq!(info.style.text_transform, remedy_ui_style::TextTransform::Upper);
     assert_eq!(info.style.letter_spacing, remedy_ui_style::LetterSpacing::Em(0.08));
     // Laid out with the label's look, and without its spacing: seven clusters, 0.96 px each.
     let ui = view.ui().clone();

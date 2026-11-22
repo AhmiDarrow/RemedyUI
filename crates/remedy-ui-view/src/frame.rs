@@ -71,6 +71,7 @@ pub(crate) fn text_style_for(d: &ElData, theme: &remedy_ui_style::Theme) -> reme
         let mut v_ = remedy_ui_text::TextStyle::default();
         v_.families = theme.families(d.resolved.mono, d.resolved.heading);
         v_.letter_spacing = d.resolved.letter_spacing.px(d.resolved.text_size);
+        v_.transform = d.resolved.text_transform;
         v_.size = d.resolved.text_size;
         v_.weight = d.resolved.weight;
         v_.color = d.resolved.foreground;
@@ -795,8 +796,11 @@ impl Ui {
                 || resolved.weight != d.resolved.weight
                 || resolved.mono != d.resolved.mono
                 || resolved.heading != d.resolved.heading
-                || resolved.letter_spacing != d.resolved.letter_spacing;
+                || resolved.letter_spacing != d.resolved.letter_spacing
+                || resolved.text_transform != d.resolved.text_transform;
             let text_changed = reshape
+                || resolved.text_transform != d.resolved.text_transform
+                || resolved.max_lines != d.resolved.max_lines
                 || resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight
                 || resolved.mono != d.resolved.mono
@@ -808,6 +812,8 @@ impl Ui {
                 || resolved.mono != d.resolved.mono
                 || resolved.heading != d.resolved.heading
                 || resolved.letter_spacing != d.resolved.letter_spacing
+                || resolved.text_transform != d.resolved.text_transform
+                || resolved.max_lines != d.resolved.max_lines
                 || resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight
                 || resolved.border_width != d.resolved.border_width;
@@ -818,6 +824,7 @@ impl Ui {
                 if let Some(t) = &d.text {
                     let mut t = t.borrow_mut();
                     t.style = style.clone();
+                    t.max_lines = d.resolved.max_lines;
                     t.cache = None;
                 }
                 if let Some(f) = &d.field {

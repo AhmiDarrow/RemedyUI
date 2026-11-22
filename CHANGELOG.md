@@ -10,6 +10,24 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Text in at most n lines (CSS `line-clamp`).** `El::max_lines(n)`, `Style::max_lines(n)`
+  and `StylePatch::max_lines(n)` for style sheets, and `ParagraphOptions::max_lines(n)` in
+  `remedy-ui-text`: text that would take more lines ends the last one in "…", cut at the last
+  grapheme boundary that fits as the shaper measures it (letter spacing, every alignment and
+  right-to-left text included; the "…" follows the text in logical order, so it lands on the
+  line's visual end either way). Screen readers, copying and searching get the whole text;
+  `widgets::full_text_tooltip(&el)` shows it on hover. `El::truncate()` is now `max_lines(1)`,
+  so a hard line break in truncated text ends its first line in "…" too.
+- **Text transforms (CSS `text-transform`).** `TextTransform::{None, Upper, Lower,
+  Capitalize}` on `TextStyle::transform`, `TextStylePatch::transform(..)` for spans,
+  `El::text_transform(..)`, and `Style::text_transform` / `StylePatch::text_transform` for
+  style sheets (inherited, as in CSS). The text is cased at shaping time by the window's
+  locale (Turkish and Azerbaijani dotted İ and dotless ı, German ß as SS in capitals and Ss in
+  title case, Greek final sigma, the dž lj nj dz title forms); the paragraph's offsets (hit
+  tests, carets, selections, lines, glyph clusters) stay those of the text as written, so
+  selection, copying and screen readers get the original. The player's "Up next" label uses
+  it instead of upper-casing its string in code.
+
 - **The player's keys from anywhere in the window** in `media-playback`, as Portal's page
   hears them page-wide: `Player::keys_from(&ui.root())` routes the keys nothing focused took
   to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),
