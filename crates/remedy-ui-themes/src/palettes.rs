@@ -193,7 +193,7 @@ pub const PALETTES: &[Palette] = &[
     },
     Palette {
         id: "deutan",
-        name: "Colorblind Deutan",
+        name: "Deutan",
         dark: true,
         bg: "#0b0f14",
         panel: "#121821",
@@ -210,7 +210,7 @@ pub const PALETTES: &[Palette] = &[
     },
     Palette {
         id: "protan",
-        name: "Colorblind Protan",
+        name: "Protan",
         dark: true,
         bg: "#0d1013",
         panel: "#151a1f",
@@ -227,7 +227,7 @@ pub const PALETTES: &[Palette] = &[
     },
     Palette {
         id: "tritan",
-        name: "Colorblind Tritan",
+        name: "Tritan",
         dark: true,
         bg: "#12100f",
         panel: "#1b1817",

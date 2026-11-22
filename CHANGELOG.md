@@ -8,6 +8,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ## [Unreleased]
 
+### Changed
+
+- **Colorblind palette names**: the `protan`, `deutan` and `tritan` palettes are labelled **Protan**, **Deutan** and **Tritan** (ids unchanged, so a saved theme still matches).
+
 ### Added
 
 - **Dashed and dotted borders**: `StylePatch::border_style(BorderStyle::Dashed)` and
