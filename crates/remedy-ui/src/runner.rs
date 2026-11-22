@@ -2185,6 +2185,7 @@ impl Runner {
                 ui.set_wake(Rc::new(move || app.wake_if_idle()));
                 ui.set_reduced_motion(self.reduced_motion());
                 ui.set_power_saving(self.settings.power_saving);
+                ui.set_system_spatial_navigation(self.settings.spatial_navigation);
                 ui.set_pointer_caps(self.settings.pointer);
                 if let Some(p) = self.app.0.borrow().ambient {
                     ui.set_ambient_policy(p);
@@ -3187,6 +3188,7 @@ impl remedy_ui_host::App for Runner {
                     w.ui.set_double_click_time(s.double_click);
                     w.ui.set_system_subpixel(s.subpixel_text);
                     w.ui.set_power_saving(s.power_saving);
+                    w.ui.set_system_spatial_navigation(s.spatial_navigation);
                     w.ui.set_pointer_caps(s.pointer);
                 }
                 let appearance = (s.dark, s.high_contrast);

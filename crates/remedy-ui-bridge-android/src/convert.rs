@@ -55,6 +55,8 @@ pub struct AndroidSettings {
     pub accent: Option<i32>,
     /// `ViewConfiguration.getDoubleTapTimeout()`, in milliseconds.
     pub double_tap_ms: Option<i32>,
+    /// `Configuration.uiMode` type bits say television (Android TV, Google TV, Fire TV).
+    pub television: bool,
 }
 
 /// The caret blink interval of Android's own text fields (`Editor`'s fixed 500 ms).
@@ -82,6 +84,8 @@ impl AndroidSettings {
             .filter(|ms| *ms > 0)
             .map_or(base.double_click, Duration::from_millis);
         s.caret_blink = Some(CARET_BLINK);
+        // A TV is driven by its remote's d-pad.
+        s.spatial_navigation = self.television;
         s
     }
 }
@@ -263,6 +267,7 @@ mod tests {
             high_contrast_text: Some(true),
             accent: Some(0xFF33_66CC_u32 as i32),
             double_tap_ms: Some(300),
+            television: true,
         }
         .to_settings();
         assert_eq!(s.dark, Some(true));
@@ -273,6 +278,7 @@ mod tests {
         assert_eq!(s.accent, Some(Color::rgba8(0x33, 0x66, 0xCC, 0xFF)));
         assert_eq!(s.double_click, Duration::from_millis(300));
         assert_eq!(s.caret_blink, Some(CARET_BLINK));
+        assert!(s.spatial_navigation, "a TV moves focus with its d-pad");
     }
 
     #[test]
@@ -298,5 +304,6 @@ mod tests {
         assert_eq!(s.locale, d.locale);
         assert_eq!(s.text_scale, d.text_scale);
         assert_eq!(s.double_click, d.double_click);
+        assert!(!s.spatial_navigation);
     }
 }

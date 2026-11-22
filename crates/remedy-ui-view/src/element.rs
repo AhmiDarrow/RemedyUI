@@ -507,6 +507,10 @@ pub(crate) struct ElData {
     pub(crate) pointer: bool,
     /// A primary press on it leaves keyboard focus where it is ([`El::keeps_focus_on_press`]).
     pub(crate) keeps_focus: bool,
+    /// Arrows coming into it return to the child last focused inside ([`El::focus_group`]).
+    pub(crate) focus_group: bool,
+    /// Arrows wrap at its edges rather than leave it ([`El::focus_wrap`]).
+    pub(crate) focus_wrap: bool,
     /// Draggable: what is dragged, and who hears how it ended.
     pub(crate) drag_source: Option<crate::dnd::DragSource>,
     /// Its text may be selected ([`El::selectable`]).
@@ -676,6 +680,14 @@ pub(crate) struct Inner {
     pub(crate) platform: remedy_ui_input::Platform,
     /// The focused element and its ancestors, as when focus last moved ([`El::on_focus_within`]).
     pub(crate) focus_chain: Vec<ElementId>,
+    /// Spatial navigation as the app chose it (`None` follows the system) and as the system
+    /// suggests it ([`Ui::set_spatial_navigation`]).
+    pub(crate) spatial: Option<bool>,
+    pub(crate) system_spatial: bool,
+    /// The child each focus group last had focused ([`El::focus_group`]).
+    pub(crate) group_memory: HashMap<ElementId, ElementId>,
+    /// How spatial navigation weighs candidates ([`Ui::set_spatial_tuning`]).
+    pub(crate) spatial_tuning: crate::SpatialTuning,
     /// How text is drawn ([`Ui::set_text_rendering`]) and whether the system uses subpixel
     /// text (`Some(bgr)`).
     pub(crate) text_rendering: TextRendering,
@@ -940,6 +952,10 @@ impl Ui {
             focus_shown: None,
             platform: remedy_ui_input::Platform::Standard,
             focus_chain: Vec::new(),
+            spatial: None,
+            system_spatial: false,
+            group_memory: HashMap::new(),
+            spatial_tuning: crate::SpatialTuning::default(),
             text_rendering: TextRendering::default(),
             system_subpixel: None,
             edition: remedy_ui_core::Edition::FIRST,
@@ -1852,6 +1868,8 @@ impl ElData {
             text_client: None,
             pointer: false,
             keeps_focus: false,
+            focus_group: false,
+            focus_wrap: false,
             drag_source: None,
             selectable: false,
             sel: None,
@@ -2016,6 +2034,9 @@ impl El {
             let mut i = self.ui.0.borrow_mut();
             for id in &ids {
                 if let Some(d) = i.els.remove(id) {
+                    if d.focus_group {
+                        i.group_memory.remove(id);
+                    }
                     let _ = i.layout.remove(d.node);
                     effects.extend(d.effects);
                     if let Some(w) = d.paint_watch {
