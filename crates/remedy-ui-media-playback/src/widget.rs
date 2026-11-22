@@ -808,7 +808,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         full_screen_look(ui, player, styled);
     }
 
-    let next = next_up_card(ui, player);
+    let next = next_up_card(ui, icons, player);
     let (chrome, title) = overlay(ui, player, &bar, &next, &rest, menu_open, lift);
 
     // Portal's mini player: the picture at the start, the app's title over play and the time
@@ -1176,8 +1176,8 @@ fn overlay(
                 l.inset = Insets::ZERO;
                 l.width = Length::Auto;
                 l.max_width = Length::Auto;
-                l.axis = remedy_ui_layout::Axis::Row;
-                l.align_items = Align::Center;
+                l.axis = remedy_ui_layout::Axis::Column;
+                l.align_items = Align::Stretch;
             }
         });
         let theme = n.ui().theme();
@@ -1510,22 +1510,28 @@ fn cast_stage(ui: &Ui, player: &Player) -> El {
     })
 }
 
-/// "Up next" at the end of the media, when something is set to play next: its title, the
-/// countdown while it runs, Play now, and Cancel (which stops the countdown and puts the
-/// card away). Shown between the picture and the transport bar, so sound-only media has it
-/// too.
+/// "Up next" at the end of the media, when something is set to play next, as Portal's card:
+/// a small "UP NEXT" over the title on a line of its own (announced as "Up next: …" as it
+/// shows), the countdown while it runs, a wide Play now, and an X named "Dismiss" (which
+/// stops the countdown and puts the card away). Shown between the picture and the transport
+/// bar, so sound-only media has it too; floating over the picture in full screen.
 #[track_caller]
-fn next_up_card(ui: &Ui, player: &Player) -> El {
+fn next_up_card(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
     let u = ui.theme().spacing.unit;
     let dismissed = Signal::new(false);
     // The title and the countdown are announced as they show and change.
     let said = |text: String| Semantics::new(Role::Status).label(text).live(Live::Polite);
-    let title = ui.el("label");
+    // Upper case as a label above a title is set; casing follows the language's own rules.
+    let label = ui.el("player_next_label").nowrap().text({
+        let u = ui.clone();
+        move || tr(&u, "playback-next-up-label").to_uppercase()
+    });
+    let title = ui.el("player_next_title");
     let (t, p, tu) = (title.clone(), player.clone(), ui.clone());
     let title = title.bind(move || {
         let title = p.next_up().map(|n| n.title).unwrap_or_default();
-        let text = crate::STRINGS.format(&tu, "playback-next-up", &[("title", title.into())]);
-        let _ = t.clone().text(remedy_ui_view::RichText::plain(text.clone())).semantics(said(text));
+        let whole = crate::STRINGS.format(&tu, "playback-next-up", &[("title", title.clone().into())]);
+        let _ = t.clone().text(remedy_ui_view::RichText::plain(title)).semantics(said(whole));
     });
     let left = ui.el("label").nowrap();
     let (lb, p, tu) = (left.clone(), player.clone(), ui.clone());
@@ -1548,13 +1554,18 @@ fn next_up_card(ui: &Ui, player: &Player) -> El {
         move || p.play_next(),
     )
     // A sheet can set it apart (Portal's is in the accent); the shared one leaves it a button.
-    .variant("player_play_now");
+    .variant("player_play_now")
+    .grow(1.0);
     let p = player.clone();
-    let cancel = w::button(
+    let dismiss = glyph_button(
         ui,
+        icons,
+        [Icon::Close, Icon::Close],
+        "playback-next-dismiss",
+        || 0,
         {
             let u = ui.clone();
-            move || tr(&u, "playback-next-cancel")
+            move || tr(&u, "playback-next-dismiss")
         },
         move || {
             p.cancel_countdown();
@@ -1562,12 +1573,12 @@ fn next_up_card(ui: &Ui, player: &Player) -> El {
         },
     );
     drops_focus_after_click(ui, player, &now);
-    drops_focus_after_click(ui, player, &cancel);
+    drops_focus_after_click(ui, player, &dismiss);
     let card = ui
         .el("player_next")
-        .row()
-        .align(Align::Center)
-        .gap(u * 1.5)
+        .column()
+        .align(Align::Stretch)
+        .gap(u)
         .style(remedy_ui_style::StylePatch::default().padding(Insets {
             top: u,
             bottom: u,
@@ -1575,16 +1586,10 @@ fn next_up_card(ui: &Ui, player: &Player) -> El {
             end: u * 1.5,
         }))
         .semantics(Semantics::new(Role::Group))
-        .child(title.grow(1.0))
-        .child(
-            ui.el("player_next_actions")
-                .row()
-                .align(Align::Center)
-                .gap(u * 1.5)
-                .child(left)
-                .child(now)
-                .child(cancel),
-        );
+        .child(label)
+        .child(title)
+        .child(left)
+        .child(ui.el("player_next_actions").row().align(Align::Center).gap(u).child(now).child(dismiss));
     let c = card.clone();
     let p = player.clone();
     let seen = std::cell::RefCell::new(None);

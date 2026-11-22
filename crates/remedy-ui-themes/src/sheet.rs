@@ -112,6 +112,14 @@ pub fn sheet(t: &Theme) -> StyleSheet {
     // The player's bar row: a toolbar; the title over a full-screen picture, title size.
     rule("player_row", None, States::NONE, StylePatch::default().background(c.panel).padding(Insets::all(u)));
     rule("player_title_text", None, States::NONE, StylePatch::default().text_size(t.type_scale.title));
+    // The Up next card: a small muted label over the title.
+    rule(
+        "player_next_label",
+        None,
+        States::NONE,
+        StylePatch::default().foreground(d.muted).text_size(t.type_scale.small),
+    );
+    rule("player_next_title", None, States::NONE, StylePatch::default().weight(600.0));
     // The time under the pointer over the seek bar: the text on a card ringed in the accent.
     rule(
         "player_tip",
