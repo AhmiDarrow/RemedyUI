@@ -238,7 +238,15 @@ pub fn portal_sheet(t: &Theme) -> StyleSheet {
     rule("player_seek", None, States::DISABLED, StylePatch::default().opacity(0.45));
     rule("player_caption", None, States::NONE, StylePatch::default().radius(0.0));
     // .upnext-label: 0.75rem, muted; the title 600.
-    rule("player_next_label", None, States::NONE, StylePatch::default().foreground(c.muted).text_size(12.0));
+    rule(
+        "player_next_label",
+        None,
+        States::NONE,
+        StylePatch::default()
+            .foreground(c.muted)
+            .text_size(12.0)
+            .letter_spacing(remedy_ui_style::LetterSpacing::Em(0.08)),
+    );
     // #dock-upnext-play: the accent, the background's color on it.
     let gold = StylePatch::default().background(c.accent).border(c.accent).foreground(c.bg).weight(600.0);
     rule("button", Some("player_play_now"), States::NONE, gold);
