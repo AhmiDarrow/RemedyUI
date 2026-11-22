@@ -819,7 +819,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   MediaCodec decoders for H.264 of the same size and the same sound, flushed), so the next
   stream's first picture comes sooner (release, the test stream: Windows 9-11 ms to 4-5 ms,
   the Android emulator about 120 ms to about 75 ms). They still go when the player drops.
-  GStreamer still makes its pipelines anew.
+  The player's next stream waits briefly, on its own worker, for the closed one's decoders
+  to come back, so it reuses them every time. GStreamer keeps its pipelines too, emptied by
+  a flush through the app source, across streams and seeks. Through the player, release,
+  from the call to the first picture: Windows 32-43 ms to 4 ms, Linux with nvh264dec
+  220-300 ms to 8-12 ms, the Android emulator 62 ms to 20-27 ms.
 - `RemoteStatus` in `media-playback` has a new public field, `reported_at`: a struct
   literal adds `reported_at: None` (or `..RemoteStatus::default()`).
 - `RemoteStatus::volume` is now `Option<f32>`, `None` (unknown) by default and on
