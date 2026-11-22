@@ -141,8 +141,16 @@ pub async fn copy_video_frame(frame: &wasm_bindgen::JsValue) -> Result<Picture, 
     os::web::copy_frame(frame).await
 }
 
+/// For leak tests under `REMEDY_D3D_DEBUG=1` on Windows: decoder D3D11 devices made from
+/// now on are kept for [`live_d3d_objects`] (each until it reports on them). Without this
+/// call none are kept, so no device outlives its decoder to the end of the process.
+#[doc(hidden)]
+pub fn watch_d3d_devices() {
+    os::watch_d3d_devices();
+}
+
 /// For leak tests under `REMEDY_D3D_DEBUG=1` on Windows: `ReportLiveDeviceObjects` on every
-/// decoder D3D11 device made since the last call, then those devices let go; the debug
+/// decoder D3D11 device made since [`watch_d3d_devices`] or the last call, then those devices let go; the debug
 /// layer's line for each object alive beyond the device itself. Empty elsewhere.
 #[doc(hidden)]
 pub fn live_d3d_objects() -> (usize, Vec<String>) {
