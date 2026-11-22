@@ -167,7 +167,9 @@ under reduced motion. [`El::scroll_to_exact`](crate::El::scroll_to_exact) does n
 `scroll_padding`, `snap_margin` and `snap_stop_always` are CSS's `scroll-padding`,
 `scroll-margin` and `scroll-snap-stop: always`; `scroll_snap_proximity` (0.3 of the
 viewport), `scroll_snap_motion` (a 250 ms decelerating tween) and `scroll_snap_wheel_idle`
-(150 ms) tune it.
+(150 ms) tune it. An unhandled arrow key scrolls by
+[`Ui::set_scroll_step`](crate::Ui::set_scroll_step) (40 px by default), Page Up and Page Down
+by 90% of the viewport.
 
 ```
 use remedy_ui::testing::TestApp;

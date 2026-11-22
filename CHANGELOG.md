@@ -20,8 +20,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `scroll_snap_motion` (250 ms decelerating) and `scroll_snap_wheel_idle` (150 ms). Underneath:
   `compositor` `ScrollSnap`, `SnapPoint`, `Compositor::wheel_at`, `scroll_to_snapped` and
   `scroll_step`; `input` `ScrollAxis::rest`; `view` `Request::ScrollToExact` and
-  `Request::ScrollStep`. Unhandled Page Up, Page Down and arrow keys now scroll the scroll
-  container around the focus (or the pointer).
+  `Request::ScrollStep`; `CompositorThread::scroll_to`, `scroll_step` and `scroll_to_exact`
+  (its `scroll_at` snaps wheel gestures too). Unhandled Page Up, Page Down and arrow keys now
+  scroll the scroll container around the focus (or the pointer); `Ui::set_scroll_step` sets
+  the arrow step (default `SCROLL_STEP`, 40 px).
 
 - **Sticky positioning** (CSS `position: sticky`), for Portal's blurred page header and its
   Info dialog's close bar: `Position::Sticky` in `remedy-ui-layout` lays the box out in the

@@ -47,7 +47,7 @@ pub use element::{
     SnapAlign, SnapAxis, SnapStrictness, TextAntialias, TextPaint, TextRendering, Ui, WeakUi, WindowDirection,
     clear_paint_cache, rasterize, set_paint_cache_limit,
 };
-pub use events::{Click, MenuKey, MenuKeyHandler, PointerInput};
+pub use events::{SCROLL_STEP, Click, MenuKey, MenuKeyHandler, PointerInput};
 pub use field::{CodeColors, FieldKind, TextField};
 pub use flow::{
     CaughtError, ErrorHook, FailurePhase, Retry, SUSPENSE_DELAY, SUSPENSE_MIN_SHOWN, Show, SuspenseBoundary,

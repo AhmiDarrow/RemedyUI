@@ -51,7 +51,7 @@ mod os {
 
     fn x() -> (x11rb::rust_connection::RustConnection, u32, (i32, i32)) {
         let (c, n) = x11rb::connect(None).unwrap_or_else(|e| unreachable!("an X server: {e}"));
-        let s = &c.setup().roots[n];
+        let s = c.setup().roots.get(n).unwrap_or_else(|| unreachable!("screen {n} of the X server"));
         let (root, size) = (s.root, (i32::from(s.width_in_pixels), i32::from(s.height_in_pixels)));
         (c, root, size)
     }
