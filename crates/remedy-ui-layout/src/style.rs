@@ -40,6 +40,10 @@ pub enum Length {
     Px(f32),
     /// A fraction of the container (0.0 to 1.0).
     Percent(f32),
+    /// Advances of the digit "0" in the element's own font (CSS `ch`): `Ch(60.0)` is a measure
+    /// of about sixty characters. Resolved with the node's [`LayoutStyle::ch`], which the view
+    /// sets from the element's text style.
+    Ch(f32),
 }
 
 /// Alignment of children across the main axis, or of one child.
@@ -209,6 +213,9 @@ pub struct LayoutStyle {
     pub grid_column: Option<(i16, u16)>,
     /// In a grid: the row line it starts on and how many rows it spans.
     pub grid_row: Option<(i16, u16)>,
+    /// The advance of "0" in the element's font, in logical pixels: what one
+    /// [`Length::Ch`] is. The view sets it from the element's text style; 0 until then.
+    pub ch: f32,
 }
 
 impl Default for LayoutStyle {
@@ -242,6 +249,7 @@ impl Default for LayoutStyle {
             rows: Vec::new(),
             grid_column: None,
             grid_row: None,
+            ch: 0.0,
         }
     }
 }
@@ -268,19 +276,21 @@ impl LayoutStyle {
     }
 }
 
-fn dim(l: Length) -> taffy::Dimension {
+fn dim(l: Length, ch: f32) -> taffy::Dimension {
     match l {
         Length::Auto => taffy::Dimension::auto(),
         Length::Px(v) => taffy::Dimension::length(v),
         Length::Percent(v) => taffy::Dimension::percent(v),
+        Length::Ch(v) => taffy::Dimension::length(v * ch),
     }
 }
 
-fn lpa(l: Length) -> taffy::LengthPercentageAuto {
+fn lpa(l: Length, ch: f32) -> taffy::LengthPercentageAuto {
     match l {
         Length::Auto => taffy::LengthPercentageAuto::auto(),
         Length::Px(v) => taffy::LengthPercentageAuto::length(v),
         Length::Percent(v) => taffy::LengthPercentageAuto::percent(v),
+        Length::Ch(v) => taffy::LengthPercentageAuto::length(v * ch),
     }
 }
 
@@ -371,9 +381,9 @@ pub(crate) fn to_taffy(s: &LayoutStyle, rtl: bool, parent_rtl: bool) -> taffy::S
             (Axis::Column, true) => taffy::FlexDirection::ColumnReverse,
         },
         flex_wrap: if s.wrap { taffy::FlexWrap::Wrap } else { taffy::FlexWrap::NoWrap },
-        size: taffy::Size { width: dim(s.width), height: dim(s.height) },
-        min_size: taffy::Size { width: lpa(s.min_width), height: lpa(s.min_height) },
-        max_size: taffy::Size { width: lpa(s.max_width), height: lpa(s.max_height) },
+        size: taffy::Size { width: dim(s.width, s.ch), height: dim(s.height, s.ch) },
+        min_size: taffy::Size { width: lpa(s.min_width, s.ch), height: lpa(s.min_height, s.ch) },
+        max_size: taffy::Size { width: lpa(s.max_width, s.ch), height: lpa(s.max_height, s.ch) },
         aspect_ratio: s.aspect_ratio,
         padding: rect_lp(phys(s.padding)),
         margin: rect_lpa(phys(s.margin)),
@@ -383,7 +393,7 @@ pub(crate) fn to_taffy(s: &LayoutStyle, rtl: bool, parent_rtl: bool) -> taffy::S
         },
         flex_grow: s.grow,
         flex_shrink: s.shrink,
-        flex_basis: dim(s.basis),
+        flex_basis: dim(s.basis, s.ch),
         align_items: align(s.align_items),
         align_self: s.align_self.map(align),
         justify_content: match s.justify {

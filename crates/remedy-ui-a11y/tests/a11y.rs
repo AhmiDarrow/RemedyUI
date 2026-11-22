@@ -262,3 +262,60 @@ fn deep_trees_update_in_linear_time_and_changes_reach_their_merging_ancestor() {
     let took = started.elapsed();
     assert!(took < std::time::Duration::from_secs(20), "linear work ({took:?})");
 }
+
+#[test]
+fn a_list_box_and_its_options_reach_accesskit_with_their_selection() {
+    let mut t = A11yTree::new(1);
+    t.set(1, Semantics::new(Role::Window).label("Portal"));
+    t.set(2, Semantics::new(Role::ListBox).label("Theme"));
+    t.set(3, Semantics::new(Role::Option).label("Portal").selected(true).action(Action::Click));
+    t.set(4, Semantics::new(Role::Option).label("Light").selected(false).action(Action::Click));
+    t.set(5, Semantics::new(Role::ListBox).label("Fonts").multiselectable(true));
+    t.set_children(1, &[2, 5]);
+    t.set_children(2, &[3, 4]);
+    t.connect();
+    let u = t.take_update().unwrap_or_else(|| unreachable!("connected"));
+    assert_eq!(node(&u, 2).map(accesskit::Node::role), Some(accesskit::Role::ListBox));
+    assert_eq!(node(&u, 3).map(accesskit::Node::role), Some(accesskit::Role::ListBoxOption));
+    assert_eq!(node(&u, 3).and_then(accesskit::Node::is_selected), Some(true));
+    assert_eq!(node(&u, 4).and_then(accesskit::Node::is_selected), Some(false));
+    assert!(!node(&u, 2).is_some_and(accesskit::Node::is_multiselectable), "one choice at a time");
+    assert!(node(&u, 5).is_some_and(accesskit::Node::is_multiselectable));
+    assert_eq!(role_name(Role::ListBox), "list box");
+    assert!(is_control_role(Role::Option), "an option is picked like a control");
+    assert!(!is_control_role(Role::ListBox), "a container, not a control");
+    let reader = t.reader_view();
+    let portal = reader.iter().find(|n| n.id == 3).unwrap_or_else(|| unreachable!());
+    assert_eq!(portal.announcement(), "option, Portal, selected");
+}
+
+#[test]
+fn an_open_modal_makes_the_rest_of_the_window_inert() {
+    let mut t = A11yTree::new(1);
+    t.set(1, Semantics::new(Role::Window).label("Portal"));
+    t.set(2, Semantics::new(Role::Main).label("Page"));
+    t.set(3, Semantics::new(Role::Button).label("Theme").has_popup(Popup::Dialog).action(Action::Click));
+    t.set(4, Semantics::new(Role::Group));
+    t.set_children(1, &[2, 4]);
+    t.set_children(2, &[3]);
+    t.connect();
+    let u = t.take_update().unwrap_or_else(|| unreachable!("connected"));
+    assert_eq!(node(&u, 3).and_then(accesskit::Node::has_popup), Some(accesskit::HasPopup::Dialog));
+    assert!(!node(&u, 2).is_some_and(accesskit::Node::is_hidden));
+    // The dialog opens in the overlay layer: the page behind it goes inert.
+    t.set(5, Semantics::new(Role::Dialog).label("Theme").modal(true));
+    t.set(6, Semantics::new(Role::Button).label("Close").action(Action::Click));
+    t.set_children(4, &[5]);
+    t.set_children(5, &[6]);
+    let u = t.take_update().unwrap_or_else(|| unreachable!("changed"));
+    assert!(node(&u, 5).is_some_and(accesskit::Node::is_modal));
+    assert!(node(&u, 2).is_some_and(accesskit::Node::is_hidden), "the page is hidden behind the modal");
+    assert!(t.is_inert(2) && !t.is_inert(5) && !t.is_inert(6));
+    let names: Vec<_> = t.reader_view().into_iter().filter_map(|n| n.name).collect();
+    assert!(names.contains(&"Close".to_owned()) && !names.contains(&"Page".to_owned()), "{names:?}");
+    // Closed: the page comes back.
+    t.set(5, Semantics::new(Role::Dialog).label("Theme").modal(true).hidden(true));
+    let u = t.take_update().unwrap_or_else(|| unreachable!("changed"));
+    assert!(node(&u, 2).is_some_and(|n| !n.is_hidden()), "the page is back");
+    assert!(!t.is_inert(2));
+}

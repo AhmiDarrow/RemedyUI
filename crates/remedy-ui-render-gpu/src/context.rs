@@ -218,6 +218,12 @@ impl GpuContext {
         // a WebGPU context can never give a WebGL2 one, which the next rung may need.
         let (surface, bound_canvas) = match (WEB && rung == Rung::Gl, window) {
             (true, Some(w)) => {
+                // The canvas's `getContext("webgl2")` blocks the page until the browser's GL
+                // is up (minutes, in headless Firefox): wait for it off the page's thread.
+                #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+                if crate::webgl_probe::webgl2().await == crate::webgl_probe::Probe::Unusable {
+                    return Err(GpuError::NoAdapter);
+                }
                 let id = canvas_id(&*w);
                 let s = instance.create_surface(w).map_err(|e| GpuError::Surface(e.to_string()))?;
                 (Some(s), id)

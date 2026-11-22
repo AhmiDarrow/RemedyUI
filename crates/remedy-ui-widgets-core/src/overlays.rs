@@ -301,7 +301,7 @@ pub fn modal(ui: &Ui, title: impl Into<String>, content: El, escape_closes: bool
             l.min_width = Length::Px(260.0);
             l.max_height = Length::Percent(0.92);
         })
-        .semantics(Semantics::new(Role::Dialog).label(title.into()))
+        .semantics(Semantics::new(Role::Dialog).label(title.into()).modal(true))
         .child(content);
     let layer = fill_window(ui.el("scrim"))
         .column()
@@ -415,7 +415,7 @@ pub fn trusted_prompt(
         .el("dialog")
         .column()
         .gap(gap)
-        .semantics(Semantics::new(Role::Dialog).label(title.clone()))
+        .semantics(Semantics::new(Role::Dialog).label(title.clone()).modal(true))
         .child(crate::icon(ui, crate::Icon::Lock, ui.theme().type_scale.title))
         .child(crate::heading(ui, 2, title))
         .child(crate::text(ui, message.into()))
