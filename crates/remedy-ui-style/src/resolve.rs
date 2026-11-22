@@ -119,6 +119,63 @@ pub struct StylePatch {
     /// A colour matrix on everything the element draws (CSS `saturate()`, `hue-rotate()`,
     /// `grayscale()`, ...); [`ColorMatrix::IDENTITY`] for none.
     pub color_matrix: Option<ColorMatrix>,
+    /// Sticks the element within its nearest scroll container as that scrolls (CSS
+    /// `position: sticky` with its insets); [`StickyInsets::NONE`] for not sticky.
+    pub sticky: Option<StickyInsets>,
+}
+
+/// The edges a sticky element keeps to in its nearest scroll container's viewport (CSS
+/// `position: sticky` and `top`, `bottom`, `inset-inline-start`, `inset-inline-end`): each set
+/// side is how close it keeps to that edge, and a side left `None` does not stick. Start and
+/// end follow the parent's text direction. It is laid out in the flow, moved by the
+/// compositor as the container scrolls, and never leaves its parent's content box.
+///
+/// ```
+/// use remedy_ui_style::StickyInsets;
+/// let header = StickyInsets::top(0.0);
+/// assert_eq!((header.top, header.bottom), (Some(0.0), None));
+/// assert!(!StickyInsets::NONE.sticks());
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct StickyInsets {
+    /// Distance kept from the top edge.
+    pub top: Option<f32>,
+    /// Distance kept from the inline end edge (right in left-to-right text).
+    pub end: Option<f32>,
+    /// Distance kept from the bottom edge.
+    pub bottom: Option<f32>,
+    /// Distance kept from the inline start edge (left in left-to-right text).
+    pub start: Option<f32>,
+}
+
+impl StickyInsets {
+    /// Not sticky.
+    pub const NONE: StickyInsets = StickyInsets { top: None, end: None, bottom: None, start: None };
+
+    /// Sticks `v` below the top edge (a header).
+    pub const fn top(v: f32) -> Self {
+        StickyInsets { top: Some(v), ..Self::NONE }
+    }
+
+    /// Sticks `v` above the bottom edge (a footer, an action bar).
+    pub const fn bottom(v: f32) -> Self {
+        StickyInsets { bottom: Some(v), ..Self::NONE }
+    }
+
+    /// Sticks `v` from the inline start edge (a first column).
+    pub const fn start(v: f32) -> Self {
+        StickyInsets { start: Some(v), ..Self::NONE }
+    }
+
+    /// Sticks `v` from the inline end edge.
+    pub const fn end(v: f32) -> Self {
+        StickyInsets { end: Some(v), ..Self::NONE }
+    }
+
+    /// True when some side sticks (a finite distance).
+    pub fn sticks(&self) -> bool {
+        [self.top, self.end, self.bottom, self.start].iter().any(|v| v.is_some_and(f32::is_finite))
+    }
 }
 
 impl StylePatch {
@@ -265,6 +322,12 @@ impl StylePatch {
         self
     }
 
+    /// Sticks the element within its nearest scroll container ([`StickyInsets`]).
+    pub fn sticky(mut self, value: StickyInsets) -> Self {
+        self.sticky = Some(value);
+        self
+    }
+
     /// The engine's starting style under `theme`, before any rule: transparent boxes, body
     /// text in the theme's text color, and the theme's focus ring for keyboard focus (as
     /// `:focus-visible` does on the web) unless a rule shows focus another way.
@@ -293,6 +356,7 @@ impl StylePatch {
             drop_shadow: Some(Shadow::NONE),
             backdrop_blur: Some(0.0),
             color_matrix: Some(ColorMatrix::IDENTITY),
+            sticky: Some(StickyInsets::NONE),
         }
     }
 
@@ -322,6 +386,7 @@ impl StylePatch {
             drop_shadow: other.drop_shadow.or(self.drop_shadow),
             backdrop_blur: other.backdrop_blur.or(self.backdrop_blur),
             color_matrix: other.color_matrix.or(self.color_matrix),
+            sticky: other.sticky.or(self.sticky),
         }
     }
 }
@@ -403,6 +468,8 @@ pub struct ResolvedStyle {
     pub backdrop_blur: f32,
     /// The colour matrix on everything the element draws ([`ColorMatrix::IDENTITY`]: none).
     pub color_matrix: ColorMatrix,
+    /// The edges it sticks to ([`StickyInsets::NONE`]: not sticky).
+    pub sticky: StickyInsets,
 }
 
 impl ResolvedStyle {
@@ -431,6 +498,7 @@ impl ResolvedStyle {
             drop_shadow: p.drop_shadow.unwrap_or(Shadow::NONE),
             backdrop_blur: p.backdrop_blur.filter(|b| b.is_finite()).unwrap_or(0.0).max(0.0),
             color_matrix: p.color_matrix.map_or(ColorMatrix::IDENTITY, |m| m.limited()),
+            sticky: p.sticky.unwrap_or(StickyInsets::NONE),
         }
     }
 
