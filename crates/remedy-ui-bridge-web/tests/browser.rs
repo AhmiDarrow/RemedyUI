@@ -117,9 +117,55 @@ export function context(canvas) {
   }
   return 'none';
 }
+export function mouse(target, type, x, y, button, buttons, ctrl) {
+  const init = {
+    bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: button, buttons: buttons,
+    ctrlKey: ctrl, pointerId: 1, pointerType: 'mouse', isPrimary: true,
+  };
+  const E = type.startsWith('pointer') ? PointerEvent : MouseEvent;
+  return target.dispatchEvent(new E(type, init));
+}
+export function recordOpens() {
+  window.__opened = [];
+  if (window.__realOpen) return;
+  window.__realOpen = window.open.bind(window);
+  window.open = (...a) => { const w = window.__realOpen(...a); window.__opened.push(w); return w; };
+}
+export function openedHashes() {
+  return (window.__opened || []).map(w => { try { return w ? w.location.hash : 'blocked'; } catch (e) { return 'other'; } }).join(' ');
+}
+export function closeOpened() {
+  (window.__opened || []).forEach(w => { if (w) w.close(); });
+  window.__opened = [];
+}
+export function hidePage() {
+  window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+}
 "#)]
 extern "C" {
     fn pointer(target: &web_sys::EventTarget, kind: &str, x: f64, y: f64, buttons: u16);
+    /// A mouse or pointer event with its button, held buttons and Ctrl; false when the
+    /// page cancelled it.
+    fn mouse(
+        target: &web_sys::EventTarget,
+        kind: &str,
+        x: f64,
+        y: f64,
+        button: i16,
+        buttons: u16,
+        ctrl: bool,
+    ) -> bool;
+    /// Starts recording the windows `window.open` opens.
+    #[wasm_bindgen(js_name = recordOpens)]
+    fn record_opens();
+    /// The address fragment of each window opened since, space-separated.
+    #[wasm_bindgen(js_name = openedHashes)]
+    fn opened_hashes() -> String;
+    #[wasm_bindgen(js_name = closeOpened)]
+    fn close_opened();
+    /// What the browser sends as the page is put away (and before a reload).
+    #[wasm_bindgen(js_name = hidePage)]
+    fn hide_page();
     fn key(target: &web_sys::EventTarget, kind: &str, key: &str, code: &str, ctrl: bool) -> bool;
     fn composition(target: &web_sys::EventTarget, kind: &str, data: &str);
     fn clipboard(target: &web_sys::EventTarget, kind: &str, text: Option<String>) -> String;
@@ -633,6 +679,175 @@ async fn routes_live_in_the_address_and_the_browser_history() {
     // An address typed in (a fragment navigation) routes too.
     location.set_hash("/server").must("hash");
     assert!(until(120, || router.route_untracked().path() == "/server").await, "an edited address");
+
+    app.quit();
+    assert!(until(30, || !remedy_ui::web::is_running()).await);
+    history.replace_state_with_url(&JsValue::NULL, "", Some("#")).must("reset");
+}
+
+/// The app, its router and the current page's scroll container.
+type Paged = Rc<RefCell<Option<(App, remedy_ui::router::Router, Option<remedy_ui::view::El>)>>>;
+
+/// An app whose routed pages have a link to `/settings` and a tall scrolling list.
+fn paged_app(name: &str, seen: Paged) {
+    use remedy_ui::layout::Length;
+    use remedy_ui::router::Router;
+    let run = remedy_ui::run(AppConfig::new(name).cpu_only(), move |app: &App| {
+        let a = app.clone();
+        app.open(WindowSpec::new("Paged"), move |ui, window| {
+            let router = Router::for_window(window, "/home");
+            let (me, ui2, s) = (router.clone(), ui.clone(), seen.clone());
+            let view = router.view(ui, move |route| {
+                let rows = (0..80).fold(w::column(&ui2), |c, i| c.child(w::text(&ui2, format!("row {i}"))));
+                let scroll = w::scroll(&ui2).child(rows).layout(|l| l.height = Length::Px(160.0));
+                me.remember_scroll(&scroll);
+                if let Some(entry) = s.borrow_mut().as_mut() {
+                    entry.2 = Some(scroll.clone());
+                }
+                w::column(&ui2)
+                    .grow(1.0)
+                    .child(w::text(&ui2, format!("Page {}", route.path())))
+                    .child(me.link_to(&ui2, "/settings", "Settings"))
+                    .child(scroll)
+            });
+            let _ = ui.root().child(view);
+            *seen.borrow_mut() = Some((a.clone(), router, None));
+        });
+    });
+    run.must("the app starts in the page");
+}
+
+/// Where the current page's list is scrolled to, as the window shows it.
+fn shown_scroll(seen: &Paged) -> Option<f32> {
+    let s = seen.borrow();
+    let (app, _, scroller) = s.as_ref()?;
+    let scroller = scroller.as_ref()?;
+    let ui = app.windows().first()?.ui()?;
+    Some(ui.scroll_offset(scroller.id()).y)
+}
+
+#[wasm_bindgen_test]
+async fn a_reload_brings_the_entries_back_in_their_places() {
+    use remedy_ui::core::Vec2;
+    const NAME: &str = "Browser router reload test";
+    let history = web_sys::window().must("a window").history().must("history");
+    history.replace_state_with_url(&JsValue::NULL, "", Some("#/home")).must("the address");
+
+    let seen: Paged = Rc::default();
+    paged_app(NAME, seen.clone());
+    assert!(until(120, || seen.borrow().is_some()).await, "the window was built");
+    let (app, router) = seen.borrow().as_ref().map(|(a, r, _)| (a.clone(), r.clone())).must("the app");
+    router.push("/browse");
+    assert!(until(120, || mirrored_text("Page /browse").is_some()).await, "the page changed");
+    let scroller = seen.borrow().as_ref().and_then(|s| s.2.clone()).must("the list");
+    scroller.scroll_to(Vec2::new(0.0, 150.0));
+    assert!(until(120, || shown_scroll(&seen).is_some_and(|y| (y - 150.0).abs() < 1.0)).await, "scrolled");
+    router.push("/settings");
+    assert!(until(120, || mirrored_text("Page /settings").is_some()).await);
+
+    // The page is put away and loaded again: a new app in the same history entry.
+    hide_page();
+    app.quit();
+    assert!(until(30, || !remedy_ui::web::is_running()).await);
+    drop((app, router, scroller));
+    let again: Paged = Rc::default();
+    paged_app(NAME, again.clone());
+    assert!(until(120, || again.borrow().is_some()).await, "the window was built again");
+    let (app, router) = again.borrow().as_ref().map(|(a, r, _)| (a.clone(), r.clone())).must("the app");
+    assert_eq!(router.route_untracked().path(), "/settings");
+    assert_eq!(router.position(), (2, 3), "every entry is back, this one in its place");
+
+    // Back past the reload lands on the entry before, at its scroll position.
+    history.back().must("back");
+    assert!(until(120, || router.route_untracked().path() == "/browse").await, "back to /browse");
+    assert_eq!(router.position(), (1, 3));
+    assert_eq!(router.saved_scroll(), Vec2::new(0.0, 150.0));
+    assert!(
+        until(120, || shown_scroll(&again).is_some_and(|y| (y - 150.0).abs() < 1.0)).await,
+        "the list is shown where it was: {:?}",
+        shown_scroll(&again)
+    );
+    assert!(router.back());
+    assert!(until(120, || router.route_untracked().path() == "/home").await);
+    assert_eq!(router.position(), (0, 3));
+
+    app.quit();
+    assert!(until(30, || !remedy_ui::web::is_running()).await);
+    history.replace_state_with_url(&JsValue::NULL, "", Some("#")).must("reset");
+}
+
+#[wasm_bindgen_test]
+async fn link_clicks_open_tabs_and_mouse_buttons_move_once() {
+    let window = web_sys::window().must("a window");
+    let history = window.history().must("history");
+    let location = window.location();
+    history.replace_state_with_url(&JsValue::NULL, "", Some("#/home")).must("the address");
+    let seen: Paged = Rc::default();
+    paged_app("Browser router click test", seen.clone());
+    assert!(until(120, || seen.borrow().is_some()).await, "the window was built");
+    let (app, router) = seen.borrow().as_ref().map(|(a, r, _)| (a.clone(), r.clone())).must("the app");
+    assert!(until(120, || query("a[href='#/settings']").is_some()).await, "the link in the mirror");
+    let link = query("a[href='#/settings']").must("the link");
+    let canvas: web_sys::EventTarget = document()
+        .query_selector("[data-remedy-window] canvas")
+        .ok()
+        .flatten()
+        .must("the window's canvas")
+        .into();
+    let (lx, ly) = center(&link);
+    record_opens();
+
+    // Ctrl-click on the drawn link: a new tab at the route, this page staying where it was.
+    let _ = mouse(&canvas, "pointermove", lx, ly, -1, 0, true);
+    let _ = mouse(&canvas, "pointerdown", lx, ly, 0, 1, true);
+    let _ = mouse(&canvas, "pointerup", lx, ly, 0, 0, true);
+    assert!(
+        until(120, || opened_hashes() == "#/settings").await,
+        "a tab opened at the route: {}",
+        opened_hashes()
+    );
+    close_opened();
+    assert_eq!(router.route_untracked().path(), "/home");
+
+    // A middle click on it: another.
+    let _ = mouse(&canvas, "pointerdown", lx, ly, 1, 4, false);
+    let _ = mouse(&canvas, "pointerup", lx, ly, 1, 0, false);
+    let _ = mouse(&canvas, "auxclick", lx, ly, 1, 0, false);
+    assert!(until(120, || opened_hashes() == "#/settings").await, "middle click: {}", opened_hashes());
+    close_opened();
+    assert_eq!(router.route_untracked().path(), "/home");
+
+    // The mirror's <a> (a screen reader's, or the person's on it): Ctrl-click and middle click.
+    let _ = mouse(&link, "click", lx, ly, 0, 0, true);
+    assert!(until(120, || opened_hashes() == "#/settings").await, "mirror Ctrl-click: {}", opened_hashes());
+    close_opened();
+    let _ = mouse(&link, "auxclick", lx, ly, 1, 0, false);
+    assert!(until(120, || opened_hashes() == "#/settings").await, "mirror middle click: {}", opened_hashes());
+    close_opened();
+    assert_eq!(router.route_untracked().path(), "/home");
+    assert_eq!(location.hash().must("hash"), "#/home");
+
+    // The mouse's back and forward buttons move exactly one entry, and the browser's own
+    // move on their release is cancelled.
+    router.push("/browse");
+    router.push("/server");
+    assert_eq!(router.position(), (2, 3));
+    let r = web_sys::Element::from(JsValue::from(canvas.clone())).get_bounding_client_rect();
+    let (bx, by) = (r.left() + 8.0, r.bottom() - 8.0);
+    let _ = mouse(&canvas, "pointerdown", bx, by, 3, 8, false);
+    let _ = mouse(&canvas, "pointerup", bx, by, 3, 0, false);
+    assert!(!mouse(&canvas, "mouseup", bx, by, 3, 0, false), "the browser's back is cancelled");
+    assert!(!mouse(&canvas, "auxclick", bx, by, 3, 0, false));
+    assert!(until(120, || location.hash().ok().as_deref() == Some("#/browse")).await, "back once");
+    wait_ms(300).await;
+    assert_eq!(location.hash().must("hash"), "#/browse", "not twice");
+    assert_eq!(router.position(), (1, 3));
+    let _ = mouse(&canvas, "pointerdown", bx, by, 4, 16, false);
+    let _ = mouse(&canvas, "pointerup", bx, by, 4, 0, false);
+    assert!(!mouse(&canvas, "mouseup", bx, by, 4, 0, false), "the browser's forward is cancelled");
+    assert!(until(120, || location.hash().ok().as_deref() == Some("#/server")).await, "forward once");
+    wait_ms(300).await;
+    assert_eq!(router.position(), (2, 3));
 
     app.quit();
     assert!(until(30, || !remedy_ui::web::is_running()).await);

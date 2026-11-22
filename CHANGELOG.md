@@ -10,6 +10,18 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **The router survives a reload and opens links elsewhere**: in a browser page each history
+  entry carries the router's entries (routes and scroll positions) in `history.state`,
+  written again on `pagehide`, so after a reload (`App::reload` too) the router has every
+  entry back in its place and back and forward land where they did, scrolled as they were
+  (`web::history::entries`; `write` takes the list, `listen` a `hiding` callback). A middle
+  or Ctrl (Cmd) click on a `link_to` link, drawn or on the mirror's `<a href>`, opens the
+  route in a new tab; on the desktop `Router::open_windows(spec, build)` opens it in a new
+  window with its own router at that route, and without it the click navigates in place
+  (`Router::open_elsewhere` does the same from code). In a page the mouse's back and forward
+  buttons now go through the router, and the bridge cancels the browser's own move on their
+  release, so each press moves one entry. Tested in headless Firefox and on the headless
+  host.
 - **Routes and deep links** (`remedy_ui::router`, feature `widgets`), for Portal's
   `#/home`, `#/browse/<path>` and `#/settings/<id>`: a `Router` holds the route (a signal of
   `Route`: path, decoded segments, query, `matches("/settings/:id")` and `"/browse/*path"`)
@@ -962,6 +974,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **`El::scroll_to` on content built this frame scrolls it**: the runner dropped a scroll
+  asked for before the container had its scrolling layer (a page a router brings back, a
+  list just filled); it now keeps it and applies it in the first frame that gives the
+  container a layer, for as long as the container lives.
 - **An HLS stream on GStreamer's software H.264 decoder shows its first picture at once**,
   not half a second late, on opening and on every seek. `avdec_h264` holds a picture for
   each of its frame threads (19 units on a 16-thread machine) before giving any out, and

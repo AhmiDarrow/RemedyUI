@@ -250,10 +250,16 @@ pub mod history {
         h::index()
     }
 
-    /// Adds a history entry at `#fragment`, numbered `index`; with `replace`, rewrites the
-    /// current one instead.
-    pub fn write(fragment: &str, index: u32, replace: bool) {
-        h::write(fragment, index, replace);
+    /// The app's entries (route, horizontal and vertical scroll) that [`write`] stored in the
+    /// current entry, if it stored them: after a reload, the list as it was.
+    pub fn entries() -> Option<Vec<(String, f32, f32)>> {
+        h::entries()
+    }
+
+    /// Adds a history entry at `#fragment`, numbered `index`, carrying the app's `entries`;
+    /// with `replace`, rewrites the current one instead.
+    pub fn write(fragment: &str, index: u32, entries: &[(String, f32, f32)], replace: bool) {
+        h::write(fragment, index, entries, replace);
     }
 
     /// Moves `delta` entries back (negative) or forward.
@@ -261,10 +267,11 @@ pub mod history {
         h::go(delta);
     }
 
-    /// Calls `f(fragment, index)` when the person goes back or forward or edits the fragment.
-    /// A second call replaces `f`.
-    pub fn listen(f: impl Fn(String, Option<u32>) + 'static) {
-        h::listen(f);
+    /// Calls `moved(fragment, index)` when the person goes back or forward or edits the
+    /// fragment, and `hiding()` when the page is put away or reloaded (the last moment to
+    /// [`write`] the current entry). A second call replaces both.
+    pub fn listen(moved: impl Fn(String, Option<u32>) + 'static, hiding: impl Fn() + 'static) {
+        h::listen(moved, hiding);
     }
 
     /// Opens `#fragment` of this page in a new tab.

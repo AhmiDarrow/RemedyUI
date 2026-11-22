@@ -73,21 +73,26 @@ impl Mirror {
     pub(crate) fn attach(&self) {
         let window = self.window;
         let click = Listener::new(&self.root_el, "click", move |e| {
-            // A modified click on a link is the browser's: a new tab or window.
+            // A modified click on a link opens it in a new tab.
             let modified = e
                 .dyn_ref::<web_sys::MouseEvent>()
                 .is_some_and(|m| m.ctrl_key() || m.meta_key() || m.shift_key());
-            let on_link = e
-                .target()
-                .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-                .and_then(|el| el.closest("a[href]").ok().flatten())
-                .is_some();
-            if modified && on_link {
+            if modified && let Some(href) = link_href(e.target()) {
+                e.prevent_default();
+                super::history::open_in_new_tab(href.trim_start_matches('#'));
                 return;
             }
             if let Some(id) = node_of(e.target()) {
                 e.prevent_default();
                 action(window, id, Action::Click);
+            }
+        });
+        // A middle click on a link opens it in a new tab too.
+        let middle = Listener::new(&self.root_el, "auxclick", move |e| {
+            let is_middle = e.dyn_ref::<web_sys::MouseEvent>().is_some_and(|m| m.button() == 1);
+            if is_middle && let Some(href) = link_href(e.target()) {
+                e.prevent_default();
+                super::history::open_in_new_tab(href.trim_start_matches('#'));
             }
         });
         let focus = Listener::new(&self.root_el, "focusin", move |e| {
@@ -101,7 +106,7 @@ impl Mirror {
                 action(window, id, Action::Focus);
             }
         });
-        *self.listeners.borrow_mut() = vec![click, focus];
+        *self.listeners.borrow_mut() = vec![click, middle, focus];
     }
 
     /// The name of the node with focus, for the hidden text field that stands in for it.
@@ -313,6 +318,12 @@ fn place(el: &HtmlElement, bounds: Option<Rect>, parent: Option<Rect>) {
             ("height", &format!("{}px", (b.y1 - b.y0).max(0.0))),
         ],
     );
+}
+
+/// The address of the app's link an event happened on (a mirror `<a href>`), if any.
+fn link_href(target: Option<web_sys::EventTarget>) -> Option<String> {
+    let el = target?.dyn_into::<web_sys::Element>().ok()?;
+    el.closest("a[href]").ok()??.get_attribute("href")
 }
 
 /// The node an event happened on (its element or one inside it).
