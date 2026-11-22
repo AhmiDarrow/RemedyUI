@@ -149,22 +149,76 @@ fn props(item: Option<&TrayItem>) -> HashMap<String, OwnedVariant> {
             put("enabled", Variant::from(*enabled));
             put("visible", Variant::from(true));
         }
+        Some(TrayItem::Check { label, enabled, checked, .. }) => {
+            put("label", Variant::from(label.clone()));
+            put("enabled", Variant::from(*enabled));
+            put("visible", Variant::from(true));
+            put("toggle-type", Variant::from("checkmark"));
+            put("toggle-state", Variant::from(i32::from(*checked)));
+        }
+        Some(TrayItem::Submenu { label, items }) => {
+            put("label", Variant::from(label.clone()));
+            put("enabled", Variant::from(!items.is_empty()));
+            put("visible", Variant::from(true));
+            put("children-display", Variant::from("submenu"));
+        }
     }
     m
 }
 
-/// Menu entry `n` (0-based) has dbusmenu id `n + 1`; 0 is the root.
-fn layout(items: &[TrayItem]) -> Node {
-    let children = items
-        .iter()
-        .enumerate()
-        .filter_map(|(n, it)| {
-            let id = i32::try_from(n + 1).ok()?;
-            OwnedVariant::try_from(Variant::from(Node { id, props: props(Some(it)), children: Vec::new() }))
-                .ok()
-        })
-        .collect();
-    Node { id: 0, props: props(None), children }
+/// Every entry, submenus' entries right after their submenu: entry `n` (0-based) has
+/// dbusmenu id `n + 1`; 0 is the root.
+fn flat(items: &[TrayItem]) -> Vec<&TrayItem> {
+    let mut out = Vec::new();
+    for it in items {
+        out.push(it);
+        if let TrayItem::Submenu { items, .. } = it {
+            out.extend(flat(items));
+        }
+    }
+    out
+}
+
+/// The layout under dbusmenu id `parent` (0 for the whole menu).
+fn layout(items: &[TrayItem], parent: i32) -> Node {
+    fn find(items: &[TrayItem], next: &mut i32, parent: i32) -> Option<Node> {
+        for it in items {
+            *next += 1;
+            let id = *next;
+            let sub: &[TrayItem] = match it {
+                TrayItem::Submenu { items, .. } => items.as_slice(),
+                _ => &[],
+            };
+            if id == parent {
+                let mut first = id;
+                return Some(Node { id, props: props(Some(it)), children: nodes(sub, &mut first) });
+            }
+            if let Some(n) = find(sub, next, parent) {
+                return Some(n);
+            }
+        }
+        None
+    }
+    fn nodes(items: &[TrayItem], next: &mut i32) -> Vec<OwnedVariant> {
+        items
+            .iter()
+            .filter_map(|it| {
+                *next += 1;
+                let id = *next;
+                let children = match it {
+                    TrayItem::Submenu { items, .. } => nodes(items, next),
+                    _ => Vec::new(),
+                };
+                OwnedVariant::try_from(Variant::from(Node { id, props: props(Some(it)), children })).ok()
+            })
+            .collect()
+    }
+    if parent != 0
+        && let Some(n) = find(items, &mut 0, parent)
+    {
+        return n;
+    }
+    Node { id: 0, props: props(None), children: nodes(items, &mut 0) }
 }
 
 struct Menu(State);
@@ -187,10 +241,10 @@ impl Menu {
     fn icon_theme_path(&self) -> Vec<String> {
         Vec::new()
     }
-    fn get_layout(&self, _parent: i32, _depth: i32, _names: Vec<String>) -> (u32, Node) {
+    fn get_layout(&self, parent: i32, _depth: i32, _names: Vec<String>) -> (u32, Node) {
         let g = lock(&self.0);
         let items = g.tray.as_ref().map(|t| t.menu.clone()).unwrap_or_default();
-        (g.revision, layout(&items))
+        (g.revision, layout(&items, parent))
     }
     fn get_group_properties(
         &self,
@@ -201,7 +255,9 @@ impl Menu {
         let items = g.tray.as_ref().map(|t| t.menu.clone()).unwrap_or_default();
         ids.into_iter()
             .map(|id| {
-                let item = usize::try_from(id).ok().and_then(|i| i.checked_sub(1)).and_then(|i| items.get(i));
+                let all = flat(&items);
+                let item =
+                    usize::try_from(id).ok().and_then(|i| i.checked_sub(1)).and_then(|i| all.get(i).copied());
                 (id, props(item))
             })
             .collect()
@@ -219,9 +275,12 @@ impl Menu {
         let entry = {
             let g = lock(&self.0);
             let items = g.tray.as_ref().map(|t| t.menu.clone()).unwrap_or_default();
-            usize::try_from(id).ok().and_then(|i| i.checked_sub(1)).and_then(|i| items.get(i).cloned())
+            usize::try_from(id)
+                .ok()
+                .and_then(|i| i.checked_sub(1))
+                .and_then(|i| flat(&items).get(i)?.chosen_id())
         };
-        if let Some(TrayItem::Item { id, enabled: true, .. }) = entry {
+        if let Some(id) = entry {
             push(&self.0, TrayEvent::Menu(id));
         }
     }
@@ -419,4 +478,37 @@ pub(crate) fn file_dialog(parent: &str, d: &FileDialog) -> Result<Vec<PathBuf>, 
         Ok(uris.iter().filter_map(|u| uri_to_path(u)).collect())
     })
     .map_err(err)
+}
+
+#[cfg(test)]
+mod menu_tests {
+    use super::*;
+
+    #[test]
+    fn submenus_and_checks_have_stable_ids() {
+        let items = vec![
+            TrayItem::Item { id: 9, label: "Open".into(), enabled: true, default: true },
+            TrayItem::submenu("Server", vec![TrayItem::item(4, "Restart"), TrayItem::check(5, "Logs", true)]),
+            TrayItem::Separator,
+        ];
+        let all = flat(&items);
+        assert_eq!(
+            all.iter().map(|i| i.label()).collect::<Vec<_>>(),
+            ["Open", "Server", "Restart", "Logs", ""]
+        );
+        let [_, server_item, _, logs, _] = all.as_slice() else { unreachable!("five entries") };
+        assert_eq!(logs.chosen_id(), Some(5), "dbusmenu id 4 chooses the app's 5");
+        let p = props(Some(logs));
+        assert_eq!(p.get("toggle-type").and_then(|v| <&str>::try_from(v).ok()), Some("checkmark"));
+        assert_eq!(p.get("toggle-state").and_then(|v| i32::try_from(v).ok()), Some(1));
+        let root = layout(&items, 0);
+        assert_eq!(root.children.len(), 3);
+        let server = layout(&items, 2);
+        assert_eq!(server.id, 2);
+        assert_eq!(server.children.len(), 2, "the submenu's own layout");
+        assert_eq!(
+            props(Some(server_item)).get("children-display").and_then(|v| <&str>::try_from(v).ok()),
+            Some("submenu")
+        );
+    }
 }

@@ -2177,6 +2177,7 @@ impl Runner {
                 ui.set_reduced_motion(self.reduced_motion());
                 ui.set_power_saving(self.settings.power_saving);
                 ui.set_system_spatial_navigation(self.settings.spatial_navigation);
+                ui.set_pointer_caps(self.settings.pointer);
                 if let Some(p) = self.app.0.borrow().ambient {
                     ui.set_ambient_policy(p);
                 }
@@ -3152,6 +3153,7 @@ impl remedy_ui_host::App for Runner {
                     w.ui.set_system_subpixel(s.subpixel_text);
                     w.ui.set_power_saving(s.power_saving);
                     w.ui.set_system_spatial_navigation(s.spatial_navigation);
+                    w.ui.set_pointer_caps(s.pointer);
                 }
                 let appearance = (s.dark, s.high_contrast);
                 self.settings = s;
@@ -3241,13 +3243,13 @@ impl remedy_ui_host::App for Runner {
                     if let Some(p) = w.pan.as_mut().filter(|p| p.hold.is_none()) {
                         p.hold = Some(host.set_timer(host.now() + LONG_PRESS));
                     }
-                    if events.is_empty() {
-                        host.request_frame(window);
-                    }
                     for e in &events {
                         w.ui.pointer(e);
                         host.pointer_consumed(window, w.ui.pointer_consumed());
                     }
+                    // A held finger (no events yet), a scroll, and a tap (down + up together)
+                    // all need a frame: a tap focuses a field and opens the keyboard.
+                    host.request_frame(window);
                 }
             }
             HostEvent::DragEnded(window, effect) => {
