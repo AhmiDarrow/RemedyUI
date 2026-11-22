@@ -298,7 +298,13 @@ fn start(config: AppConfig, seen: Rc<Seen>) {
                 )
                 .child(w::context_menu(&ui.el("label").text("Menu here"), || {
                     vec![w::MenuItem::new("Do something", || {})]
-                }));
+                }))
+                .child(w::select(
+                    ui,
+                    "Fruit",
+                    vec!["Apple".into(), "Pear".into()],
+                    remedy_ui::reactive::Signal::new(0),
+                ));
             let _ = ui.root().child(col);
         });
     });
@@ -458,6 +464,26 @@ async fn an_app_runs_in_the_page() {
     let (mx, my) = center(&mirrored_text("Menu here").must("the target"));
     assert!(context_click(&target, mx, my), "the app's own context menu keeps the browser's away");
     assert!(until(30, || mirrored_text("Do something").is_some()).await, "the app's menu opened");
+    key(&target, "keydown", "Escape", "Escape", false);
+    key(&target, "keyup", "Escape", "Escape", false);
+    assert!(until(30, || mirrored_text("Do something").is_none()).await, "Escape closed the menu");
+
+    // A list box opened from the keyboard: Escape where the browser sends it (the focused
+    // option's mirror) closes it, and focus goes back to the select.
+    let active = || document().active_element().and_then(|e| e.get_attribute("aria-label"));
+    let fruit = query("[role=combobox][aria-label='Fruit']").must("the mirrored select");
+    let (fx, fy) = center(&fruit);
+    pointer(&target, "pointerdown", fx, fy, 1);
+    pointer(&target, "pointerup", fx, fy, 0);
+    assert!(until(30, || query("[role=option]").is_some()).await, "the list opened");
+    let on_option =
+        || document().active_element().and_then(|e| e.get_attribute("role")).as_deref() == Some("option");
+    assert!(until(30, on_option).await, "focus is on an option's mirror");
+    let option: web_sys::EventTarget = document().active_element().must("a focused option").into();
+    key(&option, "keydown", "Escape", "Escape", false);
+    key(&option, "keyup", "Escape", "Escape", false);
+    assert!(until(30, || query("[role=option]").is_none()).await, "Escape closed the list");
+    assert!(until(30, || active().as_deref() == Some("Fruit")).await, "focus went back: {:?}", active());
     key(&target, "keydown", "Escape", "Escape", false);
     key(&target, "keyup", "Escape", "Escape", false);
     frames(2).await;
