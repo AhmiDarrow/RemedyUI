@@ -1342,7 +1342,10 @@ impl App {
     pub fn reload(&self) {
         #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
         remedy_ui_bridge_web::history::reload();
-        #[cfg(all(feature = "widgets", not(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))))]
+        #[cfg(all(
+            feature = "widgets",
+            not(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))
+        ))]
         crate::router::reload_views();
     }
 

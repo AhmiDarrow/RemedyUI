@@ -575,3 +575,66 @@ async fn persisted_state_and_documents_live_in_local_storage_across_runs() {
         storage_remove(k);
     }
 }
+
+type Routed = Rc<RefCell<Option<(App, remedy_ui::router::Router)>>>;
+
+#[wasm_bindgen_test]
+async fn routes_live_in_the_address_and_the_browser_history() {
+    use remedy_ui::router::Router;
+    let window = web_sys::window().must("a window");
+    let history = window.history().must("history");
+    // Opened at a deep link.
+    history.replace_state_with_url(&JsValue::NULL, "", Some("#/settings/7")).must("the address");
+    let seen: Routed = Rc::default();
+    let s = seen.clone();
+    let run = remedy_ui::run(AppConfig::new("Browser router test").cpu_only(), move |app: &App| {
+        let a = app.clone();
+        app.open(WindowSpec::new("Router"), move |ui, window| {
+            let router = Router::for_window(window, "/home");
+            router.set_title(|r| format!("Routed {}", r.path()));
+            let (me, ui2) = (router.clone(), ui.clone());
+            let view = router.view(ui, move |route| {
+                w::column(&ui2)
+                    .child(w::text(&ui2, format!("Page {}", route.path())))
+                    .child(me.link_to(&ui2, "/home", "Home"))
+            });
+            let _ = ui.root().child(view);
+            *s.borrow_mut() = Some((a.clone(), router));
+        });
+    });
+    run.must("the app starts in the page");
+    assert!(until(120, || seen.borrow().is_some()).await, "the window was built");
+    let (app, router) = seen.borrow().clone().must("the router");
+    let location = window.location();
+    assert_eq!(router.route_untracked().path(), "/settings/7", "the deep link at load");
+    assert!(until(60, || document().title() == "Routed /settings/7").await, "the page's title");
+
+    // A link in the accessibility mirror is a real <a href>.
+    assert!(until(120, || query("a[href='#/home']").is_some()).await, "the link's href in the mirror");
+
+    // A push is a history entry and an address.
+    let before = history.length().must("length");
+    router.push("/browse/TV");
+    assert_eq!(location.hash().must("hash"), "#/browse/TV");
+    assert_eq!(history.length().must("length"), before + 1);
+    assert!(until(60, || mirrored_text("Page /browse/TV").is_some()).await, "the page changed");
+
+    // The browser's back button (history.back) brings the route back, and forward again.
+    history.back().must("back");
+    assert!(until(120, || router.route_untracked().path() == "/settings/7").await, "back");
+    assert!(until(60, || document().title() == "Routed /settings/7").await);
+    history.forward().must("forward");
+    assert!(until(120, || router.route_untracked().path() == "/browse/TV").await, "forward");
+
+    // The router's own back goes through the browser's history.
+    assert!(router.back());
+    assert!(until(120, || location.hash().ok().as_deref() == Some("#/settings/7")).await);
+
+    // An address typed in (a fragment navigation) routes too.
+    location.set_hash("/server").must("hash");
+    assert!(until(120, || router.route_untracked().path() == "/server").await, "an edited address");
+
+    app.quit();
+    assert!(until(30, || !remedy_ui::web::is_running()).await);
+    history.replace_state_with_url(&JsValue::NULL, "", Some("#")).must("reset");
+}
