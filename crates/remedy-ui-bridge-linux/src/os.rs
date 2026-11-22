@@ -1,5 +1,7 @@
 //! The C library calls the Linux bridge needs.
 
+pub(crate) mod gamepad;
+
 /// Seconds east of UTC at `unix_seconds` in the user's time zone (`TZ`, else
 /// /etc/localtime), with that instant's daylight-saving rule.
 pub(crate) fn utc_offset(unix_seconds: i64) -> Option<i32> {

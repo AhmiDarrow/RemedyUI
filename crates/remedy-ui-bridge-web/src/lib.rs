@@ -22,7 +22,8 @@
 //!   events), keys by meaning and position with modifiers and repeat, and focus. The
 //!   browser's own context menu opens where the app did not take the press, and stays away
 //!   where it did (its own context menu, a handler using the secondary button).
-//! - **Text input.** A hidden text field (a password field for secrets) sits at the caret
+//! - **Text input.** A hidden text field (a password field for secrets; carrying the field's purpose
+//!   as `type`, `inputmode`, `autocomplete` and `enterkeyhint`) sits at the caret
 //!   while a field edits: input methods compose in it (composition events become the
 //!   engine's preedit and commit), soft keyboards open for it, and what they type, delete and
 //!   autocorrect reaches the field.
@@ -231,3 +232,56 @@ pub fn is_running() -> bool {
 /// What the page-only functions answer in documentation built for another target.
 #[cfg(all(doc, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 const NOT_A_PAGE: &str = "this runs only in a browser page (wasm32-unknown-unknown)";
+
+/// The page's session history, for an app's routes: the address's fragment (`#/settings/2`)
+/// names the page, and the browser's back and forward move between them.
+///
+/// Only in a browser page (`wasm32-unknown-unknown`).
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub mod history {
+    use crate::web::history as h;
+
+    /// The address's fragment, without the `#`.
+    pub fn fragment() -> String {
+        h::fragment()
+    }
+
+    /// The index [`write`] gave the current entry, if it gave one.
+    pub fn index() -> Option<u32> {
+        h::index()
+    }
+
+    /// The app's entries (route, horizontal and vertical scroll) that [`write`] stored in the
+    /// current entry, if it stored them: after a reload, the list as it was.
+    pub fn entries() -> Option<Vec<(String, f32, f32)>> {
+        h::entries()
+    }
+
+    /// Adds a history entry at `#fragment`, numbered `index`, carrying the app's `entries`;
+    /// with `replace`, rewrites the current one instead.
+    pub fn write(fragment: &str, index: u32, entries: &[(String, f32, f32)], replace: bool) {
+        h::write(fragment, index, entries, replace);
+    }
+
+    /// Moves `delta` entries back (negative) or forward.
+    pub fn go(delta: i32) {
+        h::go(delta);
+    }
+
+    /// Calls `moved(fragment, index)` when the person goes back or forward or edits the
+    /// fragment, and `hiding()` when the page is put away or reloaded (the last moment to
+    /// [`write`] the current entry). A second call replaces both.
+    pub fn listen(moved: impl Fn(String, Option<u32>) + 'static, hiding: impl Fn() + 'static) {
+        h::listen(moved, hiding);
+    }
+
+    /// Opens `#fragment` of this page in a new tab.
+    pub fn open_in_new_tab(fragment: &str) {
+        h::open_in_new_tab(fragment);
+    }
+
+    /// Reloads the page.
+    pub fn reload() {
+        h::reload();
+    }
+}

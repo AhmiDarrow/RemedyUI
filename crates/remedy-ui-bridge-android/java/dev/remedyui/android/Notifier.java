@@ -185,7 +185,7 @@ public final class Notifier {
      * Android heads every notification with the app's own label already.
      */
     Notification build(long id, String title, String body, String[] actionIds, String[] labels, boolean silent,
-            String app, int[] argb, int size, boolean ongoing) {
+            String app, int[] argb, int size, int urgency, boolean ongoing) {
         Notification.Builder b =
                 new Notification.Builder(context, silent ? CHANNEL_QUIET : CHANNEL_DEFAULT)
                         .setSmallIcon(smallIcon())
@@ -198,6 +198,10 @@ public final class Notifier {
         if (body != null && !body.isEmpty()) {
             b.setContentText(body);
             b.setStyle(new Notification.BigTextStyle().bigText(body));
+        }
+        if (urgency > 0) {
+            // A warning (1) or an error (2): what went wrong, ranked as such in the shade.
+            b.setCategory(Notification.CATEGORY_ERROR);
         }
         if (argb != null && size > 0 && argb.length == size * size) {
             b.setLargeIcon(Bitmap.createBitmap(argb, size, size, Bitmap.Config.ARGB_8888));

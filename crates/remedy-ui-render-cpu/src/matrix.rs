@@ -5,7 +5,7 @@
 //! here, so they cut the same pictures.
 
 use remedy_ui_core::{ColorMatrix, Rect};
-use remedy_ui_paint::{Affine, DisplayList, Item, MAX_FILTER_MATRIX_DEPTH, MAX_FILTER_MATRIX_GROUPS};
+use remedy_ui_paint::{Affine, DisplayList, Item, PaintLimits};
 use vello_cpu::kurbo;
 use vello_cpu::peniko::{ImageQuality, ImageSampler};
 use vello_cpu::{ImageSource, Pixmap};
@@ -17,24 +17,30 @@ use crate::Surface;
 /// elsewhere would blur a level or two differently from tile to tile.
 const GRID: f32 = 64.0;
 
-/// How many matrix groups a raster has open and has drawn, against
-/// [`MAX_FILTER_MATRIX_DEPTH`] and [`MAX_FILTER_MATRIX_GROUPS`].
-#[derive(Clone, Copy, Debug, Default)]
+/// How many matrix groups a raster has open and has drawn, against the raster's
+/// [`PaintLimits`] (read once when it starts, so a raster keeps one set of bounds).
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct Budget {
+    pub(crate) limits: PaintLimits,
     pub(crate) depth: usize,
     pub(crate) drawn: usize,
     /// Glass: how deep in replays of what is under glass, and how many replays so far,
-    /// against [`MAX_BACKDROP_DEPTH`](remedy_ui_paint::MAX_BACKDROP_DEPTH) and
-    /// [`MAX_BACKDROP_REPLAYS`](remedy_ui_paint::MAX_BACKDROP_REPLAYS).
+    /// against [`PaintLimits::backdrop_depth`] and [`PaintLimits::backdrop_replays`].
     pub(crate) glass_depth: usize,
     pub(crate) glass_drawn: usize,
+}
+
+impl Default for Budget {
+    fn default() -> Self {
+        Budget { limits: remedy_ui_paint::paint_limits(), depth: 0, drawn: 0, glass_depth: 0, glass_drawn: 0 }
+    }
 }
 
 impl Budget {
     /// True (counting it) when one more pane of glass may draw again what is under it.
     pub(crate) fn admit_glass(&mut self) -> bool {
-        let ok = self.glass_depth < remedy_ui_paint::MAX_BACKDROP_DEPTH
-            && self.glass_drawn < remedy_ui_paint::MAX_BACKDROP_REPLAYS;
+        let ok =
+            self.glass_depth < self.limits.backdrop_depth && self.glass_drawn < self.limits.backdrop_replays;
         if ok {
             self.glass_drawn += 1;
         }
@@ -45,7 +51,9 @@ impl Budget {
     /// identity, or past the limits.
     pub(crate) fn admit(&self, matrix: &ColorMatrix) -> Option<ColorMatrix> {
         let m = matrix.limited();
-        (!m.is_identity() && self.depth < MAX_FILTER_MATRIX_DEPTH && self.drawn < MAX_FILTER_MATRIX_GROUPS)
+        (!m.is_identity()
+            && self.depth < self.limits.filter_matrix_depth
+            && self.drawn < self.limits.filter_matrix_groups)
             .then_some(m)
     }
 }

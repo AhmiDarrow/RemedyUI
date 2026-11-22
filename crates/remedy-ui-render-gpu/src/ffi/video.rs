@@ -465,10 +465,6 @@ mod windows_shared {
 
     type Dx12 = wgpu::hal::api::Dx12;
 
-    /// Opened textures kept per stream before the oldest are let go (a decoder's pool is a
-    /// few dozen at most; a stream that opens another file brings new ones).
-    const KEEP: usize = 64;
-
     /// wgpu's D3D12 device and queue, when the device is D3D12 and can sample NV12.
     fn raw(device: &wgpu::Device) -> Option<(ID3D12Device, ID3D12CommandQueue)> {
         if !device.features().contains(wgpu::Features::TEXTURE_FORMAT_NV12) {
@@ -546,7 +542,8 @@ mod windows_shared {
             if adapter(device)? != luid || width == 0 || height == 0 {
                 return None;
             }
-            if self.textures.len() >= KEEP {
+            // Opened textures kept per stream before they are let go: `GpuLimits::video_imports`.
+            if self.textures.len() >= crate::gpu_limits().video_imports {
                 self.textures.clear();
             }
             // SAFETY: the handles are the picture's, open while it lives (it is borrowed here);

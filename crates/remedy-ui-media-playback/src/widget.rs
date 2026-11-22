@@ -1521,11 +1521,13 @@ fn next_up_card(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
     let dismissed = Signal::new(false);
     // The title and the countdown are announced as they show and change.
     let said = |text: String| Semantics::new(Role::Status).label(text).live(Live::Polite);
-    // Upper case as a label above a title is set; casing follows the language's own rules.
-    let label = ui.el("player_next_label").nowrap().text({
-        let u = ui.clone();
-        move || tr(&u, "playback-next-up-label").to_uppercase()
-    });
+    // Drawn in capitals, as a label above a title is set (casing follows the language's own
+    // rules); read and copied as written.
+    let label =
+        ui.el("player_next_label").nowrap().text_transform(remedy_ui_view::TextTransform::Upper).text({
+            let u = ui.clone();
+            move || tr(&u, "playback-next-up-label")
+        });
     let title = ui.el("player_next_title");
     let (t, p, tu) = (title.clone(), player.clone(), ui.clone());
     let title = title.bind(move || {
@@ -1612,10 +1614,6 @@ fn next_up_card(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
         }
     })
 }
-
-/// Portal's timing step: half a second, within ten minutes either way.
-const CAPTION_STEP: i64 = 500;
-const CAPTION_LIMIT: i64 = 600_000;
 
 /// One caption line in its own readable box, as a browser draws a cue's line.
 fn caption_line(ui: &Ui, line: &str) -> El {
@@ -1881,10 +1879,13 @@ fn caption_menu(ui: &Ui, p: &Player) -> Vec<MenuItem> {
     // A TV shows the file as it is, as on Portal's page: no timing while remote.
     if !remedy_ui_reactive::untrack(|| p.is_remote()) {
         items.push(MenuItem::separator());
+        // Portal's timing step by default: half a second, within ten minutes either way.
+        let ms = |d: Duration| i64::try_from(d.as_millis()).unwrap_or(i64::MAX);
+        let (by, limit) = (ms(p.options().caption_step), ms(p.options().caption_delay_limit));
         let step = |key: &'static str, by: i64| {
             let (a, b, u) = (p.clone(), p.clone(), ui.clone());
             MenuItem::new(String::new(), move || {
-                let to = (a.caption_delay() + by).clamp(-CAPTION_LIMIT, CAPTION_LIMIT);
+                let to = a.caption_delay().saturating_add(by).clamp(-limit, limit);
                 a.set_caption_delay(to);
             })
             .label(move || {
@@ -1892,8 +1893,8 @@ fn caption_menu(ui: &Ui, p: &Player) -> Vec<MenuItem> {
             })
             .stays_open()
         };
-        items.push(step("playback-captions-earlier", -CAPTION_STEP));
-        items.push(step("playback-captions-later", CAPTION_STEP));
+        items.push(step("playback-captions-earlier", -by));
+        items.push(step("playback-captions-later", by));
         let (a, b) = (p.clone(), p.clone());
         items.push(
             MenuItem::new(tr(ui, "playback-captions-reset"), move || a.set_caption_delay(0))

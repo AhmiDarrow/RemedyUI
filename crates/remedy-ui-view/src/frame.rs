@@ -113,11 +113,38 @@ fn segment_id(owner: LayerId, n: u64) -> LayerId {
     LayerId((owner.0.wrapping_mul(1_000_003) ^ n.wrapping_mul(0x9E37_79B9)) | (1 << 63))
 }
 
+/// The brush that draws gradient `g` over a box `size` large at the origin, its theme roles
+/// resolved under `theme`: what an element's `background_layers` paint.
+///
+/// ```
+/// use remedy_ui_core::Size;
+/// use remedy_ui_paint::Brush;
+/// use remedy_ui_style::{Gradient, Theme};
+///
+/// let g = Gradient::parse("radial-gradient(ellipse at center, #fff, transparent)").unwrap();
+/// let b = remedy_ui_view::gradient_brush(&g, Size::new(200.0, 100.0), &Theme::dark_forest());
+/// assert!(matches!(b, Brush::Elliptical { .. }));
+/// ```
+pub fn gradient_brush(g: &remedy_ui_style::Gradient, size: Size, theme: &remedy_ui_style::Theme) -> Brush {
+    use remedy_ui_style::GradientGeometry as G;
+    let stops: Vec<_> =
+        g.stops(theme).into_iter().map(|(offset, color)| remedy_ui_paint::Stop { offset, color }).collect();
+    match g.geometry(size) {
+        G::Linear { start, end } => Brush::Linear { start, end, stops },
+        G::Radial { center, radii } if radii.x == radii.y => Brush::Radial { center, radius: radii.x, stops },
+        G::Radial { center, radii } => Brush::Elliptical { center, radii, stops },
+        G::Conic { center, start_angle } => Brush::Conic { center, start_angle, stops },
+        // GradientGeometry is non_exhaustive; a kind this view does not know draws its first color.
+        _ => Brush::Solid(g.stops(theme).first().map_or(Color::TRANSPARENT, |s| s.1)),
+    }
+}
+
 pub(crate) fn text_style_for(d: &ElData, theme: &remedy_ui_style::Theme) -> remedy_ui_text::TextStyle {
     {
         let mut v_ = remedy_ui_text::TextStyle::default();
         v_.families = theme.families(d.resolved.mono, d.resolved.heading);
         v_.letter_spacing = d.resolved.letter_spacing.px(d.resolved.text_size);
+        v_.transform = d.resolved.text_transform;
         v_.size = d.resolved.text_size;
         v_.weight = d.resolved.weight;
         v_.color = d.resolved.foreground;
@@ -152,6 +179,10 @@ fn record(
     let radii = CornerRadii::all(s.radius);
     if s.background.a > 0.0 {
         list.fill_rounded(rect, radii, Brush::Solid(s.background));
+    }
+    // The last layer is the lowest, as CSS stacks `background-image`.
+    for g in s.background_layers.iter().rev() {
+        list.fill_rounded(rect, radii, gradient_brush(g, size, theme));
     }
     if s.border_width > 0.0 && s.border.a > 0.0 {
         list.border(rect, radii, s.border_width, s.border);
@@ -866,8 +897,11 @@ impl Ui {
                 || resolved.weight != d.resolved.weight
                 || resolved.mono != d.resolved.mono
                 || resolved.heading != d.resolved.heading
-                || resolved.letter_spacing != d.resolved.letter_spacing;
+                || resolved.letter_spacing != d.resolved.letter_spacing
+                || resolved.text_transform != d.resolved.text_transform;
             let text_changed = reshape
+                || resolved.text_transform != d.resolved.text_transform
+                || resolved.max_lines != d.resolved.max_lines
                 || resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight
                 || resolved.mono != d.resolved.mono
@@ -879,6 +913,8 @@ impl Ui {
                 || resolved.mono != d.resolved.mono
                 || resolved.heading != d.resolved.heading
                 || resolved.letter_spacing != d.resolved.letter_spacing
+                || resolved.text_transform != d.resolved.text_transform
+                || resolved.max_lines != d.resolved.max_lines
                 || resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight
                 || resolved.border_width != d.resolved.border_width;
@@ -889,6 +925,7 @@ impl Ui {
                 if let Some(t) = &d.text {
                     let mut t = t.borrow_mut();
                     t.style = style.clone();
+                    t.max_lines = d.resolved.max_lines;
                     t.cache = None;
                 }
                 if let Some(f) = &d.field {

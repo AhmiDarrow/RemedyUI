@@ -462,6 +462,9 @@ impl From<f32> for Pad {
 pub struct Style {
     /// Background fill.
     pub background: Option<ColorRef>,
+    /// Gradient layers over the background fill, the first on top (CSS `background-image`);
+    /// their stops may be theme roles.
+    pub background_layers: Option<Vec<crate::Gradient>>,
     /// Text and icon color.
     pub foreground: Option<ColorRef>,
     /// Border color.
@@ -486,6 +489,10 @@ pub struct Style {
     pub heading: Option<bool>,
     /// Extra space after each letter.
     pub letter_spacing: Option<crate::LetterSpacing>,
+    /// How letters are cased when drawn (inherited).
+    pub text_transform: Option<crate::TextTransform>,
+    /// The most lines text takes, the last ending in "…" when cut (0: no limit).
+    pub max_lines: Option<u32>,
     /// Focus ring color.
     pub outline: Option<ColorRef>,
     /// Focus ring width.
@@ -516,6 +523,25 @@ impl Style {
     /// Background fill.
     pub fn background(mut self, c: impl Into<ColorRef>) -> Self {
         self.background = Some(c.into());
+        self
+    }
+
+    /// Gradient layers drawn over the background fill, the first on top (CSS
+    /// `background-image`). Their stops may be theme roles.
+    ///
+    /// ```
+    /// use remedy_ui_style::*;
+    /// let glow = Gradient::parse(
+    ///     "radial-gradient(circle, color-mix(in srgb, var(--accent) 16%, transparent), transparent 62%)",
+    /// )
+    /// .unwrap();
+    /// let theme = Theme::dark_forest();
+    /// let p = Style::new().background(ColorRole::Card).background_layers([glow]).resolve(&theme);
+    /// let layers = p.background_layers.unwrap_or_default();
+    /// assert_eq!(layers[0].stop_list()[0].color, ColorRef::Value(theme.colors.accent));
+    /// ```
+    pub fn background_layers(mut self, layers: impl IntoIterator<Item = crate::Gradient>) -> Self {
+        self.background_layers = Some(layers.into_iter().collect());
         self
     }
 
@@ -598,6 +624,19 @@ impl Style {
     /// Extra space after each letter.
     pub fn letter_spacing(mut self, value: crate::LetterSpacing) -> Self {
         self.letter_spacing = Some(value);
+        self
+    }
+
+    /// How letters are cased when drawn (CSS `text-transform`).
+    pub fn text_transform(mut self, value: crate::TextTransform) -> Self {
+        self.text_transform = Some(value);
+        self
+    }
+
+    /// At most `n` lines of text, the last ending in "…" when cut (CSS `line-clamp`); 0 for
+    /// no limit.
+    pub fn max_lines(mut self, n: u32) -> Self {
+        self.max_lines = Some(n);
         self
     }
 
@@ -712,6 +751,7 @@ impl Style {
         };
         Style {
             background: other.background.or(self.background),
+            background_layers: other.background_layers.clone().or_else(|| self.background_layers.clone()),
             foreground: other.foreground.or(self.foreground),
             border: other.border.or(self.border),
             border_width: other.border_width.or(self.border_width),
@@ -727,6 +767,8 @@ impl Style {
             mono: other.mono.or(self.mono),
             heading: other.heading.or(self.heading),
             letter_spacing: other.letter_spacing.or(self.letter_spacing),
+            text_transform: other.text_transform.or(self.text_transform),
+            max_lines: other.max_lines.or(self.max_lines),
             outline: other.outline.or(self.outline),
             outline_width: other.outline_width.or(self.outline_width),
             outline_offset: other.outline_offset.or(self.outline_offset),
@@ -750,7 +792,11 @@ impl Style {
         let dp = |d: Option<Dp>| d.is_none_or(|d| !d.is_token());
         let c = |c: Option<ColorRef>| !matches!(c, Some(ColorRef::Role(_)));
         let pad = self.padding.is_none_or(|p| [p.top, p.end, p.bottom, p.start].into_iter().all(dp));
+        let layers_plain = self.background_layers.as_ref().is_none_or(|l| {
+            l.iter().all(|g| g.stop_list().iter().all(|s| matches!(s.color, ColorRef::Value(_))))
+        });
         c(self.background)
+            && layers_plain
             && c(self.foreground)
             && c(self.border)
             && c(self.outline)
@@ -775,6 +821,10 @@ impl Style {
         let c = |c: Option<ColorRef>| c.map(|c| c.resolve(theme));
         StylePatch {
             background: c(self.background),
+            background_layers: self
+                .background_layers
+                .as_ref()
+                .map(|l| l.iter().map(|g| g.resolve(theme)).collect()),
             foreground: c(self.foreground),
             border: c(self.border),
             border_width: dp(self.border_width),
@@ -786,6 +836,8 @@ impl Style {
             mono: self.mono,
             heading: self.heading,
             letter_spacing: self.letter_spacing,
+            text_transform: self.text_transform,
+            max_lines: self.max_lines,
             outline: c(self.outline),
             outline_width: dp(self.outline_width),
             outline_offset: dp(self.outline_offset),
@@ -803,6 +855,7 @@ impl From<StylePatch> for Style {
     fn from(p: StylePatch) -> Self {
         Style {
             background: p.background.map(ColorRef::Value),
+            background_layers: p.background_layers,
             foreground: p.foreground.map(ColorRef::Value),
             border: p.border.map(ColorRef::Value),
             border_width: p.border_width.map(Dp::Px),
@@ -815,6 +868,8 @@ impl From<StylePatch> for Style {
             mono: p.mono,
             heading: p.heading,
             letter_spacing: p.letter_spacing,
+            text_transform: p.text_transform,
+            max_lines: p.max_lines,
             outline: p.outline.map(ColorRef::Value),
             outline_width: p.outline_width.map(Dp::Px),
             outline_offset: p.outline_offset.map(Dp::Px),

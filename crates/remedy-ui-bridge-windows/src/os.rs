@@ -3,6 +3,7 @@
 
 pub(crate) mod badge;
 pub(crate) mod dnd;
+pub(crate) mod gamepad;
 pub(crate) mod icon;
 pub(crate) mod instance;
 pub(crate) mod print;
@@ -17,7 +18,9 @@ use std::time::Duration;
 use remedy_ui_core::Color;
 use remedy_ui_host::Unsupported;
 use windows_sys::Win32::Foundation::{GlobalFree, HWND};
-use windows_sys::Win32::Globalization::GetUserDefaultLocaleName;
+use windows_sys::Win32::Globalization::{
+    GetUserDefaultLocaleName, GetUserPreferredUILanguages, MUI_LANGUAGE_NAME,
+};
 use windows_sys::Win32::Graphics::Dwm::DwmGetColorizationColor;
 use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, RegisterClipboardFormatW,
@@ -31,7 +34,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     FE_FONTSMOOTHINGCLEARTYPE, FE_FONTSMOOTHINGORIENTATIONBGR, GetCaretBlinkTime, SPI_GETCLIENTAREAANIMATION,
     SPI_GETFONTSMOOTHING, SPI_GETFONTSMOOTHINGORIENTATION, SPI_GETFONTSMOOTHINGTYPE, SPI_GETHIGHCONTRAST,
-    SetWindowDisplayAffinity, SystemParametersInfoW, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
+    SPI_GETKEYBOARDDELAY, SPI_GETKEYBOARDSPEED, SetWindowDisplayAffinity, SystemParametersInfoW,
+    WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
 };
 
 /// Joins the calling thread to a COM apartment for WinRT calls, keeping the one it is in (the
@@ -338,10 +342,20 @@ pub(crate) struct Settings {
     pub(crate) animations: Option<bool>,
     pub(crate) transparency: Option<bool>,
     pub(crate) locale: Option<String>,
+    pub(crate) languages: Vec<String>,
     pub(crate) double_click: Duration,
     pub(crate) caret_blink: Option<Duration>,
     pub(crate) subpixel_text: Option<bool>,
     pub(crate) power_saving: bool,
+    /// The keyboard's repeat delay and interval, where Windows says.
+    pub(crate) key_repeat: Option<(Duration, Duration)>,
+}
+
+/// The keyboard's repeat from its Control Panel settings: a delay of 0 to 3 (250 ms to 1 s)
+/// and a speed of 0 to 31 (about 2.5 to 30 repeats a second).
+pub(crate) fn key_repeat(delay: u32, speed: u32) -> (Duration, Duration) {
+    let rate = 2.5 + f64::from(speed.min(31)) * 27.5 / 31.0;
+    (Duration::from_millis(250 * (u64::from(delay.min(3)) + 1)), Duration::from_secs_f64(1.0 / rate))
 }
 
 pub(crate) fn settings() -> Settings {
@@ -374,6 +388,7 @@ pub(crate) fn settings() -> Settings {
     // SAFETY: the buffer holds LOCALE_NAME_MAX_LENGTH (85) units.
     let n = unsafe { GetUserDefaultLocaleName(buf.as_mut_ptr(), 85) };
     let locale = (n > 1).then(|| String::from_utf16_lossy(buf.get(..(n as usize - 1)).unwrap_or_default()));
+    let languages = preferred_ui_languages();
 
     // SAFETY: no arguments.
     let double_click = Duration::from_millis(u64::from(unsafe { GetDoubleClickTime() }));
@@ -391,7 +406,11 @@ pub(crate) fn settings() -> Settings {
         && spi_u32(SPI_GETFONTSMOOTHINGTYPE) == Some(FE_FONTSMOOTHINGCLEARTYPE))
     .then(|| spi_u32(SPI_GETFONTSMOOTHINGORIENTATION) == Some(FE_FONTSMOOTHINGORIENTATIONBGR));
 
+    let key_repeat =
+        spi_u32(SPI_GETKEYBOARDDELAY).zip(spi_u32(SPI_GETKEYBOARDSPEED)).map(|(d, s)| key_repeat(d, s));
+
     Settings {
+        key_repeat,
         power_saving: power_saving(),
         dark,
         accent,
@@ -400,10 +419,34 @@ pub(crate) fn settings() -> Settings {
         animations,
         transparency,
         locale,
+        languages,
         double_click,
         caret_blink,
         subpixel_text,
     }
+}
+
+/// The user's display languages, most preferred first (Settings, Time & language).
+fn preferred_ui_languages() -> Vec<String> {
+    let (mut count, mut len) = (0u32, 0u32);
+    // SAFETY: a null buffer asks for the length, written to `len`.
+    if unsafe {
+        GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &raw mut count, std::ptr::null_mut(), &raw mut len)
+    } == 0
+    {
+        return Vec::new();
+    }
+    let mut buf = vec![0u16; len as usize];
+    // SAFETY: `buf` holds the `len` units the first call asked for.
+    let ok = unsafe {
+        GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &raw mut count, buf.as_mut_ptr(), &raw mut len)
+    };
+    if ok == 0 { Vec::new() } else { multi_string(buf.get(..len as usize).unwrap_or_default()) }
+}
+
+/// The strings of a Win32 multi-string: each ends in a NUL, the list in another.
+fn multi_string(units: &[u16]) -> Vec<String> {
+    units.split(|u| *u == 0).filter(|s| !s.is_empty()).map(String::from_utf16_lossy).collect()
 }
 
 /// On battery power, or battery saver is on.
@@ -606,5 +649,23 @@ pub(crate) mod cursor {
             // SAFETY: a WM_SETCURSOR to a window of this thread, its own handle as wParam.
             unsafe { SendMessageW(h, WM_SETCURSOR, h as WPARAM, l) };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn multi_strings_split_into_languages_in_order() {
+        let units: Vec<u16> = "de-DE\0en-US\0fr\0\0".encode_utf16().collect();
+        assert_eq!(super::multi_string(&units), ["de-DE", "en-US", "fr"]);
+        assert!(super::multi_string(&[0, 0]).is_empty());
+        assert!(super::multi_string(&[]).is_empty());
+    }
+
+    #[test]
+    fn the_user_has_at_least_one_display_language() {
+        let list = super::preferred_ui_languages();
+        assert!(!list.is_empty());
+        assert!(list.iter().all(|l| l.len() >= 2 && !l.contains('\0')), "{list:?}");
     }
 }

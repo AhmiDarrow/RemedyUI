@@ -80,6 +80,11 @@ icon_scaling = "smooth"
 # Without it, packages are unsigned.
 sign_thumbprint = "0123456789ABCDEF0123456789ABCDEF01234567"
 timestamp_url = "http://timestamp.digicert.com"
+# Optional: the installer offers "Start <name> when I sign in" (unchecked), which writes the
+# app's value under HKCU\Software\Microsoft\Windows\CurrentVersion\Run with these arguments
+# and removes it on uninstall. `autostart::set` adopts that value rather than adding a
+# Startup-folder shortcut, so the app never starts twice.
+autostart_args = "--background"
 
 [android]
 # The Rust target, the lowest and the target API level, and the release key.

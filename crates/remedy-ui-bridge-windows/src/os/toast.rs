@@ -14,12 +14,12 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock, PoisonError};
 
-use remedy_ui_host::{HostEvent, Notification, NotificationResponse, Unsupported, Waker};
+use remedy_ui_host::{HostEvent, Notification, NotificationResponse, Unsupported, Urgency, Waker};
 use windows::Data::Xml::Dom::XmlDocument;
 use windows::Foundation::TypedEventHandler;
 use windows::UI::Notifications::{
     NotificationSetting, ToastActivatedEventArgs, ToastDismissalReason, ToastDismissedEventArgs,
-    ToastNotification, ToastNotificationManager, ToastNotifier,
+    ToastNotification, ToastNotificationManager, ToastNotificationPriority, ToastNotifier,
 };
 use windows::core::{HSTRING, IInspectable, Interface};
 
@@ -109,7 +109,9 @@ fn xml(s: &str) -> String {
 /// spot, up to five buttons, and quiet audio when asked.
 pub(crate) fn toast_xml(n: &Notification, icon: Option<&std::path::Path>) -> String {
     let mut x = format!(
-        r#"<toast launch="{ACTIVATE}"><visual><binding template="ToastGeneric"><text>{}</text>"#,
+        r#"<toast launch="{ACTIVATE}"{}><visual><binding template="ToastGeneric"><text>{}</text>"#,
+        // Windows 11's "important" toast, which also breaks through do-not-disturb.
+        if n.urgency == Urgency::Error { r#" scenario="urgent""# } else { "" },
         xml(&n.title)
     );
     if !n.body.is_empty() {
@@ -230,6 +232,10 @@ impl Toasts {
         let toast = ToastNotification::CreateToastNotification(&doc).map_err(unsupported)?;
         toast.SetTag(&HSTRING::from(n.id.to_string())).map_err(unsupported)?;
         toast.SetGroup(&HSTRING::from(GROUP)).map_err(unsupported)?;
+        if n.urgency != Urgency::Info {
+            // Shown above other toasts and in front of full-screen apps' suppression.
+            toast.SetPriority(ToastNotificationPriority::High).map_err(unsupported)?;
+        }
         let app_id = n.id;
         toast
             .Activated(&TypedEventHandler::<ToastNotification, IInspectable>::new(move |_, args| {
@@ -304,6 +310,9 @@ mod tests {
             x.contains(r#"<action content="Mute" arguments="action:mute" activationType="foreground"/>"#)
         );
         assert!(x.contains(r#"<audio silent="true"/>"#));
+        assert!(!x.contains("scenario"), "news is a plain toast");
+        let urgent = toast_xml(&Notification::new(5, "Disk full", "").urgency(Urgency::Error), None);
+        assert!(urgent.starts_with(r#"<toast launch="activate" scenario="urgent">"#), "{urgent}");
         let doc = XmlDocument::new();
         assert!(doc.is_ok_and(|d| d.LoadXml(&HSTRING::from(x)).is_ok()), "Windows reads it as XML");
     }

@@ -331,3 +331,85 @@ fn shadows_thrown_off_the_top_or_left_edge_are_not_drawn() {
     assert_eq!(px(&got, 10, 60), [0, 0, 0, 255], "the shadow's visible part");
     assert_eq!(px(&got, 30, 60), WHITE, "past the shadow's right edge");
 }
+
+/// Black at the center to white at offset 1.
+fn ramp() -> Vec<Stop> {
+    vec![Stop { offset: 0.0, color: Color::BLACK }, Stop { offset: 1.0, color: Color::WHITE }]
+}
+
+#[test]
+fn elliptical_gradient_reaches_offset_one_on_its_ellipse() {
+    // An ellipse 80 wide and 20 high around (100, 50): offset 1 at x ± 80 and at y ± 20.
+    let mut list = DisplayList::new();
+    list.fill_rect(
+        Rect::new(0.0, 0.0, 200.0, 100.0),
+        Brush::Elliptical { center: Point::new(100.0, 50.0), radii: Vec2::new(80.0, 20.0), stops: ramp() },
+    );
+    let f = render(&list, 200, 100, 1.0);
+    let g = |x, y| px(&f, x, y)[0];
+    assert!(g(100, 50) < 10, "black at the center: {}", g(100, 50));
+    // Halfway out along each axis is the same grey (to the pixel centers half a pixel off),
+    // though one axis is four times longer.
+    let (hx, hy) = (g(140, 50), g(100, 60));
+    assert!(hx.abs_diff(hy) <= 6 && (110..150).contains(&hx), "half way: {hx} {hy}");
+    // Past the ellipse it is white; inside it, along the short axis, it is not.
+    assert!(g(100, 75) > 250 && g(185, 50) > 250, "outside: {} {}", g(100, 75), g(185, 50));
+    assert!(g(130, 50) < 120, "the long axis is still dark 30 px out: {}", g(130, 50));
+}
+
+#[test]
+fn conic_gradient_sweeps_clockwise_from_its_start() {
+    // From straight up (CSS conic 0deg), clockwise.
+    let mut list = DisplayList::new();
+    list.fill_rect(
+        Rect::new(0.0, 0.0, 100.0, 100.0),
+        Brush::Conic {
+            center: Point::new(50.0, 50.0),
+            start_angle: -std::f32::consts::FRAC_PI_2,
+            stops: ramp(),
+        },
+    );
+    let f = render(&list, 100, 100, 1.0);
+    let g = |x, y| px(&f, x, y)[0];
+    // A quarter turn (right), half (down), three quarters (left).
+    let (right, down, left) = (g(90, 50), g(50, 90), g(10, 50));
+    assert!((55..75).contains(&right), "a quarter: {right}");
+    assert!((120..135).contains(&down), "a half: {down}");
+    assert!((180..200).contains(&left), "three quarters: {left}");
+    assert!(g(48, 5) > 240 && g(52, 5) < 15, "the seam is straight up: {} {}", g(48, 5), g(52, 5));
+}
+
+#[test]
+fn gradient_layers_stack_with_transparency() {
+    // A solid fill, a vertical fade to transparent over it, and a translucent glow on top.
+    let mut list = DisplayList::new();
+    let r = Rect::new(0.0, 0.0, 100.0, 100.0);
+    list.fill_rect(r, Brush::Solid(Color::rgb8(0, 0, 200)));
+    let fade = vec![
+        Stop { offset: 0.0, color: Color::rgb8(200, 0, 0) },
+        Stop { offset: 1.0, color: Color::rgb8(200, 0, 0).with_alpha(0.0) },
+    ];
+    list.fill_rect(
+        r,
+        Brush::Linear { start: Point::new(0.0, 0.0), end: Point::new(0.0, 100.0), stops: fade },
+    );
+    let glow = vec![
+        Stop { offset: 0.0, color: Color::rgb8(0, 255, 0).with_alpha(0.5) },
+        Stop { offset: 1.0, color: Color::rgb8(0, 255, 0).with_alpha(0.0) },
+    ];
+    list.fill_rect(
+        r,
+        Brush::Elliptical { center: Point::new(50.0, 100.0), radii: Vec2::new(50.0, 30.0), stops: glow },
+    );
+    let f = render(&list, 100, 100, 1.0);
+    let top = px(&f, 50, 1);
+    assert!(top[0] > 190 && top[2] < 15, "the fade's red covers the top: {top:?}");
+    let low = px(&f, 2, 98);
+    assert!(
+        low[0] < 10 && low[2] > 185 && low[1] < 10,
+        "the blue shows through at the bottom corner: {low:?}"
+    );
+    let glow = px(&f, 50, 99);
+    // Half green over the blue (premultiplied: the fade's transparent end adds no grey).
+    assert!(glow[1].abs_diff(128) <= 4 && glow[2].abs_diff(100) <= 6 && glow[0] < 8, "the glow: {glow:?}");
+}
