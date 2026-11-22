@@ -553,6 +553,45 @@ fn truncated_text_is_cut_short_to_its_box_and_keeps_its_words() {
 }
 
 #[test]
+fn clamped_and_cased_text_draws_short_or_in_capitals_and_reads_as_written() {
+    let ui = ui();
+    let words = "A long description of an episode that goes on for several lines in a narrow card";
+    let line = ui.el("label").text("x");
+    let two = ui.el("label").text(remedy_ui_view::RichText::plain(words)).max_lines(2);
+    let all = ui.el("label").text(remedy_ui_view::RichText::plain(words));
+    // The same limit from a style sheet, and casing from one.
+    let styled = ui
+        .el("label")
+        .text(remedy_ui_view::RichText::plain(words))
+        .style(remedy_ui_view::Style::default().max_lines(3));
+    let upper = ui.el("label").text("straße").nowrap().text_transform(remedy_ui_view::TextTransform::Upper);
+    let caps = ui.el("label").text("STRASSE").nowrap();
+    let card = ui.el("box").column().width(120.0);
+    for e in [&line, &two, &all, &styled] {
+        let _ = card.clone().child(e.clone());
+    }
+    ui.root().child(card).child(ui.el("box").row().child(upper.clone()).child(caps.clone()));
+    let mut screen = Screen::new(ui.clone());
+    screen.frame();
+    let h = |e: &remedy_ui_view::El| e.bounds().map_or(0.0, |b| b.height());
+    let w = |e: &remedy_ui_view::El| e.bounds().map_or(0.0, |b| b.width());
+    let one = h(&line);
+    assert!((h(&two) - 2.0 * one).abs() < 2.0, "two lines: {} vs {one}", h(&two));
+    assert!((h(&styled) - 3.0 * one).abs() < 3.0, "three lines: {}", h(&styled));
+    assert!(h(&all) > 3.5 * one, "unclamped it takes more: {}", h(&all));
+    assert!((w(&upper) - w(&caps)).abs() < 0.5, "drawn as STRASSE: {} vs {}", w(&upper), w(&caps));
+    // Readers and copying get the text as written.
+    assert_eq!(two.info().and_then(|i| i.text).as_deref(), Some(words));
+    assert_eq!(upper.info().and_then(|i| i.text).as_deref(), Some("straße"));
+    assert_eq!(upper.text_content().as_deref(), Some("straße"));
+    ui.connect_accessibility();
+    screen.frame();
+    let dump = format!("{:?}", ui.take_accessibility_update());
+    assert!(dump.contains("\"straße\""), "read as written: {dump}");
+    assert!(dump.contains(words) && !dump.contains('\u{2026}'), "the whole clamped text is read");
+}
+
+#[test]
 fn data_text_is_left_alone_by_pseudo_locales() {
     let ui = ui();
     let name = ui.el("label").text(remedy_ui_view::RichText::plain("Ada Lovelace")).nowrap().data_text();

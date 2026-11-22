@@ -75,8 +75,9 @@ pub use lists::{ListItems, ListTransitions, for_each, for_each_with, list, virtu
 pub use menu_bar::menu_bar;
 pub use menus::{MenuItem, close_menus_in, context_menu, context_menu_at, menu, menu_press_through};
 pub use overlays::{
-    DialogButton, Modal, dialog, fill_window, fit_beside, fit_near, fit_near_dir, lock_screen, modal,
-    place_at, place_beside, place_near, place_near_within, popover, tooltip, trusted_prompt,
+    DialogButton, Modal, dialog, fill_window, fit_beside, fit_near, fit_near_dir, full_text_tooltip,
+    lock_screen, modal, place_at, place_beside, place_near, place_near_within, popover, tooltip,
+    trusted_prompt,
 };
 pub use rejection::Rejection;
 // Kept for apps written against it (FreeSpeak) until the next minor release.

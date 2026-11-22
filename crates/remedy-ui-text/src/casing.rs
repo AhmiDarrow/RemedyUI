@@ -109,8 +109,7 @@ mod tests {
     use crate::TextStylePatch;
 
     fn cased(s: &str, t: TextTransform, turkic: bool) -> String {
-        let mut base = TextStyle::default();
-        base.transform = t;
+        let base = TextStyle { transform: t, ..TextStyle::default() };
         apply(&RichText::plain(s), &base, turkic).map(|(r, _)| r.as_str().to_owned()).unwrap_or_default()
     }
 
@@ -134,8 +133,7 @@ mod tests {
     #[test]
     fn offsets_map_both_ways_and_spans_follow() {
         let t = RichText::new().text("ß ").styled("x", TextStylePatch::bold()).text(" i");
-        let mut base = TextStyle::default();
-        base.transform = TextTransform::Upper;
+        let base = TextStyle { transform: TextTransform::Upper, ..TextStyle::default() };
         let (r, map) = apply(&t, &base, true).unwrap_or_default();
         assert_eq!(r.as_str(), "SS X İ");
         assert_eq!(map.to_cased(3), 3);
