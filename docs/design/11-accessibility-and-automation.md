@@ -11,7 +11,7 @@ Building it once and building it well serves all three.
 ## Semantics
 
 - **Every element can carry semantics:**
-  - **Role:** button, checkbox, switch, slider, text field, link, list, list item, tree item, row, cell, tab, menu, menu item, dialog, alert, status, heading (with level), image, progress, group and others.
+  - **Role:** button, checkbox, switch, slider, text field, link, list, list item, list box and option (ARIA `listbox`/`option`: a list of choices, each selected or not, the list box single or `multiselectable`), tree item, row, cell, tab, menu, menu item, dialog, alert, status, heading (with level), image, progress, group and others.
   - **Name, description and value**, with value ranges and steps for sliders.
   - **States:** checked, selected, expanded, disabled, invalid, busy, required, read-only, protected.
   - **Relations:** labelled by, described by, controls, owns, flows to.

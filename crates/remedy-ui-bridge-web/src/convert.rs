@@ -350,6 +350,7 @@ pub fn aria_attributes(node: &Node) -> Vec<(&'static str, Option<String>)> {
         ("aria-checked", toggled.clone().filter(|_| checkable)),
         ("aria-pressed", toggled.filter(|_| !checkable && role == Role::Button)),
         ("aria-selected", node.is_selected().map(|s| s.to_string())),
+        ("aria-multiselectable", flag(node.is_multiselectable())),
         ("aria-expanded", node.is_expanded().map(|s| s.to_string())),
         ("aria-required", flag(node.is_required())),
         ("aria-readonly", flag(node.is_read_only())),
@@ -802,6 +803,20 @@ mod tests {
         assert_eq!(aria_role(Role::MenuItemRadio), Some("menuitemradio"));
         assert_eq!(get("aria-checked").as_deref(), Some("false"));
         assert_eq!((get("aria-posinset").as_deref(), get("aria-setsize").as_deref()), (Some("2"), Some("3")));
+        // A list box of options: several may be selected, each says whether it is.
+        let mut lb = Node::new(Role::ListBox);
+        lb.set_multiselectable();
+        let a = aria_attributes(&lb);
+        let get = |k: &str| a.iter().find(|(n, _)| *n == k).and_then(|(_, v)| v.clone());
+        assert_eq!(aria_role(Role::ListBox), Some("listbox"));
+        assert_eq!(get("aria-multiselectable").as_deref(), Some("true"));
+        let mut o = Node::new(Role::ListBoxOption);
+        o.set_selected(false);
+        let a = aria_attributes(&o);
+        let get = |k: &str| a.iter().find(|(n, _)| *n == k).and_then(|(_, v)| v.clone());
+        assert_eq!(aria_role(Role::ListBoxOption), Some("option"));
+        assert_eq!(get("aria-selected").as_deref(), Some("false"));
+        assert_eq!(get("aria-multiselectable"), None);
         // Landmarks and the current item.
         assert_eq!(aria_role(Role::Navigation), Some("navigation"));
         assert_eq!(aria_role(Role::Main), Some("main"));
