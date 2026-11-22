@@ -1087,13 +1087,17 @@ impl Compositor {
         let scale_about_center = Affine::translate(Vec2::new(-c.x, -c.y))
             .then(Affine::scale(o_scale, o_scale))
             .then(Affine::translate(c.to_vec2()));
+        // A sticky layer moves with its container's scroll offset, in the same frame.
+        let stuck = layer.sticky.map_or(Vec2::ZERO, |st| {
+            st.offset(st.scroller.and_then(|id| self.scroll_offset(id)).unwrap_or(Vec2::ZERO))
+        });
         let local_to_device = layer
             .transform
             .then(l_affine)
             .then(scale_about_center)
             .then(Affine::translate(Vec2::new(
-                layer.bounds.min.x + o_offset.x,
-                layer.bounds.min.y + o_offset.y,
+                layer.bounds.min.x + o_offset.x + stuck.x,
+                layer.bounds.min.y + o_offset.y + stuck.y,
             )))
             .then(parent);
         let scroll = self.scroll_offset(layer.id).unwrap_or(Vec2::ZERO);
