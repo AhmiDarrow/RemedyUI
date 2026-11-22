@@ -15,6 +15,34 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   Location, Date, Time, True})`, mapped to AccessKit's roles and `aria_current` on every
   platform and to `role=` and `aria-current` in the web bridge's ARIA mirror; screen readers
   hear "current page". The nav rail's and bottom bar's chosen item is `Current::Page`.
+- **Routes and deep links** (`remedy_ui::router`, feature `widgets`), for Portal's
+  `#/home`, `#/browse/<path>` and `#/settings/<id>`: a `Router` holds the route (a signal of
+  `Route`: path, decoded segments, query, `matches("/settings/:id")` and `"/browse/*path"`)
+  with `push`, `replace`, `back` and `forward`, titles the window after each route
+  (`set_title`; `document.title` in a page), and keeps each entry's scroll position
+  (`remember_scroll`). `Router::view` builds the route's page, rebuilt on each change; Alt+Left
+  and Alt+Right, the system back key (Android's back) and the mouse's back and forward buttons
+  move through the history, and a `NavStack` inside a page pops its own pages first. In a
+  browser page `Router::for_window` keeps the route in the address's fragment through the
+  History API (read at load, so a deep link opens its page; the browser's back and forward and
+  a typed address route too). On the desktop `Router::follow_links(app, &["portal"])` opens
+  links in the app's scheme, also from a second launch. `Router::link_to` is a link whose
+  `Semantics::url` (new, in `a11y`; `ReaderNode::url`) makes the web ARIA mirror an
+  `<a href="#/…">`, so middle and Ctrl clicks open a new tab. `App::reload` reloads the page,
+  or natively rebuilds every `Router::view`. `web::history` exposes the page's history.
+- **Fluid poster grids** in `widgets-data`, as Portal's library: `Tiles::fluid(min_width,
+  aspect, extra_height, draw)` fills the width as CSS `repeat(auto-fill, minmax(min, 1fr))`
+  does (`GridGeometry::fluid`), recomputed as the width changes; `grid_view_with(.., GridOptions
+  { own_scroll, interactive_tiles }, ..)` puts the grid in the page's scroll (virtual rows
+  follow the window through any scroll around it) and keeps a card's buttons (Play, Details,
+  Watchlist, Bookmark, Info) for the keyboard and screen readers: Enter moves into the
+  cursor's card, the arrow keys between its buttons, Escape back. `grid_view` is unchanged.
+  The 2,000-poster scene (`widgets-data/tests/poster_grid.rs`) holds the 8 ms frame budget.
+- **Repeated grid tracks** in `layout`: `Track::Repeat(Repeat::AutoFill | AutoFit |
+  Count(n), tracks)`, as CSS `repeat()`, through taffy's own.
+- `El::scroll_rect_into_view(rect)` shows part of an element through the scroll containers
+  around it, and `El::focus_step(forward)` moves focus between the focusable elements inside
+  one, wrapping.
 - **The player's keys from anywhere in the window** in `media-playback`, as Portal's page
   hears them page-wide: `Player::keys_from(&ui.root())` routes the keys nothing focused took
   to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),
