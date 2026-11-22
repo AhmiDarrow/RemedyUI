@@ -8,8 +8,8 @@ use std::ffi::CStr;
 use std::time::{Duration, Instant};
 
 use super::gstreamer::{
-    CLOCK_TIME_NONE, GST_MAP_READ, GST_MAP_WRITE, Gst, GstMapInfo, GstStreamDecoder, RESOURCE_NOT_FOUND, gst,
-    launch_error, map_error, nv12_picture,
+    CLOCK_TIME_NONE, GST_MAP_READ, GST_MAP_WRITE, GST_STATE_READY, Gst, GstMapInfo, GstStreamDecoder,
+    RESOURCE_NOT_FOUND, gst, launch_error, map_error, nv12_picture,
 };
 use super::gstreamer_stream::{Pipe, pull, pull_sample};
 use crate::hls::{
@@ -65,6 +65,24 @@ impl Stream {
         let pipe = build(g, desc, &[c"src", c"sink"])?;
         pipe.start("the HLS decoder")?;
         Ok(Stream { pipe, video, held: 0, hold: HOLD, eos: false })
+    }
+
+    /// Emptied for a new stream or a seek, its elements (the decoder's among them) and
+    /// what they negotiated kept: a flush through the app source drops what the pipeline
+    /// holds and the last stream's end, and its streaming starts again with a new segment.
+    fn reset(&mut self, g: &Gst) -> Result<(), MediaError> {
+        check(g, &self.pipe)?;
+        let src = self.pipe.get(0);
+        // SAFETY: flush events made here and handed to the live app source, which takes them.
+        let sent = unsafe {
+            (g.element_send_event)(src, (g.event_new_flush_start)()) != 0
+                && (g.element_send_event)(src, (g.event_new_flush_stop)(1)) != 0
+        };
+        if !sent {
+            return Err(MediaError::Decode("the HLS decoder would not flush".into()));
+        }
+        (self.held, self.hold, self.eos) = (0, HOLD, false);
+        Ok(())
     }
 
     fn push(&mut self, g: &Gst, data: &[u8], pts: Duration, dts: Duration) -> Result<(), MediaError> {
@@ -156,13 +174,17 @@ impl GstElementary {
         Ok(GstElementary { g: gst()?, config: (None, None), video: None, audio: None, ended: false })
     }
 
-    /// The pipelines for the configured streams, new.
+    /// The pipelines for the configured streams: those there emptied and started again (new
+    /// if that fails), the others new.
     fn start(&mut self) -> Result<(), MediaError> {
         let g = self.g;
         self.ended = false;
-        self.video = None;
-        self.audio = None;
-        if self.config.0.is_some() {
+        for s in [&mut self.video, &mut self.audio] {
+            if s.as_mut().is_some_and(|s| s.reset(g).is_err()) {
+                *s = None;
+            }
+        }
+        if self.config.0.is_some() && self.video.is_none() {
             let dec = GstStreamDecoder::choice(g, VideoCodec::H264, true)?;
             let desc = format!(
                 "appsrc name=src format=time caps=video/x-h264,stream-format=byte-stream,alignment=au \
@@ -171,7 +193,7 @@ impl GstElementary {
             );
             self.video = Some(Stream::open(g, &desc, true)?);
         }
-        if let Some(a) = &self.config.1 {
+        if let Some(a) = self.config.1.as_ref().filter(|_| self.audio.is_none()) {
             let (caps, parse) = match &a.codec {
                 AudioCodec::Aac { asc } => {
                     let hex: String = asc.iter().map(|b| format!("{b:02x}")).collect();
@@ -204,6 +226,14 @@ impl Elementary for GstElementary {
         video: Option<&VideoConfig>,
         audio: Option<&AudioConfig>,
     ) -> Result<(), MediaError> {
+        // The video pipeline is the same for every H.264 stream (h264parse takes new
+        // parameter sets in-band, and a new size); the sound's is set up from its config.
+        if video.is_none() {
+            self.video = None;
+        }
+        if self.config.1.as_ref() != audio {
+            self.audio = None;
+        }
         self.config = (video.cloned(), audio.cloned());
         self.start()
     }
@@ -264,7 +294,6 @@ impl Elementary for GstElementary {
     }
 
     fn flush(&mut self) -> Result<(), MediaError> {
-        // New pipelines: simpler than flushing events, and a seek is rare.
         self.start()
     }
 }

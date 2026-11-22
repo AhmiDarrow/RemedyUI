@@ -4259,11 +4259,20 @@ fn keys_from_the_window_wake_the_full_screen_controls_and_wait_for_a_shown_playe
 #[test]
 fn the_next_hls_stream_in_a_player_takes_the_last_ones_decoders() {
     let Some(host) = platform() else { return };
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hls/video/index.m3u8");
+    // Copied to an absolute path of the system's: a device runs the tests from a folder
+    // named after the manifest's path on the machine that built them.
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hls/video");
+    let folder = std::env::temp_dir().join(format!("remedy-next-hls-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap_or_else(|e| unreachable!("{e}"));
+    for n in ["index.m3u8", "seg00000.ts", "seg00001.ts", "seg00002.ts"] {
+        std::fs::copy(fixture.join(n), folder.join(n)).unwrap_or_else(|e| unreachable!("{n}: {e}"));
+    }
+    let path = folder.join("index.m3u8");
     let source = || MediaSource::file(path.clone());
     let mut s = Screen::new();
     let p = Player::open(&s.ui, host, source(), PlayerOptions::default());
-    s.ui.root().child(player(&s.ui, &p, "HLS"));
+    let view = player(&s.ui, &p, "HLS");
+    s.ui.root().child(view.clone());
     s.wait("the first picture", |s| p.state() == PlaybackState::Paused && s.hue() == 'r');
     let made = hls_decoders_made();
     let (mut replaced, mut next) = (Vec::new(), Vec::new());
@@ -4291,5 +4300,14 @@ fn the_next_hls_stream_in_a_player_takes_the_last_ones_decoders() {
         median(next),
         hls_decoders_made() - made
     );
+    // Its workers end before the test does (the process's exit would cut them short): the
+    // widget holding the player goes too.
+    drop(p);
+    view.remove();
+    drop(view);
+    s.wait("the player's threads ended", |_| {
+        !process_threads().iter().any(|t| t.0.starts_with("remedy-player"))
+    });
+    let _ = std::fs::remove_dir_all(&folder);
     assert_eq!(hls_decoders_made(), made, "every next stream took the last one's decoders");
 }
