@@ -48,12 +48,23 @@ pub(super) fn send(
     cancel: Cancel,
     done: impl FnOnce(Result<Response, NetError>) + Send + 'static,
 ) {
-    wasm_bindgen_futures::spawn_local(async move {
-        done(run(p, cancel).await);
-    });
+    // `fetch` is called here, before returning: a page that is closing (`pagehide`) only gets
+    // the requests it starts inside that event, and a task's first poll comes after it.
+    match start(p, cancel) {
+        Ok(s) => wasm_bindgen_futures::spawn_local(async move { done(finish(s).await) }),
+        Err(e) => done(Err(e)),
+    }
 }
 
-async fn run(p: Prepared, cancel: Cancel) -> Result<Response, NetError> {
+/// A request whose `fetch` has been called.
+struct Started {
+    p: Prepared,
+    fetch: Promise,
+    why: Rc<Cell<Option<NetError>>>,
+    finished: Rc<Cell<bool>>,
+}
+
+fn start(p: Prepared, cancel: Cancel) -> Result<Started, NetError> {
     let net = |e: JsValue| NetError::Network(message(&e));
     if !p.keepalive && cancel.is_cancelled() {
         return Err(NetError::Cancelled);
@@ -107,9 +118,15 @@ async fn run(p: Prepared, cancel: Cancel) -> Result<Response, NetError> {
             }
         });
     }
+    let fetch = win.fetch_with_str_and_init(&p.url, &init);
+    Ok(Started { p, fetch, why, finished })
+}
+
+async fn finish(s: Started) -> Result<Response, NetError> {
+    let net = |e: JsValue| NetError::Network(message(&e));
+    let Started { p, fetch, why, finished } = s;
     let got = async {
-        let resp: web_sys::Response =
-            JsFuture::from(win.fetch_with_str_and_init(&p.url, &init)).await.map_err(net)?.unchecked_into();
+        let resp: web_sys::Response = JsFuture::from(fetch).await.map_err(net)?.unchecked_into();
         let status = resp.status();
         let mut out_headers = Vec::new();
         if let Ok(Some(entries)) = js_sys::try_iter(&resp.headers()) {
