@@ -36,6 +36,27 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `remedy.toml` makes `cargo remedy package` add an unchecked task that writes that Run value
   (removed on uninstall) and no Startup shortcut beside it, as Portal's installer does.
 
+- **Landmarks and the current item** in `a11y`: `Role::{Navigation, Main, Banner, Region,
+  Search, Article, ContentInfo, Complementary}` and `Semantics::current(Current::{Page, Step,
+  Location, Date, Time, True})`, mapped to AccessKit's roles and `aria_current` on every
+  platform and to `role=` and `aria-current` in the web bridge's ARIA mirror; screen readers
+  hear "current page". The nav rail's and bottom bar's chosen item is `Current::Page`.
+- **`remedy-ui-services-net`, an HTTP client for native apps and browser pages** (facade
+  feature `net`, `remedy_ui::net`, in `full`). `Http::new(base)` with default headers, a
+  timeout and natively an optional `CookieJar`; `Request::get/post/put/delete` with headers,
+  JSON, raw or `Multipart` bodies, a per-request timeout and `keepalive()` for a last save
+  that must finish while the page or app closes (`fetch` keepalive in a page; natively
+  `finish_keepalive`, which `remedy_ui::run` calls on the way out). `Http::send` and
+  `send_json::<T>` never block; a status outside 200-299 is `NetError::Http(HttpError {
+  status, body, detail })`, `detail` read from a JSON body's `detail` field.
+  `Http::resource` is a reactive `Resource` whose fetch is a request: a new key aborts the
+  old one (`AbortController` in a page). Natively ureq on rustls with the platform verifier
+  (the updater's stack, no new crates), refusing plain `http` beyond loopback; in a page,
+  `fetch` with same-origin cookies. Tested against a loopback server natively and in
+  headless Firefox (`tools/web-test.sh`).
+- **`Resource::with_reply`** in `reactive`: a resource whose fetch answers later through a
+  `Reply` sent from any thread, instead of blocking a worker, which is how fetches run in a
+  browser page. `Resource::with_executor` is built on it.
 - **Routes and deep links** (`remedy_ui::router`, feature `widgets`), for Portal's
   `#/home`, `#/browse/<path>` and `#/settings/<id>`: a `Router` holds the route (a signal of
   `Route`: path, decoded segments, query, `matches("/settings/:id")` and `"/browse/*path"`)
@@ -876,6 +897,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - `autostart::Entry` has a `run_key` field: add `run_key: false` to a struct literal, or use
   `Entry::current`. `enabled` and `set` now also see the Run key on Windows; `enabled_in` and
   `set_in` still see only the folder.
+- `services-update` reads its feeds, signatures and checksum files through
+  `remedy-ui-services-net` (same 60-second timeout, headers and https-only rule); the
+  download keeps its own reader for its progress.
+
 - `media-playback`: an HLS stream's decoders are kept by the player's host for the next
   stream (`replace_source`, `start_next`) and reconfigured when its streams allow (on
   Windows the H.264 transform always, the sound one for the same config; on Android the
@@ -1004,6 +1029,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   within the double-click time count as one, as Portal's launcher debounces them. The
   tooltip still shows (`NIF_SHOWTIP`).
 
+- **An image's remembered size is never another image's** (`media-image`). Byte sources are
+  keyed by address and length; the size and decode caches now hold a `Weak` to the bytes, so
+  the address cannot be reused by a new download while an entry exists, and drop the entry
+  once the bytes are freed. `probe` checks a file's size and modification time (off the UI
+  thread) and re-reads its size when the file changed. Remembered sizes are capped at 1024,
+  least recently used first (`known_sizes()` counts them).
 - **On Android, tapping a text field now opens the on-screen keyboard.** The input-method
   view was a full-screen overlay; once a field focused it, it ate every later tap, and
   `showSoftInput` was asked before the view had focus and a window token, so the keyboard
