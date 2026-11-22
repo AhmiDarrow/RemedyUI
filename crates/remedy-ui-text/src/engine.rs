@@ -494,6 +494,8 @@ pub struct TextEngine {
     lcx: LayoutContext<u32>,
     /// The language text is in, unless a span says otherwise ([`TextEngine::set_locale`]).
     language: Option<parley::fontique::Language>,
+    /// The casing rules of the locale ([`TextTransform`](crate::TextTransform)).
+    case_lang: crate::casing::Lang,
 }
 
 impl std::fmt::Debug for TextEngine {
@@ -522,6 +524,9 @@ pub struct ParagraphOptions {
     pub scale: f32,
     /// Round line metrics to whole device pixels, so hinted text sits on the pixel grid.
     pub snap: bool,
+    /// At most this many lines (CSS `line-clamp`): text that would take more ends the last
+    /// one with "…" ([`TextEngine::layout`]). `None` for no limit.
+    pub max_lines: Option<usize>,
 }
 
 impl ParagraphOptions {
@@ -555,6 +560,12 @@ impl ParagraphOptions {
         self
     }
 
+    /// Sets `max_lines`: at most this many lines, the last ending in "…" when the text is cut.
+    pub fn max_lines(mut self, value: usize) -> Self {
+        self.max_lines = Some(value);
+        self
+    }
+
     /// Sets `snap`: round line metrics to whole device pixels, so hinted text sits on the pixel grid.
     pub fn snap(mut self, value: bool) -> Self {
         self.snap = value;
@@ -571,6 +582,7 @@ impl Default for ParagraphOptions {
             container: Direction::Auto,
             scale: 1.0,
             snap: true,
+            max_lines: None,
         }
     }
 }
@@ -578,7 +590,12 @@ impl Default for ParagraphOptions {
 impl TextEngine {
     /// An engine using `fonts`.
     pub fn new(fonts: FontCollection) -> Self {
-        TextEngine { fonts, lcx: LayoutContext::new(), language: None }
+        TextEngine {
+            fonts,
+            lcx: LayoutContext::new(),
+            language: None,
+            case_lang: crate::casing::Lang::Default,
+        }
     }
 
     /// The language text is in (a BCP 47 tag such as `ja` or `zh-Hans`; empty or invalid
@@ -588,8 +605,10 @@ impl TextEngine {
     /// Returns whether it changed (paragraphs laid out before should be laid out again).
     pub fn set_locale(&mut self, locale: &str) -> bool {
         let language = parley::fontique::Language::parse(locale).ok();
-        let changed = language != self.language;
+        let case_lang = crate::casing::Lang::for_locale(locale);
+        let changed = language != self.language || case_lang != self.case_lang;
         self.language = language;
+        self.case_lang = case_lang;
         changed
     }
 
@@ -609,7 +628,98 @@ impl TextEngine {
     /// finite `max_width`) is laid out lazily: only the lines asked for (those a view shows,
     /// and those its caret, selection and pointer reach) are shaped, a piece at a time, with
     /// exactly the lines, glyphs and carets a whole layout gives. See [`Paragraph`].
+    ///
+    /// A [`TextTransform`](crate::TextTransform) in `base` or a span is applied here: the
+    /// cased text is shaped, and the paragraph's byte offsets (hit tests, carets, selections,
+    /// lines and runs) are those of `text` as written.
+    ///
+    /// With [`ParagraphOptions::max_lines`], text that would take more lines is cut at the
+    /// last grapheme boundary that leaves room for "…" on the last line. The "…" follows the
+    /// text in logical order, so it lands on the line's visual end in either direction; the
+    /// paragraph's offsets stay those of `text` (the cut is a prefix of it).
     pub fn layout(&mut self, text: &RichText, base: &TextStyle, options: ParagraphOptions) -> Paragraph {
+        if let Some(n) = options.max_lines {
+            return self.clamped(text, base, ParagraphOptions { max_lines: None, ..options }, n.max(1));
+        }
+        if let Some((cased, map)) = crate::casing::apply(text, base, self.case_lang) {
+            let mut p = self.layout_uncased(&cased, base, options);
+            p.case = Some(map);
+            return p;
+        }
+        self.layout_uncased(text, base, options)
+    }
+
+    /// `text` in at most `n` lines, the last ending in "…" when it is cut.
+    fn clamped(
+        &mut self,
+        text: &RichText,
+        base: &TextStyle,
+        options: ParagraphOptions,
+        n: usize,
+    ) -> Paragraph {
+        let s = text.as_str();
+        // The start of `text` up to `end` (white space after it dropped when `trim`), then
+        // `suffix`, keeping the spans and objects there.
+        let head = |end: usize, trim: bool, suffix: &str| {
+            let kept = s.get(..end).unwrap_or(s);
+            let kept = if trim { kept.trim_end() } else { kept };
+            let keep = kept.len();
+            let mut r = RichText::plain(format!("{kept}{suffix}"));
+            for span in text.spans() {
+                let (a, b) = (span.range.start.min(keep), span.range.end.min(keep));
+                if a < b {
+                    r.add_span(a..b, span.patch.clone());
+                }
+            }
+            r.set_objects(text.objects().iter().filter(|(i, _)| *i < keep).copied().collect());
+            r
+        };
+        let cut = |end: usize| head(end, true, "\u{2026}");
+        // Lines break greedily, so the lines of a start of the text that reaches past line
+        // n + 1 are the whole text's up to there: lay out starts growing fourfold, not the
+        // whole of a long text.
+        let mut budget = 256 * (n + 2);
+        let (full, lines) = loop {
+            if budget >= s.len() {
+                let p = self.layout(text, base, options);
+                let l = p.lines();
+                break (p, l);
+            }
+            let end = (0..=budget).rev().find(|&i| s.is_char_boundary(i)).unwrap_or(0);
+            let p = self.layout(&head(end, false, ""), base, options);
+            let l = p.lines();
+            if l.len() > n + 1 {
+                break (p, l);
+            }
+            budget = budget.saturating_mul(4);
+        };
+        let Some(last) = lines.get(n - 1).filter(|_| lines.len() > n) else { return full };
+        // Grapheme boundaries on the last visible line: a cut never splits a cluster. Text
+        // past that line cannot fit beside the "…" (it was pushed to the next line already).
+        let line = last.range.start..last.range.end.min(s.len());
+        let ends: Vec<usize> = icu_segmenter::GraphemeClusterSegmenter::new()
+            .segment_str(s.get(line.clone()).unwrap_or(""))
+            .map(|b| b + line.start)
+            .filter(|&b| b > line.start)
+            .collect();
+        // Binary search for the last end that still fits in `n` lines.
+        let (mut lo, mut hi) = (0usize, ends.len());
+        let mut best = None;
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            let Some(&end) = ends.get(mid) else { break };
+            let p = self.layout(&cut(end), base, options);
+            if p.lines().len() <= n {
+                best = Some(p);
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        best.unwrap_or_else(|| self.layout(&cut(line.start), base, options))
+    }
+
+    fn layout_uncased(&mut self, text: &RichText, base: &TextStyle, options: ParagraphOptions) -> Paragraph {
         self.fonts.load_needed(text.as_str());
         if crate::lazy::eligible(text, &options) {
             return Paragraph::lazy(crate::lazy::Lazy::new(self.snapshot(), text, base, options));
@@ -625,14 +735,23 @@ impl TextEngine {
         base: &TextStyle,
         options: ParagraphOptions,
     ) -> Paragraph {
-        self.fonts.load_needed(text.as_str());
-        Paragraph::whole(self.layout_piece(text, base, options, 0.0))
+        let cased = crate::casing::apply(text, base, self.case_lang);
+        let shown = cased.as_ref().map_or(text, |(c, _)| c);
+        self.fonts.load_needed(shown.as_str());
+        let mut p = Paragraph::whole(self.layout_piece(shown, base, options, 0.0));
+        p.case = cased.map(|(_, m)| m);
+        p
     }
 
     /// A copy of the engine for one lazy paragraph to lay its pieces out with later: the same
     /// fonts (sharing their data) and language, its own scratch space.
     fn snapshot(&self) -> TextEngine {
-        TextEngine { fonts: self.fonts.clone(), lcx: LayoutContext::new(), language: self.language }
+        TextEngine {
+            fonts: self.fonts.clone(),
+            lcx: LayoutContext::new(),
+            language: self.language,
+            case_lang: self.case_lang,
+        }
     }
 
     /// Shapes and lays out all of `text` (fonts already loaded for it), its first line's top
@@ -682,7 +801,10 @@ impl TextEngine {
         base: &TextStyle,
         options: ParagraphOptions,
     ) -> Paragraph {
-        if let Some(p) = crate::lazy::Lazy::after_edit(&before.inner, text, base, options) {
+        if before.case.is_none()
+            && crate::casing::apply(text, base, self.case_lang).is_none()
+            && let Some(p) = crate::lazy::Lazy::after_edit(&before.inner, text, base, options)
+        {
             return Paragraph::lazy(p);
         }
         self.layout(text, base, options)
@@ -1323,6 +1445,9 @@ impl Piece {
 /// [`Paragraph::is_complete`] says whether they are exact.
 pub struct Paragraph {
     pub(crate) inner: Inner,
+    /// Set when the text was cased before shaping: maps the shaped text's offsets to the
+    /// text as written.
+    pub(crate) case: Option<crate::casing::CaseMap>,
 }
 
 pub(crate) enum Inner {
@@ -1332,11 +1457,11 @@ pub(crate) enum Inner {
 
 impl Paragraph {
     pub(crate) fn whole(piece: Piece) -> Self {
-        Paragraph { inner: Inner::Whole(piece) }
+        Paragraph { inner: Inner::Whole(piece), case: None }
     }
 
     pub(crate) fn lazy(lazy: crate::lazy::Lazy) -> Self {
-        Paragraph { inner: Inner::Lazy(lazy) }
+        Paragraph { inner: Inner::Lazy(lazy), case: None }
     }
 
     /// Lays the paragraph out again at a new width, without shaping again (a lazy paragraph
@@ -1413,33 +1538,36 @@ impl Paragraph {
 
     /// The lines, top to bottom (all of them: a lazy paragraph lays out the rest).
     pub fn lines(&self) -> Vec<LineInfo> {
-        match &self.inner {
+        let lines = match &self.inner {
             Inner::Whole(p) => p.lines(),
             Inner::Lazy(l) => l.lines_in(f32::NEG_INFINITY..f32::INFINITY),
-        }
+        };
+        self.uncase_lines(lines)
     }
 
     /// The lines that reach into `ys` (from the paragraph's top), top to bottom.
     pub fn lines_in(&self, ys: Range<f32>) -> Vec<LineInfo> {
-        match &self.inner {
+        let lines = match &self.inner {
             Inner::Whole(p) => p.lines().into_iter().filter(|l| reaches(l, &ys)).collect(),
             Inner::Lazy(l) => l.lines_in(ys),
-        }
+        };
+        self.uncase_lines(lines)
     }
 
     /// Glyph runs in drawing order, with positions from the paragraph's top-left (all of
     /// them: a lazy paragraph lays out the rest).
     pub fn glyph_runs(&self) -> Vec<GlyphRunInfo> {
-        match &self.inner {
+        let runs = match &self.inner {
             Inner::Whole(p) => p.glyph_runs(),
             Inner::Lazy(l) => l.glyph_runs_in(f32::NEG_INFINITY..f32::INFINITY),
-        }
+        };
+        self.uncase_runs(runs)
     }
 
     /// The glyph runs of the lines that reach into `ys` (from the paragraph's top), in
     /// drawing order: what a view draws for the part of the paragraph it shows.
     pub fn glyph_runs_in(&self, ys: Range<f32>) -> Vec<GlyphRunInfo> {
-        match &self.inner {
+        let runs = match &self.inner {
             Inner::Whole(p) => {
                 let lines = p.lines();
                 let first = lines.iter().position(|l| reaches(l, &ys));
@@ -1450,7 +1578,8 @@ impl Paragraph {
                 }
             }
             Inner::Lazy(l) => l.glyph_runs_in(ys),
-        }
+        };
+        self.uncase_runs(runs)
     }
 
     /// Inline objects with their boxes, by the ids the caller gave them (all of them: a lazy
@@ -1480,10 +1609,11 @@ impl Paragraph {
 
     /// The text position nearest `point` (from the paragraph's top-left).
     pub fn hit_test(&self, point: Point) -> TextPosition {
-        match &self.inner {
+        let pos = match &self.inner {
             Inner::Whole(p) => p.hit_test(point),
             Inner::Lazy(l) => l.hit_test(point),
-        }
+        };
+        self.uncase_pos(pos)
     }
 
     /// The link under `point`, if the point is on linked text.
@@ -1505,6 +1635,7 @@ impl Paragraph {
 
     /// The caret's rectangle at `pos`, `width` logical pixels wide.
     pub fn caret(&self, pos: TextPosition, width: f32) -> Rect {
+        let pos = self.case_pos(pos);
         match &self.inner {
             Inner::Whole(p) => p.caret(pos, width),
             Inner::Lazy(l) => l.caret(pos, width),
@@ -1513,6 +1644,10 @@ impl Paragraph {
 
     /// Rectangles covering `range`, one or more per line, in visual order.
     pub fn selection_rects(&self, range: Range<usize>) -> Vec<Rect> {
+        let range = match &self.case {
+            Some(m) => m.to_cased(range.start)..m.to_cased(range.end),
+            None => range,
+        };
         match &self.inner {
             Inner::Whole(p) => p.selection_rects(range),
             Inner::Lazy(l) => l.selection_rects(range),
@@ -1521,27 +1656,70 @@ impl Paragraph {
 
     /// The word around `point`, as a byte range.
     pub fn word_at(&self, point: Point) -> Range<usize> {
-        match &self.inner {
+        let r = match &self.inner {
             Inner::Whole(p) => p.word_at(point),
             Inner::Lazy(l) => l.word_at(point),
+        };
+        match &self.case {
+            Some(m) => m.to_original(r.start)..m.to_original(r.end),
+            None => r,
         }
     }
 
     /// The position one character to the visual right (or left) of `pos`, as the arrow keys
     /// move in mixed-direction text.
     pub fn move_visual(&self, pos: TextPosition, rightward: bool) -> TextPosition {
-        match &self.inner {
+        let pos = self.case_pos(pos);
+        let moved = match &self.inner {
             Inner::Whole(p) => p.move_visual(pos, rightward),
             Inner::Lazy(l) => l.moved(pos, |p, at| p.move_visual(at, rightward)),
-        }
+        };
+        self.uncase_pos(moved)
     }
 
     /// The position one word to the visual right (or left) of `pos`.
     pub fn move_word(&self, pos: TextPosition, rightward: bool) -> TextPosition {
-        match &self.inner {
+        let pos = self.case_pos(pos);
+        let moved = match &self.inner {
             Inner::Whole(p) => p.move_word(pos, rightward),
             Inner::Lazy(l) => l.moved(pos, |p, at| p.move_word(at, rightward)),
+        };
+        self.uncase_pos(moved)
+    }
+
+    fn case_pos(&self, pos: TextPosition) -> TextPosition {
+        match &self.case {
+            Some(m) => TextPosition { index: m.to_cased(pos.index), ..pos },
+            None => pos,
         }
+    }
+
+    fn uncase_pos(&self, pos: TextPosition) -> TextPosition {
+        match &self.case {
+            Some(m) => TextPosition { index: m.to_original(pos.index), ..pos },
+            None => pos,
+        }
+    }
+
+    fn uncase_lines(&self, mut lines: Vec<LineInfo>) -> Vec<LineInfo> {
+        if let Some(m) = &self.case {
+            for l in &mut lines {
+                l.range = m.to_original(l.range.start)..m.to_original(l.range.end);
+            }
+        }
+        lines
+    }
+
+    fn uncase_runs(&self, mut runs: Vec<GlyphRunInfo>) -> Vec<GlyphRunInfo> {
+        if let Some(m) = &self.case {
+            for r in &mut runs {
+                r.range = m.to_original(r.range.start)..m.to_original(r.range.end);
+                for c in &mut r.clusters {
+                    *c = m.to_original(*c);
+                }
+            }
+        }
+        runs
     }
 }
 

@@ -1856,6 +1856,9 @@ struct Win {
     #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
     cost: FrameCost,
     scrollers: Vec<(LayerId, ElementId)>,
+    /// Scrolls asked for before their container had a layer (content built this frame, such
+    /// as a page a router brings back), applied once it has one.
+    pending_scrolls: Vec<(ElementId, Vec2)>,
     cover: Option<remedy_ui_view::El>,
     /// The window's content zoom (1 = as designed): everything is drawn this much larger,
     /// and input positions are mapped back.
@@ -2034,6 +2037,12 @@ impl Runner {
             Some(remedy_ui_services_i18n::NumberSymbols::for_locale(locale).format(d, d.scale()))
         })));
         let dir = config.data_dir.clone().or_else(|| data_dir(&config.name));
+        // Images fetched from addresses are kept across runs in the app's cache folder (its
+        // own data folder's `cache` when the app names one).
+        #[cfg(feature = "image")]
+        remedy_ui_media_image::set_cache_dir(
+            config.data_dir.as_ref().map(|d| d.join("cache")).or_else(|| crate::geometry::cache_dir(&config.name)).map(|d| d.join("images")),
+        );
         // What this machine's graphics backends did (passed their self-test, drew wrong,
         // hung presenting) is remembered with the app's data: tested once per driver, and a
         // backend that hung is skipped from the next start.
@@ -2176,6 +2185,8 @@ impl Runner {
                 ui.set_wake(Rc::new(move || app.wake_if_idle()));
                 ui.set_reduced_motion(self.reduced_motion());
                 ui.set_power_saving(self.settings.power_saving);
+                ui.set_system_spatial_navigation(self.settings.spatial_navigation);
+                ui.set_pointer_caps(self.settings.pointer);
                 if let Some(p) = self.app.0.borrow().ambient {
                     ui.set_ambient_policy(p);
                 }
@@ -2216,6 +2227,7 @@ impl Runner {
                         awaiting_gpu: false,
                         cost: FrameCost::default(),
                         scrollers: Vec::new(),
+                        pending_scrolls: Vec::new(),
                         cover: None,
                     },
                 );
@@ -2533,10 +2545,18 @@ impl Runner {
                 Request::ScrollTo { scroller, offset } => {
                     if let Some(w) = self.wins.get_mut(&key) {
                         let layer = w.scrollers.iter().find(|(_, e)| *e == scroller).map(|(l, _)| *l);
-                        if let (Some(l), Some(c)) = (layer, w.comp.as_mut())
-                            && c.set_scroll_offset(l, offset)
-                        {
-                            host.request_frame(h);
+                        match (layer, w.comp.as_mut()) {
+                            (Some(l), Some(c)) => {
+                                if c.set_scroll_offset(l, offset) {
+                                    host.request_frame(h);
+                                }
+                            }
+                            // Not drawn yet: the next frame that gives it a layer scrolls it.
+                            _ => {
+                                w.pending_scrolls.retain(|(e, _)| *e != scroller);
+                                w.pending_scrolls.push((scroller, offset));
+                                host.request_frame(h);
+                            }
                         }
                     }
                 }
@@ -2799,6 +2819,24 @@ impl Runner {
         }
         comp.set_ambient(w.ui.tick_interval(remedy_ui_view::TickKind::Ambient));
         w.scrollers = f.scrollers;
+        if !w.pending_scrolls.is_empty() {
+            let tree = w.ui.tree();
+            let scrollers = &w.scrollers;
+            let mut moved = false;
+            w.pending_scrolls.retain(|(el, offset)| {
+                match scrollers.iter().find(|(_, e)| e == el) {
+                    Some((layer, _)) => {
+                        moved |= comp.set_scroll_offset(*layer, *offset);
+                        false
+                    }
+                    // Kept while the container lives: it may overflow (and get its layer) later.
+                    None => tree.contains(*el),
+                }
+            });
+            if moved {
+                host.request_frame(w.host);
+            }
+        }
         // A picture asked for. A window the GPU draws reads back the frame it keeps after this
         // frame's present: what the screen shows, effects, video and app textures included.
         // Otherwise this frame draws everything, and a CPU renderer of its own draws it once
@@ -3150,6 +3188,8 @@ impl remedy_ui_host::App for Runner {
                     w.ui.set_double_click_time(s.double_click);
                     w.ui.set_system_subpixel(s.subpixel_text);
                     w.ui.set_power_saving(s.power_saving);
+                    w.ui.set_system_spatial_navigation(s.spatial_navigation);
+                    w.ui.set_pointer_caps(s.pointer);
                 }
                 let appearance = (s.dark, s.high_contrast);
                 self.settings = s;

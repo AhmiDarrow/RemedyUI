@@ -170,6 +170,13 @@ impl Java {
                     .i()
             })
             .ok();
+        let television = self
+            .call(|env, a| {
+                let c = configuration(env, a)?;
+                // UI_MODE_TYPE_MASK, UI_MODE_TYPE_TELEVISION.
+                Ok(env.get_field(&c, "uiMode", "I")?.i()? & 0x0f == 0x04)
+            })
+            .unwrap_or(false);
         AndroidSettings {
             night,
             font_scale,
@@ -178,6 +185,7 @@ impl Java {
             high_contrast_text,
             accent,
             double_tap_ms,
+            television,
         }
     }
 
@@ -557,14 +565,15 @@ impl Java {
         caret: (f32, f32, f32),
         secret: bool,
         multiline: bool,
-        numeric: bool,
+        purpose: remedy_ui_host::InputPurpose,
     ) -> Result<(), String> {
+        let purpose = convert::purpose_code(purpose);
         self.on_bridge(app, "the text input session", move |env, b| {
             let t = env.new_string(&text)?;
             env.call_method(
                 b,
                 "textInput",
-                "(Ljava/lang/String;IIFFFZZZ)V",
+                "(Ljava/lang/String;IIFFFZZI)V",
                 &[
                     JValue::Object(&t),
                     JValue::Int(selection.0),
@@ -574,7 +583,7 @@ impl Java {
                     JValue::Float(caret.2),
                     JValue::Bool(u8::from(secret)),
                     JValue::Bool(u8::from(multiline)),
-                    JValue::Bool(u8::from(numeric)),
+                    JValue::Int(purpose),
                 ],
             )?;
             Ok(())
@@ -809,9 +818,14 @@ impl Java {
                 JValue::Object(&app),
                 JValue::Object(&pixels),
                 JValue::Int(side),
+                JValue::Int(match n.urgency {
+                    remedy_ui_host::Urgency::Warning => 1,
+                    remedy_ui_host::Urgency::Error => 2,
+                    _ => 0,
+                }),
             ];
             let mut sig = String::from(
-                "(Landroid/app/Activity;JJLjava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;ZLjava/lang/String;[II",
+                "(Landroid/app/Activity;JJLjava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;ZLjava/lang/String;[III",
             );
             if let Some(x) = extra {
                 args.push(JValue::Int(x));

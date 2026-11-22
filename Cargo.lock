@@ -4066,6 +4066,7 @@ dependencies = [
  "remedy-ui-secure",
  "remedy-ui-services-desktop",
  "remedy-ui-services-i18n",
+ "remedy-ui-services-net",
  "remedy-ui-services-spell",
  "remedy-ui-services-update",
  "remedy-ui-services-webstorage",
@@ -4085,6 +4086,8 @@ dependencies = [
  "remedy-ui-widgets-nav",
  "remedy-ui-widgets-stage",
  "remedy-ui-widgets-term",
+ "serde",
+ "serde_json",
  "x11rb",
 ]
 
@@ -4499,6 +4502,7 @@ name = "remedy-ui-media-image"
 version = "1.0.0-rc.1"
 dependencies = [
  "image",
+ "js-sys",
  "moxcms",
  "remedy-ui-a11y",
  "remedy-ui-core",
@@ -4507,10 +4511,15 @@ dependencies = [
  "remedy-ui-layout",
  "remedy-ui-paint",
  "remedy-ui-reactive",
+ "remedy-ui-services-net",
  "remedy-ui-text",
  "remedy-ui-themes",
  "remedy-ui-trace",
  "remedy-ui-view",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]
@@ -4782,6 +4791,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "remedy-ui-services-net"
+version = "1.0.0-rc.1"
+dependencies = [
+ "js-sys",
+ "remedy-ui-reactive",
+ "rustls",
+ "serde",
+ "serde_json",
+ "ureq",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
 name = "remedy-ui-services-spell"
 version = "1.0.0-rc.1"
 dependencies = [
@@ -4819,6 +4844,7 @@ dependencies = [
  "remedy-ui-core",
  "remedy-ui-fonts",
  "remedy-ui-reactive",
+ "remedy-ui-services-net",
  "remedy-ui-text",
  "remedy-ui-themes",
  "remedy-ui-view",
@@ -4863,6 +4889,7 @@ name = "remedy-ui-text"
 version = "1.0.0-rc.1"
 dependencies = [
  "fontique",
+ "icu_normalizer",
  "icu_properties",
  "icu_segmenter",
  "parley",
