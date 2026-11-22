@@ -10,6 +10,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Android: an app can offer an APK it already has to the system installer** (`android::install_apk`), served through the existing share `FileProvider`. The person taps Install, and their data is kept. If the “install unknown apps” setting is off, the settings page for this app is opened instead (`android::can_request_package_installs`). Share cleanup leaves named (non-numeric) folders under the share cache, so a downloaded APK is not deleted when a later share starts. Launch extras and these installer calls keep working after the event loop has started (the activity is no longer taken out of the process hook when the loop begins).
+
 - **Spatial navigation** for TVs, remotes and d-pads (engine gap #4 of Portal's whole-app
   audit): `Ui::set_spatial_navigation(true)` makes an arrow the focused element does not take
   move focus to the nearest focusable element that way, inside the current focus scope (an
@@ -140,6 +142,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - **`Resource::with_reply`** in `reactive`: a resource whose fetch answers later through a
   `Reply` sent from any thread, instead of blocking a worker, which is how fetches run in a
   browser page. `Resource::with_executor` is built on it.
+
 - **Routes and deep links** (`remedy_ui::router`, feature `widgets`), for Portal's
   `#/home`, `#/browse/<path>` and `#/settings/<id>`: a `Router` holds the route (a signal of
   `Route`: path, decoded segments, query, `matches("/settings/:id")` and `"/browse/*path"`)
