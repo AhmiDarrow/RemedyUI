@@ -155,7 +155,15 @@ The `data` feature ([`data`](crate::data)) has the heavier views, all virtual at
 - [`data::tree_view`](crate::data::tree_view): nested items loaded as they open, with drag
   and drop.
 - [`data::grid_view`](crate::data::grid_view): icons or pictures in rows that reflow with the
-  width.
+  width. `Tiles::fluid(180.0, 1.5, 76.0, draw)` makes a poster grid like CSS
+  `repeat(auto-fill, minmax(180px, 1fr))`: as many columns as fit at 180 px, stretched to the
+  width, each tile 1.5 times its width tall plus 76 px for a caption.
+  [`data::grid_view_with`](crate::data::grid_view_with) takes `GridOptions`: `own_scroll:
+  false` puts the grid in the page's scroll (it grows to all its rows and builds only those
+  the window shows), and `interactive_tiles: true` keeps each card's buttons for the keyboard
+  and screen readers (Enter moves into the cursor's card, the arrows between its buttons,
+  Escape back to the grid) instead of reading the card as one item. Outside a virtual grid,
+  the layout's own `Track::Repeat(Repeat::AutoFill, ..)` does the same with grid tracks.
 - [`data::property_grid`](crate::data::property_grid): names and values in groups, as in an
   inspector.
 - [`data::chat_list`](crate::data::chat_list): messages grouped by day, kept at the bottom
