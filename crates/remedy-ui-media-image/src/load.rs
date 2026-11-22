@@ -345,7 +345,7 @@ pub fn load(source: &Source, box_px: Option<(u32, u32)>, cover: bool, state: Sig
             c.done.get(&key).filter(|d| !gone(&d.bytes)).and_then(|d| d.pixels.upgrade().map(|px| (d, px)));
         if let Some((d, pixels)) = cached {
             let image = Image { id: d.id, width: d.size.0, height: d.size.1, pixels };
-            state.set(ImageState::Ready(image, d.source_size));
+            let _ = state.try_set(ImageState::Ready(image, d.source_size));
             // A file may have changed since: look, off the UI thread, and reload if it did.
             if let (Source::File(p), Some(old)) = (source, d.stamp) {
                 revalidate(p.clone(), old, key, source.clone(), state);
@@ -355,9 +355,9 @@ pub fn load(source: &Source, box_px: Option<(u32, u32)>, cover: bool, state: Sig
         c.done.remove(&key);
         // A file's size may be stale here; the decode below brings the current one.
         if let Some((size, _)) = c.known(&key.source) {
-            state.set(ImageState::Sized(size));
+            let _ = state.try_set(ImageState::Sized(size));
         } else {
-            state.set(ImageState::Loading);
+            let _ = state.try_set(ImageState::Loading);
         }
         if let Some(p) = c.pending.get_mut(&key) {
             p.waiters.push((waiter, state));
@@ -542,7 +542,7 @@ pub(crate) fn probe_held(source: &Source, state: Signal<ImageState>) -> Option<c
     let key = source.key();
     let known = CACHE.with(|c| c.borrow_mut().known(&key));
     if let Some((size, _)) = known {
-        state.set(ImageState::Sized(size));
+        let _ = state.try_set(ImageState::Sized(size));
         // Bytes never change, nor (for the session) an address; a file may have, so its
         // stamp is checked off the UI thread.
         if !matches!(source, Source::File(_)) {

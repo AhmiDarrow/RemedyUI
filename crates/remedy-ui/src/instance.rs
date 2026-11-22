@@ -31,6 +31,9 @@ pub(crate) struct ReplyWait {
 }
 
 /// How claiming the instance ended.
+// A browser page claims through the web bridge instead, so there only `run`'s match names
+// these; the desktop bridges make them.
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Claimed {
     /// This is the first instance: run.

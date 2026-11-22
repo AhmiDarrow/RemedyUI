@@ -290,10 +290,14 @@ fn secret_fields_mask_never_copy_and_skip_input_methods() {
         !ui.take_requests().iter().any(|r| matches!(r, Request::Copy { .. })),
         "secrets are never copied"
     );
-    assert!(!ui.ime(&ImeEvent::Commit("x".into())), "no input method edits a secret");
+    assert!(
+        !ui.ime(&ImeEvent::Preedit { text: "x".into(), cursor: None }),
+        "no composition edits a secret in the clear"
+    );
+    assert!(ui.ime(&ImeEvent::Commit("!1".into())), "pasted or autofilled text reaches a secret");
     ui.key(&key(Key::Enter, None, Modifiers::NONE));
     assert!(submitted.get());
-    assert_eq!(field.take_secret().expose(), "p@Ss");
+    assert_eq!(field.take_secret().expose(), "p@Ss!1");
     assert!(field.is_empty());
     s.frame();
 }
