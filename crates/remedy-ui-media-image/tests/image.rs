@@ -479,3 +479,30 @@ fn a_lazy_image_loads_only_once_it_comes_near_the_viewport() {
     frame(&ui);
     frame(&ui);
 }
+
+#[test]
+fn late_results_for_a_disposed_signal_are_dropped() {
+    // A page reload or a closed view disposes the element's signal while its image still
+    // loads, sizes or sits in the cache; none of those answers may panic.
+    let ui = ui();
+    let bytes: Arc<[u8]> = png(6, 4, |_, _| [9, 9, 9, 255], None).into();
+    let source = Source::Bytes(bytes);
+    let gone = || {
+        let s = remedy_ui_reactive::Signal::new(ImageState::Loading);
+        s.dispose();
+        s
+    };
+    let fresh = load(&source, None, false, gone());
+    probe(&source, gone());
+    settle(&ui);
+    // Wanted elsewhere now, so cached and sized: answered at once, to a disposed signal.
+    let live = remedy_ui_reactive::Signal::new(ImageState::Loading);
+    let _held = load(&source, None, false, live);
+    settle(&ui);
+    assert!(matches!(live.get_untracked().ok(), Some(ImageState::Ready(..))));
+    let _cached = load(&source, None, false, gone());
+    let _sized = load(&source, Some((3, 2)), false, gone());
+    probe(&source, gone());
+    settle(&ui);
+    drop(fresh);
+}

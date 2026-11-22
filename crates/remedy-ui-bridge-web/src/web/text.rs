@@ -269,9 +269,15 @@ impl TextInput {
             let now = self.value(in_area(s));
             let caret = convert::clamp_range(&s.surrounding, &s.selection).end;
             let (before, after, inserted) = convert::edit_between(&s.surrounding, &now, caret);
-            s.surrounding = now;
-            let c = self.caret_byte(s);
-            s.selection = c..c;
+            if s.private {
+                // The engine keeps the secret; the hidden field goes back to holding none.
+                self.set_value(false, "", (0, 0));
+                s.selection = 0..0;
+            } else {
+                s.surrounding = now;
+                let c = self.caret_byte(s);
+                s.selection = c..c;
+            }
             (before, after, inserted)
         };
         let (before, after, inserted) = edit;

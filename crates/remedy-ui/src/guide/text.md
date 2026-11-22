@@ -321,7 +321,8 @@ let Some(password) = slot.get() else { unreachable!("built") };
 let Some(window) = app.host().window_ids().first().copied() else { unreachable!("open") };
 let private = app.host().window(window).and_then(|w| w.text_input()).is_some_and(|s| s.private && s.surrounding.is_empty());
 assert!(private, "the platform is told: no learning, no prediction, and no text around the caret");
-// The person types it, key by key: secret fields take no input method.
+// The person types it, key by key: secret fields take no composition, only finished text
+// (keys, a paste, a password manager filling it).
 app.type_text("correct horse");
 
 let reader = ui.reader_view();

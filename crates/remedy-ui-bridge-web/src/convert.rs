@@ -637,6 +637,19 @@ pub fn parse_px(css: &str) -> f32 {
         .unwrap_or(0.0)
 }
 
+/// A surface's size in device pixels from what a `ResizeObserver` saw: the exact
+/// device-pixel box when the browser gave one that agrees with the CSS box times `dpr`, else
+/// that product. Chrome's device emulation (DevTools, automation) reports the device-pixel
+/// box in CSS pixels while `devicePixelRatio` is the emulated one, which would leave the
+/// canvas at CSS resolution stretched by the ratio; real sizes differ only by snapping.
+pub fn device_size(exact: Option<(f64, f64)>, css: (f64, f64), dpr: f64) -> (f64, f64) {
+    let scaled = ((css.0 * dpr).round(), (css.1 * dpr).round());
+    let slack = dpr.ceil() + 1.0;
+    exact
+        .filter(|&(w, h)| (w - scaled.0).abs() <= slack && (h - scaled.1).abs() <= slack)
+        .unwrap_or(scaled)
+}
+
 /// An `<input type=file>` `accept` list from a dialog's filters (`.png,.jpg`); empty
 /// accepts everything.
 pub fn accept_list(filters: &[(String, Vec<String>)]) -> String {
@@ -946,6 +959,10 @@ mod tests {
         assert_eq!(parse_css_color("rgba(0, 0, 0, 0.5)"), Some(Color::new(0.0, 0.0, 0.0, 0.5)));
         assert_eq!(parse_css_color("AccentColor"), None);
         assert!((parse_px("12.5px") - 12.5).abs() < 1e-6);
+        // Exact device pixels win when they agree; an emulated phone's CSS-sized box does not.
+        assert_eq!(device_size(Some((1171.0, 2532.0)), (390.2, 844.0), 3.0), (1171.0, 2532.0));
+        assert_eq!(device_size(Some((390.0, 844.0)), (390.0, 844.0), 3.0), (1170.0, 2532.0));
+        assert_eq!(device_size(None, (390.0, 844.0), 2.0), (780.0, 1688.0));
         assert_eq!(parse_px("auto"), 0.0);
     }
 

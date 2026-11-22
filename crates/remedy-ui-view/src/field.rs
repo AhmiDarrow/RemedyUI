@@ -1237,6 +1237,12 @@ pub(crate) fn ime(f: &mut Field, e: &ImeEvent, now: u64) -> bool {
         r.reset();
         return true;
     }
+    if let (Editor::Secret(_), ImeEvent::Commit(t)) = (&f.editor, e) {
+        // Text inserted without keys (pasted, autofilled by a password manager, dictated)
+        // lands as a commit. Compositions stay refused: their preedit shows in the clear.
+        paste(f, t, now);
+        return true;
+    }
     let Editor::Plain(ed) = &mut f.editor else { return false };
     match e {
         ImeEvent::Preedit { text, cursor } => {
