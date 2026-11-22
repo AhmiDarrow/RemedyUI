@@ -300,6 +300,10 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
     // Keepalive requests (an app's last saves) finish as the app quits, as in a closing page.
     #[cfg(all(feature = "net", not(target_arch = "wasm32")))]
     let _keepalive = KeepaliveOnExit;
+    // On Android they also finish when the app goes out of sight: the process is kept from
+    // being frozen until they end.
+    #[cfg(all(feature = "net", target_os = "android"))]
+    remedy_ui_services_net::on_keepalive(remedy_ui_bridge_android::hold_process);
     // SVG files show wherever images do.
     #[cfg(feature = "svg")]
     remedy_ui_media_svg::install();

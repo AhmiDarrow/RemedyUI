@@ -5,7 +5,8 @@ to read it. Prints the port it listens on (a free one on 127.0.0.1), then serves
     tools/test-serve.py
 
 /json answers JSON, /error a 422 with a detail, /echo the method, content type and body it
-got, /slow the same JSON after 1.5 seconds.
+got, /slow the same JSON after 1.5 seconds, /big 300 000 bytes (for streaming), and /etag a
+304 with new validators when asked with `If-None-Match: "v1"`.
 """
 
 import http.server
@@ -16,9 +17,12 @@ import time
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def answer(self, status, body):
-        data = json.dumps(body).encode()
+    def answer(self, status, body, raw=None, headers=()):
+        data = raw if raw is not None else json.dumps(body).encode()
         self.send_response(status)
+        for k, v in headers:
+            self.send_header(k, v)
+        self.send_header("Access-Control-Expose-Headers", "ETag, X-Kind")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")
@@ -42,6 +46,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "type": self.headers.get("Content-Type") or "",
                 "body": body.decode("utf-8", "replace"),
             })
+        elif path == "/big":
+            self.answer(200, None, raw=b"x" * 300000, headers=[("X-Kind", "big")])
+        elif path == "/etag" and self.headers.get("If-None-Match") == '"v1"':
+            self.send_response(304)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Expose-Headers", "ETag, X-Kind")
+            self.send_header("ETag", '"v2"')
+            self.send_header("Cache-Control", "max-age=60")
+            self.end_headers()
         elif path == "/slow":
             time.sleep(1.5)
             self.answer(200, {"id": 1, "name": "slow"})
