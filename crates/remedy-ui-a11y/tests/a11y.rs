@@ -193,6 +193,40 @@ fn a_toolbar_reaches_platforms_as_one() {
 }
 
 #[test]
+fn landmarks_and_the_current_item_reach_accesskit() {
+    let mut t = A11yTree::new(1);
+    t.set(1, Semantics::new(Role::Window).label("Portal"));
+    let landmarks = [
+        (2, Role::Banner, accesskit::Role::Banner),
+        (3, Role::Navigation, accesskit::Role::Navigation),
+        (4, Role::Main, accesskit::Role::Main),
+        (5, Role::Region, accesskit::Role::Region),
+        (6, Role::Search, accesskit::Role::Search),
+        (7, Role::Article, accesskit::Role::Article),
+        (8, Role::ContentInfo, accesskit::Role::ContentInfo),
+        (9, Role::Complementary, accesskit::Role::Complementary),
+    ];
+    for (id, r, _) in landmarks {
+        t.set(id, Semantics::new(r).label("Section"));
+    }
+    t.set(10, Semantics::new(Role::Link).label("Home").current(Current::Page));
+    t.set(11, Semantics::new(Role::Link).label("Games"));
+    t.set_children(1, &[2, 3, 4, 5, 6, 7, 8, 9]);
+    t.set_children(3, &[10, 11]);
+    t.connect();
+    let u = t.take_update().unwrap_or_else(|| unreachable!("connected"));
+    for (id, _, ak) in landmarks {
+        assert_eq!(node(&u, id).map(accesskit::Node::role), Some(ak));
+    }
+    assert_eq!(node(&u, 10).and_then(accesskit::Node::aria_current), Some(accesskit::AriaCurrent::Page));
+    assert_eq!(node(&u, 11).and_then(accesskit::Node::aria_current), None);
+    let reader = t.reader_view();
+    let home = reader.iter().find(|n| n.id == 10).unwrap_or_else(|| unreachable!());
+    assert_eq!(home.announcement(), "link, Home, current page");
+    assert!(!is_control_role(Role::Navigation), "a landmark, not a control");
+}
+
+#[test]
 fn deep_trees_update_in_linear_time_and_changes_reach_their_merging_ancestor() {
     // Tens of thousands of levels, a merging group near the top: a change at the bottom
     // re-sends the group (its label changed) and nothing it merged away.
