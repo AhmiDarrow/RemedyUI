@@ -47,6 +47,8 @@ pub(crate) struct FrameState {
     pub(crate) bounds_stale: bool,
     scrollers: Vec<(LayerId, ElementId)>,
     stickies: HashMap<ElementId, remedy_ui_compositor::Sticky>,
+    /// The device-grid boxes' map, kept between frames so each frame reuses its memory.
+    boxes: HashMap<ElementId, (Size, Rect)>,
 }
 
 /// What a sticky element sticks within, for the bounds walk: its nearest scroll container
@@ -507,7 +509,7 @@ struct Walk<'a> {
     state: &'a mut FrameState,
     rects: &'a HashMap<ElementId, Rect>,
     /// Boxes on the device grid ([`snapped_box`]), for clips.
-    boxes: &'a HashMap<ElementId, Rect>,
+    boxes: &'a HashMap<ElementId, (Size, Rect)>,
     stickies: &'a HashMap<ElementId, remedy_ui_compositor::Sticky>,
     /// [`Walk::layers_below`] answers this frame, so nested filtered elements each walk a
     /// subtree once, not once per filtered ancestor.
@@ -799,7 +801,7 @@ impl Walk<'_> {
             self.state.scrollers.push((viewport, id));
         } else {
             if d.clip {
-                let clip = self.boxes.get(&id).copied().unwrap_or(local);
+                let clip = self.boxes.get(&id).map_or(local, |b| b.1);
                 b.push(Item::PushClip { rect: clip, radii: CornerRadii::all(d.resolved.radius) });
             }
             for k in kids {
@@ -1147,7 +1149,8 @@ impl Ui {
         // its background, border and clip go, as browsers snap boxes for crisp edges (layout
         // and text stay fractional). Snapped in its scroll container's content space, so
         // scrolling (by whole device pixels) does not repaint it.
-        let mut boxes: HashMap<ElementId, Rect> = HashMap::new();
+        let mut boxes = std::mem::take(&mut i.frame.boxes);
+        boxes.clear();
         let grid = remedy_ui_core::units::Scale::new(i.scale);
         let mut stack = vec![(root, Point::ZERO, Vec2::ZERO, window_cx, Point::ZERO)];
         while let Some((id, parent_at, scroll, cx, parent_un)) = stack.pop() {
@@ -1164,7 +1167,7 @@ impl Ui {
             }
             rects.insert(id, r);
             let un = Point::new(parent_un.x + r.min.x, parent_un.y + r.min.y);
-            boxes.insert(id, snapped_box(grid, un, r.size()));
+            boxes.insert(id, (r.size(), snapped_box(grid, un, r.size())));
             let mut abs = Point::new(parent_at.x + r.min.x - scroll.x, parent_at.y + r.min.y - scroll.y);
             let parent_rtl =
                 || i.tree.parent(id).and_then(|p| i.els.get(&p)).is_some_and(|p| i.layout.is_rtl(p.node));
@@ -1327,7 +1330,7 @@ impl Ui {
             i.els
                 .iter()
                 .filter(|(id, d)| {
-                    let key = chunk_key(&rects, &boxes, **id);
+                    let key = chunk_key(&boxes, **id);
                     d.chunk.as_ref().is_none_or(|(k, _)| *k != key)
                 })
                 .map(|(id, _)| *id),
@@ -1342,7 +1345,7 @@ impl Ui {
         let rate = i.ambient.policy.rate(crate::ambient::activity(i));
         let mut asks = Vec::new();
         for &id in &repaint {
-            let key = chunk_key(&rects, &boxes, id);
+            let key = chunk_key(&boxes, id);
             let (sz, boxed) = key;
             let Some(d) = i.els.get(&id) else { continue };
             let rtl = i.layout.is_rtl(d.node);
@@ -1441,6 +1444,7 @@ impl Ui {
             sync_semantics(i, &rects);
             stats.semantics = true;
         }
+        i.frame.boxes = boxes;
         drop(semantics_span);
         // Elements that follow their place on the window (embedded native views) hear where
         // they are now, after layout, scrolling and overlays settled.
@@ -1522,13 +1526,8 @@ fn shown_band(i: &Inner, id: ElementId, window: Rect) -> Option<std::ops::Range<
 
 /// What an element's recorded paint depends on besides its state: its size, and its box on
 /// the device grid.
-fn chunk_key(
-    rects: &HashMap<ElementId, Rect>,
-    boxes: &HashMap<ElementId, Rect>,
-    id: ElementId,
-) -> (Size, Rect) {
-    let size = rects.get(&id).map(|r| r.size()).unwrap_or(Size::ZERO);
-    (size, boxes.get(&id).copied().unwrap_or(Rect::from_origin_size(Point::ZERO, size)))
+fn chunk_key(boxes: &HashMap<ElementId, (Size, Rect)>, id: ElementId) -> (Size, Rect) {
+    boxes.get(&id).copied().unwrap_or((Size::ZERO, Rect::ZERO))
 }
 
 /// A border `width` logical pixels wide in whole device pixels at `scale`, as browsers draw
