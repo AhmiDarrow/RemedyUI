@@ -1927,7 +1927,7 @@ struct Win {
     scrollers: Vec<(LayerId, ElementId)>,
     /// Scrolls asked for before their container had a layer (content built this frame, such
     /// as a page a router brings back), applied once it has one.
-    pending_scrolls: Vec<(ElementId, Vec2)>,
+    pending_scrolls: Vec<(ElementId, Vec2, ScrollKind)>,
     cover: Option<remedy_ui_view::El>,
     /// The window's content zoom (1 = as designed): everything is drawn this much larger,
     /// and input positions are mapped back.
@@ -2091,6 +2091,27 @@ pub struct Runner {
 impl std::fmt::Debug for Runner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Runner({:?}, {} windows)", self.config, self.wins.len())
+    }
+}
+
+/// How a view's scroll request moves a scroll container.
+#[derive(Clone, Copy, Debug)]
+enum ScrollKind {
+    /// To an offset; a snapping container to the snap point nearest it.
+    To,
+    /// To exactly the offset.
+    Exact,
+    /// A key step or focus move: a snapping container glides to the next snap point that way.
+    Step,
+}
+
+impl ScrollKind {
+    fn apply(self, c: &mut Compositor, layer: remedy_ui_compositor::LayerId, offset: Vec2) -> bool {
+        match self {
+            ScrollKind::To => c.scroll_to_snapped(layer, offset),
+            ScrollKind::Exact => c.set_scroll_offset(layer, offset),
+            ScrollKind::Step => c.scroll_step(layer, offset),
+        }
     }
 }
 
@@ -2617,31 +2638,28 @@ impl Runner {
                         host.request_frame(h);
                     }
                 }
-                Request::ScrollTo { scroller, offset } => {
+                Request::ScrollTo { scroller, offset }
+                | Request::ScrollToExact { scroller, offset }
+                | Request::ScrollStep { scroller, offset } => {
+                    let kind = match r {
+                        Request::ScrollToExact { .. } => ScrollKind::Exact,
+                        Request::ScrollStep { .. } => ScrollKind::Step,
+                        _ => ScrollKind::To,
+                    };
                     if let Some(w) = self.wins.get_mut(&key) {
                         let layer = w.scrollers.iter().find(|(_, e)| *e == scroller).map(|(l, _)| *l);
                         match (layer, w.comp.as_mut()) {
                             (Some(l), Some(c)) => {
-                                if c.set_scroll_offset(l, offset) {
+                                if kind.apply(c, l, offset) {
                                     host.request_frame(h);
                                 }
                             }
                             // Not drawn yet: the next frame that gives it a layer scrolls it.
                             _ => {
-                                w.pending_scrolls.retain(|(e, _)| *e != scroller);
-                                w.pending_scrolls.push((scroller, offset));
+                                w.pending_scrolls.retain(|(e, _, _)| *e != scroller);
+                                w.pending_scrolls.push((scroller, offset, kind));
                                 host.request_frame(h);
                             }
-                        }
-                    }
-                }
-                Request::ScrollToSnapped { scroller, offset } => {
-                    if let Some(w) = self.wins.get_mut(&key) {
-                        let layer = w.scrollers.iter().find(|(_, e)| *e == scroller).map(|(l, _)| *l);
-                        if let (Some(l), Some(c)) = (layer, w.comp.as_mut())
-                            && c.scroll_to_snapped(l, offset)
-                        {
-                            host.request_frame(h);
                         }
                     }
                 }
@@ -2908,10 +2926,10 @@ impl Runner {
             let tree = w.ui.tree();
             let scrollers = &w.scrollers;
             let mut moved = false;
-            w.pending_scrolls.retain(|(el, offset)| {
+            w.pending_scrolls.retain(|(el, offset, kind)| {
                 match scrollers.iter().find(|(_, e)| e == el) {
                     Some((layer, _)) => {
-                        moved |= comp.set_scroll_offset(*layer, *offset);
+                        moved |= kind.apply(comp, *layer, *offset);
                         false
                     }
                     // Kept while the container lives: it may overflow (and get its layer) later.

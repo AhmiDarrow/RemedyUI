@@ -302,54 +302,130 @@ struct Scroller {
     origin: Vec2,
     snap: Option<crate::ScrollSnap>,
     /// The viewport size, for how near a proximity snap point must be.
-    viewport: remedy_ui_core::Size,
-    /// A wheel scrolled it and the gesture has not been seen ending yet: the time of the
-    /// first frame since the last wheel delta.
-    wheel: Option<Option<Duration>>,
+    viewport: Size,
+    /// A wheel gesture on a snapping container: the offset it started at, and the first frame
+    /// since its latest delta.
+    wheel: Option<(Vec2, Option<Duration>)>,
+    /// Moving onto a snap point: where to, and the animation once a frame has started it.
+    glide: Option<(Vec2, Option<Animation<Vec2>>)>,
+    /// The keys of the snap points it rests on, so a relayout keeps them.
+    snapped: [Option<u64>; 2],
 }
 
-/// How long the wheel must be still before its gesture counts as ended.
-const WHEEL_END: Duration = Duration::from_millis(150);
-/// A proximity snap point this far from the rest position (a fraction of the viewport) or
-/// nearer takes it.
-const PROXIMITY: f32 = 0.3;
-
-/// The snap point an axis resting at `rest` (moving from `from`) settles on: the nearest,
-/// but when that is where the axis already is, the next one the way it was going. `None`
-/// when no point is within `threshold`.
-fn snap_target(points: &[f32], max: f32, from: f32, rest: f32, threshold: Option<f32>) -> Option<f32> {
-    let near = |p: f32| (p - rest).abs();
-    let clamped = || points.iter().map(|p| p.clamp(0.0, max));
-    let mut t = clamped().min_by(|a, b| near(*a).total_cmp(&near(*b)))?;
-    let dir = rest - from;
-    if (t - from).abs() < 0.5 && dir.abs() >= 0.5 {
-        let ahead = clamped().filter(|p| (p - from) * dir.signum() >= 0.5);
-        if let Some(a) = ahead.min_by(|a, b| (a - from).abs().total_cmp(&(b - from).abs())) {
+/// The snap point an axis settles on, moving from `from` to `rest`, and its key. `directional`
+/// (a fling, wheel gesture or key step) takes the next point that way when the nearest is
+/// where it started, and stops at a `scroll-snap-stop: always` point on the way. `None` when
+/// no point is within `threshold`.
+fn snap_target(
+    points: &[crate::SnapPoint],
+    max: f32,
+    from: f32,
+    rest: f32,
+    threshold: Option<f32>,
+    directional: bool,
+) -> Option<(f32, u64)> {
+    let clamped = || points.iter().map(|p| (p.offset.clamp(0.0, max), p.key, p.always));
+    let nearest = |to: f32, it: &mut dyn Iterator<Item = (f32, u64, bool)>| {
+        it.min_by(|a, b| (a.0 - to).abs().total_cmp(&(b.0 - to).abs()))
+    };
+    let mut t = nearest(rest, &mut clamped())?;
+    let dir = (rest - from).signum();
+    if directional && (rest - from).abs() >= 0.5 {
+        if (t.0 - from).abs() < 0.5
+            && let Some(a) = nearest(from, &mut clamped().filter(|p| (p.0 - from) * dir >= 0.5))
+        {
             t = a;
         }
+        // Never past a point that must not be skipped.
+        let between = |p: &(f32, u64, bool)| p.2 && (p.0 - from) * dir >= 0.5 && (t.0 - p.0) * dir >= 0.5;
+        if let Some(stop) = nearest(from, &mut clamped().filter(between)) {
+            t = stop;
+        }
     }
-    threshold.is_none_or(|d| (t - rest).abs() <= d).then_some(t)
+    threshold.is_none_or(|d| (t.0 - rest).abs() <= d).then_some((t.0, t.1))
 }
 
 impl Scroller {
-    /// Settles on the snap points nearest where each axis would rest (`rest`, defaulting to
-    /// where any fling would stop), animated or, under reduced motion, at once.
-    fn settle(&mut self, rest: Option<Vec2>, reduced: bool) {
+    /// Settles on the snap points for moving from `from` to `rest` (defaults: where it is,
+    /// and where any fling would stop): glides there, or jumps when `!animate`. Axes with no
+    /// snap point near (proximity) go to `rest` when one was given and keep any fling
+    /// otherwise.
+    fn settle(&mut self, from: Option<Vec2>, rest: Option<Vec2>, directional: bool, animate: bool) {
         let Some(snap) = &self.snap else { return };
-        let threshold = |extent: f32| (!snap.mandatory).then_some(extent * PROXIMITY);
+        let from = from.unwrap_or(Vec2::new(self.x.offset, self.y.offset));
+        let threshold = |extent: f32| (!snap.mandatory).then_some(extent * snap.proximity);
+        let mut to = Vec2::new(self.x.offset, self.y.offset);
+        let mut glides = false;
+        let [sx, sy] = &mut self.snapped;
         let axes = [
-            (&mut self.x, &snap.x, threshold(self.viewport.width), rest.map(|r| r.x)),
-            (&mut self.y, &snap.y, threshold(self.viewport.height), rest.map(|r| r.y)),
+            (&mut self.x, &snap.x, threshold(self.viewport.width), from.x, rest.map(|r| r.x), &mut to.x, sx),
+            (&mut self.y, &snap.y, threshold(self.viewport.height), from.y, rest.map(|r| r.y), &mut to.y, sy),
         ];
-        for (a, points, threshold, asked) in axes {
-            let rest = asked.unwrap_or_else(|| a.rest());
-            match snap_target(points, a.max, a.offset, rest, threshold) {
-                Some(t) if reduced => a.jump_to(t),
-                Some(t) => a.settle_to(t),
-                // Nothing near (or the axis does not snap): a snapped scroll still goes where
-                // it was asked; a fling keeps going.
-                None if asked.is_some() => a.jump_to(rest),
-                None => {}
+        for (a, points, threshold, from, asked, to, snapped) in axes {
+            let rest = asked.map_or_else(|| a.rest(), |r| r.clamp(0.0, a.max));
+            match snap_target(points, a.max, from, rest, threshold, directional) {
+                Some((t, key)) => {
+                    a.velocity = 0.0;
+                    *to = t;
+                    glides = true;
+                    *snapped = Some(key);
+                }
+                None => {
+                    *snapped = None;
+                    if asked.is_some() {
+                        a.velocity = 0.0;
+                        *to = rest;
+                        glides = true;
+                    }
+                }
+            }
+        }
+        self.glide = None;
+        if glides && animate {
+            self.glide = Some((to, None));
+        } else if glides {
+            self.x.offset = to.x;
+            self.y.offset = to.y;
+        }
+    }
+
+    /// Stops any glide and forgets the snap points it rested on (the user or code moved it).
+    fn unsnap(&mut self) {
+        self.glide = None;
+        self.snapped = [None, None];
+    }
+
+    /// After a relayout: rests again on the snap points it rested on, wherever they moved;
+    /// a mandatory container that lost its point settles on the nearest.
+    fn resnap(&mut self, old: Option<&crate::ScrollSnap>) {
+        let Some(snap) = &self.snap else { return };
+        if old == Some(snap) || self.wheel.is_some() || self.x.velocity != 0.0 || self.y.velocity != 0.0 {
+            return;
+        }
+        let find = |pts: &[crate::SnapPoint], key: Option<u64>, max: f32| {
+            key.and_then(|k| pts.iter().find(|p| p.key == k)).map(|p| p.offset.clamp(0.0, max))
+        };
+        let x = find(&snap.x, self.snapped[0], self.x.max);
+        let y = find(&snap.y, self.snapped[1], self.y.max);
+        // The point it rested on is gone, or the container just started snapping (a drag in
+        // progress has no point and is left alone).
+        let first = old.is_none();
+        let lost = |key: Option<u64>, found: Option<f32>| (key.is_some() || first) && found.is_none();
+        let lost = (!snap.x.is_empty() && lost(self.snapped[0], x)) || (!snap.y.is_empty() && lost(self.snapped[1], y));
+        if snap.mandatory && lost {
+            self.settle(None, None, false, false);
+            return;
+        }
+        let to = Vec2::new(x.unwrap_or(self.x.offset), y.unwrap_or(self.y.offset));
+        match &mut self.glide {
+            Some((target, anim)) => {
+                // Still on its way: head for where the points are now.
+                *target = Vec2::new(x.unwrap_or(target.x), y.unwrap_or(target.y));
+                *anim = None;
+            }
+            None => {
+                self.x.offset = to.x;
+                self.y.offset = to.y;
             }
         }
     }
@@ -557,6 +633,8 @@ impl Compositor {
                     snap: None,
                     viewport,
                     wheel: None,
+                    glide: None,
+                    snapped: [None, None],
                 };
                 s.x.offset = origin.x.clamp(0.0, s.x.max);
                 s.y.offset = origin.y.clamp(0.0, s.y.max);
@@ -571,10 +649,11 @@ impl Compositor {
             }
             s.x.max = max.x;
             s.y.max = max.y;
-            s.snap = snap.take();
+            let old = std::mem::replace(&mut s.snap, snap.take());
             s.viewport = viewport;
             s.x.offset = s.x.offset.min(max.x);
             s.y.offset = s.y.offset.min(max.y);
+            s.resnap(old.as_ref());
         }
         self.overrides.retain(|id, _| alive.contains_key(id));
         let released = &mut self.released;
@@ -597,54 +676,75 @@ impl Compositor {
     /// scroll.
     pub fn set_scroll_offset(&mut self, id: LayerId, offset: Vec2) -> bool {
         let Some(s) = self.scrollers.get_mut(&id) else { return false };
-        s.x.jump_to(offset.x);
-        s.y.jump_to(offset.y);
+        s.unsnap();
+        s.x.offset = offset.x.clamp(0.0, s.x.max);
+        s.y.offset = offset.y.clamp(0.0, s.y.max);
+        s.x.velocity = 0.0;
+        s.y.velocity = 0.0;
         true
     }
 
     /// Scrolls a layer by `delta` content units, as a drag or wheel does.
     pub fn scroll_by(&mut self, id: LayerId, delta: Vec2) -> bool {
         let Some(s) = self.scrollers.get_mut(&id) else { return false };
+        s.unsnap();
         s.x.drag(delta.x);
         s.y.drag(delta.y);
         true
     }
 
     /// Starts a fling on a scrolling layer with a release velocity in content units per second.
-    /// A snapping container ([`Layer::scroll_snap`](crate::Layer)) heads straight for the snap
-    /// point nearest where the fling would rest; a fling of zero (a drag released without
-    /// speed) settles where it is.
+    /// A snapping container ([`Layer::scroll_snap`](crate::Layer)) glides straight to the snap
+    /// point for where the fling would rest; a fling of zero (a drag released without speed)
+    /// settles where it is.
     pub fn fling(&mut self, id: LayerId, velocity: Vec2) -> bool {
-        let reduced = self.reduced_motion;
         let Some(s) = self.scrollers.get_mut(&id) else { return false };
+        s.unsnap();
         s.x.fling(velocity.x);
         s.y.fling(velocity.y);
-        s.settle(None, reduced);
+        s.settle(None, None, true, true);
         true
     }
 
-    /// Scrolls a layer to `offset` as a keyboard page or arrow step does: a snapping container
-    /// settles on the snap point nearest it (or the next one that way), animated; any other
-    /// jumps there as [`set_scroll_offset`](Self::set_scroll_offset) does.
+    /// Scrolls a layer to `offset` as code does (CSS `scrollTo`): a snapping container jumps to
+    /// the snap point nearest it; any other jumps there as
+    /// [`set_scroll_offset`](Self::set_scroll_offset) does.
     pub fn scroll_to_snapped(&mut self, id: LayerId, offset: Vec2) -> bool {
-        let reduced = self.reduced_motion;
+        self.snapped_move(id, offset, false)
+    }
+
+    /// Scrolls a layer toward `offset` as a key step, page or focus move does: a snapping
+    /// container glides to the snap point nearest it, or the next one that way when that is
+    /// where it is, never past a `scroll-snap-stop: always` point; any other jumps there.
+    pub fn scroll_step(&mut self, id: LayerId, offset: Vec2) -> bool {
+        self.snapped_move(id, offset, true)
+    }
+
+    fn snapped_move(&mut self, id: LayerId, offset: Vec2, step: bool) -> bool {
         let Some(s) = self.scrollers.get_mut(&id) else { return false };
         if s.snap.is_none() {
             return self.set_scroll_offset(id, offset);
         }
-        let rest = Vec2::new(offset.x.clamp(0.0, s.x.max), offset.y.clamp(0.0, s.y.max));
+        s.unsnap();
         s.x.velocity = 0.0;
         s.y.velocity = 0.0;
-        s.settle(Some(rest), reduced);
+        s.settle(None, Some(offset), step, step);
         true
     }
 
     /// Routes a wheel or touchpad scroll as [`scroll_at`](Self::scroll_at) does; once the
-    /// wheel has been still a moment, a snapping container settles on a snap point.
+    /// wheel has been still a moment ([`ScrollSnap::wheel_idle`](crate::ScrollSnap)), a
+    /// snapping container settles on a snap point.
     pub fn wheel_at(&mut self, point: Point, delta: Vec2) -> Option<LayerId> {
+        let before: HashMap<LayerId, Vec2> = self
+            .scrollers
+            .iter()
+            .filter(|(_, s)| s.snap.is_some())
+            .map(|(id, s)| (*id, s.wheel.map_or(Vec2::new(s.x.offset, s.y.offset), |w| w.0)))
+            .collect();
         let id = self.scroll_at(point, delta)?;
-        if let Some(s) = self.scrollers.get_mut(&id).filter(|s| s.snap.is_some()) {
-            s.wheel = Some(None);
+        if let (Some(s), Some(start)) = (self.scrollers.get_mut(&id), before.get(&id)) {
+            s.wheel = Some((*start, None));
         }
         Some(id)
     }
@@ -684,6 +784,7 @@ impl Compositor {
             let d = Vec2::new(delta.x / scale, delta.y / scale);
             let can = |a: &ScrollAxis, d: f32| (d > 0.0 && a.offset < a.max) || (d < 0.0 && a.offset > 0.0);
             if can(&s.x, d.x) || can(&s.y, d.y) {
+                s.unsnap();
                 s.x.drag(d.x);
                 s.y.drag(d.y);
                 return Some(id);
@@ -721,9 +822,8 @@ impl Compositor {
 
     /// True while a fling, overscroll return or compositor animation still moves.
     pub fn is_animating(&self, now: Duration) -> bool {
-        let moving =
-            |a: &ScrollAxis| a.velocity != 0.0 || a.is_settling() || a.offset < 0.0 || a.offset > a.max;
-        self.scrollers.values().any(|s| moving(&s.x) || moving(&s.y) || s.wheel.is_some())
+        let moving = |a: &ScrollAxis| a.velocity != 0.0 || a.offset < 0.0 || a.offset > a.max;
+        self.scrollers.values().any(|s| moving(&s.x) || moving(&s.y) || s.wheel.is_some() || s.glide.is_some())
             || self.overrides.values().any(|o| !o.settled(now))
     }
 
@@ -788,24 +888,35 @@ impl Compositor {
         let mut animating = false;
         let reduced = self.reduced_motion;
         for s in self.scrollers.values_mut() {
-            let flinging = s.x.velocity != 0.0 || s.y.velocity != 0.0;
             animating |= s.x.step(dt);
             animating |= s.y.step(dt);
-            // A fling that ran out away from a snap point, or a wheel gesture that ended:
-            // settle now.
-            let still = s.x.velocity == 0.0 && s.y.velocity == 0.0;
-            if flinging && still && !s.x.is_settling() && !s.y.is_settling() {
-                s.settle(None, reduced);
-            }
-            if let Some(since) = &mut s.wheel {
-                let since = *since.get_or_insert(now);
-                if now.saturating_sub(since) >= WHEEL_END {
+            // A wheel gesture that ended settles now.
+            if let Some((start, since)) = &mut s.wheel {
+                let idle = s.snap.as_ref().map_or(Duration::ZERO, |n| n.wheel_idle);
+                if now.saturating_sub(*since.get_or_insert(now)) >= idle {
+                    let start = *start;
                     s.wheel = None;
-                    s.settle(None, reduced);
+                    s.settle(Some(start), None, true, true);
                 }
                 animating = true;
             }
-            animating |= s.x.is_settling() || s.y.is_settling();
+            if let Some((to, anim)) = &mut s.glide {
+                let motion = s.snap.as_ref().map_or(Motion::Instant, |n| n.motion);
+                let (x, y) = (s.x.offset, s.y.offset);
+                let a = anim.get_or_insert_with(|| {
+                    let mut a = Animation::new(Vec2::new(x, y));
+                    a.set_reduced_motion(reduced);
+                    a.animate_to(*to, motion, now);
+                    a
+                });
+                let at = if a.is_settled(now) { *to } else { a.sample(now) };
+                s.x.offset = at.x.clamp(0.0, s.x.max);
+                s.y.offset = at.y.clamp(0.0, s.y.max);
+                if at == *to {
+                    s.glide = None;
+                }
+                animating = true;
+            }
         }
         // Followers take their leaders' offsets now, so both move in this frame.
         for (id, f) in self.follows.clone() {

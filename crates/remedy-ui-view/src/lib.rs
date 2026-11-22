@@ -133,9 +133,17 @@ pub enum Request {
         /// Its new offset.
         offset: remedy_ui_core::Vec2,
     },
-    /// Move a scroll container toward `offset` and settle on its snap point nearest that (or
-    /// the next one that way), as keyboard paging does ([`El::scroll_to_snapped`]).
-    ScrollToSnapped {
+    /// Move a scroll container to exactly `offset`, even a snapping one
+    /// ([`El::scroll_to_exact`]).
+    ScrollToExact {
+        /// The scroll container.
+        scroller: ElementId,
+        /// Its new offset.
+        offset: remedy_ui_core::Vec2,
+    },
+    /// Move a scroll container toward `offset` as a key step or focus move does: a snapping
+    /// one glides to the snap point nearest that, or the next one that way.
+    ScrollStep {
         /// The scroll container.
         scroller: ElementId,
         /// Where it was asked to go.

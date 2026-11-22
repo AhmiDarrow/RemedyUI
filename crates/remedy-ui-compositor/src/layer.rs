@@ -34,16 +34,52 @@ pub struct ScrollFollow {
     pub y: bool,
 }
 
-/// Where a scroll container comes to rest after a fling, a wheel gesture, a drag release or
-/// a snapped scroll ([`Compositor::scroll_to_snapped`](crate::Compositor::scroll_to_snapped)).
-#[derive(Clone, Debug, Default, PartialEq)]
+/// One place a snapping scroll container can rest on an axis.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SnapPoint {
+    /// The scroll offset (content units) that lines the snap area up with the viewport.
+    pub offset: f32,
+    /// What the point belongs to (usually the element id), so a relayout keeps the same one.
+    pub key: u64,
+    /// A fling, wheel gesture or key step never passes it (CSS `scroll-snap-stop: always`).
+    pub always: bool,
+}
+
+/// Where a scroll container comes to rest after a fling, a wheel gesture, a drag release, a
+/// key step or a programmatic scroll (CSS scroll snapping).
+#[derive(Clone, Debug, PartialEq)]
 pub struct ScrollSnap {
-    /// Horizontal snap offsets (empty: the axis does not snap).
-    pub x: Vec<f32>,
-    /// Vertical snap offsets (empty: the axis does not snap).
-    pub y: Vec<f32>,
-    /// Always rest on a snap point; otherwise only when one is near.
+    /// Horizontal snap points (empty: the axis does not snap).
+    pub x: Vec<SnapPoint>,
+    /// Vertical snap points (empty: the axis does not snap).
+    pub y: Vec<SnapPoint>,
+    /// Always rest on a snap point (`mandatory`); otherwise only when one is near.
     pub mandatory: bool,
+    /// How near a snap point must be to take a proximity snap, as a fraction of the viewport
+    /// on that axis. Default 0.3.
+    pub proximity: f32,
+    /// How the container moves onto the snap point. Default a 250 ms decelerating tween;
+    /// under reduced motion it jumps.
+    pub motion: remedy_ui_motion::Motion,
+    /// How long the wheel must be still before its gesture counts as ended and the container
+    /// settles. Default 150 ms.
+    pub wheel_idle: std::time::Duration,
+}
+
+impl Default for ScrollSnap {
+    fn default() -> Self {
+        ScrollSnap {
+            x: Vec::new(),
+            y: Vec::new(),
+            mandatory: false,
+            proximity: 0.3,
+            motion: remedy_ui_motion::Motion::Tween {
+                duration: std::time::Duration::from_millis(250),
+                easing: remedy_ui_motion::Easing::DECELERATE,
+            },
+            wheel_idle: std::time::Duration::from_millis(150),
+        }
+    }
 }
 
 /// Coordinates: the layer sits at `bounds` in its parent's content space. Its local space
