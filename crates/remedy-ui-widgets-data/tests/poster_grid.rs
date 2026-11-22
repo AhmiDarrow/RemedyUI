@@ -192,12 +192,12 @@ fn the_keyboard_moves_into_a_tile_and_back_out() {
     };
     // Enter moves into the tile, the arrows between its buttons.
     let _ = key(&ui, Key::Enter, NONE);
-    assert!(buttons(0)[0].is_focused(), "Enter focuses Play");
+    assert!(buttons(0).first().is_some_and(El::is_focused), "Enter focuses Play");
     let _ = key(&ui, Key::ArrowRight, NONE);
-    assert!(buttons(0)[1].is_focused(), "Right reaches Details");
+    assert!(buttons(0).get(1).is_some_and(El::is_focused), "Right reaches Details");
     let _ = key(&ui, Key::ArrowLeft, NONE);
     let _ = key(&ui, Key::ArrowLeft, NONE);
-    assert!(buttons(0)[4].is_focused(), "Left wraps to Info");
+    assert!(buttons(0).get(4).is_some_and(El::is_focused), "Left wraps to Info");
     assert_eq!(state.selection.cursor.get_untracked().ok().flatten(), Some(0), "the cursor stays");
     // Escape goes back to the grid, where the arrows move between tiles again.
     let _ = key(&ui, Key::Escape, NONE);
