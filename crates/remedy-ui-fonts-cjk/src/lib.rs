@@ -26,17 +26,18 @@
 pub use remedy_ui_fonts::{Face, ScriptFallback, Style};
 
 // Built in natively; in a browser page, a file fetched beside the page when text first needs
-// it (unless `embed`), named for `cargo remedy package` (`remedy_ui_fonts::asset!`).
+// it (unless `embed`), named for `cargo remedy package` (`remedy_ui_fonts::asset_mark!`).
 macro_rules! face {
     ($family:literal, $weight:literal, $file:literal) => {{
         #[cfg(any(not(target_arch = "wasm32"), feature = "embed"))]
-        let data: &'static [u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file));
+        let (data, source): (&'static [u8], &'static str) =
+            (include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file)), "");
         #[cfg(all(target_arch = "wasm32", not(feature = "embed")))]
-        let data: &'static [u8] = {
-            remedy_ui_fonts::asset!(concat!("fonts/", $file), concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file));
-            &[]
-        };
-        Face { family: $family, weight: $weight, style: Style::Normal, data, file: $file }
+        let (data, source): (&'static [u8], &'static str) = (
+            &[],
+            remedy_ui_fonts::asset_mark!(concat!("fonts/", $file), concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file)),
+        );
+        Face { family: $family, weight: $weight, style: Style::Normal, data, file: $file, source }
     }};
 }
 
