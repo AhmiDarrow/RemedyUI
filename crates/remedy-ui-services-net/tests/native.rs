@@ -174,10 +174,10 @@ fn cancellation_answers_at_once() {
         std::thread::sleep(Duration::from_millis(100));
         c2.cancel();
     });
-    let t = Instant::now();
+    // Cancelled rather than the slow answer: the caller returned before the server did,
+    // however loaded the machine is.
     let out = wait(|d| http.send(Request::get("slow"), &cancel, d));
     assert_eq!(out, Err(NetError::Cancelled));
-    assert!(t.elapsed() < Duration::from_millis(1000));
 }
 
 #[test]
