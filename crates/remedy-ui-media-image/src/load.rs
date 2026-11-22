@@ -25,6 +25,13 @@ pub enum Source {
     /// Bytes already in memory (decrypted files, downloads, embedded assets). Requests with
     /// the same `Arc` share a cache entry.
     Bytes(Arc<[u8]>),
+    /// An address (`https://`, `http://`; in a page also one relative to it), fetched off the
+    /// UI thread and cached by address ([`set_fetcher`](crate::set_fetcher),
+    /// [`set_cache_dir`](crate::set_cache_dir)). Elements showing the same address share one
+    /// fetch, cancelled when they all go. In a browser page the image is drawn on the canvas,
+    /// so a server of another site must allow it with CORS headers (or the app fetches it
+    /// through its own proxy); otherwise it fails with [`DecodeError::Network`].
+    Url(String),
 }
 
 impl Source {
@@ -38,7 +45,7 @@ impl Source {
     pub fn stamp(&self) -> Option<Stamp> {
         match self {
             Source::File(p) => stamp(p),
-            Source::Bytes(_) => None,
+            Source::Bytes(_) | Source::Url(_) => None,
         }
     }
 
@@ -52,6 +59,7 @@ impl Source {
         match self {
             Source::File(p) => SourceKey::File(p.clone()),
             Source::Bytes(b) => SourceKey::Bytes(b.as_ptr() as usize, b.len()),
+            Source::Url(u) => SourceKey::Url(u.clone()),
         }
     }
 
@@ -64,6 +72,7 @@ impl Source {
         }
         match self {
             Source::Bytes(b) => dimensions(b),
+            Source::Url(u) => dimensions(&crate::remote::blocking(u)?),
             Source::File(p) => {
                 use std::io::{BufRead, Seek};
                 let f = std::fs::File::open(p).map_err(|e| DecodeError::Io(e.to_string()))?;
@@ -83,6 +92,7 @@ impl Source {
     fn read_bytes(&self) -> Result<(Arc<[u8]>, Option<Stamp>), DecodeError> {
         match self {
             Source::Bytes(b) => Ok((b.clone(), None)),
+            Source::Url(u) => Ok((crate::remote::blocking(u)?, None)),
             Source::File(p) => {
                 let stamp = stamp(p);
                 let bytes = std::fs::read(p).map_err(|e| DecodeError::Io(e.to_string()))?;
@@ -109,6 +119,7 @@ pub struct SourceId(SourceKey);
 enum SourceKey {
     File(PathBuf),
     Bytes(usize, usize),
+    Url(String),
 }
 
 /// Where a load is.
@@ -193,6 +204,8 @@ struct Done {
 struct Pending {
     waiters: Vec<(u64, Signal<ImageState>)>,
     cancelled: Arc<AtomicBool>,
+    /// The fetch of an address, let go (and cancelled) with the request.
+    fetching: Option<crate::remote::Fetching>,
 }
 
 #[derive(Default)]
@@ -229,6 +242,9 @@ impl Drop for Request {
             });
             if empty && let Some(p) = c.pending.remove(&self.key) {
                 p.cancelled.store(true, Ordering::Relaxed);
+                p.fetching
+            } else {
+                None
             }
         });
     }
@@ -268,8 +284,10 @@ pub fn load(source: &Source, box_px: Option<(u32, u32)>, cover: bool, state: Sig
             return request;
         }
         let cancelled = Arc::new(AtomicBool::new(false));
-        c.pending
-            .insert(key.clone(), Pending { waiters: vec![(waiter, state)], cancelled: cancelled.clone() });
+        c.pending.insert(
+            key.clone(),
+            Pending { waiters: vec![(waiter, state)], cancelled: cancelled.clone(), fetching: None },
+        );
         drop(c);
         start(source.clone(), key, cancelled);
         request
@@ -277,6 +295,24 @@ pub fn load(source: &Source, box_px: Option<(u32, u32)>, cover: bool, state: Sig
 }
 
 fn start(source: Source, key: Key, cancelled: Arc<AtomicBool>) {
+    let Source::Url(url) = &source else { return decode_start(source, key, cancelled) };
+    if let Some(bytes) = crate::remote::remembered(url) {
+        return decode_start(Source::Bytes(bytes), key, cancelled);
+    }
+    let (k2, c2) = (key.clone(), cancelled);
+    let fetching = crate::remote::fetch(url, move |got| match got {
+        Ok(bytes) if !c2.load(Ordering::Relaxed) => decode_start(Source::Bytes(bytes), k2, c2),
+        Ok(_) => {}
+        Err(e) => finish(k2, Err(e)),
+    });
+    CACHE.with(|c| {
+        if let Some(p) = c.borrow_mut().pending.get_mut(&key) {
+            p.fetching = Some(fetching);
+        }
+    });
+}
+
+fn decode_start(source: Source, key: Key, cancelled: Arc<AtomicBool>) {
     let Ok(waker) = remedy_ui_reactive::waker() else {
         let result = decode_job(&source, &key_box(&key), key.cover);
         finish(key, result);
@@ -386,13 +422,39 @@ fn revalidate(path: PathBuf, old: Stamp, key: Key, source: Source, state: Signal
     });
 }
 
-/// Reads the source's size off the UI thread, for laying out before the pixels arrive.
+/// Reads the source's size off the UI thread, for laying out before the pixels arrive. An
+/// address is fetched for it (once: the load that follows finds the bytes in memory).
 pub fn probe(source: &Source, state: Signal<ImageState>) {
+    if let Some(f) = probe_held(source, state) {
+        f.detach();
+    }
+}
+
+/// [`probe`], returning the fetch of an address: dropping it lets the fetch go.
+pub(crate) fn probe_held(source: &Source, state: Signal<ImageState>) -> Option<crate::remote::Fetching> {
     if let Some(size) = CACHE.with(|c| c.borrow().sizes.get(&source.key()).copied()) {
         state.set(ImageState::Sized(size));
-        return;
+        return None;
     }
-    let src = source.clone();
+    let Source::Url(url) = source else {
+        size_job(source.clone(), source.key(), state);
+        return None;
+    };
+    if let Some(bytes) = crate::remote::remembered(url) {
+        size_job(Source::Bytes(bytes), source.key(), state);
+        return None;
+    }
+    let key = source.key();
+    Some(crate::remote::fetch(url, move |got| match got {
+        Ok(bytes) => size_job(Source::Bytes(bytes), key, state),
+        Err(e) => {
+            let _ = state.try_set(ImageState::Failed(e));
+        }
+    }))
+}
+
+/// Reads `src`'s size off the UI thread and remembers it as `key`'s.
+fn size_job(src: Source, key: SourceKey, state: Signal<ImageState>) {
     let Ok(waker) = remedy_ui_reactive::waker() else {
         let r = src.size();
         let _ = state.try_set(r.map_or_else(ImageState::Failed, ImageState::Sized));
@@ -403,7 +465,7 @@ pub fn probe(source: &Source, state: Signal<ImageState>) {
         let _ = waker.post(move || {
             if let Ok(size) = &r {
                 CACHE.with(|c| {
-                    c.borrow_mut().sizes.insert(src.key(), *size);
+                    c.borrow_mut().sizes.insert(key, *size);
                 });
             }
             // Only move forward: a load may already have finished.

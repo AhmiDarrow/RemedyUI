@@ -56,6 +56,50 @@ assert!(reader.iter().any(|n| n.name.as_deref() == Some("The beach at sunset")))
 assert!(!reader.iter().any(|n| n.name.as_deref() == Some("")));
 ```
 
+### Images from addresses
+
+`Source::Url("https://…")` fetches the image off the UI thread. Elements showing the same
+address share one fetch, cancelled when they all go. Fetched bytes stay in a bounded
+memory cache. Natively they are also kept in the app's cache folder (`images` under
+`%LOCALAPPDATA%\<name>\cache`, `~/Library/Caches/<name>` or `~/.cache/<name>`), following
+the server's `Cache-Control` and revalidated with its `ETag` or `Last-Modified`. In a
+browser page the browser's own HTTP cache does that. [`crate::image::image_ext`] adds the
+app's own placeholder, a fallback built when the image cannot be shown (a letter tile), and
+a listener whose `Sized` and `Ready` carry the image's real size, so wide or square art can
+be framed to fit:
+
+```no_run
+# fn demo(ui: &remedy_ui::Ui) {
+use remedy_ui::image::{Fit, ImageOptions, ImageState, Source, image_ext};
+
+let ui2 = ui.clone();
+let poster = image_ext(
+    ui,
+    Source::Url("https://example.com/posters/42.jpg".into()),
+    "Poster",
+    Fit::Cover,
+    ImageOptions::new()
+        .fallback(move || ui2.el("letter-tile").text("A"))
+        .on_state(|s| {
+            if let ImageState::Sized((w, h)) = s {
+                let _square = w == h;
+            }
+        }),
+);
+# let _ = poster;
+# }
+```
+
+In a browser page images are drawn on the canvas, so an image from another site shows only
+if its server allows it with CORS headers (`Access-Control-Allow-Origin`). If not, the load
+fails with `DecodeError::Network` and the reason says why. Fetch such images through your
+own server instead (a same-origin image proxy). The engine does not lay a DOM `<img>` over
+the canvas, because that image could not be clipped, rounded, layered under popups and
+dialogs, faded, transformed or hit-tested with the rest of the UI.
+
+To fetch images with your own HTTP client (cookies, auth headers), implement
+[`crate::image::Fetch`] and install it with [`crate::image::set_fetcher`].
+
 For custom elements (an avatar, a preview), [`crate::image::load`] is the loader the
 element uses: it reports [`crate::image::ImageState`] (`Loading`, `Sized`, `Ready`,
 `Failed`) into a signal. [`crate::image::decode`] decodes bytes on the calling thread, at a

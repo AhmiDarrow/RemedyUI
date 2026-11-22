@@ -149,6 +149,33 @@ pub(crate) fn data_dir(name: &str) -> Option<PathBuf> {
     }
 }
 
+/// The directory an app named `name` keeps what it can fetch again (downloaded images):
+/// `%LOCALAPPDATA%\name\cache` on Windows, `~/Library/Caches/name` on macOS, the app's cache
+/// folder on Android (`/data/user/<user>/<package>/cache`), `$XDG_CACHE_HOME/name` (or
+/// `~/.cache/name`) on Linux and the other Unixes. `None` in a browser page.
+#[cfg_attr(not(feature = "image"), allow(dead_code))]
+pub(crate) fn cache_dir(name: &str) -> Option<PathBuf> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = name;
+        remedy_ui_bridge_android::data_dir().and_then(|d| d.parent().map(|p| p.join("cache")))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        if cfg!(all(target_arch = "wasm32", target_os = "unknown")) {
+            return None;
+        }
+        let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+        if cfg!(windows) {
+            env("LOCALAPPDATA").map(|b| b.join(name).join("cache"))
+        } else if cfg!(target_os = "macos") {
+            env("HOME").map(|h| h.join("Library").join("Caches").join(name))
+        } else {
+            env("XDG_CACHE_HOME").or_else(|| env("HOME").map(|h| h.join(".cache"))).map(|b| b.join(name))
+        }
+    }
+}
+
 /// The platform's place for app data, by environment variables.
 #[cfg(not(target_os = "android"))]
 fn folder(name: &str) -> Option<PathBuf> {
