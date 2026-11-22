@@ -973,7 +973,8 @@ fn next_up_counts_down_at_the_end_and_plays_in_the_same_player() {
     s.wait("counting down", |_| p.countdown().is_some());
     assert!(card_shown(&view));
     let shown = texts(&view, "label");
-    assert!(shown.iter().any(|t| t == "Up next: The long one"), "{shown:?}");
+    assert!(texts(&view, "player_next_title").iter().any(|t| t == "The long one"), "the title on its own line");
+    assert!(texts(&view, "player_next_label").iter().any(|t| t == "UP NEXT"), "the label over it");
     assert!(shown.iter().any(|t| t == "Playing in 2 seconds"), "{shown:?}");
     assert!(announced(&view, "Up next: The long one") && announced(&view, "Playing in 2 seconds"));
     s.wait("one second left", |_| texts(&view, "label").iter().any(|t| t == "Playing in 1 second"));
@@ -1004,8 +1005,8 @@ fn cancelling_keeps_the_next_for_when_the_person_asks() {
     p.set_next_up(Some(NextUp::new(MediaSource::url("script:2"), "Two")));
     p.play();
     s.wait("counting down", |_| p.countdown().is_some());
-    // Cancel on the card: the countdown stops and the card goes.
-    named(&view, "Cancel").unwrap_or_else(|| unreachable!("a cancel button")).focus();
+    // Dismiss on the card: the countdown stops and the card goes.
+    named(&view, "Dismiss").unwrap_or_else(|| unreachable!("a dismiss button")).focus();
     assert!(press(&s.ui, Key::Enter));
     s.idle(600);
     assert_eq!(p.state(), PlaybackState::Ended, "it stays at the end");
@@ -1038,7 +1039,7 @@ fn under_reduced_motion_the_next_waits_for_the_person() {
     assert_eq!(p.countdown(), None, "no countdown");
     assert_eq!(p.state(), PlaybackState::Ended);
     assert!(card_shown(&view), "the card still offers it");
-    assert!(texts(&view, "label").iter().any(|t| t == "Up next: Two"));
+    assert!(texts(&view, "player_next_title").iter().any(|t| t == "Two"));
     // Play now, though: chosen, it plays even under reduced motion.
     p.play_next();
     s.wait("the next playing", |_| p.state() == PlaybackState::Playing);
@@ -1060,7 +1061,7 @@ fn a_queue_plays_each_in_turn_then_stops() {
     assert_eq!(p.next_up().map(|n| n.title), Some("Two".into()));
     p.play();
     s.wait("counting down to two", |_| p.countdown().is_some());
-    assert!(texts(&view, "label").iter().any(|t| t == "Up next: Two"));
+    assert!(texts(&view, "player_next_title").iter().any(|t| t == "Two"));
     s.wait("two playing", |_| {
         p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(2))
     });
@@ -1069,7 +1070,7 @@ fn a_queue_plays_each_in_turn_then_stops() {
     assert!(!card_shown(&view));
     s.wait("counting down to three", |_| p.countdown().is_some());
     assert!(card_shown(&view));
-    assert!(texts(&view, "label").iter().any(|t| t == "Up next: Three"));
+    assert!(texts(&view, "player_next_title").iter().any(|t| t == "Three"));
     s.wait("three playing", |_| {
         p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(3))
     });
@@ -2249,8 +2250,8 @@ fn the_card_shows_before_the_end_when_asked_and_the_next_plays_at_once_at_the_en
     p.seek(Duration::from_secs(55));
     s.wait("the card, 15 s before the end", |_| card_shown(&view));
     assert!(announced(&view, "Up next: Episode 2"), "the card is announced");
-    // Cancel puts it away for this next; the end still plays it.
-    named(&view, "Cancel").unwrap_or_else(|| unreachable!("a cancel button")).focus();
+    // Dismiss puts it away for this next; the end still plays it.
+    named(&view, "Dismiss").unwrap_or_else(|| unreachable!("a dismiss button")).focus();
     assert!(press(&s.ui, Key::Enter));
     s.pump();
     assert!(!card_shown(&view));
