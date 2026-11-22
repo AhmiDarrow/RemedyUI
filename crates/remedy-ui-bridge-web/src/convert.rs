@@ -99,6 +99,23 @@ pub fn pointer_id(dom_id: i32, kind: PointerKind) -> u32 {
     }
 }
 
+/// The buttons of a gamepad with the standard mapping that [`gamepad_key`] gives a meaning.
+pub const GAMEPAD_BUTTONS: [usize; 6] = [0, 1, 12, 13, 14, 15];
+
+/// What a standard-mapping gamepad button means for moving about an app: the d-pad (12 to
+/// 15) the arrows, A (0) Enter, B (1) back, as on a TV.
+pub fn gamepad_key(button: usize) -> Option<Key> {
+    Some(match button {
+        0 => Key::Enter,
+        1 => Key::Back,
+        12 => Key::ArrowUp,
+        13 => Key::ArrowDown,
+        14 => Key::ArrowLeft,
+        15 => Key::ArrowRight,
+        _ => return None,
+    })
+}
+
 /// A key's meaning from `KeyboardEvent.key`.
 pub fn key(dom: &str) -> Key {
     match dom {
@@ -668,6 +685,10 @@ mod tests {
         assert_eq!(key("F25"), Key::Named("F25".into()));
         assert_eq!(key("BrowserBack"), Key::Back);
         assert_eq!(key("XF86Back"), Key::Back, "a Tizen remote's back");
+        assert_eq!(gamepad_key(1), Some(Key::Back), "a gamepad's B");
+        assert_eq!(gamepad_key(15), Some(Key::ArrowRight));
+        assert!(GAMEPAD_BUTTONS.iter().all(|b| gamepad_key(*b).is_some()));
+        assert_eq!(gamepad_key(2), None);
         assert_eq!(key("Insert"), Key::Named("Insert".into()));
         assert_eq!(key("Dead"), Key::Named("Dead".into()));
         assert_eq!(key("👍🏽"), Key::Character("👍🏽".into()));

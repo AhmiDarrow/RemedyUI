@@ -186,3 +186,46 @@ fn dialogs_keep_arrow_focus_and_sliders_keep_their_arrows() {
     assert!(!key(&ui, Key::ArrowUp, NONE));
     assert!(cancel.is_focused() && !below.is_focused() && !behind.is_focused());
 }
+
+/// A sidebar group keeps Down inside it though the content beside it is nearer; a wrapping
+/// row comes round at its ends and still lets Down out.
+#[test]
+fn groups_keep_arrows_in_and_wrapping_rows_come_round() {
+    let ui = ui();
+    on(&ui);
+    let (a, b) = (tile(&ui, "A".into()), tile(&ui, "B".into()));
+    let beside = tile(&ui, "Beside".into());
+    let sidebar = w::column(&ui)
+        .gap(10.0)
+        .focus_group()
+        .child(a.clone())
+        .child(ui.el("box").height(200.0))
+        .child(b.clone());
+    let content = w::column(&ui).gap(10.0).child(ui.el("box").height(90.0)).child(beside.clone());
+    let cards: Vec<El> = (0..3).map(|c| tile(&ui, format!("Card {c}"))).collect();
+    let mut carousel = w::row(&ui).gap(10.0).focus_wrap();
+    for c in &cards {
+        carousel = carousel.child(c.clone());
+    }
+    let cards = Cells(vec![cards]);
+    let after = tile(&ui, "After".into());
+    ui.root().child(
+        w::column(&ui)
+            .gap(10.0)
+            .child(w::row(&ui).gap(10.0).child(sidebar).child(content))
+            .child(carousel)
+            .child(after.clone()),
+    );
+    frame(&ui);
+    a.focus();
+    assert!(key(&ui, Key::ArrowDown, NONE));
+    assert!(b.is_focused(), "down stays in the sidebar");
+    cards.at(0, 2).focus();
+    assert!(key(&ui, Key::ArrowRight, NONE));
+    assert!(cards.at(0, 0).is_focused(), "past the last card comes round to the first");
+    assert!(key(&ui, Key::ArrowLeft, NONE));
+    assert!(cards.at(0, 2).is_focused());
+    assert!(key(&ui, Key::ArrowDown, NONE));
+    assert!(after.is_focused(), "down leaves the row");
+    assert!(audit(&ui).is_empty(), "{:?}", audit(&ui));
+}
