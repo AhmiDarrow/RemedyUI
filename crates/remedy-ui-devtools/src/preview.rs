@@ -147,7 +147,7 @@ impl Preview {
         }
     }
 
-    /// Shows it in these palettes.
+    /// Shows it in these palettes: the shared palettes' ids, or `portal:<id>` for Portal's.
     pub fn themes(mut self, ids: &[&str]) -> Self {
         self.themes = ids.iter().map(|s| (*s).to_owned()).collect();
         self
@@ -195,7 +195,12 @@ impl Preview {
     pub fn render(&self, v: &Variation) -> Snapshot {
         let theme = theme_for(v);
         let fonts = bundled_fonts();
-        let ui = Ui::new(theme.clone(), remedy_ui_themes::sheet(&theme), fonts);
+        // Portal's palettes come with Portal's sheet, as a Portal app sets them.
+        let sheet = match v.theme.starts_with("portal:") {
+            true => remedy_ui_themes::portal_sheet(&theme),
+            false => remedy_ui_themes::sheet(&theme),
+        };
+        let ui = Ui::new(theme.clone(), sheet, fonts);
         ui.set_locale(v.locale.clone());
         ui.set_reduced_motion(true);
         let content = (self.build)(&ui);
@@ -261,7 +266,11 @@ fn bundled_fonts() -> FontCollection {
 }
 
 fn theme_for(v: &Variation) -> Theme {
-    let mut t = remedy_ui_themes::palette(&v.theme).map_or_else(Theme::dark_forest, remedy_ui_themes::theme);
+    // `portal:<id>` is Portal's own palette of that id (remedy_ui_themes::portal_theme).
+    let portal = v.theme.strip_prefix("portal:").and_then(remedy_ui_themes::portal_theme);
+    let shared =
+        || remedy_ui_themes::palette(&v.theme).map_or_else(Theme::dark_forest, remedy_ui_themes::theme);
+    let mut t = portal.unwrap_or_else(shared);
     let s = v.text_scale.clamp(0.5, 4.0);
     t.type_scale.small *= s;
     t.type_scale.body *= s;

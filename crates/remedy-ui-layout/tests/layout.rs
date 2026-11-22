@@ -289,3 +289,47 @@ fn trees_of_any_depth_lay_out_on_a_threads_stack() -> R {
     }
     Ok(())
 }
+
+fn poster_grid(repeat: Repeat, width: f32, n: usize) -> Result<Vec<f32>, LayoutError> {
+    let mut t = LayoutTree::new();
+    let root = t.node(&{
+        let mut v_ = LayoutStyle::default();
+        v_.display = Display::Grid;
+        // Portal's `repeat(auto-fill, minmax(180px, 1fr))`.
+        v_.columns = vec![Track::Repeat(
+            repeat,
+            vec![Track::MinMax(Box::new(Track::Px(180.0)), Box::new(Track::Fr(1.0)))],
+        )];
+        v_.gap = (10.0, 10.0);
+        v_
+    })?;
+    let cells: Vec<LayoutNode> = (0..n).map(|_| t.node(&LayoutStyle::default())).collect::<Result<_, _>>()?;
+    t.set_children(root, &cells)?;
+    t.compute(root, Some(width), None)?;
+    Ok(cells.iter().filter_map(|c| t.rect(*c).map(|r| r.min.x)).collect())
+}
+
+#[test]
+fn auto_fill_minmax_columns_fill_the_width() -> R {
+    // 1280: (1280 + 10) / 190 = 6 columns of (1280 - 50) / 6 = 205.
+    let xs = poster_grid(Repeat::AutoFill, 1280.0, 8)?;
+    assert_eq!(xs.get(..7), Some(&[0.0, 215.0, 430.0, 645.0, 860.0, 1075.0, 0.0][..]));
+    // 390: two columns of 190.
+    assert_eq!(poster_grid(Repeat::AutoFill, 390.0, 3)?, [0.0, 200.0, 0.0]);
+    // Narrower than one track: still one.
+    assert_eq!(poster_grid(Repeat::AutoFill, 120.0, 2)?, [0.0, 0.0]);
+    Ok(())
+}
+
+#[test]
+fn auto_fit_collapses_empty_tracks_and_count_repeats() -> R {
+    // Two items at 1280: auto-fill keeps six tracks, auto-fit collapses four and the two grow.
+    assert_eq!(poster_grid(Repeat::AutoFill, 1280.0, 2)?, [0.0, 215.0]);
+    assert_eq!(poster_grid(Repeat::AutoFit, 1280.0, 2)?, [0.0, 645.0]);
+    assert_eq!(
+        poster_grid(Repeat::Count(3), 1280.0, 4)?.get(3),
+        Some(&0.0),
+        "three columns, the fourth wraps"
+    );
+    Ok(())
+}

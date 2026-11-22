@@ -309,15 +309,35 @@ fn a_player_follows_a_growing_playlist() {
     wait_for("the seek past the end", || p.position() == secs(3.0));
 }
 
-/// A 1080p stream of 4 MB, two-second segments (made with the `ffmpeg` on the PATH; skipped
-/// without one), served at 6 MB/s, read at the pace it plays: segments are fetched ahead while
-/// pictures are decoded, so each is asked for while the one before it plays, and opening
-/// waits only for the playlist and the first segment. Told by where the reader was when each
-/// segment was asked for, not by how late reads were: a loaded machine (a parallel build)
-/// slows decoding, and so every read, whatever was fetched ahead.
+/// A measurement of the platform's HLS path: every picture of the 6 s 1080p stream read as
+/// fast as it decodes, served at full speed; the mean and 95th percentile read. Run by hand.
 #[test]
-fn big_segments_are_read_at_the_pace_they_play() {
-    let folder = std::env::temp_dir().join(format!("remedy-hls-1080p-{}", std::process::id()));
+#[ignore = "a measurement: run by hand"]
+fn measure_1080p_reads() {
+    let Some((url, _files)) = served_1080p("measure", None) else { return };
+    let Some(mut d) = open(&url) else { return };
+    let (mut reads, start) = (Vec::new(), std::time::Instant::now());
+    loop {
+        let t = std::time::Instant::now();
+        let Some(s) = d.read().unwrap_or_else(|e| unreachable!("reading: {e}")) else { break };
+        if let Sample::Video { .. } = s {
+            reads.push(t.elapsed().as_secs_f64() * 1e3);
+        }
+    }
+    let all = start.elapsed().as_secs_f64() * 1e3;
+    reads.sort_by(f64::total_cmp);
+    let p95 = reads.get(reads.len() * 95 / 100).copied().unwrap_or(0.0);
+    eprintln!(
+        "{} pictures in {all:.0} ms: {:.2} ms each, p95 read {p95:.2} ms",
+        reads.len(),
+        all / reads.len().max(1) as f64
+    );
+}
+
+/// The 6 s 1080p HLS stream of [`big_segments_are_read_at_the_pace_they_play`], made with the
+/// `ffmpeg` on the PATH and served at `rate` bytes a second; `None` without ffmpeg.
+fn served_1080p(name: &str, rate: Option<usize>) -> Option<(String, Files)> {
+    let folder = std::env::temp_dir().join(format!("remedy-hls-1080p-{name}-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&folder);
     let made = std::process::Command::new("ffmpeg")
         .args([
@@ -348,12 +368,23 @@ fn big_segments_are_read_at_the_pace_they_play() {
         .arg(folder.join("seg%05d.ts"))
         .arg(folder.join("index.m3u8"))
         .status();
-    if !made.is_ok_and(|s| s.success()) {
-        let _ = std::fs::remove_dir_all(&folder);
-        return eprintln!("skipped: no ffmpeg on the PATH to make the stream");
-    }
-    let (url, files) = serve_path(&folder, None, Some(6_000_000));
+    let served = made.is_ok_and(|s| s.success()).then(|| serve_path(&folder, None, rate));
     let _ = std::fs::remove_dir_all(&folder);
+    if served.is_none() {
+        eprintln!("skipped: no ffmpeg on the PATH to make the stream");
+    }
+    served
+}
+
+/// A 1080p stream of 4 MB, two-second segments (made with the `ffmpeg` on the PATH; skipped
+/// without one), served at 6 MB/s, read at the pace it plays: segments are fetched ahead while
+/// pictures are decoded, so each is asked for while the one before it plays, and opening
+/// waits only for the playlist and the first segment. Told by where the reader was when each
+/// segment was asked for, not by how late reads were: a loaded machine (a parallel build)
+/// slows decoding, and so every read, whatever was fetched ahead.
+#[test]
+fn big_segments_are_read_at_the_pace_they_play() {
+    let Some((url, files)) = served_1080p("pace", Some(6_000_000)) else { return };
     let opening = std::time::Instant::now();
     let Some(mut d) = open(&url) else { return };
     let opened = opening.elapsed();
@@ -477,6 +508,52 @@ fn plays_mp3_sound() {
     assert!(about(sound, Duration::from_secs(2)), "sound {sound:?}");
 }
 
+/// Each picture's time and the luma at its middle. A picture on the GPU (another test here
+/// made a renderer, and which GPU takes pictures is process-wide) is read back first.
+fn lumas(d: &mut dyn Decoder) -> Vec<(Duration, u8)> {
+    let mut out = Vec::new();
+    while let Some(s) = d.read().unwrap_or_else(|e| unreachable!("reading: {e}")) {
+        if let Sample::Video { at, picture: p, .. } = s {
+            let (planes, data) = match p.gpu.as_ref().and_then(|g| g.0.read_back()) {
+                Some(px) => (px.planes, px.data),
+                None => (p.planes, p.data.clone()),
+            };
+            let [plane, ..] = planes;
+            let i = plane.offset + (p.height as usize / 2) * plane.stride + p.width as usize / 2;
+            out.push((at, data.get(i).copied().unwrap_or_default()));
+        }
+    }
+    out
+}
+
+/// Streams opened one after another on a host take the last one's decoders over (kept, or
+/// made anew where the sound changes codec): the pictures are those a new host gives.
+#[test]
+fn the_next_stream_on_a_host_decodes_alike() {
+    let (video, _v) = serve_dir("video", None);
+    let Some(mut fresh) = open(&video) else { return };
+    let want = lumas(fresh.as_mut());
+    drop(fresh);
+    assert_eq!(want.len(), 75);
+    let Ok(host) = platform_host() else { return };
+    let opened = |url: &str| host.open(&MediaSource::Url(url.into())).unwrap_or_else(|e| unreachable!("{e}"));
+    // H.264 and AAC, then H.264 alone, then H.264 and MP3, then H.264 alone again.
+    let (aac, _a) = serve_dir("aac", None);
+    let (mp3, _m) = serve_dir("mp3", None);
+    for url in [&aac, &video, &mp3, &video] {
+        let got = lumas(opened(url).as_mut());
+        if *url == video {
+            assert_eq!(got.len(), want.len(), "pictures after reuse");
+            for ((t, y), (wt, wy)) in got.iter().zip(&want) {
+                assert_eq!(t, wt);
+                assert!(y.abs_diff(*wy) <= 2, "luma {y} at {t:?}, a new host's {wy}");
+            }
+        } else {
+            assert!(got.len() >= 50, "{url}'s pictures: {}", got.len());
+        }
+    }
+}
+
 #[test]
 fn plays_video_without_sound() {
     let Some((info, pictures, sound)) = play("video") else { return };
@@ -597,9 +674,10 @@ fn dropping_a_stream_mid_fetch_hangs_up_promptly() {
     eprintln!("hung up {:?} after the drop", dropped.elapsed());
 }
 
-/// Prints what a first picture costs, median of 5: opening the stream (what `replace_source`
-/// and `start_next` wait for) and seeking inside it, back to a segment already held and
-/// ahead to one that is not yet. For before-and-after numbers, not a pass mark.
+/// Prints what a first picture costs, median of 5: opening the stream on a new host, and on
+/// one that opened it before (what `replace_source` and `start_next` wait for: the decoders
+/// are kept), and seeking inside it, back to a segment already held and ahead to one that is
+/// not yet. For before-and-after numbers, not a pass mark.
 #[test]
 fn first_picture_costs() {
     let (url, _files) = server(playlist());
@@ -615,12 +693,23 @@ fn first_picture_costs() {
         v.sort();
         v.get(v.len() / 2).copied().unwrap_or_default()
     };
-    let (mut opens, mut backs, mut aheads) = (Vec::new(), Vec::new(), Vec::new());
+    let Ok(host) = platform_host() else { return eprintln!("skipped: no platform host") };
+    let (mut opens, mut reopens, mut backs, mut aheads) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for _ in 0..5 {
         let started = std::time::Instant::now();
         let Some(mut d) = open(&url) else { return };
         assert!(first(d.as_mut(), Duration::ZERO).is_some(), "a first picture");
         opens.push(started.elapsed());
+        // Again on a host that opened it before (a player's replace_source or start_next):
+        // the last stream's decoders are taken over.
+        let mut again = host.open(&MediaSource::Url(url.clone())).unwrap_or_else(|e| unreachable!("{e}"));
+        assert!(first(again.as_mut(), Duration::ZERO).is_some(), "a first picture");
+        drop(again);
+        let started = std::time::Instant::now();
+        let mut again = host.open(&MediaSource::Url(url.clone())).unwrap_or_else(|e| unreachable!("{e}"));
+        assert!(first(again.as_mut(), Duration::ZERO).is_some(), "a first picture, reused");
+        reopens.push(started.elapsed());
+        drop(again);
         // Into the second segment, so the first is held, then back to it and on to the third.
         d.seek(Duration::from_millis(1200)).unwrap_or_else(|e| unreachable!("seeking: {e}"));
         let _ = first(d.as_mut(), Duration::from_millis(1200));
@@ -632,8 +721,9 @@ fn first_picture_costs() {
         }
     }
     eprintln!(
-        "first picture: open {:?}, seek back {:?}, seek ahead {:?}",
+        "first picture: open {:?}, open on the same host {:?}, seek back {:?}, seek ahead {:?}",
         median(opens),
+        median(reopens),
         median(backs),
         median(aheads)
     );

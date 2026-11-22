@@ -462,7 +462,8 @@ pub(crate) mod pointer {
         SetCursorPos,
     };
 
-    /// Whether Windows shows the pointer now (`GetCursorInfo`'s `CURSOR_SHOWING`).
+    /// Whether Windows shows the pointer now: `GetCursorInfo`'s `CURSOR_SHOWING`, with a cursor
+    /// to show (a window may hide it with no cursor rather than the display count).
     pub fn showing() -> bool {
         let mut info = CURSORINFO {
             cbSize: size_of::<CURSORINFO>() as u32,
@@ -472,7 +473,7 @@ pub(crate) mod pointer {
         };
         // SAFETY: `info` is a CURSORINFO with its size set, as GetCursorInfo asks.
         let ok = unsafe { GetCursorInfo(&mut info) } != 0;
-        ok && info.flags & CURSOR_SHOWING != 0
+        ok && info.flags & CURSOR_SHOWING != 0 && !info.hCursor.is_null()
     }
 
     /// Where the pointer is, in screen pixels.
@@ -510,5 +511,100 @@ pub(crate) mod pointer {
     pub fn screen_size() -> (i32, i32) {
         // SAFETY: GetSystemMetrics takes only the metric's index.
         unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) }
+    }
+
+    /// The top-level window under the pointer and the one in front: each one's class, title
+    /// and process (marked when it is this one), for a test to say what was under the
+    /// pointer when it showed.
+    pub fn under() -> String {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GA_ROOT, GetAncestor, GetClassNameW, GetForegroundWindow, GetWindowTextW,
+            GetWindowThreadProcessId, WindowFromPoint,
+        };
+        let mut at = POINT { x: 0, y: 0 };
+        // SAFETY: `at` is a POINT for GetCursorPos to fill.
+        let _ = unsafe { GetCursorPos(&mut at) };
+        let describe = |h: windows_sys::Win32::Foundation::HWND| {
+            if h.is_null() {
+                return "none".to_owned();
+            }
+            let (mut class, mut title) = ([0u16; 128], [0u16; 128]);
+            let mut pid = 0u32;
+            // SAFETY: each buffer is passed with its length; `pid` is a u32 to fill.
+            let (n, t) = unsafe {
+                (GetClassNameW(h, class.as_mut_ptr(), 128), GetWindowTextW(h, title.as_mut_ptr(), 128))
+            };
+            // SAFETY: as above.
+            let _ = unsafe { GetWindowThreadProcessId(h, &mut pid) };
+            let s = |b: &[u16], n: i32| {
+                String::from_utf16_lossy(b.get(..usize::try_from(n).unwrap_or(0)).unwrap_or_default())
+            };
+            let mine = if pid == std::process::id() { ", this process" } else { "" };
+            format!("{:?} {:?} (process {pid}{mine})", s(&class, n), s(&title, t))
+        };
+        // SAFETY: plain coordinates and window handles.
+        let (point, front) = unsafe { (GetAncestor(WindowFromPoint(at), GA_ROOT), GetForegroundWindow()) };
+        format!(
+            "under the pointer at ({}, {}): {}; in front: {}",
+            at.x,
+            at.y,
+            describe(point),
+            describe(front)
+        )
+    }
+}
+
+/// The pointer hidden over a window. winit hides it (`ShowCursor`) only while it has seen the
+/// pointer come in and not leave: a `WM_MOUSELEAVE` it gets around a click, a capture or a
+/// full-screen switch leaves the pointer showing over the window. Answering `WM_SETCURSOR`
+/// with no cursor while hidden, and clearing the cursor at once when it is over the window,
+/// hides it whatever winit believes.
+pub(crate) mod cursor {
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
+    use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GA_ROOT, GetAncestor, GetCursorPos, HTCLIENT, SendMessageW, SetCursor, WM_MOUSEMOVE, WM_NCDESTROY,
+        WM_SETCURSOR, WindowFromPoint,
+    };
+
+    const ID: usize = 0x5245_4d43; // "REMC"
+
+    unsafe extern "system" fn proc(
+        h: HWND,
+        msg: u32,
+        w: WPARAM,
+        l: LPARAM,
+        _: usize,
+        hidden: usize,
+    ) -> LRESULT {
+        if msg == WM_SETCURSOR && hidden != 0 && (l & 0xFFFF) as u32 == HTCLIENT {
+            // SAFETY: a null cursor hides the pointer; called on the window's thread.
+            unsafe { SetCursor(std::ptr::null_mut()) };
+            return 1;
+        }
+        if msg == WM_NCDESTROY {
+            // SAFETY: the subclass this module set on `h`, removed as the window goes.
+            unsafe { RemoveWindowSubclass(h, Some(proc), ID) };
+        }
+        // SAFETY: passes the message on, as a subclass procedure must.
+        unsafe { DefSubclassProc(h, msg, w, l) }
+    }
+
+    /// Hides or shows the pointer over `hwnd` (a window of this thread).
+    pub fn set_hidden(hwnd: isize, hidden: bool) {
+        let h = hwnd as HWND;
+        // SAFETY: `h` is a live window of this thread; setting the same subclass again only
+        // changes its data (the hidden flag).
+        unsafe { SetWindowSubclass(h, Some(proc), ID, usize::from(hidden)) };
+        let mut at = POINT { x: 0, y: 0 };
+        // SAFETY: `at` is a POINT for GetCursorPos; the rest take handles and plain values.
+        let over = unsafe { GetCursorPos(&mut at) != 0 && GetAncestor(WindowFromPoint(at), GA_ROOT) == h };
+        if over {
+            // Asks the window for its cursor now rather than at the next move: none while
+            // hidden, winit's own when shown.
+            let l = (WM_MOUSEMOVE << 16 | HTCLIENT) as LPARAM;
+            // SAFETY: a WM_SETCURSOR to a window of this thread, its own handle as wParam.
+            unsafe { SendMessageW(h, WM_SETCURSOR, h as WPARAM, l) };
+        }
     }
 }

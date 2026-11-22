@@ -25,6 +25,8 @@ struct Mem {
     asked: Arc<Mutex<Vec<String>>>,
     /// URLs that fail this many more times before they are served, and whether as timeouts.
     late: HashMap<String, (u32, bool)>,
+    /// URLs answered 404 this many more times before they are served (not yet written).
+    absent: HashMap<String, u32>,
     /// After this many fetches, each next one waits for a permit (the test sets the pace).
     gate: Option<(usize, std::sync::mpsc::Receiver<()>)>,
 }
@@ -65,11 +67,21 @@ impl Fetch for Mem {
                 MediaError::NotFound(url.into())
             });
         }
+        if let Some(n) = self.absent.get_mut(url)
+            && *n > 0
+        {
+            *n -= 1;
+            return Err(missing(url, "the server answered 404"));
+        }
         if let Some(v) = self.versions.get_mut(url) {
             let text = if v.len() > 1 { v.remove(0) } else { v[0].clone() };
+            // An empty version is the playlist gone (a 404).
+            if text.is_empty() {
+                return Err(missing(url, "the server answered 404"));
+            }
             return Ok(text.into_bytes());
         }
-        self.files.get(url).cloned().ok_or_else(|| MediaError::NotFound(url.to_string()))
+        self.files.get(url).cloned().ok_or_else(|| missing(url, "the server answered 404"))
     }
 }
 
@@ -147,7 +159,7 @@ fn start(dir: &str, mem: Mem) -> Result<Run, MediaError> {
     let es = Echo::default();
     let units = es.units.clone();
     let asked = mem.asked.clone();
-    let dec = open_with(&format!("{ROOT}{dir}/index.m3u8"), Box::new(mem), Box::new(es), CLOCK)?;
+    let dec = open_with(&format!("{ROOT}{dir}/index.m3u8"), Box::new(mem), None, || Ok(Box::new(es)), CLOCK)?;
     Ok(Run { dec, units, asked })
 }
 
@@ -220,7 +232,7 @@ fn the_decoders_are_set_up_from_the_first_segment() {
     let es = Echo::default();
     let configured = es.configured.clone();
     let url = format!("{ROOT}aac/index.m3u8");
-    let opened = open_with(&url, Box::new(Mem::of("aac", None)), Box::new(es), CLOCK);
+    let opened = open_with(&url, Box::new(Mem::of("aac", None)), None, || Ok(Box::new(es)), CLOCK);
     assert!(opened.is_ok());
     let Some((Some(v), Some(a))) = lock(&configured).clone() else { unreachable!("both set up") };
     assert!(v.codec.starts_with("avc1.64"));
@@ -228,6 +240,31 @@ fn the_decoders_are_set_up_from_the_first_segment() {
     assert_eq!(v.pps[0] & 0x1f, 8);
     assert_eq!(a.codec, AudioCodec::Aac { asc: vec![0x11, 0x90] });
     assert_eq!(a.codec_string, "mp4a.40.2");
+}
+
+#[test]
+fn the_next_stream_takes_the_last_ones_decoders() {
+    let spare = Spare::default();
+    let url = format!("{ROOT}aac/index.m3u8");
+    let es = Echo::default();
+    let units = es.units.clone();
+    let mut d = open_with(&url, Box::new(Mem::of("aac", None)), Some(&spare), || Ok(Box::new(es)), CLOCK)
+        .unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(read_all(&mut d).is_ok());
+    let read = lock(&units).len();
+    assert!(lock(&spare).is_none(), "held while the stream plays");
+    drop(d);
+    assert!(lock(&spare).is_some(), "handed back on the drop");
+    let mut d =
+        open_with(&url, Box::new(Mem::of("aac", None)), Some(&spare), || unreachable!("made anew"), CLOCK)
+            .unwrap_or_else(|e| unreachable!("{e}"));
+    assert!(read_all(&mut d).is_ok());
+    assert_eq!(lock(&units).len(), 2 * read, "the same decoders decoded the second stream");
+    // Dropped with the host: nothing holds them past it.
+    drop(d);
+    let weak = std::sync::Arc::downgrade(&spare);
+    drop(spare);
+    assert!(weak.upgrade().is_none());
 }
 
 #[test]
@@ -313,6 +350,41 @@ fn a_missing_segment_is_retried_then_errors() {
     assert!(matches!(result, Err(MediaError::NotFound(_))), "{result:?}");
     let rounds = (1 + RECOVERIES) as usize;
     assert_eq!(lock(&r.asked).iter().filter(|u| **u == gone).count(), (1 + ERROR_RETRIES as usize) * rounds);
+}
+
+#[test]
+fn a_playlist_that_does_not_exist_fails_the_open_after_a_short_grace() {
+    let url = format!("{ROOT}aac/index.m3u8");
+    let mut mem = Mem::of("aac", None);
+    mem.files.remove(&url);
+    let asked = mem.asked.clone();
+    let result = start("aac", mem).map(|_| ());
+    assert!(matches!(&result, Err(MediaError::NotFound(m)) if m.contains("404")), "{result:?}");
+    assert_eq!(lock(&asked).len(), 1 + MISSING_RETRIES as usize, "asked, then twice again, then failed");
+    assert_eq!(MAX_RETRY_PAUSE * MISSING_RETRIES, Duration::from_secs(2), "the grace is about 2 s");
+}
+
+#[test]
+fn a_playlist_written_within_the_grace_opens() {
+    let url = format!("{ROOT}aac/index.m3u8");
+    let mut mem = Mem::of("aac", None);
+    mem.absent.insert(url.clone(), MISSING_RETRIES);
+    let mut r = start("aac", mem).unwrap_or_else(|e| unreachable!("opens: {e}"));
+    assert!(read_all(&mut r.dec).is_ok_and(|s| !s.is_empty()));
+}
+
+#[test]
+fn a_growing_playlist_that_goes_missing_keeps_its_patient_retries() {
+    // Read once, the playlist 404s on each reload after: retried as a late segment is.
+    let url = format!("{ROOT}aac/index.m3u8");
+    let first = String::from_utf8_lossy(&fixture("aac/index.m3u8")).replace("#EXT-X-ENDLIST", "");
+    let mut mem = Mem::of("aac", None);
+    mem.versions.insert(url.clone(), vec![first, String::new()]);
+    let Ok(mut r) = start("aac", mem) else { unreachable!("opens") };
+    let result = read_all(&mut r.dec);
+    assert!(matches!(result, Err(MediaError::NotFound(_))), "{result:?}");
+    let reloads = lock(&r.asked).iter().filter(|u| **u == url).count() - 1;
+    assert!(reloads >= (1 + ERROR_RETRIES as usize) * (1 + RECOVERIES as usize), "{reloads} reloads");
 }
 
 /// Plays the `aac` fixture with `late` failing as it says; how often each segment was asked.

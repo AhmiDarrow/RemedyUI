@@ -949,8 +949,12 @@ fn card_shown(view: &El) -> bool {
 fn texts(el: &El, widget: &str) -> Vec<String> {
     find(el, widget)
         .iter()
-        .filter_map(|l| l.info().filter(|i| !i.hidden).and_then(|i| i.text))
-        .map(|t| plain(&t))
+        .filter_map(|l| l.info().filter(|i| !i.hidden))
+        .filter_map(|i| match widget {
+            // The clock is in parts; its name says it whole.
+            "player_clock" => i.semantics.and_then(|s| s.name().map(str::to_owned)),
+            _ => i.text.map(|t| plain(&t)),
+        })
         .collect()
 }
 
@@ -969,7 +973,11 @@ fn next_up_counts_down_at_the_end_and_plays_in_the_same_player() {
     s.wait("counting down", |_| p.countdown().is_some());
     assert!(card_shown(&view));
     let shown = texts(&view, "label");
-    assert!(shown.iter().any(|t| t == "Up next: The long one"), "{shown:?}");
+    assert!(
+        texts(&view, "player_next_title").iter().any(|t| t == "The long one"),
+        "the title on its own line"
+    );
+    assert!(texts(&view, "player_next_label").iter().any(|t| t == "UP NEXT"), "the label over it");
     assert!(shown.iter().any(|t| t == "Playing in 2 seconds"), "{shown:?}");
     assert!(announced(&view, "Up next: The long one") && announced(&view, "Playing in 2 seconds"));
     s.wait("one second left", |_| texts(&view, "label").iter().any(|t| t == "Playing in 1 second"));
@@ -1000,8 +1008,8 @@ fn cancelling_keeps_the_next_for_when_the_person_asks() {
     p.set_next_up(Some(NextUp::new(MediaSource::url("script:2"), "Two")));
     p.play();
     s.wait("counting down", |_| p.countdown().is_some());
-    // Cancel on the card: the countdown stops and the card goes.
-    named(&view, "Cancel").unwrap_or_else(|| unreachable!("a cancel button")).focus();
+    // Dismiss on the card: the countdown stops and the card goes.
+    named(&view, "Dismiss").unwrap_or_else(|| unreachable!("a dismiss button")).focus();
     assert!(press(&s.ui, Key::Enter));
     s.idle(600);
     assert_eq!(p.state(), PlaybackState::Ended, "it stays at the end");
@@ -1034,7 +1042,7 @@ fn under_reduced_motion_the_next_waits_for_the_person() {
     assert_eq!(p.countdown(), None, "no countdown");
     assert_eq!(p.state(), PlaybackState::Ended);
     assert!(card_shown(&view), "the card still offers it");
-    assert!(texts(&view, "label").iter().any(|t| t == "Up next: Two"));
+    assert!(texts(&view, "player_next_title").iter().any(|t| t == "Two"));
     // Play now, though: chosen, it plays even under reduced motion.
     p.play_next();
     s.wait("the next playing", |_| p.state() == PlaybackState::Playing);
@@ -1056,7 +1064,7 @@ fn a_queue_plays_each_in_turn_then_stops() {
     assert_eq!(p.next_up().map(|n| n.title), Some("Two".into()));
     p.play();
     s.wait("counting down to two", |_| p.countdown().is_some());
-    assert!(texts(&view, "label").iter().any(|t| t == "Up next: Two"));
+    assert!(texts(&view, "player_next_title").iter().any(|t| t == "Two"));
     s.wait("two playing", |_| {
         p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(2))
     });
@@ -1065,7 +1073,7 @@ fn a_queue_plays_each_in_turn_then_stops() {
     assert!(!card_shown(&view));
     s.wait("counting down to three", |_| p.countdown().is_some());
     assert!(card_shown(&view));
-    assert!(texts(&view, "label").iter().any(|t| t == "Up next: Three"));
+    assert!(texts(&view, "player_next_title").iter().any(|t| t == "Three"));
     s.wait("three playing", |_| {
         p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(3))
     });
@@ -1409,9 +1417,9 @@ fn casting_hands_every_control_to_the_remote_and_back() {
     assert_eq!(said.role(), remedy_ui_a11y::Role::Status);
     assert_eq!(said.live_state(), remedy_ui_a11y::Live::Polite, "announced as it changes");
     assert!(
-        texts(&view, "label").iter().any(|t| t == "0:30 / 1:40"),
+        texts(&view, "player_clock").iter().any(|t| t == "0:30 / 1:40"),
         "the TV's time: {:?}",
-        texts(&view, "label")
+        texts(&view, "player_clock")
     );
     let seek = named(&view, "Seek").unwrap_or_else(|| unreachable!("a seek bar"));
     let value = || {
@@ -2047,7 +2055,11 @@ fn on_a_timeline_everything_is_in_film_time_and_seeks_inside_the_stream_stay_in_
     assert_eq!(p.position(), ORIGIN);
     assert_eq!(p.duration(), Some(FILM), "the film's length, not the stream's");
     s.idle(30);
-    assert!(texts(&view, "label").iter().any(|t| t == "6:36 / 3:01:32"), "{:?}", texts(&view, "label"));
+    assert!(
+        texts(&view, "player_clock").iter().any(|t| t == "6:36 / 3:01:32"),
+        "{:?}",
+        texts(&view, "player_clock")
+    );
     assert_eq!(seek_value(&view).as_deref(), Some("6:36 of 3:01:32"));
     assert!(!seek_disabled(&view));
     assert!(p.buffered().iter().all(|r| r.start >= ORIGIN), "{:?}", p.buffered());
@@ -2063,6 +2075,7 @@ fn on_a_timeline_everything_is_in_film_time_and_seeks_inside_the_stream_stay_in_
         start: Duration::from_secs(404),
         end: Duration::from_secs(407),
         text: "Whatever it takes".into(),
+        ..Default::default()
     };
     let i = p.add_subtitles(SubtitleTrack { label: "English".into(), language: None, cues: vec![cue] });
     p.set_caption_track(Some(i));
@@ -2115,8 +2128,12 @@ fn a_seek_outside_the_stream_goes_to_the_app_which_hands_over_a_new_one() {
 fn a_new_stream_keeps_the_captions_and_remote_mode() {
     let mut s = Screen::new();
     let (p, _view, _asked) = film(&mut s);
-    let cue =
-        Cue { start: Duration::from_secs(600), end: Duration::from_secs(604), text: "On your left".into() };
+    let cue = Cue {
+        start: Duration::from_secs(600),
+        end: Duration::from_secs(604),
+        text: "On your left".into(),
+        ..Default::default()
+    };
     let i = p.add_subtitles(SubtitleTrack { label: "English".into(), language: None, cues: vec![cue] });
     p.set_caption_track(Some(i));
     p.set_caption_delay(250);
@@ -2236,8 +2253,8 @@ fn the_card_shows_before_the_end_when_asked_and_the_next_plays_at_once_at_the_en
     p.seek(Duration::from_secs(55));
     s.wait("the card, 15 s before the end", |_| card_shown(&view));
     assert!(announced(&view, "Up next: Episode 2"), "the card is announced");
-    // Cancel puts it away for this next; the end still plays it.
-    named(&view, "Cancel").unwrap_or_else(|| unreachable!("a cancel button")).focus();
+    // Dismiss puts it away for this next; the end still plays it.
+    named(&view, "Dismiss").unwrap_or_else(|| unreachable!("a dismiss button")).focus();
     assert!(press(&s.ui, Key::Enter));
     s.pump();
     assert!(!card_shown(&view));
@@ -2473,7 +2490,11 @@ fn a_tv_starting_its_next_by_itself_says_so_then_switches_to_the_new_job_at_once
     s.pump();
     assert!(p.is_remote());
     assert_eq!((p.position(), p.duration()), (at(0), Some(at(2497))));
-    assert!(texts(&view, "label").iter().any(|t| t == "0:00 / 41:37"), "{:?}", texts(&view, "label"));
+    assert!(
+        texts(&view, "player_clock").iter().any(|t| t == "0:00 / 41:37"),
+        "{:?}",
+        texts(&view, "player_clock")
+    );
     assert!(!seek_disabled(&view));
     assert!(visible(&view, "Playing on The Ris"));
     let on_stage =
@@ -2651,10 +2672,14 @@ fn dragging_the_seek_bar_previews_and_seeks_once_on_release() {
     s.pump();
     assert!(p.scrubbing().is_some_and(|d| near(d, 30.0, 0.2)), "{:?}", p.scrubbing());
     assert_eq!(p.position(), Duration::ZERO, "no seek while held");
-    assert!(texts(&view, "label").iter().any(|t| t == "0:30 / 1:00"), "{:?}", texts(&view, "label"));
+    assert!(
+        texts(&view, "player_clock").iter().any(|t| t == "0:30 / 1:00"),
+        "{:?}",
+        texts(&view, "player_clock")
+    );
     assert_eq!(seek_value(&view).as_deref(), Some("0:30 of 1:00"));
     // The tip: the time under the pointer.
-    assert!(texts(&view, "label").iter().any(|t| t == "0:30"), "{:?}", texts(&view, "label"));
+    assert!(texts(&view, "player_tip").iter().any(|t| t == "0:30"), "{:?}", texts(&view, "player_tip"));
     s.idle(50);
     assert_eq!(p.position(), Duration::ZERO, "still no seek");
     // Let go: one seek, there.
@@ -2684,12 +2709,12 @@ fn dragging_the_seek_bar_previews_and_seeks_once_on_release() {
     s.ui.pointer(&touch(Up, 0.2005, false));
     s.wait("the touch seek", |_| near(p.position(), 12.0, 0.2));
     s.pump();
-    assert!(!texts(&view, "label").iter().any(|t| t == "0:12"), "a lifted finger leaves no tip");
+    assert!(!texts(&view, "player_tip").iter().any(|t| t == "0:12"), "a lifted finger leaves no tip");
 
     // Hovering shows the tip alone; the keys still seek at once.
     s.ui.pointer(&on_bar(&view, Move, 0.7505, false));
     s.pump();
-    assert!(texts(&view, "label").iter().any(|t| t == "0:45"), "{:?}", texts(&view, "label"));
+    assert!(texts(&view, "player_tip").iter().any(|t| t == "0:45"), "{:?}", texts(&view, "player_tip"));
     assert_eq!(p.scrubbing(), None);
     el(&view, "Seek").focus();
     assert!(press(&s.ui, Key::ArrowRight));
@@ -2719,9 +2744,9 @@ fn on_a_tv_and_on_a_timeline_only_the_release_seeks() {
     s.ui.pointer(&on_bar(&view, remedy_ui_input::PointerPhase::Move, 0.50005, false));
     s.pump();
     assert!(
-        texts(&view, "label").iter().any(|t| t == "1:30:46"),
+        texts(&view, "player_tip").iter().any(|t| t == "1:30:46"),
         "the tip in film time: {:?}",
-        texts(&view, "label")
+        texts(&view, "player_tip")
     );
     drag(&mut s, &view, 0.2, &[0.4, 0.50005]);
     assert_eq!(p.scrubbing(), None);
@@ -2866,8 +2891,12 @@ fn left_alone(s: &mut Screen, calls: &AtomicU64) -> bool {
 fn a_hold_for_a_new_source_stops_fetching_queues_presses_and_keeps_the_settings() {
     let mut s = Screen::new();
     let (p, view, asked, calls) = counted_film(&mut s);
-    let cue =
-        Cue { start: Duration::from_secs(430), end: Duration::from_secs(434), text: "On your left".into() };
+    let cue = Cue {
+        start: Duration::from_secs(430),
+        end: Duration::from_secs(434),
+        text: "On your left".into(),
+        ..Default::default()
+    };
     let i = p.add_subtitles(SubtitleTrack { label: "English".into(), language: None, cues: vec![cue] });
     p.set_caption_track(Some(i));
     p.set_caption_delay(250);
@@ -3414,7 +3443,7 @@ fn the_compact_layout_keeps_playing_and_shows_only_the_mini_parts() {
     s.pump();
     assert!(p.is_compact() && !p.is_theater(), "compact leaves theater mode");
     assert!(shown(&view, "Pause") && seen(&title));
-    assert!(texts(&view, "label").iter().any(|t| t.ends_with("/ 0:30")), "the time");
+    assert!(texts(&view, "player_clock").iter().any(|t| t.ends_with("/ 0:30")), "the time");
     for gone in ["Seek", "Mute", "Volume", "Back 10 seconds", "Full screen", "Theater mode"] {
         assert!(!shown(&view, gone), "{gone} in the mini player");
     }
@@ -3517,7 +3546,9 @@ fn full_screen_controls_rest_after_a_pause_in_activity_and_any_input_wakes_them(
     assert!(p.controls_shown() && !s.ui.cursor_hidden());
     assert!(title.info().is_some_and(|i| !i.hidden && i.text.is_none()), "the title line shows");
     assert!(
-        find(&title, "label").iter().any(|l| l.info().and_then(|i| i.text).as_deref() == Some("Episode 4"))
+        find(&title, "player_title_text")
+            .iter()
+            .any(|l| l.info().and_then(|i| i.text).as_deref() == Some("Episode 4"))
     );
     // The bar floats over the picture: the stage reaches the bottom of the player.
     let (stage, bar) =
@@ -3955,7 +3986,11 @@ fn subtitles_cut_to_the_stream_follow_the_timeline_across_new_sources() {
         MediaSource::url("script:20"),
         Timeline::new(Duration::from_secs(99)).length(Duration::from_secs(200)),
     );
-    s.wait("opened", |_| p.info().is_some());
+    // It plays once open; paused again, so each seek's position holds still to be seen (a
+    // playing clock moves past the 1 ms window before a loaded machine looks).
+    s.wait("playing the new stream", |_| p.state() == PlaybackState::Playing);
+    p.pause();
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
     assert_eq!(at(&mut s, 101_000).as_deref(), Some("One"), "after the new origin");
     assert_eq!(at(&mut s, 103_000), None);
 }
@@ -4033,4 +4068,266 @@ fn on_linux_the_session_screen_saver_is_inhibited_while_video_plays() {
     assert_eq!(held(), 0, "uninhibited when the player goes");
     let reasons = saver.reasons.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert!(reasons.iter().all(|r| r == "Playing video"), "{reasons:?}");
+}
+
+/// The open menus' layers in the window.
+fn open_menus(ui: &Ui) -> usize {
+    ui.root().parent().map_or(0, |w| find(&w, "dismiss_layer").len())
+}
+
+#[test]
+fn keys_from_the_window_reach_the_player_and_fields_menus_and_dialogs_keep_theirs() {
+    use remedy_ui_widgets_core as w;
+    for scheme in [KeyScheme::Arrows, KeyScheme::Classic] {
+        let mut s = Screen::new();
+        let (p, _view) = scripted_with(&mut s, 60, PlayerOptions::default().keys(scheme));
+        let arrows = scheme == KeyScheme::Arrows;
+        let pressed = Rc::new(std::cell::Cell::new(0));
+        let n = pressed.clone();
+        let outside = w::button(&s.ui, "Elsewhere", move || n.set(n.get() + 1));
+        let field = w::text_input(&s.ui, "Search");
+        s.ui.root().child(outside.clone()).child(field.el());
+        p.keys_from(&s.ui.root());
+        p.seek(Duration::from_secs(30));
+        s.wait("the seek", |_| near(p.position(), 30.0, 0.001));
+        let at =
+            |s: &mut Screen, secs: f64| s.wait(&format!("at {secs}"), |_| near(p.position(), secs, 0.001));
+
+        // Focus on a button outside the player: its keys act on the player.
+        outside.focus();
+        assert!(letter(&s.ui, "l", false));
+        at(&mut s, 40.0);
+        assert!(letter(&s.ui, "k", false));
+        s.wait("playing", |_| p.state() == PlaybackState::Playing);
+        assert!(letter(&s.ui, "k", false));
+        s.wait("paused", |_| p.state() == PlaybackState::Paused);
+        assert_eq!(press(&s.ui, Key::ArrowLeft), arrows, "the arrows only in the arrows scheme");
+        at(&mut s, if arrows { 30.0 } else { 40.0 });
+        // Space and Enter still press the focused button.
+        assert!(press(&s.ui, Key::Space));
+        assert!(pressed.get() == 1 && p.state() == PlaybackState::Paused);
+        // Nothing focused: Space plays in the arrows scheme.
+        outside.blur();
+        assert_eq!(press(&s.ui, Key::Space), arrows);
+        if arrows {
+            s.wait("playing", |_| p.state() == PlaybackState::Playing);
+            p.pause();
+            s.wait("paused", |_| p.state() == PlaybackState::Paused);
+        }
+        // Modifiers are never the player's.
+        let ctrl = remedy_ui_input::Modifiers { ctrl: true, ..Default::default() };
+        assert!(!s.ui.key(&KeyEvent::press(Key::Character("k".into())).with_modifiers(ctrl).with_text(None)));
+
+        // A text field keeps every key, the player's letters and the arrows too.
+        let pos = p.position();
+        field.el().focus();
+        let _ = letter(&s.ui, "k", false);
+        let _ = letter(&s.ui, "l", false);
+        let _ = press(&s.ui, Key::ArrowLeft);
+        let _ = press(&s.ui, Key::Escape);
+        s.idle(30);
+        assert_eq!(field.value(), "kl");
+        assert!(p.state() == PlaybackState::Paused && p.position() == pos);
+
+        // A menu keeps its keys.
+        outside.focus();
+        let _ =
+            w::menu(&s.ui, &outside, vec![w::MenuItem::new("One", || {}), w::MenuItem::new("Two", || {})]);
+        s.pump();
+        assert_eq!(open_menus(&s.ui), 1);
+        let _ = letter(&s.ui, "k", false);
+        let _ = letter(&s.ui, "l", false);
+        s.idle(30);
+        assert!(p.state() == PlaybackState::Paused && p.position() == pos);
+        let _ = press(&s.ui, Key::Escape);
+        s.pump();
+        assert_eq!(open_menus(&s.ui), 0);
+
+        // A dialog keeps its keys, with focus in it or nowhere.
+        let modal = w::modal(&s.ui, "Ask", w::button(&s.ui, "OK", || {}), true);
+        s.pump();
+        let _ = letter(&s.ui, "k", false);
+        if let Some(f) = s.ui.tree().focused() {
+            s.ui.element(f).blur();
+        }
+        let _ = letter(&s.ui, "l", false);
+        s.idle(30);
+        assert!(p.state() == PlaybackState::Paused && p.position() == pos);
+        modal.close();
+        s.pump();
+        outside.focus();
+        assert!(letter(&s.ui, "k", false), "the player hears keys again");
+        s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    }
+}
+
+#[test]
+fn keys_from_the_window_reach_the_remote() {
+    let mut s = Screen::new();
+    let (p, _view) = scripted_with(&mut s, 60, PlayerOptions::default().keys(KeyScheme::Arrows));
+    p.keys_from(&s.ui.root());
+    let log = Arc::new(Mutex::new(Vec::new()));
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    p.set_remote_status(RemoteStatus {
+        length: Some(Duration::from_secs(100)),
+        volume: Some(0.5),
+        ..RemoteStatus::new(PlaybackState::Paused, Duration::from_secs(30))
+    });
+    s.pump();
+    let heard = |log: &Arc<Mutex<Vec<String>>>| log.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let before = heard(&log).len();
+    assert!(letter(&s.ui, "k", false));
+    assert!(press(&s.ui, Key::ArrowRight));
+    s.pump();
+    let got = heard(&log);
+    assert_eq!(got.get(before..), Some(&["play".to_owned(), "seek 40".to_owned()][..]), "{got:?}");
+    // The direct way too.
+    assert!(p.handle_key(&KeyEvent::press(Key::Character("m".into())).with_text(None)));
+    assert_eq!(heard(&log).last().map(String::as_str), Some("muted true"));
+}
+
+#[test]
+fn going_compact_closes_the_menus_the_player_opened_or_anchored() {
+    use remedy_ui_widgets_core as w;
+    let mut s = Screen::new();
+    let (p, view) = scripted_with(&mut s, 60, PlayerOptions::default());
+    p.add_subtitles(SubtitleTrack { label: "English".into(), language: None, cues: Vec::new() });
+    let u = s.ui.clone();
+    p.on_cast(move |anchor| {
+        let _ = w::menu(&u, anchor, vec![w::MenuItem::new("The Ris", || {})]);
+    });
+    // An app's menu anchored elsewhere stays.
+    let outside = w::button(&s.ui, "Elsewhere", || {});
+    s.ui.root().child(outside.clone());
+    s.pump();
+    let _ = w::menu(&s.ui, &outside, vec![w::MenuItem::new("Mine", || {})]);
+    s.pump();
+    el(&view, "Cast").focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert_eq!(open_menus(&s.ui), 2);
+    p.set_compact(true);
+    s.pump();
+    assert_eq!(open_menus(&s.ui), 1, "the cast menu closed, the app's own stayed");
+    p.set_compact(false);
+    s.pump();
+    // The captions menu.
+    let captions = find(&view, "button")
+        .into_iter()
+        .find(|b| {
+            b.info()
+                .and_then(|i| i.semantics)
+                .and_then(|s| s.name().map(plain))
+                .is_some_and(|n| n.starts_with("Captions"))
+        })
+        .unwrap_or_else(|| unreachable!("the captions button"));
+    captions.focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert_eq!(open_menus(&s.ui), 2);
+    let expanded = |b: &El| b.info().and_then(|i| i.semantics).and_then(|s| s.expanded_state());
+    assert_eq!(expanded(&captions), Some(true));
+    p.set_compact(true);
+    s.pump();
+    assert_eq!(open_menus(&s.ui), 1);
+    assert_eq!(expanded(&captions), Some(false), "the button says it closed");
+}
+
+#[test]
+fn keys_from_the_window_wake_the_full_screen_controls_and_wait_for_a_shown_player() {
+    use remedy_ui_widgets_core as w;
+    let mut s = Screen::new();
+    let (p, view) = full_screen(&mut s);
+    let outside = w::button(&s.ui, "Elsewhere", || {});
+    s.ui.root().child(outside.clone());
+    p.keys_from(&s.ui.root());
+    s.pump();
+    outside.focus();
+    rested(&mut s);
+    assert!(!p.controls_shown(), "rested");
+    // A key from outside the player wakes them, even one the player does nothing with.
+    assert!(!press(&s.ui, Key::Character("x".into())));
+    s.pump();
+    assert!(p.controls_shown(), "woken by a key from elsewhere");
+    rested(&mut s);
+    assert!(!p.controls_shown());
+    assert!(p.handle_key(&KeyEvent::press(Key::Character("k".into())).with_text(None)));
+    s.pump();
+    assert!(p.controls_shown(), "woken by handle_key");
+    s.wait("paused", |_| p.state() == PlaybackState::Paused);
+
+    // Hidden, the player hears no keys from the window.
+    p.request_fullscreen(false);
+    let _ = view.clone().hidden(true);
+    s.pump();
+    s.pump();
+    outside.focus();
+    assert!(!letter(&s.ui, "k", false), "a hidden player takes no keys");
+    s.idle(30);
+    assert_eq!(p.state(), PlaybackState::Paused);
+    // Shown again (compact too), it does.
+    p.set_compact(true);
+    let _ = view.clone().hidden(false);
+    s.pump();
+    s.pump();
+    outside.focus();
+    assert!(letter(&s.ui, "k", false));
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+}
+
+/// The next HLS stream in a player (`replace_source`, `start_next`) takes the last one's
+/// decoders: none is made for it. Prints the time from the call to its first picture, median
+/// of 3 each.
+#[test]
+fn the_next_hls_stream_in_a_player_takes_the_last_ones_decoders() {
+    let Some(host) = platform() else { return };
+    // Copied to an absolute path of the system's: a device runs the tests from a folder
+    // named after the manifest's path on the machine that built them.
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hls/video");
+    let folder = std::env::temp_dir().join(format!("remedy-next-hls-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap_or_else(|e| unreachable!("{e}"));
+    for n in ["index.m3u8", "seg00000.ts", "seg00001.ts", "seg00002.ts"] {
+        std::fs::copy(fixture.join(n), folder.join(n)).unwrap_or_else(|e| unreachable!("{n}: {e}"));
+    }
+    let path = folder.join("index.m3u8");
+    let source = || MediaSource::file(path.clone());
+    let mut s = Screen::new();
+    let p = Player::open(&s.ui, host, source(), PlayerOptions::default());
+    let view = player(&s.ui, &p, "HLS");
+    s.ui.root().child(view.clone());
+    s.wait("the first picture", |s| p.state() == PlaybackState::Paused && s.hue() == 'r');
+    let made = hls_decoders_made();
+    let (mut replaced, mut next) = (Vec::new(), Vec::new());
+    for i in 0..6 {
+        // Away from red, so the next stream's first picture is seen arriving.
+        p.pause();
+        p.seek(Duration::from_millis(2500));
+        s.wait("the blue picture", |s| s.hue() == 'b');
+        let started = Instant::now();
+        if i % 2 == 0 {
+            p.replace_source(source(), Timeline::new(Duration::ZERO));
+        } else {
+            p.start_next(source(), None);
+        }
+        s.wait("the next stream's first picture", |s| s.hue() == 'r');
+        if i % 2 == 0 { &mut replaced } else { &mut next }.push(started.elapsed());
+    }
+    let median = |mut v: Vec<Duration>| {
+        v.sort();
+        v.get(v.len() / 2).copied().unwrap_or_default()
+    };
+    eprintln!(
+        "first picture through the player: replace_source {:?}, start_next {:?}; HLS decoders made {}",
+        median(replaced),
+        median(next),
+        hls_decoders_made() - made
+    );
+    // Its stream ends before the test does (the process's exit would cut its workers short):
+    // the widget holding the player goes too. Its fetching thread is the only HLS one here.
+    drop(p);
+    view.remove();
+    drop(view);
+    s.wait("the stream's threads ended", |_| !process_threads().iter().any(|t| t.0 == "remedy-hls-fetch"));
+    let _ = std::fs::remove_dir_all(&folder);
+    assert_eq!(hls_decoders_made(), made, "every next stream took the last one's decoders");
 }

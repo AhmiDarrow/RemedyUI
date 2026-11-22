@@ -71,6 +71,8 @@ playback-next-up-in = { $count ->
    *[other] Começa em { $count } segundos
 }
 playback-play-now = Reproduzir agora
+playback-next-up-label = A seguir
+playback-next-dismiss = Dispensar
 playback-next-cancel = Cancelar
 playback-starting-next = Iniciando { $title }
 playback-canceling = Cancelando.

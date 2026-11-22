@@ -150,6 +150,9 @@ pub struct Theme {
     pub font_families: Vec<String>,
     /// Families for numbers, clocks and codes (same-width figures).
     pub mono_families: Vec<String>,
+    /// Families for headings and titles (text styled `heading`); empty uses
+    /// [`font_families`](Self::font_families).
+    pub heading_families: Vec<String>,
     /// Text sizes.
     pub type_scale: TypeScale,
     /// Spacing.
@@ -162,6 +165,10 @@ pub struct Theme {
     pub density: Density,
     /// Hairline and border width.
     pub stroke: f32,
+    /// Sizes widgets read by name, in logical pixels, where a theme sets its own (the player's
+    /// `player-glyph`, `player-seek-height`, …; each widget documents its names). A widget
+    /// uses its own default for a name the theme leaves out.
+    pub metrics: BTreeMap<String, f32>,
     /// Files the theme brings: a background image and its own fonts.
     pub assets: ThemeAssets,
 }
@@ -253,7 +260,23 @@ impl Theme {
             },
             density: Density::Comfortable,
             stroke: 1.0,
+            metrics: BTreeMap::new(),
+            heading_families: Vec::new(),
             assets: ThemeAssets::default(),
+        }
+    }
+
+    /// The size named `name` ([`metrics`](Self::metrics)), else `default`.
+    pub fn metric(&self, name: &str, default: f32) -> f32 {
+        self.metrics.get(name).copied().unwrap_or(default)
+    }
+
+    /// The families for text: monospace, heading or body.
+    pub fn families(&self, mono: bool, heading: bool) -> Vec<String> {
+        match (mono, heading) {
+            (true, _) => self.mono_families.clone(),
+            (false, true) if !self.heading_families.is_empty() => self.heading_families.clone(),
+            _ => self.font_families.clone(),
         }
     }
 

@@ -327,6 +327,12 @@ mod hooks {
             os::dnd::drag_out(h, data, allowed).map(DragStarted::Finished)
         }
 
+        fn set_cursor_hidden(&mut self, window: &Window, hidden: bool) {
+            if let Some(h) = hwnd(window) {
+                os::cursor::set_hidden(h, hidden);
+            }
+        }
+
         fn window_closed(&mut self, window: &Window) {
             let Some(h) = hwnd(window) else { return };
             if self.icons.contains_key(&h) {
@@ -366,5 +372,5 @@ pub use hooks::{WindowsHooks, claim_single_instance, run};
 #[cfg(windows)]
 #[doc(hidden)]
 pub mod pointer {
-    pub use crate::os::pointer::{click, move_to, position, screen_size, showing};
+    pub use crate::os::pointer::{click, move_to, position, screen_size, showing, under};
 }
