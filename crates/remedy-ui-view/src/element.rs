@@ -2873,6 +2873,14 @@ impl El {
         self.style(remedy_ui_style::Style::default().text_transform(t))
     }
 
+    /// Sets how tall each line of text is (CSS `line-height`), inherited by descendants:
+    /// `LineHeight::Relative(1.5)` for CSS `line-height: 1.5`, `LineHeight::Absolute(24.0)` for
+    /// `24px`. The default is `Relative(1.33)`. Style sheets set the same with
+    /// [`Style::line_height`](remedy_ui_style::Style::line_height).
+    pub fn line_height(self, h: remedy_ui_style::LineHeight) -> Self {
+        self.style(remedy_ui_style::Style::default().line_height(h))
+    }
+
     /// Keeps the text on one line instead of wrapping.
     pub fn nowrap(self) -> Self {
         {

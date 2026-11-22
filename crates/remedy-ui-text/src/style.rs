@@ -1,19 +1,7 @@
 //! Text styles.
 
 use remedy_ui_core::Color;
-pub use remedy_ui_core::TextTransform;
-
-/// How tall each line is.
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[non_exhaustive]
-pub enum LineHeight {
-    /// The font's own line spacing (ascent + descent + line gap).
-    FontMetrics,
-    /// A multiple of the font size, as CSS `line-height: 1.33`.
-    Relative(f32),
-    /// An exact height in logical pixels.
-    Absolute(f32),
-}
+pub use remedy_ui_core::{LineHeight, TextTransform};
 
 /// Horizontal alignment of each line within the paragraph's width.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
