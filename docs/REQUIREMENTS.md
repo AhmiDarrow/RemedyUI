@@ -64,7 +64,7 @@ The design that meets these is [DESIGN.md](DESIGN.md). The order of work is in [
 |---|---|
 | Anti-aliased vector paths: fill and stroke, dashes, joins and caps, even-odd and non-zero rules | **FS** voice ring |
 | Rounded rectangles with per-corner radii, borders, inner and outer shadows | |
-| Linear, radial and conic gradients | |
+| Linear, radial and conic gradients | Circular and elliptical radial; CSS gradient text parses into style backgrounds |
 | Clipping to rounded rects and paths, alpha masks | |
 | Layer opacity, blend modes, transforms (2D affine; 3D perspective for transitions) | |
 | Backdrop effects: blur and acrylic-style material, like Windows Mica and macOS vibrancy | |
