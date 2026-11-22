@@ -373,9 +373,8 @@ impl Java {
     /// apps"). Safe to call from any thread.
     pub(crate) fn can_request_package_installs(&self) -> Result<bool, String> {
         self.call(|env, a| {
-            let pm = env
-                .call_method(a, "getPackageManager", "()Landroid/content/pm/PackageManager;", &[])?
-                .l()?;
+            let pm =
+                env.call_method(a, "getPackageManager", "()Landroid/content/pm/PackageManager;", &[])?.l()?;
             env.call_method(&pm, "canRequestPackageInstalls", "()Z", &[])?.z()
         })
     }
