@@ -1524,6 +1524,97 @@ fn casting_hands_every_control_to_the_remote_and_back() {
     assert_eq!(log.lock().unwrap_or_else(|e| e.into_inner()).len(), 11, "the TV heard nothing more");
 }
 
+#[test]
+fn a_cast_can_end_paused_where_the_tv_was_until_play() {
+    let mut s = Screen::new();
+    let (p, view) = scripted(&mut s);
+    let log = Arc::new(Mutex::new(Vec::new()));
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Playing, Duration::from_secs(2)));
+    s.pump();
+    let at = p.position();
+    p.leave_remote_paused(at, Some(StageStatus::new("Stopped casting.")));
+    s.pump();
+    assert!(!p.is_remote());
+    assert_eq!(p.state(), PlaybackState::Paused, "not failed");
+    assert_eq!(p.position(), at, "shows where the TV was");
+    assert!(announced(&view, "Stopped casting."), "polite");
+    assert_eq!(alert(&view), None, "not an alert");
+    s.idle(200);
+    assert_eq!(p.state(), PlaybackState::Paused, "waits for Play");
+    assert_eq!(p.position(), at);
+
+    // Play: from there, here; the words go.
+    p.play();
+    s.wait("local playing", |_| p.state() == PlaybackState::Playing);
+    assert!(p.position() >= at, "{:?}", p.position());
+    assert_eq!(p.status(), None);
+    assert!(log.lock().unwrap_or_else(|e| e.into_inner()).is_empty(), "the TV heard nothing");
+
+    // The default leaves the local place as it was.
+    p.pause();
+    p.seek(Duration::from_millis(500));
+    s.wait("the local seek", |_| near(p.position(), 0.5, 0.001));
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    p.set_remote(None);
+    assert!(near(p.position(), 0.5, 0.001));
+}
+
+fn track(label: &str, at: u64) -> SubtitleTrack {
+    let cue = Cue {
+        start: Duration::from_secs(at),
+        end: Duration::from_secs(at + 1),
+        text: label.into(),
+        ..Default::default()
+    };
+    SubtitleTrack { label: label.into(), language: None, cues: vec![cue] }
+}
+
+#[test]
+fn the_apps_tracks_can_be_replaced_and_removed_and_go_with_another_work() {
+    let mut s = Screen::new();
+    let (p, _view) = scripted(&mut s);
+    let a = p.add_subtitles(track("A", 0));
+    let b = p.add_subtitles(track("B", 0));
+    let c = p.add_subtitles(track("C", 0));
+    p.set_caption_track(Some(c));
+    assert!(p.replace_subtitles(b, track("B2", 0)));
+    assert_eq!(p.subtitle_tracks().get(b).map(|t| t.label.as_str()), Some("B2"));
+    assert!(!p.replace_subtitles(9, track("X", 0)), "no such track");
+    assert!(p.replace_subtitles_stream(b, track("B3", 0)));
+
+    // Removing one before the shown track: it still shows, one index down.
+    assert!(p.remove_subtitles(a));
+    let labels = || p.subtitle_tracks().iter().map(|t| t.label.clone()).collect::<Vec<_>>();
+    assert_eq!(labels(), ["B3", "C"]);
+    assert_eq!(p.caption_track(), Some(1));
+    assert_eq!(p.caption_pick(), CaptionPick::Track(1));
+    // Removing the shown one: captions go off.
+    assert!(p.remove_subtitles(1));
+    assert_eq!((p.caption_track(), p.caption_pick()), (None, CaptionPick::Off));
+    assert!(!p.remove_subtitles(5));
+
+    // The same work keeps them; another work does not.
+    p.replace_source(MediaSource::url("script:"), Timeline::new(Duration::ZERO));
+    s.wait("reopened", |_| p.state() != PlaybackState::Opening);
+    assert_eq!(labels(), ["B3"]);
+    p.replace_work(MediaSource::url("script:"), None);
+    s.wait("another work", |_| p.state() != PlaybackState::Opening);
+    assert!(labels().is_empty(), "{:?}", labels());
+}
+
+#[test]
+fn a_long_track_name_ends_in_an_ellipsis_and_keeps_full_screen_on_the_bar() {
+    let mut s = Screen::new();
+    let (p, view) = scripted(&mut s);
+    let long = "English (SDH) from the release group, forced and full, with every song and sign";
+    p.set_caption_track(Some(p.add_subtitles(track(long, 0))));
+    s.idle(30);
+    let full = el(&view, "Full screen").bounds().unwrap_or_default();
+    let stage = view.bounds().unwrap_or_default();
+    assert!(full.max.x <= stage.max.x + 0.5, "full screen on the bar: {full:?} in {stage:?}");
+}
+
 /// A paused scripted player of `seconds`, with `options`, in a player widget.
 fn scripted_with(s: &mut Screen, seconds: u64, options: PlayerOptions) -> (Player, El) {
     let host = Arc::new(Scripted {
