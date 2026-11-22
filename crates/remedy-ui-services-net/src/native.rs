@@ -51,7 +51,9 @@ fn run(p: Prepared) -> Result<Response, NetError> {
         b = b.header("Cookie", c);
     }
     let started = Instant::now();
-    let res = match p.body {
+    // An empty POST or PUT says `Content-Length: 0` rather than going chunked.
+    let body = p.body.or_else(|| matches!(p.method, "POST" | "PUT").then(Vec::new));
+    let res = match body {
         Some(body) => b
             .body(body)
             .map_err(|e| NetError::Refused(e.to_string()))?
@@ -135,6 +137,9 @@ pub(super) fn send_blocking(p: Prepared, cancel: &Cancel) -> Result<Response, Ne
         return Err(NetError::Cancelled);
     }
     let kept = keepalive.then(Kept::new);
+    // ureq's own deadline normally ends it first; this one holds even when a socket call
+    // overruns it, so the caller's timeout is kept.
+    let deadline = Instant::now() + p.timeout + CANCEL_POLL;
     let (tx, rx) = mpsc::channel();
     std::thread::Builder::new()
         .name("remedy-net".into())
@@ -148,6 +153,9 @@ pub(super) fn send_blocking(p: Prepared, cancel: &Cancel) -> Result<Response, Ne
             Ok(out) => return out,
             Err(mpsc::RecvTimeoutError::Timeout) if !keepalive && cancel.is_cancelled() => {
                 return Err(NetError::Cancelled);
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) if Instant::now() > deadline => {
+                return Err(NetError::Timeout);
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
