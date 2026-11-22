@@ -382,7 +382,7 @@ fn secret_fields_mask_never_copy_and_skip_input_methods() {
     assert!(ui.ime(&ImeEvent::Commit("!1".into())), "pasted or autofilled text reaches a secret");
     ui.key(&key(Key::Enter, None, Modifiers::NONE));
     assert!(submitted.get());
-    assert_eq!(field.take_secret().expose(), "p@Ss!1");
+    assert_eq!(field.take_secret().expose(), "!1", "the commit replaced the selected text");
     assert!(field.is_empty());
     s.frame();
 }
