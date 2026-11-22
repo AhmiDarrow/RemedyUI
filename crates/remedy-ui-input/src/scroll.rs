@@ -62,6 +62,20 @@ impl ScrollAxis {
         self.velocity = velocity;
     }
 
+    /// Where the current fling would come to rest (the offset itself when not flinging),
+    /// within the edges.
+    pub fn rest(&self) -> f32 {
+        let v0 = self.velocity;
+        if v0.abs() < self.physics.stop_speed {
+            return self.offset.clamp(0.0, self.max);
+        }
+        // The velocity decays by `decay_per_second` each second until it drops under
+        // `stop_speed`: the distance is the integral of v0 * k^t over that time.
+        let ln_k = self.physics.decay_per_second.clamp(1e-4, 0.999).ln();
+        let stop = self.physics.stop_speed.copysign(v0);
+        (self.offset + (stop - v0) / ln_k).clamp(0.0, self.max)
+    }
+
     /// Advances `dt` seconds. Returns true while moving (the window should keep animating).
     pub fn step(&mut self, dt: f32) -> bool {
         // Back inside the edges after an overscroll: spring back quickly.

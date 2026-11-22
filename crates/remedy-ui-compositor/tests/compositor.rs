@@ -568,3 +568,108 @@ fn layer_tree_visits_parents_before_children_back_to_front() {
     drop(t);
     assert_eq!(shared.map(|s| s.children.len()), Some(2));
 }
+
+#[test]
+fn sticky_offsets_follow_css() {
+    let st = |top, bottom| Sticky {
+        scroller: None,
+        viewport: Size::new(200.0, 300.0),
+        rect: Rect::new(0.0, 400.0, 50.0, 430.0),
+        within: Rect::new(0.0, 380.0, 200.0, 1000.0),
+        top,
+        right: None,
+        bottom,
+        left: None,
+    };
+    let top = st(Some(10.0), None);
+    assert_eq!(top.offset(Vec2::new(0.0, 0.0)), Vec2::ZERO, "not reached yet: in the flow");
+    assert_eq!(top.offset(Vec2::new(0.0, 500.0)), Vec2::new(0.0, 110.0), "held 10 below the top");
+    assert_eq!(top.offset(Vec2::new(0.0, 990.0)), Vec2::new(0.0, 570.0), "leaves with its parent");
+    assert_eq!(top.offset(Vec2::new(500.0, 500.0)).x, 0.0, "only axes with insets stick");
+    let bottom = st(None, Some(0.0));
+    // Viewport 0..300: the box (400..430) is 130 below the bottom edge, pulled up, but not
+    // above its parent's top (380): 20 at most.
+    assert_eq!(bottom.offset(Vec2::ZERO), Vec2::new(0.0, -20.0));
+    assert_eq!(bottom.offset(Vec2::new(0.0, 200.0)), Vec2::ZERO, "in view: where it was");
+    // Both: the top wins.
+    assert_eq!(st(Some(0.0), Some(0.0)).offset(Vec2::new(0.0, 500.0)), Vec2::new(0.0, 100.0));
+}
+
+#[test]
+fn sticky_layers_move_with_scrolling_without_a_commit() {
+    let mut header = Layer::new(LayerId(5), Rect::new(0.0, 400.0, 200.0, 430.0), solid(200.0, 30.0));
+    header.sticky = Some(Sticky {
+        scroller: Some(LayerId(1)),
+        viewport: Size::new(200.0, 300.0),
+        rect: Rect::new(0.0, 400.0, 200.0, 430.0),
+        within: Rect::new(0.0, 400.0, 200.0, 1000.0),
+        top: Some(0.0),
+        right: None,
+        bottom: None,
+        left: None,
+    });
+    let content =
+        Layer::new(LayerId(100), Rect::new(0.0, 0.0, 200.0, 3000.0), solid(200.0, 3000.0)).with_child(header);
+    let viewport = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 200.0, 300.0), DisplayList::new())
+        .scrolling(Size::new(200.0, 3000.0))
+        .with_child(content);
+    let mut c = Compositor::new(200, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(LayerTree::new(vec![viewport]));
+    let header_y = |p: &FramePlan| {
+        p.ops.iter().find_map(|o| match o {
+            CompositeOp::Tile { layer: LayerId(5), transform, .. } => Some(transform.0[5]),
+            _ => None,
+        })
+    };
+    assert_eq!(header_y(&c.frame(ms(0))), None, "below the viewport: not drawn");
+    for (scroll, y) in [(300.0, 100.0), (500.0, 0.0), (800.0, 0.0), (990.0, -20.0)] {
+        c.set_scroll_offset(LayerId(1), Vec2::new(0.0, scroll));
+        let p = c.frame(ms(16));
+        assert_eq!(header_y(&p), Some(y), "at scroll {scroll}");
+    }
+}
+
+/// A 400-wide shelf over 2000 of content that snaps every 400 (mandatory).
+fn shelf() -> LayerTree {
+    let content = Layer::new(LayerId(2), Rect::new(0.0, 0.0, 2000.0, 300.0), solid(2000.0, 300.0));
+    let mut scroller = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 400.0, 300.0), DisplayList::new())
+        .scrolling(Size::new(2000.0, 300.0))
+        .with_child(content);
+    let points = (0..5).map(|i| SnapPoint { offset: i as f32 * 400.0, key: i, always: false }).collect();
+    scroller.scroll_snap = Some(ScrollSnap { x: points, mandatory: true, ..ScrollSnap::default() });
+    LayerTree::new(vec![scroller])
+}
+
+#[test]
+fn the_compositor_thread_snaps_wheel_and_programmatic_scrolls() {
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let thread =
+        match CompositorThread::spawn(Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED), Recorder(tx)) {
+            Ok(t) => t,
+            Err(e) => unreachable!("{e}"),
+        };
+    thread.commit(shelf());
+    thread.vsync(ms(0));
+    let _ = thread.wait_report(Duration::from_secs(5));
+    // A wheel of 250 settles on the next card start once the wheel has been still.
+    thread.scroll_at(Point::new(100.0, 100.0), Vec2::new(250.0, 0.0));
+    for i in 1..=60u64 {
+        thread.vsync(ms(i * 16));
+        let _ = thread.wait_report(Duration::from_secs(5));
+    }
+    thread.scroll_to(LayerId(1), Vec2::new(700.0, 0.0));
+    let Some(mut comp) = thread.stop() else { unreachable!("the compositor comes back") };
+    assert_eq!(comp.scroll_offset(LayerId(1)), Some(Vec2::new(800.0, 0.0)), "scroll_to snapped");
+    assert!(comp.set_scroll_offset(LayerId(1), Vec2::ZERO));
+    let thread = match CompositorThread::spawn(comp, Recorder(std::sync::mpsc::channel().0)) {
+        Ok(t) => t,
+        Err(e) => unreachable!("{e}"),
+    };
+    thread.scroll_at(Point::new(100.0, 100.0), Vec2::new(250.0, 0.0));
+    for i in 61..=120u64 {
+        thread.vsync(ms(i * 16));
+        let _ = thread.wait_report(Duration::from_secs(5));
+    }
+    let comp = thread.stop();
+    assert_eq!(comp.and_then(|c| c.scroll_offset(LayerId(1))), Some(Vec2::new(400.0, 0.0)), "the wheel snapped");
+}
