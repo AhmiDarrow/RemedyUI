@@ -620,6 +620,7 @@ enum Cmd {
     Notify(Box<remedy_ui_host::Notification>, Box<dyn FnOnce(Result<(), Unsupported>)>),
     Withdraw(u64),
     Badge(Option<remedy_ui_host::Badge>),
+    Gamepad(remedy_ui_input::GamepadTuning),
     Foreground(Box<remedy_ui_host::ForegroundTask>, Box<dyn FnOnce(Result<(), Unsupported>)>),
     StopForeground,
     Share(Option<u64>, remedy_ui_host::ShareOptions, ShareDone),
@@ -1169,6 +1170,25 @@ impl App {
     /// ```
     pub fn set_badge(&self, badge: Option<remedy_ui_host::Badge>) {
         self.push(Cmd::Badge(badge));
+    }
+
+    /// How gamepads move focus: a held d-pad or stick repeats as a held arrow key does, after
+    /// the system's keyboard repeat delay and at its rate unless `tuning` sets its own, and the
+    /// stick counts once it leans past `tuning.dead_zone`. Gamepads' d-pad and left stick
+    /// arrive as arrow keys, A as Enter and B as `Key::Back` (Windows' XInput pads, Linux's
+    /// evdev pads, the browser's Gamepad API; Android's arrive as its own keys).
+    ///
+    /// ```no_run
+    /// # fn setup(app: &remedy_ui::App) {
+    /// use std::time::Duration;
+    /// use remedy_ui::input::GamepadTuning;
+    ///
+    /// let tuning = GamepadTuning::default().with_repeat_delay(Duration::from_millis(300)).with_dead_zone(0.3);
+    /// app.set_gamepad_tuning(tuning);
+    /// # }
+    /// ```
+    pub fn set_gamepad_tuning(&self, tuning: remedy_ui_input::GamepadTuning) {
+        self.push(Cmd::Gamepad(tuning));
     }
 
     /// Called with each link in one of `schemes` (`hearth://note/42`) the app is opened with:
@@ -2440,6 +2460,7 @@ impl Runner {
                 let id = self.app.0.borrow().app_id.clone();
                 let _ = host.set_badge(&id, badge);
             }
+            Cmd::Gamepad(tuning) => host.set_gamepad_tuning(tuning),
             Cmd::Foreground(mut task, done) => {
                 if task.notification.app.is_empty() {
                     task.notification.app = self.app.0.borrow().name.clone();
