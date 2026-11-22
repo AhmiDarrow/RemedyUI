@@ -906,3 +906,104 @@ async fn link_clicks_open_tabs_and_mouse_buttons_move_once() {
     assert!(until(30, || !remedy_ui::web::is_running()).await);
     history.replace_state_with_url(&JsValue::NULL, "", Some("#")).must("reset");
 }
+
+#[wasm_bindgen(inline_js = r#"
+export function plugPad() {
+  // A standard-mapping pad the page cannot tell from a real one: Gamepad and GamepadButton
+  // objects whose state the test sets.
+  const own = (o, k, v) => Object.defineProperty(o, k, { configurable: true, writable: true, value: v });
+  const buttons = Array.from({ length: 17 }, () => own(Object.create(GamepadButton.prototype), 'pressed', false));
+  const pad = Object.create(Gamepad.prototype);
+  own(pad, 'connected', true);
+  own(pad, 'mapping', 'standard');
+  own(pad, 'buttons', buttons);
+  own(pad, 'axes', [0, 0, 0, 0]);
+  window.__pad = pad;
+  Object.defineProperty(navigator, 'getGamepads', { configurable: true, writable: true,
+    value: () => [window.__pad] });
+  window.dispatchEvent(new Event('gamepadconnected'));
+}
+export function padButton(i, pressed) { window.__pad.buttons[i].pressed = pressed; }
+export function padStick(x, y) { window.__pad.axes = [x, y, 0, 0]; }
+export function unplugPad() { window.__pad = null; delete navigator.getGamepads; }
+"#)]
+extern "C" {
+    /// Plugs in a stand-in standard-mapping gamepad.
+    #[wasm_bindgen(js_name = plugPad)]
+    fn plug_pad();
+    #[wasm_bindgen(js_name = padButton)]
+    fn pad_button(index: u32, pressed: bool);
+    #[wasm_bindgen(js_name = padStick)]
+    fn pad_stick(x: f64, y: f64);
+    #[wasm_bindgen(js_name = unplugPad)]
+    fn unplug_pad();
+}
+
+#[derive(Default)]
+struct PadSeen {
+    tiles: RefCell<Vec<remedy_ui::El>>,
+    pressed: RefCell<Vec<usize>>,
+    app: RefCell<Option<App>>,
+}
+
+impl PadSeen {
+    fn focused(&self) -> Option<usize> {
+        self.tiles.borrow().iter().position(remedy_ui::El::is_focused)
+    }
+}
+
+#[wasm_bindgen_test]
+async fn a_held_gamepad_direction_repeats_and_a_presses_once() {
+    let seen = Rc::new(PadSeen::default());
+    let s = seen.clone();
+    let run = remedy_ui::run(AppConfig::new("Gamepad test").cpu_only(), move |app: &App| {
+        *s.app.borrow_mut() = Some(app.clone());
+        app.set_gamepad_tuning(
+            remedy_ui::input::GamepadTuning::default()
+                .with_repeat_delay(std::time::Duration::from_millis(150))
+                .with_repeat_interval(std::time::Duration::from_millis(40)),
+        );
+        let s2 = s.clone();
+        app.open(WindowSpec::new("Gamepad"), move |ui, _| {
+            ui.set_spatial_navigation(true);
+            let mut col = w::column(ui).gap(4.0);
+            for i in 0..6 {
+                let s3 = s2.clone();
+                let tile =
+                    w::button(ui, format!("Tile {i}"), move || s3.pressed.borrow_mut().push(i)).height(32.0);
+                s2.tiles.borrow_mut().push(tile.clone());
+                col = col.child(tile);
+            }
+            let _ = ui.root().child(col);
+        });
+    });
+    run.must("the app starts in the page");
+    assert!(until(120, || seen.tiles.borrow().len() == 6).await, "the window was built");
+    frames(3).await;
+
+    plug_pad();
+    // Held down: the first press starts at the first tile, then repeats walk to the last.
+    pad_button(13, true);
+    assert!(until(30, || seen.focused() == Some(0)).await, "the first press: {:?}", seen.focused());
+    assert!(until(120, || seen.focused() == Some(5)).await, "held, it repeats: {:?}", seen.focused());
+    pad_button(13, false);
+    frames(2).await;
+    // The stick up, past its dead zone, and back: one step, and no repeat once let go.
+    pad_stick(0.0, -0.9);
+    assert!(until(30, || seen.focused() == Some(4)).await, "the stick moves focus: {:?}", seen.focused());
+    pad_stick(0.0, 0.1);
+    wait_ms(400).await;
+    assert_eq!(seen.focused(), Some(4), "let go, it stops");
+    // A held A presses the focused tile once.
+    pad_button(0, true);
+    assert!(until(30, || !seen.pressed.borrow().is_empty()).await, "A pressed the tile");
+    wait_ms(400).await;
+    pad_button(0, false);
+    frames(2).await;
+    assert_eq!(*seen.pressed.borrow(), [4], "pressed once, not repeated");
+    unplug_pad();
+
+    let app = seen.app.borrow().clone().must("the app");
+    app.quit();
+    assert!(until(30, || !remedy_ui::web::is_running()).await);
+}
