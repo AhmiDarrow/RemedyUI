@@ -482,6 +482,10 @@ pub struct Style {
     pub opacity: Option<f32>,
     /// Monospace text.
     pub mono: Option<bool>,
+    /// Text in the theme's heading families.
+    pub heading: Option<bool>,
+    /// Extra space after each letter.
+    pub letter_spacing: Option<crate::LetterSpacing>,
     /// Focus ring color.
     pub outline: Option<ColorRef>,
     /// Focus ring width.
@@ -580,6 +584,18 @@ impl Style {
     /// Opacity, 0 to 1.
     pub fn opacity(mut self, o: f32) -> Self {
         self.opacity = Some(o);
+        self
+    }
+
+    /// Text in the theme's heading families.
+    pub fn heading(mut self, on: bool) -> Self {
+        self.heading = Some(on);
+        self
+    }
+
+    /// Extra space after each letter.
+    pub fn letter_spacing(mut self, value: crate::LetterSpacing) -> Self {
+        self.letter_spacing = Some(value);
         self
     }
 
@@ -700,6 +716,8 @@ impl Style {
             weight: other.weight.or(self.weight),
             opacity: other.opacity.or(self.opacity),
             mono: other.mono.or(self.mono),
+            heading: other.heading.or(self.heading),
+            letter_spacing: other.letter_spacing.or(self.letter_spacing),
             outline: other.outline.or(self.outline),
             outline_width: other.outline_width.or(self.outline_width),
             outline_offset: other.outline_offset.or(self.outline_offset),
@@ -756,6 +774,8 @@ impl Style {
             weight: self.weight,
             opacity: self.opacity,
             mono: self.mono,
+            heading: self.heading,
+            letter_spacing: self.letter_spacing,
             outline: c(self.outline),
             outline_width: dp(self.outline_width),
             outline_offset: dp(self.outline_offset),
@@ -782,6 +802,8 @@ impl From<StylePatch> for Style {
             weight: p.weight,
             opacity: p.opacity,
             mono: p.mono,
+            heading: p.heading,
+            letter_spacing: p.letter_spacing,
             outline: p.outline.map(ColorRef::Value),
             outline_width: p.outline_width.map(Dp::Px),
             outline_offset: p.outline_offset.map(Dp::Px),

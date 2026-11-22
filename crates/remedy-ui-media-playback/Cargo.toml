@@ -110,7 +110,8 @@ zbus = { version = "=6.3.0", default-features = false, features = ["default-rt",
 [dev-dependencies]
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
 remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1" }
-remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui"] }
+remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui", "remedy-sans", "ahmi-pixel"] }
+remedy-ui-media-svg = { path = "../remedy-ui-media-svg", version = "1.0.0-rc.1" }
 remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "1.0.0-rc.1" }
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }

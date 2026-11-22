@@ -201,8 +201,7 @@ impl PaintCx<'_> {
     fn line(&mut self, text: &str, p: TextPaint) -> Paragraph {
         let style = {
             let mut v_ = TextStyle::default();
-            v_.families =
-                if p.mono { self.theme.mono_families.clone() } else { self.theme.font_families.clone() };
+            v_.families = self.theme.families(p.mono, false);
             v_.size = p.size;
             v_.weight = p.weight;
             v_.color = p.color;
@@ -1509,7 +1508,10 @@ impl Ui {
     pub fn set_theme(&self, theme: Theme, sheet: StyleSheet) {
         let mut i = self.0.borrow_mut();
         i.base = defaults(&theme);
-        if theme.font_families != i.theme.font_families || theme.mono_families != i.theme.mono_families {
+        if theme.font_families != i.theme.font_families
+            || theme.mono_families != i.theme.mono_families
+            || theme.heading_families != i.theme.heading_families
+        {
             i.reshape_text = true;
         }
         i.theme = theme;
@@ -2571,9 +2573,15 @@ impl El {
                 s.cache = None;
             }
             None => {
+                // The style the element has now: a frame restyles text only when its style
+                // changes, which it may not after this.
+                let style = {
+                    let i = self.ui.0.borrow();
+                    i.els.get(&self.id).map(|d| crate::frame::text_style_for(d, &i.theme)).unwrap_or_default()
+                };
                 let slot = Rc::new(RefCell::new(TextSlot {
                     text,
-                    style: TextStyle::default(),
+                    style,
                     wrap: true,
                     truncate: false,
                     scale: engine_scale,

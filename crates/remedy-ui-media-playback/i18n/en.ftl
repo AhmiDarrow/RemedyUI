@@ -94,6 +94,8 @@ playback-next-up-in = { $count ->
    *[other] Playing in { $count } seconds
 }
 playback-play-now = Play now
+playback-next-up-label = Up next
+playback-next-dismiss = Dismiss
 playback-next-cancel = Cancel
 # While the app starts the next (a media server makes its stream).
 playback-starting-next = Starting { $title }

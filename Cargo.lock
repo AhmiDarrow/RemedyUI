@@ -4555,6 +4555,7 @@ dependencies = [
  "remedy-ui-fonts",
  "remedy-ui-input",
  "remedy-ui-layout",
+ "remedy-ui-media-svg",
  "remedy-ui-media-video",
  "remedy-ui-paint",
  "remedy-ui-reactive",
