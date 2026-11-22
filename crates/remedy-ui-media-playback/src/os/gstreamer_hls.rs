@@ -19,10 +19,13 @@ use crate::hls::{
 use crate::host::{MediaError, Sample, VideoCodec};
 
 const PURPOSE: &str = "playing HLS streams";
-/// Units a decoder may hold before `pull` waits for it; doubled each time a decoder holds
-/// more (frame-threaded decoders hold a picture per thread).
+/// Units a decoder may hold before `pull` waits for it, until its depth is known.
 const HOLD: u32 = 8;
-/// How long `pull` waits on a decoder holding `HOLD` units before raising its `HOLD`.
+/// Up to how many units a decoder that has given nothing out yet is handed without waiting:
+/// past an H.264 decoder's most (16 for reordering, 16 more for frame threads).
+const FILL: u32 = 64;
+/// How long `pull` waits on a decoder holding `hold` units with nothing out before raising
+/// its `hold` (a decoder deeper than `FILL`, or one far behind).
 const STALL: Duration = Duration::from_millis(250);
 /// How long a drained decoder may take to give out the end of what it held.
 const DRAIN: Duration = Duration::from_secs(10);
@@ -56,7 +59,11 @@ struct Stream {
     video: bool,
     /// Units pushed and not yet out.
     held: u32,
+    /// Units it may hold before `pull` waits for it: [`HOLD`], then past its depth.
     hold: u32,
+    /// The units it held when its first output came: how many it keeps back. Learned once;
+    /// a flush keeps the decoder, so its depth too.
+    depth: Option<u32>,
     eos: bool,
 }
 
@@ -64,7 +71,25 @@ impl Stream {
     fn open(g: &'static Gst, desc: &str, video: bool) -> Result<Stream, MediaError> {
         let pipe = build(g, desc, &[c"src", c"sink"])?;
         pipe.start("the HLS decoder")?;
-        Ok(Stream { pipe, video, held: 0, hold: HOLD, eos: false })
+        Ok(Stream { pipe, video, held: 0, hold: HOLD, depth: None, eos: false })
+    }
+
+    /// Emptied for a new stream or a seek, its elements (the decoder's among them) and
+    /// what they negotiated kept: a flush through the app source drops what the pipeline
+    /// holds and the last stream's end, and its streaming starts again with a new segment.
+    fn reset(&mut self, g: &Gst) -> Result<(), MediaError> {
+        check(g, &self.pipe)?;
+        let src = self.pipe.get(0);
+        // SAFETY: flush events made here and handed to the live app source, which takes them.
+        let sent = unsafe {
+            (g.element_send_event)(src, (g.event_new_flush_start)()) != 0
+                && (g.element_send_event)(src, (g.event_new_flush_stop)(1)) != 0
+        };
+        if !sent {
+            return Err(MediaError::Decode("the HLS decoder would not flush".into()));
+        }
+        (self.held, self.eos) = (0, false);
+        Ok(())
     }
 
     fn push(&mut self, g: &Gst, data: &[u8], pts: Duration, dts: Duration) -> Result<(), MediaError> {
@@ -107,6 +132,10 @@ impl Stream {
             self.eos |= unsafe { (g.app_sink_is_eos)(sink) } != 0;
             return Ok(None);
         };
+        if self.depth.is_none() {
+            self.depth = Some(self.held);
+            self.hold = self.held + HOLD;
+        }
         self.held = self.held.saturating_sub(1);
         // SAFETY: the sample `pull_sample` handed over, its buffer mapped for reading while its
         // bytes are copied once into the picture or the sound, then released once.
@@ -156,13 +185,17 @@ impl GstElementary {
         Ok(GstElementary { g: gst()?, config: (None, None), video: None, audio: None, ended: false })
     }
 
-    /// The pipelines for the configured streams, new.
+    /// The pipelines for the configured streams: those there emptied and started again (new
+    /// if that fails), the others new.
     fn start(&mut self) -> Result<(), MediaError> {
         let g = self.g;
         self.ended = false;
-        self.video = None;
-        self.audio = None;
-        if self.config.0.is_some() {
+        for s in [&mut self.video, &mut self.audio] {
+            if s.as_mut().is_some_and(|s| s.reset(g).is_err()) {
+                *s = None;
+            }
+        }
+        if self.config.0.is_some() && self.video.is_none() {
             let dec = GstStreamDecoder::choice(g, VideoCodec::H264, true)?;
             let desc = format!(
                 "appsrc name=src format=time caps=video/x-h264,stream-format=byte-stream,alignment=au \
@@ -171,7 +204,7 @@ impl GstElementary {
             );
             self.video = Some(Stream::open(g, &desc, true)?);
         }
-        if let Some(a) = &self.config.1 {
+        if let Some(a) = self.config.1.as_ref().filter(|_| self.audio.is_none()) {
             let (caps, parse) = match &a.codec {
                 AudioCodec::Aac { asc } => {
                     let hex: String = asc.iter().map(|b| format!("{b:02x}")).collect();
@@ -204,6 +237,14 @@ impl Elementary for GstElementary {
         video: Option<&VideoConfig>,
         audio: Option<&AudioConfig>,
     ) -> Result<(), MediaError> {
+        // The video pipeline is the same for every H.264 stream (h264parse takes new
+        // parameter sets in-band, and a new size); the sound's is set up from its config.
+        if video.is_none() {
+            self.video = None;
+        }
+        if self.config.1.as_ref() != audio {
+            self.audio = None;
+        }
         self.config = (video.cloned(), audio.cloned());
         self.start()
     }
@@ -243,6 +284,12 @@ impl Elementary for GstElementary {
             else {
                 return Ok(None);
             };
+            // Nothing out yet: it is filling (a frame-threaded decoder holds a picture a
+            // thread, avdec_h264 up to 16, besides reordering), not busy. More at once.
+            if !ended && s.depth.is_none() && s.hold < FILL {
+                s.hold *= 2;
+                return Ok(None);
+            }
             if since.elapsed() > if ended { DRAIN } else { STALL } {
                 s.hold *= 2;
                 s.eos |= ended;
@@ -264,7 +311,6 @@ impl Elementary for GstElementary {
     }
 
     fn flush(&mut self) -> Result<(), MediaError> {
-        // New pipelines: simpler than flushing events, and a seek is rare.
         self.start()
     }
 }

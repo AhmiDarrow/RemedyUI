@@ -278,6 +278,16 @@ impl Wake for BellWake {
 /// Tells the presenting worker the decoder has news; false once it is gone.
 type WakePresenter = Arc<dyn Fn() -> bool + Send + Sync>;
 
+/// Retires its engine ([`crate::hls::Retired`]) once dropped: held by both workers, after
+/// what holds the decoder, so the last of them to end says the decoder is gone.
+struct Retiring(Arc<crate::hls::Retired>);
+
+impl Drop for Retiring {
+    fn drop(&mut self) {
+        self.0.retire();
+    }
+}
+
 /// The decoding worker's state.
 struct Decoding {
     dec: Box<dyn Decoder>,
@@ -286,6 +296,7 @@ struct Decoding {
     waker: Waker,
     /// When the decoder was last asked what the source holds.
     asked: Option<Instant>,
+    _retiring: Arc<Retiring>,
 }
 
 /// How often the decoder is asked what the source holds (a query of the platform's pipeline).
@@ -389,6 +400,8 @@ pub(crate) struct Control {
     worker: Worker,
     /// Set on closing: an open still under way (an HLS stream's fetches) gives up.
     stop: Arc<AtomicBool>,
+    /// Set once the engine is done with its decoder: the next engine's open waits for it.
+    pub(crate) retired: Arc<crate::hls::Retired>,
 }
 
 impl Drop for Control {
@@ -416,22 +429,25 @@ pub(crate) fn start(
     find_subtitles: bool,
     shared: Arc<Shared>,
     notify: Notify,
+    after: Option<Arc<crate::hls::Retired>>,
 ) -> Result<Control, MediaError> {
     let (tx, rx) = std::sync::mpsc::channel();
     let wake = tx.clone();
     let stop = Arc::new(AtomicBool::new(false));
     let stopping = stop.clone();
+    let retired = Arc::new(crate::hls::Retired::default());
+    let retiring = Arc::new(Retiring(retired.clone()));
     let worker = Worker::spawn_timed(
         "remedy-player",
         move |bell| {
-            let mut presenter = Presenter::new(host, rx, shared, notify);
-            presenter.open(&source, find_subtitles, wake, bell, &stopping);
+            let mut presenter = Presenter::new(host, rx, shared, notify, retiring);
+            presenter.open(&source, find_subtitles, wake, bell, &stopping, after);
             presenter
         },
         Presenter::turn,
     )
     .map_err(|e| MediaError::Decode(format!("could not start the player's worker: {e}")))?;
-    Ok(Control { tx, worker, stop })
+    Ok(Control { tx, worker, stop, retired })
 }
 
 struct Presenter {
@@ -497,10 +513,18 @@ struct Presenter {
     own_text: bool,
     /// The device holds sound it is not playing; the wall clock leads meanwhile.
     stalled: bool,
+    /// Last, after the decoder it holds while opening.
+    retiring: Arc<Retiring>,
 }
 
 impl Presenter {
-    fn new(host: Arc<dyn MediaHost>, rx: Receiver<Cmd>, shared: Arc<Shared>, notify: Notify) -> Self {
+    fn new(
+        host: Arc<dyn MediaHost>,
+        rx: Receiver<Cmd>,
+        shared: Arc<Shared>,
+        notify: Notify,
+        retiring: Arc<Retiring>,
+    ) -> Self {
         Presenter {
             host,
             rx,
@@ -545,6 +569,7 @@ impl Presenter {
             done: false,
             local: false,
             own_text: false,
+            retiring,
         }
     }
 
@@ -555,6 +580,7 @@ impl Presenter {
         wake: Sender<Cmd>,
         own: Bell,
         stop: &Arc<AtomicBool>,
+        after: Option<Arc<crate::hls::Retired>>,
     ) {
         if find_subtitles && let Some(path) = source.local_path() {
             let found = crate::player::sidecar_subtitles(path);
@@ -565,7 +591,7 @@ impl Presenter {
         self.wake = Some(wake);
         self.own = Some(own);
         self.local = source.local_path().is_some();
-        match crate::hls::opening_until(stop, || self.host.open(source)) {
+        match crate::hls::opening_until(stop, after, || self.host.open(source)) {
             Ok(dec) => {
                 // Timed text inside an MP4, and text subtitles inside Matroska and WebM, are
                 // read from the file, whole, on every platform: Media Foundation,
@@ -636,6 +662,7 @@ impl Presenter {
                 }
                 self.size_buffers();
                 let shared = self.feed.clone();
+                let retiring = self.retiring.clone();
                 let tell: WakePresenter = Arc::new(move || {
                     let sent = wake.send(Cmd::Wake).is_ok();
                     own.ring();
@@ -651,6 +678,7 @@ impl Presenter {
                             wake: tell,
                             waker: Waker::from(Arc::new(BellWake(bell))),
                             asked: None,
+                            _retiring: retiring,
                         }
                     },
                     decode_step,
