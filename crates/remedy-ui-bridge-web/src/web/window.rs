@@ -378,10 +378,8 @@ impl Win {
             .dyn_into::<web_sys::ResizeObserverSize>()
             .ok()
             .map(|s| (s.inline_size(), s.block_size()));
-        let (w, h) = exact.unwrap_or_else(|| {
-            let r = entry.content_rect();
-            ((r.width() * dpr).round(), (r.height() * dpr).round())
-        });
+        let r = entry.content_rect();
+        let (w, h) = convert::device_size(exact, (r.width(), r.height()), dpr);
         self.apply_size(w, h, dpr);
     }
 
