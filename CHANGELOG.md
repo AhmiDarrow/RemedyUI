@@ -35,6 +35,35 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - **The installer's "Start when I sign in" choice**: `[windows] autostart_args` in
   `remedy.toml` makes `cargo remedy package` add an unchecked task that writes that Run value
   (removed on uninstall) and no Startup shortcut beside it, as Portal's installer does.
+
+- **Routes and deep links** (`remedy_ui::router`, feature `widgets`), for Portal's
+  `#/home`, `#/browse/<path>` and `#/settings/<id>`: a `Router` holds the route (a signal of
+  `Route`: path, decoded segments, query, `matches("/settings/:id")` and `"/browse/*path"`)
+  with `push`, `replace`, `back` and `forward`, titles the window after each route
+  (`set_title`; `document.title` in a page), and keeps each entry's scroll position
+  (`remember_scroll`). `Router::view` builds the route's page, rebuilt on each change; Alt+Left
+  and Alt+Right, the system back key (Android's back) and the mouse's back and forward buttons
+  move through the history, and a `NavStack` inside a page pops its own pages first. In a
+  browser page `Router::for_window` keeps the route in the address's fragment through the
+  History API (read at load, so a deep link opens its page; the browser's back and forward and
+  a typed address route too). On the desktop `Router::follow_links(app, &["portal"])` opens
+  links in the app's scheme, also from a second launch. `Router::link_to` is a link whose
+  `Semantics::url` (new, in `a11y`; `ReaderNode::url`) makes the web ARIA mirror an
+  `<a href="#/…">`, so middle and Ctrl clicks open a new tab. `App::reload` reloads the page,
+  or natively rebuilds every `Router::view`. `web::history` exposes the page's history.
+- **Fluid poster grids** in `widgets-data`, as Portal's library: `Tiles::fluid(min_width,
+  aspect, extra_height, draw)` fills the width as CSS `repeat(auto-fill, minmax(min, 1fr))`
+  does (`GridGeometry::fluid`), recomputed as the width changes; `grid_view_with(.., GridOptions
+  { own_scroll, interactive_tiles }, ..)` puts the grid in the page's scroll (virtual rows
+  follow the window through any scroll around it) and keeps a card's buttons (Play, Details,
+  Watchlist, Bookmark, Info) for the keyboard and screen readers: Enter moves into the
+  cursor's card, the arrow keys between its buttons, Escape back. `grid_view` is unchanged.
+  The 2,000-poster scene (`widgets-data/tests/poster_grid.rs`) holds the 8 ms frame budget.
+- **Repeated grid tracks** in `layout`: `Track::Repeat(Repeat::AutoFill | AutoFit |
+  Count(n), tracks)`, as CSS `repeat()`, through taffy's own.
+- `El::scroll_rect_into_view(rect)` shows part of an element through the scroll containers
+  around it, and `El::focus_step(forward)` moves focus between the focusable elements inside
+  one, wrapping.
 - **The player's keys from anywhere in the window** in `media-playback`, as Portal's page
   hears them page-wide: `Player::keys_from(&ui.root())` routes the keys nothing focused took
   to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),
@@ -974,6 +1003,17 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   right-click, not at the mouse pointer. A double-click activates once, not twice: selects
   within the double-click time count as one, as Portal's launcher debounces them. The
   tooltip still shows (`NIF_SHOWTIP`).
+
+- **On Android, tapping a text field now opens the on-screen keyboard.** The input-method
+  view was a full-screen overlay; once a field focused it, it ate every later tap, and
+  `showSoftInput` was asked before the view had focus and a window token, so the keyboard
+  often never appeared. The view is now 1 px, it never takes touches (they stay with the
+  app), and the keyboard is shown after focus, including through `WindowInsetsController`
+  on Android 11 and later. A finger tap also always asks for a frame, so the field paints
+  and the text session starts.
+
+- **On Android, underlined keyboard text is kept when you leave a field, Save, or tap another control.** Words still being composed (the last underlined word, like “bar” in “Lavender bar”) were dropped because a field end, a restart, or a tap on another control finished the input session before the composition was committed. The input method now commits that text first (`commitCompositionIfAny` on end and update; a pointer-down flush of the runner’s preedit, without a second commit from `finishComposition`).
+
 - **An HLS stream on GStreamer's software H.264 decoder shows its first picture at once**,
   not half a second late, on opening and on every seek. `avdec_h264` holds a picture for
   each of its frame threads (19 units on a 16-thread machine) before giving any out, and
