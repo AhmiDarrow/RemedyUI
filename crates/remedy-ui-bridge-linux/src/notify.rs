@@ -90,15 +90,6 @@ impl Notifier {
     }
 
     /// Uses `conn` (a test's private bus).
-    /// The spec's urgency byte (1 normal, 2 critical) and the stock icon a warning or error shows
-    /// when the app gives no picture of its own.
-    fn urgency(u: Urgency) -> (u8, &'static str) {
-        match u {
-            Urgency::Warning => (1, "dialog-warning"),
-            Urgency::Error => (2, "dialog-error"),
-            _ => (1, ""),
-        }
-    }
     #[cfg(test)]
     pub(crate) fn with_connection(conn: zbus::Connection) -> Result<Self, Unsupported> {
         let mut n = Notifier::default();
@@ -240,6 +231,15 @@ impl Notifier {
     }
 }
 
+/// The spec's urgency byte (1 normal, 2 critical) and the stock icon a warning or error shows
+/// when the app gives no picture of its own.
+fn urgency(u: Urgency) -> (u8, &'static str) {
+    match u {
+        Urgency::Warning => (1, "dialog-warning"),
+        Urgency::Error => (2, "dialog-error"),
+        _ => (1, ""),
+    }
+}
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
