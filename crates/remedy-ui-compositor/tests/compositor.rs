@@ -737,3 +737,37 @@ fn scroll_bars_shown_always_stay_and_hidden_ones_never_draw() {
     c.scroll_by(LayerId(1), Vec2::new(0.0, 100.0));
     assert!(bar_fills(&c.frame(ms(16))).is_empty());
 }
+
+#[test]
+fn a_small_change_in_a_big_layer_rasters_only_the_tiles_it_touches() {
+    // A window-filling page with a spinner in one corner: the spinner turning must not
+    // re-raster the page around it.
+    let spinner = |turn: f32| {
+        let mut l = DisplayList::new();
+        l.fill_rect(Rect::new(0.0, 0.0, 1600.0, 1000.0), Brush::Solid(Color::BLACK));
+        l.push_clip(Rect::new(0.0, 0.0, 1600.0, 1000.0), CornerRadii::ZERO);
+        l.push(remedy_ui_paint::Item::PushTransform(remedy_ui_paint::Affine::translate(Vec2::new(20.0, 20.0))));
+        l.fill_rect(Rect::new(0.0, 0.0, 10.0 + turn, 10.0), Brush::Solid(Color::WHITE));
+        l.push(remedy_ui_paint::Item::PopTransform);
+        l.fill_rect(Rect::new(900.0, 600.0, 1000.0, 700.0), Brush::Solid(Color::WHITE));
+        l.pop_clip();
+        l
+    };
+    let mut c = Compositor::new(1600, 1000, 1.0, ScrollPhysics::CLAMPED);
+    let mut layer = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 1600.0, 1000.0), spinner(0.0));
+    c.commit(LayerTree::new(vec![layer.clone()]));
+    let first = c.frame(ms(0));
+    assert!(first.raster.len() > 4, "the page spans many tiles");
+    layer.content = Arc::new(spinner(5.0));
+    layer.content_version = 1;
+    c.commit(LayerTree::new(vec![layer.clone()]));
+    let p = c.frame(ms(16));
+    assert_eq!(p.raster.len(), 1, "only the corner tile re-rasters");
+    assert_eq!(p.damage.rects(), &[Rect::new(20.0, 20.0, 35.0, 30.0)], "the spinner's box, old and new");
+    // Every tile still shows, at the new version.
+    assert_eq!(tiles(&p).len(), tiles(&first).len());
+    // The same list at a new version still re-rasters everything.
+    layer.content_version = 2;
+    c.commit(LayerTree::new(vec![layer]));
+    assert_eq!(c.frame(ms(32)).raster.len(), first.raster.len());
+}

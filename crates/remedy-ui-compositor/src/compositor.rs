@@ -547,6 +547,9 @@ struct Walk<'a> {
     regions: Vec<Option<Rect>>,
     /// Scroll bars drawn this frame, by container: their device box and look.
     bars: HashMap<LayerId, (Rect, [u32; 9])>,
+    /// Layers whose content changed only in part since they were last drawn: the device
+    /// area of the change (`None`: nowhere on screen).
+    changed: HashMap<LayerId, Option<Rect>>,
 }
 
 fn snap(a: Affine) -> Affine {
@@ -1002,6 +1005,7 @@ impl Compositor {
             grow: 0.0,
             regions: Vec::new(),
             bars: HashMap::new(),
+            changed: HashMap::new(),
         };
         let base = Affine::scale(self.scale, self.scale);
         let roots = self.tree.roots.clone();
@@ -1009,7 +1013,7 @@ impl Compositor {
             let within = Within { transform: base, static_scale: self.scale, opacity: 1.0, clip: viewport };
             self.walk(root, within, &mut walk);
         }
-        let Walk { drawn, hits, mut replaced, deferred, looping, backdrops, bars, .. } = walk;
+        let Walk { drawn, hits, mut replaced, deferred, looping, backdrops, bars, changed, .. } = walk;
         // Scroll bars that moved, faded, showed or went are damage where they were and are.
         for (id, now_bar) in &bars {
             if self.bars.get(id) != Some(now_bar) {
@@ -1036,6 +1040,13 @@ impl Compositor {
             for (id, new) in &drawn {
                 match self.drawn.get(id) {
                     Some(old) if old == new => {}
+                    // Only the content moved on, and only in part: that part is damage.
+                    Some(old)
+                        if let Some(c) = changed.get(id)
+                            && Drawn { version: new.version, ..old.clone() } == *new =>
+                    {
+                        c.into_iter().for_each(|b| damage.add(*b));
+                    }
                     Some(old) => {
                         old.bounds.into_iter().chain(new.bounds).for_each(|b| damage.add(b));
                     }
@@ -1220,6 +1231,9 @@ impl Compositor {
         }
 
         let mut bounds = None;
+        // A new version that changes only part of the content: tiles away from that part
+        // carry over, and only it is damage.
+        let changed = self.content_change(layer, raster_scale);
         if let Some(extent) = layer.content_extent() {
             let screen = clip.intersect(w.viewport);
             let inverse = content_to_device.inverse();
@@ -1244,6 +1258,12 @@ impl Compositor {
         if w.grow > 0.0 {
             let g = w.grow;
             bounds = bounds.map(|b| Rect::new(b.min.x - g, b.min.y - g, b.max.x + g, b.max.y + g));
+        }
+        if let Some(c) = changed {
+            let g = w.grow;
+            let device = content_to_device.apply_rect(c).intersect(clip).filter(|r| !r.is_empty());
+            let device = device.map(|b| Rect::new(b.min.x - g, b.min.y - g, b.max.x + g, b.max.y + g));
+            w.changed.insert(layer.id, device);
         }
         w.drawn.insert(
             layer.id,
@@ -1306,6 +1326,26 @@ impl Compositor {
         }
     }
 
+    /// Where `layer`'s content changed since it was last walked (content space; empty when
+    /// it did not), carrying the tiles elsewhere over to its new version. `None` when the
+    /// change is not known to be bounded: everything changed.
+    fn content_change(&mut self, layer: &Layer, raster_scale: f32) -> Option<Rect> {
+        let extent = layer.content_extent().unwrap_or(Rect::ZERO);
+        let lt = self.grids.entry(layer.id).or_insert_with(|| LayerTiles::new(raster_scale));
+        let (from, was, old) = lt.seen.replace((layer.content_version, extent, layer.content.clone()))?;
+        if from == layer.content_version {
+            return Some(Rect::ZERO);
+        }
+        // A new extent clips edge tiles differently, wherever the change is. A new version
+        // of the same list asks for everything again (what it shows changed outside it).
+        if was != extent || old == layer.content {
+            return None;
+        }
+        let area = DisplayList::changed_area(&old, &layer.content)?;
+        lt.current.carry_over(from, layer.content_version, area);
+        Some(area)
+    }
+
     /// Draws `layer`'s scroll bars over its content and children (inside its clip, before its
     /// group closes), as fills the renderers draw, and notes them for damage.
     fn scrollbars(&mut self, layer: &Layer, local_to_device: Affine, clip: Rect, w: &mut Walk<'_>) {
@@ -1363,7 +1403,7 @@ impl Compositor {
     ) {
         let lt = self.grids.entry(layer.id).or_insert_with(|| LayerTiles::new(raster_scale));
         lt.rescale(raster_scale);
-        let LayerTiles { current: grid, older } = lt;
+        let LayerTiles { current: grid, older, .. } = lt;
         // Inside a scroll container, prefetch one tile beyond what is visible in every
         // direction; content under a fixed clip only shows what is visible now.
         let e = grid.content_edge();

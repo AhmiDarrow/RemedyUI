@@ -95,6 +95,20 @@ impl TileGrid {
         out
     }
 
+    /// Carries tiles rastered at `from` over to `to` where their cell does not touch
+    /// `changed` (content space): what they hold is drawn the same at `to`.
+    pub(crate) fn carry_over(&mut self, from: u64, to: u64, changed: Rect) {
+        let e = self.content_edge();
+        // A pixel more, for anti-aliasing at the change's edge.
+        let near = Rect::new(changed.min.x - 1.0, changed.min.y - 1.0, changed.max.x + 1.0, changed.max.y + 1.0);
+        for (&(col, row), version) in &mut self.valid {
+            let cell = Rect::new(col as f32 * e, row as f32 * e, (col + 1) as f32 * e, (row + 1) as f32 * e);
+            if *version == from && (changed.is_empty() || cell.intersect(near).is_none_or(|r| r.is_empty())) {
+                *version = to;
+            }
+        }
+    }
+
     /// The content area of a cell, its far edges clamped to `extent` (snapped out to device
     /// pixels) so small layers get small tiles.
     pub(crate) fn tile_rect(&self, (col, row): Cell, extent: Rect) -> Rect {
@@ -131,11 +145,14 @@ impl TileGrid {
 pub(crate) struct LayerTiles {
     pub(crate) current: TileGrid,
     pub(crate) older: Vec<TileGrid>,
+    /// The content last walked, its version and extent: a new version is diffed against it,
+    /// and tiles away from what changed carry over.
+    pub(crate) seen: Option<(u64, Rect, std::sync::Arc<remedy_ui_paint::DisplayList>)>,
 }
 
 impl LayerTiles {
     pub(crate) fn new(raster_scale: f32) -> Self {
-        LayerTiles { current: TileGrid::new(raster_scale), older: Vec::new() }
+        LayerTiles { current: TileGrid::new(raster_scale), older: Vec::new(), seen: None }
     }
 
     /// Moves to `raster_scale`. The grid being left is kept to stand in; a kept grid at the
