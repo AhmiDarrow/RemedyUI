@@ -411,7 +411,8 @@ impl Scroller {
         // progress has no point and is left alone).
         let first = old.is_none();
         let lost = |key: Option<u64>, found: Option<f32>| (key.is_some() || first) && found.is_none();
-        let lost = (!snap.x.is_empty() && lost(self.snapped[0], x)) || (!snap.y.is_empty() && lost(self.snapped[1], y));
+        let lost = (!snap.x.is_empty() && lost(self.snapped[0], x))
+            || (!snap.y.is_empty() && lost(self.snapped[1], y));
         if snap.mandatory && lost {
             self.settle(None, None, false, false);
             return;
@@ -823,7 +824,9 @@ impl Compositor {
     /// True while a fling, overscroll return or compositor animation still moves.
     pub fn is_animating(&self, now: Duration) -> bool {
         let moving = |a: &ScrollAxis| a.velocity != 0.0 || a.offset < 0.0 || a.offset > a.max;
-        self.scrollers.values().any(|s| moving(&s.x) || moving(&s.y) || s.wheel.is_some() || s.glide.is_some())
+        self.scrollers
+            .values()
+            .any(|s| moving(&s.x) || moving(&s.y) || s.wheel.is_some() || s.glide.is_some())
             || self.overrides.values().any(|o| !o.settled(now))
     }
 
