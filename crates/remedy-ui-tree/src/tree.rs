@@ -786,6 +786,12 @@ impl Tree {
         self.focus_step(false)
     }
 
+    /// The focusable elements in `scope`'s tab order, nested focus scopes left out: what Tab
+    /// and arrow navigation choose from.
+    pub fn focus_candidates(&self, scope: ElementId) -> Vec<ElementId> {
+        self.0.borrow().tab_order(scope)
+    }
+
     fn focus_step(&self, forward: bool) -> Option<ElementId> {
         let order = {
             let d = self.0.borrow();
