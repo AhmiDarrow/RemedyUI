@@ -228,6 +228,8 @@ enum Look {
     Theater,
     Full,
     FullNext,
+    Captions,
+    HoverVolume,
 }
 
 /// Portal's dock player in `win`: two rows, the skips, no speed button, the volume on hover,
@@ -242,11 +244,19 @@ fn portal_player(win: &mut Window, look: Look) -> (Player, El) {
         .next_up_lead(Some(Duration::from_secs(20)));
     let p = Player::open(&ui, Arc::new(Still(still())), MediaSource::url("still:portal"), options);
     p.on_caption_pick(|_| {});
-    p.add_subtitles(SubtitleTrack { label: "English".into(), language: Some("en".into()), cues: Vec::new() });
+    // A line at the foot and one placed near the top, as WebVTT's settings put them.
+    let vtt = "WEBVTT\n\n00:00.000 --> 03:00.000\nRemedyUI cast test\n\n00:00.000 --> 03:00.000 line:10%\nA positioned line\n";
+    let cues = if look == Look::Captions { parse_subtitles(vtt, SubtitleFormat::WebVtt) } else { Vec::new() };
+    p.add_subtitles(SubtitleTrack { label: "English".into(), language: Some("en".into()), cues });
+    if look == Look::Captions {
+        p.set_caption_track(Some(0));
+    }
     p.on_theater(|_| {});
     p.on_fullscreen(|_| {});
     p.set_title(Some("RemedyUI cast test".into()));
-    let parts = PlayerParts::default().icons(portal_icons).end(vec![pip_button(&ui)]);
+    // Portal's page hides its picture-in-picture under 640 px.
+    let pip = if win.size.width >= 640.0 { vec![pip_button(&ui)] } else { Vec::new() };
+    let parts = PlayerParts::default().icons(portal_icons).end(pip);
     let view = player_with(&ui, &p, "RemedyUI cast test", parts);
     let _ = ui.root().child(view.clone());
     win.wait("open", || p.info().is_some());
@@ -257,7 +267,7 @@ fn portal_player(win: &mut Window, look: Look) -> (Player, El) {
     p.seek(Duration::from_secs(at));
     p.play();
     win.wait("playing", || p.state() == PlaybackState::Playing);
-    if !matches!(look, Look::Playing | Look::Full | Look::FullNext) {
+    if !matches!(look, Look::Playing | Look::Full | Look::FullNext | Look::HoverVolume) {
         p.pause();
         win.wait("paused", || p.state() == PlaybackState::Paused);
     }
@@ -297,6 +307,11 @@ fn render(name: &str, id: &str, size: (f32, f32), look: Look) -> (Snapshot, El) 
     if look == Look::HoverBar {
         let seek = bounds(&view, "player_seek");
         win.hover(Point::new(seek.min.x + seek.width() * 0.5, seek.center().y));
+        win.pump();
+    }
+    if look == Look::HoverVolume {
+        let mute = bounds(&view, "player_sound");
+        win.hover(Point::new(mute.min.x + 18.0, mute.center().y));
         win.pump();
     }
     let shot = win.shot();
@@ -409,4 +424,8 @@ fn portal_state_pictures() {
     let _ = render("portal-portal-theater", "portal", (1280.0, 600.0), Look::Theater);
     let _ = render("portal-portal-narrow-390", "portal", (370.0, 280.0), Look::Paused);
     let _ = render("portal-portal-full-next", "portal", (1280.0, 720.0), Look::FullNext);
+    let _ = render("portal-portal-captions", "portal", (730.0, 480.0), Look::Captions);
+    let (_, view) = render("portal-portal-hover-volume", "portal", (730.0, 480.0), Look::HoverVolume);
+    // `.volume:hover .volume-bar`: 5.25 rem, with its margins.
+    assert_eq!(bounds(&view, "player_volume_holder").width().round(), 86.0, "the volume shows on hover");
 }

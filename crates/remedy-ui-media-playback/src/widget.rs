@@ -781,6 +781,17 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             row().child(play.clone()).children(skips).child(time.clone()).child(seek).child(sound),
         )),
     };
+    // On a bar narrower than the theme's `player-captions-words-min` (none by default) the
+    // captions button shows its glyph alone, keeping its name, so the row fits a phone.
+    let words_min = theme.metric("player-captions-words-min", 0.0);
+    if words_min > 0.0 {
+        let words = captions.child_elements().into_iter().nth(1);
+        let _ = bar.clone().on_resize(move |size| {
+            if let Some(w) = &words {
+                let _ = w.clone().hidden(size.width < words_min);
+            }
+        });
+    }
     // A line over the bar, between it and the picture: the sheet's `player_rule`, the
     // theme's `player-rule` high (none by default).
     let rule = ui.el("player_rule").height(theme.metric("player-rule", 0.0));
@@ -1623,19 +1634,30 @@ fn caption_line(ui: &Ui, line: &str) -> El {
 fn paint_cues(cx: &mut remedy_ui_view::PaintCx<'_>, cues: &[crate::Cue], aspect: Option<f32>, lift: f32) {
     let theme = cx.theme;
     let u = theme.spacing.unit;
+    let vp = crate::cue_layout::viewport(cx.size, aspect);
+    // The theme's caption look, if it sets one: `player-caption-height` (the text as a share
+    // of the picture's height, as a browser sizes cues) or `player-caption-size`, the box's
+    // `player-caption-radius` and `player-caption-pad-x`/`-y`, and the colors
+    // `player-caption-text` and `player-caption-box`; else body text, white on black at 80%.
+    let size = match theme.metrics.get("player-caption-height") {
+        Some(share) => share * vp.height(),
+        None => theme.metric("player-caption-size", theme.type_scale.body),
+    };
+    let token = |name: &str| theme.colors.custom.get(name).copied();
     let text = remedy_ui_view::TextPaint {
-        size: theme.type_scale.body,
+        size,
         weight: 400.0,
-        color: Color::WHITE,
+        color: token("player-caption-text").unwrap_or(Color::WHITE),
         mono: false,
     };
-    let radius = CornerRadii::all(theme.radii.small);
-    let vp = crate::cue_layout::viewport(cx.size, aspect);
+    let fill = token("player-caption-box").unwrap_or(Color::BLACK.with_alpha(0.8));
+    let radius = CornerRadii::all(theme.metric("player-caption-radius", theme.radii.small));
+    let pad = (theme.metric("player-caption-pad-x", u * 1.5), theme.metric("player-caption-pad-y", u * 0.5));
     // The title area: the picture above the bar, which floats over its foot in full screen.
     let title = Rect::new(vp.min.x, vp.min.y, vp.max.x, vp.max.y.min(cx.size.height - lift).max(vp.min.y));
     // A character's step down a vertical line: the line height.
     let step = cx.measure_text("M", text).height;
-    let placed = crate::cue_layout::layout(cues, vp, title, (u * 1.5, u * 0.5), &mut |t, down| {
+    let placed = crate::cue_layout::layout(cues, vp, title, pad, &mut |t, down| {
         if down {
             // Down the line: a step per character; across it, the widest character.
             let widest = t
@@ -1650,7 +1672,7 @@ fn paint_cues(cx: &mut remedy_ui_view::PaintCx<'_>, cues: &[crate::Cue], aspect:
     let mid = remedy_ui_core::Vec2::new(0.5, 0.5);
     for cue in placed {
         for line in cue.lines {
-            cx.list.fill_rounded(line.rect, radius, Brush::Solid(Color::BLACK.with_alpha(0.8)));
+            cx.list.fill_rounded(line.rect, radius, Brush::Solid(fill));
             let c = line.rect.center();
             if cue.vertical.is_none() {
                 cx.text(&line.text, c, mid, text);
