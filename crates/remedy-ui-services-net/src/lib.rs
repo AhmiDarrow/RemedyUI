@@ -70,7 +70,7 @@ mod web;
 
 pub use cookies::{Cookie, CookieJar, DEFAULT_MAX_COOKIES, SameSite};
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{finish_keepalive, on_keepalive};
+pub use native::{PoolLimits, finish_keepalive, on_keepalive, pool_limits, set_pool_limits};
 
 /// The answer to a request that succeeded (status 200-299).
 #[non_exhaustive]
