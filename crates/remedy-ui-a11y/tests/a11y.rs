@@ -262,3 +262,29 @@ fn deep_trees_update_in_linear_time_and_changes_reach_their_merging_ancestor() {
     let took = started.elapsed();
     assert!(took < std::time::Duration::from_secs(20), "linear work ({took:?})");
 }
+
+#[test]
+fn a_list_box_and_its_options_reach_accesskit_with_their_selection() {
+    let mut t = A11yTree::new(1);
+    t.set(1, Semantics::new(Role::Window).label("Portal"));
+    t.set(2, Semantics::new(Role::ListBox).label("Theme"));
+    t.set(3, Semantics::new(Role::Option).label("Portal").selected(true).action(Action::Click));
+    t.set(4, Semantics::new(Role::Option).label("Light").selected(false).action(Action::Click));
+    t.set(5, Semantics::new(Role::ListBox).label("Fonts").multiselectable(true));
+    t.set_children(1, &[2, 5]);
+    t.set_children(2, &[3, 4]);
+    t.connect();
+    let u = t.take_update().unwrap_or_else(|| unreachable!("connected"));
+    assert_eq!(node(&u, 2).map(accesskit::Node::role), Some(accesskit::Role::ListBox));
+    assert_eq!(node(&u, 3).map(accesskit::Node::role), Some(accesskit::Role::ListBoxOption));
+    assert_eq!(node(&u, 3).and_then(accesskit::Node::is_selected), Some(true));
+    assert_eq!(node(&u, 4).and_then(accesskit::Node::is_selected), Some(false));
+    assert!(!node(&u, 2).is_some_and(accesskit::Node::is_multiselectable), "one choice at a time");
+    assert!(node(&u, 5).is_some_and(accesskit::Node::is_multiselectable));
+    assert_eq!(role_name(Role::ListBox), "list box");
+    assert!(is_control_role(Role::Option), "an option is picked like a control");
+    assert!(!is_control_role(Role::ListBox), "a container, not a control");
+    let reader = t.reader_view();
+    let portal = reader.iter().find(|n| n.id == 3).unwrap_or_else(|| unreachable!());
+    assert_eq!(portal.announcement(), "option, Portal, selected");
+}

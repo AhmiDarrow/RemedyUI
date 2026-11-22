@@ -61,6 +61,13 @@ pub enum Role {
     List,
     /// An item in a list.
     ListItem,
+    /// A list of choices to pick from, one or (when
+    /// [`multiselectable`](Semantics::multiselectable)) several, as ARIA's `listbox`: a theme
+    /// picker, a font list. Its choices are [`Role::Option`]s, each [`selected`](Semantics::selected)
+    /// or not.
+    ListBox,
+    /// One choice in a [`Role::ListBox`], as ARIA's `option`.
+    Option,
     /// A tab.
     Tab,
     /// A row of tabs.
@@ -231,6 +238,7 @@ pub struct Semantics {
     numeric: Option<(f64, f64, f64)>,
     checked: Option<bool>,
     selected: Option<bool>,
+    multiselectable: bool,
     expanded: Option<bool>,
     invalid: bool,
     disabled: bool,
@@ -268,6 +276,7 @@ impl Semantics {
             numeric: None,
             checked: None,
             selected: None,
+            multiselectable: false,
             expanded: None,
             invalid: false,
             disabled: false,
@@ -386,6 +395,18 @@ impl Semantics {
     pub fn selected(mut self, on: bool) -> Self {
         self.selected = Some(on);
         self
+    }
+
+    /// More than one of its choices may be selected at once (a [`Role::ListBox`], a
+    /// [`Role::Grid`], a [`Role::Tree`]), as ARIA's `aria-multiselectable`.
+    pub fn multiselectable(mut self, on: bool) -> Self {
+        self.multiselectable = on;
+        self
+    }
+
+    /// True when more than one of its choices may be selected at once.
+    pub fn is_multiselectable(&self) -> bool {
+        self.multiselectable
     }
 
     /// Expanded or collapsed.
@@ -697,6 +718,9 @@ impl A11yTree {
         if let Some(sel) = s.selected {
             n.set_selected(sel);
         }
+        if s.multiselectable {
+            n.set_multiselectable();
+        }
         if let Some(e) = s.expanded {
             n.set_expanded(e);
         }
@@ -966,6 +990,7 @@ pub fn is_control_role(r: Role) -> bool {
             | Role::PasswordInput
             | Role::Link
             | Role::Tab
+            | Role::Option
             | Role::MenuItem
             | Role::MenuItemCheckBox
             | Role::MenuItemRadio
@@ -992,6 +1017,8 @@ pub fn role_name(r: Role) -> String {
         Role::Link => "link".into(),
         Role::List => "list".into(),
         Role::ListItem => "list item".into(),
+        Role::ListBox => "list box".into(),
+        Role::Option => "option".into(),
         Role::Tab => "tab".into(),
         Role::TabList => "tab list".into(),
         Role::Menu => "menu".into(),
@@ -1050,6 +1077,8 @@ fn role(r: Role) -> accesskit::Role {
         Role::Link => R::Link,
         Role::List => R::List,
         Role::ListItem => R::ListItem,
+        Role::ListBox => R::ListBox,
+        Role::Option => R::ListBoxOption,
         Role::Tab => R::Tab,
         Role::TabList => R::TabList,
         Role::Menu => R::Menu,
