@@ -274,6 +274,29 @@ fn wrap(src: &str, room: f32, measure: &mut dyn FnMut(&str) -> Size, out: &mut V
     }
 }
 
+/// Whether `ch` stands upright in vertical text (Unicode's Vertical_Orientation U or Tu, for
+/// the scripts and symbols captions carry: CJK ideographs, kana, Hangul, Bopomofo, CJK
+/// punctuation, full-width forms and emoji); everything else turns sideways.
+pub(crate) fn upright(ch: char) -> bool {
+    matches!(u32::from(ch),
+        0x1100..=0x11FF | 0x2E80..=0x2FDF | 0x2FF0..=0x303F | 0x3040..=0x31FF | 0x3200..=0x9FFF
+        | 0xA960..=0xA97F | 0xAC00..=0xD7FF | 0xF900..=0xFAFF | 0xFE10..=0xFE1F | 0xFE30..=0xFE4F
+        | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6 | 0x1F000..=0x1FAFF | 0x20000..=0x3FFFF)
+}
+
+/// A vertical line split into runs set upright (`true`) or sideways (`false`), per CSS's
+/// `text-orientation: mixed`. Spaces go with the run they are in.
+pub(crate) fn vertical_runs(line: &str) -> Vec<(bool, String)> {
+    let mut out: Vec<(bool, String)> = Vec::new();
+    for ch in line.chars() {
+        let up = upright(ch);
+        match out.last_mut() {
+            Some((u, run)) if *u == up || (ch == ' ' && !*u) => run.push(ch),
+            _ => out.push((up, ch.to_string())),
+        }
+    }
+    out
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,6 +319,15 @@ mod tests {
         min: remedy_ui_core::Point { x: 0.0, y: 0.0 },
         max: remedy_ui_core::Point { x: 400.0, y: 200.0 },
     };
+
+    #[test]
+    fn vertical_lines_split_into_upright_and_sideways_runs() {
+        let runs = vertical_runs("字幕 is ok。カタ");
+        let want = [(true, "字幕"), (false, " is ok"), (true, "。カタ")];
+        assert_eq!(runs, want.map(|(u, s)| (u, s.to_owned())));
+        assert_eq!(vertical_runs("Latin only"), [(false, "Latin only".to_owned())]);
+        assert!(upright('한') && upright('😀') && !upright('A') && !upright('1'));
+    }
 
     #[test]
     fn the_viewport_is_the_letterboxed_picture() {

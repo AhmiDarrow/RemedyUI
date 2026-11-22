@@ -532,3 +532,74 @@ fn small_tiles_rastered_together_match_the_cpu_every_frame() {
     }
     assert!(g.renderer().context().take_errors().is_empty());
 }
+
+/// Text turned 90° and 30°: the GPU draws the turned glyphs as the CPU reference does (one
+/// painter), the line's ink lying along the turn, and upright text unchanged between them.
+#[test]
+fn turned_text_matches_the_cpu_and_turns_its_glyphs() {
+    let mut fonts = FontCollection::new();
+    for face in remedy_ui_fonts::all() {
+        let _ = fonts.add_static(face.data);
+    }
+    let mut engine = TextEngine::new(fonts);
+    let mut style = TextStyle::default();
+    style.size = 20.0;
+    let p = engine.layout(&RichText::plain("HHHHHHHH"), &style, ParagraphOptions::default());
+    let list = |deg: f32, at: Vec2| {
+        let mut l = DisplayList::new();
+        let t =
+            remedy_ui_paint::Affine::rotate(deg.to_radians()).then(remedy_ui_paint::Affine::translate(at));
+        l.push(Item::PushTransform(t));
+        for run in p.glyph_runs() {
+            l.push(Item::Glyphs(GlyphRun {
+                font: run.font.clone(),
+                size: run.size,
+                color: Color::BLACK,
+                glyphs: run.glyphs.iter().map(|g| (g.id, Point::new(g.x, g.y))).collect(),
+                hinting: Hinting::Full,
+                antialias: Antialias::Grayscale,
+            }));
+        }
+        l.push(Item::PopTransform);
+        l
+    };
+    // The long axis of the ink, in degrees.
+    let axis = |f: &Frame| {
+        let pts: Vec<(f32, f32)> = (0..f.height)
+            .flat_map(|y| (0..f.width).map(move |x| (x, y)))
+            .filter(|&(x, y)| f.pixel(x, y).is_some_and(|p| p[0] < 128))
+            .map(|(x, y)| (x as f32, y as f32))
+            .collect();
+        let n = pts.len() as f32;
+        let (mx, my) = pts.iter().fold((0.0, 0.0), |a, p| (a.0 + p.0 / n, a.1 + p.1 / n));
+        let (sxx, syy, sxy) = pts.iter().fold((0.0, 0.0, 0.0), |a, p| {
+            let (dx, dy) = (p.0 - mx, p.1 - my);
+            (a.0 + dx * dx, a.1 + dy * dy, a.2 + dx * dy)
+        });
+        (0.5 * (2.0 * sxy).atan2(sxx - syy)).to_degrees()
+    };
+    let mut g = gpu();
+    let mut c = CpuRenderer::new();
+    for (deg, at, w, h, want) in [
+        (0.0, Vec2::new(10.0, 10.0), 220, 60, 0.0),
+        (90.0, Vec2::new(40.0, 10.0), 60, 220, 90.0),
+        (30.0, Vec2::new(20.0, 20.0), 240, 150, 30.0),
+    ] {
+        let l = list(deg, at);
+        let (Ok(cpu), Ok(gpu)) =
+            (c.render(&l, w, h, 1.0, Color::WHITE), g.render(&l, w, h, 1.0, Color::WHITE))
+        else {
+            unreachable!("both render")
+        };
+        let a = axis(&gpu);
+        assert!((a.abs() - want).abs() < 1.5, "{deg}°: the GPU's ink lies at {a}°");
+        let visible = differing(&cpu, &gpu, 8);
+        assert!(visible * 1000 <= (w * h) as usize, "{deg}°: {visible} pixels differ visibly from the CPU");
+        assert_eq!(differing(&cpu, &gpu, 64), 0, "{deg}°: none grossly");
+        eprintln!(
+            "{deg}° on {}: {visible} differ visibly, {} at all",
+            g.context().describe(),
+            differing(&cpu, &gpu, 0)
+        );
+    }
+}
