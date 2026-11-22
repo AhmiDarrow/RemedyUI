@@ -31,6 +31,14 @@
 //! `FontCollection::set_symbol_fallbacks` in `remedy-ui-text`). [`SYMBOL_CHARS`] lists every
 //! character it has.
 //!
+//! In a browser page (`wasm32-unknown-unknown`) the fallback-only faces (the Noto script
+//! faces, and the Chinese and Japanese ones in `remedy-ui-fonts-cjk`) are not built into the
+//! module: their [`Face::data`] is empty and [`Face::file`] names the file, which
+//! `cargo remedy package --target web` writes beside the page (under `fonts/`) and RemedyUI
+//! fetches the first time text needs it, so a page that never shows Arabic never downloads
+//! an Arabic face. The `embed` feature builds them in there too, for a page put together
+//! without `cargo remedy`. Native builds always have them built in.
+//!
 //! ```
 //! let faces = remedy_ui_fonts::all();
 //! let regular = faces.iter().find(|f| f.family == "Remedy Sans UI" && f.weight == 400);
@@ -57,8 +65,24 @@ pub struct Face {
     pub weight: u16,
     /// Upright or italic.
     pub style: Style,
-    /// The TrueType file.
+    /// The font file's bytes; empty for a face fetched when needed instead
+    /// ([`Face::is_remote`]).
     pub data: &'static [u8],
+    /// The font file's name (`NotoSansArabic-Regular.ttf`): where a browser page fetches a
+    /// face that is not built in, under the page's `fonts/` folder.
+    pub file: &'static str,
+    /// For a face fetched when needed, the mark that names its file for the packager
+    /// ([`asset_mark!`]); empty otherwise.
+    #[doc(hidden)]
+    pub source: &'static str,
+}
+
+impl Face {
+    /// True for a face not built into this build, fetched by its [`Face::file`] the first
+    /// time text needs it (the fallback faces, in a browser page).
+    pub fn is_remote(&self) -> bool {
+        self.data.is_empty()
+    }
 }
 
 #[allow(unused_macros, reason = "unused when no family is enabled")]
@@ -69,7 +93,40 @@ macro_rules! face {
             weight: $weight,
             style: Style::Normal,
             data: include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file)),
+            file: $file,
+            source: "",
         }
+    };
+}
+
+/// A fallback-only face: built in natively; in a browser page, a file fetched when needed
+/// (unless `embed`), named for `cargo remedy package` by its [`Face::source`] mark.
+#[allow(unused_macros, reason = "unused when no fallback face is enabled")]
+macro_rules! fallback_face {
+    ($family:literal, $weight:literal, $file:literal) => {{
+        #[cfg(any(not(target_arch = "wasm32"), feature = "embed"))]
+        let face = face!($family, $weight, $file);
+        #[cfg(all(target_arch = "wasm32", not(feature = "embed")))]
+        let face = Face {
+            family: $family,
+            weight: $weight,
+            style: Style::Normal,
+            data: &[],
+            file: $file,
+            source: $crate::asset_mark!(concat!("fonts/", $file), concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file)),
+        };
+        face
+    }};
+}
+
+/// The mark `cargo remedy package --target web` finds in a module for a file to copy beside
+/// the page: `\u{1}remedy-asset:<served path>\t<source file>\u{1}`. The packager blanks it
+/// in the module it ships (it holds this machine's paths).
+#[doc(hidden)]
+#[macro_export]
+macro_rules! asset_mark {
+    ($served:expr, $source:expr) => {
+        concat!("\u{1}remedy-asset:", $served, "\t", $source, "\u{1}")
     };
 }
 
@@ -111,24 +168,24 @@ pub const SYMBOL_CHARS: &str =
 /// Persian, Urdu), for fallback.
 #[cfg(feature = "noto-arabic")]
 pub const NOTO_SANS_ARABIC: &[Face] = &[
-    face!("Noto Sans Arabic", 400, "NotoSansArabic-Regular.ttf"),
-    face!("Noto Sans Arabic", 700, "NotoSansArabic-Bold.ttf"),
+    fallback_face!("Noto Sans Arabic", 400, "NotoSansArabic-Regular.ttf"),
+    fallback_face!("Noto Sans Arabic", 700, "NotoSansArabic-Bold.ttf"),
 ];
 
 /// Noto Sans Devanagari: Devanagari letters, conjuncts, digits and dandas (Hindi, Marathi,
 /// Nepali, Sanskrit), for fallback.
 #[cfg(feature = "noto-devanagari")]
 pub const NOTO_SANS_DEVANAGARI: &[Face] = &[
-    face!("Noto Sans Devanagari", 400, "NotoSansDevanagari-Regular.ttf"),
-    face!("Noto Sans Devanagari", 700, "NotoSansDevanagari-Bold.ttf"),
+    fallback_face!("Noto Sans Devanagari", 400, "NotoSansDevanagari-Regular.ttf"),
+    fallback_face!("Noto Sans Devanagari", 700, "NotoSansDevanagari-Bold.ttf"),
 ];
 
 /// Noto Sans Bengali: Bengali letters, conjuncts, digits and the taka sign (Bengali,
 /// Assamese), for fallback.
 #[cfg(feature = "noto-bengali")]
 pub const NOTO_SANS_BENGALI: &[Face] = &[
-    face!("Noto Sans Bengali", 400, "NotoSansBengali-Regular.ttf"),
-    face!("Noto Sans Bengali", 700, "NotoSansBengali-Bold.ttf"),
+    fallback_face!("Noto Sans Bengali", 400, "NotoSansBengali-Regular.ttf"),
+    fallback_face!("Noto Sans Bengali", 700, "NotoSansBengali-Bold.ttf"),
 ];
 
 /// A family the text engine falls back to for one writing system, when the style's own
@@ -155,6 +212,28 @@ pub fn script_fallbacks() -> Vec<ScriptFallback> {
     #[cfg(feature = "noto-bengali")]
     out.push(ScriptFallback { script: "Beng", locale: None, family: "Noto Sans Bengali" });
     out
+}
+
+/// Whether text with `c` needs the script face `family` (`Noto Sans Arabic`, `Noto Sans
+/// Devanagari`, `Noto Sans Bengali`): a character of its script's blocks. `None` for a family
+/// that is not one of the script faces. For `FontCollection::add_on_demand`, where the faces
+/// are fetched when needed (a browser page).
+pub fn needs(family: &str) -> Option<fn(char) -> bool> {
+    fn arabic(c: char) -> bool {
+        matches!(u32::from(c), 0x0600..=0x06FF | 0x0750..=0x077F | 0x0870..=0x08FF | 0xFB50..=0xFDFF | 0xFE70..=0xFEFF)
+    }
+    fn devanagari(c: char) -> bool {
+        matches!(u32::from(c), 0x0900..=0x097F | 0xA8E0..=0xA8FF | 0x11B00..=0x11B5F)
+    }
+    fn bengali(c: char) -> bool {
+        matches!(u32::from(c), 0x0980..=0x09FF)
+    }
+    match family {
+        "Noto Sans Arabic" => Some(arabic),
+        "Noto Sans Devanagari" => Some(devanagari),
+        "Noto Sans Bengali" => Some(bengali),
+        _ => None,
+    }
 }
 
 /// True for a face that is only a fallback for scripts the text faces lack (the Noto

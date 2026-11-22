@@ -38,7 +38,7 @@ fn bundled_faces() -> &'static [FontFile] {
 /// The Chinese and Japanese faces, unpacked from WOFF2 once per process (a quarter of a
 /// second): on demand, when a window first shows such text, or ahead of time on a
 /// background thread when the app starts in Chinese or Japanese ([`warm_fonts_for`]).
-#[cfg(feature = "script-fonts")]
+#[cfg(all(feature = "cjk-fonts", not(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))))]
 fn cjk_faces() -> &'static [FontFile] {
     static FACES: std::sync::OnceLock<Vec<FontFile>> = std::sync::OnceLock::new();
     FACES.get_or_init(|| {
@@ -46,26 +46,41 @@ fn cjk_faces() -> &'static [FontFile] {
     })
 }
 
+/// In a browser page, the Chinese and Japanese faces are fetched from beside it the first
+/// time such text shows (none until they arrive).
+#[cfg(all(feature = "cjk-fonts", feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+fn cjk_faces() -> Vec<FontFile> {
+    crate::web_fonts::faces(&remedy_ui_fonts_cjk::all())
+}
+
 /// Starts unpacking the faces `locale` needs on a background thread, so its first window
 /// finds them ready.
 fn warm_fonts_for(locale: &str) {
-    #[cfg(feature = "script-fonts")]
+    #[cfg(feature = "cjk-fonts")]
     {
         let lang = locale.split(['-', '_']).next().unwrap_or_default();
+        // A page starts fetching them; elsewhere they unpack on a background thread.
+        #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+        if matches!(lang, "zh" | "ja") {
+            let _ = cjk_faces();
+        }
+        #[cfg(not(all(feature = "web", target_arch = "wasm32", target_os = "unknown")))]
         if matches!(lang, "zh" | "ja") && remedy_ui_core::exec::threads() {
             let _ = std::thread::Builder::new().name("remedy-fonts".into()).spawn(|| {
                 let _ = cjk_faces();
             });
         }
     }
-    #[cfg(not(feature = "script-fonts"))]
+    #[cfg(not(feature = "cjk-fonts"))]
     let _ = locale;
 }
 
 /// The fonts every window starts with ([`AppConfig::fonts`] by default): the bundled faces,
 /// with the script faces as fallbacks for their scripts (Arabic, Devanagari and Bengali;
 /// Chinese and Japanese by language, loaded when text first needs them), and the system's
-/// fonts after them with `system-fonts`.
+/// fonts after them with `system-fonts`. In a browser page the script faces are files beside
+/// the page, each fetched the first time text needs it (`remedy_ui_fonts::Face::is_remote`);
+/// the text that waited is drawn again once it arrives.
 pub fn bundled_fonts() -> FontCollection {
     #[cfg(feature = "system-fonts")]
     let mut f = FontCollection::with_system_fonts();
@@ -74,10 +89,26 @@ pub fn bundled_fonts() -> FontCollection {
     for file in bundled_faces() {
         let _ = f.add_file(file);
     }
-    for fb in remedy_ui_fonts::script_fallbacks() {
+    let fallbacks = remedy_ui_fonts::script_fallbacks();
+    for fb in &fallbacks {
         let _ = f.add_script_fallback(fb.script, fb.locale, fb.family);
     }
-    #[cfg(feature = "script-fonts")]
+    // The script faces not built in (a browser page's), each fetched when its script shows.
+    let remote: Vec<&'static remedy_ui_fonts::Face> =
+        remedy_ui_fonts::all().into_iter().filter(|face| face.is_remote()).collect();
+    let mut families: Vec<&'static str> = remote.iter().map(|face| face.family).collect();
+    families.dedup();
+    for family in families {
+        let Some(needs) = remedy_ui_fonts::needs(family) else { continue };
+        let group: Vec<&'static remedy_ui_fonts::Face> =
+            remote.iter().copied().filter(|face| face.family == family).collect();
+        f.add_on_demand(
+            needs,
+            move || on_demand_faces(&group),
+            fallbacks.iter().filter(|fb| fb.family == family).map(|fb| (fb.script, fb.locale, fb.family)),
+        );
+    }
+    #[cfg(feature = "cjk-fonts")]
     {
         let cjk = remedy_ui_fonts_cjk::script_fallbacks();
         f.add_on_demand(
@@ -87,6 +118,27 @@ pub fn bundled_fonts() -> FontCollection {
         );
     }
     f
+}
+
+/// Adds the device's interface font to `fonts` and makes `system-ui` draw in it.
+fn use_system_ui(fonts: &mut FontCollection, families: &[String], files: &[FontFile]) {
+    for file in files {
+        let _ = fonts.add_file(file);
+    }
+    let names: Vec<&str> = families.iter().map(String::as_str).collect();
+    let _ = fonts.set_generic_family("system-ui", &names);
+}
+
+/// Faces loaded on demand: in a browser page, fetched from beside it (none until they
+/// arrive); elsewhere built in.
+#[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+fn on_demand_faces(faces: &[&'static remedy_ui_fonts::Face]) -> Vec<FontFile> {
+    crate::web_fonts::faces(faces)
+}
+
+#[cfg(not(all(feature = "web", target_arch = "wasm32", target_os = "unknown")))]
+fn on_demand_faces(faces: &[&'static remedy_ui_fonts::Face]) -> Vec<FontFile> {
+    faces.iter().filter_map(|face| FontFile::new(face.data).ok()).collect()
 }
 
 /// How long a later launch waits for the running instance's reply when
@@ -732,6 +784,9 @@ type Injected = Box<dyn FnOnce(WindowId) -> HostEvent>;
 #[derive(Default)]
 struct Shared {
     cmds: VecDeque<Cmd>,
+    /// The device's interface font, once read ([`App::load_system_ui_font`]): its family
+    /// names and files, given to every window opened after.
+    system_ui: Option<(Vec<String>, Vec<FontFile>)>,
     /// The app's style sheet builder (the inspector restyles edited themes with it).
     #[cfg_attr(not(feature = "devtools"), allow(dead_code))]
     sheet: Option<SheetBuilder>,
@@ -1024,6 +1079,66 @@ impl App {
         };
         if let Some(l) = now {
             f(&l);
+        }
+    }
+
+    /// Makes text styled in the CSS generic family `system-ui` draw in the device's own
+    /// interface font, in every window and every window opened later, then calls `done` with
+    /// that font's family names, or why it could not.
+    ///
+    /// On the desktop with `system-fonts` (on by default), `system-ui` already is the
+    /// system's font (Segoe UI on Windows, San Francisco on macOS, the desktop's font on
+    /// Linux) and `done` gets its names. In a browser page the engine draws text itself and
+    /// cannot use a font it has no file of, so this reads the font the browser draws
+    /// `system-ui` text in through the Local Font Access API (Chrome and Edge on desktops:
+    /// the exact face the browser shows, told by measuring text), which asks the person once
+    /// whether the page may use their fonts. Call it in answer to the click or key press that
+    /// chooses the system font, the first time; once they allowed it, at any time (when the
+    /// page loads with that choice saved). Where a browser cannot (Firefox, Safari, phones) or
+    /// the person declines, `done` gets the reason and `system-ui` falls through to the next
+    /// family the style names, so name the app's own face after it:
+    /// `["system-ui", "Remedy Sans UI"]`.
+    pub fn load_system_ui_font(&self, done: impl FnOnce(Result<Vec<String>, String>) + 'static) {
+        #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+        {
+            let app = self.clone();
+            remedy_ui_bridge_web::fonts::system_ui_faces(move |got| {
+                let read = got.and_then(|(chosen, bytes)| {
+                    let files: Vec<FontFile> = bytes.into_iter().filter_map(|b| FontFile::from_vec(b).ok()).collect();
+                    let mut families: Vec<String> = files.iter().flat_map(|f| f.families().to_vec()).collect();
+                    families.sort_by_key(|f| *f != chosen);
+                    families.dedup();
+                    if files.is_empty() {
+                        Err(format!("the files of {chosen} could not be read"))
+                    } else {
+                        Ok((families, files))
+                    }
+                });
+                match read {
+                    Ok((families, files)) => {
+                        let uis: Vec<Ui> = {
+                            let mut s = app.0.borrow_mut();
+                            s.system_ui = Some((families.clone(), files.clone()));
+                            s.uis.values().cloned().collect()
+                        };
+                        for ui in uis {
+                            ui.update_fonts(|f| use_system_ui(f, &families, &files));
+                        }
+                        done(Ok(families));
+                    }
+                    Err(e) => done(Err(e)),
+                }
+            });
+        }
+        #[cfg(not(all(feature = "web", target_arch = "wasm32", target_os = "unknown")))]
+        {
+            let mut fonts = bundled_fonts();
+            let names = fonts.generic_family("system-ui");
+            if names.is_empty() {
+                done(Err("this build has no system fonts (remedy-ui's `system-fonts` feature)".into()));
+            } else {
+                done(Ok(names));
+            }
         }
     }
 
@@ -2277,6 +2392,17 @@ impl Runner {
         let geometry =
             dir.map_or_else(GeometryStore::in_memory, |d| GeometryStore::open(d.join("windows.txt")));
         let runner = Self::with_geometry(config, geometry, setup);
+        // Fallback faces a page fetched: every window's text is shaped again with them.
+        #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+        {
+            let app = Rc::downgrade(&runner.app.0);
+            crate::web_fonts::on_arrival(move || {
+                let uis: Vec<Ui> = app.upgrade().map(|s| s.borrow().uis.values().cloned().collect()).unwrap_or_default();
+                for ui in uis {
+                    ui.fonts_changed();
+                }
+            });
+        }
         // A page has no files: its windows' geometry is kept with its persisted state.
         #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
         let runner = {
@@ -2398,11 +2524,11 @@ impl Runner {
                 }
                 // A window in Chinese or Japanese needs its faces from its first frame.
                 warm_fonts_for(self.locale.as_deref().unwrap_or(&self.settings.locale));
-                let ui = Ui::new(
-                    self.config.theme.clone(),
-                    (self.config.sheet)(&self.config.theme),
-                    (self.config.fonts)(),
-                );
+                let mut fonts = (self.config.fonts)();
+                if let Some((families, files)) = &self.app.0.borrow().system_ui {
+                    use_system_ui(&mut fonts, families, files);
+                }
+                let ui = Ui::new(self.config.theme.clone(), (self.config.sheet)(&self.config.theme), fonts);
                 ui.set_edition(self.config.edition);
                 ui.set_platform(self.settings.platform);
                 ui.set_direction(self.direction);
