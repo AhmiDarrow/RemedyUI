@@ -27,14 +27,24 @@ icu_datetime = { version = "=2.3.0", default-features = false, features = ["comp
 icu_decimal = { version = "=2.3.0", default-features = false, features = ["compiled_data", "unstable"] }
 icu_locale_core = { version = "=2.4.0", default-features = false }
 intl-memoizer = "=0.5.3"
-# `unstable` is the display names (`language-names`), version pinned exactly.
+
+# The display names (`language-names`) from ICU4X's CLDR data: off the web, where the
+# browser has no names to lend. `unstable` is the display names, version pinned exactly.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 icu_locale = { version = "=2.3.1", default-features = false, features = ["compiled_data", "unstable"], optional = true }
 writeable = { version = "=0.6.4", optional = true }
 
+# In a browser page the names come from the browser's own CLDR (`Intl.DisplayNames`), so the
+# module carries none of that data.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { version = "=0.3.107", optional = true }
+wasm-bindgen = { version = "=0.2.130", optional = true }
+
 [features]
 ## Every CLDR language's name in every CLDR locale for `language_name` (ICU4X display
-## names). Without it, names come from the engine's messages: its shipped languages only.
-language-names = ["dep:icu_locale", "dep:writeable"]
+## names; in a browser page the browser's `Intl.DisplayNames`, which adds nothing to the
+## module). Without it, names come from the engine's messages: its shipped languages only.
+language-names = ["dep:icu_locale", "dep:writeable", "dep:js-sys", "dep:wasm-bindgen"]
 
 [dev-dependencies]
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui"] }

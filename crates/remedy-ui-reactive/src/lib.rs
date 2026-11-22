@@ -52,7 +52,7 @@ pub use context::{
 pub use error::ReactiveError;
 #[cfg(feature = "persist")]
 pub use persist::{
-    DEFAULT_DEBOUNCE, JsonValue, Migrate, MigrationError, Persist, PersistError, PersistStore,
+    DEFAULT_DEBOUNCE, JsonValue, Migrate, MigrationError, Persist, PersistError, PersistStore, Plain,
 };
 pub use resource::{Cancel, Executor, FetchError, Job, Reply, Resource, Suspense, WorkerPool};
 pub use signal::{

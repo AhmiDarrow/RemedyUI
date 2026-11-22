@@ -10,6 +10,29 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Plain storage items** (`Persist::plain`, `Plain::Json`, `Plain::Text`): a persisted value
+  kept alone, with no version around it, under exactly its key. In a page that is the
+  origin's own `localStorage` item, outside the app's `remedy:<app>:` prefix, so an app's
+  older web version on the same origin and its RemedyUI one read and write the same items in
+  the same format (`"midnight"`, `{"text":"remedy-sans"}`); natively it is the key's file in
+  the app's store. `Persist::session` keeps one for the session only: the tab's own
+  `sessionStorage` item in a page, memory for the app's run elsewhere, written at once.
+  `PersistStore::forget` removes a value of any kind.
+- **The device's interface font** (`App::load_system_ui_font`): text styled `system-ui` draws
+  in it. In a browser page it reads the font the browser draws `system-ui` text in through
+  the Local Font Access API (Chrome and Edge on desktops; the face is told by measuring text
+  against each installed family, so it is the browser's own choice), after the person allows
+  it once, and reports why where a browser cannot. `FontCollection::set_generic_family` and
+  `generic_family` point CSS's generic families at faces and say what they draw in;
+  `remedy_ui::web::fonts` has the pieces (`system_ui_faces`, `system_ui_family`,
+  `fetch_bytes`, `asset_url`).
+- `Ui::update_fonts` and `Ui::fonts_changed`: change a window's fonts, or shape its text again
+  once faces it waited for are in.
+- `WebConfig::assets`: where a page fetches the files it needs later, when not beside it.
+- remedy-ui features `cjk-fonts` (the Chinese and Japanese faces alone) and
+  `web-embed-fonts` (fallback faces built into a page's module); remedy-ui-fonts and
+  remedy-ui-fonts-cjk feature `embed`; `remedy_ui_fonts::needs` (which characters each script
+  face is for) and `Face::file` / `Face::is_remote`.
 - **Scroll bars**, drawn by the compositor over each scroll container at the offset of the
   frame (`Layer::scrollbars`, `Scrollbars`, `CompositeOp::Fill`), and styled as CSS styles
   them: `Style::scrollbar_width` (`ScrollbarWidth::Auto`, 12 px; `Thin`, 8 px; `None`; `Px`),
@@ -1231,6 +1254,22 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- **Web pages load their large data when it is needed, not with the module.** The fallback
+  faces (`script-fonts`: Noto Sans Arabic, Devanagari, Bengali, SC and JP, about 9.5 MB) are
+  no longer built into a `wasm32` module: each is a file `cargo remedy package --target web`
+  writes beside the page under `fonts/`, fetched the first time text needs it and drawn as
+  soon as it arrives (the service worker keeps them for offline use, caching them as they
+  are used and in the background). Language names (`language-names`) come from the
+  browser's `Intl.DisplayNames` there instead of ICU4X's data. Native builds are unchanged.
+  A real app (Portal's web page) went from a 23.2 MB module (13.6 MB gzipped, 12.0 MB
+  Brotli) to 10.0 MB (3.66 MB gzipped, 2.60 MB Brotli), with 9.5 MB of faces beside it that
+  only a page showing those scripts fetches.
+- `cargo remedy package --target web` builds releases with a `remedy-web` profile made for
+  size (`opt-level = "s"`, fat LTO, one codegen unit, stripped; an app's own
+  `[profile.remedy-web]` wins) and runs `wasm-opt -Os` when Binaryen is installed (`WASM_OPT`).
+- `FontCollection::add_on_demand`: a loader that has no faces yet (still fetching them) is
+  asked again for later text instead of being dropped.
+- `remedy_ui_fonts::Face` has a new field, `file`; code building a `Face` itself adds it.
 - **Images in a page are decoded and scaled by the browser** (`createImageBitmap`, with
   `resizeQuality: "high"`, off the page's thread), so a picture on the canvas has the pixels
   an `<img>` of the same CSS size and device pixel ratio shows. SVG and formats only the
