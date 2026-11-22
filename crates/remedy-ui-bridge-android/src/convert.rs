@@ -311,7 +311,7 @@ mod tests {
         assert_eq!(s.dark, None);
         assert!(!s.reduced_motion, "slower animations are still animations");
         assert_eq!(s.locale, d.locale);
-        assert_eq!(s.locales, [d.locale.clone()], "no list: the one locale");
+        assert_eq!(s.locales, std::slice::from_ref(&d.locale), "no list: the one locale");
         let one = AndroidSettings { locale: Some("ja-JP".into()), ..Default::default() }.to_settings();
         assert_eq!(one.locales, ["ja-JP"]);
         assert_eq!(s.text_scale, d.text_scale);
