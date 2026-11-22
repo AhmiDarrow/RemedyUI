@@ -327,6 +327,103 @@ fn sources_are_told_apart_and_files_notice_edits() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Runs posted results until every probe has its size.
+fn sized(states: &[remedy_ui_reactive::Signal<ImageState>]) -> Vec<(u32, u32)> {
+    let start = Instant::now();
+    loop {
+        let _ = remedy_ui_reactive::run_posted();
+        let sizes: Vec<(u32, u32)> = states
+            .iter()
+            .filter_map(|s| match s.get_untracked().ok() {
+                Some(ImageState::Sized(size)) => Some(size),
+                _ => None,
+            })
+            .collect();
+        if sizes.len() == states.len() || start.elapsed() > Duration::from_secs(30) {
+            return sizes;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn probed(source: &Source) -> remedy_ui_reactive::Signal<ImageState> {
+    let state = remedy_ui_reactive::Signal::new(ImageState::Loading);
+    probe(source, state);
+    state
+}
+
+#[test]
+fn new_bytes_at_a_freed_address_get_their_own_size() {
+    let _ui = ui();
+    // Two images of one length (padding after the end marker is ignored).
+    let padded = |w, h| -> Arc<[u8]> {
+        let mut v = png(w, h, |_, _| [9, 9, 9, 255], None);
+        v.resize(4096, 0);
+        Arc::from(v)
+    };
+    let first = padded(40, 20);
+    let addr = first.as_ptr() as usize;
+    assert_eq!(sized(&[probed(&Source::Bytes(first.clone()))]), vec![(40, 20)]);
+    drop(first);
+    // Another probe lets go of the freed bytes' entry, and so of their address.
+    let other = padded(1, 1);
+    assert_eq!(sized(&[probed(&Source::Bytes(other.clone()))]), vec![(1, 1)]);
+    // The allocator tends to hand the freed block straight back; try a few times for it.
+    let mut misses = Vec::new();
+    let second = loop {
+        let b = padded(20, 40);
+        if b.as_ptr() as usize == addr || misses.len() > 64 {
+            break b;
+        }
+        misses.push(b);
+    };
+    assert_eq!(sized(&[probed(&Source::Bytes(second))]), vec![(20, 40)]);
+}
+
+#[test]
+fn an_edited_file_probes_to_its_new_size() {
+    let _ui = ui();
+    let dir = std::env::temp_dir().join(format!("remedy-image-probe-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("pic.png");
+    let _ = std::fs::write(&path, png(40, 20, |_, _| [255, 0, 0, 255], None));
+    let file = Source::File(path.clone());
+    assert_eq!(sized(&[probed(&file)]), vec![(40, 20)]);
+    std::thread::sleep(Duration::from_millis(20));
+    let _ = std::fs::write(&path, png(80, 20, |_, _| [255, 0, 0, 255], None));
+    // The remembered size comes first, then the file's new one.
+    let state = probed(&file);
+    let start = Instant::now();
+    while !matches!(state.get_untracked().ok(), Some(ImageState::Sized((80, 20))))
+        && start.elapsed() < Duration::from_secs(10)
+    {
+        let _ = remedy_ui_reactive::run_posted();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(
+        matches!(state.get_untracked().ok(), Some(ImageState::Sized((80, 20)))),
+        "{:?}",
+        state.get_untracked()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn remembered_sizes_stay_bounded() {
+    let _ui = ui();
+    let bytes = png(3, 2, |_, _| [1, 2, 3, 255], None);
+    let sources: Vec<Arc<[u8]>> = (0..10_000).map(|_| Arc::from(&bytes[..])).collect();
+    let states: Vec<_> = sources.iter().map(|b| probed(&Source::Bytes(b.clone()))).collect();
+    assert_eq!(sized(&states).len(), 10_000);
+    // All still alive: only the most recently used are kept.
+    assert!(known_sizes() <= 1024, "{}", known_sizes());
+    // Freed, their sizes go.
+    drop(sources);
+    let last: Arc<[u8]> = Arc::from(&bytes[..]);
+    let _ = sized(&[probed(&Source::Bytes(last.clone()))]);
+    assert_eq!(known_sizes(), 1, "only the source still alive");
+}
+
 #[test]
 fn work_can_be_queued_on_the_image_workers() {
     let (tx, rx) = std::sync::mpsc::channel();
