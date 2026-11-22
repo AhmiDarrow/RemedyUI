@@ -1,11 +1,11 @@
-//! RemedyUI SVG: drawn by resvg at exactly the size shown.
+//! SVG, drawn by resvg at exactly the size shown (the `svg` feature).
 //!
-//! - [`install`] adds SVG to the image loader, so [`remedy_ui_media_image::image()`] shows SVG
+//! - [`install`] adds SVG to the image loader, so [`image()`](crate::image()) shows SVG
 //!   files and bytes like any other image, sharp at every size
 //! - [`render`] draws an SVG to pixels
 //! - [`icon`] draws an icon in the element's text color (`currentColor`)
-//! - [`add_font`] adds the app's fonts for text in SVG files (with the `text` feature, on by
-//!   default, which also uses the system's fonts off the web)
+//! - [`add_font`] adds the app's fonts for text in SVG files (with the `svg-text` feature,
+//!   which the facade's `svg` feature enables, and which also uses the system's fonts off the web)
 //!
 //! SVG files are untrusted: references to other files and to the network are never
 //! followed; only images embedded as `data:` URLs are drawn.
@@ -14,9 +14,9 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Once};
 
+use crate::{DecodeError, Decoded, Format, add_format};
 use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_core::{Color, CornerRadii, Rect};
-use remedy_ui_media_image::{DecodeError, Decoded, Format, add_format};
 use remedy_ui_paint::{Image, Item, Sampling};
 use remedy_ui_view::{El, Ui};
 use resvg::{tiny_skia, usvg};
@@ -35,7 +35,7 @@ fn options(color: Option<Color>) -> usvg::Options<'static> {
         let hex = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
         o.style_sheet = Some(format!("svg {{ color: #{:02x}{:02x}{:02x}; }}", hex(c.r), hex(c.g), hex(c.b)));
     }
-    #[cfg(feature = "text")]
+    #[cfg(feature = "svg-text")]
     {
         o.fontdb = fonts::database();
         o.font_resolver.select_font = fonts::select_font();
@@ -43,10 +43,10 @@ fn options(color: Option<Color>) -> usvg::Options<'static> {
     o
 }
 
-#[cfg(feature = "text")]
+#[cfg(feature = "svg-text")]
 pub use fonts::add_font;
 
-#[cfg(feature = "text")]
+#[cfg(feature = "svg-text")]
 mod fonts {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, LazyLock, Mutex, PoisonError};
@@ -72,7 +72,7 @@ mod fonts {
     /// Adds a font (a TrueType/OpenType file, or a collection) for text in SVG files: the app's
     /// own faces, e.g. from `remedy-ui-fonts`, so SVG text uses the app's fonts. The first
     /// family added becomes the default sans-serif family, which text naming a missing family
-    /// falls back to. Applies to later renders only, and [`icon`](crate::icon) keeps its last
+    /// falls back to. Applies to later renders only, and [`icon`](super::icon) keeps its last
     /// drawing until its size or color changes, so add fonts at start-up.
     pub fn add_font(data: Vec<u8>) {
         let mut guard = DB.lock().unwrap_or_else(PoisonError::into_inner);

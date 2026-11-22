@@ -884,13 +884,13 @@ impl<T: Serialize + DeserializeOwned + 'static> Signal<T> {
     pub fn persist(self, persist: impl Into<Persist>) -> Self {
         let persist = persist.into();
         let Some(store) = use_context::<PersistStore>() else {
-            remedy_ui_trace::tracing::warn!(key = persist.key(), "{}", PersistError::NoStore);
+            remedy_ui_core::trace::tracing::warn!(key = persist.key(), "{}", PersistError::NoStore);
             return self;
         };
         match self.persist_in(&store, persist) {
             Ok(s) => s,
             Err((s, e)) => {
-                remedy_ui_trace::tracing::warn!("{e}");
+                remedy_ui_core::trace::tracing::warn!("{e}");
                 s
             }
         }
@@ -925,7 +925,7 @@ impl<T: Serialize + DeserializeOwned + 'static> Signal<T> {
                 untrack(|| store.save(&persist, v))
             });
             if let Ok(Err(e)) = saved {
-                remedy_ui_trace::tracing::warn!("{e}");
+                remedy_ui_core::trace::tracing::warn!("{e}");
             }
         })
         .named("persist");

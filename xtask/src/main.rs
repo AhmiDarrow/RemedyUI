@@ -67,8 +67,6 @@ fn check_docs_index(problems: &mut Vec<String>) {
 /// Each RemedyUI crate and its layer: L0 base … L6 app-facing.
 const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-core", 0),
-    // Phase spans and the trace clock over `tracing`: every layer emits them.
-    ("remedy-ui-trace", 0),
     ("remedy-ui-reactive", 1),
     // Proc macros run at build time; they sit with the state layer they generate code for.
     ("remedy-ui-macros", 1),
@@ -84,7 +82,6 @@ const LAYERS: &[(&str, u8)] = &[
     // Prism, the effects system: the .rfx language, its validator and the CPU kernels. Plain
     // data and arithmetic over the display list's types; renderers and elements build on it.
     ("remedy-ui-effects", 3),
-    ("remedy-ui-secure", 3),
     // Scripted widgets: the language-neutral interface for untrusted code that describes
     // elements, with no UI of its own, and its engines (Rhai, WebAssembly).
     ("remedy-ui-script", 3),
@@ -122,7 +119,6 @@ const LAYERS: &[(&str, u8)] = &[
     ("remedy-ui-doc-pages", 5),
     ("remedy-ui-media-image", 5),
     ("remedy-ui-media-anim", 5),
-    ("remedy-ui-media-svg", 5),
     ("remedy-ui-media-video", 5),
     ("remedy-ui-media-playback", 5),
     ("remedy-ui-media-isolated", 5),
@@ -197,8 +193,6 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-media-anim", "remedy-ui-media-image"),
     // Images from addresses are fetched with the HTTP client.
     ("remedy-ui-media-image", "remedy-ui-services-net"),
-    // SVG is an image format: it plugs into the image loader.
-    ("remedy-ui-media-svg", "remedy-ui-media-image"),
     // The sandboxed helper decodes with the image pack and is the loader's router.
     ("remedy-ui-media-isolated", "remedy-ui-media-image"),
     // ...and the animation pack's opener, playing animations decoded in the helper.

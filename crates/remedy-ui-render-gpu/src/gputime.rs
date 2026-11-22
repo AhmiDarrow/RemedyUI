@@ -1,5 +1,5 @@
 //! GPU work on the trace timeline: while something records GPU slices
-//! ([`remedy_ui_trace::gpu_slices_wanted`]) and the device has timestamp queries, each frame's
+//! ([`remedy_ui_core::trace::gpu_slices_wanted`]) and the device has timestamp queries, each frame's
 //! GPU work is bracketed by two timestamps, read back once the GPU is done, and reported as
 //! a slice of the measured GPU time. GPU and CPU clocks share no calibration in wgpu, so the
 //! slice starts where the CPU submitted the work (the earliest the GPU can have started) and
@@ -48,7 +48,7 @@ impl GpuTimer {
     /// `device` can take timestamps.
     pub(crate) fn begin(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder) -> Option<Timing> {
         if !device.features().contains(wgpu::Features::TIMESTAMP_QUERY)
-            || !remedy_ui_trace::gpu_slices_wanted()
+            || !remedy_ui_core::trace::gpu_slices_wanted()
         {
             return None;
         }
@@ -121,7 +121,7 @@ impl GpuTimer {
         for f in done {
             if f.state.load(Ordering::SeqCst) == READY {
                 if let Some(ns) = measured(&f) {
-                    remedy_ui_trace::gpu_slice("frame", f.submitted_ns, f.submitted_ns.saturating_add(ns));
+                    remedy_ui_core::trace::gpu_slice("frame", f.submitted_ns, f.submitted_ns.saturating_add(ns));
                 }
                 f.readback.unmap();
             }

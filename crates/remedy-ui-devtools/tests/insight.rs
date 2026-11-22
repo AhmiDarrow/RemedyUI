@@ -42,7 +42,7 @@ fn ui() -> Ui {
 
 /// One frame of `ui`, inside the frame span the app runner opens around each frame.
 fn frame(ui: &Ui) {
-    let _frame = remedy_ui_trace::phase!("frame", ui = ui.id()).entered();
+    let _frame = remedy_ui_core::phase!("frame", ui = ui.id()).entered();
     let _ = ui.frame(Size::new(480.0, 360.0), 1.0);
     let _ = ui.take_requests();
 }
@@ -175,7 +175,7 @@ fn frame_timings_come_from_the_phase_spans() {
     let (text, _, _) = chat(&ui);
     // Input before the frame counts in it.
     {
-        let _events = remedy_ui_trace::phase!("events", ui = ui.id()).entered();
+        let _events = remedy_ui_core::phase!("events", ui = ui.id()).entered();
         text.set("typed".into());
     }
     frame(&ui);
@@ -246,7 +246,7 @@ fn the_overlay_follows_the_display_and_shows_work_damage_and_caches() {
     assert_eq!(overlay.budget(), Duration::from_nanos(6_944_444));
 
     // What the app's frame did, without the overlay's own drawing; where it repainted.
-    let _held = remedy_ui_trace::gauges::Gauge::new("test tiles");
+    let _held = remedy_ui_core::trace::gauges::Gauge::new("test tiles");
     _held.set(3 * 1024 * 1024);
     overlay.show_damage(true);
     frame(&target);
@@ -286,13 +286,13 @@ fn a_trace_exports_every_thread_and_the_gpu_for_perfetto() {
     let worker = std::thread::Builder::new()
         .name("remedy-test-worker".into())
         .spawn(|| {
-            let _span = remedy_ui_trace::phase!("page raster").entered();
+            let _span = remedy_ui_core::phase!("page raster").entered();
             std::thread::sleep(Duration::from_millis(1));
         })
         .must("a worker");
     let _ = worker.join();
-    let now = remedy_ui_trace::now_ns();
-    remedy_ui_trace::gpu_slice("frame", now, now + 2_000_000);
+    let now = remedy_ui_core::trace::now_ns();
+    remedy_ui_core::trace::gpu_slice("frame", now, now + 2_000_000);
     let trace = rec.stop_capture();
     assert!(!rec.is_capturing());
 

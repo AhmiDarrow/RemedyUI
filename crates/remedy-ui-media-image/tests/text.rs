@@ -1,7 +1,7 @@
 //! Text in SVG files draws with the fonts the app adds.
 
 use remedy_ui_core::Color;
-use remedy_ui_media_svg::{add_font, render};
+use remedy_ui_media_image::svg::{add_font, render};
 
 const REPLAY_10: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><text x="12" y="15.6" font-family="Remedy Sans" font-weight="700" font-size="6.5" text-anchor="middle">10</text></svg>"#;
 

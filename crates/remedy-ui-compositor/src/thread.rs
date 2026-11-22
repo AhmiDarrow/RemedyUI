@@ -86,7 +86,7 @@ impl<P: Presenter> Running<P> {
                 let changed = !plan.damage.is_empty() || !plan.raster.is_empty() || !plan.released.is_empty();
                 if changed {
                     let started = remedy_ui_core::time::Instant::now();
-                    let present = remedy_ui_trace::phase!("present").entered();
+                    let present = remedy_ui_core::phase!("present").entered();
                     self.presenter.present(&plan);
                     drop(present);
                     // What the frame cost sizes the zoom budget (compositing included, so

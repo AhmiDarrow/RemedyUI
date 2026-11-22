@@ -67,7 +67,7 @@ impl Decoded {
     }
 }
 
-/// A format added to the built-in raster ones (SVG, from `remedy-ui-media-svg`).
+/// A format added to the built-in raster ones (SVG, from the `svg` module).
 pub trait Format: Send + Sync {
     /// True when `head` (the first bytes of a file, at least 512 when the file has them)
     /// is this format.

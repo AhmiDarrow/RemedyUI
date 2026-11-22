@@ -14,7 +14,6 @@ categories.workspace = true
 [dependencies]
 remedy-ui-core = { path = "../remedy-ui-core", version = "1.0.0-rc.1" }
 remedy-ui-script = { path = "../remedy-ui-script", version = "1.0.0-rc.1" }
-remedy-ui-trace = { path = "../remedy-ui-trace", version = "1.0.0-rc.1" }
 # A pure-Rust interpreter (no JIT, no C), so it runs in a browser page too; modules are
 # validated before they run. `auto-dispatch` picks the tail-call interpreter loop only where
 # the build guarantees tail calls, the portable loop elsewhere.

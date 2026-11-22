@@ -529,7 +529,7 @@ impl GpuCompositor {
         }
         // The frame first: drawn even when the swapchain has no image to give now, so no
         // damage is lost and the next present shows it.
-        let raster = remedy_ui_trace::phase!("raster").entered();
+        let raster = remedy_ui_core::phase!("raster").entered();
         let size = (surface.config.width, surface.config.height);
         let drawn = self.render_damage(
             &mut surface.tiles,
@@ -566,7 +566,7 @@ impl GpuCompositor {
         }
         let Some(Swap::Wgpu(swapchain)) = surface.surface.as_ref() else { return Ok(Presented::Retry) };
         // Waiting for the swapchain to hand out an image is part of presenting.
-        let acquire = remedy_ui_trace::phase!("present").entered();
+        let acquire = remedy_ui_core::phase!("present").entered();
         let frame = match swapchain.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
             wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => {
@@ -585,7 +585,7 @@ impl GpuCompositor {
             }
         };
         drop(acquire);
-        let _present = remedy_ui_trace::phase!("present").entered();
+        let _present = remedy_ui_core::phase!("present").entered();
         let Some(kept) = surface.frame.as_ref() else { return Ok(Presented::Retry) };
         let (w, h) = (frame.texture.width().min(kept.width()), frame.texture.height().min(kept.height()));
         let ctx = self.renderer().context();
@@ -658,14 +658,14 @@ impl GpuCompositor {
                 e => dxgi_failed(ctx, surface, e),
             };
         }
-        let acquire = remedy_ui_trace::phase!("present").entered();
+        let acquire = remedy_ui_core::phase!("present").entered();
         let acquired = match chain.acquire(&ctx.device) {
             Ok(Some(a)) => a,
             Ok(None) => return Ok(Presented::Occluded),
             Err(e) => return dxgi_failed(ctx, surface, e),
         };
         drop(acquire);
-        let _present = remedy_ui_trace::phase!("present").entered();
+        let _present = remedy_ui_core::phase!("present").entered();
         let Some(kept) = surface.frame.as_ref() else {
             // Nothing drawn yet: the buffer goes back as it came.
             drop(acquired);
@@ -734,7 +734,7 @@ impl GpuCompositor {
                 e => vk_failed(ctx, surface, e),
             };
         }
-        let acquire = remedy_ui_trace::phase!("present").entered();
+        let acquire = remedy_ui_core::phase!("present").entered();
         let acquired = match chain.acquire(&ctx.device) {
             Ok(Some(a)) => a,
             Ok(None) => return Ok(Presented::Occluded),
@@ -746,7 +746,7 @@ impl GpuCompositor {
         };
         chain.wait_for_image(&ctx.queue);
         drop(acquire);
-        let _present = remedy_ui_trace::phase!("present").entered();
+        let _present = remedy_ui_core::phase!("present").entered();
         let back = &acquired.texture;
         let (mut last, changed, mut copies) = match surface.frame.as_ref() {
             Some(kept) => {

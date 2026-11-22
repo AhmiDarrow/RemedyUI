@@ -971,7 +971,7 @@ impl Ui {
 
         let mut stats = FrameStats::default();
         // Style.
-        let style_span = remedy_ui_trace::phase!("style").entered();
+        let style_span = remedy_ui_core::phase!("style").entered();
         let theme = i.theme.clone();
         let reshape = std::mem::take(&mut i.reshape_text);
         let base = i.base.clone();
@@ -1089,7 +1089,7 @@ impl Ui {
         drop(style_span);
 
         // Layout.
-        let layout_span = remedy_ui_trace::phase!("layout").entered();
+        let layout_span = remedy_ui_core::phase!("layout").entered();
         let layout_dirty = i.tree.take_dirty(Dirty::LAYOUT | Dirty::CHILD_LAYOUT);
         stats.laid_out = layout_dirty.len();
         if !layout_dirty.is_empty() {
@@ -1335,7 +1335,7 @@ impl Ui {
         drop(layout_span);
 
         // Paint chunks: re-record what is dirty or changed size.
-        let paint_span = remedy_ui_trace::phase!("paint").entered();
+        let paint_span = remedy_ui_core::phase!("paint").entered();
         // Only elements marked themselves record again: a parent whose child changed keeps
         // its own chunk (layers are assembled from every chunk anyway), so a firefly's tick
         // never re-runs the backdrop painter around it.
@@ -1430,7 +1430,7 @@ impl Ui {
         drop(paint_span);
 
         // Layers.
-        let layers_span = remedy_ui_trace::phase!("layers").entered();
+        let layers_span = remedy_ui_core::phase!("layers").entered();
         let transformed = std::mem::take(&mut i.layers_changed);
         let layers = (painted || moved || transformed).then(|| {
             let mut state = std::mem::take(&mut i.frame);
@@ -1457,7 +1457,7 @@ impl Ui {
         drop(layers_span);
 
         // Semantics.
-        let semantics_span = remedy_ui_trace::phase!("semantics").entered();
+        let semantics_span = remedy_ui_core::phase!("semantics").entered();
         let sem_dirty = !i.tree.take_dirty(Dirty::SEMANTICS).is_empty();
         if sem_dirty || i.structure_changed || moved {
             i.structure_changed = false;

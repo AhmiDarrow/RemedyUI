@@ -507,9 +507,9 @@ impl RhaiWidget {
             |_, debugger| debugger,
             move |ctx, _, _, _, _| m3.step(&ctx).map(|()| rhai::debugger::DebuggerCommand::StepInto),
         );
-        engine.on_print(|s| remedy_ui_trace::tracing::debug!(target: "remedy_ui::script", "{s}"));
+        engine.on_print(|s| remedy_ui_core::trace::tracing::debug!(target: "remedy_ui::script", "{s}"));
         engine.on_debug(
-            |s, _, pos| remedy_ui_trace::tracing::debug!(target: "remedy_ui::script", "{pos:?} {s}"),
+            |s, _, pos| remedy_ui_core::trace::tracing::debug!(target: "remedy_ui::script", "{pos:?} {s}"),
         );
         engine.register_static_module("ui", ui_module().into());
         let ast = engine.compile(source).map_err(|e| ScriptError::Invalid(e.to_string()))?;
