@@ -174,7 +174,7 @@ Next: the macOS run, which needs a Mac.
 ## M7. FreeSpeak
 
 **Contents:**
-- chat-grade lists (sticky headers, selection across rows)
+- chat-grade lists (sticky headers, selection across rows). Sticky positioning is built (`Position::Sticky`, `El::sticky`, `StylePatch::sticky`): laid out in the flow and moved by the compositor within the nearest scroll container, with hit testing and accessibility bounds following; `virtual_list` section headers still to use it
 - `doc-rich`, `media-anim`, `media-video`, `media-isolated`, `viz` (voice ring meters), `services-spell`
 - `bridge-android`
 - multi-window with moving subtrees

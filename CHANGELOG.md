@@ -10,6 +10,19 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Sticky positioning** (CSS `position: sticky`), for Portal's blurred page header and its
+  Info dialog's close bar: `Position::Sticky` in `remedy-ui-layout` lays the box out in the
+  flow and the inset sides not `AUTO` say how close it keeps to its nearest scroll
+  container's edges (the window's when there is none); only those axes stick, top and start
+  win when both sides of an axis cannot hold, and it never leaves its parent's content box,
+  so a section header leaves with its section. `El::sticky(StickyInsets::top(0.0))` sets it,
+  and style sheets with `StylePatch::sticky` and `Style::sticky` (`remedy-ui-style`'s
+  `StickyInsets`, logical sides). Scrolling moves it without layout: it is drawn in a layer of
+  its own carrying a `Sticky` (`remedy-ui-compositor`, `Layer::sticky`, `Sticky::offset`)
+  that the compositor offsets from the scroll container's offset in the same frame; hit
+  testing and the accessibility bounds follow; nested scroll containers each move their own;
+  frosted glass on a sticky header blurs what scrolls under it.
+
 - **The player's keys from anywhere in the window** in `media-playback`, as Portal's page
   hears them page-wide: `Player::keys_from(&ui.root())` routes the keys nothing focused took
   to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),

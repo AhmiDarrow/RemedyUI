@@ -503,6 +503,8 @@ pub struct Style {
     /// A colour matrix on everything the element draws (CSS `saturate()`, `hue-rotate()`,
     /// `grayscale()` and the rest): [`Style::saturate`] and its neighbours chain onto it.
     pub color_matrix: Option<ColorMatrix>,
+    /// Sticks the element within its nearest scroll container (CSS `position: sticky`).
+    pub sticky: Option<crate::StickyInsets>,
 }
 
 impl Style {
@@ -651,6 +653,13 @@ impl Style {
         self
     }
 
+    /// Sticks the element within its nearest scroll container as that scrolls (CSS
+    /// `position: sticky`): [`StickyInsets::top(0.0)`](crate::StickyInsets::top) for a header.
+    pub fn sticky(mut self, insets: crate::StickyInsets) -> Self {
+        self.sticky = Some(insets);
+        self
+    }
+
     /// Runs everything the element draws, children included, through colour matrix `m`
     /// (SVG `feColorMatrix`), after the matrices this style already applies. The element and
     /// its children are drawn as one picture first, as with [`blur`](Self::blur).
@@ -726,6 +735,7 @@ impl Style {
             drop_shadow: other.drop_shadow.or(self.drop_shadow),
             backdrop_blur: other.backdrop_blur.or(self.backdrop_blur),
             color_matrix: other.color_matrix.or(self.color_matrix),
+            sticky: other.sticky.or(self.sticky),
         }
     }
 
@@ -784,6 +794,7 @@ impl Style {
             drop_shadow: self.drop_shadow,
             backdrop_blur: self.backdrop_blur,
             color_matrix: self.color_matrix,
+            sticky: self.sticky,
         }
     }
 }
@@ -812,6 +823,7 @@ impl From<StylePatch> for Style {
             drop_shadow: p.drop_shadow,
             backdrop_blur: p.backdrop_blur,
             color_matrix: p.color_matrix,
+            sticky: p.sticky,
         }
     }
 }

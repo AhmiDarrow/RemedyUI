@@ -34,6 +34,64 @@ pub struct ScrollFollow {
     pub y: bool,
 }
 
+/// A layer kept within its scroll container while that scrolls (CSS `position: sticky`). The
+/// boxes are in the scroll container's content space (the window's when `scroller` is `None`),
+/// where the layer was laid out; the compositor moves the layer by [`Sticky::offset`] at the
+/// container's scroll offset each frame, with no new commit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sticky {
+    /// The scroll container whose offset it follows; `None` for the window, which does not scroll.
+    pub scroller: Option<LayerId>,
+    /// The size of the container's viewport (the window's when `scroller` is `None`).
+    pub viewport: Size,
+    /// The sticky box where layout put it.
+    pub rect: Rect,
+    /// The box it never leaves: its parent's content box.
+    pub within: Rect,
+    /// How close it keeps to the viewport's top edge; `None` does not stick there.
+    pub top: Option<f32>,
+    /// How close it keeps to the right edge.
+    pub right: Option<f32>,
+    /// How close it keeps to the bottom edge.
+    pub bottom: Option<f32>,
+    /// How close it keeps to the left edge.
+    pub left: Option<f32>,
+}
+
+impl Sticky {
+    /// How far the box moves from where layout put it when the container is scrolled to
+    /// `scroll`: far enough to keep its inset from each sticking edge of the viewport, never
+    /// out of `within`. When both sides of an axis stick and cannot both hold, top and left win.
+    pub fn offset(&self, scroll: Vec2) -> Vec2 {
+        let view = Rect::from_origin_size(remedy_ui_core::Point::new(scroll.x, scroll.y), self.viewport);
+        let (r, c) = (self.rect, self.within);
+        let x = stick(r.min.x, r.max.x, view.min.x, view.max.x, c.min.x, c.max.x, self.left, self.right);
+        let y = stick(r.min.y, r.max.y, view.min.y, view.max.y, c.min.y, c.max.y, self.top, self.bottom);
+        Vec2::new(x, y)
+    }
+}
+
+/// One axis of [`Sticky::offset`]: the box `lo..hi` in the view `v0..v1`, held in `c0..c1`.
+#[allow(clippy::too_many_arguments, reason = "one axis of a box, a view and a limit")]
+fn stick(lo: f32, hi: f32, v0: f32, v1: f32, c0: f32, c1: f32, start: Option<f32>, end: Option<f32>) -> f32 {
+    let mut d = 0.0;
+    if let Some(e) = end {
+        // Below the far edge: pulled back up, but not above the start of its parent.
+        let over = hi - (v1 - e);
+        if over > 0.0 {
+            d = -over.min(lo - c0).max(0.0);
+        }
+    }
+    if let Some(s) = start {
+        // Scrolled past the near edge: pushed along, but not past the end of its parent.
+        let under = v0 + s - lo;
+        if under > 0.0 {
+            d = under.min(c1 - hi).max(0.0);
+        }
+    }
+    d
+}
+
 /// Coordinates: the layer sits at `bounds` in its parent's content space. Its local space
 /// has the origin at `bounds.min`. Its content (the display list and the child layers) is in
 /// content space, which is local space moved by the scroll offset. A clip applies in local
@@ -60,6 +118,8 @@ pub struct Layer {
     /// A scroll container that moves with another one on some axes, in the same frame
     /// (frozen table columns follow the body vertically; a header follows it horizontally).
     pub scroll_follow: Option<ScrollFollow>,
+    /// Kept within its scroll container as that scrolls ([`Sticky`]).
+    pub sticky: Option<Sticky>,
     /// What the layer draws, in content space.
     pub content: Arc<DisplayList>,
     /// Bumped by the UI thread whenever `content` changes; tiles re-raster on a new version.
@@ -89,6 +149,7 @@ impl Layer {
             scroll: None,
             scroll_origin: Vec2::ZERO,
             scroll_follow: None,
+            sticky: None,
             content: Arc::new(content),
             content_version: 0,
             children: Vec::new(),

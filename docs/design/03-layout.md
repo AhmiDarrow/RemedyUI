@@ -32,6 +32,25 @@ trait Layout {
 | `anchored` | RemedyUI | Overlays placed against an element or point, with flip and shift to stay on screen |
 | Custom | App | Implement the `Element` trait's layout methods; it gets the same caching and boundaries |
 
+## Sticky positioning
+
+`Position::Sticky` (CSS `position: sticky`) lays a box out in the flow, unshifted, and then
+keeps it within its nearest scroll container (the window when there is none) as that
+scrolls. Each inset side that is not `AUTO` is how close it keeps to that edge of the
+container's viewport; only the axes with a set side stick, and it never leaves its parent's
+content box, so a section header is pushed out with its section. When both sides of an axis
+are set and cannot both hold, top and start win. Start and end follow the parent's direction,
+as an absolute box's do. `El::sticky(StickyInsets::top(0.0))` sets it in code, and a style
+sheet sets it with `StylePatch::sticky` or `Style::sticky`.
+
+Scrolling moves a sticky box with no new layout: the element is drawn in a layer of its own
+that carries a `Sticky` (its box and its parent's in the container's content space, the
+viewport's size and the sides), and the compositor offsets it from the container's scroll
+offset in the same frame as the scroll. The view applies the same `Sticky::offset` to the
+window bounds when the offset reaches the UI thread, so hit testing and the accessibility
+bounds follow it. Nested scroll containers each move their own sticky boxes. Frosted glass
+(`backdrop_blur`) on a sticky header blurs what scrolls under it.
+
 Taffy is used through RemedyUI's own `Style` types, never exposed, so the layout engine can change without breaking apps.
 
 ## Logical directions
