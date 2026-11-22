@@ -25,6 +25,8 @@ mod matrix;
 mod renderer;
 mod surface;
 mod video;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+mod webgl_probe;
 
 pub use cache::PipelineCacheStore;
 pub use composite::{AdapterSummary, GpuCompositor};

@@ -334,7 +334,9 @@ async fn the_gpu_renderer_shows_frames_imported_where_they_are() {
     })
     .must("the app starts");
     let mut gpu = false;
-    for _ in 0..1200 {
+    // The window draws on the CPU until the browser has started its GL, which can take
+    // minutes in headless Firefox on a loaded machine: wait for it as long as it takes.
+    for _ in 0..36_000 {
         if renderer(&app) == Some(RendererKind::Gpu) {
             gpu = true;
             break;

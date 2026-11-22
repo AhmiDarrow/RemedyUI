@@ -242,10 +242,10 @@ pub fn aria_role(role: Role) -> Option<&'static str> {
         Role::RadioGroup => "radiogroup",
         Role::Slider => "slider",
         Role::SpinButton => "spinbutton",
+        Role::SearchInput => "searchbox",
         Role::TextInput
         | Role::MultilineTextInput
         | Role::PasswordInput
-        | Role::SearchInput
         | Role::EmailInput
         | Role::NumberInput
         | Role::PhoneNumberInput
@@ -318,7 +318,7 @@ pub fn aria_role(role: Role) -> Option<&'static str> {
 
 /// True for text-entry roles, whose value is their content.
 pub fn is_text_entry(role: Role) -> bool {
-    aria_role(role) == Some("textbox")
+    matches!(aria_role(role), Some("textbox" | "searchbox"))
 }
 
 /// True for roles whose value is a number in a range.
@@ -350,6 +350,22 @@ pub fn aria_attributes(node: &Node) -> Vec<(&'static str, Option<String>)> {
         ("aria-checked", toggled.clone().filter(|_| checkable)),
         ("aria-pressed", toggled.filter(|_| !checkable && role == Role::Button)),
         ("aria-selected", node.is_selected().map(|s| s.to_string())),
+        ("aria-multiselectable", flag(node.is_multiselectable())),
+        ("aria-modal", flag(node.is_modal())),
+        (
+            "aria-haspopup",
+            node.has_popup().map(|p| {
+                use remedy_ui_host::accesskit::HasPopup as P;
+                match p {
+                    P::Menu => "menu",
+                    P::Listbox => "listbox",
+                    P::Tree => "tree",
+                    P::Grid => "grid",
+                    P::Dialog => "dialog",
+                }
+                .to_owned()
+            }),
+        ),
         ("aria-expanded", node.is_expanded().map(|s| s.to_string())),
         ("aria-required", flag(node.is_required())),
         ("aria-readonly", flag(node.is_read_only())),
@@ -771,6 +787,8 @@ mod tests {
     fn aria_roles_and_attributes() {
         assert_eq!(aria_role(Role::Button), Some("button"));
         assert_eq!(aria_role(Role::PasswordInput), Some("textbox"));
+        assert_eq!(aria_role(Role::SearchInput), Some("searchbox"));
+        assert!(is_text_entry(Role::SearchInput), "its value is its content");
         assert_eq!(aria_role(Role::GenericContainer), None);
         let mut n = Node::new(Role::CheckBox);
         n.set_label("Wi-Fi");
@@ -802,6 +820,30 @@ mod tests {
         assert_eq!(aria_role(Role::MenuItemRadio), Some("menuitemradio"));
         assert_eq!(get("aria-checked").as_deref(), Some("false"));
         assert_eq!((get("aria-posinset").as_deref(), get("aria-setsize").as_deref()), (Some("2"), Some("3")));
+        // A list box of options: several may be selected, each says whether it is.
+        let mut lb = Node::new(Role::ListBox);
+        lb.set_multiselectable();
+        let a = aria_attributes(&lb);
+        let get = |k: &str| a.iter().find(|(n, _)| *n == k).and_then(|(_, v)| v.clone());
+        assert_eq!(aria_role(Role::ListBox), Some("listbox"));
+        assert_eq!(get("aria-multiselectable").as_deref(), Some("true"));
+        let mut o = Node::new(Role::ListBoxOption);
+        o.set_selected(false);
+        let a = aria_attributes(&o);
+        let get = |k: &str| a.iter().find(|(n, _)| *n == k).and_then(|(_, v)| v.clone());
+        assert_eq!(aria_role(Role::ListBoxOption), Some("option"));
+        assert_eq!(get("aria-selected").as_deref(), Some("false"));
+        assert_eq!(get("aria-multiselectable"), None);
+        // A modal dialog, and a button that opens one.
+        let mut d = Node::new(Role::Dialog);
+        d.set_modal();
+        let a = aria_attributes(&d);
+        assert!(a.contains(&("aria-modal", Some("true".to_owned()))));
+        let mut b = Node::new(Role::Button);
+        b.set_has_popup(remedy_ui_host::accesskit::HasPopup::Dialog);
+        let a = aria_attributes(&b);
+        assert!(a.contains(&("aria-haspopup", Some("dialog".to_owned()))));
+        assert!(aria_attributes(&Node::new(Role::Button)).contains(&("aria-haspopup", None)));
         // Landmarks and the current item.
         assert_eq!(aria_role(Role::Navigation), Some("navigation"));
         assert_eq!(aria_role(Role::Main), Some("main"));

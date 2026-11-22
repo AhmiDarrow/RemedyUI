@@ -11,7 +11,7 @@ use remedy_ui_motion::{Animation, Motion};
 use remedy_ui_paint::{Affine, DisplayList};
 
 use crate::damage::Damage;
-use crate::layer::{Layer, LayerId, LayerTree};
+use crate::layer::{Layer, LayerId, LayerTree, Scrollbars};
 use crate::tiles::{Cell, LayerTiles, RasterBudget, TileKey, quantize_scale, tile_pixels};
 
 /// One step of drawing a frame from rastered tiles.
@@ -82,6 +82,18 @@ pub enum CompositeOp {
         /// The part of `rect` to draw (content space).
         area: Rect,
     },
+    /// Fills `rect` with `radii` in `color`, in the space `transform` maps to device pixels:
+    /// a scroll bar's track or thumb, drawn by the compositor over its container.
+    Fill {
+        /// Fill space to device pixels.
+        transform: Affine,
+        /// The box.
+        rect: Rect,
+        /// Its corners.
+        radii: CornerRadii,
+        /// The color.
+        color: remedy_ui_core::Color,
+    },
 }
 
 impl CompositeOp {
@@ -97,7 +109,7 @@ impl CompositeOp {
                 CompositeOp::PopClip | CompositeOp::PopOpacity | CompositeOp::PopFilter => {
                     open.pop();
                 }
-                CompositeOp::Tile { .. } | CompositeOp::Backdrop { .. } => {}
+                CompositeOp::Tile { .. } | CompositeOp::Backdrop { .. } | CompositeOp::Fill { .. } => {}
             }
         }
         open.iter().rev().find(|(group, _)| *group).map_or(0, |(_, i)| i + 1)
@@ -310,6 +322,9 @@ struct Scroller {
     glide: Option<(Vec2, Option<Animation<Vec2>>)>,
     /// The keys of the snap points it rests on, so a relayout keeps them.
     snapped: [Option<u64>; 2],
+    /// The offset in the last frame, and when it last moved (overlay scroll bars show then).
+    seen: Vec2,
+    moved_at: Option<Duration>,
 }
 
 /// The snap point an axis settles on, moving from `from` to `rest`, and its key. `directional`
@@ -471,6 +486,8 @@ pub struct Compositor {
     /// Loop time: advances only while loops run, so a pause never makes them jump.
     ambient_t: Duration,
     ambient_last: Option<Duration>,
+    /// The scroll bars drawn in the last frame, by container: their device box and look.
+    bars: HashMap<LayerId, (Rect, [u32; 9])>,
 }
 
 /// What a layer's children are walked within: its parent's content-to-device transform,
@@ -494,6 +511,8 @@ struct Entered {
     reach: f32,
     /// Whether it pushed an opacity group.
     grouped: bool,
+    /// Its local space to device pixels (its scroll bars are drawn there).
+    local_to_device: Affine,
 }
 
 struct Walk<'a> {
@@ -526,6 +545,8 @@ struct Walk<'a> {
     grow: f32,
     /// For each filter group being walked, the area its layers draw so far (device pixels).
     regions: Vec<Option<Rect>>,
+    /// Scroll bars drawn this frame, by container: their device box and look.
+    bars: HashMap<LayerId, (Rect, [u32; 9])>,
 }
 
 fn snap(a: Affine) -> Affine {
@@ -557,6 +578,7 @@ impl Compositor {
             ambient: Some(Duration::from_secs(1) / 30),
             ambient_t: Duration::ZERO,
             ambient_last: None,
+            bars: HashMap::new(),
         }
     }
 
@@ -636,9 +658,12 @@ impl Compositor {
                     wheel: None,
                     glide: None,
                     snapped: [None, None],
+                    seen: Vec2::ZERO,
+                    moved_at: None,
                 };
                 s.x.offset = origin.x.clamp(0.0, s.x.max);
                 s.y.offset = origin.y.clamp(0.0, s.y.max);
+                s.seen = Vec2::new(s.x.offset, s.y.offset);
                 s
             });
             // Content that grew past the start (to the left, right to left) keeps what was
@@ -921,6 +946,14 @@ impl Compositor {
                 animating = true;
             }
         }
+        // Overlay scroll bars show from when the content moves.
+        for s in self.scrollers.values_mut() {
+            let at = Vec2::new(s.x.offset, s.y.offset);
+            if at != s.seen {
+                s.seen = at;
+                s.moved_at = Some(now);
+            }
+        }
         // Followers take their leaders' offsets now, so both move in this frame.
         for (id, f) in self.follows.clone() {
             let Some((lx, ly)) = self.scrollers.get(&f.leader).map(|l| (l.x.offset, l.y.offset)) else {
@@ -968,6 +1001,7 @@ impl Compositor {
             backdrops: Vec::new(),
             grow: 0.0,
             regions: Vec::new(),
+            bars: HashMap::new(),
         };
         let base = Affine::scale(self.scale, self.scale);
         let roots = self.tree.roots.clone();
@@ -975,7 +1009,22 @@ impl Compositor {
             let within = Within { transform: base, static_scale: self.scale, opacity: 1.0, clip: viewport };
             self.walk(root, within, &mut walk);
         }
-        let Walk { drawn, hits, replaced, deferred, looping, backdrops, .. } = walk;
+        let Walk { drawn, hits, mut replaced, deferred, looping, backdrops, bars, .. } = walk;
+        // Scroll bars that moved, faded, showed or went are damage where they were and are.
+        for (id, now_bar) in &bars {
+            if self.bars.get(id) != Some(now_bar) {
+                replaced.add(now_bar.0);
+                if let Some(old) = self.bars.get(id) {
+                    replaced.add(old.0);
+                }
+            }
+        }
+        for (id, old) in &self.bars {
+            if !bars.contains_key(id) {
+                replaced.add(old.0);
+            }
+        }
+        self.bars = bars;
         plan.animating |= plan.pending > 0 || deferred > 0;
         plan.wake_in = if looping && !self.reduced_motion { self.ambient } else { None };
 
@@ -1219,13 +1268,15 @@ impl Compositor {
             filter_at,
             reach,
             grouped,
+            local_to_device,
         })
     }
 
     /// Closes what [`enter`](Self::enter) opened for `layer`, once its children are walked.
     fn leave(&mut self, layer: &Layer, entered: Entered, w: &mut Walk<'_>) {
-        let Entered { was_scrolling, filter_at, reach, grouped, .. } = entered;
+        let Entered { was_scrolling, filter_at, reach, grouped, local_to_device, within } = entered;
         w.scrolling = was_scrolling;
+        self.scrollbars(layer, local_to_device, within.clip, w);
         if !layer.filters.is_empty() {
             w.grow -= reach;
             let drawn = w.regions.pop().flatten();
@@ -1252,6 +1303,50 @@ impl Compositor {
         }
         if layer.clip.is_some() {
             w.plan.ops.push(CompositeOp::PopClip);
+        }
+    }
+
+    /// Draws `layer`'s scroll bars over its content and children (inside its clip, before its
+    /// group closes), as fills the renderers draw, and notes them for damage.
+    fn scrollbars(&mut self, layer: &Layer, local_to_device: Affine, clip: Rect, w: &mut Walk<'_>) {
+        let (Some(content), Some(bars)) = (layer.scroll, layer.scrollbars) else { return };
+        let Some(s) = self.scrollers.get(&layer.id) else { return };
+        let since = s.moved_at.map(|t| w.now.saturating_sub(t));
+        let alpha = bars.alpha(since);
+        if alpha <= 0.0 {
+            return;
+        }
+        // Overlay bars fading out need the next frames.
+        if alpha < 1.0 || since.is_some_and(|t| t <= Scrollbars::LINGER) {
+            w.plan.animating |= bars.visibility != remedy_ui_core::ScrollbarVisibility::Always;
+        }
+        let offset = Vec2::new(s.x.offset, s.y.offset);
+        let parts = bars.parts(layer.bounds.size(), content, offset);
+        let radii = CornerRadii::all(bars.width / 2.0);
+        let mut device: Option<Rect> = None;
+        let mut look = [0u32; 9];
+        look[8] = alpha.to_bits();
+        for (n, (track, thumb)) in parts.into_iter().flatten().enumerate() {
+            if bars.track.a > 0.0 {
+                let color = bars.track.with_alpha(bars.track.a * alpha);
+                w.plan.ops.push(CompositeOp::Fill { transform: local_to_device, rect: track, radii, color });
+            }
+            // The thumb sits inside its track with a quarter of the width around it, as thin
+            // overlay bars do.
+            let inset = (bars.width / 4.0).min(2.0);
+            let thumb = thumb.deflate(remedy_ui_core::Insets::all(inset));
+            let color = bars.thumb.with_alpha(bars.thumb.a * alpha);
+            let r = CornerRadii::all((bars.width / 2.0 - inset).max(0.0));
+            w.plan.ops.push(CompositeOp::Fill { transform: local_to_device, rect: thumb, radii: r, color });
+            let d = local_to_device.apply_rect(track);
+            device = Some(device.map_or(d, |u: Rect| u.union(d)));
+            let at = [thumb.min.x, thumb.min.y, thumb.max.x, thumb.max.y].map(f32::to_bits);
+            if let Some(slot) = look.get_mut(n * 4..n * 4 + 4) {
+                slot.copy_from_slice(&at);
+            }
+        }
+        if let Some(d) = device.and_then(|d| d.intersect(clip)) {
+            w.bars.insert(layer.id, (d, look));
         }
     }
 

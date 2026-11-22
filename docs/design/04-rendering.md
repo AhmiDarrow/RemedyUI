@@ -30,6 +30,23 @@ element paint() ──▶ display list ──▶ layer tree ──commit──�
 - **Paint chunks** are reused until their element is `PAINT`-dirty. A frame re-records only
   dirty chunks; unchanged layer content keeps its version, so its tiles are not rastered again.
 - **Layers** group chunks. A **layer tree** is what the UI thread commits.
+- **The device-pixel grid, as browsers use it.** Layout stays fractional (text boxes on a
+  1/64 px grid, as Chrome's layout unit), but an element's background, border and clip are
+  drawn on its box with each edge moved to the nearest device pixel (`PaintCx::pixel_box`), in
+  its scroll container's content space, and border widths are whole device pixels (at least
+  one). Neighbours that share an edge still share it, a 1 px border is one crisp row, and
+  nothing re-records while content scrolls by whole pixels. The compositor puts every layer on
+  whole device pixels, so this holds inside scroll containers and isolated layers too. Text
+  keeps its fractional horizontal place; its baseline is rounded, as browsers draw it.
+  Pictures (`remedy-ui-media-image`) are decoded at exactly the device size they show and
+  placed on the grid, so they are drawn one pixel to one pixel, as an `<img>` is.
+- **Scroll bars** are the compositor's: a scroll container's layer carries `Scrollbars`
+  (resolved from its `scrollbar-*` style) and the compositor draws track and thumb
+  (`CompositeOp::Fill`) over its content in every frame, at the offset of that frame, so they
+  never lag a scroll the UI thread has not seen. Overlay bars (`ScrollbarVisibility::Auto`,
+  the default) show while the content moves, stay `Scrollbars::LINGER` (1 s) and fade over
+  `Scrollbars::FADE` (300 ms); `Always` keeps them, `Never` (or `ScrollbarWidth::None`)
+  draws none. Their appearing, moving and fading is damage like any other.
 
 ## Layerization
 
@@ -197,6 +214,13 @@ a tested tolerance.
    engine version (`health::remember_in`, which the runner points at the app's data folder),
    so it runs once per driver: about 120 ms on llvmpipe in a release build. Browsers cannot
    read pixels back mid-frame, so there it is skipped.
+   In a page the ladder is WebGPU, then WebGL2. A canvas's `getContext("webgl2")` blocks
+   the page's thread until the browser's GL is up, which headless Firefox on Windows took
+   minutes to do, so the WebGL2 rung first has a worker make a context on an
+   `OffscreenCanvas` and waits for it without blocking: the window draws on the CPU renderer
+   meanwhile and moves to the GPU once the browser's GL answers (the page's own context is
+   then made at once). A browser whose workers cannot tell asks on the page's thread as
+   before.
 2. **Which renderer a window uses.** By default (`RendererChoice::Auto`) a window starts on
    the CPU renderer, which costs no GPU driver memory, and moves to the GPU once its frames
    take longer than 6 ms on average; heavy content (a Prism effect over its cost threshold)
