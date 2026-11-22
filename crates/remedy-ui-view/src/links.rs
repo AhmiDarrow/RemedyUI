@@ -116,9 +116,9 @@ fn pieces(i: &Inner, parent: ElementId, link: u64, width: f32) -> Vec<Rect> {
     let slot = slot.borrow();
     let Some((_, para)) = slot.cache.as_ref() else { return Vec::new() };
     let s = &d.resolved;
-    let left = s.padding.start + s.border_width;
-    let top = s.padding.top + s.border_width;
-    let inner = (width - s.padding.start - s.padding.end - s.border_width * 2.0).max(0.0);
+    let ins = s.inner_insets();
+    let (left, top) = (ins.start, ins.top);
+    let inner = (width - ins.start - ins.end).max(0.0);
     let x = left + para.x_offset(inner);
     para.link_rects(link).into_iter().map(|r| r.translate(remedy_ui_core::Vec2::new(x, top))).collect()
 }

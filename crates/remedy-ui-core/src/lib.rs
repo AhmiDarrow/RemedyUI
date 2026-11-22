@@ -33,5 +33,5 @@ pub use color_matrix::ColorMatrix;
 pub use edition::{Edition, ParseEditionError};
 pub use geometry::{CornerRadii, Insets, Point, Rect, Size, Vec2};
 pub use scrollbar::{ScrollbarColor, ScrollbarVisibility, ScrollbarWidth};
-pub use text::{LineHeight, TextTransform};
+pub use text::{LineHeight, TextAlign, TextTransform};
 pub use units::Scale;

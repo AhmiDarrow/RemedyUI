@@ -473,6 +473,8 @@ pub struct Style {
     pub border_width: Option<Dp>,
     /// Border line style: solid, dashed or dotted.
     pub border_style: Option<crate::BorderStyle>,
+    /// Each side's own border, top, end, bottom and start ([`Style::border_side`]).
+    pub border_sides: [Option<crate::BorderSide>; 4],
     /// Corner radius.
     pub radius: Option<Dp>,
     /// Each corner's radius, top start, top end, bottom end and bottom start (CSS's
@@ -500,6 +502,8 @@ pub struct Style {
     pub line_height: Option<crate::LineHeight>,
     /// The most lines text takes, the last ending in "…" when cut (0: no limit).
     pub max_lines: Option<u32>,
+    /// Where each line of text sits across its box (CSS `text-align`); inherited.
+    pub text_align: Option<crate::TextAlign>,
     /// Focus ring color.
     pub outline: Option<ColorRef>,
     /// Focus ring width.
@@ -579,6 +583,15 @@ impl Style {
     /// Border line style (CSS `border-style`).
     pub fn border_style(mut self, value: crate::BorderStyle) -> Self {
         self.border_style = Some(value);
+        self
+    }
+
+    /// One side's own border (CSS `border-top` and the like), in place of the box's border
+    /// on that side.
+    pub fn border_side(mut self, edge: crate::BorderEdge, side: crate::BorderSide) -> Self {
+        self.border_sides = StylePatch { border_sides: self.border_sides, ..StylePatch::default() }
+            .border_side(edge, side)
+            .border_sides;
         self
     }
 
@@ -676,6 +689,12 @@ impl Style {
     /// no limit.
     pub fn max_lines(mut self, n: u32) -> Self {
         self.max_lines = Some(n);
+        self
+    }
+
+    /// Where each line of text sits across its box (CSS `text-align`).
+    pub fn text_align(mut self, value: crate::TextAlign) -> Self {
+        self.text_align = Some(value);
         self
     }
 
@@ -819,6 +838,9 @@ impl Style {
             border: other.border.or(self.border),
             border_width: other.border_width.or(self.border_width),
             border_style: other.border_style.or(self.border_style),
+            border_sides: std::array::from_fn(|i| {
+                other.border_sides.get(i).copied().flatten().or(self.border_sides.get(i).copied().flatten())
+            }),
             radius: other.radius.or(self.radius),
             corners: match (other.corners, other.radius) {
                 (Some(c), _) => Some(c),
@@ -839,6 +861,7 @@ impl Style {
             text_transform: other.text_transform.or(self.text_transform),
             line_height: other.line_height.or(self.line_height),
             max_lines: other.max_lines.or(self.max_lines),
+            text_align: other.text_align.or(self.text_align),
             outline: other.outline.or(self.outline),
             outline_width: other.outline_width.or(self.outline_width),
             outline_offset: other.outline_offset.or(self.outline_offset),
@@ -903,6 +926,7 @@ impl Style {
             border: c(self.border),
             border_width: dp(self.border_width),
             border_style: self.border_style,
+            border_sides: self.border_sides,
             radius: match self.corners {
                 Some(c) => Some(c.into_iter().map(|d| d.resolve(theme)).fold(0.0, f32::max)),
                 None => dp(self.radius),
@@ -923,6 +947,7 @@ impl Style {
             text_transform: self.text_transform,
             line_height: self.line_height,
             max_lines: self.max_lines,
+            text_align: self.text_align,
             outline: c(self.outline),
             outline_width: dp(self.outline_width),
             outline_offset: dp(self.outline_offset),
@@ -948,6 +973,7 @@ impl From<StylePatch> for Style {
             border: p.border.map(ColorRef::Value),
             border_width: p.border_width.map(Dp::Px),
             border_style: p.border_style,
+            border_sides: p.border_sides,
             radius: p.radius.map(Dp::Px),
             corners: p.corners.map(|c| [c.top_start, c.top_end, c.bottom_end, c.bottom_start].map(Dp::Px)),
             padding: p.padding.map(Pad::from),
@@ -961,6 +987,7 @@ impl From<StylePatch> for Style {
             text_transform: p.text_transform,
             line_height: p.line_height,
             max_lines: p.max_lines,
+            text_align: p.text_align,
             outline: p.outline.map(ColorRef::Value),
             outline_width: p.outline_width.map(Dp::Px),
             outline_offset: p.outline_offset.map(Dp::Px),
