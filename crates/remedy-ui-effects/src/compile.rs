@@ -309,8 +309,9 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
     // Parameters.
     for p in &file.params {
         if p.ty == "texture" {
-            if c.textures.len() >= limits.max_textures {
-                return Err(Diagnostic::new(p.at, format!("at most {} textures", limits.max_textures)));
+            let most = limits.max_textures.min(MAX_TEXTURES);
+            if c.textures.len() >= most {
+                return Err(Diagnostic::new(p.at, format!("at most {most} textures")));
             }
             c.check_new_name(&p.name, p.at)?;
             c.textures.push(p.name.clone());
@@ -806,8 +807,16 @@ pub(crate) fn compile(file: &File, prelude: &[FnDecl], limits: &Limits) -> R<Eff
     })
 }
 
-/// Earlier passes one pass may sample (the GPU kernel's texture bindings).
+/// Earlier passes one pass may sample: the GPU kernel's eight pass bindings. Not a setting:
+/// the kernel binds every texture a pass reads at once (code, constants, [`MAX_TEXTURES`]
+/// textures, these passes and the last frame: 15), and WebGPU guarantees no more than 16
+/// sampled textures to one shader stage (`maxSampledTexturesPerShaderStage`), so more would
+/// leave browsers and the devices that hold only the guaranteed minimum without effects.
 pub const MAX_SAMPLED_PASSES: usize = 8;
+
+/// Texture parameters one effect may have, whatever [`Limits::max_textures`](crate::Limits)
+/// says: the GPU kernel's four texture bindings, for the reason [`MAX_SAMPLED_PASSES`] gives.
+pub const MAX_TEXTURES: usize = 4;
 
 /// The weight of a blur pass per pixel (two passes of up to 33 taps).
 const BLUR_COST: f64 = 140.0;

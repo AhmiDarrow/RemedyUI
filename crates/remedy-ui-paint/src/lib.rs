@@ -17,9 +17,11 @@
 //! assert_eq!(list.bounds(), Some(Rect::new(0.0, 0.0, 120.0, 28.0)));
 //! ```
 
+mod limits;
 mod path;
 mod video;
 
+pub use limits::{PaintLimits, paint_limits, set_paint_limits};
 pub use path::{Path, PathEl, Stroke, StrokeCap, StrokeJoin};
 pub use remedy_ui_core::ColorMatrix;
 pub use video::{
@@ -246,8 +248,10 @@ pub enum Filter {
 /// at scale 1 or less). A filter's buffers grow by about three times this on every side, so a
 /// stranger's theme asking for a blur of a million pixels gets this, not a buffer of a million
 /// pixels. It is not divided by a high-DPI scale: a blur looks the same at 100% and 200%.
+/// The default of [`PaintLimits::filter_std_dev`].
 pub const MAX_FILTER_STD_DEV: f32 = 64.0;
-/// The farthest a drop shadow falls, in device pixels, on each axis.
+/// The farthest a drop shadow falls, in device pixels, on each axis. The default of
+/// [`PaintLimits::filter_offset`].
 pub const MAX_FILTER_OFFSET: f32 = 2048.0;
 /// The most groups (clips, opacity and blend layers, filters, and the layers glass draws
 /// through) a renderer keeps open at once. Renderers nest one surface layer per group, and the
@@ -257,23 +261,26 @@ pub const MAX_FILTER_OFFSET: f32 = 2048.0;
 /// and glass that deep is not drawn. Real interfaces nest a few dozen. This is a safety bound,
 /// not a capacity limit: the recursion is in vello, outside RemedyUI's control, and the bound
 /// keeps it within any thread's stack. RemedyUI's own walks (the compositor's layer tree)
-/// use explicit stacks and take any depth.
+/// use explicit stacks and take any depth. The default of [`PaintLimits::group_depth`].
 pub const MAX_GROUP_DEPTH: usize = 256;
 /// How deep glass seen through glass is drawn: glass ([`Item::Backdrop`]) draws again what
 /// is under it, and glass under glass draws again what is under that, so a stack of panes
 /// would cost twice as much for every pane. Past this depth a pane seen through others is
-/// drawn without its frost.
+/// drawn without its frost. The default of [`PaintLimits::backdrop_depth`].
 pub const MAX_BACKDROP_DEPTH: usize = 2;
 /// The most panes of glass drawn with their frost in one raster (a tile, a frame); the rest
-/// are drawn without it, so a theme stacking glass cannot stall a frame.
+/// are drawn without it, so a theme stacking glass cannot stall a frame. The default of
+/// [`PaintLimits::backdrop_replays`].
 pub const MAX_BACKDROP_REPLAYS: usize = 128;
 /// The most colour-matrix groups ([`Filter::ColorMatrix`]) renderers draw nested inside one
 /// another. Each open one holds a picture of its own, so a theme nesting a thousand of them
 /// does not hold a thousand pictures: groups deeper than this are drawn without their matrix.
+/// The default of [`PaintLimits::filter_matrix_depth`].
 pub const MAX_FILTER_MATRIX_DEPTH: usize = 4;
 /// The most colour-matrix groups a renderer draws through their matrix in one raster (a tile,
 /// a snapshot). Each costs a picture and a pass of its own, so a theme putting one on every
 /// row of a long list is bounded: the groups past this many are drawn without their matrix.
+/// The default of [`PaintLimits::filter_matrix_groups`].
 pub const MAX_FILTER_MATRIX_GROUPS: usize = 64;
 
 /// How much blur and offset a chain of nested filters has left to draw with.
@@ -294,11 +301,24 @@ pub struct FilterBudget {
 }
 
 impl FilterBudget {
-    /// All of it: what a filter with no filters around it may use.
+    /// All of it at the default bounds ([`PaintLimits::DEFAULT`]).
     pub const FULL: FilterBudget = FilterBudget {
         offset: Vec2 { x: MAX_FILTER_OFFSET, y: MAX_FILTER_OFFSET },
         std_dev: MAX_FILTER_STD_DEV,
     };
+
+    /// All of it: what a filter with no filters around it may use, at the bounds set now
+    /// ([`set_paint_limits`]).
+    pub fn full() -> FilterBudget {
+        FilterBudget::of(&paint_limits())
+    }
+
+    /// All of `limits`' blur and offset (a bound that is not finite or is negative counts as 0).
+    pub fn of(limits: &PaintLimits) -> FilterBudget {
+        let clean = |v: f32| if v.is_finite() { v.max(0.0) } else { 0.0 };
+        let offset = clean(limits.filter_offset);
+        FilterBudget { offset: Vec2 { x: offset, y: offset }, std_dev: clean(limits.filter_std_dev) }
+    }
 
     /// `filter` as renderers draw it under a transform scaling lengths by `scale`, within
     /// what is left, and what is left after it for the filters nested inside it.
@@ -331,17 +351,17 @@ impl FilterBudget {
 
 impl Default for FilterBudget {
     fn default() -> Self {
-        FilterBudget::FULL
+        FilterBudget::full()
     }
 }
 
 impl Filter {
     /// The filter as renderers draw it under a transform scaling lengths by `scale`: its
-    /// blur at most [`MAX_FILTER_STD_DEV`] (in device pixels when `scale` is below 1) and its
-    /// offset at most [`MAX_FILTER_OFFSET`] device pixels, whatever was asked. Nested in other
-    /// filters it gets less: see [`FilterBudget`].
+    /// blur at most [`PaintLimits::filter_std_dev`] (in device pixels when `scale` is below 1)
+    /// and its offset at most [`PaintLimits::filter_offset`] device pixels, whatever was
+    /// asked. Nested in other filters it gets less: see [`FilterBudget`].
     pub fn limited(&self, scale: f32) -> Filter {
-        FilterBudget::FULL.limit(self, scale).0
+        FilterBudget::full().limit(self, scale).0
     }
 
     /// The Gaussian's standard deviation, in the group's space.

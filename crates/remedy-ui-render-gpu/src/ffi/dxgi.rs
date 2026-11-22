@@ -41,9 +41,6 @@ const BUFFERS: u32 = LATENCY + 1;
 /// A present whose window is wholly covered or minimized (a success code).
 const DXGI_STATUS_OCCLUDED: windows::core::HRESULT = windows::core::HRESULT(0x087A_0001);
 
-/// How long to wait for the swapchain to take another frame before reporting it busy.
-const WAIT_MS: u32 = 1000;
-
 /// Why a swapchain call failed.
 #[derive(Debug)]
 pub(crate) enum ChainError {
@@ -300,10 +297,13 @@ impl DxgiChain {
     }
 
     /// The next back buffer, once the swapchain takes another frame. `Ok(None)` when it has
-    /// not within a second (the window is hidden, or the system is busy): draw again later.
+    /// not within [`GpuLimits::swapchain_wait`](crate::GpuLimits::swapchain_wait) (the window
+    /// is hidden, or the system is busy): draw again later.
     pub(crate) fn acquire(&mut self, device: &wgpu::Device) -> Result<Option<Acquired>, ChainError> {
+        // A wait longer than a u32 of milliseconds holds is INFINITE (u32::MAX): no end.
+        let wait = u32::try_from(crate::gpu_limits().swapchain_wait.as_millis()).unwrap_or(u32::MAX);
         // SAFETY: waiting on the swapchain's own waitable object.
-        match unsafe { WaitForSingleObject(self.waitable, WAIT_MS) } {
+        match unsafe { WaitForSingleObject(self.waitable, wait) } {
             WAIT_OBJECT_0 => {}
             WAIT_TIMEOUT => return Ok(None),
             // A failed wait says nothing about the device: build the swapchain again.
