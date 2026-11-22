@@ -165,7 +165,10 @@ pub(super) fn send(
     // Shared so a failed spawn can still answer.
     let done = std::sync::Arc::new(Mutex::new(Some(done)));
     let answer = done.clone();
+    // Counted from the call, so a quit right after it still waits.
+    let kept = p.keepalive.then(Kept::new);
     let spawned = std::thread::Builder::new().name("remedy-net".into()).spawn(move || {
+        let _kept = kept;
         let out = send_blocking(p, &cancel);
         if let Some(done) = answer.lock().unwrap_or_else(PoisonError::into_inner).take() {
             done(out);

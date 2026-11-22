@@ -26,7 +26,8 @@ fn server() -> (String, Arc<AtomicUsize>) {
                 let mut line = String::new();
                 reader.read_line(&mut line).unwrap();
                 let mut parts = line.split_whitespace();
-                let (method, path) = (parts.next().unwrap_or("").to_owned(), parts.next().unwrap_or("").to_owned());
+                let (method, path) =
+                    (parts.next().unwrap_or("").to_owned(), parts.next().unwrap_or("").to_owned());
                 let mut headers = Vec::new();
                 loop {
                     let mut h = String::new();
@@ -39,7 +40,9 @@ fn server() -> (String, Arc<AtomicUsize>) {
                         headers.push((k.trim().to_ascii_lowercase(), v.trim().to_owned()));
                     }
                 }
-                let get = |n: &str| headers.iter().find(|(k, _)| k == n).map(|(_, v)| v.clone()).unwrap_or_default();
+                let get = |n: &str| {
+                    headers.iter().find(|(k, _)| k == n).map(|(_, v)| v.clone()).unwrap_or_default()
+                };
                 let len: usize = get("content-length").parse().unwrap_or(0);
                 let mut body = vec![0; len];
                 reader.read_exact(&mut body).unwrap();
@@ -204,7 +207,6 @@ fn keepalive_finishes_on_the_way_out() {
     Http::new(&addr).send(Request::post("slow").keepalive(), &cancel, |_| {});
     // Cancelling does not stop a keepalive request; quitting waits for it.
     cancel.cancel();
-    std::thread::sleep(Duration::from_millis(50));
     assert!(finish_keepalive(Duration::from_secs(10)));
     assert_eq!(slow_done.load(Ordering::SeqCst), 1);
 }

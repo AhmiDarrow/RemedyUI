@@ -10,6 +10,23 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **`remedy-ui-services-net`, an HTTP client for native apps and browser pages** (facade
+  feature `net`, `remedy_ui::net`, in `full`). `Http::new(base)` with default headers, a
+  timeout and natively an optional `CookieJar`; `Request::get/post/put/delete` with headers,
+  JSON, raw or `Multipart` bodies, a per-request timeout and `keepalive()` for a last save
+  that must finish while the page or app closes (`fetch` keepalive in a page; natively
+  `finish_keepalive`, which `remedy_ui::run` calls on the way out). `Http::send` and
+  `send_json::<T>` never block; a status outside 200-299 is `NetError::Http(HttpError {
+  status, body, detail })`, `detail` read from a JSON body's `detail` field.
+  `Http::resource` is a reactive `Resource` whose fetch is a request: a new key aborts the
+  old one (`AbortController` in a page). Natively ureq on rustls with the platform verifier
+  (the updater's stack, no new crates), refusing plain `http` beyond loopback; in a page,
+  `fetch` with same-origin cookies. Tested against a loopback server natively and in
+  headless Firefox (`tools/web-test.sh`).
+- **`Resource::with_reply`** in `reactive`: a resource whose fetch answers later through a
+  `Reply` sent from any thread, instead of blocking a worker, which is how fetches run in a
+  browser page. `Resource::with_executor` is built on it.
+
 - **The player's keys from anywhere in the window** in `media-playback`, as Portal's page
   hears them page-wide: `Player::keys_from(&ui.root())` routes the keys nothing focused took
   to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),
@@ -812,6 +829,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `set_symbol_fallbacks` and `DEFAULT_SYMBOL_FALLBACKS`.
 
 ### Changed
+
+- `services-update` reads its feeds, signatures and checksum files through
+  `remedy-ui-services-net` (same 60-second timeout, headers and https-only rule); the
+  download keeps its own reader for its progress.
 
 - `media-playback`: an HLS stream's decoders are kept by the player's host for the next
   stream (`replace_source`, `start_next`) and reconfigured when its streams allow (on
