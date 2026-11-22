@@ -4,7 +4,7 @@
 
 use remedy_ui_compositor::{CompositeOp, LayerId, TileKey};
 use remedy_ui_core::{Color, CornerRadii, Rect};
-use remedy_ui_paint::{FilterBudget, MAX_GROUP_DEPTH};
+use remedy_ui_paint::FilterBudget;
 use vello_cpu::kurbo;
 
 use crate::matrix::{Budget, picture_rect};
@@ -61,7 +61,7 @@ pub trait CompositeTarget {
 /// Records the ops of `all` from index `first` that touch `area` (device pixels) into
 /// `target`, shifted by `shift` (device pixels to the target's). With `close`, layers they
 /// leave open are closed (a backdrop's replay). `background` is drawn under glass that reaches
-/// the frame's start. At most [`MAX_GROUP_DEPTH`] clips and layers are open at once: a push
+/// the frame's start. At most [`PaintLimits::group_depth`](remedy_ui_paint::PaintLimits::group_depth) clips and layers are open at once: a push
 /// past it opens nothing (what it holds is drawn as if it were not there), and its pop closes
 /// nothing.
 pub fn record_ops<T: CompositeTarget>(
@@ -74,7 +74,8 @@ pub fn record_ops<T: CompositeTarget>(
     background: Color,
 ) {
     let mut matrices = Budget::default();
-    walk(target, all, first, area, FilterBudget::FULL, close, shift, background, 0, &mut matrices);
+    let budget = FilterBudget::of(&matrices.limits);
+    walk(target, all, first, area, budget, close, shift, background, 0, &mut matrices);
 }
 
 /// The index in `all` of the pop closing the filter group opened at `at`, or `all.len()`.
@@ -105,22 +106,25 @@ enum Open {
     Clip,
     /// A layer.
     Layer,
-    /// Nothing: the push was past [`MAX_GROUP_DEPTH`].
+    /// Nothing: the push was past the group depth bound.
     Skipped,
 }
 
-/// The clips and layers a walk has open, bounded by [`MAX_GROUP_DEPTH`].
+/// The clips and layers a walk has open, bounded by
+/// [`PaintLimits::group_depth`](remedy_ui_paint::PaintLimits::group_depth).
 struct Stack {
     /// What each push left open, innermost last.
     open: Vec<Open>,
     /// Clips and layers open, around the walk and in it.
     depth: usize,
+    /// The most open at once.
+    limit: usize,
 }
 
 impl Stack {
     /// Whether `n` more clips and layers fit under the bound.
     fn fits(&self, n: usize) -> bool {
-        self.depth + n <= MAX_GROUP_DEPTH
+        self.depth + n <= self.limit
     }
 
     /// Records a push of `kind`: true if it may open it, false (and nothing to close at its
@@ -168,7 +172,7 @@ fn walk<T: CompositeTarget>(
     // Inside a skipped subtree: how many pushes deep.
     let mut skip = 0u32;
     // What is open.
-    let mut open = Stack { open: Vec::new(), depth };
+    let mut open = Stack { open: Vec::new(), depth, limit: matrices.limits.group_depth };
     // What is culled against: inside a filter group, its whole region, so the group's source
     // is the same whatever part of the frame is drawn. With each, what the filter groups open
     // around it leave the filters inside them (see `FilterBudget`).
@@ -338,8 +342,8 @@ fn walk<T: CompositeTarget>(
                 }
                 // shortcut: glass under glass replays its own source again, so n overlapping
                 // panes in one backdrop root would draw what is under the first 2^(n-1) times;
-                // the budget bounds that (glass seen through more than MAX_BACKDROP_DEPTH panes
-                // goes without its frost). Drawing each root's picture once into a texture both
+                // the budget bounds that (glass seen through more than
+                // `PaintLimits::backdrop_depth` panes goes without its frost). Drawing each root's picture once into a texture both
                 // renderers sample would make it linear, if stacks of glass become common.
                 if let Some(prefix) = all.get(..at) {
                     matrices.glass_depth += 1;

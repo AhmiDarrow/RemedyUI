@@ -25,8 +25,8 @@ use std::sync::Arc;
 
 use remedy_ui_core::{Color, CornerRadii, Point, Rect};
 use remedy_ui_paint::{
-    Affine, Blend, Brush, DisplayList, ExternalTexture, FilterBudget, GlyphRun, Image, Item, MAX_GROUP_DEPTH,
-    Path, PathEl, Sampling, Stroke, StrokeCap, StrokeJoin, VideoFrame,
+    Affine, Blend, Brush, DisplayList, ExternalTexture, FilterBudget, GlyphRun, Image, Item, Path, PathEl,
+    Sampling, Stroke, StrokeCap, StrokeJoin, VideoFrame,
 };
 use remedy_ui_text::{Antialias, GlyphRasterizer, Hinting, size_64, subpixel_bin};
 use vello_cpu::color::{AlphaColor, Srgb};
@@ -328,8 +328,8 @@ pub(crate) fn vello_filter(f: &remedy_ui_paint::Filter) -> Option<vello_cpu::fil
 /// The filter a backdrop of standard deviation `blur` draws its glass with, or `None` for no
 /// blur, when no filter is around it. Both compositors use the same bound, so they blur
 /// alike. `scale` is how much the glass's transform scales lengths (the blur is bounded by
-/// [`remedy_ui_paint::MAX_FILTER_STD_DEV`]; inside filters, by what they leave: see
-/// [`FilterBudget`]).
+/// [`PaintLimits::filter_std_dev`](remedy_ui_paint::PaintLimits::filter_std_dev); inside
+/// filters, by what they leave: see [`FilterBudget`]).
 pub fn backdrop_filter(blur: f32, scale: f32) -> Option<vello_cpu::filter_effects::Filter> {
     layer_filter(&remedy_ui_paint::Filter::Blur { radius: blur }, scale)
 }
@@ -339,7 +339,7 @@ pub fn backdrop_filter(blur: f32, scale: f32) -> Option<vello_cpu::filter_effect
 /// `scale` is how much the layer's transform scales lengths (inside filters, the bound is
 /// what they leave: see [`FilterBudget`]).
 pub fn layer_filter(f: &remedy_ui_paint::Filter, scale: f32) -> Option<vello_cpu::filter_effects::Filter> {
-    vello_filter(&FilterBudget::FULL.limit(f, scale).0)
+    vello_filter(&FilterBudget::full().limit(f, scale).0)
 }
 
 /// How far, in device pixels, filter `f` (already bounded for drawing) pushed under transform
@@ -528,8 +528,9 @@ impl Painter {
     ) {
         self.sweep_images();
         self.matrices = matrix::Budget::default();
+        let budget = FilterBudget::of(&self.matrices.limits);
         // Groups the list leaves open are closed: a list is drawn as a whole, balanced.
-        self.draw_items(s, list.items(), base, area, 0, 0, FilterBudget::FULL, true);
+        self.draw_items(s, list.items(), base, area, 0, 0, budget, true);
         s.set_transform(kurbo::Affine::IDENTITY);
         s.reset_paint_transform();
     }
@@ -538,7 +539,7 @@ impl Painter {
     /// groups are open around them (LCD text inside one falls back to grayscale), and
     /// `depth` how many surface layers, and `budget` what the filters around them leave the
     /// filters inside. With `close`, groups the items leave open are closed at the end (a
-    /// backdrop's replay). At most [`MAX_GROUP_DEPTH`] layers are open at once: a push past it
+    /// backdrop's replay). At most [`PaintLimits::group_depth`](remedy_ui_paint::PaintLimits::group_depth) layers are open at once: a push past it
     /// opens none, and its pop closes none.
     #[allow(clippy::too_many_arguments)]
     fn draw_items<S: Surface>(
@@ -560,7 +561,7 @@ impl Painter {
         // With each, what the filter groups open around it leave the filters inside them.
         let mut areas = vec![(area, budget)];
         // The pushes open (clips and groups), innermost last: whether each opened a surface
-        // layer (false past `MAX_GROUP_DEPTH`), so its pop closes one only if it did.
+        // layer (false past the group depth bound), so its pop closes one only if it did.
         let mut open: Vec<bool> = Vec::new();
         // Surface layers open, around the items and among them.
         let mut layers = depth;
@@ -642,7 +643,7 @@ impl Painter {
                 // Past the depth bound a push opens nothing (it is remembered, so its pop
                 // closes nothing): what it holds is drawn into the group around it.
                 Item::PushClip { .. } | Item::PushLayer { .. } | Item::PushFilter(_)
-                    if layers >= MAX_GROUP_DEPTH =>
+                    if layers >= self.matrices.limits.group_depth =>
                 {
                     open.push(false);
                 }
@@ -747,7 +748,7 @@ impl Painter {
                     // them: past the depth bound, or past the glass budget (each pane draws again
                     // what is under it, glass included), it is not drawn.
                     if (sigma == 0.0 && start == i)
-                        || layers + 2 > MAX_GROUP_DEPTH
+                        || layers + 2 > self.matrices.limits.group_depth
                         || !self.matrices.admit_glass()
                     {
                         continue;
