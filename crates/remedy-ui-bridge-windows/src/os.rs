@@ -3,6 +3,7 @@
 
 pub(crate) mod badge;
 pub(crate) mod dnd;
+pub(crate) mod gamepad;
 pub(crate) mod icon;
 pub(crate) mod instance;
 pub(crate) mod print;
@@ -31,7 +32,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     FE_FONTSMOOTHINGCLEARTYPE, FE_FONTSMOOTHINGORIENTATIONBGR, GetCaretBlinkTime, SPI_GETCLIENTAREAANIMATION,
     SPI_GETFONTSMOOTHING, SPI_GETFONTSMOOTHINGORIENTATION, SPI_GETFONTSMOOTHINGTYPE, SPI_GETHIGHCONTRAST,
-    SetWindowDisplayAffinity, SystemParametersInfoW, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
+    SPI_GETKEYBOARDDELAY, SPI_GETKEYBOARDSPEED, SetWindowDisplayAffinity, SystemParametersInfoW,
+    WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
 };
 
 /// Joins the calling thread to a COM apartment for WinRT calls, keeping the one it is in (the
@@ -342,6 +344,15 @@ pub(crate) struct Settings {
     pub(crate) caret_blink: Option<Duration>,
     pub(crate) subpixel_text: Option<bool>,
     pub(crate) power_saving: bool,
+    /// The keyboard's repeat delay and interval, where Windows says.
+    pub(crate) key_repeat: Option<(Duration, Duration)>,
+}
+
+/// The keyboard's repeat from its Control Panel settings: a delay of 0 to 3 (250 ms to 1 s)
+/// and a speed of 0 to 31 (about 2.5 to 30 repeats a second).
+pub(crate) fn key_repeat(delay: u32, speed: u32) -> (Duration, Duration) {
+    let rate = 2.5 + f64::from(speed.min(31)) * 27.5 / 31.0;
+    (Duration::from_millis(250 * (u64::from(delay.min(3)) + 1)), Duration::from_secs_f64(1.0 / rate))
 }
 
 pub(crate) fn settings() -> Settings {
@@ -391,7 +402,11 @@ pub(crate) fn settings() -> Settings {
         && spi_u32(SPI_GETFONTSMOOTHINGTYPE) == Some(FE_FONTSMOOTHINGCLEARTYPE))
     .then(|| spi_u32(SPI_GETFONTSMOOTHINGORIENTATION) == Some(FE_FONTSMOOTHINGORIENTATIONBGR));
 
+    let key_repeat =
+        spi_u32(SPI_GETKEYBOARDDELAY).zip(spi_u32(SPI_GETKEYBOARDSPEED)).map(|(d, s)| key_repeat(d, s));
+
     Settings {
+        key_repeat,
         power_saving: power_saving(),
         dark,
         accent,
