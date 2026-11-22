@@ -6,11 +6,13 @@ use std::rc::Rc;
 
 use remedy_ui::a11y::Role;
 use remedy_ui::core::Vec2;
-use remedy_ui::input::{Key, KeyEvent, Modifiers};
+use remedy_ui::input::{Buttons, Key, KeyEvent, Modifiers, PointerEvent, PointerPhase};
+use remedy_ui::layout::Length;
 use remedy_ui::router::Router;
 use remedy_ui::testing::TestApp;
 use remedy_ui::view::El;
 use remedy_ui::widgets as w;
+use remedy_ui::{App, AppConfig, Window, WindowSpec};
 
 type Slot<T> = Rc<RefCell<Option<T>>>;
 
@@ -35,7 +37,7 @@ fn app() -> (TestApp, Slot<Router>, Slot<El>) {
         let view = router.view(ui, move |route| {
             let tall = w::column(&ui2).child(w::text(&ui2, format!("Page {}", route.path())));
             let tall = (0..40).fold(tall, |c, i| c.child(w::text(&ui2, format!("row {i}"))));
-            let scroll = w::scroll(&ui2).child(tall).grow(1.0);
+            let scroll = w::scroll(&ui2).child(tall).layout(|l| l.height = Length::Px(120.0));
             me.remember_scroll(&scroll);
             *s2.borrow_mut() = Some(scroll.clone());
             w::column(&ui2).grow(1.0).child(me.link_to(&ui2, "/settings/audio", "Settings")).child(scroll)
@@ -78,6 +80,31 @@ fn pages_follow_the_route_and_back_keys_go_back() {
     assert_eq!(router.route_untracked().path(), "/home");
 }
 
+/// Presses and releases the mouse's `button` (back or forward) over the page.
+fn mouse_button(app: &mut TestApp, button: Buttons) {
+    let window = app.runner().app().windows().first().cloned().must();
+    let p = remedy_ui::core::Point::new(200.0, 200.0);
+    window.send_pointer(PointerEvent::new(PointerPhase::Move, p));
+    window.send_pointer(PointerEvent::new(PointerPhase::Down, p).with_buttons(button));
+    window.send_pointer(PointerEvent::new(PointerPhase::Up, p).with_buttons(Buttons::default()));
+    app.frames(2);
+}
+
+#[test]
+fn the_mouse_back_and_forward_buttons_move_one_entry_each_press() {
+    let (mut app, router, _) = app();
+    let router = router.borrow().clone().must();
+    router.push("/browse");
+    router.push("/settings/audio");
+    app.frames(1);
+    mouse_button(&mut app, Buttons::BACK);
+    assert_eq!(router.route_untracked().path(), "/browse");
+    mouse_button(&mut app, Buttons::BACK);
+    assert_eq!(router.route_untracked().path(), "/home");
+    mouse_button(&mut app, Buttons::FORWARD);
+    assert_eq!(router.route_untracked().path(), "/browse");
+}
+
 #[test]
 fn links_carry_their_address_for_screen_readers() {
     let (app, _, _) = app();
@@ -91,15 +118,22 @@ fn going_back_restores_the_scroll_position() {
     let router = router.borrow().clone().must();
     let ui = app.ui().must();
     let home = scroller.borrow().clone().must();
-    ui.set_scroll_offset(home.id(), Vec2::new(0.0, 120.0));
+    // Scrolled as the person would: through the compositor, which reports it back.
+    home.scroll_to(Vec2::new(0.0, 120.0));
+    app.frames(2);
+    assert_eq!(ui.scroll_offset(home.id()), Vec2::new(0.0, 120.0), "the list scrolled");
     router.push("/browse");
-    app.frames(1);
+    app.frames(2);
     assert_eq!(router.saved_scroll(), Vec2::ZERO, "a new entry starts at the top");
+    let browse = scroller.borrow().clone().must();
+    assert_eq!(ui.scroll_offset(browse.id()), Vec2::ZERO);
     assert!(router.back());
-    app.frames(1);
+    app.frames(2);
     assert_eq!(router.saved_scroll(), Vec2::new(0.0, 120.0));
     let rebuilt = scroller.borrow().clone().must();
     assert_ne!(rebuilt.id(), home.id(), "the page was built again");
+    // The rebuilt list is drawn where the old one was, though it had no layer when asked.
+    assert_eq!(ui.scroll_offset(rebuilt.id()), Vec2::new(0.0, 120.0), "shown at its position");
 }
 
 #[test]
@@ -130,4 +164,94 @@ fn deep_links_open_their_page() {
     assert_eq!(title(&app), "Portal: settings");
     assert!(router.back());
     assert_eq!(router.route_untracked().path(), "/home");
+}
+
+/// Presses the mouse on `name`'s link in window `at` (a press with `buttons` and
+/// `modifiers`, then the release).
+fn press_link(app: &mut TestApp, at: usize, name: &str, buttons: Buttons, modifiers: Modifiers) {
+    let window = app.runner().app().windows().get(at).cloned().must();
+    let ui = window.ui().must();
+    let node = ui.reader_view().into_iter().find(|n| n.role == Role::Link && n.name.as_deref() == Some(name));
+    let link = node.and_then(|n| ui.element_by_node_id(n.id)).must();
+    let b = link.bounds().must();
+    let p = b.center();
+    window.send_pointer(PointerEvent::new(PointerPhase::Move, p));
+    window.send_pointer(
+        PointerEvent::new(PointerPhase::Down, p).with_buttons(buttons).with_modifiers(modifiers),
+    );
+    window.send_pointer(
+        PointerEvent::new(PointerPhase::Up, p).with_buttons(Buttons::default()).with_modifiers(modifiers),
+    );
+    app.frames(2);
+}
+
+const CTRL: Modifiers = Modifiers { ctrl: true, ..Modifiers::NONE };
+
+#[test]
+fn without_new_windows_a_ctrl_or_middle_click_navigates_in_place() {
+    let (mut app, router, _) = app();
+    let router = router.borrow().clone().must();
+    press_link(&mut app, 0, "Settings", Buttons::PRIMARY, CTRL);
+    assert_eq!(router.route_untracked().path(), "/settings/audio");
+    assert_eq!(app.runner().app().windows().len(), 1);
+    assert!(router.back());
+    app.frames(1);
+    press_link(&mut app, 0, "Settings", Buttons::MIDDLE, Modifiers::NONE);
+    assert_eq!(router.route_untracked().path(), "/settings/audio");
+    assert_eq!(app.runner().app().windows().len(), 1);
+}
+
+/// A window with a router that opens links elsewhere in windows of their own.
+fn build(ui: &remedy_ui::view::Ui, router: &Router, seen: &Rc<RefCell<Vec<Router>>>) {
+    seen.borrow_mut().push(router.clone());
+    let (me, ui2) = (router.clone(), ui.clone());
+    let view = router.view(ui, move |route| {
+        w::column(&ui2).child(w::text(&ui2, format!("Page {}", route.path()))).child(me.link_to(
+            &ui2,
+            "/settings/audio",
+            "Settings",
+        ))
+    });
+    let _ = ui.root().child(view);
+}
+
+#[test]
+fn with_new_windows_a_ctrl_or_middle_click_opens_the_route_in_a_window() {
+    let seen: Rc<RefCell<Vec<Router>>> = Rc::default();
+    let s = seen.clone();
+    let mut app = TestApp::new(AppConfig::new("Test"), move |app: &App| {
+        let s2 = s.clone();
+        app.open(WindowSpec::new("Main").size(480.0, 360.0), move |ui, window: &Window| {
+            let router = Router::for_window(window, "/home");
+            let s3 = s2.clone();
+            router.open_windows(WindowSpec::new("Another").size(480.0, 360.0), move |ui, _, r| {
+                build(ui, r, &s3)
+            });
+            build(ui, &router, &s2);
+        });
+    });
+    let main = seen.borrow().first().cloned().must();
+
+    // A plain click still navigates.
+    press_link(&mut app, 0, "Settings", Buttons::PRIMARY, Modifiers::NONE);
+    assert_eq!(main.route_untracked().path(), "/settings/audio");
+    assert!(main.back());
+    app.frames(1);
+
+    // Ctrl-click: a second window at the route, this one staying where it was.
+    press_link(&mut app, 0, "Settings", Buttons::PRIMARY, CTRL);
+    assert_eq!(app.runner().app().windows().len(), 2);
+    assert_eq!(main.route_untracked().path(), "/home");
+    let second = seen.borrow().get(1).cloned().must();
+    assert_eq!(second.route_untracked().path(), "/settings/audio");
+    assert!(app.runner().app().windows().get(1).and_then(Window::ui).is_some_and(|ui| {
+        ui.reader_view().iter().any(|n| n.name.as_deref() == Some("Page /settings/audio"))
+    }));
+
+    // Middle click: another, and the new window's own links open windows too.
+    press_link(&mut app, 0, "Settings", Buttons::MIDDLE, Modifiers::NONE);
+    assert_eq!(app.runner().app().windows().len(), 3);
+    press_link(&mut app, 1, "Settings", Buttons::MIDDLE, Modifiers::NONE);
+    assert_eq!(app.runner().app().windows().len(), 4);
+    assert_eq!(main.route_untracked().path(), "/home");
 }

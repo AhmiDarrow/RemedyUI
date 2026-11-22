@@ -10,6 +10,18 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **The router survives a reload and opens links elsewhere**: in a browser page each history
+  entry carries the router's entries (routes and scroll positions) in `history.state`,
+  written again on `pagehide`, so after a reload (`App::reload` too) the router has every
+  entry back in its place and back and forward land where they did, scrolled as they were
+  (`web::history::entries`; `write` takes the list, `listen` a `hiding` callback). A middle
+  or Ctrl (Cmd) click on a `link_to` link, drawn or on the mirror's `<a href>`, opens the
+  route in a new tab; on the desktop `Router::open_windows(spec, build)` opens it in a new
+  window with its own router at that route, and without it the click navigates in place
+  (`Router::open_elsewhere` does the same from code). In a page the mouse's back and forward
+  buttons now go through the router, and the bridge cancels the browser's own move on their
+  release, so each press moves one entry. Tested in headless Firefox and on the headless
+  host.
 - **Text in at most n lines (CSS `line-clamp`).** `El::max_lines(n)`, `Style::max_lines(n)`
   and `StylePatch::max_lines(n)` for style sheets, and `ParagraphOptions::max_lines(n)` in
   `remedy-ui-text`: text that would take more lines ends the last one in "…", cut at the last
@@ -1057,6 +1069,10 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **`El::scroll_to` on content built this frame scrolls it**: the runner dropped a scroll
+  asked for before the container had its scrolling layer (a page a router brings back, a
+  list just filled); it now keeps it and applies it in the first frame that gives the
+  container a layer, for as long as the container lives.
 - **The Windows tray icon answers the keyboard and opens its menu where asked**: the icon
   is set to `NOTIFYICON_VERSION_4`, so Win+B then Enter or Space (`NIN_KEYSELECT`) activates it,
   and the menu opens at the point the shell names, for Shift+F10 and the menu key as well as a

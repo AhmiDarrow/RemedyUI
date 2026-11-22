@@ -1,14 +1,23 @@
 //! The page's session history: the address's fragment as the app's route.
+//!
+//! Each history entry the app writes carries `{ i, e: [[route, x, y], …] }` in its
+//! `history.state`: its index and the app's whole list of entries with their scroll
+//! positions, so a reload (which keeps the history and the current entry's state) can bring
+//! the list back.
 
 use std::cell::RefCell;
 
+use js_sys::{Array, Reflect};
 use remedy_ui_host::HostEvent;
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsCast, JsValue};
 
 use super::dom::Listener;
 
+/// One entry: its route and its scroll position.
+pub(crate) type Entry = (String, f32, f32);
+
 thread_local! {
-    static POPSTATE: RefCell<Option<Listener>> = const { RefCell::new(None) };
+    static LISTENERS: RefCell<Vec<Listener>> = const { RefCell::new(Vec::new()) };
 }
 
 /// The address's fragment, without the `#`.
@@ -17,17 +26,46 @@ pub(crate) fn fragment() -> String {
     hash.strip_prefix('#').unwrap_or(&hash).to_owned()
 }
 
-/// The index the current history entry was given, if this app gave it one.
-pub(crate) fn index() -> Option<u32> {
-    let state = web_sys::window()?.history().ok()?.state().ok()?;
-    state.as_f64().filter(|i| *i >= 0.0).map(|i| i as u32)
+fn state() -> Option<JsValue> {
+    web_sys::window()?.history().ok()?.state().ok().filter(JsValue::is_object)
 }
 
-/// Adds (or, with `replace`, rewrites) the current history entry: address `#fragment`.
-pub(crate) fn write(fragment: &str, index: u32, replace: bool) {
+/// The index the current history entry was given, if this app gave it one.
+pub(crate) fn index() -> Option<u32> {
+    let i = Reflect::get(&state()?, &"i".into()).ok()?.as_f64()?;
+    (i >= 0.0 && i.fract() == 0.0).then_some(i as u32)
+}
+
+/// The entries the current history entry carries, if this app wrote them.
+pub(crate) fn entries() -> Option<Vec<Entry>> {
+    let list = Reflect::get(&state()?, &"e".into()).ok()?.dyn_into::<Array>().ok()?;
+    list.iter()
+        .map(|e| {
+            let e = e.dyn_into::<Array>().ok()?;
+            let route = e.get(0).as_string()?;
+            let x = e.get(1).as_f64()? as f32;
+            let y = e.get(2).as_f64()? as f32;
+            Some((route, x, y))
+        })
+        .collect()
+}
+
+/// Adds (or, with `replace`, rewrites) the current history entry: address `#fragment`,
+/// numbered `index`, carrying `entries`.
+pub(crate) fn write(fragment: &str, index: u32, entries: &[Entry], replace: bool) {
     let Some(h) = web_sys::window().and_then(|w| w.history().ok()) else { return };
+    let list = Array::new();
+    for (route, x, y) in entries {
+        let e = Array::new();
+        e.push(&JsValue::from_str(route));
+        e.push(&JsValue::from_f64(f64::from(*x)));
+        e.push(&JsValue::from_f64(f64::from(*y)));
+        list.push(&e);
+    }
+    let state = js_sys::Object::new();
+    let _ = Reflect::set(&state, &"i".into(), &JsValue::from_f64(f64::from(index)));
+    let _ = Reflect::set(&state, &"e".into(), &list);
     let url = format!("#{fragment}");
-    let state = JsValue::from_f64(f64::from(index));
     let _ = if replace {
         h.replace_state_with_url(&state, "", Some(&url))
     } else {
@@ -42,15 +80,17 @@ pub(crate) fn go(delta: i32) {
     }
 }
 
-/// Calls `f(fragment, index)` whenever the person moves through the history or edits the
-/// fragment (popstate fires for both). A second call replaces `f`.
-pub(crate) fn listen(f: impl Fn(String, Option<u32>) + 'static) {
+/// Calls `moved(fragment, index)` whenever the person moves through the history or edits
+/// the fragment (popstate fires for both), and `hiding()` when the page is put away or
+/// reloaded. A second call replaces both.
+pub(crate) fn listen(moved: impl Fn(String, Option<u32>) + 'static, hiding: impl Fn() + 'static) {
     let Some(w) = web_sys::window() else { return };
-    let l = Listener::new(&w, "popstate", move |_| {
-        f(fragment(), index());
+    let pop = Listener::new(&w, "popstate", move |_| {
+        moved(fragment(), index());
         super::post(HostEvent::Wake);
     });
-    POPSTATE.with(|p| *p.borrow_mut() = Some(l));
+    let hide = Listener::new(&w, "pagehide", move |_| hiding());
+    LISTENERS.with(|l| *l.borrow_mut() = vec![pop, hide]);
 }
 
 /// Opens `#fragment` of this page in a new tab.

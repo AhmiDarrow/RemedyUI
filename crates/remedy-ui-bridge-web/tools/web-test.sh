@@ -12,8 +12,9 @@
 # GECKODRIVER or CHROMEDRIVER to the driver's path when it is not on PATH. The runner is set
 # for this one run only.
 #
-# `tools/webdriver.json` (handed to the runner) lets the test
-# pages play sound without a click first, as a page may once its person has used it.
+# `tools/webdriver.json` (handed to the runner) lets the test pages play sound without a
+# click first, as a page may once its person has used it, and open windows (the router's
+# new-tab links) without one.
 set -euo pipefail
 
 crate="$(cd "$(dirname "$0")/.." && pwd)"
