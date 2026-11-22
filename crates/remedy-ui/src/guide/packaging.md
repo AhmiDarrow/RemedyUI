@@ -220,8 +220,11 @@ applies it. It is the one networked pack, it is opt-in, and it contacts only the
 app names, sending nothing beyond what an HTTPS request carries.
 
 - **Feeds** ([`update::Feed`](crate::update::Feed)): a GitHub repository's latest release
-  (`GitHub`), its newest release including prereleases (`GitHubAll`), or a small JSON
-  document (`Json`) with `version`, `url`, `signature` and optionally `sha256` and `notes`.
+  (`GitHub`), its newest release including prereleases (`GitHubAll`), or a JSON document
+  (`Json`): a flat `{version, url, signature}` feed, or Tauri's multi-platform
+  `latest.json` (`platforms.windows-x86_64` and the rest). Optional `sha256` and `notes`
+  are accepted in both forms. `Apply::RunInstaller` takes the installer arguments (a
+  silent Windows NSIS update passes `/S` and `/UPDATE`).
 - **Trust** ([`update::Trust`](crate::update::Trust)): a minisign signature under the app's
   public key (the format `minisign` and Tauri's updater produce; `cargo remedy package`
   writes it), or the SHA-256 from a checksum file published beside the release, optionally
