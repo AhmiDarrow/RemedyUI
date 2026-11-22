@@ -1632,11 +1632,11 @@ fn caption_line(ui: &Ui, line: &str) -> El {
 
 /// Draws cues laid out by WebVTT's rules on the picture shown at `aspect` in the stage,
 /// above the bar `lift` up from the foot: each line in a readable box as `player_caption`
-/// draws one (light text on a dark box). Vertical cues are set upright, one character under
-/// another (CSS's `text-orientation: upright`, as CJK reads): the text stack lays out and
-/// draws lines across only, and its glyphs are drawn unturned under a rotation, so each
-/// character is drawn on its own, stepped down by the line height.
+/// draws one (light text on a dark box). Vertical cues follow CSS's `text-orientation:
+/// mixed`: CJK, kana, Hangul and other upright characters one under another, and runs of
+/// Latin and other sideways text turned a quarter clockwise, reading downward.
 fn paint_cues(cx: &mut remedy_ui_view::PaintCx<'_>, cues: &[crate::Cue], aspect: Option<f32>, lift: f32) {
+    use crate::cue_layout::vertical_runs;
     let theme = cx.theme;
     let u = theme.spacing.unit;
     let vp = crate::cue_layout::viewport(cx.size, aspect);
@@ -1660,19 +1660,28 @@ fn paint_cues(cx: &mut remedy_ui_view::PaintCx<'_>, cues: &[crate::Cue], aspect:
     let pad = (theme.metric("player-caption-pad-x", u * 1.5), theme.metric("player-caption-pad-y", u * 0.5));
     // The title area: the picture above the bar, which floats over its foot in full screen.
     let title = Rect::new(vp.min.x, vp.min.y, vp.max.x, vp.max.y.min(cx.size.height - lift).max(vp.min.y));
-    // A character's step down a vertical line: the line height.
+    // An upright character's step down a vertical line, and a sideways run's width across
+    // it: the line height.
     let step = cx.measure_text("M", text).height;
     let placed = crate::cue_layout::layout(cues, vp, title, pad, &mut |t, down| {
-        if down {
-            // Down the line: a step per character; across it, the widest character.
-            let widest = t
-                .chars()
-                .map(|ch| cx.measure_text(ch.encode_utf8(&mut [0; 4]), text).width)
-                .fold(0.0, f32::max);
-            remedy_ui_core::Size::new(t.chars().count() as f32 * step, widest)
-        } else {
-            cx.measure_text(t, text)
+        if !down {
+            return cx.measure_text(t, text);
         }
+        // Down the line: a step per upright character, a sideways run's own length; across
+        // it, the widest upright character or a line height for sideways text.
+        let (mut along, mut across) = (0.0f32, 0.0f32);
+        for (upright, run) in vertical_runs(t) {
+            if upright {
+                for ch in run.chars() {
+                    along += step;
+                    across = across.max(cx.measure_text(ch.encode_utf8(&mut [0; 4]), text).width);
+                }
+            } else {
+                along += cx.measure_text(&run, text).width;
+                across = across.max(step);
+            }
+        }
+        remedy_ui_core::Size::new(along, across)
     });
     let mid = remedy_ui_core::Vec2::new(0.5, 0.5);
     for cue in placed {
@@ -1683,11 +1692,39 @@ fn paint_cues(cx: &mut remedy_ui_view::PaintCx<'_>, cues: &[crate::Cue], aspect:
                 cx.text(&line.text, c, mid, text);
                 continue;
             }
-            let n = line.text.chars().count() as f32;
-            let top = c.y - n * step / 2.0;
-            for (k, ch) in line.text.chars().enumerate() {
-                let at = remedy_ui_core::Point::new(c.x, top + (k as f32 + 0.5) * step);
-                cx.text(ch.encode_utf8(&mut [0; 4]), at, mid, text);
+            let runs = vertical_runs(&line.text);
+            let len: f32 = runs
+                .iter()
+                .map(
+                    |(up, r)| {
+                        if *up { r.chars().count() as f32 * step } else { cx.measure_text(r, text).width }
+                    },
+                )
+                .sum();
+            let mut y = c.y - len / 2.0;
+            for (upright, run) in runs {
+                if upright {
+                    for ch in run.chars() {
+                        cx.text(
+                            ch.encode_utf8(&mut [0; 4]),
+                            remedy_ui_core::Point::new(c.x, y + step / 2.0),
+                            mid,
+                            text,
+                        );
+                        y += step;
+                    }
+                    continue;
+                }
+                // Sideways: the run turned a quarter clockwise about its middle.
+                let w = cx.measure_text(&run, text).width;
+                let at = remedy_ui_core::Point::new(c.x, y + w / 2.0);
+                let turn = remedy_ui_paint::Affine::translate(remedy_ui_core::Vec2::new(-at.x, -at.y))
+                    .then(remedy_ui_paint::Affine::rotate(std::f32::consts::FRAC_PI_2))
+                    .then(remedy_ui_paint::Affine::translate(remedy_ui_core::Vec2::new(at.x, at.y)));
+                cx.list.push(remedy_ui_paint::Item::PushTransform(turn));
+                cx.text(&run, at, mid, text);
+                cx.list.push(remedy_ui_paint::Item::PopTransform);
+                y += w;
             }
         }
     }
