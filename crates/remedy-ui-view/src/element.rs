@@ -25,6 +25,10 @@ pub struct PaintCx<'a> {
     pub list: &'a mut DisplayList,
     /// The element's size in logical pixels.
     pub size: Size,
+    /// The element's box with each edge on the nearest device pixel, in local logical
+    /// coordinates (near `0, 0, size`): where its background and border are drawn. Pictures
+    /// placed on it land on whole device pixels, as browsers place an `<img>`.
+    pub pixel_box: remedy_ui_core::Rect,
     /// Its resolved style.
     pub style: &'a ResolvedStyle,
     /// The window's theme.
@@ -141,6 +145,7 @@ impl PaintCx<'_> {
                     let mut inner = PaintCx {
                         list: &mut list,
                         size,
+                        pixel_box: remedy_ui_core::Rect::from_origin_size(remedy_ui_core::Point::ZERO, size),
                         style: self.style,
                         theme: self.theme,
                         states: self.states,
@@ -326,6 +331,17 @@ pub(crate) fn with_alts(
     }
     out.push_str(&s[at.min(range.end)..range.end]);
     out
+}
+
+/// `v` rounded up to the 1/64 px grid layout keeps text boxes on, as browsers do (Chrome's
+/// layout unit is 1/64 px): a 21.12 px line stays 21.125 px instead of becoming 22, so stacked
+/// lines do not drift, and a box sized to its text's width never wraps that text when laid
+/// out again. Float noise just above a grid line stays on it.
+pub(crate) fn layout_unit_ceil(v: f32) -> f32 {
+    if !v.is_finite() {
+        return v;
+    }
+    ((v * 64.0 - 1.0 / 256.0).ceil() / 64.0).max(0.0)
 }
 
 /// The paragraph container direction for an element's layout direction.
@@ -585,8 +601,8 @@ pub(crate) struct ElData {
     pub(crate) collapsed: bool,
     pub(crate) removed: Vec<Box<dyn FnOnce()>>,
     pub(crate) on_scroll: Option<Rc<dyn Fn(Vec2)>>,
-    /// The last recorded paint chunk, and the size it was recorded at.
-    pub(crate) chunk: Option<(Size, Rc<DisplayList>)>,
+    /// The last recorded paint chunk, and the size and device-grid box it was recorded at.
+    pub(crate) chunk: Option<((Size, remedy_ui_core::Rect), Rc<DisplayList>)>,
     /// Bindings owned by this element, disposed with it.
     pub(crate) effects: Vec<Effect>,
     /// Bindings of properties set by name ([`crate::IntoProp`]): setting the property again
@@ -2937,7 +2953,7 @@ impl El {
                 Some(w) if p.is_lazy() && !p.is_complete() => w.max(p.width()),
                 _ => p.width(),
             };
-            Size::new(w.ceil(), p.height().ceil())
+            Size::new(layout_unit_ceil(w), layout_unit_ceil(p.height()))
         };
         let Ok(node) = i.layout.measured(&style, measure) else { return };
         let parent = i.tree.parent(self.id).and_then(|p| i.els.get(&p).map(|d| d.node));

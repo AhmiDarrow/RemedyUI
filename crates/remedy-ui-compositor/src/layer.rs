@@ -185,6 +185,92 @@ pub struct Layer {
     /// shadow of its shape), outermost first: what an element with a filter becomes when
     /// some of what it draws is in layers of its own.
     pub filters: Vec<remedy_ui_paint::Filter>,
+    /// The scroll bars a scroll container draws over its content, over its children; `None`
+    /// for none.
+    pub scrollbars: Option<Scrollbars>,
+}
+
+/// How a scroll container's scroll bars look and when they show (resolved from the
+/// element's `scrollbar-*` style). The compositor draws them, so they follow the scroll
+/// offset in the same frame as the content.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Scrollbars {
+    /// The bar's thickness in logical pixels.
+    pub width: f32,
+    /// The thumb's color.
+    pub thumb: remedy_ui_core::Color,
+    /// The track's color (transparent: none).
+    pub track: remedy_ui_core::Color,
+    /// When they show.
+    pub visibility: remedy_ui_core::ScrollbarVisibility,
+}
+
+impl Scrollbars {
+    /// How long overlay bars ([`ScrollbarVisibility::Auto`](remedy_ui_core::ScrollbarVisibility::Auto))
+    /// stay after the content last moved, before they fade.
+    pub const LINGER: std::time::Duration = std::time::Duration::from_millis(1000);
+    /// How long they take to fade out.
+    pub const FADE: std::time::Duration = std::time::Duration::from_millis(300);
+
+    /// The track and thumb of each axis that overflows, in the local space of a `viewport`
+    /// showing `content` scrolled to `offset`: `(track, thumb)` for the vertical bar (along
+    /// the right edge), then the horizontal one (along the bottom).
+    ///
+    /// ```
+    /// use remedy_ui_compositor::Scrollbars;
+    /// use remedy_ui_core::{Color, ScrollbarVisibility, Size, Vec2};
+    /// let bars = Scrollbars { width: 8.0, thumb: Color::WHITE, track: Color::TRANSPARENT, visibility: ScrollbarVisibility::Always };
+    /// let parts = bars.parts(Size::new(100.0, 200.0), Size::new(100.0, 800.0), Vec2::new(0.0, 600.0));
+    /// let (track, thumb) = parts[0].unwrap();
+    /// assert_eq!((track.min.x, track.max.x, track.height()), (92.0, 100.0, 200.0));
+    /// assert_eq!((thumb.height(), thumb.max.y), (50.0, 200.0), "a quarter of the track, at its end");
+    /// assert!(parts[1].is_none(), "no sideways overflow");
+    /// ```
+    pub fn parts(&self, viewport: Size, content: Size, offset: Vec2) -> [Option<(Rect, Rect)>; 2] {
+        let w = self.width;
+        if w.is_nan() || w <= 0.0 {
+            return [None, None];
+        }
+        let over_y = content.height - viewport.height > 0.5;
+        let over_x = content.width - viewport.width > 0.5;
+        // Each bar leaves the corner to the other when both show.
+        let len_y = viewport.height - if over_x { w } else { 0.0 };
+        let len_x = viewport.width - if over_y { w } else { 0.0 };
+        // The thumb is as long as the share of the content in view, never shorter than the
+        // bar is thick (twice, so it can be grabbed), and travels the rest of the track.
+        let thumb = |len: f32, view: f32, content: f32, at: f32| {
+            let size = (len * view / content).clamp((2.0 * w).min(len), len);
+            let travel = (content - view).max(f32::MIN_POSITIVE);
+            let pos = (len - size) * (at / travel).clamp(0.0, 1.0);
+            (pos, size)
+        };
+        let y = over_y.then(|| {
+            let track = Rect::new(viewport.width - w, 0.0, viewport.width, len_y);
+            let (pos, size) = thumb(len_y, viewport.height, content.height, offset.y);
+            (track, Rect::new(track.min.x, pos, track.max.x, pos + size))
+        });
+        let x = over_x.then(|| {
+            let track = Rect::new(0.0, viewport.height - w, len_x, viewport.height);
+            let (pos, size) = thumb(len_x, viewport.width, content.width, offset.x);
+            (track, Rect::new(pos, track.min.y, pos + size, track.max.y))
+        });
+        [y, x]
+    }
+
+    /// How opaque the bars are `since` the content last moved (`None`: it has not moved
+    /// since it showed): overlay bars show while it moves, linger, then fade.
+    pub fn alpha(&self, since: Option<std::time::Duration>) -> f32 {
+        use remedy_ui_core::ScrollbarVisibility as V;
+        match self.visibility {
+            V::Always => 1.0,
+            V::Never => 0.0,
+            _ => match since {
+                Some(t) if t <= Self::LINGER => 1.0,
+                Some(t) => 1.0 - ((t - Self::LINGER).as_secs_f32() / Self::FADE.as_secs_f32()).min(1.0),
+                None => 0.0,
+            },
+        }
+    }
 }
 
 impl Layer {
@@ -207,7 +293,14 @@ impl Layer {
             ambient: Vec::new(),
             backdrop: None,
             filters: Vec::new(),
+            scrollbars: None,
         }
+    }
+
+    /// Draws scroll bars over a scroll container ([`scrolling`](Self::scrolling)).
+    pub fn with_scrollbars(mut self, bars: Scrollbars) -> Self {
+        self.scrollbars = Some(bars);
+        self
     }
 
     /// Draws the layer and its children through `filters`, outermost first.
