@@ -39,7 +39,7 @@ fn every_face_matches_its_metadata() -> Result<(), Box<dyn std::error::Error>> {
 ))]
 #[test]
 fn all_features_give_all_faces() {
-    assert_eq!(remedy_ui_fonts::all().len(), 18);
+    assert_eq!(remedy_ui_fonts::all().len(), 21);
 }
 
 /// Remedy Symbols has every character `SYMBOL_CHARS` lists and nothing else but the space,
