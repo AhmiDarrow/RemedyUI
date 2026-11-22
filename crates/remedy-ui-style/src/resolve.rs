@@ -2,7 +2,10 @@
 
 use std::collections::HashMap;
 
-use remedy_ui_core::{Color, ColorMatrix, Insets, TextTransform, Vec2};
+use remedy_ui_core::{
+    Color, ColorMatrix, Insets, LineHeight, ScrollbarColor, ScrollbarVisibility, ScrollbarWidth,
+    TextTransform, Vec2,
+};
 
 use crate::states::States;
 
@@ -95,6 +98,8 @@ pub struct StylePatch {
     pub letter_spacing: Option<LetterSpacing>,
     /// How letters are cased when drawn (CSS `text-transform`); inherited.
     pub text_transform: Option<TextTransform>,
+    /// How tall each line of text is (CSS `line-height`); inherited.
+    pub line_height: Option<LineHeight>,
     /// At most this many lines of text, the last ending in "…" when cut (CSS
     /// `line-clamp`); 0 for no limit. Not inherited.
     pub max_lines: Option<u32>,
@@ -122,6 +127,13 @@ pub struct StylePatch {
     /// Sticks the element within its nearest scroll container as that scrolls (CSS
     /// `position: sticky` with its insets); [`StickyInsets::NONE`] for not sticky.
     pub sticky: Option<StickyInsets>,
+    /// How thick a scroll container's scroll bars are (CSS `scrollbar-width`).
+    pub scrollbar_width: Option<ScrollbarWidth>,
+    /// The colors of its scroll bars (CSS `scrollbar-color`), inherited; `None` all the way
+    /// up for the platform's own.
+    pub scrollbar_color: Option<ScrollbarColor>,
+    /// When its scroll bars show: overlaid while scrolling, always, or never.
+    pub scrollbar_visibility: Option<ScrollbarVisibility>,
 }
 
 /// The edges a sticky element keeps to in its nearest scroll container's viewport (CSS
@@ -262,6 +274,12 @@ impl StylePatch {
         self
     }
 
+    /// Sets how tall each line of text is.
+    pub fn line_height(mut self, value: LineHeight) -> Self {
+        self.line_height = Some(value);
+        self
+    }
+
     /// Sets the most lines text takes (0: no limit).
     pub fn max_lines(mut self, value: u32) -> Self {
         self.max_lines = Some(value);
@@ -328,6 +346,24 @@ impl StylePatch {
         self
     }
 
+    /// Sets how thick a scroll container's scroll bars are.
+    pub fn scrollbar_width(mut self, value: ScrollbarWidth) -> Self {
+        self.scrollbar_width = Some(value);
+        self
+    }
+
+    /// Sets the colors of a scroll container's scroll bars (inherited).
+    pub fn scrollbar_color(mut self, value: ScrollbarColor) -> Self {
+        self.scrollbar_color = Some(value);
+        self
+    }
+
+    /// Sets when a scroll container's scroll bars show.
+    pub fn scrollbar_visibility(mut self, value: ScrollbarVisibility) -> Self {
+        self.scrollbar_visibility = Some(value);
+        self
+    }
+
     /// The engine's starting style under `theme`, before any rule: transparent boxes, body
     /// text in the theme's text color, and the theme's focus ring for keyboard focus (as
     /// `:focus-visible` does on the web) unless a rule shows focus another way.
@@ -347,6 +383,7 @@ impl StylePatch {
             heading: Some(false),
             letter_spacing: Some(LetterSpacing::Px(0.0)),
             text_transform: Some(TextTransform::None),
+            line_height: Some(LineHeight::Relative(1.33)),
             max_lines: Some(0),
             outline: Some(theme.derive().focus),
             outline_width: Some(2.0),
@@ -357,6 +394,10 @@ impl StylePatch {
             backdrop_blur: Some(0.0),
             color_matrix: Some(ColorMatrix::IDENTITY),
             sticky: Some(StickyInsets::NONE),
+            scrollbar_width: Some(ScrollbarWidth::Auto),
+            // The platform's colors, from the theme, unless a rule says otherwise.
+            scrollbar_color: None,
+            scrollbar_visibility: Some(ScrollbarVisibility::Auto),
         }
     }
 
@@ -377,6 +418,7 @@ impl StylePatch {
             heading: other.heading.or(self.heading),
             letter_spacing: other.letter_spacing.or(self.letter_spacing),
             text_transform: other.text_transform.or(self.text_transform),
+            line_height: other.line_height.or(self.line_height),
             max_lines: other.max_lines.or(self.max_lines),
             outline: other.outline.or(self.outline),
             outline_width: other.outline_width.or(self.outline_width),
@@ -387,6 +429,9 @@ impl StylePatch {
             backdrop_blur: other.backdrop_blur.or(self.backdrop_blur),
             color_matrix: other.color_matrix.or(self.color_matrix),
             sticky: other.sticky.or(self.sticky),
+            scrollbar_width: other.scrollbar_width.or(self.scrollbar_width),
+            scrollbar_color: other.scrollbar_color.or(self.scrollbar_color),
+            scrollbar_visibility: other.scrollbar_visibility.or(self.scrollbar_visibility),
         }
     }
 }
@@ -450,6 +495,8 @@ pub struct ResolvedStyle {
     pub letter_spacing: LetterSpacing,
     /// How letters are cased when drawn.
     pub text_transform: TextTransform,
+    /// How tall each line of text is.
+    pub line_height: LineHeight,
     /// The most lines text takes (0: no limit).
     pub max_lines: u32,
     /// The focus ring's color.
@@ -470,6 +517,12 @@ pub struct ResolvedStyle {
     pub color_matrix: ColorMatrix,
     /// The edges it sticks to ([`StickyInsets::NONE`]: not sticky).
     pub sticky: StickyInsets,
+    /// How thick its scroll bars are, when it scrolls.
+    pub scrollbar_width: ScrollbarWidth,
+    /// The colors of its scroll bars (`None`: the platform's, from the theme).
+    pub scrollbar_color: Option<ScrollbarColor>,
+    /// When its scroll bars show.
+    pub scrollbar_visibility: ScrollbarVisibility,
 }
 
 impl ResolvedStyle {
@@ -489,6 +542,7 @@ impl ResolvedStyle {
             heading: p.heading.unwrap_or(false),
             letter_spacing: p.letter_spacing.unwrap_or(LetterSpacing::Px(0.0)),
             text_transform: p.text_transform.unwrap_or_default(),
+            line_height: p.line_height.unwrap_or(LineHeight::Relative(1.33)),
             max_lines: p.max_lines.unwrap_or(0),
             outline: p.outline.unwrap_or(Color::TRANSPARENT),
             outline_width: p.outline_width.unwrap_or(0.0),
@@ -499,6 +553,9 @@ impl ResolvedStyle {
             backdrop_blur: p.backdrop_blur.filter(|b| b.is_finite()).unwrap_or(0.0).max(0.0),
             color_matrix: p.color_matrix.map_or(ColorMatrix::IDENTITY, |m| m.limited()),
             sticky: p.sticky.unwrap_or(StickyInsets::NONE),
+            scrollbar_width: p.scrollbar_width.unwrap_or_default(),
+            scrollbar_color: p.scrollbar_color,
+            scrollbar_visibility: p.scrollbar_visibility.unwrap_or_default(),
         }
     }
 
@@ -551,6 +608,9 @@ impl ResolvedStyle {
             heading: Some(self.heading),
             letter_spacing: Some(self.letter_spacing),
             text_transform: Some(self.text_transform),
+            line_height: Some(self.line_height),
+            // As CSS `scrollbar-color`, the bars' colors are inherited.
+            scrollbar_color: self.scrollbar_color.or(base.scrollbar_color),
             ..base.clone()
         }
     }

@@ -86,6 +86,7 @@ icon-exit-full-screen = 退出全屏
 icon-theater-mode = 影院模式
 icon-cast = 投屏
 icon-casting = 正在投屏
+icon-picture-in-picture = 画中画
 icon-captions = 字幕
 icon-back-10 = 后退 10 秒
 icon-forward-10 = 前进 10 秒

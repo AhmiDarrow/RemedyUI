@@ -125,6 +125,8 @@ pub enum Icon {
     Cast,
     /// The cast screen with a picture on it: the media is playing on another screen.
     Casting,
+    /// A screen with a small picture in its corner: picture in picture.
+    PictureInPicture,
     /// A box with lines of text: captions and subtitles.
     Captions,
     /// A circular arrow turning back around a 10: back 10 seconds.
@@ -228,6 +230,7 @@ impl Icon {
             Icon::Theater => "Theater mode",
             Icon::Cast => "Cast",
             Icon::Casting => "Casting",
+            Icon::PictureInPicture => "Picture in picture",
             Icon::Captions => "Captions",
             Icon::Back10 => "Back 10 seconds",
             Icon::Forward10 => "Forward 10 seconds",
@@ -304,6 +307,7 @@ impl Icon {
             Icon::Theater => "icon-theater-mode",
             Icon::Cast => "icon-cast",
             Icon::Casting => "icon-casting",
+            Icon::PictureInPicture => "icon-picture-in-picture",
             Icon::Captions => "icon-captions",
             Icon::Back10 => "icon-back-10",
             Icon::Forward10 => "icon-forward-10",
@@ -688,6 +692,11 @@ fn strokes(icon: Icon) -> Path {
                 s.move_to(p(7.0, 7.0)).line_to(p(18.0, 7.0)).line_to(p(18.0, 17.0)).line_to(p(15.0, 17.0));
             }
         }
+        Icon::PictureInPicture => {
+            // The screen, and the small picture in its lower right.
+            rect(&mut s, 2.0, 4.0, 22.0, 20.0);
+            rect(&mut s, 12.0, 12.0, 19.0, 17.0);
+        }
         Icon::Dot => {
             // Rings drawn close together read as a filled dot at menu sizes.
             for r in [1.0, 2.0, 3.0, 4.0] {
@@ -999,6 +1008,7 @@ mod tests {
             Icon::Theater,
             Icon::Cast,
             Icon::Casting,
+            Icon::PictureInPicture,
             Icon::Captions,
             Icon::Back10,
             Icon::Forward10,

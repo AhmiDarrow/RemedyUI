@@ -71,6 +71,14 @@ pub struct MediaLimits {
     /// Matroska, WebM and MP4: the largest embedded subtitle block or sample read; a larger
     /// one is skipped. Default 64 KiB.
     pub max_embedded_cue: u64,
+    /// A browser page playing through Media Source Extensions
+    /// ([`WebBackend::MediaSource`](crate::WebBackend::MediaSource)): how far past the
+    /// playhead the HLS stream is handed to the media element. Default 30 s.
+    pub mse_ahead: Duration,
+    /// As `mse_ahead`: how much already played the element keeps (for a seek back without
+    /// fetching again) before it is let go, so a long film never fills the browser's quota.
+    /// Default 30 s.
+    pub mse_behind: Duration,
     /// Linux, what the computer plays ([`MediaHost::output_capture`](crate::MediaHost::output_capture)):
     /// how much of each program's sound is held for a reader that falls behind before the
     /// oldest is dropped. Default 500 ms.
@@ -100,6 +108,8 @@ impl MediaLimits {
         max_mkv_cues: 64 << 20,
         max_moov: 64 << 20,
         max_embedded_cue: 64 << 10,
+        mse_ahead: Duration::from_secs(30),
+        mse_behind: Duration::from_secs(30),
         capture_queue: Duration::from_millis(500),
     };
 }
@@ -145,6 +155,8 @@ setters! {
     max_mkv_cues: u64,
     max_moov: u64,
     max_embedded_cue: u64,
+    mse_ahead: Duration,
+    mse_behind: Duration,
     capture_queue: Duration,
 }
 

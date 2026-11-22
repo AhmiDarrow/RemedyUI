@@ -592,6 +592,44 @@ fn clamped_and_cased_text_draws_short_or_in_capitals_and_reads_as_written() {
 }
 
 #[test]
+fn line_height_sets_how_tall_each_line_is_and_is_inherited() {
+    use remedy_ui_view::{LineHeight, RichText, Style};
+    let ui = ui();
+    let size = Style::default().text_size(16.0);
+    let one = ui.el("label").text("x").nowrap().style(size.clone()).line_height(LineHeight::Relative(1.5));
+    let two = ui
+        .el("label")
+        .text(RichText::plain("x\ny"))
+        .style(size.clone())
+        .line_height(LineHeight::Relative(1.5));
+    let px = ui.el("label").text("x").nowrap().style(size.clone()).line_height(LineHeight::Absolute(30.0));
+    let plain = ui.el("label").text("x").nowrap().style(size.clone());
+    // Set on a parent, as CSS `line-height` on a body.
+    let child = ui.el("label").text("x").nowrap();
+    let parent =
+        ui.el("box").column().style(size).line_height(LineHeight::Relative(1.5)).child(child.clone());
+    let col = ui.el("box").column();
+    for e in [&one, &two, &px, &plain, &parent] {
+        let _ = col.clone().child(e.clone());
+    }
+    ui.root().child(col);
+    let mut screen = Screen::new(ui.clone());
+    screen.frame();
+    let h = |e: &remedy_ui_view::El| e.bounds().map_or(0.0, |b| b.height());
+    assert!((h(&one) - 24.0).abs() < 0.5, "one line at 1.5 x 16: {}", h(&one));
+    assert!((h(&two) - 48.0).abs() < 0.5, "two lines: {}", h(&two));
+    assert!((h(&px) - 30.0).abs() < 0.5, "exact pixels: {}", h(&px));
+    // Text boxes keep fractional heights, as browsers lay them out (on a 1/64 px grid):
+    // 21.28 stays 21.28125, not 22.
+    assert!((h(&plain) - 21.28125).abs() < 1e-3, "the default stays 1.33: {}", h(&plain));
+    assert!((h(&child) - 24.0).abs() < 0.5, "inherited from the parent: {}", h(&child));
+    // A change reshapes and lays out again.
+    let _ = one.clone().line_height(LineHeight::Relative(1.0));
+    screen.frame();
+    assert!((h(&one) - 16.0).abs() < 0.5, "changed to 1: {}", h(&one));
+}
+
+#[test]
 fn data_text_is_left_alone_by_pseudo_locales() {
     let ui = ui();
     let name = ui.el("label").text(remedy_ui_view::RichText::plain("Ada Lovelace")).nowrap().data_text();
@@ -1656,7 +1694,7 @@ fn fields_tell_input_methods_their_purpose() {
     let pass = ui.text_field("secret_input", FieldKind::Secret);
     let code = ui.text_field("secret_input", FieldKind::Secret).purpose(InputPurpose::OneTimeCode);
     let amount = ui.text_field("text_input", FieldKind::Single).numeric();
-    let find = ui.text_field("text_input", FieldKind::Single).purpose(InputPurpose::Search);
+    let find = ui.text_field("text_input", FieldKind::Single).purpose(remedy_ui_view::InputPurpose::Search);
     let note = ui.text_field("text_input", FieldKind::Multi);
     for f in [&user, &pass, &code, &amount, &find, &note] {
         ui.root().child(f.el().layout(|l| l.width = Length::Px(150.0)));
@@ -1715,4 +1753,22 @@ fn pointer_caps_follow_the_pointer_used_unless_the_platform_reports_them() {
     ui.set_pointer_caps(Some(PointerCaps::MOUSE));
     ui.set_pointer_hardware(PointerCaps::TOUCH);
     assert_eq!(caps.get_untracked().ok(), Some(PointerCaps::MOUSE), "what the platform reports wins");
+}
+
+#[test]
+fn a_search_field_is_a_searchbox_to_assistive_technology() {
+    let ui = ui();
+    ui.connect_accessibility();
+    let find = ui
+        .text_field("text_input", FieldKind::Single)
+        .label("Search")
+        .purpose(remedy_ui_view::InputPurpose::Search);
+    let name = ui.text_field("text_input", FieldKind::Single).label("Name");
+    ui.root().child(find.el()).child(name.el());
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    let role_of =
+        |label: &str| ui.reader_view().into_iter().find(|n| n.name.as_deref() == Some(label)).map(|n| n.role);
+    assert_eq!(role_of("Search"), Some(remedy_ui_a11y::Role::SearchInput));
+    assert_eq!(role_of("Name"), Some(remedy_ui_a11y::Role::TextInput));
 }

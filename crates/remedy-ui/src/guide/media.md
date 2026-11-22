@@ -279,7 +279,13 @@ signals, so the UI follows them like any other state.
 - [`Player::open_platform`](crate::playback::Player::open_platform) uses the platform's own
   decoders: Media Foundation and WASAPI on Windows, the system's GStreamer on Linux (loaded
   at run time, never bundled), AVFoundation and Audio Queues on macOS, MediaCodec and AAudio
-  on Android.
+  on Android. In a browser page, the browser's WebCodecs decoders and WebAudio; where the
+  page may not use WebCodecs (browsers offer it only to secure pages, and a page opened at a
+  machine's LAN address over `http:` is not one) a hidden `<video>` element plays instead,
+  HLS remuxed to fragmented MP4 and fed to it through Media Source Extensions, its sound and
+  clock the element's and each frame it shows drawn into the page. The choice is automatic;
+  [`PlayerOptions::web_backend`](crate::playback::PlayerOptions::web_backend) forces one
+  ([`crate::playback::WebBackend`]).
 - Sound goes to the default output, and its clock (how much has been heard) decides when
   each picture shows, so sound and picture stay together however busy the machine is.
   Without a sound device the monotonic clock does.
@@ -294,6 +300,18 @@ signals, so the UI follows them like any other state.
   readers, and any key, touch or movement brings it back.
 - Media with pictures pauses while unseen ([`crate::playback::UnseenPolicy`]) and does not
   start by itself under reduced motion.
+- The compact mini player ([`Player::set_compact`](crate::playback::Player::set_compact))
+  plays on, or pauses what plays here as Portal's does
+  ([`PlayerOptions::compact_pauses`](crate::playback::PlayerOptions::compact_pauses)): a TV
+  the player casts to plays on, and coming back never plays again by itself.
+- Picture in picture: [`Player::request_pip`](crate::playback::Player::request_pip) and
+  [`exit_pip`](crate::playback::Player::exit_pip), with
+  [`pip_available`](crate::playback::Player::pip_available) saying whether there is a window
+  to go to, and [`PlayerParts::pip_button`](crate::playback::PlayerParts::pip_button) for the
+  widget's button. On the desktop it is an always-on-top frameless window showing the
+  picture (drag to move, drag an edge to resize, double-click or Escape to come back); in a
+  page, the media element's own picture in picture, else Document Picture-in-Picture
+  (Chrome); elsewhere none, and the button stays hidden.
 
 ```no_run
 use remedy_ui::playback::{MediaSource, Player, PlayerOptions, player};

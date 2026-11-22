@@ -33,7 +33,93 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `web-embed-fonts` (fallback faces built into a page's module); remedy-ui-fonts and
   remedy-ui-fonts-cjk feature `embed`; `remedy_ui_fonts::needs` (which characters each script
   face is for) and `Face::file` / `Face::is_remote`.
+- **Scroll bars**, drawn by the compositor over each scroll container at the offset of the
+  frame (`Layer::scrollbars`, `Scrollbars`, `CompositeOp::Fill`), and styled as CSS styles
+  them: `Style::scrollbar_width` (`ScrollbarWidth::Auto`, 12 px; `Thin`, 8 px; `None`; `Px`),
+  `Style::scrollbar_color` (`ScrollbarColor { thumb, track }`, inherited) and
+  `Style::scrollbar_visibility` (`ScrollbarVisibility::Auto`: overlay bars that show while the
+  content moves, stay `Scrollbars::LINGER` and fade over `Scrollbars::FADE`, as browsers draw
+  them on Windows 11, macOS and phones; `Always`; `Never`). The default is the platform's
+  overlay bar in the theme's text color at half strength. The types live in
+  `remedy-ui-core` (`remedy_ui_core::scrollbar`).
+- **List boxes and options** for assistive technology: `Role::ListBox` and `Role::Option`
+  (AccessKit `ListBox` and `ListBoxOption`, ARIA `listbox` and `option` in a page's mirror),
+  each option `selected` or not, and `Semantics::multiselectable` (`aria-multiselectable`,
+  AccessKit's multiselectable) for a list box that takes several.
+- **Where a picture sits in its box** (CSS `object-position`): `ImageOptions::position(x, y)`,
+  fractions of the room left on each axis (`position(0.5, 0.25)` is `center 25%`); centred
+  by default.
+- **Lazy images** (`loading="lazy"`): `ImageOptions::lazy(margin)` fetches and decodes a
+  picture only once its element comes within `margin` logical pixels of the window and of the
+  scroll containers around it. Underneath, `El::on_visibility_within(margin, f)` is
+  `on_visibility` with a margin (as `IntersectionObserver`'s `rootMargin`).
+- **The CSS `ch` unit**: `Length::Ch(n)` is `n` advances of "0" in the element's own font, for
+  widths, heights, their limits and flex bases (`LayoutStyle::ch`, set by the view).
+- **Modal inertness and popups**: `Semantics::modal` (ARIA `aria-modal`, AccessKit's modal)
+  makes everything outside a showing modal inert to assistive technology (hidden from it, and
+  in a page's mirror `aria-hidden` and `inert`); the engine's modal, trusted prompt and
+  drawers are modal. `Semantics::has_popup(Popup::Menu | ListBox | Tree | Grid | Dialog)` is
+  `aria-haspopup` (AccessKit's `has_popup`).
+- **Search fields are search boxes**: a single-line field with `InputPurpose::Search` is
+  `Role::SearchInput` (AccessKit `SearchInput`, ARIA `searchbox`).
+- `PaintCx::pixel_box`: the element's box with its edges on the device-pixel grid, where its
+  background and border are drawn, for painters that place pictures as browsers do.
+- **Line height as a style property** (CSS `line-height`): `Style::line_height`,
+  `StylePatch::line_height` and `El::line_height` take a `LineHeight` (`Relative(1.5)` for a
+  multiple of the text size, `Absolute(24.0)` for pixels, `FontMetrics` for the font's own);
+  descendants inherit it, and the default stays `Relative(1.33)`. `LineHeight` now lives in
+  `remedy-ui-core`, re-exported by `remedy-ui-text`, `remedy-ui-style` and `remedy-ui-view`.
+- **Web playback without WebCodecs**: where a page may not use WebCodecs (browsers offer it
+  only to secure pages, so not to a page at a LAN address over `http:`) or has none, a
+  player plays through a hidden `<video>` element: HLS is remuxed from MPEG-TS to fragmented
+  MP4 by the crate's own reader and fed to a Media Source Extensions `SourceBuffer` per
+  stream (`MediaSource`, or Safari's `ManagedMediaSource`; the element's own HLS where there
+  is neither), other sources go to the element as they are. Its sound and clock are the
+  element's; each frame it shows (`requestVideoFrameCallback`) is uploaded from the element
+  on the GPU renderer (WebGL2's `texSubImage2D`, WebGPU's copy) and drawn through a 2D canvas
+  for the CPU renderer. Seeks, timelines, `replace_source`, captions, volume, speed, the end
+  and the leak counters work as on WebCodecs. Chosen by itself; `PlayerOptions::web_backend`
+  (`WebBackend::Auto`, `WebCodecs`, `MediaSource`) and `platform_host_with` force one. How
+  far ahead the stream is handed to the element and how much played it keeps are
+  `MediaLimits::mse_ahead` and `mse_behind` (30 s each).
+- **A source that plays by itself**: `Decoder::playout` hands the player a `Playout` (its
+  clock, play, pause, seek, volume, speed, waiting, and its own picture in picture), for
+  decoders whose source plays its own sound; the player then opens no sound output.
+- **The mini player pauses**: `PlayerOptions::compact_pauses` and
+  `Player::set_compact_pauses` make going compact pause what plays here, as Portal's mini
+  player; a device the player casts to plays on, and coming back does not play again. Off by
+  default.
+- **Picture in picture**: `Player::request_pip`, `exit_pip`, `is_pip` and the tracked
+  `pip_available`, and `PlayerParts::pip_button` for a button in the widget's bar (hidden
+  where there is no window). In a page it is the media element's own picture in picture
+  when that plays, else Document Picture-in-Picture with the picture drawn in it; on Windows,
+  macOS and Linux `run` opens an always-on-top frameless window showing `player_picture`,
+  moved by dragging, resized from its edges, closed by a double click or Escape
+  (`set_pip_window` replaces it). The element's window stays open across a quality or sound
+  switch. New icon: `Icon::PictureInPicture`.
 
+- **A question from a tray app** (`App::confirm(ConfirmSpec, done)`): a small window of the
+  app's own, drawn in its theme, that works with no other window open. It opens sized to its
+  text (`ConfirmSpec::width` 420 and `max_height` 640 by default, with setters), centered,
+  above other windows, in front and focused (Windows and X11; Wayland's compositor places it).
+  Enter presses the focused button, the no button under `ConfirmSpec::danger` (drawn as a
+  warning), Tab and Shift+Tab stay among the buttons, Escape and closing answer no, and
+  screen readers meet a dialog named by its title and described by its text. `notice()`
+  makes it a message with one button; the default words are "OK" and "Cancel" in the app's
+  language. Underneath: `Window::set_size`, `Window::center`, `Host::center_window` (winit:
+  the middle of the window's display; elsewhere `Unsupported`, the platform places windows),
+  `HeadlessWindow::is_centered`, and `El::focus_visibly` (focus with its ring shown).
+- **A second launch that waits for the first's answer**:
+  `AppConfig::single_instance_reply(timeout)` makes later launches wait for the running
+  instance's reply and exit with it (an installer's `--stop` getting its exit code), and
+  `single_instance_await_exit(timeout)` also waits for that instance's process to end (30 s
+  reply wait by default when only this is set: `SINGLE_INSTANCE_REPLY`). What
+  `App::on_second_instance` returns is the reply: nothing (0, so existing handlers compile
+  unchanged), an `i32`, or `InstanceReply::later()` for a code sent from any thread once slower
+  work is done (`ReplyLater::send`). Windows (the pipe is now duplex, one instance per waiting
+  launch) and Linux and macOS (the socket) both carry it; a reply that does not come in time
+  makes `run` fail with `RunError::SingleInstance`. `remedy_ui_bridge_windows` adds
+  `claim_single_instance_replying`, `ReplyWait`, `Claim` and `Replier`.
 - **Pointer hardware detection**: `SystemSettings::pointer_devices` says what the pointing
   hardware attached can do (`PointerCaps::of_devices`: a mouse or touchpad, else a touch
   screen, else a pen) and `Ui::set_pointer_hardware` starts `Ui::pointer_caps()` from it; the
@@ -1184,7 +1270,25 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - `FontCollection::add_on_demand`: a loader that has no faces yet (still fetching them) is
   asked again for later text instead of being dropped.
 - `remedy_ui_fonts::Face` has a new field, `file`; code building a `Face` itself adds it.
-
+- **Images in a page are decoded and scaled by the browser** (`createImageBitmap`, with
+  `resizeQuality: "high"`, off the page's thread), so a picture on the canvas has the pixels
+  an `<img>` of the same CSS size and device pixel ratio shows. SVG and formats only the
+  engine reads decode as before, and so does anything the browser cannot decode.
+- **Images are decoded at exactly the size they show** (their box in whole device pixels,
+  no longer rounded up to a power of two) and placed on the device-pixel grid, so they are
+  drawn one pixel to one pixel; natively, scaling down uses a Lanczos-3 filter (as browsers
+  downscale while decoding) instead of a box or triangle filter.
+- **Text boxes keep fractional heights**: a paragraph's box is its size on a 1/64 px grid
+  (Chrome's layout unit), no longer rounded up to whole pixels, so a 21.12 px line takes
+  21.125 px instead of 22 and a stack of lines no longer drifts from a browser's.
+- **Box edges are snapped to device pixels**, as Chrome and Firefox draw them: an element's
+  background, border and clip go on its box with each edge on the nearest device pixel, and
+  border widths are whole device pixels (at least one). Layout stays fractional.
+- `widgets_core::list` is a list box of options to assistive technology (`Role::ListBox`,
+  `Role::Option`) instead of a list of list items, as ARIA has a list of choices.
+- `Layer` and `ResolvedStyle`/`StylePatch`/`Style` have new fields (`scrollbars`,
+  `scrollbar_*`); `CompositeOp` has a new variant (`Fill`) and `Role` two (`ListBox`,
+  `Option`): code matching every variant adds them.
 - `Brush` has two new variants (`Elliptical`, `Conic`); code matching every variant adds them.
 - `Theme::families` puts the body's families after a heading or monospace list, as a CSS font
   list ends in a face the page has: a heading face the app did not bundle draws in the body
@@ -1324,6 +1428,14 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **A page no longer freezes while the browser starts WebGL**: `getContext("webgl2")` blocks
+  the page's thread until the browser's GL is up, which headless Firefox on Windows took
+  minutes to do (eight on a loaded machine, ANGLE starting over Direct3D 11), so Portal's
+  web app sat frozen right after its first frame. The WebGL2 rung now has a worker make a
+  context on an `OffscreenCanvas` first and waits for it without blocking; the window draws
+  on the CPU renderer meanwhile and moves to the GPU once the worker answers (the page's own
+  context is then made in milliseconds). A browser that makes no WebGL2 context at all
+  skips the rung at once.
 - **The X11 tray's submenus cascade and take the keyboard** as the top-level menu does: a
   submenu opens beside its row (hovering it, clicking it, Right or Enter) and closes with Left
   or Escape; Up and Down skip what cannot be chosen; access keys pick an entry (the letter

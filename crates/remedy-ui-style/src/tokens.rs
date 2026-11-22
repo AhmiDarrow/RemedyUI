@@ -491,6 +491,8 @@ pub struct Style {
     pub letter_spacing: Option<crate::LetterSpacing>,
     /// How letters are cased when drawn (inherited).
     pub text_transform: Option<crate::TextTransform>,
+    /// How tall each line of text is (inherited).
+    pub line_height: Option<crate::LineHeight>,
     /// The most lines text takes, the last ending in "…" when cut (0: no limit).
     pub max_lines: Option<u32>,
     /// Focus ring color.
@@ -512,6 +514,12 @@ pub struct Style {
     pub color_matrix: Option<ColorMatrix>,
     /// Sticks the element within its nearest scroll container (CSS `position: sticky`).
     pub sticky: Option<crate::StickyInsets>,
+    /// How thick a scroll container's scroll bars are (CSS `scrollbar-width`).
+    pub scrollbar_width: Option<remedy_ui_core::ScrollbarWidth>,
+    /// The colors of its scroll bars (CSS `scrollbar-color`), inherited.
+    pub scrollbar_color: Option<remedy_ui_core::ScrollbarColor>,
+    /// When its scroll bars show: overlaid while scrolling, always, or never.
+    pub scrollbar_visibility: Option<remedy_ui_core::ScrollbarVisibility>,
 }
 
 impl Style {
@@ -633,6 +641,12 @@ impl Style {
         self
     }
 
+    /// How tall each line of text is (CSS `line-height`).
+    pub fn line_height(mut self, value: crate::LineHeight) -> Self {
+        self.line_height = Some(value);
+        self
+    }
+
     /// At most `n` lines of text, the last ending in "…" when cut (CSS `line-clamp`); 0 for
     /// no limit.
     pub fn max_lines(mut self, n: u32) -> Self {
@@ -696,6 +710,30 @@ impl Style {
     /// `position: sticky`): [`StickyInsets::top(0.0)`](crate::StickyInsets::top) for a header.
     pub fn sticky(mut self, insets: crate::StickyInsets) -> Self {
         self.sticky = Some(insets);
+        self
+    }
+
+    /// How thick a scroll container's scroll bars are, as CSS `scrollbar-width`: the
+    /// platform's own ([`ScrollbarWidth::Auto`](remedy_ui_core::ScrollbarWidth::Auto), the
+    /// default), thin, none, or a width in logical pixels.
+    pub fn scrollbar_width(mut self, width: remedy_ui_core::ScrollbarWidth) -> Self {
+        self.scrollbar_width = Some(width);
+        self
+    }
+
+    /// The colors of a scroll container's scroll bars, as CSS `scrollbar-color: thumb track`.
+    /// Inherited, so set on the root it colors every scroll bar in the window; unset, the bars
+    /// take the platform's colors from the theme.
+    pub fn scrollbar_color(mut self, color: remedy_ui_core::ScrollbarColor) -> Self {
+        self.scrollbar_color = Some(color);
+        self
+    }
+
+    /// When a scroll container shows its scroll bars: overlaid while it scrolls and faded
+    /// out after ([`ScrollbarVisibility::Auto`](remedy_ui_core::ScrollbarVisibility::Auto),
+    /// the default, as browsers draw them on Windows 11, macOS and phones), always, or never.
+    pub fn scrollbar_visibility(mut self, visibility: remedy_ui_core::ScrollbarVisibility) -> Self {
+        self.scrollbar_visibility = Some(visibility);
         self
     }
 
@@ -768,6 +806,7 @@ impl Style {
             heading: other.heading.or(self.heading),
             letter_spacing: other.letter_spacing.or(self.letter_spacing),
             text_transform: other.text_transform.or(self.text_transform),
+            line_height: other.line_height.or(self.line_height),
             max_lines: other.max_lines.or(self.max_lines),
             outline: other.outline.or(self.outline),
             outline_width: other.outline_width.or(self.outline_width),
@@ -778,6 +817,9 @@ impl Style {
             backdrop_blur: other.backdrop_blur.or(self.backdrop_blur),
             color_matrix: other.color_matrix.or(self.color_matrix),
             sticky: other.sticky.or(self.sticky),
+            scrollbar_width: other.scrollbar_width.or(self.scrollbar_width),
+            scrollbar_color: other.scrollbar_color.or(self.scrollbar_color),
+            scrollbar_visibility: other.scrollbar_visibility.or(self.scrollbar_visibility),
         }
     }
 
@@ -837,6 +879,7 @@ impl Style {
             heading: self.heading,
             letter_spacing: self.letter_spacing,
             text_transform: self.text_transform,
+            line_height: self.line_height,
             max_lines: self.max_lines,
             outline: c(self.outline),
             outline_width: dp(self.outline_width),
@@ -847,6 +890,9 @@ impl Style {
             backdrop_blur: self.backdrop_blur,
             color_matrix: self.color_matrix,
             sticky: self.sticky,
+            scrollbar_width: self.scrollbar_width,
+            scrollbar_color: self.scrollbar_color,
+            scrollbar_visibility: self.scrollbar_visibility,
         }
     }
 }
@@ -869,6 +915,7 @@ impl From<StylePatch> for Style {
             heading: p.heading,
             letter_spacing: p.letter_spacing,
             text_transform: p.text_transform,
+            line_height: p.line_height,
             max_lines: p.max_lines,
             outline: p.outline.map(ColorRef::Value),
             outline_width: p.outline_width.map(Dp::Px),
@@ -879,6 +926,9 @@ impl From<StylePatch> for Style {
             backdrop_blur: p.backdrop_blur,
             color_matrix: p.color_matrix,
             sticky: p.sticky,
+            scrollbar_width: p.scrollbar_width,
+            scrollbar_color: p.scrollbar_color,
+            scrollbar_visibility: p.scrollbar_visibility,
         }
     }
 }

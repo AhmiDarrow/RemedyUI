@@ -36,6 +36,13 @@ remedy-ui-services-net = { path = "../remedy-ui-services-net", version = "1.0.0-
 image = { version = "=0.25.10", default-features = false }
 moxcms = { version = "=0.8.1" }
 
+# In a page the browser decodes and scales pictures (`createImageBitmap`), as it does `<img>`.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { version = "=0.3.107" }
+wasm-bindgen = { version = "=0.2.130" }
+wasm-bindgen-futures = { version = "=0.4.80" }
+web-sys = { version = "=0.3.107", features = ["Blob", "ImageBitmap", "ImageBitmapOptions", "ImageData", "ImageOrientation", "OffscreenCanvas", "OffscreenCanvasRenderingContext2d", "ResizeQuality", "Window"] }
+
 [dev-dependencies]
 remedy-ui-devtools = { path = "../remedy-ui-devtools", version = "1.0.0-rc.1" }
 remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", features = ["remedy-sans-ui"] }

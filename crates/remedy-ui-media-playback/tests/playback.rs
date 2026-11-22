@@ -4331,3 +4331,266 @@ fn the_next_hls_stream_in_a_player_takes_the_last_ones_decoders() {
     let _ = std::fs::remove_dir_all(&folder);
     assert_eq!(hls_decoders_made(), made, "every next stream took the last one's decoders");
 }
+
+/// A scripted player paused at the start, made with `options`, in a player widget with `parts`.
+fn scripted_parts(s: &mut Screen, options: PlayerOptions, parts: PlayerParts) -> (Player, El) {
+    let host = Arc::new(Scripted {
+        heard: Arc::new(AtomicU64::new(0)),
+        buffer: Duration::from_millis(200),
+        device: false,
+        seconds: 30,
+    });
+    let p = Player::open(&s.ui, host, MediaSource::url("script:"), options);
+    let view = player_with(&s.ui, &p, "Scripted", parts);
+    s.ui.root().child(view.clone());
+    s.wait("opened", |_| p.state() == PlaybackState::Paused);
+    (p, view)
+}
+
+#[test]
+fn going_compact_pauses_what_plays_here_when_asked_but_not_a_cast() {
+    let mut s = Screen::new();
+    let (p, _view) =
+        scripted_parts(&mut s, PlayerOptions::default().compact_pauses(true), PlayerParts::default());
+    assert!(p.compact_pauses());
+    p.play();
+    s.wait("playing", |_| p.state() == PlaybackState::Playing);
+    p.set_compact(true);
+    s.wait("paused by going compact", |_| p.state() == PlaybackState::Paused);
+    // Coming back does not play again by itself, as Portal's mini player.
+    p.set_compact(false);
+    s.idle(150);
+    assert_eq!(p.state(), PlaybackState::Paused);
+    // Off again (the default): compact plays on.
+    p.set_compact_pauses(false);
+    p.play();
+    s.wait("playing again", |_| p.state() == PlaybackState::Playing);
+    p.set_compact(true);
+    s.idle(150);
+    assert_eq!(p.state(), PlaybackState::Playing, "compact plays on");
+    p.set_compact(false);
+
+    // Casting, the TV plays on while the page shrinks to its mini player: it is only the remote.
+    p.set_compact_pauses(true);
+    let log = Arc::new(Mutex::new(Vec::new()));
+    p.set_remote(Some(Remote::new("The Ris", Tv(log.clone()))));
+    p.play();
+    p.set_remote_status(RemoteStatus::new(PlaybackState::Playing, Duration::from_secs(5)));
+    p.set_compact(true);
+    s.pump();
+    let said = log.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert_eq!(said, ["play"], "the TV is not paused");
+    assert_eq!(p.state(), PlaybackState::Playing);
+}
+
+/// What a scripted source that plays by itself shares with its playout: where it is, what it
+/// was told, and the decoder's waker.
+#[derive(Default)]
+struct Played {
+    at: Duration,
+    log: Vec<String>,
+    waker: Option<std::task::Waker>,
+}
+
+type PlayedShared = Arc<Mutex<Played>>;
+
+fn played(s: &PlayedShared) -> std::sync::MutexGuard<'_, Played> {
+    s.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Moves the scripted playout to `at`, as its own clock would.
+fn play_to(s: &PlayedShared, at: Duration) {
+    let mut p = played(s);
+    p.at = at;
+    if let Some(w) = p.waker.take() {
+        w.wake();
+    }
+}
+
+const SELF_LENGTH: Duration = Duration::from_secs(3);
+
+struct SelfPlaying {
+    state: PlayedShared,
+    outputs: Arc<AtomicU64>,
+}
+
+struct SelfDecoder {
+    state: PlayedShared,
+    info: MediaInfo,
+    /// The last position a picture was handed out for.
+    shown: Option<Duration>,
+    given: bool,
+}
+
+impl Decoder for SelfDecoder {
+    fn info(&self) -> &MediaInfo {
+        &self.info
+    }
+
+    fn read(&mut self) -> Result<Option<Sample>, MediaError> {
+        unreachable!("read with poll_read")
+    }
+
+    /// The picture the source shows now, once it moved; the end once it is there.
+    fn poll_read(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<Option<Sample>, MediaError>> {
+        let mut p = played(&self.state);
+        if p.at >= SELF_LENGTH {
+            return std::task::Poll::Ready(Ok(None));
+        }
+        if self.shown == Some(p.at) {
+            p.waker = Some(cx.waker().clone());
+            return std::task::Poll::Pending;
+        }
+        self.shown = Some(p.at);
+        let tenth = u8::try_from(p.at.as_millis() / 100).unwrap_or(0);
+        let mut data = vec![20 + 2 * tenth; 8 * 8];
+        data.extend(std::iter::repeat_n(128u8, 8 * 4));
+        let picture = Picture::packed(8, 8, PixelFormat::Nv12, data);
+        std::task::Poll::Ready(Ok(Some(Sample::Video { at: p.at, duration: None, picture })))
+    }
+
+    fn seek(&mut self, _: Duration) -> Result<(), MediaError> {
+        self.shown = None;
+        Ok(())
+    }
+
+    fn playout(&mut self) -> Option<Box<dyn Playout>> {
+        (!std::mem::replace(&mut self.given, true)).then(|| Box::new(SelfPlayout(self.state.clone())) as _)
+    }
+}
+
+struct SelfPlayout(PlayedShared);
+
+impl SelfPlayout {
+    fn note(&self, what: String) {
+        played(&self.0).log.push(what);
+    }
+}
+
+impl Playout for SelfPlayout {
+    fn position(&mut self) -> Duration {
+        played(&self.0).at
+    }
+    fn play(&mut self) {
+        self.note("play".into());
+    }
+    fn pause(&mut self) {
+        self.note("pause".into());
+    }
+    fn seek(&mut self, to: Duration) {
+        self.note(format!("seek {}", to.as_millis()));
+        play_to(&self.0, to);
+    }
+    fn set_volume(&mut self, gain: f32) {
+        self.note(format!("volume {gain:.2}"));
+    }
+    fn set_speed(&mut self, speed: f64) {
+        self.note(format!("speed {speed}"));
+    }
+    fn waiting(&mut self) -> bool {
+        false
+    }
+}
+
+impl MediaHost for SelfPlaying {
+    fn name(&self) -> &str {
+        "plays by itself"
+    }
+    fn open(&self, _: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
+        let mut info = MediaInfo::default();
+        info.duration = Some(SELF_LENGTH);
+        info.seekable = true;
+        info.video = Some(VideoInfo::new(8, 8, None));
+        info.audio = Some(AudioFormat::new(48_000, 2));
+        Ok(Box::new(SelfDecoder { state: self.state.clone(), info, shown: None, given: false }))
+    }
+    fn audio_output(&self, _: AudioFormat) -> Result<Box<dyn AudioOutput>, MediaError> {
+        self.outputs.fetch_add(1, Ordering::SeqCst);
+        Err(MediaError::Device("a source that plays by itself needs no sound output".into()))
+    }
+}
+
+#[test]
+fn a_source_that_plays_by_itself_is_the_clock_and_takes_every_control() {
+    let state = PlayedShared::default();
+    let outputs = Arc::new(AtomicU64::new(0));
+    let host = Arc::new(SelfPlaying { state: state.clone(), outputs: outputs.clone() });
+    let mut s = Screen::new();
+    let p = Player::open(&s.ui, host, MediaSource::url("self:"), PlayerOptions::default());
+    s.ui.root().child(player(&s.ui, &p, "Self"));
+    s.wait("opened, the first picture shown", |s| p.state() == PlaybackState::Paused && luma(&s.frame) == 20);
+    let said = |what: &str| played(&state).log.iter().any(|l| l == what);
+    p.set_volume(0.5);
+    s.wait("the volume, as loudness", |_| said("volume 0.25"));
+    p.play();
+    s.wait("told to play", |_| said("play") && p.state() == PlaybackState::Playing);
+    // The wall clock does not move the position: the source does.
+    s.idle(200);
+    assert!(near(p.position(), 0.0, 0.001), "{:?}", p.position());
+    play_to(&state, Duration::from_millis(1000));
+    s.wait("its clock, and its picture there", |s| near(p.position(), 1.0, 0.001) && luma(&s.frame) == 40);
+    p.seek(Duration::from_millis(2000));
+    s.wait("the seek goes to it", |s| said("seek 2000") && luma(&s.frame) == 60);
+    assert!(near(p.position(), 2.0, 0.001));
+    p.set_speed(1.5);
+    s.wait("the speed", |_| said("speed 1.5"));
+    p.pause();
+    s.wait("told to pause", |_| said("pause") && p.state() == PlaybackState::Paused);
+    p.play();
+    play_to(&state, SELF_LENGTH);
+    s.wait("its end is the end", |_| p.state() == PlaybackState::Ended);
+    assert!(near(p.position(), 3.0, 0.001), "{:?}", p.position());
+    assert_eq!(outputs.load(Ordering::SeqCst), 0, "no sound output was opened: it plays its own sound");
+    assert!(p.audio_error().is_none());
+}
+
+#[test]
+fn picture_in_picture_opens_the_apps_window_and_comes_back() {
+    let opened = Arc::new(AtomicU64::new(0));
+    let closed = Arc::new(AtomicU64::new(0));
+    let (o, c) = (opened.clone(), closed.clone());
+    set_pip_window(Some(Box::new(move |_p: &Player| {
+        o.fetch_add(1, Ordering::SeqCst);
+        let c = c.clone();
+        Some(Box::new(move || {
+            c.fetch_add(1, Ordering::SeqCst);
+        }) as Box<dyn FnOnce()>)
+    })));
+    let mut s = Screen::new();
+    let (p, view) = scripted_parts(&mut s, PlayerOptions::default(), PlayerParts::default().pip_button(true));
+    s.pump();
+    assert!(p.pip_available() && !p.is_pip());
+    assert!(shown(&view, "Picture in picture"), "the button shows where a window can open");
+    named(&view, "Picture in picture").unwrap_or_else(|| unreachable!()).focus();
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert_eq!(opened.load(Ordering::SeqCst), 1);
+    assert!(p.is_pip());
+    assert!(shown(&view, "Leave picture in picture"), "the button says it brings the picture back");
+    assert!(press(&s.ui, Key::Enter));
+    s.pump();
+    assert_eq!(closed.load(Ordering::SeqCst), 1, "the window closed");
+    assert!(!p.is_pip());
+    // The person closes the window: the player hears it, and there is nothing more to close.
+    p.request_pip();
+    p.request_pip();
+    assert_eq!(opened.load(Ordering::SeqCst), 2, "one window at a time");
+    p.pip_closed();
+    p.exit_pip();
+    assert!(!p.is_pip());
+    assert_eq!(closed.load(Ordering::SeqCst), 1);
+    // Casting closes it, and offers none while the TV plays.
+    p.request_pip();
+    p.set_remote(Some(Remote::new("The Ris", Tv(Arc::new(Mutex::new(Vec::new()))))));
+    s.pump();
+    assert_eq!(closed.load(Ordering::SeqCst), 2);
+    assert!(!p.is_pip() && !p.pip_available());
+    assert!(!shown(&view, "Picture in picture"));
+    p.set_remote(None);
+    // No window to open (as on a phone): none is offered.
+    set_pip_window(None);
+    assert!(!p.pip_available());
+}

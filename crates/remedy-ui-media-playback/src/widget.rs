@@ -106,6 +106,10 @@ pub struct PlayerParts {
     /// and the time in the [compact](Player::set_compact) layout only, as Portal's mini
     /// player. An element of its own, not one the app shows elsewhere at the same time.
     pub title: Option<El>,
+    /// Shows a picture-in-picture button in the bar, after the app's own controls and before
+    /// theater mode, as Portal's: pressed while the picture is in its window, hidden where
+    /// there is none ([`Player::pip_available`]). Off by default.
+    pub pip_button: bool,
     /// The app's own glyphs for the player's icons (Portal's SVGs), by [`Icon`] and size in
     /// logical pixels: `Some` replaces the built-in glyph, `None` keeps it. They take the
     /// button's text color as the built-in ones do (an SVG icon draws in `currentColor`).
@@ -113,8 +117,8 @@ pub struct PlayerParts {
 }
 
 /// An app's glyphs for the player's icons ([`PlayerParts::icons`]): Play, Pause, Back10,
-/// Forward10, Volume, VolumeMuted, Captions, Theater, Cast, Casting, Fullscreen and
-/// FullscreenExit (Play also for the big Play over a paused picture).
+/// Forward10, Volume, VolumeMuted, Captions, PictureInPicture, Theater, Cast, Casting,
+/// Fullscreen and FullscreenExit (Play also for the big Play over a paused picture).
 pub type PlayerIcons = std::rc::Rc<dyn Fn(&Ui, Icon, f32) -> Option<El>>;
 
 /// The app's glyph for `icon` at `size`, else the built-in one.
@@ -132,6 +136,12 @@ impl PlayerParts {
     /// Sets `title`: the app's title in the compact layout.
     pub fn title(mut self, value: El) -> Self {
         self.title = Some(value);
+        self
+    }
+
+    /// Sets `pip_button`: a picture-in-picture button in the bar.
+    pub fn pip_button(mut self, value: bool) -> Self {
+        self.pip_button = value;
         self
     }
 
@@ -709,6 +719,27 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
                 let _ = tb.clone().disabled(!theater_toggles(&p));
             }
         });
+    // Picture in picture: pressed while the picture is in its window; only where there is one.
+    let pip = parts.pip_button.then(|| {
+        let p = player.clone();
+        let button = glyph_button(
+            ui,
+            icons,
+            [Icon::PictureInPicture, Icon::PictureInPicture],
+            "playback-pip-tip",
+            || 0,
+            {
+                let (p, u) = (player.clone(), ui.clone());
+                move || tr(&u, if p.is_pip() { "playback-pip-exit" } else { "playback-pip" })
+            },
+            move || if p.is_pip() { p.exit_pip() } else { p.request_pip() },
+        );
+        let (pb, p) = (button.clone(), player.clone());
+        button.bind(move || {
+            let _ = pb.clone().hidden(!p.pip_available() && !p.is_pip());
+            pb.state(remedy_ui_style::States::CHECKED, p.is_pip());
+        })
+    });
     // Cast: one name that says whether it is casting; the app opens its menu of devices.
     let p = player.clone();
     let cast = glyph_button(
@@ -751,6 +782,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     let skips_full = skips.clone();
     let mute_full = mute.clone();
     let mut controls = vec![&play, &mute, &slider, &captions, &theater, &cast, &full];
+    controls.extend(pip.iter());
     controls.extend(skips.iter());
     controls.extend(speed.iter());
     for c in controls {
@@ -761,6 +793,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         r.children(speed.clone())
             .child(captions.clone())
             .children(parts.end.iter().cloned())
+            .children(pip.clone())
             .child(theater.clone())
             .child(cast.clone())
             .child(full.clone())
@@ -804,6 +837,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         styled.extend([cast.clone(), full.clone()]);
         styled.extend(skips_full.iter().cloned());
         styled.extend(parts.end.iter().cloned());
+        styled.extend(pip.iter().cloned());
         styled.push(mute_full);
         full_screen_look(ui, player, styled);
     }

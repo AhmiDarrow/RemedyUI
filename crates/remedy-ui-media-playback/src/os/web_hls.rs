@@ -228,10 +228,54 @@ impl Drop for WebElementary {
 
 /// What the page's fetches share with the decoder: the reader, whether a fetch is under way,
 /// and when the last playlist and segment fetches ended (the page's clock, in milliseconds).
-struct Reader {
-    hls: Hls,
+pub(super) struct Reader {
+    pub(super) hls: Hls,
     fetching: bool,
     fetched: (f64, f64),
+}
+
+impl Reader {
+    pub(super) fn new(url: &str) -> Rc<RefCell<Reader>> {
+        let now = js_sys::Date::now();
+        Rc::new(RefCell::new(Reader { hls: Hls::new(url), fetching: false, fetched: (now, now) }))
+    }
+}
+
+/// Starts fetching what `reader` wants next, unless a fetch is under way; `done` hears how
+/// the delivery went. A fetch not due yet is waited for in short slices, asking again after
+/// each what is wanted (a seek or a segment now wanted goes first).
+pub(super) fn fetch_next(reader: &Rc<RefCell<Reader>>, done: Rc<dyn Fn(Result<(), MediaError>)>) {
+    {
+        let mut r = reader.borrow_mut();
+        if r.fetching || r.hls.wanted().is_none() {
+            return;
+        }
+        r.fetching = true;
+    }
+    let reader = reader.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        let want = loop {
+            let due = reader.borrow().due();
+            match due {
+                None => {
+                    reader.borrow_mut().fetching = false;
+                    return;
+                }
+                Some((want, wait)) if wait.is_zero() => break want,
+                Some((_, wait)) => sleep(wait.min(WAIT_SLICE)).await,
+            }
+        };
+        let got = fetch_all(&want.url).await;
+        let mut r = reader.borrow_mut();
+        match want.kind {
+            WantKind::Playlist => r.fetched.0 = js_sys::Date::now(),
+            WantKind::Segment(_) => r.fetched.1 = js_sys::Date::now(),
+        }
+        let delivered = r.hls.deliver(&want, got);
+        r.fetching = false;
+        drop(r);
+        done(delivered);
+    });
 }
 
 impl Reader {
@@ -355,53 +399,23 @@ async fn fetch_all(url: &str) -> Result<Vec<u8>, MediaError> {
 
 impl HlsDecoder {
     pub(super) fn open(url: &str, out: Shared) -> HlsDecoder {
-        let now = js_sys::Date::now();
-        let reader =
-            Rc::new(RefCell::new(Reader { hls: Hls::new(url), fetching: false, fetched: (now, now) }));
+        let reader = Reader::new(url);
         let mut dec =
             HlsDecoder { out, reader, el: None, pending: None, ending: false, info: MediaInfo::default() };
         dec.fetch();
         dec
     }
 
-    /// Starts fetching what the reader wants next, unless a fetch is under way. A fetch not
-    /// due yet is waited for in short slices, asking again after each what is wanted (a seek
-    /// or a segment now wanted goes first).
+    /// Starts fetching what the reader wants next ([`fetch_next`]).
     fn fetch(&mut self) {
-        {
-            let mut r = self.reader.borrow_mut();
-            if r.fetching || r.hls.wanted().is_none() {
-                return;
-            }
-            r.fetching = true;
-        }
-        let (reader, out) = (self.reader.clone(), self.out.clone());
-        wasm_bindgen_futures::spawn_local(async move {
-            let want = loop {
-                let due = reader.borrow().due();
-                match due {
-                    None => {
-                        reader.borrow_mut().fetching = false;
-                        return;
-                    }
-                    Some((want, wait)) if wait.is_zero() => break want,
-                    Some((_, wait)) => sleep(wait.min(WAIT_SLICE)).await,
-                }
-            };
-            let got = fetch_all(&want.url).await;
-            let mut r = reader.borrow_mut();
-            match want.kind {
-                WantKind::Playlist => r.fetched.0 = js_sys::Date::now(),
-                WantKind::Segment(_) => r.fetched.1 = js_sys::Date::now(),
-            }
-            let delivered = r.hls.deliver(&want, got);
-            r.fetching = false;
-            drop(r);
-            match delivered {
+        let out = self.out.clone();
+        fetch_next(
+            &self.reader,
+            Rc::new(move |delivered| match delivered {
                 Ok(()) => out.borrow_mut().wake(),
                 Err(e) => out.borrow_mut().fail(e),
-            }
-        });
+            }),
+        );
     }
 
     /// Sets the decoders up once the reader knows the streams, feeds them, and fetches more.

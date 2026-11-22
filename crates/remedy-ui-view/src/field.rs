@@ -568,6 +568,7 @@ impl Field {
         let mut s = Semantics::new(match self.kind {
             FieldKind::Secret => Role::PasswordInput,
             FieldKind::Multi | FieldKind::Rich | FieldKind::Code => Role::MultilineTextInput,
+            FieldKind::Single if self.purpose == remedy_ui_host::InputPurpose::Search => Role::SearchInput,
             FieldKind::Single => Role::TextInput,
         });
         if let Some(l) = &self.label {

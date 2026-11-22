@@ -51,6 +51,9 @@ pub enum Role {
     Slider,
     /// A text input.
     TextInput,
+    /// A text input for search terms (ARIA `searchbox`): a field with
+    /// `InputPurpose::Search`.
+    SearchInput,
     /// A text input with several lines.
     MultilineTextInput,
     /// A password input: its text is never exposed.
@@ -61,6 +64,13 @@ pub enum Role {
     List,
     /// An item in a list.
     ListItem,
+    /// A list of choices to pick from, one or (when
+    /// [`multiselectable`](Semantics::multiselectable)) several, as ARIA's `listbox`: a theme
+    /// picker, a font list. Its choices are [`Role::Option`]s, each [`selected`](Semantics::selected)
+    /// or not.
+    ListBox,
+    /// One choice in a [`Role::ListBox`], as ARIA's `option`.
+    Option,
     /// A tab.
     Tab,
     /// A row of tabs.
@@ -221,6 +231,23 @@ pub enum Current {
     True,
 }
 
+/// What kind of popup an element opens (ARIA `aria-haspopup`): screen readers say so on a
+/// menu button or a button that opens a dialog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Popup {
+    /// A menu.
+    Menu,
+    /// A list box of options.
+    ListBox,
+    /// A tree.
+    Tree,
+    /// A grid.
+    Grid,
+    /// A dialog.
+    Dialog,
+}
+
 /// What an element tells assistive technology about itself.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Semantics {
@@ -231,6 +258,9 @@ pub struct Semantics {
     numeric: Option<(f64, f64, f64)>,
     checked: Option<bool>,
     selected: Option<bool>,
+    multiselectable: bool,
+    modal: bool,
+    has_popup: Option<Popup>,
     expanded: Option<bool>,
     invalid: bool,
     disabled: bool,
@@ -268,6 +298,9 @@ impl Semantics {
             numeric: None,
             checked: None,
             selected: None,
+            multiselectable: false,
+            modal: false,
+            has_popup: None,
             expanded: None,
             invalid: false,
             disabled: false,
@@ -386,6 +419,43 @@ impl Semantics {
     pub fn selected(mut self, on: bool) -> Self {
         self.selected = Some(on);
         self
+    }
+
+    /// More than one of its choices may be selected at once (a [`Role::ListBox`], a
+    /// [`Role::Grid`], a [`Role::Tree`]), as ARIA's `aria-multiselectable`.
+    pub fn multiselectable(mut self, on: bool) -> Self {
+        self.multiselectable = on;
+        self
+    }
+
+    /// True when more than one of its choices may be selected at once.
+    pub fn is_multiselectable(&self) -> bool {
+        self.multiselectable
+    }
+
+    /// A modal dialog or overlay (ARIA `aria-modal`): while it shows, everything outside it is
+    /// inert to assistive technology (hidden from it, and in a page not focusable or
+    /// clickable), as the rest of a page is behind a modal `<dialog>`.
+    pub fn modal(mut self, on: bool) -> Self {
+        self.modal = on;
+        self
+    }
+
+    /// True for a modal dialog or overlay.
+    pub fn is_modal(&self) -> bool {
+        self.modal
+    }
+
+    /// Opens a popup of this kind (ARIA `aria-haspopup`): a menu button, a button opening a
+    /// dialog.
+    pub fn has_popup(mut self, popup: Popup) -> Self {
+        self.has_popup = Some(popup);
+        self
+    }
+
+    /// The kind of popup it opens, if any.
+    pub fn popup(&self) -> Option<Popup> {
+        self.has_popup
     }
 
     /// Expanded or collapsed.
@@ -510,6 +580,9 @@ pub struct A11yTree {
     dirty: BTreeSet<u64>,
     connected: bool,
     sent_once: bool,
+    /// What a modal showing makes inert: the siblings of it and of each of its ancestors (so
+    /// everything outside it), hidden from assistive technology while it shows.
+    inert: HashSet<u64>,
     /// Device pixels per logical pixel: bounds are logical, assistive technology reads
     /// device pixels, so the root carries this scale.
     scale: f64,
@@ -537,6 +610,7 @@ impl A11yTree {
             dirty: BTreeSet::new(),
             connected: false,
             sent_once: false,
+            inert: HashSet::new(),
             scale: 1.0,
         }
     }
@@ -697,6 +771,21 @@ impl A11yTree {
         if let Some(sel) = s.selected {
             n.set_selected(sel);
         }
+        if s.multiselectable {
+            n.set_multiselectable();
+        }
+        if s.modal {
+            n.set_modal();
+        }
+        if let Some(p) = s.has_popup {
+            n.set_has_popup(match p {
+                Popup::Menu => accesskit::HasPopup::Menu,
+                Popup::ListBox => accesskit::HasPopup::Listbox,
+                Popup::Tree => accesskit::HasPopup::Tree,
+                Popup::Grid => accesskit::HasPopup::Grid,
+                Popup::Dialog => accesskit::HasPopup::Dialog,
+            });
+        }
         if let Some(e) = s.expanded {
             n.set_expanded(e);
         }
@@ -720,7 +809,7 @@ impl A11yTree {
         if s.read_only {
             n.set_read_only();
         }
-        if s.hidden {
+        if s.hidden || self.inert.contains(&id) {
             n.set_hidden();
         }
         match s.live {
@@ -770,11 +859,12 @@ impl A11yTree {
     /// a merging node holds folded into its label, password text never shown. Kept whether
     /// or not a client is connected, so devtools can show it at any time.
     pub fn reader_view(&self) -> Vec<ReaderNode> {
+        let inert = self.inert_now();
         let mut out = Vec::new();
         let mut stack = vec![(self.root, 0usize)];
         while let Some((id, depth)) = stack.pop() {
             let Some((s, children)) = self.nodes.get(&id) else { continue };
-            if s.hidden {
+            if s.hidden || inert.contains(&id) {
                 continue;
             }
             let mut states = Vec::new();
@@ -840,11 +930,58 @@ impl A11yTree {
         out
     }
 
+    /// What the showing modal makes inert ([`Semantics::modal`]): the siblings of it and of
+    /// each of its ancestors. With several, the newest element's.
+    fn inert_now(&self) -> HashSet<u64> {
+        let mut out = HashSet::new();
+        let modal = self.nodes.iter().filter(|(id, (s, _))| s.modal && self.showing(**id)).map(|(id, _)| *id).max();
+        let Some(mut cur) = modal else { return out };
+        while let Some(&p) = self.parents.get(&cur) {
+            if let Some((_, kids)) = self.nodes.get(&p) {
+                out.extend(kids.iter().copied().filter(|k| *k != cur));
+            }
+            cur = p;
+        }
+        out
+    }
+
+    /// True when `id` is in the tree (each parent up to the root lists it) and neither it nor
+    /// an ancestor is hidden.
+    fn showing(&self, id: u64) -> bool {
+        let mut cur = id;
+        loop {
+            let Some((s, _)) = self.nodes.get(&cur) else { return false };
+            if s.hidden {
+                return false;
+            }
+            if cur == self.root {
+                return true;
+            }
+            let Some(&p) = self.parents.get(&cur) else { return false };
+            if !self.nodes.get(&p).is_some_and(|(_, kids)| kids.contains(&cur)) {
+                return false;
+            }
+            cur = p;
+        }
+    }
+
+    /// True when a showing modal makes `id` inert to assistive technology.
+    pub fn is_inert(&self, id: u64) -> bool {
+        self.inert_now().contains(&id)
+    }
+
     /// The changes since the last call, or the whole tree after `connect`. `None` when no
     /// client is connected or nothing changed.
     pub fn take_update(&mut self) -> Option<TreeUpdate> {
         if !self.connected {
             return None;
+        }
+        // A modal opening or closing changes what is inert: those nodes are sent again.
+        let inert = self.inert_now();
+        if inert != self.inert {
+            let changed: Vec<u64> = inert.symmetric_difference(&self.inert).copied().collect();
+            self.dirty.extend(changed);
+            self.inert = inert;
         }
         let (ids, inside): (Vec<u64>, HashMap<u64, bool>) = if self.sent_once {
             let changed: Vec<u64> = std::mem::take(&mut self.dirty).into_iter().collect();
@@ -962,10 +1099,12 @@ pub fn is_control_role(r: Role) -> bool {
             | Role::Radio
             | Role::Slider
             | Role::TextInput
+            | Role::SearchInput
             | Role::MultilineTextInput
             | Role::PasswordInput
             | Role::Link
             | Role::Tab
+            | Role::Option
             | Role::MenuItem
             | Role::MenuItemCheckBox
             | Role::MenuItemRadio
@@ -987,11 +1126,14 @@ pub fn role_name(r: Role) -> String {
         Role::Radio => "radio button".into(),
         Role::Slider => "slider".into(),
         Role::TextInput => "edit text".into(),
+        Role::SearchInput => "search, edit text".into(),
         Role::MultilineTextInput => "edit text, multi-line".into(),
         Role::PasswordInput => "password, edit text".into(),
         Role::Link => "link".into(),
         Role::List => "list".into(),
         Role::ListItem => "list item".into(),
+        Role::ListBox => "list box".into(),
+        Role::Option => "option".into(),
         Role::Tab => "tab".into(),
         Role::TabList => "tab list".into(),
         Role::Menu => "menu".into(),
@@ -1045,11 +1187,14 @@ fn role(r: Role) -> accesskit::Role {
         Role::Radio => R::RadioButton,
         Role::Slider => R::Slider,
         Role::TextInput => R::TextInput,
+        Role::SearchInput => R::SearchInput,
         Role::MultilineTextInput => R::MultilineTextInput,
         Role::PasswordInput => R::PasswordInput,
         Role::Link => R::Link,
         Role::List => R::List,
         Role::ListItem => R::ListItem,
+        Role::ListBox => R::ListBox,
+        Role::Option => R::ListBoxOption,
         Role::Tab => R::Tab,
         Role::TabList => R::TabList,
         Role::Menu => R::Menu,

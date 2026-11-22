@@ -196,7 +196,9 @@ disabled there.
 - **One instance.** `main` uses
   [`AppConfig::single_instance`](crate::AppConfig::single_instance); a second launch hands
   its arguments to [`App::on_second_instance`](crate::App::on_second_instance), which shows
-  the running window.
+  the running window. A command-line launch that needs an answer (`--stop` from an
+  installer) uses [`AppConfig::single_instance_reply`](crate::AppConfig::single_instance_reply):
+  the handler's return value becomes that launch's exit code.
 - **The reminder** is [`App::after`](crate::App::after) scheduling itself every twenty
   minutes. When not paused, it marks a break as due, shows the window and sends a system
   notification with [`App::notify`](crate::App::notify): a

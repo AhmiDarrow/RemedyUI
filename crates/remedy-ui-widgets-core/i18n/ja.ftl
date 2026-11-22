@@ -86,6 +86,7 @@ icon-exit-full-screen = 全画面表示を終了
 icon-theater-mode = シアターモード
 icon-cast = キャスト
 icon-casting = キャスト中
+icon-picture-in-picture = ピクチャー イン ピクチャー
 icon-captions = 字幕
 icon-back-10 = 10 秒戻る
 icon-forward-10 = 10 秒進む
