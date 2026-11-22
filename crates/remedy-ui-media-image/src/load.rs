@@ -36,6 +36,8 @@ pub enum Source {
 
 impl Source {
     /// What identifies the source in a cache: the path of a file, or the allocation of bytes.
+    /// An allocation's address can be reused once it is freed, so a cache keyed by this must
+    /// keep the source (or a `Weak` to its bytes) for as long as it keeps the entry.
     pub fn id(&self) -> SourceId {
         SourceId(self.key())
     }
@@ -195,6 +197,8 @@ struct Key {
 
 struct Done {
     pixels: Weak<[u8]>,
+    /// Holds the bytes' allocation so its address is not reused while this entry exists.
+    bytes: Option<Weak<[u8]>>,
     id: u64,
     size: (u32, u32),
     source_size: (u32, u32),
@@ -212,8 +216,69 @@ struct Pending {
 struct Cache {
     done: HashMap<Key, Done>,
     pending: HashMap<Key, Pending>,
-    sizes: HashMap<SourceKey, (u32, u32)>,
+    sizes: HashMap<SourceKey, Known>,
     next_waiter: u64,
+    tick: u64,
+}
+
+/// How many source sizes are remembered; the least recently used go first.
+const SIZES_CAP: usize = 1024;
+
+/// A source's size, as last read.
+struct Known {
+    size: (u32, u32),
+    /// The file's stamp when its size was read.
+    stamp: Option<Stamp>,
+    /// Holds the bytes' allocation so its address is not reused while this entry exists.
+    bytes: Option<Weak<[u8]>>,
+    used: u64,
+}
+
+/// A weak hold on a bytes source, which keeps its address from being reused.
+fn hold(source: &Source) -> Option<Weak<[u8]>> {
+    match source {
+        Source::Bytes(b) => Some(Arc::downgrade(b)),
+        Source::File(_) | Source::Url(_) => None,
+    }
+}
+
+/// True when the bytes held are freed: nobody can ask for them again.
+fn gone(bytes: &Option<Weak<[u8]>>) -> bool {
+    bytes.as_ref().is_some_and(|w| w.strong_count() == 0)
+}
+
+impl Cache {
+    /// The size known for `source`, and the file stamp it was read at.
+    fn known(&mut self, source: &SourceKey) -> Option<((u32, u32), Option<Stamp>)> {
+        self.tick += 1;
+        let tick = self.tick;
+        let k = self.sizes.get_mut(source).filter(|k| !gone(&k.bytes))?;
+        k.used = tick;
+        Some((k.size, k.stamp))
+    }
+
+    fn remember(
+        &mut self,
+        source: SourceKey,
+        size: (u32, u32),
+        stamp: Option<Stamp>,
+        bytes: Option<Weak<[u8]>>,
+    ) {
+        self.tick += 1;
+        self.sizes.insert(source, Known { size, stamp, bytes, used: self.tick });
+        // Sizes of freed bytes go (letting their allocations go too), then the least recently used.
+        self.sizes.retain(|_, k| !gone(&k.bytes));
+        if self.sizes.len() > SIZES_CAP
+            && let Some(oldest) = self.sizes.iter().min_by_key(|(_, k)| k.used).map(|(s, _)| s.clone())
+        {
+            self.sizes.remove(&oldest);
+        }
+    }
+}
+
+/// How many source sizes are remembered (for tests and the inspector).
+pub fn known_sizes() -> usize {
+    CACHE.with(|c| c.borrow().sizes.len())
 }
 
 thread_local! {
@@ -263,7 +328,8 @@ pub fn load(source: &Source, box_px: Option<(u32, u32)>, cover: bool, state: Sig
         c.next_waiter += 1;
         let waiter = c.next_waiter;
         let request = Request { key: key.clone(), waiter };
-        let cached = c.done.get(&key).and_then(|d| d.pixels.upgrade().map(|px| (d, px)));
+        let cached =
+            c.done.get(&key).filter(|d| !gone(&d.bytes)).and_then(|d| d.pixels.upgrade().map(|px| (d, px)));
         if let Some((d, pixels)) = cached {
             let image = Image { id: d.id, width: d.size.0, height: d.size.1, pixels };
             state.set(ImageState::Ready(image, d.source_size));
@@ -274,7 +340,8 @@ pub fn load(source: &Source, box_px: Option<(u32, u32)>, cover: bool, state: Sig
             return request;
         }
         c.done.remove(&key);
-        if let Some(size) = c.sizes.get(&key.source).copied() {
+        // A file's size may be stale here; the decode below brings the current one.
+        if let Some((size, _)) = c.known(&key.source) {
             state.set(ImageState::Sized(size));
         } else {
             state.set(ImageState::Loading);
@@ -303,7 +370,7 @@ fn start(source: Source, key: Key, cancelled: Arc<AtomicBool>) {
     let fetching = crate::remote::fetch(url, move |got| match got {
         Ok(bytes) if !c2.load(Ordering::Relaxed) => decode_start(Source::Bytes(bytes), k2, c2),
         Ok(_) => {}
-        Err(e) => finish(k2, Err(e)),
+        Err(e) => finish(k2, None, Err(e)),
     });
     CACHE.with(|c| {
         if let Some(p) = c.borrow_mut().pending.get_mut(&key) {
@@ -312,10 +379,12 @@ fn start(source: Source, key: Key, cancelled: Arc<AtomicBool>) {
     });
 }
 
+/// Decodes `source` (bytes fetched from an address hold nothing: the address is the key).
 fn decode_start(source: Source, key: Key, cancelled: Arc<AtomicBool>) {
+    let held = if matches!(key.source, SourceKey::Url(_)) { None } else { hold(&source) };
     let Ok(waker) = remedy_ui_reactive::waker() else {
         let result = decode_job(&source, &key_box(&key), key.cover);
-        finish(key, result);
+        finish(key, held, result);
         return;
     };
     let box_px = key_box(&key);
@@ -326,7 +395,7 @@ fn decode_start(source: Source, key: Key, cancelled: Arc<AtomicBool>) {
             return;
         }
         let result = decode_job(&source, &box_px, cover);
-        let _ = waker.post(move || finish(key, result));
+        let _ = waker.post(move || finish(key, held, result));
     });
 }
 
@@ -360,16 +429,17 @@ fn decode_job(source: &Source, box_px: &Option<(u32, u32)>, cover: bool) -> JobR
     Ok((d.image, d.source_size, stamp))
 }
 
-fn finish(key: Key, result: JobResult) {
+fn finish(key: Key, held: Option<Weak<[u8]>>, result: JobResult) {
     let waiters = CACHE.with(|c| {
         let mut c = c.borrow_mut();
         let p = c.pending.remove(&key);
         if let Ok((image, source_size, stamp)) = &result {
-            c.sizes.insert(key.source.clone(), *source_size);
+            c.remember(key.source.clone(), *source_size, *stamp, held.clone());
             c.done.insert(
                 key.clone(),
                 Done {
                     pixels: Arc::downgrade(&image.pixels),
+                    bytes: held,
                     id: image.id,
                     size: (image.width, image.height),
                     source_size: *source_size,
@@ -377,8 +447,9 @@ fn finish(key: Key, result: JobResult) {
                 },
             );
         }
-        // Entries for images nobody holds any more are dropped as they are found.
-        c.done.retain(|_, d| d.pixels.strong_count() > 0);
+        // Entries for images nobody holds any more, or whose bytes are freed, are dropped as
+        // they are found.
+        c.done.retain(|_, d| d.pixels.strong_count() > 0 && !gone(&d.bytes));
         p.map(|p| p.waiters).unwrap_or_default()
     });
     let state = match result {
@@ -402,10 +473,13 @@ fn revalidate(path: PathBuf, old: Stamp, key: Key, source: Source, state: Signal
         let _ = waker.post(move || {
             if let Ok((image, size, stamp)) = &result {
                 CACHE.with(|c| {
-                    c.borrow_mut().done.insert(
+                    let mut c = c.borrow_mut();
+                    c.remember(key.source.clone(), *size, *stamp, None);
+                    c.done.insert(
                         key.clone(),
                         Done {
                             pixels: Arc::downgrade(&image.pixels),
+                            bytes: None,
                             id: image.id,
                             size: (image.width, image.height),
                             source_size: *size,
@@ -432,48 +506,71 @@ pub fn probe(source: &Source, state: Signal<ImageState>) {
 
 /// [`probe`], returning the fetch of an address: dropping it lets the fetch go.
 pub(crate) fn probe_held(source: &Source, state: Signal<ImageState>) -> Option<crate::remote::Fetching> {
-    if let Some(size) = CACHE.with(|c| c.borrow().sizes.get(&source.key()).copied()) {
+    let key = source.key();
+    let known = CACHE.with(|c| c.borrow_mut().known(&key));
+    if let Some((size, _)) = known {
         state.set(ImageState::Sized(size));
-        return None;
+        // Bytes never change, nor (for the session) an address; a file may have, so its
+        // stamp is checked off the UI thread.
+        if !matches!(source, Source::File(_)) {
+            return None;
+        }
     }
     let Source::Url(url) = source else {
-        size_job(source.clone(), source.key(), state);
+        size_job(source.clone(), key, hold(source), known, state);
         return None;
     };
     if let Some(bytes) = crate::remote::remembered(url) {
-        size_job(Source::Bytes(bytes), source.key(), state);
+        size_job(Source::Bytes(bytes), key, None, None, state);
         return None;
     }
-    let key = source.key();
     Some(crate::remote::fetch(url, move |got| match got {
-        Ok(bytes) => size_job(Source::Bytes(bytes), key, state),
+        Ok(bytes) => size_job(Source::Bytes(bytes), key, None, None, state),
         Err(e) => {
             let _ = state.try_set(ImageState::Failed(e));
         }
     }))
 }
 
-/// Reads `src`'s size off the UI thread and remembers it as `key`'s.
-fn size_job(src: Source, key: SourceKey, state: Signal<ImageState>) {
+/// Reads `src`'s size off the UI thread (unless its stamp is still `known`'s) and remembers
+/// it as `key`'s, holding `held`.
+fn size_job(
+    src: Source,
+    key: SourceKey,
+    held: Option<Weak<[u8]>>,
+    known: Option<((u32, u32), Option<Stamp>)>,
+    state: Signal<ImageState>,
+) {
+    // The stamp is taken before the size, so an edit in between is noticed next time.
+    let read = move || {
+        let now = src.stamp();
+        if known.is_some_and(|(_, old)| old == now) {
+            return None;
+        }
+        Some((src.size(), now))
+    };
+    let apply = move |(r, stamp): (Result<(u32, u32), DecodeError>, Option<Stamp>)| {
+        if let Ok(size) = &r {
+            CACHE.with(|c| c.borrow_mut().remember(key, *size, stamp, held));
+        }
+        // Only move forward: a load may already have finished.
+        let unloaded = state
+            .with_untracked(|s| matches!(s, ImageState::Loading | ImageState::Sized(_)))
+            .unwrap_or(false);
+        if unloaded || r.is_err() {
+            let _ = state.try_set(r.map_or_else(ImageState::Failed, ImageState::Sized));
+        }
+    };
     let Ok(waker) = remedy_ui_reactive::waker() else {
-        let r = src.size();
-        let _ = state.try_set(r.map_or_else(ImageState::Failed, ImageState::Sized));
+        if let Some(r) = read() {
+            apply(r);
+        }
         return;
     };
     spawn(Arc::new(AtomicBool::new(false)), move || {
-        let r = src.size();
-        let _ = waker.post(move || {
-            if let Ok(size) = &r {
-                CACHE.with(|c| {
-                    c.borrow_mut().sizes.insert(key, *size);
-                });
-            }
-            // Only move forward: a load may already have finished.
-            let still_loading = state.with_untracked(|s| matches!(s, ImageState::Loading)).unwrap_or(false);
-            if still_loading || r.is_err() {
-                let _ = state.try_set(r.map_or_else(ImageState::Failed, ImageState::Sized));
-            }
-        });
+        if let Some(r) = read() {
+            let _ = waker.post(move || apply(r));
+        }
     });
 }
 

@@ -42,11 +42,11 @@ pub use decode::{
 };
 pub use remote::{
     Fetch, FetchDone, FetchReply, FetchRequest, fetching, forget_remembered, remembered_bytes, set_cache_dir,
-    set_fetcher,
+    set_fetcher, set_web_proxy,
 };
 
 pub use load::{
-    ImageState, Request, Source, SourceId, Stamp, cached, decode_for_box, load, probe, spawn_job,
+    ImageState, Request, Source, SourceId, Stamp, cached, decode_for_box, known_sizes, load, probe, spawn_job,
 };
 
 /// How an image fills its element.

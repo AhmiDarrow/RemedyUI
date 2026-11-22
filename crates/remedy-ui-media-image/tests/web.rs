@@ -1,8 +1,9 @@
 //! Images from addresses in a real browser page (run with the web bridge's
 //! `tools/web-test.sh`, which starts `tools/test-serve.py` on another port, so every image is
 //! from another origin): a server that allows it (CORS) shows, its real size reported; one
-//! that does not fails, saying why, and the app's fallback shows; a fetch is aborted when its
-//! element goes.
+//! that does not fails, saying why, and the app's fallback shows, unless the app names an
+//! image proxy (`set_web_proxy`), through which it shows; a fetch is aborted when its element
+//! goes.
 
 #![cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 
@@ -94,6 +95,7 @@ async fn a_cors_image_from_another_origin_shows_with_its_real_size() {
 #[wasm_bindgen_test]
 async fn an_image_without_cors_fails_saying_why_and_the_fallback_shows() {
     let Some(base) = server() else { return };
+    set_web_proxy(None);
     let ui = ui();
     let why: Rc<RefCell<Option<String>>> = Rc::default();
     let (w2, ui2) = (why.clone(), ui.clone());
@@ -116,6 +118,33 @@ async fn an_image_without_cors_fails_saying_why_and_the_fallback_shows() {
     let _ = until(&ui, || el.bounds().is_some_and(|b| b.height() == 60.0)).await;
     let b = el.bounds().unwrap_or_default();
     assert_eq!((b.width(), b.height()), (40.0, 60.0), "the fallback shows");
+}
+
+#[wasm_bindgen_test]
+async fn an_image_without_cors_shows_through_the_apps_proxy() {
+    let Some(base) = server() else { return };
+    set_web_proxy(Some(format!("{base}/proxy?url=")));
+    let ui = ui();
+    let size: Rc<RefCell<Option<(u32, u32)>>> = Rc::default();
+    let s2 = size.clone();
+    // Its own address: the failure test's is not remembered as fetched.
+    let el = image_ext(
+        &ui,
+        Source::Url(format!("{base}/nocors.png?via=proxy")),
+        "Poster",
+        Fit::Contain,
+        ImageOptions::new().on_state(move |s| {
+            if let ImageState::Ready(_, sz) = s {
+                *s2.borrow_mut() = Some(*sz);
+            }
+        }),
+    );
+    ui.root().child(el.clone());
+    let shown = until(&ui, || size.borrow().is_some()).await;
+    set_web_proxy(None);
+    assert!(shown, "shown through the proxy");
+    assert_eq!(*size.borrow(), Some((30, 10)));
+    el.remove();
 }
 
 #[wasm_bindgen_test]

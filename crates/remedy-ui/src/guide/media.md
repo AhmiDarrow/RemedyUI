@@ -92,8 +92,17 @@ let poster = image_ext(
 
 In a browser page images are drawn on the canvas, so an image from another site shows only
 if its server allows it with CORS headers (`Access-Control-Allow-Origin`). If not, the load
-fails with `DecodeError::Network` and the reason says why. Fetch such images through your
-own server instead (a same-origin image proxy). The engine does not lay a DOM `<img>` over
+fails with `DecodeError::Network`, the reason says why and the element shows its fallback.
+For such images run a small proxy on your own server, one that fetches the address in its
+`url` query value and answers with the bytes from your origin, and name it with
+[`crate::image::set_web_proxy`]: a fetch the browser refuses is tried once more through it.
+
+```no_run
+remedy_ui::image::set_web_proxy(Some("/image-proxy?url=".into()));
+```
+
+Keep the proxy to the hosts your app shows art from, so it is not an open relay. Natively
+nothing needs it and it is not used. The engine does not lay a DOM `<img>` over
 the canvas, because that image could not be clipped, rounded, layered under popups and
 dialogs, faded, transformed or hit-tested with the rest of the UI.
 

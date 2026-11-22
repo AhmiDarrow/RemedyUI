@@ -766,6 +766,9 @@ pub(crate) struct Inner {
     pub(crate) drag_pending: Option<crate::dnd::Pending>,
     pub(crate) trusted: ElementId,
     pub(crate) reduced_motion: remedy_ui_reactive::Signal<bool>,
+    pub(crate) pointer_caps: remedy_ui_reactive::Signal<remedy_ui_host::PointerCaps>,
+    /// The platform reports the pointer's caps: the last pointer used does not change them.
+    pub(crate) pointer_reported: bool,
     /// The edges system interface covers (status and navigation bars, cutouts, the on-screen
     /// keyboard), in logical pixels.
     pub(crate) safe_area: remedy_ui_reactive::Signal<remedy_ui_host::SafeArea>,
@@ -1007,6 +1010,8 @@ impl Ui {
             drag_pending: None,
             trusted: root,
             reduced_motion: remedy_ui_reactive::Signal::new(false),
+            pointer_caps: remedy_ui_reactive::Signal::new(remedy_ui_host::PointerCaps::default()),
+            pointer_reported: false,
             safe_area: remedy_ui_reactive::Signal::new(remedy_ui_host::SafeArea::default()),
             refresh: remedy_ui_reactive::Signal::new(None),
             occluded: false,
@@ -1317,6 +1322,43 @@ impl Ui {
     pub(crate) fn glyph_style(&self) -> (remedy_ui_text::Hinting, remedy_ui_text::Antialias) {
         let i = self.0.borrow();
         i.text_rendering.resolve(i.system_subpixel)
+    }
+
+    /// What the pointer in use can do: whether it hovers, whether it points finely. Widgets
+    /// show hover-only affordances where it hovers and keep them on screen where it does not.
+    /// On the web it follows the `(hover: hover)` and `(pointer: fine)` media queries;
+    /// natively the pointer last used (a mouse, a finger, a pen), so a convertible switching
+    /// to tablet changes it with the first touch.
+    pub fn pointer_caps(&self) -> remedy_ui_reactive::Signal<remedy_ui_host::PointerCaps> {
+        self.0.borrow().pointer_caps
+    }
+
+    /// Sets what the platform reports for the pointer (the runner sets it from the system
+    /// settings); `None` goes by the pointer last used.
+    pub fn set_pointer_caps(&self, caps: Option<remedy_ui_host::PointerCaps>) {
+        let s = {
+            let mut i = self.0.borrow_mut();
+            i.pointer_reported = caps.is_some();
+            i.pointer_caps
+        };
+        if let Some(c) = caps {
+            s.set_if_changed(c);
+        }
+    }
+
+    /// The pointer last used changes the caps unless the platform reports them.
+    pub(crate) fn pointer_used(&self, kind: remedy_ui_input::PointerKind) {
+        let (reported, s) = {
+            let i = self.0.borrow();
+            (i.pointer_reported, i.pointer_caps)
+        };
+        if !reported {
+            s.set_if_changed(match kind {
+                remedy_ui_input::PointerKind::Touch => remedy_ui_host::PointerCaps::TOUCH,
+                remedy_ui_input::PointerKind::Pen => remedy_ui_host::PointerCaps::PEN,
+                _ => remedy_ui_host::PointerCaps::MOUSE,
+            });
+        }
     }
 
     /// Follows the system's reduced-motion setting (the runner sets it).
@@ -2331,6 +2373,26 @@ impl El {
         }
     }
 
+    /// Moves focus to the next (`forward`) or previous focusable element inside this one,
+    /// from the focused one, wrapping around: arrow keys between the controls of a tile.
+    /// Returns false when there is none.
+    pub fn focus_step(&self, forward: bool) -> bool {
+        let tree = self.ui.tree();
+        let all: Vec<ElementId> =
+            tree.descendants(self.id).into_iter().filter(|d| tree.can_focus(*d)).collect();
+        let n = all.len();
+        let at = tree.focused().and_then(|f| all.iter().position(|d| *d == f));
+        let next = match (at, forward) {
+            (None, true) => 0,
+            (None, false) => n.saturating_sub(1),
+            (Some(i), true) => (i + 1) % n,
+            (Some(i), false) => (i + n - 1) % n,
+        };
+        let Some(id) = all.get(next).copied() else { return false };
+        El { ui: self.ui.clone(), id }.focus();
+        true
+    }
+
     /// Calls `f` with the element's size (logical pixels) after each frame in which it
     /// changed, including the first: virtual lists rebuild for a taller viewport, charts
     /// re-scale.
@@ -2378,8 +2440,22 @@ impl El {
 
     /// Scrolls the scroll containers around this element just enough to show it.
     pub fn scroll_into_view(&self) {
+        let size = self.ui.tree().bounds(self.id).map(|b| b.size());
+        if let Some(size) = size {
+            self.scroll_rect_into_view(remedy_ui_core::Rect::from_origin_size(
+                remedy_ui_core::Point::ZERO,
+                size,
+            ));
+        }
+    }
+
+    /// Scrolls the scroll containers around this element just enough to show `rect` (in the
+    /// element's own coordinates): a virtual grid keeps a cursor in view whose tile is not
+    /// built yet.
+    pub fn scroll_rect_into_view(&self, rect: remedy_ui_core::Rect) {
         let tree = self.ui.tree();
-        let Some(mut want) = tree.bounds(self.id) else { return };
+        let Some(b) = tree.bounds(self.id) else { return };
+        let mut want = rect.translate(Vec2::new(b.min.x, b.min.y));
         let mut cur = tree.parent(self.id);
         while let Some(p) = cur {
             let is_scroll = self.ui.0.borrow().els.get(&p).is_some_and(|d| d.scroll);
