@@ -15,10 +15,13 @@ import android.os.Build;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.Selection;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+import android.view.autofill.AutofillManager;
+import android.view.autofill.AutofillValue;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.CursorAnchorInfo;
 import android.view.inputmethod.EditorInfo;
@@ -35,6 +38,8 @@ final class TextInput extends View {
     private boolean multiline;
     /** What the field holds: the order of remedy_ui_host::InputPurpose (see PURPOSE_*). */
     private int purpose;
+    /** The Enter key's action: an EditorInfo.IME_ACTION_* (IME_ACTION_NONE: a line break). */
+    private int action = EditorInfo.IME_ACTION_DONE;
     private float caretX;
     private float caretTop;
     private float caretBottom;
@@ -64,6 +69,25 @@ final class TextInput extends View {
     static final int PURPOSE_CURRENT_PASSWORD = 7;
     static final int PURPOSE_NEW_PASSWORD = 8;
     static final int PURPOSE_ONE_TIME_CODE = 9;
+
+    /** What autofill services offer a field: View.AUTOFILL_HINT_* or androidx HintConstants
+     *  names (new password, SMS code), or none. */
+    static String[] autofillHints(int purpose) {
+        switch (purpose) {
+            case PURPOSE_USERNAME:
+                return new String[] {View.AUTOFILL_HINT_USERNAME};
+            case PURPOSE_EMAIL:
+                return new String[] {View.AUTOFILL_HINT_EMAIL_ADDRESS};
+            case PURPOSE_CURRENT_PASSWORD:
+                return new String[] {View.AUTOFILL_HINT_PASSWORD};
+            case PURPOSE_NEW_PASSWORD:
+                return new String[] {"newPassword"};
+            case PURPOSE_ONE_TIME_CODE:
+                return new String[] {"smsOTPCode"};
+            default:
+                return null;
+        }
+    }
 
     /** The keyboard a field asks for: its class, variation and flags. */
     static int inputType(int purpose, boolean secret, boolean multiline) {
@@ -144,15 +168,16 @@ final class TextInput extends View {
     }
 
     /** Starts or updates a session with the field's text around the caret (UTF-16 offsets). */
-    void update(String text, int selStart, int selEnd, float x, float top, float bottom, boolean secret, boolean multiline, int purpose) {
+    void update(String text, int selStart, int selEnd, float x, float top, float bottom, boolean secret, boolean multiline, int purpose, int action) {
         caretX = x;
         caretTop = top;
         caretBottom = bottom;
         boolean restart = !active || secret != this.secret || multiline != this.multiline
-                || purpose != this.purpose;
+                || purpose != this.purpose || action != this.action;
         this.secret = secret;
         this.multiline = multiline;
         this.purpose = purpose;
+        this.action = action;
         boolean composing = BaseInputConnection.getComposingSpanStart(editable) >= 0;
         boolean textChanged = !editable.toString().equals(text);
         // The field changed without the input method (keys, the app): the copy follows, and
@@ -181,9 +206,31 @@ final class TextInput extends View {
             active = true;
             setFocusable(true);
             setFocusableInTouchMode(true);
+            String[] hints = autofillHints(purpose);
+            setAutofillHints(hints);
+            setImportantForAutofill(hints != null ? IMPORTANT_FOR_AUTOFILL_YES : IMPORTANT_FOR_AUTOFILL_NO);
             showIme();
+            if (hints != null) {
+                // After showIme's focus request, so the autofill service sees a focused view.
+                post(
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                AutofillManager afm = autofill();
+                                if (active && afm != null) {
+                                    afm.notifyViewEntered(TextInput.this);
+                                }
+                            }
+                        });
+            }
         } else if (!composing && (moved || textChanged)) {
             imm.updateSelection(this, s, e, -1, -1);
+        }
+        if (textChanged && getAutofillType() == AUTOFILL_TYPE_TEXT) {
+            AutofillManager afm = autofill();
+            if (afm != null) {
+                afm.notifyValueChanged(this);
+            }
         }
         if (cursorUpdates) {
             sendCursorAnchor();
@@ -224,6 +271,11 @@ final class TextInput extends View {
         // Commit first: hideSoftInput / clear would otherwise drop underlined preedit,
         // so Save/Load and a newly focused field would see only the last committed word.
         commitCompositionIfAny();
+        AutofillManager afm = autofill();
+        if (afm != null && getAutofillType() == AUTOFILL_TYPE_TEXT) {
+            afm.notifyViewExited(this);
+        }
+        setImportantForAutofill(IMPORTANT_FOR_AUTOFILL_NO);
         active = false;
         editable.clear();
         imm.hideSoftInputFromWindow(getWindowToken(), 0);
@@ -232,6 +284,47 @@ final class TextInput extends View {
         // to it and keys reach the app.
         setFocusableInTouchMode(false);
         setFocusable(false);
+        imm.restartInput(this);
+    }
+
+    private AutofillManager autofill() {
+        return getContext().getSystemService(AutofillManager.class);
+    }
+
+    @Override
+    public int getAutofillType() {
+        return active && autofillHints(purpose) != null ? AUTOFILL_TYPE_TEXT : AUTOFILL_TYPE_NONE;
+    }
+
+    @Override
+    public AutofillValue getAutofillValue() {
+        // A secret's text never leaves the app: autofill sees it as empty.
+        return getAutofillType() == AUTOFILL_TYPE_TEXT ? AutofillValue.forText(editable.toString()) : null;
+    }
+
+    /** An autofill service filled the field: the text this view holds becomes the value. */
+    @Override
+    public void autofill(AutofillValue value) {
+        if (getAutofillType() != AUTOFILL_TYPE_TEXT || value == null || !value.isText()) {
+            return;
+        }
+        commitCompositionIfAny();
+        // shortcut: only the text this view holds is replaced; a secret's is never sent here, so
+        // a filled password adds to what was typed. Autofill fills empty fields, so it holds.
+        int a = Math.min(Selection.getSelectionStart(editable), Selection.getSelectionEnd(editable));
+        int b = Math.max(Selection.getSelectionStart(editable), Selection.getSelectionEnd(editable));
+        a = Math.max(0, a);
+        b = Math.max(a, b);
+        // The commit replaces the selection; what is around it goes first.
+        int before = utf8(editable.subSequence(0, a));
+        int after = utf8(editable.subSequence(b, editable.length()));
+        if (before > 0 || after > 0) {
+            Bridge.imeDelete(handle, before, after);
+        }
+        String t = value.getTextValue().toString();
+        Bridge.imeCommit(handle, t);
+        editable.replace(0, editable.length(), t);
+        Selection.setSelection(editable, editable.length());
         imm.restartInput(this);
     }
 
@@ -258,10 +351,6 @@ final class TextInput extends View {
             return null;
         }
         out.inputType = inputType(purpose, secret, multiline);
-        int action = multiline ? EditorInfo.IME_ACTION_NONE
-                : purpose == PURPOSE_SEARCH ? EditorInfo.IME_ACTION_SEARCH
-                : purpose == PURPOSE_URL ? EditorInfo.IME_ACTION_GO
-                : EditorInfo.IME_ACTION_DONE;
         boolean learns = !secret && purpose != PURPOSE_CURRENT_PASSWORD && purpose != PURPOSE_NEW_PASSWORD
                 && purpose != PURPOSE_ONE_TIME_CODE;
         out.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI | action
@@ -363,6 +452,21 @@ final class TextInput extends View {
                 b = text.offsetByCodePoints(b, 1);
             }
             return deleteSurroundingText(s - a, b - e);
+        }
+
+        /** The keyboard's action key. Next and previous move focus as Tab and Shift+Tab do;
+         *  the others press Enter (BaseInputConnection's own), which submits the field. */
+        @Override
+        public boolean performEditorAction(int code) {
+            if (code != EditorInfo.IME_ACTION_NEXT && code != EditorInfo.IME_ACTION_PREVIOUS) {
+                return super.performEditorAction(code);
+            }
+            int meta = code == EditorInfo.IME_ACTION_PREVIOUS
+                    ? KeyEvent.META_SHIFT_ON | KeyEvent.META_SHIFT_LEFT_ON : 0;
+            long now = android.os.SystemClock.uptimeMillis();
+            sendKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_TAB, 0, meta));
+            sendKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_TAB, 0, meta));
+            return true;
         }
 
         @Override

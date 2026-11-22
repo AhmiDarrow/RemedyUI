@@ -13,7 +13,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use remedy_ui_host::{HostEvent, ImeEvent, InputPurpose, TextInputState, WindowId};
+use remedy_ui_host::{EnterKey, HostEvent, ImeEvent, InputPurpose, TextInputState, WindowId};
 use wasm_bindgen::JsCast;
 use web_sys::HtmlElement;
 
@@ -135,6 +135,15 @@ impl TextInput {
     /// True while a field edits.
     pub(crate) fn active(&self) -> bool {
         self.state.borrow().is_some()
+    }
+
+    /// When the field's Enter key moves focus ("next" or "previous"), whether it goes back.
+    pub(crate) fn enter_moves(&self) -> Option<bool> {
+        match self.state.borrow().as_ref().map(TextInputState::enter_key) {
+            Some(EnterKey::Next) => Some(false),
+            Some(EnterKey::Previous) => Some(true),
+            _ => None,
+        }
     }
 
     /// Starts or updates the session for the engine's field, `label` naming it for screen
@@ -323,9 +332,13 @@ impl Hints {
             P::Email => "email",
             _ => "off",
         };
-        let enter = match s.purpose {
-            _ if s.multiline => "enter",
-            P::Search => "search",
+        let enter = match s.enter_key() {
+            EnterKey::Enter => "enter",
+            EnterKey::Go => "go",
+            EnterKey::Next => "next",
+            EnterKey::Previous => "previous",
+            EnterKey::Search => "search",
+            EnterKey::Send => "send",
             _ => "done",
         };
         let prose = !s.private && matches!(s.purpose, P::Text | P::Search);

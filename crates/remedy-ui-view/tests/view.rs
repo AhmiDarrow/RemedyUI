@@ -1647,13 +1647,18 @@ fn a_text_bound_inside_a_binding_stays_on_one_line_when_told_to() {
 
 #[test]
 fn fields_tell_input_methods_their_purpose() {
-    use remedy_ui_view::InputPurpose;
+    use remedy_ui_view::{EnterKey, InputPurpose};
     let ui = ui();
-    let user = ui.text_field("text_input", FieldKind::Single).purpose(InputPurpose::Username);
+    let user = ui
+        .text_field("text_input", FieldKind::Single)
+        .purpose(InputPurpose::Username)
+        .enter_key(EnterKey::Next);
     let pass = ui.text_field("secret_input", FieldKind::Secret);
     let code = ui.text_field("secret_input", FieldKind::Secret).purpose(InputPurpose::OneTimeCode);
     let amount = ui.text_field("text_input", FieldKind::Single).numeric();
-    for f in [&user, &pass, &code, &amount] {
+    let find = ui.text_field("text_input", FieldKind::Single).purpose(InputPurpose::Search);
+    let note = ui.text_field("text_input", FieldKind::Multi);
+    for f in [&user, &pass, &code, &amount, &find, &note] {
         ui.root().child(f.el().layout(|l| l.width = Length::Px(150.0)));
     }
     let mut s = Screen::new(ui.clone());
@@ -1661,18 +1666,24 @@ fn fields_tell_input_methods_their_purpose() {
     let session = |f: &remedy_ui_view::TextField| {
         f.el().focus();
         ui.take_requests().into_iter().rev().find_map(|r| match r {
-            Request::TextInput(Some(st)) => Some((st.purpose, st.private, st.numeric)),
+            Request::TextInput(Some(st)) => Some((st.purpose, st.private, st.numeric, st.enter_key())),
             _ => None,
         })
     };
-    assert_eq!(session(&user), Some((InputPurpose::Username, false, false)));
-    assert_eq!(session(&pass), Some((InputPurpose::CurrentPassword, true, false)), "a secret is a password");
+    assert_eq!(session(&user), Some((InputPurpose::Username, false, false, EnterKey::Next)));
+    assert_eq!(
+        session(&pass),
+        Some((InputPurpose::CurrentPassword, true, false, EnterKey::Done)),
+        "a secret is a password"
+    );
     assert_eq!(
         session(&code),
-        Some((InputPurpose::OneTimeCode, true, true)),
+        Some((InputPurpose::OneTimeCode, true, true, EnterKey::Done)),
         "a secret code keeps the digits"
     );
-    assert_eq!(session(&amount), Some((InputPurpose::Decimal, false, true)));
+    assert_eq!(session(&amount), Some((InputPurpose::Decimal, false, true, EnterKey::Done)));
+    assert_eq!(session(&find).map(|s| s.3), Some(EnterKey::Search));
+    assert_eq!(session(&note).map(|s| s.3), Some(EnterKey::Enter), "several lines: a line break");
 }
 
 #[test]

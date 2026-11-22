@@ -1075,6 +1075,47 @@ pub struct TextInputState {
     /// What the field holds, so keyboards show the right keys and password managers and
     /// autofill know what to offer.
     pub purpose: InputPurpose,
+    /// What the touch keyboard's Enter key says and does; `None` picks it from the field
+    /// ([`TextInputState::enter_key`]).
+    pub enter: Option<EnterKey>,
+}
+
+impl TextInputState {
+    /// The Enter key this field shows: [`enter`](Self::enter) when set, otherwise a line
+    /// break for several lines, "search" for a search, "go" for an address, else "done".
+    pub fn enter_key(&self) -> EnterKey {
+        match self.enter {
+            Some(k) => k,
+            None if self.multiline => EnterKey::Enter,
+            None => match self.purpose {
+                InputPurpose::Search => EnterKey::Search,
+                InputPurpose::Url => EnterKey::Go,
+                _ => EnterKey::Done,
+            },
+        }
+    }
+}
+
+/// What a touch keyboard's Enter key says and does (the web's `enterkeyhint`, Android's IME
+/// action). [`Next`](Self::Next) and [`Previous`](Self::Previous) move focus as Tab and
+/// Shift+Tab do; the others press Enter, which submits a one-line field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum EnterKey {
+    /// A line break.
+    Enter,
+    /// Finished with this field.
+    Done,
+    /// Go to what was typed (an address).
+    Go,
+    /// On to the next field.
+    Next,
+    /// Back to the previous field.
+    Previous,
+    /// Search for what was typed.
+    Search,
+    /// Send what was typed (a message).
+    Send,
 }
 
 /// What a text field holds: picks the touch keyboard's layout, the input method's mode, and

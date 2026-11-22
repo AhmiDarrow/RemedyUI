@@ -120,6 +120,21 @@ pub fn purpose_code(p: remedy_ui_host::InputPurpose) -> i32 {
     }
 }
 
+/// An Enter key as the `EditorInfo.IME_ACTION_*` the keyboard's action key shows
+/// (`IME_ACTION_NONE`, 1: a line break).
+pub fn ime_action(k: remedy_ui_host::EnterKey) -> i32 {
+    use remedy_ui_host::EnterKey as K;
+    match k {
+        K::Go => 2,
+        K::Search => 3,
+        K::Send => 4,
+        K::Next => 5,
+        K::Done => 6,
+        K::Previous => 7,
+        _ => 1,
+    }
+}
+
 /// A field's text and its selection in UTF-8 bytes, as Java sees them: the text and the
 /// selection in UTF-16 units. Offsets inside a character move to its start.
 pub fn utf16_selection(text: &str, selection: std::ops::Range<usize>) -> (String, (i32, i32)) {
@@ -204,6 +219,24 @@ pub fn java_reason(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enter_keys_are_androids_ime_actions() {
+        use remedy_ui_host::{EnterKey, InputPurpose, TextInputState};
+        let mut s = TextInputState::default();
+        assert_eq!(ime_action(s.enter_key()), 6, "done");
+        s.purpose = InputPurpose::Search;
+        assert_eq!(ime_action(s.enter_key()), 3, "search");
+        s.purpose = InputPurpose::Url;
+        assert_eq!(ime_action(s.enter_key()), 2, "go");
+        s.enter = Some(EnterKey::Next);
+        assert_eq!(ime_action(s.enter_key()), 5, "next, as the app asked");
+        assert_eq!(ime_action(EnterKey::Previous), 7);
+        assert_eq!(ime_action(EnterKey::Send), 4);
+        s.enter = None;
+        s.multiline = true;
+        assert_eq!(ime_action(s.enter_key()), 1, "several lines: a line break, no action");
+    }
 
     #[test]
     fn foreground_kinds_are_androids_service_types() {
