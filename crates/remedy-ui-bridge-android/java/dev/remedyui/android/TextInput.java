@@ -106,7 +106,12 @@ final class TextInput extends View {
         boolean textChanged = !editable.toString().equals(text);
         // The field changed without the input method (keys, the app): the copy follows, and
         // the input method hears of it as a selection change, as an EditText's would. A new
-        // session (or new kind of field) restarts it.
+        // session (or new kind of field) restarts it. Commit first when restarting or
+        // replacing the buffer, or an underlined word (e.g. "bar" in "Lavender bar") is lost.
+        if (restart && composing) {
+            commitCompositionIfAny();
+            composing = false;
+        }
         if (restart || (!composing && textChanged)) {
             editable.replace(0, editable.length(), text);
             BaseInputConnection.removeComposingSpans(editable);
@@ -134,12 +139,27 @@ final class TextInput extends View {
         }
     }
 
+    /** Commits in-flight composing text to the app so it is not dropped when the session
+     *  ends or the field is restarted (focus moved, Save, a different kind of field). */
+    private void commitCompositionIfAny() {
+        int a = BaseInputConnection.getComposingSpanStart(editable);
+        int b = BaseInputConnection.getComposingSpanEnd(editable);
+        if (a < 0 || b < 0) {
+            return;
+        }
+        String c = editable.subSequence(Math.min(a, b), Math.max(a, b)).toString();
+        BaseInputConnection.removeComposingSpans(editable);
+        if (!c.isEmpty()) {
+            Bridge.imeCommit(handle, c);
+        }
+    }
+
     /** The app committed the composition itself (a key typed outside the input method). */
     void finishComposition() {
         if (!active || BaseInputConnection.getComposingSpanStart(editable) < 0) {
             return;
         }
-        BaseInputConnection.removeComposingSpans(editable);
+        commitCompositionIfAny();
         imm.restartInput(this);
     }
 
@@ -148,6 +168,9 @@ final class TextInput extends View {
         if (!active) {
             return;
         }
+        // Commit first: hideSoftInput / clear would otherwise drop underlined preedit,
+        // so Save/Load and a newly focused field would see only the last committed word.
+        commitCompositionIfAny();
         active = false;
         editable.clear();
         imm.hideSoftInputFromWindow(getWindowToken(), 0);
