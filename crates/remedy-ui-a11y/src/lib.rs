@@ -934,7 +934,7 @@ impl A11yTree {
     /// each of its ancestors. With several, the newest element's.
     fn inert_now(&self) -> HashSet<u64> {
         let mut out = HashSet::new();
-        let modal = self.nodes.iter().filter(|(_, (s, _))| s.modal && !s.hidden).map(|(id, _)| *id).max();
+        let modal = self.nodes.iter().filter(|(id, (s, _))| s.modal && self.showing(**id)).map(|(id, _)| *id).max();
         let Some(mut cur) = modal else { return out };
         while let Some(&p) = self.parents.get(&cur) {
             if let Some((_, kids)) = self.nodes.get(&p) {
@@ -943,6 +943,26 @@ impl A11yTree {
             cur = p;
         }
         out
+    }
+
+    /// True when `id` is in the tree (each parent up to the root lists it) and neither it nor
+    /// an ancestor is hidden.
+    fn showing(&self, id: u64) -> bool {
+        let mut cur = id;
+        loop {
+            let Some((s, _)) = self.nodes.get(&cur) else { return false };
+            if s.hidden {
+                return false;
+            }
+            if cur == self.root {
+                return true;
+            }
+            let Some(&p) = self.parents.get(&cur) else { return false };
+            if !self.nodes.get(&p).is_some_and(|(_, kids)| kids.contains(&cur)) {
+                return false;
+            }
+            cur = p;
+        }
     }
 
     /// True when a showing modal makes `id` inert to assistive technology.
