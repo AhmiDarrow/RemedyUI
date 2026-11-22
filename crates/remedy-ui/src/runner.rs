@@ -746,6 +746,8 @@ struct Shared {
     on_locale: Option<LocaleFn>,
     /// The language the app shows now, once known.
     locale: Option<String>,
+    /// The user's preferred languages, as the system last reported them.
+    preferred_locales: Vec<String>,
     /// The last appearance the system reported.
     appearance: Option<(Option<bool>, bool)>,
     renderers: HashMap<u64, RendererKind>,
@@ -934,6 +936,13 @@ impl App {
     /// `None` until the system has said. For parts with no window, such as a tray menu.
     pub fn locale(&self) -> Option<String> {
         self.0.borrow().locale.clone()
+    }
+
+    /// The user's preferred languages (BCP 47), most preferred first, as the system last
+    /// reported them ([`SystemSettings::locales`]); empty until it has. For choosing among
+    /// content languages, such as subtitles or audio tracks, whatever the app's own language.
+    pub fn preferred_locales(&self) -> Vec<String> {
+        self.0.borrow().preferred_locales.clone()
     }
 
     /// Calls `f` with the app's language now (once known) and whenever it changes: the
@@ -3258,6 +3267,7 @@ impl remedy_ui_host::App for Runner {
                     w.ui.set_pointer_caps(s.pointer);
                 }
                 let appearance = (s.dark, s.high_contrast);
+                self.app.0.borrow_mut().preferred_locales.clone_from(&s.locales);
                 self.settings = s;
                 self.apply_reduced_motion();
                 let notify = {

@@ -516,6 +516,8 @@ pub struct PageSettings {
     pub tv: bool,
     /// `navigator.language`.
     pub language: String,
+    /// `navigator.languages`, most preferred first.
+    pub languages: Vec<String>,
     /// The browser runs on macOS, iOS or iPadOS.
     pub apple: bool,
     /// `(hover: hover)`: the primary pointer hovers.
@@ -551,6 +553,9 @@ pub fn settings(page: &PageSettings) -> SystemSettings {
     if !page.language.trim().is_empty() {
         s.locale = page.language.clone();
     }
+    let listed: Vec<String> =
+        page.languages.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).map(str::to_owned).collect();
+    s.locales = if listed.is_empty() { vec![s.locale.clone()] } else { listed };
     // Browsers expose no double-click time; this is the platforms' default pages inherit.
     s.double_click = Duration::from_millis(500);
     s.pointer = Some(remedy_ui_host::PointerCaps::new(page.hover, page.fine_pointer));
@@ -860,6 +865,7 @@ mod tests {
             coarse_pointer_only: true,
             tv: false,
             language: "de-DE".into(),
+            languages: vec!["de-DE".into(), "fr".into(), " ".into(), "en".into()],
             apple: true,
             hover: false,
             fine_pointer: true,
@@ -871,13 +877,20 @@ mod tests {
         assert_eq!(s.platform, Platform::Apple);
         assert!((s.text_scale - 1.25).abs() < 1e-6);
         assert_eq!(s.locale, "de-DE");
+        assert_eq!(s.locales, ["de-DE", "fr", "en"], "navigator.languages in order, blanks dropped");
         assert!(s.reduced_motion);
         assert!(s.spatial_navigation, "a touch-only browser moves focus with arrows");
         assert_eq!(s.pointer, Some(remedy_ui_host::PointerCaps::PEN), "fine but not hovering");
         assert_eq!(s.accent, Some(Color::new(1.0, 0.0, 0.0, 1.0)));
-        let quiet = settings(&PageSettings { prefers_dark: false, language: String::new(), ..page.clone() });
+        let quiet = settings(&PageSettings {
+            prefers_dark: false,
+            language: String::new(),
+            languages: Vec::new(),
+            ..page.clone()
+        });
         assert_eq!(quiet.dark, None, "neither scheme matched: the browser does not say");
         assert_eq!(quiet.locale, "en-US");
+        assert_eq!(quiet.locales, ["en-US"], "no list: the one locale");
         let desk = settings(&PageSettings { coarse_pointer_only: false, ..page.clone() });
         assert!(!desk.spatial_navigation, "a mouse or touchpad keeps arrows for scrolling");
         let tv = settings(&PageSettings { tv: true, coarse_pointer_only: false, ..page.clone() });
