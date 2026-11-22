@@ -3,7 +3,14 @@
 # bridge's (`tests/browser.rs`), the HTTP client's (`remedy-ui-services-net/tests/web.rs`), images
 # from addresses (`remedy-ui-media-image/tests/web.rs`), media playback's (`remedy-ui-media-playback/tests/web.rs`, and
 # `web_gpu.rs` for pictures on the GPU, `web_cursor.rs` for the pointer over a resting full
-# screen) and the script engines' on a board (`remedy-ui-widgets-board/tests/web.rs`).
+# screen, `web_mse.rs` and `web_mse_gpu.rs` for the media element through Media Source
+# Extensions) and the script engines' on a board (`remedy-ui-widgets-board/tests/web.rs`).
+#
+# The media element's tests run twice: on the runner's own page (a secure context, so they
+# ask for the element), and on a page served from this machine's LAN address, which is not
+# one (no WebCodecs, no WebGPU), where the player must choose the element by itself and the
+# bridge draws with WebGL2. `REMEDY_LAN_ADDRESS` names the address when the one found (the
+# address of the route out) is not the one to use; `REMEDY_LAN_ADDRESS=none` skips that run.
 #
 #   tools/web-test.sh [firefox|chrome]
 #
@@ -60,6 +67,29 @@ REMEDY_SLOW_CLIP_URL="http://127.0.0.1:$(cat "$port_file")/clip.mp4" \
     cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web
 cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web_gpu
 cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web_cursor
+REMEDY_HLS_URL="http://127.0.0.1:$(cat "$hls_port_file")" \
+    cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web_mse
+# A software GPU draws a debug build's frames slowly: the GPU test is given longer.
+REMEDY_HLS_URL="http://127.0.0.1:$(cat "$hls_port_file")" WASM_BINDGEN_TEST_TIMEOUT=400 \
+    cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web_mse_gpu
+# The same from the LAN address: the page and the HLS clip both served there.
+lan="${REMEDY_LAN_ADDRESS:-$(python3 -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(("192.0.2.1", 9)); print(s.getsockname()[0])' 2>/dev/null || true)}"
+if [ -n "$lan" ] && [ "$lan" != none ] && [ "${lan#127.}" = "$lan" ]; then
+    lan_hls_file="$(mktemp)"
+    python3 "$root/crates/remedy-ui-media-playback/tools/serve-dir.py" \
+        "$root/crates/remedy-ui-media-playback/tests/fixtures/hls" "$lan" > "$lan_hls_file" &
+    lan_hls=$!
+    trap 'kill $slow $hls $net $img $lan_hls 2>/dev/null; rm -f "$port_file" "$hls_port_file" "$net_port_file" "$img_port_file" "$lan_hls_file"' EXIT
+    for _ in $(seq 50); do [ -s "$lan_hls_file" ] && break; sleep 0.1; done
+    free_port() { python3 -c 'import socket, sys; s = socket.socket(); s.bind((sys.argv[1], 0)); print(s.getsockname()[1])' "$lan"; }
+    for t in web_mse web_mse_gpu; do
+        REMEDY_MSE_INSECURE=1 REMEDY_HLS_URL="http://$lan:$(cat "$lan_hls_file")" \
+        WASM_BINDGEN_TEST_ADDRESS="$lan:$(free_port)" WASM_BINDGEN_TEST_TIMEOUT=400 \
+            cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test "$t"
+    done
+else
+    echo "no LAN address (REMEDY_LAN_ADDRESS): skipping the media element on a page that is not secure"
+fi
 cargo test --manifest-path "$root/crates/remedy-ui-widgets-board/Cargo.toml" --target wasm32-unknown-unknown --test web
 cargo test --manifest-path "$root/crates/remedy-ui-services-desktop/Cargo.toml" --target wasm32-unknown-unknown --test media_session_web
 # The Screen Wake Lock: held, let go, asked again when the page shows; and a player's hold.

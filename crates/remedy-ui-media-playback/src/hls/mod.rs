@@ -182,6 +182,9 @@ pub(crate) trait Fetch: Send {
     fn get(&mut self, url: &str, stop: &std::sync::atomic::AtomicBool) -> Result<Vec<u8>, MediaError>;
 }
 
+// Fragmented MP4 for a page's Media Source Extensions (tested everywhere, used in a page).
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), allow(dead_code))]
+pub(crate) mod fmp4;
 mod playlist;
 mod ts;
 

@@ -46,6 +46,14 @@ use crate::mp4::{self, Kind, Mp4};
 #[path = "web_hls.rs"]
 mod hls_web;
 
+// Pages without WebCodecs: a hidden media element, HLS through Media Source Extensions.
+#[path = "web_mse.rs"]
+mod mse;
+
+// A picture-in-picture window of the page's own for pictures the engine draws.
+#[path = "web_pip.rs"]
+pub(crate) mod pip;
+
 #[wasm_bindgen]
 extern "C" {
     type VideoDecoder;
@@ -1092,25 +1100,47 @@ impl Drop for WebAudio {
     }
 }
 
-/// The browser's decoders and WebAudio.
-struct WebHost;
+/// The browser's decoders and WebAudio, or its media element ([`mse`]).
+struct WebHost {
+    /// Plays through the media element rather than WebCodecs.
+    element: bool,
+}
+
+impl WebHost {
+    /// A source played by the media element.
+    fn open_element(source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
+        Ok(Box::new(match source {
+            MediaSource::File(path) => mse::ElementDecoder::bytes(&read_file(path)?)?,
+            MediaSource::Url(url) if crate::hls::is_hls(source) => mse::ElementDecoder::hls(url)?,
+            MediaSource::Url(url) => mse::ElementDecoder::plain(url)?,
+        }))
+    }
+}
+
+/// A file the person picked or dropped, from the web bridge's file store.
+fn read_file(path: &std::path::Path) -> Result<Vec<u8>, MediaError> {
+    remedy_ui_bridge_web::files::read(path).ok_or_else(|| {
+        MediaError::NotFound(format!(
+            "{}: a page reads only files the person picked or dropped (or the app added to its file store)",
+            path.display()
+        ))
+    })
+}
 
 impl MediaHost for WebHost {
     fn name(&self) -> &str {
-        "WebCodecs and WebAudio"
+        if self.element { "the browser's media element (Media Source Extensions)" } else { "WebCodecs and WebAudio" }
     }
 
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {
+        if self.element {
+            return WebHost::open_element(source);
+        }
         let out: Shared = Rc::default();
         let slot: Rc<RefCell<Option<Open>>> = Rc::default();
         match source {
             MediaSource::File(path) => {
-                let bytes = remedy_ui_bridge_web::files::read(path).ok_or_else(|| {
-                    MediaError::NotFound(format!(
-                        "{}: a page reads only files the person picked or dropped (or the app added to its file store)",
-                        path.display()
-                    ))
-                })?;
+                let bytes = read_file(path)?;
                 let m = mp4::parse(&bytes).map_err(MediaError::Format)?;
                 let data: SharedBytes =
                     Rc::new(RefCell::new(Bytes { data: bytes, complete: true, dropped: false }));
@@ -1140,11 +1170,28 @@ impl MediaHost for WebHost {
     }
 }
 
-pub(crate) fn host() -> Result<Arc<dyn MediaHost>, MediaError> {
-    if !has_global("VideoDecoder") && !has_global("AudioDecoder") {
-        return Err(MediaError::Unsupported("this browser has no WebCodecs decoders".into()));
+/// Whether this page may use WebCodecs: browsers offer it only to secure pages.
+fn webcodecs() -> bool {
+    get(&js_sys::global(), "isSecureContext").as_bool().unwrap_or(true)
+        && has_global("VideoDecoder")
+        && has_global("AudioDecoder")
+}
+
+pub(crate) fn host(backend: crate::WebBackend) -> Result<Arc<dyn MediaHost>, MediaError> {
+    let element = match backend {
+        crate::WebBackend::WebCodecs => false,
+        crate::WebBackend::MediaSource => true,
+        _ => !webcodecs(),
+    };
+    if element && !mse::available() {
+        return Err(MediaError::Unsupported("this browser has no media element".into()));
     }
-    Ok(Arc::new(WebHost))
+    if !element && !has_global("VideoDecoder") && !has_global("AudioDecoder") {
+        return Err(MediaError::Unsupported(
+            "this browser has no WebCodecs decoders (browsers offer them only to secure pages)".into(),
+        ));
+    }
+    Ok(Arc::new(WebHost { element }))
 }
 
 /// The audio worklet that hands the microphone's sound to the page: interleaved frames, about
