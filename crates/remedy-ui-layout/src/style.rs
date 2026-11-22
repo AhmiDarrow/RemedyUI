@@ -291,15 +291,17 @@ fn track(t: &Track) -> taffy::TrackSizingFunction {
 
 fn component<S: taffy::style::CheapCloneStr>(t: &Track) -> taffy::GridTemplateComponent<S> {
     match t {
-        Track::Repeat(n, tracks) => taffy::GridTemplateComponent::Repeat(taffy::style::GridTemplateRepetition {
-            count: match n {
-                Repeat::Count(c) => taffy::style::RepetitionCount::Count((*c).max(1)),
-                Repeat::AutoFill => taffy::style::RepetitionCount::AutoFill,
-                Repeat::AutoFit => taffy::style::RepetitionCount::AutoFit,
-            },
-            tracks: tracks.iter().map(track).collect(),
-            line_names: Vec::new(),
-        }),
+        Track::Repeat(n, tracks) => {
+            taffy::GridTemplateComponent::Repeat(taffy::style::GridTemplateRepetition {
+                count: match n {
+                    Repeat::Count(c) => taffy::style::RepetitionCount::Count((*c).max(1)),
+                    Repeat::AutoFill => taffy::style::RepetitionCount::AutoFill,
+                    Repeat::AutoFit => taffy::style::RepetitionCount::AutoFit,
+                },
+                tracks: tracks.iter().map(track).collect(),
+                line_names: Vec::new(),
+            })
+        }
         t => taffy::GridTemplateComponent::Single(track(t)),
     }
 }
