@@ -1,8 +1,8 @@
 //! Images from addresses ([`Source::Url`](crate::Source::Url)): fetched through a [`Fetch`]
 //! (the engine's own by default, or the app's), kept in a bounded memory cache and, natively,
 //! on disk in the app's cache folder ([`set_cache_dir`]), following the server's
-//! `Cache-Control` (`max-age`, `no-cache`, `no-store`) and revalidating with `ETag` and
-//! `Last-Modified`. In a browser page the browser's own HTTP cache is the disk cache.
+//! `Cache-Control` (`max-age`, `no-cache`, `no-store`) or `Expires`, and revalidating with
+//! `ETag` and `Last-Modified`. How much is kept: [`set_memory_limit`], [`set_disk_limit`]. In a browser page the browser's own HTTP cache is the disk cache.
 //!
 //! Requests for the same address share one fetch; it is cancelled when nobody wants it any
 //! more (every element showing it gone).
@@ -10,6 +10,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
 
 use remedy_ui_reactive::Cancel;
@@ -66,10 +67,32 @@ impl FetchReply {
     }
 }
 
-/// Encoded bytes kept in memory, most recently used kept longest.
-const MEMORY_LIMIT: usize = 64 * 1024 * 1024;
-/// Bytes kept on disk; the least recently used files go first.
-const DISK_LIMIT: u64 = 256 * 1024 * 1024;
+/// The default of [`set_memory_limit`]: 64 MiB.
+pub const DEFAULT_MEMORY_LIMIT: usize = 64 * 1024 * 1024;
+/// The default of [`set_disk_limit`]: 256 MiB.
+pub const DEFAULT_DISK_LIMIT: u64 = 256 * 1024 * 1024;
+
+static MEMORY_LIMIT: AtomicUsize = AtomicUsize::new(DEFAULT_MEMORY_LIMIT);
+static DISK_LIMIT: AtomicU64 = AtomicU64::new(DEFAULT_DISK_LIMIT);
+
+/// Keeps up to `bytes` of fetched (encoded) images in memory, the most recently used longest
+/// (default [`DEFAULT_MEMORY_LIMIT`]). One image over a quarter of it is not kept in memory
+/// (the disk still keeps it). Lowering it lets go of the least recently used at once.
+pub fn set_memory_limit(bytes: usize) {
+    MEMORY_LIMIT.store(bytes, Ordering::Relaxed);
+    trim(&mut memory());
+}
+
+/// Keeps up to `bytes` of fetched images in the disk cache ([`set_cache_dir`]); the least
+/// recently used files go first (default [`DEFAULT_DISK_LIMIT`]). Checked when an image is
+/// written there.
+pub fn set_disk_limit(bytes: u64) {
+    DISK_LIMIT.store(bytes, Ordering::Relaxed);
+}
+
+fn memory_limit() -> usize {
+    MEMORY_LIMIT.load(Ordering::Relaxed)
+}
 
 static FETCHER: RwLock<Option<Arc<dyn Fetch>>> = RwLock::new(None);
 static DISK: RwLock<Option<PathBuf>> = RwLock::new(None);
@@ -132,18 +155,73 @@ fn policy(reply: &FetchReply) -> Policy {
         last_modified: reply.header("last-modified").map(str::to_owned),
         ..Policy::default()
     };
-    // shortcut: `Expires` (an HTTP date) is not read, only `Cache-Control`; upgrade if a
-    // server that matters sends only `Expires`.
+    let mut no_cache = false;
     for d in reply.header("cache-control").unwrap_or_default().split(',') {
         let d = d.trim().to_ascii_lowercase();
         match d.split_once('=') {
             Some(("max-age", n)) => p.max_age = n.trim_matches('"').parse().ok().or(p.max_age),
             _ if d == "no-store" => p.store = false,
-            _ if d == "no-cache" => p.max_age = Some(0),
+            _ if d == "no-cache" => no_cache = true,
             _ => {}
         }
     }
+    // RFC 9111 4.2.1: `max-age` wins; otherwise `Expires` less the server's `Date` (or now, if
+    // it sent none). An `Expires` that is not a date (often "0") means already stale.
+    if p.max_age.is_none()
+        && let Some(e) = reply.header("expires")
+    {
+        let date = reply.header("date").and_then(http_date).unwrap_or_else(now);
+        p.max_age = Some(http_date(e).map_or(0, |e| e.saturating_sub(date)));
+    }
+    if no_cache {
+        p.max_age = Some(0);
+    }
     p
+}
+
+/// Seconds since 1970 of an HTTP date (RFC 9110 5.6.7): IMF-fixdate
+/// (`Sun, 06 Nov 1994 08:49:37 GMT`), and the obsolete RFC 850 (`Sunday, 06-Nov-94 08:49:37
+/// GMT`) and asctime (`Sun Nov  6 08:49:37 1994`) forms every recipient must still read.
+fn http_date(s: &str) -> Option<u64> {
+    const MONTHS: [&str; 12] =
+        ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    let month = |m: &str| MONTHS.iter().position(|x| m.eq_ignore_ascii_case(x)).map(|i| i as u64 + 1);
+    let s = s.trim();
+    // The weekday is redundant: skip it.
+    let rest = s.split_once([',', ' ']).map(|(_, r)| r.trim_start())?;
+    let words: Vec<&str> = rest.split_whitespace().collect();
+    let (day, mon, year, time): (u64, u64, u64, &str) = match words.as_slice() {
+        [d, m, y, t, "GMT"] => (d.parse().ok()?, month(m)?, y.parse::<u64>().ok()?, *t),
+        [dmy, t, "GMT"] => {
+            let mut p = dmy.split('-');
+            let (d, m, y) = (p.next()?, p.next()?, p.next()?);
+            let y: u64 = y.parse().ok()?;
+            // RFC 9110: a two-digit year more than 50 years ahead is in the past century.
+            let y = if y >= 100 {
+                y
+            } else if y >= 70 {
+                1900 + y
+            } else {
+                2000 + y
+            };
+            (d.parse().ok()?, month(m)?, y, *t)
+        }
+        [m, d, t, y] => (d.parse().ok()?, month(m)?, y.parse().ok()?, *t),
+        _ => return None,
+    };
+    let mut t = time.split(':').map(str::parse::<u64>);
+    let (h, mi, sec) = (t.next()?.ok()?, t.next()?.ok()?, t.next()?.ok()?);
+    if t.next().is_some() || !(1..=31).contains(&day) || year < 1970 || h > 23 || mi > 59 || sec > 60 {
+        return None;
+    }
+    // Days from 1970-01-01 to the date (Howard Hinnant's days_from_civil).
+    let (y, m) = if mon <= 2 { (year - 1, mon + 9) } else { (year, mon - 3) };
+    let era = y / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * m + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = (era * 146_097 + doe).checked_sub(719_468)?;
+    Some(days * 86_400 + h * 3600 + mi * 60 + sec)
 }
 
 // ---------- memory ----------
@@ -181,7 +259,7 @@ pub(crate) fn remembered(url: &str) -> Option<Arc<[u8]>> {
 }
 
 fn remember(url: &str, bytes: Arc<[u8]>, expires: Option<u64>) {
-    if bytes.len() > MEMORY_LIMIT / 4 {
+    if bytes.len() > memory_limit() / 4 {
         return;
     }
     let mut m = memory();
@@ -191,7 +269,12 @@ fn remember(url: &str, bytes: Arc<[u8]>, expires: Option<u64>) {
         m.total -= old.bytes.len();
     }
     m.total += bytes.len();
-    while m.total > MEMORY_LIMIT {
+    trim(&mut m);
+}
+
+/// Lets go of the least recently used until memory is within its limit.
+fn trim(m: &mut Memory) {
+    while m.total > memory_limit() {
         let Some(oldest) = m.entries.iter().min_by_key(|(_, k)| k.used).map(|(u, _)| u.clone()) else {
             break;
         };
@@ -308,7 +391,7 @@ fn prune(dir: &std::path::Path) {
     let mut total: u64 = bins.iter().map(|b| b.1).sum();
     bins.sort();
     for (_, len, path) in bins {
-        if total <= DISK_LIMIT {
+        if total <= DISK_LIMIT.load(Ordering::Relaxed) {
             break;
         }
         let _ = std::fs::remove_file(path.with_extension("meta"));
@@ -594,17 +677,65 @@ mod tests {
         assert_eq!(policy(&reply("")).max_age, None);
     }
 
+    fn headers(h: &[(&str, &str)]) -> FetchReply {
+        FetchReply::new(200, h.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect(), vec![])
+    }
+
+    #[test]
+    fn http_dates_are_read_in_all_three_forms() {
+        let t = Some(784_111_777);
+        assert_eq!(http_date("Sun, 06 Nov 1994 08:49:37 GMT"), t);
+        assert_eq!(http_date("Sunday, 06-Nov-94 08:49:37 GMT"), t);
+        assert_eq!(http_date("Sun Nov  6 08:49:37 1994"), t);
+        assert_eq!(http_date("Thu, 01 Jan 1970 00:00:00 GMT"), Some(0));
+        assert_eq!(http_date("Tue, 29 Feb 2028 12:00:00 GMT"), Some(1_835_438_400));
+        assert_eq!(http_date("0"), None);
+        assert_eq!(http_date("Sun, 06 Nov 1994 08:49:37 PST"), None);
+    }
+
+    #[test]
+    fn expires_is_read_when_there_is_no_max_age() {
+        let date = ("Date", "Sun, 06 Nov 1994 08:49:37 GMT");
+        let p = policy(&headers(&[date, ("Expires", "Sun, 06 Nov 1994 09:49:37 GMT")]));
+        assert_eq!(p.max_age, Some(3600));
+        // max-age wins over Expires.
+        let p = policy(&headers(&[
+            date,
+            ("Expires", "Sun, 06 Nov 1994 09:49:37 GMT"),
+            ("Cache-Control", "max-age=5"),
+        ]));
+        assert_eq!(p.max_age, Some(5));
+        // Already past, or not a date: stale at once.
+        assert_eq!(policy(&headers(&[date, ("Expires", "Sat, 05 Nov 1994 00:00:00 GMT")])).max_age, Some(0));
+        assert_eq!(policy(&headers(&[("Expires", "0")])).max_age, Some(0));
+        assert_eq!(
+            policy(&headers(&[("Expires", "Sun, 06 Nov 1994 09:49:37 GMT"), ("Cache-Control", "no-cache")]))
+                .max_age,
+            Some(0)
+        );
+    }
+
     #[test]
     fn memory_stays_within_its_limit() {
-        let big: Arc<[u8]> = Arc::from(vec![0u8; MEMORY_LIMIT / 5]);
+        let big: Arc<[u8]> = Arc::from(vec![0u8; DEFAULT_MEMORY_LIMIT / 5]);
         for i in 0..8 {
             remember(&format!("test://mem/{i}"), big.clone(), None);
         }
-        assert!(remembered_bytes() <= MEMORY_LIMIT);
+        assert!(remembered_bytes() <= DEFAULT_MEMORY_LIMIT);
         assert!(remembered("test://mem/7").is_some(), "the newest is kept");
         assert!(remembered("test://mem/0").is_none(), "the oldest went");
-        remember("test://mem/stale", big, Some(1));
+        remember("test://mem/stale", big.clone(), Some(1));
         assert!(remembered("test://mem/stale").is_none(), "expired");
+        // A lower limit lets go at once, and a higher one keeps more.
+        set_memory_limit(DEFAULT_MEMORY_LIMIT / 4);
+        assert!(remembered_bytes() <= DEFAULT_MEMORY_LIMIT / 4);
+        set_memory_limit(DEFAULT_MEMORY_LIMIT * 4);
+        for i in 0..8 {
+            remember(&format!("test://mem/{i}"), big.clone(), None);
+        }
+        assert!(remembered("test://mem/0").is_some(), "kept under the higher limit");
+        set_memory_limit(DEFAULT_MEMORY_LIMIT);
+        assert!(remembered_bytes() <= DEFAULT_MEMORY_LIMIT);
     }
 
     #[test]
