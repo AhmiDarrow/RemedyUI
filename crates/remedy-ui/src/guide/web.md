@@ -101,6 +101,50 @@ crate-type = ["cdylib", "rlib"]
 remedy-ui = { version = "0.1", features = ["web"] }
 ```
 
+## Routes and the address
+
+A [`Router`](crate::router::Router) made with `Router::for_window` keeps the page's route in
+the address's fragment (`#/home`, `#/browse/TV`, `#/settings/7`): `push` adds a history
+entry, `replace` rewrites it, and the browser's back and forward buttons, Alt+Left and
+Alt+Right and a typed address all move the route. A page opened at `#/settings/7` starts
+there. Each route's title (`Router::set_title`) becomes `document.title`; `Router::view`
+builds the route's page and `remember_scroll` brings its scroll position back on back and
+forward. `Router::link_to` is a link whose mirror element is an `<a href="#/…">`, so a
+middle or Ctrl click opens it in a new tab. `App::reload` reloads the page at the same
+route.
+
+```rust,no_run
+use remedy_ui::router::Router;
+use remedy_ui::widgets as w;
+use remedy_ui::{App, AppConfig, WindowSpec};
+
+let _ = remedy_ui::run(AppConfig::new("Portal"), |app: &App| {
+    app.open(WindowSpec::new("Portal"), |ui, window| {
+        let router = Router::for_window(window, "/home");
+        router.set_title(|r| match r.matches("/settings/:id") {
+            Some(p) => format!("Settings: {}", p["id"]),
+            None => "Portal".into(),
+        });
+        let (me, ui2) = (router.clone(), ui.clone());
+        let page = router.view(ui, move |route| {
+            let body = w::column(&ui2).child(me.link_to(&ui2, "/settings/server", "Settings"));
+            match route.matches("/browse/*path") {
+                Some(p) => body.child(w::text(&ui2, format!("Browsing {}", p["path"]))),
+                None => body,
+            }
+        });
+        ui.root().child(page);
+    });
+});
+```
+
+On the desktop the same router follows deep links: `router.follow_links(app, &["portal"])`
+opens `portal://settings/7` as that route, both the link the app started with and, with
+`AppConfig::single_instance`, every link opened while it runs (a second launch), bringing
+the window forward. A tray item does the same with `app.on_tray(..)` calling
+`router.push("/settings")`. A `NavStack` inside a routed page keeps its own back: its back
+keys pop its pages first and reach the router on its first page.
+
 ## Building a page
 
 `cargo remedy package --target web` builds any app into an installable page in

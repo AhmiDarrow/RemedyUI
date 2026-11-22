@@ -209,6 +209,7 @@ pub struct Semantics {
     merge: bool,
     shortcut: Option<String>,
     access_key: Option<String>,
+    url: Option<String>,
 }
 
 impl Semantics {
@@ -244,6 +245,7 @@ impl Semantics {
             merge: false,
             shortcut: None,
             access_key: None,
+            url: None,
         }
     }
 
@@ -429,6 +431,19 @@ impl Semantics {
     /// The access key, if set ([`Semantics::access_key`]).
     pub fn access_key_text(&self) -> Option<&str> {
         self.access_key.as_deref()
+    }
+
+    /// Where a link goes (`#/settings`, `https://…`): screen readers announce it, and in a
+    /// browser page the link is a real `<a href>` that opens in a new tab on middle or Ctrl
+    /// click.
+    pub fn url(mut self, url: impl Into<String>) -> Self {
+        self.url = Some(url.into()).filter(|s: &String| !s.is_empty());
+        self
+    }
+
+    /// Where it goes, if set ([`Semantics::url`]).
+    pub fn url_text(&self) -> Option<&str> {
+        self.url.as_deref()
     }
 
     /// True when it folds its descendants into itself ([`Semantics::merge_descendants`]).
@@ -678,6 +693,9 @@ impl A11yTree {
         if let Some(k) = &s.access_key {
             n.set_access_key(k.clone());
         }
+        if let Some(u) = &s.url {
+            n.set_url(u.clone());
+        }
         if let Role::Heading(level) = s.role {
             n.set_level(usize::from(level.clamp(1, 6)));
         }
@@ -744,6 +762,7 @@ impl A11yTree {
                 disabled: s.disabled,
                 shortcut: s.shortcut.clone(),
                 access_key: s.access_key.clone(),
+                url: s.url.clone(),
             });
             if !s.merge {
                 stack.extend(children.iter().rev().map(|c| (*c, depth + 1)));
@@ -837,6 +856,8 @@ pub struct ReaderNode {
     pub shortcut: Option<String>,
     /// The access key (mnemonic) that activates it in its menu ("F").
     pub access_key: Option<String>,
+    /// Where a link goes ([`Semantics::url`]).
+    pub url: Option<String>,
 }
 
 impl ReaderNode {
