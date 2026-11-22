@@ -22,7 +22,8 @@
 //!   events), keys by meaning and position with modifiers and repeat, and focus. The
 //!   browser's own context menu opens where the app did not take the press, and stays away
 //!   where it did (its own context menu, a handler using the secondary button).
-//! - **Text input.** A hidden text field (a password field for secrets) sits at the caret
+//! - **Text input.** A hidden text field (a password field for secrets; carrying the field's purpose
+//!   as `type`, `inputmode`, `autocomplete` and `enterkeyhint`) sits at the caret
 //!   while a field edits: input methods compose in it (composition events become the
 //!   engine's preedit and commit), soft keyboards open for it, and what they type, delete and
 //!   autocorrect reaches the field.

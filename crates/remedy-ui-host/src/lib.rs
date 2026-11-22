@@ -856,6 +856,47 @@ pub struct SystemSettings {
     /// motion slows down or stops (the view's `AmbientPolicy`). False where the platform
     /// does not say.
     pub power_saving: bool,
+    /// What the primary pointer can do, where the platform says (the web's `(hover: hover)`
+    /// and `(pointer: fine)` media queries). `None` where the engine goes by the pointer
+    /// last used.
+    pub pointer: Option<PointerCaps>,
+}
+
+/// What the pointer in use can do: widgets show hover-only affordances where it hovers, and
+/// larger targets where it is coarse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct PointerCaps {
+    /// It can hover over things without pressing them (a mouse, a touchpad).
+    pub hover: bool,
+    /// It points precisely (a mouse or a pen, not a finger).
+    pub fine: bool,
+}
+
+impl PointerCaps {
+    /// A mouse or touchpad: hovers and points finely.
+    pub const MOUSE: PointerCaps = PointerCaps { hover: true, fine: true };
+    /// A finger: neither.
+    pub const TOUCH: PointerCaps = PointerCaps { hover: false, fine: false };
+    /// A stylus: fine, but most do not hover in a way pages can count on.
+    pub const PEN: PointerCaps = PointerCaps { hover: false, fine: true };
+
+    /// The caps from what the pointer does.
+    pub fn new(hover: bool, fine: bool) -> PointerCaps {
+        PointerCaps { hover, fine }
+    }
+}
+
+impl Default for PointerCaps {
+    /// What a device starts with before any pointer is used: a finger on phones and
+    /// tablets, a mouse elsewhere.
+    fn default() -> Self {
+        if cfg!(any(target_os = "android", target_os = "ios")) {
+            PointerCaps::TOUCH
+        } else {
+            PointerCaps::MOUSE
+        }
+    }
 }
 
 impl Default for SystemSettings {
@@ -873,6 +914,7 @@ impl Default for SystemSettings {
             caret_blink: Some(Duration::from_millis(530)),
             subpixel_text: None,
             power_saving: false,
+            pointer: None,
         }
     }
 }
@@ -928,8 +970,52 @@ pub struct TextInputState {
     pub private: bool,
     /// Several lines (Enter inserts a line break instead of submitting).
     pub multiline: bool,
-    /// A number: input methods show their number pad (with a decimal separator).
+    /// A number: input methods show their number pad (with a decimal separator). True for
+    /// [`InputPurpose::Digits`], [`InputPurpose::Decimal`] and [`InputPurpose::OneTimeCode`].
     pub numeric: bool,
+    /// What the field holds, so keyboards show the right keys and password managers and
+    /// autofill know what to offer.
+    pub purpose: InputPurpose,
+}
+
+/// What a text field holds: picks the touch keyboard's layout, the input method's mode, and
+/// what password managers and autofill offer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum InputPurpose {
+    /// Ordinary text.
+    #[default]
+    Text,
+    /// Whole numbers: the number pad, no decimal separator.
+    Digits,
+    /// A number with a decimal separator.
+    Decimal,
+    /// A web address.
+    Url,
+    /// An email address.
+    Email,
+    /// A search query: Enter shows as "search".
+    Search,
+    /// An account name, for password managers.
+    Username,
+    /// The account's existing password, for password managers to fill.
+    CurrentPassword,
+    /// A new password, for password managers to suggest and save.
+    NewPassword,
+    /// A one-time code sent by text or email, for the keyboard to offer.
+    OneTimeCode,
+}
+
+impl InputPurpose {
+    /// Shows the number pad.
+    pub fn is_numeric(self) -> bool {
+        matches!(self, InputPurpose::Digits | InputPurpose::Decimal | InputPurpose::OneTimeCode)
+    }
+
+    /// A password: never learned or predicted.
+    pub fn is_password(self) -> bool {
+        matches!(self, InputPurpose::CurrentPassword | InputPurpose::NewPassword)
+    }
 }
 
 /// What an input method did.
