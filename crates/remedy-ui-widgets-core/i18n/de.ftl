@@ -86,6 +86,7 @@ icon-exit-full-screen = Vollbild beenden
 icon-theater-mode = Kinomodus
 icon-cast = Streamen
 icon-casting = Wird gestreamt
+icon-picture-in-picture = Bild-im-Bild
 icon-captions = Untertitel
 icon-back-10 = 10 Sekunden zurück
 icon-forward-10 = 10 Sekunden vor
