@@ -4,7 +4,7 @@
 //! page sets each in Remedy Sans at 16 px.
 
 use remedy_ui_core::{Color, Insets};
-use remedy_ui_style::{States, StylePatch, StyleSheet, Theme};
+use remedy_ui_style::{Gradient, States, StylePatch, StyleSheet, Theme};
 
 /// One Portal palette: `(id, name, [bg, raised, well, line, accent, text, muted, error, track])`,
 /// as `themes.ts` writes them (`--track` is the line, except in Portal's own palette).
@@ -82,7 +82,9 @@ pub const PORTAL_PALETTES: &[PortalPalette] = &[
 /// The theme for Portal's palette `id` (`portal`, `light`, `deutan`, …), set as Portal's page
 /// is: Remedy Sans at 16 px (small text 0.88 rem), headings in Ahmi Pixel (Portal's default
 /// heading face), 36 px controls, Portal's radii (8 px small, 12 px for the stage, 18 px for
-/// the dock), and the player's tokens with Portal's values: the colors `track`,
+/// the dock), Portal's CSS variable names as custom colors (`gold`, `raised`, `well`, so its
+/// gradients parse with [`Gradient::parse`] as written; see [`portal_page_layers`]), and the
+/// player's tokens with Portal's values: the colors `track`,
 /// `player-loaded` (the text mixed 28% into the track), `player-thumb`, `player-thumb-ring`,
 /// `player-track-full` and `player-loaded-full` (full screen), `player-big-play-hover-text`,
 /// and the sliders' `slider-track`, `slider-fill`, `slider-thumb`; and the sizes in
@@ -105,6 +107,10 @@ pub fn portal_theme(id: &str) -> Option<Theme> {
     c.danger = hex(v[7]);
     let track = hex(v[8]);
     c.custom.insert("track".into(), track);
+    // Portal's own names for its surfaces and accent, so its CSS (`var(--gold)`) parses as is.
+    c.custom.insert("gold".into(), hex(v[4]));
+    c.custom.insert("raised".into(), hex(v[1]));
+    c.custom.insert("well".into(), hex(v[2]));
     // CSS color-mix(in srgb, text 28%, track).
     let (text, k) = (hex(v[5]), 0.28);
     let loaded = Color::new(
@@ -170,6 +176,18 @@ pub fn portal_theme(id: &str) -> Option<Theme> {
     t.radii.medium = 12.0;
     t.radii.large = 18.0;
     Some(t)
+}
+
+/// Portal's page `background-image` (`html, body` in styles.css), as it writes it.
+pub const PORTAL_PAGE_CSS: &str = "radial-gradient(ellipse 72rem 28rem at -6% -12%, color-mix(in srgb, var(--gold) 16%, transparent), transparent 62%), \
+     radial-gradient(ellipse 46rem 24rem at 108% -14%, color-mix(in srgb, var(--gold) 9%, transparent), transparent 58%)";
+
+/// Portal's page background: two soft gold glows from the top corners, elliptical radial
+/// gradients over the background color. Put them on a page's root with
+/// `.background_layers(portal_page_layers())` over `ColorRole::Bg`.
+pub fn portal_page_layers() -> Vec<Gradient> {
+    // Portal's own CSS, so it parses.
+    Gradient::parse_layers(PORTAL_PAGE_CSS).unwrap_or_default()
 }
 
 /// The style sheet for a Portal theme: [`sheet`](crate::sheet) with Portal's player on top
@@ -297,5 +315,32 @@ mod tests {
         assert_eq!((light.colors.panel, light.colors.muted), (hex("#ffffff"), hex("#3d3d52")));
         assert_eq!(PORTAL_PALETTES.len(), 13);
         assert!(portal_theme("hearth").is_none());
+        assert_eq!(t.colors.custom.get("gold"), Some(&t.colors.accent));
+        assert_eq!(t.colors.custom.get("raised"), Some(&t.colors.panel));
+        assert_eq!(t.colors.custom.get("well"), Some(&t.colors.card));
+        assert_eq!(portal_page_layers().len(), 2);
+    }
+
+    /// Headings show on every Portal palette: the heading color is the text's, readable on
+    /// the background, and the heading face falls back to the body's faces (a preview with
+    /// only Remedy Sans UI bundled drew Portal's "Films" heading in no face at all).
+    #[test]
+    fn portal_headings_are_readable_and_always_have_a_face() {
+        for (id, ..) in PORTAL_PALETTES {
+            let t = portal_theme(id).unwrap_or_else(|| unreachable!());
+            let mut sheet = portal_sheet(&t);
+            let key = remedy_ui_style::StyleKey { widget: "heading", variant: "1", states: States::NONE };
+            let s = sheet.resolve(&key, &StylePatch::defaults(&t), &StylePatch::default());
+            assert!(s.heading, "{id}");
+            assert!(
+                s.foreground.contrast(t.colors.bg) >= 7.0,
+                "{id}: heading {:?} on {:?}",
+                s.foreground,
+                t.colors.bg
+            );
+            let faces = t.families(false, true);
+            assert_eq!(faces.first().map(String::as_str), Some("Ahmi Pixel"), "{id}");
+            assert!(faces.iter().any(|f| f == "Remedy Sans UI"), "{id}: {faces:?}");
+        }
     }
 }

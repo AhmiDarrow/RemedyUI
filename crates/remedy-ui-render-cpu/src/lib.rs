@@ -251,6 +251,46 @@ fn set_brush<S: Surface>(ctx: &mut S, brush: &Brush) {
             extend: Extend::Pad,
             ..Default::default()
         }),
+        Brush::Elliptical { center, radii, stops: s } => {
+            // A unit circle stretched by the paint transform: the same in vello_cpu and vello_gpu.
+            ctx.set_paint(peniko::Gradient {
+                kind: peniko::RadialGradientPosition {
+                    start_center: kurbo::Point::ZERO,
+                    start_radius: 0.0,
+                    end_center: kurbo::Point::ZERO,
+                    end_radius: 1.0,
+                }
+                .into(),
+                stops: stops(s).as_slice().into(),
+                extend: Extend::Pad,
+                ..Default::default()
+            });
+            // A flat ellipse has no inverse; a hair-thin one draws as CSS's degenerate case does.
+            let (rx, ry) = (f64::from(radii.x.abs().max(1e-3)), f64::from(radii.y.abs().max(1e-3)));
+            ctx.set_paint_transform(
+                kurbo::Affine::translate((f64::from(center.x), f64::from(center.y)))
+                    * kurbo::Affine::scale_non_uniform(rx, ry),
+            );
+        }
+        Brush::Conic { center, start_angle, stops: s } => {
+            // A full turn from 0, turned into place: vello measures angles in 0..2π, so a sweep
+            // starting at a negative angle would lose the part before 0.
+            ctx.set_paint(peniko::Gradient {
+                kind: peniko::SweepGradientPosition {
+                    center: kurbo::Point::ZERO,
+                    start_angle: 0.0,
+                    end_angle: std::f32::consts::TAU,
+                }
+                .into(),
+                stops: stops(s).as_slice().into(),
+                extend: Extend::Pad,
+                ..Default::default()
+            });
+            ctx.set_paint_transform(
+                kurbo::Affine::translate((f64::from(center.x), f64::from(center.y)))
+                    * kurbo::Affine::rotate(f64::from(*start_angle)),
+            );
+        }
     }
 }
 

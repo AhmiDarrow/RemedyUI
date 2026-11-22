@@ -149,6 +149,26 @@ pub enum Brush {
         /// The stops, in order.
         stops: Vec<Stop>,
     },
+    /// An elliptical radial gradient around `center` (CSS `radial-gradient(ellipse ...)`):
+    /// offset 1 is the axis-aligned ellipse with half-widths `radii.x` and `radii.y`.
+    Elliptical {
+        /// The center.
+        center: Point,
+        /// The ellipse's horizontal and vertical radii at offset 1.
+        radii: Vec2,
+        /// The stops, in order.
+        stops: Vec<Stop>,
+    },
+    /// A conic (sweep) gradient around `center` (CSS `conic-gradient`): offset 0 at
+    /// `start_angle`, going clockwise to offset 1 a full turn later.
+    Conic {
+        /// The center.
+        center: Point,
+        /// Where offset 0 is, in radians from the positive x axis, clockwise (y points down).
+        start_angle: f32,
+        /// The stops, in order.
+        stops: Vec<Stop>,
+    },
 }
 
 /// Pixels to draw, premultiplied RGBA8, shared without copying.

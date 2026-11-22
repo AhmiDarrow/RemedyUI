@@ -19,12 +19,14 @@
 //! ```
 
 mod contrast;
+mod gradient;
 mod resolve;
 mod states;
 mod theme;
 mod tokens;
 
 pub use contrast::{CONTRAST_AA, CONTRAST_AAA, ensure_contrast};
+pub use gradient::{Extent, Gradient, GradientGeometry, GradientStop, ParseGradientError, Pos, RadialSize};
 pub use resolve::{LetterSpacing, ResolvedStyle, Shadow, StyleKey, StylePatch, StyleSheet};
 pub use states::States;
 pub use theme::{
