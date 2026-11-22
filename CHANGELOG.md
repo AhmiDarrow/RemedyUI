@@ -10,6 +10,41 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Every media limit is configurable**, each default kept and public:
+  `media-image` `set_memory_limit` (64 MiB), `set_disk_limit` (256 MiB) and
+  `set_known_sizes_limit` (1024); `media-playback` `MediaLimits` with `set_media_limits` (HLS
+  read-ahead, held bytes, fetch and playlist sizes, retries, pauses and timeouts; subtitle
+  file and cue sizes; Matroska and MP4 header caps; Linux system-sound queue) and
+  `PlayerOptions::caption_step` and `caption_delay_limit`; `media-isolated` `IsolationLimits`
+  with `set_isolation_limits` (the sandboxed helper's time slack and memory budget). The
+  media guide has a table of them.
+- The `media-image` disk cache reads `Expires` when there is no `max-age` (RFC 9111: less
+  the server's `Date`; an `Expires` that is not a date is already stale), in all three HTTP
+  date forms.
+- **`services-net` reaches the local network on request**: `Http::policy(HttpPolicy::PrivateNetworks)`
+  allows plain `http` to RFC 1918, link-local and unique-local IPv6 addresses and `.local`
+  names, for a native app talking to a Portal server at home. Off by default
+  (`HttpPolicy::LoopbackOnly`). Natively the resolved address is checked before connecting
+  (no DNS-rebinding way round it), plain `http` skips proxies, and redirects are followed hop
+  by hop with each hop checked; in a page Chrome's local network access is asked for.
+- **A real cookie jar** in `services-net` natively (RFC 6265): `Domain` and host-only cookies,
+  `Path`, `Secure`, `HttpOnly`, `Expires` and `Max-Age`, `SameSite` kept; `CookieJar::cookies`
+  lists them as `Cookie`s. Each redirect hop sends and keeps its own address's cookies.
+- **Streaming bodies**: `Http::stream` hands the body over chunk by chunk (natively from
+  ureq's reader, in a page from the `fetch` body's `ReadableStream`), cancellable between
+  chunks, ending with `NetError::TooLarge` past the size limit.
+- **Every `services-net` limit is configurable**: `Http::max_body` and `Request::max_body`
+  (256 MiB by default), `Http::timeout` and `Request::timeout` (30 s), `Http::max_redirects`
+  (10), `CookieJar::max_cookies` (3000); `None` lifts one. The defaults are public constants.
+- **Keepalive requests finish in the background on Android**: while one is under way the
+  bridge's new `Keepalive` service (declared by `cargo remedy package`) keeps the process
+  from being frozen, and the way out waits for them as on the desktop
+  (`remedy_ui_bridge_android::hold_process`, `remedy_ui_services_net::on_keepalive`).
+- `HttpError` carries the response headers (`HttpError::header`), so a `304 Not Modified`
+  exposes its new `ETag`, `Last-Modified` and `Cache-Control`. The `media-image` disk cache
+  now keeps them, so a revalidated image gets the new validators and freshness.
+- **Android: an app can offer an APK it already has to the system installer** (`android::install_apk`), served through the existing share `FileProvider`. The person taps Install, and their data is kept. If the “install unknown apps” setting is off, the settings page for this app is opened instead (`android::can_request_package_installs`). Share cleanup leaves named (non-numeric) folders under the share cache, so a downloaded APK is not deleted when a later share starts. Launch extras and these installer calls keep working after the event loop has started (the activity is no longer taken out of the process hook when the loop begins).
+
 - **Spatial navigation** for TVs, remotes and d-pads (engine gap #4 of Portal's whole-app
   audit): `Ui::set_spatial_navigation(true)` makes an arrow the focused element does not take
   move focus to the nearest focusable element that way, inside the current focus scope (an
@@ -153,6 +188,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - **`Resource::with_reply`** in `reactive`: a resource whose fetch answers later through a
   `Reply` sent from any thread, instead of blocking a worker, which is how fetches run in a
   browser page. `Resource::with_executor` is built on it.
+
 - **Routes and deep links** (`remedy_ui::router`, feature `widgets`), for Portal's
   `#/home`, `#/browse/<path>` and `#/settings/<id>`: a `Router` holds the route (a signal of
   `Route`: path, decoded segments, query, `matches("/settings/:id")` and `"/browse/*path"`)

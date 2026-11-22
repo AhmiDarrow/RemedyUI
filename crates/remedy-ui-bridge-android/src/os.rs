@@ -369,6 +369,66 @@ impl Java {
         })
     }
 
+    /// Whether this app may offer an APK to the system installer (Android 8+ "install unknown
+    /// apps"). Safe to call from any thread.
+    pub(crate) fn can_request_package_installs(&self) -> Result<bool, String> {
+        self.call(|env, a| {
+            let pm = env
+                .call_method(a, "getPackageManager", "()Landroid/content/pm/PackageManager;", &[])?
+                .l()?;
+            env.call_method(&pm, "canRequestPackageInstalls", "()Z", &[])?.z()
+        })
+    }
+
+    /// Opens the system installer for an APK under `cache/remedy-share/<request>/<index>/<name>`,
+    /// or the install-permission settings when that is not yet allowed. Runs on the UI thread
+    /// and waits for the Java call to finish (not for the person to tap Install).
+    pub(crate) fn install_apk(
+        &self,
+        app: &AndroidApp,
+        request: &str,
+        index: i32,
+        mime: &str,
+        name: &str,
+    ) -> Result<String, String> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let request = request.to_owned();
+        let mime = mime.to_owned();
+        let name = name.to_owned();
+        let tx2 = tx.clone();
+        self.on_bridge(app, "the package installer", move |env, b| {
+            let r = (|| {
+                let req = env.new_string(&request)?;
+                let mime = env.new_string(&mime)?;
+                let name = env.new_string(&name)?;
+                let v = env
+                    .call_method(
+                        b,
+                        "installApk",
+                        "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+                        &[
+                            JValue::Object(&req),
+                            JValue::Int(index),
+                            JValue::Object(&mime),
+                            JValue::Object(&name),
+                        ],
+                    )?
+                    .l()?;
+                string(env, v)
+            })();
+            let posted = match &r {
+                Ok(Some(s)) => Ok(s.clone()),
+                Ok(None) => Err("the installer returned nothing".into()),
+                Err(e) => Err(e.to_string()),
+            };
+            let _ = tx.send(posted);
+            r.map(|_| ())
+        })?;
+        drop(tx2);
+        rx.recv_timeout(std::time::Duration::from_secs(8))
+            .map_err(|_| "the installer call did not finish".to_string())?
+    }
+
     /// The bridge's Java class with its native methods bound: the app's own copy when its APK
     /// carries the bridge's dex (`cargo remedy package`: RemedyActivity, the foreground
     /// service and the notification classes then share it), else one loaded from the dex
@@ -833,6 +893,21 @@ impl Java {
                 "stopForeground",
                 "(Landroid/app/Activity;)V",
                 &[JValue::Object(a)],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Starts (`on`) or stops the service that keeps the process running out of sight.
+    pub(crate) fn hold_process(&self, on: bool) -> Result<(), String> {
+        let class = self.bridge_class()?;
+        self.call(|env, a| {
+            let class: &JClass<'_> = class.as_obj().into();
+            env.call_static_method(
+                class,
+                "holdProcess",
+                "(Landroid/app/Activity;Z)V",
+                &[JValue::Object(a), JValue::Bool(u8::from(on))],
             )?;
             Ok(())
         })

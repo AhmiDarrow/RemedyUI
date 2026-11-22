@@ -2,6 +2,10 @@
 //! same stack as the updater. Each request runs on a thread of its own, so a caller that
 //! cancels returns at once; the request stops reading its body (closing the connection) at
 //! the next chunk, or ends within its timeout while it waits for the server.
+//!
+//! Redirects are followed here rather than by ureq, so each hop is checked against the
+//! address policy and gets the cookies of its own address. Plain `http` never goes through a
+//! proxy, and the addresses its host name resolves to are checked before connecting ([`Guard`]).
 
 use std::io::Read;
 use std::sync::mpsc;
@@ -10,28 +14,79 @@ use std::time::{Duration, Instant};
 
 use remedy_ui_reactive::Cancel;
 use ureq::RequestExt;
+use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
+use ureq::unversioned::transport::{DefaultConnector, NextTimeout};
 
-use super::{HttpError, NetError, Prepared, Response};
+use super::{HttpError, HttpPolicy, NetError, Prepared, Response, allowed, reaches};
 
-/// Largest body read into memory.
-const MAX_BODY: u64 = 256 * 1024 * 1024;
 /// How often a waiting caller looks at its cancel token.
 const CANCEL_POLL: Duration = Duration::from_millis(20);
 
-fn agent() -> &'static ureq::Agent {
-    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
-    AGENT.get_or_init(|| {
+/// Resolves names as usual, then keeps only the addresses plain `http` may reach under the
+/// policy: the check holds for the address actually connected to, so a name that resolves
+/// somewhere else than it looked (DNS rebinding) is refused.
+#[derive(Debug)]
+struct Guard(HttpPolicy);
+
+/// Why [`Guard`] refused, told apart from other connection errors.
+#[derive(Debug)]
+struct Unreachable(String);
+
+impl std::fmt::Display for Unreachable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Unreachable {}
+
+impl Resolver for Guard {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: NextTimeout,
+    ) -> Result<ResolvedSocketAddrs, ureq::Error> {
+        let all = DefaultResolver::default().resolve(uri, config, timeout)?;
+        // A proxy's own address (only `https` goes through one) is not the app's to limit.
+        if uri.scheme_str() != Some("http") || config.proxy().is_some() {
+            return Ok(all);
+        }
+        let mut kept = self.empty();
+        for a in all.iter().filter(|a| reaches(a.ip(), self.0)) {
+            kept.push(*a);
+        }
+        if kept.is_empty() {
+            let host = uri.host().unwrap_or_default();
+            let ips: Vec<String> = all.iter().map(|a| a.ip().to_string()).collect();
+            return Err(ureq::Error::Other(Box::new(Unreachable(format!(
+                "{host} resolves to {}, which plain http does not reach under {:?}",
+                ips.join(", "),
+                self.0
+            )))));
+        }
+        Ok(kept)
+    }
+}
+
+fn agent(policy: HttpPolicy) -> &'static ureq::Agent {
+    static LOOPBACK: OnceLock<ureq::Agent> = OnceLock::new();
+    static PRIVATE: OnceLock<ureq::Agent> = OnceLock::new();
+    let cell = if policy == HttpPolicy::PrivateNetworks { &PRIVATE } else { &LOOPBACK };
+    cell.get_or_init(|| {
         // ring is the TLS provider; installing it twice is harmless.
         let _ = rustls::crypto::ring::default_provider().install_default();
         let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
-        ureq::Agent::config_builder()
+        let config = ureq::Agent::config_builder()
             .tls_config(tls)
             .http_status_as_error(false)
-            // Plain http reaches only the loopback interface; `allowed` checks that first.
+            // `allowed` and `Guard` decide which plain-http addresses are reached.
             .https_only(false)
+            // Followed in `run`, hop by hop.
+            .max_redirects(0)
             .user_agent("RemedyUI")
-            .build()
-            .into()
+            .build();
+        ureq::Agent::with_parts(config, DefaultConnector::default(), Guard(policy))
     })
 }
 
@@ -39,73 +94,146 @@ fn net(e: ureq::Error) -> NetError {
     match e {
         ureq::Error::Timeout(_) => NetError::Timeout,
         ureq::Error::Io(e) if e.kind() == std::io::ErrorKind::TimedOut => NetError::Timeout,
+        ureq::Error::Other(e) if e.is::<Unreachable>() => NetError::Refused(e.to_string()),
         e => NetError::Network(e.to_string()),
     }
 }
 
+/// `location` (absolute, scheme-relative, absolute-path or relative) against `base`.
+fn join(base: &str, location: &str) -> String {
+    if location.contains("://") {
+        return location.to_owned();
+    }
+    let (scheme, rest) = base.split_once("://").unwrap_or(("https", base));
+    if let Some(l) = location.strip_prefix("//") {
+        return format!("{scheme}://{l}");
+    }
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(end);
+    if location.starts_with('/') {
+        return format!("{scheme}://{authority}{location}");
+    }
+    let path = tail.split(['?', '#']).next().unwrap_or_default();
+    let dir = path.rfind('/').and_then(|i| path.get(..=i)).unwrap_or("/");
+    format!("{scheme}://{authority}{dir}{location}")
+}
+
+/// The scheme and host of an address, to tell when a redirect leaves the origin.
+fn origin(url: &str) -> Option<(String, String)> {
+    super::Parts::of(url).map(|p| (p.scheme, p.host))
+}
+
 /// Runs the request where it is called; once `stop` is cancelled it lets go of the body.
 fn run(p: Prepared, stop: Option<&Cancel>) -> Result<Response, NetError> {
-    let mut b = ureq::http::Request::builder().method(p.method).uri(&p.url);
-    for (k, v) in &p.headers {
-        b = b.header(k.as_str(), v.as_str());
-    }
-    if let Some(c) = p.cookies.as_ref().and_then(|j| j.header(&p.url)) {
-        b = b.header("Cookie", c);
-    }
-    let started = Instant::now();
-    // An empty POST or PUT says `Content-Length: 0` rather than going chunked.
-    let body = p.body.or_else(|| matches!(p.method, "POST" | "PUT").then(Vec::new));
-    let res = match body {
-        Some(body) => b
-            .body(body)
-            .map_err(|e| NetError::Refused(e.to_string()))?
-            .with_agent(agent())
-            .configure()
-            .timeout_global(Some(p.timeout))
-            .build()
-            .run(),
-        None => b
-            .body(())
-            .map_err(|e| NetError::Refused(e.to_string()))?
-            .with_agent(agent())
-            .configure()
-            .timeout_global(Some(p.timeout))
-            .build()
-            .run(),
-    };
-    let mut res = res.map_err(net)?;
-    if let Some(jar) = &p.cookies {
-        for v in res.headers().get_all("set-cookie") {
-            if let Ok(v) = v.to_str() {
-                jar.store(&p.url, v);
+    // `None`: no limit (or one too far off to count).
+    let deadline = p.timeout.and_then(|t| Instant::now().checked_add(t));
+    let (mut method, mut url, mut headers, mut body) =
+        (p.method, p.url.clone(), p.headers.clone(), p.body.clone());
+    let mut hops = 0;
+    let mut res = loop {
+        allowed(&url, p.policy)?;
+        let mut b = ureq::http::Request::builder().method(method).uri(&url);
+        for (k, v) in &headers {
+            b = b.header(k.as_str(), v.as_str());
+        }
+        if let Some(c) = p.cookies.as_ref().and_then(|j| j.header(&url)) {
+            b = b.header("Cookie", c);
+        }
+        let left = deadline.map(|d| d.saturating_duration_since(Instant::now()));
+        let plain = url.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"));
+        // An empty POST or PUT says `Content-Length: 0` rather than going chunked.
+        let send = body.clone().or_else(|| matches!(method, "POST" | "PUT").then(Vec::new));
+        macro_rules! go {
+            ($req:expr) => {{
+                let c = $req
+                    .map_err(|e| NetError::Refused(e.to_string()))?
+                    .with_agent(agent(p.policy))
+                    .configure();
+                // Plain http goes straight to the address `Guard` checked, never via a proxy.
+                let c = if plain { c.proxy(None) } else { c };
+                c.timeout_global(left).build().run()
+            }};
+        }
+        let res = match send {
+            Some(bytes) => go!(b.body(bytes)),
+            None => go!(b.body(())),
+        };
+        let res = res.map_err(net)?;
+        if let Some(jar) = &p.cookies {
+            for v in res.headers().get_all("set-cookie") {
+                if let Ok(v) = v.to_str() {
+                    jar.store(&url, v);
+                }
             }
         }
-    }
+        let status = res.status().as_u16();
+        let location = res.headers().get("location").and_then(|l| l.to_str().ok()).map(str::to_owned);
+        let Some(location) = location.filter(|_| matches!(status, 301 | 302 | 303 | 307 | 308)) else {
+            break res;
+        };
+        hops += 1;
+        if p.max_redirects == 0 {
+            break res;
+        }
+        if hops > p.max_redirects {
+            return Err(NetError::Network(format!("more than {} redirects", p.max_redirects)));
+        }
+        let next = join(&url, &location);
+        // As browsers do: a 303, or a 301 or 302 of a POST, becomes a GET without the body.
+        if status == 303 || (matches!(status, 301 | 302) && method == "POST") {
+            method = if method == "HEAD" { "HEAD" } else { "GET" };
+            body = None;
+            headers.retain(|(k, _)| !k.eq_ignore_ascii_case("content-type"));
+        }
+        // Credentials the app set for one origin are not handed to another.
+        if origin(&next) != origin(&url) {
+            headers.retain(|(k, _)| !k.eq_ignore_ascii_case("authorization"));
+        }
+        url = next;
+    };
     let status = res.status().as_u16();
-    let headers = res
+    let headers: Vec<(String, String)> = res
         .headers()
         .iter()
         .filter_map(|(k, v)| Some((k.as_str().to_owned(), v.to_str().ok()?.to_owned())))
         .collect();
-    let mut reader = res.body_mut().with_config().limit(MAX_BODY).reader();
-    let (mut body, mut chunk) = (Vec::new(), vec![0; 64 * 1024]);
+    let ok = (200..300).contains(&status);
+    // The answer as a streamed chunk sees it: everything but the body.
+    let head = Response { status, headers, body: Vec::new() };
+    let chunks = p.chunks.as_ref().filter(|_| ok);
+    let mut reader =
+        res.body_mut().with_config().limit(p.limit.map_or(u64::MAX, |l| l.saturating_add(1))).reader();
+    let (mut body, mut chunk, mut total) = (Vec::new(), vec![0; 64 * 1024], 0u64);
     loop {
         // Nobody wants it any more: dropping the reader closes the connection.
         if stop.is_some_and(Cancel::is_cancelled) {
             return Err(NetError::Cancelled);
         }
-        match reader.read(&mut chunk) {
+        let n = match reader.read(&mut chunk) {
             Ok(0) => break,
-            Ok(n) => body.extend_from_slice(chunk.get(..n).unwrap_or_default()),
+            Ok(n) => n,
             // A body that stalls past the deadline reads as a broken connection.
-            Err(_) if started.elapsed() >= p.timeout => return Err(NetError::Timeout),
+            Err(_) if deadline.is_some_and(|d| Instant::now() >= d) => return Err(NetError::Timeout),
             Err(e) => return Err(net(ureq::Error::Io(e))),
+        };
+        total += n as u64;
+        if let Some(limit) = p.limit.filter(|l| total > *l) {
+            return Err(NetError::TooLarge(limit));
+        }
+        let bytes = chunk.get(..n).unwrap_or_default();
+        match chunks {
+            Some(c) => match c.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
+                Some(f) => f(&head, bytes),
+                // The caller has had its answer (cancelled, timed out).
+                None => return Err(NetError::Cancelled),
+            },
+            None => body.extend_from_slice(bytes),
         }
     }
-    if (200..300).contains(&status) {
-        Ok(Response { status, headers, body })
+    if ok {
+        Ok(Response { body, ..head })
     } else {
-        Err(NetError::Http(HttpError::new(status, &body)))
+        Err(NetError::Http(HttpError::new(status, head.headers, &body)))
     }
 }
 
@@ -115,12 +243,36 @@ fn in_flight() -> &'static (Mutex<usize>, Condvar) {
     IN_FLIGHT.get_or_init(|| (Mutex::new(0), Condvar::new()))
 }
 
-/// Counts a keepalive request until it ends.
+/// Told when keepalive requests start being under way (`true`) and when the last ends.
+static HOOK: Mutex<Option<fn(bool)>> = Mutex::new(None);
+
+/// Calls `hook(true)` when a keepalive request starts while none is under way, and
+/// `hook(false)` when the last one ends: for a platform that must be told to keep the app
+/// running out of sight. `remedy_ui::run` sets it on Android, where it starts a service that
+/// keeps the process from being frozen in the background until the requests end, as a
+/// browser lets a closing page's keepalive `fetch` finish.
+pub fn on_keepalive(hook: fn(bool)) {
+    *HOOK.lock().unwrap_or_else(PoisonError::into_inner) = Some(hook);
+}
+
+fn tell(running: bool) {
+    let hook = *HOOK.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(h) = hook {
+        h(running);
+    }
+}
+
+/// Counts a keepalive request until it ends. The hook is told under the count's lock, so
+/// its calls keep the order of the changes they report.
 struct Kept;
 
 impl Kept {
     fn new() -> Self {
-        *in_flight().0.lock().unwrap_or_else(PoisonError::into_inner) += 1;
+        let mut n = in_flight().0.lock().unwrap_or_else(PoisonError::into_inner);
+        *n += 1;
+        if *n == 1 {
+            tell(true);
+        }
         Kept
     }
 }
@@ -130,6 +282,9 @@ impl Drop for Kept {
         let (n, cv) = in_flight();
         let mut n = n.lock().unwrap_or_else(PoisonError::into_inner);
         *n = n.saturating_sub(1);
+        if *n == 0 {
+            tell(false);
+        }
         cv.notify_all();
     }
 }
@@ -152,7 +307,15 @@ pub(super) fn send_blocking(p: Prepared, cancel: &Cancel) -> Result<Response, Ne
     let kept = keepalive.then(Kept::new);
     // ureq's own deadline normally ends it first; this one holds even when a socket call
     // overruns it, so the caller's timeout is kept.
-    let deadline = Instant::now() + p.timeout + CANCEL_POLL;
+    let deadline = p.timeout.and_then(|t| Instant::now().checked_add(t + CANCEL_POLL));
+    let chunks = p.chunks.clone();
+    // Answering early: no chunk may follow the answer.
+    let early = |e: NetError| {
+        if let Some(c) = &chunks {
+            c.lock().unwrap_or_else(PoisonError::into_inner).take();
+        }
+        Err(e)
+    };
     let (tx, rx) = mpsc::channel();
     let stop = (!keepalive).then(|| cancel.clone());
     std::thread::Builder::new()
@@ -166,14 +329,14 @@ pub(super) fn send_blocking(p: Prepared, cancel: &Cancel) -> Result<Response, Ne
         match rx.recv_timeout(CANCEL_POLL) {
             Ok(out) => return out,
             Err(mpsc::RecvTimeoutError::Timeout) if !keepalive && cancel.is_cancelled() => {
-                return Err(NetError::Cancelled);
+                return early(NetError::Cancelled);
             }
-            Err(mpsc::RecvTimeoutError::Timeout) if Instant::now() > deadline => {
-                return Err(NetError::Timeout);
+            Err(mpsc::RecvTimeoutError::Timeout) if deadline.is_some_and(|d| Instant::now() > d) => {
+                return early(NetError::Timeout);
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(NetError::Network("the request ended without an answer".into()));
+                return early(NetError::Network("the request ended without an answer".into()));
             }
         }
     }
@@ -200,5 +363,38 @@ pub(super) fn send(
         && let Some(done) = done.lock().unwrap_or_else(PoisonError::into_inner).take()
     {
         done(Err(NetError::Network(format!("no thread for the request: {e}"))));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The check is on the resolved address, whatever the name looked like.
+    #[test]
+    fn the_resolved_address_is_checked() {
+        let resolve = |policy, url: &str| {
+            let uri: ureq::http::Uri = url.parse().unwrap_or_else(|_| unreachable!());
+            let config = ureq::Agent::config_builder().proxy(None).build();
+            Guard(policy).resolve(&uri, &config, NextTimeout::default())
+        };
+        let lo = HttpPolicy::LoopbackOnly;
+        assert!(resolve(lo, "http://127.0.0.1:80/").is_ok());
+        let refused = resolve(lo, "http://192.168.1.1/").map(|_| ()).map_err(net);
+        assert!(matches!(refused, Err(NetError::Refused(_))), "{refused:?}");
+        assert!(resolve(HttpPolicy::PrivateNetworks, "http://192.168.1.1/").is_ok());
+        assert!(resolve(HttpPolicy::PrivateNetworks, "http://8.8.8.8/").is_err());
+        assert!(resolve(HttpPolicy::PrivateNetworks, "http://[fd00::5]/").is_ok());
+        // https goes anywhere.
+        assert!(resolve(lo, "https://8.8.8.8/").is_ok());
+    }
+
+    #[test]
+    fn joins_redirects() {
+        assert_eq!(join("https://a.test/x/y?q", "https://b.test/z"), "https://b.test/z");
+        assert_eq!(join("https://a.test/x/y?q", "//b.test/z"), "https://b.test/z");
+        assert_eq!(join("http://a.test:8/x/y?q", "/z?1"), "http://a.test:8/z?1");
+        assert_eq!(join("https://a.test/x/y?q", "z"), "https://a.test/x/z");
+        assert_eq!(join("https://a.test", "z"), "https://a.test/z");
     }
 }
