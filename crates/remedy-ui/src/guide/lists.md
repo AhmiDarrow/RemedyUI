@@ -74,7 +74,7 @@ from a signal, or change the key.
 the arrow keys selects it, and the chosen key is in a `Signal<Option<K>>` the app owns.
 Pressing a selected row again, or Enter, calls `on_open`. Screen readers hear a list named
 by its label, and each row by what it shows, its place in the list ("2 of 3") and whether it
-is selected.
+is selected: a list box of options (ARIA `listbox`, `option`).
 
 ```
 use remedy_ui::testing::TestApp;
@@ -102,7 +102,7 @@ let Some(ui) = app.ui() else { unreachable!("the window is open") };
 
 // Rows are named by what they show. Click "Music" the way a screen reader does.
 let reader = ui.reader_view();
-let Some(row) = reader.iter().find(|n| n.role == Role::ListItem && n.name.as_deref() == Some("Music")) else {
+let Some(row) = reader.iter().find(|n| n.role == Role::Option && n.name.as_deref() == Some("Music")) else {
     unreachable!("listed")
 };
 assert_eq!(row.position, Some((2, 3)), "second of three");
