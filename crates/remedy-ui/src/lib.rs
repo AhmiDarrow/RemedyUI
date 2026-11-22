@@ -23,6 +23,8 @@
 //! The [`guide`] holds the guides, porting guides and recipes, starting with
 //! [`guide::getting_started`].
 
+#[cfg(feature = "widgets")]
+mod confirm;
 #[cfg(feature = "customize")]
 mod customizations;
 mod geometry;
@@ -51,14 +53,18 @@ struct ReadmeDoctests;
 /// with [`remedy_ui_view::strings::add_messages`] under the name `remedy-ui`.
 pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_strings!("remedy-ui");
 
+#[cfg(feature = "widgets")]
+pub use confirm::ConfirmSpec;
 pub use geometry::{GEOMETRY_KEY, GeometryStore};
+pub use instance::{InstanceReply, ReplyLater};
 #[cfg(feature = "widgets")]
 pub use movable::{Movable, movable};
 /// Editions: which default behaviors the app follows ([`AppConfig::edition`]).
 pub use remedy_ui_core::Edition;
 pub use runner::{
     App, AppConfig, BackgroundJob, Cancelled, Completion, GPU_PROMOTE_FRAME_COST, GPU_PROMOTE_FRAME_STALL,
-    GraphicsAdapter, RendererChoice, RendererKind, Runner, Window, WindowSpec, bundled_fonts,
+    GraphicsAdapter, RendererChoice, RendererKind, Runner, SINGLE_INSTANCE_REPLY, Window, WindowSpec,
+    bundled_fonts,
 };
 
 /// Semantics: roles, names, states and actions that screen readers, tests and agents read
@@ -334,7 +340,7 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
         let runner = Runner::new(config, setup).with_inbox(inbox.clone());
         let args = remedy_ui_bridge_web::launch_args();
         return remedy_ui_bridge_web::run_single_instance(&name, args, web, runner, move |a| {
-            instance::deliver(&inbox, a)
+            instance::deliver(&inbox, a, None)
         })
         .map_err(|e| RunError::SingleInstance { reason: e.reason().to_owned() });
     }
@@ -344,11 +350,17 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
     remedy_ui_bridge_linux::set_drop_waits(config.drop_waits.0, config.drop_waits.1);
     if config.single_instance {
         let args: Vec<String> = std::env::args().skip(1).collect();
-        if !instance::claim(&config.name, &args, inbox.clone())
+        let wait = config
+            .single_instance_reply
+            .map(|reply| instance::ReplyWait { reply, exit: config.single_instance_exit });
+        match instance::claim(&config.name, &args, wait, inbox.clone())
             .map_err(|reason| RunError::SingleInstance { reason })?
         {
+            instance::Claimed::First => {}
+            // The running instance answered: this launch ends with its code.
+            instance::Claimed::HandedOver(Some(code)) => std::process::exit(code),
             // Another instance runs and has our arguments.
-            return Ok(());
+            instance::Claimed::HandedOver(None) => return Ok(()),
         }
     }
     #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
