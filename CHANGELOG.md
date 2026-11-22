@@ -10,6 +10,17 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Every media limit is configurable**, each default kept and public:
+  `media-image` `set_memory_limit` (64 MiB), `set_disk_limit` (256 MiB) and
+  `set_known_sizes_limit` (1024); `media-playback` `MediaLimits` with `set_media_limits` (HLS
+  read-ahead, held bytes, fetch and playlist sizes, retries, pauses and timeouts; subtitle
+  file and cue sizes; Matroska and MP4 header caps; Linux system-sound queue) and
+  `PlayerOptions::caption_step` and `caption_delay_limit`; `media-isolated` `IsolationLimits`
+  with `set_isolation_limits` (the sandboxed helper's time slack and memory budget). The
+  media guide has a table of them.
+- The `media-image` disk cache reads `Expires` when there is no `max-age` (RFC 9111: less
+  the server's `Date`; an `Expires` that is not a date is already stale), in all three HTTP
+  date forms.
 - **`services-net` reaches the local network on request**: `Http::policy(HttpPolicy::PrivateNetworks)`
   allows plain `http` to RFC 1918, link-local and unique-local IPv6 addresses and `.local`
   names, for a native app talking to a Portal server at home. Off by default

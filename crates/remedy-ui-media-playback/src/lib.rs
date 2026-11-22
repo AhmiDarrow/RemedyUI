@@ -79,6 +79,7 @@ mod host;
 // it once its host does.
 #[cfg_attr(not(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios"))))), allow(dead_code))]
 mod hls;
+mod limits;
 mod media_keys;
 // Matroska and WebM text subtitles, read from local files on every platform (the
 // platforms' readers do not hand them out).
@@ -107,6 +108,7 @@ pub use host::{
     VideoCodec, VideoEncoderOptions, VideoInfo, VideoStreamDecoder, VideoStreamEncoder, YuvMatrix,
     merge_ranges,
 };
+pub use limits::{MediaLimits, media_limits, set_media_limits};
 pub use player::{
     CaptionChoice, CaptionPick, KeyScheme, NEXT_UP_DELAY, NextUp, Player, PlayerOptions, Remote,
     RemoteControl, RemoteStatus, RemoteStatusSender, StageStatus, Timeline, UnseenPolicy,

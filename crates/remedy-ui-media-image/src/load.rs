@@ -221,8 +221,18 @@ struct Cache {
     tick: u64,
 }
 
-/// How many source sizes are remembered; the least recently used go first.
-const SIZES_CAP: usize = 1024;
+/// The default of [`set_known_sizes_limit`].
+pub const DEFAULT_KNOWN_SIZES_LIMIT: usize = 1024;
+
+static KNOWN_SIZES_LIMIT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(DEFAULT_KNOWN_SIZES_LIMIT);
+
+/// Remembers the sizes of up to `count` sources still alive (so a probed image lays out at
+/// once the next time), the least recently used going first (default
+/// [`DEFAULT_KNOWN_SIZES_LIMIT`]). Applies the next time a size is remembered.
+pub fn set_known_sizes_limit(count: usize) {
+    KNOWN_SIZES_LIMIT.store(count, Ordering::Relaxed);
+}
 
 /// A source's size, as last read.
 struct Known {
@@ -268,7 +278,7 @@ impl Cache {
         self.sizes.insert(source, Known { size, stamp, bytes, used: self.tick });
         // Sizes of freed bytes go (letting their allocations go too), then the least recently used.
         self.sizes.retain(|_, k| !gone(&k.bytes));
-        if self.sizes.len() > SIZES_CAP
+        while self.sizes.len() > KNOWN_SIZES_LIMIT.load(Ordering::Relaxed)
             && let Some(oldest) = self.sizes.iter().min_by_key(|(_, k)| k.used).map(|(s, _)| s.clone())
         {
             self.sizes.remove(&oldest);

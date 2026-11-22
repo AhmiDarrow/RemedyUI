@@ -62,7 +62,8 @@ assert!(!reader.iter().any(|n| n.name.as_deref() == Some("")));
 address share one fetch, cancelled when they all go. Fetched bytes stay in a bounded
 memory cache. Natively they are also kept in the app's cache folder (`images` under
 `%LOCALAPPDATA%\<name>\cache`, `~/Library/Caches/<name>` or `~/.cache/<name>`), following
-the server's `Cache-Control` and revalidated with its `ETag` or `Last-Modified`. In a
+the server's `Cache-Control` (or, without `max-age`, its `Expires`) and revalidated with its
+`ETag` or `Last-Modified`. In a
 browser page the browser's own HTTP cache does that. [`crate::image::image_ext`] adds the
 app's own placeholder, a fallback built when the image cannot be shown (a letter tile), and
 a listener whose `Sized` and `Ready` carry the image's real size, so wide or square art can
@@ -541,3 +542,52 @@ fn main() {
 
 When `enable` fails (a platform where no sandbox can be built), nothing changes and images
 decode in the app as before.
+
+## Limits
+
+Every bound the media crates work within has a default that suits ordinary media and a
+public way to change it. The safety limits (marked *safety*) guard against hostile or
+broken files, servers and decoders: raising one lets such input take that much more memory
+or time before it is refused or stopped.
+
+| Limit | Default | How to change it |
+| --- | --- | --- |
+| Fetched images kept in memory | 64 MiB | `image::set_memory_limit` |
+| Fetched images kept on disk | 256 MiB | `image::set_disk_limit` |
+| Image sizes remembered | 1024 sources | `image::set_known_sizes_limit` |
+| HLS segments fetched ahead | 3 | `MediaLimits::hls_ahead` |
+| HLS bytes held ahead | 60 MB | `MediaLimits::hls_max_held` |
+| HLS fetch size (*safety*) | 256 MiB | `MediaLimits::max_fetch` |
+| HLS playlist size (*safety*) | 16 MiB | `MediaLimits::max_playlist` |
+| HLS retries after an error / a timeout / a missing playlist | 3 / 4 / 2 | `MediaLimits::error_retries`, `timeout_retries`, `missing_retries` |
+| HLS recoveries of a failing spot | 6 | `MediaLimits::recoveries` |
+| HLS pause between tries | 250 ms, doubling to 1 s | `MediaLimits::retry_pause`, `max_retry_pause` |
+| HLS fetch timeouts: first byte / in all / quiet | 12 s / 60 s / 2.5 s | `MediaLimits::first_byte_timeout`, `load_timeout`, `quiet_timeout` |
+| Subtitle file, and cue text kept per media (*safety*) | 16 MiB | `MediaLimits::max_subtitle_bytes` |
+| One streamed cue (*safety*) | 1 MiB | `MediaLimits::max_streamed_cue` |
+| Matroska EBML header / SeekHead, Info, Tracks / Cues (*safety*) | 4 KiB / 16 MiB / 64 MiB | `MediaLimits::max_ebml_header`, `max_mkv_header`, `max_mkv_cues` |
+| MP4 movie box (*safety*) | 64 MiB | `MediaLimits::max_moov` |
+| One embedded subtitle block or sample (*safety*) | 64 KiB | `MediaLimits::max_embedded_cue` |
+| Linux system sound held for a slow reader | 500 ms | `MediaLimits::capture_queue` |
+| Captions Earlier / Later step, and its range | 500 ms, ±10 min | `PlayerOptions::caption_step`, `caption_delay_limit` |
+| Sandboxed decode time, times the measured cost (*safety*) | 20 | `IsolationLimits::time_slack` |
+| Sandboxed decode memory per input byte / source pixel / output pixel (*safety*) | 64 / 24 / 8 bytes | `IsolationLimits::memory_per_byte`, `memory_per_source_pixel`, `memory_per_output_pixel` |
+
+`MediaLimits` (in `playback`) and `IsolationLimits` (in `isolated`) hold for the whole
+process: build one from its default, change what you need, and pass it to
+`playback::set_media_limits` or `isolated::set_isolation_limits`. An HLS stream already open
+keeps the bounds it opened with. `PlayerOptions` fields are each player's own.
+
+```no_run
+use remedy_ui::playback::{MediaLimits, set_media_limits};
+
+// A kiosk that plays long 4K streams over a slow link.
+set_media_limits(MediaLimits::default().hls_ahead(8).hls_max_held(400_000_000).load_timeout(
+    std::time::Duration::from_secs(180),
+));
+remedy_ui::image::set_memory_limit(256 << 20);
+```
+
+Some numbers are fixed by a format or protocol and are not limits: libpulse's 32-channel
+arrays (`PA_CHANNELS_MAX`), and the sandbox helper's wire frame (at most `u16::MAX` bytes,
+two shared regions, 4 KiB of error text), which the helper and the app must agree on.
