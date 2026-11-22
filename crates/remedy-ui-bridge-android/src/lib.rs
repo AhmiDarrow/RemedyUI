@@ -47,6 +47,10 @@
 //!   refuse (the manifest's declaration and permissions, microphone and camera permissions,
 //!   the app on screen for microphone and camera work); what Android ends later arrives as
 //!   `HostEvent::ForegroundStopped`;
+//! - keeping the process running out of sight ([`hold_process`]): the
+//!   `dev.remedyui.android.Keepalive` started service, so keepalive HTTP requests (an app's
+//!   last saves) finish when the app goes to the background instead of being frozen with it,
+//!   and the app's way out waits for them (up to 10 seconds), as on the desktop;
 //! - launch options from the starting intent (`launch_extra`);
 //! - the app's private data folder (`data_dir`), where `remedy_ui`'s `App::data_dir` and
 //!   persisted state live;
@@ -91,7 +95,7 @@ mod android;
 mod os;
 
 #[cfg(target_os = "android")]
-pub use android::{AndroidHooks, ApkInstall, attach, can_request_package_installs, data_dir, install_apk, launch_extra, log, run};
+pub use android::{AndroidHooks, ApkInstall, attach, can_request_package_installs, data_dir, hold_process, install_apk, launch_extra, log, run};
 #[cfg(target_os = "android")]
 pub use remedy_ui_bridge_winit::RunError;
 #[cfg(target_os = "android")]

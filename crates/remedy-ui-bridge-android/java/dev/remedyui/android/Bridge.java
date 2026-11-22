@@ -409,6 +409,11 @@ public final class Bridge
         Foreground.stop(activity);
     }
 
+    /** Keeps the process running out of sight while keepalive requests finish (any thread). */
+    public static void holdProcess(Activity activity, boolean on) {
+        Keepalive.hold(activity, on);
+    }
+
     /** The view the native activity draws in: where accessibility nodes live. */
     public static View contentView(Activity activity) {
         View root = activity.getWindow().getDecorView().findViewById(android.R.id.content);

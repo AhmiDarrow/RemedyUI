@@ -898,6 +898,21 @@ impl Java {
         })
     }
 
+    /// Starts (`on`) or stops the service that keeps the process running out of sight.
+    pub(crate) fn hold_process(&self, on: bool) -> Result<(), String> {
+        let class = self.bridge_class()?;
+        self.call(|env, a| {
+            let class: &JClass<'_> = class.as_obj().into();
+            env.call_static_method(
+                class,
+                "holdProcess",
+                "(Landroid/app/Activity;Z)V",
+                &[JValue::Object(a), JValue::Bool(u8::from(on))],
+            )?;
+            Ok(())
+        })
+    }
+
     /// Adds "set text" to text fields' accessibility nodes, once the adapter is in place.
     pub(crate) fn extend_accessibility(&self, app: &AndroidApp) -> Result<(), String> {
         self.on_bridge(app, "extending accessibility", |env, b| {
