@@ -19,10 +19,13 @@ use crate::hls::{
 use crate::host::{MediaError, Sample, VideoCodec};
 
 const PURPOSE: &str = "playing HLS streams";
-/// Units a decoder may hold before `pull` waits for it; doubled each time a decoder holds
-/// more (frame-threaded decoders hold a picture per thread).
+/// Units a decoder may hold before `pull` waits for it, until its depth is known.
 const HOLD: u32 = 8;
-/// How long `pull` waits on a decoder holding `HOLD` units before raising its `HOLD`.
+/// Up to how many units a decoder that has given nothing out yet is handed without waiting:
+/// past an H.264 decoder's most (16 for reordering, 16 more for frame threads).
+const FILL: u32 = 64;
+/// How long `pull` waits on a decoder holding `hold` units with nothing out before raising
+/// its `hold` (a decoder deeper than `FILL`, or one far behind).
 const STALL: Duration = Duration::from_millis(250);
 /// How long a drained decoder may take to give out the end of what it held.
 const DRAIN: Duration = Duration::from_secs(10);
@@ -56,7 +59,11 @@ struct Stream {
     video: bool,
     /// Units pushed and not yet out.
     held: u32,
+    /// Units it may hold before `pull` waits for it: [`HOLD`], then past its depth.
     hold: u32,
+    /// The units it held when its first output came: how many it keeps back. Learned once;
+    /// a flush keeps the decoder, so its depth too.
+    depth: Option<u32>,
     eos: bool,
 }
 
@@ -64,7 +71,7 @@ impl Stream {
     fn open(g: &'static Gst, desc: &str, video: bool) -> Result<Stream, MediaError> {
         let pipe = build(g, desc, &[c"src", c"sink"])?;
         pipe.start("the HLS decoder")?;
-        Ok(Stream { pipe, video, held: 0, hold: HOLD, eos: false })
+        Ok(Stream { pipe, video, held: 0, hold: HOLD, depth: None, eos: false })
     }
 
     /// Emptied for a new stream or a seek, its elements (the decoder's among them) and
@@ -81,7 +88,7 @@ impl Stream {
         if !sent {
             return Err(MediaError::Decode("the HLS decoder would not flush".into()));
         }
-        (self.held, self.hold, self.eos) = (0, HOLD, false);
+        (self.held, self.eos) = (0, false);
         Ok(())
     }
 
@@ -125,6 +132,10 @@ impl Stream {
             self.eos |= unsafe { (g.app_sink_is_eos)(sink) } != 0;
             return Ok(None);
         };
+        if self.depth.is_none() {
+            self.depth = Some(self.held);
+            self.hold = self.held + HOLD;
+        }
         self.held = self.held.saturating_sub(1);
         // SAFETY: the sample `pull_sample` handed over, its buffer mapped for reading while its
         // bytes are copied once into the picture or the sound, then released once.
@@ -273,6 +284,12 @@ impl Elementary for GstElementary {
             else {
                 return Ok(None);
             };
+            // Nothing out yet: it is filling (a frame-threaded decoder holds a picture a
+            // thread, avdec_h264 up to 16, besides reordering), not busy. More at once.
+            if !ended && s.depth.is_none() && s.hold < FILL {
+                s.hold *= 2;
+                return Ok(None);
+            }
             if since.elapsed() > if ended { DRAIN } else { STALL } {
                 s.hold *= 2;
                 s.eos |= ended;

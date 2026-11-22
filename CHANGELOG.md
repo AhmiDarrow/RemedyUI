@@ -934,6 +934,13 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **An HLS stream on GStreamer's software H.264 decoder shows its first picture at once**,
+  not half a second late, on opening and on every seek. `avdec_h264` holds a picture for
+  each of its frame threads (19 units on a 16-thread machine) before giving any out, and
+  the reader waited 250 ms each time a decoder held 8, then 16, before handing it more. A
+  decoder that has given nothing out yet is now handed more at once, and the depth it shows
+  with its first picture sets how much it may hold from then on, across seeks. WSL, release:
+  first picture and seeks 510 ms to 4-7 ms with `avdec_h264`; `nvh264dec` unchanged.
 - **Text turns, skews and stretches with its drawing** on the CPU and GPU renderers. Glyphs
   were cached upright at one size and placed at their turned origins, so text under a
   rotation stayed upright letter by letter, and an uneven scale drew them at the average
