@@ -580,7 +580,7 @@ fn tray_dialogs_and_second_launches_reach_the_app() {
         app.set_tray(Some(TrayIcon::new(
             "SecretSticky",
             TrayImage { size: 2, rgba: vec![255; 16] },
-            vec![TrayItem::Item { id: 7, label: "New note".into(), enabled: true }, TrayItem::Separator],
+            vec![TrayItem::item(7, "New note"), TrayItem::Separator],
         )));
         app.on_tray(move |e| e2.borrow_mut().push(e));
         app.on_second_instance(move |a| l2.borrow_mut().push(a));

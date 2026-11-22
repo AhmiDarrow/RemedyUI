@@ -285,12 +285,31 @@ fn keysym(conn: &RustConnection, keycode: u8) -> u32 {
         .unwrap_or(0)
 }
 
+/// The menu's rows: a submenu is a header row (not chosen itself) with its entries indented
+/// under it.
+// shortcut: submenus open inline rather than as cascading pop-ups; this tray is the fallback for
+// panels without StatusNotifier, so it stays one window with one grab.
+fn rows(items: &[TrayItem], depth: i16) -> Vec<(i16, TrayItem)> {
+    let mut out = Vec::new();
+    for it in items {
+        match it {
+            TrayItem::Submenu { label, items } => {
+                out.push((depth, TrayItem::submenu(label.clone(), Vec::new())));
+                out.extend(rows(items, depth + 1));
+            }
+            other => out.push((depth, other.clone())),
+        }
+    }
+    out
+}
+
 /// The tray's menu as a pop-up window.
 struct Menu {
     win: Window,
     gc: Gcontext,
     font: Font,
-    items: Vec<TrayItem>,
+    /// Rows, indented by depth: a submenu is a header row with its entries under it.
+    items: Vec<(i16, TrayItem)>,
     hover: Option<usize>,
     width: u16,
 }
@@ -313,12 +332,11 @@ impl Menu {
         if conn.open_font(font, b"-misc-fixed-medium-r-normal--13-*-*-*-*-*-iso10646-1")?.check().is_err() {
             conn.open_font(font, b"fixed")?.check()?;
         }
+        let items = rows(items, 0);
+        // The check mark's column and the indent, then the label.
         let longest = items
             .iter()
-            .map(|i| match i {
-                TrayItem::Item { label, .. } => label.chars().count(),
-                TrayItem::Separator => 0,
-            })
+            .map(|(depth, i)| i.label().chars().count() + 2 + 2 * *depth as usize)
             .max()
             .unwrap_or(8);
         let width = (longest as u16).saturating_mul(7).saturating_add(2 * PAD as u16).max(120);
@@ -372,14 +390,14 @@ impl Menu {
             x11rb::CURRENT_TIME,
         )?;
         let _ = conn.grab_keyboard(false, win, x11rb::CURRENT_TIME, GrabMode::ASYNC, GrabMode::ASYNC)?;
-        let m = Menu { win, gc, font, items: items.to_vec(), hover: None, width };
+        let m = Menu { win, gc, font, items, hover: None, width };
         m.draw(conn)?;
         Ok(m)
     }
 
     fn draw(&self, conn: &RustConnection) -> Result<(), Box<dyn std::error::Error>> {
         conn.clear_area(false, self.win, 0, 0, 0, 0)?;
-        for (i, item) in self.items.iter().enumerate() {
+        for (i, (depth, item)) in self.items.iter().enumerate() {
             let top = i as i16 * ROW as i16;
             match item {
                 TrayItem::Separator => {
@@ -394,9 +412,11 @@ impl Menu {
                         ],
                     )?;
                 }
-                TrayItem::Item { label, enabled, .. } => {
-                    let hot = self.hover == Some(i) && *enabled;
-                    let (fg, bg) = match (hot, enabled) {
+                _ => {
+                    let enabled = item.chosen_id().is_some();
+                    let hot = self.hover == Some(i) && enabled;
+                    // A submenu's header reads as normal text, though it is not chosen itself.
+                    let (fg, bg) = match (hot, enabled || matches!(item, TrayItem::Submenu { .. })) {
                         (true, _) => (0x00ff_ffff, 0x0035_6ac0),
                         (false, true) => (0x0020_2020, 0x00f4_f4f4),
                         (false, false) => (0x0090_9090, 0x00f4_f4f4),
@@ -416,14 +436,26 @@ impl Menu {
                         self.gc,
                         &x11rb::protocol::xproto::ChangeGCAux::new().foreground(fg).background(bg),
                     )?;
-                    let text: Vec<x11rb::protocol::xproto::Char2b> = label
-                        .chars()
+                    let mark = match item {
+                        TrayItem::Check { checked: true, .. } => '\u{2713}',
+                        _ => ' ',
+                    };
+                    let text: Vec<x11rb::protocol::xproto::Char2b> = [mark, ' ']
+                        .into_iter()
+                        .chain(std::iter::repeat_n(' ', 2 * *depth as usize))
+                        .chain(item.label().chars())
                         .map(|c| {
                             let u = u32::from(c).min(0xffff) as u16;
                             x11rb::protocol::xproto::Char2b { byte1: (u >> 8) as u8, byte2: u as u8 }
                         })
                         .collect();
-                    conn.image_text16(self.win, self.gc, PAD, top + ROW as i16 - 7, &text)?;
+                    let base = top + ROW as i16 - 7;
+                    conn.image_text16(self.win, self.gc, PAD, base, &text)?;
+                    if matches!(item, TrayItem::Item { default: true, .. }) {
+                        // Bold for the default: core fonts have no bold face, so the text again a
+                        // pixel to the right.
+                        conn.image_text16(self.win, self.gc, PAD + 1, base, &text)?;
+                    }
                 }
             }
         }
@@ -435,10 +467,7 @@ impl Menu {
     }
 
     fn enabled(&self, i: usize) -> Option<u32> {
-        match self.items.get(i)? {
-            TrayItem::Item { id, enabled: true, .. } => Some(*id),
-            _ => None,
-        }
+        self.items.get(i)?.1.chosen_id()
     }
 
     fn handle(
@@ -514,10 +543,11 @@ mod tests {
             "App",
             remedy_ui_host::TrayImage { size: 2, rgba: vec![255; 16] },
             vec![
-                TrayItem::Item { id: 1, label: "Open".into(), enabled: true },
+                TrayItem::Item { id: 1, label: "Open".into(), enabled: true, default: true },
                 TrayItem::Separator,
-                TrayItem::Item { id: 2, label: "Room".into(), enabled: false },
-                TrayItem::Item { id: 3, label: "Quit".into(), enabled: true },
+                TrayItem::Item { id: 2, label: "Room".into(), enabled: false, default: false },
+                TrayItem::item(3, "Quit"),
+                TrayItem::submenu("Server", vec![TrayItem::check(4, "Logs", true)]),
             ],
         )
     }
@@ -530,13 +560,16 @@ mod tests {
 
     #[test]
     fn a_menu_picks_only_enabled_rows() {
-        let m = Menu { win: 0, gc: 0, font: 0, items: tray().menu, hover: None, width: 120 };
+        let m = Menu { win: 0, gc: 0, font: 0, items: rows(&tray().menu, 0), hover: None, width: 120 };
         assert_eq!(m.row_at(0), Some(0));
         assert_eq!(m.row_at(ROW as i16 * 3 + 1), Some(3));
-        assert_eq!(m.row_at(ROW as i16 * 4), None);
+        assert_eq!(m.row_at(ROW as i16 * 6), None);
         assert_eq!(m.enabled(0), Some(1));
         assert_eq!(m.enabled(1), None, "a separator");
         assert_eq!(m.enabled(2), None, "a disabled row");
         assert_eq!(m.enabled(3), Some(3));
+        assert_eq!(m.enabled(4), None, "a submenu's header");
+        assert_eq!(m.items.get(5).map(|r| r.0), Some(1), "its entries are indented under it");
+        assert_eq!(m.enabled(5), Some(4), "and chosen like any check");
     }
 }

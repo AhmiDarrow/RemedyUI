@@ -749,9 +749,14 @@ impl Java {
                 JValue::Object(&app),
                 JValue::Object(&pixels),
                 JValue::Int(side),
+                JValue::Int(match n.urgency {
+                    remedy_ui_host::Urgency::Warning => 1,
+                    remedy_ui_host::Urgency::Error => 2,
+                    _ => 0,
+                }),
             ];
             let mut sig = String::from(
-                "(Landroid/app/Activity;JJLjava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;ZLjava/lang/String;[II",
+                "(Landroid/app/Activity;JJLjava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;ZLjava/lang/String;[III",
             );
             if let Some(x) = extra {
                 args.push(JValue::Int(x));
