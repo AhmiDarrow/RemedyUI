@@ -371,8 +371,13 @@ fn streamed_within(how: Serve, within: Duration, then: impl FnOnce(&Player)) {
     drop(p);
     drop(ui);
     settles_within("after the drop", within, before, &threads, &none);
-    // Under REMEDY_D3D_DEBUG=1 on Windows: nothing alive on the decoder's D3D11 device but
-    // the device, once everything above has gone.
+    no_d3d_leaks();
+}
+
+/// Under REMEDY_D3D_DEBUG=1 on Windows: nothing alive on the decoder devices made since the
+/// last look but the devices, once the player and its host (which keeps the last stream's
+/// decoders for the next) have gone. How many devices were looked at.
+fn no_d3d_leaks() -> usize {
     let (devices, leaked) = live_d3d_objects();
     if devices > 0 {
         eprintln!(
@@ -381,6 +386,7 @@ fn streamed_within(how: Serve, within: Duration, then: impl FnOnce(&Player)) {
         );
     }
     assert!(leaked.is_empty(), "alive on the decoder's D3D11 device: {leaked:#?}");
+    devices
 }
 
 /// Windows: a GPU renderer on the process's shared device, made once, so the platform's
@@ -444,6 +450,7 @@ fn a_stream_dropped_after_its_decoders_went_to_the_next() {
         eprintln!("no platform host here, skipping");
         return;
     };
+    gpu_renderer();
     let url = server(Serve::Plain);
     let none = AtomicUsize::new(0);
     let (before, threads) = (census(&none), process_threads());
@@ -456,10 +463,17 @@ fn a_stream_dropped_after_its_decoders_went_to_the_next() {
         std::thread::sleep(Duration::from_millis(300));
         assert!(p.error().is_none(), "{:?}", p.error());
     }
-    eprintln!("after two next streams: {} platform objects live", live_platform_objects());
+    let held = live_platform_objects();
+    eprintln!("after two next streams: {held} platform objects live");
+    assert!(held > before.2, "the stream's decoders are live while it plays");
     drop(p);
     drop(ui);
+    // Dropping the player drops its host, and with it the decoders it kept for the next.
     settles("after the drop", before, &threads, &none);
+    // shortcut: not asserted one device for three streams: the next stream opens while the
+    // last is still closing, so it can find nothing kept yet and make its own (seen: 2).
+    let devices = no_d3d_leaks();
+    eprintln!("{devices} decoder device(s) for three streams on one host");
 }
 
 #[test]
