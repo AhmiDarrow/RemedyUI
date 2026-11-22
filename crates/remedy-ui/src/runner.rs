@@ -620,6 +620,7 @@ enum Cmd {
     Notify(Box<remedy_ui_host::Notification>, Box<dyn FnOnce(Result<(), Unsupported>)>),
     Withdraw(u64),
     Badge(Option<remedy_ui_host::Badge>),
+    Gamepad(remedy_ui_input::GamepadTuning),
     Foreground(Box<remedy_ui_host::ForegroundTask>, Box<dyn FnOnce(Result<(), Unsupported>)>),
     StopForeground,
     Share(Option<u64>, remedy_ui_host::ShareOptions, ShareDone),
@@ -705,6 +706,8 @@ struct Shared {
     on_locale: Option<LocaleFn>,
     /// The language the app shows now, once known.
     locale: Option<String>,
+    /// The user's preferred languages, as the system last reported them.
+    preferred_locales: Vec<String>,
     /// The last appearance the system reported.
     appearance: Option<(Option<bool>, bool)>,
     renderers: HashMap<u64, RendererKind>,
@@ -893,6 +896,13 @@ impl App {
     /// `None` until the system has said. For parts with no window, such as a tray menu.
     pub fn locale(&self) -> Option<String> {
         self.0.borrow().locale.clone()
+    }
+
+    /// The user's preferred languages (BCP 47), most preferred first, as the system last
+    /// reported them ([`SystemSettings::locales`]); empty until it has. For choosing among
+    /// content languages, such as subtitles or audio tracks, whatever the app's own language.
+    pub fn preferred_locales(&self) -> Vec<String> {
+        self.0.borrow().preferred_locales.clone()
     }
 
     /// Calls `f` with the app's language now (once known) and whenever it changes: the
@@ -1171,6 +1181,25 @@ impl App {
         self.push(Cmd::Badge(badge));
     }
 
+    /// How gamepads move focus: a held d-pad or stick repeats as a held arrow key does, after
+    /// the system's keyboard repeat delay and at its rate unless `tuning` sets its own, and the
+    /// stick counts once it leans past `tuning.dead_zone`. Gamepads' d-pad and left stick
+    /// arrive as arrow keys, A as Enter and B as `Key::Back` (Windows' XInput pads, Linux's
+    /// evdev pads, the browser's Gamepad API; Android's arrive as its own keys).
+    ///
+    /// ```no_run
+    /// # fn setup(app: &remedy_ui::App) {
+    /// use std::time::Duration;
+    /// use remedy_ui::input::GamepadTuning;
+    ///
+    /// let tuning = GamepadTuning::default().with_repeat_delay(Duration::from_millis(300)).with_dead_zone(0.3);
+    /// app.set_gamepad_tuning(tuning);
+    /// # }
+    /// ```
+    pub fn set_gamepad_tuning(&self, tuning: remedy_ui_input::GamepadTuning) {
+        self.push(Cmd::Gamepad(tuning));
+    }
+
     /// Called with each link in one of `schemes` (`hearth://note/42`) the app is opened with:
     /// the one it was started with (right after this call), and with
     /// [`AppConfig::single_instance`] every link opened while it runs. Register the scheme
@@ -1334,6 +1363,19 @@ impl App {
     /// `http:`, `https:` and `mailto:` links open; anything else could start a program.
     pub fn open_url(&self, url: impl Into<String>, done: impl FnOnce(Result<(), Unsupported>) + 'static) {
         self.push(Cmd::OpenUrl(url.into(), Box::new(done)));
+    }
+
+    /// Starts the UI over, after an update or a change that needs a fresh start: in a
+    /// browser page, reloads the page (at the same address, so the same route); elsewhere,
+    /// rebuilds every [`Router::view`](crate::router::Router::view) at its current route.
+    pub fn reload(&self) {
+        #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+        remedy_ui_bridge_web::history::reload();
+        #[cfg(all(
+            feature = "widgets",
+            not(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))
+        ))]
+        crate::router::reload_views();
     }
 
     /// Asks for the person's leave to use `permission`, then `done` with the answer (true when
@@ -1843,6 +1885,9 @@ struct Win {
     #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
     cost: FrameCost,
     scrollers: Vec<(LayerId, ElementId)>,
+    /// Scrolls asked for before their container had a layer (content built this frame, such
+    /// as a page a router brings back), applied once it has one.
+    pending_scrolls: Vec<(ElementId, Vec2)>,
     cover: Option<remedy_ui_view::El>,
     /// The window's content zoom (1 = as designed): everything is drawn this much larger,
     /// and input positions are mapped back.
@@ -2021,6 +2066,12 @@ impl Runner {
             Some(remedy_ui_services_i18n::NumberSymbols::for_locale(locale).format(d, d.scale()))
         })));
         let dir = config.data_dir.clone().or_else(|| data_dir(&config.name));
+        // Images fetched from addresses are kept across runs in the app's cache folder (its
+        // own data folder's `cache` when the app names one).
+        #[cfg(feature = "image")]
+        remedy_ui_media_image::set_cache_dir(
+            config.data_dir.as_ref().map(|d| d.join("cache")).or_else(|| crate::geometry::cache_dir(&config.name)).map(|d| d.join("images")),
+        );
         // What this machine's graphics backends did (passed their self-test, drew wrong,
         // hung presenting) is remembered with the app's data: tested once per driver, and a
         // backend that hung is skipped from the next start.
@@ -2163,6 +2214,8 @@ impl Runner {
                 ui.set_wake(Rc::new(move || app.wake_if_idle()));
                 ui.set_reduced_motion(self.reduced_motion());
                 ui.set_power_saving(self.settings.power_saving);
+                ui.set_system_spatial_navigation(self.settings.spatial_navigation);
+                ui.set_pointer_caps(self.settings.pointer);
                 if let Some(p) = self.app.0.borrow().ambient {
                     ui.set_ambient_policy(p);
                 }
@@ -2203,6 +2256,7 @@ impl Runner {
                         awaiting_gpu: false,
                         cost: FrameCost::default(),
                         scrollers: Vec::new(),
+                        pending_scrolls: Vec::new(),
                         cover: None,
                     },
                 );
@@ -2415,6 +2469,7 @@ impl Runner {
                 let id = self.app.0.borrow().app_id.clone();
                 let _ = host.set_badge(&id, badge);
             }
+            Cmd::Gamepad(tuning) => host.set_gamepad_tuning(tuning),
             Cmd::Foreground(mut task, done) => {
                 if task.notification.app.is_empty() {
                     task.notification.app = self.app.0.borrow().name.clone();
@@ -2520,10 +2575,18 @@ impl Runner {
                 Request::ScrollTo { scroller, offset } => {
                     if let Some(w) = self.wins.get_mut(&key) {
                         let layer = w.scrollers.iter().find(|(_, e)| *e == scroller).map(|(l, _)| *l);
-                        if let (Some(l), Some(c)) = (layer, w.comp.as_mut())
-                            && c.set_scroll_offset(l, offset)
-                        {
-                            host.request_frame(h);
+                        match (layer, w.comp.as_mut()) {
+                            (Some(l), Some(c)) => {
+                                if c.set_scroll_offset(l, offset) {
+                                    host.request_frame(h);
+                                }
+                            }
+                            // Not drawn yet: the next frame that gives it a layer scrolls it.
+                            _ => {
+                                w.pending_scrolls.retain(|(e, _)| *e != scroller);
+                                w.pending_scrolls.push((scroller, offset));
+                                host.request_frame(h);
+                            }
                         }
                     }
                 }
@@ -2786,6 +2849,24 @@ impl Runner {
         }
         comp.set_ambient(w.ui.tick_interval(remedy_ui_view::TickKind::Ambient));
         w.scrollers = f.scrollers;
+        if !w.pending_scrolls.is_empty() {
+            let tree = w.ui.tree();
+            let scrollers = &w.scrollers;
+            let mut moved = false;
+            w.pending_scrolls.retain(|(el, offset)| {
+                match scrollers.iter().find(|(_, e)| e == el) {
+                    Some((layer, _)) => {
+                        moved |= comp.set_scroll_offset(*layer, *offset);
+                        false
+                    }
+                    // Kept while the container lives: it may overflow (and get its layer) later.
+                    None => tree.contains(*el),
+                }
+            });
+            if moved {
+                host.request_frame(w.host);
+            }
+        }
         // A picture asked for. A window the GPU draws reads back the frame it keeps after this
         // frame's present: what the screen shows, effects, video and app textures included.
         // Otherwise this frame draws everything, and a CPU renderer of its own draws it once
@@ -3137,8 +3218,11 @@ impl remedy_ui_host::App for Runner {
                     w.ui.set_double_click_time(s.double_click);
                     w.ui.set_system_subpixel(s.subpixel_text);
                     w.ui.set_power_saving(s.power_saving);
+                    w.ui.set_system_spatial_navigation(s.spatial_navigation);
+                    w.ui.set_pointer_caps(s.pointer);
                 }
                 let appearance = (s.dark, s.high_contrast);
+                self.app.0.borrow_mut().preferred_locales.clone_from(&s.locales);
                 self.settings = s;
                 self.apply_reduced_motion();
                 let notify = {
@@ -3226,13 +3310,13 @@ impl remedy_ui_host::App for Runner {
                     if let Some(p) = w.pan.as_mut().filter(|p| p.hold.is_none()) {
                         p.hold = Some(host.set_timer(host.now() + LONG_PRESS));
                     }
-                    if events.is_empty() {
-                        host.request_frame(window);
-                    }
                     for e in &events {
                         w.ui.pointer(e);
                         host.pointer_consumed(window, w.ui.pointer_consumed());
                     }
+                    // A held finger (no events yet), a scroll, and a tap (down + up together)
+                    // all need a frame: a tap focuses a field and opens the keyboard.
+                    host.request_frame(window);
                 }
             }
             HostEvent::DragEnded(window, effect) => {

@@ -31,6 +31,8 @@ mod instance;
 
 #[cfg(feature = "widgets")]
 mod movable;
+#[cfg(feature = "widgets")]
+pub mod router;
 mod runner;
 /// Driving an app in tests on the in-memory host: find by role and name, press, type.
 #[cfg(all(feature = "headless", feature = "widgets"))]
@@ -178,6 +180,16 @@ pub use remedy_ui_media_video as video;
 /// Drawing: display lists, paths, brushes, transforms and images, for painters
 /// (`El::paint`), canvases and page sources.
 pub use remedy_ui_paint as paint;
+/// The GPU renderer's own bounds (feature `gpu`): errors kept, the health file, how long it
+/// waits for swapchains, presents and video ([`gpu::set_gpu_limits`]). What both renderers
+/// draw is bounded by [`paint::set_paint_limits`].
+#[cfg(feature = "gpu")]
+pub mod gpu {
+    pub use remedy_ui_render_gpu::{
+        GpuLimits, MAX_HEALTH_ENTRIES, MAX_HEALTH_LINE, MAX_KEPT_ERRORS, MAX_VIDEO_IMPORTS, SWAPCHAIN_WAIT,
+        VIDEO_FENCE_WAIT, gpu_limits, health::PRESENT_HANG, set_gpu_limits,
+    };
+}
 /// Motion: elements animate a property, style value, offset or scale to a target with a
 /// spring or an easing curve on the frame clock (`El::animate`), interruptibly and instantly
 /// under reduced motion; `Transition`s for content that appears and leaves.
@@ -206,6 +218,9 @@ pub use remedy_ui_script_wasm as script_wasm;
 pub use remedy_ui_services_desktop as desktop;
 #[cfg(feature = "i18n")]
 pub use remedy_ui_services_i18n as i18n;
+/// The HTTP client, natively and in a browser page.
+#[cfg(feature = "net")]
+pub use remedy_ui_services_net as net;
 #[cfg(feature = "spell")]
 pub use remedy_ui_services_spell as spell;
 #[cfg(feature = "update")]
@@ -225,7 +240,7 @@ pub use remedy_ui_view as view;
 /// closure for its content, so a retry builds it again) and [`suspense`] (a placeholder
 /// while resources load), with what they return and hand to callbacks.
 pub use remedy_ui_view::{CaughtError, Retry, Show, SuspenseBoundary, catch_errors, show, suspense};
-pub use remedy_ui_view::{El, FieldKind, PaintCx, TextField, Ui, WindowDirection};
+pub use remedy_ui_view::{El, FieldKind, InputPurpose, PaintCx, PointerCaps, TextField, Ui, WindowDirection};
 #[cfg(feature = "viz")]
 pub use remedy_ui_viz as viz;
 #[cfg(feature = "board")]
@@ -292,6 +307,13 @@ impl std::error::Error for RunError {}
 /// Runs the app on this platform's bridge until it quits. `setup` runs once the platform is
 /// ready, to open the first windows.
 pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), RunError> {
+    // Keepalive requests (an app's last saves) finish as the app quits, as in a closing page.
+    #[cfg(all(feature = "net", not(target_arch = "wasm32")))]
+    let _keepalive = KeepaliveOnExit;
+    // On Android they also finish when the app goes out of sight: the process is kept from
+    // being frozen until they end.
+    #[cfg(all(feature = "net", target_os = "android"))]
+    remedy_ui_services_net::on_keepalive(remedy_ui_bridge_android::hold_process);
     // SVG files show wherever images do.
     #[cfg(feature = "svg")]
     remedy_ui_media_svg::install();
@@ -358,6 +380,16 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
     {
         drop(runner);
         Err(RunError::UnsupportedPlatform)
+    }
+}
+
+#[cfg(all(feature = "net", not(target_arch = "wasm32")))]
+struct KeepaliveOnExit;
+
+#[cfg(all(feature = "net", not(target_arch = "wasm32")))]
+impl Drop for KeepaliveOnExit {
+    fn drop(&mut self) {
+        remedy_ui_services_net::finish_keepalive(std::time::Duration::from_secs(10));
     }
 }
 

@@ -191,17 +191,26 @@ use std::collections::VecDeque;
 use std::ops::Range;
 use std::task::{Context, Poll};
 
-/// Segments fetched ahead of the one being handed out: enough to ride out a slow fetch,
-/// few enough to keep memory bounded (a 2160p segment is several megabytes).
-const AHEAD: usize = 3;
-/// No more segments are fetched ahead once the units read hold this many bytes, as hls.js's
-/// `maxBufferSize`: three 2160p segments of 10 s would otherwise hold hundreds of megabytes.
-const MAX_HELD: usize = 60_000_000;
+// What is fetched ahead and held, and how long a fetch may take, are the app's
+// (`MediaLimits`): a stream keeps those it opened with, a fetch those it started with.
+
 /// A fetch longer than this is refused: no segment is near it, and an endless answer must not
-/// take all the memory.
-pub(crate) const MAX_FETCH: usize = 256 << 20;
-/// A playlist longer than this is refused (a day of 2 s segments is about 2 MB).
-const MAX_PLAYLIST: usize = 16 << 20;
+/// take all the memory ([`MediaLimits::max_fetch`](crate::MediaLimits::max_fetch)).
+pub(crate) fn max_fetch() -> usize {
+    crate::media_limits().max_fetch
+}
+/// A fetch gives up when no answer has come this long after asking.
+pub(crate) fn first_byte() -> Duration {
+    crate::media_limits().first_byte_timeout
+}
+/// A fetch gives up when it has taken this long in all.
+pub(crate) fn load() -> Duration {
+    crate::media_limits().load_timeout
+}
+/// A fetch whose bytes stop coming for this long is dropped and started again.
+pub(crate) fn quiet() -> Duration {
+    crate::media_limits().quiet_timeout
+}
 /// The playlist of a growing stream is asked again once the reader is this many segments
 /// from its end.
 const NEAR_END: usize = 2;
@@ -209,34 +218,18 @@ const NEAR_END: usize = 2;
 /// what is wanted (a seek may have come).
 pub(crate) const WAIT_SLICE: Duration = Duration::from_millis(100);
 // Riding out late and failed fetches, as Portal's hls.js setup does: a fetch that fails is
-// tried again ERROR_RETRIES times (TIMEOUT_RETRIES when it timed out), the pause doubling from
-// RETRY_PAUSE up to MAX_RETRY_PAUSE; a spot that still fails starts over, RECOVERIES times,
-// and each segment read earns those back, so a long film with the odd hiccup never dies.
-/// A failed fetch is tried again this many times in a row.
-const ERROR_RETRIES: u32 = 3;
-/// A fetch that timed out is tried again this many times in a row.
-const TIMEOUT_RETRIES: u32 = 4;
-/// The first pause before trying a failed fetch again; each next one doubles.
-const RETRY_PAUSE: Duration = Duration::from_millis(250);
-/// The longest pause between tries, and every pause while the playlist is still growing (the
-/// server may still be writing the segment: ffmpeg's HLS 404s one until it is renamed in).
-const MAX_RETRY_PAUSE: Duration = Duration::from_secs(1);
-/// How many times a spot that keeps failing starts over before its error comes out.
-const RECOVERIES: u32 = 6;
-/// A fetch gives up when no answer has come this long after asking.
-pub(crate) const FIRST_BYTE: Duration = Duration::from_secs(12);
-/// A fetch gives up when it has taken this long in all.
-pub(crate) const LOAD: Duration = Duration::from_secs(60);
-/// A fetch whose bytes stop coming for this long is dropped and started again.
-pub(crate) const QUIET: Duration = Duration::from_millis(2500);
+// tried again `error_retries` times (`timeout_retries` when it timed out), the pause doubling
+// from `retry_pause` up to `max_retry_pause` (every pause, while the playlist is still growing:
+// ffmpeg's HLS 404s a segment until it is renamed in); a spot that still fails starts over,
+// `recoveries` times, and each segment read earns those back, so a long film with the odd
+// hiccup never dies.
 /// How a fetch that gave up waiting ends its error, so it is told from one that failed.
 const TIMED_OUT: &str = "(timed out)";
 /// How a fetch the server said does not exist (HTTP 404 or 410) ends its error.
 const MISSING: &str = "(no such file)";
-/// A playlist the server says does not exist, before it was ever read, is tried again this
-/// many times (a second apart: a live stream's playlist may be moments from being written)
-/// and then fails, rather than riding out the retries and recoveries a playing stream gets.
-const MISSING_RETRIES: u32 = 2;
+// A playlist the server says does not exist, before it was ever read, is tried again
+// `missing_retries` times (a second apart: a live stream's playlist may be moments from being
+// written) and then fails, rather than riding out the retries and recoveries a playing stream gets.
 
 /// The error of a fetch of `url` the server answered with HTTP `status`: one that says the
 /// file does not exist (404, 410) is told apart, so an open fails promptly.
@@ -362,6 +355,8 @@ pub(crate) struct Hls {
     audio: Option<AudioConfig>,
     /// A segment has been read (the streams' setups are known).
     started: bool,
+    /// The bounds it works within, as set when it opened.
+    pub(crate) limits: crate::MediaLimits,
 }
 
 impl Hls {
@@ -387,6 +382,7 @@ impl Hls {
             video: None,
             audio: None,
             started: false,
+            limits: crate::media_limits(),
         }
     }
 
@@ -399,8 +395,8 @@ impl Hls {
         }
         let reading = self.queue.front().map_or(self.next, |(i, _)| *i).max(self.current);
         if let Some(s) = self.segments.get(self.next)
-            && self.next <= reading + AHEAD
-            && (self.queued < MAX_HELD || self.queue.is_empty())
+            && self.next <= reading.saturating_add(self.limits.hls_ahead)
+            && (self.queued < self.limits.hls_max_held || self.queue.is_empty())
         {
             return Some(Want { url: s.url.clone(), kind: WantKind::Segment(s.sequence), after: pause });
         }
@@ -429,10 +425,12 @@ impl Hls {
         if self.failures == 0 && self.recoveries == 0 {
             return Duration::ZERO;
         }
+        let l = &self.limits;
         if !self.complete {
-            return MAX_RETRY_PAUSE;
+            return l.max_retry_pause;
         }
-        (RETRY_PAUSE * 2u32.pow(self.failures.saturating_sub(1).min(4))).min(MAX_RETRY_PAUSE)
+        let doubled = 2u32.saturating_pow(self.failures.saturating_sub(1));
+        l.retry_pause.saturating_mul(doubled).min(l.max_retry_pause)
     }
 
     /// Hands over what was fetched for `want`. A failed fetch is asked for again, after a
@@ -453,12 +451,13 @@ impl Hls {
             Ok(d) => d,
             Err(e) => {
                 self.failures += 1;
-                if !self.loaded && is_missing(&e) && self.failures > MISSING_RETRIES {
+                if !self.loaded && is_missing(&e) && self.failures > self.limits.missing_retries {
                     return Err(e);
                 }
-                let retries = if is_timeout(&e) { TIMEOUT_RETRIES } else { ERROR_RETRIES };
+                let l = &self.limits;
+                let retries = if is_timeout(&e) { l.timeout_retries } else { l.error_retries };
                 if self.failures > retries {
-                    if self.recoveries >= RECOVERIES {
+                    if self.recoveries >= l.recoveries {
                         return Err(e);
                     }
                     self.recoveries += 1;
@@ -484,9 +483,10 @@ impl Hls {
     }
 
     fn read_playlist(&mut self, url: &str, data: &[u8]) -> Result<(), MediaError> {
-        if data.len() > MAX_PLAYLIST {
+        if data.len() > self.limits.max_playlist {
             return Err(MediaError::Format(format!(
-                "the HLS playlist at {url} is over {MAX_PLAYLIST} bytes"
+                "the HLS playlist at {url} is over {} bytes",
+                self.limits.max_playlist
             )));
         }
         let text = String::from_utf8_lossy(data);
@@ -746,13 +746,13 @@ pub(crate) struct Clock {
 type Fetched = (Want, Result<Vec<u8>, MediaError>);
 
 /// An HLS stream decoded natively: fetched with a [`Fetch`] on a thread of its own (one fetch
-/// at a time, at most [`AHEAD`] segments ahead), so decoding goes on while a segment
+/// at a time, at most [`MediaLimits::hls_ahead`](crate::MediaLimits::hls_ahead) segments ahead), so decoding goes on while a segment
 /// downloads; decoded by the platform's [`Elementary`] decoders.
 pub(crate) struct HlsDecoder {
     hls: Hls,
     /// Wants for the fetching thread; dropping it ends the thread once its fetch is done.
     asks: std::sync::mpsc::Sender<Want>,
-    /// Set on drop: the fetch under way gives up at once rather than run on (up to [`LOAD`]).
+    /// Set on drop: the fetch under way gives up at once rather than run on (up to [`load`]).
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     done: std::sync::mpsc::Receiver<Fetched>,
     /// The fetch under way. What it brings is handed to the reader, which drops a segment

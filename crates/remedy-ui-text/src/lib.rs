@@ -21,6 +21,7 @@
 //! ```
 
 mod atlas;
+mod casing;
 mod code_edit;
 mod editing;
 mod engine;
@@ -92,4 +93,4 @@ pub use rich::{InlineObject, OBJECT_REPLACEMENT, RichText, Span};
 pub use rich_edit::{Block, MAX_LEVEL, Mark, RichDoc, RichEditor, RichLook, RichView, SOFT_BREAK};
 pub use rich_html::{from_html, to_html};
 pub use safety::{Reveal, has_hidden_controls, looks_like, reveal_controls, skeleton};
-pub use style::{Align, Direction, Feature, LineHeight, TextStyle, TextStylePatch};
+pub use style::{Align, Direction, Feature, LineHeight, TextStyle, TextStylePatch, TextTransform};

@@ -200,3 +200,35 @@ fn the_gpu_time_of_an_effect_is_sampled_without_waiting() {
     }
     assert!(ctx.take_errors().is_empty(), "{:?}", ctx.take_errors());
 }
+
+/// A program needing more than the kernel's 64 fast registers (an app raising
+/// `Limits::max_registers`) runs on the kernel's wide form and matches the CPU.
+#[test]
+fn a_program_past_64_registers_matches_the_cpu() {
+    let n = 100;
+    let mut src = String::from("effect wide { scale 1.0; pass p {\n");
+    for i in 0..n {
+        src.push_str(&format!("let a{i} = hash(vec2({i}.0, floor(px.x)));\n"));
+    }
+    let sum: Vec<String> = (0..n).rev().map(|i| format!("a{i} * {}.0", i + 1)).collect();
+    src.push_str(&format!("out = vec4(vec3(({}) / 5050.0), 1.0);\n}} }}", sum.join(" + ")));
+    assert!(Effect::compile(&src).is_err(), "64 registers by default");
+    let mut limits = remedy_ui_effects::Limits::default();
+    limits.max_registers = 200;
+    let effect = match Effect::compile_with(&src, &limits) {
+        Ok(e) => Arc::new(e),
+        Err(e) => unreachable!("{e}"),
+    };
+    assert!(
+        effect
+            .stages
+            .iter()
+            .any(|s| matches!(&s.kind, remedy_ui_effects::ir::StageKind::Shade(p) if p.regs > 64))
+    );
+    let ctx = ctx();
+    for (c, g) in both(&ctx, effect, &[0.0], 64.0, 8.0) {
+        let (over, mean) = compare(&c, &g, 6);
+        assert!(mean < 0.6 && over == 0, "mean difference {mean:.3}, {over} pixels beyond 6");
+    }
+    assert!(ctx.take_errors().is_empty(), "{:?}", ctx.take_errors());
+}

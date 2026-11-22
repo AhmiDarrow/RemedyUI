@@ -73,9 +73,26 @@ impl Mirror {
     pub(crate) fn attach(&self) {
         let window = self.window;
         let click = Listener::new(&self.root_el, "click", move |e| {
+            // A modified click on a link opens it in a new tab.
+            let modified = e
+                .dyn_ref::<web_sys::MouseEvent>()
+                .is_some_and(|m| m.ctrl_key() || m.meta_key() || m.shift_key());
+            if modified && let Some(href) = link_href(e.target()) {
+                e.prevent_default();
+                super::history::open_in_new_tab(href.trim_start_matches('#'));
+                return;
+            }
             if let Some(id) = node_of(e.target()) {
                 e.prevent_default();
                 action(window, id, Action::Click);
+            }
+        });
+        // A middle click on a link opens it in a new tab too.
+        let middle = Listener::new(&self.root_el, "auxclick", move |e| {
+            let is_middle = e.dyn_ref::<web_sys::MouseEvent>().is_some_and(|m| m.button() == 1);
+            if is_middle && let Some(href) = link_href(e.target()) {
+                e.prevent_default();
+                super::history::open_in_new_tab(href.trim_start_matches('#'));
             }
         });
         let focus = Listener::new(&self.root_el, "focusin", move |e| {
@@ -89,7 +106,7 @@ impl Mirror {
                 action(window, id, Action::Focus);
             }
         });
-        *self.listeners.borrow_mut() = vec![click, focus];
+        *self.listeners.borrow_mut() = vec![click, middle, focus];
     }
 
     /// The name of the node with focus, for the hidden text field that stands in for it.
@@ -115,16 +132,24 @@ impl Mirror {
         {
             let mut nodes = self.nodes.borrow_mut();
             for (id, node) in update.nodes {
+                // A link is a real `<a href>`, so the browser opens it in a new tab.
+                let tag = if node.url().is_some() { "A" } else { "DIV" };
                 match nodes.get_mut(&id) {
-                    Some(e) => {
+                    Some(e) if e.el.tag_name() == tag => {
                         apply(&e.el, &node, id);
                         e.node = node;
                     }
-                    None => {
-                        let Some(el) = dom::element::<HtmlElement>("div") else { continue };
+                    old => {
+                        let Some(el) = dom::element::<HtmlElement>(&tag.to_ascii_lowercase()) else {
+                            continue;
+                        };
                         dom::style(&el, &[("position", "absolute"), ("margin", "0"), ("padding", "0")]);
                         let _ = el.set_attribute("data-node", &id.0.to_string());
                         apply(&el, &node, id);
+                        if let Some(old) = old {
+                            // It became a link or stopped being one: same place, new tag.
+                            let _ = old.el.replace_with_with_node_1(&el);
+                        }
                         nodes.insert(id, Entry { el, node });
                     }
                 }
@@ -255,6 +280,9 @@ impl Mirror {
 /// Shows a node: its role and ARIA attributes, its text, and whether actions find it.
 fn apply(el: &HtmlElement, node: &Node, _id: NodeId) {
     dom::attr(el, "role", convert::aria_role(node.role()));
+    if el.tag_name() == "A" {
+        dom::attr(el, "href", node.url());
+    }
     for (name, value) in convert::aria_attributes(node) {
         dom::attr(el, name, value.as_deref());
     }
@@ -290,6 +318,12 @@ fn place(el: &HtmlElement, bounds: Option<Rect>, parent: Option<Rect>) {
             ("height", &format!("{}px", (b.y1 - b.y0).max(0.0))),
         ],
     );
+}
+
+/// The address of the app's link an event happened on (a mirror `<a href>`), if any.
+fn link_href(target: Option<web_sys::EventTarget>) -> Option<String> {
+    let el = target?.dyn_into::<web_sys::Element>().ok()?;
+    el.closest("a[href]").ok()??.get_attribute("href")
 }
 
 /// The node an event happened on (its element or one inside it).

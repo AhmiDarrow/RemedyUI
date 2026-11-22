@@ -553,6 +553,45 @@ fn truncated_text_is_cut_short_to_its_box_and_keeps_its_words() {
 }
 
 #[test]
+fn clamped_and_cased_text_draws_short_or_in_capitals_and_reads_as_written() {
+    let ui = ui();
+    let words = "A long description of an episode that goes on for several lines in a narrow card";
+    let line = ui.el("label").text("x");
+    let two = ui.el("label").text(remedy_ui_view::RichText::plain(words)).max_lines(2);
+    let all = ui.el("label").text(remedy_ui_view::RichText::plain(words));
+    // The same limit from a style sheet, and casing from one.
+    let styled = ui
+        .el("label")
+        .text(remedy_ui_view::RichText::plain(words))
+        .style(remedy_ui_view::Style::default().max_lines(3));
+    let upper = ui.el("label").text("straße").nowrap().text_transform(remedy_ui_view::TextTransform::Upper);
+    let caps = ui.el("label").text("STRASSE").nowrap();
+    let card = ui.el("box").column().width(120.0);
+    for e in [&line, &two, &all, &styled] {
+        let _ = card.clone().child(e.clone());
+    }
+    ui.root().child(card).child(ui.el("box").row().child(upper.clone()).child(caps.clone()));
+    let mut screen = Screen::new(ui.clone());
+    screen.frame();
+    let h = |e: &remedy_ui_view::El| e.bounds().map_or(0.0, |b| b.height());
+    let w = |e: &remedy_ui_view::El| e.bounds().map_or(0.0, |b| b.width());
+    let one = h(&line);
+    assert!((h(&two) - 2.0 * one).abs() < 2.0, "two lines: {} vs {one}", h(&two));
+    assert!((h(&styled) - 3.0 * one).abs() < 3.0, "three lines: {}", h(&styled));
+    assert!(h(&all) > 3.5 * one, "unclamped it takes more: {}", h(&all));
+    assert!((w(&upper) - w(&caps)).abs() < 0.5, "drawn as STRASSE: {} vs {}", w(&upper), w(&caps));
+    // Readers and copying get the text as written.
+    assert_eq!(two.info().and_then(|i| i.text).as_deref(), Some(words));
+    assert_eq!(upper.info().and_then(|i| i.text).as_deref(), Some("straße"));
+    assert_eq!(upper.text_content().as_deref(), Some("straße"));
+    ui.connect_accessibility();
+    screen.frame();
+    let dump = format!("{:?}", ui.take_accessibility_update());
+    assert!(dump.contains("\"straße\""), "read as written: {dump}");
+    assert!(dump.contains(words) && !dump.contains('\u{2026}'), "the whole clamped text is read");
+}
+
+#[test]
 fn data_text_is_left_alone_by_pseudo_locales() {
     let ui = ui();
     let name = ui.el("label").text(remedy_ui_view::RichText::plain("Ada Lovelace")).nowrap().data_text();
@@ -1604,4 +1643,56 @@ fn a_text_bound_inside_a_binding_stays_on_one_line_when_told_to() {
         unreachable!("labels were made")
     };
     assert!(cut.width() <= 120.5, "the truncated one is cut to its box: {cut:?}");
+}
+
+#[test]
+fn fields_tell_input_methods_their_purpose() {
+    use remedy_ui_view::InputPurpose;
+    let ui = ui();
+    let user = ui.text_field("text_input", FieldKind::Single).purpose(InputPurpose::Username);
+    let pass = ui.text_field("secret_input", FieldKind::Secret);
+    let code = ui.text_field("secret_input", FieldKind::Secret).purpose(InputPurpose::OneTimeCode);
+    let amount = ui.text_field("text_input", FieldKind::Single).numeric();
+    for f in [&user, &pass, &code, &amount] {
+        ui.root().child(f.el().layout(|l| l.width = Length::Px(150.0)));
+    }
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    let session = |f: &remedy_ui_view::TextField| {
+        f.el().focus();
+        ui.take_requests().into_iter().rev().find_map(|r| match r {
+            Request::TextInput(Some(st)) => Some((st.purpose, st.private, st.numeric)),
+            _ => None,
+        })
+    };
+    assert_eq!(session(&user), Some((InputPurpose::Username, false, false)));
+    assert_eq!(session(&pass), Some((InputPurpose::CurrentPassword, true, false)), "a secret is a password");
+    assert_eq!(
+        session(&code),
+        Some((InputPurpose::OneTimeCode, true, true)),
+        "a secret code keeps the digits"
+    );
+    assert_eq!(session(&amount), Some((InputPurpose::Decimal, false, true)));
+}
+
+#[test]
+fn pointer_caps_follow_the_pointer_used_unless_the_platform_reports_them() {
+    use remedy_ui_host::PointerCaps;
+    use remedy_ui_input::PointerKind;
+    let ui = ui();
+    let caps = ui.pointer_caps();
+    let at = |kind| ui.pointer(&pointer(PointerPhase::Move, 5.0, 5.0, false).with_kind(kind));
+    at(PointerKind::Touch);
+    assert_eq!(caps.get_untracked().ok(), Some(PointerCaps::TOUCH), "a finger: tablet mode");
+    at(PointerKind::Pen);
+    assert_eq!(caps.get_untracked().ok(), Some(PointerCaps::PEN));
+    at(PointerKind::Mouse);
+    assert_eq!(caps.get_untracked().ok(), Some(PointerCaps::MOUSE), "back to the touchpad");
+    // A platform that reports its pointer (the web's media queries) wins over use.
+    ui.set_pointer_caps(Some(PointerCaps::TOUCH));
+    at(PointerKind::Mouse);
+    assert_eq!(caps.get_untracked().ok(), Some(PointerCaps::TOUCH));
+    ui.set_pointer_caps(None);
+    at(PointerKind::Mouse);
+    assert_eq!(caps.get_untracked().ok(), Some(PointerCaps::MOUSE));
 }

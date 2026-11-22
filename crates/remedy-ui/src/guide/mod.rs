@@ -19,6 +19,7 @@
 //! | [`motion`] | Animating elements, transitions, the frame clock and reduced motion |
 //! | [`accessibility`] | Semantics, names, the reader view and the accessibility check |
 //! | [`testing`] | `TestApp`, finding elements by what they are, `#[preview]` and golden images |
+//! | [`network`] | Requests to a server, natively and in a page: JSON, errors, uploads, keepalive, resources |
 //! | [`packaging`] | `cargo remedy package`, signing and signed updates |
 //! | [`performance`] | Budgets, the performance overlay and Perfetto traces |
 //! | [`customization`] | `.rui` markup and layouts people change themselves |
@@ -64,6 +65,10 @@ pub mod accessibility {}
 #[cfg(all(feature = "headless", feature = "devtools"))]
 #[doc = include_str!("testing.md")]
 pub mod testing {}
+
+#[cfg(feature = "net")]
+#[doc = include_str!("network.md")]
+pub mod network {}
 
 #[cfg(feature = "update")]
 #[doc = include_str!("packaging.md")]

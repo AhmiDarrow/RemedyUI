@@ -18,7 +18,7 @@ use remedy_ui_media_image::{DecodeError, fitted_scalable};
 use remedy_ui_paint::Image;
 
 use super::{
-    Engine, Fail, Helper, PER_BYTE, PER_OUTPUT_PIXEL, PER_SOURCE_PIXEL, shm_with, startup_error, units,
+    Engine, Fail, Helper, per_byte, per_output_pixel, per_source_pixel, shm_with, startup_error, units,
 };
 use crate::COUNTERS;
 use crate::os::Shm;
@@ -77,7 +77,7 @@ impl Host {
     ) -> Result<Option<(u32, Animation)>, Fail> {
         self.run(engine, |h| {
             let what = format!("the header of a {len}-byte animation");
-            let need = (len as u64).saturating_mul(PER_BYTE);
+            let need = (len as u64).saturating_mul(per_byte());
             let probe = Request::Probe { len: len as u64, animated: true };
             let size = match engine.exchange(h, probe, &[(input, false)], units(len, 0, 0), need, &what) {
                 Ok(Reply::Size { size, .. }) => size,
@@ -88,8 +88,8 @@ impl Host {
             let show = fitted_scalable(size, box_px, cover, false);
             let (src, out) = (pixels(size), pixels(show));
             let need = need
-                .saturating_add(src.saturating_mul(PER_SOURCE_PIXEL))
-                .saturating_add(out.saturating_mul(PER_OUTPUT_PIXEL));
+                .saturating_add(src.saturating_mul(per_source_pixel()))
+                .saturating_add(out.saturating_mul(per_output_pixel()));
             let what = format!("opening a {}×{} animation", size.0, size.1);
             let open = Request::Open { len: len as u64, box_px, cover };
             match engine.exchange(h, open, &[(input, false)], units(len, src, out), need, &what) {
@@ -116,7 +116,8 @@ impl Host {
     /// What a frame of `a` may cost: the work, and the memory beyond the helper's size.
     fn frame_cost(a: &Animation) -> (u64, u64) {
         let (src, out) = (pixels(a.size), pixels(a.show_at));
-        let need = src.saturating_mul(PER_SOURCE_PIXEL).saturating_add(out.saturating_mul(PER_OUTPUT_PIXEL));
+        let need =
+            src.saturating_mul(per_source_pixel()).saturating_add(out.saturating_mul(per_output_pixel()));
         (src.saturating_add(out), need)
     }
 
@@ -169,7 +170,7 @@ impl Host {
         // nothing until the next frame.
         let (work, need) = Self::frame_cost(a);
         let work = work.saturating_add(len as u64);
-        let need = need.saturating_add((len as u64).saturating_mul(PER_BYTE));
+        let need = need.saturating_add((len as u64).saturating_mul(per_byte()));
         let what = format!("starting a {}×{} animation over", a.size.0, a.size.1);
         self.run(engine, |h| match engine.exchange(h, Request::Restart { session }, &[], work, need, &what) {
             Ok(Reply::Done) => Ok(()),

@@ -51,6 +51,7 @@ mod hooks {
             if let Some(locale) = s.locale {
                 out.locale = locale;
             }
+            out.locales = if s.languages.is_empty() { vec![out.locale.clone()] } else { s.languages };
             out.double_click = s.double_click;
             out
         }

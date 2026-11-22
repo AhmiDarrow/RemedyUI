@@ -35,11 +35,8 @@ const EVENT_REMOVE: c_uint = 0x0020;
 const STREAM_DONT_MOVE: c_uint = 0x0200;
 const STREAM_ADJUST_LATENCY: c_uint = 0x2000;
 const SAMPLE_FLOAT32LE: c_int = 5;
+/// `PA_CHANNELS_MAX`: the size of libpulse's channel arrays (its ABI, not a choice here).
 const CHANNELS_MAX: usize = 32;
-
-/// How much sound one program's stream may hold before its oldest is dropped: a reader that
-/// stopped reading must not grow memory without end.
-const MAX_QUEUED: Duration = Duration::from_millis(500);
 /// How often the server hands over sound.
 const PERIOD: Duration = Duration::from_millis(10);
 
@@ -452,9 +449,12 @@ unsafe extern "C" fn readable(st: Ptr, _n: usize, ud: Ptr) {
             return;
         }
         let mut g = lock(s);
+        // How much one program's stream may hold before its oldest is dropped: a reader that
+        // stopped reading must not grow memory without end (`MediaLimits::capture_queue`).
         let cap = {
             let f = g.format;
-            (f.sample_rate as usize * usize::from(f.channels)) * MAX_QUEUED.as_millis() as usize / 1000
+            let held = crate::media_limits().capture_queue.as_millis() as usize;
+            (f.sample_rate as usize * usize::from(f.channels)).saturating_mul(held) / 1000
         };
         if let Some(r) = g.recordings.get_mut(&t.input) {
             if data.is_null() {

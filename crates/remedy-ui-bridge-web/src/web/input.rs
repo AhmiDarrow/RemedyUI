@@ -329,6 +329,15 @@ pub(crate) fn attach(_d: &Rc<Driver>, w: &Rc<Win>) {
     }));
     // A press must not move focus away from the hidden text field (or out of the window).
     ls.push(on(&surface, "mousedown", |_, e| e.prevent_default()));
+    // The mouse's back and forward buttons reach the app (its router goes back once); the
+    // browser's own history move on their release is cancelled so it is not a second one.
+    for kind in ["mouseup", "auxclick"] {
+        ls.push(on(&surface, kind, |_, e| {
+            if e.dyn_ref::<web_sys::MouseEvent>().is_some_and(|m| matches!(m.button(), 3 | 4)) {
+                e.prevent_default();
+            }
+        }));
+    }
     // The browser's own menu shows unless the app took the press that opens it (its own
     // context menu, or a handler that uses the secondary button).
     ls.push(on(&surface, "contextmenu", |w, e| {

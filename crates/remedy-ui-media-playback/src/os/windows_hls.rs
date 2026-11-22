@@ -34,8 +34,8 @@ use super::super::d3d11::Gpu;
 use super::{Layout, Mf, MfDecoder, com, copy_path, format_error, from_hns, hns, video_layout};
 use crate::capture::Converter;
 use crate::hls::{
-    AudioCodec, AudioConfig, Elementary, FIRST_BYTE, Fetch, LOAD, MAX_FETCH, QUIET, Unit, VideoConfig,
-    answered, file_path, timed_out,
+    AudioCodec, AudioConfig, Elementary, Fetch, Unit, VideoConfig, answered, file_path, first_byte, load,
+    max_fetch, quiet, timed_out,
 };
 use crate::host::{AudioFormat, MediaError, Picture, Sample};
 
@@ -693,16 +693,16 @@ impl Fetch for HttpFetch {
             },
             url,
         )?;
-        let first = ms(FIRST_BYTE);
+        let first = ms(first_byte());
         // SAFETY: a live request handle.
         unsafe { WinHttpSetTimeouts(request.0, first, first, first, first) }.map_err(failed)?;
         // WinHTTP's own receive timeout did not end a body gone quiet, so a watchdog closes the
-        // request, which ends the call waiting on it: no answer for FIRST_BYTE, no byte for
-        // QUIET once it answered, or LOAD in all; or at once when the reader has gone (`stop`).
+        // request, which ends the call waiting on it: no answer for first_byte(), no byte for
+        // quiet() once it answered, or load() in all; or at once when the reader has gone (`stop`).
         let req = request.0;
         let watched = (std::sync::Mutex::new(Some(request)), std::sync::Condvar::new());
         // When something last came (ms from `started`) and how long it may stop for.
-        let (last, limit) = (AtomicU64::new(0), AtomicU64::new(FIRST_BYTE.as_millis() as u64));
+        let (last, limit) = (AtomicU64::new(0), AtomicU64::new(first_byte().as_millis() as u64));
         let gave_up = AtomicBool::new(false);
         let progress = |quiet: Duration| {
             last.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
@@ -715,7 +715,7 @@ impl Fetch for HttpFetch {
                 while open.is_some() {
                     let since = started.elapsed().as_millis() as u64;
                     let quiet = since.saturating_sub(last.load(Ordering::Relaxed));
-                    if since > LOAD.as_millis() as u64
+                    if since > load().as_millis() as u64
                         || quiet > limit.load(Ordering::Relaxed)
                         || stop.load(Ordering::Relaxed)
                     {
@@ -738,7 +738,7 @@ impl Fetch for HttpFetch {
         });
         drop(connection);
         if gave_up.load(Ordering::Relaxed) {
-            let quiet = limit.load(Ordering::Relaxed) == QUIET.as_millis() as u64;
+            let quiet = limit.load(Ordering::Relaxed) == quiet().as_millis() as u64;
             return Err(timed_out(
                 url,
                 if quiet { "nothing arrived" } else { "no answer, or too long in all" },
@@ -764,7 +764,7 @@ unsafe fn transfer(
     unsafe {
         WinHttpSendRequest(req, None, None, 0, 0, 0).map_err(failed)?;
         WinHttpReceiveResponse(req, std::ptr::null_mut()).map_err(failed)?;
-        progress(QUIET);
+        progress(quiet());
         let (mut status, mut size) = (0u32, 4u32);
         WinHttpQueryHeaders(
             req,
@@ -795,10 +795,10 @@ unsafe fn transfer(
                 return Ok(out);
             }
             out.extend_from_slice(chunk.get(..n as usize).unwrap_or_default());
-            if out.len() > MAX_FETCH {
-                return Err(MediaError::Format(format!("{url}: over {MAX_FETCH} bytes")));
+            if out.len() > max_fetch() {
+                return Err(MediaError::Format(format!("{url}: over {} bytes", max_fetch())));
             }
-            progress(QUIET);
+            progress(quiet());
         }
     }
 }

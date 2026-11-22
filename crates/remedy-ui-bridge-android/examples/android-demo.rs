@@ -250,6 +250,8 @@ mod demo {
                     log(&format!("button tapped, taps = {}", taps.get_untracked().unwrap_or(0)));
                 }))
                 .child(field.el())
+                // Asks for the number pad: the emulator check reads its input type.
+                .child(w::text_input(ui, "Code").purpose(remedy_ui::InputPurpose::OneTimeCode).el())
                 .child(ui.el("label").text(move || format!("You typed: {}", typed.get())))
                 .child(
                     w::row(ui)

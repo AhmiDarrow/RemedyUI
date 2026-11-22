@@ -359,7 +359,7 @@ pub fn app(app: &App) {
         ui.root().child(home(ui)).bind(move || {
             let m = messages();
             win.set_title(m.text(&u, "app-title"));
-            let item = |id, label: String| TrayItem::Item { id, label, enabled: true };
+            let item = |id, label: String| TrayItem::Item { id, label, enabled: true, default: id == SHOW };
             a.set_tray(Some(TrayIcon::new(m.text(&u, "app-title"), tray_icon(), vec![item(SHOW, m.text(&u, "tray-show")), TrayItem::Separator, item(QUIT, m.text(&u, "tray-quit"))])));
         });
     });
