@@ -970,6 +970,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   on Android 11 and later. A finger tap also always asks for a frame, so the field paints
   and the text session starts.
 
+- **On Android, underlined keyboard text is kept when you leave a field, Save, or tap another control.** Words still being composed (the last underlined word, like “bar” in “Lavender bar”) were dropped because a field end, a restart, or a tap on another control finished the input session before the composition was committed. The input method now commits that text first (`commitCompositionIfAny` on end and update; a pointer-down flush of the runner’s preedit, without a second commit from `finishComposition`).
+
 - **An HLS stream on GStreamer's software H.264 decoder shows its first picture at once**,
   not half a second late, on opening and on every seek. `avdec_h264` holds a picture for
   each of its frame threads (19 units on a 16-thread machine) before giving any out, and
