@@ -489,6 +489,10 @@ pub struct Style {
     pub heading: Option<bool>,
     /// Extra space after each letter.
     pub letter_spacing: Option<crate::LetterSpacing>,
+    /// How letters are cased when drawn (inherited).
+    pub text_transform: Option<crate::TextTransform>,
+    /// The most lines text takes, the last ending in "…" when cut (0: no limit).
+    pub max_lines: Option<u32>,
     /// Focus ring color.
     pub outline: Option<ColorRef>,
     /// Focus ring width.
@@ -621,6 +625,19 @@ impl Style {
         self
     }
 
+    /// How letters are cased when drawn (CSS `text-transform`).
+    pub fn text_transform(mut self, value: crate::TextTransform) -> Self {
+        self.text_transform = Some(value);
+        self
+    }
+
+    /// At most `n` lines of text, the last ending in "…" when cut (CSS `line-clamp`); 0 for
+    /// no limit.
+    pub fn max_lines(mut self, n: u32) -> Self {
+        self.max_lines = Some(n);
+        self
+    }
+
     /// Monospace text.
     pub fn mono(mut self, on: bool) -> Self {
         self.mono = Some(on);
@@ -741,6 +758,8 @@ impl Style {
             mono: other.mono.or(self.mono),
             heading: other.heading.or(self.heading),
             letter_spacing: other.letter_spacing.or(self.letter_spacing),
+            text_transform: other.text_transform.or(self.text_transform),
+            max_lines: other.max_lines.or(self.max_lines),
             outline: other.outline.or(self.outline),
             outline_width: other.outline_width.or(self.outline_width),
             outline_offset: other.outline_offset.or(self.outline_offset),
@@ -807,6 +826,8 @@ impl Style {
             mono: self.mono,
             heading: self.heading,
             letter_spacing: self.letter_spacing,
+            text_transform: self.text_transform,
+            max_lines: self.max_lines,
             outline: c(self.outline),
             outline_width: dp(self.outline_width),
             outline_offset: dp(self.outline_offset),
@@ -836,6 +857,8 @@ impl From<StylePatch> for Style {
             mono: p.mono,
             heading: p.heading,
             letter_spacing: p.letter_spacing,
+            text_transform: p.text_transform,
+            max_lines: p.max_lines,
             outline: p.outline.map(ColorRef::Value),
             outline_width: p.outline_width.map(Dp::Px),
             outline_offset: p.outline_offset.map(Dp::Px),

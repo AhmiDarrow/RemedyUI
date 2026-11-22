@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use remedy_ui_core::{Color, ColorMatrix, Insets, Vec2};
+use remedy_ui_core::{Color, ColorMatrix, Insets, TextTransform, Vec2};
 
 use crate::states::States;
 
@@ -93,6 +93,11 @@ pub struct StylePatch {
     pub heading: Option<bool>,
     /// Extra space after each letter (CSS `letter-spacing`).
     pub letter_spacing: Option<LetterSpacing>,
+    /// How letters are cased when drawn (CSS `text-transform`); inherited.
+    pub text_transform: Option<TextTransform>,
+    /// At most this many lines of text, the last ending in "…" when cut (CSS
+    /// `line-clamp`); 0 for no limit. Not inherited.
+    pub max_lines: Option<u32>,
     /// The focus ring's color, drawn while the element has keyboard focus.
     pub outline: Option<Color>,
     /// The focus ring's width; 0 for elements that show focus another way.
@@ -194,6 +199,18 @@ impl StylePatch {
         self
     }
 
+    /// Sets how letters are cased when drawn.
+    pub fn text_transform(mut self, value: TextTransform) -> Self {
+        self.text_transform = Some(value);
+        self
+    }
+
+    /// Sets the most lines text takes (0: no limit).
+    pub fn max_lines(mut self, value: u32) -> Self {
+        self.max_lines = Some(value);
+        self
+    }
+
     /// Sets whether text uses the theme's monospace families.
     pub fn mono(mut self, value: bool) -> Self {
         self.mono = Some(value);
@@ -266,6 +283,8 @@ impl StylePatch {
             mono: Some(false),
             heading: Some(false),
             letter_spacing: Some(LetterSpacing::Px(0.0)),
+            text_transform: Some(TextTransform::None),
+            max_lines: Some(0),
             outline: Some(theme.derive().focus),
             outline_width: Some(2.0),
             outline_offset: Some(2.0),
@@ -293,6 +312,8 @@ impl StylePatch {
             mono: other.mono.or(self.mono),
             heading: other.heading.or(self.heading),
             letter_spacing: other.letter_spacing.or(self.letter_spacing),
+            text_transform: other.text_transform.or(self.text_transform),
+            max_lines: other.max_lines.or(self.max_lines),
             outline: other.outline.or(self.outline),
             outline_width: other.outline_width.or(self.outline_width),
             outline_offset: other.outline_offset.or(self.outline_offset),
@@ -362,6 +383,10 @@ pub struct ResolvedStyle {
     pub heading: bool,
     /// Extra space after each letter.
     pub letter_spacing: LetterSpacing,
+    /// How letters are cased when drawn.
+    pub text_transform: TextTransform,
+    /// The most lines text takes (0: no limit).
+    pub max_lines: u32,
     /// The focus ring's color.
     pub outline: Color,
     /// The focus ring's width (0: none).
@@ -396,6 +421,8 @@ impl ResolvedStyle {
             mono: p.mono.unwrap_or(false),
             heading: p.heading.unwrap_or(false),
             letter_spacing: p.letter_spacing.unwrap_or(LetterSpacing::Px(0.0)),
+            text_transform: p.text_transform.unwrap_or_default(),
+            max_lines: p.max_lines.unwrap_or(0),
             outline: p.outline.unwrap_or(Color::TRANSPARENT),
             outline_width: p.outline_width.unwrap_or(0.0),
             outline_offset: p.outline_offset.unwrap_or(0.0),
@@ -455,6 +482,7 @@ impl ResolvedStyle {
             mono: Some(self.mono),
             heading: Some(self.heading),
             letter_spacing: Some(self.letter_spacing),
+            text_transform: Some(self.text_transform),
             ..base.clone()
         }
     }

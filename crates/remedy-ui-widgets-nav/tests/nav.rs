@@ -187,6 +187,13 @@ fn rails_breadcrumbs_and_stacks_navigate() {
     nth(&rail, 0).focus();
     key(&ui, Key::ArrowDown, Modifiers::NONE);
     assert_eq!(place.get(), "chat");
+    frame(&ui);
+    let current = |i: usize| nth(&rail, i).info().and_then(|i| i.semantics).and_then(|s| s.current_state());
+    assert_eq!(
+        (current(0), current(1)),
+        (None, Some(remedy_ui_a11y::Current::Page)),
+        "the chosen place is the current page"
+    );
     collapsed.set(true);
     frame(&ui);
     // Five segments fold to Home › … › Trips › Rome.

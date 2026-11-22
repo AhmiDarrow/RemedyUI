@@ -136,6 +136,7 @@ Apps use the facade, `remedy-ui` (`run`, `App`, `Window`, and the packs behind f
 - `cargo-remedy`: `cargo remedy new` (basic, tray, multi-window, document and android templates), `run` (devtools, `--watch`), `package` (Windows installer and zip with signing and update signatures, Linux `.tar.gz`, Android APK, macOS `.app`) and `migrate` (applies the renames between releases)
 
 **Services**
+- `remedy-ui-services-net`: an HTTP client natively and in a browser page
 - `remedy-ui-services-update`: signed updates from GitHub releases or a feed
 - `remedy-ui-services-i18n`: Fluent messages, source-keyed JSON catalogs, locale data and exact decimals
 - `remedy-ui-services-spell`: spell checking with the platform's checker or Hunspell dictionaries

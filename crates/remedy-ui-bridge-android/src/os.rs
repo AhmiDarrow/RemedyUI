@@ -118,6 +118,15 @@ impl Java {
             })
             .ok()
             .flatten();
+        let locales = self
+            .call(|env, a| {
+                let c = configuration(env, a)?;
+                let list = env.call_method(&c, "getLocales", "()Landroid/os/LocaleList;", &[])?.l()?;
+                let tags = env.call_method(&list, "toLanguageTags", "()Ljava/lang/String;", &[])?.l()?;
+                string(env, tags)
+            })
+            .ok()
+            .flatten();
         let animator_scale = self
             .call(|env, a| {
                 let r = resolver(env, a)?;
@@ -170,14 +179,23 @@ impl Java {
                     .i()
             })
             .ok();
+        let television = self
+            .call(|env, a| {
+                let c = configuration(env, a)?;
+                // UI_MODE_TYPE_MASK, UI_MODE_TYPE_TELEVISION.
+                Ok(env.get_field(&c, "uiMode", "I")?.i()? & 0x0f == 0x04)
+            })
+            .unwrap_or(false);
         AndroidSettings {
             night,
             font_scale,
             locale,
+            locales,
             animator_scale,
             high_contrast_text,
             accent,
             double_tap_ms,
+            television,
         }
     }
 
@@ -361,6 +379,66 @@ impl Java {
         })
     }
 
+    /// Whether this app may offer an APK to the system installer (Android 8+ "install unknown
+    /// apps"). Safe to call from any thread.
+    pub(crate) fn can_request_package_installs(&self) -> Result<bool, String> {
+        self.call(|env, a| {
+            let pm = env
+                .call_method(a, "getPackageManager", "()Landroid/content/pm/PackageManager;", &[])?
+                .l()?;
+            env.call_method(&pm, "canRequestPackageInstalls", "()Z", &[])?.z()
+        })
+    }
+
+    /// Opens the system installer for an APK under `cache/remedy-share/<request>/<index>/<name>`,
+    /// or the install-permission settings when that is not yet allowed. Runs on the UI thread
+    /// and waits for the Java call to finish (not for the person to tap Install).
+    pub(crate) fn install_apk(
+        &self,
+        app: &AndroidApp,
+        request: &str,
+        index: i32,
+        mime: &str,
+        name: &str,
+    ) -> Result<String, String> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let request = request.to_owned();
+        let mime = mime.to_owned();
+        let name = name.to_owned();
+        let tx2 = tx.clone();
+        self.on_bridge(app, "the package installer", move |env, b| {
+            let r = (|| {
+                let req = env.new_string(&request)?;
+                let mime = env.new_string(&mime)?;
+                let name = env.new_string(&name)?;
+                let v = env
+                    .call_method(
+                        b,
+                        "installApk",
+                        "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+                        &[
+                            JValue::Object(&req),
+                            JValue::Int(index),
+                            JValue::Object(&mime),
+                            JValue::Object(&name),
+                        ],
+                    )?
+                    .l()?;
+                string(env, v)
+            })();
+            let posted = match &r {
+                Ok(Some(s)) => Ok(s.clone()),
+                Ok(None) => Err("the installer returned nothing".into()),
+                Err(e) => Err(e.to_string()),
+            };
+            let _ = tx.send(posted);
+            r.map(|_| ())
+        })?;
+        drop(tx2);
+        rx.recv_timeout(std::time::Duration::from_secs(8))
+            .map_err(|_| "the installer call did not finish".to_string())?
+    }
+
     /// The bridge's Java class with its native methods bound: the app's own copy when its APK
     /// carries the bridge's dex (`cargo remedy package`: RemedyActivity, the foreground
     /// service and the notification classes then share it), else one loaded from the dex
@@ -497,14 +575,15 @@ impl Java {
         caret: (f32, f32, f32),
         secret: bool,
         multiline: bool,
-        numeric: bool,
+        purpose: remedy_ui_host::InputPurpose,
     ) -> Result<(), String> {
+        let purpose = convert::purpose_code(purpose);
         self.on_bridge(app, "the text input session", move |env, b| {
             let t = env.new_string(&text)?;
             env.call_method(
                 b,
                 "textInput",
-                "(Ljava/lang/String;IIFFFZZZ)V",
+                "(Ljava/lang/String;IIFFFZZI)V",
                 &[
                     JValue::Object(&t),
                     JValue::Int(selection.0),
@@ -514,7 +593,7 @@ impl Java {
                     JValue::Float(caret.2),
                     JValue::Bool(u8::from(secret)),
                     JValue::Bool(u8::from(multiline)),
-                    JValue::Bool(u8::from(numeric)),
+                    JValue::Int(purpose),
                 ],
             )?;
             Ok(())
@@ -749,9 +828,14 @@ impl Java {
                 JValue::Object(&app),
                 JValue::Object(&pixels),
                 JValue::Int(side),
+                JValue::Int(match n.urgency {
+                    remedy_ui_host::Urgency::Warning => 1,
+                    remedy_ui_host::Urgency::Error => 2,
+                    _ => 0,
+                }),
             ];
             let mut sig = String::from(
-                "(Landroid/app/Activity;JJLjava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;ZLjava/lang/String;[II",
+                "(Landroid/app/Activity;JJLjava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;ZLjava/lang/String;[III",
             );
             if let Some(x) = extra {
                 args.push(JValue::Int(x));
@@ -819,6 +903,21 @@ impl Java {
                 "stopForeground",
                 "(Landroid/app/Activity;)V",
                 &[JValue::Object(a)],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Starts (`on`) or stops the service that keeps the process running out of sight.
+    pub(crate) fn hold_process(&self, on: bool) -> Result<(), String> {
+        let class = self.bridge_class()?;
+        self.call(|env, a| {
+            let class: &JClass<'_> = class.as_obj().into();
+            env.call_static_method(
+                class,
+                "holdProcess",
+                "(Landroid/app/Activity;Z)V",
+                &[JValue::Object(a), JValue::Bool(u8::from(on))],
             )?;
             Ok(())
         })

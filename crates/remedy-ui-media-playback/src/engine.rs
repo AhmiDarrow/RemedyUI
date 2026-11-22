@@ -239,8 +239,9 @@ impl Feed {
             Sample::Text { track, at, until, text } => {
                 if until > at && !self.skip_text {
                     // The player keeps a window of a stream's cues; one cue this long is no caption.
-                    if text.len() > crate::subtitles::MAX_STREAMED_CUE {
-                        self.error = Some(MediaError::Format(crate::subtitles::CUE_TOO_BIG.into()));
+                    let limit = crate::media_limits().max_streamed_cue;
+                    if text.len() > limit {
+                        self.error = Some(MediaError::Format(crate::subtitles::cue_too_big(limit)));
                         self.eof = true;
                         return;
                     }

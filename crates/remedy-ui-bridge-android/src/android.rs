@@ -123,10 +123,79 @@ pub fn launch_extra(name: &str) -> Option<String> {
     Java::new(&app).ok()?.intent_extra(name).ok().flatten()
 }
 
+/// Whether [`hold_process`] holds the process: the app's way out waits for it to let go.
+static HELD: (Mutex<bool>, std::sync::Condvar) = (Mutex::new(false), std::sync::Condvar::new());
+
+/// How long the way out waits for held work (keepalive requests), as `remedy_ui::run` waits
+/// for them on the desktop.
+const HELD_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The activity [`run`] is running, for calls from any thread.
+static RUNNING: OnceLock<AndroidApp> = OnceLock::new();
+
+/// Keeps the app's process running while it is out of sight (`true`), until told otherwise
+/// (`false`): a started service of the bridge's (`dev.remedyui.android.Keepalive`, declared
+/// by `cargo remedy package`), which keeps Android from freezing the cached process; Android
+/// still ends it about a minute after the app leaves the screen. `remedy_ui::run` hands this
+/// to the HTTP client, so keepalive requests (an app's last saves) finish when the app goes
+/// to the background, as a browser lets a closing page's keepalive `fetch` finish. Any
+/// thread; what fails (no service in the manifest, Android refusing) goes to the log.
+pub fn hold_process(on: bool) {
+    let (held, cv) = &HELD;
+    *held.lock().unwrap_or_else(PoisonError::into_inner) = on;
+    cv.notify_all();
+    let Some(app) = RUNNING.get() else { return };
+    if let Err(e) = Java::new(app).and_then(|j| j.hold_process(on)) {
+        os::log(&format!("RemedyUI: the process could not be kept running out of sight: {e}"));
+    }
+}
+
 /// Writes a line to the system log (logcat), tagged `RemedyUI`, at info priority. Android
 /// discards a native app's standard output, so this is where an app's diagnostics go.
 pub fn log(message: &str) {
     os::log(message);
+}
+
+/// Whether this app may offer an APK to the system installer (the "install unknown apps"
+/// setting on Android 8 and later). `false` before [`attach`], or if the check fails.
+pub fn can_request_package_installs() -> bool {
+    let Some(app) = ACTIVITY.lock().unwrap_or_else(PoisonError::into_inner).clone() else {
+        return false;
+    };
+    Java::new(&app).ok().and_then(|j| j.can_request_package_installs().ok()).unwrap_or(false)
+}
+
+/// What [`install_apk`] did.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ApkInstall {
+    /// The system installer was started; the person still has to tap Install.
+    Started,
+    /// The install-permission settings page was opened instead; call again after the person
+    /// allows installs from this app.
+    NeedPermission,
+}
+
+/// Opens the system package installer for an APK the app has already written under
+/// `cache/remedy-share/<request>/<index>/<name>` (the same folder [`share`](crate) uses,
+/// served by the APK's `SharedFiles` provider). The person taps Install; existing app data
+/// is kept. When the "install unknown apps" setting is off, the settings page for this app
+/// is opened instead ([`ApkInstall::NeedPermission`]).
+///
+/// `mime` is the content URI path segment, the same encoding shares use (for an APK,
+/// `application/vnd.android.package-archive`).
+pub fn install_apk(request: &str, index: u32, mime: &str, name: &str) -> Result<ApkInstall, String> {
+    let app = ACTIVITY
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+        .ok_or_else(|| "the activity has not attached".to_owned())?;
+    let java = Java::new(&app)?;
+    let index = i32::try_from(index).map_err(|_| "share index is too large".to_owned())?;
+    match java.install_apk(&app, request, index, mime, name)?.as_str() {
+        "started" => Ok(ApkInstall::Started),
+        "need_permission" => Ok(ApkInstall::NeedPermission),
+        other => Err(format!("unexpected installer result: {other}")),
+    }
 }
 
 /// Screen readers asking for the tree: the app sends it on its next frame.
@@ -576,7 +645,7 @@ impl PlatformHooks for AndroidHooks {
                 let scale = window.scale_factor() as f32;
                 let caret = (s.caret.min.x * scale, s.caret.min.y * scale, s.caret.max.y * scale);
                 self.text_session = true;
-                j.text_input(&self.app, text, selection, caret, s.private, s.multiline, s.numeric)
+                j.text_input(&self.app, text, selection, caret, s.private, s.multiline, s.purpose)
             }
             None => {
                 self.text_session = false;
@@ -671,9 +740,14 @@ impl PlatformHooks for AndroidHooks {
 /// exits: winit makes one event loop per process, so a later launch into the same (cached)
 /// process could not start. `run` therefore returns only when the loop could not start.
 pub fn run(app: impl App) -> Result<(), RunError> {
-    let activity = ACTIVITY.lock().unwrap_or_else(PoisonError::into_inner).take().ok_or_else(|| {
-        RunError::new("no Android activity: start the app with remedy_ui_bridge_android::main!")
-    })?;
+    // Keep the activity in ACTIVITY so `launch_extra`, `install_apk` and the rest can still
+    // reach it after the event loop has started (window code, background work).
+    let activity = ACTIVITY
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+        .ok_or_else(|| RunError::new("no Android activity: start the app with remedy_ui_bridge_android::main!"))?;
+    let _ = RUNNING.set(activity.clone());
     let event_loop = EventLoop::<UserEvent>::with_user_event()
         .with_android_app(activity.clone())
         .build()
@@ -708,5 +782,9 @@ fn finish_and_exit(activity: &AndroidApp, ok: bool) -> ! {
             }
         });
     }
+    // The exit below runs no destructors: wait here for the work that holds the process.
+    let (held, cv) = &HELD;
+    let held = held.lock().unwrap_or_else(PoisonError::into_inner);
+    let _ = cv.wait_timeout_while(held, HELD_GRACE, |h| *h);
     std::process::exit(if ok { 0 } else { 1 })
 }

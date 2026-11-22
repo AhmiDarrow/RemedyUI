@@ -7,7 +7,7 @@ RemedyUI is the one UI engine for every Remedy app. That covers chat (FreeSpeak)
 These are in priority order. When two pull against each other, the higher one wins.
 
 1. **Stable.** It runs the same way every time. No panic reaches a frame, no hang reaches the user, and it starts on any machine. Judge by repeat runs, not one pass.
-2. **Secure and private.** No unsafe code outside an audited boundary. Untrusted bytes are parsed by memory-safe code off the UI thread. The engine never phones home, logs content, or needs an account or a network. The one pack that uses the network, `services-update`, is opt-in, talks only to the feed the app names, and sends nothing that identifies the user.
+2. **Secure and private.** No unsafe code outside an audited boundary. Untrusted bytes are parsed by memory-safe code off the UI thread. The engine never phones home, logs content, or needs an account or a network. The packs that use the network, `services-update` and `services-net`, are opt-in, talk only to the addresses the app names, and send nothing that identifies the user.
 3. **Fast as the hardware allows.** Work is proportional to change. Nothing runs when nothing changes, and input reaches the screen within a frame.
 4. **Efficient and light.** An app pays only for what it uses, in binary size, memory and CPU (see Modularity).
 5. **Intuitive for people.** Good behavior is the default: platform conventions, accessibility, undo, feedback, motion that explains. An app built quickly on RemedyUI should already feel right ([13-design-language.md](13-design-language.md)).
@@ -86,7 +86,8 @@ Image and icon *sources* are a trait in `paint`, so `widgets-core` can show imag
 | `embed-webview` | Platform web view as an element | RemedyAI |
 | `embed-gpu` | The app's own wgpu rendering as an element | Game views, 3D previews |
 | `services-desktop` | Tray, notifications, badges, jump lists, file dialogs, single instance, URL activation, autostart, power; each its own sub-feature | Desktop apps |
-| `services-update` | Signed updates from GitHub releases or a feed the app names; opt-in, the only networked pack | Most shipped apps |
+| `services-update` | Signed updates from GitHub releases or a feed the app names; opt-in | Most shipped apps |
+| `services-net` | HTTP client natively (rustls) and in a page (`fetch`): JSON with typed decoding, errors with their detail, multipart uploads, keepalive requests, timeouts, cancellation that follows a `Resource`'s key, cookies; opt-in, contacts only the addresses the app names | Portal, apps with a server |
 | `themes` | The shared Remedy theme set | Every Remedy app |
 | `fonts` | The Remedy font families, one feature per family | Every Remedy app |
 | `services-spell` | Platform spell checker bridge | Editors, chat |

@@ -259,10 +259,8 @@ fn tray_app_lives_in_the_tray_and_comes_back_for_breaks() {
             .must("a tray icon")
             .menu
             .iter()
-            .filter_map(|i| match i {
-                TrayItem::Item { label, .. } => Some(label.clone()),
-                TrayItem::Separator => None,
-            })
+            .filter(|i| !matches!(i, TrayItem::Separator))
+            .map(|i| i.label().to_owned())
             .collect()
     };
     assert_eq!(t.host().tray().map(|i| i.tooltip.clone()).as_deref(), Some("Break reminder"));

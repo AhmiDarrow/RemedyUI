@@ -977,7 +977,7 @@ fn next_up_counts_down_at_the_end_and_plays_in_the_same_player() {
         texts(&view, "player_next_title").iter().any(|t| t == "The long one"),
         "the title on its own line"
     );
-    assert!(texts(&view, "player_next_label").iter().any(|t| t == "UP NEXT"), "the label over it");
+    assert!(texts(&view, "player_next_label").iter().any(|t| t == "Up next"), "the label over it");
     assert!(shown.iter().any(|t| t == "Playing in 2 seconds"), "{shown:?}");
     assert!(announced(&view, "Up next: The long one") && announced(&view, "Playing in 2 seconds"));
     s.wait("one second left", |_| texts(&view, "label").iter().any(|t| t == "Playing in 1 second"));

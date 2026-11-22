@@ -31,6 +31,7 @@ pub mod motion;
 mod native;
 mod prop;
 mod select;
+mod spatial;
 pub mod strings;
 mod tokens;
 
@@ -54,12 +55,15 @@ pub use frame::{Frame, FrameStats, Placement, gradient_brush};
 pub use history::HistoryItem;
 pub use prop::{IntoProp, Prop};
 pub use remedy_ui_a11y::Action as A11yAction;
-pub use remedy_ui_host::{DragData, DragEvent, DropEffect, ImeEvent};
+pub use remedy_ui_host::{DragData, DragEvent, DropEffect, ImeEvent, InputPurpose, PointerCaps};
 pub use remedy_ui_input::WheelEvent;
 pub use remedy_ui_layout::{Align, Justify};
-pub use remedy_ui_style::{ColorRole, Dp, Gradient, GradientStop, Pad, Pos, Radius, Space, Style, TextRole};
+pub use remedy_ui_style::{
+    ColorRole, Dp, Gradient, GradientStop, Pad, Pos, Radius, Space, Style, TextRole, TextTransform,
+};
 pub use remedy_ui_text::{InlineObject, RichText, TextStylePatch};
 pub use remedy_ui_tree::ElementId;
+pub use spatial::SpatialTuning;
 
 use remedy_ui_host::TextInputState;
 
