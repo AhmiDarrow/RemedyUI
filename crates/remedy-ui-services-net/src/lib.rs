@@ -16,13 +16,21 @@
 //! - [`Http::resource`]: a reactive [`Resource`] that fetches JSON for a key; a new key
 //!   aborts the request under way (the browser's `AbortController`, or natively the request
 //!   is let go and its answer dropped).
+//! - [`Http::stream`] hands a long body over chunk by chunk, cancellable, within a size limit.
 //! - Natively [`Http::send_blocking`] also waits for the answer, for work already on a
 //!   background thread.
+//! - Natively a [`CookieJar`] keeps cookies as RFC 6265 says; redirects are followed hop by
+//!   hop, each hop checked and sent its own cookies.
+//! - Every limit has a default and can be set or lifted: [`Http::timeout`] and
+//!   [`Request::timeout`] ([`DEFAULT_TIMEOUT`]), [`Http::max_body`] and [`Request::max_body`]
+//!   ([`DEFAULT_MAX_BODY`]), [`Http::max_redirects`] ([`DEFAULT_MAX_REDIRECTS`]),
+//!   [`CookieJar::max_cookies`] ([`DEFAULT_MAX_COOKIES`]).
 //!
 //! **Policy.** This pack is opt-in and contacts only addresses the app names. Natively it
-//! refuses plain `http` beyond the loopback interface (TLS is rustls with the platform's
-//! certificate verifier); in a browser a relative path goes to the page's own origin and the
-//! browser's own rules (mixed content, CORS) apply on top. Nothing is logged, and no header
+//! refuses plain `http` beyond the loopback interface unless the client allows the local
+//! network ([`HttpPolicy::PrivateNetworks`]), checking the address a name resolves to (TLS is
+//! rustls with the platform's certificate verifier); in a browser a relative path goes to the
+//! page's own origin and the browser's own rules (mixed content, CORS) apply on top. Nothing is logged, and no header
 //! is added beyond what the app sets and `User-Agent` natively.
 //!
 //! ```no_run
@@ -47,21 +55,22 @@
 
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use remedy_ui_reactive::{Cancel, Resource};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+mod cookies;
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
+pub use cookies::{Cookie, CookieJar, DEFAULT_MAX_COOKIES, SameSite};
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::finish_keepalive;
+pub use native::{finish_keepalive, on_keepalive};
 
 /// The answer to a request that succeeded (status 200-299).
 #[non_exhaustive]
@@ -100,6 +109,9 @@ impl Response {
 pub struct HttpError {
     /// The HTTP status.
     pub status: u16,
+    /// The response headers, names in lowercase: a `304 Not Modified` answering a
+    /// conditional request carries the new `ETag`, `Last-Modified` and `Cache-Control` here.
+    pub headers: Vec<(String, String)>,
     /// The body, as text.
     pub body: String,
     /// The `detail` field of a JSON body: its text, or the JSON itself when it is not a
@@ -108,12 +120,17 @@ pub struct HttpError {
 }
 
 impl HttpError {
-    fn new(status: u16, body: &[u8]) -> Self {
+    fn new(status: u16, headers: Vec<(String, String)>, body: &[u8]) -> Self {
         let body = String::from_utf8_lossy(body).into_owned();
         let detail = serde_json::from_str::<serde_json::Value>(&body)
             .ok()
             .and_then(|v| v.get("detail").map(|d| d.as_str().map_or_else(|| d.to_string(), str::to_owned)));
-        HttpError { status, body, detail }
+        HttpError { status, headers, body, detail }
+    }
+
+    /// The first header named `name` (any case).
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
     }
 }
 
@@ -121,7 +138,8 @@ impl HttpError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum NetError {
-    /// The server answered with a status outside 200-299.
+    /// The server answered with a status outside 200-299 (a `304 Not Modified` too, with
+    /// its headers).
     Http(HttpError),
     /// The server could not be reached, or the connection broke.
     Network(String),
@@ -131,8 +149,10 @@ pub enum NetError {
     Cancelled,
     /// The answer was not the JSON the caller asked for.
     Decode(String),
+    /// The body was longer than the limit (in bytes) the request allowed.
+    TooLarge(u64),
     /// The request was not sent: an address this pack does not contact (plain `http`
-    /// beyond the loopback interface) or a body that could not be encoded.
+    /// beyond what the [`HttpPolicy`] allows) or a body that could not be encoded.
     Refused(String),
 }
 
@@ -157,6 +177,7 @@ impl std::fmt::Display for NetError {
             NetError::Timeout => write!(f, "the server did not answer in time"),
             NetError::Cancelled => write!(f, "the request was cancelled"),
             NetError::Decode(e) => write!(f, "the answer was not readable: {e}"),
+            NetError::TooLarge(n) => write!(f, "the answer was longer than {n} bytes"),
             NetError::Refused(e) => write!(f, "the request was not sent: {e}"),
         }
     }
@@ -252,7 +273,8 @@ pub struct Request {
     path: String,
     headers: Vec<(String, String)>,
     body: Option<Vec<u8>>,
-    timeout: Option<Duration>,
+    timeout: Option<Option<Duration>>,
+    max_body: Option<Option<u64>>,
     keepalive: bool,
     error: Option<String>,
 }
@@ -265,6 +287,7 @@ impl Request {
             headers: Vec::new(),
             body: None,
             timeout: None,
+            max_body: None,
             keepalive: false,
             error: None,
         }
@@ -319,9 +342,17 @@ impl Request {
         self.body(body, ty)
     }
 
-    /// How long the whole request may take, instead of the client's timeout.
-    pub fn timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = Some(timeout);
+    /// How long the whole request may take, instead of the client's timeout; `None` for no
+    /// limit.
+    pub fn timeout(mut self, timeout: impl Into<Option<Duration>>) -> Self {
+        self.timeout = Some(timeout.into());
+        self
+    }
+
+    /// The longest body (in bytes) this request reads, instead of the client's
+    /// [`Http::max_body`]; `None` for no limit.
+    pub fn max_body(mut self, bytes: impl Into<Option<u64>>) -> Self {
+        self.max_body = Some(bytes.into());
         self
     }
 
@@ -334,105 +365,106 @@ impl Request {
     }
 }
 
-/// Cookies kept between native requests, per origin (scheme, host and port), as a server
-/// sets them with `Set-Cookie`. A browser page needs none: the browser keeps the page's.
-///
-/// shortcut: cookies are scoped to the exact origin that set them; `Domain`, `Path` and
-/// `Expires` are not applied (only `Max-Age=0` removes one); upgrade when an app talks to
-/// several hosts that share cookies.
-#[derive(Clone, Debug, Default)]
-pub struct CookieJar(Arc<Mutex<BTreeMap<String, BTreeMap<String, String>>>>);
+/// Which plain-`http` addresses a client contacts. `https` is always allowed.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HttpPolicy {
+    /// Plain `http` only to the loopback interface (`localhost`, `127.0.0.1`, `[::1]`). The
+    /// default.
+    #[default]
+    LoopbackOnly,
+    /// Also plain `http` to the home or office network: private IPv4 addresses (RFC 1918:
+    /// `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), link-local ones (`169.254.0.0/16`,
+    /// `fe80::/10`), unique-local IPv6 (`fc00::/7`), and `.local` names (mDNS) that resolve
+    /// to them. For an app that reaches a server on the same network, such as a Portal box.
+    /// Natively the address a name resolves to is checked before connecting, so a name that
+    /// resolves elsewhere (DNS rebinding) is refused, and plain `http` never goes through a
+    /// proxy. In a page the browser decides on top (mixed content, local network access).
+    PrivateNetworks,
+}
 
-impl CookieJar {
-    /// An empty jar.
-    pub fn new() -> Self {
-        CookieJar::default()
+/// An absolute address taken apart: what cookies and the address policy look at.
+#[derive(Debug)]
+pub(crate) struct Parts {
+    pub(crate) scheme: String,
+    /// In lowercase, without an IPv6 address's brackets.
+    pub(crate) host: String,
+    /// The path, without the query; `/` when empty.
+    pub(crate) path: String,
+}
+
+impl Parts {
+    pub(crate) fn of(url: &str) -> Option<Parts> {
+        let (scheme, rest) = url.split_once("://")?;
+        let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+        let (authority, tail) = rest.split_at(end);
+        let authority = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+        let host = match authority.strip_prefix('[') {
+            Some(v6) => v6.split_once(']')?.0,
+            None => authority.rsplit_once(':').map_or(authority, |(h, _)| h),
+        };
+        let path = tail.split(['?', '#']).next().unwrap_or_default();
+        Some(Parts {
+            scheme: scheme.to_ascii_lowercase(),
+            host: host.to_ascii_lowercase(),
+            path: if path.is_empty() { "/".into() } else { path.to_owned() },
+        })
     }
 
-    /// The cookie named `name` kept for `origin` (`https://host:port`, the port only when
-    /// not the scheme's usual one).
-    pub fn get(&self, origin: &str, name: &str) -> Option<String> {
-        let jar = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        jar.get(origin).and_then(|c| c.get(name)).cloned()
-    }
-
-    /// Keeps a cookie for `origin`, as if the server had set it.
-    pub fn set(&self, origin: &str, name: impl Into<String>, value: impl Into<String>) {
-        let mut jar = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        jar.entry(origin.to_owned()).or_default().insert(name.into(), value.into());
-    }
-
-    /// Forgets every cookie.
-    pub fn clear(&self) {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).clear();
-    }
-
-    /// The `Cookie` header for a request to `url`.
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-    fn header(&self, url: &str) -> Option<String> {
-        let jar = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        let c = jar.get(&origin(url))?;
-        (!c.is_empty()).then(|| c.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; "))
-    }
-
-    /// Takes in a `Set-Cookie` header from `url`'s answer.
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-    fn store(&self, url: &str, set_cookie: &str) {
-        let mut attrs = set_cookie.split(';');
-        let Some((name, value)) = attrs.next().and_then(|nv| nv.split_once('=')) else { return };
-        let (name, value) = (name.trim(), value.trim());
-        if name.is_empty() {
-            return;
-        }
-        let gone = attrs.any(|a| {
-            a.split_once('=').is_some_and(|(k, v)| {
-                k.trim().eq_ignore_ascii_case("max-age") && v.trim().parse::<i64>().is_ok_and(|s| s <= 0)
-            })
-        });
-        let mut jar = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        let cookies = jar.entry(origin(url)).or_default();
-        if gone {
-            cookies.remove(name);
-        } else {
-            cookies.insert(name.to_owned(), value.to_owned());
-        }
+    /// `https`, or the loopback interface, where browsers treat plain `http` as secure too.
+    pub(crate) fn secure(&self) -> bool {
+        self.scheme == "https"
+            || self.host == "localhost"
+            || self.host.parse().is_ok_and(|ip| reaches(ip, HttpPolicy::LoopbackOnly))
     }
 }
 
-/// `scheme://host[:port]` of an absolute address.
-fn origin(url: &str) -> String {
-    let (scheme, rest) = url.split_once("://").unwrap_or(("", url));
-    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    let host = host.rsplit_once('@').map_or(host, |(_, h)| h);
-    let usual = match scheme {
-        "https" => ":443",
-        "http" => ":80",
-        _ => "",
+/// Whether plain `http` may connect to `ip` under `policy`.
+pub(crate) fn reaches(ip: std::net::IpAddr, policy: HttpPolicy) -> bool {
+    use std::net::IpAddr;
+    let ip = match ip {
+        IpAddr::V6(v6) => v6.to_canonical(),
+        v4 => v4,
     };
-    let host = host.strip_suffix(usual).unwrap_or(host);
-    format!("{}://{}", scheme.to_ascii_lowercase(), host.to_ascii_lowercase())
+    let private = match ip {
+        IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),
+        // Unique-local fc00::/7 and link-local fe80::/10.
+        IpAddr::V6(v6) => (v6.segments()[0] & 0xfe00) == 0xfc00 || (v6.segments()[0] & 0xffc0) == 0xfe80,
+    };
+    ip.is_loopback() || (policy == HttpPolicy::PrivateNetworks && private)
 }
 
-/// Only HTTPS, except the loopback interface. Relative addresses (a browser page's own
-/// origin) pass.
-fn allowed(url: &str) -> Result<(), NetError> {
-    let lower = url.to_ascii_lowercase();
-    if !lower.contains("://") {
+/// `https`, or plain `http` to what `policy` reaches (natively the resolved address is
+/// checked again before connecting). Relative addresses (a browser page's own origin) pass.
+fn allowed(url: &str, policy: HttpPolicy) -> Result<(), NetError> {
+    let Some(at) = Parts::of(url) else {
         return if cfg!(target_arch = "wasm32") {
             Ok(())
         } else {
             Err(NetError::Refused(format!("not an absolute address: {url}")))
         };
-    }
-    let local = ["http://127.0.0.1", "http://localhost", "http://[::1]"]
-        .iter()
-        .any(|p| lower.strip_prefix(p).is_some_and(|r| r.is_empty() || r.starts_with([':', '/', '?', '#'])));
-    if lower.starts_with("https://") || local {
+    };
+    let ok = match at.scheme.as_str() {
+        "https" => true,
+        "http" => {
+            at.host == "localhost"
+                || at.host.parse().is_ok_and(|ip| reaches(ip, policy))
+                || (policy == HttpPolicy::PrivateNetworks && at.host.ends_with(".local"))
+        }
+        _ => false,
+    };
+    if ok {
         Ok(())
-    } else {
+    } else if policy == HttpPolicy::LoopbackOnly {
         Err(NetError::Refused(format!("not an https address: {url}")))
+    } else {
+        Err(NetError::Refused(format!("not an https address or one on the local network: {url}")))
     }
 }
+
+/// What reads a streamed body: the answer's status and headers with each chunk. Taken away
+/// (set to `None`) once the request has answered otherwise, so no chunk comes after.
+pub(crate) type Chunks = Arc<Mutex<Option<Box<dyn FnMut(&Response, &[u8]) + Send>>>>;
 
 /// A request ready to go: the full address and everything the backend sends.
 struct Prepared {
@@ -440,26 +472,53 @@ struct Prepared {
     url: String,
     headers: Vec<(String, String)>,
     body: Option<Vec<u8>>,
-    timeout: Duration,
+    /// `None`: no limit.
+    timeout: Option<Duration>,
     keepalive: bool,
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     cookies: Option<CookieJar>,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    policy: HttpPolicy,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    max_redirects: usize,
+    /// The longest body read; `None`: no limit.
+    limit: Option<u64>,
+    /// Where a streamed body goes, chunk by chunk, instead of into the [`Response`].
+    chunks: Option<Chunks>,
 }
+
+/// The longest body a client reads unless set otherwise ([`Http::max_body`]): 256 MiB.
+pub const DEFAULT_MAX_BODY: u64 = 256 * 1024 * 1024;
+/// How long a request may take unless set otherwise ([`Http::timeout`]): 30 seconds.
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+/// Redirects followed natively unless set otherwise ([`Http::max_redirects`]): 10.
+pub const DEFAULT_MAX_REDIRECTS: usize = 10;
 
 /// An HTTP client for one base address. Cloning shares its settings and cookie jar.
 #[derive(Clone, Debug)]
 pub struct Http {
     base: String,
     headers: Vec<(String, String)>,
-    timeout: Duration,
+    timeout: Option<Duration>,
+    max_body: Option<u64>,
+    max_redirects: usize,
     cookies: Option<CookieJar>,
+    policy: HttpPolicy,
 }
 
 impl Http {
     /// A client for `base` (`https://host/api`; in a browser `""` or `/api` for the page's
     /// own origin). Requests time out after 30 seconds unless set otherwise.
     pub fn new(base: impl Into<String>) -> Self {
-        Http { base: base.into(), headers: Vec::new(), timeout: Duration::from_secs(30), cookies: None }
+        Http {
+            base: base.into(),
+            headers: Vec::new(),
+            timeout: Some(DEFAULT_TIMEOUT),
+            max_body: Some(DEFAULT_MAX_BODY),
+            max_redirects: DEFAULT_MAX_REDIRECTS,
+            cookies: None,
+            policy: HttpPolicy::default(),
+        }
     }
 
     /// Sends `name: value` with every request (a request's own header of that name wins).
@@ -470,14 +529,38 @@ impl Http {
         self
     }
 
-    /// How long a request may take in all, unless it sets its own.
-    pub fn timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
+    /// How long a request may take in all, unless it sets its own ([`DEFAULT_TIMEOUT`]
+    /// unless set); `None` for no limit.
+    pub fn timeout(mut self, timeout: impl Into<Option<Duration>>) -> Self {
+        self.timeout = timeout.into();
         self
     }
 
-    /// Keeps cookies in `jar` natively: sent with each request to the origin that set them.
-    /// A browser page keeps its own cookies and ignores this.
+    /// The longest body (in bytes) a request reads, kept or streamed, unless it sets its own
+    /// ([`DEFAULT_MAX_BODY`] unless set); `None` for no limit. A longer one ends with
+    /// [`NetError::TooLarge`].
+    pub fn max_body(mut self, bytes: impl Into<Option<u64>>) -> Self {
+        self.max_body = bytes.into();
+        self
+    }
+
+    /// How many redirects a native request follows ([`DEFAULT_MAX_REDIRECTS`] unless set);
+    /// `0` follows none, so a `3xx` answers as an [`HttpError`] with its `Location`. In a page
+    /// the browser follows them (up to its own 20).
+    pub fn max_redirects(mut self, hops: usize) -> Self {
+        self.max_redirects = hops;
+        self
+    }
+
+    /// Which plain-`http` addresses this client contacts (only the loopback interface unless
+    /// set otherwise).
+    pub fn policy(mut self, policy: HttpPolicy) -> Self {
+        self.policy = policy;
+        self
+    }
+
+    /// Keeps cookies in `jar` natively, sent as RFC 6265 says (see [`CookieJar`]). A browser
+    /// page keeps its own cookies and ignores this.
     pub fn cookies(mut self, jar: CookieJar) -> Self {
         self.cookies = Some(jar);
         self
@@ -499,7 +582,7 @@ impl Http {
             return Err(NetError::Refused(e));
         }
         let url = self.url(&req.path);
-        allowed(&url)?;
+        allowed(&url, self.policy)?;
         let mut headers: Vec<(String, String)> = self
             .headers
             .iter()
@@ -513,8 +596,12 @@ impl Http {
             headers,
             body: req.body,
             timeout: req.timeout.unwrap_or(self.timeout),
+            max_redirects: self.max_redirects,
             keepalive: req.keepalive,
             cookies: self.cookies.clone(),
+            policy: self.policy,
+            limit: req.max_body.unwrap_or(self.max_body),
+            chunks: None,
         })
     }
 
@@ -530,6 +617,33 @@ impl Http {
     ) {
         match self.prepare(req) {
             Ok(p) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                native::send(p, cancel.clone(), done);
+                #[cfg(target_arch = "wasm32")]
+                web::send(p, cancel.clone(), done);
+            }
+            Err(e) => done(Err(e)),
+        }
+    }
+
+    /// Like [`Http::send`], with the body handed to `chunk` as it arrives instead of kept:
+    /// for a download, a long answer or one the server sends bit by bit. `chunk` gets the
+    /// answer's status and headers (an empty body) with each piece; `done` then gets the
+    /// same [`Response`], or the error, after which no chunk comes. A body longer than the
+    /// request's [`Request::max_body`] (or the client's [`Http::max_body`]) ends it with
+    /// [`NetError::TooLarge`]; cancelling ends it between two chunks (the connection closes).
+    /// A status outside 200-299 sends no chunk: its body is in the [`HttpError`]. In a page
+    /// this reads the `fetch` body's `ReadableStream`.
+    pub fn stream(
+        &self,
+        req: Request,
+        cancel: &Cancel,
+        chunk: impl FnMut(&Response, &[u8]) + Send + 'static,
+        done: impl FnOnce(Result<Response, NetError>) + Send + 'static,
+    ) {
+        match self.prepare(req) {
+            Ok(mut p) => {
+                p.chunks = Some(Arc::new(Mutex::new(Some(Box::new(chunk)))));
                 #[cfg(not(target_arch = "wasm32"))]
                 native::send(p, cancel.clone(), done);
                 #[cfg(target_arch = "wasm32")]
@@ -604,32 +718,65 @@ mod tests {
 
     #[test]
     fn refuses_plain_http_off_loopback() {
-        assert!(allowed("https://a.test").is_ok());
-        assert!(allowed("http://127.0.0.1:8080/x").is_ok());
-        assert!(allowed("http://localhost/x").is_ok());
-        assert!(allowed("http://localhost.evil.test/x").is_err());
-        assert!(allowed("http://a.test").is_err());
+        let lo = HttpPolicy::LoopbackOnly;
+        assert!(allowed("https://a.test", lo).is_ok());
+        assert!(allowed("http://127.0.0.1:8080/x", lo).is_ok());
+        assert!(allowed("http://localhost/x", lo).is_ok());
+        assert!(allowed("http://[::1]:80/x", lo).is_ok());
+        assert!(allowed("http://localhost.evil.test/x", lo).is_err());
+        assert!(allowed("http://a.test", lo).is_err());
+        assert!(allowed("http://192.168.1.4/x", lo).is_err());
+        assert!(allowed("ftp://a.test", lo).is_err());
+    }
+
+    #[test]
+    fn private_networks_when_asked() {
+        let lan = HttpPolicy::PrivateNetworks;
+        for ok in [
+            "http://10.1.2.3/x",
+            "http://172.16.0.9:8000",
+            "http://172.31.255.1",
+            "http://192.168.1.4:8080/api",
+            "http://169.254.10.10",
+            "http://[fd12:3456::1]:8080/",
+            "http://[fe80::1]/",
+            "http://[::ffff:192.168.0.2]/",
+            "http://portal.local:8000/",
+            "http://127.0.0.1",
+        ] {
+            assert!(allowed(ok, lan).is_ok(), "{ok}");
+        }
+        for no in [
+            "http://172.32.0.1",
+            "http://8.8.8.8",
+            "http://[2001:db8::1]/",
+            "http://portal.lan/",
+            "http://local/",
+            "http://user@8.8.8.8/",
+            "http://192.168.1.4.evil.test/",
+        ] {
+            assert!(allowed(no, lan).is_err(), "{no}");
+        }
     }
 
     #[test]
     fn reads_the_detail() {
-        let e = HttpError::new(422, br#"{"detail":[{"msg":"bad"}]}"#);
+        let e = HttpError::new(422, Vec::new(), br#"{"detail":[{"msg":"bad"}]}"#);
         assert_eq!(e.detail.as_deref(), Some(r#"[{"msg":"bad"}]"#));
-        assert_eq!(HttpError::new(401, br#"{"detail":"pair first"}"#).detail.as_deref(), Some("pair first"));
-        assert_eq!(HttpError::new(500, b"oops").detail, None);
+        let e = HttpError::new(401, vec![("etag".into(), "\"v\"".into())], br#"{"detail":"pair first"}"#);
+        assert_eq!((e.detail.as_deref(), e.header("ETag")), (Some("pair first"), Some("\"v\"")));
+        assert_eq!(HttpError::new(500, Vec::new(), b"oops").detail, None);
     }
 
     #[test]
-    fn origins_and_cookies() {
-        assert_eq!(origin("https://A.test:443/x?y"), "https://a.test");
-        assert_eq!(origin("http://127.0.0.1:8080/x"), "http://127.0.0.1:8080");
-        let jar = CookieJar::new();
-        jar.store("https://a.test/login", "sid=1; Path=/; HttpOnly");
-        jar.store("https://a.test/login", "theme=dark");
-        assert_eq!(jar.header("https://a.test/other").as_deref(), Some("sid=1; theme=dark"));
-        assert_eq!(jar.header("https://b.test/"), None);
-        jar.store("https://a.test/logout", "sid=; Max-Age=0");
-        assert_eq!(jar.header("https://a.test/").as_deref(), Some("theme=dark"));
+    fn takes_addresses_apart() {
+        let p = Parts::of("https://u:p@A.test:443/x/y?q#f").unwrap_or_else(|| unreachable!());
+        assert_eq!((p.scheme.as_str(), p.host.as_str(), p.path.as_str()), ("https", "a.test", "/x/y"));
+        let p = Parts::of("http://[::1]:8080?x").unwrap_or_else(|| unreachable!());
+        assert_eq!((p.host.as_str(), p.path.as_str()), ("::1", "/"));
+        assert!(p.secure());
+        assert!(!Parts::of("http://10.0.0.1/").is_some_and(|p| p.secure()));
+        assert!(Parts::of("/relative").is_none());
     }
 
     #[test]

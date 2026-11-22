@@ -297,6 +297,23 @@ public final class Bridge
         Print.show(activity, title, html);
     }
 
+    /** Whether this app may offer an APK to the system installer (UI thread). */
+    public boolean canRequestPackageInstalls() {
+        return InstallApk.canInstall(activity);
+    }
+
+    /**
+     * Opens the system installer for an APK already under the share folder, or the
+     * install-permission settings when that is not yet allowed (UI thread).
+     */
+    public String installApk(String request, int index, String mime, String name) {
+        try {
+            return InstallApk.install(activity, request, index, mime, name);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /** Opens the document picker (UI thread). */
     public void pick(long request, boolean save, boolean multiple, String[] extensions, String fileName,
             String title) {
@@ -390,6 +407,11 @@ public final class Bridge
     /** Ends the app's foreground work (any thread). */
     public static void stopForeground(Activity activity) {
         Foreground.stop(activity);
+    }
+
+    /** Keeps the process running out of sight while keepalive requests finish (any thread). */
+    public static void holdProcess(Activity activity, boolean on) {
+        Keepalive.hold(activity, on);
     }
 
     /** The view the native activity draws in: where accessibility nodes live. */

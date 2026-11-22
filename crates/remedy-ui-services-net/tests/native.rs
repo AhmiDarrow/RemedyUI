@@ -4,12 +4,14 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use remedy_ui_reactive::{Cancel, Resource, Signal, run_posted, untrack};
-use remedy_ui_services_net::{CookieJar, Http, Multipart, NetError, Request, finish_keepalive};
+use remedy_ui_services_net::{
+    CookieJar, Http, HttpPolicy, Multipart, NetError, Request, SameSite, finish_keepalive, on_keepalive,
+};
 
 /// Starts the server; returns its address and a count of `/slow` requests it finished.
 fn server() -> (String, Arc<AtomicUsize>) {
@@ -64,6 +66,38 @@ fn server() -> (String, Arc<AtomicUsize>) {
                     "/login" => (200, "Set-Cookie: sid=abc; Path=/; HttpOnly\r\n".into(), "null".into()),
                     "/logout" => (200, "Set-Cookie: sid=; Max-Age=0\r\n".into(), "null".into()),
                     "/whoami" => (200, String::new(), serde_json::json!(get("cookie")).to_string()),
+                    "/api/login" => (
+                        200,
+                        "Set-Cookie: api=1\r\nSet-Cookie: all=1; Path=/; SameSite=Strict\r\n".into(),
+                        "null".into(),
+                    ),
+                    "/api/whoami" => (200, String::new(), serde_json::json!(get("cookie")).to_string()),
+                    "/hop" => {
+                        (302, "Location: /api/hop2\r\nSet-Cookie: hop=1; Path=/\r\n".into(), "{}".into())
+                    }
+                    "/api/hop2" => (307, "Location: whoami\r\n".into(), "{}".into()),
+                    "/see-other" => (303, "Location: /echo\r\n".into(), "{}".into()),
+                    "/off-loopback" => (302, "Location: http://example.com/\r\n".into(), "{}".into()),
+                    "/loop" => (302, "Location: /loop\r\n".into(), "{}".into()),
+                    "/etag" if get("if-none-match") == "\"v1\"" => {
+                        (304, "ETag: \"v2\"\r\nCache-Control: max-age=60\r\n".into(), String::new())
+                    }
+                    "/big" => (200, "X-Kind: big\r\n".into(), "x".repeat(300_000)),
+                    "/drip" => {
+                        // Sent in pieces, a while apart, until the client lets go.
+                        let mut s = stream;
+                        let _ = write!(
+                            s,
+                            "HTTP/1.1 200 OK\r\nContent-Length: 100000\r\nConnection: close\r\n\r\n"
+                        );
+                        for _ in 0..1000 {
+                            if s.write_all(&[b'd'; 100]).and_then(|()| s.flush()).is_err() {
+                                return;
+                            }
+                            std::thread::sleep(Duration::from_millis(20));
+                        }
+                        return;
+                    }
                     p if p.starts_with("/slow") => {
                         std::thread::sleep(Duration::from_millis(1500));
                         count.fetch_add(1, Ordering::SeqCst);
@@ -229,4 +263,156 @@ fn cookie_jar() {
     plain.send_blocking(Request::get("login"), &Cancel::new()).unwrap();
     let none: String = wait(|d| plain.send_json(Request::get("whoami"), &Cancel::new(), d)).unwrap();
     assert_eq!(none, "");
+}
+
+#[test]
+fn cookies_follow_paths_and_redirects() {
+    let (addr, _) = server();
+    let jar = CookieJar::new();
+    let http = Http::new(&addr).cookies(jar.clone());
+    http.send_blocking(Request::get("api/login"), &Cancel::new()).unwrap();
+    // `api` has the default path `/api`; `all` goes everywhere.
+    let me: String = wait(|d| http.send_json(Request::get("api/whoami"), &Cancel::new(), d)).unwrap();
+    assert_eq!(me, "api=1; all=1");
+    let me: String = wait(|d| http.send_json(Request::get("whoami"), &Cancel::new(), d)).unwrap();
+    assert_eq!(me, "all=1");
+    let all = jar.cookies().into_iter().find(|c| c.name == "all").unwrap();
+    assert_eq!(all.same_site, Some(SameSite::Strict));
+    // Redirects are followed hop by hop: the cookie set on the way is sent on the next hop,
+    // and each hop gets the cookies of its own path.
+    let me: String = wait(|d| http.send_json(Request::get("hop"), &Cancel::new(), d)).unwrap();
+    assert_eq!(me, "api=1; all=1; hop=1");
+}
+
+#[test]
+fn redirects_are_checked() {
+    let (addr, _) = server();
+    let http = Http::new(&addr);
+    // A 303 turns a POST into a GET without its body.
+    let v: serde_json::Value =
+        wait(|d| http.send_json(Request::post("see-other").json(&1), &Cancel::new(), d)).unwrap();
+    assert_eq!((v["method"].as_str(), v["body"].as_str()), (Some("GET"), Some("")));
+    // A redirect to plain http off the loopback interface is refused like the address itself.
+    let out = http.send_blocking(Request::get("off-loopback"), &Cancel::new());
+    assert!(matches!(out, Err(NetError::Refused(_))), "{out:?}");
+    let out = http.send_blocking(Request::get("loop"), &Cancel::new());
+    assert!(matches!(out, Err(NetError::Network(_))), "{out:?}");
+}
+
+#[test]
+fn not_modified_carries_its_headers() {
+    let (addr, _) = server();
+    let out = Http::new(&addr)
+        .send_blocking(Request::get("etag").header("If-None-Match", "\"v1\""), &Cancel::new());
+    match out {
+        Err(NetError::Http(e)) => {
+            assert_eq!(e.status, 304);
+            assert_eq!(e.header("ETag"), Some("\"v2\""));
+            assert_eq!(e.header("cache-control"), Some("max-age=60"));
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn streams_in_chunks_with_a_cap() {
+    let (addr, _) = server();
+    let http = Http::new(&addr);
+    let got = Arc::new(AtomicUsize::new(0));
+    let g = got.clone();
+    let out = wait(|d| {
+        http.stream(
+            Request::get("big"),
+            &Cancel::new(),
+            move |head, bytes| {
+                assert_eq!(head.header("x-kind"), Some("big"));
+                g.fetch_add(bytes.len(), Ordering::SeqCst);
+            },
+            d,
+        )
+    });
+    let r = out.unwrap();
+    assert!(r.body.is_empty() && r.status == 200);
+    assert_eq!(got.load(Ordering::SeqCst), 300_000);
+    // Past the cap.
+    let out = wait(|d| http.stream(Request::get("big").max_body(100_000), &Cancel::new(), |_, _| {}, d));
+    assert_eq!(out, Err(NetError::TooLarge(100_000)));
+    // Cancelled while it drips: the answer comes at once and no chunk follows it.
+    let cancel = Cancel::new();
+    let answered = Arc::new(AtomicBool::new(false));
+    let late = Arc::new(AtomicUsize::new(0));
+    let (a, l) = (answered.clone(), late.clone());
+    let (tx, rx) = mpsc::channel();
+    http.stream(
+        Request::get("drip"),
+        &cancel,
+        move |_, _| {
+            if a.load(Ordering::SeqCst) {
+                l.fetch_add(1, Ordering::SeqCst);
+            }
+        },
+        move |out| {
+            let _ = tx.send(out);
+        },
+    );
+    std::thread::sleep(Duration::from_millis(150));
+    cancel.cancel();
+    assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), Err(NetError::Cancelled));
+    answered.store(true, Ordering::SeqCst);
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(late.load(Ordering::SeqCst), 0);
+    // An error status streams nothing: its body is in the error.
+    let out = wait(|d| http.stream(Request::get("error"), &Cancel::new(), |_, _| panic!("no chunk"), d));
+    assert_eq!(out.unwrap_err().status(), Some(422));
+}
+
+#[test]
+fn private_networks_are_opt_in() {
+    // An address on no network this machine has: refused before any connection without the
+    // policy; with it, sent (and failing to connect, or timing out).
+    let lan = "http://10.255.255.1:9/x";
+    let out = Http::new("").send_blocking(Request::get(lan), &Cancel::new());
+    assert!(matches!(out, Err(NetError::Refused(_))), "{out:?}");
+    let out = Http::new("")
+        .policy(HttpPolicy::PrivateNetworks)
+        .timeout(Duration::from_millis(300))
+        .send_blocking(Request::get(lan), &Cancel::new());
+    assert!(matches!(out, Err(NetError::Timeout | NetError::Network(_))), "{out:?}");
+}
+
+#[test]
+fn keepalive_tells_the_platform() {
+    static CALLS: std::sync::Mutex<Vec<bool>> = std::sync::Mutex::new(Vec::new());
+    on_keepalive(|on| CALLS.lock().unwrap().push(on));
+    let (addr, _) = server();
+    let http = Http::new(&addr);
+    http.send(Request::post("echo").keepalive(), &Cancel::new(), |_| {});
+    http.send(Request::post("echo").keepalive(), &Cancel::new(), |_| {});
+    assert!(finish_keepalive(Duration::from_secs(10)));
+    // Other tests' keepalive requests may overlap; the hook always ends told "none left".
+    let calls = CALLS.lock().unwrap().clone();
+    assert!(calls.first() == Some(&true) && calls.last() == Some(&false), "{calls:?}");
+}
+
+#[test]
+fn every_limit_can_be_set() {
+    let (addr, _) = server();
+    // The body limit: the client's, a request's own, or none.
+    let small = Http::new(&addr).max_body(1000);
+    assert_eq!(small.send_blocking(Request::get("big"), &Cancel::new()), Err(NetError::TooLarge(1000)));
+    let r = small.send_blocking(Request::get("big").max_body(None), &Cancel::new()).unwrap();
+    assert_eq!(r.body.len(), 300_000);
+    assert!(Http::new(&addr).max_body(None).send_blocking(Request::get("big"), &Cancel::new()).is_ok());
+    // Redirects: none followed answers with the redirect itself; too few is an error.
+    match Http::new(&addr).max_redirects(0).send_blocking(Request::get("see-other"), &Cancel::new()) {
+        Err(NetError::Http(e)) => assert_eq!((e.status, e.header("location")), (303, Some("/echo"))),
+        other => panic!("{other:?}"),
+    }
+    let out = Http::new(&addr).max_redirects(1).send_blocking(Request::get("hop"), &Cancel::new());
+    assert!(matches!(out, Err(NetError::Network(_))), "{out:?}");
+    assert!(Http::new(&addr).max_redirects(2).send_blocking(Request::get("hop"), &Cancel::new()).is_ok());
+    // No timeout at all.
+    let none = Http::new(&addr).timeout(None);
+    assert!(none.send_blocking(Request::get("json"), &Cancel::new()).is_ok());
+    assert!(Http::new(&addr).send_blocking(Request::get("json").timeout(None), &Cancel::new()).is_ok());
 }

@@ -422,6 +422,12 @@ fn remembered_sizes_stay_bounded() {
     let last: Arc<[u8]> = Arc::from(&bytes[..]);
     let _ = sized(&[probed(&Source::Bytes(last.clone()))]);
     assert_eq!(known_sizes(), 1, "only the source still alive");
+    // The app sets how many are kept.
+    set_known_sizes_limit(3);
+    let more: Vec<Arc<[u8]>> = (0..10).map(|_| Arc::from(&bytes[..])).collect();
+    let _ = sized(&more.iter().map(|b| probed(&Source::Bytes(b.clone()))).collect::<Vec<_>>());
+    assert_eq!(known_sizes(), 3);
+    set_known_sizes_limit(DEFAULT_KNOWN_SIZES_LIMIT);
 }
 
 #[test]
