@@ -30,6 +30,8 @@ fn config() -> AppConfig {
             States::NONE,
             StylePatch::new().background(RED).sticky(StickyInsets::top(0.0)),
         );
+        // Stuck, it turns white (a stand-in for the shadow an app shows).
+        s.rule("header", None, States::STUCK, StylePatch::new().background(Color::WHITE));
         s.rule("row", None, States::NONE, StylePatch::new().background(GREEN));
         s.rule("other", None, States::NONE, StylePatch::new().background(BLUE));
         s.rule("glass", None, States::NONE, {
@@ -127,12 +129,14 @@ fn a_sticky_header_sticks_takes_clicks_and_leaves_with_its_section() {
     let (header, list) = (take(&header), take(&list));
     let at = |e: &El| e.bounds().unwrap_or(Rect::ZERO).min.y;
     assert_eq!(at(&header), 0.0, "at the top before scrolling");
+    assert!(!header.states().contains(States::STUCK), "in its place: not stuck");
     assert_eq!(reader_bounds(&mut host, id, "Section header"), Some((0.0, 30.0)));
 
     // Scrolled into the section: the header stays at the top while the rows move under it.
     scroll_to(&mut host, &mut runner, &list, 200.0);
     assert_eq!(at(&header), 0.0, "stuck to the top");
-    assert_eq!(px(&host, id, 10, 10), [255, 0, 0, 255], "drawn at the top");
+    assert!(header.states().contains(States::STUCK));
+    assert_eq!(px(&host, id, 10, 10), [255, 255, 255, 255], "drawn at the top, styled stuck");
     assert_eq!(px(&host, id, 10, 100), [0, 255, 0, 255], "rows scroll under it");
     // The screen reader's bounds and hit testing follow the stuck header.
     assert_eq!(reader_bounds(&mut host, id, "Section header"), Some((0.0, 30.0)));
@@ -145,7 +149,7 @@ fn a_sticky_header_sticks_takes_clicks_and_leaves_with_its_section() {
     // (430 - 420 = 10 down the viewport).
     scroll_to(&mut host, &mut runner, &list, 420.0);
     assert_eq!(at(&header), -20.0, "leaves with its parent");
-    assert_eq!(px(&host, id, 10, 5), [255, 0, 0, 255], "its last 10 pixels show");
+    assert_eq!(px(&host, id, 10, 5), [255, 255, 255, 255], "its last 10 pixels show");
     assert_eq!(px(&host, id, 10, 15), [0, 0, 255, 255], "the next section follows");
     assert_eq!(reader_bounds(&mut host, id, "Section header"), Some((-20.0, 10.0)));
     host.send(HostEvent::Pointer(id, press(10.0, 15.0, PointerPhase::Down)));
@@ -156,6 +160,8 @@ fn a_sticky_header_sticks_takes_clicks_and_leaves_with_its_section() {
     // Back at the top it is where layout put it again.
     scroll_to(&mut host, &mut runner, &list, 0.0);
     assert_eq!(at(&header), 0.0);
+    assert!(!header.states().contains(States::STUCK), "back in place");
+    assert_eq!(px(&host, id, 10, 10), [255, 0, 0, 255]);
 }
 
 #[test]

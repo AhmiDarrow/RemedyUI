@@ -49,7 +49,8 @@ viewport's size and the sides), and the compositor offsets it from the container
 offset in the same frame as the scroll. The view applies the same `Sticky::offset` to the
 window bounds when the offset reaches the UI thread, so hit testing and the accessibility
 bounds follow it. Nested scroll containers each move their own sticky boxes. Frosted glass
-(`backdrop_blur`) on a sticky header blurs what scrolls under it.
+(`backdrop_blur`) on a sticky header blurs what scrolls under it. While a sticky element is
+moved from its place it has `States::STUCK`, for a style rule (a shadow while stuck).
 
 Taffy is used through RemedyUI's own `Style` types, never exposed, so the layout engine can change without breaking apps.
 
