@@ -114,6 +114,24 @@ pub struct PlayerParts {
     /// logical pixels: `Some` replaces the built-in glyph, `None` keeps it. They take the
     /// button's text color as the built-in ones do (an SVG icon draws in `currentColor`).
     pub icons: Option<PlayerIcons>,
+    /// Where the "Up next" card shows outside full screen and the compact layout:
+    /// [`NextUpPlacement::Below`] by default.
+    pub next_up_placement: NextUpPlacement,
+}
+
+/// Where the [`player_with`] widget's "Up next" card shows outside full screen (where it
+/// always floats at the foot of the picture's end side) and the compact layout (where it is
+/// always under the rest).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NextUpPlacement {
+    /// Across the foot of the stage, between the picture and the bar: the picture makes room.
+    #[default]
+    Below,
+    /// Floating over the picture's bottom end corner on a raised panel, the picture keeping
+    /// its size, as Portal's page: the theme's `player-next-width` wide (80 units; less on a
+    /// narrower picture) and `player-next-margin` (3.2 units) in from the picture's edges.
+    Corner,
 }
 
 /// An app's glyphs for the player's icons ([`PlayerParts::icons`]): Play, Pause, Back10,
@@ -142,6 +160,12 @@ impl PlayerParts {
     /// Sets `pip_button`: a picture-in-picture button in the bar.
     pub fn pip_button(mut self, value: bool) -> Self {
         self.pip_button = value;
+        self
+    }
+
+    /// Sets `next_up_placement`: where the "Up next" card shows.
+    pub fn next_up_placement(mut self, value: NextUpPlacement) -> Self {
+        self.next_up_placement = value;
         self
     }
 
@@ -292,6 +316,14 @@ fn toggle_mute(p: &Player) {
 /// Forward 10 seconds after Play), `speed_button(false)`, `two_rows` (the seek bar above the
 /// buttons); and [`Player::set_compact`] switches to Portal's
 /// mini player. [`player_with`] adds the app's own controls.
+///
+/// The theme sizes it: in its [`metrics`](remedy_ui_style::Theme::metrics),
+/// `player-compact-width` and `player-compact-height` are the compact layout's picture (17
+/// and 9.5 units; a height of 0 follows the picture's shape), and `player-narrow` is a
+/// window width (none by default) at or under which the bar and its parts take the sheet's
+/// `narrow` variant (their size and spacing, as a page's `@media (max-width: …)`) and the
+/// compact picture its `-narrow` metrics where the theme has them
+/// (`player-compact-width-narrow`).
 #[track_caller]
 pub fn player(ui: &Ui, player: &Player, label: impl Into<String>) -> El {
     player_with(ui, player, label, PlayerParts::default())
@@ -589,9 +621,25 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     let slider = slider.bind(move || {
         let v = level.get();
         let name = tr(&tu, if p.is_remote() { "playback-volume-tv" } else { "playback-volume" });
+        // With its level, as Portal's page: "Volume, 100%" (the value "100%"), "Volume, muted".
+        let percent = crate::STRINGS.format(
+            &tu,
+            "playback-volume-percent",
+            &[("percent", ((v * 100.0).round() as i64).into())],
+        );
+        let (level_word, value) = match sounds_muted(&p) {
+            true => (tr(&tu, "playback-volume-muted-level"), tr(&tu, "playback-volume-muted")),
+            false => (percent.clone(), percent),
+        };
+        let name = crate::STRINGS.format(
+            &tu,
+            "playback-volume-named",
+            &[("name", name.into()), ("level", level_word.into())],
+        );
         let _ = sl.clone().disabled(!p.volume_known()).semantics(
             Semantics::new(Role::Slider)
                 .label(name)
+                .value(value)
                 .numeric(v, 0.0, 1.0)
                 .action(Action::Increment)
                 .action(Action::Decrement),
@@ -688,7 +736,8 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         let _ = fb.clone().hidden(!pictures);
         let _ = fb.clone().disabled(!fullscreen_toggles(&p));
     });
-    // Theater mode: one name, pressed while on, offered once the app listens.
+    // Theater mode: pressed while on, named for what a press does, offered once the app
+    // listens.
     let p = player.clone();
     let theater = glyph_button(
         ui,
@@ -697,16 +746,17 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
         "playback-theater-tip",
         || 0,
         {
-            let u = ui.clone();
-            move || tr(&u, "playback-theater")
+            let (p, u) = (player.clone(), ui.clone());
+            move || tr(&u, if p.is_theater() { "playback-theater-exit" } else { "playback-theater" })
         },
         move || toggle_theater(&p),
     );
     let (tb, p, tu) = (theater.clone(), player.clone(), ui.clone());
     let theater = theater
         .semantics(move || {
+            // Its name follows its state, as Portal's page: "Exit theater mode" while on.
             Semantics::new(Role::Button)
-                .label(tr(&tu, "playback-theater"))
+                .label(tr(&tu, if p.is_theater() { "playback-theater-exit" } else { "playback-theater" }))
                 .checked(p.is_theater())
                 .action(Action::Click)
         })
@@ -843,17 +893,13 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     }
 
     let next = next_up_card(ui, icons, player);
-    let (chrome, title) = overlay(ui, player, &bar, &next, &rest, menu_open, lift);
+    let (chrome, title) = overlay(ui, player, &bar, &next, &rest, menu_open, lift, parts.next_up_placement);
 
     // Portal's mini player: the picture at the start, the app's title over play and the time
     // beside it; the "Up next" card stays under them.
-    let mini = ui
-        .el("toolbar")
-        .row()
-        .align(Align::Center)
-        .gap(u)
-        .child(play_button(ui, icons, player))
-        .child(clock(ui, player));
+    let (mini_play, mini_clock) = (play_button(ui, icons, player), clock(ui, player));
+    full_screen_look(ui, player, vec![mini_play.clone(), mini_clock.clone()]);
+    let mini = ui.el("toolbar").row().align(Align::Center).gap(u).child(mini_play).child(mini_clock);
     let side = ui.el("player_side").column().grow(1.0).justify(Justify::Center).gap(u * 0.5);
     let side = match parts.title {
         Some(t) => side.child(t),
@@ -862,6 +908,7 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
     .child(mini);
     let main = ui.el("player_main").column().grow(1.0).gap(u * 1.5).child(stage.clone()).child(side.clone());
     let (m, st, sd, br, p) = (main.clone(), stage, side, bar.clone(), player.clone());
+    let mu = ui.clone();
     let main = main.bind(move || {
         let compact = p.is_compact();
         let _ = sd.clone().hidden(!compact);
@@ -870,11 +917,22 @@ pub fn player_with(ui: &Ui, player: &Player, label: impl Into<String>, parts: Pl
             true => m.clone().row().align(Align::Center),
             false => m.clone().column().align(Align::Stretch),
         };
+        // The theme's `player-compact-width` and `-height` (17 and 9.5 units); a height of 0
+        // follows the picture's shape (16:9 until it is known).
+        let width = metric_now(&mu, "player-compact-width", u * 17.0);
+        let height = metric_now(&mu, "player-compact-height", u * 9.5);
+        let height = match height > 0.0 {
+            true => height,
+            false => {
+                let shape = p.info().and_then(|i| i.video).map(|v| v.height as f32 / v.width.max(1) as f32);
+                width * shape.unwrap_or(9.0 / 16.0)
+            }
+        };
         let _ = st.clone().layout(move |l| {
             l.grow = if compact { 0.0 } else { 1.0 };
             l.shrink = if compact { 0.0 } else { 1.0 };
-            l.width = if compact { Length::Px(u * 17.0) } else { Length::Auto };
-            l.height = if compact { Length::Px(u * 9.5) } else { Length::Auto };
+            l.width = if compact { Length::Px(width) } else { Length::Auto };
+            l.height = if compact { Length::Px(height) } else { Length::Auto };
         });
     });
 
@@ -1056,6 +1114,7 @@ fn keyboard_focus_in(el: &El) -> bool {
 /// gradient is the theme's background, so the theme's own colors read over it; and under
 /// reduced motion the controls show and hide without fading. The bar and the title line.
 #[track_caller]
+#[allow(clippy::too_many_arguments, reason = "the widget's parts the overlay ties together")]
 fn overlay(
     ui: &Ui,
     player: &Player,
@@ -1064,6 +1123,7 @@ fn overlay(
     rest: &std::rc::Rc<Rest>,
     menu_open: Signal<bool>,
     lift: Signal<f32>,
+    placement: NextUpPlacement,
 ) -> (El, El) {
     let theme = ui.theme();
     let u = theme.spacing.unit;
@@ -1108,17 +1168,24 @@ fn overlay(
             let u = ui.clone();
             move || tr(&u, "playback-wake-tip")
         });
-    // The bar's height, for the captions to sit above it.
+    // The bar's height, for the captions to sit above it, and its width (the player's), for
+    // a floating "Up next" card to fit.
     let high = Signal::new(u * 16.0);
+    let wide = Signal::new(f32::INFINITY);
     let chrome = ui.el("player_chrome").column().child(back.clone()).child(bar.clone()).child(shield.clone());
-    let chrome = chrome.on_resize(move |size| high.set_if_changed(size.height)).on_focus_within({
-        let rest = rest.clone();
-        move |on| {
-            if on {
-                rest.wake();
+    let chrome = chrome
+        .on_resize(move |size| {
+            high.set_if_changed(size.height);
+            wide.set_if_changed(size.width);
+        })
+        .on_focus_within({
+            let rest = rest.clone();
+            move |on| {
+                if on {
+                    rest.wake();
+                }
             }
-        }
-    });
+        });
     let p = player.clone();
     let words = ui.el("player_title_text").text(move || p.title().unwrap_or_default());
     let title = ui
@@ -1192,12 +1259,15 @@ fn overlay(
     });
     let motion = Motion::Tween { duration: FADE, easing: Easing::EASE_IN_OUT };
     let (c, t, p, n) = (chrome.clone(), title.clone(), player.clone(), next.clone());
-    let float_next = move |n: &El, full: bool, high: f32| {
+    let (next_width, next_margin) =
+        (theme.metric("player-next-width", u * 80.0), theme.metric("player-next-margin", u * 3.2));
+    let float_next = move |n: &El, full: bool, corner: bool, high: f32, wide: f32| {
         // Portal's: at the foot of the picture's end side, over the bar's place whether or
         // not the bar shows (it does not jump as the bar fades), on a raised panel; it does
-        // not fade, being what the person is asked about.
-        let _ = n.clone().layout(move |l| match full {
-            true => {
+        // not fade, being what the person is asked about. With the bar under the picture
+        // (`NextUpPlacement::Corner`), over the picture's corner, just above the bar.
+        let _ = n.clone().layout(move |l| match (full, corner) {
+            (true, _) => {
                 l.position = Position::Absolute;
                 l.inset = Insets { top: AUTO, start: AUTO, end: u * 2.8, bottom: high + u * 2.0 };
                 l.width = Length::Px(u * 80.0);
@@ -1205,7 +1275,15 @@ fn overlay(
                 l.axis = remedy_ui_layout::Axis::Column;
                 l.align_items = Align::Stretch;
             }
-            false => {
+            (false, true) => {
+                l.position = Position::Absolute;
+                l.inset = Insets { top: AUTO, start: AUTO, end: next_margin, bottom: high + next_margin };
+                l.width = Length::Px(next_width.min(wide - next_margin * 2.0).max(0.0));
+                l.max_width = Length::Auto;
+                l.axis = remedy_ui_layout::Axis::Column;
+                l.align_items = Align::Stretch;
+            }
+            (false, false) => {
                 l.position = Position::Relative;
                 l.inset = Insets::ZERO;
                 l.width = Length::Auto;
@@ -1216,17 +1294,19 @@ fn overlay(
         });
         let theme = n.ui().theme();
         let look = remedy_ui_style::StylePatch::default();
-        let look = match full {
+        let look = match full || corner {
             true => look
                 .background(theme.colors.panel.with_alpha(0.92))
                 .border(theme.colors.line.unwrap_or(theme.colors.muted))
                 .border_width(1.0)
                 .radius(12.0)
+                .backdrop_blur(10.0)
                 .shadow(remedy_ui_style::Shadow::new(0.0, 12.0, 30.0, Color::BLACK.with_alpha(0.45))),
             false => look
                 .background(Color::TRANSPARENT)
                 .border_width(0.0)
                 .radius(0.0)
+                .backdrop_blur(0.0)
                 .shadow(remedy_ui_style::Shadow::new(0.0, 0.0, 0.0, Color::TRANSPARENT)),
         };
         let _ = n.clone().style(look);
@@ -1256,7 +1336,8 @@ fn overlay(
         };
         let _ = c.clone().style(remedy_ui_style::StylePatch::default().padding(pad));
         let _ = back.clone().hidden(!full);
-        float_next(&n, full, high.get());
+        let corner = placement == NextUpPlacement::Corner && !p.is_compact();
+        float_next(&n, full, corner, high.get(), wide.get());
         let _ = shield.clone().hidden(shown);
         let _ = t.clone().hidden(!full || p.title().is_none());
         let to = if shown { 1.0 } else { 0.0 };
@@ -1403,8 +1484,29 @@ fn glyph_size(ui: &Ui) -> f32 {
     t.metric("player-glyph", t.type_scale.body + 3.0)
 }
 
-/// Gives `els` (the bar and its parts) the sheet's `full` variant while full screen, and the
-/// glyphs in their buttons the theme's `player-glyph-full` size then.
+/// True while the window is no wider than the theme's `player-narrow` (0, never, by default;
+/// tracked): Portal's `@media (max-width: 720px)`.
+fn narrow(ui: &Ui) -> bool {
+    let at = ui.theme().metric("player-narrow", 0.0);
+    // Read (and tracked) only when the theme has a breakpoint.
+    let width = if at > 0.0 { ui.window_size().width } else { 0.0 };
+    width > 0.0 && width <= at
+}
+
+/// The theme's metric `name` (else `default`), and while [`narrow`] its `name-narrow` when the
+/// theme has one.
+fn metric_now(ui: &Ui, name: &str, default: f32) -> f32 {
+    let t = ui.theme();
+    let base = t.metric(name, default);
+    match narrow(ui) {
+        true => t.metric(&format!("{name}-narrow"), base),
+        false => base,
+    }
+}
+
+/// Gives `els` (the bar and its parts) the sheet's `full` variant while full screen, else its
+/// `narrow` variant while the window is [`narrow`], and the glyphs in their buttons the
+/// theme's `player-glyph-full` size in full screen.
 fn full_screen_look(ui: &Ui, player: &Player, els: Vec<El>) {
     let t = ui.theme();
     let (normal, large) = (glyph_size(ui), t.metric("player-glyph-full", glyph_size(ui)));
@@ -1412,8 +1514,12 @@ fn full_screen_look(ui: &Ui, player: &Player, els: Vec<El>) {
         let p = player.clone();
         let me = el.clone();
         let _ = el.variant({
-            let p = p.clone();
-            move || if p.is_fullscreen() && !p.is_compact() { "full" } else { "" }
+            let (p, u) = (p.clone(), ui.clone());
+            move || match p.is_fullscreen() && !p.is_compact() {
+                true => "full",
+                false if narrow(&u) => "narrow",
+                false => "",
+            }
         });
         if normal == large || me.info().is_none_or(|i| i.widget != "player_button") {
             continue;

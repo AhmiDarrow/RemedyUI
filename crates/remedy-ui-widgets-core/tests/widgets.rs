@@ -846,6 +846,20 @@ fn choices_with_nothing_chosen_take_arrows_and_letters() {
     let seg = w::segmented(&t.ui, "Part", &["Left", "Right"], parts);
     t.ui.root().child(w::column(&t.ui).child(sel.clone()).child(seg.clone()));
     t.frame();
+    // A combo box, as a page's `<select>`: named, collapsed until pressed.
+    let said = || sel.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!("semantics"));
+    assert_eq!((said().role(), said().name()), (remedy_ui_a11y::Role::ComboBox, Some("Fruit")));
+    assert_eq!(said().expanded_state(), Some(false));
+    sel.focus();
+    assert!(t.key(Key::Enter));
+    assert_eq!(said().expanded_state(), Some(true), "open while its list shows");
+    // Its list is a list box of options, the chosen one selected.
+    let reader = t.ui.reader_view();
+    assert!(reader.iter().any(|n| n.role == remedy_ui_a11y::Role::ListBox), "a list box");
+    assert_eq!(reader.iter().filter(|n| n.role == remedy_ui_a11y::Role::Option).count(), 3, "three options");
+    assert!(t.key(Key::Escape));
+    t.frame();
+    assert_eq!(said().expanded_state(), Some(false), "closed again");
     sel.focus();
     assert!(t.key(Key::ArrowDown));
     assert_eq!(picked.get_untracked().ok(), Some(0), "down starts at the first option");

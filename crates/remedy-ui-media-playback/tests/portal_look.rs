@@ -236,6 +236,11 @@ enum Look {
 /// Portal's dock player in `win`: two rows, the skips, no speed button, the volume on hover,
 /// captions on offer, theater mode, the app's picture-in-picture; 20 seconds into the still.
 fn portal_player(win: &mut Window, look: Look) -> (Player, El) {
+    portal_player_with(win, look, NextUpPlacement::Below)
+}
+
+/// [`portal_player`] with its "Up next" card at `placement`.
+fn portal_player_with(win: &mut Window, look: Look, placement: NextUpPlacement) -> (Player, El) {
     let ui = win.ui.clone();
     let options = PlayerOptions::default()
         .two_rows(true)
@@ -257,7 +262,7 @@ fn portal_player(win: &mut Window, look: Look) -> (Player, El) {
     p.set_title(Some("RemedyUI cast test".into()));
     // Portal's page hides its picture-in-picture under 640 px.
     let pip = if win.size.width >= 640.0 { vec![pip_button(&ui)] } else { Vec::new() };
-    let parts = PlayerParts::default().icons(portal_icons).end(pip);
+    let parts = PlayerParts::default().icons(portal_icons).end(pip).next_up_placement(placement);
     let view = player_with(&ui, &p, "RemedyUI cast test", parts);
     let _ = ui.root().child(view.clone());
     win.wait("open", || p.info().is_some());
@@ -459,6 +464,77 @@ fn up_next_reads_as_portals_card_with_a_spaced_label() {
         stack.extend(e.child_elements());
     }
     assert!(dismiss, "an X named Dismiss");
+}
+
+#[test]
+fn a_phone_sized_page_takes_portals_narrow_sizes() {
+    // `@media (max-width: 720px)`: `.icon-btn` 2.1 rem, `.clock` 0.8 rem; the bar fits 390 px.
+    let mut win = Window::new("portal", Size::new(390.0, 844.0));
+    let (p, view) = portal_player(&mut win, Look::Paused);
+    let play = find(&view, "player_button");
+    let b = play.bounds().unwrap_or_else(|| unreachable!());
+    assert_eq!((b.width().round(), play.info().map(|i| i.variant)), (34.0, Some("narrow")));
+    let clock = find(&view, "player_clock").info().unwrap_or_else(|| unreachable!());
+    assert!((clock.style.text_size - 12.8).abs() < 0.01, "{:?}", clock.style.text_size);
+    let mut stack = vec![view.clone()];
+    while let Some(e) = stack.pop() {
+        if e.info().is_some_and(|i| i.widget == "player_button" && !i.hidden) {
+            let r = e.bounds().unwrap_or_default();
+            assert!(r.max.x <= 390.5, "every button inside the page: {r:?}");
+        }
+        stack.extend(e.child_elements());
+    }
+    // `.dock.mini`: the picture 7 rem wide here, as high as its shape makes it.
+    p.set_compact(true);
+    win.pump();
+    win.pump();
+    let v = p.info().and_then(|i| i.video).unwrap_or_else(|| unreachable!("a picture"));
+    let stage = bounds(&view, "player_stage");
+    let high = 112.0 * v.height as f32 / v.width as f32;
+    assert_eq!(stage.width().round(), 112.0);
+    assert!((stage.height() - high).abs() < 1.0, "{stage:?}, want {high} high");
+    // Wider than 720 px: the normal sizes, and an 8.5 rem picture.
+    let mut win = Window::new("portal", Size::new(1280.0, 720.0));
+    let (p, view) = portal_player(&mut win, Look::Paused);
+    assert_eq!(find(&view, "player_button").info().map(|i| i.variant), Some(""));
+    p.set_compact(true);
+    win.pump();
+    win.pump();
+    assert_eq!(bounds(&view, "player_stage").width().round(), 136.0);
+}
+
+#[test]
+fn up_next_can_float_in_the_pictures_corner() {
+    // Portal's `.upnext`: over the picture's bottom end corner, 20 rem wide, 0.8 rem in; the
+    // picture keeps its size.
+    let mut win = Window::new("portal", Size::new(1280.0, 720.0));
+    let (p, view) = portal_player_with(&mut win, Look::Playing, NextUpPlacement::Corner);
+    let before = bounds(&view, "player_stage");
+    p.set_next_up(Some(NextUp::later("Episode 2")));
+    p.seek(Duration::from_secs(170));
+    win.wait("the card", || find_shown(&view, "player_next").is_some());
+    let stage = bounds(&view, "player_stage");
+    let card = bounds(&view, "player_next");
+    assert_eq!(stage, before, "the picture keeps its size");
+    assert!((card.width() - 320.0).abs() < 0.5, "{card:?}");
+    assert!((stage.max.x - card.max.x - 12.8).abs() < 0.5, "{card:?} in {stage:?}");
+    assert!((stage.max.y - card.max.y - 12.8).abs() < 1.0, "{card:?} over {stage:?}");
+    let look = find(&view, "player_next").info().unwrap_or_else(|| unreachable!());
+    assert!(look.style.radius == 12.0 && look.style.backdrop_blur == 10.0, "a raised panel");
+}
+
+/// The first shown element named `widget`, if any.
+fn find_shown(root: &El, widget: &str) -> Option<El> {
+    let mut stack = vec![root.clone()];
+    while let Some(e) = stack.pop() {
+        if e.info().is_some_and(|i| i.widget == widget && !i.hidden)
+            && e.bounds().is_some_and(|b| b.width() > 0.0)
+        {
+            return Some(e);
+        }
+        stack.extend(e.child_elements());
+    }
+    None
 }
 
 /// Pictures of every state for comparing with Portal's page side by side.

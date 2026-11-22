@@ -166,6 +166,16 @@ pub fn portal_theme(id: &str) -> Option<Theme> {
         ("player-full-pad-top", 48.0), // .is-full > .chrome: 3rem 1.4rem 0.9rem
         ("player-full-pad-bottom", 14.4),
         ("player-full-pad-side", 22.4),
+        // @media (max-width: 720px): the bar's `narrow` look (the sheet's) at 720 px and under.
+        ("player-narrow", 720.0),
+        // .dock.mini: the picture 8.5rem wide (7rem at 720 px and under), as high as its
+        // shape makes it (`height: auto`).
+        ("player-compact-width", 136.0),
+        ("player-compact-width-narrow", 112.0),
+        ("player-compact-height", 0.0),
+        // .upnext: min(20rem, 100% - 1.6rem) wide, 0.8rem in from the picture's edges.
+        ("player-next-width", 320.0),
+        ("player-next-margin", 12.8),
     ] {
         t.metrics.insert(name.into(), px);
     }
@@ -204,8 +214,9 @@ pub fn portal_sheet(t: &Theme) -> StyleSheet {
     let line = c.line.unwrap_or(c.muted);
     let ch = t.spacing.control_height;
     let glyph = t.metric("player-glyph", ch);
-    // .is-full .icon-btn: 2.7rem.
+    // .is-full .icon-btn: 2.7rem; at 720 px and under 2.1rem.
     let full = ch * 1.2;
+    let narrow = 33.6;
     let full_glyph = t.metric("player-glyph-full", glyph);
     let clear = Color::TRANSPARENT;
     let bare = |size: f32, glyph: f32| {
@@ -231,7 +242,8 @@ pub fn portal_sheet(t: &Theme) -> StyleSheet {
     rule("player_rule", Some("full"), States::NONE, StylePatch::default().background(clear));
     rule("player_button", None, States::NONE, bare(ch, glyph));
     rule("player_button", Some("full"), States::NONE, bare(full, full_glyph));
-    for v in [None, Some("full")] {
+    rule("player_button", Some("narrow"), States::NONE, bare(narrow, glyph));
+    for v in [None, Some("full"), Some("narrow")] {
         rule("player_button", v, States::HOVER, StylePatch::default().background(c.text.with_alpha(0.13)));
         rule("player_button", v, States::PRESSED, StylePatch::default().background(c.text.with_alpha(0.2)));
         rule(
@@ -241,17 +253,19 @@ pub fn portal_sheet(t: &Theme) -> StyleSheet {
             StylePatch::default().background(clear).border(clear).foreground(c.accent),
         );
     }
-    let clock = |size: f32, color: Color| {
+    let clock = |size: f32, color: Color, side: f32| {
         StylePatch::default().foreground(color).text_size(size).padding(Insets {
             top: 0.0,
             bottom: 0.0,
-            start: u * 1.6,
-            end: u * 1.6,
+            start: side,
+            end: side,
         })
     };
-    rule("player_clock", None, States::NONE, clock(t.type_scale.small, c.muted));
+    rule("player_clock", None, States::NONE, clock(t.type_scale.small, c.muted, u * 1.6));
     // .is-full .clock: 0.95rem, the text at 72%.
-    rule("player_clock", Some("full"), States::NONE, clock(15.2, c.text.with_alpha(0.72)));
+    rule("player_clock", Some("full"), States::NONE, clock(15.2, c.text.with_alpha(0.72), u * 1.6));
+    // At 720 px and under: 0.8rem, 0.2rem either side.
+    rule("player_clock", Some("narrow"), States::NONE, clock(12.8, c.muted, u * 0.8));
     rule("player_clock_now", None, States::NONE, StylePatch::default().foreground(c.text));
     rule("player_seek", None, States::DISABLED, StylePatch::default().opacity(0.45));
     rule("player_caption", None, States::NONE, StylePatch::default().radius(0.0));

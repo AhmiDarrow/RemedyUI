@@ -16,7 +16,7 @@ use std::time::Duration;
 use remedy_ui::{App, AppConfig, RendererKind, WindowSpec};
 use remedy_ui_media_playback::{
     Decoder, MediaHost, MediaSource, Picture, PixelFormat, PlaybackState, Player, PlayerOptions, Sample,
-    platform_host,
+    WebBackend, platform_host_with,
 };
 use remedy_ui_paint::{GpuAdapter, GpuTexture};
 use wasm_bindgen::JsCast;
@@ -180,7 +180,7 @@ async fn wait_ms(ms: u32) {
 }
 
 fn host() -> std::sync::Arc<dyn MediaHost> {
-    platform_host().must("the browser's media host")
+    platform_host_with(WebBackend::WebCodecs).must("the browser's media host")
 }
 
 /// Which of red, green and blue an RGB color is.
@@ -323,7 +323,7 @@ async fn the_gpu_renderer_shows_frames_imported_where_they_are() {
         a.open(WindowSpec::new("GPU playback test"), move |ui, _| {
             let p = Player::open(
                 ui,
-                platform_host().must("host"),
+                platform_host_with(WebBackend::WebCodecs).must("host"),
                 MediaSource::url(url),
                 PlayerOptions::default(),
             );

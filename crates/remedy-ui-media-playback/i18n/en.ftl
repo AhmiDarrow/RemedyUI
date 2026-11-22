@@ -34,6 +34,11 @@ playback-unmute = Unmute
 playback-volume = Volume
 # While casting, as Portal's page says it: the device's volume and mute.
 playback-volume-tv = TV volume
+# The volume's name with its level, as Portal's page: "Volume, 100%", "TV volume, muted".
+playback-volume-named = { $name }, { $level }
+playback-volume-percent = { $percent }%
+playback-volume-muted = Muted
+playback-volume-muted-level = muted
 playback-mute-tv = Mute the TV
 playback-unmute-tv = Unmute the TV
 playback-captions-tip = Captions (C)
@@ -71,6 +76,7 @@ playback-exit-full-screen = Exit full screen
 # Theater mode: the picture wide in the page. One name; screen readers say whether it is on.
 playback-theater-tip = Theater mode (T)
 playback-theater = Theater mode
+playback-theater-exit = Exit theater mode
 # Picture in picture: the picture in a small window of its own, over other windows.
 playback-pip-tip = Picture in picture
 playback-pip = Picture in picture

@@ -457,11 +457,10 @@ pub(crate) fn install_globals(d: &Rc<Driver>, win: &web_sys::Window, doc: &web_s
     // the app lets go of its surfaces there and gets them back when the page returns.
     d.add_global(Listener::new(doc, "freeze", |_| post(HostEvent::Suspended)));
     d.add_global(Listener::new(doc, "resume", |_| post(HostEvent::Resumed)));
-    d.add_global(Listener::new(win, "pagehide", |e| {
-        if dom::get(&e, "persisted").as_bool() == Some(true) {
-            post(HostEvent::Suspended);
-        }
-    }));
+    // Put away into the cache, or closed or reloaded for good: either way the app may not
+    // run again, so it lets go and is told it may be ended (`App::on_leaving`) while the
+    // browser still lets the page send its last requests.
+    d.add_global(Listener::new(win, "pagehide", |_| post(HostEvent::Suspended)));
     d.add_global(Listener::new(win, "pageshow", |e| {
         if dom::get(&e, "persisted").as_bool() == Some(true) {
             post(HostEvent::Resumed);
