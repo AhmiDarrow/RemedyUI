@@ -41,6 +41,8 @@ struct Codec {
     output_done: bool,
     /// It has given output (a format or a buffer): a flush keeps its setup from then on.
     began: bool,
+    /// Counted while it lives (debug builds).
+    _live: super::super::Live,
 }
 
 impl Drop for Codec {
@@ -79,7 +81,14 @@ fn open(
         (ndk.format_delete)(f);
         codec?
     };
-    Some(Codec { ndk, codec, input_done: false, output_done: false, began: false })
+    Some(Codec {
+        ndk,
+        codec,
+        input_done: false,
+        output_done: false,
+        began: false,
+        _live: super::super::Live::new(),
+    })
 }
 
 /// A parameter set with its Annex B start code, as MediaCodec takes `csd-0` and `csd-1`.
@@ -334,9 +343,24 @@ impl Elementary for NdkElementary {
         video: Option<&VideoConfig>,
         audio: Option<&AudioConfig>,
     ) -> Result<(), MediaError> {
+        // The last stream's decoders stay where the format matches, flushed: H.264 of the same
+        // size (its image reader is that size; parameter sets come in-band), the same sound.
+        if !matches!((&self.config.0, video), (Some(o), Some(n)) if (o.width, o.height) == (n.width, n.height))
+        {
+            self.video = None;
+        }
+        if self.config.1.as_ref() != audio {
+            self.audio = None;
+        }
         self.config = (video.cloned(), audio.cloned());
-        self.open_video()?;
-        self.open_audio()
+        self.flush()?;
+        if self.video.is_none() {
+            self.open_video()?;
+        }
+        if self.audio.is_none() {
+            self.open_audio()?;
+        }
+        Ok(())
     }
 
     fn push(&mut self, unit: Unit) -> Result<(), MediaError> {
