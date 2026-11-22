@@ -1521,11 +1521,13 @@ fn next_up_card(ui: &Ui, icons: &Option<PlayerIcons>, player: &Player) -> El {
     let dismissed = Signal::new(false);
     // The title and the countdown are announced as they show and change.
     let said = |text: String| Semantics::new(Role::Status).label(text).live(Live::Polite);
-    // Upper case as a label above a title is set; casing follows the language's own rules.
-    let label = ui.el("player_next_label").nowrap().text({
-        let u = ui.clone();
-        move || tr(&u, "playback-next-up-label").to_uppercase()
-    });
+    // Drawn in capitals, as a label above a title is set (casing follows the language's own
+    // rules); read and copied as written.
+    let label =
+        ui.el("player_next_label").nowrap().text_transform(remedy_ui_view::TextTransform::Upper).text({
+            let u = ui.clone();
+            move || tr(&u, "playback-next-up-label")
+        });
     let title = ui.el("player_next_title");
     let (t, p, tu) = (title.clone(), player.clone(), ui.clone());
     let title = title.bind(move || {

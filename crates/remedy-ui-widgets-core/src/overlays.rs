@@ -168,6 +168,13 @@ pub fn fill_window(el: El) -> El {
     })
 }
 
+/// Shows `target`'s whole text in a tooltip: for text that [`El::max_lines`] or
+/// [`El::truncate`] may cut short.
+pub fn full_text_tooltip(target: &El) {
+    let me = target.clone();
+    tooltip(target, move || me.text_content().unwrap_or_default());
+}
+
 /// Shows `text` near `target` after the pointer rests on it, until it leaves. A signal or
 /// closure gives the text as it is when the tip shows.
 pub fn tooltip(target: &El, text: impl remedy_ui_view::IntoProp<String>) {

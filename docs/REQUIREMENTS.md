@@ -53,7 +53,7 @@ The design that meets these is [DESIGN.md](DESIGN.md). The order of work is in [
 | Inputs: single line, multi-line, password, numeric, search; masks and filters | **FS** |
 | IME for CJK, dead keys, emoji pickers of the OS, dictation; preedit drawn inline, candidates at the caret | |
 | Spell checking hooks using the platform checker, with suggestions in the context menu | |
-| Truncation with ellipsis, max lines, balanced and justified text, hyphenation | |
+| Truncation with ellipsis, max lines (`El::max_lines`), text transforms (`El::text_transform`), balanced and justified text, hyphenation | |
 | Find in page across virtualized content | |
 | Text scaling for accessibility (OS text size) separate from UI scale | Android and Windows text-size settings |
 | Markdown and rich documents: headings, lists, quotes, code blocks with syntax colors, tables | **FS** wiki pages, bot messages |
