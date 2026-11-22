@@ -128,6 +128,11 @@ impl Mirror {
             self.root.set(Some(info.root));
             self.tree.set(update.tree_id);
         }
+        // Asked before pruning: a removed node that had focus (a menu entry closing) leaves the
+        // page's focus on the body, and it must still come back to the window.
+        let inside = super::driver().and_then(|d| d.window(self.window)).is_some_and(|w| {
+            dom::active_element().is_some_and(|a| w.frame.contains(Some(&a)))
+        });
         let mut changed: Vec<NodeId> = Vec::with_capacity(update.nodes.len());
         {
             let mut nodes = self.nodes.borrow_mut();
@@ -158,7 +163,7 @@ impl Mirror {
         }
         self.arrange(&changed);
         self.prune();
-        self.set_focus(update.focus);
+        self.set_focus(update.focus, inside);
     }
 
     /// Puts each changed node's children in its element, in order, and places them.
@@ -243,7 +248,7 @@ impl Mirror {
         });
     }
 
-    fn set_focus(&self, id: NodeId) {
+    fn set_focus(&self, id: NodeId, inside: bool) {
         if self.focus.replace(Some(id)) == Some(id) {
             return;
         }
@@ -258,7 +263,6 @@ impl Mirror {
         let Some(el) = el else { return };
         // Focus moves only within a window that has it: the engine's focus never pulls the
         // page's away from another window or the page's own content.
-        let inside = dom::active_element().is_some_and(|a| w.frame.contains(Some(&a)));
         if inside {
             self.moving_focus.set(true);
             el.set_tab_index(-1);
