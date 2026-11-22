@@ -690,6 +690,7 @@ mod tests {
             android_icon_foreground: None,
             android_icon_background: Vec::new(),
             sign_thumbprint: None,
+            windows_autostart: None,
             timestamp_url: String::new(),
             android_target: "aarch64-linux-android".into(),
             android_min_api: 26,
