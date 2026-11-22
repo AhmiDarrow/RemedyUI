@@ -27,6 +27,21 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   tests, carets, selections, lines, glyph clusters) stay those of the text as written, so
   selection, copying and screen readers get the original. The player's "Up next" label uses
   it instead of upper-casing its string in code.
+- **Routes and deep links** (`remedy_ui::router`, feature `widgets`), for Portal's
+  `#/home`, `#/browse/<path>` and `#/settings/<id>`: a `Router` holds the route (a signal of
+  `Route`: path, decoded segments, query, `matches("/settings/:id")` and `"/browse/*path"`)
+  with `push`, `replace`, `back` and `forward`, titles the window after each route
+  (`set_title`; `document.title` in a page), and keeps each entry's scroll position
+  (`remember_scroll`). `Router::view` builds the route's page, rebuilt on each change; Alt+Left
+  and Alt+Right, the system back key (Android's back) and the mouse's back and forward buttons
+  move through the history, and a `NavStack` inside a page pops its own pages first. In a
+  browser page `Router::for_window` keeps the route in the address's fragment through the
+  History API (read at load, so a deep link opens its page; the browser's back and forward and
+  a typed address route too). On the desktop `Router::follow_links(app, &["portal"])` opens
+  links in the app's scheme, also from a second launch. `Router::link_to` is a link whose
+  `Semantics::url` (new, in `a11y`; `ReaderNode::url`) makes the web ARIA mirror an
+  `<a href="#/…">`, so middle and Ctrl clicks open a new tab. `App::reload` reloads the page,
+  or natively rebuilds every `Router::view`. `web::history` exposes the page's history.
 - **Fluid poster grids** in `widgets-data`, as Portal's library: `Tiles::fluid(min_width,
   aspect, extra_height, draw)` fills the width as CSS `repeat(auto-fill, minmax(min, 1fr))`
   does (`GridGeometry::fluid`), recomputed as the width changes; `grid_view_with(.., GridOptions
