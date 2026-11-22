@@ -116,7 +116,7 @@ pub fn key(dom: &str) -> Key {
         "End" => Key::End,
         "PageUp" => Key::PageUp,
         "PageDown" => Key::PageDown,
-        "BrowserBack" | "GoBack" => Key::Back,
+        "BrowserBack" | "GoBack" | "XF86Back" => Key::Back,
         other => {
             if let Some(n) = other.strip_prefix('F').and_then(|n| n.parse::<u8>().ok())
                 && (1..=24).contains(&n)
@@ -477,6 +477,10 @@ pub struct PageSettings {
     pub high_contrast: bool,
     /// `(prefers-reduced-transparency: reduce)`.
     pub reduced_transparency: bool,
+    /// `(any-pointer: coarse)` matches and `(any-pointer: fine)` does not: touch only.
+    pub coarse_pointer_only: bool,
+    /// The browser is a TV's ([`is_tv`]).
+    pub tv: bool,
     /// `navigator.language`.
     pub language: String,
     /// The browser runs on macOS, iOS or iPadOS.
@@ -506,6 +510,7 @@ pub fn settings(page: &PageSettings) -> SystemSettings {
         if page.root_font_px.is_finite() && page.root_font_px > 0.0 { page.root_font_px / 16.0 } else { 1.0 };
     s.reduced_motion = page.reduced_motion;
     s.reduced_transparency = page.reduced_transparency;
+    s.spatial_navigation = page.tv || page.coarse_pointer_only;
     if !page.language.trim().is_empty() {
         s.locale = page.language.clone();
     }
@@ -519,6 +524,30 @@ pub fn settings(page: &PageSettings) -> SystemSettings {
 pub fn is_apple(platform: &str) -> bool {
     let p = platform.to_ascii_lowercase();
     p.starts_with("mac") || p.contains("iphone") || p.contains("ipad") || p.contains("ipod") || p == "ios"
+}
+
+/// The user agent is a TV's browser (webOS, Tizen, Android TV, Fire TV, Chromecast and the
+/// like), driven by a remote's d-pad.
+pub fn is_tv(user_agent: &str) -> bool {
+    let ua = user_agent.to_ascii_lowercase();
+    [
+        "smart-tv",
+        "smarttv",
+        "web0s",
+        "webos",
+        "tizen",
+        "android tv",
+        "googletv",
+        "crkey",
+        "aftb",
+        "aftm",
+        "aftt",
+        "bravia",
+        "hbbtv",
+        "netcast",
+    ]
+    .iter()
+    .any(|m| ua.contains(m))
 }
 
 /// A CSS color as the browser serializes a computed one: `rgb(r, g, b)` or
@@ -617,6 +646,7 @@ mod tests {
         assert_eq!(key("F7"), Key::F(7));
         assert_eq!(key("F25"), Key::Named("F25".into()));
         assert_eq!(key("BrowserBack"), Key::Back);
+        assert_eq!(key("XF86Back"), Key::Back, "a Tizen remote's back");
         assert_eq!(key("Insert"), Key::Named("Insert".into()));
         assert_eq!(key("Dead"), Key::Named("Dead".into()));
         assert_eq!(key("👍🏽"), Key::Character("👍🏽".into()));
@@ -773,6 +803,8 @@ mod tests {
             reduced_motion: true,
             high_contrast: false,
             reduced_transparency: false,
+            coarse_pointer_only: true,
+            tv: false,
             language: "de-DE".into(),
             apple: true,
             root_font_px: 20.0,
@@ -784,10 +816,18 @@ mod tests {
         assert!((s.text_scale - 1.25).abs() < 1e-6);
         assert_eq!(s.locale, "de-DE");
         assert!(s.reduced_motion);
+        assert!(s.spatial_navigation, "a touch-only browser moves focus with arrows");
         assert_eq!(s.accent, Some(Color::new(1.0, 0.0, 0.0, 1.0)));
-        let quiet = settings(&PageSettings { prefers_dark: false, language: String::new(), ..page });
+        let quiet = settings(&PageSettings { prefers_dark: false, language: String::new(), ..page.clone() });
         assert_eq!(quiet.dark, None, "neither scheme matched: the browser does not say");
         assert_eq!(quiet.locale, "en-US");
+        let desk = settings(&PageSettings { coarse_pointer_only: false, ..page.clone() });
+        assert!(!desk.spatial_navigation, "a mouse or touchpad keeps arrows for scrolling");
+        let tv = settings(&PageSettings { tv: true, coarse_pointer_only: false, ..page.clone() });
+        assert!(tv.spatial_navigation);
+        assert!(is_tv("Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36"));
+        assert!(is_tv("Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.0) AppleWebKit/537.36"));
+        assert!(!is_tv("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0"));
         assert!(
             is_apple("MacIntel") && is_apple("iPhone") && !is_apple("Win32") && !is_apple("Linux x86_64")
         );
