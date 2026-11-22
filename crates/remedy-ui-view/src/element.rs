@@ -2338,18 +2338,16 @@ impl El {
         let tree = self.ui.tree();
         let all: Vec<ElementId> =
             tree.descendants(self.id).into_iter().filter(|d| tree.can_focus(*d)).collect();
-        if all.is_empty() {
-            return false;
-        }
-        let at = tree.focused().and_then(|f| all.iter().position(|d| *d == f));
         let n = all.len();
+        let at = tree.focused().and_then(|f| all.iter().position(|d| *d == f));
         let next = match (at, forward) {
             (None, true) => 0,
-            (None, false) => n - 1,
+            (None, false) => n.saturating_sub(1),
             (Some(i), true) => (i + 1) % n,
             (Some(i), false) => (i + n - 1) % n,
         };
-        El { ui: self.ui.clone(), id: all[next] }.focus();
+        let Some(id) = all.get(next).copied() else { return false };
+        El { ui: self.ui.clone(), id }.focus();
         true
     }
 
