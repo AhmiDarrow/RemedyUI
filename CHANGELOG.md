@@ -1456,6 +1456,18 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **Phones in Chrome's device emulation** (DevTools, automation): a page drew at CSS
+  resolution stretched by the device pixel ratio, so it looked twice or three times too big.
+  Chrome reports the device-pixel box in CSS pixels there; a size that disagrees with the CSS
+  box times the ratio is no longer believed, so the canvas is at full device resolution.
+- **Text inserted into secret fields in a page**: pasted from the browser's menu, filled by a
+  password manager or inserted by automation, it now reaches the field (it was dropped;
+  typed keys always worked). Secrets still take no composition, and the hidden password
+  field is emptied again at once.
+- **Late image results after an element went away** (a page reload, a closed view): loading
+  a cached or sized image into a disposed signal panicked; it is dropped now, as decodes
+  finishing late already were.
+
 - **A page no longer freezes while the browser starts WebGL**: `getContext("webgl2")` blocks
   the page's thread until the browser's GL is up, which headless Firefox on Windows took
   minutes to do (eight on a loaded machine, ANGLE starting over Direct3D 11), so Portal's
