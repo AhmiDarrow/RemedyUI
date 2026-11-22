@@ -94,6 +94,22 @@ pub enum Track {
     MaxContent,
     /// Between two sizes.
     MinMax(Box<Track>, Box<Track>),
+    /// The tracks repeated: a number of times, or as many times as fit (CSS `repeat()`), as
+    /// in `Repeat(Repeat::AutoFill, vec![MinMax(Px(180), Fr(1))])` for a poster grid. Only at
+    /// the top level of [`LayoutStyle::columns`] or [`LayoutStyle::rows`]; nested, it is `auto`.
+    Repeat(Repeat, Vec<Track>),
+}
+
+/// How many times [`Track::Repeat`] repeats its tracks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Repeat {
+    /// Exactly this many times.
+    Count(u16),
+    /// As many times as fit the container, keeping empty tracks (CSS `auto-fill`).
+    AutoFill,
+    /// As many times as fit, collapsing tracks with no items (CSS `auto-fit`).
+    AutoFit,
 }
 
 /// How an element is positioned.
@@ -269,6 +285,22 @@ fn track(t: &Track) -> taffy::TrackSizingFunction {
         Track::MinContent => min_content(),
         Track::MaxContent => max_content(),
         Track::MinMax(a, b) => minmax(track(a).min, track(b).max),
+        Track::Repeat(..) => taffy::style_helpers::auto(),
+    }
+}
+
+fn component<S: taffy::style::CheapCloneStr>(t: &Track) -> taffy::GridTemplateComponent<S> {
+    match t {
+        Track::Repeat(n, tracks) => taffy::GridTemplateComponent::Repeat(taffy::style::GridTemplateRepetition {
+            count: match n {
+                Repeat::Count(c) => taffy::style::RepetitionCount::Count((*c).max(1)),
+                Repeat::AutoFill => taffy::style::RepetitionCount::AutoFill,
+                Repeat::AutoFit => taffy::style::RepetitionCount::AutoFit,
+            },
+            tracks: tracks.iter().map(track).collect(),
+            line_names: Vec::new(),
+        }),
+        t => taffy::GridTemplateComponent::Single(track(t)),
     }
 }
 
@@ -358,12 +390,8 @@ pub(crate) fn to_taffy(s: &LayoutStyle, rtl: bool, parent_rtl: bool) -> taffy::S
             Position::Absolute => taffy::Position::Absolute,
         },
         inset: rect_lpa(inset_phys(s.inset)),
-        grid_template_columns: s
-            .columns
-            .iter()
-            .map(|t| taffy::GridTemplateComponent::Single(track(t)))
-            .collect(),
-        grid_template_rows: s.rows.iter().map(|t| taffy::GridTemplateComponent::Single(track(t))).collect(),
+        grid_template_columns: s.columns.iter().map(component).collect(),
+        grid_template_rows: s.rows.iter().map(component).collect(),
         grid_column: s.grid_column.map_or_else(taffy::Line::default, placement),
         grid_row: s.grid_row.map_or_else(taffy::Line::default, placement),
         ..taffy::Style::default()
