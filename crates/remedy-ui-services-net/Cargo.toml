@@ -1,0 +1,38 @@
+[package]
+name = "remedy-ui-services-net"
+description = "RemedyUI HTTP client for native apps and browser pages: JSON requests with typed decoding, HTTP errors with their body and detail, multipart uploads, keepalive requests that outlive a closing page, timeouts, cancellation that follows a reactive Resource's key, and cookies."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "1.0.0-rc.1" }
+serde = { version = "=1.0.229" }
+serde_json = { version = "=1.0.154" }
+
+# HTTPS natively: the same ureq and rustls on ring that the updater uses.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = { version = "=3.5.2", default-features = false, features = ["rustls-no-provider", "platform-verifier"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+
+# The browser's fetch, in a page.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { version = "=0.3.107" }
+wasm-bindgen = { version = "=0.2.130" }
+wasm-bindgen-futures = { version = "=0.4.80" }
+web-sys = { version = "=0.3.107", features = ["AbortController", "AbortSignal", "Headers", "Request", "RequestCredentials", "RequestInit", "Response", "Window"] }
+
+[dev-dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = { version = "=0.3.80" }
+
+[lints]
+workspace = true

@@ -54,7 +54,7 @@ pub use error::ReactiveError;
 pub use persist::{
     DEFAULT_DEBOUNCE, JsonValue, Migrate, MigrationError, Persist, PersistError, PersistStore,
 };
-pub use resource::{Cancel, Executor, FetchError, Job, Resource, Suspense, WorkerPool};
+pub use resource::{Cancel, Executor, FetchError, Job, Reply, Resource, Suspense, WorkerPool};
 pub use signal::{
     Effect, Memo, Reaction, Scope, Signal, Source, SourceKind, Stats, batch, on_cleanup, runtime_id, stats,
     untrack,
