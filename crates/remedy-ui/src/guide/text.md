@@ -417,3 +417,32 @@ including how to add a language to the engine.
 Feature `spell` adds [`spell`](crate::spell): the platform's checker or Hunspell
 dictionaries, run off the UI thread, with misspellings underlined in a field as people type
 and corrections in its context menu ([`spell::SpellCheckField`](crate::spell::SpellCheckField)).
+
+## Limits
+
+Text works within bounds that each have a default and a public way to change them.
+
+| Limit | Default | How to change it |
+| --- | --- | --- |
+| Shortest paragraph laid out a piece at a time | 32 KiB | `text::LazyLimits::min_bytes` |
+| About how much text one piece holds | 8 KiB | `text::LazyLimits::chunk_bytes` |
+| Pieces of one paragraph kept laid out | 48 | `text::LazyLimits::kept_pieces` |
+| Side of a glyph atlas page | 1024 px | `text::GlyphAtlas::set_page_size` |
+| Deepest list level (rich editor, HTML and document readers) | 5 | `text::set_max_list_level` |
+| Typing pause that starts a new undo step | 1000 ms | `text::set_undo_pause_ms` |
+
+`LazyLimits` holds for the whole process: pass one to `text::set_lazy_limits`; paragraphs
+laid out from then on use it, and one already laid out keeps its own. `usize::MAX` as
+`min_bytes` lays every paragraph out whole, which costs time and memory with its length.
+
+```no_run
+use remedy_ui::text::{LazyLimits, set_lazy_limits, set_max_list_level};
+
+// A log viewer that scrolls back and forth over huge lines: keep more of them laid out.
+set_lazy_limits(LazyLimits::default().kept_pieces(256));
+set_max_list_level(8);
+```
+
+A WOFF 1.0 table may not claim to unpack to more than 1032 times its stored size: that is
+the most a DEFLATE stream can expand, so a table claiming more is damaged, not large. It is
+a fact of the format, not a limit.
