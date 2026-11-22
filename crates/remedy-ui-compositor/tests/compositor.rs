@@ -671,5 +671,9 @@ fn the_compositor_thread_snaps_wheel_and_programmatic_scrolls() {
         let _ = thread.wait_report(Duration::from_secs(5));
     }
     let comp = thread.stop();
-    assert_eq!(comp.and_then(|c| c.scroll_offset(LayerId(1))), Some(Vec2::new(400.0, 0.0)), "the wheel snapped");
+    assert_eq!(
+        comp.and_then(|c| c.scroll_offset(LayerId(1))),
+        Some(Vec2::new(400.0, 0.0)),
+        "the wheel snapped"
+    );
 }

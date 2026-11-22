@@ -647,7 +647,13 @@ impl Walk<'_> {
     /// The snap points of a snapping scroll container (`id`, a `view`-sized viewport with its
     /// content shifted by `lead`): one for each descendant with
     /// [`snap_align`](crate::El::snap_align), not looking inside nested scroll containers.
-    fn snap_points(&self, id: ElementId, spec: &crate::element::SnapSpec, view: Size, lead: f32) -> ScrollSnap {
+    fn snap_points(
+        &self,
+        id: ElementId,
+        spec: &crate::element::SnapSpec,
+        view: Size,
+        lead: f32,
+    ) -> ScrollSnap {
         let mut snap = ScrollSnap { x: Vec::new(), y: Vec::new(), ..spec.tuning.clone() };
         let Some(axis) = spec.axis else { return snap };
         let rtl = self.inner.els.get(&id).is_some_and(|d| self.inner.layout.is_rtl(d.node));
@@ -656,7 +662,12 @@ impl Walk<'_> {
         let (pad_l, pad_r) = lr(spec.padding);
         // The offset that lines up an area (`min`..`max`, grown by margins `m0`, `m1`) with the
         // padded viewport (`p0`, `p1` from each edge, `extent` long).
-        let at = |a: crate::SnapAlign, min: f32, max: f32, (m0, m1): (f32, f32), (p0, p1): (f32, f32), extent: f32| {
+        let at = |a: crate::SnapAlign,
+                  min: f32,
+                  max: f32,
+                  (m0, m1): (f32, f32),
+                  (p0, p1): (f32, f32),
+                  extent: f32| {
             let (min, max) = (min - m0, max + m1);
             match a {
                 crate::SnapAlign::Start => min - p0,
@@ -687,7 +698,14 @@ impl Walk<'_> {
                 }
                 if axis != crate::SnapAxis::X {
                     let (m, p) = (d.snap_margin, spec.padding);
-                    snap.y.push(point(at(a, r.min.y, r.max.y, (m.top, m.bottom), (p.top, p.bottom), view.height)));
+                    snap.y.push(point(at(
+                        a,
+                        r.min.y,
+                        r.max.y,
+                        (m.top, m.bottom),
+                        (p.top, p.bottom),
+                        view.height,
+                    )));
                 }
             }
             if !d.scroll {
