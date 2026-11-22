@@ -53,8 +53,21 @@ browser cannot do.
   and written at once when the tab is hidden or the app quits. They survive reloads and
   restarts and stay until the person clears the site's data. Browsers give an origin a few
   megabytes of `localStorage`; a write it refuses is reported by
-  [`PersistStore::take_errors`](crate::reactive::PersistStore::take_errors). See
+  [`PersistStore::take_errors`](crate::reactive::PersistStore::take_errors). An item the
+  page shares with other pages of its origin (an older web version of the app) is kept
+  plain under its own name with [`Persist::plain`](crate::reactive::Persist::plain): the
+  same item, in the same format, read and written by both; with
+  [`Persist::session`](crate::reactive::Persist::session), the tab's `sessionStorage` item. See
   [`crate::guide::signals`] ("State that outlives the app").
+- **Fonts.** The engine draws text itself, from font files. The app's own faces are in the
+  module; the fallback faces for scripts its faces lack (Arabic, Devanagari, Bengali,
+  Chinese, Japanese: `script-fonts`, about 10 MB) are not, but are files beside the page,
+  each fetched the first time text needs it and drawn as soon as it arrives, so a page that
+  never shows Chinese never downloads a Chinese face. `system-ui` is the device's own
+  interface font once [`App::load_system_ui_font`](crate::App::load_system_ui_font) has
+  read it (see [`crate::guide::text`], "The system's font"). Language names
+  (`language-names`) come from the browser's own CLDR data (`Intl.DisplayNames`), so they
+  add nothing to the module.
 - **One instance.** [`AppConfig::single_instance`](crate::AppConfig::single_instance) holds
   across tabs: a second tab hands its launch arguments to the first.
 - **Media.** [`playback`](crate::playback) plays in the page, decoding with the browser's
@@ -184,7 +197,18 @@ cargo remedy package --target web
 ```
 
 It refuses a `wasm-bindgen` CLI other than the version the app's `Cargo.lock` resolved, since
-the glue and the module must match. `remedy.toml` names the page:
+the glue and the module must match. A release is built for size, with the `remedy-web`
+profile: the release profile with `opt-level = "s"`, fat LTO, one codegen unit and symbols
+stripped (define `[profile.remedy-web]` in the workspace's `Cargo.toml` to choose otherwise),
+then `wasm-opt -Os` when Binaryen is installed (`WASM_OPT` names another `wasm-opt`, or
+`off`). The files the module fetches later are copied beside the page, under `fonts/`; the
+service worker caches them the first time they are fetched and in the background once the
+page has started, so the page still works offline without waiting for them at the first
+start. Serve them with the page, or from elsewhere with
+[`WebConfig::assets`](crate::web::WebConfig::assets). A page put together without
+`cargo remedy` builds the faces in with remedy-ui's `web-embed-fonts` feature; an app that
+never shows a script drops its faces with features (`script-fonts` off, then
+`remedy-ui-fonts/noto-arabic` and the like, or `cjk-fonts`, for the ones it wants). `remedy.toml` names the page:
 
 ```toml
 [app]

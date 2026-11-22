@@ -12,7 +12,10 @@
 //! | `jp` (default) | Noto Sans JP | Regular, Bold | JIS X 0208 and more kanji, kana, punctuation |
 //!
 //! The faces are WOFF2 (about 2 MB each); the text engine unpacks one once
-//! (`remedy_ui_text::FontFile`). Licensed under the SIL Open Font License 1.1.
+//! (`remedy_ui_text::FontFile`). In a browser page they are not built into the module but
+//! fetched from beside the page the first time Chinese or Japanese text shows (see
+//! `remedy-ui-fonts`; the `embed` feature builds them in). Licensed under the SIL Open Font
+//! License 1.1.
 //!
 //! ```
 //! for face in remedy_ui_fonts_cjk::all() {
@@ -22,15 +25,19 @@
 
 pub use remedy_ui_fonts::{Face, ScriptFallback, Style};
 
+// Built in natively; in a browser page, a file fetched beside the page when text first needs
+// it (unless `embed`), named for `cargo remedy package` (`remedy_ui_fonts::asset!`).
 macro_rules! face {
-    ($family:literal, $weight:literal, $file:literal) => {
-        Face {
-            family: $family,
-            weight: $weight,
-            style: Style::Normal,
-            data: include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file)),
-        }
-    };
+    ($family:literal, $weight:literal, $file:literal) => {{
+        #[cfg(any(not(target_arch = "wasm32"), feature = "embed"))]
+        let data: &'static [u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file));
+        #[cfg(all(target_arch = "wasm32", not(feature = "embed")))]
+        let data: &'static [u8] = {
+            remedy_ui_fonts::asset!(concat!("fonts/", $file), concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file));
+            &[]
+        };
+        Face { family: $family, weight: $weight, style: Style::Normal, data, file: $file }
+    }};
 }
 
 /// Noto Sans SC, Simplified Chinese, Regular and Bold.

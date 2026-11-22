@@ -4048,6 +4048,7 @@ dependencies = [
 name = "remedy-ui"
 version = "1.0.0-rc.1"
 dependencies = [
+ "js-sys",
  "png",
  "remedy-ui",
  "remedy-ui-a11y",
@@ -4115,6 +4116,9 @@ dependencies = [
  "remedy-ui-widgets-term",
  "serde",
  "serde_json",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
  "x11rb",
 ]
 
@@ -4811,6 +4815,7 @@ dependencies = [
  "icu_locale",
  "icu_locale_core",
  "intl-memoizer",
+ "js-sys",
  "remedy-ui-core",
  "remedy-ui-fonts",
  "remedy-ui-reactive",
@@ -4819,6 +4824,7 @@ dependencies = [
  "remedy-ui-view",
  "serde_json",
  "unic-langid",
+ "wasm-bindgen",
  "writeable",
 ]
 

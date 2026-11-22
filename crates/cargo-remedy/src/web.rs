@@ -2,15 +2,25 @@
 //!
 //! 1. The app is built for `wasm32-unknown-unknown` with remedy-ui's `web` feature: its
 //!    binary (whose `main` calls `remedy_ui::run`, which starts the app in the page and
-//!    returns), or an example (`--example`).
+//!    returns), or an example (`--example`). A release is built with the `remedy-web`
+//!    profile, made for size (the release profile with `opt-level = "s"`, fat LTO, one
+//!    codegen unit, symbols stripped); an app that defines `[profile.remedy-web]` in its
+//!    workspace's `Cargo.toml` gets its own instead.
 //! 2. `wasm-bindgen --target web` writes the module and its JavaScript glue (`app.js`,
 //!    `app_bg.wasm`). The CLI must be the version of `wasm-bindgen` the app's `Cargo.lock`
-//!    resolved; anything else makes glue that does not fit the module.
-//! 3. The page (`index.html`, with the `#remedy` element the first window mounts in), a web
+//!    resolved; anything else makes glue that does not fit the module. A release module is
+//!    then optimized for size by Binaryen's `wasm-opt -Os` when it is on the `PATH` (or
+//!    `WASM_OPT` names it; `WASM_OPT=off` skips it).
+//! 3. The files the module fetches when it needs them (the fallback fonts, which a page does
+//!    not build in) are copied beside the page, as the module's `remedy_assets` section lists
+//!    them; the section, which holds this machine's paths, is then stripped from the module.
+//! 4. The page (`index.html`, with the `#remedy` element the first window mounts in), a web
 //!    app manifest, the icons (`[web] icon` in `remedy.toml`, SVG or PNG, else the app's
 //!    PNG icon, else the default one) and a service worker that caches exactly this build,
-//!    so the page starts offline and a new build replaces the old cache.
-//! 4. The folder is zipped into `dist` for uploading.
+//!    so the page starts offline and a new build replaces the old cache. The fetched-later
+//!    files are cached as they are first used and in the background once the page runs, so
+//!    they are there offline too without holding up the first start.
+//! 5. The folder is zipped into `dist` for uploading.
 //!
 //! `remedy.toml`'s `[web]` section names the short name, the theme color for the browser's
 //! chrome, and the icon; `[app]` gives the name, id and description.
@@ -66,7 +76,12 @@ pub fn package(
     let mut build = Command::new(cargo());
     build.current_dir(&p.root).args(["build", "--target", TARGET]);
     if !opts.dev {
-        build.arg("--release");
+        build.args(["--profile", PROFILE]);
+        if !defines_profile(&p.root) {
+            for (key, value) in SIZE_PROFILE {
+                build.args(["--config", &format!("profile.{PROFILE}.{key}={value}")]);
+            }
+        }
     }
     match &opts.example {
         Some(e) => build.args(["--example", e]),
@@ -76,7 +91,7 @@ pub fn package(
         build.args(["--features", "remedy-ui/web"]);
     }
     status(&mut build)?;
-    let dir = p.target_dir.join(TARGET).join(if opts.dev { "debug" } else { "release" });
+    let dir = p.target_dir.join(TARGET).join(if opts.dev { "debug" } else { PROFILE });
     let name = opts.example.clone().unwrap_or_else(|| p.bin.clone());
     let wasm = module_path(&dir, &name, opts.example.is_some())
         .ok_or_else(|| format!("no {name}.wasm under {}", dir.display()))?;
@@ -101,8 +116,30 @@ pub fn package(
             .arg(&out)
             .arg(&wasm),
     )?;
+    let module = out.join("app_bg.wasm");
+    let read = |path: &Path| std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()));
+    let built = read(&wasm)?;
+    let bound = read(&module)?;
+    let stripped = strip_section(&bound, ASSETS)?;
+    if stripped.len() != bound.len() {
+        std::fs::write(&module, &stripped).map_err(|e| format!("{}: {e}", module.display()))?;
+    }
+    if !opts.dev {
+        optimize(&module, notes)?;
+    }
 
-    // 3. The page around it.
+    // 3. What the module fetches later.
+    let mut later: Vec<String> = Vec::new();
+    for (served, source) in assets(&built)? {
+        let to = out.join(&served);
+        if let Some(dir) = to.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        std::fs::copy(&source, &to).map_err(|e| format!("{} -> {}: {e}", source.display(), to.display()))?;
+        later.push(served);
+    }
+
+    // 4. The page around it.
     let icons = icons(p, notes)?;
     let mut files: Vec<String> = vec!["app.js".into(), "app_bg.wasm".into()];
     for (file, data) in page_files(p, &icons) {
@@ -110,14 +147,15 @@ pub fn package(
         files.push(file);
     }
     let mut contents = Vec::new();
-    for f in &files {
+    for f in files.iter().chain(&later) {
         contents.push(std::fs::read(out.join(f)).map_err(|e| format!("{}: {e}", out.join(f).display()))?);
     }
-    std::fs::write(out.join("sw.js"), service_worker(&p.id, &files, &contents))
+    std::fs::write(out.join("sw.js"), service_worker(&p.id, &files, &later, &contents))
         .map_err(|e| format!("{}: {e}", out.join("sw.js").display()))?;
     files.push("sw.js".into());
+    files.extend(later);
 
-    // 4. A zip of the page.
+    // 5. A zip of the page.
     let zip_path = dist.join(format!("{}_{}_web.zip", name, p.version));
     write_zip(&zip_path, &out, &files)?;
     notes.push(format!(
@@ -125,6 +163,125 @@ pub fn package(
         out.display()
     ));
     Ok(vec![out, zip_path])
+}
+
+/// The profile a release page is built with.
+const PROFILE: &str = "remedy-web";
+
+/// The `remedy-web` profile, for size, when the app defines none: the release profile with
+/// everything that makes a module smaller.
+const SIZE_PROFILE: [(&str, &str); 5] = [
+    ("inherits", "\"release\""),
+    ("opt-level", "\"s\""),
+    ("lto", "\"fat\""),
+    ("codegen-units", "1"),
+    ("strip", "true"),
+];
+
+/// The custom section that lists the files a module fetches when it needs them.
+const ASSETS: &str = "remedy_assets";
+
+/// True when a `Cargo.toml` at `root` or above (the workspace's) defines the
+/// `remedy-web` profile itself.
+fn defines_profile(root: &Path) -> bool {
+    root.ancestors().map(|d| d.join("Cargo.toml")).filter(|p| p.is_file()).any(|p| {
+        std::fs::read_to_string(p)
+            .ok()
+            .and_then(|s| s.parse::<toml::Table>().ok())
+            .is_some_and(|t| t.get("profile").and_then(|p| p.get(PROFILE)).is_some())
+    })
+}
+
+/// Runs `wasm-opt -Os` on `module` in place: the one on the `PATH`, or `WASM_OPT`'s (`off`
+/// skips it). Without one the module stays as wasm-bindgen wrote it, with a note.
+fn optimize(module: &Path, notes: &mut Vec<String>) -> Result<(), String> {
+    let tool = std::env::var("WASM_OPT").unwrap_or_else(|_| "wasm-opt".into());
+    if tool == "off" {
+        return Ok(());
+    }
+    if Command::new(&tool).arg("--version").output().is_err() {
+        notes.push(
+            "wasm-opt (Binaryen) was not found, so the module is not optimized for size further: install Binaryen, or set WASM_OPT to its wasm-opt".into(),
+        );
+        return Ok(());
+    }
+    status(Command::new(&tool).arg("-Os").arg(module).arg("-o").arg(module))
+}
+
+/// Reads an unsigned LEB128 number at `at`, returning it and where it ends.
+fn leb(data: &[u8], mut at: usize) -> Option<(usize, usize)> {
+    let mut value = 0usize;
+    let mut shift = 0u32;
+    loop {
+        let byte = *data.get(at)?;
+        at += 1;
+        value |= usize::from(byte & 0x7f).checked_shl(shift)?;
+        if byte & 0x80 == 0 {
+            return Some((value, at));
+        }
+        shift += 7;
+    }
+}
+
+/// A section of a module: its whole bytes, and for a custom section its name and contents.
+struct Section<'a> {
+    whole: &'a [u8],
+    name: String,
+    contents: &'a [u8],
+}
+
+/// The module's sections, in order.
+fn sections(module: &[u8]) -> Result<Vec<Section<'_>>, String> {
+    if module.get(..4) != Some(b"\0asm".as_slice()) {
+        return Err("the module is not WebAssembly".into());
+    }
+    let mut out = Vec::new();
+    let mut at = 8;
+    while let Some(&id) = module.get(at) {
+        let (len, body) = leb(module, at + 1).ok_or("a section's size is cut off")?;
+        let end = body.checked_add(len).ok_or("a section is too long")?;
+        let whole = module.get(at..end).ok_or("a section runs past the end")?;
+        let (name, contents) = if id == 0 {
+            let (n, s) = leb(module, body).ok_or("a custom section's name is cut off")?;
+            let name = module.get(s..s + n).ok_or("a custom section's name is cut off")?;
+            (String::from_utf8_lossy(name).into_owned(), module.get(s + n..end).unwrap_or_default())
+        } else {
+            (String::new(), &[][..])
+        };
+        out.push(Section { whole, name, contents });
+        at = end;
+    }
+    Ok(out)
+}
+
+/// The files the module lists in its `remedy_assets` section: where each is served (a path
+/// beside the page) and the file it is copied from.
+pub fn assets(module: &[u8]) -> Result<Vec<(String, PathBuf)>, String> {
+    let mut out: Vec<(String, PathBuf)> = Vec::new();
+    for section in sections(module)?.into_iter().filter(|s| s.name == ASSETS) {
+        let text = String::from_utf8_lossy(section.contents).into_owned();
+        for line in text.split('\n').map(|l| l.trim_matches('\0')).filter(|l| !l.is_empty()) {
+            let (served, source) = line.split_once('\t').ok_or_else(|| format!("not an asset line: {line}"))?;
+            if served.split('/').any(|part| part.is_empty() || part == "." || part == "..") {
+                return Err(format!("an asset may not be served at {served}"));
+            }
+            if !out.iter().any(|(s, _)| s == served) {
+                out.push((served.to_owned(), PathBuf::from(source)));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// `module` without its custom sections named `name`.
+pub fn strip_section(module: &[u8], name: &str) -> Result<Vec<u8>, String> {
+    let mut out = module.get(..8).unwrap_or_default().to_vec();
+    for section in sections(module)? {
+        if section.name != name {
+            out.extend_from_slice(section.whole);
+        }
+    }
+    Ok(out)
 }
 
 /// The module cargo wrote for `name` in `dir`.
@@ -239,13 +396,15 @@ pub fn page_files(p: &Project, icons: &Icons) -> Vec<(String, Vec<u8>)> {
     files
 }
 
-/// The service worker for a build of `files` with `contents`: its cache is named after the
-/// app and the build's contents, so a new build replaces the old cache and other apps on the
-/// same site keep theirs.
-pub fn service_worker(id: &str, files: &[String], contents: &[Vec<u8>]) -> String {
+/// The service worker for a build of `files` and the files fetched `later`, with `contents`
+/// (of both, in that order): its cache is named after the app and the build's contents, so a
+/// new build replaces the old cache and other apps on the same site keep theirs. `files` are
+/// cached as it installs; `later` as each is first fetched and in the background once it
+/// runs, so they hold up nothing.
+pub fn service_worker(id: &str, files: &[String], later: &[String], contents: &[Vec<u8>]) -> String {
     // FNV-1a over every file, in order: a name for this build's cache.
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for (name, data) in files.iter().zip(contents) {
+    for (name, data) in files.iter().chain(later).zip(contents) {
         for b in name.bytes().chain(data.iter().copied()) {
             hash ^= u64::from(b);
             hash = hash.wrapping_mul(0x0100_0000_01b3);
@@ -254,10 +413,12 @@ pub fn service_worker(id: &str, files: &[String], contents: &[Vec<u8>]) -> Strin
     let prefix = format!("remedy-{id}-");
     let mut list: Vec<String> = vec![json("./")];
     list.extend(files.iter().map(|f| json(&format!("./{f}"))));
+    let later: Vec<String> = later.iter().map(|f| json(&format!("./{f}"))).collect();
     WORKER
         .replace("@CACHE@", &json(&format!("{prefix}{hash:016x}")))
         .replace("@PREFIX@", &json(&prefix))
         .replace("@FILES@", &format!("[{}]", list.join(", ")))
+        .replace("@LATER@", &format!("[{}]", later.join(", ")))
 }
 
 fn write_zip(path: &Path, dir: &Path, files: &[String]) -> Result<(), String> {
@@ -314,12 +475,46 @@ mod tests {
     #[test]
     fn the_worker_caches_exactly_this_build() {
         let files = vec!["index.html".to_owned(), "app.js".to_owned()];
-        let a = service_worker("app.remedy.notes", &files, &[b"one".to_vec(), b"two".to_vec()]);
-        let b = service_worker("app.remedy.notes", &files, &[b"one".to_vec(), b"three".to_vec()]);
+        let later = vec!["fonts/NotoSansSC-Regular.woff2".to_owned()];
+        let a = service_worker("app.remedy.notes", &files, &later, &[b"one".to_vec(), b"two".to_vec(), b"f".to_vec()]);
+        let b = service_worker("app.remedy.notes", &files, &later, &[b"one".to_vec(), b"two".to_vec(), b"g".to_vec()]);
         assert!(a.contains(r#"const FILES = ["./", "./index.html", "./app.js"];"#), "{a}");
+        assert!(a.contains(r#"const LATER = ["./fonts/NotoSansSC-Regular.woff2"];"#), "{a}");
         assert!(a.contains(r#"k.startsWith("remedy-app.remedy.notes-")"#), "{a}");
         assert_ne!(a, b, "a new build is a new cache");
         assert!(!a.contains('@'), "{a}");
+    }
+
+    /// A module with a type section, a custom `remedy_assets` section and a `name` section.
+    fn module(lines: &str) -> Vec<u8> {
+        let custom = |name: &str, body: &[u8]| {
+            let mut s = vec![name.len() as u8];
+            s.extend_from_slice(name.as_bytes());
+            s.extend_from_slice(body);
+            let mut out = vec![0u8, s.len() as u8];
+            out.extend(s);
+            out
+        };
+        let mut m = b"\0asm\x01\0\0\0".to_vec();
+        m.extend_from_slice(&[1, 1, 0]);
+        m.extend(custom(ASSETS, lines.as_bytes()));
+        m.extend(custom("name", b"x"));
+        m
+    }
+
+    #[test]
+    fn the_modules_assets_are_listed_and_their_section_stripped() {
+        let m = module("fonts/A.ttf\t/src/fonts/A.ttf\nfonts/B.woff2\t/src/B.woff2\nfonts/A.ttf\t/src/fonts/A.ttf\n");
+        let got = assets(&m).unwrap_or_default();
+        assert_eq!(
+            got,
+            [("fonts/A.ttf".to_owned(), PathBuf::from("/src/fonts/A.ttf")), ("fonts/B.woff2".to_owned(), PathBuf::from("/src/B.woff2"))]
+        );
+        let s = strip_section(&m, ASSETS).unwrap_or_default();
+        assert!(assets(&s).is_ok_and(|a| a.is_empty()), "gone");
+        assert!(s.ends_with(&[0, 6, 4, b'n', b'a', b'm', b'e', b'x']) && s.starts_with(b"\0asm"), "{s:?}");
+        assert!(assets(&module("../etc/passwd\t/x\n")).is_err(), "nothing is served outside the page");
+        assert!(assets(b"not wasm").is_err());
     }
 
     #[test]
