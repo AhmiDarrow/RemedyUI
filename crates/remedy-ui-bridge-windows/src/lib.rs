@@ -124,7 +124,7 @@ mod hooks {
         }
 
         fn gamepads(&mut self) -> Option<Box<dyn remedy_ui_bridge_winit::gamepad::PadSource>> {
-            Some(Box::new(crate::gamepad::XInput::default()))
+            Some(Box::new(crate::gamepad::WindowsPads::default()))
         }
 
         fn set_clipboard_text(&mut self, text: &str, sensitive: bool) -> Result<(), Unsupported> {

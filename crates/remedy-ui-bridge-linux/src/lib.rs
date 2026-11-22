@@ -7,7 +7,8 @@
 //!   with the password-manager hint so clipboard managers keep them out of history;
 //! - system settings from the XDG desktop portal (color scheme, accent, contrast, reduced
 //!   motion) and the desktop's interface settings it exposes (text scale, double-click time,
-//!   caret blink), plus the locale from the environment.
+//!   caret blink), the keyboard repeat (from the Wayland compositor, the X server, GNOME or
+//!   KDE), plus the locale from the environment.
 //!
 //! - drag and drop with other apps: out on X11 through XDND, both ways on Wayland through
 //!   the data device (winit takes file drops in on X11);
@@ -36,6 +37,9 @@ mod gamepad;
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod notify;
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+mod repeat;
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod badge;
@@ -286,8 +290,9 @@ mod linux {
                     p.u32("org.gnome.desktop.peripherals.keyboard", key)
                         .map(|ms| Duration::from_millis(u64::from(ms)))
                 };
-                v_.key_repeat_delay = keyboard("delay").unwrap_or(base.key_repeat_delay);
-                v_.key_repeat_interval = keyboard("repeat-interval").unwrap_or(base.key_repeat_interval);
+                let gnome = keyboard("delay").zip(keyboard("repeat-interval"));
+                (v_.key_repeat_delay, v_.key_repeat_interval) =
+                    crate::repeat::system(gnome).unwrap_or((base.key_repeat_delay, base.key_repeat_interval));
                 v_
             }
         }
