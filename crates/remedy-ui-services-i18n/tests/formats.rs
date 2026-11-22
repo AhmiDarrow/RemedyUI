@@ -1,7 +1,9 @@
 //! Medium dates, dates with times, compact counts and language names in every language the
 //! engine ships, as CLDR (through ICU4X's compiled data) writes them.
 
-use remedy_ui_services_i18n::{CalendarSymbols, CompactOptions, Date, Decimal, NumberSymbols, Time, language_name_in};
+use remedy_ui_services_i18n::{
+    CalendarSymbols, CompactOptions, Date, Decimal, NumberSymbols, Time, language_name_in,
+};
 
 const LOCALES: [&str; 11] = ["en", "de", "fr", "es", "pt-BR", "ru", "ja", "zh-Hans", "ar", "hi", "bn"];
 
@@ -133,6 +135,34 @@ fn compact_counts_take_options() {
     assert_eq!(with("en", 1234, CompactOptions::default()), compact("en", 1234));
 }
 
+#[cfg(feature = "language-names")]
+#[test]
+fn cldr_language_names() {
+    // Every CLDR language, in the window's language; ISO 639-2 codes as media files tag tracks.
+    let codes = ["ko", "it", "sv", "ger", "pt-BR"];
+    let want: [(&str, [&str; 5]); 5] = [
+        ("en", ["Korean", "Italian", "Swedish", "German", "Brazilian Portuguese"]),
+        ("de", ["Koreanisch", "Italienisch", "Schwedisch", "Deutsch", "Brasilianisches Portugiesisch"]),
+        ("fr", ["Coréen", "Italien", "Suédois", "Allemand", "Portugais brésilien"]),
+        ("ja", ["韓国語", "イタリア語", "スウェーデン語", "ドイツ語", "ポルトガル語 (ブラジル)"]),
+        ("ar", ["الكورية", "الإيطالية", "السويدية", "الألمانية", "البرتغالية البرازيلية"]),
+    ];
+    for (l, w) in want {
+        assert_eq!(codes.map(|c| language_name_in(l, c)), w, "{l}");
+    }
+    assert_eq!(language_name_in("en", "fre"), "French");
+    assert_eq!(language_name_in("en", "chi"), "Chinese");
+    assert_eq!(language_name_in("en", "jpn"), "Japanese");
+    assert_eq!(language_name_in("en", "pt-PT"), "European Portuguese");
+    assert_eq!(language_name_in("en", "zh-Hant"), "Traditional Chinese");
+    assert_eq!(language_name_in("en", "tlh"), "Klingon");
+    // A window language the engine does not ship.
+    assert_eq!(language_name_in("ko", "de"), "독일어");
+    // A region with no dialect name of its own is written after the language.
+    assert_eq!(language_name_in("en", "es-AR"), "Spanish (Argentina)");
+    assert_eq!(language_name_in("fr", "en_ZA"), "Anglais (Afrique du Sud)");
+}
+
 #[test]
 fn language_names_in_every_language() {
     // Each language's name for itself, then for English and Japanese.
@@ -161,14 +191,19 @@ fn language_names_in_every_language() {
     assert_eq!(language_name_in("en", "pt-BR"), "Brazilian Portuguese");
     assert_eq!(language_name_in("en", "pt"), "Portuguese");
     // Regions and scripts with no name of their own get the language's.
-    assert_eq!(language_name_in("en", "pt-PT"), "Portuguese");
-    assert_eq!(language_name_in("fr", "en_GB"), "Anglais");
-    assert_eq!(language_name_in("en", "zh-Hant"), "Chinese");
+    #[cfg(not(feature = "language-names"))]
+    {
+        assert_eq!(language_name_in("en", "pt-PT"), "Portuguese");
+        assert_eq!(language_name_in("fr", "en_ZA"), "Anglais");
+        assert_eq!(language_name_in("en", "zh-Hant"), "Chinese");
+        assert_eq!(language_name_in("en", "ger"), "German");
+        assert_eq!(language_name_in("fr", "chi"), "Chinois");
+    }
     // A regional window language reads its language's names.
     assert_eq!(language_name_in("de-AT", "es"), "Spanisch");
     assert_eq!(language_name_in("fr-CA", "zh-Hans"), "Chinois simplifié");
     // Unknown codes come back as given; an unknown window language reads English.
-    assert_eq!(language_name_in("en", "tlh"), "tlh");
+    assert_eq!(language_name_in("en", "qaa"), "qaa");
     assert_eq!(language_name_in("xx", "de"), "German");
 }
 
@@ -177,6 +212,14 @@ fn apps_add_language_names() {
     remedy_ui_view::strings::add_messages("services-i18n", "en", "language-ko = Korean\n");
     remedy_ui_view::strings::add_messages("services-i18n", "de", "language-ko = Koreanisch\n");
     assert_eq!(language_name_in("en", "ko"), "Korean");
-    assert_eq!(language_name_in("de", "ko-KR"), "Koreanisch");
-    assert_eq!(language_name_in("fr", "ko"), "Korean", "no French name: the source language's");
+    // App names win over CLDR's.
+    remedy_ui_view::strings::add_messages("services-i18n", "en", "language-sv = Svenska");
+    assert_eq!(language_name_in("en", "sv"), "Svenska");
+    if cfg!(feature = "language-names") {
+        assert_eq!(language_name_in("de", "ko-KR"), "Koreanisch (Südkorea)");
+        assert_eq!(language_name_in("fr", "ko"), "Coréen", "no French message: CLDR's name");
+    } else {
+        assert_eq!(language_name_in("de", "ko-KR"), "Koreanisch");
+        assert_eq!(language_name_in("fr", "ko"), "Korean", "no French name: the source language's");
+    }
 }
