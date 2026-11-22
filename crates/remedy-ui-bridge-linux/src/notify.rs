@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use remedy_ui_host::{HostEvent, Notification, NotificationResponse, Unsupported, Waker};
+use remedy_ui_host::{HostEvent, Notification, NotificationResponse, Unsupported, Urgency, Waker};
 use zbus::{Structure, Variant as Value};
 
 const DEST: &str = "org.freedesktop.Notifications";
@@ -187,13 +187,24 @@ impl Notifier {
         if let Some(img) = n.icon.as_ref().and_then(image_data) {
             hints.insert("image-data", img);
         }
+        let (urgency, app_icon) = urgency(n.urgency);
+        hints.insert("urgency", Value::from(urgency));
         // The server's default timeout (-1).
         let server: u32 = zbus::block_on(async {
             let proxy = zbus::Proxy::new(&conn, DEST, PATH, IFACE).await?;
             proxy
                 .call(
                     "Notify",
-                    &(n.app.as_str(), replaces, "", n.title.as_str(), n.body.as_str(), actions, hints, -1i32),
+                    &(
+                        n.app.as_str(),
+                        replaces,
+                        app_icon,
+                        n.title.as_str(),
+                        n.body.as_str(),
+                        actions,
+                        hints,
+                        -1i32,
+                    ),
                 )
                 .await
         })
@@ -220,6 +231,15 @@ impl Notifier {
     }
 }
 
+/// The spec's urgency byte (1 normal, 2 critical) and the stock icon a warning or error shows
+/// when the app gives no picture of its own.
+fn urgency(u: Urgency) -> (u8, &'static str) {
+    match u {
+        Urgency::Warning => (1, "dialog-warning"),
+        Urgency::Error => (2, "dialog-error"),
+        _ => (1, ""),
+    }
+}
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -230,7 +250,7 @@ mod tests {
     use zbus::object_server::SignalEmitter;
     use zbus::{OwnedVariant, interface};
 
-    use super::{DEST, Notifier, PATH};
+    use super::{DEST, Notifier, PATH, urgency};
     use crate::badge::tests::Bus;
 
     /// What the stand-in server was asked: (replaces, summary, body, actions, hint names).
@@ -285,6 +305,14 @@ mod tests {
     }
 
     #[test]
+    fn warnings_and_errors_carry_the_spec_urgency_and_a_stock_icon() {
+        use remedy_ui_host::Urgency;
+        assert_eq!(urgency(Urgency::Info), (1, ""));
+        assert_eq!(urgency(Urgency::Warning), (1, "dialog-warning"));
+        assert_eq!(urgency(Urgency::Error), (2, "dialog-error"), "critical");
+    }
+
+    #[test]
     fn notifications_go_to_the_server_and_answers_come_back() {
         let Some(bus) = Bus::start() else { return };
         let server = Server::default();
@@ -318,7 +346,7 @@ mod tests {
                 &["default", "", "snooze", "Snooze"],
                 "pressing it reports back as `default`"
             );
-            assert_eq!(hints, &["image-data", "suppress-sound"]);
+            assert_eq!(hints, &["image-data", "suppress-sound", "urgency"]);
         }
         // Showing the same id again replaces it on the server.
         assert!(n.show(&Notification::new(7, "Break time", "Now")).is_ok());

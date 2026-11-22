@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use remedy_ui_a11y::{Action, Role, Semantics};
+use remedy_ui_a11y::{Action, Current, Role, Semantics};
 use remedy_ui_core::Insets;
 use remedy_ui_input::{Buttons, Key, PointerPhase};
 use remedy_ui_reactive::{Signal, untrack};
@@ -231,6 +231,9 @@ pub fn nav_item(
         let on = active();
         i2.state(States::SELECTED, on);
         let mut s = Semantics::new(Role::Tab).label(label.get()).selected(on).action(Action::Click);
+        if on {
+            s = s.current(Current::Page);
+        }
         if let Some(c) = badge.map(|b| b.get()).filter(|c| *c > 0) {
             s = s.description(crate::STRINGS.format(&u, "nav-badge-new", &[("count", c.into())]));
         }

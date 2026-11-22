@@ -208,6 +208,9 @@ pub use remedy_ui_script_wasm as script_wasm;
 pub use remedy_ui_services_desktop as desktop;
 #[cfg(feature = "i18n")]
 pub use remedy_ui_services_i18n as i18n;
+/// The HTTP client, natively and in a browser page.
+#[cfg(feature = "net")]
+pub use remedy_ui_services_net as net;
 #[cfg(feature = "spell")]
 pub use remedy_ui_services_spell as spell;
 #[cfg(feature = "update")]
@@ -294,6 +297,9 @@ impl std::error::Error for RunError {}
 /// Runs the app on this platform's bridge until it quits. `setup` runs once the platform is
 /// ready, to open the first windows.
 pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), RunError> {
+    // Keepalive requests (an app's last saves) finish as the app quits, as in a closing page.
+    #[cfg(all(feature = "net", not(target_arch = "wasm32")))]
+    let _keepalive = KeepaliveOnExit;
     // SVG files show wherever images do.
     #[cfg(feature = "svg")]
     remedy_ui_media_svg::install();
@@ -360,6 +366,16 @@ pub fn run(config: AppConfig, setup: impl FnOnce(&App) + 'static) -> Result<(), 
     {
         drop(runner);
         Err(RunError::UnsupportedPlatform)
+    }
+}
+
+#[cfg(all(feature = "net", not(target_arch = "wasm32")))]
+struct KeepaliveOnExit;
+
+#[cfg(all(feature = "net", not(target_arch = "wasm32")))]
+impl Drop for KeepaliveOnExit {
+    fn drop(&mut self) {
+        remedy_ui_services_net::finish_keepalive(std::time::Duration::from_secs(10));
     }
 }
 

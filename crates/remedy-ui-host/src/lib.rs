@@ -328,9 +328,66 @@ pub enum TrayItem {
         label: String,
         /// Whether it can be chosen.
         enabled: bool,
+        /// The menu's default command (what activating the icon does), shown in bold where
+        /// the platform has a default item (Windows, the X11 tray's menu).
+        default: bool,
+    },
+    /// A command with a check mark; its id comes back in [`TrayEvent::Menu`] and the app
+    /// flips `checked` itself.
+    Check {
+        /// The app's id for it.
+        id: u32,
+        /// What it says.
+        label: String,
+        /// Whether it can be chosen.
+        enabled: bool,
+        /// Whether the mark shows.
+        checked: bool,
+    },
+    /// A nested menu.
+    Submenu {
+        /// What it says.
+        label: String,
+        /// Its entries.
+        items: Vec<TrayItem>,
     },
     /// A separator line.
     Separator,
+}
+
+impl TrayItem {
+    /// An enabled command that is not the default.
+    pub fn item(id: u32, label: impl Into<String>) -> Self {
+        TrayItem::Item { id, label: label.into(), enabled: true, default: false }
+    }
+
+    /// An enabled command with a check mark.
+    pub fn check(id: u32, label: impl Into<String>, checked: bool) -> Self {
+        TrayItem::Check { id, label: label.into(), enabled: true, checked }
+    }
+
+    /// A nested menu.
+    pub fn submenu(label: impl Into<String>, items: Vec<TrayItem>) -> Self {
+        TrayItem::Submenu { label: label.into(), items }
+    }
+
+    /// The id a choice of this entry reports, if it is an enabled command.
+    pub fn chosen_id(&self) -> Option<u32> {
+        match self {
+            TrayItem::Item { id, enabled: true, .. } | TrayItem::Check { id, enabled: true, .. } => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// What it says (empty for a separator).
+    pub fn label(&self) -> &str {
+        match self {
+            TrayItem::Item { label, .. }
+            | TrayItem::Check { label, .. }
+            | TrayItem::Submenu { label, .. } => label,
+            TrayItem::Separator => "",
+        }
+    }
 }
 
 /// What the user did with the tray icon.
@@ -415,9 +472,32 @@ pub struct Notification {
     pub app: String,
     /// The picture shown with it (the app's icon when unset): premultiplied RGBA8.
     pub icon: Option<TrayImage>,
+    /// How much it matters: platforms mark warnings and errors (Linux's urgency and stock
+    /// icon, Windows' toast priority, macOS's interruption level, Android's category, a
+    /// browser keeping it until dismissed).
+    pub urgency: Urgency,
+}
+
+/// How much a [`Notification`] matters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Urgency {
+    /// News: the default.
+    #[default]
+    Info,
+    /// Something the person should look at.
+    Warning,
+    /// Something went wrong.
+    Error,
 }
 
 impl Notification {
+    /// Sets how much it matters.
+    pub fn urgency(mut self, value: Urgency) -> Self {
+        self.urgency = value;
+        self
+    }
+
     /// A notification numbered `id` with a title and a body.
     pub fn new(id: u64, title: impl Into<String>, body: impl Into<String>) -> Self {
         Notification { id, title: title.into(), body: body.into(), ..Notification::default() }
