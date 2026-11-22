@@ -59,7 +59,11 @@ fn distance(from: Rect, to: Rect, dir: Dir) -> Option<f32> {
 }
 
 /// The best of `candidates` going `dir` from `from`; the first in tab order wins a tie.
-pub(crate) fn best(from: Rect, dir: Dir, candidates: impl IntoIterator<Item = (ElementId, Rect)>) -> Option<ElementId> {
+pub(crate) fn best(
+    from: Rect,
+    dir: Dir,
+    candidates: impl IntoIterator<Item = (ElementId, Rect)>,
+) -> Option<ElementId> {
     let mut best: Option<(f32, ElementId)> = None;
     for (id, r) in candidates {
         if let Some(d) = distance(from, r, dir)
@@ -167,16 +171,15 @@ mod tests {
 
     #[test]
     fn overlap_beats_a_closer_diagonal() {
-        let ids: Vec<ElementId> = {
-            let tree = remedy_ui_tree::Tree::new();
-            (0..2).map(|_| tree.create("box")).collect()
-        };
+        let tree = remedy_ui_tree::Tree::new();
+        let (d, b) = (tree.create("box"), tree.create("box"));
         let from = r(100.0, 0.0, 100.0, 50.0);
         // Straight below but farther, and down-left but nearer.
         let below = r(100.0, 120.0, 100.0, 50.0);
         let diagonal = r(0.0, 60.0, 90.0, 50.0);
-        assert_eq!(best(from, Dir::Down, [(ids[0], diagonal), (ids[1], below)]), Some(ids[1]));
-        assert_eq!(best(from, Dir::Up, [(ids[0], diagonal), (ids[1], below)]), None, "nothing above");
-        assert_eq!(best(from, Dir::Left, [(ids[0], diagonal), (ids[1], below)]), Some(ids[0]));
+        let both = [(d, diagonal), (b, below)];
+        assert_eq!(best(from, Dir::Down, both), Some(b));
+        assert_eq!(best(from, Dir::Up, both), None, "nothing above");
+        assert_eq!(best(from, Dir::Left, both), Some(d));
     }
 }

@@ -79,6 +79,29 @@ fn pages_follow_the_route_and_back_keys_go_back() {
 }
 
 #[test]
+fn with_spatial_navigation_escape_goes_back_once() {
+    let (mut app, router, _) = app();
+    let router = router.borrow().clone().must();
+    router.push("/a");
+    router.push("/b");
+    app.frames(1);
+    // Off (a desktop's default): Escape is only Escape.
+    app.key(KeyEvent::press(Key::Escape));
+    app.frames(1);
+    assert_eq!(router.route_untracked().path(), "/b");
+    // On, as on a TV: an Escape nothing took is the remote's back, one step per press.
+    app.ui().must().set_spatial_navigation(true);
+    app.key(KeyEvent::press(Key::Escape));
+    app.frames(1);
+    assert_eq!(router.route_untracked().path(), "/a");
+    // The remote's own back key goes the same way, once.
+    app.key(KeyEvent::press(Key::Back));
+    app.frames(1);
+    assert_eq!(router.route_untracked().path(), "/home");
+    assert_eq!(app.runner().app().windows().len(), 1, "a back the router took keeps the window");
+}
+
+#[test]
 fn links_carry_their_address_for_screen_readers() {
     let (app, _, _) = app();
     let link = app.node(Role::Link, "Settings").must();

@@ -10,6 +10,20 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Spatial navigation** for TVs, remotes and d-pads (engine gap #4 of Portal's whole-app
+  audit): `Ui::set_spatial_navigation(true)` makes an arrow the focused element does not take
+  move focus to the nearest focusable element that way, inside the current focus scope (an
+  open dialog keeps it), by the W3C CSS Spatial Navigation draft's distance (edge to edge,
+  plus along the axis, plus the cross axis weighted, less the cross-axis overlap), and
+  scrolls it into view. Sliders,
+  lists, menus, text fields and the player's keys still get their arrows first; modified
+  arrows are left alone. `El::focus_group()` makes a row or grid return focus to the child it
+  last had. On by default on TVs and in touch-only browsers (`SystemSettings::
+  spatial_navigation`, new: Android's `UI_MODE_TYPE_TELEVISION`; a browser's
+  `(any-pointer: coarse)` without a fine pointer, or a TV browser's user agent), off on
+  desktops; `Ui::set_system_spatial_navigation` is what the runner sets. With it on, an Escape
+  nothing took goes back as `Key::Back` (the `Router`'s back), and a Tizen remote's
+  `XF86Back` arrives as `Key::Back`. `Tree::focus_candidates` lists a scope's focusables.
 - **Routes and deep links** (`remedy_ui::router`, feature `widgets`), for Portal's
   `#/home`, `#/browse/<path>` and `#/settings/<id>`: a `Router` holds the route (a signal of
   `Route`: path, decoded segments, query, `matches("/settings/:id")` and `"/browse/*path"`)

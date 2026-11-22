@@ -2028,6 +2028,9 @@ impl El {
             let mut i = self.ui.0.borrow_mut();
             for id in &ids {
                 if let Some(d) = i.els.remove(id) {
+                    if d.focus_group {
+                        i.group_memory.remove(id);
+                    }
                     let _ = i.layout.remove(d.node);
                     effects.extend(d.effects);
                     if let Some(w) = d.paint_watch {
