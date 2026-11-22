@@ -116,6 +116,11 @@ fn debug_layer() -> D3D11_CREATE_DEVICE_FLAG {
 }
 
 impl Gpu {
+    /// The LUID of the adapter it decodes on.
+    pub(super) fn adapter(&self) -> u64 {
+        self.adapter
+    }
+
     /// Hardware decoding on the adapter with LUID `adapter`; why not, when it cannot.
     pub(super) fn new(adapter: u64) -> Result<Gpu, String> {
         let luid = LUID { LowPart: adapter as u32, HighPart: (adapter >> 32) as i32 };
