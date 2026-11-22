@@ -158,9 +158,10 @@ impl Ui {
         let slot = d.text.as_ref()?.borrow();
         let (_, para) = slot.cache.as_ref()?;
         let s = &d.resolved;
-        let left = b.min.x + s.padding.start + s.border_width;
-        let top = b.min.y + s.padding.top + s.border_width;
-        let width = b.width() - s.padding.start - s.padding.end - s.border_width * 2.0;
+        let ins = s.inner_insets();
+        let left = b.min.x + ins.start;
+        let top = b.min.y + ins.top;
+        let width = b.width() - ins.start - ins.end;
         let x = left + para.x_offset(width.max(0.0));
         let pos = para.hit_test(Point::new(p.x - x, p.y - top));
         Some(pos.index.min(slot.text.as_str().len()))
@@ -174,9 +175,10 @@ impl Ui {
         let slot = d.text.as_ref()?.borrow();
         let (_, para) = slot.cache.as_ref()?;
         let s = &d.resolved;
-        let left = b.min.x + s.padding.start + s.border_width;
-        let top = b.min.y + s.padding.top + s.border_width;
-        let width = b.width() - s.padding.start - s.padding.end - s.border_width * 2.0;
+        let ins = s.inner_insets();
+        let left = b.min.x + ins.start;
+        let top = b.min.y + ins.top;
+        let width = b.width() - ins.start - ins.end;
         let x = left + para.x_offset(width.max(0.0));
         Some(para.word_at(Point::new(p.x - x, p.y - top)))
     }

@@ -3,20 +3,9 @@
 use remedy_ui_core::Color;
 pub use remedy_ui_core::{LineHeight, TextTransform};
 
-/// Horizontal alignment of each line within the paragraph's width.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Align {
-    /// Left in left-to-right text, right in right-to-left text.
-    #[default]
-    Start,
-    /// Right in left-to-right text, left in right-to-left text.
-    End,
-    /// Centered.
-    Center,
-    /// Stretched to both edges, except the last line of each paragraph.
-    Justify,
-}
+/// Horizontal alignment of each line within the paragraph's width: the same type as style
+/// sheets' [`TextAlign`](remedy_ui_core::TextAlign).
+pub use remedy_ui_core::TextAlign as Align;
 
 /// The direction of the paragraph as a whole. Runs inside it still follow the Unicode
 /// bidirectional algorithm.

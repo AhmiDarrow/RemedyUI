@@ -107,6 +107,7 @@ pub struct HeadlessHost {
     clock: Duration,
     /// The wall clock when `clock` was zero, and the UTC offset.
     wall: remedy_ui_host::LocalTime,
+    time_zone: remedy_ui_host::TimeZone,
     refresh: Duration,
     scale: f32,
     settings: SystemSettings,
@@ -167,6 +168,7 @@ impl HeadlessHost {
             clock: Duration::ZERO,
             // 2026-01-01T00:00:00Z: tests see the same dates on every machine.
             wall: remedy_ui_host::LocalTime { unix_seconds: 1_767_225_600, utc_offset: 0 },
+            time_zone: remedy_ui_host::TimeZone::default(),
             refresh: Duration::from_nanos(16_666_667),
             scale: 1.0,
             settings: SystemSettings::default(),
@@ -368,6 +370,12 @@ impl HeadlessHost {
         };
     }
 
+    /// Sets the time zone windows made after this get, for offsets at other instants
+    /// ([`Host::time_zone`]). By default it cannot say, and today's offset stands in.
+    pub fn set_time_zone(&mut self, zone: remedy_ui_host::TimeZone) {
+        self.time_zone = zone;
+    }
+
     /// The tray icon the app shows, if any.
     pub fn tray(&self) -> Option<&TrayIcon> {
         self.tray.as_ref()
@@ -565,6 +573,10 @@ impl Host for HeadlessHost {
             unix_seconds: self.wall.unix_seconds + self.clock.as_secs() as i64,
             utc_offset: self.wall.utc_offset,
         }
+    }
+
+    fn time_zone(&self) -> remedy_ui_host::TimeZone {
+        self.time_zone.clone()
     }
 
     fn settings(&self) -> SystemSettings {

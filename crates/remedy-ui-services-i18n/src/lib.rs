@@ -29,5 +29,5 @@ pub use calendar::{Date, Time, Weekday, days_in_month, is_leap, month_grid};
 pub use catalog::{Catalog, OverrideProblem, canonical as canonical_locale, fill};
 pub use decimal::{Decimal, DecimalError, MAX_SCALE};
 pub use ftl::{FtlError, MessageEntry, entry_source, read_entries, remove_entry, set_entry};
-pub use locale::{CalendarSymbols, CompactOptions, NumberSymbols, language_name, language_name_in};
+pub use locale::{CalendarSymbols, CompactOptions, DateTimeStyle, NumberSymbols, language_name, language_name_in};
 pub use messages::{Arg, Messages, Problem};

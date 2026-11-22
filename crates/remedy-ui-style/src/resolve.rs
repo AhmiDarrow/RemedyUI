@@ -4,10 +4,80 @@ use std::collections::HashMap;
 
 use remedy_ui_core::{
     Color, ColorMatrix, CornerRadii, Insets, LineHeight, ScrollbarColor, ScrollbarVisibility, ScrollbarWidth,
-    TextTransform, Vec2,
+    TextAlign, TextTransform, Vec2,
 };
 
 use crate::states::States;
+
+/// How a border is drawn (CSS `border-style`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum BorderStyle {
+    /// One unbroken line.
+    #[default]
+    Solid,
+    /// Dashes three times the border's width long, with gaps as long.
+    Dashed,
+    /// Dots as wide as the border, a dot's width apart (round from 3 pixels wide).
+    Dotted,
+}
+
+/// A side of a box, for its own border ([`StylePatch::border_side`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+// Exhaustive on purpose: a box has four sides.
+pub enum BorderEdge {
+    /// The top.
+    Top,
+    /// The end: right in left-to-right layout, left in right-to-left.
+    End,
+    /// The bottom.
+    Bottom,
+    /// The start: left in left-to-right layout, right in right-to-left.
+    Start,
+}
+
+impl BorderEdge {
+    fn index(self) -> usize {
+        match self {
+            BorderEdge::Top => 0,
+            BorderEdge::End => 1,
+            BorderEdge::Bottom => 2,
+            BorderEdge::Start => 3,
+        }
+    }
+}
+
+/// One side's border (CSS `border-top` and the like): width, color and line style.
+///
+/// ```
+/// use remedy_ui_core::Color;
+/// use remedy_ui_style::{BorderEdge, BorderSide, BorderStyle, StylePatch};
+/// let rule = BorderSide::new(1.0, Color::rgb8(60, 60, 60)).style(BorderStyle::Dashed);
+/// let p = StylePatch::default().border_side(BorderEdge::Bottom, rule);
+/// assert_eq!(p.border_sides[2], Some(rule));
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BorderSide {
+    /// Width in logical pixels; 0 draws none.
+    pub width: f32,
+    /// Color.
+    pub color: Color,
+    /// Line style.
+    pub style: BorderStyle,
+}
+
+impl BorderSide {
+    /// A solid side `width` wide in `color`.
+    pub fn new(width: f32, color: Color) -> Self {
+        BorderSide { width, color, style: BorderStyle::Solid }
+    }
+
+    /// The side drawn dashed or dotted.
+    pub fn style(mut self, style: BorderStyle) -> Self {
+        self.style = style;
+        self
+    }
+}
 
 /// A soft shadow: what a box casts (CSS `box-shadow`) or, as a filter, what the shape of an
 /// element's drawing casts (CSS `filter: drop-shadow()`). Lengths are logical pixels.
@@ -80,6 +150,11 @@ pub struct StylePatch {
     pub border: Option<Color>,
     /// Border width.
     pub border_width: Option<f32>,
+    /// Border line style: solid, dashed or dotted.
+    pub border_style: Option<BorderStyle>,
+    /// Each side's own border, top, end, bottom and start: a side set here takes the place
+    /// of `border`, `border_width` and `border_style` on that side.
+    pub border_sides: [Option<BorderSide>; 4],
     /// Corner radius.
     pub radius: Option<f32>,
     /// Each corner's radius (CSS's `border-radius: 16px 16px 0 0`): set, it takes the place
@@ -106,6 +181,8 @@ pub struct StylePatch {
     /// At most this many lines of text, the last ending in "…" when cut (CSS
     /// `line-clamp`); 0 for no limit. Not inherited.
     pub max_lines: Option<u32>,
+    /// Where each line of text sits across its box (CSS `text-align`); inherited.
+    pub text_align: Option<TextAlign>,
     /// The focus ring's color, drawn while the element has keyboard focus.
     pub outline: Option<Color>,
     /// The focus ring's width; 0 for elements that show focus another way.
@@ -229,6 +306,21 @@ impl StylePatch {
         self
     }
 
+    /// Sets the border's line style (CSS `border-style`).
+    pub fn border_style(mut self, value: BorderStyle) -> Self {
+        self.border_style = Some(value);
+        self
+    }
+
+    /// Sets one side's border (CSS `border-top`, `border-inline-end` and the like), in place
+    /// of the box's border on that side.
+    pub fn border_side(mut self, edge: BorderEdge, side: BorderSide) -> Self {
+        if let Some(slot) = self.border_sides.get_mut(edge.index()) {
+            *slot = Some(side);
+        }
+        self
+    }
+
     /// Sets the corner radius: every corner's.
     pub fn radius(mut self, value: f32) -> Self {
         self.radius = Some(value);
@@ -296,6 +388,12 @@ impl StylePatch {
     /// Sets the most lines text takes (0: no limit).
     pub fn max_lines(mut self, value: u32) -> Self {
         self.max_lines = Some(value);
+        self
+    }
+
+    /// Sets where each line of text sits across its box (CSS `text-align`).
+    pub fn text_align(mut self, value: TextAlign) -> Self {
+        self.text_align = Some(value);
         self
     }
 
@@ -387,6 +485,8 @@ impl StylePatch {
             foreground: Some(theme.derive().text),
             border: Some(Color::TRANSPARENT),
             border_width: Some(0.0),
+            border_style: Some(BorderStyle::Solid),
+            border_sides: [None; 4],
             radius: Some(0.0),
             corners: None,
             padding: Some(Insets::ZERO),
@@ -399,6 +499,7 @@ impl StylePatch {
             text_transform: Some(TextTransform::None),
             line_height: Some(LineHeight::Relative(1.33)),
             max_lines: Some(0),
+            text_align: Some(TextAlign::Start),
             outline: Some(theme.derive().focus),
             outline_width: Some(2.0),
             outline_offset: Some(2.0),
@@ -423,6 +524,10 @@ impl StylePatch {
             foreground: other.foreground.or(self.foreground),
             border: other.border.or(self.border),
             border_width: other.border_width.or(self.border_width),
+            border_style: other.border_style.or(self.border_style),
+            border_sides: std::array::from_fn(|i| {
+                other.border_sides.get(i).copied().flatten().or(self.border_sides.get(i).copied().flatten())
+            }),
             radius: other.radius.or(self.radius),
             // A radius alone over corners rounds every corner alike again.
             corners: match (other.corners, other.radius) {
@@ -440,6 +545,7 @@ impl StylePatch {
             text_transform: other.text_transform.or(self.text_transform),
             line_height: other.line_height.or(self.line_height),
             max_lines: other.max_lines.or(self.max_lines),
+            text_align: other.text_align.or(self.text_align),
             outline: other.outline.or(self.outline),
             outline_width: other.outline_width.or(self.outline_width),
             outline_offset: other.outline_offset.or(self.outline_offset),
@@ -497,6 +603,11 @@ pub struct ResolvedStyle {
     pub border: Color,
     /// Border width.
     pub border_width: f32,
+    /// Border line style.
+    pub border_style: BorderStyle,
+    /// Sides with borders of their own, top, end, bottom and start
+    /// ([`border_on`](Self::border_on) gives each side's border either way).
+    pub border_sides: [Option<BorderSide>; 4],
     /// Corner radius (the largest corner's when they differ).
     pub radius: f32,
     /// Each corner's radius: `radius` at every corner unless the style set them one by one.
@@ -521,6 +632,8 @@ pub struct ResolvedStyle {
     pub line_height: LineHeight,
     /// The most lines text takes (0: no limit).
     pub max_lines: u32,
+    /// Where each line of text sits across its box.
+    pub text_align: TextAlign,
     /// The focus ring's color.
     pub outline: Color,
     /// The focus ring's width (0: none).
@@ -555,6 +668,8 @@ impl ResolvedStyle {
             foreground: p.foreground.unwrap_or(Color::BLACK),
             border: p.border.unwrap_or(Color::TRANSPARENT),
             border_width: p.border_width.unwrap_or(0.0),
+            border_style: p.border_style.unwrap_or_default(),
+            border_sides: p.border_sides,
             radius: p.radius.unwrap_or(0.0),
             corners: p.corners.unwrap_or(CornerRadii::all(p.radius.unwrap_or(0.0))),
             padding: p.padding.unwrap_or(Insets::ZERO),
@@ -567,6 +682,7 @@ impl ResolvedStyle {
             text_transform: p.text_transform.unwrap_or_default(),
             line_height: p.line_height.unwrap_or(LineHeight::Relative(1.33)),
             max_lines: p.max_lines.unwrap_or(0),
+            text_align: p.text_align.unwrap_or_default(),
             outline: p.outline.unwrap_or(Color::TRANSPARENT),
             outline_width: p.outline_width.unwrap_or(0.0),
             outline_offset: p.outline_offset.unwrap_or(0.0),
@@ -619,6 +735,38 @@ pub struct StyleSheet {
 }
 
 impl ResolvedStyle {
+    /// The border on `edge`: the side's own, else the box's.
+    pub fn border_on(&self, edge: BorderEdge) -> BorderSide {
+        self.border_sides.get(edge.index()).copied().flatten().unwrap_or(BorderSide {
+            width: self.border_width,
+            color: self.border,
+            style: self.border_style,
+        })
+    }
+
+    /// True when a side has a border of its own.
+    pub fn has_border_sides(&self) -> bool {
+        self.border_sides.iter().any(Option::is_some)
+    }
+
+    /// How far the border reaches in on each side (layout and content sit inside it).
+    pub fn border_insets(&self) -> Insets {
+        let w = |e| self.border_on(e).width.max(0.0);
+        Insets {
+            top: w(BorderEdge::Top),
+            end: w(BorderEdge::End),
+            bottom: w(BorderEdge::Bottom),
+            start: w(BorderEdge::Start),
+        }
+    }
+
+    /// Padding and border together: where the content starts on each side.
+    pub fn inner_insets(&self) -> Insets {
+        let b = self.border_insets();
+        let p = self.padding;
+        Insets { top: p.top + b.top, end: p.end + b.end, bottom: p.bottom + b.bottom, start: p.start + b.start }
+    }
+
     /// The defaults for a child of an element styled `self`: text properties (color, size,
     /// weight, monospace) are inherited, as in CSS; box properties (background, border,
     /// radius, padding, opacity, focus ring) start fresh from `base`.
@@ -632,6 +780,7 @@ impl ResolvedStyle {
             letter_spacing: Some(self.letter_spacing),
             text_transform: Some(self.text_transform),
             line_height: Some(self.line_height),
+            text_align: Some(self.text_align),
             // As CSS `scrollbar-color`, the bars' colors are inherited.
             scrollbar_color: self.scrollbar_color.or(base.scrollbar_color),
             ..base.clone()
