@@ -156,6 +156,48 @@ pub fn log(message: &str) {
     os::log(message);
 }
 
+/// Whether this app may offer an APK to the system installer (the "install unknown apps"
+/// setting on Android 8 and later). `false` before [`attach`], or if the check fails.
+pub fn can_request_package_installs() -> bool {
+    let Some(app) = ACTIVITY.lock().unwrap_or_else(PoisonError::into_inner).clone() else {
+        return false;
+    };
+    Java::new(&app).ok().and_then(|j| j.can_request_package_installs().ok()).unwrap_or(false)
+}
+
+/// What [`install_apk`] did.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ApkInstall {
+    /// The system installer was started; the person still has to tap Install.
+    Started,
+    /// The install-permission settings page was opened instead; call again after the person
+    /// allows installs from this app.
+    NeedPermission,
+}
+
+/// Opens the system package installer for an APK the app has already written under
+/// `cache/remedy-share/<request>/<index>/<name>` (the same folder [`share`](crate) uses,
+/// served by the APK's `SharedFiles` provider). The person taps Install; existing app data
+/// is kept. When the "install unknown apps" setting is off, the settings page for this app
+/// is opened instead ([`ApkInstall::NeedPermission`]).
+///
+/// `mime` is the content URI path segment, the same encoding shares use (for an APK,
+/// `application/vnd.android.package-archive`).
+pub fn install_apk(request: &str, index: u32, mime: &str, name: &str) -> Result<ApkInstall, String> {
+    let app = ACTIVITY
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+        .ok_or_else(|| "the activity has not attached".to_owned())?;
+    let java = Java::new(&app)?;
+    let index = i32::try_from(index).map_err(|_| "share index is too large".to_owned())?;
+    match java.install_apk(&app, request, index, mime, name)?.as_str() {
+        "started" => Ok(ApkInstall::Started),
+        "need_permission" => Ok(ApkInstall::NeedPermission),
+        other => Err(format!("unexpected installer result: {other}")),
+    }
+}
+
 /// Screen readers asking for the tree: the app sends it on its next frame.
 struct Activation;
 
@@ -698,9 +740,13 @@ impl PlatformHooks for AndroidHooks {
 /// exits: winit makes one event loop per process, so a later launch into the same (cached)
 /// process could not start. `run` therefore returns only when the loop could not start.
 pub fn run(app: impl App) -> Result<(), RunError> {
-    let activity = ACTIVITY.lock().unwrap_or_else(PoisonError::into_inner).take().ok_or_else(|| {
-        RunError::new("no Android activity: start the app with remedy_ui_bridge_android::main!")
-    })?;
+    // Keep the activity in ACTIVITY so `launch_extra`, `install_apk` and the rest can still
+    // reach it after the event loop has started (window code, background work).
+    let activity = ACTIVITY
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+        .ok_or_else(|| RunError::new("no Android activity: start the app with remedy_ui_bridge_android::main!"))?;
     let _ = RUNNING.set(activity.clone());
     let event_loop = EventLoop::<UserEvent>::with_user_event()
         .with_android_app(activity.clone())

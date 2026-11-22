@@ -95,7 +95,7 @@ mod android;
 mod os;
 
 #[cfg(target_os = "android")]
-pub use android::{AndroidHooks, attach, data_dir, hold_process, launch_extra, log, run};
+pub use android::{AndroidHooks, ApkInstall, attach, can_request_package_installs, data_dir, hold_process, install_apk, launch_extra, log, run};
 #[cfg(target_os = "android")]
 pub use remedy_ui_bridge_winit::RunError;
 #[cfg(target_os = "android")]
