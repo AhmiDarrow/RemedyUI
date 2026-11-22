@@ -577,4 +577,6 @@ mod linux {
 }
 
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+pub use dnd::{DROP_FINISH_WAIT, DROP_READ_WAIT, set_drop_waits};
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 pub use linux::{LinuxHooks, run};
