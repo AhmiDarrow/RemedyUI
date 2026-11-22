@@ -118,13 +118,10 @@ pub fn to_tokens(theme: &Theme) -> String {
         "density": { "$type": "string", "$value": theme.density.name() },
     });
     if let Some(m) = doc.as_object_mut() {
-        if !theme.heading_families.is_empty() {
-            if let Some(font) = m.get_mut("font").and_then(Value::as_object_mut) {
-                font.insert(
-                    "heading".into(),
-                    json!({ "$type": "fontFamily", "$value": theme.heading_families }),
-                );
-            }
+        if !theme.heading_families.is_empty()
+            && let Some(font) = m.get_mut("font").and_then(Value::as_object_mut)
+        {
+            font.insert("heading".into(), json!({ "$type": "fontFamily", "$value": theme.heading_families }));
         }
         if !theme.metrics.is_empty() {
             let metrics: Map<String, Value> =

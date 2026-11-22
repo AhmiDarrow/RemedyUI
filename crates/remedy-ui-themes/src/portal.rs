@@ -148,7 +148,16 @@ pub fn portal_theme(id: &str) -> Option<Theme> {
         ("player-volume-height", 24.0),   // .volume-bar: 1.5rem
         ("slider-thumb", 12.0),           // .volume-bar thumb
         ("slider-track", 4.0),            // .volume-bar track
-        ("player-full-pad-top", 48.0),    // .is-full > .chrome: 3rem 1.4rem 0.9rem
+        // The browser's own cues (Portal's page leaves ::cue alone): 5% of the picture's
+        // height, square boxes hugging the text, white on black at 80%.
+        ("player-caption-height", 0.05),
+        ("player-caption-radius", 0.0),
+        ("player-caption-pad-x", 0.0),
+        ("player-caption-pad-y", 0.0),
+        // Portal's subtitles button is a glyph; ours says what shows unless the bar is
+        // narrower than a phone's 390 px page allows.
+        ("player-captions-words-min", 420.0),
+        ("player-full-pad-top", 48.0), // .is-full > .chrome: 3rem 1.4rem 0.9rem
         ("player-full-pad-bottom", 14.4),
         ("player-full-pad-side", 22.4),
     ] {
@@ -227,6 +236,7 @@ pub fn portal_sheet(t: &Theme) -> StyleSheet {
     rule("player_clock", Some("full"), States::NONE, clock(15.2, c.text.with_alpha(0.72)));
     rule("player_clock_now", None, States::NONE, StylePatch::default().foreground(c.text));
     rule("player_seek", None, States::DISABLED, StylePatch::default().opacity(0.45));
+    rule("player_caption", None, States::NONE, StylePatch::default().radius(0.0));
     // #dock-upnext-play: the accent, the background's color on it.
     let gold = StylePatch::default().background(c.accent).border(c.accent).foreground(c.bg).weight(600.0);
     rule("button", Some("player_play_now"), States::NONE, gold);
