@@ -202,8 +202,16 @@ fn key(w: &Rc<Win>, e: &web_sys::KeyboardEvent, pressed: bool) {
         d.state.borrow_mut().ctrl_down = pressed;
     }
     let platform = d.state.borrow().settings.platform;
-    let modifiers = convert::modifiers(e.shift_key(), e.ctrl_key(), e.alt_key(), e.meta_key());
-    let k = convert::key(&dom_key);
+    let mut modifiers = convert::modifiers(e.shift_key(), e.ctrl_key(), e.alt_key(), e.meta_key());
+    let mut k = convert::key(&dom_key);
+    // A "next" or "previous" Enter key moves focus, as Tab and Shift+Tab do.
+    if k == remedy_ui_input::Key::Enter
+        && modifiers == remedy_ui_input::Modifiers::NONE
+        && let Some(back) = w.text.enter_moves()
+    {
+        k = remedy_ui_input::Key::Tab;
+        modifiers.shift = back;
+    }
     let ev = KeyEvent::press(k)
         .with_physical(e.code())
         .with_modifiers(modifiers)

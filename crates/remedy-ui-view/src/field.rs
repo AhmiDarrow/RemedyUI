@@ -123,6 +123,8 @@ pub(crate) struct Field {
     placeholder: String,
     /// What the field holds, for keyboards, input methods and password managers.
     purpose: remedy_ui_host::InputPurpose,
+    /// The touch keyboard's Enter key, when the app picks it.
+    enter: Option<remedy_ui_host::EnterKey>,
     /// The pseudo-locale placeholders are shown in, if one is active.
     pseudo: Option<remedy_ui_text::Pseudo>,
     label: Option<String>,
@@ -601,6 +603,7 @@ impl Field {
                     v_.multiline = matches!(self.kind, FieldKind::Multi | FieldKind::Rich | FieldKind::Code);
                     v_.numeric = self.purpose.is_numeric();
                     v_.purpose = self.purpose;
+                    v_.enter = self.enter;
                     v_
                 }
             }
@@ -613,6 +616,7 @@ impl Field {
                 v_.multiline = false;
                 v_.numeric = self.purpose.is_numeric();
                 // A secret is a password unless the app says it is a code or a PIN.
+                v_.enter = self.enter;
                 v_.purpose = match self.purpose {
                     remedy_ui_host::InputPurpose::Text => remedy_ui_host::InputPurpose::CurrentPassword,
                     p => p,
@@ -1247,6 +1251,7 @@ impl Ui {
             style: TextStyle::default(),
             placeholder: String::new(),
             purpose: remedy_ui_host::InputPurpose::Text,
+            enter: None,
             pseudo: self.0.borrow().pseudo,
             label: None,
             reveal: false,
@@ -1432,6 +1437,14 @@ impl TextField {
     /// is [`CurrentPassword`](remedy_ui_host::InputPurpose::CurrentPassword) unless set.
     pub fn purpose(self, purpose: remedy_ui_host::InputPurpose) -> Self {
         self.field.borrow_mut().purpose = purpose;
+        self
+    }
+
+    /// Picks the touch keyboard's Enter key: [`Next`](remedy_ui_host::EnterKey::Next) on
+    /// every field of a form but the last moves on to the next field, as Tab does. Unset,
+    /// it follows the field (see [`TextInputState::enter_key`](remedy_ui_host::TextInputState::enter_key)).
+    pub fn enter_key(self, key: remedy_ui_host::EnterKey) -> Self {
+        self.field.borrow_mut().enter = Some(key);
         self
     }
 

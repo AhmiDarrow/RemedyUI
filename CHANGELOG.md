@@ -10,6 +10,15 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **The touch keyboard's Enter key** (`EnterKey`: `Enter`, `Done`, `Go`, `Next`, `Previous`,
+  `Search`, `Send`): `TextField::enter_key` picks it, `TextInputState::enter` carries it and
+  `TextInputState::enter_key` resolves the default (a line break for several lines, search,
+  go for an address, else done). The web sets `enterkeyhint` from it and Android the IME
+  action; `Next` and `Previous` move focus as Tab and Shift+Tab do. Addresses now show "go"
+  on the web too, as on Android.
+- **Android autofill**: a field's `InputPurpose` sets the view's autofill hints (username,
+  email, password, new password, SMS code) and the field reports to `AutofillManager`, so
+  password managers and SMS code autofill fill it.
 - **The rest of the engine's limits are configurable**, each default kept and public:
   `text` `LazyLimits` with `set_lazy_limits` (shortest lazy paragraph 32 KiB, piece size
   8 KiB, pieces kept 48), `GlyphAtlas::set_page_size` (1024), `set_max_list_level` (5) and

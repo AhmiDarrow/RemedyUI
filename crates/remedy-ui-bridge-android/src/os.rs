@@ -575,14 +575,16 @@ impl Java {
         secret: bool,
         multiline: bool,
         purpose: remedy_ui_host::InputPurpose,
+        enter: remedy_ui_host::EnterKey,
     ) -> Result<(), String> {
         let purpose = convert::purpose_code(purpose);
+        let action = convert::ime_action(enter);
         self.on_bridge(app, "the text input session", move |env, b| {
             let t = env.new_string(&text)?;
             env.call_method(
                 b,
                 "textInput",
-                "(Ljava/lang/String;IIFFFZZI)V",
+                "(Ljava/lang/String;IIFFFZZII)V",
                 &[
                     JValue::Object(&t),
                     JValue::Int(selection.0),
@@ -593,6 +595,7 @@ impl Java {
                     JValue::Bool(u8::from(secret)),
                     JValue::Bool(u8::from(multiline)),
                     JValue::Int(purpose),
+                    JValue::Int(action),
                 ],
             )?;
             Ok(())
