@@ -10,6 +10,26 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Images from addresses** in `media-image`: `Source::Url(String)` fetches the image off
+  the UI thread. Elements showing the same address share one fetch, cancelled when they all
+  go. The bytes stay in a bounded memory cache (64 MiB). Natively they are also kept on
+  disk in the app's cache folder (256 MiB, least recently used dropped first; `remedy_ui::run`
+  sets it, `set_cache_dir` changes it), following `Cache-Control` (`max-age`, `no-cache`,
+  `no-store`) and revalidated with `ETag` and `Last-Modified`. In a page the browser's
+  HTTP cache does that. The fetch goes through `services-net` (feature `http`, on by
+  default): natively ureq with rustls and the platform's certificates, refusing plain `http`
+  beyond the loopback interface; in a page `fetch` with an `AbortController`. An app can use its own client by implementing the `Fetch` trait and
+  installing it with `set_fetcher`. A failed fetch is `DecodeError::Network`.
+- **`image_ext` and `ImageOptions`** in `media-image`: the app's own `placeholder` while
+  loading, a `fallback` built when the image cannot be shown (Portal's letter tile) that sizes
+  the element when nothing else does, and `on_state`, whose `Sized` and `Ready` carry the
+  image's real size, for framing wide or square art.
+- In a browser page an image from another site is fetched with CORS. When its server does not
+  allow that, the engine tries once more through the app's own proxy if `set_web_proxy`
+  names one (`/image-proxy?url=` plus the encoded address). Otherwise the load fails with a
+  reason that says so and the element shows its fallback. The engine does not lay a DOM
+  `<img>` over the canvas, because that image could not be clipped, rounded, layered under
+  popups, faded or hit-tested with the rest of the UI.
 - **The router survives a reload and opens links elsewhere**: in a browser page each history
   entry carries the router's entries (routes and scroll positions) in `history.state`,
   written again on `pagehide`, so after a reload (`App::reload` too) the router has every

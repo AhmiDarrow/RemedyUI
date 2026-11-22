@@ -4502,6 +4502,7 @@ name = "remedy-ui-media-image"
 version = "1.0.0-rc.1"
 dependencies = [
  "image",
+ "js-sys",
  "moxcms",
  "remedy-ui-a11y",
  "remedy-ui-core",
@@ -4510,10 +4511,15 @@ dependencies = [
  "remedy-ui-layout",
  "remedy-ui-paint",
  "remedy-ui-reactive",
+ "remedy-ui-services-net",
  "remedy-ui-text",
  "remedy-ui-themes",
  "remedy-ui-trace",
  "remedy-ui-view",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]

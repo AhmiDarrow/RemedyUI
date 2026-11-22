@@ -25,6 +25,13 @@ pub enum Source {
     /// Bytes already in memory (decrypted files, downloads, embedded assets). Requests with
     /// the same `Arc` share a cache entry.
     Bytes(Arc<[u8]>),
+    /// An address (`https://`, `http://`; in a page also one relative to it), fetched off the
+    /// UI thread and cached by address ([`set_fetcher`](crate::set_fetcher),
+    /// [`set_cache_dir`](crate::set_cache_dir)). Elements showing the same address share one
+    /// fetch, cancelled when they all go. In a browser page the image is drawn on the canvas,
+    /// so a server of another site must allow it with CORS headers (or the app fetches it
+    /// through its own proxy); otherwise it fails with [`DecodeError::Network`].
+    Url(String),
 }
 
 impl Source {
@@ -40,7 +47,7 @@ impl Source {
     pub fn stamp(&self) -> Option<Stamp> {
         match self {
             Source::File(p) => stamp(p),
-            Source::Bytes(_) => None,
+            Source::Bytes(_) | Source::Url(_) => None,
         }
     }
 
@@ -54,6 +61,7 @@ impl Source {
         match self {
             Source::File(p) => SourceKey::File(p.clone()),
             Source::Bytes(b) => SourceKey::Bytes(b.as_ptr() as usize, b.len()),
+            Source::Url(u) => SourceKey::Url(u.clone()),
         }
     }
 
@@ -66,6 +74,7 @@ impl Source {
         }
         match self {
             Source::Bytes(b) => dimensions(b),
+            Source::Url(u) => dimensions(&crate::remote::blocking(u)?),
             Source::File(p) => {
                 use std::io::{BufRead, Seek};
                 let f = std::fs::File::open(p).map_err(|e| DecodeError::Io(e.to_string()))?;
@@ -85,6 +94,7 @@ impl Source {
     fn read_bytes(&self) -> Result<(Arc<[u8]>, Option<Stamp>), DecodeError> {
         match self {
             Source::Bytes(b) => Ok((b.clone(), None)),
+            Source::Url(u) => Ok((crate::remote::blocking(u)?, None)),
             Source::File(p) => {
                 let stamp = stamp(p);
                 let bytes = std::fs::read(p).map_err(|e| DecodeError::Io(e.to_string()))?;
@@ -111,6 +121,7 @@ pub struct SourceId(SourceKey);
 enum SourceKey {
     File(PathBuf),
     Bytes(usize, usize),
+    Url(String),
 }
 
 /// Where a load is.
@@ -197,6 +208,8 @@ struct Done {
 struct Pending {
     waiters: Vec<(u64, Signal<ImageState>)>,
     cancelled: Arc<AtomicBool>,
+    /// The fetch of an address, let go (and cancelled) with the request.
+    fetching: Option<crate::remote::Fetching>,
 }
 
 #[derive(Default)]
@@ -225,7 +238,7 @@ struct Known {
 fn hold(source: &Source) -> Option<Weak<[u8]>> {
     match source {
         Source::Bytes(b) => Some(Arc::downgrade(b)),
-        Source::File(_) => None,
+        Source::File(_) | Source::Url(_) => None,
     }
 }
 
@@ -294,6 +307,9 @@ impl Drop for Request {
             });
             if empty && let Some(p) = c.pending.remove(&self.key) {
                 p.cancelled.store(true, Ordering::Relaxed);
+                p.fetching
+            } else {
+                None
             }
         });
     }
@@ -335,8 +351,10 @@ pub fn load(source: &Source, box_px: Option<(u32, u32)>, cover: bool, state: Sig
             return request;
         }
         let cancelled = Arc::new(AtomicBool::new(false));
-        c.pending
-            .insert(key.clone(), Pending { waiters: vec![(waiter, state)], cancelled: cancelled.clone() });
+        c.pending.insert(
+            key.clone(),
+            Pending { waiters: vec![(waiter, state)], cancelled: cancelled.clone(), fetching: None },
+        );
         drop(c);
         start(source.clone(), key, cancelled);
         request
@@ -344,7 +362,26 @@ pub fn load(source: &Source, box_px: Option<(u32, u32)>, cover: bool, state: Sig
 }
 
 fn start(source: Source, key: Key, cancelled: Arc<AtomicBool>) {
-    let held = hold(&source);
+    let Source::Url(url) = &source else { return decode_start(source, key, cancelled) };
+    if let Some(bytes) = crate::remote::remembered(url) {
+        return decode_start(Source::Bytes(bytes), key, cancelled);
+    }
+    let (k2, c2) = (key.clone(), cancelled);
+    let fetching = crate::remote::fetch(url, move |got| match got {
+        Ok(bytes) if !c2.load(Ordering::Relaxed) => decode_start(Source::Bytes(bytes), k2, c2),
+        Ok(_) => {}
+        Err(e) => finish(k2, None, Err(e)),
+    });
+    CACHE.with(|c| {
+        if let Some(p) = c.borrow_mut().pending.get_mut(&key) {
+            p.fetching = Some(fetching);
+        }
+    });
+}
+
+/// Decodes `source` (bytes fetched from an address hold nothing: the address is the key).
+fn decode_start(source: Source, key: Key, cancelled: Arc<AtomicBool>) {
+    let held = if matches!(key.source, SourceKey::Url(_)) { None } else { hold(&source) };
     let Ok(waker) = remedy_ui_reactive::waker() else {
         let result = decode_job(&source, &key_box(&key), key.cover);
         finish(key, held, result);
@@ -459,28 +496,62 @@ fn revalidate(path: PathBuf, old: Stamp, key: Key, source: Source, state: Signal
     });
 }
 
-/// Reads the source's size off the UI thread, for laying out before the pixels arrive.
+/// Reads the source's size off the UI thread, for laying out before the pixels arrive. An
+/// address is fetched for it (once: the load that follows finds the bytes in memory).
 pub fn probe(source: &Source, state: Signal<ImageState>) {
-    let known = CACHE.with(|c| c.borrow_mut().known(&source.key()));
+    if let Some(f) = probe_held(source, state) {
+        f.detach();
+    }
+}
+
+/// [`probe`], returning the fetch of an address: dropping it lets the fetch go.
+pub(crate) fn probe_held(source: &Source, state: Signal<ImageState>) -> Option<crate::remote::Fetching> {
+    let key = source.key();
+    let known = CACHE.with(|c| c.borrow_mut().known(&key));
     if let Some((size, _)) = known {
         state.set(ImageState::Sized(size));
-        // Bytes never change; a file may have, so its stamp is checked off the UI thread.
-        if matches!(source, Source::Bytes(_)) {
-            return;
+        // Bytes never change, nor (for the session) an address; a file may have, so its
+        // stamp is checked off the UI thread.
+        if !matches!(source, Source::File(_)) {
+            return None;
         }
     }
-    let src = source.clone();
+    let Source::Url(url) = source else {
+        size_job(source.clone(), key, hold(source), known, state);
+        return None;
+    };
+    if let Some(bytes) = crate::remote::remembered(url) {
+        size_job(Source::Bytes(bytes), key, None, None, state);
+        return None;
+    }
+    Some(crate::remote::fetch(url, move |got| match got {
+        Ok(bytes) => size_job(Source::Bytes(bytes), key, None, None, state),
+        Err(e) => {
+            let _ = state.try_set(ImageState::Failed(e));
+        }
+    }))
+}
+
+/// Reads `src`'s size off the UI thread (unless its stamp is still `known`'s) and remembers
+/// it as `key`'s, holding `held`.
+fn size_job(
+    src: Source,
+    key: SourceKey,
+    held: Option<Weak<[u8]>>,
+    known: Option<((u32, u32), Option<Stamp>)>,
+    state: Signal<ImageState>,
+) {
     // The stamp is taken before the size, so an edit in between is noticed next time.
     let read = move || {
         let now = src.stamp();
         if known.is_some_and(|(_, old)| old == now) {
             return None;
         }
-        Some((src.size(), now, src))
+        Some((src.size(), now))
     };
-    let apply = move |(r, stamp, src): (Result<(u32, u32), DecodeError>, Option<Stamp>, Source)| {
+    let apply = move |(r, stamp): (Result<(u32, u32), DecodeError>, Option<Stamp>)| {
         if let Ok(size) = &r {
-            CACHE.with(|c| c.borrow_mut().remember(src.key(), *size, stamp, hold(&src)));
+            CACHE.with(|c| c.borrow_mut().remember(key, *size, stamp, held));
         }
         // Only move forward: a load may already have finished.
         let unloaded = state
