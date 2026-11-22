@@ -64,6 +64,7 @@ mod web;
 pub use native::finish_keepalive;
 
 /// The answer to a request that succeeded (status 200-299).
+#[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Response {
     /// The HTTP status.
@@ -94,6 +95,7 @@ impl Response {
 }
 
 /// A status outside 200-299, with what the server said.
+#[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpError {
     /// The HTTP status.
@@ -108,9 +110,9 @@ pub struct HttpError {
 impl HttpError {
     fn new(status: u16, body: &[u8]) -> Self {
         let body = String::from_utf8_lossy(body).into_owned();
-        let detail = serde_json::from_str::<serde_json::Value>(&body).ok().and_then(|v| {
-            v.get("detail").map(|d| d.as_str().map_or_else(|| d.to_string(), str::to_owned))
-        });
+        let detail = serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v.get("detail").map(|d| d.as_str().map_or_else(|| d.to_string(), str::to_owned)));
         HttpError { status, body, detail }
     }
 }
@@ -195,7 +197,11 @@ impl Multipart {
         content_type: impl Into<String>,
         bytes: Vec<u8>,
     ) -> Self {
-        self.parts.push(Part { name: name.into(), file: Some((file_name.into(), content_type.into())), bytes });
+        self.parts.push(Part {
+            name: name.into(),
+            file: Some((file_name.into(), content_type.into())),
+            bytes,
+        });
         self
     }
 

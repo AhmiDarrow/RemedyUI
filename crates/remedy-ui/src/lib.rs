@@ -206,11 +206,11 @@ pub use remedy_ui_script_wasm as script_wasm;
 pub use remedy_ui_services_desktop as desktop;
 #[cfg(feature = "i18n")]
 pub use remedy_ui_services_i18n as i18n;
-#[cfg(feature = "spell")]
-pub use remedy_ui_services_spell as spell;
 /// The HTTP client, natively and in a browser page.
 #[cfg(feature = "net")]
 pub use remedy_ui_services_net as net;
+#[cfg(feature = "spell")]
+pub use remedy_ui_services_spell as spell;
 #[cfg(feature = "update")]
 pub use remedy_ui_services_update as update;
 /// Importing the localStorage a web version of the app saved: a web view's store on disk

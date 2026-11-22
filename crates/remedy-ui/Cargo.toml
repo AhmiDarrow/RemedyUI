@@ -208,6 +208,9 @@ remedy-ui-bridge-android = { path = "../remedy-ui-bridge-android", version = "1.
 
 
 [dev-dependencies]
+# The network guide's samples decode JSON into their own types.
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154" }
 remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "1.0.0-rc.1" }
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
 remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "1.0.0-rc.1" }

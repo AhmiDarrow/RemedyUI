@@ -210,6 +210,9 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-media-playback", "remedy-ui-services-desktop"),
     // The update banner is a widget.
     ("remedy-ui-services-update", "remedy-ui-widgets-core"),
+    // Feeds and signatures come through the shared HTTP client (the download keeps its own
+    // reader, for its progress).
+    ("remedy-ui-services-update", "remedy-ui-services-net"),
     // The spelling menu is built from the core menu widgets.
     ("remedy-ui-services-spell", "remedy-ui-widgets-core"),
     // The inspector and preview gallery are built from widgets, and previews render with
