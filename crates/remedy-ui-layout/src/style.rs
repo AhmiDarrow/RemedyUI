@@ -121,6 +121,13 @@ pub enum Position {
     Relative,
     /// Taken out of the flow and placed by its insets within the parent.
     Absolute,
+    /// Laid out in the flow, then kept by the compositor within its nearest scroll container
+    /// (the window when there is none) while that scrolls, as CSS `position: sticky`: each
+    /// inset side not [`AUTO`] is how close the box keeps to that edge of the scroll
+    /// container's viewport, and it never leaves its parent's content box. Scrolling moves it
+    /// with no new layout. The insets default to zero on every side: set the sides that should
+    /// not stick to [`AUTO`] (a header that sticks to the top: `top: 0.0`, the rest `AUTO`).
+    Sticky,
 }
 
 /// Text direction for layout: start and end follow it.
@@ -185,7 +192,7 @@ pub struct LayoutStyle {
     pub justify: Justify,
     /// Positioning.
     pub position: Position,
-    /// Offsets for absolute positioning: logical (`start` is the right edge in a right-to-left
+    /// Offsets for absolute positioning, or the edges a sticky box keeps to: logical (`start` is the right edge in a right-to-left
     /// parent), unless `inset_physical`.
     pub inset: Insets,
     /// The insets are physical: `start` is the left edge and `end` the right whatever the
@@ -390,8 +397,14 @@ pub(crate) fn to_taffy(s: &LayoutStyle, rtl: bool, parent_rtl: bool) -> taffy::S
         position: match s.position {
             Position::Relative => taffy::Position::Relative,
             Position::Absolute => taffy::Position::Absolute,
+            // In the flow, unshifted: the compositor moves it as its scroll container scrolls.
+            Position::Sticky => taffy::Position::Relative,
         },
-        inset: rect_lpa(inset_phys(s.inset)),
+        inset: if s.position == Position::Sticky {
+            rect_lpa(Insets::all(AUTO))
+        } else {
+            rect_lpa(inset_phys(s.inset))
+        },
         grid_template_columns: s.columns.iter().map(component).collect(),
         grid_template_rows: s.rows.iter().map(component).collect(),
         grid_column: s.grid_column.map_or_else(taffy::Line::default, placement),

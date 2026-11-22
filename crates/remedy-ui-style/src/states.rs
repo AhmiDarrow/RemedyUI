@@ -33,6 +33,9 @@ impl States {
     /// Keyboard focus is on it or on something inside it (a message whose toolbar shows while
     /// one of its buttons has focus).
     pub const FOCUS_WITHIN: States = States(1 << 10);
+    /// A sticky element moved from its place in the flow to keep to its scroll container's
+    /// edge (a header that shows a shadow while stuck).
+    pub const STUCK: States = States(1 << 11);
 
     /// True when every flag in `other` is set.
     pub fn contains(self, other: States) -> bool {
@@ -77,6 +80,7 @@ impl fmt::Debug for States {
             (States::DRAGGING, "DRAGGING"),
             (States::DROP_TARGET, "DROP_TARGET"),
             (States::FOCUS_WITHIN, "FOCUS_WITHIN"),
+            (States::STUCK, "STUCK"),
         ];
         let set: Vec<&str> = names.iter().filter(|(s, _)| self.contains(*s)).map(|(_, n)| *n).collect();
         write!(f, "States({})", if set.is_empty() { "NONE".to_string() } else { set.join(" | ") })

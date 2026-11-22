@@ -10,6 +10,20 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Sticky positioning** (CSS `position: sticky`), for Portal's blurred page header and its
+  Info dialog's close bar: `Position::Sticky` in `remedy-ui-layout` lays the box out in the
+  flow and the inset sides not `AUTO` say how close it keeps to its nearest scroll
+  container's edges (the window's when there is none); only those axes stick, top and start
+  win when both sides of an axis cannot hold, and it never leaves its parent's content box,
+  so a section header leaves with its section. `El::sticky(StickyInsets::top(0.0))` sets it,
+  and style sheets with `StylePatch::sticky` and `Style::sticky` (`remedy-ui-style`'s
+  `StickyInsets`, logical sides). Scrolling moves it without layout: it is drawn in a layer of
+  its own carrying a `Sticky` (`remedy-ui-compositor`, `Layer::sticky`, `Sticky::offset`)
+  that the compositor offsets from the scroll container's offset in the same frame; hit
+  testing and the accessibility bounds follow; nested scroll containers each move their own;
+  frosted glass on a sticky header blurs what scrolls under it. While it is moved from its
+  place it has `States::STUCK`, so a sheet can style it stuck (a shadow under a stuck header).
+
 - **The rest of the engine's limits are configurable**, each default kept and public:
   `text` `LazyLimits` with `set_lazy_limits` (shortest lazy paragraph 32 KiB, piece size
   8 KiB, pieces kept 48), `GlyphAtlas::set_page_size` (1024), `set_max_list_level` (5) and
