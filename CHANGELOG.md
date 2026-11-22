@@ -16,8 +16,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   open dialog keeps it), by the W3C CSS Spatial Navigation draft's distance (edge to edge,
   plus along the axis, plus the cross axis weighted, less the cross-axis overlap), and
   scrolls it into view. Sliders, lists, menus, text fields and the player's keys still get
-  their arrows first; modified arrows are left alone. `El::focus_group()` makes a row or grid return focus to the child it
-  last had. On by default on TVs and in touch-only browsers (`SystemSettings::
+  their arrows first; modified arrows are left alone. `El::focus_group()` keeps arrows
+  inside a row or grid while it has something that way, lets them out at its edge, and returns
+  focus to the child it last had; `El::focus_wrap()` comes round at its ends instead (a
+  carousel). `Ui::set_spatial_tuning(SpatialTuning)` changes the distance weights. A gamepad's
+  d-pad, A and B arrive as arrows, Enter and `Key::Back` on Android and the web (Gamepad API). On by default on TVs and in touch-only browsers (`SystemSettings::
   spatial_navigation`, new: Android's `UI_MODE_TYPE_TELEVISION`; a browser's
   `(any-pointer: coarse)` without a fine pointer, or a TV browser's user agent), off on
   desktops; `Ui::set_system_spatial_navigation` is what the runner sets. With it on, an Escape
