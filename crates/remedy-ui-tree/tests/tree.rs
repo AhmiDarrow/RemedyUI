@@ -279,6 +279,15 @@ fn tab_order_wraps_and_respects_explicit_order() -> R {
     t.blur();
     assert_eq!(t.focus_next(), Some(c), "explicit order comes first");
     assert!(!t.focus(not_focusable)?);
+    // Out of the Tab order (`tabindex="-1"`): Tab passes it, focus still reaches it.
+    t.set_focus_order(c, None)?;
+    t.set_tab_stop(b, false)?;
+    assert!(!t.is_tab_stop(b));
+    assert_eq!(t.focus_candidates(t.root()), vec![a, c]);
+    assert!(t.focus(b)?);
+    assert_eq!(t.focus_next(), Some(c), "Tab goes on from where it stands");
+    assert!(t.focus(b)?);
+    assert_eq!(t.focus_previous(), Some(a));
     Ok(())
 }
 

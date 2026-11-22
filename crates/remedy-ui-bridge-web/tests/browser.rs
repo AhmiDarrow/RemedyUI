@@ -946,6 +946,90 @@ async fn corners_draw_one_by_one_and_the_app_hears_the_page_go_at_once() {
 }
 
 #[wasm_bindgen_test]
+async fn a_dashed_border_draws_dashes_and_a_maximum_length_cuts_input() {
+    use remedy_ui::a11y::{Role, Semantics};
+    use remedy_ui::core::Color;
+    use remedy_ui::layout::Length;
+    use remedy_ui::style::{BorderStyle, StylePatch};
+    let theme_bg = AppConfig::new("x").theme.colors.bg.to_rgba8();
+    let typed: Rc<RefCell<String>> = Rc::default();
+    let held: Rc<RefCell<Option<App>>> = Rc::default();
+    let (t, h) = (typed.clone(), held.clone());
+    let run = remedy_ui::run(AppConfig::new("Limits test").cpu_only(), move |app: &App| {
+        *h.borrow_mut() = Some(app.clone());
+        let t = t.clone();
+        app.open(WindowSpec::new("Limits"), move |ui, _| {
+            let look =
+                StylePatch::default().border(Color::rgb8(255, 60, 60)).border_width(2.0).border_style(BorderStyle::Dashed);
+            let card = ui
+                .el("dashed_box")
+                .style(look)
+                .layout(|l| {
+                    l.width = Length::Px(120.0);
+                    l.height = Length::Px(40.0);
+                })
+                .semantics(Semantics::new(Role::Group).label("Dashed"));
+            let field = w::text_input(ui, "Short").max_length(4);
+            let f2 = field.clone();
+            let field = field.on_change(move || *t.borrow_mut() = f2.value());
+            let col = w::column(ui)
+                .gap(12.0)
+                .padding(remedy_ui::core::Insets { top: 16.0, end: 16.0, bottom: 16.0, start: 16.0 })
+                .child(card)
+                .child(field.el().height(32.0));
+            let _ = ui.root().child(col);
+        });
+    });
+    run.must("the app starts in the page");
+    assert!(until(120, || query("[aria-label='Dashed']").is_some()).await, "the card is mirrored");
+    frames(3).await;
+    let canvas: web_sys::HtmlCanvasElement = document()
+        .query_selector("[data-remedy-window] canvas")
+        .ok()
+        .flatten()
+        .must("a canvas")
+        .dyn_into()
+        .must("a canvas");
+    let ctx: web_sys::CanvasRenderingContext2d =
+        canvas.get_context("2d").ok().flatten().must("the 2D context").dyn_into().must("a 2D context");
+    let card = query("[aria-label='Dashed']").must("the card").get_bounding_client_rect();
+    let cr = canvas.get_bounding_client_rect();
+    let scale = f64::from(canvas.width()) / cr.width();
+    let at =
+        |x: f64, y: f64| pixel(&ctx, ((x - cr.left()) * scale).floor(), ((y - cr.top()) * scale).floor());
+    // Dashes 6 long with gaps as long, from the top start corner.
+    let dash = at(card.left() + 3.0, card.top() + 1.0);
+    assert!(dash[0] > 200 && dash[1] < 100, "a dash: {dash:?}");
+    assert!(close(at(card.left() + 9.0, card.top() + 1.0), theme_bg), "a gap");
+    assert!(close(at(card.left() + 60.0, card.top() + 20.0), theme_bg), "inside, nothing");
+
+    // The field holds four characters: an input method's text and a paste are cut to fit.
+    let target: web_sys::EventTarget = canvas.clone().into();
+    let (fx, fy) = center(&query("[aria-label='Short']").must("the field"));
+    pointer(&target, "pointerdown", fx, fy, 1);
+    pointer(&target, "pointerup", fx, fy, 0);
+    assert!(until(30, || query("input[data-remedy-text]:focus").is_some()).await, "the field edits");
+    let text: web_sys::EventTarget = query("input[data-remedy-text]").must("the hidden field").into();
+    key(&text, "keydown", "a", "KeyA", false);
+    key(&text, "keyup", "a", "KeyA", false);
+    composition(&text, "compositionstart", "");
+    composition(&text, "compositionupdate", "にほんごです");
+    composition(&text, "compositionend", "日本語です");
+    assert!(until(30, || *typed.borrow() == "a日本語").await, "the commit was cut: {:?}", typed.borrow());
+    key(&text, "keydown", "Backspace", "Backspace", false);
+    key(&text, "keyup", "Backspace", "Backspace", false);
+    let readable = synthetic_clipboard_readable();
+    key(&text, "keydown", "v", "KeyV", true);
+    clipboard(&text, "paste", Some("xyz".into()));
+    key(&text, "keyup", "v", "KeyV", true);
+    let want = if readable { "a日本x" } else { "a日本" };
+    assert!(until(30, || *typed.borrow() == want).await, "the paste was cut: {:?}", typed.borrow());
+    let app = held.borrow_mut().take().must("the app");
+    app.quit();
+    assert!(until(30, || !remedy_ui::web::is_running()).await);
+}
+
+#[wasm_bindgen_test]
 async fn link_clicks_open_tabs_and_mouse_buttons_move_once() {
     let window = web_sys::window().must("a window");
     let history = window.history().must("history");

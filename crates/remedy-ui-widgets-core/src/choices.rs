@@ -201,6 +201,9 @@ pub fn segmented_unavailable(
 /// pressing opens the list, a [`Role::ListBox`] of [`Role::Option`]s with the chosen one
 /// selected. Typing a letter
 /// jumps to the next option starting with it; arrows step through the options.
+///
+/// Its value and chevron sit centered, as a button's label does; `.justify(Justify::Start)`
+/// puts the value at the start, and `Justify::SpaceBetween` the chevron at the end too.
 #[track_caller]
 pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected: Signal<usize>) -> El {
     let label = label.into();
@@ -211,7 +214,10 @@ pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected:
     let a2 = anchor.clone();
     // Whether its list is open, for screen readers (`aria-expanded`).
     let open = Signal::new(false);
-    let b = crate::button(ui, "", move || {
+    // A button without a label of its own: the value is its first child, so `justify` places
+    // it from the start edge.
+    let gap = ui.theme().spacing.unit * 1.5;
+    let b = crate::actions::centered(ui.el("button")).gap(gap).on_click(move || {
         let Some(a) = a2.borrow().clone() else { return };
         let now = selected.get_untracked().ok();
         let items = opts

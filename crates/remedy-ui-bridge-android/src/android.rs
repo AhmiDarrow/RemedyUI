@@ -419,8 +419,8 @@ impl PlatformHooks for AndroidHooks {
         s
     }
 
-    fn utc_offset(&self, unix_seconds: i64) -> Option<i32> {
-        os::utc_offset(unix_seconds)
+    fn utc_offsets(&self) -> fn(i64) -> Option<i32> {
+        os::utc_offset
     }
 
     fn total_memory(&self) -> Option<u64> {

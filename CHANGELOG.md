@@ -10,6 +10,43 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Dashed and dotted borders**: `StylePatch::border_style(BorderStyle::Dashed)` and
+  `Style::border_style` (CSS `border-style`; `Solid` by default) draw a border as dashes three
+  widths long or as dots (round from 3 pixels wide), following the box's corners, per-corner
+  radii included, on the CPU and GPU renderers and in a page. `Path::rounded_rect` builds the
+  outline.
+- **A border per side**: `StylePatch::border_side(BorderEdge::Top, BorderSide::new(width,
+  color).style(BorderStyle::Dashed))` and `Style::border_side` (CSS `border-top`,
+  `border-inline-end` and the like) give a side its own width, color and line style in place
+  of the box's border. Round corners carry each side halfway round, per-corner radii
+  included, start and end swapped right to left, on the CPU and GPU renderers and in a page;
+  layout, text and fields sit inside each side's own width
+  (`ResolvedStyle::border_on`, `border_insets`, `inner_insets`).
+- **Text alignment from style**: `El::text_align(TextAlign::Center)`, `StylePatch::text_align`
+  and `Style::text_align` (CSS `text-align`: start, end, center, justify; inherited) set
+  where every line of an element's text sits, wrapped lines too. `TextAlign` lives in
+  `remedy-ui-core`; `remedy_ui_text::Align` is now the same type.
+- **A select's value can sit at the start**: `w::select` has no empty label in front of its
+  value any more, so `.justify(Justify::Start)` puts the value at the start edge and
+  `Justify::SpaceBetween` the chevron at the end too; it stays centered by default.
+- **Dates with seconds, all in numbers**: `CalendarSymbols::format_date_time(date, time,
+  second, DateTimeStyle::Numeric)` and `format_instant(local_seconds, style)` write a date and
+  time as a browser's `Date.toLocaleString()` does ("11/21/2026, 1:32:31 PM" in en-US,
+  "21.11.2026, 13:32:31" in de) in every shipped language; `DateTimeStyle::Medium` is
+  `date_time`'s minute-precise form.
+- **Offsets at any instant**: `Ui::local_time_at(unix_seconds)` gives the local time with
+  that instant's own UTC offset (the other side of a daylight-saving change gets its own),
+  from the system's time zone on Windows, Linux, macOS and Android and the browser's `Date` in
+  a page: `Host::time_zone` and `TimeZone`, `Ui::set_time_zone`,
+  `HeadlessHost::set_time_zone`. `PlatformHooks::utc_offsets` gives a bridge's offset
+  function; `utc_offset` now calls it.
+- **Text field maximum length**: `TextField::max_length(chars)` and `set_max_length` limit
+  what people type, paste or compose in, as HTML's `maxlength` does: a key that does not fit
+  types nothing, and a paste or an input method's text (in a page too) is cut to the room
+  left. No limit by default; the app's `set_value` is not limited.
+- **Focus without a Tab stop**: `El::focus_target()` lets an element take focus from code
+  and from a click while Tab passes it by (HTML's `tabindex="-1"`); Tab from it goes on from
+  where it stands. `Tree::set_tab_stop` and `is_tab_stop` underneath.
 - **`Player::leave_remote_paused(at, status)`**: a cast can end with the player paused here
   at `at` (where the device was), an optional `StageStatus` shown as the app's polite status
   (not a failure or an alert), waiting for Play, which seeks there and plays (through

@@ -57,6 +57,15 @@ impl Host for WebHost<'_> {
         }
     }
 
+    fn time_zone(&self) -> remedy_ui_host::TimeZone {
+        remedy_ui_host::TimeZone::new(|unix_seconds| {
+            // The browser's own zone rules, that instant's daylight saving included.
+            let date = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(unix_seconds as f64 * 1000.0));
+            let west = date.get_timezone_offset();
+            west.is_finite().then(|| (-west * 60.0) as i32)
+        })
+    }
+
     fn settings(&self) -> SystemSettings {
         self.d.state.borrow().settings.clone()
     }
