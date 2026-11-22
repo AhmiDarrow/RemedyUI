@@ -10,6 +10,18 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Scroll snapping**, as CSS's: `El::scroll_snap(SnapAxis, SnapStrictness)` on a scroll
+  container and `El::snap_align(SnapAlign)` on its cards, with `scroll_padding`,
+  `snap_margin` and `snap_stop_always`. It settles after flings (from where the fling would
+  end), wheel gestures, drag releases, key steps and pages, focus moves (spatial navigation
+  included) and `scroll_to` (`scroll_to_exact` does not snap), keeps its card through
+  relayouts, and glides on the compositor (CPU and GPU, every platform), jumping under reduced
+  motion. Tuning has defaults and setters: `scroll_snap_proximity` (0.3 of the viewport),
+  `scroll_snap_motion` (250 ms decelerating) and `scroll_snap_wheel_idle` (150 ms). Underneath:
+  `compositor` `ScrollSnap`, `SnapPoint`, `Compositor::wheel_at`, `scroll_to_snapped` and
+  `scroll_step`; `input` `ScrollAxis::rest`; `view` `Request::ScrollToExact` and
+  `Request::ScrollStep`. Unhandled Page Up, Page Down and arrow keys now scroll the scroll
+  container around the focus (or the pointer).
 - **The rest of the engine's limits are configurable**, each default kept and public:
   `text` `LazyLimits` with `set_lazy_limits` (shortest lazy paragraph 32 KiB, piece size
   8 KiB, pieces kept 48), `GlyphAtlas::set_page_size` (1024), `set_max_list_level` (5) and

@@ -576,7 +576,7 @@ impl Ui {
                 (off.y + by.y).clamp(0.0, room.y.max(0.0)),
             );
             if next != off {
-                self.request(Request::ScrollToSnapped { scroller: p, offset: next });
+                self.request(Request::ScrollStep { scroller: p, offset: next });
                 return true;
             }
         }

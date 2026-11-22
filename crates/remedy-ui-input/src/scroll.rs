@@ -31,21 +31,18 @@ pub struct ScrollAxis {
     /// Current velocity in px/s.
     pub velocity: f32,
     physics: ScrollPhysics,
-    /// A snap point the axis is easing to.
-    target: Option<f32>,
 }
 
 impl ScrollAxis {
     /// A resting axis.
     pub fn new(max: f32, physics: ScrollPhysics) -> Self {
-        ScrollAxis { offset: 0.0, max: max.max(0.0), velocity: 0.0, physics, target: None }
+        ScrollAxis { offset: 0.0, max: max.max(0.0), velocity: 0.0, physics }
     }
 
     /// Moves by a drag or wheel delta. Past the edges, bouncing physics give resistance;
     /// clamped physics stop at the edge.
     pub fn drag(&mut self, delta: f32) {
         self.velocity = 0.0;
-        self.target = None;
         let next = self.offset + delta;
         self.offset = if next < 0.0 || next > self.max {
             if self.physics.overscroll_resistance > 0.0 {
@@ -63,7 +60,6 @@ impl ScrollAxis {
     /// Starts a fling with the release velocity.
     pub fn fling(&mut self, velocity: f32) {
         self.velocity = velocity;
-        self.target = None;
     }
 
     /// Where the current fling would come to rest (the offset itself when not flinging),
@@ -73,41 +69,15 @@ impl ScrollAxis {
         if v0.abs() < self.physics.stop_speed {
             return self.offset.clamp(0.0, self.max);
         }
+        // The velocity decays by `decay_per_second` each second until it drops under
+        // `stop_speed`: the distance is the integral of v0 * k^t over that time.
         let ln_k = self.physics.decay_per_second.clamp(1e-4, 0.999).ln();
         let stop = self.physics.stop_speed.copysign(v0);
         (self.offset + (stop - v0) / ln_k).clamp(0.0, self.max)
     }
 
-    /// Eases to `target` (a snap point), dropping any fling.
-    pub fn settle_to(&mut self, target: f32) {
-        self.velocity = 0.0;
-        self.target = Some(target.clamp(0.0, self.max));
-    }
-
-    /// Jumps to `target` at once (a snap under reduced motion).
-    pub fn jump_to(&mut self, target: f32) {
-        self.velocity = 0.0;
-        self.target = None;
-        self.offset = target.clamp(0.0, self.max);
-    }
-
-    /// True while easing to a snap point.
-    pub fn is_settling(&self) -> bool {
-        self.target.is_some()
-    }
-
     /// Advances `dt` seconds. Returns true while moving (the window should keep animating).
     pub fn step(&mut self, dt: f32) -> bool {
-        if let Some(t) = self.target {
-            let t = t.clamp(0.0, self.max);
-            self.offset += (t - self.offset) * (1.0 - (-dt * 12.0).exp());
-            if (self.offset - t).abs() < 0.5 {
-                self.offset = t;
-                self.target = None;
-                return false;
-            }
-            return true;
-        }
         // Back inside the edges after an overscroll: spring back quickly.
         if self.offset < 0.0 || self.offset > self.max {
             let edge = self.offset.clamp(0.0, self.max);
