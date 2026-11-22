@@ -15,6 +15,28 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   multiple of the text size, `Absolute(24.0)` for pixels, `FontMetrics` for the font's own);
   descendants inherit it, and the default stays `Relative(1.33)`. `LineHeight` now lives in
   `remedy-ui-core`, re-exported by `remedy-ui-text`, `remedy-ui-style` and `remedy-ui-view`.
+- **A question from a tray app** (`App::confirm(ConfirmSpec, done)`): a small window of the
+  app's own, drawn in its theme, that works with no other window open. It opens sized to its
+  text (`ConfirmSpec::width` 420 and `max_height` 640 by default, with setters), centered,
+  above other windows, in front and focused (Windows and X11; Wayland's compositor places it).
+  Enter presses the focused button, the no button under `ConfirmSpec::danger` (drawn as a
+  warning), Tab and Shift+Tab stay among the buttons, Escape and closing answer no, and
+  screen readers meet a dialog named by its title and described by its text. `notice()`
+  makes it a message with one button; the default words are "OK" and "Cancel" in the app's
+  language. Underneath: `Window::set_size`, `Window::center`, `Host::center_window` (winit:
+  the middle of the window's display; elsewhere `Unsupported`, the platform places windows),
+  `HeadlessWindow::is_centered`, and `El::focus_visibly` (focus with its ring shown).
+- **A second launch that waits for the first's answer**:
+  `AppConfig::single_instance_reply(timeout)` makes later launches wait for the running
+  instance's reply and exit with it (an installer's `--stop` getting its exit code), and
+  `single_instance_await_exit(timeout)` also waits for that instance's process to end (30 s
+  reply wait by default when only this is set: `SINGLE_INSTANCE_REPLY`). What
+  `App::on_second_instance` returns is the reply: nothing (0, so existing handlers compile
+  unchanged), an `i32`, or `InstanceReply::later()` for a code sent from any thread once slower
+  work is done (`ReplyLater::send`). Windows (the pipe is now duplex, one instance per waiting
+  launch) and Linux and macOS (the socket) both carry it; a reply that does not come in time
+  makes `run` fail with `RunError::SingleInstance`. `remedy_ui_bridge_windows` adds
+  `claim_single_instance_replying`, `ReplyWait`, `Claim` and `Replier`.
 - **Pointer hardware detection**: `SystemSettings::pointer_devices` says what the pointing
   hardware attached can do (`PointerCaps::of_devices`: a mouse or touchpad, else a touch
   screen, else a pen) and `Ui::set_pointer_hardware` starts `Ui::pointer_caps()` from it; the

@@ -5,3 +5,9 @@
 movable-moved-out = { $title } ist in einem eigenen Fenster.
 # The button that brings the content back from its window.
 movable-bring-back = Zurückholen
+
+## A question in a window of its own (App::confirm).
+# The button that answers yes.
+confirm-ok = OK
+# The button that answers no.
+confirm-cancel = Abbrechen

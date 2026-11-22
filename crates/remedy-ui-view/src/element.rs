@@ -3027,6 +3027,13 @@ impl El {
         crate::events::focus_changed(&self.ui);
     }
 
+    /// Moves keyboard focus here with its focus ring shown, as a Tab there would: a dialog's
+    /// default button, which Enter presses, looks chosen before any key is pressed.
+    pub fn focus_visibly(&self) {
+        self.ui.0.borrow_mut().focus_visible = true;
+        self.focus();
+    }
+
     /// The style the element would have in `states`, from the window's style sheet (and its
     /// own properties, and what it inherits): audits use it to check that focus, selection
     /// and the like are visible.
