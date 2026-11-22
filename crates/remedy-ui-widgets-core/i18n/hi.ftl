@@ -86,6 +86,7 @@ icon-exit-full-screen = फ़ुल स्क्रीन से बाहर �
 icon-theater-mode = थिएटर मोड
 icon-cast = कास्ट करें
 icon-casting = कास्ट हो रहा है
+icon-picture-in-picture = पिक्चर-इन-पिक्चर
 icon-captions = कैप्शन
 icon-back-10 = 10 सेकंड पीछे
 icon-forward-10 = 10 सेकंड आगे

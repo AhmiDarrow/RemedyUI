@@ -10,6 +10,35 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Web playback without WebCodecs**: where a page may not use WebCodecs (browsers offer it
+  only to secure pages, so not to a page at a LAN address over `http:`) or has none, a
+  player plays through a hidden `<video>` element: HLS is remuxed from MPEG-TS to fragmented
+  MP4 by the crate's own reader and fed to a Media Source Extensions `SourceBuffer` per
+  stream (`MediaSource`, or Safari's `ManagedMediaSource`; the element's own HLS where there
+  is neither), other sources go to the element as they are. Its sound and clock are the
+  element's; each frame it shows (`requestVideoFrameCallback`) is uploaded from the element
+  on the GPU renderer (WebGL2's `texSubImage2D`, WebGPU's copy) and drawn through a 2D canvas
+  for the CPU renderer. Seeks, timelines, `replace_source`, captions, volume, speed, the end
+  and the leak counters work as on WebCodecs. Chosen by itself; `PlayerOptions::web_backend`
+  (`WebBackend::Auto`, `WebCodecs`, `MediaSource`) and `platform_host_with` force one. How
+  far ahead the stream is handed to the element and how much played it keeps are
+  `MediaLimits::mse_ahead` and `mse_behind` (30 s each).
+- **A source that plays by itself**: `Decoder::playout` hands the player a `Playout` (its
+  clock, play, pause, seek, volume, speed, waiting, and its own picture in picture), for
+  decoders whose source plays its own sound; the player then opens no sound output.
+- **The mini player pauses**: `PlayerOptions::compact_pauses` and
+  `Player::set_compact_pauses` make going compact pause what plays here, as Portal's mini
+  player; a device the player casts to plays on, and coming back does not play again. Off by
+  default.
+- **Picture in picture**: `Player::request_pip`, `exit_pip`, `is_pip` and the tracked
+  `pip_available`, and `PlayerParts::pip_button` for a button in the widget's bar (hidden
+  where there is no window). In a page it is the media element's own picture in picture
+  when that plays, else Document Picture-in-Picture with the picture drawn in it; on Windows,
+  macOS and Linux `run` opens an always-on-top frameless window showing `player_picture`,
+  moved by dragging, resized from its edges, closed by a double click or Escape
+  (`set_pip_window` replaces it). The element's window stays open across a quality or sound
+  switch. New icon: `Icon::PictureInPicture`.
+
 - **Pointer hardware detection**: `SystemSettings::pointer_devices` says what the pointing
   hardware attached can do (`PointerCaps::of_devices`: a mouse or touchpad, else a touch
   screen, else a pen) and `Ui::set_pointer_hardware` starts `Ui::pointer_caps()` from it; the

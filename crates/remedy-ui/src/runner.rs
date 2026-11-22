@@ -3278,6 +3278,11 @@ impl remedy_ui_host::App for Runner {
                 self.suspended = false;
                 remedy_ui_view::device::set_total_memory(host.total_memory());
                 if let Some(setup) = self.setup.take() {
+                    #[cfg(all(
+                        feature = "playback",
+                        not(any(target_arch = "wasm32", target_os = "android", target_os = "ios"))
+                    ))]
+                    crate::pip::install(&self.app);
                     setup(&self.app);
                 } else {
                     // Back from a suspension: the windows are seen again, on new surfaces.

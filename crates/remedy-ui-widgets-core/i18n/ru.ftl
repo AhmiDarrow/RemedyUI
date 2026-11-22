@@ -86,6 +86,7 @@ icon-exit-full-screen = Выйти из полноэкранного режим�
 icon-theater-mode = Режим кинотеатра
 icon-cast = Трансляция
 icon-casting = Идёт трансляция
+icon-picture-in-picture = Картинка в картинке
 icon-captions = Субтитры
 icon-back-10 = Назад на 10 секунд
 icon-forward-10 = Вперёд на 10 секунд

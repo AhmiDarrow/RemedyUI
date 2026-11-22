@@ -71,6 +71,10 @@ playback-exit-full-screen = Exit full screen
 # Theater mode: the picture wide in the page. One name; screen readers say whether it is on.
 playback-theater-tip = Theater mode (T)
 playback-theater = Theater mode
+# Picture in picture: the picture in a small window of its own, over other windows.
+playback-pip-tip = Picture in picture
+playback-pip = Picture in picture
+playback-pip-exit = Leave picture in picture
 # Casting: the media plays on another device (a TV) and the controls drive it. One button
 # name that says whether it is casting; { $device } is the device's name ("Living room TV").
 playback-cast-tip = Cast to a TV or another screen
