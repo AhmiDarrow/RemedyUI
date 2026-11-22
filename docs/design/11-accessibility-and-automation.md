@@ -11,13 +11,14 @@ Building it once and building it well serves all three.
 ## Semantics
 
 - **Every element can carry semantics:**
-  - **Role:** button, checkbox, switch, slider, text field, link, list, list item, tree item, row, cell, tab, menu, menu item, dialog, alert, status, heading (with level), image, progress, group and others.
+  - **Role:** button, checkbox, switch, slider, text field, link, list, list item, list box and option (ARIA `listbox`/`option`: a list of choices, each selected or not, the list box single or `multiselectable`), tree item, row, cell, tab, menu, menu item, dialog, alert, status, heading (with level), image, progress, group and others.
   - **Name, description and value**, with value ranges and steps for sliders.
   - **States:** checked, selected, expanded, disabled, invalid, busy, required, read-only, protected.
   - **Relations:** labelled by, described by, controls, owns, flows to.
   - **Actions:** activate, increment, decrement, expand, collapse, scroll, set value, show menu, focus, and custom actions with labels.
 - **Built-in widgets declare their semantics completely.** An app gets an accessible button by writing `button(...)`.
-- **Merging.** A compound widget (a chat row with avatar, name, time and text) can merge its children into one node with a composed label: "Alex, 10:42, Meet at 10:30". Its actions (Reply, React, Copy) stay available as custom actions. A screen reader moves row by row instead of fragment by fragment. This is Flutter's semantics merging.
+- **Modals and popups.** A showing modal (`Semantics::modal`) makes everything outside it inert: hidden from assistive technology, and in a page's mirror `aria-hidden` and `inert`, as the rest of a page is behind a modal `<dialog>`. Buttons say what they open with `Semantics::has_popup` (`aria-haspopup`). A search field (`InputPurpose::Search`) is a search box.
+- **Merging. A compound widget (a chat row with avatar, name, time and text) can merge its children into one node with a composed label: "Alex, 10:42, Meet at 10:30". Its actions (Reply, React, Copy) stay available as custom actions. A screen reader moves row by row instead of fragment by fragment. This is Flutter's semantics merging.
 - **Virtual lists** report the full item count and each item's position, so "item 5,032 of 10,000" is right even though most items are not mounted.
 - **Live regions.** New chat messages, transfer progress and call status changes are announced politely or assertively, with throttling so a burst does not flood the reader.
 - **Protected content.** `secret_input` and other protected elements report as protected and never expose their text. Elements under a lock screen are removed from the tree.

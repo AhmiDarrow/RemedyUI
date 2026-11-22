@@ -176,3 +176,50 @@ async fn status(url: &str) -> String {
     let Ok(text) = resp.text() else { return String::new() };
     JsFuture::from(text).await.ok().and_then(|t| t.as_string()).unwrap_or_default()
 }
+
+/// Waits for `state` to settle on a decoded image or a failure.
+async fn settled(ui: &Ui, state: remedy_ui_reactive::Signal<ImageState>) -> ImageState {
+    let _ = until(ui, || {
+        state.with_untracked(|s| matches!(s, ImageState::Ready(..) | ImageState::Failed(_))).unwrap_or(false)
+    })
+    .await;
+    state.get_untracked().unwrap_or(ImageState::Loading)
+}
+
+#[wasm_bindgen_test]
+async fn the_browser_decodes_and_scales_pictures_to_the_size_they_show() {
+    let ui = ui();
+    // A 300×200 gradient shown in a 60×60 box: decoded at 60×40, the size it is drawn.
+    let mut png = Vec::new();
+    let pic =
+        image::RgbaImage::from_fn(300, 200, |x, y| image::Rgba([(x % 256) as u8, (y % 256) as u8, 128, 255]));
+    assert!(
+        image::DynamicImage::ImageRgba8(pic)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .is_ok()
+    );
+    let state = remedy_ui_reactive::Signal::new(ImageState::Loading);
+    let _req = load(&Source::Bytes(png.into()), Some((60, 60)), false, state);
+    match settled(&ui, state).await {
+        ImageState::Ready(img, source) => {
+            assert_eq!((img.width, img.height), (60, 40), "decoded at the size it shows");
+            assert_eq!(source, (300, 200), "its own size is reported");
+        }
+        other => unreachable!("not decoded: {other:?}"),
+    }
+    // AVIF: a format this build's decoder does not read, so only the browser's decoder can
+    // have decoded it.
+    let avif: &[u8] = include_bytes!("fixtures/red.avif");
+    let state = remedy_ui_reactive::Signal::new(ImageState::Loading);
+    let _req = load(&Source::Bytes(avif.into()), Some((32, 32)), false, state);
+    match settled(&ui, state).await {
+        ImageState::Ready(img, source) => {
+            assert_eq!(source, (64, 48));
+            assert_eq!((img.width, img.height), (32, 24), "scaled once its size was known");
+            let px = img.pixels.get(..4).map(<[u8]>::to_vec).unwrap_or_default();
+            assert!(px.first().is_some_and(|r| r.abs_diff(200) < 8) && px.get(3) == Some(&255), "{px:?}");
+        }
+        other => unreachable!("the browser's decoder was not used: {other:?}"),
+    }
+    assert!(matches!(decode(avif, None), Err(DecodeError::Unrecognized)), "the engine's own cannot");
+}

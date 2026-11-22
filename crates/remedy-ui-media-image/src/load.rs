@@ -197,9 +197,9 @@ fn spawn(cancelled: Arc<AtomicBool>, job: impl FnOnce() + Send + 'static) {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Key {
     source: SourceKey,
-    /// The box asked for, in device pixels, rounded up to a power of two (0 for the
-    /// source's own size), and whether the image covers it.
-    bucket: (u32, u32),
+    /// The box asked for, in device pixels (0 for the source's own size), and whether the
+    /// image covers it: an image is decoded at exactly the size it is shown.
+    box_px: (u32, u32),
     cover: bool,
 }
 
@@ -303,10 +303,6 @@ thread_local! {
     static CACHE: RefCell<Cache> = RefCell::default();
 }
 
-fn bucket(px: u32) -> u32 {
-    if px == 0 { 0 } else { px.next_power_of_two() }
-}
-
 /// A request for an image: dropping it (when the element showing it goes) withdraws it, and
 /// the work is skipped if nobody else wants the same image.
 #[derive(Debug)]
@@ -339,8 +335,7 @@ impl Drop for Request {
 ///
 /// Keep the returned request while the image is wanted.
 pub fn load(source: &Source, box_px: Option<(u32, u32)>, cover: bool, state: Signal<ImageState>) -> Request {
-    let key =
-        Key { source: source.key(), bucket: box_px.map_or((0, 0), |(w, h)| (bucket(w), bucket(h))), cover };
+    let key = Key { source: source.key(), box_px: box_px.unwrap_or((0, 0)), cover };
     CACHE.with(|c| {
         let mut c = c.borrow_mut();
         c.next_waiter += 1;
@@ -400,6 +395,26 @@ fn start(source: Source, key: Key, cancelled: Arc<AtomicBool>) {
 /// Decodes `source` (bytes fetched from an address hold nothing: the address is the key).
 fn decode_start(source: Source, key: Key, cancelled: Arc<AtomicBool>) {
     let held = if matches!(key.source, SourceKey::Url(_)) { None } else { hold(&source) };
+    // In a page the browser decodes and scales raster images, as it does an `<img>`: the same
+    // pixels, and off the page's thread. Formats added here (SVG) and a set router decode as
+    // everywhere else, and so does anything the browser cannot decode.
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    if router().is_none()
+        && let Ok((bytes, stamp)) = source.read_bytes()
+        && format_of(&bytes).is_none()
+    {
+        crate::web::decode(bytes, key_box(&key), key.cover, move |r| match r {
+            Ok(d) => finish(key, held, Ok((d.image, d.source_size, stamp))),
+            Err(_) if !cancelled.load(Ordering::Relaxed) => decode_here(source, key, cancelled, held),
+            Err(_) => {}
+        });
+        return;
+    }
+    decode_here(source, key, cancelled, held);
+}
+
+/// [`decode_start`] with the engine's own decoder, on the image workers.
+fn decode_here(source: Source, key: Key, cancelled: Arc<AtomicBool>, held: Option<Weak<[u8]>>) {
     let Ok(waker) = remedy_ui_reactive::waker() else {
         let result = decode_job(&source, &key_box(&key), key.cover);
         finish(key, held, result);
@@ -418,7 +433,7 @@ fn decode_start(source: Source, key: Key, cancelled: Arc<AtomicBool>) {
 }
 
 fn key_box(key: &Key) -> Option<(u32, u32)> {
-    (key.bucket != (0, 0)).then_some(key.bucket)
+    (key.box_px != (0, 0)).then_some(key.box_px)
 }
 
 type JobResult = Result<(Image, (u32, u32), Option<Stamp>), DecodeError>;

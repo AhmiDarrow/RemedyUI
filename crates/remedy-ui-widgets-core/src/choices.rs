@@ -198,7 +198,8 @@ pub fn segmented_unavailable(
 }
 
 /// A drop-down choice (a [`Role::ComboBox`], as a page's `<select>`): shows the chosen option;
-/// pressing opens the list. Typing a letter
+/// pressing opens the list, a [`Role::ListBox`] of [`Role::Option`]s with the chosen one
+/// selected. Typing a letter
 /// jumps to the next option starting with it; arrows step through the options.
 #[track_caller]
 pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected: Signal<usize>) -> El {
@@ -212,8 +213,12 @@ pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected:
     let open = Signal::new(false);
     let b = crate::button(ui, "", move || {
         let Some(a) = a2.borrow().clone() else { return };
-        let items =
-            opts.iter().enumerate().map(|(i, o)| MenuItem::new(o.clone(), move || selected.set(i))).collect();
+        let now = selected.get_untracked().ok();
+        let items = opts
+            .iter()
+            .enumerate()
+            .map(|(i, o)| MenuItem::option(o.clone(), now == Some(i), move || selected.set(i)))
+            .collect();
         open.set(true);
         let _ = menu(&ui2, &a, items).on_removed(move || open.set(false));
     });
@@ -235,6 +240,7 @@ pub fn select(ui: &Ui, label: impl Into<String>, options: Vec<String>, selected:
             Semantics::new(Role::ComboBox)
                 .label(label.clone())
                 .value(v)
+                .has_popup(remedy_ui_a11y::Popup::ListBox)
                 .expanded(open.get())
                 .action(Action::Click),
         );

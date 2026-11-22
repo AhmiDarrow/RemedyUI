@@ -714,7 +714,7 @@ type ReaderRow = (Option<String>, Option<(usize, usize)>, Vec<&'static str>, u64
 fn list_rows(t: &T) -> Vec<ReaderRow> {
     t.ui.reader_view()
         .into_iter()
-        .filter(|n| n.role == remedy_ui_a11y::Role::ListItem)
+        .filter(|n| n.role == remedy_ui_a11y::Role::Option)
         .map(|n| (n.name, n.position, n.states, n.id))
         .collect()
 }
@@ -853,6 +853,10 @@ fn choices_with_nothing_chosen_take_arrows_and_letters() {
     sel.focus();
     assert!(t.key(Key::Enter));
     assert_eq!(said().expanded_state(), Some(true), "open while its list shows");
+    // Its list is a list box of options, the chosen one selected.
+    let reader = t.ui.reader_view();
+    assert!(reader.iter().any(|n| n.role == remedy_ui_a11y::Role::ListBox), "a list box");
+    assert_eq!(reader.iter().filter(|n| n.role == remedy_ui_a11y::Role::Option).count(), 3, "three options");
     assert!(t.key(Key::Escape));
     t.frame();
     assert_eq!(said().expanded_state(), Some(false), "closed again");
