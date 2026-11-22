@@ -170,6 +170,13 @@ impl Java {
                     .i()
             })
             .ok();
+        let television = self
+            .call(|env, a| {
+                let c = configuration(env, a)?;
+                // UI_MODE_TYPE_MASK, UI_MODE_TYPE_TELEVISION.
+                Ok(env.get_field(&c, "uiMode", "I")?.i()? & 0x0f == 0x04)
+            })
+            .unwrap_or(false);
         AndroidSettings {
             night,
             font_scale,
@@ -178,6 +185,7 @@ impl Java {
             high_contrast_text,
             accent,
             double_tap_ms,
+            television,
         }
     }
 

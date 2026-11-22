@@ -856,6 +856,10 @@ pub struct SystemSettings {
     /// motion slows down or stops (the view's `AmbientPolicy`). False where the platform
     /// does not say.
     pub power_saving: bool,
+    /// The device is driven by arrow keys or a d-pad rather than a pointer: a TV, or a
+    /// browser with only a coarse (touch) pointer. Windows turn spatial navigation on unless
+    /// the app chose (the view's `Ui::set_spatial_navigation`). False on desktops.
+    pub spatial_navigation: bool,
 }
 
 impl Default for SystemSettings {
@@ -873,6 +877,7 @@ impl Default for SystemSettings {
             caret_blink: Some(Duration::from_millis(530)),
             subpixel_text: None,
             power_saving: false,
+            spatial_navigation: false,
         }
     }
 }
