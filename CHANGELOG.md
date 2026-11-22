@@ -962,6 +962,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **An image's remembered size is never another image's** (`media-image`). Byte sources are
+  keyed by address and length; the size and decode caches now hold a `Weak` to the bytes, so
+  the address cannot be reused by a new download while an entry exists, and drop the entry
+  once the bytes are freed. `probe` checks a file's size and modification time (off the UI
+  thread) and re-reads its size when the file changed. Remembered sizes are capped at 1024,
+  least recently used first (`known_sizes()` counts them).
 - **An HLS stream on GStreamer's software H.264 decoder shows its first picture at once**,
   not half a second late, on opening and on every seek. `avdec_h264` holds a picture for
   each of its frame threads (19 units on a 16-thread machine) before giving any out, and
