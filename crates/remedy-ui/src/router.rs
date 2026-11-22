@@ -534,7 +534,9 @@ impl Router {
     )]
     fn write_address(&self, index: usize, replace: bool) {
         #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
-        history::write(&self.route_untracked().to_string(), index as u32, replace);
+        if let Some(e) = self.inner.borrow().entries.get(index) {
+            history::write(&e.route.to_string(), index as u32, replace);
+        }
     }
 }
 
