@@ -818,14 +818,17 @@ fn an_app_language_outlasts_the_system_s_until_it_is_cleared() {
     let mut s = {
         let mut v_ = remedy_ui::host::SystemSettings::default();
         v_.locale = "de-DE".into();
+        v_.locales = vec!["de-DE".into(), "fr".into(), "en".into()];
         v_
     };
     host.send(HostEvent::Settings(s.clone()));
     host.run_frames(&mut runner, 1);
     assert_eq!(locale(&ui_slot).as_deref(), Some("de-DE"));
+    assert_eq!(runner.app().preferred_locales(), ["de-DE", "fr", "en"]);
     runner.app().set_locale(Some("ja".into()));
     host.run_frames(&mut runner, 1);
     assert_eq!(locale(&ui_slot).as_deref(), Some("ja"));
+    assert_eq!(runner.app().preferred_locales(), ["de-DE", "fr", "en"], "the user's list, not the app's");
     s.locale = "fr-FR".into();
     host.send(HostEvent::Settings(s));
     host.run_frames(&mut runner, 1);

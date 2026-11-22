@@ -8,8 +8,8 @@ use icu_calendar::Gregorian;
 use icu_calendar::types::Weekday as IcuWeekday;
 use icu_datetime::FixedCalendarDateTimeFormatter;
 use icu_datetime::fieldsets;
-use icu_decimal::DecimalFormatter;
 use icu_decimal::input::Decimal as IcuDecimal;
+use icu_decimal::{CompactDecimalFormatter, DecimalFormatter};
 use icu_locale_core::Locale;
 
 use crate::calendar::{Date, Weekday};
@@ -28,6 +28,8 @@ pub struct NumberSymbols {
     pub minus: char,
     /// The locale's digits, zero to nine.
     pub digits: [char; 10],
+    /// The locale these are for, which [`NumberSymbols::compact`] formats in.
+    tag: String,
 }
 
 impl Default for NumberSymbols {
@@ -38,6 +40,7 @@ impl Default for NumberSymbols {
             grouping: (3, 3),
             minus: '-',
             digits: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+            tag: String::from("und"),
         }
     }
 }
@@ -53,7 +56,8 @@ impl NumberSymbols {
         if let Some(s) = CACHE.with(|c| c.borrow().get(tag).cloned()) {
             return s;
         }
-        let s = Self::read(tag).unwrap_or_default();
+        let s =
+            Self::read(tag).unwrap_or_else(|| NumberSymbols { tag: tag.to_owned(), ..Default::default() });
         CACHE.with(|c| c.borrow_mut().insert(tag.to_owned(), s.clone()));
         s
     }
@@ -106,7 +110,76 @@ impl NumberSymbols {
                 decimal = c;
             }
         }
-        Some(NumberSymbols { decimal, group, grouping: (primary, secondary), minus, digits })
+        Some(NumberSymbols {
+            decimal,
+            group,
+            grouping: (primary, secondary),
+            minus,
+            digits,
+            tag: tag.to_owned(),
+        })
+    }
+
+    /// A count written short, the locale's way: `1.2K` and `3.4M` in en, `1234` and `1.2万`
+    /// in ja, `১.২ হা` in bn. Below a thousand it is the number itself; at most one fraction
+    /// digit, and only below ten. [`NumberSymbols::compact_with`] tunes both.
+    pub fn compact(&self, v: Decimal) -> String {
+        self.compact_with(v, CompactOptions::default())
+    }
+
+    /// [`NumberSymbols::compact`] with `options`: where shortening starts and how many digits
+    /// stay.
+    pub fn compact_with(&self, v: Decimal, options: CompactOptions) -> String {
+        type Formatters = Option<Rc<(CompactDecimalFormatter, DecimalFormatter)>>;
+        thread_local!(static CACHE: RefCell<HashMap<String, Formatters>> = RefCell::new(HashMap::new()));
+        let fs = CACHE.with(|c| {
+            c.borrow_mut()
+                .entry(self.tag.clone())
+                .or_insert_with(|| {
+                    let loc = locale(&self.tag);
+                    let compact =
+                        CompactDecimalFormatter::try_new_short((&loc).into(), Default::default()).ok()?;
+                    let plain = DecimalFormatter::try_new((&loc).into(), Default::default()).ok()?;
+                    Some(Rc::new((compact, plain)))
+                })
+                .clone()
+        });
+        let (m, s) = v.parts();
+        let below = options.threshold.is_some_and(|t| Decimal::new(m.abs(), s).is_some_and(|a| a < t));
+        let (Some(fs), Ok(mut d)) = (fs, v.to_string().parse::<IcuDecimal>()) else {
+            return self.format(v, v.scale());
+        };
+        let (f, plain) = (&fs.0, &fs.1);
+        if below {
+            return plain.format(&d).to_string();
+        }
+        // Twice at most: rounding 999.95K up to 1000K moves it into the next unit (1M).
+        for _ in 0..2 {
+            let magnitude = d.nonzero_magnitude_start();
+            let exponent = f.compact_exponent_for_magnitude(magnitude);
+            if exponent == 0 {
+                // Below the locale's first unit: the count itself, grouped as CLDR groups
+                // compact numbers (1234 in de, 15.000).
+                return f.format(&d).to_string();
+            }
+            let whole = magnitude - i16::from(exponent) + 1;
+            let mut sig = d.clone();
+            sig.multiply_pow10(-i16::from(exponent));
+            sig.round(-(i16::from(options.significant_digits) - whole).max(0));
+            if f.compact_exponent_for_magnitude(sig.nonzero_magnitude_start() + i16::from(exponent))
+                != exponent
+            {
+                sig.multiply_pow10(i16::from(exponent));
+                d = sig;
+                continue;
+            }
+            sig.trim_end();
+            if let Ok(w) = f.format_with_exponent(&sig, exponent) {
+                return w.to_string();
+            }
+            break;
+        }
+        f.format(&d).to_string()
     }
 
     /// Writes `v` with exactly `places` fraction digits (rounded), grouped.
@@ -216,6 +289,8 @@ pub struct CalendarSymbols {
     month_year: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YM>>>,
     time: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::T>>>,
     full_date: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YMD>>>,
+    medium_date: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YMD>>>,
+    date_time: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YMDT>>>,
 }
 
 impl CalendarSymbols {
@@ -284,7 +359,27 @@ impl CalendarSymbols {
             FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new((&loc).into(), fieldsets::YMD::long())
                 .ok()
                 .map(Rc::new);
-        CalendarSymbols { first_weekday, weekdays, twelve_hour, day_periods, month_year, time, full_date }
+        let medium_date =
+            FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new((&loc).into(), fieldsets::YMD::medium())
+                .ok()
+                .map(Rc::new);
+        let date_time = FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new(
+            (&loc).into(),
+            fieldsets::YMDT::medium().with_time_precision(icu_datetime::options::TimePrecision::Minute),
+        )
+        .ok()
+        .map(Rc::new);
+        CalendarSymbols {
+            first_weekday,
+            weekdays,
+            twelve_hour,
+            day_periods,
+            month_year,
+            time,
+            full_date,
+            medium_date,
+            date_time,
+        }
     }
 
     /// "November 2026" for a month.
@@ -302,6 +397,29 @@ impl CalendarSymbols {
         match (&self.full_date, d) {
             (Some(f), Some(d)) => f.format(&d).to_string(),
             _ => date.to_string(),
+        }
+    }
+
+    /// "Nov 21, 2026" for a date: the month abbreviated where the locale does (`21.11.2026`
+    /// in de, `2026/11/21` in ja).
+    pub fn medium_date(&self, date: Date) -> String {
+        let d = icu_calendar::Date::try_new_gregorian(date.year, date.month, date.day).ok();
+        match (&self.medium_date, d) {
+            (Some(f), Some(d)) => f.format(&d).to_string(),
+            _ => date.to_string(),
+        }
+    }
+
+    /// A date and a time to the minute, as the locale writes them together: "Nov 21, 2026,
+    /// 2:30 PM" in en-US, "21.11.2026, 14:30" in de, with the locale's 12- or 24-hour clock.
+    pub fn date_time(&self, date: Date, time: crate::calendar::Time) -> String {
+        let d = icu_calendar::Date::try_new_gregorian(date.year, date.month, date.day).ok();
+        let t = icu_datetime::input::Time::try_new(time.hour, time.minute, 0, 0).ok();
+        match (&self.date_time, d, t) {
+            (Some(f), Some(date), Some(time)) => {
+                f.format(&icu_datetime::input::DateTime { date, time }).to_string()
+            }
+            _ => format!("{}, {}", self.medium_date(date), self.format_time(time)),
         }
     }
 
@@ -337,4 +455,132 @@ impl CalendarSymbols {
     pub fn weekday(&self, d: Weekday) -> &str {
         self.weekdays.get(d.index_from_monday()).map_or("", String::as_str)
     }
+}
+
+/// How [`NumberSymbols::compact_with`] shortens a count.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CompactOptions {
+    /// Counts below this (ignoring the sign) are written whole and grouped, `5,432`; `None`,
+    /// the default, shortens from the locale's first unit (a thousand in en, ten thousand in
+    /// ja, a million in de).
+    pub threshold: Option<Decimal>,
+    /// Significant digits kept, whole digits never dropped: 2, the default, gives `1.2K`,
+    /// `12K`, `123K`; 3 gives `1.23K`, `12.3K`, `123K`; 1 gives `1K`.
+    pub significant_digits: u8,
+}
+
+impl Default for CompactOptions {
+    fn default() -> Self {
+        CompactOptions { threshold: None, significant_digits: 2 }
+    }
+}
+
+impl CompactOptions {
+    /// Sets [`CompactOptions::threshold`].
+    #[must_use]
+    pub fn threshold(mut self, at: Decimal) -> Self {
+        self.threshold = Some(at);
+        self
+    }
+
+    /// Sets [`CompactOptions::significant_digits`].
+    #[must_use]
+    pub fn significant_digits(mut self, n: u8) -> Self {
+        self.significant_digits = n;
+        self
+    }
+}
+
+/// A language's name in `locale` (the window's language): `language_name_in("de", "fr")` is
+/// "Französisch", `language_name_in("en", "pt-BR")` "Brazilian Portuguese",
+/// `language_name_in("en", "ger")` "German". Codes are BCP 47 or ISO 639-2 (`ger`, `fre`,
+/// `chi`, as media files tag tracks). Names begin with a capital, as a menu or a list shows
+/// them. The `language-<code>` messages come first: the engine's in `i18n/*.ftl`, and any an
+/// app adds with [`remedy_ui_view::strings::add_messages`] under `services-i18n`. With the
+/// `language-names` feature (on in `remedy-ui`), every language CLDR names is named in every
+/// locale CLDR has; without it, only the engine's shipped languages, `pt-BR` and `zh-Hans`.
+/// A region or script with no name of its own gets the language's; a language with no name
+/// comes back as given.
+pub fn language_name_in(locale: &str, code: &str) -> String {
+    let tag = language_code(code);
+    let base = tag.split('-').next().unwrap_or_default().to_owned();
+    let source = crate::STRINGS.locales().first().map_or("en", |l| *l);
+    let message = |in_locale: &str, t: &str| {
+        let id = format!("language-{t}");
+        let name = crate::STRINGS.format_in(in_locale, &id, &[]);
+        (name != format!("\u{27E8}{id}\u{27E9}")).then_some(name)
+    };
+    // A message the window's language has, not the source language's reached by fallback.
+    let lang = |t: &str| t.split(['-', '_']).next().map(str::to_ascii_lowercase);
+    let own = |t: &str| {
+        message(locale, t).filter(|n| lang(locale) == lang(source) || Some(n) != message(source, t).as_ref())
+    };
+    for t in [&tag, &base] {
+        if let Some(n) = own(t).or_else(|| cldr_name(locale, t)) {
+            return n;
+        }
+    }
+    message(locale, &tag).or_else(|| message(locale, &base)).unwrap_or_else(|| code.to_owned())
+}
+
+/// `code` as a BCP 47 tag, ISO 639-2 and other aliases replaced (`ger` and `deu` are `de`).
+#[cfg(feature = "language-names")]
+fn language_code(code: &str) -> String {
+    let tag = crate::canonical_locale(code);
+    let Ok(mut l) = tag.parse::<Locale>() else { return tag };
+    icu_locale::LocaleCanonicalizer::new_common().canonicalize(&mut l);
+    l.to_string()
+}
+
+/// `code` as a BCP 47 tag, the ISO 639-2 codes of the shipped languages replaced.
+#[cfg(not(feature = "language-names"))]
+fn language_code(code: &str) -> String {
+    let tag = crate::canonical_locale(code);
+    let (lang, rest) = tag.split_once('-').unwrap_or((tag.as_str(), ""));
+    let short = match lang.to_ascii_lowercase().as_str() {
+        "ara" => "ar",
+        "ben" => "bn",
+        "ger" | "deu" => "de",
+        "eng" => "en",
+        "spa" => "es",
+        "fre" | "fra" => "fr",
+        "hin" => "hi",
+        "jpn" => "ja",
+        "por" => "pt",
+        "rus" => "ru",
+        "chi" | "zho" => "zh",
+        _ => return tag,
+    };
+    if rest.is_empty() { short.to_owned() } else { format!("{short}-{rest}") }
+}
+
+/// CLDR's name for `tag` in `locale`, capitalized; `None` where CLDR does not name all of it.
+#[cfg(feature = "language-names")]
+fn cldr_name(locale: &str, tag: &str) -> Option<String> {
+    use icu_locale::names::{
+        DisplayNamesPreferences, LanguageIdentifierDisplayName, LanguageIdentifierDisplayNameOptions,
+    };
+    use writeable::TryWriteable;
+    let id = tag.parse::<icu_locale_core::LanguageIdentifier>().ok()?;
+    let prefs = DisplayNamesPreferences::from(&self::locale(locale));
+    let name = LanguageIdentifierDisplayName::try_new_heavy(
+        prefs,
+        id,
+        LanguageIdentifierDisplayNameOptions::default(),
+    )
+    .ok()?;
+    let name = name.as_borrowed().try_write_to_string().ok()?.into_owned();
+    let mut chars = name.chars();
+    let first = chars.next()?;
+    Some(first.to_uppercase().chain(chars).collect())
+}
+
+#[cfg(not(feature = "language-names"))]
+fn cldr_name(_: &str, _: &str) -> Option<String> {
+    None
+}
+
+/// [`language_name_in`] the window's language (tracked: it follows the locale).
+pub fn language_name(ui: &remedy_ui_view::Ui, code: &str) -> String {
+    language_name_in(&ui.locale(), code)
 }

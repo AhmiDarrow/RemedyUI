@@ -27,6 +27,42 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   `bridge-windows` `set_instance_wait` and `bridge-linux` `set_drop_waits` beneath them. The
   safety bounds say what raising them risks. The text, network and performance guides have
   tables of them.
+- **Gradient backgrounds** in `style`: `StylePatch::background_layers` and
+  `Style::background_layers` take `Gradient`s drawn over the background colour, the first on
+  top, as CSS `background-image`: `Gradient::linear(angle, stops)`, `Gradient::ellipse(at,
+  stops)` and `Gradient::circle(at, stops)` with `.size(RadialSize::Extent(Extent::ClosestSide
+  | ClosestCorner | FarthestSide | FarthestCorner))` or explicit radii, and
+  `Gradient::conic(from, at, stops)`. Stops (`GradientStop::new(color).at(0.62).alpha(0.16)`)
+  take theme roles, which resolve through the theme and again on each theme change, and an
+  alpha, as `color-mix(in srgb, var(--gold) 16%, transparent)`. `Gradient::parse` and
+  `parse_layers` read CSS gradient text (`var(--role)`, `rgb()`, `#hex`, `color-mix` with
+  `transparent`, `px`/`rem`/`%`, angles and `to <side>`); `Gradient::geometry` places one in a
+  box as CSS does, and `remedy_ui_view::gradient_brush` turns it into a brush. Portal's
+  gradients (page glow, poster art, cast screen, hero and info scrims, full-screen scrims,
+  seek track) match Chrome drawing the same CSS to within 5 levels
+  (`devtools/tests/portal_gradients.rs`); the GPU matches the CPU.
+- `paint`: `Brush::Elliptical { center, radii, stops }` (an axis-aligned elliptical radial
+  gradient) and `Brush::Conic { center, start_angle, stops }`, drawn the same by the CPU and
+  GPU renderers (a unit gradient under a paint transform).
+- `themes`: Portal's CSS variable names as custom colours of `portal_theme` (`gold`, `raised`,
+  `well`), and `portal_page_layers()` / `PORTAL_PAGE_CSS`, Portal's page background.
+
+- **Locale formats** in `services-i18n`, as Portal writes dates, counts and languages:
+  `CalendarSymbols::medium_date` ("Nov 21, 2026", `21.11.2026` in de, `2026/11/21` in ja),
+  `CalendarSymbols::date_time` (a date and a time to the minute on the locale's 12- or 24-hour
+  clock: "Nov 21, 2026, 2:30 PM", `21.11.2026, 14:30`), `NumberSymbols::compact` ("1.2K",
+  "3.4M"; `340万` in ja, `34 লা` in bn) from ICU4X's compiled data (`icu_decimal`'s compact
+  formatter, no new crate; `compact_with` and `CompactOptions` set where shortening starts and
+  how many significant digits stay, defaults 2 and the locale's first unit), and `language_name(ui, code)` / `language_name_in(locale, code)`
+  ("Französisch" for `fr` in de, "Brazilian Portuguese" for `pt-BR`, "German" for `ger`):
+  every language CLDR names in every locale CLDR has, from ICU4X's display names
+  (`icu_locale`, the `language-names` feature, on by default in `remedy-ui`, about 3 MB;
+  without it, the engine's shipped languages), ISO 639-2 codes as media files tag tracks, and
+  apps' own `language-<code>` messages (`add_messages`) first. `SystemSettings::locales` is the user's
+  preferred languages in order (`navigator.languages`, the Windows display languages,
+  `LANGUAGE` then `LC_ALL`/`LC_MESSAGES`/`LANG` on Linux, `NSLocale.preferredLanguages` on
+  macOS, Android's locale list; `[locale]` where there is no list), read by apps as
+  `App::preferred_locales()`. `SystemSettings::locale` is unchanged.
 - **Every drawing and rendering limit is configurable**, each default kept and public, and
   read the same by the CPU and GPU renderers: `paint` `PaintLimits` with `set_paint_limits`
   (groups open at once, glass depth and panes per raster, colour-matrix depth and groups per
@@ -1063,6 +1099,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- `Brush` has two new variants (`Elliptical`, `Conic`); code matching every variant adds them.
+- `Theme::families` puts the body's families after a heading or monospace list, as a CSS font
+  list ends in a face the page has: a heading face the app did not bundle draws in the body
+  face instead of not at all (Portal's "Films" heading drew nothing in previews, which bundle
+  Remedy Sans UI but not Ahmi Pixel or Remedy Sans; its colour was fine).
 - **`TrayItem` has two more kinds and `Item` one more field** (a major change of the host
   contract, which is exhaustive on purpose). What to do: write `TrayItem::item(id, label)`
   (or add `default: false` to a `TrayItem::Item { .. }` literal), and give a `match` on

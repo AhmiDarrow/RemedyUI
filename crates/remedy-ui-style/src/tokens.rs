@@ -462,6 +462,9 @@ impl From<f32> for Pad {
 pub struct Style {
     /// Background fill.
     pub background: Option<ColorRef>,
+    /// Gradient layers over the background fill, the first on top (CSS `background-image`);
+    /// their stops may be theme roles.
+    pub background_layers: Option<Vec<crate::Gradient>>,
     /// Text and icon color.
     pub foreground: Option<ColorRef>,
     /// Border color.
@@ -518,6 +521,25 @@ impl Style {
     /// Background fill.
     pub fn background(mut self, c: impl Into<ColorRef>) -> Self {
         self.background = Some(c.into());
+        self
+    }
+
+    /// Gradient layers drawn over the background fill, the first on top (CSS
+    /// `background-image`). Their stops may be theme roles.
+    ///
+    /// ```
+    /// use remedy_ui_style::*;
+    /// let glow = Gradient::parse(
+    ///     "radial-gradient(circle, color-mix(in srgb, var(--accent) 16%, transparent), transparent 62%)",
+    /// )
+    /// .unwrap();
+    /// let theme = Theme::dark_forest();
+    /// let p = Style::new().background(ColorRole::Card).background_layers([glow]).resolve(&theme);
+    /// let layers = p.background_layers.unwrap_or_default();
+    /// assert_eq!(layers[0].stop_list()[0].color, ColorRef::Value(theme.colors.accent));
+    /// ```
+    pub fn background_layers(mut self, layers: impl IntoIterator<Item = crate::Gradient>) -> Self {
+        self.background_layers = Some(layers.into_iter().collect());
         self
     }
 
@@ -720,6 +742,7 @@ impl Style {
         };
         Style {
             background: other.background.or(self.background),
+            background_layers: other.background_layers.clone().or_else(|| self.background_layers.clone()),
             foreground: other.foreground.or(self.foreground),
             border: other.border.or(self.border),
             border_width: other.border_width.or(self.border_width),
@@ -759,7 +782,11 @@ impl Style {
         let dp = |d: Option<Dp>| d.is_none_or(|d| !d.is_token());
         let c = |c: Option<ColorRef>| !matches!(c, Some(ColorRef::Role(_)));
         let pad = self.padding.is_none_or(|p| [p.top, p.end, p.bottom, p.start].into_iter().all(dp));
+        let layers_plain = self.background_layers.as_ref().is_none_or(|l| {
+            l.iter().all(|g| g.stop_list().iter().all(|s| matches!(s.color, ColorRef::Value(_))))
+        });
         c(self.background)
+            && layers_plain
             && c(self.foreground)
             && c(self.border)
             && c(self.outline)
@@ -784,6 +811,10 @@ impl Style {
         let c = |c: Option<ColorRef>| c.map(|c| c.resolve(theme));
         StylePatch {
             background: c(self.background),
+            background_layers: self
+                .background_layers
+                .as_ref()
+                .map(|l| l.iter().map(|g| g.resolve(theme)).collect()),
             foreground: c(self.foreground),
             border: c(self.border),
             border_width: dp(self.border_width),
@@ -813,6 +844,7 @@ impl From<StylePatch> for Style {
     fn from(p: StylePatch) -> Self {
         Style {
             background: p.background.map(ColorRef::Value),
+            background_layers: p.background_layers,
             foreground: p.foreground.map(ColorRef::Value),
             border: p.border.map(ColorRef::Value),
             border_width: p.border_width.map(Dp::Px),

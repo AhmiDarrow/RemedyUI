@@ -34,6 +34,7 @@ A **theme** is a typed set of design tokens, organized the way modern design sys
   1. the widget's default
   2. the theme's entry for that widget, variant and state
   3. properties the app set on that element
+- **Gradient backgrounds.** `background_layers` stacks gradients over the background colour, the first on top, as CSS `background-image`: linear at an angle, radial as a circle or an axis-aligned ellipse (sized by radii or CSS's `closest-side`, `closest-corner`, `farthest-side`, `farthest-corner`) at any position, and conic. Stops are colours or theme roles with an alpha (`color-mix(in srgb, var(--gold) 16%, transparent)`), placed as CSS places them. `Gradient::parse` reads CSS gradient text, so a web app's backgrounds carry over as written. They paint as display-list brushes (`Brush::Linear`, `Radial`, `Elliptical`, `Conic`), the same on both renderers.
 - **Inheritance.** Only text properties are inherited (font, size, color, line height, direction), through context, as in Flutter and CSS.
 - **Speed.** Resolved styles are cached by (widget kind, variant, state bits, theme version). Hovering a button is a cache hit, not a computation.
 
