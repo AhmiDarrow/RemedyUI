@@ -478,7 +478,9 @@ async fn an_app_runs_in_the_page() {
         ("Notes", "textarea", "  off enter "),
         ("Message", "input", "text  off done "),
     ] {
-        let mirrored = query(&format!("[role=textbox][aria-label='{label}']")).must("the mirrored field");
+        // A search field is a search box to assistive technology; the others text boxes.
+        let role = if label == "Find" { "searchbox" } else { "textbox" };
+        let mirrored = query(&format!("[role={role}][aria-label='{label}']")).must("the mirrored field");
         let (x, y) = center(&mirrored);
         pointer(&target, "pointerdown", x, y, 1);
         pointer(&target, "pointerup", x, y, 0);
