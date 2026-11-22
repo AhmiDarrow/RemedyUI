@@ -10,6 +10,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Android: an app can offer an APK it already has to the system installer** (`android::install_apk`), served through the existing share `FileProvider`. The person taps Install, and their data is kept. If the “install unknown apps” setting is off, the settings page for this app is opened instead (`android::can_request_package_installs`). Share cleanup leaves named (non-numeric) folders under the share cache, so a downloaded APK is not deleted when a later share starts. Launch extras and these installer calls keep working after the event loop has started (the activity is no longer taken out of the process hook when the loop begins).
+
 - **Routes and deep links** (`remedy_ui::router`, feature `widgets`), for Portal's
   `#/home`, `#/browse/<path>` and `#/settings/<id>`: a `Router` holds the route (a signal of
   `Route`: path, decoded segments, query, `matches("/settings/:id")` and `"/browse/*path"`)
