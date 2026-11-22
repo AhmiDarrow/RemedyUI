@@ -31,6 +31,8 @@ mod instance;
 
 #[cfg(feature = "widgets")]
 mod movable;
+#[cfg(feature = "widgets")]
+pub mod router;
 mod runner;
 /// Driving an app in tests on the in-memory host: find by role and name, press, type.
 #[cfg(all(feature = "headless", feature = "widgets"))]
