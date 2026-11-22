@@ -92,7 +92,11 @@ pub(crate) fn open(player: &Player) {
         let Ok(win) = JsFuture::from(js_sys::Promise::from(asked)).await else { return };
         let doc = get(&win, "document");
         let body = get(&doc, "body");
-        let _ = Reflect::set(&get(&body, "style"), &"cssText".into(), &"margin:0;background:#000;overflow:hidden".into());
+        let _ = Reflect::set(
+            &get(&body, "style"),
+            &"cssText".into(),
+            &"margin:0;background:#000;overflow:hidden".into(),
+        );
         let Ok(canvas) = call(&doc, "createElement", &["canvas".into()]) else { return };
         let _ = Reflect::set(
             &get(&canvas, "style"),
