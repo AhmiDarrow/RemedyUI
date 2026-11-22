@@ -793,6 +793,8 @@ struct Shared {
     #[cfg(feature = "desktop")]
     power: Option<remedy_ui_services_desktop::power::PowerWatch>,
     on_activity: Option<Rc<dyn Fn()>>,
+    /// Told when the app may be ended without another word ([`App::on_leaving`]).
+    on_leaving: Option<Rc<dyn Fn()>>,
     /// Told the system's light/dark preference and high contrast, now and when they change.
     on_appearance: Option<AppearanceFn>,
     /// Hears the app's language (its own, or the system's) when it changes.
@@ -948,6 +950,18 @@ impl App {
     /// Calls `f` when the user uses the app (pointer, keys, text), at most once a second.
     pub fn on_activity(&self, f: impl Fn() + 'static) {
         self.0.borrow_mut().on_activity = Some(Rc::new(f));
+    }
+
+    /// Calls `f` whenever the app may be ended without another word: its page hidden or
+    /// closed (a browser tab put away, closed or reloaded), every window out of sight (all
+    /// minimized), the app suspended (a phone app sent to the background), quitting, or its
+    /// last window closing. The last moment for an app to stop its work and save: `f` runs
+    /// at once, inside the browser's own `visibilitychange` or `pagehide`, so a request it
+    /// starts with `net::Request::keepalive` (feature `net`) still goes out as the page closes (natively, quitting waits for it,
+    /// [`AppConfig::keepalive_grace`]). It may run more than once on the way out (hidden,
+    /// then closed); the app may also come back (shown again). A second call replaces `f`.
+    pub fn on_leaving(&self, f: impl Fn() + 'static) {
+        self.0.borrow_mut().on_leaving = Some(Rc::new(f));
     }
 
     /// Calls `f(prefers_dark, high_contrast)` with the system's appearance now (once the
@@ -2914,6 +2928,7 @@ impl Runner {
     /// can end a background app or a hidden tab at any time).
     /// Geometry is written when a write is due (or `always`, when the app quits).
     fn save_now(&mut self, host: &mut dyn Host, always: bool) {
+        self.leaving();
         let due = self.save_timer.take().inspect(|t| host.cancel_timer(*t)).is_some();
         if due || always {
             let _ = self.geometry.save();
@@ -2921,6 +2936,14 @@ impl Runner {
         let store = self.app.0.borrow().persist.clone();
         if let Some(s) = store {
             let _ = s.flush();
+        }
+    }
+
+    /// Tells the app it may be ended ([`App::on_leaving`]).
+    fn leaving(&self) {
+        let f = self.app.0.borrow().on_leaving.clone();
+        if let Some(f) = f {
+            f();
         }
     }
 
@@ -3740,6 +3763,7 @@ impl remedy_ui_host::App for Runner {
                     (s.open.is_empty(), s.keep_running)
                 };
                 if none_left && !keep {
+                    self.leaving();
                     let _ = self.geometry.save();
                     host.exit();
                 }

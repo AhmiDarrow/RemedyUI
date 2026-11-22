@@ -22,12 +22,10 @@ fn gpu() -> GpuRenderer {
 fn scene() -> DisplayList {
     let mut l = DisplayList::new();
     l.fill_rect(Rect::new(4.0, 4.0, 60.0, 40.0), Brush::Solid(Color::rgb8(220, 40, 40)));
-    l.fill_rounded(
-        Rect::new(70.0, 4.0, 150.0, 40.0),
-        CornerRadii::all(10.0),
-        Brush::Solid(Color::rgb8(30, 120, 60)),
-    );
-    l.border(Rect::new(160.0, 4.0, 230.0, 40.0), CornerRadii::all(6.0), 3.0, Color::BLACK);
+    // Corners of their own (a style's `corners`): round at the top, square at the bottom end.
+    let top = CornerRadii { top_start: 14.0, top_end: 10.0, bottom_end: 0.0, bottom_start: 4.0 };
+    l.fill_rounded(Rect::new(70.0, 4.0, 150.0, 40.0), top, Brush::Solid(Color::rgb8(30, 120, 60)));
+    l.border(Rect::new(160.0, 4.0, 230.0, 40.0), top, 3.0, Color::BLACK);
     let stops = vec![
         Stop { offset: 0.0, color: Color::BLACK },
         Stop { offset: 1.0, color: Color::rgb8(80, 160, 255) },
@@ -52,7 +50,10 @@ fn scene() -> DisplayList {
     let mut line = Path::new();
     line.move_to(Point::new(180.0, 90.0)).line_to(Point::new(225.0, 135.0));
     l.push(Item::StrokePath { path: line, stroke: Stroke::new(3.0), brush: Brush::Solid(Color::BLACK) });
-    l.push_clip(Rect::new(4.0, 140.0, 60.0, 170.0), CornerRadii::all(4.0));
+    l.push_clip(
+        Rect::new(4.0, 140.0, 60.0, 170.0),
+        CornerRadii { top_start: 12.0, top_end: 12.0, ..CornerRadii::ZERO },
+    );
     l.push(Item::PushLayer { opacity: 0.5, blend: Blend::Normal });
     l.fill_rect(Rect::new(0.0, 130.0, 100.0, 180.0), Brush::Solid(Color::rgb8(0, 0, 200)));
     l.push(Item::PopLayer);
@@ -121,6 +122,10 @@ fn gpu_golden_images_match_the_cpu_reference() {
             g.context().describe()
         );
         assert_eq!(differing(&cpu, &gpu, 64), 0, "no pixel differs grossly at {scale}x");
+        // Per-corner radii: the round top start corner is clear, the square bottom end filled.
+        let px = |x: f32, y: f32| gpu.pixel((x * scale) as u32, (y * scale) as u32).unwrap_or([0; 4]);
+        assert_eq!(px(71.0, 5.0), [255, 255, 255, 255], "the top start corner is round");
+        assert!(px(149.0, 39.0)[1] > 100 && px(149.0, 39.0)[0] < 60, "the bottom end is square");
     }
 }
 

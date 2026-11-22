@@ -1181,11 +1181,24 @@ fn webcodecs() -> bool {
         && has_global("AudioDecoder")
 }
 
+/// Whether the page runs in Firefox.
+fn firefox() -> bool {
+    let agent = get(&get(&js_sys::global(), "navigator"), "userAgent");
+    agent.as_string().is_some_and(|a| a.contains("Firefox/"))
+}
+
 pub(crate) fn host(backend: crate::WebBackend) -> Result<Arc<dyn MediaHost>, MediaError> {
     let element = match backend {
         crate::WebBackend::WebCodecs => false,
         crate::WebBackend::MediaSource => true,
-        _ => !webcodecs(),
+        // shortcut: Firefox plays through the media element, as a page's own `<video>` does,
+        // because Portal saw WebCodecs stay in Buffering there on its HLS. Not reproduced on
+        // this crate's own runs (Firefox headless, CPU and GPU renderers, H.264 at 720p and
+        // 1080p with B-frames, AAC, a still frame with and without sound, 2 and 4 s TS
+        // segments, EVENT without ENDLIST, a stream clock 600 s in, `replace_source` with a
+        // `Timeline`, autoplay allowed and blocked): all played. Firefox gets WebCodecs again
+        // once a run that stalls is found and fixed.
+        _ => !webcodecs() || firefox(),
     };
     if element && !mse::available() {
         return Err(MediaError::Unsupported("this browser has no media element".into()));

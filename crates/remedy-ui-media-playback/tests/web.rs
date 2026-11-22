@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use remedy_ui_media_playback::{
     AudioFormat, Decoder, MediaHost, MediaSource, Picture, PixelFormat, PlaybackState, Player, PlayerOptions,
-    Sample, platform_host,
+    Sample, WebBackend, platform_host_with,
 };
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -64,7 +64,7 @@ async fn wait_ms(ms: u32) {
 }
 
 fn host() -> std::sync::Arc<dyn MediaHost> {
-    platform_host().must("the browser's media host")
+    platform_host_with(WebBackend::WebCodecs).must("the browser's media host")
 }
 
 /// Which of red, green and blue a BT.709 video-range picture is at its middle.
@@ -290,7 +290,7 @@ async fn the_browser_decodes_the_clip_and_plays_it() {
         app.open(remedy_ui::WindowSpec::new("Playback test"), move |ui, _| {
             let p = Player::open(
                 ui,
-                platform_host().must("host"),
+                platform_host_with(WebBackend::WebCodecs).must("host"),
                 MediaSource::url(url),
                 PlayerOptions::default(),
             );

@@ -282,7 +282,7 @@ pub fn video_surface(ui: &Ui, label: impl Into<String>, fit: VideoFit) -> (El, V
                 let (dw, dh) = (fw * s, fh * s);
                 Rect::new((w - dw) / 2.0, (h - dh) / 2.0, (w + dw) / 2.0, (h + dh) / 2.0)
             };
-            let radii = CornerRadii::all(cx.style.radius);
+            let radii = cx.corners();
             let whole = Rect::new(0.0, 0.0, w, h);
             // Bars where the picture's shape differs, in the element's own background.
             cx.list.fill_rounded(whole, radii, Brush::Solid(cx.style.background));

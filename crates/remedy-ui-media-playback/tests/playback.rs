@@ -387,10 +387,14 @@ fn plain(s: &str) -> String {
     s.replace(['\u{2068}', '\u{2069}'], "")
 }
 
+/// The element named `name`, or `name` and its level after a comma (the volume's "Volume, 100%").
 fn named(el: &El, name: &str) -> Option<El> {
+    let leveled = format!("{name}, ");
+    let fits =
+        |n: String| n == name || n.strip_prefix(&leveled).is_some_and(|l| l == "muted" || l.ends_with('%'));
     let mut stack = vec![el.clone()];
     while let Some(e) = stack.pop() {
-        if e.info().and_then(|i| i.semantics).is_some_and(|s| s.name().map(plain).as_deref() == Some(name)) {
+        if e.info().and_then(|i| i.semantics).is_some_and(|s| s.name().map(plain).is_some_and(&fits)) {
             return Some(e);
         }
         stack.extend(e.child_elements());
@@ -498,6 +502,11 @@ fn the_player_widget_is_operable_by_keyboard_and_passes_the_audit() {
     for name in ["Play", "Mute", "Volume", "Captions: off", "Full screen", "Seek"] {
         assert!(named(&view, name).is_some(), "no control named {name}");
     }
+    // The volume says its level, as Portal's page: "Volume, 50%", the value "50%".
+    let volume = named(&view, "Volume").and_then(|v| v.info()).and_then(|i| i.semantics);
+    let volume = volume.unwrap_or_else(|| unreachable!("the volume"));
+    assert_eq!(volume.name().map(plain).as_deref(), Some("Volume, 50%"));
+    assert_eq!(volume.value_text().map(plain).as_deref(), Some("50%"));
     let seek = named(&view, "Seek").unwrap_or_else(|| unreachable!());
     let sem = seek.info().and_then(|i| i.semantics).unwrap_or_else(|| unreachable!());
     assert_eq!(sem.role(), remedy_ui_a11y::Role::Slider);
@@ -1307,6 +1316,7 @@ fn theater_mode_is_offered_once_the_app_listens_and_escape_leaves_it() {
     assert!(!hidden(&view));
     let pressed = |v: &El| {
         named(v, "Theater mode")
+            .or_else(|| named(v, "Exit theater mode"))
             .and_then(|b| b.info())
             .and_then(|i| i.semantics)
             .and_then(|s| s.checked_state())
@@ -1317,6 +1327,8 @@ fn theater_mode_is_offered_once_the_app_listens_and_escape_leaves_it() {
     s.pump();
     assert!(p.is_theater());
     assert_eq!(pressed(&view), Some(true));
+    // Named for what a press does, as Portal's page.
+    assert!(named(&view, "Exit theater mode").is_some() && named(&view, "Theater mode").is_none());
     // Escape leaves full screen first, then theater mode.
     assert!(press(&s.ui, Key::Character("f".into())));
     assert!(press(&s.ui, Key::Escape));

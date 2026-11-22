@@ -54,7 +54,7 @@ use std::time::Duration;
 use remedy_ui_core::time::Instant;
 
 use remedy_ui_a11y::{Role, Semantics};
-use remedy_ui_core::{CornerRadii, Point, Rect};
+use remedy_ui_core::{Point, Rect};
 use remedy_ui_input::{KeyEvent, PointerEvent};
 use remedy_ui_paint::{ExternalTexture, Image, Item, Sampling};
 use remedy_ui_reactive::Signal;
@@ -535,7 +535,7 @@ pub fn gpu_view(ui: &Ui, label: impl Into<String>, content: impl GpuContent) -> 
                 state.render(&s.ladder, width, height, cx.scale, s.started.elapsed());
             }
             let rect = Rect::new(0.0, 0.0, cx.size.width, cx.size.height);
-            let radii = CornerRadii::all(cx.style.radius);
+            let radii = cx.corners();
             if on_gpu {
                 if let Some(surface) = state.surface.as_ref().filter(|f| f.frame > 0)
                     && let Some(front) = surface.buffers.get(surface.front)

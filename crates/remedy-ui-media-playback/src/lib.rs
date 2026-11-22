@@ -122,7 +122,9 @@ pub use stretch::{MAX_SPEED, MIN_SPEED, SPEEDS, clamp_speed};
 pub use subtitles::{
     Cue, CueAlign, CueAnchor, CueLine, CueSettings, SubtitleFormat, SubtitleTrack, Vertical, parse_subtitles,
 };
-pub use widget::{PlayerIcons, PlayerParts, format_time, player, player_picture, player_with};
+pub use widget::{
+    NextUpPlacement, PlayerIcons, PlayerParts, format_time, player, player_picture, player_with,
+};
 
 /// The platform's own decoders and sound output, or [`MediaError::Unsupported`] with the
 /// reason where there are none (no GStreamer installed on a Linux machine, a platform with
@@ -145,6 +147,8 @@ pub enum WebBackend {
     /// WebCodecs where the page may use it, else Media Source Extensions. Browsers offer
     /// WebCodecs only to secure pages (`https:`, or `localhost`), so a page opened at a
     /// machine's LAN address (`http://192.168.1.20:8490`) plays through the media element.
+    /// Firefox plays through the media element too, as a page's own `<video>` does (an HLS
+    /// stream was seen to stall on its WebCodecs); `WebCodecs` still asks for its decoders.
     #[default]
     Auto,
     /// The browser's WebCodecs decoders, with sound through WebAudio and the crate's own

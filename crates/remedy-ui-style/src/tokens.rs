@@ -20,7 +20,7 @@
 //! assert_eq!(patch.background, Some(theme.colors.accent));
 //! ```
 
-use remedy_ui_core::{Color, ColorMatrix, Insets};
+use remedy_ui_core::{Color, ColorMatrix, CornerRadii, Insets};
 
 use crate::resolve::StylePatch;
 use crate::theme::Theme;
@@ -473,6 +473,9 @@ pub struct Style {
     pub border_width: Option<Dp>,
     /// Corner radius.
     pub radius: Option<Dp>,
+    /// Each corner's radius, top start, top end, bottom end and bottom start (CSS's
+    /// four-value `border-radius`): set, it takes the place of `radius`.
+    pub corners: Option<[Dp; 4]>,
     /// Padding, by side.
     pub padding: Option<Pad>,
     /// Text size.
@@ -565,9 +568,23 @@ impl Style {
         self
     }
 
-    /// Corner radius.
+    /// Corner radius: every corner's.
     pub fn radius(mut self, r: impl Into<Dp>) -> Self {
         self.radius = Some(r.into());
+        self.corners = None;
+        self
+    }
+
+    /// Each corner's radius: top start, top end, bottom end, bottom start (CSS's
+    /// `border-radius: 16px 16px 0 0` is `corners(16.0, 16.0, 0.0, 0.0)`).
+    pub fn corners(
+        mut self,
+        top_start: impl Into<Dp>,
+        top_end: impl Into<Dp>,
+        bottom_end: impl Into<Dp>,
+        bottom_start: impl Into<Dp>,
+    ) -> Self {
+        self.corners = Some([top_start.into(), top_end.into(), bottom_end.into(), bottom_start.into()]);
         self
     }
 
@@ -764,6 +781,11 @@ impl Style {
             border: other.border.or(self.border),
             border_width: other.border_width.or(self.border_width),
             radius: other.radius.or(self.radius),
+            corners: match (other.corners, other.radius) {
+                (Some(c), _) => Some(c),
+                (None, Some(_)) => None,
+                (None, None) => self.corners,
+            },
             padding: match (self.padding, other.padding) {
                 (Some(a), Some(b)) => Some(a.merge(&b)),
                 (a, b) => b.or(a),
@@ -811,6 +833,7 @@ impl Style {
             && c(self.outline)
             && dp(self.border_width)
             && dp(self.radius)
+            && self.corners.is_none_or(|c| c.into_iter().all(|d| !d.is_token()))
             && dp(self.text_size)
             && dp(self.outline_width)
             && dp(self.outline_offset)
@@ -837,7 +860,16 @@ impl Style {
             foreground: c(self.foreground),
             border: c(self.border),
             border_width: dp(self.border_width),
-            radius: dp(self.radius),
+            radius: match self.corners {
+                Some(c) => Some(c.into_iter().map(|d| d.resolve(theme)).fold(0.0, f32::max)),
+                None => dp(self.radius),
+            },
+            corners: self.corners.map(|[a, b, c, d]| CornerRadii {
+                top_start: a.resolve(theme),
+                top_end: b.resolve(theme),
+                bottom_end: c.resolve(theme),
+                bottom_start: d.resolve(theme),
+            }),
             padding: self.padding.map(|p| p.resolve(theme, padding_under)),
             text_size: dp(self.text_size).or_else(|| self.text_role.map(|r| r.size(theme))),
             weight: self.weight,
@@ -870,6 +902,7 @@ impl From<StylePatch> for Style {
             border: p.border.map(ColorRef::Value),
             border_width: p.border_width.map(Dp::Px),
             radius: p.radius.map(Dp::Px),
+            corners: p.corners.map(|c| [c.top_start, c.top_end, c.bottom_end, c.bottom_start].map(Dp::Px)),
             padding: p.padding.map(Pad::from),
             text_size: p.text_size.map(Dp::Px),
             text_role: None,

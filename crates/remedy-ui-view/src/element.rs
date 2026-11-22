@@ -115,6 +115,12 @@ pub fn clear_paint_cache() {
 }
 
 impl PaintCx<'_> {
+    /// The element's corner radii from its style, physical (start and end swapped right to
+    /// left): what its background is drawn with, for a painter's picture or clip to match.
+    pub fn corners(&self) -> remedy_ui_core::CornerRadii {
+        crate::frame::corners(self.style, self.rtl)
+    }
+
     /// Draws what `f` records once as a picture and reuses it while `key`, the element's
     /// size and the scale stay the same; then it is drawn again. Put everything the drawing
     /// depends on (the theme's colours, a seed, a state) into `key`. The picture is drawn

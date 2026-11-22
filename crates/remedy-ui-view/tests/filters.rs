@@ -120,6 +120,40 @@ fn backdrop_blur_makes_frosted_glass_on_a_layer_of_its_own() {
     assert!(outside[0] < 5 || outside[0] > 250, "sharp outside it: {outside:?}");
 }
 
+#[test]
+fn a_style_can_round_some_corners_only() {
+    use remedy_ui_core::CornerRadii;
+    let ui = ui();
+    let blue = Color::rgb8(40, 120, 220);
+    // Round at the top only (CSS `border-radius: 16px 16px 0 0`), clipping its child.
+    let top = CornerRadii { top_start: 16.0, top_end: 16.0, ..CornerRadii::ZERO };
+    let fill = ui.el("fill").style(StylePatch::default().background(blue)).layout(|l| {
+        l.width = Length::Px(80.0);
+        l.height = Length::Px(40.0);
+    });
+    let card = boxed(&ui, Style::from(StylePatch::default().corners(top))).clip().child(fill);
+    ui.root().padding(20.0).child(card);
+    let (tree, frame) = draw(&ui);
+    assert!(
+        items(&tree).iter().any(|i| matches!(i, Item::PushClip { radii, .. } if *radii == top)),
+        "the clip has the style's corners"
+    );
+    let at = |x, y| frame.pixel(x, y).unwrap_or([0; 4]);
+    let is_blue = |p: [u8; 4]| p[0].abs_diff(40) <= 2 && p[1].abs_diff(120) <= 2 && p[2].abs_diff(220) <= 2;
+    assert_eq!(at(21, 21), [255, 255, 255, 255], "the top start corner is round");
+    assert_eq!(at(98, 21), [255, 255, 255, 255], "so is the top end");
+    assert!(is_blue(at(21, 58)), "the bottom start corner is square: {:?}", at(21, 58));
+    assert!(is_blue(at(98, 58)), "so is the bottom end: {:?}", at(98, 58));
+
+    // A radius over corners rounds every corner again; tokens set corners too.
+    let both = StylePatch::default().corners(top).merge(&StylePatch::default().radius(4.0));
+    assert_eq!(both.corners, None);
+    let theme = Theme::dark_forest();
+    let tokens = Style::new().radius(2.0).corners(8.0, 8.0, 0.0, 0.0).resolve(&theme);
+    assert_eq!(tokens.corners, Some(CornerRadii { top_start: 8.0, top_end: 8.0, ..CornerRadii::ZERO }));
+    assert_eq!(tokens.radius, Some(8.0), "the radius is the largest corner");
+}
+
 /// Black and white stripes across the window, behind everything.
 fn stripes(ui: &Ui) -> remedy_ui_view::El {
     ui.el("stripes")
