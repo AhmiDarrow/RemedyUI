@@ -30,8 +30,18 @@ struct Near {
     after: Option<usize>,
 }
 
-/// Typing pauses longer than this (in milliseconds) start a new undo step.
+/// Typing pauses longer than this (in milliseconds) start a new undo step, unless the app
+/// says otherwise ([`set_undo_pause_ms`]).
 pub const UNDO_PAUSE_MS: u64 = 1000;
+
+static UNDO_PAUSE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(UNDO_PAUSE_MS);
+
+/// Sets how long a pause in typing (in milliseconds) starts a new undo step in every editor
+/// (default [`UNDO_PAUSE_MS`], one second). 0 makes every edit a step of its own;
+/// `u64::MAX` joins typing in one place into one step however long it takes.
+pub fn set_undo_pause_ms(ms: u64) {
+    UNDO_PAUSE.store(ms, std::sync::atomic::Ordering::Relaxed);
+}
 
 /// A selection: the `anchor` stays put while the `focus` moves with Shift+arrows. Equal ends
 /// are a caret.
@@ -384,7 +394,7 @@ impl TextEditor {
                     && kind != EditKind::Other
                     && self.group == 0
                     && prev.group == 0
-                    && now_ms.saturating_sub(t) < UNDO_PAUSE_MS =>
+                    && now_ms.saturating_sub(t) < UNDO_PAUSE.load(std::sync::atomic::Ordering::Relaxed) =>
             {
                 let contiguous = match kind {
                     EditKind::Typing => prev.at + prev.inserted.len() == at && step.removed.is_empty(),

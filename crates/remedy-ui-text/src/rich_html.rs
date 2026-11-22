@@ -261,9 +261,11 @@ impl Reader {
             return out;
         }
         match item {
-            Some((_, Some(done))) => Block::Task { done, level: level.min(crate::rich_edit::MAX_LEVEL) },
-            Some((true, None)) => Block::Numbered(level.min(crate::rich_edit::MAX_LEVEL)),
-            Some((false, None)) => Block::Bullet(level.min(crate::rich_edit::MAX_LEVEL)),
+            Some((_, Some(done))) => {
+                Block::Task { done, level: level.min(crate::rich_edit::max_list_level()) }
+            }
+            Some((true, None)) => Block::Numbered(level.min(crate::rich_edit::max_list_level())),
+            Some((false, None)) => Block::Bullet(level.min(crate::rich_edit::max_list_level())),
             None => out,
         }
     }

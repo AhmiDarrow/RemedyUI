@@ -76,8 +76,8 @@ let items: Resource<Vec<String>, NetError> =
   "image/png", bytes))` sends a form as a browser would.
 - [`Request::keepalive`](crate::net::Request::keepalive) marks a request that must finish while
   the page or app closes, such as the last save of a note: the browser's `fetch` keepalive
-  (bodies up to 64 KiB), or natively a request that `run` waits for (up to 10 seconds) as the
-  app quits. Cancelling does not stop it.
+  (bodies up to 64 KiB), or natively a request that `run` waits for (up to 10 seconds, or
+  [`AppConfig::keepalive_grace`](crate::AppConfig::keepalive_grace)) as the app quits. Cancelling does not stop it.
 - [`Request::timeout`](crate::net::Request::timeout) overrides the client's timeout for one
   request; running out ends it with `NetError::Timeout`.
 - On Android a keepalive request also finishes when the app goes to the background: while
@@ -135,3 +135,31 @@ resolves somewhere else (DNS rebinding) is refused; plain `http` never goes thro
 every redirect is checked the same way. In a page, a relative path (`Http::new("")` or `"/api"`) goes to
 the page's own origin with the page's cookies (`credentials: same-origin`), and the browser's
 rules (CORS, mixed content) apply on top.
+
+## Limits
+
+Every bound the client works within has a default and a public way to change it.
+
+| Limit | Default | How to change it |
+| --- | --- | --- |
+| Longest body read | 256 MiB | `Http::max_body`, `Request::max_body` |
+| How long a request may take | 30 s | `Http::timeout`, `Request::timeout` |
+| Redirects followed (natively) | 10 | `Http::max_redirects` |
+| Cookies a jar keeps | 3000 | `CookieJar::max_cookies` |
+| Idle connections kept for reuse, in all / to one host (natively) | 10 / 3 | `net::PoolLimits::idle_connections`, `idle_per_host` |
+| How long an idle connection is kept (natively) | 15 s | `net::PoolLimits::idle_age` |
+| How long quitting waits for keepalive requests (natively, and on Android when the app goes away) | 10 s | `AppConfig::keepalive_grace` |
+
+`PoolLimits` holds for the whole process; pass it to `net::set_pool_limits`, and requests
+from then on use it (connections idle in the old pool are closed). In a page the browser
+pools connections itself.
+
+```no_run
+use std::time::Duration;
+use remedy_ui::net::{PoolLimits, set_pool_limits};
+
+// An app that talks to one API server in bursts.
+set_pool_limits(PoolLimits::default().idle_per_host(8).idle_age(Duration::from_secs(60)));
+```
+
+The keepalive body limit in a page (64 KiB) is the browser's own, not RemedyUI's.

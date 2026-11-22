@@ -94,8 +94,19 @@ thread_local! {
     static CACHED: std::cell::RefCell<HashMap<u64, (u32, u32, u32, remedy_ui_paint::Image)>> = std::cell::RefCell::new(HashMap::new());
 }
 
-/// Most pictures [`PaintCx::cached`] keeps; past it the cache starts again.
-const CACHED_MAX: usize = 512;
+/// Most pictures [`PaintCx::cached`] keeps unless the app says otherwise
+/// ([`set_paint_cache_limit`]); past it the cache starts again.
+pub const PAINT_CACHE_LIMIT: usize = 512;
+
+static CACHED_MAX: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(PAINT_CACHE_LIMIT);
+
+/// Sets the most pictures [`PaintCx::cached`] keeps on each UI thread (default
+/// [`PAINT_CACHE_LIMIT`], 512); past it the cache starts again. Each picture costs its
+/// element's device pixels at 4 bytes a pixel, so a raised limit costs that memory for every
+/// picture kept; 0 keeps none (every picture is drawn again each frame).
+pub fn set_paint_cache_limit(pictures: usize) {
+    CACHED_MAX.store(pictures, std::sync::atomic::Ordering::Relaxed);
+}
 
 /// Drops every picture [`PaintCx::cached`] keeps (on memory pressure, or a theme change
 /// the keys do not cover).
@@ -150,10 +161,13 @@ impl PaintCx<'_> {
                 if let Some(img) = &img {
                     CACHED.with(|c| {
                         let mut c = c.borrow_mut();
-                        if c.len() >= CACHED_MAX {
+                        let max = CACHED_MAX.load(std::sync::atomic::Ordering::Relaxed);
+                        if c.len() >= max {
                             c.clear();
                         }
-                        c.insert(key, (dims.0, dims.1, dims.2, img.clone()));
+                        if max > 0 {
+                            c.insert(key, (dims.0, dims.1, dims.2, img.clone()));
+                        }
                     });
                 }
                 img

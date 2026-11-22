@@ -284,3 +284,54 @@ fn timer_loops_park_until_they_may_run() {
     ui.set_ambient_policy(AmbientPolicy::default());
     assert!(ran.get(), "resumed with the policy");
 }
+
+#[test]
+fn the_policy_sets_the_longest_step_and_the_paint_cache_its_size() {
+    let ui = ui();
+    let mut p = AmbientPolicy::default();
+    assert_eq!(p.max_dt, remedy_ui_view::MAX_AMBIENT_DT);
+    p.max_dt = ms(2000);
+    ui.set_ambient_policy(p);
+    let (fly, ticks) = firefly(&ui);
+    ui.root().child(fly);
+    let r = frame_at(&ui, 0);
+    ui.set_occluded(true);
+    let _ = ui.take_requests();
+    for (id, _) in timers(&r) {
+        ui.fire_timer(id);
+    }
+    let _ = frame_at(&ui, 40);
+    ui.set_occluded(false);
+    let _ = ui.take_requests();
+    let _ = frame_at(&ui, 1500);
+    assert!(
+        ticks.borrow().last().copied().flatten().is_some_and(|t| t.dt == ms(1500)),
+        "{:?}",
+        ticks.borrow()
+    );
+
+    // A kept picture is drawn once; with a paint cache of none it is drawn every time.
+    let drawn = Rc::new(Cell::new(0));
+    let d = drawn.clone();
+    let art = ui
+        .el("art")
+        .layout(|l| {
+            l.width = Length::Px(10.0);
+            l.height = Length::Px(10.0);
+        })
+        .paint(move |cx| cx.cached(7, |_| d.set(d.get() + 1)));
+    let id = art.id();
+    ui.root().child(art);
+    let _ = frame_at(&ui, 1600);
+    ui.element(id).repaint();
+    let _ = frame_at(&ui, 1700);
+    assert_eq!(drawn.get(), 1, "kept");
+    remedy_ui_view::set_paint_cache_limit(0);
+    remedy_ui_view::clear_paint_cache();
+    ui.element(id).repaint();
+    let _ = frame_at(&ui, 1800);
+    ui.element(id).repaint();
+    let _ = frame_at(&ui, 1900);
+    remedy_ui_view::set_paint_cache_limit(remedy_ui_view::PAINT_CACHE_LIMIT);
+    assert_eq!(drawn.get(), 3, "drawn each time");
+}

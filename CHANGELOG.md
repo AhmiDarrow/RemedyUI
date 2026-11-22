@@ -24,6 +24,23 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   frosted glass on a sticky header blurs what scrolls under it. While it is moved from its
   place it has `States::STUCK`, so a sheet can style it stuck (a shadow under a stuck header).
 
+- **The rest of the engine's limits are configurable**, each default kept and public:
+  `text` `LazyLimits` with `set_lazy_limits` (shortest lazy paragraph 32 KiB, piece size
+  8 KiB, pieces kept 48), `GlyphAtlas::set_page_size` (1024), `set_max_list_level` (5) and
+  `set_undo_pause_ms` (1000); `view` `set_paint_cache_limit` (512 pictures) and
+  `AmbientPolicy::max_dt` (250 ms); `core` `set_max_color_matrix_entry` (256);
+  `script` `Limits::handlers` (4096), `image_side` (4096), `gap` (64) and `expr_depth`
+  (64 / 32, Rhai's parser); `rui` `set_max_depth` (128); `widgets-term`
+  `TerminalOptions::sync_timeout` (150 ms); `devtools` `set_remote_timeout` (10 s);
+  `media-effects` `EffectView::set_max_side` (4096, `FrameInput::DEFAULT_MAX_SIDE`);
+  `widgets-stage` `fx::set_fx_limits` (noise side 4096, textures kept 64); `doc-pages`
+  `PageView::set_zoom_range` (1% to 6400%); `services-net` `PoolLimits` with
+  `set_pool_limits` (idle connections 10, 3 to one host, kept 15 s); `AppConfig`
+  `keepalive_grace` (10 s, natively and on Android), `single_instance_wait` (5 s, Windows) and
+  `drop_waits` (2 s and 10 s, Linux), with `bridge-android` `set_held_grace`,
+  `bridge-windows` `set_instance_wait` and `bridge-linux` `set_drop_waits` beneath them. The
+  safety bounds say what raising them risks. The text, network and performance guides have
+  tables of them.
 - **Gradient backgrounds** in `style`: `StylePatch::background_layers` and
   `Style::background_layers` take `Gradient`s drawn over the background colour, the first on
   top, as CSS `background-image`: `Gradient::linear(angle, stops)`, `Gradient::ellipse(at,
@@ -1235,6 +1252,9 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- `media-anim` without its format features (as `media-isolated` takes it) compiles again,
+  which also fixes `media-isolated` for `wasm32-unknown-unknown`; there `media-isolated` no
+  longer pulls in dependencies it does not use.
 - **`El::scroll_to` on content built this frame scrolls it**: the runner dropped a scroll
   asked for before the container had its scrolling layer (a page a router brings back, a
   list just filled); it now keeps it and applies it in the first frame that gives the

@@ -20,8 +20,18 @@ use windows_sys::Win32::System::Threading::{CreateMutexW, GetCurrentProcessId};
 
 use super::wide;
 
-/// How long a second launch keeps trying to reach the first (which may be starting up).
-const REACH_FOR: Duration = Duration::from_secs(5);
+/// How long a second launch keeps trying to reach the first (which may be starting up),
+/// unless the app says otherwise ([`set_instance_wait`]).
+pub const INSTANCE_WAIT: Duration = Duration::from_secs(5);
+
+static WAIT: std::sync::Mutex<Duration> = std::sync::Mutex::new(INSTANCE_WAIT);
+
+/// Sets how long a second launch keeps trying to hand its arguments to the first before it
+/// reports that the running instance did not answer (default [`INSTANCE_WAIT`], 5 s).
+/// `remedy_ui::run` sets it from `AppConfig::single_instance_wait`.
+pub fn set_instance_wait(wait: Duration) {
+    *WAIT.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = wait;
+}
 
 fn names(app_id: &str) -> (String, String) {
     let id: String = app_id.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
@@ -151,7 +161,7 @@ fn send(pipe_name: &str, args: &[String]) -> Result<(), Unsupported> {
                 Err(Unsupported::new("single instance", std::io::Error::last_os_error().to_string()))
             };
         }
-        if start.elapsed() > REACH_FOR {
+        if start.elapsed() > *WAIT.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
             return Err(Unsupported::new("single instance", "the running instance did not answer"));
         }
         // SAFETY: waiting for a free pipe instance, or briefly for the first to create one.
@@ -160,5 +170,20 @@ fn send(pipe_name: &str, args: &[String]) -> Result<(), Unsupported> {
         } else {
             std::thread::sleep(Duration::from_millis(50));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_second_launch_waits_as_long_as_the_app_says() {
+        set_instance_wait(Duration::from_millis(100));
+        let start = Instant::now();
+        let sent = send(r"\\.\pipe\remedy-ui-test-no-such-instance", &["a".into()]);
+        set_instance_wait(INSTANCE_WAIT);
+        assert!(sent.is_err());
+        assert!(start.elapsed() < INSTANCE_WAIT, "gave up after the app's wait: {:?}", start.elapsed());
     }
 }

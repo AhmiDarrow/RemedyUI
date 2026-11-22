@@ -238,3 +238,18 @@ fn an_effect_that_does_not_move_draws_once() {
     run(&ui, &mut t, 30);
     assert_eq!(view.stats().frames, 2, "{:?}", view.stats());
 }
+
+#[test]
+fn the_app_sets_the_largest_side_of_a_frame() {
+    let ui = ui();
+    ui.set_reduced_motion(true);
+    let view = mount(&ui, "fire");
+    let mut t = Duration::ZERO;
+    run(&ui, &mut t, 2);
+    let (w, h) = view.stats().pixels;
+    assert!(w > 64 && h > 64, "fire draws at half resolution: {w} × {h}");
+    view.set_max_side(64);
+    run(&ui, &mut t, 2);
+    let (w, h) = view.stats().pixels;
+    assert!(w <= 64 && h <= 64 && w > 0, "{w} × {h}");
+}
