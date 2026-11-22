@@ -68,6 +68,9 @@ impl Shadow {
 pub struct StylePatch {
     /// Background fill.
     pub background: Option<Color>,
+    /// Gradient layers over the background fill, the first on top (CSS `background-image`);
+    /// an empty list for none.
+    pub background_layers: Option<Vec<crate::Gradient>>,
     /// Text and icon color.
     pub foreground: Option<Color>,
     /// Border color.
@@ -122,6 +125,12 @@ impl StylePatch {
     /// Sets the background fill.
     pub fn background(mut self, value: Color) -> Self {
         self.background = Some(value);
+        self
+    }
+
+    /// Sets the gradient layers drawn over the background fill, the first on top.
+    pub fn background_layers(mut self, layers: impl IntoIterator<Item = crate::Gradient>) -> Self {
+        self.background_layers = Some(layers.into_iter().collect());
         self
     }
 
@@ -245,6 +254,7 @@ impl StylePatch {
     pub fn defaults(theme: &crate::Theme) -> StylePatch {
         StylePatch {
             background: Some(Color::TRANSPARENT),
+            background_layers: Some(Vec::new()),
             foreground: Some(theme.derive().text),
             border: Some(Color::TRANSPARENT),
             border_width: Some(0.0),
@@ -271,6 +281,7 @@ impl StylePatch {
     pub fn merge(&self, other: &StylePatch) -> StylePatch {
         StylePatch {
             background: other.background.or(self.background),
+            background_layers: other.background_layers.clone().or_else(|| self.background_layers.clone()),
             foreground: other.foreground.or(self.foreground),
             border: other.border.or(self.border),
             border_width: other.border_width.or(self.border_width),
@@ -327,6 +338,8 @@ impl LetterSpacing {
 pub struct ResolvedStyle {
     /// Background fill.
     pub background: Color,
+    /// Gradient layers over the background fill, the first on top.
+    pub background_layers: Vec<crate::Gradient>,
     /// Text and icon color.
     pub foreground: Color,
     /// Border color.
@@ -371,6 +384,7 @@ impl ResolvedStyle {
     fn from_patch(p: &StylePatch) -> ResolvedStyle {
         ResolvedStyle {
             background: p.background.unwrap_or(Color::TRANSPARENT),
+            background_layers: p.background_layers.clone().unwrap_or_default(),
             foreground: p.foreground.unwrap_or(Color::BLACK),
             border: p.border.unwrap_or(Color::TRANSPARENT),
             border_width: p.border_width.unwrap_or(0.0),

@@ -271,13 +271,26 @@ impl Theme {
         self.metrics.get(name).copied().unwrap_or(default)
     }
 
-    /// The families for text: monospace, heading or body.
+    /// The families for text: monospace, heading or body. Monospace and heading lists fall
+    /// back to the body's families after their own, as a CSS font list ends in one the page
+    /// has: a heading face the app did not bundle still draws its text in the body face.
+    ///
+    /// ```
+    /// use remedy_ui_style::Theme;
+    /// let mut t = Theme::dark_forest();
+    /// t.font_families = vec!["Remedy Sans UI".into()];
+    /// t.heading_families = vec!["Ahmi Pixel".into()];
+    /// assert_eq!(t.families(false, true), ["Ahmi Pixel", "Remedy Sans UI"]);
+    /// ```
     pub fn families(&self, mono: bool, heading: bool) -> Vec<String> {
-        match (mono, heading) {
-            (true, _) => self.mono_families.clone(),
-            (false, true) if !self.heading_families.is_empty() => self.heading_families.clone(),
-            _ => self.font_families.clone(),
-        }
+        let own = match (mono, heading) {
+            (true, _) => &self.mono_families,
+            (false, true) => &self.heading_families,
+            _ => return self.font_families.clone(),
+        };
+        let mut list = own.clone();
+        list.extend(self.font_families.iter().filter(|f| !own.contains(f)).cloned());
+        list
     }
 
     /// Computes the derived tokens.
