@@ -374,9 +374,10 @@ fn streamed_within(how: Serve, within: Duration, then: impl FnOnce(&Player)) {
     no_d3d_left();
 }
 
-/// Under REMEDY_D3D_DEBUG=1 on Windows: nothing alive on the decoders' D3D11 devices but the
-/// devices, once everything else has gone.
-fn no_d3d_left() {
+/// Under REMEDY_D3D_DEBUG=1 on Windows: nothing alive on the decoder devices made since the
+/// last look but the devices, once the player and its host (which keeps the last stream's
+/// decoders for the next) have gone. How many devices were looked at.
+fn no_d3d_left() -> usize {
     let (devices, leaked) = live_d3d_objects();
     if devices > 0 {
         eprintln!(
@@ -385,12 +386,14 @@ fn no_d3d_left() {
         );
     }
     assert!(leaked.is_empty(), "alive on the decoder's D3D11 device: {leaked:#?}");
+    devices
 }
 
 /// Windows: a GPU renderer on the process's shared device, made once, so the platform's
 /// decoder decodes on a D3D11 device of its own the leak cases can look at. Kept for the
 /// process (the shared device is, by design).
 fn gpu_renderer() {
+    watch_d3d_devices();
     #[cfg(windows)]
     {
         use remedy_ui_render_gpu::{GpuContext, GpuRenderer, LadderOptions};
@@ -462,12 +465,17 @@ fn a_stream_dropped_after_its_decoders_went_to_the_next() {
         std::thread::sleep(Duration::from_millis(300));
         assert!(p.error().is_none(), "{:?}", p.error());
     }
-    eprintln!("after two next streams: {} platform objects live", live_platform_objects());
+    let held = live_platform_objects();
+    eprintln!("after two next streams: {held} platform objects live");
+    assert!(held > before.2, "the stream's decoders are live while it plays");
     assert_eq!(hls_decoders_made(), made, "the next streams took the decoders over");
     drop(p);
     drop(ui);
+    // Dropping the player drops its host, and with it the decoders it kept for the next.
     settles("after the drop", before, &threads, &none);
-    no_d3d_left();
+    // Three streams, one device: each next stream took the last one's decoder, device and all.
+    let devices = no_d3d_left();
+    assert!(devices <= 1, "{devices} decoder devices for three streams on one host");
 }
 
 #[test]
