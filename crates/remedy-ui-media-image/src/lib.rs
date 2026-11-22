@@ -9,6 +9,7 @@
 //! - [`decode`]: the decoder on its own
 //! - [`set_router`]: decoding somewhere else (a sandboxed helper process)
 //! - [`set_fetcher`] and [`set_cache_dir`]: how images from addresses are fetched and kept
+//! - [`set_memory_limit`], [`set_disk_limit`] and [`set_known_sizes_limit`]: how much is kept
 //!
 //! In a browser page images are drawn on the page's canvas, so an image from another site
 //! shows only when its server allows it with CORS headers; otherwise the app fetches it
@@ -41,12 +42,14 @@ pub use decode::{
     fitted_scalable, is_scalable, router, set_router,
 };
 pub use remote::{
-    Fetch, FetchDone, FetchReply, FetchRequest, fetching, forget_remembered, remembered_bytes, set_cache_dir,
-    set_fetcher, set_web_proxy,
+    DEFAULT_DISK_LIMIT, DEFAULT_MEMORY_LIMIT, Fetch, FetchDone, FetchReply, FetchRequest, fetching,
+    forget_remembered, remembered_bytes, set_cache_dir, set_disk_limit, set_fetcher, set_memory_limit,
+    set_web_proxy,
 };
 
 pub use load::{
-    ImageState, Request, Source, SourceId, Stamp, cached, decode_for_box, known_sizes, load, probe, spawn_job,
+    DEFAULT_KNOWN_SIZES_LIMIT, ImageState, Request, Source, SourceId, Stamp, cached, decode_for_box,
+    known_sizes, load, probe, set_known_sizes_limit, spawn_job,
 };
 
 /// How an image fills its element.

@@ -5,23 +5,37 @@ use std::time::Duration;
 
 use crate::host::MediaError;
 
-/// The largest subtitle file read (a feature film's SRT is about 100 KB, a styled ASS a few MB).
-pub(crate) const MAX_SUBTITLE_BYTES: u64 = 16 << 20;
+/// The largest subtitle file read (a feature film's SRT is about 100 KB, a styled ASS a few
+/// MB): [`MediaLimits::max_subtitle_bytes`](crate::MediaLimits::max_subtitle_bytes).
+fn max_subtitle_bytes() -> u64 {
+    crate::media_limits().max_subtitle_bytes
+}
 
-/// Why the cues inside a media file or stream were refused: their text passed
-/// [`MAX_SUBTITLE_BYTES`], as a subtitle file may not.
-pub(crate) const CUES_TOO_BIG: &str = "the subtitles inside this media are over 16 MB";
+/// `bytes` in words: whole MB when it is a whole number of them.
+fn in_words(bytes: u64) -> String {
+    if bytes >= 1 << 20 && bytes.is_multiple_of(1 << 20) {
+        format!("{} MB", bytes >> 20)
+    } else {
+        format!("{bytes} bytes")
+    }
+}
 
-/// The longest single cue a stream may hand out: a cue is a line or two, so one this long is
-/// not captions.
-pub(crate) const MAX_STREAMED_CUE: usize = 1 << 20;
+/// Why the cues inside a media file or stream were refused: their text passed the subtitle
+/// limit, as a subtitle file may not.
+pub(crate) fn cues_too_big() -> String {
+    format!("the subtitles inside this media are over {}", in_words(max_subtitle_bytes()))
+}
 
-/// Why a stream was refused: one of its cues was over [`MAX_STREAMED_CUE`].
-pub(crate) const CUE_TOO_BIG: &str = "a subtitle cue inside this stream is over 1 MB";
+/// Why a stream was refused: one of its cues was over
+/// [`MediaLimits::max_streamed_cue`](crate::MediaLimits::max_streamed_cue) (a cue is a line
+/// or two, so one that long is not captions).
+pub(crate) fn cue_too_big(limit: usize) -> String {
+    format!("a subtitle cue inside this stream is over {}", in_words(limit as u64))
+}
 
 /// Adds a stream's `new` cues to the ones it handed out before (`cues`, in start order). A
 /// cue already held (the stream read again after a seek back) is not added twice, and past
-/// [`MAX_SUBTITLE_BYTES`] the earliest go, so a stream that runs for days keeps a window of
+/// the subtitle limit the earliest go, so a stream that runs for days keeps a window of
 /// its latest captions.
 pub(crate) fn add_streamed_cues(cues: &mut Vec<Cue>, new: impl IntoIterator<Item = Cue>) {
     let size = |c: &Cue| (c.text.len() + std::mem::size_of::<Cue>()) as u64;
@@ -41,35 +55,37 @@ pub(crate) fn add_streamed_cues(cues: &mut Vec<Cue>, new: impl IntoIterator<Item
     }
     let mut total: u64 = cues.iter().map(size).sum();
     let mut drop = 0;
-    while total > MAX_SUBTITLE_BYTES && drop < cues.len() {
+    let limit = max_subtitle_bytes();
+    while total > limit && drop < cues.len() {
         total -= cues.get(drop).map_or(0, size);
         drop += 1;
     }
     cues.drain(..drop);
 }
 
-/// Counts `text` against the cues read so far; true once they pass [`MAX_SUBTITLE_BYTES`].
+/// Counts `text` against the cues read so far; true once they pass the subtitle limit.
 pub(crate) fn over_cue_budget(total: &mut u64, text: &str) -> bool {
     *total = total.saturating_add(text.len() as u64);
-    *total > MAX_SUBTITLE_BYTES
+    *total > max_subtitle_bytes()
 }
 
-/// Reads the subtitle file at `path` as text, refusing one over [`MAX_SUBTITLE_BYTES`].
+/// Reads the subtitle file at `path` as text, refusing one over the subtitle limit.
 pub(crate) fn read_subtitle_file(path: &std::path::Path) -> Result<String, MediaError> {
     use std::io::Read;
     let failed = |e: std::io::Error| MediaError::NotFound(format!("{}: {e}", path.display()));
     let mut text = String::new();
+    let limit = max_subtitle_bytes();
     // Read one byte past the limit, so a file growing while read is caught too.
     std::fs::File::open(path)
         .map_err(failed)?
-        .take(MAX_SUBTITLE_BYTES + 1)
+        .take(limit.saturating_add(1))
         .read_to_string(&mut text)
         .map_err(failed)?;
-    if text.len() as u64 > MAX_SUBTITLE_BYTES {
+    if text.len() as u64 > limit {
         return Err(MediaError::Format(format!(
-            "{} is over {} MB, too big for a subtitle file",
+            "{} is over {}, too big for a subtitle file",
             path.display(),
-            MAX_SUBTITLE_BYTES >> 20
+            in_words(limit)
         )));
     }
     Ok(text)
@@ -839,7 +855,7 @@ mod tests {
         let big = "x".repeat(1 << 20);
         add_streamed_cues(&mut cues, (100..120).map(|i| cue(i * 100, &big)));
         let bytes: usize = cues.iter().map(|c| c.text.len() + std::mem::size_of::<Cue>()).sum();
-        assert!(bytes as u64 <= MAX_SUBTITLE_BYTES, "{bytes}");
+        assert!(bytes as u64 <= crate::MediaLimits::DEFAULT.max_subtitle_bytes, "{bytes}");
         assert_eq!(cues.first().map(|c| c.start), Some(ms(10_500)), "the 15 latest stay");
         assert_eq!(cues.len(), 15);
     }
@@ -848,7 +864,7 @@ mod tests {
     fn huge_subtitle_files_are_refused() {
         let path = std::env::temp_dir().join(format!("remedy-huge-{}.srt", std::process::id()));
         std::fs::File::create(&path)
-            .and_then(|f| f.set_len(MAX_SUBTITLE_BYTES + 1))
+            .and_then(|f| f.set_len(crate::MediaLimits::DEFAULT.max_subtitle_bytes + 1))
             .unwrap_or_else(|e| unreachable!("{e}"));
         let got = read_subtitle_file(&path);
         let _ = std::fs::remove_file(&path);
