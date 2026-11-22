@@ -5,13 +5,14 @@ use std::rc::Rc;
 
 use remedy_ui_core::Point;
 use remedy_ui_host::ImeEvent;
-use remedy_ui_input::{Key, KeyEvent, Platform, PointerEvent, PointerPhase};
+use remedy_ui_input::{Key, KeyEvent, Modifiers, Platform, PointerEvent, PointerPhase};
 use remedy_ui_style::States;
 use remedy_ui_tree::{Dirty, ElementId};
 
 use crate::Request;
 use crate::element::Ui;
 use crate::field::{self, Field, KeyOutcome};
+use crate::spatial::Dir;
 
 /// A click: a primary press and release on an element, or Enter or Space while it has focus.
 /// Delivered to elements with [`El::on_click`](crate::El::on_click).
@@ -386,7 +387,10 @@ impl Ui {
     ///
     /// The system's back action ([`Key::Back`]) is offered as itself first (a navigation
     /// stack goes back), then as Escape (a menu, dialog or drag is dismissed). When neither
-    /// takes it, the runner leaves the window.
+    /// takes it, the runner leaves the window. With spatial navigation on
+    /// ([`Ui::set_spatial_navigation`]), an Escape nothing took is offered as Back, as a TV
+    /// remote's back key often arrives: a router or navigation stack listening for
+    /// [`Key::Back`] goes back.
     pub fn key(&self, e: &KeyEvent) -> bool {
         let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
         if let Some(k) = self.menu_key(e)
@@ -401,7 +405,13 @@ impl Ui {
             let escape = e.clone().with_key(Key::Escape).with_text(None);
             return self.route_key(&escape);
         }
-        self.route_key(e)
+        if self.route_key(e) {
+            return true;
+        }
+        if e.key == Key::Escape && self.spatial_navigation() {
+            return self.route_key(&e.clone().with_key(Key::Back).with_text(None));
+        }
+        false
     }
 
     fn route_key(&self, e: &KeyEvent) -> bool {
@@ -501,22 +511,16 @@ impl Ui {
             return self.redo_change();
         }
         match &e.key {
-            Key::Tab => {
-                // With nothing focused, Tab starts in the topmost modal: what is under it is
-                // out of reach.
-                if focused.is_none() {
-                    let overlays = self.0.borrow().overlays;
-                    let top = tree.children(overlays).into_iter().rev().find(|o| tree.focus_scope(*o) == *o);
-                    if let Some(top) = top {
-                        self.0.borrow_mut().focus_visible = true;
-                        return crate::El { ui: self.clone(), id: top }.focus_first();
-                    }
+            Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown
+                if e.modifiers == Modifiers::NONE && self.spatial_navigation() =>
+            {
+                match (focused, Dir::of(&e.key)) {
+                    (None, _) => self.focus_start(false),
+                    (Some(_), Some(dir)) => self.focus_toward(dir),
+                    _ => false,
                 }
-                let moved = if e.modifiers.shift { tree.focus_previous() } else { tree.focus_next() };
-                self.0.borrow_mut().focus_visible = true;
-                focus_changed(self);
-                moved.is_some()
             }
+            Key::Tab => self.focus_start(e.modifiers.shift),
             Key::Enter | Key::Space if !e.repeat => match focused {
                 Some(f) if self.clickable(f) => {
                     let _ = tree.dispatch(f, &Click { position: None });
@@ -526,6 +530,31 @@ impl Ui {
             },
             _ => false,
         }
+    }
+
+    /// With nothing focused, Tab and arrows start in the topmost modal: what is under it is
+    /// out of reach. `None` when no modal is open, else whether focus went in.
+    fn focus_in_top_modal(&self) -> Option<bool> {
+        let tree = self.tree();
+        let overlays = self.0.borrow().overlays;
+        let top = tree.children(overlays).into_iter().rev().find(|o| tree.focus_scope(*o) == *o)?;
+        self.0.borrow_mut().focus_visible = true;
+        Some(crate::El { ui: self.clone(), id: top }.focus_first())
+    }
+
+    /// Tab's step to the next (or previous) focusable in the current scope; also where the
+    /// first arrow goes with nothing focused.
+    fn focus_start(&self, back: bool) -> bool {
+        let tree = self.tree();
+        if tree.focused().is_none()
+            && let Some(moved) = self.focus_in_top_modal()
+        {
+            return moved;
+        }
+        let moved = if back { tree.focus_previous() } else { tree.focus_next() };
+        self.0.borrow_mut().focus_visible = true;
+        focus_changed(self);
+        moved.is_some()
     }
 
     pub(crate) fn field_edited(&self, id: ElementId, field: &Rc<RefCell<Field>>, changed: bool) {
@@ -624,6 +653,7 @@ pub(crate) fn focus_changed(ui: &Ui) {
         ui.0.borrow_mut().focus_shown = now;
         if let Some(n) = now {
             told.extend(ui.0.borrow().els.get(&n).and_then(|d| d.focus.clone()).map(|f| (f, true)));
+            ui.remember_focus(n);
         }
     }
     if let Some(n) = now {
