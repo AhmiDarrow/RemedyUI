@@ -371,8 +371,12 @@ fn streamed_within(how: Serve, within: Duration, then: impl FnOnce(&Player)) {
     drop(p);
     drop(ui);
     settles_within("after the drop", within, before, &threads, &none);
-    // Under REMEDY_D3D_DEBUG=1 on Windows: nothing alive on the decoder's D3D11 device but
-    // the device, once everything above has gone.
+    no_d3d_left();
+}
+
+/// Under REMEDY_D3D_DEBUG=1 on Windows: nothing alive on the decoders' D3D11 devices but the
+/// devices, once everything else has gone.
+fn no_d3d_left() {
     let (devices, leaked) = live_d3d_objects();
     if devices > 0 {
         eprintln!(
@@ -444,12 +448,14 @@ fn a_stream_dropped_after_its_decoders_went_to_the_next() {
         eprintln!("no platform host here, skipping");
         return;
     };
+    gpu_renderer();
     let url = server(Serve::Plain);
     let none = AtomicUsize::new(0);
     let (before, threads) = (census(&none), process_threads());
     let ui = ui();
     let p = Player::open(&ui, host, MediaSource::Url(url.clone()), PlayerOptions::default());
     wait("opened", || p.state() == PlaybackState::Paused);
+    let made = hls_decoders_made();
     for _ in 0..2 {
         p.start_next(MediaSource::Url(url.clone()), None);
         wait("the next opened", || matches!(p.state(), PlaybackState::Playing | PlaybackState::Paused));
@@ -457,9 +463,11 @@ fn a_stream_dropped_after_its_decoders_went_to_the_next() {
         assert!(p.error().is_none(), "{:?}", p.error());
     }
     eprintln!("after two next streams: {} platform objects live", live_platform_objects());
+    assert_eq!(hls_decoders_made(), made, "the next streams took the decoders over");
     drop(p);
     drop(ui);
     settles("after the drop", before, &threads, &none);
+    no_d3d_left();
 }
 
 #[test]

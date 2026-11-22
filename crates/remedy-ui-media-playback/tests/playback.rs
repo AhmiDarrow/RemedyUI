@@ -4300,14 +4300,12 @@ fn the_next_hls_stream_in_a_player_takes_the_last_ones_decoders() {
         median(next),
         hls_decoders_made() - made
     );
-    // Its workers end before the test does (the process's exit would cut them short): the
-    // widget holding the player goes too.
+    // Its stream ends before the test does (the process's exit would cut its workers short):
+    // the widget holding the player goes too. Its fetching thread is the only HLS one here.
     drop(p);
     view.remove();
     drop(view);
-    s.wait("the player's threads ended", |_| {
-        !process_threads().iter().any(|t| t.0.starts_with("remedy-player"))
-    });
+    s.wait("the stream's threads ended", |_| !process_threads().iter().any(|t| t.0 == "remedy-hls-fetch"));
     let _ = std::fs::remove_dir_all(&folder);
     assert_eq!(hls_decoders_made(), made, "every next stream took the last one's decoders");
 }
