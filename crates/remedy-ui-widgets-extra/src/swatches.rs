@@ -128,7 +128,7 @@ pub fn color_swatch_grid(
                 if at_cursor {
                     cx.list.border(
                         remedy_ui_core::Rect::new(0.0, 0.0, cx.size.width, cx.size.height),
-                        remedy_ui_core::CornerRadii::all(cx.style.radius),
+                        cx.corners(),
                         2.0,
                         cx.theme.derive().focus,
                     );

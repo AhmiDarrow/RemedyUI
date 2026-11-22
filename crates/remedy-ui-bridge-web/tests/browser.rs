@@ -859,6 +859,67 @@ async fn a_reload_brings_the_entries_back_in_their_places() {
 }
 
 #[wasm_bindgen_test]
+async fn corners_draw_one_by_one_and_the_app_hears_the_page_go_at_once() {
+    use remedy_ui::a11y::{Role, Semantics};
+    use remedy_ui::core::{Color, CornerRadii};
+    use remedy_ui::layout::Length;
+    let theme_bg = AppConfig::new("x").theme.colors.bg.to_rgba8();
+    let left = Rc::new(Cell::new(0u32));
+    let held: Rc<RefCell<Option<App>>> = Rc::default();
+    let (l, h) = (left.clone(), held.clone());
+    let run = remedy_ui::run(AppConfig::new("Corners test").cpu_only(), move |app: &App| {
+        app.on_leaving(move || l.set(l.get() + 1));
+        *h.borrow_mut() = Some(app.clone());
+        app.open(WindowSpec::new("Corners"), |ui, _| {
+            // Round at the top only (CSS `border-radius: 24px 24px 0 0`).
+            let top = CornerRadii { top_start: 24.0, top_end: 24.0, ..CornerRadii::ZERO };
+            let look =
+                remedy_ui::style::StylePatch::default().background(Color::rgb8(200, 30, 30)).corners(top);
+            let card = ui
+                .el("card")
+                .style(look)
+                .layout(|l| {
+                    l.width = Length::Px(120.0);
+                    l.height = Length::Px(80.0);
+                })
+                .semantics(Semantics::new(Role::Group).label("Card"));
+            let _ = ui.root().child(card);
+        });
+    });
+    run.must("the app starts in the page");
+    assert!(until(120, || query("[aria-label='Card']").is_some()).await, "the card is mirrored");
+    frames(3).await;
+    let canvas: web_sys::HtmlCanvasElement = document()
+        .query_selector("[data-remedy-window] canvas")
+        .ok()
+        .flatten()
+        .must("a canvas")
+        .dyn_into()
+        .must("a canvas");
+    let ctx: web_sys::CanvasRenderingContext2d =
+        canvas.get_context("2d").ok().flatten().must("the 2D context").dyn_into().must("a 2D context");
+    let card = query("[aria-label='Card']").must("the card").get_bounding_client_rect();
+    let cr = canvas.get_bounding_client_rect();
+    let scale = f64::from(canvas.width()) / cr.width();
+    let at =
+        |x: f64, y: f64| pixel(&ctx, ((x - cr.left()) * scale).floor(), ((y - cr.top()) * scale).floor());
+    let red = [200, 30, 30, 255];
+    assert!(close(at(card.left() + 1.0, card.top() + 1.0), theme_bg), "the top start corner is round");
+    assert!(close(at(card.right() - 2.0, card.top() + 1.0), theme_bg), "so is the top end");
+    assert!(close(at(card.left() + 1.0, card.bottom() - 2.0), red), "the bottom start corner is square");
+    assert!(close(at(card.right() - 2.0, card.bottom() - 2.0), red), "so is the bottom end");
+
+    // The page going: the app hears it inside the browser's `pagehide`, before it returns,
+    // while a keepalive request could still go out.
+    let before = left.get();
+    hide_page();
+    assert!(left.get() > before, "told at once");
+    let app = held.borrow_mut().take().must("the app");
+    app.quit();
+    assert!(until(30, || !remedy_ui::web::is_running()).await);
+}
+
+#[wasm_bindgen_test]
 async fn link_clicks_open_tabs_and_mouse_buttons_move_once() {
     let window = web_sys::window().must("a window");
     let history = window.history().must("history");

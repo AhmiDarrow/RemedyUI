@@ -33,6 +33,8 @@ enum Kind {
     Action,
     Check(Prop<bool>),
     Radio(Prop<bool>),
+    /// A choice of a drop-down's list box (`select`): an option, selected or not.
+    Option(Prop<bool>),
     Submenu(Items),
     Separator,
 }
@@ -154,6 +156,12 @@ impl MenuItem {
         action: impl Fn() + 'static,
     ) -> Self {
         Self::base(Kind::Radio(checked.into_prop()), Prop::Value(label.into()), Rc::new(action))
+    }
+
+    /// A choice in a drop-down's list (`select`): an ARIA `option`, `selected` while it is
+    /// the chosen one (marked as a radio item is). A menu of these alone is a list box.
+    pub(crate) fn option(label: impl Into<String>, selected: bool, action: impl Fn() + 'static) -> Self {
+        Self::base(Kind::Option(Prop::Value(selected)), Prop::Value(label.into()), Rc::new(action))
     }
 
     /// A radio item for `value` of the choice `choice`: checked while `choice` holds
@@ -280,6 +288,7 @@ impl MenuItem {
         match self.kind {
             Kind::Check(_) => Role::MenuItemCheckBox,
             Kind::Radio(_) => Role::MenuItemRadio,
+            Kind::Option(_) => Role::Option,
             Kind::Separator => Role::Separator,
             Kind::Action | Kind::Submenu(_) => Role::MenuItem,
         }
@@ -500,7 +509,9 @@ impl Chain {
         let ui = &self.ui;
         let depth = self.levels.borrow().len();
         let rtl = self.rtl();
-        let mut sem = Semantics::new(Role::Menu);
+        // A drop-down's choices are a list box of options (ARIA's `listbox`), not a menu.
+        let options = !items.is_empty() && items.iter().all(|i| matches!(i.kind, Kind::Option(_)));
+        let mut sem = Semantics::new(if options { Role::ListBox } else { Role::Menu });
         if let Some(l) = label {
             sem = sem.label(l);
         }
@@ -519,8 +530,9 @@ impl Chain {
                 fit_beside(a, size, GAP, window, rtl)
             })
         };
-        let marks =
-            items.iter().any(|i| matches!(i.kind, Kind::Check(_) | Kind::Radio(_)) || i.icon.is_some());
+        let marks = items
+            .iter()
+            .any(|i| matches!(i.kind, Kind::Check(_) | Kind::Radio(_) | Kind::Option(_)) || i.icon.is_some());
         let n = items.iter().filter(|i| !i.is_separator()).count();
         let mut pos = 0;
         let mut entries = Vec::new();
@@ -573,7 +585,7 @@ impl Chain {
             let slot = slot.bind(move || {
                 let glyph = match &kind {
                     Kind::Check(c) => c.get().then_some(Icon::Check),
-                    Kind::Radio(c) => c.get().then_some(Icon::Dot),
+                    Kind::Radio(c) | Kind::Option(c) => c.get().then_some(Icon::Dot),
                     _ => own,
                 };
                 untrack(|| {
@@ -639,8 +651,13 @@ impl Chain {
         let ui2 = ui.clone();
         row.semantics(move || {
             let mut s = Semantics::new(it.role()).label(it.label.get()).set_position(pos, n);
-            if let Some(c) = it.checked() {
-                s = s.checked(c);
+            match &it.kind {
+                Kind::Option(on) => s = s.selected(on.get()),
+                _ => {
+                    if let Some(c) = it.checked() {
+                        s = s.checked(c);
+                    }
+                }
             }
             if submenu {
                 s = s.expanded(open.get());

@@ -379,7 +379,7 @@ fn flap(cx: &mut PaintCx<'_>, s: &State, i: usize) {
     let panel = cx.style.background;
     let full = Rect::new(0.0, 0.0, cx.size.width, cx.size.height);
     let mid = cx.size.height / 2.0;
-    let r = CornerRadii::all(cx.style.radius);
+    let r = cx.corners();
     cx.list.fill_rounded(full, r, Brush::Solid(panel));
     let f = s.flip.get();
     if f > 0.0 && s.flipping.borrow().contains(&i) {

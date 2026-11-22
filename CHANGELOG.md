@@ -10,6 +10,34 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Per-corner radii**: `StylePatch::corners(CornerRadii)` and `Style::corners(top_start,
+  top_end, bottom_end, bottom_start)` round each corner on its own (CSS
+  `border-radius: 16px 16px 0 0`); a `radius` set over them rounds every corner alike again.
+  Backgrounds, borders, shadows, clips, frosted glass, focus rings and pictures (video,
+  images, embedded GPU content, through the new `PaintCx::corners`) follow them, start and
+  end swapped right to left, on the CPU and GPU renderers and in a page.
+- **`App::on_leaving`**: called at once whenever the app may be ended without another word
+  (its page hidden, closed or reloaded, every window out of sight, suspended, quitting, its
+  last window closed): inside the browser's own `visibilitychange` and `pagehide`, so a
+  `Request::keepalive` started there still goes out as the tab closes. A page's `pagehide`
+  now always suspends the app, not only when the page goes into the back-forward cache.
+- **`Role::ComboBox`** (ARIA `combobox`): the drop-down `select` is one now, its list a
+  `ListBox` of `Option`s (the chosen one selected), with its value
+  and whether its list is open (`expanded`); a focused one keeps its keys from a player.
+- **Player widget**: `PlayerParts::next_up_placement(NextUpPlacement::Corner)` floats the
+  "Up next" card over the picture's bottom end corner (Portal's page) instead of across the
+  foot of the stage (`Below`, the default), `player-next-width` and `player-next-margin` in
+  the theme's metrics. The compact picture's size is the theme's `player-compact-width` and
+  `player-compact-height` (17 and 9.5 units as before; a height of 0 follows the picture's
+  shape). A theme's `player-narrow` (window width, none by default) gives the bar and its
+  parts the sheet's `narrow` variant at that width and under, and the compact picture its
+  `-narrow` metrics; the Portal theme sets Portal's 720 px sizes (2.1 rem buttons, a 0.8 rem
+  time, an 8.5 rem mini picture, 7 rem under 720 px). The theater button is named for what a
+  press does ("Exit theater mode" while on), and the volume slider says its level ("Volume,
+  100%", "Volume, muted"; the value "100%"), as Portal's page.
+- **Firefox plays through the media element** under `WebBackend::Auto`, as a page's own
+  `<video>` does: Portal saw an HLS stream stay in Buffering on Firefox's WebCodecs, which no
+  run here has reproduced yet. `WebBackend::WebCodecs` still asks for its decoders there.
 - **Plain storage items** (`Persist::plain`, `Plain::Json`, `Plain::Text`): a persisted value
   kept alone, with no version around it, under exactly its key. In a page that is the
   origin's own `localStorage` item, outside the app's `remedy:<app>:` prefix, so an app's
