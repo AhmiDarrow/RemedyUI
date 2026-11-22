@@ -60,11 +60,13 @@ step "back while the keyboard is up hides it"
 "$adb" shell dumpsys input_method | grep -m1 -o "mInputShown=[a-z]*"
 tree > "$out/tree-typed.txt"
 
-step "the Message field asks for text, the Code field for the number pad (inputType 0x2)"
+# The input method keeps a history of editors, newest last: Message is text with
+# autocorrect (0x8001), Code the number pad (0x2) with no personalized learning.
+step "the Message field asks for text, the Code field for the number pad"
 tap "Message"; pause 2
-"$adb" shell dumpsys input_method | grep -m1 -o "inputType=0x[0-9a-f]*"
+"$adb" shell dumpsys input_method | grep -o "inputType=0x[0-9a-f]* imeOptions=0x[0-9a-f]*" | grep -v "=0x0 " | tail -n 1
 tap "Code"; pause 2
-"$adb" shell dumpsys input_method | grep -m1 -o "inputType=0x[0-9a-f]*"
+"$adb" shell dumpsys input_method | grep -o "inputType=0x[0-9a-f]* imeOptions=0x[0-9a-f]*" | grep -v "=0x0 " | tail -n 1
 "$adb" shell input keyevent KEYCODE_BACK; pause 1
 
 step "copy (sensitive), then read the clipboard back"
