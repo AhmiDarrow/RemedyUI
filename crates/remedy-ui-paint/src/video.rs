@@ -76,6 +76,28 @@ pub trait GpuPicture: Send + Sync {
     /// Its pixels copied into CPU memory, for a renderer that cannot open the texture (the
     /// CPU renderer, or a GPU on another adapter); `None` when it cannot be read.
     fn read_back(&self) -> Option<CpuPixels>;
+    /// True for a picture an element of the page shows by itself (a page's playing `<video>`,
+    /// which the browser decodes and composites, as any page's video): a video surface then
+    /// leaves its box clear in the window and has the element shown under it
+    /// ([`place`](Self::place)), instead of drawing each frame.
+    fn shows_itself(&self) -> bool {
+        false
+    }
+    /// For a picture that [`shows_itself`](Self::shows_itself): shows its element at `bounds`
+    /// (window logical pixels), within `visible`, over `background` where the picture's shape
+    /// leaves bars; `None` hides it.
+    fn place(&self, _at: Option<PagePlacement>) {}
+}
+
+/// Where a page element showing a picture goes ([`GpuPicture::place`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PagePlacement {
+    /// The surface's box, in window logical pixels.
+    pub bounds: remedy_ui_core::Rect,
+    /// The part of it that shows.
+    pub visible: remedy_ui_core::Rect,
+    /// What shows in the bars around the picture.
+    pub background: remedy_ui_core::Color,
 }
 
 /// The pixels [`GpuPicture::read_back`] gives, laid out as [`VideoFrame`]'s.

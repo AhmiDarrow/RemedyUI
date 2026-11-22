@@ -148,6 +148,14 @@ impl CompositeTarget for Recorder<'_> {
             .set_paint(vello_gpu::color::AlphaColor::<vello_gpu::color::Srgb>::new([c.r, c.g, c.b, c.a]));
         self.scene.fill_rect(rect);
     }
+    fn clear(&mut self, path: &kurbo::BezPath) {
+        // A layer clipped to the path, composited with Clear: nothing is left inside it.
+        let copy = vello_gpu::peniko::BlendMode::new(vello_gpu::peniko::Mix::Normal, vello_gpu::peniko::Compose::Clear);
+        self.scene.push_layer(Some(path), Some(copy), None, None, None);
+        self.scene.set_paint(vello_gpu::color::AlphaColor::<vello_gpu::color::Srgb>::new([0.0, 0.0, 0.0, 1.0]));
+        self.scene.fill_path(path);
+        self.scene.pop_layer();
+    }
     fn fill_tile(
         &mut self,
         tile: (LayerId, TileKey),

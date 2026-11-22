@@ -20,7 +20,7 @@ use crate::host::{
     Decoder, MediaError, MediaInfo, Picture, PixelFormat, Playout, Sample, VideoInfo, YuvMatrix,
 };
 use js_sys::{Array, Reflect, Uint8Array};
-use remedy_ui_paint::{CpuPixels, GpuAdapter, GpuPicture, GpuTexture, Plane};
+use remedy_ui_paint::{CpuPixels, GpuPicture, GpuTexture, Plane};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -132,8 +132,6 @@ struct State {
     /// its frame may start a little before it (the player drops pictures before a seek's
     /// target).
     floor: f64,
-    /// The canvas the CPU renderer's pictures are drawn into and read back from.
-    canvas: Option<(JsValue, JsValue)>,
     closed: bool,
 }
 
@@ -182,7 +180,59 @@ fn draw_rgba(video: &JsValue, (w, h): (u32, u32), slot: &mut Option<(JsValue, Js
     Some(Uint8Array::new(&get(&image, "data")).to_vec())
 }
 
-/// The element as a picture on the GPU: the renderer uploads the frame it shows when it draws.
+/// The element while no surface shows it: in the page and over everything, so the browser
+/// composites (and calls back for) its frames, a covered element's being skipped; but unseen
+/// and out of the way.
+const HIDDEN: &str = "position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;z-index:2147483647";
+
+/// Shows `video` under the window's canvas at `at` (window logical pixels, which are the CSS
+/// pixels of the canvas's box), or out of the way again for `None`.
+fn place_element(video: &JsValue, at: Option<remedy_ui_paint::PagePlacement>) {
+    let doc = get(&js_sys::global(), "document");
+    let style = get(video, "style");
+    let Some(at) = at else {
+        if get(&style, "cssText").as_string().as_deref() != Some(HIDDEN) {
+            set(&style, "cssText", HIDDEN);
+            let _ = call(&get(&doc, "body"), "appendChild", std::slice::from_ref(video));
+        }
+        return;
+    };
+    // shortcut: the first window's canvas; a page with several windows shows it in that one.
+    let Ok(canvas) = call(&doc, "querySelector", &["[data-remedy-window] canvas[data-raw-handle]".into()]) else {
+        return;
+    };
+    let surface = get(&canvas, "parentElement");
+    if surface.is_null() || surface.is_undefined() {
+        return;
+    }
+    // Under the canvases (first in their box), where the window leaves the surface clear.
+    if !js_sys::Object::is(&get(video, "parentElement"), &surface) {
+        let _ = call(&surface, "insertBefore", &[video.clone(), get(&surface, "firstChild")]);
+    }
+    let (b, v, c) = (at.bounds, at.visible, at.background);
+    let css = format!(
+        "position:absolute;left:{}px;top:{}px;width:{}px;height:{}px;object-fit:contain;background:rgba({},{},{},{});pointer-events:none;clip-path:inset({}px {}px {}px {}px)",
+        b.min.x,
+        b.min.y,
+        b.width(),
+        b.height(),
+        (c.r * 255.0).round(),
+        (c.g * 255.0).round(),
+        (c.b * 255.0).round(),
+        c.a,
+        (v.min.y - b.min.y).max(0.0),
+        (b.max.x - v.max.x).max(0.0),
+        (b.max.y - v.max.y).max(0.0),
+        (v.min.x - b.min.x).max(0.0),
+    );
+    if get(&style, "cssText").as_string().as_deref() != Some(css.as_str()) {
+        set(&style, "cssText", css.as_str());
+    }
+}
+
+/// The element as a picture: the page shows it itself under the window (as any page shows its
+/// video, decoded and composited by the browser); a renderer that draws it instead uploads the
+/// frame it shows (GPU) or reads its pixels (CPU).
 struct ElementFrame {
     video: JsValue,
     width: u32,
@@ -198,6 +248,14 @@ unsafe impl Sync for ElementFrame {}
 impl GpuPicture for ElementFrame {
     fn texture(&self) -> GpuTexture {
         GpuTexture::WebVideoFrame { frame: (&self.video).into_abi(), width: self.width, height: self.height }
+    }
+
+    fn shows_itself(&self) -> bool {
+        true
+    }
+
+    fn place(&self, at: Option<remedy_ui_paint::PagePlacement>) {
+        place_element(&self.video, at);
     }
 
     fn read_back(&self) -> Option<CpuPixels> {
@@ -227,16 +285,10 @@ fn shown(s: &Shared, at: f64) {
     if w == 0 || h == 0 || get(&st.video, "seeking").is_truthy() {
         return;
     }
-    let picture = if remedy_ui_paint::gpu_video_adapter() == Some(GpuAdapter::Browser) {
-        let frame = Arc::new(ElementFrame { video: st.video.clone(), width: w, height: h });
-        Picture::on_gpu(w, h, YuvMatrix::Bt709, false, frame)
-    } else {
-        let video = st.video.clone();
-        match draw_rgba(&video, (w, h), &mut st.canvas) {
-            Some(rgba) => Picture::packed(w, h, PixelFormat::Rgba, rgba),
-            None => return,
-        }
-    };
+    // The element itself, on either renderer: a surface has the page show it, and nothing
+    // copies its pixels per frame.
+    let frame = Arc::new(ElementFrame { video: st.video.clone(), width: w, height: h });
+    let picture = Picture::on_gpu(w, h, YuvMatrix::Bt709, false, frame);
     let at = duration(at.max(st.floor));
     st.frames.push_back(Sample::Video { at, duration: None, picture });
     while st.frames.len() > WAITING_FRAMES {
@@ -469,11 +521,7 @@ impl ElementDecoder {
         // In the page and over everything, so the browser composites (and calls back for) its
         // frames, a covered element's being skipped; but unseen and out of the way: the
         // engine draws the pictures.
-        set(
-            &get(&video, "style"),
-            "cssText",
-            "position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;z-index:2147483647",
-        );
+        set(&get(&video, "style"), "cssText", HIDDEN);
         let body = get(&doc, "body");
         call(&body, "appendChild", std::slice::from_ref(&video)).map_err(unsupported)?;
         let s: Shared = Rc::new(RefCell::new(State {
@@ -486,7 +534,6 @@ impl ElementDecoder {
             playing: false,
             policy_muted: false,
             floor: 0.0,
-            canvas: None,
             closed: false,
         }));
         let on = |name: &'static str, f: fn(&mut State)| {

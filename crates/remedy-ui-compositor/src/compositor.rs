@@ -94,6 +94,16 @@ pub enum CompositeOp {
         /// The color.
         color: remedy_ui_core::Color,
     },
+    /// Clears `rect` with `radii` to transparent, in the space `transform` maps to device
+    /// pixels: a [`hole`](crate::Layer::hole), where what is under the window shows.
+    Clear {
+        /// Hole space to device pixels.
+        transform: Affine,
+        /// The box.
+        rect: Rect,
+        /// Its corners.
+        radii: CornerRadii,
+    },
 }
 
 impl CompositeOp {
@@ -109,7 +119,10 @@ impl CompositeOp {
                 CompositeOp::PopClip | CompositeOp::PopOpacity | CompositeOp::PopFilter => {
                     open.pop();
                 }
-                CompositeOp::Tile { .. } | CompositeOp::Backdrop { .. } | CompositeOp::Fill { .. } => {}
+                CompositeOp::Tile { .. }
+                | CompositeOp::Backdrop { .. }
+                | CompositeOp::Fill { .. }
+                | CompositeOp::Clear { .. } => {}
             }
         }
         open.iter().rev().find(|(group, _)| *group).map_or(0, |(_, i)| i + 1)
@@ -458,6 +471,7 @@ struct Drawn {
     bounds: Option<Rect>,
     backdrop: Option<crate::layer::Backdrop>,
     filters: Vec<remedy_ui_paint::Filter>,
+    hole: bool,
 }
 
 /// The compositor for one window. Single-threaded apps and tests drive it on the UI thread;
@@ -1234,7 +1248,14 @@ impl Compositor {
         // A new version that changes only part of the content: tiles away from that part
         // carry over, and only it is damage.
         let changed = self.content_change(layer, raster_scale);
-        if let Some(extent) = layer.content_extent() {
+        if layer.hole {
+            // Cleared, never rastered: the box, inside the clip around it.
+            bounds = local_to_device.apply_rect(layer.local_box()).intersect(clip).filter(|r| !r.is_empty());
+            if bounds.is_some() {
+                let radii = layer.clip.unwrap_or(CornerRadii::ZERO);
+                w.plan.ops.push(CompositeOp::Clear { transform: local_to_device, rect: layer.local_box(), radii });
+            }
+        } else if let Some(extent) = layer.content_extent() {
             let screen = clip.intersect(w.viewport);
             let inverse = content_to_device.inverse();
             let visible = screen
@@ -1277,6 +1298,7 @@ impl Compositor {
                 bounds,
                 backdrop: layer.backdrop,
                 filters: layer.filters.clone(),
+                hole: layer.hole,
             },
         );
 
