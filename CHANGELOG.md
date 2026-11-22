@@ -10,6 +10,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Landmarks and the current item** in `a11y`: `Role::{Navigation, Main, Banner, Region,
+  Search, Article, ContentInfo, Complementary}` and `Semantics::current(Current::{Page, Step,
+  Location, Date, Time, True})`, mapped to AccessKit's roles and `aria_current` on every
+  platform and to `role=` and `aria-current` in the web bridge's ARIA mirror; screen readers
+  hear "current page". The nav rail's and bottom bar's chosen item is `Current::Page`.
 - **`remedy-ui-services-net`, an HTTP client for native apps and browser pages** (facade
   feature `net`, `remedy_ui::net`, in `full`). `Http::new(base)` with default headers, a
   timeout and natively an optional `CookieJar`; `Request::get/post/put/delete` with headers,
