@@ -66,7 +66,8 @@ impl Reader {
             return Block::Heading(h);
         }
         let lists = self.ctx.iter().filter(|c| matches!(c, Ctx::List(_))).count();
-        let level = u8::try_from(lists.saturating_sub(1)).unwrap_or(u8::MAX).min(remedy_ui_text::MAX_LEVEL);
+        let level =
+            u8::try_from(lists.saturating_sub(1)).unwrap_or(u8::MAX).min(remedy_ui_text::max_list_level());
         let list = self.ctx.iter().rev().find_map(|c| match c {
             Ctx::List(o) => Some(*o),
             _ => None,
@@ -365,7 +366,7 @@ fn inline(doc: &RichDoc, line: Range<usize>, out: &mut String) {
 
 fn write_markdown(doc: &RichDoc) -> String {
     let mut out = String::new();
-    let mut numbers = [0u32; remedy_ui_text::MAX_LEVEL as usize + 1];
+    let mut numbers = vec![0u32; usize::from(remedy_ui_text::max_list_level()) + 1];
     let mut prev: Option<Block> = None;
     let lines = doc.lines();
     let mut i = 0;
@@ -414,7 +415,7 @@ fn write_markdown(doc: &RichDoc) -> String {
             Block::Bullet(l) | Block::Numbered(l) | Block::Task { level: l, .. } => {
                 let level = usize::from(l);
                 if !prev.is_some_and(Block::is_list) {
-                    numbers = [0; remedy_ui_text::MAX_LEVEL as usize + 1];
+                    numbers.fill(0);
                 }
                 for deeper in numbers.iter_mut().skip(level + 1) {
                     *deeper = 0;

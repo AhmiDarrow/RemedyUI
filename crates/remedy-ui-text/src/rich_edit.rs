@@ -81,8 +81,23 @@ pub enum Block {
     Code,
 }
 
-/// How deep lists nest.
+/// How deep lists nest unless the app says otherwise ([`set_max_list_level`]): levels 0 to 5.
 pub const MAX_LEVEL: u8 = 5;
+
+static LIST_LEVEL: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(MAX_LEVEL);
+
+/// Sets the deepest level lists nest to in every rich editor and document reader from now on
+/// (default [`MAX_LEVEL`], 5; up to 255). Indenting stops there, and deeper lists read from
+/// HTML or a document are held to it. A level indents by one em, so a deep list in a narrow
+/// view leaves little room for its text.
+pub fn set_max_list_level(level: u8) {
+    LIST_LEVEL.store(level, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The deepest level lists nest to now ([`set_max_list_level`]).
+pub fn max_list_level() -> u8 {
+    LIST_LEVEL.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 impl Block {
     /// A list item's nesting level (0 for other blocks).
@@ -99,7 +114,7 @@ impl Block {
     }
 
     fn with_level(self, level: u8) -> Block {
-        let level = level.min(MAX_LEVEL);
+        let level = level.min(max_list_level());
         match self {
             Block::Bullet(_) => Block::Bullet(level),
             Block::Numbered(_) => Block::Numbered(level),
@@ -902,7 +917,8 @@ impl RichEditor {
         self.format(|f, _| {
             for b in f.blocks.get_mut(lines).into_iter().flatten() {
                 let l = b.level();
-                let next = if deeper { l.saturating_add(1).min(MAX_LEVEL) } else { l.saturating_sub(1) };
+                let next =
+                    if deeper { l.saturating_add(1).min(max_list_level()) } else { l.saturating_sub(1) };
                 *b = b.with_level(next);
             }
         });
@@ -940,7 +956,7 @@ impl RichEditor {
         let mut out = RichText::new();
         let mut markers = Vec::new();
         let mut tasks = Vec::new();
-        let mut numbers = [0u32; MAX_LEVEL as usize + 1];
+        let mut numbers = vec![0u32; usize::from(max_list_level()) + 1];
         let mut line_starts = Vec::new();
         let mut start = 0;
         for (i, line) in shown.split('\n').enumerate() {
@@ -966,7 +982,7 @@ impl RichEditor {
                         *deeper = 0;
                     }
                 }
-                _ => numbers = [0; MAX_LEVEL as usize + 1],
+                _ => numbers.fill(0),
             }
             let indent = "\u{2003}".repeat(usize::from(block.level()));
             let marker = match block {
