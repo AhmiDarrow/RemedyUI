@@ -11,7 +11,6 @@
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
-use std::time::Duration;
 
 use remedy_ui_bridge_winit::winit::window::WindowId;
 use remedy_ui_core::Point;
@@ -29,9 +28,6 @@ use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum, event_created_child};
 
 use crate::dnd::{Offer, offers, preferred};
-
-/// How long reading a dropped offer may take.
-const READ: Duration = Duration::from_secs(2);
 
 fn fail(e: impl std::fmt::Display) -> Unsupported {
     Unsupported::new("drag and drop on Wayland", e.to_string())
@@ -247,7 +243,8 @@ fn percent_decode(s: &str) -> Vec<u8> {
     out
 }
 
-/// Reads `mime` from `offer` through a pipe, giving up after [`READ`].
+/// Reads `mime` from `offer` through a pipe, giving up after the read wait
+/// ([`set_drop_waits`](crate::set_drop_waits)).
 fn read_offer(conn: &Connection, offer: &WlDataOffer, mime: &str) -> Option<Vec<u8>> {
     let (mut reader, writer) = std::io::pipe().ok()?;
     offer.receive(mime.to_owned(), std::os::fd::AsFd::as_fd(&writer));
@@ -261,7 +258,7 @@ fn read_offer(conn: &Connection, offer: &WlDataOffer, mime: &str) -> Option<Vec<
             let _ = tx.send(reader.read_to_end(&mut buf).map(|_| buf));
         })
         .ok()?;
-    rx.recv_timeout(READ).ok()?.ok()
+    rx.recv_timeout(crate::dnd::drop_waits().0).ok()?.ok()
 }
 
 /// What an offer with `mimes` carries: files and links from `text/uri-list`, else text.

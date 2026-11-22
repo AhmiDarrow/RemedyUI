@@ -2531,7 +2531,8 @@ const GUARD_STEP: usize = 4096;
 
 /// How long a synchronized update may hold the screen before it is shown anyway: a
 /// program that never ends one must not freeze the terminal (xterm and kitty use similar).
-pub(crate) const SYNC_TIMEOUT: Duration = Duration::from_millis(150);
+/// The default of [`TerminalOptions::sync_timeout`](crate::TerminalOptions::sync_timeout).
+pub const SYNC_TIMEOUT: Duration = Duration::from_millis(150);
 
 impl Emulator {
     /// An emulator of `cols` × `rows` cells (each at least 1).

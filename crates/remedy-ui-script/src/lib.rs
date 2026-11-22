@@ -153,6 +153,20 @@ pub struct Limits {
     /// How deeply described elements may nest. Past this a tree is not a readable widget and
     /// would only cost the layout.
     pub nesting: usize,
+    /// The most handlers (buttons, an element's `on_*`) one description may hold, so a script
+    /// cannot make the host keep an unbounded table between renders. Default 4096.
+    pub handlers: usize,
+    /// The largest picture a description may ask for, in logical pixels a side. Default 4096;
+    /// a picture costs its pixels at 4 bytes each, so a raised side costs with its square.
+    pub image_side: u32,
+    /// The widest gap between children, in logical pixels. Default 64.
+    pub gap: u32,
+    /// How deeply expressions may nest in the source, at the top level and inside a
+    /// function, for engines that parse source (Rhai); others ignore it. Default 64 and 32,
+    /// what readable code needs. A safety bound: the parser recurses on the caller's stack
+    /// before any step is metered, a few KiB a level, so raising it far needs more `stack`
+    /// (and a UI thread with that stack) or hostile source can overflow it.
+    pub expr_depth: (usize, usize),
 }
 
 impl Limits {
@@ -206,6 +220,31 @@ impl Limits {
         self
     }
 
+    /// Sets `handlers`: the most handlers one description may hold.
+    pub fn handlers(mut self, value: usize) -> Self {
+        self.handlers = value;
+        self
+    }
+
+    /// Sets `image_side`: the largest picture a description may ask for, a side.
+    pub fn image_side(mut self, value: u32) -> Self {
+        self.image_side = value;
+        self
+    }
+
+    /// Sets `gap`: the widest gap between children.
+    pub fn gap(mut self, value: u32) -> Self {
+        self.gap = value;
+        self
+    }
+
+    /// Sets `expr_depth`: how deeply expressions may nest, at the top level and in a
+    /// function.
+    pub fn expr_depth(mut self, top: usize, function: usize) -> Self {
+        self.expr_depth = (top, function);
+        self
+    }
+
     /// The operations one call may take: `operations`, or `time` at `per_ms` operations a
     /// millisecond (an engine's measured rate).
     /// The steps one call may take on this device: `operations` when set; else the time
@@ -235,7 +274,8 @@ impl Default for Limits {
     /// 16 MiB and 8 ms (a mid-range device), operations from the time, 64 nested calls (more
     /// than a widget's own recursion needs), 512 KiB of stack (half the smallest stack a UI
     /// thread gets, 1 MiB on Windows and in browser pages, leaving the rest to the app's own
-    /// frames), and 64 nested elements.
+    /// frames), 64 nested elements, 4096 handlers, pictures up to 4096 pixels a side, gaps
+    /// up to 64, and expressions nested 64 deep (32 in a function).
     fn default() -> Self {
         Limits {
             memory: 16 * 1024 * 1024,
@@ -244,6 +284,10 @@ impl Default for Limits {
             call_depth: 64,
             stack: 512 * 1024,
             nesting: 64,
+            handlers: 4096,
+            image_side: 4096,
+            gap: 64,
+            expr_depth: (64, 32),
         }
     }
 }
@@ -617,28 +661,19 @@ pub fn describe_with(
     offered: &dyn Fn(&str) -> bool,
 ) -> Result<Described, ScriptError> {
     let mut handlers = Vec::new();
-    let node = node(v, &mut handlers, 0, limits.nesting, offered)?;
+    let node = node(v, &mut handlers, 0, limits, offered)?;
     Ok(Described { node, handlers })
 }
-
-/// The most handlers one description may hold, so a script cannot make the host keep an
-/// unbounded table between renders.
-const MAX_HANDLERS: usize = 4096;
-/// The largest picture a description may ask for, in logical pixels a side.
-const MAX_IMAGE_SIDE: f64 = 4096.0;
-
-/// The gap between children, in logical pixels, is kept within what a widget's layout uses.
-const MAX_GAP: f64 = 64.0;
 
 fn node(
     v: &Value,
     handlers: &mut Vec<Value>,
     depth: usize,
-    nesting: usize,
+    limits: &Limits,
     offered: &dyn Fn(&str) -> bool,
 ) -> Result<Node, ScriptError> {
     let shape = |e: &str| ScriptError::Shape(e.to_owned());
-    if depth >= nesting {
+    if depth >= limits.nesting {
         return Err(shape("it nests too deeply"));
     }
     let Value::Object(t) = v else { return Err(shape("expected a ui element")) };
@@ -652,12 +687,12 @@ fn node(
         match t.get("children") {
             None | Some(Value::Null) => Ok(Vec::new()),
             Some(Value::Array(list)) => {
-                list.iter().map(|c| node(c, handlers, depth + 1, nesting, offered)).collect()
+                list.iter().map(|c| node(c, handlers, depth + 1, limits, offered)).collect()
             }
             Some(_) => Err(shape("children must be a list")),
         }
     };
-    let gap = number(t, "gap").unwrap_or(0.0).clamp(0.0, MAX_GAP) as f32;
+    let gap = number(t, "gap").unwrap_or(0.0).clamp(0.0, f64::from(limits.gap)) as f32;
     Ok(match kind.as_str() {
         "column" => Node::Column { gap, children: children(handlers)? },
         "row" => Node::Row { gap, children: children(handlers)? },
@@ -674,7 +709,7 @@ fn node(
         "button" => {
             let on =
                 t.get("on").filter(|v| !v.is_null()).ok_or_else(|| shape("a button has nothing to run"))?;
-            Node::Button { label: text("label"), action: handler(handlers, on)? }
+            Node::Button { label: text("label"), action: handler(handlers, on, limits.handlers)? }
         }
         "link" => Node::Link { label: text("label"), url: text("url") },
         "progress" => {
@@ -684,7 +719,8 @@ fn node(
         "divider" => Node::Divider,
         "image" => {
             let side = |k: &str| {
-                number(t, k).filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, MAX_IMAGE_SIDE) as f32
+                number(t, k).filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, f64::from(limits.image_side))
+                    as f32
             };
             Node::Image { src: text("src"), alt: text("alt"), width: side("width"), height: side("height") }
         }
@@ -696,7 +732,7 @@ fn node(
                     continue;
                 }
                 if (k == "on" || k.starts_with("on_")) && !v.is_null() {
-                    own.push((k.clone(), handler(handlers, v)?));
+                    own.push((k.clone(), handler(handlers, v, limits.handlers)?));
                 } else {
                     props.insert(k.clone(), v.clone());
                 }
@@ -709,8 +745,8 @@ fn node(
     })
 }
 
-fn handler(handlers: &mut Vec<Value>, on: &Value) -> Result<Action, ScriptError> {
-    if handlers.len() >= MAX_HANDLERS {
+fn handler(handlers: &mut Vec<Value>, on: &Value, max: usize) -> Result<Action, ScriptError> {
+    if handlers.len() >= max {
         return Err(ScriptError::Shape("it has too many buttons".into()));
     }
     handlers.push(on.clone());
@@ -966,8 +1002,19 @@ mod tests {
     fn a_description_cannot_hold_endless_handlers() {
         let many: Vec<Value> =
             (0..5000).map(|i| json!({ "kind": "button", "label": "x", "on": i })).collect();
-        let r = describe(&json!({ "kind": "column", "children": many }), &Limits::default());
+        let tree = json!({ "kind": "column", "children": many });
+        let r = describe(&tree, &Limits::default());
         assert!(matches!(r, Err(ScriptError::Shape(_))), "{r:?}");
+        // The app may allow more, and wider pictures and gaps.
+        let roomy = Limits::default().handlers(8000).image_side(10_000).gap(200);
+        assert!(describe(&tree, &roomy).is_ok());
+        let pic = json!({ "kind": "row", "gap": 150, "children": [{ "kind": "image", "width": 9000 }] });
+        let d = describe(&pic, &roomy).map(|d| d.node);
+        assert!(
+            matches!(&d, Ok(Node::Row { gap, children }) if *gap == 150.0
+                && matches!(children.first(), Some(Node::Image { width, .. }) if *width == 9000.0)),
+            "{d:?}"
+        );
     }
 
     #[test]

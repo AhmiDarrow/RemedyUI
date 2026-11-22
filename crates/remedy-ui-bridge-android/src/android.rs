@@ -126,9 +126,19 @@ pub fn launch_extra(name: &str) -> Option<String> {
 /// Whether [`hold_process`] holds the process: the app's way out waits for it to let go.
 static HELD: (Mutex<bool>, std::sync::Condvar) = (Mutex::new(false), std::sync::Condvar::new());
 
-/// How long the way out waits for held work (keepalive requests), as `remedy_ui::run` waits
-/// for them on the desktop.
-const HELD_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long the way out waits for held work (keepalive requests) unless the app says
+/// otherwise ([`set_held_grace`]), as `remedy_ui::run` waits for them on the desktop.
+pub const HELD_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+
+static GRACE: Mutex<std::time::Duration> = Mutex::new(HELD_GRACE);
+
+/// Sets how long the app's way out waits for work that holds the process ([`hold_process`]:
+/// keepalive requests) before it ends anyway (default [`HELD_GRACE`], 10 s).
+/// `remedy_ui::run` sets it from `AppConfig::keepalive_grace`. Android may end a process
+/// that takes long to go away itself, so a much longer wait may not be granted.
+pub fn set_held_grace(grace: std::time::Duration) {
+    *GRACE.lock().unwrap_or_else(PoisonError::into_inner) = grace;
+}
 
 /// The activity [`run`] is running, for calls from any thread.
 static RUNNING: OnceLock<AndroidApp> = OnceLock::new();
@@ -742,11 +752,9 @@ impl PlatformHooks for AndroidHooks {
 pub fn run(app: impl App) -> Result<(), RunError> {
     // Keep the activity in ACTIVITY so `launch_extra`, `install_apk` and the rest can still
     // reach it after the event loop has started (window code, background work).
-    let activity = ACTIVITY
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone()
-        .ok_or_else(|| RunError::new("no Android activity: start the app with remedy_ui_bridge_android::main!"))?;
+    let activity = ACTIVITY.lock().unwrap_or_else(PoisonError::into_inner).clone().ok_or_else(|| {
+        RunError::new("no Android activity: start the app with remedy_ui_bridge_android::main!")
+    })?;
     let _ = RUNNING.set(activity.clone());
     let event_loop = EventLoop::<UserEvent>::with_user_event()
         .with_android_app(activity.clone())
@@ -785,6 +793,7 @@ fn finish_and_exit(activity: &AndroidApp, ok: bool) -> ! {
     // The exit below runs no destructors: wait here for the work that holds the process.
     let (held, cv) = &HELD;
     let held = held.lock().unwrap_or_else(PoisonError::into_inner);
-    let _ = cv.wait_timeout_while(held, HELD_GRACE, |h| *h);
+    let grace = *GRACE.lock().unwrap_or_else(PoisonError::into_inner);
+    let _ = cv.wait_timeout_while(held, grace, |h| *h);
     std::process::exit(if ok { 0 } else { 1 })
 }

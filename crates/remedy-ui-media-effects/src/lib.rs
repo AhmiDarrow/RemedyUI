@@ -119,6 +119,8 @@ struct State {
     cheap: u32,
     budget: Duration,
     gpu_budget: Duration,
+    /// The most a frame's buffers may be on a side, in device pixels.
+    max_side: u32,
     /// The renderer the ladder measured last: a change starts it again from the top.
     measured_on: Backend,
     /// The element's size in device pixels when last painted: a new size measures again.
@@ -203,6 +205,16 @@ impl EffectView {
         self.0.state.borrow_mut().gpu_budget = budget;
     }
 
+    /// The most the effect's frames may be on a side, in device pixels (default
+    /// [`FrameInput::DEFAULT_MAX_SIDE`], 4096): a larger element draws its effect at this size
+    /// and is stretched to fill. The GPU renderer also holds it to its device's texture limit.
+    /// A frame's buffers cost 4 bytes a pixel each, so a raised side costs memory with its
+    /// square (bounded too by `effects::set_max_effect_pixels`).
+    pub fn set_max_side(&self, side: u32) {
+        self.0.state.borrow_mut().max_side = side;
+        self.changed();
+    }
+
     /// False once the element is gone.
     pub fn is_open(&self) -> bool {
         !self.0.closed.get()
@@ -226,6 +238,7 @@ pub fn effect_view(ui: &Ui, instance: Instance) -> (El, EffectView) {
             cheap: 0,
             budget: Duration::from_millis(4),
             gpu_budget: Duration::from_millis(2),
+            max_side: FrameInput::DEFAULT_MAX_SIDE,
             measured_on: Backend::None,
             size: (0, 0),
         }),
@@ -312,6 +325,7 @@ fn paint(shared: &Shared, cx: &mut PaintCx<'_>, on_gpu: bool) {
     };
     let mut input = FrameInput::new(cx.size.width, cx.size.height, cx.scale * res, time);
     input.light = light;
+    input.max_side = s.max_side;
     let blend = effect.blend;
     let push = |cx: &mut PaintCx<'_>, item: Item| {
         if blend != Blend::Normal {

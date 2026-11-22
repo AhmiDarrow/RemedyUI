@@ -118,6 +118,11 @@ fn keyboard_zooms_by_steps_and_navigates() {
     assert_eq!(w.view.zoom().get_untracked().ok(), Some(MAX_ZOOM));
     w.view.set_zoom(0.0001, None);
     assert_eq!(w.view.zoom().get_untracked().ok(), Some(MIN_ZOOM));
+    // The app moves them; a zoom outside the new range moves inside it.
+    w.view.set_zoom_range(0.5, 200.0);
+    assert_eq!(w.view.zoom().get_untracked().ok(), Some(0.5));
+    w.view.set_zoom(1000.0, None);
+    assert_eq!(w.view.zoom().get_untracked().ok(), Some(200.0));
 }
 
 #[test]

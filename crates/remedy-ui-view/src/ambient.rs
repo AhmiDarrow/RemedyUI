@@ -73,6 +73,9 @@ pub struct AmbientPolicy {
     pub power_saving_fps: Option<u32>,
     /// Reduced motion (the system's or the app's) stops ambient motion (default true).
     pub follow_reduced_motion: bool,
+    /// The longest step an [`AmbientTick::dt`] reports, so motion integrated with it does not
+    /// jump after a pause (default [`MAX_AMBIENT_DT`], a quarter second).
+    pub max_dt: Duration,
 }
 
 impl Default for AmbientPolicy {
@@ -84,6 +87,7 @@ impl Default for AmbientPolicy {
             unfocused_fps: 10,
             power_saving_fps: Some(15),
             follow_reduced_motion: true,
+            max_dt: MAX_AMBIENT_DT,
         }
     }
 }
@@ -96,6 +100,8 @@ pub struct AmbientRate {
     pub interval: Duration,
     /// Draw lighter: fewer particles, no secondary effects.
     pub light: bool,
+    /// The longest step a tick reports ([`AmbientPolicy::max_dt`]).
+    pub max_dt: Duration,
 }
 
 /// What [`PaintCx::ambient`] gives a painter for this frame.
@@ -105,14 +111,16 @@ pub struct AmbientTick {
     /// The frame's time on the window's frame clock: sample loops with it.
     pub t: Duration,
     /// Time since this element's last ambient frame (zero on the first, and never more than
-    /// a quarter second, so a step after a pause does not jump): integrate with it.
+    /// [`AmbientPolicy::max_dt`], a quarter second by default, so a step after a pause does
+    /// not jump): integrate with it.
     pub dt: Duration,
     /// Draw lighter (the window is in light mode or saving power).
     pub light: bool,
 }
 
-/// The longest `dt` an [`AmbientTick`] reports.
-const MAX_DT: Duration = Duration::from_millis(250);
+/// The longest `dt` an [`AmbientTick`] reports unless the policy says otherwise
+/// ([`AmbientPolicy::max_dt`]).
+pub const MAX_AMBIENT_DT: Duration = Duration::from_millis(250);
 /// Wakes this close together are served by one frame.
 const SLACK: Duration = Duration::from_millis(4);
 /// How often live data visuals step while their window has focus.
@@ -165,6 +173,7 @@ impl AmbientPolicy {
         (fps > 0).then(|| AmbientRate {
             interval: Duration::from_secs(1) / fps,
             light: self.mode == AmbientMode::Light || saving,
+            max_dt: self.max_dt,
         })
     }
 
@@ -436,7 +445,7 @@ impl PaintCx<'_> {
         let floor = if fps == 0 || fps == u32::MAX { Duration::ZERO } else { Duration::from_secs(1) / fps };
         self.wake(rate.interval.max(floor));
         self.ask.ticked = true;
-        let dt = self.last_tick.map_or(Duration::ZERO, |l| self.time.saturating_sub(l)).min(MAX_DT);
+        let dt = self.last_tick.map_or(Duration::ZERO, |l| self.time.saturating_sub(l)).min(rate.max_dt);
         Some(AmbientTick { t: self.time, dt, light: rate.light })
     }
 
