@@ -378,11 +378,14 @@ pub(crate) fn gst() -> Result<&'static Gst, MediaError> {
     })
 }
 
-struct GstHost;
+struct GstHost {
+    /// The last HLS stream's decoders, for the next.
+    spare: crate::hls::Spare,
+}
 
 pub(super) fn host() -> Result<Arc<dyn MediaHost>, MediaError> {
     gst()?;
-    Ok(Arc::new(GstHost))
+    Ok(Arc::new(GstHost { spare: crate::hls::Spare::default() }))
 }
 
 impl MediaHost for GstHost {
@@ -395,7 +398,8 @@ impl MediaHost for GstHost {
             return crate::hls::open(
                 &source.to_url(),
                 Box::new(super::gstreamer_hls::GstFetch::new()?),
-                Box::new(super::gstreamer_hls::GstElementary::new()?),
+                &self.spare,
+                || Ok(Box::new(super::gstreamer_hls::GstElementary::new()?)),
             );
         }
         Ok(Box::new(GstDecoder::open(gst()?, source)?))
