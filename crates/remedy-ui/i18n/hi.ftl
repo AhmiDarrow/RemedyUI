@@ -5,3 +5,9 @@
 movable-moved-out = { $title } अपनी अलग विंडो में है।
 # The button that brings the content back from its window.
 movable-bring-back = वापस लाएं
+
+## A question in a window of its own (App::confirm).
+# The button that answers yes.
+confirm-ok = ठीक है
+# The button that answers no.
+confirm-cancel = रद्द करें
