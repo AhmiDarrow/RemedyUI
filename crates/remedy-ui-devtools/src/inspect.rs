@@ -342,7 +342,10 @@ pub fn audit(ui: &Ui) -> Vec<Problem> {
                     Some(Role::Group | Role::Toolbar | Role::Grid | Role::Dialog)
                 ));
         if interactive {
-            let why = if !reader.contains(&el.node_id()) {
+            let why = if !reader.contains(&el.node_id()) && ui.behind_modal(el.id()) {
+                // Behind an open modal: out of reach on purpose, as behind a modal <dialog>.
+                None
+            } else if !reader.contains(&el.node_id()) {
                 Some(if merged_away(&el) { Unreachable::Merged } else { Unreachable::Hidden })
             } else if i.clickable
                 && !i.semantics.as_ref().is_some_and(|s| s.actions().contains(&remedy_ui_a11y::Action::Click))

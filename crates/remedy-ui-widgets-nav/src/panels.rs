@@ -48,7 +48,7 @@ pub fn drawer(ui: &Ui, label: impl Into<String>, edge: Edge, open: Signal<bool>,
                     .column()
                     .gap(unit * 2.0)
                     .padding(Insets::all(unit * 4.0))
-                    .semantics(Semantics::new(Role::Dialog).label(l2.clone()))
+                    .semantics(Semantics::new(Role::Dialog).label(l2.clone()).modal(true))
                     .child((*content).clone());
                 let panel = match edge {
                     Edge::Bottom => panel.fill_width().layout(|l| l.max_height = Length::Percent(0.85)),

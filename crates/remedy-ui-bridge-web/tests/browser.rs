@@ -478,7 +478,9 @@ async fn an_app_runs_in_the_page() {
         ("Notes", "textarea", "  off enter "),
         ("Message", "input", "text  off done "),
     ] {
-        let mirrored = query(&format!("[role=textbox][aria-label='{label}']")).must("the mirrored field");
+        // A search field is a search box to assistive technology; the others text boxes.
+        let role = if label == "Find" { "searchbox" } else { "textbox" };
+        let mirrored = query(&format!("[role={role}][aria-label='{label}']")).must("the mirrored field");
         let (x, y) = center(&mirrored);
         pointer(&target, "pointerdown", x, y, 1);
         pointer(&target, "pointerup", x, y, 0);
@@ -571,7 +573,16 @@ async fn an_app_runs_in_the_page() {
     // The GPU: an app that asks for it draws on WebGPU or WebGL2, made asynchronously.
     let seen = Rc::new(Seen::default());
     start(AppConfig::new("Browser GPU test").gpu_first(), seen.clone());
-    let decided = until(600, || renderer(&seen) == Some(RendererKind::Gpu)).await;
+    // The page keeps drawing on the CPU while the browser starts its GL, which can take
+    // minutes on a loaded machine (headless Firefox): wait for it as long as it takes. The
+    // page's thread is never stalled meanwhile: `getContext("webgl2")` blocks until the GL
+    // is up, so the renderer waits for a worker's context first (a page froze for minutes
+    // before). Making the device itself (pipelines, in a debug build) takes a few seconds.
+    watch_gaps();
+    let decided = until(36_000, || renderer(&seen) == Some(RendererKind::Gpu)).await;
+    let gap = worst_gap();
+    web_sys::console::log_1(&format!("longest stall while the GPU was made: {gap:.0} ms").into());
+    assert!(gap < 8000.0, "the page's thread was never stalled for long ({gap:.0} ms)");
     let gpu: web_sys::HtmlCanvasElement = document()
         .query_selector("canvas[data-raw-handle]")
         .ok()
@@ -1085,4 +1096,28 @@ async fn a_held_gamepad_direction_repeats_and_a_presses_once() {
     let app = seen.app.borrow().clone().must("the app");
     app.quit();
     assert!(until(30, || !remedy_ui::web::is_running()).await);
+}
+
+#[wasm_bindgen(inline_js = r#"
+export function watchGaps() {
+  window.__worstGap = 0;
+  let last = performance.now();
+  window.__gapTimer = setInterval(() => {
+    const now = performance.now();
+    window.__worstGap = Math.max(window.__worstGap, now - last);
+    last = now;
+  }, 20);
+}
+export function worstGap() {
+  clearInterval(window.__gapTimer);
+  return window.__worstGap;
+}
+"#)]
+extern "C" {
+    /// Starts noting the longest time the page's thread went without running a 20 ms timer.
+    #[wasm_bindgen(js_name = watchGaps)]
+    fn watch_gaps();
+    /// The longest gap since `watch_gaps`, in milliseconds.
+    #[wasm_bindgen(js_name = worstGap)]
+    fn worst_gap() -> f64;
 }

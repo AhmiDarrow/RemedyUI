@@ -6,6 +6,7 @@
 //!
 //! - [`geometry`]: points, vectors, sizes, rectangles, insets and corner radii in logical pixels.
 //! - [`units`]: the scale from logical to device pixels, and snapping edges to the device grid.
+//! - [`scrollbar`]: how scroll containers show their scroll bars.
 //! - [`color`]: colors in sRGB, with conversion to linear light and mixing in Oklab.
 //! - [`arena`]: generational ids and an arena that grows with use and never hands out a stale id.
 //! - [`token`]: unguessable tokens for local connections, compared in constant time.
@@ -20,6 +21,7 @@ pub mod color_matrix;
 pub mod edition;
 pub mod exec;
 pub mod geometry;
+pub mod scrollbar;
 pub mod text;
 pub mod time;
 pub mod token;
@@ -30,5 +32,6 @@ pub use color::Color;
 pub use color_matrix::ColorMatrix;
 pub use edition::{Edition, ParseEditionError};
 pub use geometry::{CornerRadii, Insets, Point, Rect, Size, Vec2};
+pub use scrollbar::{ScrollbarColor, ScrollbarVisibility, ScrollbarWidth};
 pub use text::{LineHeight, TextTransform};
 pub use units::Scale;

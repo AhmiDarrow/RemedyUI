@@ -677,3 +677,63 @@ fn the_compositor_thread_snaps_wheel_and_programmatic_scrolls() {
         "the wheel snapped"
     );
 }
+
+fn barred(visibility: remedy_ui_core::ScrollbarVisibility) -> LayerTree {
+    let content = Layer::new(LayerId(2), Rect::new(0.0, 0.0, 400.0, 1200.0), solid(400.0, 1200.0));
+    let bars = Scrollbars { width: 8.0, thumb: Color::WHITE, track: Color::TRANSPARENT, visibility };
+    let scroller = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 400.0, 300.0), DisplayList::new())
+        .scrolling(Size::new(400.0, 1200.0))
+        .with_scrollbars(bars)
+        .with_child(content);
+    LayerTree::new(vec![scroller])
+}
+
+/// The scroll bar fills in a plan: (rect in local space, color alpha).
+fn bar_fills(plan: &FramePlan) -> Vec<(Rect, f32)> {
+    plan.ops
+        .iter()
+        .filter_map(|o| match o {
+            CompositeOp::Fill { rect, color, .. } => Some((*rect, color.a)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn overlay_scroll_bars_show_while_scrolling_then_fade() {
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(barred(remedy_ui_core::ScrollbarVisibility::Auto));
+    assert!(bar_fills(&c.frame(ms(0))).is_empty(), "nothing at rest, as overlay bars");
+    c.scroll_by(LayerId(1), Vec2::new(0.0, 450.0));
+    let p = c.frame(ms(16));
+    let fills = bar_fills(&p);
+    let [(thumb, alpha)] = fills[..] else { unreachable!("one thumb, no track: {fills:?}") };
+    assert_eq!(alpha, 1.0);
+    // A quarter of the 300 px track, halfway down its travel, inset 2 px in an 8 px bar.
+    assert_eq!((thumb.min.x, thumb.max.x), (394.0, 398.0));
+    assert_eq!((thumb.min.y, thumb.max.y), (114.5, 185.5));
+    assert!(p.animating, "frames keep coming to fade it");
+    assert!(p.damage.rects().iter().any(|r| r.max.x >= 398.0), "the bar is damage");
+    let p = c.frame(ms(16) + Scrollbars::LINGER + Scrollbars::FADE / 2);
+    let fading = bar_fills(&p);
+    assert!(matches!(fading[..], [(_, a)] if a > 0.0 && a < 1.0), "half faded: {fading:?}");
+    let p = c.frame(ms(16) + Scrollbars::LINGER + Scrollbars::FADE + ms(16));
+    assert!(bar_fills(&p).is_empty(), "gone");
+    assert!(!p.damage.is_empty(), "where it was is drawn again");
+    let p = c.frame(ms(2000));
+    assert!(!p.animating && p.damage.is_empty(), "then idle");
+}
+
+#[test]
+fn scroll_bars_shown_always_stay_and_hidden_ones_never_draw() {
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(barred(remedy_ui_core::ScrollbarVisibility::Always));
+    let p = c.frame(ms(0));
+    assert_eq!(bar_fills(&p).len(), 1);
+    assert!(!c.frame(ms(5000)).animating, "a resting bar needs no frames");
+    assert_eq!(bar_fills(&c.frame(ms(6000))).len(), 1);
+    let mut c = Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED);
+    c.commit(barred(remedy_ui_core::ScrollbarVisibility::Never));
+    c.scroll_by(LayerId(1), Vec2::new(0.0, 100.0));
+    assert!(bar_fills(&c.frame(ms(16))).is_empty());
+}

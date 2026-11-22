@@ -619,8 +619,9 @@ fn line_height_sets_how_tall_each_line_is_and_is_inherited() {
     assert!((h(&one) - 24.0).abs() < 0.5, "one line at 1.5 x 16: {}", h(&one));
     assert!((h(&two) - 48.0).abs() < 0.5, "two lines: {}", h(&two));
     assert!((h(&px) - 30.0).abs() < 0.5, "exact pixels: {}", h(&px));
-    // Text boxes round up to whole pixels: 21.28 takes 22.
-    assert!((h(&plain) - (16.0f32 * 1.33).ceil()).abs() < 0.5, "the default stays 1.33: {}", h(&plain));
+    // Text boxes keep fractional heights, as browsers lay them out (on a 1/64 px grid):
+    // 21.28 stays 21.28125, not 22.
+    assert!((h(&plain) - 21.28125).abs() < 1e-3, "the default stays 1.33: {}", h(&plain));
     assert!((h(&child) - 24.0).abs() < 0.5, "inherited from the parent: {}", h(&child));
     // A change reshapes and lays out again.
     let _ = one.clone().line_height(LineHeight::Relative(1.0));
@@ -1693,7 +1694,7 @@ fn fields_tell_input_methods_their_purpose() {
     let pass = ui.text_field("secret_input", FieldKind::Secret);
     let code = ui.text_field("secret_input", FieldKind::Secret).purpose(InputPurpose::OneTimeCode);
     let amount = ui.text_field("text_input", FieldKind::Single).numeric();
-    let find = ui.text_field("text_input", FieldKind::Single).purpose(InputPurpose::Search);
+    let find = ui.text_field("text_input", FieldKind::Single).purpose(remedy_ui_view::InputPurpose::Search);
     let note = ui.text_field("text_input", FieldKind::Multi);
     for f in [&user, &pass, &code, &amount, &find, &note] {
         ui.root().child(f.el().layout(|l| l.width = Length::Px(150.0)));
@@ -1752,4 +1753,22 @@ fn pointer_caps_follow_the_pointer_used_unless_the_platform_reports_them() {
     ui.set_pointer_caps(Some(PointerCaps::MOUSE));
     ui.set_pointer_hardware(PointerCaps::TOUCH);
     assert_eq!(caps.get_untracked().ok(), Some(PointerCaps::MOUSE), "what the platform reports wins");
+}
+
+#[test]
+fn a_search_field_is_a_searchbox_to_assistive_technology() {
+    let ui = ui();
+    ui.connect_accessibility();
+    let find = ui
+        .text_field("text_input", FieldKind::Single)
+        .label("Search")
+        .purpose(remedy_ui_view::InputPurpose::Search);
+    let name = ui.text_field("text_input", FieldKind::Single).label("Name");
+    ui.root().child(find.el()).child(name.el());
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    let role_of =
+        |label: &str| ui.reader_view().into_iter().find(|n| n.name.as_deref() == Some(label)).map(|n| n.role);
+    assert_eq!(role_of("Search"), Some(remedy_ui_a11y::Role::SearchInput));
+    assert_eq!(role_of("Name"), Some(remedy_ui_a11y::Role::TextInput));
 }
