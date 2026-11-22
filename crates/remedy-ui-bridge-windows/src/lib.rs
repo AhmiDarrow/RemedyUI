@@ -107,6 +107,7 @@ mod hooks {
                 v_.reduced_motion = s.animations.is_some_and(|on| !on);
                 v_.reduced_transparency = s.transparency.is_some_and(|on| !on);
                 v_.locale = s.locale.unwrap_or(base.locale);
+                v_.locales = if s.languages.is_empty() { vec![v_.locale.clone()] } else { s.languages };
                 v_.double_click = s.double_click;
                 v_.caret_blink = s.caret_blink;
                 v_.subpixel_text = s.subpixel_text;

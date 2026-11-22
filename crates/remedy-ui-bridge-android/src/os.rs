@@ -118,6 +118,15 @@ impl Java {
             })
             .ok()
             .flatten();
+        let locales = self
+            .call(|env, a| {
+                let c = configuration(env, a)?;
+                let list = env.call_method(&c, "getLocales", "()Landroid/os/LocaleList;", &[])?.l()?;
+                let tags = env.call_method(&list, "toLanguageTags", "()Ljava/lang/String;", &[])?.l()?;
+                string(env, tags)
+            })
+            .ok()
+            .flatten();
         let animator_scale = self
             .call(|env, a| {
                 let r = resolver(env, a)?;
@@ -181,6 +190,7 @@ impl Java {
             night,
             font_scale,
             locale,
+            locales,
             animator_scale,
             high_contrast_text,
             accent,
