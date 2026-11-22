@@ -508,14 +508,19 @@ fn plays_mp3_sound() {
     assert!(about(sound, Duration::from_secs(2)), "sound {sound:?}");
 }
 
-/// Each picture's time and the luma at its middle (pictures in memory: no renderer here).
+/// Each picture's time and the luma at its middle. A picture on the GPU (another test here
+/// made a renderer, and which GPU takes pictures is process-wide) is read back first.
 fn lumas(d: &mut dyn Decoder) -> Vec<(Duration, u8)> {
     let mut out = Vec::new();
     while let Some(s) = d.read().unwrap_or_else(|e| unreachable!("reading: {e}")) {
         if let Sample::Video { at, picture: p, .. } = s {
-            let [plane, ..] = p.planes;
+            let (planes, data) = match p.gpu.as_ref().and_then(|g| g.0.read_back()) {
+                Some(px) => (px.planes, px.data),
+                None => (p.planes, p.data.clone()),
+            };
+            let [plane, ..] = planes;
             let i = plane.offset + (p.height as usize / 2) * plane.stride + p.width as usize / 2;
-            out.push((at, p.data.get(i).copied().unwrap_or_default()));
+            out.push((at, data.get(i).copied().unwrap_or_default()));
         }
     }
     out
