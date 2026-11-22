@@ -26,6 +26,8 @@ pub static STRINGS: remedy_ui_view::strings::Strings = remedy_ui_view::engine_st
 mod decode;
 mod load;
 mod remote;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+mod web;
 
 use std::any::Any;
 use std::cell::{Cell, RefCell};
@@ -67,18 +69,26 @@ pub enum Fit {
     ScaleDown,
 }
 
-/// Where the image goes in a `w`×`h` box: the drawn rectangle.
-fn place(fit: Fit, img: (f32, f32), natural: (f32, f32), w: f32, h: f32) -> Rect {
-    let (iw, ih) = (img.0.max(1.0), img.1.max(1.0));
+/// Where an image of `source` pixels goes in `pixel_box` (logical, its edges on the device
+/// grid of `scale`), on whole device pixels as browsers place an `<img>` with `object-fit`:
+/// sized by `fit` and centered, then snapped. Its size in device pixels is what the loader
+/// decodes at ([`fitted`]), so a decoded image is drawn one pixel to one pixel.
+fn place_px(fit: Fit, source: (f32, f32), pixel_box: Rect, scale: f32) -> Rect {
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    let dev = |v: f32| (v * scale).round();
+    let (bx, by) = (dev(pixel_box.min.x), dev(pixel_box.min.y));
+    let (bw, bh) = (dev(pixel_box.max.x) - bx, dev(pixel_box.max.y) - by);
+    let (iw, ih) = (source.0.max(1.0), source.1.max(1.0));
     let s = match fit {
-        Fit::Fill => return Rect::new(0.0, 0.0, w, h),
-        Fit::Contain => (w / iw).min(h / ih),
-        Fit::Cover => (w / iw).max(h / ih),
-        Fit::ScaleDown => (w / iw).min(h / ih).min(natural.0 / iw),
+        Fit::Fill => return pixel_box,
+        Fit::Contain => (bw / iw).min(bh / ih),
+        Fit::Cover => (bw / iw).max(bh / ih),
+        Fit::ScaleDown => (bw / iw).min(bh / ih).min(1.0),
     };
-    let (dw, dh) = (iw * s, ih * s);
-    let (x, y) = ((w - dw) / 2.0, (h - dh) / 2.0);
-    Rect::new(x, y, x + dw, y + dh)
+    let (dw, dh) = ((iw * s).round().max(1.0), (ih * s).round().max(1.0));
+    // Centered, then on the grid (half pixels round up, as Firefox's NSToIntRound does).
+    let (x, y) = ((bx + (bw - dw) / 2.0 + 0.5).floor(), (by + (bh - dh) / 2.0 + 0.5).floor());
+    Rect::new(x / scale, y / scale, (x + dw) / scale, (y + dh) / scale)
 }
 
 /// An element showing `source`, decoded off the UI thread at the size it is shown (again,
@@ -255,16 +265,16 @@ fn build(ui: &Ui, source: Source, alt: String, fit: Fit, loader: Loader, options
     let (ui2, src, req, asked2) = (ui.clone(), source, request.clone(), asked.clone());
     let el = el.on_resize(move |sz| {
         let scale = ui2.scale().max(0.5);
-        let px = ((sz.width * scale).ceil() as u32, (sz.height * scale).ceil() as u32);
+        // The box in whole device pixels, as it is drawn: the image is decoded at exactly the
+        // size it shows, as a browser decodes an `<img>`, so it is drawn without resampling.
+        let px = ((sz.width * scale).round() as u32, (sz.height * scale).round() as u32);
         if px.0 == 0 || px.1 == 0 {
             return;
         }
-        // Ask again only when the box outgrows what was decoded.
-        let bucket = (px.0.next_power_of_two(), px.1.next_power_of_two());
-        if asked2.get().is_some_and(|(w, h)| bucket.0 <= w && bucket.1 <= h) {
+        if asked2.get() == Some(px) {
             return;
         }
-        asked2.set(Some(bucket));
+        asked2.set(Some(px));
         let next = loader(&src, Some(px), fit == Fit::Cover, state);
         *req.borrow_mut() = Some(next);
     });
@@ -344,9 +354,7 @@ fn build(ui: &Ui, source: Source, alt: String, fit: Fit, loader: Loader, options
             return;
         }
         let Some((img, source)) = shown.get() else { return };
-        let scale = cx.scale.max(0.5);
-        let natural = (source.0 as f32 / scale, source.1 as f32 / scale);
-        let rect = place(fit, (source.0 as f32, source.1 as f32), natural, w, h);
+        let rect = place_px(fit, (source.0 as f32, source.1 as f32), cx.pixel_box, cx.scale.max(0.5));
         cx.list.push(Item::Image {
             image: img,
             rect,
@@ -361,15 +369,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fits_place_the_image() {
-        let r = place(Fit::Contain, (200.0, 100.0), (200.0, 100.0), 100.0, 100.0);
-        assert_eq!((r.min.y, r.height()), (25.0, 50.0));
-        let r = place(Fit::Cover, (200.0, 100.0), (200.0, 100.0), 100.0, 100.0);
-        assert_eq!((r.min.x, r.width(), r.height()), (-50.0, 200.0, 100.0));
-        let r = place(Fit::ScaleDown, (20.0, 10.0), (20.0, 10.0), 100.0, 100.0);
+    fn images_land_on_whole_device_pixels_at_the_size_they_are_decoded() {
+        // A 342×513 poster covering a box snapped to 25..219 (a 194.25 px box at x = 24.5):
+        // the picture is the size `fitted` decodes it at, on the grid.
+        let b = Rect::new(25.0, 0.0, 219.0, 291.0);
+        let r = place_px(Fit::Cover, (342.0, 513.0), b, 1.0);
+        assert_eq!(fitted((342, 513), (194, 291), true), (194, 291));
+        assert_eq!((r.min.x, r.min.y, r.width(), r.height()), (25.0, 0.0, 194.0, 291.0));
+        // A wide still covering it is cropped at its sides, centered on a whole pixel.
+        let r = place_px(Fit::Cover, (500.0, 281.0), b, 1.0);
+        assert_eq!((r.width(), r.height()), (518.0, 291.0));
+        assert_eq!(r.min.x, -137.0, "(194 - 518) / 2 from the box's left edge");
+        // At 2x the grid is half a logical pixel.
+        let r = place_px(Fit::Contain, (100.0, 50.0), Rect::new(0.0, 0.0, 30.0, 30.0), 2.0);
+        assert_eq!((r.width(), r.height(), r.min.y), (30.0, 15.0, 7.5));
+        let r = place_px(Fit::ScaleDown, (20.0, 10.0), Rect::new(0.0, 0.0, 100.0, 100.0), 1.0);
         assert_eq!((r.width(), r.height()), (20.0, 10.0));
-        let r = place(Fit::Fill, (20.0, 10.0), (20.0, 10.0), 100.0, 60.0);
-        assert_eq!((r.width(), r.height()), (100.0, 60.0));
     }
 
     #[test]
