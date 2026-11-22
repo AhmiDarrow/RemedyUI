@@ -53,7 +53,9 @@ fn portals_gradients_match_chrome() {
         })
         .themes(&["portal:portal"])
         .sizes(&[(w, h)]);
-        let ours = preview.render(&preview.variations()[0]);
+        let variation =
+            preview.variations().into_iter().next().unwrap_or_else(|| unreachable!("one theme, one size"));
+        let ours = preview.render(&variation);
         let bytes = std::fs::read(dir.join(format!("{name}.png"))).unwrap_or_else(|e| unreachable!("{e}"));
         let chrome = Snapshot::from_png(&bytes).unwrap_or_else(|e| unreachable!("{e}"));
         if let (Some(d), Ok(png)) = (&shots, ours.to_png()) {
