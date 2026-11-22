@@ -2527,6 +2527,16 @@ impl Runner {
                         }
                     }
                 }
+                Request::ScrollToSnapped { scroller, offset } => {
+                    if let Some(w) = self.wins.get_mut(&key) {
+                        let layer = w.scrollers.iter().find(|(_, e)| *e == scroller).map(|(l, _)| *l);
+                        if let (Some(l), Some(c)) = (layer, w.comp.as_mut())
+                            && c.scroll_to_snapped(l, offset)
+                        {
+                            host.request_frame(h);
+                        }
+                    }
+                }
                 Request::StartDrag { data, allowed } => {
                     match host.start_drag(h, &data, &allowed) {
                         Ok(remedy_ui_host::DragStarted::Finished(effect)) => ui.drag_finished(effect),
@@ -3284,7 +3294,7 @@ impl remedy_ui_host::App for Runner {
                 } else if let Some(w) = self.by_host.get(&window).and_then(|k| self.wins.get_mut(k)) {
                     let s = w.scale();
                     if let Some(c) = w.comp.as_mut() {
-                        c.scroll_at(
+                        c.wheel_at(
                             Point::new(e.position.x * s, e.position.y * s),
                             Vec2::new(e.delta.x * s, e.delta.y * s),
                         );

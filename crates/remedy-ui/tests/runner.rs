@@ -2171,3 +2171,143 @@ fn snapshot_png_matches_the_window(host: &mut HeadlessHost, runner: &mut Runner,
     let at = (10 * 200 + 10) * 4;
     assert_eq!(buf.get(at..at + 4), Some(&px(host, first(host), 10, 10)[..]), "the button, opaque");
 }
+
+/// A 300-wide window over a shelf of five 400-wide cards that snap at their starts (snap
+/// points 0, 400, 800, 1200, and the end, 1700).
+fn shelf(
+    strictness: remedy_ui::view::SnapStrictness,
+    reduce: bool,
+) -> (Runner, HeadlessHost, remedy_ui::Ui, remedy_ui::El, Vec<remedy_ui::El>) {
+    type Shelf = Option<(remedy_ui::El, Vec<remedy_ui::El>)>;
+    let got: Rc<std::cell::RefCell<Shelf>> = Rc::default();
+    let g2 = got.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        app.set_reduce_motion(reduce);
+        let g3 = g2.clone();
+        app.open(WindowSpec::new("Shelf").size(300.0, 200.0), move |ui, _| {
+            let mut row = ui
+                .el("shelf")
+                .scroll()
+                .scroll_x()
+                .row()
+                .scroll_snap(remedy_ui::view::SnapAxis::X, strictness)
+                .layout(|l| {
+                    l.width = Length::Px(300.0);
+                    l.height = Length::Px(100.0);
+                });
+            let mut cards = Vec::new();
+            for _ in 0..5 {
+                let c = ui
+                    .el("card")
+                    .snap_align(remedy_ui::view::SnapAlign::Start)
+                    .layout(|l| {
+                        l.width = Length::Px(400.0);
+                        l.height = Length::Px(100.0);
+                        l.shrink = 0.0;
+                    })
+                    .on_click(|| {});
+                cards.push(c.clone());
+                row = row.child(c);
+            }
+            *g3.borrow_mut() = Some((row.clone(), cards));
+            ui.root().child(row);
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let ui = runner.app().windows().first().and_then(|w| w.ui()).unwrap_or_else(|| unreachable!("a window"));
+    let (row, cards) = got.borrow().clone().unwrap_or_else(|| unreachable!("the shelf"));
+    (runner, host, ui, row, cards)
+}
+
+/// Wheels the shelf by `dx` and records its offset over the next 90 frames.
+fn wheel_then_rest(
+    host: &mut HeadlessHost,
+    runner: &mut Runner,
+    ui: &remedy_ui::Ui,
+    row: &remedy_ui::El,
+    dx: f32,
+) -> Vec<f32> {
+    let id = first(host);
+    host.wheel(id, Point::new(150.0, 50.0), remedy_ui_core::Vec2::new(dx, 0.0));
+    let mut seen = Vec::new();
+    for _ in 0..90 {
+        host.run_frames(runner, 1);
+        seen.push(ui.scroll_offset(row.id()).x);
+    }
+    seen
+}
+
+#[test]
+fn a_fling_on_a_snapping_shelf_ends_on_a_card_start() {
+    let (mut runner, mut host, ui, row, _) = shelf(remedy_ui::view::SnapStrictness::Mandatory, false);
+    let id = first(&host);
+    let touch = |x: f32, ms: u64, phase: PointerPhase| {
+        PointerEvent::new(phase, Point::new(x, 50.0))
+            .with_kind(remedy_ui::input::PointerKind::Touch)
+            .with_id(7)
+            .with_time(Duration::from_millis(ms))
+    };
+    host.send(HostEvent::Pointer(id, touch(250.0, 0, PointerPhase::Down)));
+    for (n, x) in [220.0, 190.0, 160.0, 130.0].into_iter().enumerate() {
+        host.send(HostEvent::Pointer(id, touch(x, 10 * (n as u64 + 1), PointerPhase::Move)));
+    }
+    host.send(HostEvent::Pointer(id, touch(130.0, 50, PointerPhase::Up)));
+    host.run_frames(&mut runner, 180);
+    let x = ui.scroll_offset(row.id()).x;
+    assert!(x > 1.0, "the fling moved the shelf: {x}");
+    assert!([400.0, 800.0, 1200.0, 1700.0].contains(&x), "rests on a card start: {x}");
+}
+
+#[test]
+fn proximity_snaps_only_near_a_snap_point_and_mandatory_always() {
+    let (mut runner, mut host, ui, row, _) = shelf(remedy_ui::view::SnapStrictness::Proximity, false);
+    // 250 is 150 from the nearest card start (more than 30% of the 300 viewport): it stays.
+    let seen = wheel_then_rest(&mut host, &mut runner, &ui, &row, 250.0);
+    assert_eq!(seen.last().copied(), Some(250.0), "{seen:?}");
+    // 340 is 60 from the next card: it snaps there.
+    let seen = wheel_then_rest(&mut host, &mut runner, &ui, &row, 90.0);
+    assert_eq!(seen.last().copied(), Some(400.0), "{seen:?}");
+
+    let (mut runner, mut host, ui, row, _) = shelf(remedy_ui::view::SnapStrictness::Mandatory, false);
+    let seen = wheel_then_rest(&mut host, &mut runner, &ui, &row, 250.0);
+    assert_eq!(seen.last().copied(), Some(400.0), "{seen:?}");
+    // Not before the wheel has been still a moment, and eased there.
+    assert_eq!(seen.first().copied(), Some(250.0), "{seen:?}");
+    assert!(seen.iter().any(|x| *x > 250.0 && *x < 400.0), "eased: {seen:?}");
+}
+
+#[test]
+fn under_reduced_motion_a_snap_jumps() {
+    let (mut runner, mut host, ui, row, _) = shelf(remedy_ui::view::SnapStrictness::Mandatory, true);
+    let seen = wheel_then_rest(&mut host, &mut runner, &ui, &row, 250.0);
+    assert_eq!(seen.last().copied(), Some(400.0), "{seen:?}");
+    assert!(seen.iter().all(|x| *x == 250.0 || *x == 400.0), "no frames between: {seen:?}");
+}
+
+#[test]
+fn keyboard_paging_and_arrows_snap() {
+    let (mut runner, mut host, ui, row, cards) = shelf(remedy_ui::view::SnapStrictness::Mandatory, false);
+    let id = first(&host);
+    let offset = |ui: &remedy_ui::Ui| ui.scroll_offset(row.id()).x;
+    cards.first().map(|c| c.focus());
+    host.run_frames(&mut runner, 2);
+    // A page is 270 here: the nearest card start is 400.
+    host.send(HostEvent::Key(id, KeyEvent::press(Key::PageDown)));
+    host.run_frames(&mut runner, 90);
+    assert_eq!(offset(&ui), 400.0);
+    // An arrow step (40) would snap back where it was: it goes on to the next card.
+    host.send(HostEvent::Key(id, KeyEvent::press(Key::ArrowRight)));
+    host.run_frames(&mut runner, 90);
+    assert_eq!(offset(&ui), 800.0);
+    host.send(HostEvent::Key(id, KeyEvent::press(Key::ArrowLeft)));
+    host.run_frames(&mut runner, 90);
+    assert_eq!(offset(&ui), 400.0);
+    // Programmatic scrolls do not snap unless asked.
+    row.scroll_to(remedy_ui_core::Vec2::new(500.0, 0.0));
+    host.run_frames(&mut runner, 30);
+    assert_eq!(offset(&ui), 500.0);
+    row.scroll_to_snapped(remedy_ui_core::Vec2::new(500.0, 0.0));
+    host.run_frames(&mut runner, 90);
+    assert_eq!(offset(&ui), 400.0);
+}

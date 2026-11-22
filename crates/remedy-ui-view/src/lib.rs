@@ -41,8 +41,9 @@ pub use client::TextInput;
 pub use decoration::{Decoration, DecorationKind};
 pub use dnd::Drag;
 pub use element::{
-    DirtyObserver, DirtyRecord, El, ElementInfo, InlineImage, PaintCx, PointerInterceptor, TextAntialias,
-    TextPaint, TextRendering, Ui, WeakUi, WindowDirection, clear_paint_cache, rasterize,
+    DirtyObserver, DirtyRecord, El, ElementInfo, InlineImage, PaintCx, PointerInterceptor, SnapAlign,
+    SnapAxis, SnapStrictness, TextAntialias, TextPaint, TextRendering, Ui, WeakUi, WindowDirection,
+    clear_paint_cache, rasterize,
 };
 pub use events::{Click, MenuKey, MenuKeyHandler, PointerInput};
 pub use field::{CodeColors, FieldKind, TextField};
@@ -125,6 +126,14 @@ pub enum Request {
         /// The scroll container.
         scroller: ElementId,
         /// Its new offset.
+        offset: remedy_ui_core::Vec2,
+    },
+    /// Move a scroll container toward `offset` and settle on its snap point nearest that (or
+    /// the next one that way), as keyboard paging does ([`El::scroll_to_snapped`]).
+    ScrollToSnapped {
+        /// The scroll container.
+        scroller: ElementId,
+        /// Where it was asked to go.
         offset: remedy_ui_core::Vec2,
     },
 }
