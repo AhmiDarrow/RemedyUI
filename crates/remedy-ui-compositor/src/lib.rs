@@ -30,7 +30,7 @@ mod tiles;
 pub use ambient::{AmbientLoop, LoopMotion, Wave};
 pub use compositor::{CompositeOp, Compositor, FramePlan, TileRequest, logical_size};
 pub use damage::Damage;
-pub use layer::{Backdrop, Layer, LayerId, LayerTree, ScrollFollow, Sticky};
+pub use layer::{Backdrop, Layer, LayerId, LayerTree, ScrollFollow, ScrollSnap, SnapPoint, Sticky};
 pub use mailbox::Mailbox;
 pub use thread::{CompositorThread, FrameReport, Presenter};
 pub use tiles::{DEFAULT_ZOOM_RASTER_TIME, RasterBudget, TileKey, quantize_scale, scale_step, tile_pixels};
