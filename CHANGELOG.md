@@ -10,6 +10,20 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Input purposes.** `TextField::purpose(InputPurpose)` (on `text_input`, `secret_input`
+  and the forms' fields; `search` sets `Search`, `number_input` `Digits` or `Decimal`) tells
+  keyboards, input methods and password managers what a field holds: text, digits, a
+  decimal, a URL, an email address, a search, a username, the current or a new password, or
+  a one-time code. `TextInputState::purpose` carries it to every bridge. On the web, one-line
+  fields now edit in a hidden `<input>` carrying `type`, `inputmode`, `autocomplete` and
+  `enterkeyhint`, so password managers fill the username and current password; on Android it
+  sets `EditorInfo.inputType` and `imeOptions`; on Windows the touch keyboard's input scope
+  through TSF; on Linux winit's password purpose.
+- **Pointer capabilities.** `Ui::pointer_caps()` returns a `Signal<PointerCaps>` (`hover`,
+  `fine`): the web's `(hover: hover)` and `(pointer: fine)` media queries, followed live;
+  natively the pointer last used (mouse, finger or pen), so a convertible switching modes
+  updates it. `SystemSettings::pointer` carries what a platform reports.
+
 - **Tray menus with check marks, submenus and a bold default**, as Portal's launcher has
   (Server submenu; Allow TVs, GPU encode and Start with Windows checked; Open Portal bold):
   `TrayItem::Check { id, label, enabled, checked }`, `TrayItem::Submenu { label, items }` and

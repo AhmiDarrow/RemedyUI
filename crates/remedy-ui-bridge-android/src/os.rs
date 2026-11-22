@@ -497,14 +497,15 @@ impl Java {
         caret: (f32, f32, f32),
         secret: bool,
         multiline: bool,
-        numeric: bool,
+        purpose: remedy_ui_host::InputPurpose,
     ) -> Result<(), String> {
+        let purpose = convert::purpose_code(purpose);
         self.on_bridge(app, "the text input session", move |env, b| {
             let t = env.new_string(&text)?;
             env.call_method(
                 b,
                 "textInput",
-                "(Ljava/lang/String;IIFFFZZZ)V",
+                "(Ljava/lang/String;IIFFFZZI)V",
                 &[
                     JValue::Object(&t),
                     JValue::Int(selection.0),
@@ -514,7 +515,7 @@ impl Java {
                     JValue::Float(caret.2),
                     JValue::Bool(u8::from(secret)),
                     JValue::Bool(u8::from(multiline)),
-                    JValue::Bool(u8::from(numeric)),
+                    JValue::Int(purpose),
                 ],
             )?;
             Ok(())
