@@ -1247,6 +1247,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **The X11 tray's submenus cascade and take the keyboard** as the top-level menu does: a
+  submenu opens beside its row (hovering it, clicking it, Right or Enter) and closes with Left
+  or Escape; Up and Down skip what cannot be chosen; access keys pick an entry (the letter
+  after `&` in a label, as on Windows, else the first letter; several entries sharing one
+  take turns) and are underlined. Before, submenus were drawn inline and the keyboard only
+  stepped through rows. StatusNotifierItem menus send the `&` access key as dbusmenu's `_`.
 - `media-svg` recognises an SVG by its root element: the sniffer skips a byte order mark,
   the XML declaration, processing instructions, comments and a DOCTYPE (internal subset
   included) instead of looking for `<svg` in the first 1024 bytes, so an SVG behind a long
