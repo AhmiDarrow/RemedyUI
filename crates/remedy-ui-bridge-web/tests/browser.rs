@@ -313,6 +313,18 @@ async fn an_app_runs_in_the_page() {
     // A frame: the window's CPU canvas holds the theme's background where nothing is drawn.
     assert!(until(120, || renderer(&seen) == Some(RendererKind::Cpu)).await, "the window drew a frame");
     frames(3).await;
+
+    // The user's languages are the browser's, in its order.
+    let languages: Vec<String> = web_sys::window()
+        .must("a window")
+        .navigator()
+        .languages()
+        .iter()
+        .filter_map(|l| l.as_string())
+        .collect();
+    assert!(!languages.is_empty(), "the browser lists a language");
+    let preferred = seen.app.borrow().as_ref().map(App::preferred_locales).must("the app");
+    assert_eq!(preferred, languages, "navigator.languages");
     let surface = query("[data-remedy-window] > div, [data-remedy-window]").must("the window's element");
     let canvas: web_sys::HtmlCanvasElement = document()
         .query_selector("[data-remedy-window] canvas")

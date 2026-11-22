@@ -65,6 +65,7 @@ pub(crate) fn read(win: &web_sys::Window) -> PageSettings {
         coarse_pointer_only: matches(win, QUERIES[6]) && !matches(win, QUERIES[7]),
         tv: convert::is_tv(&win.navigator().user_agent().unwrap_or_default()),
         language: win.navigator().language().unwrap_or_default(),
+        languages: win.navigator().languages().iter().filter_map(|l| l.as_string()).collect(),
         apple: convert::is_apple(&platform_name(win)),
         hover: matches(win, QUERIES[8]),
         fine_pointer: matches(win, QUERIES[9]),

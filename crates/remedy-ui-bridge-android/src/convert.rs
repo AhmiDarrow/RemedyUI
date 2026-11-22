@@ -47,6 +47,9 @@ pub struct AndroidSettings {
     pub font_scale: Option<f32>,
     /// The first of `Configuration.getLocales()`, as a BCP 47 tag.
     pub locale: Option<String>,
+    /// All of `Configuration.getLocales()`, `LocaleList.toLanguageTags()`: BCP 47 tags,
+    /// comma-separated, most preferred first.
+    pub locales: Option<String>,
     /// `Settings.Global.ANIMATOR_DURATION_SCALE`.
     pub animator_scale: Option<f32>,
     /// High-contrast text is on.
@@ -78,6 +81,10 @@ impl AndroidSettings {
         // Android has no reduced-transparency setting.
         s.reduced_transparency = false;
         s.locale = self.locale.as_deref().and_then(bcp47).unwrap_or(base.locale);
+        s.locales = self.locales.as_deref().unwrap_or_default().split(',').filter_map(bcp47).collect();
+        if s.locales.is_empty() {
+            s.locales = vec![s.locale.clone()];
+        }
         s.double_click = self
             .double_tap_ms
             .and_then(|ms| u64::try_from(ms).ok())
@@ -263,6 +270,7 @@ mod tests {
             night: Some(true),
             font_scale: Some(1.3),
             locale: Some("de-DE".into()),
+            locales: Some("de-DE,fr-CH,und,en".into()),
             animator_scale: Some(0.0),
             high_contrast_text: Some(true),
             accent: Some(0xFF33_66CC_u32 as i32),
@@ -273,6 +281,7 @@ mod tests {
         assert_eq!(s.dark, Some(true));
         assert_eq!(s.text_scale, 1.3);
         assert_eq!(s.locale, "de-DE");
+        assert_eq!(s.locales, ["de-DE", "fr-CH", "en"], "the locale list in order, \"und\" dropped");
         assert!(s.reduced_motion);
         assert!(s.high_contrast);
         assert_eq!(s.accent, Some(Color::rgba8(0x33, 0x66, 0xCC, 0xFF)));
@@ -302,6 +311,9 @@ mod tests {
         assert_eq!(s.dark, None);
         assert!(!s.reduced_motion, "slower animations are still animations");
         assert_eq!(s.locale, d.locale);
+        assert_eq!(s.locales, std::slice::from_ref(&d.locale), "no list: the one locale");
+        let one = AndroidSettings { locale: Some("ja-JP".into()), ..Default::default() }.to_settings();
+        assert_eq!(one.locales, ["ja-JP"]);
         assert_eq!(s.text_scale, d.text_scale);
         assert_eq!(s.double_click, d.double_click);
         assert!(!s.spatial_navigation);

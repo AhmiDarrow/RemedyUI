@@ -18,7 +18,9 @@ use std::time::Duration;
 use remedy_ui_core::Color;
 use remedy_ui_host::Unsupported;
 use windows_sys::Win32::Foundation::{GlobalFree, HWND};
-use windows_sys::Win32::Globalization::GetUserDefaultLocaleName;
+use windows_sys::Win32::Globalization::{
+    GetUserDefaultLocaleName, GetUserPreferredUILanguages, MUI_LANGUAGE_NAME,
+};
 use windows_sys::Win32::Graphics::Dwm::DwmGetColorizationColor;
 use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, RegisterClipboardFormatW,
@@ -340,6 +342,7 @@ pub(crate) struct Settings {
     pub(crate) animations: Option<bool>,
     pub(crate) transparency: Option<bool>,
     pub(crate) locale: Option<String>,
+    pub(crate) languages: Vec<String>,
     pub(crate) double_click: Duration,
     pub(crate) caret_blink: Option<Duration>,
     pub(crate) subpixel_text: Option<bool>,
@@ -385,6 +388,7 @@ pub(crate) fn settings() -> Settings {
     // SAFETY: the buffer holds LOCALE_NAME_MAX_LENGTH (85) units.
     let n = unsafe { GetUserDefaultLocaleName(buf.as_mut_ptr(), 85) };
     let locale = (n > 1).then(|| String::from_utf16_lossy(buf.get(..(n as usize - 1)).unwrap_or_default()));
+    let languages = preferred_ui_languages();
 
     // SAFETY: no arguments.
     let double_click = Duration::from_millis(u64::from(unsafe { GetDoubleClickTime() }));
@@ -415,10 +419,34 @@ pub(crate) fn settings() -> Settings {
         animations,
         transparency,
         locale,
+        languages,
         double_click,
         caret_blink,
         subpixel_text,
     }
+}
+
+/// The user's display languages, most preferred first (Settings, Time & language).
+fn preferred_ui_languages() -> Vec<String> {
+    let (mut count, mut len) = (0u32, 0u32);
+    // SAFETY: a null buffer asks for the length, written to `len`.
+    if unsafe {
+        GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &raw mut count, std::ptr::null_mut(), &raw mut len)
+    } == 0
+    {
+        return Vec::new();
+    }
+    let mut buf = vec![0u16; len as usize];
+    // SAFETY: `buf` holds the `len` units the first call asked for.
+    let ok = unsafe {
+        GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &raw mut count, buf.as_mut_ptr(), &raw mut len)
+    };
+    if ok == 0 { Vec::new() } else { multi_string(buf.get(..len as usize).unwrap_or_default()) }
+}
+
+/// The strings of a Win32 multi-string: each ends in a NUL, the list in another.
+fn multi_string(units: &[u16]) -> Vec<String> {
+    units.split(|u| *u == 0).filter(|s| !s.is_empty()).map(String::from_utf16_lossy).collect()
 }
 
 /// On battery power, or battery saver is on.
@@ -621,5 +649,23 @@ pub(crate) mod cursor {
             // SAFETY: a WM_SETCURSOR to a window of this thread, its own handle as wParam.
             unsafe { SendMessageW(h, WM_SETCURSOR, h as WPARAM, l) };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn multi_strings_split_into_languages_in_order() {
+        let units: Vec<u16> = "de-DE\0en-US\0fr\0\0".encode_utf16().collect();
+        assert_eq!(super::multi_string(&units), ["de-DE", "en-US", "fr"]);
+        assert!(super::multi_string(&[0, 0]).is_empty());
+        assert!(super::multi_string(&[]).is_empty());
+    }
+
+    #[test]
+    fn the_user_has_at_least_one_display_language() {
+        let list = super::preferred_ui_languages();
+        assert!(!list.is_empty());
+        assert!(list.iter().all(|l| l.len() >= 2 && !l.contains('\0')), "{list:?}");
     }
 }
