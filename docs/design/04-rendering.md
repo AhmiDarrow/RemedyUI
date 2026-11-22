@@ -38,6 +38,7 @@ A layer costs GPU memory and a composite. Not having one costs re-rasterizing a 
 | Gets a layer | Why |
 |---|---|
 | Each scroll container's content | Scrolling moves the layer on the compositor; nothing re-rasters |
+| Each sticky element (`Position::Sticky`) | The compositor offsets it from its scroll container's offset each frame (`Layer::sticky`) |
 | Elements with ambient loops or painters asking for ambient frames (`AmbientLoop`, Prism effects) | They change on their own clock; a frame costs only them |
 | Elements with a backdrop blur (`Style::backdrop_blur`) | The compositor blurs what lies under them |
 | Elements marked `isolate_paint()` by the app | Expensive, rarely-changing content (a chart axis, a page) |

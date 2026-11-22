@@ -46,6 +46,53 @@ pub(crate) struct FrameState {
     lists: HashMap<LayerId, (Arc<DisplayList>, u64)>,
     pub(crate) bounds_stale: bool,
     scrollers: Vec<(LayerId, ElementId)>,
+    stickies: HashMap<ElementId, remedy_ui_compositor::Sticky>,
+}
+
+/// What a sticky element sticks within, for the bounds walk: its nearest scroll container
+/// (the window when none), and its parent's box.
+#[derive(Clone, Copy)]
+struct StickCx {
+    scroller: Option<LayerId>,
+    viewport: Size,
+    /// Window coordinates to the container's content space.
+    to_content: Vec2,
+    /// The container's scroll offset.
+    offset: Vec2,
+    /// The parent's content box, in window coordinates.
+    within: Rect,
+}
+
+/// The physical sides an element sticks to (start and end following its parent's direction,
+/// right to left when `parent_rtl` says so), from its style sheet or its layout; `None` when
+/// it is not sticky.
+fn sticky_sides(d: &ElData, parent_rtl: impl FnOnce() -> bool) -> Option<remedy_ui_style::StickyInsets> {
+    let side = |v: f32| v.is_finite().then_some(v);
+    let sheet = d.resolved.sticky.sticks();
+    let s = if sheet {
+        d.resolved.sticky
+    } else if d.layout.position == remedy_ui_layout::Position::Sticky {
+        let i = d.layout.inset;
+        remedy_ui_style::StickyInsets {
+            top: side(i.top),
+            end: side(i.end),
+            bottom: side(i.bottom),
+            start: side(i.start),
+        }
+    } else {
+        return None;
+    };
+    let physical = d.layout.inset_physical && !sheet;
+    Some(if !physical && parent_rtl() {
+        remedy_ui_style::StickyInsets { start: s.end, end: s.start, ..s }
+    } else {
+        s
+    })
+}
+
+/// The layer that moves a sticky element.
+fn sticky_id(id: ElementId) -> LayerId {
+    LayerId(root_key(id).wrapping_mul(4).wrapping_add(3) | (1 << 61))
 }
 
 /// The layer id of a scroll container's viewport and of its content.
@@ -308,6 +355,9 @@ struct Builder {
     /// Push items open in `list`, re-opened when a segment starts.
     open: Vec<Item>,
     children: Vec<Layer>,
+    /// Sticky elements' layers: drawn over the rest, as CSS paints positioned boxes after
+    /// the flow, so content scrolling under a stuck header stays under it.
+    stuck: Vec<Layer>,
     segments: u64,
 }
 
@@ -322,6 +372,7 @@ impl Builder {
             list: DisplayList::new(),
             open: Vec::new(),
             children: Vec::new(),
+            stuck: Vec::new(),
             segments: 0,
         }
     }
@@ -382,6 +433,7 @@ impl Builder {
             self.list
         };
         let mut layer = finish(state, self.id, self.bounds, own);
+        self.children.append(&mut self.stuck);
         layer.children = self.children.into_iter().map(Arc::new).collect();
         if let Some(c) = self.scroll {
             layer = layer.scrolling(c);
@@ -410,6 +462,7 @@ struct Walk<'a> {
     inner: &'a Inner,
     state: &'a mut FrameState,
     rects: &'a HashMap<ElementId, Rect>,
+    stickies: &'a HashMap<ElementId, remedy_ui_compositor::Sticky>,
     /// [`Walk::layers_below`] answers this frame, so nested filtered elements each walk a
     /// subtree once, not once per filtered ancestor.
     layered: HashMap<ElementId, bool>,
@@ -425,6 +478,24 @@ impl Walk<'_> {
 
     /// [`Walk::element`], on this stack.
     fn element_here(&mut self, b: &mut Builder, id: ElementId, origin: Point) {
+        if let Some(st) = self.stickies.get(&id).copied() {
+            // A layer the compositor moves as the container scrolls, holding all the element
+            // draws (its shadow and focus ring too), in `b`'s space and with what is open there.
+            let mut sb = Builder::new(sticky_id(id), Rect::from_origin_size(Point::ZERO, b.bounds.size()));
+            for item in b.open.clone() {
+                sb.push(item);
+            }
+            self.element_placed(&mut sb, id, origin);
+            let mut layer = sb.finish_into(self.state);
+            layer.sticky = Some(st);
+            b.stuck.push(layer);
+            return;
+        }
+        self.element_placed(b, id, origin);
+    }
+
+    /// [`Walk::element_here`] for an element drawn where layout put it.
+    fn element_placed(&mut self, b: &mut Builder, id: ElementId, origin: Point) {
         let Some(d) = self.inner.els.get(&id) else { return };
         let Some(rect) = self.rects.get(&id).copied() else { return };
         let at = Point::new(origin.x + rect.min.x, origin.y + rect.min.y);
@@ -897,8 +968,18 @@ impl Ui {
 
         // Bounds: window coordinates for hit testing, local rects for painting.
         let mut rects: HashMap<ElementId, Rect> = HashMap::new();
-        let mut stack = vec![(root, Point::ZERO, Vec2::ZERO)];
-        while let Some((id, parent_at, scroll)) = stack.pop() {
+        // Sticky elements, in their scroll container's content space: the compositor moves
+        // their layers as it scrolls, and their bounds move here by the same offset.
+        let mut stickies: HashMap<ElementId, remedy_ui_compositor::Sticky> = HashMap::new();
+        let window_cx = StickCx {
+            scroller: None,
+            viewport: size,
+            to_content: Vec2::ZERO,
+            offset: Vec2::ZERO,
+            within: Rect::from_origin_size(Point::ZERO, size),
+        };
+        let mut stack = vec![(root, Point::ZERO, Vec2::ZERO, window_cx)];
+        while let Some((id, parent_at, scroll, cx)) = stack.pop() {
             let Some(d) = i.els.get(&id) else { continue };
             let mut r = i.layout.rect(d.node).unwrap_or(Rect::ZERO);
             if id == root {
@@ -911,7 +992,31 @@ impl Ui {
                 r = parent.and_then(|p| crate::links::placed_rect(i, id, p, width)).unwrap_or(Rect::ZERO);
             }
             rects.insert(id, r);
-            let abs = Point::new(parent_at.x + r.min.x - scroll.x, parent_at.y + r.min.y - scroll.y);
+            let mut abs = Point::new(parent_at.x + r.min.x - scroll.x, parent_at.y + r.min.y - scroll.y);
+            let parent_rtl =
+                || i.tree.parent(id).and_then(|p| i.els.get(&p)).is_some_and(|p| i.layout.is_rtl(p.node));
+            if id != root
+                && let Some(sides) = sticky_sides(d, parent_rtl)
+            {
+                let to = cx.to_content;
+                let st = remedy_ui_compositor::Sticky {
+                    scroller: cx.scroller,
+                    viewport: cx.viewport,
+                    rect: Rect::from_origin_size(abs, r.size()).translate(to),
+                    within: cx.within.translate(to),
+                    top: sides.top,
+                    right: sides.end,
+                    bottom: sides.bottom,
+                    left: sides.start,
+                };
+                let off = st.offset(cx.offset);
+                abs = Point::new(abs.x + off.x, abs.y + off.y);
+                stickies.insert(id, st);
+            }
+            let (bw, p, scrolls) = (d.resolved.border_width, d.resolved.padding, d.scroll);
+            let pad = Insets { top: p.top + bw, end: p.end + bw, bottom: p.bottom + bw, start: p.start + bw };
+            let pad = if i.layout.is_rtl(d.node) { pad.mirrored() } else { pad };
+            let own = Rect::from_origin_size(Point::ZERO, r.size()).deflate(pad);
             if i.frame.bounds_stale {
                 let _ = i.tree.set_bounds(id, Rect::from_origin_size(abs, r.size()));
             }
@@ -939,9 +1044,43 @@ impl Ui {
                     i.frame.bounds_stale = true;
                 }
             }
+            // What a sticky child keeps within: this element's content box, or all of its
+            // scrolled content in a scroll container, which then becomes the viewport.
+            let kid_cx = if scrolls {
+                let content = i
+                    .tree
+                    .children(id)
+                    .iter()
+                    .filter_map(|k| i.els.get(k).and_then(|c| i.layout.rect(c.node)))
+                    .fold(own, Rect::union);
+                let origin = Vec2::new(abs.x - child_scroll.x, abs.y - child_scroll.y);
+                let offset = i.scroll_offsets.get(&id).copied().unwrap_or(Vec2::ZERO);
+                StickCx {
+                    scroller: Some(scroll_ids(id).0),
+                    viewport: r.size(),
+                    to_content: Vec2::new(offset.x - abs.x, offset.y - abs.y),
+                    offset,
+                    within: content.translate(origin),
+                }
+            } else {
+                StickCx { within: own.translate(abs.to_vec2()), ..cx }
+            };
             for k in i.tree.children(id).into_iter().rev() {
-                stack.push((k, abs, child_scroll));
+                stack.push((k, abs, child_scroll, kid_cx));
             }
+        }
+        // A sticky element whose place in its container changed goes in a new layer.
+        // Window bounds follow in the next frame when only its style made it sticky.
+        let resticky = i.frame.stickies != stickies;
+        if resticky {
+            for id in i.frame.stickies.keys().filter(|k| !stickies.contains_key(k)) {
+                let _ = i.tree.set_raised(*id, false);
+            }
+            for id in stickies.keys() {
+                let _ = i.tree.set_raised(*id, true);
+            }
+            i.frame.stickies = stickies;
+            i.layers_changed = true;
         }
         // Elements gliding through this layout change start from where they were.
         let flipping: Vec<ElementId> =
@@ -958,7 +1097,7 @@ impl Ui {
             i.layers_changed = true;
         }
         let moved = i.frame.bounds_stale;
-        i.frame.bounds_stale = false;
+        i.frame.bounds_stale = resticky && !moved;
         // Elements watching their size hear about changes once the frame is done.
         let mut resized: Vec<(ResizeHandler, Size)> = Vec::new();
         for (id, d) in i.els.iter_mut() {
@@ -1088,9 +1227,17 @@ impl Ui {
             let mut state = std::mem::take(&mut i.frame);
             state.scrollers.clear();
             let mut b = Builder::new(LayerId(0), Rect::from_origin_size(Point::ZERO, size));
-            let mut walk = Walk { inner: i, state: &mut state, rects: &rects, layered: HashMap::new() };
+            let stickies = std::mem::take(&mut state.stickies);
+            let mut walk = Walk {
+                inner: i,
+                state: &mut state,
+                rects: &rects,
+                stickies: &stickies,
+                layered: HashMap::new(),
+            };
             walk.element(&mut b, root, Point::ZERO);
             let layer = b.finish_into(&mut state);
+            state.stickies = stickies;
             let live: std::collections::HashSet<LayerId> = collect_ids(&layer);
             state.lists.retain(|k, _| live.contains(k));
             i.frame = state;
@@ -1126,7 +1273,7 @@ impl Ui {
         i.last_stats = stats;
         let scrollers = i.frame.scrollers.clone();
         drop(guard);
-        if !again.is_empty() {
+        if !again.is_empty() || (resticky && !moved) {
             self.request(crate::Request::Frame);
         }
         // Lazy paragraphs whose height came out different once more lines were laid out are

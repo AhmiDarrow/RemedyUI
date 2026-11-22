@@ -2153,6 +2153,24 @@ impl El {
         self
     }
 
+    /// Sticks the element within its nearest scroll container as that scrolls (CSS
+    /// `position: sticky`): laid out in the flow, it keeps the set sides' distances from the
+    /// container's edges and never leaves its parent's content box. The compositor moves it,
+    /// with no new layout; hit testing and the accessibility bounds follow. A style sheet sets
+    /// the same with [`Style::sticky`](remedy_ui_style::Style::sticky).
+    pub fn sticky(self, insets: remedy_ui_style::StickyInsets) -> Self {
+        let side = |v: Option<f32>| v.unwrap_or(remedy_ui_layout::AUTO);
+        self.layout(|l| {
+            l.position = remedy_ui_layout::Position::Sticky;
+            l.inset = Insets {
+                top: side(insets.top),
+                end: side(insets.end),
+                bottom: side(insets.bottom),
+                start: side(insets.start),
+            };
+        })
+    }
+
     /// Lays children out in a row.
     pub fn row(self) -> Self {
         self.layout(|l| {

@@ -98,6 +98,8 @@ pub struct Node {
     bounds: Rect,
     clips: bool,
     hit: HitMode,
+    /// Drawn over its in-flow siblings (a sticky element), so hit before them.
+    raised: bool,
     focusable: bool,
     focus_order: Option<i32>,
     focus_scope: bool,
@@ -536,6 +538,12 @@ impl Tree {
         self.edit(id, |n| n.clips = on)
     }
 
+    /// Whether the element is drawn over its siblings whatever their order (a sticky element
+    /// stuck over the content scrolling under it): hit testing tries it before them.
+    pub fn set_raised(&self, id: ElementId, on: bool) -> Result<(), TreeError> {
+        self.edit(id, |n| n.raised = on)
+    }
+
     /// How hit testing treats the element.
     pub fn set_hit_mode(&self, id: ElementId, mode: HitMode) -> Result<(), TreeError> {
         self.edit(id, |n| n.hit = mode)?;
@@ -553,8 +561,8 @@ impl Tree {
         d.nodes.get(id).is_some_and(|n| n.focusable) && d.is_ancestor_or_self(d.root, id) && d.takes_input(id)
     }
 
-    /// The topmost element under `p`: later children are above earlier ones, and children
-    /// are above their parent.
+    /// The topmost element under `p`: later children are above earlier ones, raised ones
+    /// ([`Tree::set_raised`]) above the rest, and children are above their parent.
     pub fn hit_test(&self, p: Point) -> Option<ElementId> {
         let d = self.0.borrow();
         d.hit(d.root, p)
@@ -844,6 +852,7 @@ impl Node {
             bounds: Rect::ZERO,
             clips: false,
             hit: HitMode::Normal,
+            raised: false,
             focusable: false,
             focus_order: None,
             focus_scope: false,
@@ -947,9 +956,10 @@ impl Data {
             self.nodes.get(id).filter(|n| n.hit != HitMode::None && (!n.clips || n.bounds.contains(p)))
         };
         // The elements being searched, outermost first, each with how many of its children
-        // (from the first) are still to try.
-        let mut stack = vec![(id, open(id)?.children.len())];
-        while let Some((at, left)) = stack.last_mut() {
+        // (from the first) are still to try: twice, the raised ones in the first pass (the
+        // pass counts down from 1) and the rest in the second (0).
+        let mut stack = vec![(id, open(id)?.children.len(), 1u8)];
+        while let Some((at, left, pass)) = stack.last_mut() {
             let Some(n) = self.nodes.get(*at) else {
                 stack.pop();
                 continue;
@@ -958,9 +968,15 @@ impl Data {
                 *left -= 1;
                 if let Some(&c) = n.children.get(*left)
                     && let Some(child) = open(c)
+                    && child.raised == (*pass == 1)
                 {
-                    stack.push((c, child.children.len()));
+                    stack.push((c, child.children.len(), 1));
                 }
+                continue;
+            }
+            if *pass == 1 {
+                *pass = 0;
+                *left = n.children.len();
                 continue;
             }
             // Nothing under it was hit: the element itself, if it takes hits there.
