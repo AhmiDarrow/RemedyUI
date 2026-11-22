@@ -316,7 +316,9 @@ pub struct TrayImage {
     pub rgba: Vec<u8>,
 }
 
-/// One tray menu entry.
+/// One tray menu entry. In a label, `&` before a character makes it the access key (the key
+/// that picks the entry while the menu is open, underlined on Windows and X11), as on Windows;
+/// `&&` is a literal `&`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 // Exhaustive on purpose: part of the host contract every bridge must show completely, so a new kind is a major change.
 pub enum TrayItem {
