@@ -57,7 +57,7 @@ pub use remedy_ui_a11y::Action as A11yAction;
 pub use remedy_ui_host::{DragData, DragEvent, DropEffect, ImeEvent, InputPurpose, PointerCaps};
 pub use remedy_ui_input::WheelEvent;
 pub use remedy_ui_layout::{Align, Justify};
-pub use remedy_ui_style::{ColorRole, Dp, Pad, Radius, Space, Style, TextRole};
+pub use remedy_ui_style::{ColorRole, Dp, Pad, Radius, Space, Style, TextRole, TextTransform};
 pub use remedy_ui_text::{InlineObject, RichText, TextStylePatch};
 pub use remedy_ui_tree::ElementId;
 
