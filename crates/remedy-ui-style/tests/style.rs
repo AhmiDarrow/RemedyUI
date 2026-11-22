@@ -162,3 +162,32 @@ fn tokens_resolve_through_whatever_theme_is_shown() {
     theme.colors.custom.insert("brand".into(), Color::WHITE);
     assert_eq!(ColorRef::from(ColorRole::Custom("brand")).resolve(&theme), Color::WHITE);
 }
+
+#[test]
+fn line_height_resolves_merges_and_is_inherited() {
+    let theme = Theme::dark_forest();
+    let mut sheet = StyleSheet::new();
+    sheet.rule("label", None, States::NONE, StylePatch::default().line_height(LineHeight::Relative(1.5)));
+    let key = StyleKey { widget: "label", variant: "", states: States::NONE };
+    let defaults = StylePatch::defaults(&theme);
+    // Today's default stays.
+    let plain = sheet.resolve(
+        &StyleKey { widget: "box", variant: "", states: States::NONE },
+        &defaults,
+        &StylePatch::default(),
+    );
+    assert_eq!(plain.line_height, LineHeight::Relative(1.33));
+    // A rule sets it, a local patch wins over the rule.
+    assert_eq!(sheet.resolve(&key, &defaults, &StylePatch::default()).line_height, LineHeight::Relative(1.5));
+    let local = StylePatch::default().line_height(LineHeight::Absolute(20.0));
+    let own = sheet.resolve(&key, &defaults, &local);
+    assert_eq!(own.line_height, LineHeight::Absolute(20.0));
+    // Children inherit it, as CSS does.
+    assert_eq!(own.inherited_by_children(&defaults).line_height, Some(LineHeight::Absolute(20.0)));
+    // The token style carries it into a patch, and merging keeps the later one.
+    let tok = Style::default().line_height(LineHeight::FontMetrics);
+    assert_eq!(tok.resolve(&theme).line_height, Some(LineHeight::FontMetrics));
+    let merged = tok.merge(&Style::default().line_height(LineHeight::Relative(1.2)));
+    assert_eq!(merged.line_height, Some(LineHeight::Relative(1.2)));
+    assert_eq!(StylePatch::default().merge(&local).line_height, Some(LineHeight::Absolute(20.0)));
+}

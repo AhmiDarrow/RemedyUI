@@ -16,3 +16,15 @@ pub enum TextTransform {
     /// The first letter of each word a capital (title case), the rest as written.
     Capitalize,
 }
+
+/// How tall each line of text is (CSS `line-height`); inherited.
+#[derive(Clone, Copy, Debug, PartialEq)]
+// Exhaustive on purpose: CSS `normal`, a number and a length (a percentage is a number).
+pub enum LineHeight {
+    /// The font's own line spacing (ascent + descent + line gap).
+    FontMetrics,
+    /// A multiple of the font size, as CSS `line-height: 1.33`.
+    Relative(f32),
+    /// An exact height in logical pixels.
+    Absolute(f32),
+}

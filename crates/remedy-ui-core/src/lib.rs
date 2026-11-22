@@ -30,5 +30,5 @@ pub use color::Color;
 pub use color_matrix::ColorMatrix;
 pub use edition::{Edition, ParseEditionError};
 pub use geometry::{CornerRadii, Insets, Point, Rect, Size, Vec2};
-pub use text::TextTransform;
+pub use text::{LineHeight, TextTransform};
 pub use units::Scale;

@@ -145,6 +145,7 @@ pub(crate) fn text_style_for(d: &ElData, theme: &remedy_ui_style::Theme) -> reme
         v_.families = theme.families(d.resolved.mono, d.resolved.heading);
         v_.letter_spacing = d.resolved.letter_spacing.px(d.resolved.text_size);
         v_.transform = d.resolved.text_transform;
+        v_.line_height = d.resolved.line_height;
         v_.size = d.resolved.text_size;
         v_.weight = d.resolved.weight;
         v_.color = d.resolved.foreground;
@@ -974,9 +975,11 @@ impl Ui {
                 || resolved.mono != d.resolved.mono
                 || resolved.heading != d.resolved.heading
                 || resolved.letter_spacing != d.resolved.letter_spacing
-                || resolved.text_transform != d.resolved.text_transform;
+                || resolved.text_transform != d.resolved.text_transform
+                || resolved.line_height != d.resolved.line_height;
             let text_changed = reshape
                 || resolved.text_transform != d.resolved.text_transform
+                || resolved.line_height != d.resolved.line_height
                 || resolved.max_lines != d.resolved.max_lines
                 || resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight
@@ -990,6 +993,7 @@ impl Ui {
                 || resolved.heading != d.resolved.heading
                 || resolved.letter_spacing != d.resolved.letter_spacing
                 || resolved.text_transform != d.resolved.text_transform
+                || resolved.line_height != d.resolved.line_height
                 || resolved.max_lines != d.resolved.max_lines
                 || resolved.text_size != d.resolved.text_size
                 || resolved.weight != d.resolved.weight

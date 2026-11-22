@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use remedy_ui_core::{Color, ColorMatrix, Insets, TextTransform, Vec2};
+use remedy_ui_core::{Color, ColorMatrix, Insets, LineHeight, TextTransform, Vec2};
 
 use crate::states::States;
 
@@ -95,6 +95,8 @@ pub struct StylePatch {
     pub letter_spacing: Option<LetterSpacing>,
     /// How letters are cased when drawn (CSS `text-transform`); inherited.
     pub text_transform: Option<TextTransform>,
+    /// How tall each line of text is (CSS `line-height`); inherited.
+    pub line_height: Option<LineHeight>,
     /// At most this many lines of text, the last ending in "…" when cut (CSS
     /// `line-clamp`); 0 for no limit. Not inherited.
     pub max_lines: Option<u32>,
@@ -262,6 +264,12 @@ impl StylePatch {
         self
     }
 
+    /// Sets how tall each line of text is.
+    pub fn line_height(mut self, value: LineHeight) -> Self {
+        self.line_height = Some(value);
+        self
+    }
+
     /// Sets the most lines text takes (0: no limit).
     pub fn max_lines(mut self, value: u32) -> Self {
         self.max_lines = Some(value);
@@ -347,6 +355,7 @@ impl StylePatch {
             heading: Some(false),
             letter_spacing: Some(LetterSpacing::Px(0.0)),
             text_transform: Some(TextTransform::None),
+            line_height: Some(LineHeight::Relative(1.33)),
             max_lines: Some(0),
             outline: Some(theme.derive().focus),
             outline_width: Some(2.0),
@@ -377,6 +386,7 @@ impl StylePatch {
             heading: other.heading.or(self.heading),
             letter_spacing: other.letter_spacing.or(self.letter_spacing),
             text_transform: other.text_transform.or(self.text_transform),
+            line_height: other.line_height.or(self.line_height),
             max_lines: other.max_lines.or(self.max_lines),
             outline: other.outline.or(self.outline),
             outline_width: other.outline_width.or(self.outline_width),
@@ -450,6 +460,8 @@ pub struct ResolvedStyle {
     pub letter_spacing: LetterSpacing,
     /// How letters are cased when drawn.
     pub text_transform: TextTransform,
+    /// How tall each line of text is.
+    pub line_height: LineHeight,
     /// The most lines text takes (0: no limit).
     pub max_lines: u32,
     /// The focus ring's color.
@@ -489,6 +501,7 @@ impl ResolvedStyle {
             heading: p.heading.unwrap_or(false),
             letter_spacing: p.letter_spacing.unwrap_or(LetterSpacing::Px(0.0)),
             text_transform: p.text_transform.unwrap_or_default(),
+            line_height: p.line_height.unwrap_or(LineHeight::Relative(1.33)),
             max_lines: p.max_lines.unwrap_or(0),
             outline: p.outline.unwrap_or(Color::TRANSPARENT),
             outline_width: p.outline_width.unwrap_or(0.0),
@@ -551,6 +564,7 @@ impl ResolvedStyle {
             heading: Some(self.heading),
             letter_spacing: Some(self.letter_spacing),
             text_transform: Some(self.text_transform),
+            line_height: Some(self.line_height),
             ..base.clone()
         }
     }

@@ -10,6 +10,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Line height as a style property** (CSS `line-height`): `Style::line_height`,
+  `StylePatch::line_height` and `El::line_height` take a `LineHeight` (`Relative(1.5)` for a
+  multiple of the text size, `Absolute(24.0)` for pixels, `FontMetrics` for the font's own);
+  descendants inherit it, and the default stays `Relative(1.33)`. `LineHeight` now lives in
+  `remedy-ui-core`, re-exported by `remedy-ui-text`, `remedy-ui-style` and `remedy-ui-view`.
 - **Web playback without WebCodecs**: where a page may not use WebCodecs (browsers offer it
   only to secure pages, so not to a page at a LAN address over `http:`) or has none, a
   player plays through a hidden `<video>` element: HLS is remuxed from MPEG-TS to fragmented
