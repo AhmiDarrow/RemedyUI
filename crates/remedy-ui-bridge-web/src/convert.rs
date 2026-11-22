@@ -479,6 +479,8 @@ pub struct PageSettings {
     pub reduced_transparency: bool,
     /// `navigator.language`.
     pub language: String,
+    /// `navigator.languages`, most preferred first.
+    pub languages: Vec<String>,
     /// The browser runs on macOS, iOS or iPadOS.
     pub apple: bool,
     /// The root element's font size in CSS pixels (the user's default text size).
@@ -509,6 +511,9 @@ pub fn settings(page: &PageSettings) -> SystemSettings {
     if !page.language.trim().is_empty() {
         s.locale = page.language.clone();
     }
+    let listed: Vec<String> =
+        page.languages.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).map(str::to_owned).collect();
+    s.locales = if listed.is_empty() { vec![s.locale.clone()] } else { listed };
     // Browsers expose no double-click time; this is the platforms' default pages inherit.
     s.double_click = Duration::from_millis(500);
     s
@@ -774,6 +779,7 @@ mod tests {
             high_contrast: false,
             reduced_transparency: false,
             language: "de-DE".into(),
+            languages: vec!["de-DE".into(), "fr".into(), " ".into(), "en".into()],
             apple: true,
             root_font_px: 20.0,
             accent: parse_css_color("rgb(255, 0, 0)"),
@@ -783,11 +789,18 @@ mod tests {
         assert_eq!(s.platform, Platform::Apple);
         assert!((s.text_scale - 1.25).abs() < 1e-6);
         assert_eq!(s.locale, "de-DE");
+        assert_eq!(s.locales, ["de-DE", "fr", "en"], "navigator.languages in order, blanks dropped");
         assert!(s.reduced_motion);
         assert_eq!(s.accent, Some(Color::new(1.0, 0.0, 0.0, 1.0)));
-        let quiet = settings(&PageSettings { prefers_dark: false, language: String::new(), ..page });
+        let quiet = settings(&PageSettings {
+            prefers_dark: false,
+            language: String::new(),
+            languages: Vec::new(),
+            ..page
+        });
         assert_eq!(quiet.dark, None, "neither scheme matched: the browser does not say");
         assert_eq!(quiet.locale, "en-US");
+        assert_eq!(quiet.locales, ["en-US"], "no list: the one locale");
         assert!(
             is_apple("MacIntel") && is_apple("iPhone") && !is_apple("Win32") && !is_apple("Linux x86_64")
         );

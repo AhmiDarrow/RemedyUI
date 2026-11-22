@@ -845,6 +845,12 @@ pub struct SystemSettings {
     pub reduced_transparency: bool,
     /// BCP 47 locale, such as `en-US`.
     pub locale: String,
+    /// The user's preferred languages (BCP 47), most preferred first: `navigator.languages`
+    /// on the web, the Windows display-language list, `LANGUAGE` then `LC_ALL`,
+    /// `LC_MESSAGES` or `LANG` on Linux, `NSLocale.preferredLanguages` on macOS, the
+    /// configuration's locale list on Android. Never empty: `[locale]` where the platform
+    /// gives no list. For choosing among content languages (subtitles, audio tracks).
+    pub locales: Vec<String>,
     /// Longest gap between the clicks of a double click.
     pub double_click: Duration,
     /// Caret blink interval; `None` when the user turned blinking off.
@@ -869,6 +875,7 @@ impl Default for SystemSettings {
             reduced_motion: false,
             reduced_transparency: false,
             locale: String::from("en-US"),
+            locales: vec![String::from("en-US")],
             double_click: Duration::from_millis(500),
             caret_blink: Some(Duration::from_millis(530)),
             subpixel_text: None,

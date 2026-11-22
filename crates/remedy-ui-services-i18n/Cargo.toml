@@ -23,7 +23,8 @@ unic-langid = { version = "=0.9.6", features = ["likelysubtags"] }
 
 icu_calendar = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 icu_datetime = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
-icu_decimal = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
+# `unstable` is the compact formatter (1.2K), version pinned exactly.
+icu_decimal = { version = "=2.3.0", default-features = false, features = ["compiled_data", "unstable"] }
 icu_locale_core = { version = "=2.4.0", default-features = false }
 intl-memoizer = "=0.5.3"
 

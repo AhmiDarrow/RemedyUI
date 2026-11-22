@@ -19,6 +19,9 @@
 //! from capture, so it reports `Unsupported` rather than pretending. On other platforms this
 //! crate is empty.
 
+#[cfg(any(test, all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))))]
+mod env_locale;
+
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 #[allow(unsafe_code)]
 mod os;
@@ -218,13 +221,8 @@ mod linux {
         discharging || read("/sys/firmware/acpi/platform_profile".into()) == "low-power"
     }
 
-    /// `en_US.UTF-8` (POSIX) to `en-US` (BCP 47).
-    fn locale() -> Option<String> {
-        let raw = ["LC_ALL", "LC_MESSAGES", "LANG"]
-            .iter()
-            .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))?;
-        let base = raw.split(['.', '@']).next()?;
-        (base != "C" && base != "POSIX").then(|| base.replace('_', "-"))
+    fn env(k: &str) -> Option<String> {
+        std::env::var(k).ok()
     }
 
     impl PlatformHooks for LinuxHooks {
@@ -261,7 +259,11 @@ mod linux {
                 v_.text_scale = p.f64(INTERFACE, "text-scaling-factor").map_or(base.text_scale, |f| f as f32);
                 v_.reduced_motion = reduced_motion;
                 v_.reduced_transparency = false;
-                v_.locale = locale().unwrap_or(base.locale);
+                v_.locale = crate::env_locale::locale(env).unwrap_or(base.locale);
+                v_.locales = crate::env_locale::locales(env);
+                if v_.locales.is_empty() {
+                    v_.locales = vec![v_.locale.clone()];
+                }
                 v_.double_click = p
                     .i32("org.gnome.desktop.peripherals.mouse", "double-click")
                     .and_then(|ms| u64::try_from(ms).ok())
