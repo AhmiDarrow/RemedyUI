@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use remedy_ui::host::{ShareFile, ShareOptions, ShareOutcome};
 use remedy_ui::widgets as w;
-use remedy_ui::{App, AppConfig, RendererKind, WindowSpec};
+use remedy_ui::{App, AppConfig, InputPurpose, RendererKind, WindowSpec};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -208,6 +208,7 @@ struct Seen {
     taps: Cell<u32>,
     typed: RefCell<String>,
     app: RefCell<Option<App>>,
+    caps: Cell<Option<remedy_ui::reactive::Signal<remedy_ui::PointerCaps>>>,
 }
 
 fn start(config: AppConfig, seen: Rc<Seen>) {
@@ -220,6 +221,9 @@ fn start(config: AppConfig, seen: Rc<Seen>) {
             let f2 = field.clone();
             let s3 = s2.clone();
             let field = field.on_change(move || *s3.typed.borrow_mut() = f2.value());
+            s2.caps.set(Some(ui.pointer_caps()));
+            let purposed = |label: &str, p| w::text_input(ui, label).purpose(p).el().height(32.0);
+            let secret = |label: &str, p| w::secret_input(ui, label).purpose(p).el().height(32.0);
             let s4 = s2.clone();
             // Shown, so a press changes what is drawn.
             let shown = remedy_ui::reactive::Signal::new(0u32);
@@ -232,6 +236,14 @@ fn start(config: AppConfig, seen: Rc<Seen>) {
                 }))
                 .child(ui.el("label").text(move || format!("Taps: {}", shown.get())))
                 .child(field.el())
+                .child(purposed("User", InputPurpose::Username))
+                .child(secret("Pass", InputPurpose::CurrentPassword))
+                .child(purposed("Code", InputPurpose::OneTimeCode))
+                .child(purposed("Site", InputPurpose::Url))
+                .child(purposed("Find", InputPurpose::Search))
+                .child(
+                    ui.text_field("text_area", remedy_ui::FieldKind::Multi).label("Notes").el().height(48.0),
+                )
                 .child(w::context_menu(&ui.el("label").text("Menu here"), || {
                     vec![w::MenuItem::new("Do something", || {})]
                 }));
@@ -318,11 +330,11 @@ async fn an_app_runs_in_the_page() {
     pointer(&target, "pointerdown", fx, fy, 1);
     pointer(&target, "pointerup", fx, fy, 0);
     assert!(
-        until(30, || query("textarea[data-remedy-text]:focus").is_some()).await,
+        until(30, || query("input[data-remedy-text]:focus").is_some()).await,
         "the hidden field took focus"
     );
-    let text: web_sys::EventTarget = query("textarea[data-remedy-text]").must("the hidden field").into();
-    let shown = query("textarea[data-remedy-text]").must("the hidden field");
+    let text: web_sys::EventTarget = query("input[data-remedy-text]").must("the hidden field").into();
+    let shown = query("input[data-remedy-text]").must("the hidden field");
     let named = until(30, || shown.get_attribute("aria-label").as_deref() == Some("Message")).await;
     assert!(named, "the field is named for screen readers: {:?}", shown.get_attribute("aria-label"));
 
@@ -384,6 +396,47 @@ async fn an_app_runs_in_the_page() {
     assert!(until(30, || mirrored_text("Do something").is_some()).await, "the app's menu opened");
     key(&target, "keydown", "Escape", "Escape", false);
     key(&target, "keyup", "Escape", "Escape", false);
+    frames(2).await;
+
+    // Each field's purpose reaches the hidden field: soft keyboards pick their keys from it,
+    // and password managers find the username and the current password.
+    let attrs = |el: &web_sys::HtmlElement| {
+        ["type", "inputmode", "autocomplete", "enterkeyhint", "autocapitalize"]
+            .map(|a| el.get_attribute(a).unwrap_or_default())
+            .join(" ")
+    };
+    for (label, sel, want) in [
+        ("User", "input", "text  username done off"),
+        ("Pass", "input", "password  current-password done off"),
+        ("Code", "input", "text numeric one-time-code done off"),
+        ("Site", "input", "url url off done off"),
+        ("Find", "input", "search search off search "),
+        ("Notes", "textarea", "  off enter "),
+        ("Message", "input", "text  off done "),
+    ] {
+        let mirrored = query(&format!("[role=textbox][aria-label='{label}']")).must("the mirrored field");
+        let (x, y) = center(&mirrored);
+        pointer(&target, "pointerdown", x, y, 1);
+        pointer(&target, "pointerup", x, y, 0);
+        let hidden = format!("{sel}[data-remedy-text]:focus");
+        let ok = until(30, || {
+            query(&hidden).is_some_and(|h| h.get_attribute("aria-label").as_deref() == Some(label))
+        })
+        .await;
+        assert!(ok, "{label}: the hidden {sel} took focus");
+        let got = attrs(&query(&hidden).must("the hidden field"));
+        assert_eq!(got, want, "{label}: type inputmode autocomplete enterkeyhint autocapitalize");
+    }
+    key(&target, "keydown", "Escape", "Escape", false);
+    key(&target, "keyup", "Escape", "Escape", false);
+
+    // The pointer's caps come from the page's media queries.
+    let win = web_sys::window().must("a window");
+    let mq = |q: &str| win.match_media(q).ok().flatten().is_some_and(|m| m.matches());
+    let caps = seen.caps.get().must("the caps").get_untracked().ok();
+    let page = remedy_ui::PointerCaps::new(mq("(hover: hover)"), mq("(pointer: fine)"));
+    web_sys::console::log_1(&format!("pointer caps {caps:?}, page {page:?}").into());
+    assert_eq!(caps, Some(page), "the caps match (hover: hover) and (pointer: fine)");
 
     // Sharing. The test's calls are no click, so the browser's own sheet refuses: either it
     // has none (desktop Firefox, Chrome on Linux) or the page may not act for the person now.

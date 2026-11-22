@@ -183,6 +183,7 @@ impl Ui {
     /// Routes pointer input. Returns true when an element took it.
     pub fn pointer(&self, e: &PointerEvent) -> bool {
         let _events = remedy_ui_trace::phase!("events", ui = self.id()).entered();
+        self.pointer_used(e.kind);
         self.0.borrow_mut().consumed = false;
         let tap = self.0.borrow().interceptor.clone();
         if let Some(tap) = tap

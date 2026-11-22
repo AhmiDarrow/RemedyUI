@@ -96,6 +96,23 @@ pub fn argb(c: i32) -> Color {
     Color::rgba8(r, g, b, a)
 }
 
+/// A field's purpose as the Java half's `TextInput.PURPOSE_*` code.
+pub fn purpose_code(p: remedy_ui_host::InputPurpose) -> i32 {
+    use remedy_ui_host::InputPurpose as P;
+    match p {
+        P::Digits => 1,
+        P::Decimal => 2,
+        P::Url => 3,
+        P::Email => 4,
+        P::Search => 5,
+        P::Username => 6,
+        P::CurrentPassword => 7,
+        P::NewPassword => 8,
+        P::OneTimeCode => 9,
+        _ => 0,
+    }
+}
+
 /// A field's text and its selection in UTF-8 bytes, as Java sees them: the text and the
 /// selection in UTF-16 units. Offsets inside a character move to its start.
 pub fn utf16_selection(text: &str, selection: std::ops::Range<usize>) -> (String, (i32, i32)) {

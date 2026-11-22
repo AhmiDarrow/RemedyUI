@@ -355,6 +355,22 @@ pub fn aria_attributes(node: &Node) -> Vec<(&'static str, Option<String>)> {
             }),
         ),
         ("aria-hidden", flag(node.is_hidden())),
+        (
+            "aria-current",
+            node.aria_current().and_then(|c| {
+                use remedy_ui_host::accesskit::AriaCurrent as C;
+                match c {
+                    C::False => None,
+                    C::True => Some("true"),
+                    C::Page => Some("page"),
+                    C::Step => Some("step"),
+                    C::Location => Some("location"),
+                    C::Date => Some("date"),
+                    C::Time => Some("time"),
+                }
+                .map(str::to_owned)
+            }),
+        ),
     ]
 }
 
@@ -485,6 +501,10 @@ pub struct PageSettings {
     pub language: String,
     /// The browser runs on macOS, iOS or iPadOS.
     pub apple: bool,
+    /// `(hover: hover)`: the primary pointer hovers.
+    pub hover: bool,
+    /// `(pointer: fine)`: the primary pointer points finely.
+    pub fine_pointer: bool,
     /// The root element's font size in CSS pixels (the user's default text size).
     pub root_font_px: f32,
     /// The system accent color (CSS `AccentColor`), where the browser reveals it.
@@ -516,6 +536,7 @@ pub fn settings(page: &PageSettings) -> SystemSettings {
     }
     // Browsers expose no double-click time; this is the platforms' default pages inherit.
     s.double_click = Duration::from_millis(500);
+    s.pointer = Some(remedy_ui_host::PointerCaps::new(page.hover, page.fine_pointer));
     s
 }
 
@@ -755,6 +776,18 @@ mod tests {
         assert_eq!(aria_role(Role::MenuItemRadio), Some("menuitemradio"));
         assert_eq!(get("aria-checked").as_deref(), Some("false"));
         assert_eq!((get("aria-posinset").as_deref(), get("aria-setsize").as_deref()), (Some("2"), Some("3")));
+        // Landmarks and the current item.
+        assert_eq!(aria_role(Role::Navigation), Some("navigation"));
+        assert_eq!(aria_role(Role::Main), Some("main"));
+        let mut c = Node::new(Role::Link);
+        c.set_aria_current(remedy_ui_host::accesskit::AriaCurrent::Page);
+        let a = aria_attributes(&c);
+        let get = |k: &str| a.iter().find(|(n, _)| *n == k).and_then(|(_, v)| v.clone());
+        assert_eq!(get("aria-current").as_deref(), Some("page"));
+        assert!(
+            aria_attributes(&Node::new(Role::Link)).contains(&("aria-current", None)),
+            "listed unset, so a stale aria-current is removed"
+        );
         let mut p = Node::new(Role::PasswordInput);
         p.set_value("••••");
         assert_eq!(text_content(&p), None, "a password's text never reaches the page");
@@ -807,6 +840,8 @@ mod tests {
             tv: false,
             language: "de-DE".into(),
             apple: true,
+            hover: false,
+            fine_pointer: true,
             root_font_px: 20.0,
             accent: parse_css_color("rgb(255, 0, 0)"),
         };
@@ -817,6 +852,7 @@ mod tests {
         assert_eq!(s.locale, "de-DE");
         assert!(s.reduced_motion);
         assert!(s.spatial_navigation, "a touch-only browser moves focus with arrows");
+        assert_eq!(s.pointer, Some(remedy_ui_host::PointerCaps::PEN), "fine but not hovering");
         assert_eq!(s.accent, Some(Color::new(1.0, 0.0, 0.0, 1.0)));
         let quiet = settings(&PageSettings { prefers_dark: false, language: String::new(), ..page.clone() });
         assert_eq!(quiet.dark, None, "neither scheme matched: the browser does not say");

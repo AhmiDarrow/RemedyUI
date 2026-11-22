@@ -55,7 +55,7 @@ pub use frame::{Frame, FrameStats, Placement};
 pub use history::HistoryItem;
 pub use prop::{IntoProp, Prop};
 pub use remedy_ui_a11y::Action as A11yAction;
-pub use remedy_ui_host::{DragData, DragEvent, DropEffect, ImeEvent};
+pub use remedy_ui_host::{DragData, DragEvent, DropEffect, ImeEvent, InputPurpose, PointerCaps};
 pub use remedy_ui_input::WheelEvent;
 pub use remedy_ui_layout::{Align, Justify};
 pub use remedy_ui_style::{ColorRole, Dp, Pad, Radius, Space, Style, TextRole};

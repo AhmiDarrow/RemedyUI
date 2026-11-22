@@ -30,7 +30,7 @@ pub use decode::{
     fitted_scalable, is_scalable, router, set_router,
 };
 pub use load::{
-    ImageState, Request, Source, SourceId, Stamp, cached, decode_for_box, load, probe, spawn_job,
+    ImageState, Request, Source, SourceId, Stamp, cached, decode_for_box, known_sizes, load, probe, spawn_job,
 };
 
 /// How an image fills its element.

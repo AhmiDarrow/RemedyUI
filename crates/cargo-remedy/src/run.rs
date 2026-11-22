@@ -112,6 +112,7 @@ mod tests {
             android_icon_foreground: None,
             android_icon_background: Vec::new(),
             sign_thumbprint: None,
+            windows_autostart: None,
             timestamp_url: String::new(),
             lib_name: "notes".into(),
             android_target: "aarch64-linux-android".into(),

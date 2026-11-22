@@ -227,7 +227,13 @@ mod tests {
 
     #[test]
     fn bad_and_reserved_schemes_are_refused() {
-        let app = Entry { name: "A".into(), id: "a".into(), program: "/bin/a".into(), args: vec![] };
+        let app = Entry {
+            name: "A".into(),
+            id: "a".into(),
+            program: "/bin/a".into(),
+            args: vec![],
+            run_key: false,
+        };
         for bad in ["", "http", "HTTPS", "file", "a b", "1up", "x/y", "é"] {
             assert!(matches!(register(&app, bad), Err(DesktopError::Invalid { .. })), "{bad:?}");
             assert!(!is_registered(&app, bad));

@@ -44,12 +44,12 @@ pub fn app(app: &App) {
     let icon = tray_icon();
     app.tray_dyn(move || {
         let paused = state.paused.get();
-        let item = |id, label: &str| TrayItem::Item { id, label: label.to_owned(), enabled: true };
         let menu = vec![
-            item(SHOW, "Show"),
-            item(PAUSE, if paused { "Resume reminders" } else { "Pause reminders" }),
+            // Bold: what clicking the icon does.
+            TrayItem::Item { id: SHOW, label: "Show".into(), enabled: true, default: true },
+            TrayItem::item(PAUSE, if paused { "Resume reminders" } else { "Pause reminders" }),
             TrayItem::Separator,
-            item(QUIT, "Quit"),
+            TrayItem::item(QUIT, "Quit"),
         ];
         Some(TrayIcon::new("Break reminder", icon.clone(), menu))
     });
