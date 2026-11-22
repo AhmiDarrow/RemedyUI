@@ -11,10 +11,14 @@ package dev.remedyui.android;
 
 import android.content.Context;
 import android.graphics.Matrix;
+import android.os.Build;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.Selection;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.CursorAnchorInfo;
 import android.view.inputmethod.EditorInfo;
@@ -44,8 +48,44 @@ final class TextInput extends View {
         // key (Back, keyboard shortcuts) and the app would never see them.
         setFocusable(false);
         setFocusableInTouchMode(false);
+        setClickable(false);
         setWillNotDraw(true);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+    }
+
+    // Touches belong to the native activity (the drawing surface), not this view. This
+    // view exists only so input methods have an InputConnection; it must not eat taps.
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        return false;
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        return false;
+    }
+
+    /** Shows the on-screen keyboard after this view has focus and a window token. */
+    private void showIme() {
+        requestFocus();
+        post(
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!active) {
+                            return;
+                        }
+                        requestFocus();
+                        if (Build.VERSION.SDK_INT >= 30) {
+                            WindowInsetsController c = getWindowInsetsController();
+                            if (c != null) {
+                                c.show(WindowInsets.Type.ime());
+                            }
+                        }
+                        imm.restartInput(TextInput.this);
+                        imm.showSoftInput(TextInput.this, InputMethodManager.SHOW_IMPLICIT);
+                    }
+                });
     }
 
     private static int utf8(CharSequence s) {
@@ -78,13 +118,14 @@ final class TextInput extends View {
         if (!composing && moved) {
             Selection.setSelection(editable, s, e);
         }
+        // Sit at the caret so the input method can anchor its window there.
+        setX(x);
+        setY(top);
         if (restart) {
             active = true;
             setFocusable(true);
             setFocusableInTouchMode(true);
-            requestFocus();
-            imm.restartInput(this);
-            imm.showSoftInput(this, 0);
+            showIme();
         } else if (!composing && (moved || textChanged)) {
             imm.updateSelection(this, s, e, -1, -1);
         }

@@ -962,6 +962,14 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **On Android, tapping a text field now opens the on-screen keyboard.** The input-method
+  view was a full-screen overlay; once a field focused it, it ate every later tap, and
+  `showSoftInput` was asked before the view had focus and a window token, so the keyboard
+  often never appeared. The view is now 1 px, it never takes touches (they stay with the
+  app), and the keyboard is shown after focus, including through `WindowInsetsController`
+  on Android 11 and later. A finger tap also always asks for a frame, so the field paints
+  and the text session starts.
+
 - **An HLS stream on GStreamer's software H.264 decoder shows its first picture at once**,
   not half a second late, on opening and on every seek. `avdec_h264` holds a picture for
   each of its frame threads (19 units on a 16-thread machine) before giving any out, and
