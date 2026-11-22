@@ -117,7 +117,7 @@ pub use stretch::{MAX_SPEED, MIN_SPEED, SPEEDS, clamp_speed};
 pub use subtitles::{
     Cue, CueAlign, CueAnchor, CueLine, CueSettings, SubtitleFormat, SubtitleTrack, Vertical, parse_subtitles,
 };
-pub use widget::{PlayerParts, format_time, player, player_picture, player_with};
+pub use widget::{PlayerIcons, PlayerParts, format_time, player, player_picture, player_with};
 
 /// The platform's own decoders and sound output, or [`MediaError::Unsupported`] with the
 /// reason where there are none (no GStreamer installed on a Linux machine, a platform with

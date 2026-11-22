@@ -83,4 +83,4 @@ pub use rejection::Rejection;
 #[allow(deprecated)]
 pub use text::label;
 pub use text::{heading, link, text};
-pub use values::{slider, stepper};
+pub use values::{reveal_on_hover, slider, stepper};

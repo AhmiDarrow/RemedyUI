@@ -949,8 +949,12 @@ fn card_shown(view: &El) -> bool {
 fn texts(el: &El, widget: &str) -> Vec<String> {
     find(el, widget)
         .iter()
-        .filter_map(|l| l.info().filter(|i| !i.hidden).and_then(|i| i.text))
-        .map(|t| plain(&t))
+        .filter_map(|l| l.info().filter(|i| !i.hidden))
+        .filter_map(|i| match widget {
+            // The clock is in parts; its name says it whole.
+            "player_clock" => i.semantics.and_then(|s| s.name().map(str::to_owned)),
+            _ => i.text.map(|t| plain(&t)),
+        })
         .collect()
 }
 
@@ -969,7 +973,11 @@ fn next_up_counts_down_at_the_end_and_plays_in_the_same_player() {
     s.wait("counting down", |_| p.countdown().is_some());
     assert!(card_shown(&view));
     let shown = texts(&view, "label");
-    assert!(shown.iter().any(|t| t == "Up next: The long one"), "{shown:?}");
+    assert!(
+        texts(&view, "player_next_title").iter().any(|t| t == "The long one"),
+        "the title on its own line"
+    );
+    assert!(texts(&view, "player_next_label").iter().any(|t| t == "UP NEXT"), "the label over it");
     assert!(shown.iter().any(|t| t == "Playing in 2 seconds"), "{shown:?}");
     assert!(announced(&view, "Up next: The long one") && announced(&view, "Playing in 2 seconds"));
     s.wait("one second left", |_| texts(&view, "label").iter().any(|t| t == "Playing in 1 second"));
@@ -1000,8 +1008,8 @@ fn cancelling_keeps_the_next_for_when_the_person_asks() {
     p.set_next_up(Some(NextUp::new(MediaSource::url("script:2"), "Two")));
     p.play();
     s.wait("counting down", |_| p.countdown().is_some());
-    // Cancel on the card: the countdown stops and the card goes.
-    named(&view, "Cancel").unwrap_or_else(|| unreachable!("a cancel button")).focus();
+    // Dismiss on the card: the countdown stops and the card goes.
+    named(&view, "Dismiss").unwrap_or_else(|| unreachable!("a dismiss button")).focus();
     assert!(press(&s.ui, Key::Enter));
     s.idle(600);
     assert_eq!(p.state(), PlaybackState::Ended, "it stays at the end");
@@ -1034,7 +1042,7 @@ fn under_reduced_motion_the_next_waits_for_the_person() {
     assert_eq!(p.countdown(), None, "no countdown");
     assert_eq!(p.state(), PlaybackState::Ended);
     assert!(card_shown(&view), "the card still offers it");
-    assert!(texts(&view, "label").iter().any(|t| t == "Up next: Two"));
+    assert!(texts(&view, "player_next_title").iter().any(|t| t == "Two"));
     // Play now, though: chosen, it plays even under reduced motion.
     p.play_next();
     s.wait("the next playing", |_| p.state() == PlaybackState::Playing);
@@ -1056,7 +1064,7 @@ fn a_queue_plays_each_in_turn_then_stops() {
     assert_eq!(p.next_up().map(|n| n.title), Some("Two".into()));
     p.play();
     s.wait("counting down to two", |_| p.countdown().is_some());
-    assert!(texts(&view, "label").iter().any(|t| t == "Up next: Two"));
+    assert!(texts(&view, "player_next_title").iter().any(|t| t == "Two"));
     s.wait("two playing", |_| {
         p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(2))
     });
@@ -1065,7 +1073,7 @@ fn a_queue_plays_each_in_turn_then_stops() {
     assert!(!card_shown(&view));
     s.wait("counting down to three", |_| p.countdown().is_some());
     assert!(card_shown(&view));
-    assert!(texts(&view, "label").iter().any(|t| t == "Up next: Three"));
+    assert!(texts(&view, "player_next_title").iter().any(|t| t == "Three"));
     s.wait("three playing", |_| {
         p.state() == PlaybackState::Playing && p.duration() == Some(Duration::from_secs(3))
     });
@@ -1409,9 +1417,9 @@ fn casting_hands_every_control_to_the_remote_and_back() {
     assert_eq!(said.role(), remedy_ui_a11y::Role::Status);
     assert_eq!(said.live_state(), remedy_ui_a11y::Live::Polite, "announced as it changes");
     assert!(
-        texts(&view, "label").iter().any(|t| t == "0:30 / 1:40"),
+        texts(&view, "player_clock").iter().any(|t| t == "0:30 / 1:40"),
         "the TV's time: {:?}",
-        texts(&view, "label")
+        texts(&view, "player_clock")
     );
     let seek = named(&view, "Seek").unwrap_or_else(|| unreachable!("a seek bar"));
     let value = || {
@@ -2047,7 +2055,11 @@ fn on_a_timeline_everything_is_in_film_time_and_seeks_inside_the_stream_stay_in_
     assert_eq!(p.position(), ORIGIN);
     assert_eq!(p.duration(), Some(FILM), "the film's length, not the stream's");
     s.idle(30);
-    assert!(texts(&view, "label").iter().any(|t| t == "6:36 / 3:01:32"), "{:?}", texts(&view, "label"));
+    assert!(
+        texts(&view, "player_clock").iter().any(|t| t == "6:36 / 3:01:32"),
+        "{:?}",
+        texts(&view, "player_clock")
+    );
     assert_eq!(seek_value(&view).as_deref(), Some("6:36 of 3:01:32"));
     assert!(!seek_disabled(&view));
     assert!(p.buffered().iter().all(|r| r.start >= ORIGIN), "{:?}", p.buffered());
@@ -2241,8 +2253,8 @@ fn the_card_shows_before_the_end_when_asked_and_the_next_plays_at_once_at_the_en
     p.seek(Duration::from_secs(55));
     s.wait("the card, 15 s before the end", |_| card_shown(&view));
     assert!(announced(&view, "Up next: Episode 2"), "the card is announced");
-    // Cancel puts it away for this next; the end still plays it.
-    named(&view, "Cancel").unwrap_or_else(|| unreachable!("a cancel button")).focus();
+    // Dismiss puts it away for this next; the end still plays it.
+    named(&view, "Dismiss").unwrap_or_else(|| unreachable!("a dismiss button")).focus();
     assert!(press(&s.ui, Key::Enter));
     s.pump();
     assert!(!card_shown(&view));
@@ -2478,7 +2490,11 @@ fn a_tv_starting_its_next_by_itself_says_so_then_switches_to_the_new_job_at_once
     s.pump();
     assert!(p.is_remote());
     assert_eq!((p.position(), p.duration()), (at(0), Some(at(2497))));
-    assert!(texts(&view, "label").iter().any(|t| t == "0:00 / 41:37"), "{:?}", texts(&view, "label"));
+    assert!(
+        texts(&view, "player_clock").iter().any(|t| t == "0:00 / 41:37"),
+        "{:?}",
+        texts(&view, "player_clock")
+    );
     assert!(!seek_disabled(&view));
     assert!(visible(&view, "Playing on The Ris"));
     let on_stage =
@@ -2656,10 +2672,14 @@ fn dragging_the_seek_bar_previews_and_seeks_once_on_release() {
     s.pump();
     assert!(p.scrubbing().is_some_and(|d| near(d, 30.0, 0.2)), "{:?}", p.scrubbing());
     assert_eq!(p.position(), Duration::ZERO, "no seek while held");
-    assert!(texts(&view, "label").iter().any(|t| t == "0:30 / 1:00"), "{:?}", texts(&view, "label"));
+    assert!(
+        texts(&view, "player_clock").iter().any(|t| t == "0:30 / 1:00"),
+        "{:?}",
+        texts(&view, "player_clock")
+    );
     assert_eq!(seek_value(&view).as_deref(), Some("0:30 of 1:00"));
     // The tip: the time under the pointer.
-    assert!(texts(&view, "label").iter().any(|t| t == "0:30"), "{:?}", texts(&view, "label"));
+    assert!(texts(&view, "player_tip").iter().any(|t| t == "0:30"), "{:?}", texts(&view, "player_tip"));
     s.idle(50);
     assert_eq!(p.position(), Duration::ZERO, "still no seek");
     // Let go: one seek, there.
@@ -2689,12 +2709,12 @@ fn dragging_the_seek_bar_previews_and_seeks_once_on_release() {
     s.ui.pointer(&touch(Up, 0.2005, false));
     s.wait("the touch seek", |_| near(p.position(), 12.0, 0.2));
     s.pump();
-    assert!(!texts(&view, "label").iter().any(|t| t == "0:12"), "a lifted finger leaves no tip");
+    assert!(!texts(&view, "player_tip").iter().any(|t| t == "0:12"), "a lifted finger leaves no tip");
 
     // Hovering shows the tip alone; the keys still seek at once.
     s.ui.pointer(&on_bar(&view, Move, 0.7505, false));
     s.pump();
-    assert!(texts(&view, "label").iter().any(|t| t == "0:45"), "{:?}", texts(&view, "label"));
+    assert!(texts(&view, "player_tip").iter().any(|t| t == "0:45"), "{:?}", texts(&view, "player_tip"));
     assert_eq!(p.scrubbing(), None);
     el(&view, "Seek").focus();
     assert!(press(&s.ui, Key::ArrowRight));
@@ -2724,9 +2744,9 @@ fn on_a_tv_and_on_a_timeline_only_the_release_seeks() {
     s.ui.pointer(&on_bar(&view, remedy_ui_input::PointerPhase::Move, 0.50005, false));
     s.pump();
     assert!(
-        texts(&view, "label").iter().any(|t| t == "1:30:46"),
+        texts(&view, "player_tip").iter().any(|t| t == "1:30:46"),
         "the tip in film time: {:?}",
-        texts(&view, "label")
+        texts(&view, "player_tip")
     );
     drag(&mut s, &view, 0.2, &[0.4, 0.50005]);
     assert_eq!(p.scrubbing(), None);
@@ -3423,7 +3443,7 @@ fn the_compact_layout_keeps_playing_and_shows_only_the_mini_parts() {
     s.pump();
     assert!(p.is_compact() && !p.is_theater(), "compact leaves theater mode");
     assert!(shown(&view, "Pause") && seen(&title));
-    assert!(texts(&view, "label").iter().any(|t| t.ends_with("/ 0:30")), "the time");
+    assert!(texts(&view, "player_clock").iter().any(|t| t.ends_with("/ 0:30")), "the time");
     for gone in ["Seek", "Mute", "Volume", "Back 10 seconds", "Full screen", "Theater mode"] {
         assert!(!shown(&view, gone), "{gone} in the mini player");
     }
@@ -3526,7 +3546,9 @@ fn full_screen_controls_rest_after_a_pause_in_activity_and_any_input_wakes_them(
     assert!(p.controls_shown() && !s.ui.cursor_hidden());
     assert!(title.info().is_some_and(|i| !i.hidden && i.text.is_none()), "the title line shows");
     assert!(
-        find(&title, "label").iter().any(|l| l.info().and_then(|i| i.text).as_deref() == Some("Episode 4"))
+        find(&title, "player_title_text")
+            .iter()
+            .any(|l| l.info().and_then(|i| i.text).as_deref() == Some("Episode 4"))
     );
     // The bar floats over the picture: the stage reaches the bottom of the player.
     let (stage, bar) =
