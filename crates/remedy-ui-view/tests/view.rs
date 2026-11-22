@@ -619,8 +619,9 @@ fn line_height_sets_how_tall_each_line_is_and_is_inherited() {
     assert!((h(&one) - 24.0).abs() < 0.5, "one line at 1.5 x 16: {}", h(&one));
     assert!((h(&two) - 48.0).abs() < 0.5, "two lines: {}", h(&two));
     assert!((h(&px) - 30.0).abs() < 0.5, "exact pixels: {}", h(&px));
-    // Text boxes round up to whole pixels: 21.28 takes 22.
-    assert!((h(&plain) - (16.0f32 * 1.33).ceil()).abs() < 0.5, "the default stays 1.33: {}", h(&plain));
+    // Text boxes keep fractional heights, as browsers lay them out (on a 1/64 px grid):
+    // 21.28 stays 21.28125, not 22.
+    assert!((h(&plain) - 21.28125).abs() < 1e-3, "the default stays 1.33: {}", h(&plain));
     assert!((h(&child) - 24.0).abs() < 0.5, "inherited from the parent: {}", h(&child));
     // A change reshapes and lays out again.
     let _ = one.clone().line_height(LineHeight::Relative(1.0));

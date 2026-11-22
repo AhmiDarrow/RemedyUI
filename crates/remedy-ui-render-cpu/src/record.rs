@@ -90,7 +90,7 @@ fn filter_end(all: &[CompositeOp], at: usize) -> usize {
             CompositeOp::PopClip | CompositeOp::PopOpacity | CompositeOp::PopFilter => {
                 depth = depth.saturating_sub(1);
             }
-            CompositeOp::Tile { .. } | CompositeOp::Backdrop { .. } => {}
+            CompositeOp::Tile { .. } | CompositeOp::Backdrop { .. } | CompositeOp::Fill { .. } => {}
         }
     }
     all.len()
@@ -190,7 +190,7 @@ fn walk<T: CompositeTarget>(
                 | CompositeOp::PushOpacity(_)
                 | CompositeOp::PushFilter { .. } => skip += 1,
                 CompositeOp::PopClip | CompositeOp::PopOpacity | CompositeOp::PopFilter => skip -= 1,
-                CompositeOp::Tile { .. } | CompositeOp::Backdrop { .. } => {}
+                CompositeOp::Tile { .. } | CompositeOp::Backdrop { .. } | CompositeOp::Fill { .. } => {}
             }
             continue;
         }
@@ -367,6 +367,17 @@ fn walk<T: CompositeTarget>(
                     target.pop_layer();
                 }
                 target.pop_layer();
+            }
+            CompositeOp::Fill { transform, rect, .. } if misses(transform.apply_rect(*rect), &areas) => {}
+            CompositeOp::Fill { transform, rect, radii, color } => {
+                target.set_transform(shift * kaffine(*transform));
+                if *radii == CornerRadii::ZERO {
+                    target.fill_color(&krect(*rect), *color);
+                } else if open.fits(1) {
+                    target.push_clip_path(&rounded(*rect, *radii));
+                    target.fill_color(&krect(*rect), *color);
+                    target.pop_clip();
+                }
             }
             CompositeOp::Tile { layer, key, transform, rect, raster_scale, area: part } => {
                 if misses(transform.apply_rect(*part), &areas) {

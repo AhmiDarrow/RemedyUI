@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 
-use remedy_ui_core::{Color, ColorMatrix, Insets, LineHeight, TextTransform, Vec2};
+use remedy_ui_core::{
+    Color, ColorMatrix, Insets, LineHeight, ScrollbarColor, ScrollbarVisibility, ScrollbarWidth, TextTransform, Vec2,
+};
 
 use crate::states::States;
 
@@ -124,6 +126,13 @@ pub struct StylePatch {
     /// Sticks the element within its nearest scroll container as that scrolls (CSS
     /// `position: sticky` with its insets); [`StickyInsets::NONE`] for not sticky.
     pub sticky: Option<StickyInsets>,
+    /// How thick a scroll container's scroll bars are (CSS `scrollbar-width`).
+    pub scrollbar_width: Option<ScrollbarWidth>,
+    /// The colors of its scroll bars (CSS `scrollbar-color`), inherited; `None` all the way
+    /// up for the platform's own.
+    pub scrollbar_color: Option<ScrollbarColor>,
+    /// When its scroll bars show: overlaid while scrolling, always, or never.
+    pub scrollbar_visibility: Option<ScrollbarVisibility>,
 }
 
 /// The edges a sticky element keeps to in its nearest scroll container's viewport (CSS
@@ -336,6 +345,24 @@ impl StylePatch {
         self
     }
 
+    /// Sets how thick a scroll container's scroll bars are.
+    pub fn scrollbar_width(mut self, value: ScrollbarWidth) -> Self {
+        self.scrollbar_width = Some(value);
+        self
+    }
+
+    /// Sets the colors of a scroll container's scroll bars (inherited).
+    pub fn scrollbar_color(mut self, value: ScrollbarColor) -> Self {
+        self.scrollbar_color = Some(value);
+        self
+    }
+
+    /// Sets when a scroll container's scroll bars show.
+    pub fn scrollbar_visibility(mut self, value: ScrollbarVisibility) -> Self {
+        self.scrollbar_visibility = Some(value);
+        self
+    }
+
     /// The engine's starting style under `theme`, before any rule: transparent boxes, body
     /// text in the theme's text color, and the theme's focus ring for keyboard focus (as
     /// `:focus-visible` does on the web) unless a rule shows focus another way.
@@ -366,6 +393,10 @@ impl StylePatch {
             backdrop_blur: Some(0.0),
             color_matrix: Some(ColorMatrix::IDENTITY),
             sticky: Some(StickyInsets::NONE),
+            scrollbar_width: Some(ScrollbarWidth::Auto),
+            // The platform's colors, from the theme, unless a rule says otherwise.
+            scrollbar_color: None,
+            scrollbar_visibility: Some(ScrollbarVisibility::Auto),
         }
     }
 
@@ -397,6 +428,9 @@ impl StylePatch {
             backdrop_blur: other.backdrop_blur.or(self.backdrop_blur),
             color_matrix: other.color_matrix.or(self.color_matrix),
             sticky: other.sticky.or(self.sticky),
+            scrollbar_width: other.scrollbar_width.or(self.scrollbar_width),
+            scrollbar_color: other.scrollbar_color.or(self.scrollbar_color),
+            scrollbar_visibility: other.scrollbar_visibility.or(self.scrollbar_visibility),
         }
     }
 }
@@ -482,6 +516,12 @@ pub struct ResolvedStyle {
     pub color_matrix: ColorMatrix,
     /// The edges it sticks to ([`StickyInsets::NONE`]: not sticky).
     pub sticky: StickyInsets,
+    /// How thick its scroll bars are, when it scrolls.
+    pub scrollbar_width: ScrollbarWidth,
+    /// The colors of its scroll bars (`None`: the platform's, from the theme).
+    pub scrollbar_color: Option<ScrollbarColor>,
+    /// When its scroll bars show.
+    pub scrollbar_visibility: ScrollbarVisibility,
 }
 
 impl ResolvedStyle {
@@ -512,6 +552,9 @@ impl ResolvedStyle {
             backdrop_blur: p.backdrop_blur.filter(|b| b.is_finite()).unwrap_or(0.0).max(0.0),
             color_matrix: p.color_matrix.map_or(ColorMatrix::IDENTITY, |m| m.limited()),
             sticky: p.sticky.unwrap_or(StickyInsets::NONE),
+            scrollbar_width: p.scrollbar_width.unwrap_or_default(),
+            scrollbar_color: p.scrollbar_color,
+            scrollbar_visibility: p.scrollbar_visibility.unwrap_or_default(),
         }
     }
 
@@ -565,6 +608,8 @@ impl ResolvedStyle {
             letter_spacing: Some(self.letter_spacing),
             text_transform: Some(self.text_transform),
             line_height: Some(self.line_height),
+            // As CSS `scrollbar-color`, the bars' colors are inherited.
+            scrollbar_color: self.scrollbar_color.or(base.scrollbar_color),
             ..base.clone()
         }
     }

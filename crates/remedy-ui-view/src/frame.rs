@@ -162,6 +162,7 @@ fn record(
     d: &ElData,
     rtl: bool,
     size: Size,
+    boxed: Rect,
     shown: Option<std::ops::Range<f32>>,
     theme: &remedy_ui_style::Theme,
     engine: &mut remedy_ui_text::TextEngine,
@@ -178,15 +179,19 @@ fn record(
     let s = &d.resolved;
     let rect = Rect::from_origin_size(Point::ZERO, size);
     let radii = CornerRadii::all(s.radius);
+    // The box's own drawing on the device grid, as browsers draw backgrounds and borders.
     if s.background.a > 0.0 {
-        list.fill_rounded(rect, radii, Brush::Solid(s.background));
+        list.fill_rounded(boxed, radii, Brush::Solid(s.background));
     }
     // The last layer is the lowest, as CSS stacks `background-image`.
     for g in s.background_layers.iter().rev() {
-        list.fill_rounded(rect, radii, gradient_brush(g, size, theme));
+        let brush = gradient_brush(g, boxed.size(), theme);
+        list.push(Item::PushTransform(Affine::translate(boxed.min.to_vec2())));
+        list.fill_rounded(Rect::from_origin_size(Point::ZERO, boxed.size()), radii, brush);
+        list.push(Item::PopTransform);
     }
     if s.border_width > 0.0 && s.border.a > 0.0 {
-        list.border(rect, radii, s.border_width, s.border);
+        list.border(boxed, radii, crisp_width(s.border_width, scale), s.border);
     }
     let bw = s.border_width;
     let content = rect.deflate(Insets {
@@ -262,6 +267,7 @@ fn record(
         let mut cx = PaintCx {
             list: &mut list,
             size,
+            pixel_box: boxed,
             style: s,
             theme,
             states: d.states,
@@ -384,6 +390,7 @@ struct Builder {
     origin: Vec2,
     follow: Option<remedy_ui_compositor::ScrollFollow>,
     snap: Option<ScrollSnap>,
+    bars: Option<remedy_ui_compositor::Scrollbars>,
     list: DisplayList,
     /// Push items open in `list`, re-opened when a segment starts.
     open: Vec<Item>,
@@ -403,6 +410,7 @@ impl Builder {
             origin: Vec2::ZERO,
             follow: None,
             snap: None,
+            bars: None,
             list: DisplayList::new(),
             open: Vec::new(),
             children: Vec::new(),
@@ -475,6 +483,7 @@ impl Builder {
         }
         layer.scroll_follow = self.follow;
         layer.scroll_snap = self.snap;
+        layer.scrollbars = self.bars;
         layer
     }
 }
@@ -497,6 +506,8 @@ struct Walk<'a> {
     inner: &'a Inner,
     state: &'a mut FrameState,
     rects: &'a HashMap<ElementId, Rect>,
+    /// Boxes on the device grid ([`snapped_box`]), for clips.
+    boxes: &'a HashMap<ElementId, Rect>,
     stickies: &'a HashMap<ElementId, remedy_ui_compositor::Sticky>,
     /// [`Walk::layers_below`] answers this frame, so nested filtered elements each walk a
     /// subtree once, not once per filtered ancestor.
@@ -767,6 +778,7 @@ impl Walk<'_> {
                 y,
             });
             vb.snap = d.scroll_snap.as_deref().map(|spec| self.snap_points(id, spec, rect.size(), lead));
+            vb.bars = scrollbars(&d.resolved, &self.inner.theme);
             let mut cb = Builder::new(content_id, Rect::from_origin_size(Point::ZERO, content_size));
             if lead > 0.0 {
                 cb.push(Item::PushTransform(Affine::translate(Vec2::new(lead, 0.0))));
@@ -787,7 +799,8 @@ impl Walk<'_> {
             self.state.scrollers.push((viewport, id));
         } else {
             if d.clip {
-                b.push(Item::PushClip { rect: local, radii: CornerRadii::all(d.resolved.radius) });
+                let clip = self.boxes.get(&id).copied().unwrap_or(local);
+                b.push(Item::PushClip { rect: clip, radii: CornerRadii::all(d.resolved.radius) });
             }
             for k in kids {
                 self.element(b, k, at);
@@ -814,6 +827,28 @@ impl Walk<'_> {
         }
         b.pop(Item::PopTransform);
     }
+}
+
+/// The scroll bars a scroll container styled `s` draws: its `scrollbar-*` style, the colors
+/// the platform's (from `theme`) when it sets none. `None` when it shows none.
+fn scrollbars(
+    s: &remedy_ui_style::ResolvedStyle,
+    theme: &remedy_ui_style::Theme,
+) -> Option<remedy_ui_compositor::Scrollbars> {
+    let width = s.scrollbar_width.px();
+    if width <= 0.0 || s.scrollbar_visibility == remedy_ui_core::ScrollbarVisibility::Never {
+        return None;
+    }
+    // The platform's overlay thumb: the text color, half seen, on no track.
+    let colors = s
+        .scrollbar_color
+        .unwrap_or(remedy_ui_core::ScrollbarColor::new(theme.derive().text.with_alpha(0.5), Color::TRANSPARENT));
+    Some(remedy_ui_compositor::Scrollbars {
+        width,
+        thumb: colors.thumb,
+        track: colors.track,
+        visibility: s.scrollbar_visibility,
+    })
 }
 
 /// What [`Walk::body`] draws besides the element and its children.
@@ -1097,8 +1132,14 @@ impl Ui {
             offset: Vec2::ZERO,
             within: Rect::from_origin_size(Point::ZERO, size),
         };
-        let mut stack = vec![(root, Point::ZERO, Vec2::ZERO, window_cx)];
-        while let Some((id, parent_at, scroll, cx)) = stack.pop() {
+        // Each element's box with its edges on the device-pixel grid, in its own space: where
+        // its background, border and clip go, as browsers snap boxes for crisp edges (layout
+        // and text stay fractional). Snapped in its scroll container's content space, so
+        // scrolling (by whole device pixels) does not repaint it.
+        let mut boxes: HashMap<ElementId, Rect> = HashMap::new();
+        let grid = remedy_ui_core::units::Scale::new(i.scale);
+        let mut stack = vec![(root, Point::ZERO, Vec2::ZERO, window_cx, Point::ZERO)];
+        while let Some((id, parent_at, scroll, cx, parent_un)) = stack.pop() {
             let Some(d) = i.els.get(&id) else { continue };
             let mut r = i.layout.rect(d.node).unwrap_or(Rect::ZERO);
             if id == root {
@@ -1111,6 +1152,8 @@ impl Ui {
                 r = parent.and_then(|p| crate::links::placed_rect(i, id, p, width)).unwrap_or(Rect::ZERO);
             }
             rects.insert(id, r);
+            let un = Point::new(parent_un.x + r.min.x, parent_un.y + r.min.y);
+            boxes.insert(id, snapped_box(grid, un, r.size()));
             let mut abs = Point::new(parent_at.x + r.min.x - scroll.x, parent_at.y + r.min.y - scroll.y);
             let parent_rtl =
                 || i.tree.parent(id).and_then(|p| i.els.get(&p)).is_some_and(|p| i.layout.is_rtl(p.node));
@@ -1134,6 +1177,10 @@ impl Ui {
                 stickies.insert(id, st);
             }
             let (bw, p, scrolls) = (d.resolved.border_width, d.resolved.padding, d.scroll);
+            // An element drawn in a compositor layer of its own puts its children in that
+            // layer, which the compositor places on whole device pixels.
+            let own_layer =
+                d.scroll || d.isolate.is_some() || d.ambient_layer || d.resolved.backdrop_blur > 0.0;
             let pad = Insets { top: p.top + bw, end: p.end + bw, bottom: p.bottom + bw, start: p.start + bw };
             let pad = if i.layout.is_rtl(d.node) { pad.mirrored() } else { pad };
             let own = Rect::from_origin_size(Point::ZERO, r.size()).deflate(pad);
@@ -1185,8 +1232,12 @@ impl Ui {
             } else {
                 StickCx { within: own.translate(abs.to_vec2()), ..cx }
             };
+            let kids_un = match grid {
+                Some(g) if own_layer => g.snap_point(un),
+                _ => un,
+            };
             for k in i.tree.children(id).into_iter().rev() {
-                stack.push((k, abs, child_scroll, kid_cx));
+                stack.push((k, abs, child_scroll, kid_cx, kids_un));
             }
         }
         // A sticky element whose place in its container changed goes in a new layer.
@@ -1264,8 +1315,8 @@ impl Ui {
             i.els
                 .iter()
                 .filter(|(id, d)| {
-                    let sz = rects.get(id).map(|r| r.size()).unwrap_or(Size::ZERO);
-                    d.chunk.as_ref().is_none_or(|(s, _)| *s != sz)
+                    let key = chunk_key(&rects, &boxes, **id);
+                    d.chunk.as_ref().is_none_or(|(k, _)| *k != key)
                 })
                 .map(|(id, _)| *id),
         );
@@ -1279,7 +1330,8 @@ impl Ui {
         let rate = i.ambient.policy.rate(crate::ambient::activity(i));
         let mut asks = Vec::new();
         for &id in &repaint {
-            let sz = rects.get(&id).map(|r| r.size()).unwrap_or(Size::ZERO);
+            let key = chunk_key(&rects, &boxes, id);
+            let (sz, boxed) = key;
             let Some(d) = i.els.get(&id) else { continue };
             let rtl = i.layout.is_rtl(d.node);
             let shown = if d.text.is_some() {
@@ -1291,6 +1343,7 @@ impl Ui {
                 d,
                 rtl,
                 sz,
+                boxed,
                 shown,
                 &theme,
                 &mut engine,
@@ -1304,7 +1357,7 @@ impl Ui {
                 paint_failures.push((id, why));
             }
             if let Some(d) = i.els.get_mut(&id) {
-                d.chunk = Some((sz, Rc::new(chunk)));
+                d.chunk = Some((key, Rc::new(chunk)));
                 d.ambient_layer |= ask.ambient;
                 if ask.ticked {
                     d.ambient_last = Some(now);
@@ -1353,6 +1406,7 @@ impl Ui {
                 inner: i,
                 state: &mut state,
                 rects: &rects,
+                boxes: &boxes,
                 stickies: &stickies,
                 layered: HashMap::new(),
             };
@@ -1454,6 +1508,35 @@ fn shown_band(i: &Inner, id: ElementId, window: Rect) -> Option<std::ops::Range<
     Some(visible.min.y - bounds.min.y..visible.max.y - bounds.min.y)
 }
 
+/// What an element's recorded paint depends on besides its state: its size, and its box on
+/// the device grid.
+fn chunk_key(rects: &HashMap<ElementId, Rect>, boxes: &HashMap<ElementId, Rect>, id: ElementId) -> (Size, Rect) {
+    let size = rects.get(&id).map(|r| r.size()).unwrap_or(Size::ZERO);
+    (size, boxes.get(&id).copied().unwrap_or(Rect::from_origin_size(Point::ZERO, size)))
+}
+
+/// A border `width` logical pixels wide in whole device pixels at `scale`, as browsers draw
+/// line widths: at least one device pixel, never a blurred fraction.
+fn crisp_width(width: f32, scale: f32) -> f32 {
+    match remedy_ui_core::units::Scale::new(scale) {
+        Some(g) if width > 0.0 => g.crisp_line(width),
+        _ => width,
+    }
+}
+
+/// The box `size` large at `at` (logical pixels) with each edge moved to the nearest device
+/// pixel of `grid`, relative to `at`: what is drawn crisp for the box at `at`. Without a
+/// usable grid, the box as it is.
+fn snapped_box(grid: Option<remedy_ui_core::units::Scale>, at: Point, size: Size) -> Rect {
+    let local = Rect::from_origin_size(Point::ZERO, size);
+    let Some(g) = grid else { return local };
+    let r = g.snap_rect(Rect::from_origin_size(at, size));
+    if !(r.min.x.is_finite() && r.min.y.is_finite() && r.max.x.is_finite() && r.max.y.is_finite()) {
+        return local;
+    }
+    r.translate(Vec2::new(-at.x, -at.y))
+}
+
 /// Text elements with a lazily laid-out paragraph: those scrolled past the lines they drew are
 /// marked to paint again. Returns those whose paragraph's height (estimated below the lines
 /// laid out) no longer matches the box it was measured into, to measure again.
@@ -1472,7 +1555,7 @@ fn lazy_text_moved(i: &Inner, rects: &HashMap<ElementId, Rect>, size: Size) -> V
             - inset
             - d.resolved.padding.bottom
             - d.resolved.border_width;
-        if (height.ceil() - boxed).abs() > 0.5 {
+        if (crate::element::layout_unit_ceil(height) - boxed).abs() > 0.5 {
             remeasure.push(*id);
         }
     }
