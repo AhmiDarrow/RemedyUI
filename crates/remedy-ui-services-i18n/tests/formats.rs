@@ -2,7 +2,7 @@
 //! engine ships, as CLDR (through ICU4X's compiled data) writes them.
 
 use remedy_ui_services_i18n::{
-    CalendarSymbols, CompactOptions, Date, Decimal, NumberSymbols, Time, language_name_in,
+    CalendarSymbols, CompactOptions, Date, DateTimeStyle, Decimal, NumberSymbols, Time, language_name_in,
 };
 
 const LOCALES: [&str; 11] = ["en", "de", "fr", "es", "pt-BR", "ru", "ja", "zh-Hans", "ar", "hi", "bn"];
@@ -74,6 +74,41 @@ fn dates_with_times_use_each_locales_clock() {
     let at = |h| cal.date_time(DATE, Time::new(h, 5).unwrap_or_else(|| unreachable!("a valid time")));
     assert_eq!(at(0), "Nov 21, 2026, 12:05\u{202F}AM");
     assert_eq!(at(12), "Nov 21, 2026, 12:05\u{202F}PM");
+}
+
+#[test]
+fn numeric_dates_with_seconds_match_the_browsers_to_locale_string() {
+    // `new Date(Date.UTC(2026, 10, 21, 13, 32, 31)).toLocaleString(l, { timeZone: "UTC" })`.
+    let want = [
+        ("en", "11/21/2026, 1:32:31 PM"),
+        ("de", "21.11.2026, 13:32:31"),
+        ("fr", "21/11/2026 13:32:31"),
+        ("es", "21/11/2026, 13:32:31"),
+        ("pt-BR", "21/11/2026, 13:32:31"),
+        ("ru", "21.11.2026, 13:32:31"),
+        ("ja", "2026/11/21 13:32:31"),
+        ("zh-Hans", "2026/11/21 13:32:31"),
+        ("ar", "21\u{200F}/11\u{200F}/2026\u{060C} 1:32:31 \u{0645}"),
+        ("hi", "21/11/2026, 1:32:31 pm"),
+        ("bn", "২১/১১/২০২৬, ১:৩২:৩১ PM"),
+    ];
+    assert_eq!(want.map(|(l, _)| l), LOCALES);
+    let at = DATE.days_since_epoch() * 86_400 + 13 * 3600 + 32 * 60 + 31;
+    let t = Time::new(13, 32).unwrap_or_else(|| unreachable!("a valid time"));
+    for (l, w) in want {
+        let cal = CalendarSymbols::for_locale(l);
+        assert_eq!(cal.format_instant(at, DateTimeStyle::Numeric), w, "{l}");
+        assert_eq!(cal.format_date_time(DATE, t, 31, DateTimeStyle::Numeric), w, "{l}");
+    }
+    let numeric = |l| CalendarSymbols::for_locale(l).format_instant(at, DateTimeStyle::Numeric);
+    assert_eq!(numeric("en-US"), "11/21/2026, 1:32:31 PM");
+    assert_eq!(numeric("en-GB"), "21/11/2026, 13:32:31");
+    assert_eq!(numeric("ko"), "2026. 11. 21. 오후 1:32:31");
+    // Before 1970 and at midnight.
+    assert_eq!(CalendarSymbols::for_locale("en-US").format_instant(-1, DateTimeStyle::Numeric), "12/31/1969, 11:59:59 PM");
+    // The medium style is the minute-precise `date_time`.
+    let cal = CalendarSymbols::for_locale("en");
+    assert_eq!(cal.format_date_time(DATE, time(), 9, DateTimeStyle::Medium), date_time("en"));
 }
 
 #[test]

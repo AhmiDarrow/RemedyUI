@@ -22,6 +22,44 @@ pub use badge::Badge;
 pub use accesskit;
 pub use raw_window_handle;
 
+/// The user's time zone: the UTC offset at any instant, past or future, with that
+/// instant's daylight-saving rule (the other side of a change gets its own offset).
+///
+/// ```
+/// use remedy_ui_host::TimeZone;
+/// let paris = TimeZone::new(|t| Some(if t < 1_774_746_000 { 3600 } else { 7200 }));
+/// assert_eq!(paris.offset_at(1_774_745_999), Some(3600));
+/// assert_eq!(paris.offset_at(1_774_746_000), Some(7200));
+/// assert_eq!(TimeZone::default().offset_at(0), None);
+/// ```
+#[derive(Clone, Default)]
+pub struct TimeZone(Option<std::sync::Arc<dyn Fn(i64) -> Option<i32> + Send + Sync>>);
+
+impl TimeZone {
+    /// A zone whose offset at `unix_seconds` is `offsets(unix_seconds)` (`None` where it
+    /// cannot say).
+    pub fn new(offsets: impl Fn(i64) -> Option<i32> + Send + Sync + 'static) -> Self {
+        TimeZone(Some(std::sync::Arc::new(offsets)))
+    }
+
+    /// A zone at `utc_offset` seconds east of UTC always.
+    pub fn fixed(utc_offset: i32) -> Self {
+        TimeZone::new(move |_| Some(utc_offset))
+    }
+
+    /// Seconds east of UTC at `unix_seconds`, or `None` when the zone cannot say (the
+    /// default zone never can).
+    pub fn offset_at(&self, unix_seconds: i64) -> Option<i32> {
+        self.0.as_ref().and_then(|f| f(unix_seconds))
+    }
+}
+
+impl std::fmt::Debug for TimeZone {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "TimeZone(..)" } else { "TimeZone(unknown)" })
+    }
+}
+
 /// The wall clock and the local time zone at one instant.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct LocalTime {
@@ -1415,6 +1453,11 @@ pub trait Host {
     fn now(&self) -> Duration;
     /// The wall clock and the local UTC offset now (for dates and times people read).
     fn local_time(&self) -> LocalTime;
+    /// The user's time zone, for the offset at any instant (a date in last winter's
+    /// listing gets winter's offset). The default cannot say: today's offset stands in.
+    fn time_zone(&self) -> TimeZone {
+        TimeZone::default()
+    }
     /// Current system settings.
     fn settings(&self) -> SystemSettings;
     /// The machine's physical memory in bytes, when the platform says (packs size caches

@@ -721,6 +721,8 @@ struct Inner {
     status: Signal<Option<StageStatus>>,
     /// Why the app stopped playback ([`Player::fail`]), until a new source.
     app_failure: Signal<Option<String>>,
+    /// Where Play picks up after a cast left paused ([`Player::leave_remote_paused`]).
+    resume_at: Signal<Option<Duration>>,
     retry_handlers: RefCell<Vec<RetryHandler>>,
     /// What the engine was told, to tell the next one: the picture's sink and whether it is
     /// seen.
@@ -1157,6 +1159,7 @@ impl Inner {
             // As Portal's page attaching a stream: its words go.
             self.status.set_if_changed(None);
             self.app_failure.set_if_changed(None);
+            self.resume_at.set_if_changed(None);
             self.end_cancel();
         });
         self.embedded.borrow_mut().clear();
@@ -1398,6 +1401,7 @@ impl Player {
             cancel_handlers: RefCell::new(Vec::new()),
             status: Signal::new(None),
             app_failure: Signal::new(None),
+            resume_at: Signal::new(None),
             retry_handlers: RefCell::new(Vec::new()),
             sink: RefCell::new(None),
             visible: Cell::new(true),
@@ -1573,6 +1577,7 @@ impl Player {
     /// speed, the caption choice and delay, tracks the app added (in the work's time) and
     /// remote mode stay; it plays once open, unless remote. Presses made while
     /// [skipping](Self::skipping) then run from its target.
+    /// For another work (another title), [`replace_work`](Self::replace_work).
     pub fn replace_source(&self, source: MediaSource, timeline: Timeline) {
         let queued = self.0.queued_skip.take();
         let target = self.0.skipping.get_untracked().ok().flatten();
@@ -1580,6 +1585,14 @@ impl Player {
         if let (Some(q), Some(t)) = (queued, target) {
             self.seek(Duration::try_from_secs_f64((t.as_secs_f64() + q).max(0.0)).unwrap_or_default());
         }
+    }
+
+    /// Plays `source` (on `timeline`, if a stream of a longer work), another work, in place of
+    /// the current one: the tracks the app added and the caption delay go with the old work;
+    /// volume, speed and remote mode stay, and a caption track named as the one shown is
+    /// picked again. It plays once open, unless remote. Next up is left alone.
+    pub fn replace_work(&self, source: MediaSource, timeline: Option<Timeline>) {
+        self.0.load(source, timeline, false, false);
     }
 
     /// The playback speed: 1 is normal, 2 twice as fast. Tracked.
@@ -1622,6 +1635,16 @@ impl Player {
                 c.play();
                 self.0.remote_status.update(|s| s.state = PlaybackState::Playing);
                 self.0.anchor_remote();
+            }
+            None if self.0.resume_at.with_untracked(Option::is_some).unwrap_or(false) => {
+                let at = self.0.resume_at.get_untracked().ok().flatten().unwrap_or_default();
+                self.0.resume_at.set(None);
+                self.set_status(None);
+                self.seek(at);
+                // Outside the stream the app's new source plays once open.
+                if self.0.skipping.with_untracked(Option::is_none).unwrap_or(true) {
+                    self.play();
+                }
             }
             // The next is starting, or the app is busy: nothing here to play.
             None if self.0.is_starting() || self.0.busy_untracked() => {}
@@ -1755,6 +1778,7 @@ impl Player {
         if self.0.is_starting() || self.0.busy_untracked() {
             return;
         }
+        self.0.resume_at.set_if_changed(None);
         let Some(timeline) = timeline else { return self.seek_stream(to) };
         if self.0.skipping.get_untracked().ok().flatten().is_some() {
             return;
@@ -1823,7 +1847,10 @@ impl Player {
     pub fn position(&self) -> Duration {
         match self.is_remote() {
             true => self.0.remote_status.with(|s| s.position),
-            false => self.0.position.get() + self.origin(),
+            false => match self.0.resume_at.get() {
+                Some(at) => at,
+                None => self.0.position.get() + self.origin(),
+            },
         }
     }
 
@@ -1962,13 +1989,81 @@ impl Player {
     /// so they stay right after a [`replace_source`](Self::replace_source) from elsewhere in
     /// the work (another origin) and the app never adds the origin itself. Without a timeline,
     /// as [`add_subtitles`](Self::add_subtitles).
-    pub fn add_subtitles_stream(&self, mut track: SubtitleTrack) -> usize {
+    pub fn add_subtitles_stream(&self, track: SubtitleTrack) -> usize {
+        self.add_subtitles(self.on_work_time(track))
+    }
+
+    /// A track timed to the stream, moved onto the work's time.
+    fn on_work_time(&self, mut track: SubtitleTrack) -> SubtitleTrack {
         let origin = remedy_ui_reactive::untrack(|| self.origin());
         for c in &mut track.cues {
             c.start += origin;
             c.end += origin;
         }
-        self.add_subtitles(track)
+        track
+    }
+
+    /// Whether track `i` is one the app added or found next to the file, not the media's own.
+    fn is_app_track(&self, i: usize) -> bool {
+        i < self.0.tracks.with_untracked(Vec::len).unwrap_or(0) && !self.0.embedded.borrow().contains(&i)
+    }
+
+    /// Puts `track` in place of track `i` (one the app added, as from
+    /// [`add_subtitles`](Self::add_subtitles)), keeping its index and whether it shows: a
+    /// stream's file in place of an older one after a seek. Cues as `add_subtitles` takes
+    /// them. False, changing nothing, for the media's own tracks or an index past the end.
+    pub fn replace_subtitles(&self, i: usize, track: SubtitleTrack) -> bool {
+        if !self.is_app_track(i) {
+            return false;
+        }
+        self.0.tracks.update(|t| {
+            if let Some(slot) = t.get_mut(i) {
+                *slot = track;
+            }
+        });
+        true
+    }
+
+    /// [`replace_subtitles`](Self::replace_subtitles) with cues in the stream's time, as
+    /// [`add_subtitles_stream`](Self::add_subtitles_stream) takes them.
+    pub fn replace_subtitles_stream(&self, i: usize, track: SubtitleTrack) -> bool {
+        self.is_app_track(i) && self.replace_subtitles(i, self.on_work_time(track))
+    }
+
+    /// Takes away track `i` (one the app added); the tracks after it move down one index.
+    /// Showing, captions go off. False, changing nothing, for the media's own tracks or an
+    /// index past the end.
+    pub fn remove_subtitles(&self, i: usize) -> bool {
+        if !self.is_app_track(i) {
+            return false;
+        }
+        let shift = |j: usize| if j > i { j - 1 } else { j };
+        let pick = |p: Option<CaptionPick>| match p {
+            Some(CaptionPick::Track(j)) if j == i => None,
+            Some(CaptionPick::Track(j)) => Some(CaptionPick::Track(shift(j))),
+            p => p,
+        };
+        let before = self.0.caption.get_untracked().ok().flatten();
+        let after = before.filter(|&j| j != i).map(shift);
+        remedy_ui_reactive::batch(|| {
+            self.0.tracks.update(|t| {
+                t.remove(i);
+            });
+            for e in self.0.embedded.borrow_mut().iter_mut() {
+                *e = shift(*e);
+            }
+            self.0.caption.set_if_changed(after);
+            let now = self.0.caption_pick.get_untracked().ok();
+            self.0.caption_pick.set_if_changed(pick(now).unwrap_or_default());
+            let last = self.0.last_pick.borrow().clone();
+            *self.0.last_pick.borrow_mut() = pick(last);
+        });
+        if after != before
+            && let Some(c) = self.control()
+        {
+            c.set_captions(after);
+        }
+        true
     }
 
     /// Reads a subtitle file (WebVTT, SRT, ASS/SSA, by its extension or its contents) and adds
@@ -2490,8 +2585,9 @@ impl Player {
     /// and [`is_muted`](Self::is_muted) say what the app last told
     /// [`set_remote_status`](Self::set_remote_status). Leaving, the app picks up where the
     /// device was: it reads [`position`](Self::position) first, then [`seek`](Self::seek)s and
-    /// [`play`](Self::play)s here.
+    /// [`play`](Self::play)s here, or it [leaves paused](Self::leave_remote_paused) there.
     pub fn set_remote(&self, remote: Option<Remote>) {
+        self.0.resume_at.set_if_changed(None);
         // A volume for the device that was is not sent to the next.
         if let (Some(t), Some(ui)) = (self.0.remote_volume_timer.take(), self.0.ui.upgrade()) {
             ui.cancel_timer(t);
@@ -2512,6 +2608,20 @@ impl Player {
         self.0.sync_suspend();
         self.0.sync_awake();
         self.0.schedule_remote_tick();
+    }
+
+    /// Leaves remote mode (as [`set_remote(None)`](Self::set_remote)) paused at `at`, where the
+    /// device was (in the work's time on a [timeline](Self::set_timeline)), waiting for Play,
+    /// as Portal's page does when a cast ends. [`position`](Self::position) says `at` and
+    /// `status` ("Stopped casting.") shows over the picture as [`set_status`](Self::set_status)
+    /// does: announced politely, not a failure. Play takes the status away and
+    /// [seeks](Self::seek) to `at` and plays here (outside the stream, through
+    /// [`on_seek_outside`](Self::on_seek_outside)). A seek or a new source first forgets `at`.
+    pub fn leave_remote_paused(&self, at: Duration, status: Option<StageStatus>) {
+        self.set_remote(None);
+        self.pause();
+        self.0.resume_at.set(Some(at));
+        self.set_status(status);
     }
 
     /// Shows `poster` on the casting stage in place of the remote's (the device moved on to

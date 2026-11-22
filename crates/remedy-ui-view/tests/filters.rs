@@ -154,6 +154,126 @@ fn a_style_can_round_some_corners_only() {
     assert_eq!(tokens.radius, Some(8.0), "the radius is the largest corner");
 }
 
+#[test]
+fn dashed_and_dotted_borders_follow_the_corners() {
+    use remedy_ui_core::CornerRadii;
+    use remedy_ui_style::BorderStyle;
+    let ui = ui();
+    let top = CornerRadii { top_start: 16.0, top_end: 16.0, ..CornerRadii::ZERO };
+    let dashed = StylePatch::default().border(Color::BLACK).border_width(2.0).border_style(BorderStyle::Dashed);
+    let card = boxed(&ui, Style::from(dashed.corners(top)));
+    ui.root().padding(20.0).child(card);
+    let (tree, frame) = draw(&ui);
+    assert!(
+        items(&tree).iter().any(|i| matches!(i, Item::StrokePath { stroke, .. } if stroke.dashes == [6.0, 6.0])),
+        "a dashed border is a dashed stroke"
+    );
+    let at = |x, y| frame.pixel(x, y).unwrap_or([0; 4]);
+    // The top edge starts after the round corner: a dash at 36..42, a gap at 42..48.
+    assert!(at(39, 20)[0] < 40, "a dash: {:?}", at(39, 20));
+    assert!(at(45, 20)[0] > 215, "a gap: {:?}", at(45, 20));
+    assert_eq!(at(20, 20), [255, 255, 255, 255], "the top start corner is round");
+
+    // Tokens carry the style; a later patch without one keeps it.
+    let theme = Theme::dark_forest();
+    let s = Style::new().border_style(BorderStyle::Dotted).resolve(&theme);
+    assert_eq!(s.border_style, Some(BorderStyle::Dotted));
+    let kept = StylePatch::default().border_style(BorderStyle::Dotted).merge(&StylePatch::default().border_width(4.0));
+    assert_eq!(kept.border_style, Some(BorderStyle::Dotted));
+}
+
+#[test]
+fn a_wide_dotted_border_is_round_dots() {
+    use remedy_ui_style::BorderStyle;
+    let ui = ui();
+    let dotted = StylePatch::default().border(Color::BLACK).border_width(4.0).border_style(BorderStyle::Dotted);
+    ui.root().padding(20.0).child(boxed(&ui, Style::from(dotted)));
+    let (_, frame) = draw(&ui);
+    let at = |x, y| frame.pixel(x, y).unwrap_or([0; 4]);
+    // Dots 4 wide, 8 apart along the top edge's middle (y 22) from x 22: one at 30, a gap at 26.
+    assert!(at(30, 22)[0] < 40, "a dot: {:?}", at(30, 22));
+    assert!(at(26, 22)[0] > 215, "a gap: {:?}", at(26, 22));
+}
+
+#[test]
+fn each_side_can_have_its_own_border() {
+    use remedy_ui_core::CornerRadii;
+    use remedy_ui_style::{BorderEdge, BorderSide, BorderStyle};
+    let ui = ui();
+    let (red, blue) = (Color::rgb8(220, 30, 30), Color::rgb8(30, 60, 220));
+    // A thick red top, a dashed blue start, nothing at the end or bottom; round at the top start.
+    let look = StylePatch::default()
+        .border_side(BorderEdge::Top, BorderSide::new(6.0, red))
+        .border_side(BorderEdge::Start, BorderSide::new(2.0, blue).style(BorderStyle::Dashed))
+        .corners(CornerRadii { top_start: 12.0, ..CornerRadii::ZERO });
+    let fill = ui.el("fill").style(StylePatch::default().background(Color::rgb8(0, 160, 0))).layout(|l| {
+        l.width = Length::Px(20.0);
+        l.height = Length::Px(10.0);
+    });
+    let card = boxed(&ui, Style::from(look)).child(fill.clone());
+    ui.root().padding(20.0).child(card);
+    let (tree, frame) = draw(&ui);
+    let at = |x, y| frame.pixel(x, y).unwrap_or([0; 4]);
+    let is = |p: [u8; 4], c: Color| {
+        let w = c.to_rgba8();
+        p[0].abs_diff(w[0]) <= 3 && p[1].abs_diff(w[1]) <= 3 && p[2].abs_diff(w[2]) <= 3
+    };
+    assert!(is(at(60, 22), red), "the top: {:?}", at(60, 22));
+    assert!(is(at(99, 22), red), "the top runs to the square end corner: {:?}", at(99, 22));
+    assert_eq!(at(20, 20), [255, 255, 255, 255], "the top start corner is round");
+    assert_eq!(at(98, 40), [255, 255, 255, 255], "no border at the end");
+    assert_eq!(at(60, 58), [255, 255, 255, 255], "nor at the bottom");
+    assert!(
+        items(&tree).iter().any(|i| matches!(i, Item::StrokePath { stroke, brush: remedy_ui_paint::Brush::Solid(c), .. }
+            if *c == blue && stroke.dashes == [6.0, 6.0])),
+        "the start is a dashed blue stroke"
+    );
+    // The content sits inside each side's own width.
+    let b = fill.bounds().unwrap_or_default();
+    assert_eq!((b.min.x, b.min.y), (22.0, 26.0), "inside the start's 2 and the top's 6");
+
+    // A side keeps its own border when a later patch sets the box's.
+    let theme = Theme::dark_forest();
+    let s = Style::new().border_side(BorderEdge::Bottom, BorderSide::new(1.0, red)).resolve(&theme);
+    let merged = s.merge(&StylePatch::default().border_width(3.0));
+    assert_eq!(merged.border_sides[2], Some(BorderSide::new(1.0, red)));
+}
+
+#[test]
+fn text_lines_follow_the_elements_alignment_wrapped_or_not() {
+    use remedy_ui_style::TextAlign;
+    let mut fonts = FontCollection::new();
+    for face in remedy_ui_fonts::all() {
+        let _ = fonts.add_static(face.data);
+    }
+    let mut sheet = StyleSheet::new();
+    sheet.rule("window", None, States::NONE, StylePatch::default().background(Color::WHITE));
+    let ui = Ui::new(Theme::dark_forest(), sheet, fonts);
+    let dark = StylePatch::default().foreground(Color::BLACK);
+    // Inherited: the box says end, its text follows over two lines.
+    let label = ui.el("label").style(dark).text("Wide words wrap here").layout(|l| l.width = Length::Px(90.0));
+    let host = ui.el("box").text_align(TextAlign::End).child(label.clone());
+    ui.root().padding(10.0).child(host);
+    let (_, frame) = draw(&ui);
+    let b = label.bounds().unwrap_or_default();
+    let ink = |y0: f32, y1: f32| {
+        let mut xs = Vec::new();
+        for y in y0 as u32..y1 as u32 {
+            for x in b.min.x as u32..b.max.x as u32 {
+                if frame.pixel(x, y).is_some_and(|p| p[0] < 128) {
+                    xs.push(x);
+                }
+            }
+        }
+        (xs.iter().copied().min().unwrap_or(0), xs.iter().copied().max().unwrap_or(0))
+    };
+    let mid = b.min.y + b.height() / 2.0;
+    let (first, second) = (ink(b.min.y, mid), ink(mid, b.max.y));
+    assert!(b.height() > 24.0, "two lines: {b:?}");
+    assert!(first.1 as f32 > b.max.x - 4.0 && second.1 as f32 > b.max.x - 4.0, "both end at the end: {first:?} {second:?}");
+    assert!(first.0 as f32 > b.min.x + 2.0 || second.0 as f32 > b.min.x + 2.0, "a shorter line starts in from the start");
+}
+
 /// Black and white stripes across the window, behind everything.
 fn stripes(ui: &Ui) -> remedy_ui_view::El {
     ui.el("stripes")
