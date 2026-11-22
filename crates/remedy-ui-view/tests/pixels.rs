@@ -132,3 +132,20 @@ fn scroll_containers_give_the_compositor_their_scroll_bars() {
     // The always-shown thumb is drawn at the right edge, near the top.
     assert_eq!(frame.pixel(196, 10).map(|p| [p[0], p[1], p[2]]), Some([90, 80, 60]));
 }
+
+#[test]
+fn ch_lengths_are_advances_of_zero_in_the_elements_font() {
+    let ui = ui();
+    let zero = ui.el("text").text("0").nowrap().style(Style::new().text_size(20.0));
+    let measure = ui.el("box").style(Style::new().text_size(20.0)).layout(|l| l.width = Length::Ch(10.0));
+    let small = ui.el("box").style(Style::new().text_size(10.0)).layout(|l| l.max_width = Length::Ch(10.0));
+    let row = ui.el("row").row().child(zero.clone());
+    ui.root().child(ui.el("column").column().child(row).child(measure.clone()).child(small.clone()));
+    let _ = ui.frame(SIZE, 1.0);
+    let one = zero.bounds().map_or(0.0, |b| b.width());
+    assert!(one > 5.0, "a digit is several pixels wide: {one}");
+    let w = measure.bounds().map_or(0.0, |b| b.width());
+    assert!((w - 10.0 * one).abs() < 0.1, "10ch is ten zeros: {w} vs {one}");
+    let s = small.bounds().map_or(0.0, |b| b.width());
+    assert!((s - 5.0 * one).abs() < 0.2, "at half the size, half as wide: {s}");
+}

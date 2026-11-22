@@ -60,8 +60,9 @@ All layout properties are logical: `start` and `end`, `inline` and `block`, neve
 
 ## Units and snapping
 
-- **Units.** Layout works in logical pixels (dp). The window's scale factor (OS DPI × the app's zoom) converts them to device pixels.
-- **Snapping.** After layout, every edge is snapped to the device-pixel grid: rounded on position, with size derived from the snapped edges so neighbours never overlap or gap. Borders and hairlines snap to whole device pixels, so a 1 dp line at 150% is one crisp pixel or two, never a blurry 1.5.
+- **Units.** Layout works in logical pixels (dp). The window's scale factor (OS DPI × the app's zoom) converts them to device pixels. Lengths may also be a percentage of the container, or `Length::Ch` (CSS `ch`: advances of "0" in the element's own font, measured by the view).
+- **Fractional boxes.** Layout stays fractional, as browsers keep it: a text box is its paragraph's size on a 1/64 px grid (Chrome's layout unit), so a 21.12 px line takes 21.125 px, not 22, and a stack of lines does not drift.
+- **Snapping.** Paint snaps, layout does not: an element's background, border and clip are drawn with every edge on the device-pixel grid (rounded on position, size derived from the snapped edges, so neighbours never overlap or gap), in its scroll container's content space. Borders and hairlines are whole device pixels, so a 1 dp line at 150% is one crisp pixel or two, never a blurry 1.5.
 - **Text** snaps its baseline, not its box, so text sits on whole pixels when hinting is on.
 
 ## Caching and boundaries
