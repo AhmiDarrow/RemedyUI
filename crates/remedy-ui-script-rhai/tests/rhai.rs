@@ -303,3 +303,13 @@ fn a_busy_machine_does_not_stop_fair_work() {
     }
     assert!(failures.is_empty(), "fair calls were stopped on a busy machine: {failures:?}");
 }
+
+#[test]
+fn the_app_sets_how_deeply_expressions_nest() {
+    let (open, close) = ("(".repeat(80), ")".repeat(80));
+    let deep = format!("fn render(s, h) {{ ui::text(\"x\") }} let x = {open}1{close}; #{{ name: \"deep\" }}");
+    let e = load(&deep, Limits::default()).err();
+    assert!(e.is_some(), "80 deep is past the default 64");
+    let w = load(&deep, Limits::default().expr_depth(512, 256));
+    assert!(w.is_ok(), "{:?} (default: {e:?})", w.err());
+}
