@@ -20,12 +20,13 @@ use remedy_ui_host::raw_window_handle::RawWindowHandle;
 use remedy_ui_view::{Placement, WeakUi};
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{
-    AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoreWebView2EnvironmentOptions,
-    CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
-    DocumentTitleChangedEventHandler, DownloadStartingEventHandler, HistoryChangedEventHandler,
-    LaunchingExternalUriSchemeEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
-    NewWindowRequestedEventHandler, PermissionRequestedEventHandler, ProcessFailedEventHandler,
-    SourceChangedEventHandler, WebMessageReceivedEventHandler, take_pwstr,
+    AddScriptToExecuteOnDocumentCreatedCompletedHandler, CallDevToolsProtocolMethodCompletedHandler,
+    CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
+    CreateCoreWebView2EnvironmentCompletedHandler, DocumentTitleChangedEventHandler, DownloadStartingEventHandler,
+    ExecuteScriptCompletedHandler, HistoryChangedEventHandler, LaunchingExternalUriSchemeEventHandler,
+    NavigationCompletedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
+    PermissionRequestedEventHandler, ProcessFailedEventHandler, SourceChangedEventHandler,
+    WebMessageReceivedEventHandler, take_pwstr,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
@@ -156,15 +157,24 @@ impl Native {
     }
 
     pub(crate) fn command(&self, c: Command) {
-        let ready = match &mut *self.0.phase.borrow_mut() {
-            Phase::Starting(queue) => {
-                queue.push(c);
-                return;
+        // Starting still queues, so a script callback stays until the view is ready.
+        // Gone reports the callback now; dropping the command would leak it.
+        let ready = {
+            let mut phase = self.0.phase.borrow_mut();
+            match &mut *phase {
+                Phase::Starting(queue) => {
+                    queue.push(c);
+                    return;
+                }
+                Phase::Ready { controller, webview } => Some((controller.clone(), webview.clone())),
+                Phase::Gone => None,
             }
-            Phase::Ready { controller, webview } => (controller.clone(), webview.clone()),
-            Phase::Gone => return,
         };
-        run(&self.0.hub, &ready.0, &ready.1, c);
+        if let Some((controller, webview)) = ready {
+            run(&self.0.hub, &controller, &webview, c);
+        } else {
+            self.0.hub.abandon(&c);
+        }
     }
 
     pub(crate) fn place(&self, p: Option<&Placement>) {
@@ -204,7 +214,7 @@ impl Native {
     }
 
     pub(crate) fn close(self) {
-        let old = std::mem::replace(&mut *self.0.phase.borrow_mut(), Phase::Gone);
+        let old = self.0.gone();
         if let Phase::Ready { controller, .. } = old {
             // SAFETY: a live controller; closing ends its browser processes' part for us.
             let _ = unsafe { controller.Close() };
@@ -215,8 +225,21 @@ impl Native {
 }
 
 impl Inner {
+    /// Marks the view gone and reports every script still waiting, including commands that
+    /// were queued while it started.
+    fn gone(&self) -> Phase {
+        let old = std::mem::replace(&mut *self.phase.borrow_mut(), Phase::Gone);
+        if let Phase::Starting(ref queue) = old {
+            for c in queue {
+                self.hub.abandon(c);
+            }
+        }
+        self.hub.abandon_pending();
+        old
+    }
+
     fn fail(&self, e: String) {
-        *self.phase.borrow_mut() = Phase::Gone;
+        let _ = self.gone();
         self.hub.set_status(WebViewStatus::Failed(e));
     }
 
@@ -286,7 +309,7 @@ fn flag(f: impl FnOnce(*mut BOOL) -> windows::core::Result<()>) -> bool {
 }
 
 /// Runs one of the app's commands on a ready view.
-fn run(hub: &Hub, controller: &ICoreWebView2Controller, webview: &ICoreWebView2, c: Command) {
+fn run(hub: &Rc<Hub>, controller: &ICoreWebView2Controller, webview: &ICoreWebView2, c: Command) {
     // SAFETY: calls on live WebView2 objects, on their thread.
     unsafe {
         let navigation = |e: Expected, call: &dyn Fn() -> windows::core::Result<()>| {
@@ -322,6 +345,52 @@ fn run(hub: &Hub, controller: &ICoreWebView2Controller, webview: &ICoreWebView2,
             Command::Focus => {
                 let _ = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
             }
+            Command::Eval { id, script } => {
+                let waiting = Rc::clone(hub);
+                let handler = ExecuteScriptCompletedHandler::create(Box::new(move |result, json| {
+                    let out = match result {
+                        Ok(()) => Ok(json),
+                        Err(e) => Err(e.to_string()),
+                    };
+                    waiting.finish_script(id, out);
+                    Ok(())
+                }));
+                if let Err(e) = webview.ExecuteScript(&HSTRING::from(script.as_str()), &handler) {
+                    hub.finish_script(id, Err(e.to_string()));
+                }
+            }
+            Command::UserAgent(ua) => {
+                // Settings2 is on every Evergreen runtime this loader talks to. An empty
+                // agent restores Edge's own, per the WebView2 contract.
+                if let Ok(settings) = webview.Settings()
+                    && let Ok(settings) = settings.cast::<ICoreWebView2Settings2>()
+                {
+                    let _ = settings.SetUserAgent(&HSTRING::from(ua.as_str()));
+                }
+            }
+            Command::Devtools { id, method, params } => {
+                // The host protocol, not the inspector. AreDevToolsEnabled only gates the
+                // context menu; some Input.* methods still want it on, which the app sets
+                // with WebViewOptions::devtools.
+                let waiting = Rc::clone(hub);
+                let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
+                    move |result, json| {
+                        let out = match result {
+                            Ok(()) => Ok(json),
+                            Err(e) => Err(e.to_string()),
+                        };
+                        waiting.finish_script(id, out);
+                        Ok(())
+                    },
+                ));
+                if let Err(e) = webview.CallDevToolsProtocolMethod(
+                    &HSTRING::from(method.as_str()),
+                    &HSTRING::from(params.as_str()),
+                    &handler,
+                ) {
+                    hub.finish_script(id, Err(e.to_string()));
+                }
+            }
         }
     }
 }
@@ -338,7 +407,7 @@ fn start(inner: &Rc<Inner>) -> Result<(), String> {
                 }
             }
             (Err(e), _) if e.code() == NO_RUNTIME => {
-                *inner.phase.borrow_mut() = Phase::Gone;
+                let _ = inner.gone();
                 inner.hub.set_status(WebViewStatus::Unsupported(
                     "the Microsoft Edge WebView2 runtime is not installed".into(),
                 ));
@@ -357,7 +426,7 @@ fn start(inner: &Rc<Inner>) -> Result<(), String> {
         CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), data_ptr, options.as_raw(), handler.as_raw())
     };
     if hr == NO_RUNTIME {
-        *inner.phase.borrow_mut() = Phase::Gone;
+        let _ = inner.gone();
         inner.hub.set_status(WebViewStatus::Unsupported(
             "the Microsoft Edge WebView2 runtime is not installed".into(),
         ));
