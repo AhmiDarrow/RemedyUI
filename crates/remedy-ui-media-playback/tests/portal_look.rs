@@ -414,6 +414,42 @@ fn the_seek_bar_grows_under_the_pointer_and_full_screen_takes_portals_sizes() {
     assert!(title.style.heading && (title.style.text_size - 20.8).abs() < 0.01, "{:?}", title.style);
 }
 
+#[test]
+fn up_next_reads_as_portals_card_with_a_spaced_label() {
+    let (shot, view) = render("portal-portal-full-next-check", "portal", (1280.0, 720.0), Look::FullNext);
+    // `.upnext-label`: UP NEXT at 0.75 rem, 0.08 em apart, over the title.
+    let label = find(&view, "player_next_label");
+    let info = label.info().unwrap_or_else(|| unreachable!());
+    assert_eq!(info.text.as_deref(), Some("UP NEXT"));
+    assert_eq!(info.style.letter_spacing, remedy_ui_style::LetterSpacing::Em(0.08));
+    // The same words without the spacing, in the same window: seven clusters, 0.96 px each.
+    let ui = view.ui().clone();
+    let plain = ui
+        .el("label")
+        .nowrap()
+        .style(remedy_ui_style::StylePatch::default().text_size(12.0))
+        .text("UP NEXT")
+        .layout(|l| l.position = remedy_ui_layout::Position::Absolute);
+    let _ = ui.root().child(plain.clone());
+    let _ = ui.frame(Size::new(1280.0, 720.0), 1.0);
+    let (spaced, unspaced) =
+        (bounds(&view, "player_next_label").width(), plain.bounds().map_or(0.0, |b| b.width()));
+    assert!((spaced - unspaced - 7.0 * 0.96).abs() < 1.0, "spaced {spaced}, plain {unspaced}");
+    let title = bounds(&view, "player_next_title");
+    assert!(title.min.y >= bounds(&view, "player_next_label").max.y, "the title under the label");
+    // `#dock-upnext-play`: the accent; and an X named Dismiss beside it.
+    let now = bounds(&view, "player_next_actions");
+    assert!(has_color(&shot, now, "#e2b15a"), "Play now in the accent");
+    let named = |e: &El| e.info().and_then(|i| i.semantics).and_then(|s| s.name().map(str::to_owned));
+    let mut stack = vec![view.clone()];
+    let mut dismiss = false;
+    while let Some(e) = stack.pop() {
+        dismiss |= named(&e).as_deref() == Some("Dismiss");
+        stack.extend(e.child_elements());
+    }
+    assert!(dismiss, "an X named Dismiss");
+}
+
 /// Pictures of every state for comparing with Portal's page side by side.
 #[test]
 #[ignore = "writes pictures for review"]

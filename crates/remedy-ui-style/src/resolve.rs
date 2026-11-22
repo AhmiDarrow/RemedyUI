@@ -88,6 +88,8 @@ pub struct StylePatch {
     pub mono: Option<bool>,
     /// Text in the theme's heading families (titles and headings); monospace wins.
     pub heading: Option<bool>,
+    /// Extra space after each letter (CSS `letter-spacing`).
+    pub letter_spacing: Option<LetterSpacing>,
     /// The focus ring's color, drawn while the element has keyboard focus.
     pub outline: Option<Color>,
     /// The focus ring's width; 0 for elements that show focus another way.
@@ -177,6 +179,12 @@ impl StylePatch {
         self
     }
 
+    /// Sets the extra space after each letter.
+    pub fn letter_spacing(mut self, value: LetterSpacing) -> Self {
+        self.letter_spacing = Some(value);
+        self
+    }
+
     /// Sets whether text uses the theme's monospace families.
     pub fn mono(mut self, value: bool) -> Self {
         self.mono = Some(value);
@@ -247,6 +255,7 @@ impl StylePatch {
             opacity: Some(1.0),
             mono: Some(false),
             heading: Some(false),
+            letter_spacing: Some(LetterSpacing::Px(0.0)),
             outline: Some(theme.derive().focus),
             outline_width: Some(2.0),
             outline_offset: Some(2.0),
@@ -272,6 +281,7 @@ impl StylePatch {
             opacity: other.opacity.or(self.opacity),
             mono: other.mono.or(self.mono),
             heading: other.heading.or(self.heading),
+            letter_spacing: other.letter_spacing.or(self.letter_spacing),
             outline: other.outline.or(self.outline),
             outline_width: other.outline_width.or(self.outline_width),
             outline_offset: other.outline_offset.or(self.outline_offset),
@@ -280,6 +290,34 @@ impl StylePatch {
             drop_shadow: other.drop_shadow.or(self.drop_shadow),
             backdrop_blur: other.backdrop_blur.or(self.backdrop_blur),
             color_matrix: other.color_matrix.or(self.color_matrix),
+        }
+    }
+}
+
+/// Extra space after each letter, as CSS's `letter-spacing`: in logical pixels, or in ems
+/// (of the text's own size, so it scales with it). Text layout adds it after every cluster
+/// (a letter with its marks, a ligature), never inside one, in either direction.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LetterSpacing {
+    /// Logical pixels.
+    Px(f32),
+    /// Ems: times the text size.
+    Em(f32),
+}
+
+impl LetterSpacing {
+    /// In logical pixels, for text `size` pixels high.
+    ///
+    /// ```
+    /// use remedy_ui_style::LetterSpacing;
+    ///
+    /// assert_eq!(LetterSpacing::Em(0.08).px(12.0), 0.96);
+    /// assert_eq!(LetterSpacing::Px(2.0).px(30.0), 2.0);
+    /// ```
+    pub fn px(self, size: f32) -> f32 {
+        match self {
+            LetterSpacing::Px(v) => v,
+            LetterSpacing::Em(v) => v * size,
         }
     }
 }
@@ -309,6 +347,8 @@ pub struct ResolvedStyle {
     pub mono: bool,
     /// Text in the theme's heading families.
     pub heading: bool,
+    /// Extra space after each letter.
+    pub letter_spacing: LetterSpacing,
     /// The focus ring's color.
     pub outline: Color,
     /// The focus ring's width (0: none).
@@ -341,6 +381,7 @@ impl ResolvedStyle {
             opacity: p.opacity.unwrap_or(1.0),
             mono: p.mono.unwrap_or(false),
             heading: p.heading.unwrap_or(false),
+            letter_spacing: p.letter_spacing.unwrap_or(LetterSpacing::Px(0.0)),
             outline: p.outline.unwrap_or(Color::TRANSPARENT),
             outline_width: p.outline_width.unwrap_or(0.0),
             outline_offset: p.outline_offset.unwrap_or(0.0),
@@ -399,6 +440,7 @@ impl ResolvedStyle {
             weight: Some(self.weight),
             mono: Some(self.mono),
             heading: Some(self.heading),
+            letter_spacing: Some(self.letter_spacing),
             ..base.clone()
         }
     }
