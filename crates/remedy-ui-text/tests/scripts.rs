@@ -176,3 +176,55 @@ fn bundled_faces_come_before_the_systems() {
         }
     }
 }
+
+#[test]
+fn faces_still_on_their_way_are_asked_for_again_until_they_arrive() {
+    // A browser page fetches its fallback faces: the first texts that need them find none.
+    let mut f = FontCollection::new();
+    for face in remedy_ui_fonts::all() {
+        let _ = f.add_static(face.data);
+    }
+    let arrived = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let asks = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (a2, n2) = (arrived.clone(), asks.clone());
+    let cjk = remedy_ui_fonts_cjk::script_fallbacks();
+    f.add_on_demand(
+        remedy_ui_fonts_cjk::needs,
+        move || {
+            n2.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if !a2.load(std::sync::atomic::Ordering::Relaxed) {
+                return Vec::new();
+            }
+            remedy_ui_fonts_cjk::all().into_iter().filter_map(|f| FontFile::new(f.data).ok()).collect()
+        },
+        cjk.iter().map(|fb| (fb.script, fb.locale, fb.family)),
+    );
+    let mut e = TextEngine::new(f);
+    let (_, tofu) = shape(&mut e, "ja", "直す", 400.0);
+    assert!(!tofu.is_empty(), "nothing to draw it with yet");
+    assert!(e.fonts().has_on_demand(), "still waiting");
+    arrived.store(true, std::sync::atomic::Ordering::Relaxed);
+    let (ja, tofu) = shape(&mut e, "ja", "直す", 400.0);
+    assert!(tofu.is_empty() && ja.iter().all(|(f, _)| f == "Noto Sans JP"), "{ja:?}");
+    assert!(!e.fonts().has_on_demand());
+    assert_eq!(asks.load(std::sync::atomic::Ordering::Relaxed), 2);
+}
+
+#[test]
+fn a_generic_family_draws_in_the_faces_it_is_set_to() {
+    let mut f = FontCollection::new();
+    for face in remedy_ui_fonts::all() {
+        let _ = f.add_static(face.data);
+    }
+    assert!(f.set_generic_family("system-ui", &["AhmiPrint"]));
+    assert!(!f.set_generic_family("system-ui", &["No Such Face"]), "every family must be there");
+    assert!(!f.set_generic_family("Remedy Sans UI", &["AhmiPrint"]), "not a generic name");
+    assert_eq!(f.generic_family("system-ui"), ["AhmiPrint"]);
+    let mut e = TextEngine::new(f);
+    e.set_locale("en");
+    let mut style = TextStyle::default();
+    style.families = vec!["system-ui".into(), "Remedy Sans UI".into()];
+    let p = e.layout(&RichText::plain("System"), &style, ParagraphOptions::default());
+    let fams: Vec<String> = p.glyph_runs().iter().map(|r| family(r.font.bytes())).collect();
+    assert!(!fams.is_empty() && fams.iter().all(|f| f == "AhmiPrint"), "{fams:?}");
+}

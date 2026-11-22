@@ -513,7 +513,8 @@ impl CompactOptions {
 /// them. The `language-<code>` messages come first: the engine's in `i18n/*.ftl`, and any an
 /// app adds with [`remedy_ui_view::strings::add_messages`] under `services-i18n`. With the
 /// `language-names` feature (on in `remedy-ui`), every language CLDR names is named in every
-/// locale CLDR has; without it, only the engine's shipped languages, `pt-BR` and `zh-Hans`.
+/// locale CLDR has (in a browser page, by the browser's `Intl.DisplayNames`, from its own
+/// CLDR data); without it, only the engine's shipped languages, `pt-BR` and `zh-Hans`.
 /// A region or script with no name of its own gets the language's; a language with no name
 /// comes back as given.
 pub fn language_name_in(locale: &str, code: &str) -> String {
@@ -539,7 +540,7 @@ pub fn language_name_in(locale: &str, code: &str) -> String {
 }
 
 /// `code` as a BCP 47 tag, ISO 639-2 and other aliases replaced (`ger` and `deu` are `de`).
-#[cfg(feature = "language-names")]
+#[cfg(all(feature = "language-names", not(target_arch = "wasm32")))]
 fn language_code(code: &str) -> String {
     let tag = crate::canonical_locale(code);
     let Ok(mut l) = tag.parse::<Locale>() else { return tag };
@@ -547,10 +548,36 @@ fn language_code(code: &str) -> String {
     l.to_string()
 }
 
+/// `code` as a BCP 47 tag, the browser's CLDR aliases replaced (`Intl.getCanonicalLocales`:
+/// `ger` and `deu` are `de`), then the ISO 639-2 codes of the shipped languages for any it
+/// left.
+#[cfg(all(feature = "language-names", target_arch = "wasm32"))]
+fn language_code(code: &str) -> String {
+    use js_sys::{Array, Function, Reflect};
+    use wasm_bindgen::JsCast as _;
+    let tag = crate::canonical_locale(code);
+    // Through `Reflect`, so a tag the browser rejects (a `RangeError`) is an error, not a trap.
+    let canonical = Reflect::get(&js_sys::global(), &"Intl".into())
+        .and_then(|intl| {
+            let f: Function = Reflect::get(&intl, &"getCanonicalLocales".into())?.dyn_into()?;
+            f.call1(&intl, &tag.as_str().into())
+        })
+        .ok()
+        .and_then(|list| list.dyn_into::<Array>().ok())
+        .and_then(|list| list.get(0).as_string());
+    shipped_code(&canonical.unwrap_or(tag))
+}
+
 /// `code` as a BCP 47 tag, the ISO 639-2 codes of the shipped languages replaced.
 #[cfg(not(feature = "language-names"))]
 fn language_code(code: &str) -> String {
-    let tag = crate::canonical_locale(code);
+    shipped_code(&crate::canonical_locale(code))
+}
+
+/// `tag` with the ISO 639-2 codes of the shipped languages replaced.
+#[cfg(any(not(feature = "language-names"), target_arch = "wasm32"))]
+fn shipped_code(tag: &str) -> String {
+    let tag = tag.to_owned();
     let (lang, rest) = tag.split_once('-').unwrap_or((tag.as_str(), ""));
     let short = match lang.to_ascii_lowercase().as_str() {
         "ara" => "ar",
@@ -570,7 +597,7 @@ fn language_code(code: &str) -> String {
 }
 
 /// CLDR's name for `tag` in `locale`, capitalized; `None` where CLDR does not name all of it.
-#[cfg(feature = "language-names")]
+#[cfg(all(feature = "language-names", not(target_arch = "wasm32")))]
 fn cldr_name(locale: &str, tag: &str) -> Option<String> {
     use icu_locale::names::{
         DisplayNamesPreferences, LanguageIdentifierDisplayName, LanguageIdentifierDisplayNameOptions,
@@ -585,6 +612,26 @@ fn cldr_name(locale: &str, tag: &str) -> Option<String> {
     )
     .ok()?;
     let name = name.as_borrowed().try_write_to_string().ok()?.into_owned();
+    let mut chars = name.chars();
+    let first = chars.next()?;
+    Some(first.to_uppercase().chain(chars).collect())
+}
+
+/// The browser's CLDR name for `tag` in `locale` (`Intl.DisplayNames`, with dialect names as
+/// ICU4X gives them, and `fallback: "none"` so an unnamed tag is `None`), capitalized.
+#[cfg(all(feature = "language-names", target_arch = "wasm32"))]
+fn cldr_name(locale: &str, tag: &str) -> Option<String> {
+    use js_sys::{Array, Function, Object, Reflect};
+    use wasm_bindgen::JsCast as _;
+    let intl = Reflect::get(&js_sys::global(), &"Intl".into()).ok()?;
+    let ctor: Function = Reflect::get(&intl, &"DisplayNames".into()).ok()?.dyn_into().ok()?;
+    let options = Object::new();
+    for (k, v) in [("type", "language"), ("fallback", "none")] {
+        Reflect::set(&options, &k.into(), &v.into()).ok()?;
+    }
+    let names = Reflect::construct(&ctor, &Array::of2(&locale.into(), &options)).ok()?;
+    let of: Function = Reflect::get(&names, &"of".into()).ok()?.dyn_into().ok()?;
+    let name = of.call1(&names, &tag.into()).ok()?.as_string()?;
     let mut chars = name.chars();
     let first = chars.next()?;
     Some(first.to_uppercase().chain(chars).collect())

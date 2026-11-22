@@ -342,6 +342,45 @@ megabytes per origin, and a write the browser refuses is reported by
 [`flush`](crate::reactive::PersistStore::flush), with the value still seen by loads until a
 later write lands it.
 
+A value other code shares is kept plain instead: [`Persist::plain`](crate::reactive::Persist::plain)
+keeps it alone, with no version around it, under exactly its key. In a page that is the
+origin's own `localStorage` item of that name, outside the app's prefix, so an older web
+version of the app on the same origin reads and writes the same item, and a choice made in
+either survives a reload of both; on the desktop it is the key's file in the same folder,
+holding just the value. [`Plain::Json`](crate::reactive::Plain::Json) writes the value as
+`JSON.stringify` does, [`Plain::Text`](crate::reactive::Plain::Text) a string as the string
+itself (`localStorage.setItem("theme", "dark")`). Plain values have no version or migration,
+so read what another program writes leniently (serde defaults for fields it may leave out).
+[`Persist::session`](crate::reactive::Persist::session) keeps a plain value for the session
+only: in a page, the tab's own `sessionStorage` item (shared with the origin's other pages in
+that tab, gone with the tab); elsewhere, memory for the app's run. It is written at once,
+with no debounce. [`PersistStore::forget`](crate::reactive::PersistStore::forget) removes a
+value of any kind.
+
+```
+use remedy_ui::reactive::{Persist, Plain, Signal};
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
+struct Fonts {
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    headings: String,
+}
+
+# fn setup() {
+// The items the old page keeps: `portal-theme` is "midnight", `portal-fonts` is
+// {"text":"remedy-sans","headings":"ahmi-pixel"}.
+let theme = Signal::new("portal".to_owned()).persist(Persist::new("portal-theme").plain(Plain::Text));
+let fonts = Signal::new(Fonts { text: "remedy-sans".into(), headings: "ahmi-pixel".into() })
+    .persist(Persist::new("portal-fonts").plain(Plain::Json));
+// `portal-seasons` is in the tab's sessionStorage.
+let seasons = Signal::new(serde_json::Value::Null).persist(Persist::new("portal-seasons").session());
+# let _ = (theme, fonts, seasons);
+# }
+```
+
 Window geometry ([`WindowSpec::persist_geometry`](crate::WindowSpec::persist_geometry)) is kept
 beside it, in `windows.txt` in the data folder, and in a page in the same store
 (`remedy:<app name>:remedy-ui.windows`), so floating windows come back where they were.
