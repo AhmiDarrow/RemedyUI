@@ -11,10 +11,14 @@ package dev.remedyui.android;
 
 import android.content.Context;
 import android.graphics.Matrix;
+import android.os.Build;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.Selection;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.CursorAnchorInfo;
 import android.view.inputmethod.EditorInfo;
@@ -44,8 +48,44 @@ final class TextInput extends View {
         // key (Back, keyboard shortcuts) and the app would never see them.
         setFocusable(false);
         setFocusableInTouchMode(false);
+        setClickable(false);
         setWillNotDraw(true);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+    }
+
+    // Touches belong to the native activity (the drawing surface), not this view. This
+    // view exists only so input methods have an InputConnection; it must not eat taps.
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        return false;
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        return false;
+    }
+
+    /** Shows the on-screen keyboard after this view has focus and a window token. */
+    private void showIme() {
+        requestFocus();
+        post(
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!active) {
+                            return;
+                        }
+                        requestFocus();
+                        if (Build.VERSION.SDK_INT >= 30) {
+                            WindowInsetsController c = getWindowInsetsController();
+                            if (c != null) {
+                                c.show(WindowInsets.Type.ime());
+                            }
+                        }
+                        imm.restartInput(TextInput.this);
+                        imm.showSoftInput(TextInput.this, InputMethodManager.SHOW_IMPLICIT);
+                    }
+                });
     }
 
     private static int utf8(CharSequence s) {
@@ -66,7 +106,12 @@ final class TextInput extends View {
         boolean textChanged = !editable.toString().equals(text);
         // The field changed without the input method (keys, the app): the copy follows, and
         // the input method hears of it as a selection change, as an EditText's would. A new
-        // session (or new kind of field) restarts it.
+        // session (or new kind of field) restarts it. Commit first when restarting or
+        // replacing the buffer, or an underlined word (e.g. "bar" in "Lavender bar") is lost.
+        if (restart && composing) {
+            commitCompositionIfAny();
+            composing = false;
+        }
         if (restart || (!composing && textChanged)) {
             editable.replace(0, editable.length(), text);
             BaseInputConnection.removeComposingSpans(editable);
@@ -78,13 +123,14 @@ final class TextInput extends View {
         if (!composing && moved) {
             Selection.setSelection(editable, s, e);
         }
+        // Sit at the caret so the input method can anchor its window there.
+        setX(x);
+        setY(top);
         if (restart) {
             active = true;
             setFocusable(true);
             setFocusableInTouchMode(true);
-            requestFocus();
-            imm.restartInput(this);
-            imm.showSoftInput(this, 0);
+            showIme();
         } else if (!composing && (moved || textChanged)) {
             imm.updateSelection(this, s, e, -1, -1);
         }
@@ -93,7 +139,24 @@ final class TextInput extends View {
         }
     }
 
-    /** The app committed the composition itself (a key typed outside the input method). */
+    /** Commits in-flight composing text to the app so it is not dropped when the session
+     *  ends or the field is restarted (focus moved, Save, a different kind of field). */
+    private void commitCompositionIfAny() {
+        int a = BaseInputConnection.getComposingSpanStart(editable);
+        int b = BaseInputConnection.getComposingSpanEnd(editable);
+        if (a < 0 || b < 0) {
+            return;
+        }
+        String c = editable.subSequence(Math.min(a, b), Math.max(a, b)).toString();
+        BaseInputConnection.removeComposingSpans(editable);
+        if (!c.isEmpty()) {
+            Bridge.imeCommit(handle, c);
+        }
+    }
+
+    /** The app committed the composition itself (a key typed outside the input method, or a
+     *  tap on another control). The runner already applied the preedit; only clear the
+     *  underlined span here so end() does not imeCommit the same word again. */
     void finishComposition() {
         if (!active || BaseInputConnection.getComposingSpanStart(editable) < 0) {
             return;
@@ -107,6 +170,9 @@ final class TextInput extends View {
         if (!active) {
             return;
         }
+        // Commit first: hideSoftInput / clear would otherwise drop underlined preedit,
+        // so Save/Load and a newly focused field would see only the last committed word.
+        commitCompositionIfAny();
         active = false;
         editable.clear();
         imm.hideSoftInputFromWindow(getWindowToken(), 0);

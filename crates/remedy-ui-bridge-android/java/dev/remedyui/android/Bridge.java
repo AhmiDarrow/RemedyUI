@@ -169,10 +169,10 @@ public final class Bridge
         decor.setOnApplyWindowInsetsListener(this);
         content.addOnLayoutChangeListener(this);
         decor.requestApplyInsets();
-        // The input methods' view sits over the drawing view, which keeps the window's input.
+        // A 1 px target for the input method only. A full-screen view on top of the
+        // drawing surface would eat taps once it became focusable for a text session.
         ViewGroup root = (ViewGroup) decor.findViewById(android.R.id.content);
-        root.addView(input, new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(input, new ViewGroup.LayoutParams(1, 1));
         content.setOnDragListener(
                 new View.OnDragListener() {
                     @Override

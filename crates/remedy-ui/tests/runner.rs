@@ -2008,6 +2008,38 @@ fn a_finger_swipe_scrolls_and_a_tap_still_clicks() {
 }
 
 #[test]
+fn a_finger_tap_on_a_field_opens_the_keyboard() {
+    let field_el = Rc::new(std::cell::RefCell::new(None));
+    let f2 = field_el.clone();
+    let mut runner = Runner::with_geometry(config(), GeometryStore::in_memory(), move |app: &App| {
+        let f3 = f2.clone();
+        app.open(WindowSpec::new("Form").size(200.0, 200.0), move |ui, _| {
+            let field = ui.text_field("text_input", FieldKind::Single).el().height(40.0);
+            *f3.borrow_mut() = Some(field.clone());
+            ui.root().child(field);
+        });
+    });
+    let mut host = HeadlessHost::new();
+    host.run_frames(&mut runner, 2);
+    let id = first(&host);
+    let field = field_el.borrow().clone().unwrap_or_else(|| unreachable!("the field"));
+    let b = field.bounds().unwrap_or_default();
+    let (x, y) = ((b.min.x + b.max.x) * 0.5, (b.min.y + b.max.y) * 0.5);
+    assert!(b.width() > 0.0 && b.height() > 0.0, "the field is laid out: {b:?}");
+    let finger = |phase| {
+        press(x, y, phase).with_id(1).with_kind(remedy_ui::input::PointerKind::Touch)
+    };
+    host.send(HostEvent::Pointer(id, finger(PointerPhase::Down)));
+    host.send(HostEvent::Pointer(id, finger(PointerPhase::Up)));
+    host.run_frames(&mut runner, 1);
+    assert!(field.is_focused(), "a tap focuses the field");
+    assert!(
+        host.window(id).is_some_and(|w| w.text_input().is_some()),
+        "focus opened a text-input session"
+    );
+}
+
+#[test]
 fn a_rising_keyboard_scrolls_the_focused_field_above_it() {
     let field_el = Rc::new(std::cell::RefCell::new(None));
     let f2 = field_el.clone();
