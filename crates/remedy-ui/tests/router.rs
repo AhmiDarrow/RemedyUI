@@ -14,6 +14,16 @@ use remedy_ui::widgets as w;
 
 type Slot<T> = Rc<RefCell<Option<T>>>;
 
+trait Must<T> {
+    fn must(self) -> T;
+}
+
+impl<T> Must<T> for Option<T> {
+    fn must(self) -> T {
+        self.unwrap_or_else(|| unreachable!("set by the window's build"))
+    }
+}
+
 /// An app whose window shows `router.view`: a scrolling page per route with a link home.
 fn app() -> (TestApp, Slot<Router>, Slot<El>) {
     let (router, scroller): (Slot<Router>, Slot<El>) = Default::default();
@@ -43,7 +53,7 @@ fn title(app: &TestApp) -> String {
 #[test]
 fn pages_follow_the_route_and_back_keys_go_back() {
     let (mut app, router, _) = app();
-    let router = router.borrow().clone().unwrap();
+    let router = router.borrow().clone().must();
     assert!(app.node(Role::Label, "Page /home").is_some() || app.find(Role::Label, "Page /home").is_some());
     assert_eq!(title(&app), "Portal: home");
 
@@ -71,16 +81,16 @@ fn pages_follow_the_route_and_back_keys_go_back() {
 #[test]
 fn links_carry_their_address_for_screen_readers() {
     let (app, _, _) = app();
-    let link = app.node(Role::Link, "Settings").expect("the link");
+    let link = app.node(Role::Link, "Settings").must();
     assert_eq!(link.url.as_deref(), Some("#/settings/audio"));
 }
 
 #[test]
 fn going_back_restores_the_scroll_position() {
     let (mut app, router, scroller) = app();
-    let router = router.borrow().clone().unwrap();
-    let ui = app.ui().unwrap();
-    let home = scroller.borrow().clone().unwrap();
+    let router = router.borrow().clone().must();
+    let ui = app.ui().must();
+    let home = scroller.borrow().clone().must();
     ui.set_scroll_offset(home.id(), Vec2::new(0.0, 120.0));
     router.push("/browse");
     app.frames(1);
@@ -88,20 +98,20 @@ fn going_back_restores_the_scroll_position() {
     assert!(router.back());
     app.frames(1);
     assert_eq!(router.saved_scroll(), Vec2::new(0.0, 120.0));
-    let rebuilt = scroller.borrow().clone().unwrap();
+    let rebuilt = scroller.borrow().clone().must();
     assert_ne!(rebuilt.id(), home.id(), "the page was built again");
 }
 
 #[test]
 fn reload_rebuilds_the_page_at_its_route() {
     let (mut app, router, scroller) = app();
-    let router = router.borrow().clone().unwrap();
+    let router = router.borrow().clone().must();
     router.push("/server");
     app.frames(1);
-    let before = scroller.borrow().clone().unwrap().id();
+    let before = scroller.borrow().clone().must().id();
     app.runner().app().reload();
     app.frames(1);
-    assert_ne!(scroller.borrow().clone().unwrap().id(), before);
+    assert_ne!(scroller.borrow().clone().must().id(), before);
     assert_eq!(router.route_untracked().path(), "/server");
 }
 
@@ -110,7 +120,7 @@ fn reload_rebuilds_the_page_at_its_route() {
 fn deep_links_open_their_page() {
     use remedy_ui::host::HostEvent;
     let (mut app, router, _) = app();
-    let router = router.borrow().clone().unwrap();
+    let router = router.borrow().clone().must();
     router.follow_links(app.runner().app(), &["portal"]);
     // A tray item's "Open settings", or a link opened while the app runs: a second launch's
     // arguments.

@@ -135,7 +135,9 @@ impl Mirror {
                         e.node = node;
                     }
                     old => {
-                        let Some(el) = dom::element::<HtmlElement>(&tag.to_ascii_lowercase()) else { continue };
+                        let Some(el) = dom::element::<HtmlElement>(&tag.to_ascii_lowercase()) else {
+                            continue;
+                        };
                         dom::style(&el, &[("position", "absolute"), ("margin", "0"), ("padding", "0")]);
                         let _ = el.set_attribute("data-node", &id.0.to_string());
                         apply(&el, &node, id);

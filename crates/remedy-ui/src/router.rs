@@ -13,7 +13,7 @@
 //! let router = Router::new("/home");
 //! router.push("/settings/audio");
 //! let route = router.route_untracked();
-//! assert_eq!(route.matches("/settings/:id").map(|p| p["id"].clone()), Some("audio".into()));
+//! assert_eq!(route.matches("/settings/:id").and_then(|p| p.get("id").cloned()), Some("audio".into()));
 //! assert!(router.back());
 //! assert_eq!(router.route_untracked().path(), "/home");
 //! ```
@@ -86,9 +86,10 @@ impl Route {
 
     /// A query parameter, decoded (`sort` in `/browse?sort=year`).
     pub fn query(&self, key: &str) -> Option<String> {
-        self.query.split('&').filter_map(|kv| kv.split_once('=').or(Some((kv, "")))).find_map(|(k, v)| {
-            (decode(k) == key).then(|| decode(v))
-        })
+        self.query
+            .split('&')
+            .filter_map(|kv| kv.split_once('=').or(Some((kv, ""))))
+            .find_map(|(k, v)| (decode(k) == key).then(|| decode(v)))
     }
 
     /// The parameters when the route fits `pattern`: `:name` takes one segment, a final
@@ -123,7 +124,11 @@ impl Route {
 
 impl std::fmt::Display for Route {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.query.is_empty() { write!(f, "{}", self.path) } else { write!(f, "{}?{}", self.path, self.query) }
+        if self.query.is_empty() {
+            write!(f, "{}", self.path)
+        } else {
+            write!(f, "{}?{}", self.path, self.query)
+        }
     }
 }
 
@@ -132,15 +137,15 @@ fn decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
-    while i < b.len() {
-        let hex = |c: u8| (c as char).to_digit(16);
-        if b[i] == b'%'
-            && let (Some(h), Some(l)) = (b.get(i + 1).and_then(|c| hex(*c)), b.get(i + 2).and_then(|c| hex(*c)))
+    let hex = |at: usize| b.get(at).and_then(|c| (*c as char).to_digit(16));
+    while let Some(&c) = b.get(i) {
+        if c == b'%'
+            && let (Some(h), Some(l)) = (hex(i + 1), hex(i + 2))
         {
             out.push((h * 16 + l) as u8);
             i += 3;
         } else {
-            out.push(b[i]);
+            out.push(c);
             i += 1;
         }
     }
@@ -209,7 +214,9 @@ impl Router {
             let fragment = history::fragment();
             if !fragment.is_empty() {
                 let route = Route::parse(&fragment);
-                me.inner.borrow_mut().entries[0].route = route.clone();
+                if let Some(e) = me.inner.borrow_mut().entries.first_mut() {
+                    e.route = route.clone();
+                }
                 me.route.set(route);
             }
             history::write(&me.route_untracked().to_string(), 0, true);
@@ -259,7 +266,9 @@ impl Router {
         let index = {
             let mut i = self.inner.borrow_mut();
             let at = i.index;
-            i.entries[at] = Entry { route: Route::parse(path), scroll: Vec2::ZERO };
+            if let Some(e) = i.entries.get_mut(at) {
+                *e = Entry { route: Route::parse(path), scroll: Vec2::ZERO };
+            }
             at
         };
         self.write_address(index, true);
@@ -319,7 +328,7 @@ impl Router {
         let saved = {
             let mut i = self.inner.borrow_mut();
             i.scroller = Some(scroller.clone());
-            i.entries[i.index].scroll
+            i.entries.get(i.index).map_or(Vec2::ZERO, |e| e.scroll)
         };
         if saved != Vec2::ZERO {
             scroller.scroll_to(saved);
@@ -329,7 +338,7 @@ impl Router {
     /// The scroll position kept for the current entry (updated when the router leaves it).
     pub fn saved_scroll(&self) -> Vec2 {
         let i = self.inner.borrow();
-        i.entries[i.index].scroll
+        i.entries.get(i.index).map_or(Vec2::ZERO, |e| e.scroll)
     }
 
     /// Opens a deep link (`portal://settings/2`, `#/settings/2`) as a new entry, and brings
@@ -459,9 +468,9 @@ impl Router {
     #[cfg_attr(not(all(feature = "web", target_arch = "wasm32", target_os = "unknown")), allow(dead_code))]
     fn popped(&self, fragment: &str, index: Option<u32>) {
         let route = Route::parse(fragment);
-        let known = index.map(|i| i as usize).filter(|i| {
-            self.inner.borrow().entries.get(*i).is_some_and(|e| e.route == route)
-        });
+        let known = index
+            .map(|i| i as usize)
+            .filter(|i| self.inner.borrow().entries.get(*i).is_some_and(|e| e.route == route));
         match known {
             Some(i) => self.go_to(i),
             None => {
@@ -487,14 +496,16 @@ impl Router {
         let mut i = self.inner.borrow_mut();
         if let Some(s) = i.scroller.clone() {
             let at = i.index;
-            i.entries[at].scroll = s.ui().scroll_offset(s.id());
+            if let Some(e) = i.entries.get_mut(at) {
+                e.scroll = s.ui().scroll_offset(s.id());
+            }
         }
     }
 
     fn show(&self) {
         let (route, scroll, scroller) = {
             let i = self.inner.borrow();
-            let e = &i.entries[i.index];
+            let Some(e) = i.entries.get(i.index) else { return };
             (e.route.clone(), e.scroll, i.scroller.clone())
         };
         self.route.set(route);
@@ -517,7 +528,10 @@ impl Router {
         }
     }
 
-    #[cfg_attr(not(all(feature = "web", target_arch = "wasm32", target_os = "unknown")), allow(unused_variables))]
+    #[cfg_attr(
+        not(all(feature = "web", target_arch = "wasm32", target_os = "unknown")),
+        allow(unused_variables)
+    )]
     fn write_address(&self, index: usize, replace: bool) {
         #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
         history::write(&self.route_untracked().to_string(), index as u32, replace);
@@ -536,7 +550,13 @@ mod tests {
 
     #[test]
     fn parses_every_form_of_address() {
-        for s in ["/settings/2", "#/settings/2", "settings//2/", "portal://settings/2", "https://h/app/#/settings/2"] {
+        for s in [
+            "/settings/2",
+            "#/settings/2",
+            "settings//2/",
+            "portal://settings/2",
+            "https://h/app/#/settings/2",
+        ] {
             assert_eq!(Route::parse(s).path(), "/settings/2", "{s}");
         }
         let r = Route::parse("#/browse/My%20Movies/Alien?sort=year&q=a%26b");
@@ -550,9 +570,21 @@ mod tests {
     #[test]
     fn matches_patterns() {
         let r = Route::parse("/browse/TV/Show");
-        assert_eq!(r.matches("/browse/*path").map(|p| p["path"].clone()).as_deref(), Some("TV/Show"));
-        assert_eq!(Route::parse("/browse").matches("/browse/*path").map(|p| p["path"].clone()).as_deref(), Some(""));
-        assert_eq!(Route::parse("/settings/7").matches("/settings/:id").map(|p| p["id"].clone()).as_deref(), Some("7"));
+        assert_eq!(
+            r.matches("/browse/*path").and_then(|p| p.get("path").cloned()).as_deref(),
+            Some("TV/Show")
+        );
+        assert_eq!(
+            Route::parse("/browse").matches("/browse/*path").and_then(|p| p.get("path").cloned()).as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            Route::parse("/settings/7")
+                .matches("/settings/:id")
+                .and_then(|p| p.get("id").cloned())
+                .as_deref(),
+            Some("7")
+        );
         assert!(r.matches("/browse/:x").is_none());
         assert!(r.matches("/home").is_none());
         assert!(Route::parse("/").matches("/").is_some());

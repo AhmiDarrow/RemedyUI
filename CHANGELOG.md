@@ -10,6 +10,21 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Routes and deep links** (`remedy_ui::router`, feature `widgets`), for Portal's
+  `#/home`, `#/browse/<path>` and `#/settings/<id>`: a `Router` holds the route (a signal of
+  `Route`: path, decoded segments, query, `matches("/settings/:id")` and `"/browse/*path"`)
+  with `push`, `replace`, `back` and `forward`, titles the window after each route
+  (`set_title`; `document.title` in a page), and keeps each entry's scroll position
+  (`remember_scroll`). `Router::view` builds the route's page, rebuilt on each change; Alt+Left
+  and Alt+Right, the system back key (Android's back) and the mouse's back and forward buttons
+  move through the history, and a `NavStack` inside a page pops its own pages first. In a
+  browser page `Router::for_window` keeps the route in the address's fragment through the
+  History API (read at load, so a deep link opens its page; the browser's back and forward and
+  a typed address route too). On the desktop `Router::follow_links(app, &["portal"])` opens
+  links in the app's scheme, also from a second launch. `Router::link_to` is a link whose
+  `Semantics::url` (new, in `a11y`; `ReaderNode::url`) makes the web ARIA mirror an
+  `<a href="#/…">`, so middle and Ctrl clicks open a new tab. `App::reload` reloads the page,
+  or natively rebuilds every `Router::view`. `web::history` exposes the page's history.
 - **The player's keys from anywhere in the window** in `media-playback`, as Portal's page
   hears them page-wide: `Player::keys_from(&ui.root())` routes the keys nothing focused took
   to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),
