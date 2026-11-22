@@ -4350,7 +4350,8 @@ fn scripted_parts(s: &mut Screen, options: PlayerOptions, parts: PlayerParts) ->
 #[test]
 fn going_compact_pauses_what_plays_here_when_asked_but_not_a_cast() {
     let mut s = Screen::new();
-    let (p, _view) = scripted_parts(&mut s, PlayerOptions::default().compact_pauses(true), PlayerParts::default());
+    let (p, _view) =
+        scripted_parts(&mut s, PlayerOptions::default().compact_pauses(true), PlayerParts::default());
     assert!(p.compact_pauses());
     p.play();
     s.wait("playing", |_| p.state() == PlaybackState::Playing);
@@ -4431,7 +4432,10 @@ impl Decoder for SelfDecoder {
     }
 
     /// The picture the source shows now, once it moved; the end once it is there.
-    fn poll_read(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<Option<Sample>, MediaError>> {
+    fn poll_read(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<Option<Sample>, MediaError>> {
         let mut p = played(&self.state);
         if p.at >= SELF_LENGTH {
             return std::task::Poll::Ready(Ok(None));

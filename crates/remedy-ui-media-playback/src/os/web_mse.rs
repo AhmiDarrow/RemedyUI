@@ -16,7 +16,9 @@
 use super::hls_web::{Reader, fetch_next};
 use super::{call, get, has_global, js_error, obj};
 use crate::hls::{Unit, fmp4};
-use crate::host::{Decoder, MediaError, MediaInfo, Picture, PixelFormat, Playout, Sample, VideoInfo, YuvMatrix};
+use crate::host::{
+    Decoder, MediaError, MediaInfo, Picture, PixelFormat, Playout, Sample, VideoInfo, YuvMatrix,
+};
 use js_sys::{Array, Reflect, Uint8Array};
 use remedy_ui_paint::{CpuPixels, GpuAdapter, GpuPicture, GpuTexture, Plane};
 use std::cell::{Cell, RefCell};
@@ -162,7 +164,9 @@ fn draw_rgba(video: &JsValue, (w, h): (u32, u32), slot: &mut Option<(JsValue, Js
         } else {
             call(&get(&js_sys::global(), "document"), "createElement", &["canvas".into()]).ok()?
         };
-        let ctx = call(&canvas, "getContext", &["2d".into(), obj(&[("willReadFrequently", JsValue::TRUE)]).into()]).ok()?;
+        let ctx =
+            call(&canvas, "getContext", &["2d".into(), obj(&[("willReadFrequently", JsValue::TRUE)]).into()])
+                .ok()?;
         if ctx.is_null() || ctx.is_undefined() {
             return None;
         }
@@ -559,8 +563,9 @@ impl ElementDecoder {
     /// A file the person picked or dropped, through a blob URL.
     pub(super) fn bytes(bytes: &[u8]) -> Result<ElementDecoder, MediaError> {
         let fail = |e: JsValue| MediaError::Unsupported(js_error("a blob URL", &e));
-        let blob = construct(get(&js_sys::global(), "Blob"), &Array::of1(&Array::of1(&Uint8Array::from(bytes))))
-            .map_err(fail)?;
+        let blob =
+            construct(get(&js_sys::global(), "Blob"), &Array::of1(&Array::of1(&Uint8Array::from(bytes))))
+                .map_err(fail)?;
         let url = call(&get(&js_sys::global(), "URL"), "createObjectURL", &[blob])
             .map_err(fail)?
             .as_string()
@@ -584,7 +589,8 @@ impl ElementDecoder {
                 return ElementDecoder::plain(url);
             }
             return Err(MediaError::Unsupported(
-                "this browser has neither WebCodecs (secure pages only) nor Media Source Extensions for HLS".into(),
+                "this browser has neither WebCodecs (secure pages only) nor Media Source Extensions for HLS"
+                    .into(),
             ));
         }
         let mut dec = ElementDecoder::new()?;
@@ -622,7 +628,8 @@ impl ElementDecoder {
                 return Ok(());
             }
             let unsupported = |e: JsValue| MediaError::Unsupported(js_error("Media Source Extensions", &e));
-            let class = media_source_class().ok_or_else(|| MediaError::Unsupported("no MediaSource".into()))?;
+            let class =
+                media_source_class().ok_or_else(|| MediaError::Unsupported("no MediaSource".into()))?;
             let source = construct(class, &Array::new()).map_err(unsupported)?;
             let opened = Rc::new(Cell::new(false));
             let (o, w) = (opened.clone(), s.clone());
@@ -674,7 +681,9 @@ impl ElementDecoder {
             if let Some(v) = &vc {
                 let mime = format!("video/mp4; codecs=\"{}\"", v.codec);
                 if !supported(&mime) {
-                    return Err(MediaError::Unsupported(format!("this browser's media element cannot play {mime}")));
+                    return Err(MediaError::Unsupported(format!(
+                        "this browser's media element cannot play {mime}"
+                    )));
                 }
                 h.video = Some(add(&mime, true, 0, fmp4::video_init(v))?);
             }

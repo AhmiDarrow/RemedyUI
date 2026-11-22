@@ -202,8 +202,11 @@ async fn the_gpu_renderer_uploads_the_element_itself() {
     assert_eq!(p.state(), PlaybackState::Ended);
     let (tex, copied, imported) = (count("texImage"), count("gpuCopied"), count("imported"));
     web_sys::console::log_1(
-        &format!("{kind}: {:?}; texSubImage2D {tex}, copyExternalImageToTexture {copied}, import {imported}", p.stats())
-            .into(),
+        &format!(
+            "{kind}: {:?}; texSubImage2D {tex}, copyExternalImageToTexture {copied}, import {imported}",
+            p.stats()
+        )
+        .into(),
     );
     assert!(tex + copied + imported > 0, "the element went to a texture");
     assert_eq!(count("readBack") - read_back, 0, "no picture was read back on the CPU");

@@ -49,7 +49,13 @@ fn matrix() -> Vec<u8> {
 /// An MPEG-4 descriptor: its tag, its length (in the four-byte form every reader takes), its body.
 fn descriptor(tag: u8, body: &[u8]) -> Vec<u8> {
     let n = u32::try_from(body.len()).unwrap_or(0).min(0x0fff_ffff);
-    let mut out = vec![tag, 0x80 | (n >> 21) as u8 & 0x7f, 0x80 | (n >> 14) as u8 & 0x7f, 0x80 | (n >> 7) as u8 & 0x7f, n as u8 & 0x7f];
+    let mut out = vec![
+        tag,
+        0x80 | (n >> 21) as u8 & 0x7f,
+        0x80 | (n >> 14) as u8 & 0x7f,
+        0x80 | (n >> 7) as u8 & 0x7f,
+        n as u8 & 0x7f,
+    ];
     out.extend_from_slice(body);
     out
 }
@@ -97,7 +103,12 @@ fn init(handler: &[u8; 4], scale: u32, header: &[u8], sample_entry: Vec<u8>, siz
             &(size.1 << 16).to_be_bytes(),
         ]),
     );
-    let mdhd = full(b"mdhd", 0, 0, &cat(&[&[0; 8], &scale.to_be_bytes(), &[0; 4], &0x55c4u16.to_be_bytes(), &[0; 2]]));
+    let mdhd = full(
+        b"mdhd",
+        0,
+        0,
+        &cat(&[&[0; 8], &scale.to_be_bytes(), &[0; 4], &0x55c4u16.to_be_bytes(), &[0; 2]]),
+    );
     let hdlr = full(b"hdlr", 0, 0, &cat(&[&[0; 4], handler, &[0; 12], b"RemedyUI\0"]));
     let dref = full(b"dref", 0, 0, &cat(&[&1u32.to_be_bytes(), &full(b"url ", 0, 1, &[])]));
     let stbl = bx(
@@ -264,7 +275,8 @@ impl Track {
             };
             self.last = length;
             let d = ticks(*dts, self.scale);
-            let duration = u32::try_from(ticks(*dts + length, self.scale).saturating_sub(d)).unwrap_or(u32::MAX).max(1);
+            let duration =
+                u32::try_from(ticks(*dts + length, self.scale).saturating_sub(d)).unwrap_or(u32::MAX).max(1);
             let cto = i64::try_from(ticks(*pts, self.scale)).unwrap_or(0) - i64::try_from(d).unwrap_or(0);
             out.push(Out {
                 dts: d,
@@ -293,7 +305,12 @@ fn moof_mdat(sequence: u32, base: u64, samples: &[Out]) -> Vec<u8> {
     for s in samples {
         let flags: u32 = if s.key { 0x0200_0000 } else { 0x0101_0000 };
         let size = u32::try_from(s.data.len()).unwrap_or(u32::MAX);
-        trun.extend_from_slice(&cat(&[&s.duration.to_be_bytes(), &size.to_be_bytes(), &flags.to_be_bytes(), &s.cto.to_be_bytes()]));
+        trun.extend_from_slice(&cat(&[
+            &s.duration.to_be_bytes(),
+            &size.to_be_bytes(),
+            &flags.to_be_bytes(),
+            &s.cto.to_be_bytes(),
+        ]));
     }
     let trun = full(b"trun", 1, 0x0f01, &trun);
     let traf = bx(b"traf", &cat(&[&tfhd, &tfdt, &trun]));
@@ -372,14 +389,23 @@ mod tests {
         };
         let init = audio_init(&a);
         assert_eq!(be32(child(&init, &["moov", "trak", "mdia", "mdhd"]), 12), 48_000);
-        let entry = child(&init, &["moov", "trak", "mdia", "minf", "stbl", "stsd"]).get(8..).unwrap_or_default();
+        let entry =
+            child(&init, &["moov", "trak", "mdia", "minf", "stbl", "stsd"]).get(8..).unwrap_or_default();
         let mp4a = child(entry, &["mp4a"]);
         assert_eq!(u16::from_be_bytes([mp4a[16], mp4a[17]]), 2, "channels");
         assert_eq!(be32(mp4a, 24) >> 16, 48_000, "rate");
         let esds = child(mp4a.get(28..).unwrap_or_default(), &["esds"]);
-        assert!(esds.windows(7).any(|w| w == [5, 0x80, 0x80, 0x80, 2, 0x11, 0x90]), "the AudioSpecificConfig");
+        assert!(
+            esds.windows(7).any(|w| w == [5, 0x80, 0x80, 0x80, 2, 0x11, 0x90]),
+            "the AudioSpecificConfig"
+        );
         assert_eq!(audio_codecs(&a), ["mp4a.40.2"]);
-        let mp3 = AudioConfig { codec: AudioCodec::Mp3, codec_string: "mp3".into(), sample_rate: 44_100, channels: 2 };
+        let mp3 = AudioConfig {
+            codec: AudioCodec::Mp3,
+            codec_string: "mp3".into(),
+            sample_rate: 44_100,
+            channels: 2,
+        };
         assert_eq!(audio_codecs(&mp3), ["mp4a.6B", "mp3"]);
     }
 
@@ -413,7 +439,8 @@ mod tests {
     fn fragments_follow_on_with_the_last_unit_held_for_its_duration() {
         let mut t = Track::new(true, 0);
         // Decoding order with a B-frame: shown at 0, 80, 40.
-        let first = t.fragment(vec![picture(0, 0, true), picture(80, 40, false), picture(40, 80, false)], false);
+        let first =
+            t.fragment(vec![picture(0, 0, true), picture(80, 40, false), picture(40, 80, false)], false);
         let first = first.unwrap_or_else(|| unreachable!("a fragment"));
         assert_eq!(boxes(&first).into_iter().map(|b| b.0).collect::<Vec<_>>(), ["moof", "mdat"]);
         let (base, rows, offset) = samples(&first);

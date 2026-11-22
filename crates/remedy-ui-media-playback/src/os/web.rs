@@ -1129,7 +1129,11 @@ fn read_file(path: &std::path::Path) -> Result<Vec<u8>, MediaError> {
 
 impl MediaHost for WebHost {
     fn name(&self) -> &str {
-        if self.element { "the browser's media element (Media Source Extensions)" } else { "WebCodecs and WebAudio" }
+        if self.element {
+            "the browser's media element (Media Source Extensions)"
+        } else {
+            "WebCodecs and WebAudio"
+        }
     }
 
     fn open(&self, source: &MediaSource) -> Result<Box<dyn Decoder>, MediaError> {

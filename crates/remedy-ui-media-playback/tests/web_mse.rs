@@ -153,7 +153,9 @@ async fn next(dec: &mut Box<dyn Decoder>) -> Option<Sample> {
 async fn picture_at(dec: &mut Box<dyn Decoder>, t: Duration) -> (Duration, Picture) {
     loop {
         match next(dec).await {
-            Some(Sample::Video { at, picture, .. }) if at + Duration::from_millis(1) >= t => return (at, picture),
+            Some(Sample::Video { at, picture, .. }) if at + Duration::from_millis(1) >= t => {
+                return (at, picture);
+            }
             Some(_) => {}
             None => unreachable!("a picture at {t:?} before the end"),
         }
@@ -209,7 +211,10 @@ async fn the_element_plays_hls_remuxed_to_fragmented_mp4() {
             }
         }
         assert!(shown > 10, "{name}: {shown} pictures shown while playing");
-        assert!(last + Duration::from_millis(150) >= Duration::from_secs(length), "{name}: the last at {last:?}");
+        assert!(
+            last + Duration::from_millis(150) >= Duration::from_secs(length),
+            "{name}: the last at {last:?}"
+        );
         assert!(playout.position() + Duration::from_millis(100) >= Duration::from_secs(length));
         drop(playout);
         drop(dec);
@@ -246,16 +251,20 @@ async fn a_player_on_the_element_plays_seeks_switches_and_ends() {
     let slot: Rc<RefCell<Option<Player>>> = Rc::default();
     let app: Rc<RefCell<Option<remedy_ui::App>>> = Rc::default();
     let (s2, a2, first) = (slot.clone(), app.clone(), url("aac"));
-    remedy_ui::run(remedy_ui::AppConfig::new("Element playback test").cpu_only(), move |a: &remedy_ui::App| {
-        *a2.borrow_mut() = Some(a.clone());
-        let s3 = s2.clone();
-        a.open(remedy_ui::WindowSpec::new("Element playback test"), move |ui, _| {
-            let p = Player::open_platform(ui, first, PlayerOptions::default().web_backend(backend()));
-            let view = remedy_ui_media_playback::player(ui, &p, "Element clip").width(352.0).height(260.0);
-            let _ = ui.root().child(view);
-            *s3.borrow_mut() = Some(p);
-        });
-    })
+    remedy_ui::run(
+        remedy_ui::AppConfig::new("Element playback test").cpu_only(),
+        move |a: &remedy_ui::App| {
+            *a2.borrow_mut() = Some(a.clone());
+            let s3 = s2.clone();
+            a.open(remedy_ui::WindowSpec::new("Element playback test"), move |ui, _| {
+                let p = Player::open_platform(ui, first, PlayerOptions::default().web_backend(backend()));
+                let view =
+                    remedy_ui_media_playback::player(ui, &p, "Element clip").width(352.0).height(260.0);
+                let _ = ui.root().child(view);
+                *s3.borrow_mut() = Some(p);
+            });
+        },
+    )
     .must("the app starts");
     for _ in 0..600 {
         if slot.borrow().is_some() {
@@ -291,7 +300,9 @@ async fn a_player_on_the_element_plays_seeks_switches_and_ends() {
     p.play();
     wait_for(&p, "the end", |p| p.state() == PlaybackState::Ended).await;
     let stats = p.stats();
-    web_sys::console::log_1(&format!("element player: {stats:?}, frame callbacks {}: {}", frame_calls(), frame_log()).into());
+    web_sys::console::log_1(
+        &format!("element player: {stats:?}, frame callbacks {}: {}", frame_calls(), frame_log()).into(),
+    );
     // A debug build's CPU renderer holds the page's thread a while for each picture it draws,
     // so the browser calls back for a few of the element's frames only.
     assert!(stats.frames_shown >= 2, "{stats:?}");
