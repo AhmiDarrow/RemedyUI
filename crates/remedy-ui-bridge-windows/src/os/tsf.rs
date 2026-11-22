@@ -7,16 +7,17 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::rc::Rc;
 
-use remedy_ui_host::{ImeEvent, TextInputState};
+use remedy_ui_host::{ImeEvent, InputPurpose, TextInputState};
 use windows::Win32::Foundation::{E_FAIL, E_INVALIDARG, E_NOTIMPL, HWND, POINT, RECT};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, FORMATETC, IDataObject,
 };
 use windows::Win32::UI::TextServices::{
-    CLSID_TF_ThreadMgr, ITextStoreACP, ITextStoreACP_Impl, ITextStoreACPSink, ITfCompositionView, ITfContext,
-    ITfContextOwnerCompositionServices, ITfContextOwnerCompositionSink, ITfContextOwnerCompositionSink_Impl,
-    ITfDocumentMgr, ITfRange, ITfRangeACP, ITfThreadMgr, TEXT_STORE_LOCK_FLAGS, TEXT_STORE_TEXT_CHANGE_FLAGS,
+    CLSID_TF_ThreadMgr, GUID_PROP_INPUTSCOPE, ITextStoreACP, ITextStoreACP_Impl, ITextStoreACPSink,
+    ITfCompositionView, ITfContext, ITfContextOwnerCompositionServices, ITfContextOwnerCompositionSink,
+    ITfContextOwnerCompositionSink_Impl, ITfDocumentMgr, ITfInputScope, ITfInputScope_Impl, ITfRange,
+    ITfRangeACP, ITfThreadMgr, InputScope, TEXT_STORE_LOCK_FLAGS, TEXT_STORE_TEXT_CHANGE_FLAGS,
     TF_IAS_QUERYONLY, TS_AE_END, TS_AE_START, TS_ATTRVAL, TS_DEFAULT_SELECTION, TS_E_INVALIDPOINT,
     TS_E_INVALIDPOS, TS_E_NOLOCK, TS_E_SYNCHRONOUS, TS_LC_CHANGE, TS_LF_READ, TS_LF_READWRITE, TS_LF_SYNC,
     TS_RT_PLAIN, TS_RUNINFO, TS_S_ASYNC, TS_SELECTION_ACP, TS_SELECTIONSTYLE, TS_SS_NOHIDDENTEXT, TS_STATUS,
@@ -55,6 +56,71 @@ pub(crate) struct Shared {
     pending: Cell<AppUpdate>,
     hwnd: isize,
     scale: Cell<f32>,
+    /// The focused field's input scope (the touch keyboard's layout).
+    scope: Cell<InputScope>,
+    /// TSF asked for the input scope; the next RetrieveRequestedAttrs answers it.
+    scope_asked: Cell<bool>,
+}
+
+/// The touch keyboard's layout and the input method's mode for a field.
+pub(crate) fn input_scope(s: &TextInputState) -> InputScope {
+    use windows::Win32::UI::TextServices as ts;
+    match s.purpose {
+        InputPurpose::Digits | InputPurpose::OneTimeCode => ts::IS_DIGITS,
+        _ if s.private || s.purpose.is_password() => ts::IS_PASSWORD,
+        InputPurpose::Decimal => ts::IS_NUMBER,
+        InputPurpose::Url => ts::IS_URL,
+        InputPurpose::Email => ts::IS_EMAIL_SMTPEMAILADDRESS,
+        InputPurpose::Search => ts::IS_SEARCH,
+        InputPurpose::Username => ts::IS_LOGINNAME,
+        _ if s.numeric => ts::IS_NUMBER,
+        _ => ts::IS_DEFAULT,
+    }
+}
+
+/// The input scope TSF reads through `GUID_PROP_INPUTSCOPE`.
+#[implement(ITfInputScope)]
+struct Scope(InputScope);
+
+impl ITfInputScope_Impl for Scope_Impl {
+    fn GetInputScopes(&self, scopes: *mut *mut InputScope, count: *mut u32) -> Result<()> {
+        // SAFETY: TSF frees the array with CoTaskMemFree; the out-params are valid.
+        unsafe {
+            let p = windows::Win32::System::Com::CoTaskMemAlloc(size_of::<InputScope>()).cast::<InputScope>();
+            if p.is_null() {
+                return Err(windows::Win32::Foundation::E_OUTOFMEMORY.into());
+            }
+            p.write(self.0);
+            *scopes = p;
+            *count = 1;
+        }
+        Ok(())
+    }
+
+    fn GetPhrase(&self, _phrases: *mut *mut windows_core::BSTR, _count: *mut u32) -> Result<()> {
+        Err(E_NOTIMPL.into())
+    }
+
+    fn GetRegularExpression(&self) -> Result<windows_core::BSTR> {
+        Err(E_NOTIMPL.into())
+    }
+
+    fn GetSRGS(&self) -> Result<windows_core::BSTR> {
+        Err(E_NOTIMPL.into())
+    }
+
+    fn GetXML(&self) -> Result<windows_core::BSTR> {
+        Err(E_NOTIMPL.into())
+    }
+}
+
+/// True when `attrs` names the input scope.
+fn asks_scope(count: u32, attrs: *const GUID) -> bool {
+    if attrs.is_null() {
+        return false;
+    }
+    // SAFETY: TSF passes `count` GUIDs.
+    unsafe { std::slice::from_raw_parts(attrs, count as usize) }.contains(&GUID_PROP_INPUTSCOPE)
 }
 
 impl Shared {
@@ -388,12 +454,14 @@ impl ITextStoreACP_Impl for StoreCom_Impl {
         Err(E_NOTIMPL.into())
     }
 
-    fn RequestSupportedAttrs(&self, _flags: u32, _count: u32, _attrs: *const GUID) -> Result<()> {
-        // No text attributes are exposed; RetrieveRequestedAttrs then returns none.
+    fn RequestSupportedAttrs(&self, _flags: u32, count: u32, attrs: *const GUID) -> Result<()> {
+        // Only the input scope is exposed; RetrieveRequestedAttrs then returns it.
+        self.0.scope_asked.set(asks_scope(count, attrs));
         Ok(())
     }
 
-    fn RequestAttrsAtPosition(&self, _pos: i32, _count: u32, _attrs: *const GUID, _flags: u32) -> Result<()> {
+    fn RequestAttrsAtPosition(&self, _pos: i32, count: u32, attrs: *const GUID, _flags: u32) -> Result<()> {
+        self.0.scope_asked.set(asks_scope(count, attrs));
         Ok(())
     }
 
@@ -427,9 +495,20 @@ impl ITextStoreACP_Impl for StoreCom_Impl {
         Ok(())
     }
 
-    fn RetrieveRequestedAttrs(&self, _count: u32, _vals: *mut TS_ATTRVAL, fetched: *mut u32) -> Result<()> {
-        // SAFETY: a valid out-param.
-        unsafe { *fetched = 0 };
+    fn RetrieveRequestedAttrs(&self, count: u32, vals: *mut TS_ATTRVAL, fetched: *mut u32) -> Result<()> {
+        let answer = self.0.scope_asked.replace(false) && count > 0 && !vals.is_null();
+        // SAFETY: valid out-params; TSF clears the VARIANT (releasing the scope object).
+        unsafe {
+            *fetched = 0;
+            if answer {
+                let scope: IUnknown = Scope(self.0.scope.get()).into();
+                let mut v = windows::Win32::System::Variant::VARIANT::default();
+                (*v.Anonymous.Anonymous).vt = windows::Win32::System::Variant::VT_UNKNOWN;
+                (*v.Anonymous.Anonymous).Anonymous.punkVal = std::mem::ManuallyDrop::new(Some(scope));
+                vals.write(TS_ATTRVAL { idAttr: GUID_PROP_INPUTSCOPE, dwOverlapId: 0, varValue: v });
+                *fetched = 1;
+            }
+        }
         Ok(())
     }
 
@@ -521,6 +600,8 @@ impl Tsf {
                 pending: Cell::new(AppUpdate::default()),
                 hwnd,
                 scale: Cell::new(1.0),
+                scope: Cell::new(windows::Win32::UI::TextServices::IS_DEFAULT),
+                scope_asked: Cell::new(false),
             });
             let store: ITextStoreACP = StoreCom(shared.clone()).into();
             // SAFETY: COM calls on live objects; out-params are valid.
@@ -543,8 +624,16 @@ impl Tsf {
         let thread = self.thread.clone();
         let doc = self.doc(hwnd)?;
         doc.shared.scale.set(scale);
+        let scope = input_scope(state);
+        let rescoped = doc.shared.scope.replace(scope) != scope;
         let up = doc.shared.store.borrow_mut().set_from_app(state);
         doc.shared.notify(up);
+        let sink = doc.shared.sink.borrow().as_ref().map(|(s, _)| s.clone());
+        if rescoped && let Some(sink) = sink {
+            let end = i32::try_from(doc.shared.store.borrow().text().len()).unwrap_or(i32::MAX);
+            // SAFETY: a COM call on a live sink, on its thread.
+            let _ = unsafe { sink.OnAttrsChange(0, end, &[GUID_PROP_INPUTSCOPE]) };
+        }
         // SAFETY: COM calls on live objects.
         unsafe {
             // Returns the previously associated document, null the first time (which the
@@ -685,6 +774,8 @@ mod tests {
             pending: Cell::new(AppUpdate::default()),
             hwnd,
             scale: Cell::new(1.0),
+            scope: Cell::new(windows::Win32::UI::TextServices::IS_DEFAULT),
+            scope_asked: Cell::new(false),
         })
     }
 
@@ -698,6 +789,41 @@ mod tests {
             v_.multiline = false;
             v_
         }
+    }
+
+    #[test]
+    fn the_store_reports_the_fields_input_scope() {
+        use windows::Win32::UI::TextServices as ts;
+        let sh = shared(0);
+        let mut code = field("", 0);
+        code.purpose = InputPurpose::OneTimeCode;
+        sh.scope.set(input_scope(&code));
+        let store: ITextStoreACP = StoreCom(sh.clone()).into();
+        let mut vals = [TS_ATTRVAL::default()];
+        let mut got = 0;
+        unsafe {
+            store.RequestSupportedAttrs(0, &[GUID_PROP_INPUTSCOPE]).unwrap();
+            store.RetrieveRequestedAttrs(&mut vals, &mut got).unwrap();
+        }
+        assert_eq!((got, vals[0].idAttr), (1, GUID_PROP_INPUTSCOPE));
+        let v = std::mem::take(&mut vals[0].varValue);
+        let unk = unsafe { (*v.Anonymous.Anonymous).Anonymous.punkVal.clone() };
+        let scope: ITfInputScope = std::mem::ManuallyDrop::into_inner(unk).unwrap().cast().unwrap();
+        let (mut p, mut n) = (std::ptr::null_mut(), 0);
+        unsafe { scope.GetInputScopes(&mut p, &mut n) }.unwrap();
+        assert_eq!((n, unsafe { *p }), (1, ts::IS_DIGITS));
+        unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(p.cast())) };
+        // Not asked again, nothing is returned.
+        unsafe { store.RetrieveRequestedAttrs(&mut vals, &mut got) }.unwrap();
+        assert_eq!(got, 0);
+        let mut pin = field("", 0);
+        pin.private = true;
+        assert_eq!(input_scope(&pin), ts::IS_PASSWORD);
+        pin.purpose = InputPurpose::Digits;
+        assert_eq!(input_scope(&pin), ts::IS_DIGITS, "a secret PIN keeps the digits");
+        let mut url = field("", 0);
+        url.purpose = InputPurpose::Url;
+        assert_eq!(input_scope(&url), ts::IS_URL);
     }
 
     #[test]

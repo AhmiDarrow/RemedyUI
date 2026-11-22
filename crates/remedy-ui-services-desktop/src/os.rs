@@ -218,18 +218,27 @@ pub(crate) fn unregister_scheme(scheme: &str) -> Result<(), String> {
 /// The command the current user's URL protocol `scheme` runs, if there is one.
 #[cfg(windows)]
 pub(crate) fn scheme_command(scheme: &str) -> Option<String> {
-    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_SZ, RegGetValueW};
-    let p = wide(&format!("Software\\Classes\\{scheme}\\shell\\open\\command"));
+    get_string(&format!("Software\\Classes\\{scheme}\\shell\\open\\command"), None)
+}
+
+/// A string value (`name` `None` for the key's default) under `HKCU\<path>`, if there is one.
+#[cfg(windows)]
+fn get_string(path: &str, name: Option<&str>) -> Option<String> {
+    use windows_sys::Win32::System::Registry::{
+        HKEY_CURRENT_USER, RRF_NOEXPAND, RRF_RT_REG_EXPAND_SZ, RRF_RT_REG_SZ, RegGetValueW,
+    };
+    let p = wide(path);
+    let n = name.map(wide);
     let mut buf = vec![0u16; 2048];
     let mut bytes = u32::try_from(buf.len() * 2).unwrap_or(u32::MAX);
-    // SAFETY: reading the key's default string value into a buffer of `bytes` bytes, which
-    // Windows NUL-terminates.
+    // SAFETY: reading a string value into a buffer of `bytes` bytes, which Windows
+    // NUL-terminates; the names are NUL-terminated (a null name is the default value).
     let r = unsafe {
         RegGetValueW(
             HKEY_CURRENT_USER,
             p.as_ptr(),
-            std::ptr::null(),
-            RRF_RT_REG_SZ,
+            n.as_ref().map_or(std::ptr::null(), |n| n.as_ptr()),
+            RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND,
             std::ptr::null_mut(),
             buf.as_mut_ptr().cast(),
             &mut bytes,
@@ -242,6 +251,53 @@ pub(crate) fn scheme_command(scheme: &str) -> Option<String> {
     Some(String::from_utf16_lossy(buf.get(..len)?))
 }
 
+/// The `name` value under `HKCU\<key>` (a Run key), if there is one.
+#[cfg(windows)]
+pub(crate) fn run_value(key: &str, name: &str) -> Option<String> {
+    get_string(key, Some(name))
+}
+
+/// Writes (`Some`) or removes (`None`) the `name` value under `HKCU\<key>`: `program` with
+/// `args`, quoted as Windows reads a command line back.
+#[cfg(windows)]
+pub(crate) fn set_run_value(
+    key: &str,
+    name: &str,
+    command: Option<(&Path, &[String])>,
+) -> Result<(), String> {
+    use windows_sys::Win32::Foundation::ERROR_FILE_NOT_FOUND;
+    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RegDeleteKeyValueW};
+    if let Some((program, args)) = command {
+        let mut line = quote_arg(&program.to_string_lossy());
+        for a in args {
+            line.push(' ');
+            line.push_str(&quote_arg(a));
+        }
+        return set_value(key, Some(name), &line);
+    }
+    let (k, n) = (wide(key), wide(name));
+    // SAFETY: deleting one value by NUL-terminated key path and name.
+    let r = unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, k.as_ptr(), n.as_ptr()) };
+    if r == 0 || r == ERROR_FILE_NOT_FOUND {
+        Ok(())
+    } else {
+        Err(format!("the Run value {name} could not be removed (error {r})"))
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn run_value(_key: &str, _name: &str) -> Option<String> {
+    None
+}
+
+#[cfg(not(windows))]
+pub(crate) fn set_run_value(
+    _key: &str,
+    _name: &str,
+    _command: Option<(&Path, &[String])>,
+) -> Result<(), String> {
+    Err("the Run key is Windows'".into())
+}
 /// Replaces the jump list's Tasks with shortcuts to `program` (`ICustomDestinationList`).
 #[cfg(windows)]
 pub(crate) fn set_jump_tasks(program: &Path, tasks: &[crate::jump::Task]) -> Result<(), String> {

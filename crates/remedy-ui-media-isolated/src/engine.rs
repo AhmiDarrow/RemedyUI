@@ -23,18 +23,19 @@ use crate::{COUNTERS, EnableError, Isolation, Layer};
 #[cfg(feature = "anim")]
 mod anim;
 
-/// How many times longer than this machine's measured cost a request may take before its
-/// helper is stopped: room for slower formats than the timing picture, color conversion and
-/// scaling, and a busy machine; a decoder that never ends is still stopped soon.
-const SLACK: u32 = 20;
-
-/// What a request's memory limit allows beyond the helper's size now, per byte of input,
-/// per source pixel and per output pixel. Decoded pixels at up to 16 bytes each (16-bit
-/// RGBA), their 8-bit copy, a color-converted copy and decoder scratch; the output twice
-/// (scaled, then premultiplied); header parsing and vector formats' trees from the bytes.
-const PER_BYTE: u64 = 64;
-const PER_SOURCE_PIXEL: u64 = 24;
-const PER_OUTPUT_PIXEL: u64 = 8;
+// A request's time and memory budgets are the app's (`IsolationLimits`).
+fn slack() -> u32 {
+    crate::isolation_limits().time_slack
+}
+pub(crate) fn per_byte() -> u64 {
+    crate::isolation_limits().memory_per_byte
+}
+pub(crate) fn per_source_pixel() -> u64 {
+    crate::isolation_limits().memory_per_source_pixel
+}
+pub(crate) fn per_output_pixel() -> u64 {
+    crate::isolation_limits().memory_per_output_pixel
+}
 
 /// The timing picture's side, in pixels.
 const CALIBRATION_SIDE: u32 = 256;
@@ -217,24 +218,24 @@ impl Engine {
     fn budget(&self, units: u64) -> Option<Duration> {
         let c = self.costs.get()?;
         let work = Duration::try_from_secs_f64(c.per_unit * units as f64).unwrap_or(Duration::MAX);
-        Some(c.spawn.saturating_add(work).saturating_mul(SLACK))
+        Some(c.spawn.saturating_add(work).saturating_mul(slack()))
     }
 
     /// How long a helper that has stopped answering gets to finish ending (as long as
     /// starting one may take) before it is stopped.
     fn grace(&self) -> Duration {
-        self.spawn_cost.get().map_or(Duration::ZERO, |c| c.saturating_mul(SLACK))
+        self.spawn_cost.get().map_or(Duration::ZERO, |c| c.saturating_mul(slack()))
     }
 
     /// The watch for work given `budget`: that much more of the helper's processor time, and
-    /// in any case `SLACK` times as long on the clock (a helper that blocks rather than works).
+    /// in any case `time_slack` times as long on the clock (a helper that blocks rather than works).
     /// Without a way to read its processor time, the budget is on the clock.
     fn limits(killer: &Killer, budget: Option<Duration>, memory: Option<u64>) -> Limits {
         let Some(b) = budget else { return Limits { memory, ..Limits::default() } };
         match killer.cpu_time() {
             Some(used) => Limits {
                 cpu: Some((used.saturating_add(b), b / 8)),
-                deadline: Instant::now().checked_add(b.saturating_mul(SLACK)),
+                deadline: Instant::now().checked_add(b.saturating_mul(slack())),
                 memory,
             },
             None => Limits { cpu: None, deadline: Instant::now().checked_add(b), memory },
@@ -246,7 +247,7 @@ impl Engine {
         let mut child = Child::spawn(&self.exe).map_err(|e| Startup::Failed(e.to_string()))?;
         // Until the machine is timed, starting up is not limited: nothing hostile has been
         // read yet, and `helper_main` runs before the app does anything.
-        let budget = self.costs.get().map(|c| c.spawn.saturating_mul(SLACK));
+        let budget = self.costs.get().map(|c| c.spawn.saturating_mul(slack()));
         let armed = watchdog::arm(Self::limits(&child.killer(), budget, None), child.killer())
             .ok_or_else(|| Startup::Failed("the watchdog thread could not start".into()))?;
         let reply = child.recv();
@@ -265,7 +266,7 @@ impl Engine {
             }
             Some(Reply::Refused(why)) => Err(Startup::Refused(why)),
             _ => {
-                let (how, err) = child.wait_exit(t.elapsed().saturating_mul(SLACK));
+                let (how, err) = child.wait_exit(t.elapsed().saturating_mul(slack()));
                 let err = err.trim();
                 let detail = if err.is_empty() { String::new() } else { format!(": {err}") };
                 Err(Startup::Failed(format!("the helper did not come up ({how}){detail}")))
@@ -407,7 +408,7 @@ impl Engine {
 
     fn probe(&self, h: &mut Helper, input: &Shm, len: usize) -> Result<((u32, u32), bool), Fail> {
         let what = format!("the header of a {len}-byte image");
-        let need = (len as u64).saturating_mul(PER_BYTE);
+        let need = (len as u64).saturating_mul(per_byte());
         match self.exchange(
             h,
             Request::Probe { len: len as u64, animated: false },
@@ -439,9 +440,9 @@ impl Engine {
         let out_len = output_px.checked_mul(4).and_then(|n| usize::try_from(n).ok()).ok_or_else(too_large)?;
         let out = Shm::new(out_len).map_err(|_| too_large())?;
         let need = (len as u64)
-            .saturating_mul(PER_BYTE)
-            .saturating_add(source_px.saturating_mul(PER_SOURCE_PIXEL))
-            .saturating_add(output_px.saturating_mul(PER_OUTPUT_PIXEL));
+            .saturating_mul(per_byte())
+            .saturating_add(source_px.saturating_mul(per_source_pixel()))
+            .saturating_add(output_px.saturating_mul(per_output_pixel()));
         let what = format!("a {}×{} image", source.0, source.1);
         let request = Request::Decode { len: len as u64, show };
         let work = units(len, source_px, output_px);

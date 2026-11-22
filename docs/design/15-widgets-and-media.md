@@ -39,6 +39,7 @@ Every widget is built only from public engine APIs: the same ones an app uses fo
 | `embed-webview` | `web_view` ([10](10-platform-bridges.md)) | RemedyAI browser slide |
 | `embed-gpu` | `gpu_view` for the app's own wgpu rendering | 3D previews, game views |
 | `services-update` | Update check, download, verify (signature and hash), apply on restart, from GitHub releases or a custom feed; `update_banner` widget | GuitarRemedy, SecretFolder/Sticky, RemedyPDF, RemedyAI, Hearth |
+| `services-net` | HTTP client: JSON requests with typed decoding, `HttpError` with status, body and detail, multipart uploads, keepalive, timeouts, `Http::resource` (a new key aborts the old request), an optional cookie jar natively | Portal |
 
 `widgets-music` shows the pattern for domain widgets. Each sits in its own pack and is built on `canvas` and `viz`. A domain that needs something these primitives cannot express is a reason to improve the primitives, not to special-case the engine. The music pack is how that went: fret numbers, note names and time signatures needed text inside a drawing, so `canvas` painters got `PaintCx::text` and `measure_text` (one line of text placed by an anchor, in theme fonts) and `PaintCx::rtl`, and the carousel needed the viz pack's timer loop, so `Ticker` became public.
 

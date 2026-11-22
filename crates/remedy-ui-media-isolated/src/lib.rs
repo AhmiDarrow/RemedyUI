@@ -72,6 +72,80 @@ pub const HELPER_ARG: &str = "--remedy-ui-media-helper";
 
 static WIRED: AtomicBool = AtomicBool::new(false);
 
+/// The time and memory each helper request may take before the helper is stopped
+/// ([`set_isolation_limits`]). They guard against hostile images (a decoder made to spin
+/// or to swallow memory): raising them lets such an image hold a processor or memory longer
+/// before it is stopped; lowering them may stop slow formats or very large images that are
+/// fine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct IsolationLimits {
+    /// How many times longer than this machine's measured cost a request may take before its
+    /// helper is stopped: room for slower formats than the timing picture, color conversion
+    /// and scaling, and a busy machine. Default 20.
+    pub time_slack: u32,
+    /// Memory a request may use beyond the helper's size, per byte of input (header parsing,
+    /// vector formats' trees). Default 64.
+    pub memory_per_byte: u64,
+    /// Memory per source pixel: decoded pixels at up to 16 bytes each, their 8-bit copy and
+    /// decoder scratch. Default 24.
+    pub memory_per_source_pixel: u64,
+    /// Memory per output pixel: the output twice (scaled, then premultiplied). Default 8.
+    pub memory_per_output_pixel: u64,
+}
+
+impl IsolationLimits {
+    /// The defaults, as a constant.
+    pub const DEFAULT: IsolationLimits = IsolationLimits {
+        time_slack: 20,
+        memory_per_byte: 64,
+        memory_per_source_pixel: 24,
+        memory_per_output_pixel: 8,
+    };
+
+    /// Sets [`time_slack`](Self::time_slack).
+    pub fn time_slack(mut self, value: u32) -> Self {
+        self.time_slack = value;
+        self
+    }
+
+    /// Sets [`memory_per_byte`](Self::memory_per_byte).
+    pub fn memory_per_byte(mut self, value: u64) -> Self {
+        self.memory_per_byte = value;
+        self
+    }
+
+    /// Sets [`memory_per_source_pixel`](Self::memory_per_source_pixel).
+    pub fn memory_per_source_pixel(mut self, value: u64) -> Self {
+        self.memory_per_source_pixel = value;
+        self
+    }
+
+    /// Sets [`memory_per_output_pixel`](Self::memory_per_output_pixel).
+    pub fn memory_per_output_pixel(mut self, value: u64) -> Self {
+        self.memory_per_output_pixel = value;
+        self
+    }
+}
+
+impl Default for IsolationLimits {
+    fn default() -> Self {
+        IsolationLimits::DEFAULT
+    }
+}
+
+static LIMITS: std::sync::RwLock<IsolationLimits> = std::sync::RwLock::new(IsolationLimits::DEFAULT);
+
+/// Sets the time and memory each helper request may take, from the next request on.
+pub fn set_isolation_limits(limits: IsolationLimits) {
+    *LIMITS.write().unwrap_or_else(std::sync::PoisonError::into_inner) = limits;
+}
+
+/// The time and memory each helper request may take now ([`set_isolation_limits`]).
+pub fn isolation_limits() -> IsolationLimits {
+    *LIMITS.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// Runs the decoding helper when this process was started as one, and never returns then;
 /// otherwise returns at once. Call it first thing in `main`, before any threads are started
 /// or windows opened (after registering any image formats with
@@ -261,5 +335,20 @@ pub fn isolation() -> Option<Isolation> {
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos", target_os = "android")))]
     {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_budgets_are_the_apps() {
+        assert_eq!(isolation_limits(), IsolationLimits::default());
+        set_isolation_limits(IsolationLimits::default().time_slack(40).memory_per_source_pixel(48));
+        assert_eq!((isolation_limits().time_slack, isolation_limits().memory_per_byte), (40, 64));
+        #[cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))]
+        assert_eq!(engine::per_source_pixel(), 48, "the engine budgets with the app's");
+        set_isolation_limits(IsolationLimits::DEFAULT);
     }
 }

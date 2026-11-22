@@ -169,10 +169,10 @@ public final class Bridge
         decor.setOnApplyWindowInsetsListener(this);
         content.addOnLayoutChangeListener(this);
         decor.requestApplyInsets();
-        // The input methods' view sits over the drawing view, which keeps the window's input.
+        // A 1 px target for the input method only. A full-screen view on top of the
+        // drawing surface would eat taps once it became focusable for a text session.
         ViewGroup root = (ViewGroup) decor.findViewById(android.R.id.content);
-        root.addView(input, new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(input, new ViewGroup.LayoutParams(1, 1));
         content.setOnDragListener(
                 new View.OnDragListener() {
                     @Override
@@ -267,8 +267,8 @@ public final class Bridge
 
     /** Starts or updates a text session (UI thread). */
     public void textInput(String text, int selStart, int selEnd, float x, float top, float bottom,
-            boolean secret, boolean multiline, boolean numeric) {
-        input.update(text, selStart, selEnd, x, top, bottom, secret, multiline, numeric);
+            boolean secret, boolean multiline, int purpose) {
+        input.update(text, selStart, selEnd, x, top, bottom, secret, multiline, purpose);
     }
 
     /** The app committed the input method's composition itself (UI thread). */
@@ -295,6 +295,23 @@ public final class Bridge
     /** Opens the print dialog for an HTML page (UI thread). */
     public void print(String title, String html) {
         Print.show(activity, title, html);
+    }
+
+    /** Whether this app may offer an APK to the system installer (UI thread). */
+    public boolean canRequestPackageInstalls() {
+        return InstallApk.canInstall(activity);
+    }
+
+    /**
+     * Opens the system installer for an APK already under the share folder, or the
+     * install-permission settings when that is not yet allowed (UI thread).
+     */
+    public String installApk(String request, int index, String mime, String name) {
+        try {
+            return InstallApk.install(activity, request, index, mime, name);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /** Opens the document picker (UI thread). */
@@ -359,9 +376,9 @@ public final class Bridge
      * Throws when the person turned notifications off.
      */
     public static void showNotification(Activity activity, long handle, long id, String title, String body,
-            String[] actionIds, String[] labels, boolean silent, String app, int[] argb, int size) {
+            String[] actionIds, String[] labels, boolean silent, String app, int[] argb, int size, int urgency) {
         Notifier n = Notifier.get(activity, handle);
-        n.show(id, n.build(id, title, body, actionIds, labels, silent, app, argb, size, false));
+        n.show(id, n.build(id, title, body, actionIds, labels, silent, app, argb, size, urgency, false));
     }
 
     /** Takes notification `id` away (any thread). */
@@ -379,15 +396,22 @@ public final class Bridge
      * shown by notification `id` (any thread). Throws with what Android would refuse.
      */
     public static void startForeground(Activity activity, long handle, long id, String title, String body,
-            String[] actionIds, String[] labels, boolean silent, String app, int[] argb, int size, int types) {
+            String[] actionIds, String[] labels, boolean silent, String app, int[] argb, int size, int urgency,
+            int types) {
         Notifier n = Notifier.get(activity, handle);
-        Foreground.start(activity, handle, n.build(id, title, body, actionIds, labels, silent, app, argb, size, true),
+        Foreground.start(activity, handle,
+                n.build(id, title, body, actionIds, labels, silent, app, argb, size, urgency, true),
                 types);
     }
 
     /** Ends the app's foreground work (any thread). */
     public static void stopForeground(Activity activity) {
         Foreground.stop(activity);
+    }
+
+    /** Keeps the process running out of sight while keepalive requests finish (any thread). */
+    public static void holdProcess(Activity activity, boolean on) {
+        Keepalive.hold(activity, on);
     }
 
     /** The view the native activity draws in: where accessibility nodes live. */

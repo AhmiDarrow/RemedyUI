@@ -93,6 +93,12 @@ pub struct PlayerOptions {
     /// Keeps the screen on while video plays here ([`Player::set_keep_awake`]); off by
     /// default.
     pub keep_awake: bool,
+    /// How far each press of the widget's captions Earlier and Later moves the timing
+    /// ([`Player::set_caption_delay`]); half a second by default, as Portal's.
+    pub caption_step: Duration,
+    /// How far the widget's captions Earlier and Later may move the timing either way; ten
+    /// minutes by default, as Portal's. [`Player::set_caption_delay`] itself takes any value.
+    pub caption_delay_limit: Duration,
 }
 
 /// What the person chose in the widget's captions menu ([`Player::caption_pick`]).
@@ -510,6 +516,18 @@ impl PlayerOptions {
         self.compact = value;
         self
     }
+
+    /// Sets `caption_step`: how far each captions Earlier or Later press moves the timing.
+    pub fn caption_step(mut self, value: Duration) -> Self {
+        self.caption_step = value;
+        self
+    }
+
+    /// Sets `caption_delay_limit`: how far captions Earlier and Later may move the timing.
+    pub fn caption_delay_limit(mut self, value: Duration) -> Self {
+        self.caption_delay_limit = value;
+        self
+    }
 }
 
 /// How long the "up next" countdown runs by default.
@@ -532,6 +550,8 @@ impl Default for PlayerOptions {
             volume_on_hover: false,
             compact: false,
             keep_awake: false,
+            caption_step: Duration::from_millis(500),
+            caption_delay_limit: Duration::from_secs(600),
         }
     }
 }
