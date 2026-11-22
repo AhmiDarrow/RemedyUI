@@ -16,7 +16,9 @@ default = ["anim"]
 ## Animations (GIF, APNG, animated WebP and added formats) decoded in the helper too.
 anim = ["dep:remedy-ui-media-anim"]
 
-[dependencies]
+# Only where a helper runs: elsewhere nothing is isolated, and images and animations decode in
+# place.
+[target.'cfg(any(windows, target_os = "linux", target_os = "macos", target_os = "android"))'.dependencies]
 remedy-ui-media-anim = { path = "../remedy-ui-media-anim", version = "1.0.0-rc.1", default-features = false, optional = true }
 remedy-ui-media-image = { path = "../remedy-ui-media-image", version = "1.0.0-rc.1", default-features = false }
 remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
