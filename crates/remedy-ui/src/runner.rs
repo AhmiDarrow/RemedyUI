@@ -849,7 +849,7 @@ struct Shared {
     power: Option<remedy_ui_services_desktop::power::PowerWatch>,
     on_activity: Option<Rc<dyn Fn()>>,
     /// Told when the app may be ended without another word ([`App::on_leaving`]).
-    on_leaving: Option<Rc<dyn Fn()>>,
+    on_leaving: Option<Rc<dyn Fn(Leaving)>>,
     /// Told the system's light/dark preference and high contrast, now and when they change.
     on_appearance: Option<AppearanceFn>,
     /// Hears the app's language (its own, or the system's) when it changes.
@@ -881,6 +881,21 @@ struct Shared {
     /// Agents' access to each window that took them ([`Window::attach_agents`]).
     #[cfg(feature = "agents")]
     agents: HashMap<u64, remedy_ui_automation::Agents>,
+}
+
+/// Why the app may be ended ([`App::on_leave`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Leaving {
+    /// Out of sight: its page's tab hidden, every window minimized. It may come back.
+    Hidden,
+    /// Frozen or suspended: a page put into the back-forward cache or frozen in the
+    /// background, a phone app sent to the background. It may come back.
+    Frozen,
+    /// Its page closed, reloaded or navigated away from for good (not kept in the cache).
+    Closing,
+    /// The app quits, or its last window closed.
+    Quitting,
 }
 
 /// The app, as its code sees it. Requests take effect right after the current event.
@@ -1014,8 +1029,16 @@ impl App {
     /// at once, inside the browser's own `visibilitychange` or `pagehide`, so a request it
     /// starts with `net::Request::keepalive` (feature `net`) still goes out as the page closes (natively, quitting waits for it,
     /// [`AppConfig::keepalive_grace`]). It may run more than once on the way out (hidden,
-    /// then closed); the app may also come back (shown again). A second call replaces `f`.
+    /// then closed); the app may also come back (shown again). A second call replaces `f`,
+    /// and so does [`on_leave`](Self::on_leave), which also says why.
     pub fn on_leaving(&self, f: impl Fn() + 'static) {
+        self.on_leave(move |_| f());
+    }
+
+    /// [`on_leaving`](Self::on_leaving), told why: hidden, frozen, closing or quitting. Work
+    /// that should survive a tab switch stops on [`Leaving::Closing`] and
+    /// [`Leaving::Quitting`] only. A second call replaces `f`.
+    pub fn on_leave(&self, f: impl Fn(Leaving) + 'static) {
         self.0.borrow_mut().on_leaving = Some(Rc::new(f));
     }
 
@@ -2856,7 +2879,7 @@ impl Runner {
                 self.schedule_save(host);
             }
             Cmd::Quit => {
-                self.save_now(host, true);
+                self.save_now(host, Leaving::Quitting);
                 host.exit();
             }
         }
@@ -3054,8 +3077,9 @@ impl Runner {
     /// be stopped without warning (suspended, or out of sight: a mobile system or a browser
     /// can end a background app or a hidden tab at any time).
     /// Geometry is written when a write is due (or `always`, when the app quits).
-    fn save_now(&mut self, host: &mut dyn Host, always: bool) {
-        self.leaving();
+    fn save_now(&mut self, host: &mut dyn Host, why: Leaving) {
+        let always = why == Leaving::Quitting;
+        self.leaving(why);
         let due = self.save_timer.take().inspect(|t| host.cancel_timer(*t)).is_some();
         if due || always {
             let _ = self.geometry.save();
@@ -3067,10 +3091,10 @@ impl Runner {
     }
 
     /// Tells the app it may be ended ([`App::on_leaving`]).
-    fn leaving(&self) {
+    fn leaving(&self, why: Leaving) {
         let f = self.app.0.borrow().on_leaving.clone();
         if let Some(f) = f {
-            f();
+            f(why);
         }
     }
 
@@ -3650,7 +3674,7 @@ impl remedy_ui_host::App for Runner {
                 // Out of sight altogether (a page's tab hidden, every window minimized): the
                 // system may end the app from here on, so what it keeps is written now.
                 if covered && self.wins.values().all(|w| w.ui.is_occluded()) {
-                    self.save_now(host, false);
+                    self.save_now(host, Leaving::Hidden);
                 }
             }
             HostEvent::Moved(window, _) => {
@@ -3834,7 +3858,7 @@ impl remedy_ui_host::App for Runner {
                     w.ui.set_safe_area(area);
                 }
             }
-            HostEvent::Suspended => {
+            HostEvent::Suspended | HostEvent::Closing => {
                 // The platform takes the windows' surfaces away (Android destroys the native
                 // window when this returns): let go of every presenter now, and draw nothing
                 // until the windows come back.
@@ -3847,7 +3871,8 @@ impl remedy_ui_host::App for Runner {
                     w.ui.set_occluded(true);
                 }
                 // A suspended app may be ended without another word.
-                self.save_now(host, false);
+                let why = if matches!(event, HostEvent::Closing) { Leaving::Closing } else { Leaving::Frozen };
+                self.save_now(host, why);
             }
             HostEvent::Destroyed(window) => {
                 if let Some(key) = self.by_host.remove(&window) {
@@ -3890,7 +3915,7 @@ impl remedy_ui_host::App for Runner {
                     (s.open.is_empty(), s.keep_running)
                 };
                 if none_left && !keep {
-                    self.leaving();
+                    self.leaving(Leaving::Quitting);
                     let _ = self.geometry.save();
                     host.exit();
                 }
