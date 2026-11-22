@@ -4066,6 +4066,7 @@ dependencies = [
  "remedy-ui-secure",
  "remedy-ui-services-desktop",
  "remedy-ui-services-i18n",
+ "remedy-ui-services-net",
  "remedy-ui-services-spell",
  "remedy-ui-services-update",
  "remedy-ui-services-webstorage",
@@ -4779,6 +4780,22 @@ dependencies = [
  "remedy-ui-view",
  "serde_json",
  "unic-langid",
+]
+
+[[package]]
+name = "remedy-ui-services-net"
+version = "1.0.0-rc.1"
+dependencies = [
+ "js-sys",
+ "remedy-ui-reactive",
+ "rustls",
+ "serde",
+ "serde_json",
+ "ureq",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]
