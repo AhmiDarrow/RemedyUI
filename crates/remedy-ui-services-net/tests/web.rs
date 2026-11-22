@@ -108,6 +108,39 @@ async fn requests_in_a_page() {
     .unwrap();
     assert_eq!(v["body"], "last save");
 
+    // A 304 answering a conditional request carries its new validators.
+    match answer(|d| http.send(Request::get("etag").header("If-None-Match", "\"v1\""), &Cancel::new(), d))
+        .await
+    {
+        Err(NetError::Http(e)) => {
+            assert_eq!(
+                (e.status, e.header("etag"), e.header("cache-control")),
+                (304, Some("\"v2\""), Some("max-age=60"))
+            )
+        }
+        other => panic!("{other:?}"),
+    }
+
+    // A streamed body arrives in chunks from the response's ReadableStream, within its cap.
+    let got = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let g = got.clone();
+    let out = answer(|d| {
+        http.stream(
+            Request::get("big"),
+            &Cancel::new(),
+            move |head, bytes| {
+                assert_eq!(head.header("x-kind"), Some("big"));
+                g.fetch_add(bytes.len(), std::sync::atomic::Ordering::SeqCst);
+            },
+            d,
+        )
+    })
+    .await;
+    assert!(out.is_ok_and(|r| r.body.is_empty()));
+    assert_eq!(got.load(std::sync::atomic::Ordering::SeqCst), 300_000);
+    let out = answer(|d| http.stream(Request::get("big").max_body(1000), &Cancel::new(), |_, _| {}, d)).await;
+    assert_eq!(out, Err(NetError::TooLarge(1000)));
+
     // A timeout aborts the fetch.
     let t = now();
     let out =

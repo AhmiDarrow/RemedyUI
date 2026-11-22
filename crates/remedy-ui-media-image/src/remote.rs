@@ -559,10 +559,8 @@ impl Fetch for Own {
             Http::new("").send(r, &cancel, move |out| {
                 done(match out {
                     Ok(res) => Ok(FetchReply { status: res.status, headers: res.headers, body: res.body }),
-                    // shortcut: an error status (a `304` too) carries no headers through the client, so
-                    // a `304` keeps the copy's old validators and is asked again next time; upgrade
-                    // if the client starts returning headers with `HttpError`.
-                    Err(NetError::Http(e)) => Ok(FetchReply::new(e.status, Vec::new(), e.body.into_bytes())),
+                    // A `304` brings the copy's new validators and freshness in its headers.
+                    Err(NetError::Http(e)) => Ok(FetchReply::new(e.status, e.headers, e.body.into_bytes())),
                     Err(e) => Err(e.to_string()),
                 });
             });

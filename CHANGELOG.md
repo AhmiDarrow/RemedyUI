@@ -10,6 +10,28 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **`services-net` reaches the local network on request**: `Http::policy(HttpPolicy::PrivateNetworks)`
+  allows plain `http` to RFC 1918, link-local and unique-local IPv6 addresses and `.local`
+  names, for a native app talking to a Portal server at home. Off by default
+  (`HttpPolicy::LoopbackOnly`). Natively the resolved address is checked before connecting
+  (no DNS-rebinding way round it), plain `http` skips proxies, and redirects are followed hop
+  by hop with each hop checked; in a page Chrome's local network access is asked for.
+- **A real cookie jar** in `services-net` natively (RFC 6265): `Domain` and host-only cookies,
+  `Path`, `Secure`, `HttpOnly`, `Expires` and `Max-Age`, `SameSite` kept; `CookieJar::cookies`
+  lists them as `Cookie`s. Each redirect hop sends and keeps its own address's cookies.
+- **Streaming bodies**: `Http::stream` hands the body over chunk by chunk (natively from
+  ureq's reader, in a page from the `fetch` body's `ReadableStream`), cancellable between
+  chunks, ending with `NetError::TooLarge` past the size limit.
+- **Every `services-net` limit is configurable**: `Http::max_body` and `Request::max_body`
+  (256 MiB by default), `Http::timeout` and `Request::timeout` (30 s), `Http::max_redirects`
+  (10), `CookieJar::max_cookies` (3000); `None` lifts one. The defaults are public constants.
+- **Keepalive requests finish in the background on Android**: while one is under way the
+  bridge's new `Keepalive` service (declared by `cargo remedy package`) keeps the process
+  from being frozen, and the way out waits for them as on the desktop
+  (`remedy_ui_bridge_android::hold_process`, `remedy_ui_services_net::on_keepalive`).
+- `HttpError` carries the response headers (`HttpError::header`), so a `304 Not Modified`
+  exposes its new `ETag`, `Last-Modified` and `Cache-Control`. The `media-image` disk cache
+  now keeps them, so a revalidated image gets the new validators and freshness.
 - **Android: an app can offer an APK it already has to the system installer** (`android::install_apk`), served through the existing share `FileProvider`. The person taps Install, and their data is kept. If the “install unknown apps” setting is off, the settings page for this app is opened instead (`android::can_request_package_installs`). Share cleanup leaves named (non-numeric) folders under the share cache, so a downloaded APK is not deleted when a later share starts. Launch extras and these installer calls keep working after the event loop has started (the activity is no longer taken out of the process hook when the loop begins).
 
 - **Spatial navigation** for TVs, remotes and d-pads (engine gap #4 of Portal's whole-app

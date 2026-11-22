@@ -31,6 +31,8 @@ fn png(w: u32, h: u32) -> Vec<u8> {
 struct Seen {
     hits: HashMap<String, usize>,
     statuses: Vec<(String, u16)>,
+    /// The `If-None-Match` each request came with.
+    asked: Vec<(String, Option<String>)>,
     cut_off: bool,
 }
 
@@ -86,6 +88,7 @@ fn serve(conn: std::net::TcpStream, seen: &Mutex<Seen>) {
     }
     if let Ok(mut s) = seen.lock() {
         *s.hits.entry(path.clone()).or_default() += 1;
+        s.asked.push((path.clone(), if_none_match.clone()));
     }
     let mut out = conn;
     let (status, headers, body): (u16, &str, Vec<u8>) = match path.as_str() {
@@ -94,6 +97,11 @@ fn serve(conn: std::net::TcpStream, seen: &Mutex<Seen>) {
             (304, "ETag: \"e1\"\r\nCache-Control: no-cache\r\n", vec![])
         }
         "/etag.png" => (200, "ETag: \"e1\"\r\nCache-Control: no-cache\r\n", png(20, 40)),
+        // Revalidating moves it to a new ETag.
+        "/rotate.png" if if_none_match.is_some() => {
+            (304, "ETag: \"r2\"\r\nCache-Control: no-cache\r\n", vec![])
+        }
+        "/rotate.png" => (200, "ETag: \"r1\"\r\nCache-Control: no-cache\r\n", png(20, 40)),
         "/slow.png" => {
             let body = png(64, 64);
             let head = format!(
@@ -243,6 +251,30 @@ fn a_no_cache_image_is_revalidated_with_its_etag() {
         Some(ImageState::Ready(_, size)) => assert_eq!(size, (20, 40), "the disk copy's pixels"),
         other => unreachable!("{other:?}"),
     }
+}
+
+#[test]
+fn a_304_brings_new_validators() {
+    let server = Server::start();
+    let ui = ui();
+    let url = server.url("/rotate.png");
+    for _ in 0..3 {
+        forget_remembered();
+        let state = remedy_ui_reactive::Signal::new(ImageState::Loading);
+        let _req = load(&Source::Url(url.clone()), Some((20, 40)), false, state);
+        assert!(until(&ui, || matches!(state.get_untracked().ok(), Some(ImageState::Ready(..)))));
+        // Let go of the pixels, so the next load goes back to the server.
+        drop(_req);
+        state.set(ImageState::Loading);
+        frame(&ui);
+    }
+    let asked: Vec<Option<String>> = server
+        .seen
+        .lock()
+        .map(|s| s.asked.iter().filter(|(p, _)| p == "/rotate.png").map(|(_, v)| v.clone()).collect())
+        .unwrap_or_default();
+    // The second answer's new ETag is the one the third request asks with.
+    assert_eq!(asked, [None, Some("\"r1\"".to_owned()), Some("\"r2\"".to_owned())]);
 }
 
 #[test]
