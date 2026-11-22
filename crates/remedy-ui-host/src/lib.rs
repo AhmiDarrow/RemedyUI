@@ -1252,6 +1252,9 @@ pub enum HostEvent {
     Resumed,
     /// The app should release surfaces (mobile background).
     Suspended,
+    /// The app is going away for good (a page closed or reloaded, not kept in the browser's
+    /// back-forward cache): as [`HostEvent::Suspended`], and it will not resume.
+    Closing,
     /// A window's surface size or scale changed (device pixels and device pixels per logical
     /// pixel). Also sent once when a window is created.
     Resized {

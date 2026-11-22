@@ -71,6 +71,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   last window closed): inside the browser's own `visibilitychange` and `pagehide`, so a
   `Request::keepalive` started there still goes out as the tab closes. A page's `pagehide`
   now always suspends the app, not only when the page goes into the back-forward cache.
+- **`App::on_leave(|why: Leaving| ..)`**: `on_leaving`, told why: `Hidden` (a tab hidden,
+  every window minimized), `Frozen` (a page frozen or put into the back-forward cache, a phone
+  app sent to the background), `Closing` (a page closed or reloaded for good, told apart by
+  `pagehide`'s `persisted`) or `Quitting`. Work that should survive a tab switch stops on
+  `Closing` and `Quitting` only. New `HostEvent::Closing` from hosts whose app goes for good.
 - **`Role::ComboBox`** (ARIA `combobox`): the drop-down `select` is one now, its list a
   `ListBox` of `Option`s (the chosen one selected), with its value
   and whether its list is open (`expanded`); a focused one keeps its keys from a player.
