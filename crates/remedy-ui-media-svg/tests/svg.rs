@@ -118,3 +118,31 @@ fn icons_take_the_text_color_and_name() {
     let _ = ui.frame(Size::new(200.0, 100.0), 2.0);
     assert!(format!("{:?}", pic.info().and_then(|i| i.semantics)).contains("Square"));
 }
+
+#[test]
+fn svg_behind_a_long_prolog_is_recognised_up_to_the_sniff_limit() {
+    install();
+    let long = format!("<?xml version=\"1.0\"?>\n<!-- {} -->\n{SQUARE}", "licence text ".repeat(2000));
+    assert!(long.len() > 16 * 1024, "longer than the loader's buffered head");
+    assert_eq!(dimensions(long.as_bytes()).ok(), Some((10, 10)));
+    // A file goes through the loader's header read, which buffers less than the prolog.
+    let path = std::env::temp_dir().join(format!("remedy-svg-long-{}.svg", std::process::id()));
+    std::fs::write(&path, &long).unwrap_or_else(|e| unreachable!("{e}"));
+    let state = remedy_ui_reactive::Signal::new(ImageState::Loading);
+    remedy_ui_media_image::probe(&Source::File(path.clone()), state);
+    let start = Instant::now();
+    while state.with_untracked(|s| matches!(s, ImageState::Loading)).unwrap_or(false)
+        && start.elapsed() < Duration::from_secs(10)
+    {
+        let _ = remedy_ui_reactive::run_posted();
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let _ = std::fs::remove_file(&path);
+    assert!(matches!(state.get_untracked().ok(), Some(ImageState::Sized((10, 10)))));
+    // A prolog longer than the limit is not looked through.
+    assert_eq!(sniff_limit(), DEFAULT_SNIFF_LIMIT);
+    set_sniff_limit(4096);
+    let short = dimensions(long.as_bytes());
+    set_sniff_limit(DEFAULT_SNIFF_LIMIT);
+    assert!(short.is_err(), "{short:?}");
+}
