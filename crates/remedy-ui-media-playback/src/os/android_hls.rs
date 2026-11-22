@@ -336,7 +336,8 @@ impl Elementary for NdkElementary {
     ) -> Result<(), MediaError> {
         // The last stream's decoders stay where the format matches, flushed: H.264 of the same
         // size (its image reader is that size; parameter sets come in-band), the same sound.
-        if !matches!((&self.config.0, video), (Some(o), Some(n)) if (o.width, o.height) == (n.width, n.height)) {
+        if !matches!((&self.config.0, video), (Some(o), Some(n)) if (o.width, o.height) == (n.width, n.height))
+        {
             self.video = None;
         }
         if self.config.1.as_ref() != audio {
