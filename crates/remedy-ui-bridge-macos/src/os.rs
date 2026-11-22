@@ -103,6 +103,7 @@ pub(crate) struct Settings {
     pub(crate) reduced_motion: bool,
     pub(crate) reduced_transparency: bool,
     pub(crate) locale: Option<String>,
+    pub(crate) languages: Vec<String>,
     pub(crate) double_click: Duration,
 }
 
@@ -129,6 +130,12 @@ pub(crate) fn settings() -> Settings {
         reduced_motion: ws.accessibilityDisplayShouldReduceMotion(),
         reduced_transparency: ws.accessibilityDisplayShouldReduceTransparency(),
         locale: (!locale.is_empty()).then_some(locale),
+        // Language & Region's preferred languages, as BCP 47 tags, most preferred first.
+        languages: NSLocale::preferredLanguages()
+            .iter()
+            .map(|l| l.to_string())
+            .filter(|l| !l.is_empty())
+            .collect(),
         double_click: Duration::from_secs_f64(NSEvent::doubleClickInterval().max(0.0)),
     }
 }

@@ -59,6 +59,7 @@ pub(crate) fn read(win: &web_sys::Window) -> PageSettings {
         high_contrast: matches(win, QUERIES[3]) || matches(win, QUERIES[4]),
         reduced_transparency: matches(win, QUERIES[5]),
         language: win.navigator().language().unwrap_or_default(),
+        languages: win.navigator().languages().iter().filter_map(|l| l.as_string()).collect(),
         apple: convert::is_apple(&platform_name(win)),
         root_font_px: if root_font_px > 0.0 { root_font_px } else { 16.0 },
         accent: accent(win),

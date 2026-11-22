@@ -10,6 +10,18 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Locale formats** in `services-i18n`, as Portal writes dates, counts and languages:
+  `CalendarSymbols::medium_date` ("Nov 21, 2026", `21.11.2026` in de, `2026/11/21` in ja),
+  `CalendarSymbols::date_time` (a date and a time to the minute on the locale's 12- or 24-hour
+  clock: "Nov 21, 2026, 2:30 PM", `21.11.2026, 14:30`), `NumberSymbols::compact` ("1.2K",
+  "3.4M"; `340万` in ja, `34 লা` in bn) from ICU4X's compiled data (`icu_decimal`'s compact
+  formatter, no new crate), and `language_name(ui, code)` / `language_name_in(locale, code)`
+  ("Französisch" for `fr` in de) from `language-<code>` messages in every language the engine
+  ships, which apps extend with `add_messages`. `SystemSettings::locales` is the user's
+  preferred languages in order (`navigator.languages`, the Windows display languages,
+  `LANGUAGE` then `LC_ALL`/`LC_MESSAGES`/`LANG` on Linux, `NSLocale.preferredLanguages` on
+  macOS, Android's locale list; `[locale]` where there is no list), read by apps as
+  `App::preferred_locales()`. `SystemSettings::locale` is unchanged.
 - **Fluid poster grids** in `widgets-data`, as Portal's library: `Tiles::fluid(min_width,
   aspect, extra_height, draw)` fills the width as CSS `repeat(auto-fill, minmax(min, 1fr))`
   does (`GridGeometry::fluid`), recomputed as the width changes; `grid_view_with(.., GridOptions

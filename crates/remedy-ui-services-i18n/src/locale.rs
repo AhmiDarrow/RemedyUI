@@ -8,8 +8,8 @@ use icu_calendar::Gregorian;
 use icu_calendar::types::Weekday as IcuWeekday;
 use icu_datetime::FixedCalendarDateTimeFormatter;
 use icu_datetime::fieldsets;
-use icu_decimal::DecimalFormatter;
 use icu_decimal::input::Decimal as IcuDecimal;
+use icu_decimal::{CompactDecimalFormatter, DecimalFormatter};
 use icu_locale_core::Locale;
 
 use crate::calendar::{Date, Weekday};
@@ -28,6 +28,8 @@ pub struct NumberSymbols {
     pub minus: char,
     /// The locale's digits, zero to nine.
     pub digits: [char; 10],
+    /// The locale these are for, which [`NumberSymbols::compact`] formats in.
+    tag: String,
 }
 
 impl Default for NumberSymbols {
@@ -38,6 +40,7 @@ impl Default for NumberSymbols {
             grouping: (3, 3),
             minus: '-',
             digits: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+            tag: String::from("und"),
         }
     }
 }
@@ -53,7 +56,8 @@ impl NumberSymbols {
         if let Some(s) = CACHE.with(|c| c.borrow().get(tag).cloned()) {
             return s;
         }
-        let s = Self::read(tag).unwrap_or_default();
+        let s =
+            Self::read(tag).unwrap_or_else(|| NumberSymbols { tag: tag.to_owned(), ..Default::default() });
         CACHE.with(|c| c.borrow_mut().insert(tag.to_owned(), s.clone()));
         s
     }
@@ -106,7 +110,35 @@ impl NumberSymbols {
                 decimal = c;
             }
         }
-        Some(NumberSymbols { decimal, group, grouping: (primary, secondary), minus, digits })
+        Some(NumberSymbols {
+            decimal,
+            group,
+            grouping: (primary, secondary),
+            minus,
+            digits,
+            tag: tag.to_owned(),
+        })
+    }
+
+    /// A count written short, the locale's way: `1.2K` and `3.4M` in en, `1234` and `1.2万`
+    /// in ja, `১.২ হা` in bn. Below a thousand it is the number itself; at most one fraction
+    /// digit, and only below ten.
+    pub fn compact(&self, v: Decimal) -> String {
+        thread_local!(static CACHE: RefCell<HashMap<String, Option<Rc<CompactDecimalFormatter>>>> = RefCell::new(HashMap::new()));
+        let f = CACHE.with(|c| {
+            c.borrow_mut()
+                .entry(self.tag.clone())
+                .or_insert_with(|| {
+                    CompactDecimalFormatter::try_new_short((&locale(&self.tag)).into(), Default::default())
+                        .ok()
+                        .map(Rc::new)
+                })
+                .clone()
+        });
+        match (f, v.to_string().parse::<IcuDecimal>()) {
+            (Some(f), Ok(d)) => f.format(&d).to_string(),
+            _ => self.format(v, v.scale()),
+        }
     }
 
     /// Writes `v` with exactly `places` fraction digits (rounded), grouped.
@@ -216,6 +248,8 @@ pub struct CalendarSymbols {
     month_year: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YM>>>,
     time: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::T>>>,
     full_date: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YMD>>>,
+    medium_date: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YMD>>>,
+    date_time: Option<Rc<FixedCalendarDateTimeFormatter<Gregorian, fieldsets::YMDT>>>,
 }
 
 impl CalendarSymbols {
@@ -284,7 +318,27 @@ impl CalendarSymbols {
             FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new((&loc).into(), fieldsets::YMD::long())
                 .ok()
                 .map(Rc::new);
-        CalendarSymbols { first_weekday, weekdays, twelve_hour, day_periods, month_year, time, full_date }
+        let medium_date =
+            FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new((&loc).into(), fieldsets::YMD::medium())
+                .ok()
+                .map(Rc::new);
+        let date_time = FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new(
+            (&loc).into(),
+            fieldsets::YMDT::medium().with_time_precision(icu_datetime::options::TimePrecision::Minute),
+        )
+        .ok()
+        .map(Rc::new);
+        CalendarSymbols {
+            first_weekday,
+            weekdays,
+            twelve_hour,
+            day_periods,
+            month_year,
+            time,
+            full_date,
+            medium_date,
+            date_time,
+        }
     }
 
     /// "November 2026" for a month.
@@ -302,6 +356,29 @@ impl CalendarSymbols {
         match (&self.full_date, d) {
             (Some(f), Some(d)) => f.format(&d).to_string(),
             _ => date.to_string(),
+        }
+    }
+
+    /// "Nov 21, 2026" for a date: the month abbreviated where the locale does (`21.11.2026`
+    /// in de, `2026/11/21` in ja).
+    pub fn medium_date(&self, date: Date) -> String {
+        let d = icu_calendar::Date::try_new_gregorian(date.year, date.month, date.day).ok();
+        match (&self.medium_date, d) {
+            (Some(f), Some(d)) => f.format(&d).to_string(),
+            _ => date.to_string(),
+        }
+    }
+
+    /// A date and a time to the minute, as the locale writes them together: "Nov 21, 2026,
+    /// 2:30 PM" in en-US, "21.11.2026, 14:30" in de, with the locale's 12- or 24-hour clock.
+    pub fn date_time(&self, date: Date, time: crate::calendar::Time) -> String {
+        let d = icu_calendar::Date::try_new_gregorian(date.year, date.month, date.day).ok();
+        let t = icu_datetime::input::Time::try_new(time.hour, time.minute, 0, 0).ok();
+        match (&self.date_time, d, t) {
+            (Some(f), Some(date), Some(time)) => {
+                f.format(&icu_datetime::input::DateTime { date, time }).to_string()
+            }
+            _ => format!("{}, {}", self.medium_date(date), self.format_time(time)),
         }
     }
 
@@ -337,4 +414,27 @@ impl CalendarSymbols {
     pub fn weekday(&self, d: Weekday) -> &str {
         self.weekdays.get(d.index_from_monday()).map_or("", String::as_str)
     }
+}
+
+/// A language's name in `locale` (the window's language): `language_name_in("de", "fr")` is
+/// "Französisch", `language_name_in("en", "pt-BR")` "Brazilian Portuguese". Names begin with
+/// a capital, as a menu or a list shows them. They are the `language-<code>` messages in
+/// `i18n/*.ftl`: every language the engine ships, plus `pt-BR` and `zh-Hans`; apps add more
+/// with [`remedy_ui_view::strings::add_messages`] under `services-i18n`. A region or script
+/// with no name of its own gets the language's; a language with no name comes back as given.
+pub fn language_name_in(locale: &str, code: &str) -> String {
+    let tag = crate::canonical_locale(code);
+    let base = tag.split('-').next().unwrap_or_default().to_owned();
+    for id in [format!("language-{tag}"), format!("language-{base}")] {
+        let name = crate::STRINGS.format_in(locale, &id, &[]);
+        if name != format!("\u{27E8}{id}\u{27E9}") {
+            return name;
+        }
+    }
+    code.to_owned()
+}
+
+/// [`language_name_in`] the window's language (tracked: it follows the locale).
+pub fn language_name(ui: &remedy_ui_view::Ui, code: &str) -> String {
+    language_name_in(&ui.locale(), code)
 }
