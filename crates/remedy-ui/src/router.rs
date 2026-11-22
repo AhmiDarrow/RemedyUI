@@ -29,7 +29,7 @@ use remedy_ui_reactive::Signal;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 
-use crate::Window;
+use crate::{Window, WindowSpec};
 
 #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
 use remedy_ui_bridge_web::history;
@@ -159,6 +159,12 @@ struct Entry {
 
 type TitleFn = Rc<dyn Fn(&Route) -> String>;
 
+/// How links opened elsewhere get their own window ([`Router::open_windows`]).
+struct NewWindows {
+    spec: WindowSpec,
+    build: Box<dyn Fn(&Ui, &Window, &Router)>,
+}
+
 struct Inner {
     entries: Vec<Entry>,
     index: usize,
@@ -166,6 +172,7 @@ struct Inner {
     window: Option<Window>,
     /// The current page's scroll container ([`Router::remember_scroll`]).
     scroller: Option<El>,
+    windows: Option<Rc<NewWindows>>,
 }
 
 /// The app's routes: the current one (a signal pages follow), the history behind and ahead
@@ -198,6 +205,7 @@ impl Router {
                 title: None,
                 window: None,
                 scroller: None,
+                windows: None,
             })),
             route: Signal::new(route),
         }
@@ -205,25 +213,81 @@ impl Router {
 
     /// The router of `window`: titles it after the route. In a browser page it starts at the
     /// address's fragment when there is one (else at `start`, written to the address) and
-    /// follows the browser's history both ways.
+    /// follows the browser's history both ways. After a reload it has its entries back, in
+    /// their places and with their scroll positions: each history entry carries the list
+    /// in its `history.state`, written again as the page is put away.
     pub fn for_window(window: &Window, start: &str) -> Router {
         let me = Router::new(start);
         me.inner.borrow_mut().window = Some(window.clone());
         #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
         {
             let fragment = history::fragment();
-            if !fragment.is_empty() {
-                let route = Route::parse(&fragment);
-                if let Some(e) = me.inner.borrow_mut().entries.first_mut() {
-                    e.route = route.clone();
+            let here = (!fragment.is_empty()).then(|| Route::parse(&fragment));
+            // The list this entry carried, when it is this app's and still names this page.
+            let restored = history::index().zip(history::entries()).filter(|(at, list)| {
+                list.get(*at as usize)
+                    .is_some_and(|(r, ..)| here.as_ref().is_none_or(|h| Route::parse(r) == *h))
+            });
+            {
+                let mut i = me.inner.borrow_mut();
+                match restored {
+                    Some((at, list)) => {
+                        i.entries = list
+                            .into_iter()
+                            .map(|(r, x, y)| Entry { route: Route::parse(&r), scroll: Vec2::new(x, y) })
+                            .collect();
+                        i.index = at as usize;
+                    }
+                    None => {
+                        if let (Some(h), Some(e)) = (here, i.entries.first_mut()) {
+                            e.route = h;
+                        }
+                    }
                 }
-                me.route.set(route);
             }
-            history::write(&me.route_untracked().to_string(), 0, true);
-            let m = me.clone();
-            history::listen(move |fragment, index| m.popped(&fragment, index));
+            let (index, route) = {
+                let i = me.inner.borrow();
+                (i.index, i.entries.get(i.index).map(|e| e.route.clone()).unwrap_or_default())
+            };
+            me.route.set(route);
+            me.write_address(index, true);
+            let (m, m2) = (me.clone(), me.clone());
+            history::listen(move |fragment, index| m.popped(&fragment, index), move || m2.store_current());
         }
         me
+    }
+
+    /// Ctrl (Cmd) and middle clicks on [`Router::link_to`] links open the route in a new
+    /// window on the desktop: `spec` opened by [`App::open`](crate::App::open), with a
+    /// router of its own starting at the route (which opens further windows the same way)
+    /// handed to `build` to fill it. Without this they navigate in place; in a browser page
+    /// they open a new tab whatever this says.
+    pub fn open_windows(&self, spec: WindowSpec, build: impl Fn(&Ui, &Window, &Router) + 'static) {
+        self.inner.borrow_mut().windows = Some(Rc::new(NewWindows { spec, build: Box::new(build) }));
+    }
+
+    /// Opens `path` in a new window ([`Router::open_windows`]), a new tab in a browser page,
+    /// or in place when the app opens no windows for links.
+    pub fn open_elsewhere(&self, path: &str) {
+        let route = Route::parse(path);
+        if IN_PAGE {
+            open_in_new_tab(&route.href());
+            return;
+        }
+        let (windows, app) = {
+            let i = self.inner.borrow();
+            (i.windows.clone(), i.window.as_ref().map(|w| w.app().clone()))
+        };
+        let (Some(windows), Some(app)) = (windows, app) else {
+            self.push(path);
+            return;
+        };
+        let (start, nw) = (route.to_string(), windows.clone());
+        let _ = app.open(windows.spec.clone(), move |ui, window| {
+            let router = Router::for_window(window, &start);
+            router.inner.borrow_mut().windows = Some(nw.clone());
+            (nw.build)(ui, window, &router);
+        });
     }
 
     /// The current route (tracked: what reads it follows it).
@@ -248,7 +312,7 @@ impl Router {
         if route == self.route_untracked() {
             return;
         }
-        self.save_scroll();
+        self.store_current();
         let index = {
             let mut i = self.inner.borrow_mut();
             let at = i.index + 1;
@@ -364,7 +428,9 @@ impl Router {
     /// The element that shows the current route's page, built by `page` (again on every
     /// route change and on [`App::reload`](crate::App::reload)). Alt+Left and Alt+Right,
     /// the system back key (Android's back) and the mouse's back and forward buttons move
-    /// through the history; a back the router cannot take is left to the window.
+    /// through the history (in a browser page too: the bridge cancels the browser's own move
+    /// on those buttons, so it happens once); a back the router cannot take is left to the
+    /// window.
     pub fn view(&self, ui: &Ui, page: impl Fn(&Route) -> El + 'static) -> El {
         let outlet = w::column(ui).grow(1.0).fill_width();
         let (me, o) = (self.clone(), outlet.clone());
@@ -383,8 +449,7 @@ impl Router {
         // On the window's root: the keys arrive also when the page that had focus is gone.
         // A NavStack inside the page hears them first and pops its own pages.
         let _ = ui.root().on_key(move |e| k.key(e)).on_pointer(move |e| {
-            // A browser moves through its history on these buttons itself.
-            if IN_PAGE || e.phase != PointerPhase::Down {
+            if e.phase != PointerPhase::Down {
                 return false;
             }
             if e.buttons.contains(Buttons::BACK) {
@@ -397,31 +462,33 @@ impl Router {
 
     /// A link to `path` labelled `label`: activating it pushes the route. Screen readers
     /// hear a link; in a browser page it is an `<a href="#/path">` in the accessibility
-    /// mirror, and a middle or Ctrl (Cmd) click opens it in a new tab.
+    /// mirror. A middle or Ctrl (Cmd) click opens it elsewhere ([`Router::open_elsewhere`]):
+    /// a new tab in a browser page, a new window on the desktop when the app opens them
+    /// ([`Router::open_windows`]), else in place.
     #[track_caller]
     pub fn link_to(&self, ui: &Ui, path: &str, label: impl Into<String>) -> El {
         let label = label.into();
         let href = Route::parse(path).href();
-        let new_tab = Rc::new(Cell::new(false));
-        let (me, nt, target) = (self.clone(), new_tab.clone(), path.to_owned());
-        let h = href.clone();
+        let elsewhere = Rc::new(Cell::new(false));
+        let (me, el, target) = (self.clone(), elsewhere.clone(), path.to_owned());
+        let (me2, target2) = (self.clone(), path.to_owned());
         w::link(ui, label.clone(), move || {
-            if nt.replace(false) {
-                open_in_new_tab(&h);
+            if el.replace(false) {
+                me.open_elsewhere(&target);
             } else {
                 me.push(&target);
             }
         })
-        .semantics(Semantics::new(Role::Link).label(label).action(Action::Click).url(href.clone()))
+        .semantics(Semantics::new(Role::Link).label(label).action(Action::Click).url(href))
         .on_pointer(move |e| {
-            if !IN_PAGE || e.phase != PointerPhase::Down {
+            if e.phase != PointerPhase::Down {
                 return false;
             }
             if e.buttons.contains(Buttons::MIDDLE) {
-                open_in_new_tab(&href);
+                me2.open_elsewhere(&target2);
                 return true;
             }
-            new_tab.set(e.modifiers.ctrl || e.modifiers.meta);
+            elsewhere.set(e.modifiers.ctrl || e.modifiers.meta);
             false
         })
     }
@@ -443,6 +510,7 @@ impl Router {
     fn step(&self, delta: i32) {
         #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
         {
+            self.store_current();
             history::go(delta);
         }
         #[cfg(not(all(feature = "web", target_arch = "wasm32", target_os = "unknown")))]
@@ -474,9 +542,7 @@ impl Router {
         match known {
             Some(i) => self.go_to(i),
             None => {
-                // An edited address, or an entry from before a reload: a new entry here.
-                // shortcut: entries from before a reload are not restored, keep them in
-                // sessionStorage if back past a reload must land on the same index.
+                // An address typed in or a link the page did not write: a new entry here.
                 self.save_scroll();
                 let at = {
                     let mut i = self.inner.borrow_mut();
@@ -534,9 +600,22 @@ impl Router {
     )]
     fn write_address(&self, index: usize, replace: bool) {
         #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
-        if let Some(e) = self.inner.borrow().entries.get(index) {
-            history::write(&e.route.to_string(), index as u32, replace);
+        {
+            let i = self.inner.borrow();
+            let list: Vec<(String, f32, f32)> =
+                i.entries.iter().map(|e| (e.route.to_string(), e.scroll.x, e.scroll.y)).collect();
+            if let Some((route, ..)) = list.get(index) {
+                history::write(route, index as u32, &list, replace);
+            }
         }
+    }
+
+    /// Keeps the current entry's scroll position and writes the list into its history
+    /// entry, before the page leaves it (a push, a step, the page put away or reloaded).
+    fn store_current(&self) {
+        self.save_scroll();
+        let index = self.inner.borrow().index;
+        self.write_address(index, true);
     }
 }
 
