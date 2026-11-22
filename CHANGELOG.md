@@ -74,6 +74,17 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   app's own delay, interval and stick dead zone (0.5 by default), through
   `Host::set_gamepad_tuning`. `remedy_ui_input::GamepadKeys` is the shared state machine,
   and a platform bridge hands the shared core its pads through `PlatformHooks::gamepads`.
+- **Every controller on Windows, and the real keyboard repeat on any Linux desktop.**
+  Windows now also reads PlayStation, Switch Pro and generic HID gamepads through
+  Windows.Gaming.Input (`RawGameController`), in the slots after XInput's four: A and B are
+  the south and east face buttons by the driver's labels (Nintendo's letters swapped to their
+  position), or by the vendor's HID layout when it labels none; the first hat is the d-pad
+  and the first two axes the stick, an axis counting only once it has been near its center
+  (so a resting pedal or throttle holds nothing). Xbox-class pads stay XInput's and are not
+  reported twice. Linux reads the keyboard repeat from the Wayland compositor
+  (`wl_keyboard.repeat_info`), else the X server (XKB), then GNOME's settings, then KDE's
+  `kcminputrc` (Plasma's 600 ms and 25 a second where it sets none); 500 ms and 33 ms only
+  when none of them answers.
 - **Images from addresses** in `media-image`: `Source::Url(String)` fetches the image off
   the UI thread. Elements showing the same address share one fetch, cancelled when they all
   go. The bytes stay in a bounded memory cache (64 MiB). Natively they are also kept on
