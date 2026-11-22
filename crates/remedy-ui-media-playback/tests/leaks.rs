@@ -393,6 +393,7 @@ fn no_d3d_leaks() -> usize {
 /// decoder decodes on a D3D11 device of its own the leak cases can look at. Kept for the
 /// process (the shared device is, by design).
 fn gpu_renderer() {
+    watch_d3d_devices();
     #[cfg(windows)]
     {
         use remedy_ui_render_gpu::{GpuContext, GpuRenderer, LadderOptions};

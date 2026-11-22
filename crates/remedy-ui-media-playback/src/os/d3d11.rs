@@ -38,6 +38,15 @@ use crate::host::{Picture, YuvMatrix};
 /// has let go of everything else.
 static WATCHED: Mutex<Vec<ID3D11Debug>> = Mutex::new(Vec::new());
 
+/// Whether devices are watched: only once a leak test asks ([`watch`]), since a watched
+/// device lives until the next report, and one alive at exit fails a debug-layer run.
+static WATCHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// From now on, each decoder device made is kept for [`live_objects_report`].
+pub(crate) fn watch() {
+    WATCHING.store(true, Ordering::Relaxed);
+}
+
 /// For leak tests (`REMEDY_D3D_DEBUG=1`): asks each decoder device made since the last call
 /// what is alive on it (`ReportLiveDeviceObjects`), then lets go of the devices. Returns the
 /// layer's lines for every object beyond the device itself; empty when nothing leaked or
@@ -194,7 +203,8 @@ impl Gpu {
             )
             .map_err(err("D3D11CreateDevice with video support"))?;
             let device: ID3D11Device = device.ok_or("D3D11CreateDevice gave no device")?;
-            if debug_layer() == D3D11_CREATE_DEVICE_DEBUG
+            if WATCHING.load(Ordering::Relaxed)
+                && debug_layer() == D3D11_CREATE_DEVICE_DEBUG
                 && let Ok(debug) = device.cast::<ID3D11Debug>()
             {
                 WATCHED.lock().unwrap_or_else(PoisonError::into_inner).push(debug);

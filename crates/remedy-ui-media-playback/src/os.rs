@@ -61,6 +61,12 @@ pub(crate) fn live_objects() -> usize {
     live
 }
 
+/// Decoder D3D11 devices made from now on are kept for [`live_d3d_objects`] (Windows).
+pub(crate) fn watch_d3d_devices() {
+    #[cfg(windows)]
+    d3d11::watch();
+}
+
 /// The D3D11 debug layer's lines for objects alive on decoder devices beyond the devices
 /// themselves (Windows, `REMEDY_D3D_DEBUG=1`); empty elsewhere.
 pub(crate) fn live_d3d_objects() -> (usize, Vec<String>) {
