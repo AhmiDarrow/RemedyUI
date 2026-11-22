@@ -378,6 +378,8 @@ mod hooks {
 
 #[cfg(windows)]
 pub use hooks::{WindowsHooks, claim_single_instance, run};
+#[cfg(windows)]
+pub use os::instance::{INSTANCE_WAIT, set_instance_wait};
 
 /// The mouse pointer as Windows has it, for tests that check what the host did with it.
 #[cfg(windows)]

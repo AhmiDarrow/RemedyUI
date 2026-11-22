@@ -20,8 +20,23 @@ use crate::remote::{
 /// The panel's pages, in order.
 pub const TABS: [&str; 6] = ["Inspect", "Signals", "Accessibility", "Performance", "Remote", "Failures"];
 
-/// How long a remote request may take before the panel reports the app as unreachable.
-const REMOTE_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a remote request may take before the panel reports the app as unreachable,
+/// unless the app says otherwise ([`set_remote_timeout`]).
+pub const REMOTE_TIMEOUT: Duration = Duration::from_secs(10);
+
+static TIMEOUT: std::sync::RwLock<Duration> = std::sync::RwLock::new(REMOTE_TIMEOUT);
+
+/// Sets how long the Remote page waits for an app it connects to, for each request, before
+/// it reports the app as unreachable (default [`REMOTE_TIMEOUT`], 10 s): raise it for an app
+/// on a slow link or under a debugger. Applies to the next connection.
+pub fn set_remote_timeout(timeout: Duration) {
+    *TIMEOUT.write().unwrap_or_else(std::sync::PoisonError::into_inner) = timeout;
+}
+
+/// How long the Remote page waits now ([`set_remote_timeout`]).
+pub fn remote_timeout() -> Duration {
+    *TIMEOUT.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 /// The frame budget for a display rate in hertz.
 pub(crate) fn budget_of(hz: f64) -> Duration {
@@ -574,7 +589,7 @@ fn remote_page(ui: &Ui, insp: &Inspector) -> El {
         s2.status.set(format!("Connecting to {addr}…"));
         let (client, sig) = (s2.client.clone(), s2.clone_send());
         let _ = remedy_ui_core::exec::spawn("remedy-devtools-connect", move || {
-            let result = RemoteClient::connect(addr, &secret, REMOTE_TIMEOUT).and_then(|mut c| {
+            let result = RemoteClient::connect(addr, &secret, remote_timeout()).and_then(|mut c| {
                 let first = c.request(&RemoteRequest::Tree);
                 *client.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(c);
                 first

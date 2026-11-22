@@ -27,14 +27,18 @@ pub struct FrameInput {
     pub time: f32,
     /// Draw lighter: ambient light mode or power saving (half the particles; `light` reads 1).
     pub light: bool,
-    /// The most a buffer may be on a side, in pixels (the renderer's texture limit).
+    /// The most a buffer may be on a side, in pixels (the renderer's texture limit). Default
+    /// [`FrameInput::DEFAULT_MAX_SIDE`]; the GPU renderer also holds it to its device's limit.
     pub max_side: u32,
 }
 
 impl FrameInput {
+    /// The side a buffer is held to unless the frame says otherwise (4096 pixels).
+    pub const DEFAULT_MAX_SIDE: u32 = 4096;
+
     /// A frame of `width` × `height` logical pixels at `scale`, at `time`.
     pub fn new(width: f32, height: f32, scale: f32, time: f32) -> Self {
-        FrameInput { width, height, scale, time, light: false, max_side: 4096 }
+        FrameInput { width, height, scale, time, light: false, max_side: Self::DEFAULT_MAX_SIDE }
     }
 
     fn time(&self) -> f32 {

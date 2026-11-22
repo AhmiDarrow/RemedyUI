@@ -183,3 +183,15 @@ fn a_glyph_larger_than_a_page_gets_its_own() -> Result<(), &'static str> {
     assert!(page.height() > PAGE_SIZE);
     Ok(())
 }
+
+#[test]
+fn the_app_sets_the_page_size() -> Result<(), &'static str> {
+    let font = regular().ok_or("no font")?;
+    let (_, h) = glyph_of("H").ok_or("no glyph")?;
+    let mut atlas = GlyphAtlas::new(Antialias::Grayscale);
+    atlas.set_page_size(256);
+    let e = atlas.glyph(&font, h, 14.0, 0.0, Hinting::Full).ok_or("no entry")?;
+    let page = atlas.page(e.page).ok_or("no page")?;
+    assert_eq!((page.width(), page.height()), (256, 256));
+    Ok(())
+}

@@ -81,16 +81,22 @@ pub use atlas::{AtlasEntry, AtlasStats, GlyphAtlas, GlyphKey, PAGE_SIZE, Page, P
 pub use code_edit::{CodeEditor, Indent};
 pub use editing::{
     Composition, SecretEditor, SecretString, TextChange, TextEditor, TextSelection, UNDO_PAUSE_MS,
+    set_undo_pause_ms,
 };
 pub use engine::{
     Affinity, DEFAULT_SYMBOL_FALLBACKS, FontCollection, FontError, FontFile, GlyphRunInfo, LineInfo,
     Paragraph, ParagraphOptions, PositionedGlyph, RunFont, TextEngine, TextPosition,
 };
-pub use lazy::LAZY_MIN_BYTES;
+pub use lazy::{
+    LAZY_CHUNK_BYTES, LAZY_KEPT_PIECES, LAZY_MIN_BYTES, LazyLimits, lazy_limits, set_lazy_limits,
+};
 pub use pseudo::Pseudo;
 pub use raster::{Antialias, GlyphImage, GlyphRasterizer, Hinting, SUBPIXEL_BINS, size_64, subpixel_bin};
 pub use rich::{InlineObject, OBJECT_REPLACEMENT, RichText, Span};
-pub use rich_edit::{Block, MAX_LEVEL, Mark, RichDoc, RichEditor, RichLook, RichView, SOFT_BREAK};
+pub use rich_edit::{
+    Block, MAX_LEVEL, Mark, RichDoc, RichEditor, RichLook, RichView, SOFT_BREAK, max_list_level,
+    set_max_list_level,
+};
 pub use rich_html::{from_html, to_html};
 pub use safety::{Reveal, has_hidden_controls, looks_like, reveal_controls, skeleton};
 pub use style::{Align, Direction, Feature, LineHeight, TextStyle, TextStylePatch, TextTransform};

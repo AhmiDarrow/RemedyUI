@@ -2,10 +2,28 @@
 //! `grayscale()`, `sepia()`, `brightness()`, `contrast()` and `invert()`, and SVG
 //! `feColorMatrix`.
 
-/// The largest magnitude an entry of a [`ColorMatrix`] keeps ([`ColorMatrix::limited`]). Any
-/// entry past it already saturates every channel it touches, and keeping entries this small
-/// keeps every sum finite.
+/// The largest magnitude an entry of a [`ColorMatrix`] keeps ([`ColorMatrix::limited`]) unless
+/// the app says otherwise ([`set_max_color_matrix_entry`]). An entry past it alone already
+/// saturates every channel it touches, and keeping entries this small keeps every sum finite.
 pub const MAX_COLOR_MATRIX_ENTRY: f32 = 256.0;
+
+static MAX_ENTRY: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(MAX_COLOR_MATRIX_ENTRY.to_bits());
+
+/// Sets the largest magnitude an entry of a colour matrix keeps, for every renderer in the
+/// process from the next frame (default [`MAX_COLOR_MATRIX_ENTRY`], 256). Larger entries
+/// matter only to a matrix whose huge weights cancel one another; past about 10³⁷ a sum can
+/// overflow, and a matrix from a stranger can then draw nothing where it should draw
+/// something. A bound that is not a number or is negative counts as 0.
+pub fn set_max_color_matrix_entry(bound: f32) {
+    let bound = if bound >= 0.0 { bound } else { 0.0 };
+    MAX_ENTRY.store(bound.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The largest magnitude an entry of a colour matrix keeps now ([`set_max_color_matrix_entry`]).
+pub fn max_color_matrix_entry() -> f32 {
+    f32::from_bits(MAX_ENTRY.load(std::sync::atomic::Ordering::Relaxed))
+}
 
 /// A 4 × 5 colour matrix on straight-alpha sRGB channels, each 0.0 to 1.0: rows give the new
 /// red, green, blue and alpha; columns weigh the old red, green, blue and alpha, and the fifth
@@ -164,12 +182,13 @@ impl ColorMatrix {
     }
 
     /// The matrix as renderers apply it: entries that are NaN or infinite take the identity's
-    /// value, and the rest are kept within ±[`MAX_COLOR_MATRIX_ENTRY`], so every sum stays
-    /// finite whatever a theme asked for.
+    /// value, and the rest are kept within ±[`max_color_matrix_entry`] (256 unless the app set
+    /// another), so every sum stays finite whatever a theme asked for.
     pub fn limited(&self) -> ColorMatrix {
+        let max = max_color_matrix_entry();
         let mut out = self.0;
         for (v, id) in out.iter_mut().zip(ColorMatrix::IDENTITY.0) {
-            *v = finite(*v, id).clamp(-MAX_COLOR_MATRIX_ENTRY, MAX_COLOR_MATRIX_ENTRY);
+            *v = finite(*v, id).clamp(-max, max);
         }
         ColorMatrix(out)
     }

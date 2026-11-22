@@ -104,12 +104,6 @@ pub fn calibrate() -> Option<u64> {
     RATE.record(steps, took).then(|| RATE.per_ms())
 }
 
-/// How deeply expressions may nest at the top level and in a function: what readable code
-/// needs (Rhai's own optimized defaults). The parser recurses on these before any step is
-/// metered, and at a few KiB a level both fit well within the stack [`Limits`] gives a call.
-const EXPR_DEPTH: usize = 64;
-const FN_EXPR_DEPTH: usize = 32;
-
 /// How many operations pass between looks at the clock: often enough that a call overruns
 /// its time budget by a sliver at most, rarely enough that reading the clock costs nothing
 /// that shows.
@@ -493,7 +487,7 @@ impl RhaiWidget {
         engine
             .set_max_operations(limits.step_budget(&RATE))
             .set_max_call_levels(limits.call_depth)
-            .set_max_expr_depths(EXPR_DEPTH, FN_EXPR_DEPTH)
+            .set_max_expr_depths(limits.expr_depth.0, limits.expr_depth.1)
             .set_max_string_size(value_bytes)
             .set_max_array_size(value_bytes / std::mem::size_of::<Dynamic>())
             .set_max_map_size(value_bytes / std::mem::size_of::<Dynamic>())

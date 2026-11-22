@@ -69,11 +69,87 @@ impl Resolver for Guard {
     }
 }
 
-fn agent(policy: HttpPolicy) -> &'static ureq::Agent {
-    static LOOPBACK: OnceLock<ureq::Agent> = OnceLock::new();
-    static PRIVATE: OnceLock<ureq::Agent> = OnceLock::new();
-    let cell = if policy == HttpPolicy::PrivateNetworks { &PRIVATE } else { &LOOPBACK };
-    cell.get_or_init(|| {
+/// How the native client keeps connections open between requests to reuse them
+/// ([`set_pool_limits`]). The defaults are ureq's: 10 idle connections, 3 to one host and
+/// port, each kept 15 seconds. More idle connections save handshakes for an app that talks
+/// to many hosts or in bursts, at an open socket (and a server's slot) each; 0 connections
+/// opens a new one for every request.
+///
+/// ```
+/// use std::time::Duration;
+/// use remedy_ui_services_net::{PoolLimits, set_pool_limits};
+/// set_pool_limits(PoolLimits::default().idle_per_host(8).idle_age(Duration::from_secs(60)));
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PoolLimits {
+    /// The most idle connections kept in all. Default 10.
+    pub idle_connections: usize,
+    /// The most idle connections kept to one host and port. Default 3.
+    pub idle_per_host: usize,
+    /// How long an idle connection is kept. Default 15 seconds.
+    pub idle_age: Duration,
+}
+
+impl PoolLimits {
+    /// The defaults, as a constant.
+    pub const DEFAULT: PoolLimits =
+        PoolLimits { idle_connections: 10, idle_per_host: 3, idle_age: Duration::from_secs(15) };
+
+    /// Sets [`idle_connections`](Self::idle_connections).
+    pub fn idle_connections(mut self, value: usize) -> Self {
+        self.idle_connections = value;
+        self
+    }
+
+    /// Sets [`idle_per_host`](Self::idle_per_host).
+    pub fn idle_per_host(mut self, value: usize) -> Self {
+        self.idle_per_host = value;
+        self
+    }
+
+    /// Sets [`idle_age`](Self::idle_age).
+    pub fn idle_age(mut self, value: Duration) -> Self {
+        self.idle_age = value;
+        self
+    }
+}
+
+impl Default for PoolLimits {
+    fn default() -> Self {
+        PoolLimits::DEFAULT
+    }
+}
+
+/// The agents requests go through, with the pool limits they were built with (one per
+/// policy: loopback only, private networks).
+type Built = Option<(PoolLimits, ureq::Agent)>;
+static AGENTS: Mutex<(Built, Built)> = Mutex::new((None, None));
+static POOL: Mutex<PoolLimits> = Mutex::new(PoolLimits::DEFAULT);
+
+/// Sets how the native client keeps connections for reuse, from the next request on;
+/// connections idle in the pool before are closed. Not used in browsers, which pool for the
+/// page.
+pub fn set_pool_limits(limits: PoolLimits) {
+    *POOL.lock().unwrap_or_else(PoisonError::into_inner) = limits;
+}
+
+/// How the native client keeps connections now ([`set_pool_limits`]).
+pub fn pool_limits() -> PoolLimits {
+    *POOL.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn agent(policy: HttpPolicy) -> ureq::Agent {
+    let pool = pool_limits();
+    let mut agents = AGENTS.lock().unwrap_or_else(PoisonError::into_inner);
+    let (loopback, private) = &mut *agents;
+    let slot = if policy == HttpPolicy::PrivateNetworks { private } else { loopback };
+    if let Some((built, agent)) = slot.as_ref()
+        && *built == pool
+    {
+        return agent.clone();
+    }
+    let agent = {
         // ring is the TLS provider; installing it twice is harmless.
         let _ = rustls::crypto::ring::default_provider().install_default();
         let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
@@ -85,9 +161,14 @@ fn agent(policy: HttpPolicy) -> &'static ureq::Agent {
             // Followed in `run`, hop by hop.
             .max_redirects(0)
             .user_agent("RemedyUI")
+            .max_idle_connections(pool.idle_connections)
+            .max_idle_connections_per_host(pool.idle_per_host)
+            .max_idle_age(pool.idle_age)
             .build();
         ureq::Agent::with_parts(config, DefaultConnector::default(), Guard(policy))
-    })
+    };
+    *slot = Some((pool, agent.clone()));
+    agent
 }
 
 fn net(e: ureq::Error) -> NetError {

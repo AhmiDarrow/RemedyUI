@@ -60,12 +60,17 @@ use crate::engine::{
 use crate::rich::RichText;
 use crate::style::{Direction, TextStyle};
 
-/// About how much text one piece of a lazy paragraph is laid out with.
-const CHUNK_BYTES: usize = 8 * 1024;
+/// About how much text one piece of a lazy paragraph is laid out with, by default
+/// ([`LazyLimits::chunk_bytes`]).
+pub const LAZY_CHUNK_BYTES: usize = 8 * 1024;
 
-/// The shortest paragraph laid out lazily: shorter ones are laid out whole, as before, in
-/// little more time than one piece takes.
+/// The shortest paragraph laid out lazily by default ([`LazyLimits::min_bytes`]): shorter
+/// ones are laid out whole, as before, in little more time than one piece takes.
 pub const LAZY_MIN_BYTES: usize = 32 * 1024;
+
+/// Pieces of one lazy paragraph kept laid out at once by default
+/// ([`LazyLimits::kept_pieces`]).
+pub const LAZY_KEPT_PIECES: usize = 48;
 
 /// Lines a piece shares with the piece before it, which both must lay out alike.
 const OVERLAP: usize = 2;
@@ -73,8 +78,78 @@ const OVERLAP: usize = 2;
 /// Lines at the end of a piece that are not kept: the end of its text breaks them.
 const DROP: usize = 2;
 
-/// Pieces kept laid out at once; others are laid out again when asked for.
-const MAX_PIECES: usize = 48;
+/// How huge paragraphs are laid out a piece at a time, for every paragraph laid out from now
+/// on ([`set_lazy_limits`]). The defaults are the `LAZY_*` constants.
+///
+/// `min_bytes` is where laying out a piece at a time starts paying: `usize::MAX` lays out
+/// every paragraph whole, which costs time and memory with its length. `chunk_bytes` is
+/// about how much text a piece holds (at least 1): larger pieces shape more than a view shows,
+/// smaller ones more often. `kept_pieces` bounds the memory a paragraph keeps laid out
+/// (pieces past it are laid out again when asked for); raising it trades memory for less
+/// shaping when a view moves back over text it showed.
+///
+/// ```
+/// use remedy_ui_text::{LazyLimits, set_lazy_limits};
+/// set_lazy_limits(LazyLimits::default().kept_pieces(128));
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct LazyLimits {
+    /// The shortest paragraph laid out a piece at a time, in bytes. Default
+    /// [`LAZY_MIN_BYTES`] (32 KiB).
+    pub min_bytes: usize,
+    /// About how much text one piece is laid out with, in bytes. Default
+    /// [`LAZY_CHUNK_BYTES`] (8 KiB).
+    pub chunk_bytes: usize,
+    /// Pieces of one paragraph kept laid out at once. Default [`LAZY_KEPT_PIECES`] (48).
+    pub kept_pieces: usize,
+}
+
+impl LazyLimits {
+    /// The defaults, as a constant.
+    pub const DEFAULT: LazyLimits = LazyLimits {
+        min_bytes: LAZY_MIN_BYTES,
+        chunk_bytes: LAZY_CHUNK_BYTES,
+        kept_pieces: LAZY_KEPT_PIECES,
+    };
+
+    /// Sets [`min_bytes`](Self::min_bytes).
+    pub fn min_bytes(mut self, bytes: usize) -> Self {
+        self.min_bytes = bytes;
+        self
+    }
+
+    /// Sets [`chunk_bytes`](Self::chunk_bytes).
+    pub fn chunk_bytes(mut self, bytes: usize) -> Self {
+        self.chunk_bytes = bytes;
+        self
+    }
+
+    /// Sets [`kept_pieces`](Self::kept_pieces).
+    pub fn kept_pieces(mut self, pieces: usize) -> Self {
+        self.kept_pieces = pieces;
+        self
+    }
+}
+
+impl Default for LazyLimits {
+    fn default() -> Self {
+        LazyLimits::DEFAULT
+    }
+}
+
+static LIMITS: std::sync::RwLock<LazyLimits> = std::sync::RwLock::new(LazyLimits::DEFAULT);
+
+/// Sets how every paragraph laid out from now on is laid out a piece at a time; a paragraph
+/// already laid out keeps the limits it started with.
+pub fn set_lazy_limits(limits: LazyLimits) {
+    *LIMITS.write().unwrap_or_else(std::sync::PoisonError::into_inner) = limits;
+}
+
+/// The limits paragraphs are laid out a piece at a time with now ([`set_lazy_limits`]).
+pub fn lazy_limits() -> LazyLimits {
+    *LIMITS.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 /// How far past the start of a piece laid out before an edit a new piece reaches, so the
 /// two can be compared.
@@ -82,7 +157,7 @@ const REUSE_MARGIN: usize = 2 * 1024;
 
 /// True when `text` laid out with `options` is laid out lazily.
 pub(crate) fn eligible(text: &RichText, options: &ParagraphOptions) -> bool {
-    text.len() >= LAZY_MIN_BYTES && options.max_width.is_some_and(|w| w.is_finite() && w > 0.0)
+    text.len() >= lazy_limits().min_bytes && options.max_width.is_some_and(|w| w.is_finite() && w > 0.0)
 }
 
 /// One piece of the paragraph and the lines it keeps.
@@ -186,6 +261,9 @@ struct State {
     reuse: Option<Reuse>,
     analyzer: Analyzer,
     analysis: Analysis,
+    /// Piece size and pieces kept, as they were when the paragraph was laid out.
+    chunk_bytes: usize,
+    kept_pieces: usize,
 }
 
 /// Classes that make parley resolve bidi at all (its `BIDI_MASK`).
@@ -370,6 +448,7 @@ impl State {
             Direction::Ltr => false,
             Direction::Rtl => true,
         };
+        let limits = lazy_limits();
         let mut options = asked;
         options.direction = if rtl { Direction::Rtl } else { Direction::Ltr };
         State {
@@ -385,6 +464,8 @@ impl State {
             reuse: None,
             analyzer: Analyzer::new(),
             analysis: Analysis::new(),
+            chunk_bytes: limits.chunk_bytes.max(1),
+            kept_pieces: limits.kept_pieces,
         }
     }
 
@@ -427,13 +508,13 @@ impl State {
         Some(p)
     }
 
-    /// Drops the least recently used pieces past [`MAX_PIECES`], never chunk `keep` or the
+    /// Drops the least recently used pieces past [`LazyLimits::kept_pieces`], never chunk `keep` or the
     /// last chunk (the next piece starts from it).
     fn evict(&mut self, keep: usize) {
         let last = self.chunks.len().saturating_sub(1);
         loop {
             let live = self.chunks.iter().filter(|c| c.piece.is_some()).count();
-            if live <= MAX_PIECES {
+            if live <= self.kept_pieces {
                 return;
             }
             let oldest = self
@@ -541,7 +622,7 @@ impl State {
         min: usize,
     ) -> Result<Chunk, Mismatch> {
         let len = self.len();
-        let mut size = min.max(CHUNK_BYTES);
+        let mut size = min.max(self.chunk_bytes);
         let first = if prev.is_some() { OVERLAP } else { 0 };
         loop {
             let end =
@@ -572,7 +653,7 @@ impl State {
             if !(start == 0 && last) && !self.bidi_ok(start, end, &kept) {
                 // The end of the text may be what changed the levels: grow the piece, and
                 // past four times its size take the seam inside the piece before.
-                if last || (prev.is_some() && size >= 4 * min.max(CHUNK_BYTES)) {
+                if last || (prev.is_some() && size >= 4 * min.max(self.chunk_bytes)) {
                     return Err(Mismatch);
                 }
                 size *= 2;
@@ -611,7 +692,7 @@ impl State {
         if self.done {
             return false;
         }
-        let mut min = CHUNK_BYTES;
+        let mut min = self.chunk_bytes;
         loop {
             let seam = self.seam();
             let (start, y0) = seam.as_ref().map_or((0, 0.0), |s| (s.0, s.3));
@@ -661,7 +742,7 @@ impl State {
         });
         let c = r.chunks.first()?;
         let t = c.start.saturating_add_signed(r.delta);
-        (t - start <= 8 * CHUNK_BYTES).then_some(t)
+        (t - start <= 8 * self.chunk_bytes).then_some(t)
     }
 
     /// If new chunk `c` reaches the start of a piece laid out before the edit with the same
@@ -1055,7 +1136,7 @@ impl Lazy {
             if w.start == 0 && f.start > 0 && from > 0 {
                 from -= 1;
             } else if f.start + w.end >= end && end < len {
-                end = floor_boundary(st.text.as_str(), end + (end - f.start).max(CHUNK_BYTES));
+                end = floor_boundary(st.text.as_str(), end + (end - f.start).max(st.chunk_bytes));
             } else {
                 return w.start + f.start..w.end + f.start;
             }
