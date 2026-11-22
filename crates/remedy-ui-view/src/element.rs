@@ -549,6 +549,8 @@ pub(crate) struct ElData {
     pub(crate) pointer: bool,
     /// A primary press on it leaves keyboard focus where it is ([`El::keeps_focus_on_press`]).
     pub(crate) keeps_focus: bool,
+    /// Arrows coming into it return to the child last focused inside ([`El::focus_group`]).
+    pub(crate) focus_group: bool,
     /// Draggable: what is dragged, and who hears how it ended.
     pub(crate) drag_source: Option<crate::dnd::DragSource>,
     /// Its text may be selected ([`El::selectable`]).
@@ -718,6 +720,12 @@ pub(crate) struct Inner {
     pub(crate) platform: remedy_ui_input::Platform,
     /// The focused element and its ancestors, as when focus last moved ([`El::on_focus_within`]).
     pub(crate) focus_chain: Vec<ElementId>,
+    /// Spatial navigation as the app chose it (`None` follows the system) and as the system
+    /// suggests it ([`Ui::set_spatial_navigation`]).
+    pub(crate) spatial: Option<bool>,
+    pub(crate) system_spatial: bool,
+    /// The child each focus group last had focused ([`El::focus_group`]).
+    pub(crate) group_memory: HashMap<ElementId, ElementId>,
     /// How text is drawn ([`Ui::set_text_rendering`]) and whether the system uses subpixel
     /// text (`Some(bgr)`).
     pub(crate) text_rendering: TextRendering,
@@ -979,6 +987,9 @@ impl Ui {
             focus_shown: None,
             platform: remedy_ui_input::Platform::Standard,
             focus_chain: Vec::new(),
+            spatial: None,
+            system_spatial: false,
+            group_memory: HashMap::new(),
             text_rendering: TextRendering::default(),
             system_subpixel: None,
             edition: remedy_ui_core::Edition::FIRST,
@@ -1852,6 +1863,7 @@ impl ElData {
             text_client: None,
             pointer: false,
             keeps_focus: false,
+            focus_group: false,
             drag_source: None,
             selectable: false,
             sel: None,

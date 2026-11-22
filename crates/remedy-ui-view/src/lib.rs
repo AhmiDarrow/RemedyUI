@@ -31,6 +31,7 @@ pub mod motion;
 mod native;
 mod prop;
 mod select;
+mod spatial;
 pub mod strings;
 mod tokens;
 
