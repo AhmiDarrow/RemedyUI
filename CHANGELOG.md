@@ -10,6 +10,25 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Images from addresses** in `media-image`: `Source::Url(String)` fetches the image off
+  the UI thread. Elements showing the same address share one fetch, cancelled when they all
+  go. The bytes stay in a bounded memory cache (64 MiB). Natively they are also kept on
+  disk in the app's cache folder (256 MiB, least recently used dropped first; `remedy_ui::run`
+  sets it, `set_cache_dir` changes it), following `Cache-Control` (`max-age`, `no-cache`,
+  `no-store`) and revalidated with `ETag` and `Last-Modified`. In a page the browser's
+  HTTP cache does that. Natively the fetch uses ureq with rustls and the platform's
+  certificates (feature `http`, on by default). In a page it uses `fetch` with an
+  `AbortController`. An app can use its own client by implementing the `Fetch` trait and
+  installing it with `set_fetcher`. A failed fetch is `DecodeError::Network`.
+- **`image_ext` and `ImageOptions`** in `media-image`: the app's own `placeholder` while
+  loading, a `fallback` built when the image cannot be shown (Portal's letter tile) that sizes
+  the element when nothing else does, and `on_state`, whose `Sized` and `Ready` carry the
+  image's real size, for framing wide or square art.
+- In a browser page, an image from another site shows only if its server sends CORS headers.
+  If not, the reason says so and the app should fetch it through its own proxy. The engine
+  does not lay a DOM `<img>` over the canvas, because that image could not be clipped,
+  rounded, layered under popups, faded or hit-tested with the rest of the UI.
+
 - **The player's keys from anywhere in the window** in `media-playback`, as Portal's page
   hears them page-wide: `Player::keys_from(&ui.root())` routes the keys nothing focused took
   to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),
