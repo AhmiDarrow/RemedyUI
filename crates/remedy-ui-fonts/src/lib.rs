@@ -71,6 +71,10 @@ pub struct Face {
     /// The font file's name (`NotoSansArabic-Regular.ttf`): where a browser page fetches a
     /// face that is not built in, under the page's `fonts/` folder.
     pub file: &'static str,
+    /// For a face fetched when needed, the mark that names its file for the packager
+    /// ([`asset_mark!`]); empty otherwise.
+    #[doc(hidden)]
+    pub source: &'static str,
 }
 
 impl Face {
@@ -90,49 +94,41 @@ macro_rules! face {
             style: Style::Normal,
             data: include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file)),
             file: $file,
+            source: "",
         }
     };
 }
 
 /// A fallback-only face: built in natively; in a browser page, a file fetched when needed
-/// (unless `embed`), named for `cargo remedy package` in the module's `remedy_assets`
-/// section.
+/// (unless `embed`), named for `cargo remedy package` by its [`Face::source`] mark.
 #[allow(unused_macros, reason = "unused when no fallback face is enabled")]
 macro_rules! fallback_face {
     ($family:literal, $weight:literal, $file:literal) => {{
         #[cfg(any(not(target_arch = "wasm32"), feature = "embed"))]
         let face = face!($family, $weight, $file);
         #[cfg(all(target_arch = "wasm32", not(feature = "embed")))]
-        let face = {
-            $crate::asset!(concat!("fonts/", $file), concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file));
-            Face { family: $family, weight: $weight, style: Style::Normal, data: &[], file: $file }
+        let face = Face {
+            family: $family,
+            weight: $weight,
+            style: Style::Normal,
+            data: &[],
+            file: $file,
+            source: $crate::asset_mark!(concat!("fonts/", $file), concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/", $file)),
         };
         face
     }};
 }
 
-/// Names a file a browser page fetches when it needs it, for `cargo remedy package --target
-/// web` to copy beside the page: `asset!("fonts/X.ttf", "/abs/path/X.ttf")` puts the line
-/// `fonts/X.ttf\t/abs/path/X.ttf` into the module's `remedy_assets` custom section, which the
-/// packager reads and then strips (it holds this machine's paths).
+/// The mark `cargo remedy package --target web` finds in a module for a file to copy beside
+/// the page: `\u{1}remedy-asset:<served path>\t<source file>\u{1}`. The packager blanks it
+/// in the module it ships (it holds this machine's paths).
 #[doc(hidden)]
 #[macro_export]
-macro_rules! asset {
+macro_rules! asset_mark {
     ($served:expr, $source:expr) => {
-        #[cfg(target_arch = "wasm32")]
-        const _: () = {
-            const LINE: &str = concat!($served, "\t", $source, "\n");
-            #[allow(unsafe_code, reason = "a custom section of data, read by the packager")]
-            #[unsafe(link_section = "remedy_assets")]
-            #[used]
-            static ASSET: [u8; LINE.len()] = match LINE.as_bytes().first_chunk() {
-                Some(bytes) => *bytes,
-                None => [0; LINE.len()],
-            };
-        };
+        concat!("\u{1}remedy-asset:", $served, "\t", $source, "\u{1}")
     };
 }
-
 
 /// Remedy Sans UI, the interface face, in five weights.
 #[cfg(feature = "remedy-sans-ui")]

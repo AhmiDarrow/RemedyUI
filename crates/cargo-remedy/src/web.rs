@@ -12,8 +12,9 @@
 //!    then optimized for size by Binaryen's `wasm-opt -Os` when it is on the `PATH` (or
 //!    `WASM_OPT` names it; `WASM_OPT=off` skips it).
 //! 3. The files the module fetches when it needs them (the fallback fonts, which a page does
-//!    not build in) are copied beside the page, as the module's `remedy_assets` section lists
-//!    them; the section, which holds this machine's paths, is then stripped from the module.
+//!    not build in) are copied beside the page, as the marks the module carries for them name
+//!    them (`remedy_ui_fonts::asset_mark!`); the marks, which hold this machine's paths, are
+//!    then blanked in the module.
 //! 4. The page (`index.html`, with the `#remedy` element the first window mounts in), a web
 //!    app manifest, the icons (`[web] icon` in `remedy.toml`, SVG or PNG, else the app's
 //!    PNG icon, else the default one) and a service worker that caches exactly this build,
@@ -120,9 +121,9 @@ pub fn package(
     let read = |path: &Path| std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()));
     let built = read(&wasm)?;
     let bound = read(&module)?;
-    let stripped = strip_section(&bound, ASSETS)?;
-    if stripped.len() != bound.len() {
-        std::fs::write(&module, &stripped).map_err(|e| format!("{}: {e}", module.display()))?;
+    let blanked = blank_marks(&bound);
+    if blanked != bound {
+        std::fs::write(&module, &blanked).map_err(|e| format!("{}: {e}", module.display()))?;
     }
     if !opts.dev {
         optimize(&module, notes)?;
@@ -178,9 +179,6 @@ const SIZE_PROFILE: [(&str, &str); 5] = [
     ("strip", "true"),
 ];
 
-/// The custom section that lists the files a module fetches when it needs them.
-const ASSETS: &str = "remedy_assets";
-
 /// True when a `Cargo.toml` at `root` or above (the workspace's) defines the
 /// `remedy-web` profile itself.
 fn defines_profile(root: &Path) -> bool {
@@ -208,80 +206,51 @@ fn optimize(module: &Path, notes: &mut Vec<String>) -> Result<(), String> {
     status(Command::new(&tool).arg("-Os").arg(module).arg("-o").arg(module))
 }
 
-/// Reads an unsigned LEB128 number at `at`, returning it and where it ends.
-fn leb(data: &[u8], mut at: usize) -> Option<(usize, usize)> {
-    let mut value = 0usize;
-    let mut shift = 0u32;
-    loop {
-        let byte = *data.get(at)?;
-        at += 1;
-        value |= usize::from(byte & 0x7f).checked_shl(shift)?;
-        if byte & 0x80 == 0 {
-            return Some((value, at));
-        }
-        shift += 7;
-    }
-}
+/// Starts and ends the mark a module carries for each file it fetches when it needs it
+/// (`remedy_ui_fonts::asset_mark!`): `\u{1}remedy-asset:<served>\t<source>\u{1}`.
+const MARK: &[u8] = b"\x01remedy-asset:";
 
-/// A section of a module: its whole bytes, and for a custom section its name and contents.
-struct Section<'a> {
-    whole: &'a [u8],
-    name: String,
-    contents: &'a [u8],
-}
-
-/// The module's sections, in order.
-fn sections(module: &[u8]) -> Result<Vec<Section<'_>>, String> {
-    if module.get(..4) != Some(b"\0asm".as_slice()) {
-        return Err("the module is not WebAssembly".into());
-    }
+/// Where each mark in `module` is, as a byte range, with what it says.
+fn marks(module: &[u8]) -> Vec<(std::ops::Range<usize>, String)> {
     let mut out = Vec::new();
-    let mut at = 8;
-    while let Some(&id) = module.get(at) {
-        let (len, body) = leb(module, at + 1).ok_or("a section's size is cut off")?;
-        let end = body.checked_add(len).ok_or("a section is too long")?;
-        let whole = module.get(at..end).ok_or("a section runs past the end")?;
-        let (name, contents) = if id == 0 {
-            let (n, s) = leb(module, body).ok_or("a custom section's name is cut off")?;
-            let name = module.get(s..s + n).ok_or("a custom section's name is cut off")?;
-            (String::from_utf8_lossy(name).into_owned(), module.get(s + n..end).unwrap_or_default())
-        } else {
-            (String::new(), &[][..])
-        };
-        out.push(Section { whole, name, contents });
+    let mut at = 0;
+    while let Some(found) = module.get(at..).and_then(|rest| rest.windows(MARK.len()).position(|w| w == MARK)) {
+        let start = at + found;
+        let body = start + MARK.len();
+        let Some(len) = module.get(body..).and_then(|rest| rest.iter().position(|&b| b == 1)) else { break };
+        let end = body + len + 1;
+        out.push((start..end, String::from_utf8_lossy(module.get(body..body + len).unwrap_or_default()).into_owned()));
         at = end;
     }
-    Ok(out)
+    out
 }
 
-/// The files the module lists in its `remedy_assets` section: where each is served (a path
-/// beside the page) and the file it is copied from.
+/// The files `module` fetches when it needs them, from its marks: where each is served (a
+/// path beside the page) and the file it is copied from.
 pub fn assets(module: &[u8]) -> Result<Vec<(String, PathBuf)>, String> {
     let mut out: Vec<(String, PathBuf)> = Vec::new();
-    for section in sections(module)?.into_iter().filter(|s| s.name == ASSETS) {
-        let text = String::from_utf8_lossy(section.contents).into_owned();
-        for line in text.split('\n').map(|l| l.trim_matches('\0')).filter(|l| !l.is_empty()) {
-            let (served, source) = line.split_once('\t').ok_or_else(|| format!("not an asset line: {line}"))?;
-            if served.split('/').any(|part| part.is_empty() || part == "." || part == "..") {
-                return Err(format!("an asset may not be served at {served}"));
-            }
-            if !out.iter().any(|(s, _)| s == served) {
-                out.push((served.to_owned(), PathBuf::from(source)));
-            }
+    for (_, line) in marks(module) {
+        let (served, source) = line.split_once('\t').ok_or_else(|| format!("not an asset mark: {line}"))?;
+        if served.split('/').any(|part| part.is_empty() || part == "." || part == "..") {
+            return Err(format!("an asset may not be served at {served}"));
+        }
+        if !out.iter().any(|(s, _)| s == served) {
+            out.push((served.to_owned(), PathBuf::from(source)));
         }
     }
     Ok(out)
 }
 
-/// `module` without its custom sections named `name`.
-pub fn strip_section(module: &[u8], name: &str) -> Result<Vec<u8>, String> {
-    let mut out = module.get(..8).unwrap_or_default().to_vec();
-    for section in sections(module)? {
-        if section.name != name {
-            out.extend_from_slice(section.whole);
+/// `module` with every mark's bytes zeroed, so the shipped module holds no paths of this
+/// machine; its size and layout stay the same.
+pub fn blank_marks(module: &[u8]) -> Vec<u8> {
+    let mut out = module.to_vec();
+    for (range, _) in marks(module) {
+        if let Some(bytes) = out.get_mut(range) {
+            bytes.fill(0);
         }
     }
-    Ok(out)
+    out
 }
 
 /// The module cargo wrote for `name` in `dir`.
@@ -485,36 +454,24 @@ mod tests {
         assert!(!a.contains('@'), "{a}");
     }
 
-    /// A module with a type section, a custom `remedy_assets` section and a `name` section.
-    fn module(lines: &str) -> Vec<u8> {
-        let custom = |name: &str, body: &[u8]| {
-            let mut s = vec![name.len() as u8];
-            s.extend_from_slice(name.as_bytes());
-            s.extend_from_slice(body);
-            let mut out = vec![0u8, s.len() as u8];
-            out.extend(s);
-            out
-        };
-        let mut m = b"\0asm\x01\0\0\0".to_vec();
-        m.extend_from_slice(&[1, 1, 0]);
-        m.extend(custom(ASSETS, lines.as_bytes()));
-        m.extend(custom("name", b"x"));
-        m
-    }
-
     #[test]
-    fn the_modules_assets_are_listed_and_their_section_stripped() {
-        let m = module("fonts/A.ttf\t/src/fonts/A.ttf\nfonts/B.woff2\t/src/B.woff2\nfonts/A.ttf\t/src/fonts/A.ttf\n");
+    fn the_modules_assets_are_found_by_their_marks_and_blanked() {
+        let mut m = b"\0asm\x01\0\0\0data".to_vec();
+        for line in ["fonts/A.ttf\t/src/fonts/A.ttf", "fonts/B.woff2\t/src/B.woff2", "fonts/A.ttf\t/src/fonts/A.ttf"] {
+            m.extend_from_slice(b"\x01remedy-asset:");
+            m.extend_from_slice(line.as_bytes());
+            m.extend_from_slice(b"\x01 more");
+        }
         let got = assets(&m).unwrap_or_default();
         assert_eq!(
             got,
             [("fonts/A.ttf".to_owned(), PathBuf::from("/src/fonts/A.ttf")), ("fonts/B.woff2".to_owned(), PathBuf::from("/src/B.woff2"))]
         );
-        let s = strip_section(&m, ASSETS).unwrap_or_default();
-        assert!(assets(&s).is_ok_and(|a| a.is_empty()), "gone");
-        assert!(s.ends_with(&[0, 6, 4, b'n', b'a', b'm', b'e', b'x']) && s.starts_with(b"\0asm"), "{s:?}");
-        assert!(assets(&module("../etc/passwd\t/x\n")).is_err(), "nothing is served outside the page");
-        assert!(assets(b"not wasm").is_err());
+        let b = blank_marks(&m);
+        assert_eq!(b.len(), m.len(), "the layout stays");
+        assert!(assets(&b).is_ok_and(|a| a.is_empty()) && !b.windows(4).any(|w| w == b"/src"), "gone");
+        assert!(b.ends_with(b"\0 more"));
+        assert!(assets(b"\x01remedy-asset:../etc/passwd\t/x\x01").is_err(), "nothing is served outside the page");
     }
 
     #[test]

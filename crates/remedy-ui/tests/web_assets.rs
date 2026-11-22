@@ -71,6 +71,7 @@ fn fetched() -> Vec<String> {
 }
 
 type Opened = Rc<RefCell<Option<(App, Ui)>>>;
+type Answer = Rc<RefCell<Option<Result<Vec<String>, String>>>>;
 
 #[wasm_bindgen_test]
 async fn fallback_faces_are_fetched_when_text_first_needs_them() {
@@ -118,7 +119,7 @@ async fn the_system_ui_font_is_read_where_the_browser_allows_and_refused_with_a_
     .must("the app starts");
     assert!(until(240, || opened.borrow().is_some()).await);
     let (app, ui) = opened.borrow().clone().must("opened");
-    let answer: Rc<RefCell<Option<Result<Vec<String>, String>>>> = Rc::default();
+    let answer: Answer = Rc::default();
     let a = answer.clone();
     app.load_system_ui_font(move |got| *a.borrow_mut() = Some(got));
     assert!(until(600, || answer.borrow().is_some()).await, "an answer came");
@@ -165,7 +166,7 @@ async fn plain_items_are_the_pages_own_shared_with_its_other_pages() {
     let fonts = Persist::new("remedy-test-fonts").plain(Plain::Json);
     assert_eq!(store.load::<String>(&theme).must("reads"), Some("midnight".to_owned()));
     let f: serde_json::Value = store.load(&fonts).must("reads").must("there");
-    assert_eq!(f["headings"], "system");
+    assert_eq!(f.get("headings").and_then(|h| h.as_str()), Some("system"));
     store.save(&theme, "paper").must("saves");
     store.save(&fonts, &serde_json::json!({"text": "remedy-sans", "headings": "ahmi-pixel"})).must("saves");
     store.flush().must("written");
@@ -188,7 +189,7 @@ fn session_items_are_the_tabs_own_session_storage() {
     let store = PersistStore::local_storage("Session test").must("a page store");
     let seasons = Persist::new("remedy-test-seasons").session();
     let v: serde_json::Value = store.load(&seasons).must("reads").must("there");
-    assert_eq!(v["seasonNumber"], 3);
+    assert_eq!(v.get("seasonNumber").and_then(serde_json::Value::as_u64), Some(3));
     store.save(&seasons, &serde_json::json!({"labels": {}, "seasonNumber": 4, "seasonToShow": "tt2", "showName": "Other"})).must("saves");
     // Written at once, with no debounce: a tab may close at any moment.
     assert_eq!(
