@@ -293,6 +293,38 @@ impl<T: Send + 'static, E: Send + 'static> Resource<T, E> {
     where
         K: PartialEq + Clone + Send + 'static,
     {
+        let fetch = Arc::new(fetch);
+        Self::with_reply(source, move |k, cancel, reply| {
+            let fetch = fetch.clone();
+            executor.spawn(Box::new(move || {
+                let mut deliver = reply.0;
+                if cancel.is_cancelled() {
+                    deliver.done = true;
+                    return;
+                }
+                let out = match catch_unwind(AssertUnwindSafe(|| fetch(k, &cancel))) {
+                    Ok(Ok(v)) => Ok(v),
+                    Ok(Err(e)) => Err(FetchError::Failed(e)),
+                    Err(p) => Err(FetchError::Panicked(panic_message(p.as_ref()))),
+                };
+                deliver.send(out);
+            }));
+        })
+    }
+
+    /// A resource whose fetch answers later instead of blocking a worker: `start(key, cancel,
+    /// reply)` runs on the UI thread when the key changes, begins the work (a browser
+    /// `fetch`, a request on a thread of its own) and returns; the work calls
+    /// [`Reply::send`] from any thread when it ends. A reply dropped unsent reports the
+    /// fetch lost. This is how fetches run in a browser page, where nothing may block.
+    #[track_caller]
+    pub fn with_reply<K>(
+        source: impl Fn() -> K + 'static,
+        start: impl Fn(K, Cancel, Reply<T, E>) + 'static,
+    ) -> Self
+    where
+        K: PartialEq + Clone + 'static,
+    {
         let r = Resource {
             id: NEXT_RESOURCE.fetch_add(1, Ordering::Relaxed),
             value: Signal::new(None),
@@ -300,7 +332,6 @@ impl<T: Send + 'static, E: Send + 'static> Resource<T, E> {
             loading: Signal::new(true),
             again: Signal::new(0),
         };
-        let fetch = Arc::new(fetch);
         let key = Memo::new(source);
         let generation = Arc::new(AtomicU64::new(0));
         let current: Rc<RefCell<Option<Cancel>>> = Rc::default();
@@ -325,12 +356,11 @@ impl<T: Send + 'static, E: Send + 'static> Resource<T, E> {
                     let _ = r.loading.try_set(false);
                     return;
                 };
-                let (fetch, generation) = (fetch.clone(), generation.clone());
                 let (value, error, loading) = (r.value, r.error, r.loading);
-                // Delivered on the UI thread, even when the job is dropped without running.
+                // Delivered on the UI thread, even when the work drops it without answering.
                 let deliver = Deliver {
                     waker,
-                    generation,
+                    generation: generation.clone(),
                     gen_now,
                     cancel: cancel.clone(),
                     value,
@@ -338,19 +368,7 @@ impl<T: Send + 'static, E: Send + 'static> Resource<T, E> {
                     loading,
                     done: false,
                 };
-                executor.spawn(Box::new(move || {
-                    let mut deliver = deliver;
-                    if cancel.is_cancelled() {
-                        deliver.done = true;
-                        return;
-                    }
-                    let out = match catch_unwind(AssertUnwindSafe(|| fetch(k, &cancel))) {
-                        Ok(Ok(v)) => Ok(v),
-                        Ok(Err(e)) => Err(FetchError::Failed(e)),
-                        Err(p) => Err(FetchError::Panicked(panic_message(p.as_ref()))),
-                    };
-                    deliver.send(out);
-                }));
+                start(k, cancel, Reply(deliver));
             });
         });
         on_cleanup(move || {
@@ -359,6 +377,24 @@ impl<T: Send + 'static, E: Send + 'static> Resource<T, E> {
             }
         });
         r
+    }
+}
+
+/// The answer to one fetch of a [`Resource::with_reply`] resource, sent once from any
+/// thread. Dropped unsent, it reports the fetch lost; sent after a newer key or a disposal,
+/// it is ignored.
+pub struct Reply<T: Send + 'static, E: Send + 'static>(Deliver<T, E>);
+
+impl<T: Send + 'static, E: Send + 'static> Reply<T, E> {
+    /// Delivers the fetch's value or error to the resource, on the UI thread.
+    pub fn send(mut self, out: Result<T, E>) {
+        self.0.send(out.map_err(FetchError::Failed));
+    }
+}
+
+impl<T: Send + 'static, E: Send + 'static> std::fmt::Debug for Reply<T, E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Reply({})", self.0.gen_now)
     }
 }
 
