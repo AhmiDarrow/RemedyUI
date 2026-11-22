@@ -45,6 +45,16 @@ fn every_palette_parses_and_forest_is_the_default_dark_forest() {
     );
 }
 
+
+#[test]
+fn colorblind_palette_ids_keep_their_short_display_names() {
+    for (id, name) in [("deutan", "Deutan"), ("protan", "Protan"), ("tritan", "Tritan")] {
+        let p = palette(id).unwrap_or_else(|| unreachable!("palette {id}"));
+        assert_eq!(p.id, id, "ids stay stable so saved prefs still match");
+        assert_eq!(p.name, name);
+    }
+}
+
 #[test]
 fn system_follows_the_platform_and_unknown_ids_fall_back() {
     assert_eq!(ThemeChoice::System.resolve(Some(false), false).name, "Light");
