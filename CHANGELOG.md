@@ -1262,7 +1262,7 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   are used and in the background). Language names (`language-names`) come from the
   browser's `Intl.DisplayNames` there instead of ICU4X's data. Native builds are unchanged.
   A real app (Portal's web page) went from a 23.2 MB module (13.6 MB gzipped, 12.0 MB
-  Brotli) to 9.99 MB (3.65 MB gzipped, 2.59 MB Brotli), with 9.5 MB of faces beside it that
+  Brotli) to 10.0 MB (3.66 MB gzipped, 2.60 MB Brotli), with 9.5 MB of faces beside it that
   only a page showing those scripts fetches.
 - `cargo remedy package --target web` builds releases with a `remedy-web` profile made for
   size (`opt-level = "s"`, fat LTO, one codegen unit, stripped; an app's own
