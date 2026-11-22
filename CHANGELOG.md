@@ -17,8 +17,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   "3.4M"; `340万` in ja, `34 লা` in bn) from ICU4X's compiled data (`icu_decimal`'s compact
   formatter, no new crate; `compact_with` and `CompactOptions` set where shortening starts and
   how many significant digits stay, defaults 2 and the locale's first unit), and `language_name(ui, code)` / `language_name_in(locale, code)`
-  ("Französisch" for `fr` in de) from `language-<code>` messages in every language the engine
-  ships, which apps extend with `add_messages`. `SystemSettings::locales` is the user's
+  ("Französisch" for `fr` in de, "Brazilian Portuguese" for `pt-BR`, "German" for `ger`):
+  every language CLDR names in every locale CLDR has, from ICU4X's display names
+  (`icu_locale`, the `language-names` feature, on by default in `remedy-ui`, about 3 MB;
+  without it, the engine's shipped languages), ISO 639-2 codes as media files tag tracks, and
+  apps' own `language-<code>` messages (`add_messages`) first. `SystemSettings::locales` is the user's
   preferred languages in order (`navigator.languages`, the Windows display languages,
   `LANGUAGE` then `LC_ALL`/`LC_MESSAGES`/`LANG` on Linux, `NSLocale.preferredLanguages` on
   macOS, Android's locale list; `[locale]` where there is no list), read by apps as

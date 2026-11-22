@@ -137,7 +137,8 @@ impl NumberSymbols {
                 .entry(self.tag.clone())
                 .or_insert_with(|| {
                     let loc = locale(&self.tag);
-                    let compact = CompactDecimalFormatter::try_new_short((&loc).into(), Default::default()).ok()?;
+                    let compact =
+                        CompactDecimalFormatter::try_new_short((&loc).into(), Default::default()).ok()?;
                     let plain = DecimalFormatter::try_new((&loc).into(), Default::default()).ok()?;
                     Some(Rc::new((compact, plain)))
                 })
@@ -165,7 +166,9 @@ impl NumberSymbols {
             let mut sig = d.clone();
             sig.multiply_pow10(-i16::from(exponent));
             sig.round(-(i16::from(options.significant_digits) - whole).max(0));
-            if f.compact_exponent_for_magnitude(sig.nonzero_magnitude_start() + i16::from(exponent)) != exponent {
+            if f.compact_exponent_for_magnitude(sig.nonzero_magnitude_start() + i16::from(exponent))
+                != exponent
+            {
                 sig.multiply_pow10(i16::from(exponent));
                 d = sig;
                 continue;
@@ -489,21 +492,92 @@ impl CompactOptions {
 }
 
 /// A language's name in `locale` (the window's language): `language_name_in("de", "fr")` is
-/// "Französisch", `language_name_in("en", "pt-BR")` "Brazilian Portuguese". Names begin with
-/// a capital, as a menu or a list shows them. They are the `language-<code>` messages in
-/// `i18n/*.ftl`: every language the engine ships, plus `pt-BR` and `zh-Hans`; apps add more
-/// with [`remedy_ui_view::strings::add_messages`] under `services-i18n`. A region or script
-/// with no name of its own gets the language's; a language with no name comes back as given.
+/// "Französisch", `language_name_in("en", "pt-BR")` "Brazilian Portuguese",
+/// `language_name_in("en", "ger")` "German". Codes are BCP 47 or ISO 639-2 (`ger`, `fre`,
+/// `chi`, as media files tag tracks). Names begin with a capital, as a menu or a list shows
+/// them. The `language-<code>` messages come first: the engine's in `i18n/*.ftl`, and any an
+/// app adds with [`remedy_ui_view::strings::add_messages`] under `services-i18n`. With the
+/// `language-names` feature (on in `remedy-ui`), every language CLDR names is named in every
+/// locale CLDR has; without it, only the engine's shipped languages, `pt-BR` and `zh-Hans`.
+/// A region or script with no name of its own gets the language's; a language with no name
+/// comes back as given.
 pub fn language_name_in(locale: &str, code: &str) -> String {
-    let tag = crate::canonical_locale(code);
+    let tag = language_code(code);
     let base = tag.split('-').next().unwrap_or_default().to_owned();
-    for id in [format!("language-{tag}"), format!("language-{base}")] {
-        let name = crate::STRINGS.format_in(locale, &id, &[]);
-        if name != format!("\u{27E8}{id}\u{27E9}") {
-            return name;
+    let source = crate::STRINGS.locales().first().map_or("en", |l| *l);
+    let message = |in_locale: &str, t: &str| {
+        let id = format!("language-{t}");
+        let name = crate::STRINGS.format_in(in_locale, &id, &[]);
+        (name != format!("\u{27E8}{id}\u{27E9}")).then_some(name)
+    };
+    // A message the window's language has, not the source language's reached by fallback.
+    let lang = |t: &str| t.split(['-', '_']).next().map(str::to_ascii_lowercase);
+    let own = |t: &str| {
+        message(locale, t).filter(|n| lang(locale) == lang(source) || Some(n) != message(source, t).as_ref())
+    };
+    for t in [&tag, &base] {
+        if let Some(n) = own(t).or_else(|| cldr_name(locale, t)) {
+            return n;
         }
     }
-    code.to_owned()
+    message(locale, &tag).or_else(|| message(locale, &base)).unwrap_or_else(|| code.to_owned())
+}
+
+/// `code` as a BCP 47 tag, ISO 639-2 and other aliases replaced (`ger` and `deu` are `de`).
+#[cfg(feature = "language-names")]
+fn language_code(code: &str) -> String {
+    let tag = crate::canonical_locale(code);
+    let Ok(mut l) = tag.parse::<Locale>() else { return tag };
+    icu_locale::LocaleCanonicalizer::new_common().canonicalize(&mut l);
+    l.to_string()
+}
+
+/// `code` as a BCP 47 tag, the ISO 639-2 codes of the shipped languages replaced.
+#[cfg(not(feature = "language-names"))]
+fn language_code(code: &str) -> String {
+    let tag = crate::canonical_locale(code);
+    let (lang, rest) = tag.split_once('-').unwrap_or((tag.as_str(), ""));
+    let short = match lang.to_ascii_lowercase().as_str() {
+        "ara" => "ar",
+        "ben" => "bn",
+        "ger" | "deu" => "de",
+        "eng" => "en",
+        "spa" => "es",
+        "fre" | "fra" => "fr",
+        "hin" => "hi",
+        "jpn" => "ja",
+        "por" => "pt",
+        "rus" => "ru",
+        "chi" | "zho" => "zh",
+        _ => return tag,
+    };
+    if rest.is_empty() { short.to_owned() } else { format!("{short}-{rest}") }
+}
+
+/// CLDR's name for `tag` in `locale`, capitalized; `None` where CLDR does not name all of it.
+#[cfg(feature = "language-names")]
+fn cldr_name(locale: &str, tag: &str) -> Option<String> {
+    use icu_locale::names::{
+        DisplayNamesPreferences, LanguageIdentifierDisplayName, LanguageIdentifierDisplayNameOptions,
+    };
+    use writeable::TryWriteable;
+    let id = tag.parse::<icu_locale_core::LanguageIdentifier>().ok()?;
+    let prefs = DisplayNamesPreferences::from(&self::locale(locale));
+    let name = LanguageIdentifierDisplayName::try_new_heavy(
+        prefs,
+        id,
+        LanguageIdentifierDisplayNameOptions::default(),
+    )
+    .ok()?;
+    let name = name.as_borrowed().try_write_to_string().ok()?.into_owned();
+    let mut chars = name.chars();
+    let first = chars.next()?;
+    Some(first.to_uppercase().chain(chars).collect())
+}
+
+#[cfg(not(feature = "language-names"))]
+fn cldr_name(_: &str, _: &str) -> Option<String> {
+    None
 }
 
 /// [`language_name_in`] the window's language (tracked: it follows the locale).

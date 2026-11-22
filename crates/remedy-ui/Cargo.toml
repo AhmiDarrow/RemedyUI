@@ -12,7 +12,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["gpu", "system-fonts", "script-fonts", "widgets", "forms", "nav"]
+default = ["gpu", "system-fonts", "script-fonts", "widgets", "forms", "nav", "language-names"]
 ## Draw with the GPU renderer, falling back to the CPU renderer when no GPU works.
 gpu = ["dep:remedy-ui-render-gpu", "remedy-ui-media-effects?/gpu"]
 ## Dictionary line breaking for Thai, Lao, Khmer and Burmese (adds several MB of data).
@@ -97,6 +97,10 @@ script-wasm = ["board", "dep:remedy-ui-script-wasm"]
 customize = ["forms", "nav", "i18n", "dep:remedy-ui-customize"]
 ## Localization (`remedy_ui::i18n`): Fluent messages, locale data, dates and exact numbers.
 i18n = ["dep:remedy-ui-services-i18n"]
+## Every language CLDR names, in every locale CLDR has, for `i18n::language_name` (a subtitle
+## or audio track's language: "Korean", "Koreanisch"; ISO 639-2 codes like `ger` too; about
+## 3 MB of data). Without it, only the languages the engine ships are named.
+language-names = ["i18n", "remedy-ui-services-i18n/language-names"]
 ## Importing what a web version saved (`remedy_ui::webstorage`): a web view's localStorage
 ## (WebView2, Android System WebView, Chrome), read losslessly and read-only, or the page's
 ## own in a browser.
