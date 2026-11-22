@@ -487,7 +487,8 @@ where
     let items: ListItems<T> = items.into();
     let on_open: Rc<dyn Fn(&K)> = Rc::new(on_open);
     let gap = ui.theme().spacing.unit * 0.5;
-    let container = ui.el("list").column().gap(gap).semantics(Semantics::new(Role::ListBox).label(label.into()));
+    let container =
+        ui.el("list").column().gap(gap).semantics(Semantics::new(Role::ListBox).label(label.into()));
     let order = Order { keys: Rc::default(), version: Signal::new(0) };
     let row_key = key.clone();
     let open = on_open.clone();

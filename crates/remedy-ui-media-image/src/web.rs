@@ -7,7 +7,9 @@ use std::sync::Arc;
 use remedy_ui_paint::Image;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{ImageBitmap, ImageBitmapOptions, ImageOrientation, OffscreenCanvasRenderingContext2d, ResizeQuality};
+use web_sys::{
+    ImageBitmap, ImageBitmapOptions, ImageOrientation, OffscreenCanvasRenderingContext2d, ResizeQuality,
+};
 
 use crate::decode::{DecodeError, Decoded, dimensions, fitted, premultiply};
 
@@ -54,15 +56,17 @@ async fn decode_async(bytes: &[u8], box_px: Option<(u32, u32)>, cover: bool) -> 
     let parts = js_sys::Array::of1(&js_sys::Uint8Array::from(bytes));
     let blob = web_sys::Blob::new_with_u8_array_sequence(&parts).map_err(|e| js_error("no blob", e))?;
     let first = natural.and_then(target);
-    let mut bm = bitmap(window.create_image_bitmap_with_blob_and_image_bitmap_options(&blob, &options(first))).await?;
+    let mut bm =
+        bitmap(window.create_image_bitmap_with_blob_and_image_bitmap_options(&blob, &options(first))).await?;
     let source = natural.unwrap_or((bm.width(), bm.height()));
     if natural.is_none()
         && let Some(t) = target(source)
     {
         // A format only the browser reads: scaled once its size is known.
-        let scaled =
-            bitmap(window.create_image_bitmap_with_image_bitmap_and_image_bitmap_options(&bm, &options(Some(t))))
-                .await;
+        let scaled = bitmap(
+            window.create_image_bitmap_with_image_bitmap_and_image_bitmap_options(&bm, &options(Some(t))),
+        )
+        .await;
         bm.close();
         bm = scaled?;
     }
@@ -83,7 +87,8 @@ fn read(bm: &ImageBitmap, w: u32, h: u32) -> Result<Vec<u8>, DecodeError> {
         .and_then(|c| c.dyn_into::<OffscreenCanvasRenderingContext2d>().ok())
         .ok_or_else(|| DecodeError::Io("the canvas gave no 2D context".into()))?;
     ctx.draw_image_with_image_bitmap(bm, 0.0, 0.0).map_err(|e| js_error("drawing it failed", e))?;
-    let data =
-        ctx.get_image_data(0.0, 0.0, f64::from(w), f64::from(h)).map_err(|e| js_error("reading it failed", e))?;
+    let data = ctx
+        .get_image_data(0.0, 0.0, f64::from(w), f64::from(h))
+        .map_err(|e| js_error("reading it failed", e))?;
     Ok(data.data().0)
 }

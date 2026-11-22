@@ -191,10 +191,13 @@ async fn the_browser_decodes_and_scales_pictures_to_the_size_they_show() {
     let ui = ui();
     // A 300×200 gradient shown in a 60×60 box: decoded at 60×40, the size it is drawn.
     let mut png = Vec::new();
-    let pic = image::RgbaImage::from_fn(300, 200, |x, y| image::Rgba([(x % 256) as u8, (y % 256) as u8, 128, 255]));
-    assert!(image::DynamicImage::ImageRgba8(pic)
-        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
-        .is_ok());
+    let pic =
+        image::RgbaImage::from_fn(300, 200, |x, y| image::Rgba([(x % 256) as u8, (y % 256) as u8, 128, 255]));
+    assert!(
+        image::DynamicImage::ImageRgba8(pic)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .is_ok()
+    );
     let state = remedy_ui_reactive::Signal::new(ImageState::Loading);
     let _req = load(&Source::Bytes(png.into()), Some((60, 60)), false, state);
     match settled(&ui, state).await {

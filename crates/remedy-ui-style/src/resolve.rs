@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 
 use remedy_ui_core::{
-    Color, ColorMatrix, Insets, LineHeight, ScrollbarColor, ScrollbarVisibility, ScrollbarWidth, TextTransform, Vec2,
+    Color, ColorMatrix, Insets, LineHeight, ScrollbarColor, ScrollbarVisibility, ScrollbarWidth,
+    TextTransform, Vec2,
 };
 
 use crate::states::States;

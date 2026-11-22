@@ -10,6 +10,21 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Scroll bars**, drawn by the compositor over each scroll container at the offset of the
+  frame (`Layer::scrollbars`, `Scrollbars`, `CompositeOp::Fill`), and styled as CSS styles
+  them: `Style::scrollbar_width` (`ScrollbarWidth::Auto`, 12 px; `Thin`, 8 px; `None`; `Px`),
+  `Style::scrollbar_color` (`ScrollbarColor { thumb, track }`, inherited) and
+  `Style::scrollbar_visibility` (`ScrollbarVisibility::Auto`: overlay bars that show while the
+  content moves, stay `Scrollbars::LINGER` and fade over `Scrollbars::FADE`, as browsers draw
+  them on Windows 11, macOS and phones; `Always`; `Never`). The default is the platform's
+  overlay bar in the theme's text color at half strength. The types live in
+  `remedy-ui-core` (`remedy_ui_core::scrollbar`).
+- **List boxes and options** for assistive technology: `Role::ListBox` and `Role::Option`
+  (AccessKit `ListBox` and `ListBoxOption`, ARIA `listbox` and `option` in a page's mirror),
+  each option `selected` or not, and `Semantics::multiselectable` (`aria-multiselectable`,
+  AccessKit's multiselectable) for a list box that takes several.
+- `PaintCx::pixel_box`: the element's box with its edges on the device-pixel grid, where its
+  background and border are drawn, for painters that place pictures as browsers do.
 - **Line height as a style property** (CSS `line-height`): `Style::line_height`,
   `StylePatch::line_height` and `El::line_height` take a `LineHeight` (`Relative(1.5)` for a
   multiple of the text size, `Absolute(24.0)` for pixels, `FontMetrics` for the font's own);
@@ -1200,6 +1215,25 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Changed
 
+- **Images in a page are decoded and scaled by the browser** (`createImageBitmap`, with
+  `resizeQuality: "high"`, off the page's thread), so a picture on the canvas has the pixels
+  an `<img>` of the same CSS size and device pixel ratio shows. SVG and formats only the
+  engine reads decode as before, and so does anything the browser cannot decode.
+- **Images are decoded at exactly the size they show** (their box in whole device pixels,
+  no longer rounded up to a power of two) and placed on the device-pixel grid, so they are
+  drawn one pixel to one pixel; natively, scaling down uses a Lanczos-3 filter (as browsers
+  downscale while decoding) instead of a box or triangle filter.
+- **Text boxes keep fractional heights**: a paragraph's box is its size on a 1/64 px grid
+  (Chrome's layout unit), no longer rounded up to whole pixels, so a 21.12 px line takes
+  21.125 px instead of 22 and a stack of lines no longer drifts from a browser's.
+- **Box edges are snapped to device pixels**, as Chrome and Firefox draw them: an element's
+  background, border and clip go on its box with each edge on the nearest device pixel, and
+  border widths are whole device pixels (at least one). Layout stays fractional.
+- `widgets_core::list` is a list box of options to assistive technology (`Role::ListBox`,
+  `Role::Option`) instead of a list of list items, as ARIA has a list of choices.
+- `Layer` and `ResolvedStyle`/`StylePatch`/`Style` have new fields (`scrollbars`,
+  `scrollbar_*`); `CompositeOp` has a new variant (`Fill`) and `Role` two (`ListBox`,
+  `Option`): code matching every variant adds them.
 - `Brush` has two new variants (`Elliptical`, `Conic`); code matching every variant adds them.
 - `Theme::families` puts the body's families after a heading or monospace list, as a CSS font
   list ends in a face the page has: a heading face the app did not bundle draws in the body
@@ -1339,6 +1373,14 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **A page no longer freezes while the browser starts WebGL**: `getContext("webgl2")` blocks
+  the page's thread until the browser's GL is up, which headless Firefox on Windows took
+  minutes to do (eight on a loaded machine, ANGLE starting over Direct3D 11), so Portal's
+  web app sat frozen right after its first frame. The WebGL2 rung now has a worker make a
+  context on an `OffscreenCanvas` first and waits for it without blocking; the window draws
+  on the CPU renderer meanwhile and moves to the GPU once the worker answers (the page's own
+  context is then made in milliseconds). A browser that makes no WebGL2 context at all
+  skips the rung at once.
 - **The X11 tray's submenus cascade and take the keyboard** as the top-level menu does: a
   submenu opens beside its row (hovering it, clicking it, Right or Enter) and closes with Left
   or Escape; Up and Down skip what cannot be chosen; access keys pick an entry (the letter
