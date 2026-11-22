@@ -232,3 +232,49 @@ pub fn is_running() -> bool {
 /// What the page-only functions answer in documentation built for another target.
 #[cfg(all(doc, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 const NOT_A_PAGE: &str = "this runs only in a browser page (wasm32-unknown-unknown)";
+
+/// The page's session history, for an app's routes: the address's fragment (`#/settings/2`)
+/// names the page, and the browser's back and forward move between them.
+///
+/// Only in a browser page (`wasm32-unknown-unknown`).
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub mod history {
+    use crate::web::history as h;
+
+    /// The address's fragment, without the `#`.
+    pub fn fragment() -> String {
+        h::fragment()
+    }
+
+    /// The index [`write`] gave the current entry, if it gave one.
+    pub fn index() -> Option<u32> {
+        h::index()
+    }
+
+    /// Adds a history entry at `#fragment`, numbered `index`; with `replace`, rewrites the
+    /// current one instead.
+    pub fn write(fragment: &str, index: u32, replace: bool) {
+        h::write(fragment, index, replace);
+    }
+
+    /// Moves `delta` entries back (negative) or forward.
+    pub fn go(delta: i32) {
+        h::go(delta);
+    }
+
+    /// Calls `f(fragment, index)` when the person goes back or forward or edits the fragment.
+    /// A second call replaces `f`.
+    pub fn listen(f: impl Fn(String, Option<u32>) + 'static) {
+        h::listen(f);
+    }
+
+    /// Opens `#fragment` of this page in a new tab.
+    pub fn open_in_new_tab(fragment: &str) {
+        h::open_in_new_tab(fragment);
+    }
+
+    /// Reloads the page.
+    pub fn reload() {
+        h::reload();
+    }
+}

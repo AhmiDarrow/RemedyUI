@@ -1336,6 +1336,19 @@ impl App {
         self.push(Cmd::OpenUrl(url.into(), Box::new(done)));
     }
 
+    /// Starts the UI over, after an update or a change that needs a fresh start: in a
+    /// browser page, reloads the page (at the same address, so the same route); elsewhere,
+    /// rebuilds every [`Router::view`](crate::router::Router::view) at its current route.
+    pub fn reload(&self) {
+        #[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+        remedy_ui_bridge_web::history::reload();
+        #[cfg(all(
+            feature = "widgets",
+            not(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))
+        ))]
+        crate::router::reload_views();
+    }
+
     /// Asks for the person's leave to use `permission`, then `done` with the answer (true when
     /// granted). On Android this shows the system's prompt unless the permission was already
     /// granted, and the app's manifest must declare it (`cargo remedy package` writes it from
@@ -3228,13 +3241,13 @@ impl remedy_ui_host::App for Runner {
                     if let Some(p) = w.pan.as_mut().filter(|p| p.hold.is_none()) {
                         p.hold = Some(host.set_timer(host.now() + LONG_PRESS));
                     }
-                    if events.is_empty() {
-                        host.request_frame(window);
-                    }
                     for e in &events {
                         w.ui.pointer(e);
                         host.pointer_consumed(window, w.ui.pointer_consumed());
                     }
+                    // A held finger (no events yet), a scroll, and a tap (down + up together)
+                    // all need a frame: a tap focuses a field and opens the keyboard.
+                    host.request_frame(window);
                 }
             }
             HostEvent::DragEnded(window, effect) => {
