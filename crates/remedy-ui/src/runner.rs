@@ -3239,13 +3239,13 @@ impl remedy_ui_host::App for Runner {
                     if let Some(p) = w.pan.as_mut().filter(|p| p.hold.is_none()) {
                         p.hold = Some(host.set_timer(host.now() + LONG_PRESS));
                     }
-                    if events.is_empty() {
-                        host.request_frame(window);
-                    }
                     for e in &events {
                         w.ui.pointer(e);
                         host.pointer_consumed(window, w.ui.pointer_consumed());
                     }
+                    // A held finger (no events yet), a scroll, and a tap (down + up together)
+                    // all need a frame: a tap focuses a field and opens the keyboard.
+                    host.request_frame(window);
                 }
             }
             HostEvent::DragEnded(window, effect) => {
