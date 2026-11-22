@@ -124,6 +124,22 @@ pub enum Role {
     Document,
     /// One page of a document.
     Page,
+    /// A landmark: the main ways around the app or site (a sidebar of sections).
+    Navigation,
+    /// A landmark: the main content.
+    Main,
+    /// A landmark: the header across the top (logo, title, account).
+    Banner,
+    /// A landmark: a labelled section people should be able to jump to.
+    Region,
+    /// A landmark: the search area.
+    Search,
+    /// A self-contained piece of content (a post, a card in a feed).
+    Article,
+    /// A landmark: the footer (copyright, links).
+    ContentInfo,
+    /// A landmark: content beside the main content (related items).
+    Complementary,
 }
 
 /// Something an assistive technology or agent can ask an element to do.
@@ -186,6 +202,25 @@ pub enum Live {
     Assertive,
 }
 
+/// Which item of a set is the current one (`aria-current`): the page a nav item opens, the step
+/// of a wizard, the day in a calendar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Current {
+    /// The current page (a nav item for the page shown).
+    Page,
+    /// The current step of a process.
+    Step,
+    /// The current location (a node of a flow chart, a breadcrumb).
+    Location,
+    /// The current date (today in a calendar).
+    Date,
+    /// The current time (now in a timetable).
+    Time,
+    /// The current item of a set that is none of the above.
+    True,
+}
+
 /// What an element tells assistive technology about itself.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Semantics {
@@ -209,6 +244,7 @@ pub struct Semantics {
     merge: bool,
     shortcut: Option<String>,
     access_key: Option<String>,
+    current: Option<Current>,
     url: Option<String>,
 }
 
@@ -245,6 +281,7 @@ impl Semantics {
             merge: false,
             shortcut: None,
             access_key: None,
+            current: None,
             url: None,
         }
     }
@@ -302,6 +339,17 @@ impl Semantics {
     /// The live region politeness: how changes to it are announced.
     pub fn live_state(&self) -> Live {
         self.live
+    }
+
+    /// Which kind of current item it is, or not the current one (`None`).
+    pub fn current_state(&self) -> Option<Current> {
+        self.current
+    }
+
+    /// Marks it the current item of its set: `Current::Page` for the nav item of the page shown.
+    pub fn current(mut self, c: Current) -> Self {
+        self.current = Some(c);
+        self
     }
 
     /// The accessible name.
@@ -652,6 +700,17 @@ impl A11yTree {
         if let Some(e) = s.expanded {
             n.set_expanded(e);
         }
+        if let Some(c) = s.current {
+            use accesskit::AriaCurrent as A;
+            n.set_aria_current(match c {
+                Current::Page => A::Page,
+                Current::Step => A::Step,
+                Current::Location => A::Location,
+                Current::Date => A::Date,
+                Current::Time => A::Time,
+                Current::True => A::True,
+            });
+        }
         if s.invalid {
             n.set_invalid(accesskit::Invalid::True);
         }
@@ -727,6 +786,16 @@ impl A11yTree {
             }
             if let Some(e) = s.expanded {
                 states.push(if e { "expanded" } else { "collapsed" });
+            }
+            if let Some(c) = s.current {
+                states.push(match c {
+                    Current::Page => "current page",
+                    Current::Step => "current step",
+                    Current::Location => "current location",
+                    Current::Date => "current date",
+                    Current::Time => "current time",
+                    Current::True => "current",
+                });
             }
             if s.disabled {
                 states.push("disabled");
@@ -954,6 +1023,14 @@ pub fn role_name(r: Role) -> String {
         Role::TreeItem => "tree item".into(),
         Role::Document => "document".into(),
         Role::Page => "page".into(),
+        Role::Navigation => "navigation".into(),
+        Role::Main => "main".into(),
+        Role::Banner => "banner".into(),
+        Role::Region => "region".into(),
+        Role::Search => "search".into(),
+        Role::Article => "article".into(),
+        Role::ContentInfo => "content information".into(),
+        Role::Complementary => "complementary".into(),
     }
 }
 
@@ -1005,7 +1082,14 @@ fn role(r: Role) -> accesskit::Role {
         Role::Tree => R::Tree,
         Role::TreeItem => R::TreeItem,
         Role::Document => R::Document,
-        Role::Page => R::Article,
+        Role::Page | Role::Article => R::Article,
+        Role::Navigation => R::Navigation,
+        Role::Main => R::Main,
+        Role::Banner => R::Banner,
+        Role::Region => R::Region,
+        Role::Search => R::Search,
+        Role::ContentInfo => R::ContentInfo,
+        Role::Complementary => R::Complementary,
     }
 }
 

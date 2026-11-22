@@ -21,7 +21,11 @@ pub fn text_area(ui: &Ui, label: impl Into<String>) -> TextField {
 #[track_caller]
 pub fn search(ui: &Ui, label: impl Into<String>, on_change: impl Fn(String) + 'static) -> El {
     let label = label.into();
-    let field = ui.text_field("text_input", FieldKind::Single).label(label.clone()).placeholder(label);
+    let field = ui
+        .text_field("text_input", FieldKind::Single)
+        .purpose(remedy_ui_view::InputPurpose::Search)
+        .label(label.clone())
+        .placeholder(label);
     let _ = field.el().variant("bare");
     let f2 = field.clone();
     let field = field.on_change(move || on_change(f2.value()));

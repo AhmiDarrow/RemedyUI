@@ -792,7 +792,7 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         match state {
             Some(s) => {
                 w.window.set_ime_allowed(true);
-                w.window.set_ime_purpose(if s.private {
+                w.window.set_ime_purpose(if s.private || s.purpose.is_password() {
                     winit::window::ImePurpose::Password
                 } else {
                     winit::window::ImePurpose::Normal
@@ -1029,7 +1029,30 @@ impl<A: App, H: PlatformHooks> Runner<A, H> {
         }
     }
 
+    /// A press on another control while a word is still underlined must commit that word
+    /// first. Otherwise Save (or Load, or a newly focused field) sees only the last committed
+    /// text — “Lavender bar” becomes “Lavender”.
+    fn commit_composition_before_click(&mut self, el: &ActiveEventLoop, wid: winit::window::WindowId) {
+        let Some((id, w)) = self.state.windows.get_mut(&wid) else { return };
+        if !w.composing {
+            return;
+        }
+        w.composing = false;
+        let text = std::mem::take(&mut w.preedit);
+        let window = w.window.clone();
+        let id = *id;
+        // Clears the Java span only. finishComposition is posted to the UI thread and
+        // must not imeCommit: that notice would arrive after this Commit and double the word.
+        self.hooks.end_composition(&window);
+        if !text.is_empty() {
+            self.deliver(el, HostEvent::Ime(id, ImeEvent::Commit(text)));
+        }
+    }
+
     fn pointer(&mut self, el: &ActiveEventLoop, wid: winit::window::WindowId, phase: PointerPhase) {
+        if matches!(phase, PointerPhase::Down) {
+            self.commit_composition_before_click(el, wid);
+        }
         let Some((id, w)) = self.state.windows.get(&wid) else { return };
         let e = PointerEvent::new(phase, w.cursor)
             .with_buttons(w.buttons)
@@ -1251,6 +1274,9 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                     .with_pressure(pressure)
                     .with_time(now)
                     .with_modifiers(self.state.modifiers);
+                if matches!(phase, PointerPhase::Down) {
+                    self.commit_composition_before_click(el, wid);
+                }
                 self.deliver(el, HostEvent::Pointer(id, e));
             }
             WindowEvent::ModifiersChanged(m) => self.state.modifiers = translate::modifiers(m.state()),
