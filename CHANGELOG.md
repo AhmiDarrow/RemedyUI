@@ -968,6 +968,16 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   once the bytes are freed. `probe` checks a file's size and modification time (off the UI
   thread) and re-reads its size when the file changed. Remembered sizes are capped at 1024,
   least recently used first (`known_sizes()` counts them).
+- **On Android, tapping a text field now opens the on-screen keyboard.** The input-method
+  view was a full-screen overlay; once a field focused it, it ate every later tap, and
+  `showSoftInput` was asked before the view had focus and a window token, so the keyboard
+  often never appeared. The view is now 1 px, it never takes touches (they stay with the
+  app), and the keyboard is shown after focus, including through `WindowInsetsController`
+  on Android 11 and later. A finger tap also always asks for a frame, so the field paints
+  and the text session starts.
+
+- **On Android, underlined keyboard text is kept when you leave a field, Save, or tap another control.** Words still being composed (the last underlined word, like “bar” in “Lavender bar”) were dropped because a field end, a restart, or a tap on another control finished the input session before the composition was committed. The input method now commits that text first (`commitCompositionIfAny` on end and update; a pointer-down flush of the runner’s preedit, without a second commit from `finishComposition`).
+
 - **An HLS stream on GStreamer's software H.264 decoder shows its first picture at once**,
   not half a second late, on opening and on every seek. `avdec_h264` holds a picture for
   each of its frame threads (19 units on a 16-thread machine) before giving any out, and
