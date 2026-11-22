@@ -1,6 +1,6 @@
 //! Vector paths.
 
-use remedy_ui_core::{Point, Rect};
+use remedy_ui_core::{CornerRadii, Point, Rect};
 
 /// One path segment.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -76,6 +76,38 @@ impl Path {
             .cubic_to(Point::new(cx - r, cy - r * K), Point::new(cx - r * K, cy - r), Point::new(cx, cy - r))
             .cubic_to(Point::new(cx + r * K, cy - r), Point::new(cx + r, cy - r * K), Point::new(cx + r, cy))
             .close();
+        p
+    }
+
+    /// A rectangle with rounded corners (radii fitted to it as CSS does), clockwise from
+    /// the top start corner's end, as one closed subpath.
+    pub fn rounded_rect(rect: Rect, radii: CornerRadii) -> Path {
+        const K: f32 = 1.0 - 0.552_284_8;
+        let r = radii.fit(rect.size());
+        let (x0, y0, x1, y1) = (rect.min.x, rect.min.y, rect.max.x, rect.max.y);
+        let pt = Point::new;
+        let mut p = Path::new();
+        p.move_to(pt(x0 + r.top_start, y0)).line_to(pt(x1 - r.top_end, y0));
+        if r.top_end > 0.0 {
+            let a = r.top_end;
+            p.cubic_to(pt(x1 - a * K, y0), pt(x1, y0 + a * K), pt(x1, y0 + a));
+        }
+        p.line_to(pt(x1, y1 - r.bottom_end));
+        if r.bottom_end > 0.0 {
+            let a = r.bottom_end;
+            p.cubic_to(pt(x1, y1 - a * K), pt(x1 - a * K, y1), pt(x1 - a, y1));
+        }
+        p.line_to(pt(x0 + r.bottom_start, y1));
+        if r.bottom_start > 0.0 {
+            let a = r.bottom_start;
+            p.cubic_to(pt(x0 + a * K, y1), pt(x0, y1 - a * K), pt(x0, y1 - a));
+        }
+        p.line_to(pt(x0, y0 + r.top_start));
+        if r.top_start > 0.0 {
+            let a = r.top_start;
+            p.cubic_to(pt(x0, y0 + a * K), pt(x0 + a * K, y0), pt(x0 + a, y0));
+        }
+        p.close();
         p
     }
 

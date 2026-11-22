@@ -45,7 +45,12 @@ pub trait PlatformHooks: 'static {
     fn settings(&mut self) -> SystemSettings;
     /// Seconds east of UTC at `unix_seconds` in the user's time zone, or `None` when the
     /// platform cannot say (the host then uses UTC).
-    fn utc_offset(&self, unix_seconds: i64) -> Option<i32>;
+    fn utc_offset(&self, unix_seconds: i64) -> Option<i32> {
+        (self.utc_offsets())(unix_seconds)
+    }
+    /// The function [`utc_offset`](Self::utc_offset) asks: seconds east of UTC at an
+    /// instant, kept by the windows' time zones to ask again later.
+    fn utc_offsets(&self) -> fn(i64) -> Option<i32>;
     /// The clipboard's text.
     fn clipboard_text(&mut self) -> Result<Option<String>, Unsupported>;
     /// Writes text to the clipboard; `sensitive` keeps it out of history and sync.
@@ -433,6 +438,10 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
             unix_seconds,
             utc_offset: self.hooks.utc_offset(unix_seconds).unwrap_or(0),
         }
+    }
+
+    fn time_zone(&self) -> remedy_ui_host::TimeZone {
+        remedy_ui_host::TimeZone::new(self.hooks.utc_offsets())
     }
 
     fn create_window(&mut self, options: &WindowOptions) -> Result<WindowId, Unsupported> {

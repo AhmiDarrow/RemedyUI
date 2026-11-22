@@ -205,6 +205,91 @@ fn text_fields_edit_through_keys_clipboard_and_input_methods() {
 }
 
 #[test]
+fn a_maximum_length_limits_typing_pasting_and_input_methods() {
+    let ui = ui();
+    let field = ui.text_field("text_input", FieldKind::Single).max_length(5);
+    let code = ui.text_field("text_area", FieldKind::Code).max_length(4);
+    let secret = ui.text_field("secret_input", FieldKind::Secret).max_length(3);
+    ui.root().child(field.el().layout(|l| l.width = Length::Px(150.0)));
+    ui.root().child(code.el().layout(|l| l.width = Length::Px(150.0)));
+    ui.root().child(secret.el().layout(|l| l.width = Length::Px(150.0)));
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    ui.key(&key(Key::Tab, None, Modifiers::NONE));
+    assert!(field.el().is_focused());
+    for c in ["a", "b", "c"] {
+        ui.key(&typed(c));
+    }
+    ui.paste("defgh");
+    assert_eq!(field.value(), "abcde", "the paste is cut to the room left");
+    ui.key(&typed("x"));
+    assert_eq!(field.value(), "abcde", "a key that does not fit types nothing");
+    ui.key(&key(Key::Backspace, None, Modifiers::NONE));
+    ui.ime(&ImeEvent::Preedit { text: "にほん".into(), cursor: Some(9..9) });
+    ui.ime(&ImeEvent::Commit("日本語".into()));
+    assert_eq!(field.value(), "abcd日", "an input method's text is cut too");
+    ui.key(&ctrl("a"));
+    ui.paste("123456789");
+    assert_eq!(field.value(), "12345", "the selection it replaces is room");
+    field.set_value("the app's own value is not limited");
+    assert_eq!(field.len(), 34);
+    field.set_max_length(None);
+    ui.key(&typed("!"));
+    assert!(field.value().ends_with('!'), "the limit lifted");
+
+    // Enter with its indentation does not fit in a code field: it adds nothing.
+    code.el().focus();
+    for c in ["a", ":"] {
+        ui.key(&typed(c));
+    }
+    ui.key(&key(Key::Enter, None, Modifiers::NONE));
+    assert_eq!(code.value(), "a:", "Enter and its indent would pass four");
+
+    secret.el().focus();
+    ui.paste("hunter2");
+    assert_eq!(secret.len(), 3, "secrets are cut as they go in");
+    ui.key(&typed("x"));
+    assert_eq!(secret.len(), 3);
+}
+
+#[test]
+fn a_focus_target_takes_focus_from_code_but_tab_passes_it() {
+    let ui = ui();
+    let first = ui.el("button").focusable(true);
+    let target = ui.el("heading").focus_target();
+    let last = ui.el("button").focusable(true);
+    ui.root().child(first.clone()).child(target.clone()).child(last.clone());
+    let mut s = Screen::new(ui.clone());
+    s.frame();
+    ui.key(&key(Key::Tab, None, Modifiers::NONE));
+    assert!(first.is_focused());
+    ui.key(&key(Key::Tab, None, Modifiers::NONE));
+    assert!(last.is_focused(), "Tab passes the focus target by");
+    target.focus();
+    assert!(target.is_focused(), "code focuses it");
+    ui.key(&key(Key::Tab, None, Modifiers::NONE));
+    assert!(last.is_focused(), "Tab goes on from it in tree order");
+    let back = target.clone().focusable(true);
+    first.focus();
+    ui.key(&key(Key::Tab, None, Modifiers::NONE));
+    assert!(back.is_focused(), "focusable puts it in the Tab order again");
+}
+
+#[test]
+fn local_time_at_gives_each_instant_its_own_offset() {
+    use remedy_ui_host::{LocalTime, TimeZone};
+    let ui = ui();
+    // Paris: UTC+1, then UTC+2 from 2026-03-29 01:00 UTC.
+    let change = 1_774_746_000;
+    ui.set_local_time(LocalTime { unix_seconds: 1_794_958_200, utc_offset: 3600 });
+    assert_eq!(ui.local_time_at(change).utc_offset, 3600, "without a zone today's offset stands in");
+    ui.set_time_zone(TimeZone::new(move |t| Some(if t < change { 3600 } else { 7200 })));
+    assert_eq!(ui.local_time_at(change - 1).utc_offset, 3600);
+    assert_eq!(ui.local_time_at(change).utc_offset, 7200, "summer time on the other side");
+    assert_eq!(ui.local_time_at(change).local_seconds(), change + 7200);
+}
+
+#[test]
 fn fields_that_copy_as_secret_send_copies_and_cuts_to_the_secure_clipboard() {
     let ui = ui();
     let keep = std::time::Duration::from_secs(30);

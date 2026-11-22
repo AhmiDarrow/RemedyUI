@@ -2535,6 +2535,7 @@ impl Runner {
                 ui.set_locale(self.locale.clone().unwrap_or_else(|| self.settings.locale.clone()));
                 ui.set_double_click_time(self.settings.double_click);
                 ui.set_local_time(host.local_time());
+                ui.set_time_zone(host.time_zone());
                 let app = self.app.clone();
                 ui.set_wake(Rc::new(move || app.wake_if_idle()));
                 ui.set_reduced_motion(self.reduced_motion());

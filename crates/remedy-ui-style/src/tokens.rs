@@ -471,6 +471,8 @@ pub struct Style {
     pub border: Option<ColorRef>,
     /// Border width.
     pub border_width: Option<Dp>,
+    /// Border line style: solid, dashed or dotted.
+    pub border_style: Option<crate::BorderStyle>,
     /// Corner radius.
     pub radius: Option<Dp>,
     /// Each corner's radius, top start, top end, bottom end and bottom start (CSS's
@@ -571,6 +573,12 @@ impl Style {
     /// Border width.
     pub fn border_width(mut self, w: impl Into<Dp>) -> Self {
         self.border_width = Some(w.into());
+        self
+    }
+
+    /// Border line style (CSS `border-style`).
+    pub fn border_style(mut self, value: crate::BorderStyle) -> Self {
+        self.border_style = Some(value);
         self
     }
 
@@ -810,6 +818,7 @@ impl Style {
             foreground: other.foreground.or(self.foreground),
             border: other.border.or(self.border),
             border_width: other.border_width.or(self.border_width),
+            border_style: other.border_style.or(self.border_style),
             radius: other.radius.or(self.radius),
             corners: match (other.corners, other.radius) {
                 (Some(c), _) => Some(c),
@@ -893,6 +902,7 @@ impl Style {
             foreground: c(self.foreground),
             border: c(self.border),
             border_width: dp(self.border_width),
+            border_style: self.border_style,
             radius: match self.corners {
                 Some(c) => Some(c.into_iter().map(|d| d.resolve(theme)).fold(0.0, f32::max)),
                 None => dp(self.radius),
@@ -937,6 +947,7 @@ impl From<StylePatch> for Style {
             foreground: p.foreground.map(ColorRef::Value),
             border: p.border.map(ColorRef::Value),
             border_width: p.border_width.map(Dp::Px),
+            border_style: p.border_style,
             radius: p.radius.map(Dp::Px),
             corners: p.corners.map(|c| [c.top_start, c.top_end, c.bottom_end, c.bottom_start].map(Dp::Px)),
             padding: p.padding.map(Pad::from),

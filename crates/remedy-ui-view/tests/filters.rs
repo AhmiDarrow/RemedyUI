@@ -154,6 +154,47 @@ fn a_style_can_round_some_corners_only() {
     assert_eq!(tokens.radius, Some(8.0), "the radius is the largest corner");
 }
 
+#[test]
+fn dashed_and_dotted_borders_follow_the_corners() {
+    use remedy_ui_core::CornerRadii;
+    use remedy_ui_style::BorderStyle;
+    let ui = ui();
+    let top = CornerRadii { top_start: 16.0, top_end: 16.0, ..CornerRadii::ZERO };
+    let dashed = StylePatch::default().border(Color::BLACK).border_width(2.0).border_style(BorderStyle::Dashed);
+    let card = boxed(&ui, Style::from(dashed.corners(top)));
+    ui.root().padding(20.0).child(card);
+    let (tree, frame) = draw(&ui);
+    assert!(
+        items(&tree).iter().any(|i| matches!(i, Item::StrokePath { stroke, .. } if stroke.dashes == [6.0, 6.0])),
+        "a dashed border is a dashed stroke"
+    );
+    let at = |x, y| frame.pixel(x, y).unwrap_or([0; 4]);
+    // The top edge starts after the round corner: a dash at 36..42, a gap at 42..48.
+    assert!(at(39, 20)[0] < 40, "a dash: {:?}", at(39, 20));
+    assert!(at(45, 20)[0] > 215, "a gap: {:?}", at(45, 20));
+    assert_eq!(at(20, 20), [255, 255, 255, 255], "the top start corner is round");
+
+    // Tokens carry the style; a later patch without one keeps it.
+    let theme = Theme::dark_forest();
+    let s = Style::new().border_style(BorderStyle::Dotted).resolve(&theme);
+    assert_eq!(s.border_style, Some(BorderStyle::Dotted));
+    let kept = StylePatch::default().border_style(BorderStyle::Dotted).merge(&StylePatch::default().border_width(4.0));
+    assert_eq!(kept.border_style, Some(BorderStyle::Dotted));
+}
+
+#[test]
+fn a_wide_dotted_border_is_round_dots() {
+    use remedy_ui_style::BorderStyle;
+    let ui = ui();
+    let dotted = StylePatch::default().border(Color::BLACK).border_width(4.0).border_style(BorderStyle::Dotted);
+    ui.root().padding(20.0).child(boxed(&ui, Style::from(dotted)));
+    let (_, frame) = draw(&ui);
+    let at = |x, y| frame.pixel(x, y).unwrap_or([0; 4]);
+    // Dots 4 wide, 8 apart along the top edge's middle (y 22) from x 22: one at 30, a gap at 26.
+    assert!(at(30, 22)[0] < 40, "a dot: {:?}", at(30, 22));
+    assert!(at(26, 22)[0] > 215, "a gap: {:?}", at(26, 22));
+}
+
 /// Black and white stripes across the window, behind everything.
 fn stripes(ui: &Ui) -> remedy_ui_view::El {
     ui.el("stripes")
