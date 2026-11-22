@@ -10,6 +10,11 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Landmarks and the current item** in `a11y`: `Role::{Navigation, Main, Banner, Region,
+  Search, Article, ContentInfo, Complementary}` and `Semantics::current(Current::{Page, Step,
+  Location, Date, Time, True})`, mapped to AccessKit's roles and `aria_current` on every
+  platform and to `role=` and `aria-current` in the web bridge's ARIA mirror; screen readers
+  hear "current page". The nav rail's and bottom bar's chosen item is `Current::Page`.
 - **The player's keys from anywhere in the window** in `media-playback`, as Portal's page
   hears them page-wide: `Player::keys_from(&ui.root())` routes the keys nothing focused took
   to the player under its own `KeyScheme` (Classic or Arrows; in remote mode to the device),
