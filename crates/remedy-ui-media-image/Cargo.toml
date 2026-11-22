@@ -12,7 +12,10 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["png", "jpeg", "gif", "webp", "bmp", "ico"]
+default = ["png", "jpeg", "gif", "webp", "bmp", "ico", "http"]
+## Images from addresses through the engine's HTTP client (`remedy-ui-services-net`: ureq with
+## rustls natively, `fetch` in a page). Without it an app fetches them with `set_fetcher`.
+http = ["dep:remedy-ui-services-net"]
 png = ["image/png"]
 jpeg = ["image/jpeg"]
 gif = ["image/gif"]
@@ -29,6 +32,7 @@ remedy-ui-paint = { path = "../remedy-ui-paint", version = "1.0.0-rc.1" }
 remedy-ui-reactive = { path = "../remedy-ui-reactive", version = "1.0.0-rc.1" }
 remedy-ui-trace = { path = "../remedy-ui-trace", version = "1.0.0-rc.1" }
 remedy-ui-view = { path = "../remedy-ui-view", version = "1.0.0-rc.1" }
+remedy-ui-services-net = { path = "../remedy-ui-services-net", version = "1.0.0-rc.1", optional = true }
 image = { version = "=0.25.10", default-features = false }
 moxcms = { version = "=0.8.1" }
 
@@ -38,6 +42,13 @@ remedy-ui-fonts = { path = "../remedy-ui-fonts", version = "1.0.0-rc.1", feature
 remedy-ui-text = { path = "../remedy-ui-text", version = "1.0.0-rc.1" }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1" }
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+js-sys = { version = "=0.3.107" }
+wasm-bindgen = { version = "=0.2.130" }
+wasm-bindgen-futures = { version = "=0.4.80" }
+wasm-bindgen-test = { version = "=0.3.80" }
+web-sys = { version = "=0.3.107", features = ["console", "Response", "Window"] }
 
 [lints]
 workspace = true

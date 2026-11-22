@@ -1,7 +1,9 @@
 //! Requests natively: ureq with rustls on ring and the platform's certificate verifier, the
 //! same stack as the updater. Each request runs on a thread of its own, so a caller that
-//! cancels returns at once while the request is let go (it ends within its timeout).
+//! cancels returns at once; the request stops reading its body (closing the connection) at
+//! the next chunk, or ends within its timeout while it waits for the server.
 
+use std::io::Read;
 use std::sync::mpsc;
 use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
@@ -41,8 +43,8 @@ fn net(e: ureq::Error) -> NetError {
     }
 }
 
-/// Runs the request where it is called.
-fn run(p: Prepared) -> Result<Response, NetError> {
+/// Runs the request where it is called; once `stop` is cancelled it lets go of the body.
+fn run(p: Prepared, stop: Option<&Cancel>) -> Result<Response, NetError> {
     let mut b = ureq::http::Request::builder().method(p.method).uri(&p.url);
     for (k, v) in &p.headers {
         b = b.header(k.as_str(), v.as_str());
@@ -85,10 +87,21 @@ fn run(p: Prepared) -> Result<Response, NetError> {
         .iter()
         .filter_map(|(k, v)| Some((k.as_str().to_owned(), v.to_str().ok()?.to_owned())))
         .collect();
-    let body = res.body_mut().with_config().limit(MAX_BODY).read_to_vec().map_err(|e| {
-        // A body that stalls past the deadline reads as a broken connection.
-        if started.elapsed() >= p.timeout { NetError::Timeout } else { net(e) }
-    })?;
+    let mut reader = res.body_mut().with_config().limit(MAX_BODY).reader();
+    let (mut body, mut chunk) = (Vec::new(), vec![0; 64 * 1024]);
+    loop {
+        // Nobody wants it any more: dropping the reader closes the connection.
+        if stop.is_some_and(Cancel::is_cancelled) {
+            return Err(NetError::Cancelled);
+        }
+        match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => body.extend_from_slice(chunk.get(..n).unwrap_or_default()),
+            // A body that stalls past the deadline reads as a broken connection.
+            Err(_) if started.elapsed() >= p.timeout => return Err(NetError::Timeout),
+            Err(e) => return Err(net(ureq::Error::Io(e))),
+        }
+    }
     if (200..300).contains(&status) {
         Ok(Response { status, headers, body })
     } else {
@@ -141,11 +154,12 @@ pub(super) fn send_blocking(p: Prepared, cancel: &Cancel) -> Result<Response, Ne
     // overruns it, so the caller's timeout is kept.
     let deadline = Instant::now() + p.timeout + CANCEL_POLL;
     let (tx, rx) = mpsc::channel();
+    let stop = (!keepalive).then(|| cancel.clone());
     std::thread::Builder::new()
         .name("remedy-net".into())
         .spawn(move || {
             let _kept = kept;
-            let _ = tx.send(run(p));
+            let _ = tx.send(run(p, stop.as_ref()));
         })
         .map_err(|e| NetError::Network(format!("no thread for the request: {e}")))?;
     loop {

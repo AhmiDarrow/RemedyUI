@@ -241,14 +241,15 @@ pub(crate) type Painter = Rc<dyn Fn(&mut PaintCx<'_>)>;
 
 /// A text element's content and its last layout.
 /// What a cached paragraph was laid out for: wrap width bits and right-to-left.
-type ParagraphKey = (Option<u32>, bool);
+type ParagraphKey = (Option<u32>, bool, u32);
 
 pub(crate) struct TextSlot {
     pub(crate) text: RichText,
     pub(crate) style: TextStyle,
     pub(crate) wrap: bool,
-    /// On one line, cut short with "…" where it would run past its box ([`El::truncate`]).
-    pub(crate) truncate: bool,
+    /// At most this many lines, the last cut short with "…" ([`El::max_lines`]); 0 for no
+    /// limit.
+    pub(crate) max_lines: u32,
     pub(crate) scale: f32,
     /// The element lays out right to left: start-aligned text goes to the right edge.
     pub(crate) rtl: bool,
@@ -328,9 +329,9 @@ impl TextSlot {
     }
 
     pub(crate) fn paragraph(&mut self, engine: &mut TextEngine, max_width: Option<f32>) -> Rc<Paragraph> {
-        let cut_at = if self.truncate && !self.wrap { max_width } else { None };
-        let max_width = if self.wrap { max_width } else { None };
-        let key = (max_width.or(cut_at).map(f32::to_bits), self.rtl);
+        // A line limit wraps, `nowrap` or not: it is what the limit counts.
+        let max_width = if self.wrap || self.max_lines > 0 { max_width } else { None };
+        let key = (max_width.map(f32::to_bits), self.rtl, self.max_lines);
         if let Some((k, p)) = &self.cache
             && *k == key
         {
@@ -344,6 +345,7 @@ impl TextSlot {
             v_.max_width = max_width.map(|w| w + 0.5);
             v_.scale = self.scale;
             v_.container = container(self.rtl);
+            v_.max_lines = (self.max_lines > 0).then_some(self.max_lines as usize);
             v_
         };
         let shown;
@@ -354,55 +356,11 @@ impl TextSlot {
             }
             None => &self.text,
         };
-        let mut p = engine.layout(text, &self.style, options);
-        if let Some(room) = cut_at
-            && p.width() > room + 0.5
-            && text.objects().is_empty()
-        {
-            p = shortened(engine, text, &self.style, options, room);
-        }
+        let p = engine.layout(text, &self.style, options);
         let p = Rc::new(p);
         self.cache = Some((key, p.clone()));
         p
     }
-}
-
-/// The longest start of `text` that fits `room` with "…" after it (just "…" when nothing
-/// does), keeping the start's styles.
-fn shortened(
-    engine: &mut TextEngine,
-    text: &RichText,
-    style: &TextStyle,
-    options: ParagraphOptions,
-    room: f32,
-) -> Paragraph {
-    let s = text.as_str();
-    let ends: Vec<usize> = s.char_indices().map(|(i, _)| i).skip(1).collect();
-    let cut = |end: usize| {
-        let mut r = RichText::plain(format!("{}\u{2026}", s[..end].trim_end()));
-        for span in text.spans() {
-            let (a, b) = (span.range.start.min(end), span.range.end.min(end));
-            if a < b {
-                r.add_span(a..b, span.patch.clone());
-            }
-        }
-        r
-    };
-    // Binary search over character boundaries for the last end that still fits.
-    let (mut lo, mut hi) = (0usize, ends.len());
-    let mut best = None;
-    while lo < hi {
-        let mid = (lo + hi) / 2;
-        let Some(&end) = ends.get(mid) else { break };
-        let p = engine.layout(&cut(end), style, options);
-        if p.width() <= room + 0.5 {
-            best = Some(p);
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-    best.unwrap_or_else(|| engine.layout(&RichText::plain("\u{2026}"), style, options))
 }
 
 /// A tool that sees pointer input first ([`Ui::set_pointer_interceptor`]).
@@ -2666,15 +2624,18 @@ impl El {
             None => {
                 // The style the element has now: a frame restyles text only when its style
                 // changes, which it may not after this.
-                let style = {
+                let (style, max_lines) = {
                     let i = self.ui.0.borrow();
-                    i.els.get(&self.id).map(|d| crate::frame::text_style_for(d, &i.theme)).unwrap_or_default()
+                    i.els
+                        .get(&self.id)
+                        .map(|d| (crate::frame::text_style_for(d, &i.theme), d.resolved.max_lines))
+                        .unwrap_or_default()
                 };
                 let slot = Rc::new(RefCell::new(TextSlot {
                     text,
                     style,
                     wrap: true,
-                    truncate: false,
+                    max_lines,
                     scale: engine_scale,
                     rtl: false,
                     pseudo,
@@ -2731,20 +2692,28 @@ impl El {
     }
 
     /// Keeps the text on one line and, where it is wider than its box, cuts it short with
-    /// "…" (a long name in a narrow list, a long error in a band). Its minimum width is the
-    /// "…" alone, so a row can shrink it; screen readers, copying and searching still get
-    /// the whole text. Show the whole text elsewhere too (a tooltip), since sighted readers
-    /// cannot. Call after setting the text.
+    /// "…" (a long name in a narrow list, a long error in a band): [`El::max_lines`] of 1.
     pub fn truncate(self) -> Self {
-        {
-            let slot = self.text_slot();
-            let mut s = slot.borrow_mut();
-            s.wrap = false;
-            s.truncate = true;
-            s.cache = None;
-        }
-        self.edit(Dirty::LAYOUT, |_| {});
-        self
+        self.max_lines(1)
+    }
+
+    /// Lets the text take at most `n` lines (CSS `line-clamp`): where it would take more, the
+    /// last line ends in "…", cut at a grapheme boundary as the shaper measures it (letter
+    /// spacing, alignment and right-to-left text included; the "…" lands on the line's visual
+    /// end). Its minimum width is the "…" alone, so a row can shrink it. Screen readers,
+    /// copying and searching still get the whole text; show it to sighted readers too with
+    /// `remedy_ui_widgets_core::full_text_tooltip`. 0 lifts the limit. Style sheets set the same with
+    /// [`Style::max_lines`](remedy_ui_style::Style::max_lines).
+    pub fn max_lines(self, n: u32) -> Self {
+        self.style(remedy_ui_style::Style::default().max_lines(n))
+    }
+
+    /// Draws the text cased by `t` (CSS `text-transform`): capitals for a label above a title,
+    /// say. Casing follows the window's locale (Turkish dotted İ, German ß as SS, Greek final
+    /// sigma); screen readers, copying and selection get the text as written. Style sheets set
+    /// the same with [`Style::text_transform`](remedy_ui_style::Style::text_transform).
+    pub fn text_transform(self, t: remedy_ui_style::TextTransform) -> Self {
+        self.style(remedy_ui_style::Style::default().text_transform(t))
     }
 
     /// Keeps the text on one line instead of wrapping.
@@ -2774,7 +2743,7 @@ impl El {
                 text: RichText::plain(""),
                 style: TextStyle::default(),
                 wrap: true,
-                truncate: false,
+                max_lines: 0,
                 scale: 1.0,
                 rtl: false,
                 pseudo: None,
