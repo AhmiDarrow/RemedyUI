@@ -43,7 +43,11 @@ static WATCHED: Mutex<Vec<ID3D11Debug>> = Mutex::new(Vec::new());
 /// layer's lines for every object beyond the device itself; empty when nothing leaked or
 /// the debug layer is off.
 pub(crate) fn live_objects_report() -> (usize, Vec<String>) {
-    let devices = std::mem::take(&mut *WATCHED.lock().unwrap_or_else(PoisonError::into_inner));
+    report_on(std::mem::take(&mut *WATCHED.lock().unwrap_or_else(PoisonError::into_inner)))
+}
+
+/// [`live_objects_report`] on `devices`, which are let go after.
+fn report_on(devices: Vec<ID3D11Debug>) -> (usize, Vec<String>) {
     let (checked, mut leaked) = (devices.len(), Vec::new());
     for debug in devices {
         // SAFETY: plain debug-layer calls on a live device; each message is read into a buffer
@@ -410,19 +414,23 @@ mod tests {
             let d = f.EnumAdapters1(0).and_then(|a| a.GetDesc1()).unwrap_or_else(|e| unreachable!("{e}"));
             (u64::from(d.AdapterLuid.HighPart as u32) << 32) | u64::from(d.AdapterLuid.LowPart)
         };
-        let _ = live_objects_report();
+        // Its own devices' reports: other tests here make decoder devices at the same time.
+        let debug = |g: &Gpu| g.dev.device.cast::<ID3D11Debug>().unwrap_or_else(|e| unreachable!("{e}"));
         let gpu = match Gpu::new(luid) {
             Ok(g) => g,
             Err(why) => return eprintln!("skipped: no D3D11 video device ({why})"),
         };
+        let watch = debug(&gpu);
         let kept = gpu.slot((64, 64)).unwrap_or_else(|e| unreachable!("{e}"));
         drop(gpu);
-        let (devices, leaked) = live_objects_report();
+        let (devices, leaked) = report_on(vec![watch]);
         assert_eq!(devices, 1);
         assert!(leaked.iter().any(|l| l.contains("ID3D11Texture2D")), "{leaked:#?}");
         drop(kept);
         // A second device, let go whole: nothing beyond it.
-        drop(Gpu::new(luid).unwrap_or_else(|e| unreachable!("{e}")));
-        assert_eq!(live_objects_report(), (1, Vec::new()));
+        let gpu = Gpu::new(luid).unwrap_or_else(|e| unreachable!("{e}"));
+        let watch = debug(&gpu);
+        drop(gpu);
+        assert_eq!(report_on(vec![watch]), (1, Vec::new()));
     }
 }
