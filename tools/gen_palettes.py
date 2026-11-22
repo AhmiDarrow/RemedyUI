@@ -35,6 +35,9 @@ for m in blocks:
     missing = [v for v in keys.values() if v not in vals]
     if missing:
         sys.exit(f'{pid}: missing {missing}')
+    # Ids stay protan/deutan/tritan; display names drop the old "Colorblind " prefix.
+    if name.startswith("Colorblind "):
+        name = name[len("Colorblind "):]
     found.append((pid, name, kind, vals))
 found.sort(key=lambda t: t[0] != 'forest')
 for pid, name, kind, vals in found:
