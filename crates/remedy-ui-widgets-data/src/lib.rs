@@ -39,7 +39,7 @@ mod table;
 mod tree;
 
 pub use chat::{Change, ChatState, change, chat_list};
-pub use grid::{GridGeometry, GridState, Tiles, grid_view};
+pub use grid::{GridGeometry, GridOptions, GridState, Tiles, grid_view, grid_view_with};
 pub use model::{SORT_OFF_THREAD, Selection, SortDirection, SortValue, natural_cmp, sorted_order};
 pub use property::{Property, PropertyGroup, property_grid};
 pub use table::{Column, TableState, table};

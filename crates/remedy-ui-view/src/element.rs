@@ -2331,6 +2331,26 @@ impl El {
         }
     }
 
+    /// Moves focus to the next (`forward`) or previous focusable element inside this one,
+    /// from the focused one, wrapping around: arrow keys between the controls of a tile.
+    /// Returns false when there is none.
+    pub fn focus_step(&self, forward: bool) -> bool {
+        let tree = self.ui.tree();
+        let all: Vec<ElementId> =
+            tree.descendants(self.id).into_iter().filter(|d| tree.can_focus(*d)).collect();
+        let n = all.len();
+        let at = tree.focused().and_then(|f| all.iter().position(|d| *d == f));
+        let next = match (at, forward) {
+            (None, true) => 0,
+            (None, false) => n.saturating_sub(1),
+            (Some(i), true) => (i + 1) % n,
+            (Some(i), false) => (i + n - 1) % n,
+        };
+        let Some(id) = all.get(next).copied() else { return false };
+        El { ui: self.ui.clone(), id }.focus();
+        true
+    }
+
     /// Calls `f` with the element's size (logical pixels) after each frame in which it
     /// changed, including the first: virtual lists rebuild for a taller viewport, charts
     /// re-scale.
@@ -2378,8 +2398,22 @@ impl El {
 
     /// Scrolls the scroll containers around this element just enough to show it.
     pub fn scroll_into_view(&self) {
+        let size = self.ui.tree().bounds(self.id).map(|b| b.size());
+        if let Some(size) = size {
+            self.scroll_rect_into_view(remedy_ui_core::Rect::from_origin_size(
+                remedy_ui_core::Point::ZERO,
+                size,
+            ));
+        }
+    }
+
+    /// Scrolls the scroll containers around this element just enough to show `rect` (in the
+    /// element's own coordinates): a virtual grid keeps a cursor in view whose tile is not
+    /// built yet.
+    pub fn scroll_rect_into_view(&self, rect: remedy_ui_core::Rect) {
         let tree = self.ui.tree();
-        let Some(mut want) = tree.bounds(self.id) else { return };
+        let Some(b) = tree.bounds(self.id) else { return };
+        let mut want = rect.translate(Vec2::new(b.min.x, b.min.y));
         let mut cur = tree.parent(self.id);
         while let Some(p) = cur {
             let is_scroll = self.ui.0.borrow().els.get(&p).is_some_and(|d| d.scroll);
