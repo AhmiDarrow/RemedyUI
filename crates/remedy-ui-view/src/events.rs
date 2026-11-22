@@ -3,7 +3,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use remedy_ui_core::Point;
+use remedy_ui_core::{Point, Vec2};
+
+/// How far an arrow key scrolls by default ([`Ui::set_scroll_step`]), in logical pixels.
+pub const SCROLL_STEP: f32 = 40.0;
 use remedy_ui_host::ImeEvent;
 use remedy_ui_input::{Key, KeyEvent, Modifiers, Platform, PointerEvent, PointerPhase};
 use remedy_ui_style::States;
@@ -520,6 +523,16 @@ impl Ui {
                     _ => false,
                 }
             }
+            Key::PageUp
+            | Key::PageDown
+            | Key::ArrowUp
+            | Key::ArrowDown
+            | Key::ArrowLeft
+            | Key::ArrowRight
+                if !cmd && !e.modifiers.alt && !e.modifiers.shift =>
+            {
+                self.key_scroll(focused, &e.key)
+            }
             Key::Tab => self.focus_start(e.modifiers.shift),
             Key::Enter | Key::Space if !e.repeat => match focused {
                 Some(f) if self.clickable(f) => {
@@ -530,6 +543,59 @@ impl Ui {
             },
             _ => false,
         }
+    }
+
+    /// Sets how far an unhandled arrow key scrolls the scroll container around the focus, in
+    /// logical pixels (default [`SCROLL_STEP`]); a snapping container goes on to the next snap
+    /// point that way. Page Up and Page Down move 90% of the viewport.
+    pub fn set_scroll_step(&self, px: f32) {
+        self.0.borrow_mut().scroll_step = px.max(0.0);
+    }
+
+    /// How far an arrow key scrolls ([`Ui::set_scroll_step`]).
+    pub fn scroll_step(&self) -> f32 {
+        self.0.borrow().scroll_step
+    }
+
+    /// Pages or steps the scroll container around `from` (else under the pointer) that can
+    /// move that way, settling on its snap points. Returns true when one moved.
+    fn key_scroll(&self, from: Option<ElementId>, key: &Key) -> bool {
+        let step = self.scroll_step();
+        let tree = self.tree();
+        let start = from.or_else(|| self.0.borrow().hovered.first().copied());
+        let mut cur = start;
+        while let Some(p) = cur {
+            cur = tree.parent(p);
+            if !self.0.borrow().els.get(&p).is_some_and(|d| d.scroll) {
+                continue;
+            }
+            let Some(view) = tree.bounds(p) else { continue };
+            let off = self.scroll_offset(p);
+            // How far the content reaches past the viewport on each axis.
+            let content =
+                tree.children(p).iter().filter_map(|k| tree.bounds(*k)).fold(view, |u, r| u.union(r));
+            let room = Vec2::new(content.max.x - view.max.x + off.x, content.max.y - view.max.y + off.y);
+            let page_x = room.y <= 0.5;
+            let by = match key {
+                Key::PageDown if page_x => Vec2::new(view.width() * 0.9, 0.0),
+                Key::PageUp if page_x => Vec2::new(-view.width() * 0.9, 0.0),
+                Key::PageDown => Vec2::new(0.0, view.height() * 0.9),
+                Key::PageUp => Vec2::new(0.0, -view.height() * 0.9),
+                Key::ArrowDown => Vec2::new(0.0, step),
+                Key::ArrowUp => Vec2::new(0.0, -step),
+                Key::ArrowRight => Vec2::new(step, 0.0),
+                _ => Vec2::new(-step, 0.0),
+            };
+            let next = Vec2::new(
+                (off.x + by.x).clamp(0.0, room.x.max(0.0)),
+                (off.y + by.y).clamp(0.0, room.y.max(0.0)),
+            );
+            if next != off {
+                self.request(Request::ScrollStep { scroller: p, offset: next });
+                return true;
+            }
+        }
+        false
     }
 
     /// With nothing focused, Tab and arrows start in the topmost modal: what is under it is

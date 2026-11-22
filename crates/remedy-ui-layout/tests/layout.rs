@@ -265,6 +265,27 @@ fn absolute_insets_follow_the_parent_or_stay_physical() -> R {
 }
 
 #[test]
+fn sticky_boxes_stay_in_the_flow_unshifted() -> R {
+    // Sticking is the compositor's: layout places a sticky box where a relative one with no
+    // offsets would be, and its siblings follow it as usual.
+    let mut t = LayoutTree::new();
+    let root = t.node(&LayoutStyle::column())?;
+    let first = t.node(&LayoutStyle::fixed(50.0, 10.0))?;
+    let sticky = t.node(&{
+        let mut v_ = LayoutStyle::fixed(50.0, 20.0);
+        v_.position = Position::Sticky;
+        v_.inset = Insets { top: 5.0, start: 7.0, end: AUTO, bottom: AUTO };
+        v_
+    })?;
+    let after = t.node(&LayoutStyle::fixed(50.0, 10.0))?;
+    t.set_children(root, &[first, sticky, after])?;
+    t.compute(root, Some(100.0), Some(100.0))?;
+    assert_eq!(t.rect(sticky).map(|r| (r.min.x, r.min.y)), Some((0.0, 10.0)));
+    assert_eq!(t.rect(after).map(|r| r.min.y), Some(30.0));
+    Ok(())
+}
+
+#[test]
 fn trees_of_any_depth_lay_out_on_a_threads_stack() -> R {
     // Taffy recurses once per level: thousands of nested flex, grid and block containers lay
     // out on a test thread's stack (2 MB) all the same, each level inset by its padding, and

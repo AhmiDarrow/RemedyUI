@@ -26,6 +26,35 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 - **Android autofill**: a field's `InputPurpose` sets the view's autofill hints (username,
   email, password, new password, SMS code) and the field reports to `AutofillManager`, so
   password managers and SMS code autofill fill it.
+- **Scroll snapping**, as CSS's: `El::scroll_snap(SnapAxis, SnapStrictness)` on a scroll
+  container and `El::snap_align(SnapAlign)` on its cards, with `scroll_padding`,
+  `snap_margin` and `snap_stop_always`. It settles after flings (from where the fling would
+  end), wheel gestures, drag releases, key steps and pages, focus moves (spatial navigation
+  included) and `scroll_to` (`scroll_to_exact` does not snap), keeps its card through
+  relayouts, and glides on the compositor (CPU and GPU, every platform), jumping under reduced
+  motion. Tuning has defaults and setters: `scroll_snap_proximity` (0.3 of the viewport),
+  `scroll_snap_motion` (250 ms decelerating) and `scroll_snap_wheel_idle` (150 ms). Underneath:
+  `compositor` `ScrollSnap`, `SnapPoint`, `Compositor::wheel_at`, `scroll_to_snapped` and
+  `scroll_step`; `input` `ScrollAxis::rest`; `view` `Request::ScrollToExact` and
+  `Request::ScrollStep`; `CompositorThread::scroll_to`, `scroll_step` and `scroll_to_exact`
+  (its `scroll_at` snaps wheel gestures too). Unhandled Page Up, Page Down and arrow keys now
+  scroll the scroll container around the focus (or the pointer); `Ui::set_scroll_step` sets
+  the arrow step (default `SCROLL_STEP`, 40 px).
+
+- **Sticky positioning** (CSS `position: sticky`), for Portal's blurred page header and its
+  Info dialog's close bar: `Position::Sticky` in `remedy-ui-layout` lays the box out in the
+  flow and the inset sides not `AUTO` say how close it keeps to its nearest scroll
+  container's edges (the window's when there is none); only those axes stick, top and start
+  win when both sides of an axis cannot hold, and it never leaves its parent's content box,
+  so a section header leaves with its section. `El::sticky(StickyInsets::top(0.0))` sets it,
+  and style sheets with `StylePatch::sticky` and `Style::sticky` (`remedy-ui-style`'s
+  `StickyInsets`, logical sides). Scrolling moves it without layout: it is drawn in a layer of
+  its own carrying a `Sticky` (`remedy-ui-compositor`, `Layer::sticky`, `Sticky::offset`)
+  that the compositor offsets from the scroll container's offset in the same frame; hit
+  testing and the accessibility bounds follow; nested scroll containers each move their own;
+  frosted glass on a sticky header blurs what scrolls under it. While it is moved from its
+  place it has `States::STUCK`, so a sheet can style it stuck (a shadow under a stuck header).
+
 - **The rest of the engine's limits are configurable**, each default kept and public:
   `text` `LazyLimits` with `set_lazy_limits` (shortest lazy paragraph 32 KiB, piece size
   8 KiB, pieces kept 48), `GlyphAtlas::set_page_size` (1024), `set_max_list_level` (5) and
