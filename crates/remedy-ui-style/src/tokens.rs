@@ -491,6 +491,8 @@ pub struct Style {
     pub letter_spacing: Option<crate::LetterSpacing>,
     /// How letters are cased when drawn (inherited).
     pub text_transform: Option<crate::TextTransform>,
+    /// How tall each line of text is (inherited).
+    pub line_height: Option<crate::LineHeight>,
     /// The most lines text takes, the last ending in "…" when cut (0: no limit).
     pub max_lines: Option<u32>,
     /// Focus ring color.
@@ -633,6 +635,12 @@ impl Style {
         self
     }
 
+    /// How tall each line of text is (CSS `line-height`).
+    pub fn line_height(mut self, value: crate::LineHeight) -> Self {
+        self.line_height = Some(value);
+        self
+    }
+
     /// At most `n` lines of text, the last ending in "…" when cut (CSS `line-clamp`); 0 for
     /// no limit.
     pub fn max_lines(mut self, n: u32) -> Self {
@@ -768,6 +776,7 @@ impl Style {
             heading: other.heading.or(self.heading),
             letter_spacing: other.letter_spacing.or(self.letter_spacing),
             text_transform: other.text_transform.or(self.text_transform),
+            line_height: other.line_height.or(self.line_height),
             max_lines: other.max_lines.or(self.max_lines),
             outline: other.outline.or(self.outline),
             outline_width: other.outline_width.or(self.outline_width),
@@ -837,6 +846,7 @@ impl Style {
             heading: self.heading,
             letter_spacing: self.letter_spacing,
             text_transform: self.text_transform,
+            line_height: self.line_height,
             max_lines: self.max_lines,
             outline: c(self.outline),
             outline_width: dp(self.outline_width),
@@ -869,6 +879,7 @@ impl From<StylePatch> for Style {
             heading: p.heading,
             letter_spacing: p.letter_spacing,
             text_transform: p.text_transform,
+            line_height: p.line_height,
             max_lines: p.max_lines,
             outline: p.outline.map(ColorRef::Value),
             outline_width: p.outline_width.map(Dp::Px),
