@@ -86,6 +86,7 @@ icon-exit-full-screen = Quitter le plein écran
 icon-theater-mode = Mode cinéma
 icon-cast = Caster
 icon-casting = Cast en cours
+icon-picture-in-picture = Image dans l'image
 icon-captions = Sous-titres
 icon-back-10 = Reculer de 10 secondes
 icon-forward-10 = Avancer de 10 secondes
