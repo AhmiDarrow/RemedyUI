@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Runs the browser tests in a headless browser with wasm-bindgen-test-runner: the web
-# bridge's (`tests/browser.rs`), the HTTP client's (`remedy-ui-services-net/tests/web.rs`), images
+# bridge's (`tests/browser.rs`; and `remedy-ui/tests/web_assets.rs` for what a page fetches or
+# reads rather than carries: fonts, the system font, language names, plain storage items), the HTTP client's (`remedy-ui-services-net/tests/web.rs`), images
 # from addresses (`remedy-ui-media-image/tests/web.rs`), media playback's (`remedy-ui-media-playback/tests/web.rs`, and
 # `web_gpu.rs` for pictures on the GPU, `web_cursor.rs` for the pointer over a resting full
 # screen, `web_mse.rs` and `web_mse_gpu.rs` for the media element through Media Source
@@ -38,6 +39,15 @@ export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner
 export WASM_BINDGEN_TEST_TIMEOUT="${WASM_BINDGEN_TEST_TIMEOUT:-120}"
 export WASM_BINDGEN_TEST_WEBDRIVER_JSON="$crate/tools/webdriver.json"
 cargo test --manifest-path "$crate/Cargo.toml" --target wasm32-unknown-unknown --test browser
+# The fallback faces fetched from beside the page: remedy-ui-fonts' `fonts/` stands in for the
+# folder `cargo remedy package` writes.
+fonts_port_file="$(mktemp)"
+python3 "$root/crates/remedy-ui-media-playback/tools/serve-dir.py" "$root/crates/remedy-ui-fonts" > "$fonts_port_file" &
+fonts=$!
+for _ in $(seq 50); do [ -s "$fonts_port_file" ] && break; sleep 0.1; done
+REMEDY_FONTS_URL="http://127.0.0.1:$(cat "$fonts_port_file")/" \
+    cargo test --manifest-path "$root/crates/remedy-ui/Cargo.toml" --target wasm32-unknown-unknown --test web_assets
+kill $fonts 2>/dev/null; rm -f "$fonts_port_file"
 # The media test's slow download: the clip served a chunk at a time from this machine.
 port_file="$(mktemp)"
 python3 "$root/crates/remedy-ui-media-playback/tools/slow-serve.py" \

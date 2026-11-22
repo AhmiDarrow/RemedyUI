@@ -39,6 +39,8 @@ mod pip;
 #[cfg(feature = "widgets")]
 pub mod router;
 mod runner;
+#[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+mod web_fonts;
 /// Driving an app in tests on the in-memory host: find by role and name, press, type.
 #[cfg(all(feature = "headless", feature = "widgets"))]
 pub mod testing;

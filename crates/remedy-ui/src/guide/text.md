@@ -79,6 +79,54 @@ assert!(ui.font_families().iter().any(|f| f == "Inter"));
 assert!(FontFile::new(b"not a font").is_err());
 ```
 
+## Fallback faces and the web
+
+With `script-fonts` (on by default) text in Arabic, Devanagari, Bengali, Chinese and
+Japanese draws in the bundled Noto faces, so it never shows empty boxes where no such font
+is installed. On the desktop they are built in; the Chinese and Japanese ones (8.6 MB of
+WOFF2) are unpacked the first time such text shows. In a browser page none of them is in the
+module: [`bundled_fonts`](crate::bundled_fonts) registers each as a file beside the page
+(`fonts/NotoSansSC-Regular.woff2`), fetched the first time text needs it; the text draws
+again as soon as the face arrives, and the service worker keeps it for offline use. An app
+loading faces itself does the same with
+[`FontCollection::add_on_demand`](crate::text::FontCollection::add_on_demand): a loader that
+returns no faces yet is asked again, and
+[`Ui::fonts_changed`](crate::view::Ui::fonts_changed) shapes the text again once they are
+in.
+
+## The system's font
+
+CSS's generic families (`system-ui`, `sans-serif`, `monospace`, `emoji`) can be named in a
+theme's `font_families` like any family. On the desktop, with `system-fonts`, they are the
+system's choice. [`FontCollection::set_generic_family`](crate::text::FontCollection::set_generic_family)
+points one at faces the app has, and [`generic_family`](crate::text::FontCollection::generic_family)
+says what it draws in.
+
+A browser page has no system fonts to reach, and no way to name the face the browser draws
+`system-ui` text in: CSS's font loading never hands a page a font's file. So
+[`App::load_system_ui_font`](crate::App::load_system_ui_font) reads it through the Local Font
+Access API (Chrome and Edge on desktops): it lists the installed fonts, finds the one whose
+text measures exactly as `system-ui` text does in that browser (Segoe UI on Windows, the
+desktop's font on Linux, Roboto on ChromeOS), and adds its faces to every window with
+`system-ui` pointing at them, so the text is the same face, weights included, that the
+browser shows. The browser asks the person once whether the page may use their fonts: call
+it in answer to the click that chooses the system font, then at start once it has been
+allowed. Where the API is missing (Firefox, Safari, phones) or the person declines, it
+reports why and `system-ui` falls through to the next family named, so name the app's own
+face after it:
+
+```no_run
+# fn setup(app: &remedy_ui::App) {
+let mut theme = remedy_ui::AppConfig::new("Notes").theme;
+theme.font_families = vec!["system-ui".into(), "Remedy Sans UI".into()];
+app.set_theme(theme);
+app.load_system_ui_font(|got| match got {
+    Ok(families) => println!("system-ui is {families:?}"),
+    Err(why) => println!("keeping Remedy Sans UI: {why}"),
+});
+# }
+```
+
 ## Rich text
 
 [`RichText`](crate::view::RichText) is a string with styled spans and inline objects. Spans

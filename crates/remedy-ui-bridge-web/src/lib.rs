@@ -92,6 +92,10 @@ pub struct WebConfig {
     pub mount: Mount,
     /// The first window's title is also the page's (`document.title`).
     pub title_is_page_title: bool,
+    /// Where the files the app fetches as it needs them are (the fallback fonts
+    /// `cargo remedy package --target web` writes under `fonts/`): empty for the page's own
+    /// folder, or another folder's address.
+    pub assets: String,
 }
 
 impl WebConfig {
@@ -106,11 +110,19 @@ impl WebConfig {
         self.title_is_page_title = on;
         self
     }
+
+    /// Fetches the files the app needs later (fallback fonts) from `base`, a folder's
+    /// address (absolute, or relative to the page), instead of the page's own folder: where a
+    /// site serves them from elsewhere (a CDN).
+    pub fn assets(mut self, base: impl Into<String>) -> Self {
+        self.assets = base.into();
+        self
+    }
 }
 
 impl Default for WebConfig {
     fn default() -> Self {
-        WebConfig { mount: Mount::Auto, title_is_page_title: true }
+        WebConfig { mount: Mount::Auto, title_is_page_title: true, assets: String::new() }
     }
 }
 
@@ -159,6 +171,7 @@ pub fn run(app: impl remedy_ui_host::App + 'static) -> Result<(), RunError> {
 pub fn run_with(config: WebConfig, app: impl remedy_ui_host::App + 'static) -> Result<(), RunError> {
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     {
+        web::fonts::set_asset_base(&config.assets);
         web::start(config, Box::new(app))
     }
     // Documentation built for another target shows this function; it runs only in a page.
@@ -283,5 +296,48 @@ pub mod history {
     /// Reloads the page.
     pub fn reload() {
         h::reload();
+    }
+}
+
+/// Files the page fetches as the app needs them, and the device's own interface font.
+///
+/// Only in a browser page (`wasm32-unknown-unknown`).
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub mod fonts {
+    use crate::web::fonts as f;
+
+    /// The address of `path` (`fonts/NotoSansSC-Regular.woff2`), one of the files
+    /// `cargo remedy package --target web` writes beside the page: under
+    /// [`WebConfig::assets`](crate::WebConfig::assets), the page's own folder by default.
+    pub fn asset_url(path: &str) -> String {
+        f::asset_url(path)
+    }
+
+    /// Fetches `url` and calls `done` with its bytes, or why not (offline and not cached, an
+    /// HTTP error), back on the page's thread.
+    pub fn fetch_bytes(url: &str, done: impl FnOnce(Result<Vec<u8>, String>) + 'static) {
+        let url = url.to_owned();
+        wasm_bindgen_futures::spawn_local(async move { done(f::fetch_bytes(&url).await) });
+    }
+
+    /// Reads the faces of the font this browser draws `system-ui` text in (Segoe UI on
+    /// Windows, Roboto on ChromeOS, the desktop's font on Linux), with the Local Font Access
+    /// API, and calls `done` with the family's name and its font files. The face is told by
+    /// measuring text in `system-ui` against each installed family, so it is the browser's
+    /// own choice, not a guess by platform.
+    ///
+    /// The browser asks the person once whether the page may use their fonts: call this in
+    /// answer to a click or key press (a font choice being made) the first time. Once allowed
+    /// it works at any time, such as when the page loads with that choice saved. Where the
+    /// browser has no such API (Firefox, Safari, Chrome on phones), or the person declines,
+    /// `done` gets the reason and the app keeps its own faces.
+    pub fn system_ui_faces(done: impl FnOnce(Result<(String, Vec<Vec<u8>>), String>) + 'static) {
+        wasm_bindgen_futures::spawn_local(async move { done(f::system_ui_faces().await) });
+    }
+
+    /// The installed family among `families` that this browser draws `system-ui` text in,
+    /// told by measuring text; else the platform's usual interface family among them.
+    pub fn system_ui_family(families: &[String]) -> Result<Option<String>, String> {
+        f::system_ui_family(families)
     }
 }
