@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Runs the browser tests in a headless browser with wasm-bindgen-test-runner: the web
-# bridge's (`tests/browser.rs`), the HTTP client's (`remedy-ui-services-net/tests/web.rs`), media playback's (`remedy-ui-media-playback/tests/web.rs`, and
+# bridge's (`tests/browser.rs`), the HTTP client's (`remedy-ui-services-net/tests/web.rs`), images
+# from addresses (`remedy-ui-media-image/tests/web.rs`), media playback's (`remedy-ui-media-playback/tests/web.rs`, and
 # `web_gpu.rs` for pictures on the GPU, `web_cursor.rs` for the pointer over a resting full
 # screen) and the script engines' on a board (`remedy-ui-widgets-board/tests/web.rs`).
 #
@@ -44,10 +45,16 @@ hls=$!
 net_port_file="$(mktemp)"
 python3 "$root/crates/remedy-ui-services-net/tools/test-serve.py" > "$net_port_file" &
 net=$!
-trap 'kill $slow $hls $net 2>/dev/null; rm -f "$port_file" "$hls_port_file" "$net_port_file"' EXIT
-for _ in $(seq 50); do [ -s "$port_file" ] && [ -s "$hls_port_file" ] && [ -s "$net_port_file" ] && break; sleep 0.1; done
+# And images from another origin: with CORS, without, through a proxy, and a trickle to abort.
+img_port_file="$(mktemp)"
+python3 "$root/crates/remedy-ui-media-image/tools/test-serve.py" > "$img_port_file" &
+img=$!
+trap 'kill $slow $hls $net $img 2>/dev/null; rm -f "$port_file" "$hls_port_file" "$net_port_file" "$img_port_file"' EXIT
+for _ in $(seq 50); do [ -s "$port_file" ] && [ -s "$hls_port_file" ] && [ -s "$net_port_file" ] && [ -s "$img_port_file" ] && break; sleep 0.1; done
 REMEDY_NET_URL="http://127.0.0.1:$(cat "$net_port_file")" \
     cargo test --manifest-path "$root/crates/remedy-ui-services-net/Cargo.toml" --target wasm32-unknown-unknown --test web
+REMEDY_IMAGE_URL="http://127.0.0.1:$(cat "$img_port_file")" \
+    cargo test --manifest-path "$root/crates/remedy-ui-media-image/Cargo.toml" --target wasm32-unknown-unknown --test web
 REMEDY_HLS_URL="http://127.0.0.1:$(cat "$hls_port_file")" \
 REMEDY_SLOW_CLIP_URL="http://127.0.0.1:$(cat "$port_file")/clip.mp4" \
     cargo test --manifest-path "$root/crates/remedy-ui-media-playback/Cargo.toml" --target wasm32-unknown-unknown --test web

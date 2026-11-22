@@ -195,6 +195,8 @@ const SIDEWAYS: &[(&str, &str)] = &[
     ("remedy-ui-widgets-music", "remedy-ui-viz"),
     ("remedy-ui-doc-rich", "remedy-ui-doc-code"),
     ("remedy-ui-media-anim", "remedy-ui-media-image"),
+    // Images from addresses are fetched with the HTTP client.
+    ("remedy-ui-media-image", "remedy-ui-services-net"),
     // SVG is an image format: it plugs into the image loader.
     ("remedy-ui-media-svg", "remedy-ui-media-image"),
     // The sandboxed helper decodes with the image pack and is the loader's router.

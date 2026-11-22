@@ -2037,6 +2037,12 @@ impl Runner {
             Some(remedy_ui_services_i18n::NumberSymbols::for_locale(locale).format(d, d.scale()))
         })));
         let dir = config.data_dir.clone().or_else(|| data_dir(&config.name));
+        // Images fetched from addresses are kept across runs in the app's cache folder (its
+        // own data folder's `cache` when the app names one).
+        #[cfg(feature = "image")]
+        remedy_ui_media_image::set_cache_dir(
+            config.data_dir.as_ref().map(|d| d.join("cache")).or_else(|| crate::geometry::cache_dir(&config.name)).map(|d| d.join("images")),
+        );
         // What this machine's graphics backends did (passed their self-test, drew wrong,
         // hung presenting) is remembered with the app's data: tested once per driver, and a
         // backend that hung is skipped from the next start.
