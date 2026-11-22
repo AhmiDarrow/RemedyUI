@@ -33,6 +33,9 @@ mod instance;
 
 #[cfg(feature = "widgets")]
 mod movable;
+// A player's picture-in-picture window on the desktop.
+#[cfg(all(feature = "playback", not(any(target_arch = "wasm32", target_os = "android", target_os = "ios"))))]
+mod pip;
 #[cfg(feature = "widgets")]
 pub mod router;
 mod runner;
