@@ -10,6 +10,21 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Scroll snapping**, as CSS's: `El::scroll_snap(SnapAxis, SnapStrictness)` on a scroll
+  container and `El::snap_align(SnapAlign)` on its cards, with `scroll_padding`,
+  `snap_margin` and `snap_stop_always`. It settles after flings (from where the fling would
+  end), wheel gestures, drag releases, key steps and pages, focus moves (spatial navigation
+  included) and `scroll_to` (`scroll_to_exact` does not snap), keeps its card through
+  relayouts, and glides on the compositor (CPU and GPU, every platform), jumping under reduced
+  motion. Tuning has defaults and setters: `scroll_snap_proximity` (0.3 of the viewport),
+  `scroll_snap_motion` (250 ms decelerating) and `scroll_snap_wheel_idle` (150 ms). Underneath:
+  `compositor` `ScrollSnap`, `SnapPoint`, `Compositor::wheel_at`, `scroll_to_snapped` and
+  `scroll_step`; `input` `ScrollAxis::rest`; `view` `Request::ScrollToExact` and
+  `Request::ScrollStep`; `CompositorThread::scroll_to`, `scroll_step` and `scroll_to_exact`
+  (its `scroll_at` snaps wheel gestures too). Unhandled Page Up, Page Down and arrow keys now
+  scroll the scroll container around the focus (or the pointer); `Ui::set_scroll_step` sets
+  the arrow step (default `SCROLL_STEP`, 40 px).
+
 - **Sticky positioning** (CSS `position: sticky`), for Portal's blurred page header and its
   Info dialog's close bar: `Position::Sticky` in `remedy-ui-layout` lays the box out in the
   flow and the inset sides not `AUTO` say how close it keeps to its nearest scroll

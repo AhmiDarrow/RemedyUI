@@ -558,6 +558,14 @@ pub(crate) struct ElData {
     pub(crate) last_placed: Option<Option<crate::Placement>>,
     /// A scroll container following another's offset: (leader, x, y).
     pub(crate) scroll_follow: Option<(ElementId, bool, bool)>,
+    /// A scroll container that rests on its descendants' snap points ([`El::scroll_snap`]).
+    pub(crate) scroll_snap: Option<Box<SnapSpec>>,
+    /// Where this element's snap point is in its scroll container ([`El::snap_align`]).
+    pub(crate) snap_align: Option<SnapAlign>,
+    /// Space around this element's snap area ([`El::snap_margin`]).
+    pub(crate) snap_margin: remedy_ui_core::Insets,
+    /// Scrolling may not pass this element's snap point ([`El::snap_stop_always`]).
+    pub(crate) snap_stop: bool,
     /// Painted into a compositor layer of its own ([`El::isolate_paint`]), with this
     /// transform the compositor applies.
     pub(crate) isolate: Option<remedy_ui_paint::Affine>,
@@ -697,6 +705,8 @@ pub(crate) struct Inner {
     /// Spatial navigation as the app chose it (`None` follows the system) and as the system
     /// suggests it ([`Ui::set_spatial_navigation`]).
     pub(crate) spatial: Option<bool>,
+    /// How far an arrow key scrolls ([`Ui::set_scroll_step`]).
+    pub(crate) scroll_step: f32,
     pub(crate) system_spatial: bool,
     /// The child each focus group last had focused ([`El::focus_group`]).
     pub(crate) group_memory: HashMap<ElementId, ElementId>,
@@ -967,6 +977,7 @@ impl Ui {
             platform: remedy_ui_input::Platform::Standard,
             focus_chain: Vec::new(),
             spatial: None,
+            scroll_step: crate::events::SCROLL_STEP,
             system_spatial: false,
             group_memory: HashMap::new(),
             spatial_tuning: crate::SpatialTuning::default(),
@@ -1901,6 +1912,10 @@ impl ElData {
             on_placed: None,
             last_placed: None,
             scroll_follow: None,
+            scroll_snap: None,
+            snap_align: None,
+            snap_margin: remedy_ui_core::Insets::default(),
+            snap_stop: false,
             isolate: None,
             loops: Vec::new(),
             ambient_layer: false,
@@ -2444,9 +2459,90 @@ impl El {
         self
     }
 
-    /// Scrolls this scroll container to `offset`.
+    fn snap_spec(self, f: impl FnOnce(&mut SnapSpec)) -> Self {
+        self.edit(Dirty::PAINT, |d| f(d.scroll_snap.get_or_insert_with(Default::default)));
+        self
+    }
+
+    /// Makes this scroll container come to rest on its descendants' snap points
+    /// ([`snap_align`](Self::snap_align)), as CSS `scroll-snap-type` does: on `axis`, always
+    /// ([`SnapStrictness::Mandatory`]) or only when one is near ([`SnapStrictness::Proximity`]).
+    /// It settles after a fling (on the point for where the fling would end), a wheel gesture,
+    /// a drag release, a key step or page, a focus move and [`scroll_to`](Self::scroll_to)
+    /// ([`scroll_to_exact`](Self::scroll_to_exact) does not snap), and stays on the same
+    /// point when the layout changes. It glides there, or jumps under reduced motion.
+    pub fn scroll_snap(self, axis: SnapAxis, strictness: SnapStrictness) -> Self {
+        self.snap_spec(|s| {
+            s.axis = Some(axis);
+            s.tuning.mandatory = strictness == SnapStrictness::Mandatory;
+        })
+    }
+
+    /// How near a snap point must be for a proximity snap ([`scroll_snap`](Self::scroll_snap)),
+    /// as a fraction of the viewport on that axis. Default 0.3.
+    pub fn scroll_snap_proximity(self, fraction: f32) -> Self {
+        self.snap_spec(|s| s.tuning.proximity = fraction.max(0.0))
+    }
+
+    /// How a snapping container moves onto its snap point. Default a 250 ms decelerating
+    /// tween; under reduced motion it always jumps.
+    pub fn scroll_snap_motion(self, motion: remedy_ui_motion::Motion) -> Self {
+        self.snap_spec(|s| s.tuning.motion = motion)
+    }
+
+    /// How long the wheel must be still before a snapping container settles. Default 150 ms.
+    pub fn scroll_snap_wheel_idle(self, idle: std::time::Duration) -> Self {
+        self.snap_spec(|s| s.tuning.wheel_idle = idle)
+    }
+
+    /// Insets the viewport a snapping container lines snap areas up with, as CSS
+    /// `scroll-padding` does (logical: `start` follows the text direction).
+    pub fn scroll_padding(self, padding: remedy_ui_core::Insets) -> Self {
+        self.snap_spec(|s| s.padding = padding)
+    }
+
+    /// Gives this descendant of a snapping scroll container ([`scroll_snap`](Self::scroll_snap))
+    /// a snap point: its start, center or end lines up with the container's, as CSS
+    /// `scroll-snap-align` does.
+    pub fn snap_align(self, align: SnapAlign) -> Self {
+        self.snap_child(|d| d.snap_align = Some(align))
+    }
+
+    /// Grows this element's snap area, as CSS `scroll-margin` does (logical insets).
+    pub fn snap_margin(self, margin: remedy_ui_core::Insets) -> Self {
+        self.snap_child(|d| d.snap_margin = margin)
+    }
+
+    /// A fling, wheel gesture or key step never scrolls past this element's snap point, as
+    /// CSS `scroll-snap-stop: always` does.
+    pub fn snap_stop_always(self) -> Self {
+        self.snap_child(|d| d.snap_stop = true)
+    }
+
+    fn snap_child(self, f: impl FnOnce(&mut ElData)) -> Self {
+        self.edit(Dirty::PAINT, f);
+        // The scroll container lists the snap points: it repaints.
+        let tree = self.ui.tree();
+        let mut cur = tree.parent(self.id);
+        while let Some(p) = cur {
+            self.ui.mark(p, Dirty::PAINT);
+            if self.ui.0.borrow().els.get(&p).is_some_and(|d| d.scroll) {
+                break;
+            }
+            cur = tree.parent(p);
+        }
+        self
+    }
+
+    /// Scrolls this scroll container to `offset`; a snapping one
+    /// ([`scroll_snap`](Self::scroll_snap)) goes to the snap point nearest it.
     pub fn scroll_to(&self, offset: remedy_ui_core::Vec2) {
         self.ui.request(Request::ScrollTo { scroller: self.id, offset });
+    }
+
+    /// Scrolls this scroll container to exactly `offset`, snapping or not.
+    pub fn scroll_to_exact(&self, offset: remedy_ui_core::Vec2) {
+        self.ui.request(Request::ScrollToExact { scroller: self.id, offset });
     }
 
     /// Scrolls the scroll containers around this element just enough to show it.
@@ -2486,7 +2582,15 @@ impl El {
                 next.x = next.x.max(0.0);
                 next.y = next.y.max(0.0);
                 if next != off {
-                    self.ui.request(Request::ScrollTo { scroller: p, offset: next });
+                    // A snapping container steps to the snap point that way, gliding.
+                    let snaps = self.ui.0.borrow().els.get(&p).is_some_and(|d| d.scroll_snap.is_some());
+                    let scroller = p;
+                    let offset = next;
+                    self.ui.request(if snaps {
+                        Request::ScrollStep { scroller, offset }
+                    } else {
+                        Request::ScrollTo { scroller, offset }
+                    });
                     // The outer containers must show where this one will be.
                     want = view;
                 }
@@ -3132,4 +3236,45 @@ impl El {
     pub fn is_focused(&self) -> bool {
         self.ui.tree().focused() == Some(self.id)
     }
+}
+
+/// A snapping scroll container's settings ([`El::scroll_snap`]).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SnapSpec {
+    /// Snaps only once an axis is chosen.
+    pub(crate) axis: Option<SnapAxis>,
+    /// Strictness and tuning; its points are filled in each paint.
+    pub(crate) tuning: remedy_ui_compositor::ScrollSnap,
+    pub(crate) padding: remedy_ui_core::Insets,
+}
+
+/// The axes a scroll container snaps on ([`El::scroll_snap`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SnapAxis {
+    /// Horizontally.
+    X,
+    /// Vertically.
+    Y,
+    /// On both axes.
+    Both,
+}
+
+/// How firmly a scroll container snaps ([`El::scroll_snap`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SnapStrictness {
+    /// Only onto a snap point near where scrolling would rest.
+    Proximity,
+    /// Always onto a snap point.
+    Mandatory,
+}
+
+/// Which edge of a child lines up with its snapping scroll container ([`El::snap_align`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SnapAlign {
+    /// Its start edge with the container's.
+    Start,
+    /// Its center with the container's.
+    Center,
+    /// Its end edge with the container's.
+    End,
 }

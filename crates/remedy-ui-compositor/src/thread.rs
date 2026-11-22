@@ -25,6 +25,9 @@ enum Msg {
     ScrollBy(LayerId, Vec2),
     ScrollAt(Point, Vec2),
     Fling(LayerId, Vec2),
+    ScrollTo(LayerId, Vec2),
+    ScrollStep(LayerId, Vec2),
+    ScrollToExact(LayerId, Vec2),
     Resize(u32, u32, f32),
     TrimMemory,
     Stop(Sender<Compositor>),
@@ -97,7 +100,16 @@ impl<P: Presenter> Running<P> {
                 compositor.scroll_by(id, d);
             }
             Msg::ScrollAt(p, d) => {
-                compositor.scroll_at(p, d);
+                compositor.wheel_at(p, d);
+            }
+            Msg::ScrollTo(id, o) => {
+                compositor.scroll_to_snapped(id, o);
+            }
+            Msg::ScrollStep(id, o) => {
+                compositor.scroll_step(id, o);
+            }
+            Msg::ScrollToExact(id, o) => {
+                compositor.set_scroll_offset(id, o);
             }
             Msg::Fling(id, v) => {
                 compositor.fling(id, v);
@@ -158,9 +170,26 @@ impl CompositorThread {
         self.send(Msg::ScrollBy(layer, delta));
     }
 
-    /// Routes a wheel scroll at a device-pixel point.
+    /// Routes a wheel scroll at a device-pixel point ([`Compositor::wheel_at`]: a snapping
+    /// container settles once the wheel is still).
     pub fn scroll_at(&self, point: Point, delta: Vec2) {
         self.send(Msg::ScrollAt(point, delta));
+    }
+
+    /// Scrolls a layer to `offset`, a snapping one to its nearest snap point
+    /// ([`Compositor::scroll_to_snapped`]).
+    pub fn scroll_to(&self, layer: LayerId, offset: Vec2) {
+        self.send(Msg::ScrollTo(layer, offset));
+    }
+
+    /// Steps a layer toward `offset` as a key or focus move does ([`Compositor::scroll_step`]).
+    pub fn scroll_step(&self, layer: LayerId, offset: Vec2) {
+        self.send(Msg::ScrollStep(layer, offset));
+    }
+
+    /// Scrolls a layer to exactly `offset` ([`Compositor::set_scroll_offset`]).
+    pub fn scroll_to_exact(&self, layer: LayerId, offset: Vec2) {
+        self.send(Msg::ScrollToExact(layer, offset));
     }
 
     /// Starts a fling.

@@ -628,3 +628,48 @@ fn sticky_layers_move_with_scrolling_without_a_commit() {
         assert_eq!(header_y(&p), Some(y), "at scroll {scroll}");
     }
 }
+
+/// A 400-wide shelf over 2000 of content that snaps every 400 (mandatory).
+fn shelf() -> LayerTree {
+    let content = Layer::new(LayerId(2), Rect::new(0.0, 0.0, 2000.0, 300.0), solid(2000.0, 300.0));
+    let mut scroller = Layer::new(LayerId(1), Rect::new(0.0, 0.0, 400.0, 300.0), DisplayList::new())
+        .scrolling(Size::new(2000.0, 300.0))
+        .with_child(content);
+    let points = (0..5).map(|i| SnapPoint { offset: i as f32 * 400.0, key: i, always: false }).collect();
+    scroller.scroll_snap = Some(ScrollSnap { x: points, mandatory: true, ..ScrollSnap::default() });
+    LayerTree::new(vec![scroller])
+}
+
+#[test]
+fn the_compositor_thread_snaps_wheel_and_programmatic_scrolls() {
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let thread =
+        match CompositorThread::spawn(Compositor::new(400, 300, 1.0, ScrollPhysics::CLAMPED), Recorder(tx)) {
+            Ok(t) => t,
+            Err(e) => unreachable!("{e}"),
+        };
+    thread.commit(shelf());
+    thread.vsync(ms(0));
+    let _ = thread.wait_report(Duration::from_secs(5));
+    // A wheel of 250 settles on the next card start once the wheel has been still.
+    thread.scroll_at(Point::new(100.0, 100.0), Vec2::new(250.0, 0.0));
+    for i in 1..=60u64 {
+        thread.vsync(ms(i * 16));
+        let _ = thread.wait_report(Duration::from_secs(5));
+    }
+    thread.scroll_to(LayerId(1), Vec2::new(700.0, 0.0));
+    let Some(mut comp) = thread.stop() else { unreachable!("the compositor comes back") };
+    assert_eq!(comp.scroll_offset(LayerId(1)), Some(Vec2::new(800.0, 0.0)), "scroll_to snapped");
+    assert!(comp.set_scroll_offset(LayerId(1), Vec2::ZERO));
+    let thread = match CompositorThread::spawn(comp, Recorder(std::sync::mpsc::channel().0)) {
+        Ok(t) => t,
+        Err(e) => unreachable!("{e}"),
+    };
+    thread.scroll_at(Point::new(100.0, 100.0), Vec2::new(250.0, 0.0));
+    for i in 61..=120u64 {
+        thread.vsync(ms(i * 16));
+        let _ = thread.wait_report(Duration::from_secs(5));
+    }
+    let comp = thread.stop();
+    assert_eq!(comp.and_then(|c| c.scroll_offset(LayerId(1))), Some(Vec2::new(400.0, 0.0)), "the wheel snapped");
+}

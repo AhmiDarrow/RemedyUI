@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use remedy_ui_a11y::{Role, Semantics};
-use remedy_ui_compositor::{Layer, LayerId, LayerTree};
+use remedy_ui_compositor::{Layer, LayerId, LayerTree, ScrollSnap, SnapPoint};
 use remedy_ui_core::{Color, CornerRadii, Insets, Point, Rect, Size, Vec2};
 use remedy_ui_paint::{Affine, Brush, DisplayList, GlyphRun, Item};
 use remedy_ui_style::{States, StyleKey};
@@ -382,6 +382,7 @@ struct Builder {
     scroll: Option<Size>,
     origin: Vec2,
     follow: Option<remedy_ui_compositor::ScrollFollow>,
+    snap: Option<ScrollSnap>,
     list: DisplayList,
     /// Push items open in `list`, re-opened when a segment starts.
     open: Vec<Item>,
@@ -400,6 +401,7 @@ impl Builder {
             scroll: None,
             origin: Vec2::ZERO,
             follow: None,
+            snap: None,
             list: DisplayList::new(),
             open: Vec::new(),
             children: Vec::new(),
@@ -471,6 +473,7 @@ impl Builder {
             layer.scroll_origin = self.origin;
         }
         layer.scroll_follow = self.follow;
+        layer.scroll_snap = self.snap;
         layer
     }
 }
@@ -641,6 +644,60 @@ impl Walk<'_> {
         }
     }
 
+    /// The snap points of a snapping scroll container (`id`, a `view`-sized viewport with its
+    /// content shifted by `lead`): one for each descendant with
+    /// [`snap_align`](crate::El::snap_align), not looking inside nested scroll containers.
+    fn snap_points(&self, id: ElementId, spec: &crate::element::SnapSpec, view: Size, lead: f32) -> ScrollSnap {
+        let mut snap = ScrollSnap { x: Vec::new(), y: Vec::new(), ..spec.tuning.clone() };
+        let Some(axis) = spec.axis else { return snap };
+        let rtl = self.inner.els.get(&id).is_some_and(|d| self.inner.layout.is_rtl(d.node));
+        // Physical left and right of logical insets: start is on the right right to left.
+        let lr = |i: Insets| if rtl { (i.end, i.start) } else { (i.start, i.end) };
+        let (pad_l, pad_r) = lr(spec.padding);
+        // The offset that lines up an area (`min`..`max`, grown by margins `m0`, `m1`) with the
+        // padded viewport (`p0`, `p1` from each edge, `extent` long).
+        let at = |a: crate::SnapAlign, min: f32, max: f32, (m0, m1): (f32, f32), (p0, p1): (f32, f32), extent: f32| {
+            let (min, max) = (min - m0, max + m1);
+            match a {
+                crate::SnapAlign::Start => min - p0,
+                crate::SnapAlign::Center => (min + max) / 2.0 - (p0 + extent - p1) / 2.0,
+                crate::SnapAlign::End => max + p1 - extent,
+            }
+        };
+        // Start and end of the inline axis swap right to left.
+        let flip = |a: crate::SnapAlign| match a {
+            crate::SnapAlign::Start if rtl => crate::SnapAlign::End,
+            crate::SnapAlign::End if rtl => crate::SnapAlign::Start,
+            a => a,
+        };
+        let mut stack: Vec<(ElementId, Vec2)> =
+            self.inner.tree.children(id).into_iter().rev().map(|k| (k, Vec2::new(lead, 0.0))).collect();
+        while let Some((k, shift)) = stack.pop() {
+            let (Some(d), Some(r)) = (self.inner.els.get(&k), self.rects.get(&k)) else { continue };
+            if d.hidden {
+                continue;
+            }
+            let r = r.translate(shift);
+            if let Some(a) = d.snap_align {
+                let key = root_key(k);
+                let point = |offset| SnapPoint { offset, key, always: d.snap_stop };
+                if axis != crate::SnapAxis::Y {
+                    let m = lr(d.snap_margin);
+                    snap.x.push(point(at(flip(a), r.min.x, r.max.x, m, (pad_l, pad_r), view.width)));
+                }
+                if axis != crate::SnapAxis::X {
+                    let (m, p) = (d.snap_margin, spec.padding);
+                    snap.y.push(point(at(a, r.min.y, r.max.y, (m.top, m.bottom), (p.top, p.bottom), view.height)));
+                }
+            }
+            if !d.scroll {
+                let inner = Vec2::new(r.min.x, r.min.y);
+                stack.extend(self.inner.tree.children(k).into_iter().rev().map(|c| (c, inner)));
+            }
+        }
+        snap
+    }
+
     /// Paints `id` at `rect` (in its parent's space; `at` in `b`'s layer) and its subtree
     /// into `b`, with what `paint` says.
     fn body(&mut self, b: &mut Builder, id: ElementId, rect: Rect, at: Point, paint: Paint) {
@@ -690,6 +747,7 @@ impl Walk<'_> {
                 x,
                 y,
             });
+            vb.snap = d.scroll_snap.as_deref().map(|spec| self.snap_points(id, spec, rect.size(), lead));
             let mut cb = Builder::new(content_id, Rect::from_origin_size(Point::ZERO, content_size));
             if lead > 0.0 {
                 cb.push(Item::PushTransform(Affine::translate(Vec2::new(lead, 0.0))));

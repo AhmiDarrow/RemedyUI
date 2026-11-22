@@ -44,10 +44,10 @@ pub use decoration::{Decoration, DecorationKind};
 pub use dnd::Drag;
 pub use element::{
     DirtyObserver, DirtyRecord, El, ElementInfo, InlineImage, PAINT_CACHE_LIMIT, PaintCx, PointerInterceptor,
-    TextAntialias, TextPaint, TextRendering, Ui, WeakUi, WindowDirection, clear_paint_cache, rasterize,
-    set_paint_cache_limit,
+    SnapAlign, SnapAxis, SnapStrictness, TextAntialias, TextPaint, TextRendering, Ui, WeakUi, WindowDirection,
+    clear_paint_cache, rasterize, set_paint_cache_limit,
 };
-pub use events::{Click, MenuKey, MenuKeyHandler, PointerInput};
+pub use events::{SCROLL_STEP, Click, MenuKey, MenuKeyHandler, PointerInput};
 pub use field::{CodeColors, FieldKind, TextField};
 pub use flow::{
     CaughtError, ErrorHook, FailurePhase, Retry, SUSPENSE_DELAY, SUSPENSE_MIN_SHOWN, Show, SuspenseBoundary,
@@ -131,6 +131,22 @@ pub enum Request {
         /// The scroll container.
         scroller: ElementId,
         /// Its new offset.
+        offset: remedy_ui_core::Vec2,
+    },
+    /// Move a scroll container to exactly `offset`, even a snapping one
+    /// ([`El::scroll_to_exact`]).
+    ScrollToExact {
+        /// The scroll container.
+        scroller: ElementId,
+        /// Its new offset.
+        offset: remedy_ui_core::Vec2,
+    },
+    /// Move a scroll container toward `offset` as a key step or focus move does: a snapping
+    /// one glides to the snap point nearest that, or the next one that way.
+    ScrollStep {
+        /// The scroll container.
+        scroller: ElementId,
+        /// Where it was asked to go.
         offset: remedy_ui_core::Vec2,
     },
 }
