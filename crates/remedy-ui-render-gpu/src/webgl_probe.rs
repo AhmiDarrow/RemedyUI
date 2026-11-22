@@ -55,7 +55,9 @@ async fn probe() -> Probe {
     let opts = web_sys::BlobPropertyBag::new();
     opts.set_type("text/javascript");
     let parts = js_sys::Array::of1(&JsValue::from_str(WORKER));
-    let Ok(blob) = web_sys::Blob::new_with_str_sequence_and_options(&parts, &opts) else { return Probe::Unknown };
+    let Ok(blob) = web_sys::Blob::new_with_str_sequence_and_options(&parts, &opts) else {
+        return Probe::Unknown;
+    };
     let Ok(url) = web_sys::Url::create_object_url_with_blob(&blob) else { return Probe::Unknown };
     let Ok(worker) = web_sys::Worker::new(&url) else {
         let _ = web_sys::Url::revoke_object_url(&url);
