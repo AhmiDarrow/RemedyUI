@@ -21,7 +21,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
   its own carrying a `Sticky` (`remedy-ui-compositor`, `Layer::sticky`, `Sticky::offset`)
   that the compositor offsets from the scroll container's offset in the same frame; hit
   testing and the accessibility bounds follow; nested scroll containers each move their own;
-  frosted glass on a sticky header blurs what scrolls under it.
+  frosted glass on a sticky header blurs what scrolls under it. While it is moved from its
+  place it has `States::STUCK`, so a sheet can style it stuck (a shadow under a stuck header).
 
 - **Gradient backgrounds** in `style`: `StylePatch::background_layers` and
   `Style::background_layers` take `Gradient`s drawn over the background colour, the first on

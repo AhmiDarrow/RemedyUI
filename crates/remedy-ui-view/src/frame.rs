@@ -1008,6 +1008,8 @@ impl Ui {
         // Sticky elements, in their scroll container's content space: the compositor moves
         // their layers as it scrolls, and their bounds move here by the same offset.
         let mut stickies: HashMap<ElementId, remedy_ui_compositor::Sticky> = HashMap::new();
+        // Each sticky element and whether it is moved from its place now ([`States::STUCK`]).
+        let mut stuck: Vec<(ElementId, bool)> = Vec::new();
         let window_cx = StickCx {
             scroller: None,
             viewport: size,
@@ -1048,6 +1050,7 @@ impl Ui {
                 };
                 let off = st.offset(cx.offset);
                 abs = Point::new(abs.x + off.x, abs.y + off.y);
+                stuck.push((id, off != Vec2::ZERO));
                 stickies.insert(id, st);
             }
             let (bw, p, scrolls) = (d.resolved.border_width, d.resolved.padding, d.scroll);
@@ -1112,6 +1115,7 @@ impl Ui {
         if resticky {
             for id in i.frame.stickies.keys().filter(|k| !stickies.contains_key(k)) {
                 let _ = i.tree.set_raised(*id, false);
+                stuck.push((*id, false));
             }
             for id in stickies.keys() {
                 let _ = i.tree.set_raised(*id, true);
@@ -1312,6 +1316,10 @@ impl Ui {
         drop(guard);
         if !again.is_empty() || (resticky && !moved) {
             self.request(crate::Request::Frame);
+        }
+        // Stuck or back in place: styled for it from the next frame (a no-op when unchanged).
+        for (id, on) in stuck {
+            self.set_state(id, States::STUCK, on);
         }
         // Lazy paragraphs whose height came out different once more lines were laid out are
         // measured again.
