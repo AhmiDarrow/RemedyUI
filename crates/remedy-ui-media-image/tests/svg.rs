@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use remedy_ui_core::{Color, Size};
+use remedy_ui_media_image::svg::*;
 use remedy_ui_media_image::{Fit, ImageState, Source, decode, dimensions, image, load};
-use remedy_ui_media_svg::*;
 use remedy_ui_paint::Image;
 use remedy_ui_text::FontCollection;
 use remedy_ui_view::Ui;

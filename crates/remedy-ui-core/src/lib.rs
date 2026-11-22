@@ -13,6 +13,8 @@
 //! - [`time`]: monotonic and wall clocks that work on every platform, browsers included.
 //! - [`exec`]: work away from the UI thread: threads natively, cooperative time slices in a
 //!   browser page without threads.
+//! - [`trace`]: the phase spans every part of the engine emits (through `tracing`), the clock
+//!   trace timestamps share across threads, GPU work slices, and gauges of what the engine holds.
 //! - [`edition`]: editions, the switch that changes of default behavior hang off.
 
 pub mod arena;
@@ -25,6 +27,7 @@ pub mod scrollbar;
 pub mod text;
 pub mod time;
 pub mod token;
+pub mod trace;
 pub mod units;
 
 pub use arena::{Arena, Id};

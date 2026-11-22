@@ -15,12 +15,12 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use remedy_ui_a11y::{Role, Semantics};
+use remedy_ui_core::trace::phases;
 use remedy_ui_core::{Color, Insets, Point, Rect, Size};
 use remedy_ui_layout::Position;
 use remedy_ui_paint::Brush;
 use remedy_ui_reactive::{Signal, untrack};
 use remedy_ui_style::StylePatch;
-use remedy_ui_trace::phases;
 use remedy_ui_view::{El, Ui};
 use remedy_ui_widgets_core as w;
 
@@ -410,7 +410,7 @@ impl PerfOverlay {
         let cache_line = text("", DIM).text({
             move || {
                 let _ = version.get();
-                let held = remedy_ui_trace::gauges::snapshot();
+                let held = remedy_ui_core::trace::gauges::snapshot();
                 if held.is_empty() {
                     return "Caches: nothing held yet".to_owned();
                 }

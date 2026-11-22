@@ -37,11 +37,11 @@ L6  app-facing:   remedy-ui (facade, feature flags) · remedy-ui-rui (markup com
 L5  feature packs: widgets-* · media-* · doc-* · viz · embed-* · services-* · themes · fonts · devtools · customize
 L4  host:          view (elements, the frame pipeline, input routing) · render-gpu · render-cpu · bridge-winit (shared desktop core) · bridge-windows · bridge-macos · bridge-linux
                    bridge-android · bridge-web · bridge-remedyos · bridge-headless
-L3  frame:         paint (display list, image and icon sources) · motion · a11y · compositor · secure
+L3  frame:         paint (display list, image and icon sources) · motion · a11y · compositor
                    host (the platform-neutral host model every bridge implements)
 L2  engine:        tree · style · layout · text · input
 L1  state:         reactive
-L0  base:          core (geometry, color, ids, units; no dependencies) · trace
+L0  base:          core (geometry, color, ids, units, clocks, the phase spans every layer emits)
 ```
 
 The allowed sideways edges inside L5:
@@ -53,7 +53,7 @@ The allowed sideways edges inside L5:
 - `media-anim` may depend on `media-image`
 - `media-playback` may depend on `media-video` (its pictures go to a video surface) and `widgets-core` (its transport bar), and on `services-desktop` behind its `media-session` feature (what plays shows in the system's media controls) and its `keep-awake` feature (the screen held on while video plays, through `power::inhibit`)
 
-Image and icon *sources* are a trait in `paint`, so `widgets-core` can show images without knowing any decoder; `media-image` and `media-svg` register decoders for them.
+Image and icon *sources* are a trait in `paint`, so `widgets-core` can show images without knowing any decoder; `media-image` registers decoders for them (SVG among them, with its `svg` feature).
 
 **Unsafe code** lives only in the bridges, `render-gpu`, and the few packs that must call the platform themselves: `services-update` (Authenticode), `services-desktop` (shell links), `services-spell` (the platform's checker), `media-playback` (the platform's decoders and sound output), `media-isolated` (the decoder sandbox's processes) and `embed-webview` (the platform's web view as a native child view). Each of those crates denies `unsafe_code` at its root and allows it only on its `os` (or `ffi`) module; every other crate forbids it outright, and CI checks that no other module carries the allow (the list is `UNSAFE_BOUNDARY` in `xtask`). Keeping such calls in the pack that needs them means an app pays for a platform API only when it uses that pack. Packs that need host services shared by everything else (tray and notifications) call bridge traits, so they stay free of unsafe code.
 
@@ -76,9 +76,8 @@ Image and icon *sources* are a trait in `paint`, so `widgets-core` can show imag
 | `doc-rich` | Markdown, rich documents, `RichEditor`, find in page | FreeSpeak, wikis, notes |
 | `doc-code` | Code view and editor with syntax colors per grammar feature, diffs | RemedyAI, RemedyOS Editor |
 | `doc-pages` | Paged documents: tiled deep zoom, spreads, rotation, text selection, annotation layer (parsing stays in the app) | RemedyPDF |
-| `media-image` | Decode pool and cache; formats per sub-feature (`png`, `jpeg`, `webp`, `avif`, `gif`, `ico`) | Most apps |
+| `media-image` | Decode pool and cache; formats per sub-feature (`png`, `jpeg`, `webp`, `avif`, `gif`, `ico`); SVG icons and illustrations (`svg`) | Most apps |
 | `media-anim` | Animated GIF, WebP and APNG; vector animation | FreeSpeak, onboarding |
-| `media-svg` | SVG icons and illustrations | Most apps |
 | `media-video` | Video surfaces (YUV, RGBA, zero-copy import), external textures | FreeSpeak, Portal |
 | `media-playback` | Player transport, subtitles, platform decoders behind a trait | Portal |
 | `media-isolated` | Decoding in a sandboxed helper process | FreeSpeak, Hearth, RemedyPDF |

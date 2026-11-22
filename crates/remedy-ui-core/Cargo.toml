@@ -1,6 +1,6 @@
 [package]
 name = "remedy-ui-core"
-description = "RemedyUI base types: geometry, units and pixel snapping, colors, generational ids and arenas, clocks, and work off the UI thread on every platform."
+description = "RemedyUI base types: geometry, units and pixel snapping, colors, generational ids and arenas, clocks, work off the UI thread on every platform, and the engine's tracing spans."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,6 +12,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 
 # The page's clocks in a browser (std's panic on wasm32-unknown-unknown).
 # The calling thread's own processor time (the OS's per-thread clock), off the web.

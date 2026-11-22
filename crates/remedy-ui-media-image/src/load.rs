@@ -166,7 +166,7 @@ fn step() -> bool {
             }
         }
     };
-    let _span = remedy_ui_trace::phase!("image work").entered();
+    let _span = remedy_ui_core::phase!("image work").entered();
     job();
     true
 }

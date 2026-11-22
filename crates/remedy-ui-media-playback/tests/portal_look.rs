@@ -62,7 +62,7 @@ fn svg(ui: &Ui, body: &str, size: f32) -> El {
     let svg = format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">{body}</svg>"#
     );
-    remedy_ui_media_svg::icon(ui, Arc::from(svg.into_bytes()), size, "")
+    remedy_ui_media_image::svg::icon(ui, Arc::from(svg.into_bytes()), size, "")
 }
 
 /// What a Portal app hands the player for its glyphs.
@@ -155,7 +155,9 @@ impl Window {
         // SVG text (the "10" in the skips) in the app's faces, once for the process.
         static SVG_FONTS: std::sync::Once = std::sync::Once::new();
         SVG_FONTS.call_once(|| {
-            remedy_ui_fonts::all().into_iter().for_each(|f| remedy_ui_media_svg::add_font(f.data.to_vec()))
+            remedy_ui_fonts::all()
+                .into_iter()
+                .for_each(|f| remedy_ui_media_image::svg::add_font(f.data.to_vec()))
         });
         let ui = Ui::new(theme.clone(), remedy_ui_themes::portal_sheet(&theme), fonts);
         ui.set_reduced_motion(true);

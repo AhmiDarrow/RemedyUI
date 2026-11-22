@@ -25,7 +25,7 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | Dictionary charsets | `encoding_rs` | 0.8.35 | `services-spell` | Reads old Hunspell files in ISO-8859-x and KOI8 (`(Apache-2.0 OR MIT) AND BSD-3-Clause`) |
 | Hyphenation | `hyphenation` | 0.8.4 | `text` (feature) | Knuth–Liang dictionaries per language, each a feature |
 | Look-alike detection | `unicode-security` | 0.1.3 | `text` | UTS #39 skeletons for confusable names (`skeleton`, `looks_like`) |
-| Secret buffers | `zeroize` | 1.9.1 | `text`, `secure` | Zeroing that the compiler cannot optimize away |
+| Secret buffers | `zeroize` | 1.9.1 | `text`, `remedy-ui` | Zeroing that the compiler cannot optimize away |
 | Stack growth | `stacker` (with `psm`) | 0.1.25 | `layout`, `reactive`, `view` | Recursion that cannot be a loop (taffy's layout, the frame walk, memos reading memos) runs on a stack that grows, so trees of any depth work on any thread. Maintained by the Rust project and used by rustc for the same purpose; MIT OR Apache-2.0. `psm` assembles its stack switch with `cc` per target (a prebuilt object on wasm32), as `ring` already does |
 | Layout algorithms | `taffy` | 0.15.1 (flexbox, grid, block, content-size) | `layout` | CSS flexbox, grid and block, faithful to the specs. Its leaf callback runs `compute_leaf_layout` so styles apply; it keeps padding physical, so RemedyUI mirrors logical insets for right to left itself |
 | GPU | `wgpu` | 30.0.2 | `render-gpu` | D3D12, Vulkan, Metal, GL 3.3 / GLES 3.0. Unmodified: windows on D3D12 and Vulkan present through RemedyUI's own swapchains on its devices (with `windows` and `ash`, the bindings wgpu itself uses) |
@@ -38,7 +38,7 @@ MIT, Apache-2.0 (with or without the LLVM exception), BSD-2-Clause, BSD-3-Clause
 | File dialogs | `rfd` | 0.18.0 | `bridge-windows`, `bridge-macos` | Native dialogs. On Linux, dialogs go through the XDG portal with RemedyUI's own client over blocking `zbus`, because `rfd`'s portal backend needs an async runtime |
 | D-Bus (Linux) | `zbus` (blocking API) | 5.19.0 | `bridge-linux`, `services-desktop` | Portal, notifications, StatusNotifierItem, the launcher entry badge, AT-SPI; in `services-desktop`, UPower, logind and the screen saver for power |
 | Images | `image` / `zune-image` | 0.25.10 / 0.5.0 | `media-image`, `media-isolated` (its PNG encoder makes the picture the helper is timed on) | Chosen per format in its milestone, after a RustSec review and fuzzing |
-| SVG | `usvg` | pinned with `media-svg` | `media-svg` | SVG to a path tree |
+| SVG | `usvg` | pinned with `resvg` | `media-image` (`svg`) | SVG to a path tree |
 | Syntax colors | `syntect` (with `fancy-regex`) | 5.3.0 | `doc-code` | Pure-Rust highlighting, with no C regex engine |
 | Terminal parsing | `vte` | 0.15.0 | `widgets-term` | Paul Williams' DEC state machine as Alacritty uses it (Apache-2.0 OR MIT, maintained by the Alacritty project); bytes to print, execute, CSI, OSC and DCS actions. The screen model on top is RemedyUI's own. Its unbounded OSC buffer is cut by the terminal's own string limit |
 | Character widths | `unicode-width` | 0.2.3 (already in the tree through the text stack) | `widgets-term` | UAX #11 widths: which characters take two cells |
