@@ -5,3 +5,9 @@
 movable-moved-out = { $title } está em uma janela própria.
 # The button that brings the content back from its window.
 movable-bring-back = Trazer de volta
+
+## A question in a window of its own (App::confirm).
+# The button that answers yes.
+confirm-ok = OK
+# The button that answers no.
+confirm-cancel = Cancelar

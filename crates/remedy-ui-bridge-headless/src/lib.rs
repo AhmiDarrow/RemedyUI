@@ -35,6 +35,7 @@ pub struct HeadlessWindow {
     maximized: bool,
     fullscreen: bool,
     cursor_hidden: bool,
+    centered: bool,
 }
 
 impl HeadlessWindow {
@@ -81,6 +82,12 @@ impl HeadlessWindow {
     /// True while the mouse pointer is hidden over it ([`Host::set_cursor_hidden`]).
     pub fn is_cursor_hidden(&self) -> bool {
         self.cursor_hidden
+    }
+
+    /// True once the app centered it on the display ([`Host::center_window`]); moving it
+    /// since makes it false again.
+    pub fn is_centered(&self) -> bool {
+        self.centered
     }
 
     /// True while minimized.
@@ -585,6 +592,7 @@ impl Host for HeadlessHost {
             maximized: false,
             fullscreen: false,
             cursor_hidden: false,
+            centered: false,
         };
         Self::apply_size(&mut w, options.size);
         self.queue.push_back(HostEvent::Resized {
@@ -636,7 +644,15 @@ impl Host for HeadlessHost {
     fn set_position(&mut self, window: WindowId, position: Point) -> Result<(), Unsupported> {
         if let Some(w) = self.window_mut(window) {
             w.options.position = Some(position);
+            w.centered = false;
             self.queue.push_back(HostEvent::Moved(window, position));
+        }
+        Ok(())
+    }
+
+    fn center_window(&mut self, window: WindowId) -> Result<(), Unsupported> {
+        if let Some(w) = self.window_mut(window) {
+            w.centered = true;
         }
         Ok(())
     }

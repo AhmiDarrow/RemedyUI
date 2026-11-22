@@ -377,6 +377,21 @@ mod hooks {
         os::instance::claim(app_id, args, on_launch)
     }
 
+    /// [`claim_single_instance`], where a later launch may wait for a reply: `on_launch` gets
+    /// a [`Replier`](crate::Replier) for each launch that waits, and the code sent on it goes
+    /// back to that launch (dropping it sends none). With `wait`, this launch, when another
+    /// instance runs, waits for that instance's reply ([`Claim::HandedOver`](crate::Claim)
+    /// carries it) and, with [`ReplyWait::exit`](crate::ReplyWait::exit), for its process to
+    /// exit.
+    pub fn claim_single_instance_replying(
+        app_id: &str,
+        args: &[String],
+        wait: Option<crate::ReplyWait>,
+        on_launch: impl Fn(Vec<String>, Option<crate::Replier>) + Send + 'static,
+    ) -> Result<crate::Claim, Unsupported> {
+        os::instance::claim_replying(app_id, args, wait, on_launch)
+    }
+
     /// Runs `app` on the main thread's event loop until it exits.
     pub fn run(app: impl App) -> Result<(), RunError> {
         remedy_ui_bridge_winit::run(app, WindowsHooks::default())
@@ -384,9 +399,9 @@ mod hooks {
 }
 
 #[cfg(windows)]
-pub use hooks::{WindowsHooks, claim_single_instance, run};
+pub use hooks::{WindowsHooks, claim_single_instance, claim_single_instance_replying, run};
 #[cfg(windows)]
-pub use os::instance::{INSTANCE_WAIT, set_instance_wait};
+pub use os::instance::{Claim, INSTANCE_WAIT, Replier, ReplyWait, set_instance_wait};
 
 /// The mouse pointer as Windows has it, for tests that check what the host did with it.
 #[cfg(windows)]
