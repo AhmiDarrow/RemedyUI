@@ -9,7 +9,7 @@ use remedy_ui_a11y::{Role, Semantics};
 use remedy_ui_compositor::{Layer, LayerId, LayerTree, ScrollSnap, SnapPoint};
 use remedy_ui_core::{Color, CornerRadii, Insets, Point, Rect, Size, Vec2};
 use remedy_ui_paint::{Affine, Brush, DisplayList, GlyphRun, Item};
-use remedy_ui_style::{States, StyleKey};
+use remedy_ui_style::{BorderStyle, States, StyleKey};
 use remedy_ui_text::{Antialias, Hinting, Paragraph};
 use remedy_ui_tree::{Dirty, ElementId};
 
@@ -193,7 +193,11 @@ fn record(
         list.push(Item::PopTransform);
     }
     if s.border_width > 0.0 && s.border.a > 0.0 {
-        list.border(boxed, radii, crisp_width(s.border_width, scale), s.border);
+        let w = crisp_width(s.border_width, scale);
+        match s.border_style {
+            BorderStyle::Solid => list.border(boxed, radii, w, s.border),
+            style => list.push(broken_border(boxed, radii, w, s.border, style)),
+        }
     }
     let bw = s.border_width;
     let content = rect.deflate(Insets {
@@ -1550,6 +1554,36 @@ fn chunk_key(boxes: &HashMap<ElementId, (Size, Rect)>, id: ElementId) -> (Size, 
 
 /// A border `width` logical pixels wide in whole device pixels at `scale`, as browsers draw
 /// line widths: at least one device pixel, never a blurred fraction.
+/// A dashed or dotted border of `width` inside `rect`'s edge: a stroke along the middle of
+/// where a solid border would be, its corners rounded as that border's are.
+fn broken_border(rect: Rect, radii: CornerRadii, width: f32, color: Color, style: BorderStyle) -> Item {
+    use remedy_ui_paint::{Path, Stroke, StrokeCap};
+    let half = width / 2.0;
+    let r = radii.fit(rect.size());
+    let less = |v: f32| (v - half).max(0.0);
+    let mid = CornerRadii {
+        top_start: less(r.top_start),
+        top_end: less(r.top_end),
+        bottom_end: less(r.bottom_end),
+        bottom_start: less(r.bottom_start),
+    };
+    let mut stroke = Stroke::new(width);
+    stroke.dashes = match style {
+        BorderStyle::Dotted if width >= 3.0 => {
+            stroke.cap = StrokeCap::Round;
+            // A dash of no length draws no cap: a hundredth of a pixel draws the round dot.
+            vec![0.01, width * 2.0 - 0.01]
+        }
+        BorderStyle::Dotted => vec![width, width],
+        _ => vec![width * 3.0, width * 3.0],
+    };
+    Item::StrokePath {
+        path: Path::rounded_rect(rect.deflate(Insets::all(half)), mid),
+        stroke,
+        brush: Brush::Solid(color),
+    }
+}
+
 fn crisp_width(width: f32, scale: f32) -> f32 {
     match remedy_ui_core::units::Scale::new(scale) {
         Some(g) if width > 0.0 => g.crisp_line(width),

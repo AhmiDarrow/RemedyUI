@@ -50,6 +50,10 @@ fn scene() -> DisplayList {
     let mut line = Path::new();
     line.move_to(Point::new(180.0, 90.0)).line_to(Point::new(225.0, 135.0));
     l.push(Item::StrokePath { path: line, stroke: Stroke::new(3.0), brush: Brush::Solid(Color::BLACK) });
+    // A dashed border with per-corner radii (a style's `border_style`), as the view draws it.
+    let dashed = Stroke { dashes: vec![6.0, 6.0], ..Stroke::new(2.0) };
+    let path = Path::rounded_rect(Rect::new(131.0, 141.0, 229.0, 179.0), top);
+    l.push(Item::StrokePath { path, stroke: dashed, brush: Brush::Solid(Color::BLACK) });
     l.push_clip(
         Rect::new(4.0, 140.0, 60.0, 170.0),
         CornerRadii { top_start: 12.0, top_end: 12.0, ..CornerRadii::ZERO },

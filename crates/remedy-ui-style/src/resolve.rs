@@ -9,6 +9,19 @@ use remedy_ui_core::{
 
 use crate::states::States;
 
+/// How a border is drawn (CSS `border-style`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum BorderStyle {
+    /// One unbroken line.
+    #[default]
+    Solid,
+    /// Dashes three times the border's width long, with gaps as long.
+    Dashed,
+    /// Dots as wide as the border, a dot's width apart (round from 3 pixels wide).
+    Dotted,
+}
+
 /// A soft shadow: what a box casts (CSS `box-shadow`) or, as a filter, what the shape of an
 /// element's drawing casts (CSS `filter: drop-shadow()`). Lengths are logical pixels.
 ///
@@ -80,6 +93,8 @@ pub struct StylePatch {
     pub border: Option<Color>,
     /// Border width.
     pub border_width: Option<f32>,
+    /// Border line style: solid, dashed or dotted.
+    pub border_style: Option<BorderStyle>,
     /// Corner radius.
     pub radius: Option<f32>,
     /// Each corner's radius (CSS's `border-radius: 16px 16px 0 0`): set, it takes the place
@@ -226,6 +241,12 @@ impl StylePatch {
     /// Sets the border width.
     pub fn border_width(mut self, value: f32) -> Self {
         self.border_width = Some(value);
+        self
+    }
+
+    /// Sets the border's line style (CSS `border-style`).
+    pub fn border_style(mut self, value: BorderStyle) -> Self {
+        self.border_style = Some(value);
         self
     }
 
@@ -387,6 +408,7 @@ impl StylePatch {
             foreground: Some(theme.derive().text),
             border: Some(Color::TRANSPARENT),
             border_width: Some(0.0),
+            border_style: Some(BorderStyle::Solid),
             radius: Some(0.0),
             corners: None,
             padding: Some(Insets::ZERO),
@@ -423,6 +445,7 @@ impl StylePatch {
             foreground: other.foreground.or(self.foreground),
             border: other.border.or(self.border),
             border_width: other.border_width.or(self.border_width),
+            border_style: other.border_style.or(self.border_style),
             radius: other.radius.or(self.radius),
             // A radius alone over corners rounds every corner alike again.
             corners: match (other.corners, other.radius) {
@@ -497,6 +520,8 @@ pub struct ResolvedStyle {
     pub border: Color,
     /// Border width.
     pub border_width: f32,
+    /// Border line style.
+    pub border_style: BorderStyle,
     /// Corner radius (the largest corner's when they differ).
     pub radius: f32,
     /// Each corner's radius: `radius` at every corner unless the style set them one by one.
@@ -555,6 +580,7 @@ impl ResolvedStyle {
             foreground: p.foreground.unwrap_or(Color::BLACK),
             border: p.border.unwrap_or(Color::TRANSPARENT),
             border_width: p.border_width.unwrap_or(0.0),
+            border_style: p.border_style.unwrap_or_default(),
             radius: p.radius.unwrap_or(0.0),
             corners: p.corners.unwrap_or(CornerRadii::all(p.radius.unwrap_or(0.0))),
             padding: p.padding.unwrap_or(Insets::ZERO),

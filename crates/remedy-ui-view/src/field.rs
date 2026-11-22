@@ -174,9 +174,89 @@ pub(crate) struct Field {
     secret_copy: Option<std::time::Duration>,
     /// Told after the person copies or cuts text out of the field.
     on_copy: Option<Rc<dyn Fn()>>,
+    /// The most characters people may type, paste or compose in ([`TextField::max_length`]).
+    max_len: Option<usize>,
+}
+
+/// An editor as it was before an edit, to go back to when the edit takes the text past the
+/// field's maximum length. Secrets are never copied: their input is cut to fit instead.
+enum Saved {
+    Plain(TextEditor),
+    Rich(RichEditor),
+    Code(CodeEditor),
+}
+
+/// The start of `t` that fits in `room` characters.
+fn fit(t: &str, room: Option<usize>) -> &str {
+    match room.and_then(|n| t.char_indices().nth(n)) {
+        Some((i, _)) => t.get(..i).unwrap_or(t),
+        None => t,
+    }
+}
+
+/// Characters in `text` within each of `ranges` (byte ranges, clamped).
+fn chars_in(text: &str, ranges: impl IntoIterator<Item = Range<usize>>) -> usize {
+    ranges.into_iter().map(|r| text.get(r).map_or(0, |s| s.chars().count())).sum()
 }
 
 impl Field {
+    /// The text's length in characters.
+    fn char_len(&self) -> usize {
+        match &self.editor {
+            Editor::Plain(e) => e.text().chars().count(),
+            Editor::Rich(r) => r.ed.text().chars().count(),
+            Editor::Code(c) => c.ed.text().chars().count(),
+            Editor::Secret(e) => e.secret().expose().chars().count(),
+        }
+    }
+
+    /// How many characters input may put at each cursor, the selections it replaces
+    /// counted as room, under the field's maximum length; `None` without one.
+    fn room(&self) -> Option<usize> {
+        let max = self.max_len?;
+        let (selected, cursors) = match &self.editor {
+            Editor::Plain(e) => (chars_in(&e.text(), [e.selection().range()]), 1),
+            Editor::Rich(r) => (chars_in(&r.ed.text(), [r.ed.selection().range()]), 1),
+            Editor::Code(c) => {
+                let cursors = c.ed.cursors();
+                (chars_in(&c.ed.text(), cursors.iter().map(|s| s.range())), cursors.len().max(1))
+            }
+            Editor::Secret(e) => (chars_in(e.secret().expose(), [e.selection().range()]), 1),
+        };
+        Some(max.saturating_sub(self.char_len().saturating_sub(selected)) / cursors)
+    }
+
+    /// The editor before an edit that may grow the text, with its length, when the field
+    /// has a maximum length.
+    fn save(&self) -> Option<(usize, Option<Saved>)> {
+        self.max_len?;
+        let saved = match &self.editor {
+            Editor::Plain(e) => Some(Saved::Plain(e.clone())),
+            Editor::Rich(r) => Some(Saved::Rich(r.ed.clone())),
+            Editor::Code(c) => Some(Saved::Code(c.ed.clone())),
+            Editor::Secret(_) => None,
+        };
+        Some((self.char_len(), saved))
+    }
+
+    /// Takes back an edit that grew the text past the maximum length (Enter with its
+    /// indentation, a paste at several cursors): true when it did.
+    fn undo_overflow(&mut self, before: Option<(usize, Option<Saved>)>) -> bool {
+        let (Some(max), Some((len, Some(saved)))) = (self.max_len, before) else { return false };
+        let now = self.char_len();
+        if now <= max || now <= len {
+            return false;
+        }
+        match (&mut self.editor, saved) {
+            (Editor::Plain(e), Saved::Plain(s)) => *e = s,
+            (Editor::Rich(r), Saved::Rich(s)) => r.ed = s,
+            (Editor::Code(c), Saved::Code(s)) => c.ed = s,
+            _ => return false,
+        }
+        self.invalidate();
+        true
+    }
+
     pub(crate) fn invalidate(&mut self) {
         self.shown = None;
         if let Editor::Rich(r) = &mut self.editor {
@@ -709,7 +789,12 @@ pub(crate) enum KeyOutcome {
 
 pub(crate) fn key(f: &mut Field, e: &KeyEvent, now: u64, platform: Platform) -> KeyOutcome {
     let side = std::cell::Cell::new(f.caret_side);
-    let out = field_key(f, e, now, platform, &side);
+    let before = f.save();
+    let mut out = field_key(f, e, now, platform, &side);
+    // A key whose text does not fit types nothing, as a browser's `maxlength` does.
+    if f.undo_overflow(before) {
+        out = KeyOutcome::Handled { changed: false };
+    }
     f.caret_side = side.get();
     if !matches!(out, KeyOutcome::Ignored) {
         f.show_caret = true;
@@ -774,6 +859,7 @@ fn field_key(
     let ch = |c: &str| matches!(&e.key, Key::Character(k) if k == c);
     let handled = || KeyOutcome::Handled { changed: false };
     let edited = || KeyOutcome::Handled { changed: true };
+    let room = f.room();
     match &mut f.editor {
         Editor::Plain(ed) => {
             let out = match &e.key {
@@ -1079,6 +1165,10 @@ fn field_key(
             _ if cmd || e.modifiers.alt && !e.modifiers.ctrl => KeyOutcome::Ignored,
             _ => match &e.text {
                 Some(t) if !t.is_empty() => {
+                    let t = fit(t, room);
+                    if t.is_empty() {
+                        return handled();
+                    }
                     ed.insert(t);
                     edited()
                 }
@@ -1089,6 +1179,15 @@ fn field_key(
 }
 
 pub(crate) fn ime(f: &mut Field, e: &ImeEvent, now: u64) -> bool {
+    // What an input method commits is cut to the room left, as a browser's `maxlength`
+    // cuts it; the composition itself may run past until then.
+    if let ImeEvent::Commit(t) = e
+        && let Some(room) = f.room()
+        && fit(t, Some(room)).len() < t.len()
+    {
+        let fitted = ImeEvent::Commit(fit(t, Some(room)).to_owned());
+        return ime(f, &fitted, now);
+    }
     f.show_caret = true;
     if let Editor::Code(c) = &mut f.editor {
         let ed = &mut c.ed;
@@ -1168,18 +1267,22 @@ pub(crate) fn paste(f: &mut Field, text: &str, now: u64) {
     } else {
         text.replace(['\r', '\n'], " ")
     };
+    // Cut to the room left, as a browser's `maxlength` cuts a paste.
+    let text = fit(&text, f.room());
+    let before = f.save();
     match &mut f.editor {
-        Editor::Plain(e) => e.paste(&text, now),
-        Editor::Secret(e) => e.insert(&text),
+        Editor::Plain(e) => e.paste(text, now),
+        Editor::Secret(e) => e.insert(text),
         Editor::Rich(r) => {
-            r.ed.paste_text(&text, now);
+            r.ed.paste_text(text, now);
             r.reset();
         }
         Editor::Code(c) => {
-            c.ed.paste(&text, now);
+            c.ed.paste(text, now);
             c.shown = std::cell::OnceCell::new();
         }
     }
+    f.undo_overflow(before);
 }
 
 /// Replaces the whole text as one undoable edit (assistive technology setting a field's
@@ -1198,8 +1301,9 @@ pub(crate) fn replace_all(f: &mut Field, text: &str, now: u64) -> bool {
 /// Pastes a rich document: into a rich field with its formatting, elsewhere as its text.
 pub(crate) fn paste_doc(f: &mut Field, doc: &RichDoc, now: u64) {
     f.show_caret = true;
+    let fits = f.room().is_none_or(|room| doc.text.chars().count() <= room);
     match &mut f.editor {
-        Editor::Rich(r) => {
+        Editor::Rich(r) if fits => {
             r.ed.paste(doc, now);
             r.reset();
         }
@@ -1277,6 +1381,7 @@ impl Ui {
             key_filter: None,
             secret_copy: None,
             on_copy: None,
+            max_len: None,
         }));
         // Measured like text: the paragraph's size plus one caret width.
         let engine = self.0.borrow().engine.clone();
@@ -1418,6 +1523,20 @@ impl TextField {
         drop(f);
         self.el.ui.mark(self.el.id, Dirty::LAYOUT | Dirty::PAINT);
         out
+    }
+
+    /// Limits what people type, paste or compose in to `chars` characters (Unicode scalar
+    /// values, as [`len`](Self::len) counts), as HTML's `maxlength` does: a key that does
+    /// not fit types nothing, and a paste or an input method's text is cut to the room left.
+    /// The app's own [`set_value`](Self::set_value) is not limited. No limit by default.
+    pub fn max_length(self, chars: usize) -> Self {
+        self.set_max_length(Some(chars));
+        self
+    }
+
+    /// Sets or (with `None`) lifts the field's maximum length ([`max_length`](Self::max_length)).
+    pub fn set_max_length(&self, chars: Option<usize>) {
+        self.field.borrow_mut().max_len = chars;
     }
 
     /// Grey text shown while the field is empty.
