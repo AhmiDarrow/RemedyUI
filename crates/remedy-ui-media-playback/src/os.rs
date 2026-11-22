@@ -24,7 +24,7 @@ mod macos;
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
 mod pulse_capture;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-mod web;
+pub(crate) mod web;
 #[cfg(windows)]
 mod windows;
 
@@ -59,6 +59,19 @@ pub(crate) fn live_objects() -> usize {
     #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
     let live = live + gst_leaks::traced_elements();
     live
+}
+
+/// The D3D11 debug layer's lines for objects alive on decoder devices beyond the devices
+/// themselves (Windows, `REMEDY_D3D_DEBUG=1`); empty elsewhere.
+pub(crate) fn live_d3d_objects() -> (usize, Vec<String>) {
+    #[cfg(windows)]
+    {
+        d3d11::live_objects_report()
+    }
+    #[cfg(not(windows))]
+    {
+        (0, Vec::new())
+    }
 }
 
 /// The threads this process runs: each one's name, and where the platform says, the module

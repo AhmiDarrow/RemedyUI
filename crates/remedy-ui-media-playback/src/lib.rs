@@ -133,6 +133,22 @@ pub fn live_platform_objects() -> usize {
     os::live_objects()
 }
 
+/// For measurements in a browser: a WebCodecs `VideoFrame`'s bytes copied into a picture as
+/// the decoder copies each one it does not hand over on the GPU.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[doc(hidden)]
+pub async fn copy_video_frame(frame: &wasm_bindgen::JsValue) -> Result<Picture, String> {
+    os::web::copy_frame(frame).await
+}
+
+/// For leak tests under `REMEDY_D3D_DEBUG=1` on Windows: `ReportLiveDeviceObjects` on every
+/// decoder D3D11 device made since the last call, then those devices let go; the debug
+/// layer's line for each object alive beyond the device itself. Empty elsewhere.
+#[doc(hidden)]
+pub fn live_d3d_objects() -> (usize, Vec<String>) {
+    os::live_d3d_objects()
+}
+
 /// For leak tests: the threads this process runs, as (name, module it started in); empty
 /// where the platform cannot tell, and the module empty where it does not say.
 #[doc(hidden)]

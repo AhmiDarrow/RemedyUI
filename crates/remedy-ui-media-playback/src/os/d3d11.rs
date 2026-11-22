@@ -18,10 +18,11 @@ use windows::Win32::Graphics::Direct3D::{
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
     D3D11_CREATE_DEVICE_DEBUG, D3D11_CREATE_DEVICE_FLAG, D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
-    D3D11_FENCE_FLAG_SHARED, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE, D3D11_RESOURCE_MISC_SHARED,
-    D3D11_RESOURCE_MISC_SHARED_NTHANDLE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
-    D3D11_USAGE_STAGING, D3D11CreateDevice, ID3D11Device, ID3D11Device5, ID3D11DeviceContext,
-    ID3D11DeviceContext4, ID3D11Fence, ID3D11Multithread, ID3D11Texture2D,
+    D3D11_FENCE_FLAG_SHARED, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE, D3D11_MESSAGE,
+    D3D11_RESOURCE_MISC_SHARED, D3D11_RESOURCE_MISC_SHARED_NTHANDLE, D3D11_RLDO_DETAIL,
+    D3D11_RLDO_IGNORE_INTERNAL, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
+    D3D11_USAGE_STAGING, D3D11CreateDevice, ID3D11Debug, ID3D11Device, ID3D11Device5, ID3D11DeviceContext,
+    ID3D11DeviceContext4, ID3D11Fence, ID3D11InfoQueue, ID3D11Multithread, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIAdapter, IDXGIFactory4, IDXGIResource1};
@@ -31,6 +32,52 @@ use windows::Win32::Media::MediaFoundation::{
 use windows::core::Interface;
 
 use crate::host::{Picture, YuvMatrix};
+
+/// Under the debug layer, a reference to each decoder device made since the last
+/// [`live_objects_report`], so the report can still ask it what is alive once the decoder
+/// has let go of everything else.
+static WATCHED: Mutex<Vec<ID3D11Debug>> = Mutex::new(Vec::new());
+
+/// For leak tests (`REMEDY_D3D_DEBUG=1`): asks each decoder device made since the last call
+/// what is alive on it (`ReportLiveDeviceObjects`), then lets go of the devices. Returns the
+/// layer's lines for every object beyond the device itself; empty when nothing leaked or
+/// the debug layer is off.
+pub(crate) fn live_objects_report() -> (usize, Vec<String>) {
+    let devices = std::mem::take(&mut *WATCHED.lock().unwrap_or_else(PoisonError::into_inner));
+    let (checked, mut leaked) = (devices.len(), Vec::new());
+    for debug in devices {
+        // SAFETY: plain debug-layer calls on a live device; each message is read into a buffer
+        // of the size the queue says, aligned for the message it holds.
+        unsafe {
+            let Ok(queue) = debug.cast::<ID3D11InfoQueue>() else { continue };
+            // Kept off the debugger output: the GPU renderer's handler ends the process on
+            // any warning, and each live object is reported as one.
+            queue.SetMuteDebugOutput(true);
+            queue.ClearStoredMessages();
+            let _ = debug.ReportLiveDeviceObjects(D3D11_RLDO_DETAIL | D3D11_RLDO_IGNORE_INTERNAL);
+            for i in 0..queue.GetNumStoredMessages() {
+                let mut len = 0;
+                if queue.GetMessage(i, None, &mut len).is_err() || len == 0 {
+                    continue;
+                }
+                let mut buf = vec![0u64; len.div_ceil(8)];
+                let m = buf.as_mut_ptr().cast::<D3D11_MESSAGE>();
+                if queue.GetMessage(i, Some(m), &mut len).is_err() || (*m).pDescription.is_null() {
+                    continue;
+                }
+                let text = std::slice::from_raw_parts((*m).pDescription, (*m).DescriptionByteLength);
+                let text = String::from_utf8_lossy(text).trim_matches(['\0', '\t', ' ']).to_owned();
+                // The device itself (held here) and the summary line are not leaks.
+                if text.starts_with("Live ") && !text.starts_with("Live ID3D11Device ") {
+                    leaked.push(text);
+                }
+            }
+            queue.ClearStoredMessages();
+            queue.SetMuteDebugOutput(false);
+        }
+    }
+    (checked, leaked)
+}
 
 /// Process-unique keys for shared textures and fences: a renderer opens each key once.
 static KEYS: AtomicU64 = AtomicU64::new(1);
@@ -116,6 +163,11 @@ fn debug_layer() -> D3D11_CREATE_DEVICE_FLAG {
 }
 
 impl Gpu {
+    /// The LUID of the adapter it decodes on.
+    pub(super) fn adapter(&self) -> u64 {
+        self.adapter
+    }
+
     /// Hardware decoding on the adapter with LUID `adapter`; why not, when it cannot.
     pub(super) fn new(adapter: u64) -> Result<Gpu, String> {
         let luid = LUID { LowPart: adapter as u32, HighPart: (adapter >> 32) as i32 };
@@ -138,6 +190,11 @@ impl Gpu {
             )
             .map_err(err("D3D11CreateDevice with video support"))?;
             let device: ID3D11Device = device.ok_or("D3D11CreateDevice gave no device")?;
+            if debug_layer() == D3D11_CREATE_DEVICE_DEBUG
+                && let Ok(debug) = device.cast::<ID3D11Debug>()
+            {
+                WATCHED.lock().unwrap_or_else(PoisonError::into_inner).push(debug);
+            }
             let context: ID3D11DeviceContext = context.ok_or("D3D11CreateDevice gave no context")?;
             // Media Foundation's threads and the renderer's read-backs share the context.
             let mt: ID3D11Multithread = context.cast().map_err(err("ID3D11Multithread"))?;
@@ -332,5 +389,40 @@ impl GpuPicture for Shown {
                 data: data?,
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The report finds a texture kept past its decoder's device, and nothing once it goes.
+    /// Needs the debug layer: run with `REMEDY_D3D_DEBUG=1`.
+    #[test]
+    fn the_live_object_report_names_a_kept_texture() {
+        if debug_layer() != D3D11_CREATE_DEVICE_DEBUG {
+            return eprintln!("skipped: set REMEDY_D3D_DEBUG=1");
+        }
+        // SAFETY: plain DXGI calls into locals.
+        let luid = unsafe {
+            let f: windows::Win32::Graphics::Dxgi::IDXGIFactory1 =
+                CreateDXGIFactory1().unwrap_or_else(|e| unreachable!("{e}"));
+            let d = f.EnumAdapters1(0).and_then(|a| a.GetDesc1()).unwrap_or_else(|e| unreachable!("{e}"));
+            (u64::from(d.AdapterLuid.HighPart as u32) << 32) | u64::from(d.AdapterLuid.LowPart)
+        };
+        let _ = live_objects_report();
+        let gpu = match Gpu::new(luid) {
+            Ok(g) => g,
+            Err(why) => return eprintln!("skipped: no D3D11 video device ({why})"),
+        };
+        let kept = gpu.slot((64, 64)).unwrap_or_else(|e| unreachable!("{e}"));
+        drop(gpu);
+        let (devices, leaked) = live_objects_report();
+        assert_eq!(devices, 1);
+        assert!(leaked.iter().any(|l| l.contains("ID3D11Texture2D")), "{leaked:#?}");
+        drop(kept);
+        // A second device, let go whole: nothing beyond it.
+        drop(Gpu::new(luid).unwrap_or_else(|e| unreachable!("{e}")));
+        assert_eq!(live_objects_report(), (1, Vec::new()));
     }
 }
