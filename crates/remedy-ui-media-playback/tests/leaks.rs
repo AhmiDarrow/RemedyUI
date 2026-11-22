@@ -295,6 +295,8 @@ fn a_cue_no_caption_could_be_fails_the_stream() {
 
 #[derive(Clone, Copy)]
 enum Serve {
+    /// Every file as it is.
+    Plain,
     NotFound,
     BadSegment,
     /// Every segment after the first answers nothing for 4 s.
@@ -305,7 +307,10 @@ enum Serve {
 
 /// The `video` HLS fixture over HTTP, as `how` says; the playlist's URL.
 fn server(how: Serve) -> String {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hls/video");
+    // On a device the fixtures are pushed beside the test binary: REMEDY_FIXTURES says where.
+    let fixtures = std::env::var_os("REMEDY_FIXTURES")
+        .map_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures"), Into::into);
+    let dir = fixtures.join("hls/video");
     let listener = TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| unreachable!("listening: {e}"));
     let port = listener.local_addr().map(|a| a.port()).unwrap_or_default();
     std::thread::spawn(move || {
@@ -356,6 +361,7 @@ fn streamed_within(how: Serve, within: Duration, then: impl FnOnce(&Player)) {
         eprintln!("no platform host here, skipping");
         return;
     };
+    gpu_renderer();
     let url = server(how);
     let none = AtomicUsize::new(0);
     let (before, threads) = (census(&none), process_threads());
@@ -365,6 +371,31 @@ fn streamed_within(how: Serve, within: Duration, then: impl FnOnce(&Player)) {
     drop(p);
     drop(ui);
     settles_within("after the drop", within, before, &threads, &none);
+    // Under REMEDY_D3D_DEBUG=1 on Windows: nothing alive on the decoder's D3D11 device but
+    // the device, once everything above has gone.
+    let (devices, leaked) = live_d3d_objects();
+    if devices > 0 {
+        eprintln!(
+            "D3D11 live-object report on {devices} decoder device(s): {} beyond the device",
+            leaked.len()
+        );
+    }
+    assert!(leaked.is_empty(), "alive on the decoder's D3D11 device: {leaked:#?}");
+}
+
+/// Windows: a GPU renderer on the process's shared device, made once, so the platform's
+/// decoder decodes on a D3D11 device of its own the leak cases can look at. Kept for the
+/// process (the shared device is, by design).
+fn gpu_renderer() {
+    #[cfg(windows)]
+    {
+        use remedy_ui_render_gpu::{GpuContext, GpuRenderer, LadderOptions};
+        static MADE: std::sync::Once = std::sync::Once::new();
+        MADE.call_once(|| match GpuContext::shared(&LadderOptions::default()) {
+            Ok(ctx) => std::mem::forget(GpuRenderer::new(ctx, None)),
+            Err(e) => eprintln!("no GPU renderer ({e}): the decoder stays on the CPU"),
+        });
+    }
 }
 
 #[test]
@@ -402,6 +433,33 @@ fn a_stream_dropped_mid_fetch() {
         // Seen counted while it plays (with GST_TRACERS=leaks on Linux, its elements too).
         eprintln!("mid-fetch: {} platform objects live", live_platform_objects());
     });
+}
+
+#[test]
+fn a_stream_dropped_after_its_decoders_went_to_the_next() {
+    // The next stream takes the last one's decoders (kept by the player's host): dropping
+    // the player still ends them.
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let Ok(host) = platform_host() else {
+        eprintln!("no platform host here, skipping");
+        return;
+    };
+    let url = server(Serve::Plain);
+    let none = AtomicUsize::new(0);
+    let (before, threads) = (census(&none), process_threads());
+    let ui = ui();
+    let p = Player::open(&ui, host, MediaSource::Url(url.clone()), PlayerOptions::default());
+    wait("opened", || p.state() == PlaybackState::Paused);
+    for _ in 0..2 {
+        p.start_next(MediaSource::Url(url.clone()), None);
+        wait("the next opened", || matches!(p.state(), PlaybackState::Playing | PlaybackState::Paused));
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(p.error().is_none(), "{:?}", p.error());
+    }
+    eprintln!("after two next streams: {} platform objects live", live_platform_objects());
+    drop(p);
+    drop(ui);
+    settles("after the drop", before, &threads, &none);
 }
 
 #[test]
