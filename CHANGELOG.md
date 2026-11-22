@@ -982,6 +982,12 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Fixed
 
+- **An image's remembered size is never another image's** (`media-image`). Byte sources are
+  keyed by address and length; the size and decode caches now hold a `Weak` to the bytes, so
+  the address cannot be reused by a new download while an entry exists, and drop the entry
+  once the bytes are freed. `probe` checks a file's size and modification time (off the UI
+  thread) and re-reads its size when the file changed. Remembered sizes are capped at 1024,
+  least recently used first (`known_sizes()` counts them).
 - **On Android, tapping a text field now opens the on-screen keyboard.** The input-method
   view was a full-screen overlay; once a field focused it, it ate every later tap, and
   `showSoftInput` was asked before the view had focus and a window token, so the keyboard
