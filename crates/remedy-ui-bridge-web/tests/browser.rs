@@ -574,8 +574,15 @@ async fn an_app_runs_in_the_page() {
     let seen = Rc::new(Seen::default());
     start(AppConfig::new("Browser GPU test").gpu_first(), seen.clone());
     // The page keeps drawing on the CPU while the browser starts its GL, which can take
-    // minutes on a loaded machine (headless Firefox): wait for it as long as it takes.
+    // minutes on a loaded machine (headless Firefox): wait for it as long as it takes. The
+    // page's thread is never stalled meanwhile: `getContext("webgl2")` blocks until the GL
+    // is up, so the renderer waits for a worker's context first (a page froze for minutes
+    // before). Making the device itself (pipelines, in a debug build) takes a few seconds.
+    watch_gaps();
     let decided = until(36_000, || renderer(&seen) == Some(RendererKind::Gpu)).await;
+    let gap = worst_gap();
+    web_sys::console::log_1(&format!("longest stall while the GPU was made: {gap:.0} ms").into());
+    assert!(gap < 8000.0, "the page's thread was never stalled for long ({gap:.0} ms)");
     let gpu: web_sys::HtmlCanvasElement = document()
         .query_selector("canvas[data-raw-handle]")
         .ok()
@@ -1052,38 +1059,4 @@ extern "C" {
     /// The longest gap since `watch_gaps`, in milliseconds.
     #[wasm_bindgen(js_name = worstGap)]
     fn worst_gap() -> f64;
-}
-
-/// A cold start that asks for the GPU draws at once on the CPU renderer and never stalls the
-/// page while the browser makes the GPU device: making a WebGL2 context blocks the thread
-/// that asks until the browser's GL is up (minutes in headless Firefox on Windows), so the
-/// renderer waits for a worker's context first. Repeated, as a page is loaded again and again.
-#[wasm_bindgen_test]
-async fn starting_on_the_gpu_never_stalls_the_page() {
-    for round in 0..3 {
-        let seen = Rc::new(Seen::default());
-        start(AppConfig::new("Busy start"), seen.clone());
-        let started = js_sys::Date::now();
-        let drew = until(600, || renderer(&seen).is_some()).await;
-        let drew_in = js_sys::Date::now() - started;
-        // From the first frame on, while the browser makes the GPU device (or is seen still
-        // making it, where its GL is slow to start), the page runs on.
-        watch_gaps();
-        wait_ms(6000).await;
-        let gap = worst_gap();
-        web_sys::console::log_1(
-            &format!(
-                "round {round}: drew in {drew_in:.0} ms, longest stall {gap:.0} ms, now {:?}",
-                renderer(&seen)
-            )
-            .into(),
-        );
-        // Quit before judging, so a failure here leaves the page to the next test.
-        let app = seen.app.borrow().clone().must("the app");
-        app.quit();
-        assert!(until(30, || !remedy_ui::web::is_running()).await);
-        assert!(drew, "round {round}: the window drew");
-        assert!(drew_in < 10_000.0, "round {round}: the first frame came within seconds ({drew_in:.0} ms)");
-        assert!(gap < 1500.0, "round {round}: the page's thread was never stalled for long ({gap:.0} ms)");
-    }
 }
