@@ -134,6 +134,29 @@ struct Node {
     children: Vec<OwnedVariant>,
 }
 
+/// A label's `&` access key (as on Windows; `&&` is a literal `&`) as dbusmenu's `_`, with
+/// literal underscores doubled.
+fn dbusmenu_label(label: &str) -> String {
+    let mut out = String::with_capacity(label.len());
+    let mut chars = label.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '&' => match chars.next() {
+                Some('&') => out.push('&'),
+                Some('_') => out.push_str("__"),
+                Some(k) => {
+                    out.push('_');
+                    out.push(k);
+                }
+                None => {}
+            },
+            '_' => out.push_str("__"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 fn props(item: Option<&TrayItem>) -> HashMap<String, OwnedVariant> {
     let mut m = HashMap::new();
     let mut put = |k: &str, v: Variant<'static>| {
@@ -145,19 +168,19 @@ fn props(item: Option<&TrayItem>) -> HashMap<String, OwnedVariant> {
         None => put("children-display", Variant::from("submenu")),
         Some(TrayItem::Separator) => put("type", Variant::from("separator")),
         Some(TrayItem::Item { label, enabled, .. }) => {
-            put("label", Variant::from(label.clone()));
+            put("label", Variant::from(dbusmenu_label(label)));
             put("enabled", Variant::from(*enabled));
             put("visible", Variant::from(true));
         }
         Some(TrayItem::Check { label, enabled, checked, .. }) => {
-            put("label", Variant::from(label.clone()));
+            put("label", Variant::from(dbusmenu_label(label)));
             put("enabled", Variant::from(*enabled));
             put("visible", Variant::from(true));
             put("toggle-type", Variant::from("checkmark"));
             put("toggle-state", Variant::from(i32::from(*checked)));
         }
         Some(TrayItem::Submenu { label, items }) => {
-            put("label", Variant::from(label.clone()));
+            put("label", Variant::from(dbusmenu_label(label)));
             put("enabled", Variant::from(!items.is_empty()));
             put("visible", Variant::from(true));
             put("children-display", Variant::from("submenu"));
@@ -483,6 +506,14 @@ pub(crate) fn file_dialog(parent: &str, d: &FileDialog) -> Result<Vec<PathBuf>, 
 #[cfg(test)]
 mod menu_tests {
     use super::*;
+
+    #[test]
+    fn access_keys_become_dbusmenu_underscores() {
+        assert_eq!(dbusmenu_label("&Open"), "_Open");
+        assert_eq!(dbusmenu_label("Salt && &Pepper"), "Salt & _Pepper");
+        assert_eq!(dbusmenu_label("snake_case"), "snake__case");
+        assert_eq!(dbusmenu_label("Plain"), "Plain");
+    }
 
     #[test]
     fn submenus_and_checks_have_stable_ids() {

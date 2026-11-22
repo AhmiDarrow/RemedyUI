@@ -282,7 +282,13 @@ fn start(config: AppConfig, seen: Rc<Seen>) {
                 }))
                 .child(ui.el("label").text(move || format!("Taps: {}", shown.get())))
                 .child(field.el())
-                .child(purposed("User", InputPurpose::Username))
+                .child(
+                    w::text_input(ui, "User")
+                        .purpose(InputPurpose::Username)
+                        .enter_key(remedy_ui::EnterKey::Next)
+                        .el()
+                        .height(32.0),
+                )
                 .child(secret("Pass", InputPurpose::CurrentPassword))
                 .child(purposed("Code", InputPurpose::OneTimeCode))
                 .child(purposed("Site", InputPurpose::Url))
@@ -464,10 +470,10 @@ async fn an_app_runs_in_the_page() {
             .join(" ")
     };
     for (label, sel, want) in [
-        ("User", "input", "text  username done off"),
+        ("User", "input", "text  username next off"),
         ("Pass", "input", "password  current-password done off"),
         ("Code", "input", "text numeric one-time-code done off"),
-        ("Site", "input", "url url off done off"),
+        ("Site", "input", "url url off go off"),
         ("Find", "input", "search search off search "),
         ("Notes", "textarea", "  off enter "),
         ("Message", "input", "text  off done "),

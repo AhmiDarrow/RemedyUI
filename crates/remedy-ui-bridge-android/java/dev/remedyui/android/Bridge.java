@@ -37,6 +37,7 @@ import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.graphics.Color;
+import android.hardware.input.InputManager;
 
 public final class Bridge
         implements ComponentCallbacks2, View.OnApplyWindowInsetsListener, View.OnLayoutChangeListener {
@@ -81,6 +82,8 @@ public final class Bridge
 
     private final TextInput input;
     private final Application.ActivityLifecycleCallbacks lifecycle;
+    /** Input devices coming and going: what the pointer can do is read again. */
+    private final InputManager.InputDeviceListener devices;
     /** The drag this activity started, while it is under way. */
     private Object drag;
 
@@ -127,6 +130,24 @@ public final class Bridge
                     public void onActivityDestroyed(Activity a) {}
                 };
         activity.getApplication().registerActivityLifecycleCallbacks(lifecycle);
+        this.devices =
+                new InputManager.InputDeviceListener() {
+                    @Override
+                    public void onInputDeviceAdded(int id) {
+                        configurationChanged(Bridge.this.handle);
+                    }
+
+                    @Override
+                    public void onInputDeviceRemoved(int id) {
+                        configurationChanged(Bridge.this.handle);
+                    }
+
+                    @Override
+                    public void onInputDeviceChanged(int id) {
+                        configurationChanged(Bridge.this.handle);
+                    }
+                };
+        activity.getSystemService(InputManager.class).registerInputDeviceListener(devices, null);
         // Opened by pressing one of the app's notifications: report it.
         Notifier.get(activity, handle).report(activity.getIntent());
         // A native activity draws on the whole window's surface, under the system bars. Lay
@@ -267,8 +288,8 @@ public final class Bridge
 
     /** Starts or updates a text session (UI thread). */
     public void textInput(String text, int selStart, int selEnd, float x, float top, float bottom,
-            boolean secret, boolean multiline, int purpose) {
-        input.update(text, selStart, selEnd, x, top, bottom, secret, multiline, purpose);
+            boolean secret, boolean multiline, int purpose, int action) {
+        input.update(text, selStart, selEnd, x, top, bottom, secret, multiline, purpose, action);
     }
 
     /** The app committed the input method's composition itself (UI thread). */
@@ -431,6 +452,7 @@ public final class Bridge
         ((ViewGroup) decor.findViewById(android.R.id.content)).removeView(input);
         content.setOnDragListener(null);
         activity.getApplication().unregisterActivityLifecycleCallbacks(lifecycle);
+        activity.getSystemService(InputManager.class).unregisterInputDeviceListener(devices);
         activity.unregisterComponentCallbacks(this);
         activity.getContentResolver().unregisterContentObserver(observer);
         decor.setOnApplyWindowInsetsListener(null);

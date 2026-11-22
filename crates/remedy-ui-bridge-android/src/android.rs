@@ -655,7 +655,16 @@ impl PlatformHooks for AndroidHooks {
                 let scale = window.scale_factor() as f32;
                 let caret = (s.caret.min.x * scale, s.caret.min.y * scale, s.caret.max.y * scale);
                 self.text_session = true;
-                j.text_input(&self.app, text, selection, caret, s.private, s.multiline, s.purpose)
+                j.text_input(
+                    &self.app,
+                    text,
+                    selection,
+                    caret,
+                    s.private,
+                    s.multiline,
+                    s.purpose,
+                    s.enter_key(),
+                )
             }
             None => {
                 self.text_session = false;
