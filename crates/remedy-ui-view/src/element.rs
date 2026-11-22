@@ -766,6 +766,9 @@ pub(crate) struct Inner {
     pub(crate) drag_pending: Option<crate::dnd::Pending>,
     pub(crate) trusted: ElementId,
     pub(crate) reduced_motion: remedy_ui_reactive::Signal<bool>,
+    pub(crate) pointer_caps: remedy_ui_reactive::Signal<remedy_ui_host::PointerCaps>,
+    /// The platform reports the pointer's caps: the last pointer used does not change them.
+    pub(crate) pointer_reported: bool,
     /// The edges system interface covers (status and navigation bars, cutouts, the on-screen
     /// keyboard), in logical pixels.
     pub(crate) safe_area: remedy_ui_reactive::Signal<remedy_ui_host::SafeArea>,
@@ -1007,6 +1010,8 @@ impl Ui {
             drag_pending: None,
             trusted: root,
             reduced_motion: remedy_ui_reactive::Signal::new(false),
+            pointer_caps: remedy_ui_reactive::Signal::new(remedy_ui_host::PointerCaps::default()),
+            pointer_reported: false,
             safe_area: remedy_ui_reactive::Signal::new(remedy_ui_host::SafeArea::default()),
             refresh: remedy_ui_reactive::Signal::new(None),
             occluded: false,
@@ -1317,6 +1322,43 @@ impl Ui {
     pub(crate) fn glyph_style(&self) -> (remedy_ui_text::Hinting, remedy_ui_text::Antialias) {
         let i = self.0.borrow();
         i.text_rendering.resolve(i.system_subpixel)
+    }
+
+    /// What the pointer in use can do: whether it hovers, whether it points finely. Widgets
+    /// show hover-only affordances where it hovers and keep them on screen where it does not.
+    /// On the web it follows the `(hover: hover)` and `(pointer: fine)` media queries;
+    /// natively the pointer last used (a mouse, a finger, a pen), so a convertible switching
+    /// to tablet changes it with the first touch.
+    pub fn pointer_caps(&self) -> remedy_ui_reactive::Signal<remedy_ui_host::PointerCaps> {
+        self.0.borrow().pointer_caps
+    }
+
+    /// Sets what the platform reports for the pointer (the runner sets it from the system
+    /// settings); `None` goes by the pointer last used.
+    pub fn set_pointer_caps(&self, caps: Option<remedy_ui_host::PointerCaps>) {
+        let s = {
+            let mut i = self.0.borrow_mut();
+            i.pointer_reported = caps.is_some();
+            i.pointer_caps
+        };
+        if let Some(c) = caps {
+            s.set_if_changed(c);
+        }
+    }
+
+    /// The pointer last used changes the caps unless the platform reports them.
+    pub(crate) fn pointer_used(&self, kind: remedy_ui_input::PointerKind) {
+        let (reported, s) = {
+            let i = self.0.borrow();
+            (i.pointer_reported, i.pointer_caps)
+        };
+        if !reported {
+            s.set_if_changed(match kind {
+                remedy_ui_input::PointerKind::Touch => remedy_ui_host::PointerCaps::TOUCH,
+                remedy_ui_input::PointerKind::Pen => remedy_ui_host::PointerCaps::PEN,
+                _ => remedy_ui_host::PointerCaps::MOUSE,
+            });
+        }
     }
 
     /// Follows the system's reduced-motion setting (the runner sets it).

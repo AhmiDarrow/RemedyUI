@@ -481,6 +481,10 @@ pub struct PageSettings {
     pub language: String,
     /// The browser runs on macOS, iOS or iPadOS.
     pub apple: bool,
+    /// `(hover: hover)`: the primary pointer hovers.
+    pub hover: bool,
+    /// `(pointer: fine)`: the primary pointer points finely.
+    pub fine_pointer: bool,
     /// The root element's font size in CSS pixels (the user's default text size).
     pub root_font_px: f32,
     /// The system accent color (CSS `AccentColor`), where the browser reveals it.
@@ -511,6 +515,7 @@ pub fn settings(page: &PageSettings) -> SystemSettings {
     }
     // Browsers expose no double-click time; this is the platforms' default pages inherit.
     s.double_click = Duration::from_millis(500);
+    s.pointer = Some(remedy_ui_host::PointerCaps::new(page.hover, page.fine_pointer));
     s
 }
 
@@ -775,6 +780,8 @@ mod tests {
             reduced_transparency: false,
             language: "de-DE".into(),
             apple: true,
+            hover: false,
+            fine_pointer: true,
             root_font_px: 20.0,
             accent: parse_css_color("rgb(255, 0, 0)"),
         };
@@ -784,6 +791,7 @@ mod tests {
         assert!((s.text_scale - 1.25).abs() < 1e-6);
         assert_eq!(s.locale, "de-DE");
         assert!(s.reduced_motion);
+        assert_eq!(s.pointer, Some(remedy_ui_host::PointerCaps::PEN), "fine but not hovering");
         assert_eq!(s.accent, Some(Color::new(1.0, 0.0, 0.0, 1.0)));
         let quiet = settings(&PageSettings { prefers_dark: false, language: String::new(), ..page });
         assert_eq!(quiet.dark, None, "neither scheme matched: the browser does not say");

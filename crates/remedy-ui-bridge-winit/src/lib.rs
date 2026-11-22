@@ -792,7 +792,7 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         match state {
             Some(s) => {
                 w.window.set_ime_allowed(true);
-                w.window.set_ime_purpose(if s.private {
+                w.window.set_ime_purpose(if s.private || s.purpose.is_password() {
                     winit::window::ImePurpose::Password
                 } else {
                     winit::window::ImePurpose::Normal
