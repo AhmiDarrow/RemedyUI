@@ -202,14 +202,16 @@ mod http {
             .into()
     }
 
+    /// Feeds, signatures and checksum files: small text, through the shared HTTP client.
     pub(super) fn get_text(url: &str) -> Result<String, UpdateError> {
-        let mut res = agent()
-            .get(url)
+        let req = remedy_ui_services_net::Request::get(url)
             .header("User-Agent", "RemedyUI-updater")
-            .header("Accept", "application/vnd.github+json, application/json, */*")
-            .call()
+            .header("Accept", "application/vnd.github+json, application/json, */*");
+        let res = remedy_ui_services_net::Http::new("")
+            .timeout(Duration::from_secs(60))
+            .send_blocking(req, &remedy_ui_reactive::Cancel::new())
             .map_err(net)?;
-        res.body_mut().read_to_string().map_err(net)
+        String::from_utf8(res.body).map_err(net)
     }
 
     /// The body of `url`, reporting bytes so far and the total when the server says it.

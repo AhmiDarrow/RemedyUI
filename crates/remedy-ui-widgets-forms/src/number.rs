@@ -4,7 +4,7 @@ use remedy_ui_a11y::{Action, Role, Semantics};
 use remedy_ui_input::{Key, KeyEvent};
 use remedy_ui_reactive::{Signal, untrack};
 use remedy_ui_style::States;
-use remedy_ui_view::{Align, El, FieldKind, Ui};
+use remedy_ui_view::{Align, El, FieldKind, InputPurpose, Ui};
 use remedy_ui_widgets_core as w;
 
 use remedy_ui_services_i18n::{Decimal, DecimalError, NumberSymbols};
@@ -161,7 +161,10 @@ pub fn number_input(ui: &Ui, label: impl Into<String>, value: Signal<Decimal>, o
     let label = label.into();
     let unit = ui.theme().spacing.unit;
     let o = std::rc::Rc::new(options);
-    let field = ui.text_field("text_input", FieldKind::Single).numeric().label(label.clone());
+    // Whole numbers from zero up need neither a separator nor a sign: the plain digit pad.
+    let whole = o.precision == 0 && o.min.is_some_and(|m| m >= Decimal::ZERO);
+    let purpose = if whole { InputPurpose::Digits } else { InputPurpose::Decimal };
+    let field = ui.text_field("text_input", FieldKind::Single).purpose(purpose).label(label.clone());
     let error = Signal::new(None::<Problem>);
 
     let show = {

@@ -116,6 +116,10 @@ media-session = ["playback", "desktop", "remedy-ui-media-playback/media-session"
 ## The screen held on while video plays (`Player::set_keep_awake`), through the desktop
 ## services' power inhibit: Windows, macOS, Linux, Android, a browser's Screen Wake Lock.
 keep-awake = ["playback", "desktop", "remedy-ui-media-playback/keep-awake"]
+## The HTTP client (`remedy_ui::net`): JSON requests with typed decoding, HTTP errors with
+## their detail, multipart uploads, keepalive requests, timeouts, and cancellation that follows a
+## `Resource`'s key; natively (rustls) and in a browser page (`fetch`).
+net = ["dep:remedy-ui-services-net"]
 ## Signed updates from GitHub releases or a feed (`remedy_ui::update`).
 update = ["widgets", "dep:remedy-ui-services-update"]
 ## The in-memory host for tests (`remedy_ui::headless`).
@@ -125,7 +129,7 @@ headless = ["dep:remedy-ui-bridge-headless"]
 ## only the module's types (`WebConfig`, `Mount`) and its documentation, with no web code.
 web = ["dep:remedy-ui-bridge-web"]
 ## Every optional part of the engine.
-full = ["gpu", "complex-scripts", "devtools", "system-fonts", "script-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-rhai", "script-wasm", "agents", "markup", "i18n", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "effects", "customize", "web", "macros", "isolated", "webstorage", "desktop", "media-session", "keep-awake"]
+full = ["gpu", "complex-scripts", "devtools", "system-fonts", "script-fonts", "widgets", "forms", "nav", "data", "viz", "image", "svg", "anim", "video", "code", "term", "rich", "pages", "spell", "board", "script-rhai", "script-wasm", "agents", "markup", "i18n", "net", "update", "headless", "playback", "webview", "gpu-embed", "music", "extra", "stage", "effects", "customize", "web", "macros", "isolated", "webstorage", "desktop", "media-session", "keep-awake"]
 
 [dependencies]
 remedy-ui-a11y = { path = "../remedy-ui-a11y", version = "1.0.0-rc.1" }
@@ -174,6 +178,7 @@ remedy-ui-script = { path = "../remedy-ui-script", version = "1.0.0-rc.1", optio
 remedy-ui-script-rhai = { path = "../remedy-ui-script-rhai", version = "1.0.0-rc.1", optional = true }
 remedy-ui-script-wasm = { path = "../remedy-ui-script-wasm", version = "1.0.0-rc.1", optional = true }
 remedy-ui-themes = { path = "../remedy-ui-themes", version = "1.0.0-rc.1", optional = true }
+remedy-ui-services-net = { path = "../remedy-ui-services-net", version = "1.0.0-rc.1", optional = true }
 remedy-ui-services-update = { path = "../remedy-ui-services-update", version = "1.0.0-rc.1", optional = true }
 remedy-ui-services-desktop = { path = "../remedy-ui-services-desktop", version = "1.0.0-rc.1", optional = true }
 remedy-ui-services-i18n = { path = "../remedy-ui-services-i18n", version = "1.0.0-rc.1", optional = true }
@@ -203,6 +208,9 @@ remedy-ui-bridge-android = { path = "../remedy-ui-bridge-android", version = "1.
 
 
 [dev-dependencies]
+# The network guide's samples decode JSON into their own types.
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154" }
 remedy-ui-bridge-headless = { path = "../remedy-ui-bridge-headless", version = "1.0.0-rc.1" }
 remedy-ui-compositor = { path = "../remedy-ui-compositor", version = "1.0.0-rc.1" }
 remedy-ui-render-cpu = { path = "../remedy-ui-render-cpu", version = "1.0.0-rc.1" }
