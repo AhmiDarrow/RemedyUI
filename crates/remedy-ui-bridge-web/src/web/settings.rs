@@ -9,13 +9,15 @@ use super::dom::{self, Listener};
 use crate::convert::{self, PageSettings};
 
 /// Media queries the settings come from.
-const QUERIES: [&str; 8] = [
+const QUERIES: [&str; 10] = [
     "(prefers-color-scheme: dark)",
     "(prefers-color-scheme: light)",
     "(prefers-reduced-motion: reduce)",
     "(prefers-contrast: more)",
     "(forced-colors: active)",
     "(prefers-reduced-transparency: reduce)",
+    "(any-pointer: coarse)",
+    "(any-pointer: fine)",
     "(hover: hover)",
     "(pointer: fine)",
 ];
@@ -60,10 +62,12 @@ pub(crate) fn read(win: &web_sys::Window) -> PageSettings {
         reduced_motion: matches(win, QUERIES[2]),
         high_contrast: matches(win, QUERIES[3]) || matches(win, QUERIES[4]),
         reduced_transparency: matches(win, QUERIES[5]),
+        coarse_pointer_only: matches(win, QUERIES[6]) && !matches(win, QUERIES[7]),
+        tv: convert::is_tv(&win.navigator().user_agent().unwrap_or_default()),
         language: win.navigator().language().unwrap_or_default(),
         apple: convert::is_apple(&platform_name(win)),
-        hover: matches(win, QUERIES[6]),
-        fine_pointer: matches(win, QUERIES[7]),
+        hover: matches(win, QUERIES[8]),
+        fine_pointer: matches(win, QUERIES[9]),
         root_font_px: if root_font_px > 0.0 { root_font_px } else { 16.0 },
         accent: accent(win),
     }
