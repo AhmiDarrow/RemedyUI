@@ -14,6 +14,8 @@ with what to do, and `cargo remedy migrate` applies the mechanical ones.
 
 ### Added
 
+- **Tauri `latest.json` feeds**: `Feed::Json` reads the multi-platform document Tauri publishes (`platforms.windows-x86_64.url` and the rest, including the usual aliases) as well as the existing flat `{version,url,signature}` form, so one file can serve a last Tauri build and a RemedyUI app. An empty platform signature is refused. `Apply::RunInstaller` already takes installer arguments (a silent Windows NSIS update passes `/S /UPDATE`); the app stops its own sidecars before apply.
+
 - **Dashed and dotted borders**: `StylePatch::border_style(BorderStyle::Dashed)` and
   `Style::border_style` (CSS `border-style`; `Solid` by default) draw a border as dashes three
   widths long or as dots (round from 3 pixels wide), following the box's corners, per-corner

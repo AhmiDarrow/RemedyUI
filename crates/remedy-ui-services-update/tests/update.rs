@@ -5,7 +5,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 
 use base64::Engine;
-use remedy_ui_services_update::{Feed, Release, UpdateConfig, UpdateError, check, download, verify};
+use remedy_ui_services_update::{check, download, verify, Feed, Release, UpdateConfig, UpdateError};
 
 /// A tiny HTTP server answering GETs from a path → body map, on its own thread.
 fn serve(routes: Vec<(String, Vec<u8>)>) -> String {
@@ -170,4 +170,55 @@ fn json_feeds_work_and_only_https_or_loopback_is_contacted() {
         matches!(check(&remote), Err(UpdateError::Feed(e)) if e.contains("https")),
         "plain http to the internet is refused"
     );
+}
+
+#[test]
+fn a_tauri_latest_json_feed_picks_this_platform_and_verifies() {
+    let k = keys();
+    let data = b"Remedy.Desktop 1.0 installer".to_vec();
+    // Tauri wraps the minisign signature in base64, as latest.json does.
+    let sig = base64::engine::general_purpose::STANDARD.encode(sign(&k, &data));
+    let win_name = "Remedy.Desktop_1.0.0_x64-setup.exe";
+    let linux_name = "Remedy.Desktop_1.0.0_amd64.AppImage";
+    let mac_name = "Remedy.Desktop_1.0.0_aarch64.app.tar.gz";
+    let base = serve(vec![
+        (format!("/{win_name}"), data.clone()),
+        (format!("/{linux_name}"), data.clone()),
+        (format!("/{mac_name}"), data.clone()),
+    ]);
+    let win = format!("{base}/{win_name}");
+    let linux = format!("{base}/{linux_name}");
+    let mac = format!("{base}/{mac_name}");
+    let feed = serde_json::json!({
+        "version": "v1.0.0",
+        "notes": "first RemedyUI build",
+        "pub_date": "2026-11-22T21:00:00Z",
+        "platforms": {
+            "windows-x86_64": { "signature": sig, "url": win },
+            "linux-x86_64": { "signature": sig, "url": linux },
+            "darwin-aarch64": { "signature": sig, "url": mac }
+        }
+    });
+    let feed_base = serve(vec![("/latest.json".to_owned(), feed.to_string().into_bytes())]);
+    let cfg = UpdateConfig::new("0.70.5", Feed::Json(format!("{feed_base}/latest.json")), k.public.clone());
+    let release = check(&cfg);
+    let Ok(Some(release)) = release else { unreachable!("tauri feed: {release:?}") };
+    assert_eq!(release.version, "v1.0.0");
+    assert_eq!(release.notes, "first RemedyUI build");
+    let expected = if cfg!(target_os = "windows") {
+        win_name
+    } else if cfg!(target_os = "macos") {
+        mac_name
+    } else {
+        linux_name
+    };
+    assert!(release.url.ends_with(expected), "{}", release.url);
+    let dir = std::env::temp_dir().join(format!("remedy-ui-tauri-feed-{}", std::process::id()));
+    let file = download(&cfg, &release, &dir, |_, _| {});
+    let Ok(file) = file else { unreachable!("download: {file:?}") };
+    assert_eq!(std::fs::read(&file).ok(), Some(data));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut up_to_date = cfg;
+    up_to_date.current = "1.0.0".into();
+    assert_eq!(check(&up_to_date), Ok(None), "up to date with a v-prefixed feed version");
 }
