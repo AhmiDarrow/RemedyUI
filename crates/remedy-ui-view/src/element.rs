@@ -94,8 +94,19 @@ thread_local! {
     static CACHED: std::cell::RefCell<HashMap<u64, (u32, u32, u32, remedy_ui_paint::Image)>> = std::cell::RefCell::new(HashMap::new());
 }
 
-/// Most pictures [`PaintCx::cached`] keeps; past it the cache starts again.
-const CACHED_MAX: usize = 512;
+/// Most pictures [`PaintCx::cached`] keeps unless the app says otherwise
+/// ([`set_paint_cache_limit`]); past it the cache starts again.
+pub const PAINT_CACHE_LIMIT: usize = 512;
+
+static CACHED_MAX: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(PAINT_CACHE_LIMIT);
+
+/// Sets the most pictures [`PaintCx::cached`] keeps on each UI thread (default
+/// [`PAINT_CACHE_LIMIT`], 512); past it the cache starts again. Each picture costs its
+/// element's device pixels at 4 bytes a pixel, so a raised limit costs that memory for every
+/// picture kept; 0 keeps none (every picture is drawn again each frame).
+pub fn set_paint_cache_limit(pictures: usize) {
+    CACHED_MAX.store(pictures, std::sync::atomic::Ordering::Relaxed);
+}
 
 /// Drops every picture [`PaintCx::cached`] keeps (on memory pressure, or a theme change
 /// the keys do not cover).
@@ -150,10 +161,13 @@ impl PaintCx<'_> {
                 if let Some(img) = &img {
                     CACHED.with(|c| {
                         let mut c = c.borrow_mut();
-                        if c.len() >= CACHED_MAX {
+                        let max = CACHED_MAX.load(std::sync::atomic::Ordering::Relaxed);
+                        if c.len() >= max {
                             c.clear();
                         }
-                        c.insert(key, (dims.0, dims.1, dims.2, img.clone()));
+                        if max > 0 {
+                            c.insert(key, (dims.0, dims.1, dims.2, img.clone()));
+                        }
                     });
                 }
                 img
@@ -241,14 +255,15 @@ pub(crate) type Painter = Rc<dyn Fn(&mut PaintCx<'_>)>;
 
 /// A text element's content and its last layout.
 /// What a cached paragraph was laid out for: wrap width bits and right-to-left.
-type ParagraphKey = (Option<u32>, bool);
+type ParagraphKey = (Option<u32>, bool, u32);
 
 pub(crate) struct TextSlot {
     pub(crate) text: RichText,
     pub(crate) style: TextStyle,
     pub(crate) wrap: bool,
-    /// On one line, cut short with "…" where it would run past its box ([`El::truncate`]).
-    pub(crate) truncate: bool,
+    /// At most this many lines, the last cut short with "…" ([`El::max_lines`]); 0 for no
+    /// limit.
+    pub(crate) max_lines: u32,
     pub(crate) scale: f32,
     /// The element lays out right to left: start-aligned text goes to the right edge.
     pub(crate) rtl: bool,
@@ -328,9 +343,9 @@ impl TextSlot {
     }
 
     pub(crate) fn paragraph(&mut self, engine: &mut TextEngine, max_width: Option<f32>) -> Rc<Paragraph> {
-        let cut_at = if self.truncate && !self.wrap { max_width } else { None };
-        let max_width = if self.wrap { max_width } else { None };
-        let key = (max_width.or(cut_at).map(f32::to_bits), self.rtl);
+        // A line limit wraps, `nowrap` or not: it is what the limit counts.
+        let max_width = if self.wrap || self.max_lines > 0 { max_width } else { None };
+        let key = (max_width.map(f32::to_bits), self.rtl, self.max_lines);
         if let Some((k, p)) = &self.cache
             && *k == key
         {
@@ -344,6 +359,7 @@ impl TextSlot {
             v_.max_width = max_width.map(|w| w + 0.5);
             v_.scale = self.scale;
             v_.container = container(self.rtl);
+            v_.max_lines = (self.max_lines > 0).then_some(self.max_lines as usize);
             v_
         };
         let shown;
@@ -354,55 +370,11 @@ impl TextSlot {
             }
             None => &self.text,
         };
-        let mut p = engine.layout(text, &self.style, options);
-        if let Some(room) = cut_at
-            && p.width() > room + 0.5
-            && text.objects().is_empty()
-        {
-            p = shortened(engine, text, &self.style, options, room);
-        }
+        let p = engine.layout(text, &self.style, options);
         let p = Rc::new(p);
         self.cache = Some((key, p.clone()));
         p
     }
-}
-
-/// The longest start of `text` that fits `room` with "…" after it (just "…" when nothing
-/// does), keeping the start's styles.
-fn shortened(
-    engine: &mut TextEngine,
-    text: &RichText,
-    style: &TextStyle,
-    options: ParagraphOptions,
-    room: f32,
-) -> Paragraph {
-    let s = text.as_str();
-    let ends: Vec<usize> = s.char_indices().map(|(i, _)| i).skip(1).collect();
-    let cut = |end: usize| {
-        let mut r = RichText::plain(format!("{}\u{2026}", s[..end].trim_end()));
-        for span in text.spans() {
-            let (a, b) = (span.range.start.min(end), span.range.end.min(end));
-            if a < b {
-                r.add_span(a..b, span.patch.clone());
-            }
-        }
-        r
-    };
-    // Binary search over character boundaries for the last end that still fits.
-    let (mut lo, mut hi) = (0usize, ends.len());
-    let mut best = None;
-    while lo < hi {
-        let mid = (lo + hi) / 2;
-        let Some(&end) = ends.get(mid) else { break };
-        let p = engine.layout(&cut(end), style, options);
-        if p.width() <= room + 0.5 {
-            best = Some(p);
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-    best.unwrap_or_else(|| engine.layout(&RichText::plain("\u{2026}"), style, options))
 }
 
 /// A tool that sees pointer input first ([`Ui::set_pointer_interceptor`]).
@@ -549,6 +521,10 @@ pub(crate) struct ElData {
     pub(crate) pointer: bool,
     /// A primary press on it leaves keyboard focus where it is ([`El::keeps_focus_on_press`]).
     pub(crate) keeps_focus: bool,
+    /// Arrows coming into it return to the child last focused inside ([`El::focus_group`]).
+    pub(crate) focus_group: bool,
+    /// Arrows wrap at its edges rather than leave it ([`El::focus_wrap`]).
+    pub(crate) focus_wrap: bool,
     /// Draggable: what is dragged, and who hears how it ended.
     pub(crate) drag_source: Option<crate::dnd::DragSource>,
     /// Its text may be selected ([`El::selectable`]).
@@ -722,6 +698,14 @@ pub(crate) struct Inner {
     pub(crate) platform: remedy_ui_input::Platform,
     /// The focused element and its ancestors, as when focus last moved ([`El::on_focus_within`]).
     pub(crate) focus_chain: Vec<ElementId>,
+    /// Spatial navigation as the app chose it (`None` follows the system) and as the system
+    /// suggests it ([`Ui::set_spatial_navigation`]).
+    pub(crate) spatial: Option<bool>,
+    pub(crate) system_spatial: bool,
+    /// The child each focus group last had focused ([`El::focus_group`]).
+    pub(crate) group_memory: HashMap<ElementId, ElementId>,
+    /// How spatial navigation weighs candidates ([`Ui::set_spatial_tuning`]).
+    pub(crate) spatial_tuning: crate::SpatialTuning,
     /// How text is drawn ([`Ui::set_text_rendering`]) and whether the system uses subpixel
     /// text (`Some(bgr)`).
     pub(crate) text_rendering: TextRendering,
@@ -770,6 +754,9 @@ pub(crate) struct Inner {
     pub(crate) drag_pending: Option<crate::dnd::Pending>,
     pub(crate) trusted: ElementId,
     pub(crate) reduced_motion: remedy_ui_reactive::Signal<bool>,
+    pub(crate) pointer_caps: remedy_ui_reactive::Signal<remedy_ui_host::PointerCaps>,
+    /// The platform reports the pointer's caps: the last pointer used does not change them.
+    pub(crate) pointer_reported: bool,
     /// The edges system interface covers (status and navigation bars, cutouts, the on-screen
     /// keyboard), in logical pixels.
     pub(crate) safe_area: remedy_ui_reactive::Signal<remedy_ui_host::SafeArea>,
@@ -983,6 +970,10 @@ impl Ui {
             focus_shown: None,
             platform: remedy_ui_input::Platform::Standard,
             focus_chain: Vec::new(),
+            spatial: None,
+            system_spatial: false,
+            group_memory: HashMap::new(),
+            spatial_tuning: crate::SpatialTuning::default(),
             text_rendering: TextRendering::default(),
             system_subpixel: None,
             edition: remedy_ui_core::Edition::FIRST,
@@ -1011,6 +1002,8 @@ impl Ui {
             drag_pending: None,
             trusted: root,
             reduced_motion: remedy_ui_reactive::Signal::new(false),
+            pointer_caps: remedy_ui_reactive::Signal::new(remedy_ui_host::PointerCaps::default()),
+            pointer_reported: false,
             safe_area: remedy_ui_reactive::Signal::new(remedy_ui_host::SafeArea::default()),
             refresh: remedy_ui_reactive::Signal::new(None),
             occluded: false,
@@ -1321,6 +1314,43 @@ impl Ui {
     pub(crate) fn glyph_style(&self) -> (remedy_ui_text::Hinting, remedy_ui_text::Antialias) {
         let i = self.0.borrow();
         i.text_rendering.resolve(i.system_subpixel)
+    }
+
+    /// What the pointer in use can do: whether it hovers, whether it points finely. Widgets
+    /// show hover-only affordances where it hovers and keep them on screen where it does not.
+    /// On the web it follows the `(hover: hover)` and `(pointer: fine)` media queries;
+    /// natively the pointer last used (a mouse, a finger, a pen), so a convertible switching
+    /// to tablet changes it with the first touch.
+    pub fn pointer_caps(&self) -> remedy_ui_reactive::Signal<remedy_ui_host::PointerCaps> {
+        self.0.borrow().pointer_caps
+    }
+
+    /// Sets what the platform reports for the pointer (the runner sets it from the system
+    /// settings); `None` goes by the pointer last used.
+    pub fn set_pointer_caps(&self, caps: Option<remedy_ui_host::PointerCaps>) {
+        let s = {
+            let mut i = self.0.borrow_mut();
+            i.pointer_reported = caps.is_some();
+            i.pointer_caps
+        };
+        if let Some(c) = caps {
+            s.set_if_changed(c);
+        }
+    }
+
+    /// The pointer last used changes the caps unless the platform reports them.
+    pub(crate) fn pointer_used(&self, kind: remedy_ui_input::PointerKind) {
+        let (reported, s) = {
+            let i = self.0.borrow();
+            (i.pointer_reported, i.pointer_caps)
+        };
+        if !reported {
+            s.set_if_changed(match kind {
+                remedy_ui_input::PointerKind::Touch => remedy_ui_host::PointerCaps::TOUCH,
+                remedy_ui_input::PointerKind::Pen => remedy_ui_host::PointerCaps::PEN,
+                _ => remedy_ui_host::PointerCaps::MOUSE,
+            });
+        }
     }
 
     /// Follows the system's reduced-motion setting (the runner sets it).
@@ -1856,6 +1886,8 @@ impl ElData {
             text_client: None,
             pointer: false,
             keeps_focus: false,
+            focus_group: false,
+            focus_wrap: false,
             drag_source: None,
             selectable: false,
             sel: None,
@@ -2022,6 +2054,9 @@ impl El {
             let mut i = self.ui.0.borrow_mut();
             for id in &ids {
                 if let Some(d) = i.els.remove(id) {
+                    if d.focus_group {
+                        i.group_memory.remove(id);
+                    }
                     let _ = i.layout.remove(d.node);
                     effects.extend(d.effects);
                     if let Some(w) = d.paint_watch {
@@ -2337,6 +2372,26 @@ impl El {
         }
     }
 
+    /// Moves focus to the next (`forward`) or previous focusable element inside this one,
+    /// from the focused one, wrapping around: arrow keys between the controls of a tile.
+    /// Returns false when there is none.
+    pub fn focus_step(&self, forward: bool) -> bool {
+        let tree = self.ui.tree();
+        let all: Vec<ElementId> =
+            tree.descendants(self.id).into_iter().filter(|d| tree.can_focus(*d)).collect();
+        let n = all.len();
+        let at = tree.focused().and_then(|f| all.iter().position(|d| *d == f));
+        let next = match (at, forward) {
+            (None, true) => 0,
+            (None, false) => n.saturating_sub(1),
+            (Some(i), true) => (i + 1) % n,
+            (Some(i), false) => (i + n - 1) % n,
+        };
+        let Some(id) = all.get(next).copied() else { return false };
+        El { ui: self.ui.clone(), id }.focus();
+        true
+    }
+
     /// Calls `f` with the element's size (logical pixels) after each frame in which it
     /// changed, including the first: virtual lists rebuild for a taller viewport, charts
     /// re-scale.
@@ -2414,8 +2469,22 @@ impl El {
 
     /// Scrolls the scroll containers around this element just enough to show it.
     pub fn scroll_into_view(&self) {
+        let size = self.ui.tree().bounds(self.id).map(|b| b.size());
+        if let Some(size) = size {
+            self.scroll_rect_into_view(remedy_ui_core::Rect::from_origin_size(
+                remedy_ui_core::Point::ZERO,
+                size,
+            ));
+        }
+    }
+
+    /// Scrolls the scroll containers around this element just enough to show `rect` (in the
+    /// element's own coordinates): a virtual grid keeps a cursor in view whose tile is not
+    /// built yet.
+    pub fn scroll_rect_into_view(&self, rect: remedy_ui_core::Rect) {
         let tree = self.ui.tree();
-        let Some(mut want) = tree.bounds(self.id) else { return };
+        let Some(b) = tree.bounds(self.id) else { return };
+        let mut want = rect.translate(Vec2::new(b.min.x, b.min.y));
         let mut cur = tree.parent(self.id);
         while let Some(p) = cur {
             let is_scroll = self.ui.0.borrow().els.get(&p).is_some_and(|d| d.scroll);
@@ -2611,15 +2680,18 @@ impl El {
             None => {
                 // The style the element has now: a frame restyles text only when its style
                 // changes, which it may not after this.
-                let style = {
+                let (style, max_lines) = {
                     let i = self.ui.0.borrow();
-                    i.els.get(&self.id).map(|d| crate::frame::text_style_for(d, &i.theme)).unwrap_or_default()
+                    i.els
+                        .get(&self.id)
+                        .map(|d| (crate::frame::text_style_for(d, &i.theme), d.resolved.max_lines))
+                        .unwrap_or_default()
                 };
                 let slot = Rc::new(RefCell::new(TextSlot {
                     text,
                     style,
                     wrap: true,
-                    truncate: false,
+                    max_lines,
                     scale: engine_scale,
                     rtl: false,
                     pseudo,
@@ -2676,20 +2748,28 @@ impl El {
     }
 
     /// Keeps the text on one line and, where it is wider than its box, cuts it short with
-    /// "…" (a long name in a narrow list, a long error in a band). Its minimum width is the
-    /// "…" alone, so a row can shrink it; screen readers, copying and searching still get
-    /// the whole text. Show the whole text elsewhere too (a tooltip), since sighted readers
-    /// cannot. Call after setting the text.
+    /// "…" (a long name in a narrow list, a long error in a band): [`El::max_lines`] of 1.
     pub fn truncate(self) -> Self {
-        {
-            let slot = self.text_slot();
-            let mut s = slot.borrow_mut();
-            s.wrap = false;
-            s.truncate = true;
-            s.cache = None;
-        }
-        self.edit(Dirty::LAYOUT, |_| {});
-        self
+        self.max_lines(1)
+    }
+
+    /// Lets the text take at most `n` lines (CSS `line-clamp`): where it would take more, the
+    /// last line ends in "…", cut at a grapheme boundary as the shaper measures it (letter
+    /// spacing, alignment and right-to-left text included; the "…" lands on the line's visual
+    /// end). Its minimum width is the "…" alone, so a row can shrink it. Screen readers,
+    /// copying and searching still get the whole text; show it to sighted readers too with
+    /// `remedy_ui_widgets_core::full_text_tooltip`. 0 lifts the limit. Style sheets set the same with
+    /// [`Style::max_lines`](remedy_ui_style::Style::max_lines).
+    pub fn max_lines(self, n: u32) -> Self {
+        self.style(remedy_ui_style::Style::default().max_lines(n))
+    }
+
+    /// Draws the text cased by `t` (CSS `text-transform`): capitals for a label above a title,
+    /// say. Casing follows the window's locale (Turkish dotted İ, German ß as SS, Greek final
+    /// sigma); screen readers, copying and selection get the text as written. Style sheets set
+    /// the same with [`Style::text_transform`](remedy_ui_style::Style::text_transform).
+    pub fn text_transform(self, t: remedy_ui_style::TextTransform) -> Self {
+        self.style(remedy_ui_style::Style::default().text_transform(t))
     }
 
     /// Keeps the text on one line instead of wrapping.
@@ -2719,7 +2799,7 @@ impl El {
                 text: RichText::plain(""),
                 style: TextStyle::default(),
                 wrap: true,
-                truncate: false,
+                max_lines: 0,
                 scale: 1.0,
                 rtl: false,
                 pseudo: None,

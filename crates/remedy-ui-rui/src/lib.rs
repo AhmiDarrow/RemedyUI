@@ -20,7 +20,7 @@ pub mod spec;
 pub mod syntax;
 
 pub use codegen::{Custom, build};
-pub use syntax::{Markup, Pos, RuiError};
+pub use syntax::{MAX_DEPTH, Markup, Pos, RuiError, max_depth, set_max_depth};
 
 /// The words a person's layout notice shows, in every language the engine ships, from
 /// `i18n/*.ftl`. Apps reword them, or add a language, with

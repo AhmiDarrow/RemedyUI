@@ -25,8 +25,6 @@ use crate::dnd::{Offer, offers, preferred};
 const VERSION: u32 = 5;
 /// How often the pointer is looked at.
 const POLL: Duration = Duration::from_millis(8);
-/// How long a drop may take to finish once released.
-const FINISH: Duration = Duration::from_secs(10);
 
 fn fail(e: impl std::fmt::Display) -> Unsupported {
     Unsupported::new("dragging out on X11", e.to_string())
@@ -256,9 +254,10 @@ fn drag_on(
             send(&c, &t, a.drop, [me, 0, x11rb::CURRENT_TIME, 0, 0])?;
             // Serve the data until the target says it is done.
             let start = Instant::now();
+            let finish = crate::dnd::drop_waits().1;
             let mut effect = a.effect(status_action);
             loop {
-                if start.elapsed() > FINISH {
+                if start.elapsed() > finish {
                     break;
                 }
                 match c.poll_for_event().map_err(fail)? {

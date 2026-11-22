@@ -298,7 +298,8 @@ pub fn android_permissions(p: &Project) -> Vec<String> {
 /// notification presses) loading the app's library, the alias notifications open it through,
 /// the `SharedFiles` provider that serves the files the app shares to the app the person chose
 /// (Android makes providers only from the APK's own code, which is why the APK carries the
-/// bridge's dex), and the foreground service when the app does foreground work.
+/// bridge's dex), the service that keeps keepalive requests running out of sight, and the
+/// foreground service when the app does foreground work.
 pub fn android_manifest(
     p: &Project,
     lib_name: &str,
@@ -354,6 +355,10 @@ pub fn android_manifest(
              remedy-ui-media-isolated); unused unless the app enables it. -->
         <service android:name="dev.remedyui.android.Decoder"
             android:isolatedProcess="true"
+            android:exported="false" />
+        <!-- Keeps the process running out of sight while keepalive requests (an app's last
+             saves) finish; no notification, no permission. -->
+        <service android:name="dev.remedyui.android.Keepalive"
             android:exported="false" />
 {service}    </application>
 </manifest>
@@ -690,6 +695,7 @@ mod tests {
             android_icon_foreground: None,
             android_icon_background: Vec::new(),
             sign_thumbprint: None,
+            windows_autostart: None,
             timestamp_url: String::new(),
             android_target: "aarch64-linux-android".into(),
             android_min_api: 26,
@@ -794,7 +800,8 @@ mod tests {
                 && m.contains(r#"android:isolatedProcess="true""#),
             "{m}"
         );
-        for class in ["SharedFiles", "RemedyActivity", "Foreground", "Decoder"] {
+        assert!(m.contains(r#"<service android:name="dev.remedyui.android.Keepalive""#), "{m}");
+        for class in ["SharedFiles", "RemedyActivity", "Foreground", "Decoder", "Keepalive"] {
             let name = format!("Ldev/remedyui/android/{class};");
             assert!(dex.windows(name.len()).any(|w| w == name.as_bytes()), "{class} is missing from the dex");
         }

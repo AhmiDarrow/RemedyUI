@@ -31,19 +31,21 @@ pub mod motion;
 mod native;
 mod prop;
 mod select;
+mod spatial;
 pub mod strings;
 mod tokens;
 
 pub use ambient::{
-    AmbientLoop, AmbientMode, AmbientPolicy, AmbientRate, AmbientTick, LoopMotion, TickKind, Wave,
+    AmbientLoop, AmbientMode, AmbientPolicy, AmbientRate, AmbientTick, LoopMotion, MAX_AMBIENT_DT, TickKind,
+    Wave,
 };
 pub use client::TextInput;
 pub use decoration::{Decoration, DecorationKind};
 pub use dnd::Drag;
 pub use element::{
-    DirtyObserver, DirtyRecord, El, ElementInfo, InlineImage, PaintCx, PointerInterceptor, SnapAlign,
-    SnapAxis, SnapStrictness, TextAntialias, TextPaint, TextRendering, Ui, WeakUi, WindowDirection,
-    clear_paint_cache, rasterize,
+    DirtyObserver, DirtyRecord, El, ElementInfo, InlineImage, PAINT_CACHE_LIMIT, PaintCx, PointerInterceptor,
+    SnapAlign, SnapAxis, SnapStrictness, TextAntialias, TextPaint, TextRendering, Ui, WeakUi, WindowDirection,
+    clear_paint_cache, rasterize, set_paint_cache_limit,
 };
 pub use events::{Click, MenuKey, MenuKeyHandler, PointerInput};
 pub use field::{CodeColors, FieldKind, TextField};
@@ -51,16 +53,19 @@ pub use flow::{
     CaughtError, ErrorHook, FailurePhase, Retry, SUSPENSE_DELAY, SUSPENSE_MIN_SHOWN, Show, SuspenseBoundary,
     Transition, catch_errors, play_enter, play_exit, show, suspense,
 };
-pub use frame::{Frame, FrameStats, Placement};
+pub use frame::{Frame, FrameStats, Placement, gradient_brush};
 pub use history::HistoryItem;
 pub use prop::{IntoProp, Prop};
 pub use remedy_ui_a11y::Action as A11yAction;
-pub use remedy_ui_host::{DragData, DragEvent, DropEffect, ImeEvent};
+pub use remedy_ui_host::{DragData, DragEvent, DropEffect, ImeEvent, InputPurpose, PointerCaps};
 pub use remedy_ui_input::WheelEvent;
 pub use remedy_ui_layout::{Align, Justify};
-pub use remedy_ui_style::{ColorRole, Dp, Pad, Radius, Space, Style, TextRole};
+pub use remedy_ui_style::{
+    ColorRole, Dp, Gradient, GradientStop, Pad, Pos, Radius, Space, Style, TextRole, TextTransform,
+};
 pub use remedy_ui_text::{InlineObject, RichText, TextStylePatch};
 pub use remedy_ui_tree::ElementId;
+pub use spatial::SpatialTuning;
 
 use remedy_ui_host::TextInputState;
 

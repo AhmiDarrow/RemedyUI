@@ -4,6 +4,8 @@ mod aria;
 mod clipboard;
 mod dialog;
 mod dom;
+mod gamepad;
+pub(crate) mod history;
 mod host;
 mod input;
 pub(crate) mod instance;
@@ -277,6 +279,7 @@ pub(crate) fn start(config: WebConfig, app: Box<dyn App>) -> Result<(), RunError
     }));
     input::install_globals(&d, &win, &document);
     clipboard::install(&d, &win, &document);
+    gamepad::install(&d, &win);
     *d.settings_watch.borrow_mut() = Some(settings::watch(&win));
     let s = d.state.borrow().settings.clone();
     d.post(HostEvent::Settings(s));

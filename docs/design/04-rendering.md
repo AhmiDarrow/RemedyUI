@@ -102,6 +102,25 @@ WebGL2 in a browser.
   capacity limit: the compositor's own walks over the layer tree (the frame walk,
   `LayerTree::for_each` and `find`, dropping a tree) use explicit stacks and take trees of
   any depth.
+- **Every bound is the app's to change.** The `MAX_*` constants are defaults of
+  `PaintLimits`, set for the process with `set_paint_limits`. Each raster (a frame, a tile)
+  reads the bounds once when it starts and both renderers share the walks that apply them,
+  so a raised bound draws the same on the CPU and the GPU:
+
+  | Bound | Default | `PaintLimits` field |
+  | --- | --- | --- |
+  | Groups open at once | `MAX_GROUP_DEPTH` (256) | `group_depth` |
+  | Glass seen through glass | `MAX_BACKDROP_DEPTH` (2) | `backdrop_depth` |
+  | Panes with frost per raster | `MAX_BACKDROP_REPLAYS` (128) | `backdrop_replays` |
+  | Colour-matrix groups nested | `MAX_FILTER_MATRIX_DEPTH` (4) | `filter_matrix_depth` |
+  | Colour-matrix groups per raster | `MAX_FILTER_MATRIX_GROUPS` (64) | `filter_matrix_groups` |
+  | Blur of a filter chain | `MAX_FILTER_STD_DEV` (64) | `filter_std_dev` |
+  | Offset of a shadow chain | `MAX_FILTER_OFFSET` (2048) | `filter_offset` |
+
+  A much higher `group_depth` needs a drawing thread with a larger stack (vello recurses per
+  level). The GPU renderer's own waits and bookkeeping (errors kept, the health file, present
+  hang, swapchain and video waits, video imports kept) are `GpuLimits`, set with
+  `set_gpu_limits`.
 - **Glass is bounded**: each pane draws again what is under it, glass included, so a stack
   of panes would double the cost with every pane. Glass seen through more than
   `MAX_BACKDROP_DEPTH` (2) panes, and panes past `MAX_BACKDROP_REPLAYS` (128) in one raster,

@@ -25,13 +25,6 @@ use remedy_ui_paint::{DRM_FORMAT_MOD_LINEAR, DRM_FORMAT_NV12, GpuFrame, GpuTextu
 
 type Vk = wgpu::hal::api::Vulkan;
 
-/// Imports kept per stream before they are let go (a decoder's pool is a few dozen buffers at
-/// most; a stream that opens another file brings new ones).
-const KEEP: usize = 64;
-
-/// How long a picture's writes are waited for on the CPU, where they are.
-const POLL_TIMEOUT_MS: c_int = 1000;
-
 // `DMA_BUF_IOCTL_EXPORT_SYNC_FILE` (Linux 6.0): `_IOWR('b', 2, struct dma_buf_export_sync_file)`.
 const DMA_BUF_IOCTL_EXPORT_SYNC_FILE: c_ulong = 0xC008_6202;
 /// Waits for the buffer's writers, as a reader must.
@@ -269,7 +262,9 @@ impl Shared {
             read_back("only NV12 in two planes is imported");
             return None;
         }
-        if self.imported.len() >= KEEP {
+        // Imports kept per stream before they are let go (a stream that opens another file
+        // brings new ones): `GpuLimits::video_imports`.
+        if self.imported.len() >= crate::gpu_limits().video_imports {
             self.imported.clear();
         }
         let layout = [
@@ -358,8 +353,12 @@ impl Shared {
                 None => {
                     // A DMA-BUF is readable once its writes are done.
                     let mut p = PollFd { fd, events: POLLIN, revents: 0 };
+                    // How long the writes are waited for on the CPU (`GpuLimits::video_fence_wait`;
+                    // past `c_int::MAX` ms, -1: no end).
+                    let wait =
+                        c_int::try_from(crate::gpu_limits().video_fence_wait.as_millis()).unwrap_or(-1);
                     // SAFETY: polling one descriptor of the picture's.
-                    unsafe { poll(&mut p, 1, POLL_TIMEOUT_MS) };
+                    unsafe { poll(&mut p, 1, wait) };
                 }
             }
         }

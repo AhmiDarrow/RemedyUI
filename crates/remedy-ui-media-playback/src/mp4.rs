@@ -9,7 +9,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::host::MediaError;
-use crate::subtitles::{CUES_TOO_BIG, Cue, SubtitleTrack, clean_markup, over_cue_budget, srt_settings};
+use crate::subtitles::{Cue, SubtitleTrack, clean_markup, cues_too_big, over_cue_budget, srt_settings};
 
 /// Why a file could not be read as MP4.
 pub(crate) type Error = String;
@@ -206,11 +206,11 @@ pub(crate) fn parse_head(head: &[u8], len: u64) -> Result<Option<Mp4>, Error> {
             return Err("a box runs past the end of the file".into());
         }
         if h.get(4..8) == Some(b"moov".as_slice()) {
-            if size > MAX_MOOV {
+            if size > crate::media_limits().max_moov {
                 return Err("the movie box is too large".into());
             }
-            // Within MAX_MOOV of `at`, which fits: `start` did.
-            let Some(body) = head.get(start + header as usize..start + size as usize) else {
+            let end = usize::try_from(size).ok().and_then(|s| start.checked_add(s));
+            let Some(body) = end.and_then(|end| head.get(start + header as usize..end)) else {
                 return Ok(None);
             };
             let tracks = moov_tracks(body, len)?;
@@ -234,19 +234,13 @@ fn moov_tracks(moov: &[u8], file_len: u64) -> Result<Vec<Track>, Error> {
     Ok(tracks)
 }
 
-/// The largest movie box read from a file: far above a feature film's (a few megabytes).
-const MAX_MOOV: u64 = 64 << 20;
-
-/// The largest timed-text sample read; a cue is a line or two.
-const MAX_CUE: u32 = 64 << 10;
-
 /// The MPEG-4 timed-text tracks in the file at `path`, as subtitle tracks; none when it is
 /// not an MP4 or holds none. Only the movie box and the text samples are read, so a long
 /// film costs a few small reads.
 /// Their text over the subtitle file limit is an error.
 pub(crate) fn text_tracks(path: &Path) -> Result<Vec<SubtitleTrack>, MediaError> {
     match read_text_tracks(path) {
-        Err(e) if e == CUES_TOO_BIG => Err(MediaError::Format(e)),
+        Err(e) if e == cues_too_big() => Err(MediaError::Format(e)),
         r => Ok(r.unwrap_or_default()),
     }
 }
@@ -277,10 +271,11 @@ fn read_text_tracks(path: &Path) -> Result<Vec<SubtitleTrack>, Error> {
             return Err("a box runs past the end of the file".into());
         }
         if &h[4..8] == b"moov" {
-            if size > MAX_MOOV {
+            if size > crate::media_limits().max_moov {
                 return Err("the movie box is too large".into());
             }
-            let mut body = vec![0u8; (size - header) as usize];
+            let body_len = usize::try_from(size - header).map_err(|_| "the movie box is too large")?;
+            let mut body = vec![0u8; body_len];
             f.read_exact(&mut body).map_err(io)?;
             break body;
         }
@@ -291,7 +286,8 @@ fn read_text_tracks(path: &Path) -> Result<Vec<SubtitleTrack>, Error> {
     for t in moov_tracks(&moov, len)? {
         let Kind::Text { language } = &t.kind else { continue };
         let mut cues = Vec::new();
-        for s in t.samples.iter().filter(|s| (2..=MAX_CUE).contains(&s.size)) {
+        let max_cue = crate::media_limits().max_embedded_cue;
+        for s in t.samples.iter().filter(|s| (2..=max_cue).contains(&u64::from(s.size))) {
             let mut b = vec![0u8; s.size as usize];
             f.seek(SeekFrom::Start(s.offset)).map_err(io)?;
             f.read_exact(&mut b).map_err(io)?;
@@ -299,7 +295,7 @@ fn read_text_tracks(path: &Path) -> Result<Vec<SubtitleTrack>, Error> {
             let (start, end) = (t.time(s.pts), t.time(s.pts.saturating_add(i64::from(s.duration))));
             if !text.is_empty() && end > start {
                 if over_cue_budget(&mut text_bytes, &text) {
-                    return Err(CUES_TOO_BIG.into());
+                    return Err(cues_too_big());
                 }
                 // 3GPP timed text has no tags, but `{\anN}` is carried by some muxers from SRT.
                 let settings = srt_settings(&text);

@@ -478,6 +478,7 @@ mod tests {
             id: "com.example.hearth".into(),
             program: "/opt/Hearth/hearth".into(),
             args: vec!["--quiet".into()],
+            run_key: false,
         }
     }
 

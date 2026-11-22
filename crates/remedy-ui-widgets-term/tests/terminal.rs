@@ -792,3 +792,19 @@ fn selecting_everything_leaves_out_the_blank_rows_below_the_output() {
     h.term.select_all();
     assert_eq!(h.term.selected_text().as_deref(), Some("first\n\nsecond"));
 }
+
+#[test]
+fn the_app_sets_how_long_a_synchronized_update_holds_the_screen() {
+    assert_eq!(TerminalOptions::default().sync_timeout, SYNC_TIMEOUT);
+    // What a synchronized update sets reaches the view only when the update is shown.
+    let update = b"\x1b[?2026h\x1b]0;new title\x07";
+    let mut held = H::with(TerminalOptions::default().sync_timeout(Duration::from_secs(600)));
+    held.feed(update);
+    assert_ne!(held.term.title().get(), "new title", "held until the update ends");
+    held.feed(b"\x1b[?2026l");
+    held.fire_timers();
+    assert_eq!(held.term.title().get(), "new title", "shown when it ends");
+    let mut at_once = H::with(TerminalOptions::default().sync_timeout(Duration::ZERO));
+    at_once.feed(update);
+    assert_eq!(at_once.term.title().get(), "new title", "no hold at all");
+}

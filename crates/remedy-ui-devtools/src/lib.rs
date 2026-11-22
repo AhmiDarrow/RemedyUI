@@ -45,7 +45,7 @@ pub use inspect::{
     describe, detail_rows, inspector_panel, reader_lines, unreachable_problems, walk,
 };
 pub use overlay::{PHASE_COLORS, PerfOverlay, graph_frames};
-pub use panels::TABS;
+pub use panels::{REMOTE_TIMEOUT, TABS, remote_timeout, set_remote_timeout};
 pub use preview::{
     GOLDEN_TOLERANCE, GoldenError, Preview, PreviewBuilder, PreviewSpec, Snapshot, Variation, background,
     check_golden, gallery, golden_test, is_rtl,

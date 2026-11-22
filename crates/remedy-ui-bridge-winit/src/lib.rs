@@ -10,6 +10,7 @@
 //! system settings, safe areas, and assistive technology where winit's adapter cannot reach.
 
 pub mod backend;
+pub mod gamepad;
 mod translate;
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -277,6 +278,13 @@ pub trait PlatformHooks: 'static {
     fn take_window_events(&mut self) -> Vec<(winit::window::WindowId, WindowNotice)> {
         Vec::new()
     }
+    /// The platform's gamepads, where winit does not report them and the bridge reads them
+    /// itself (XInput, evdev). Called once at start; the core reads the source on a thread of
+    /// its own and gives the focused window the keys the pads make. By default there are none
+    /// (Android's arrive as the system's own keys).
+    fn gamepads(&mut self) -> Option<Box<dyn gamepad::PadSource>> {
+        None
+    }
 }
 
 /// A window event a platform produced outside winit.
@@ -373,6 +381,10 @@ struct State {
     /// The loop has resumed before: a later resume follows a suspension (mobile), and the
     /// windows' surfaces are new.
     resumed_once: bool,
+    /// The gamepads the platform reads, if it reads any.
+    pads: Option<gamepad::Pads>,
+    /// The window with keyboard focus, which gamepad keys go to.
+    focused: Option<WindowId>,
 }
 
 /// The host as an app sees it during one callback.
@@ -523,6 +535,9 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
     }
 
     fn close_window(&mut self, window: WindowId) {
+        if self.state.focused == Some(window) {
+            self.state.focused = None;
+        }
         if let Some(wid) = self.state.ids.remove(&window) {
             if let Some((_, w)) = self.state.windows.get(&wid) {
                 self.hooks.window_closed(&w.window);
@@ -792,7 +807,7 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         match state {
             Some(s) => {
                 w.window.set_ime_allowed(true);
-                w.window.set_ime_purpose(if s.private {
+                w.window.set_ime_purpose(if s.private || s.purpose.is_password() {
                     winit::window::ImePurpose::Password
                 } else {
                     winit::window::ImePurpose::Normal
@@ -872,6 +887,11 @@ impl<H: PlatformHooks> Host for Ctx<'_, H> {
         self.hooks.withdraw_notification(id)
     }
 
+    fn set_gamepad_tuning(&mut self, tuning: remedy_ui_input::GamepadTuning) {
+        if let Some(pads) = &self.state.pads {
+            pads.set_tuning(tuning);
+        }
+    }
     fn set_badge(&mut self, app_id: &str, badge: Option<Badge>) -> Result<(), Unsupported> {
         let windows: Vec<Arc<Window>> = self.state.windows.values().map(|(_, w)| w.window.clone()).collect();
         let refs: Vec<&Window> = windows.iter().map(|w| &**w).collect();
@@ -1029,7 +1049,30 @@ impl<A: App, H: PlatformHooks> Runner<A, H> {
         }
     }
 
+    /// A press on another control while a word is still underlined must commit that word
+    /// first. Otherwise Save (or Load, or a newly focused field) sees only the last committed
+    /// text — “Lavender bar” becomes “Lavender”.
+    fn commit_composition_before_click(&mut self, el: &ActiveEventLoop, wid: winit::window::WindowId) {
+        let Some((id, w)) = self.state.windows.get_mut(&wid) else { return };
+        if !w.composing {
+            return;
+        }
+        w.composing = false;
+        let text = std::mem::take(&mut w.preedit);
+        let window = w.window.clone();
+        let id = *id;
+        // Clears the Java span only. finishComposition is posted to the UI thread and
+        // must not imeCommit: that notice would arrive after this Commit and double the word.
+        self.hooks.end_composition(&window);
+        if !text.is_empty() {
+            self.deliver(el, HostEvent::Ime(id, ImeEvent::Commit(text)));
+        }
+    }
+
     fn pointer(&mut self, el: &ActiveEventLoop, wid: winit::window::WindowId, phase: PointerPhase) {
+        if matches!(phase, PointerPhase::Down) {
+            self.commit_composition_before_click(el, wid);
+        }
         let Some((id, w)) = self.state.windows.get(&wid) else { return };
         let e = PointerEvent::new(phase, w.cursor)
             .with_buttons(w.buttons)
@@ -1152,6 +1195,11 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                 }
             }
             WindowEvent::Focused(f) => {
+                if f {
+                    self.state.focused = Some(id);
+                } else if self.state.focused == Some(id) {
+                    self.state.focused = None;
+                }
                 // Power can change while the app is away (unplugged, battery saver): look
                 // again when people come back to it, and say so only when something changed.
                 if f {
@@ -1251,6 +1299,9 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
                     .with_pressure(pressure)
                     .with_time(now)
                     .with_modifiers(self.state.modifiers);
+                if matches!(phase, PointerPhase::Down) {
+                    self.commit_composition_before_click(el, wid);
+                }
                 self.deliver(el, HostEvent::Pointer(id, e));
             }
             WindowEvent::ModifiersChanged(m) => self.state.modifiers = translate::modifiers(m.state()),
@@ -1339,6 +1390,18 @@ impl<A: App, H: PlatformHooks> ApplicationHandler<UserEvent> for Runner<A, H> {
             };
             self.deliver(el, e);
         }
+        let keys = self.state.pads.as_ref().map(|pads| {
+            let s = &self.state.settings;
+            pads.set_system(s.key_repeat_delay, s.key_repeat_interval);
+            pads.take()
+        });
+        // Like the keyboard's, the pads' keys go to the focused window, and nowhere while the
+        // app is in the background.
+        if let (Some(keys), Some(id)) = (keys, self.state.focused) {
+            for k in keys {
+                self.deliver(el, HostEvent::Key(id, k));
+            }
+        }
         self.fire_timers(el);
         let timer = self.state.timers.values().min().map(|at| self.state.start + *at);
         let slice = self.hooks.wait_slice().map(|s| Instant::now() + s);
@@ -1361,7 +1424,7 @@ pub fn run_on<A: App, H: PlatformHooks>(
 ) -> Result<(), RunError> {
     let proxy = Arc::new(Mutex::new(event_loop.create_proxy()));
     let settings = hooks.settings();
-    let state = State {
+    let mut state = State {
         start: Instant::now(),
         windows: HashMap::new(),
         ids: HashMap::new(),
@@ -1375,14 +1438,21 @@ pub fn run_on<A: App, H: PlatformHooks>(
         settings,
         exit: false,
         resumed_once: false,
+        pads: None,
+        focused: None,
     };
     let mut hooks = hooks;
     let wake_proxy = state.proxy.clone();
-    hooks.set_waker(Arc::new(move || {
+    let waker: Waker = Arc::new(move || {
         if let Ok(p) = wake_proxy.lock() {
             let _ = p.send_event(UserEvent::Wake);
         }
-    }));
+    });
+    hooks.set_waker(waker.clone());
+    state.pads = hooks.gamepads().map(|source| {
+        let s = &state.settings;
+        gamepad::Pads::spawn(source, waker, (s.key_repeat_delay, s.key_repeat_interval))
+    });
     let mut runner = Runner { app, hooks, state };
     event_loop.run_app(&mut runner).map_err(|e| RunError::new(e.to_string()))
 }
