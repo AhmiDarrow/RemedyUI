@@ -168,3 +168,49 @@ grow with use up to a share of the machine's memory, and give memory back when t
 says it is short. Apps do not size them. What an app controls is what it keeps alive: drop
 elements and signals it no longer shows (removing an element disposes its bindings; see
 [`crate::guide::signals`]).
+
+## Drawing limits
+
+What a display list or an effect may ask the renderers for is bounded, so a theme, a script
+or a document from a stranger cannot stall a frame or exhaust memory. Every bound has a
+default that suits ordinary interfaces and a public way to change it, and the CPU and GPU
+renderers read the same bounds, so a raised one draws the same on either. The safety bounds
+(marked *safety*) are what keep hostile input cheap: raising one lets such input cost that
+much more.
+
+| Limit | Default | How to change it |
+| --- | --- | --- |
+| Groups open at once: clips, layers, filters, glass (*safety*: vello recurses per level, so a much deeper one needs a larger drawing-thread stack) | 256 | `paint::PaintLimits::group_depth` |
+| Glass seen through glass, drawn with its frost | 2 | `paint::PaintLimits::backdrop_depth` |
+| Panes of glass drawn with their frost per raster | 128 | `paint::PaintLimits::backdrop_replays` |
+| Colour-matrix groups nested / per raster | 4 / 64 | `paint::PaintLimits::filter_matrix_depth`, `filter_matrix_groups` |
+| Blur of a chain of filters (*safety*) | 64 device pixels | `paint::PaintLimits::filter_std_dev` |
+| Offset of a chain of drop shadows (*safety*) | 2048 device pixels | `paint::PaintLimits::filter_offset` |
+| Pixels of one effect's buffers (*safety*) | 4 Mi (16 MiB) | `effects::set_max_effect_pixels` |
+| Particle overdraw, times the buffer's pixels (*safety*) | 8 | `effects::set_max_overdraw` |
+| Effect source, tokens, nesting, loops, instructions, registers, cost, passes, parameters, particles, frame rate | see `effects::Limits` | `effects::Effect::compile_with` |
+| GPU errors kept between `take_errors` | 64 | `gpu::GpuLimits::kept_errors` |
+| GPU health file: backends / line length | 64 / 512 bytes | `gpu::GpuLimits::health_entries`, `health_line` |
+| A present that counts as hung | 3 s | `gpu::GpuLimits::present_hang` |
+| Wait for a swapchain image (RemedyUI's own Vulkan and DXGI swapchains) | 1 s | `gpu::GpuLimits::swapchain_wait` |
+| Wait for a decoded video picture's writes (Linux DMA-BUF) | 1 s | `gpu::GpuLimits::video_fence_wait` |
+| Hardware video pictures kept imported per stream | 64 | `gpu::GpuLimits::video_imports` |
+
+`PaintLimits` and `GpuLimits` hold for the whole process: build one from its default, change
+what you need, and pass it to `paint::set_paint_limits` or `gpu::set_gpu_limits`. They apply
+from the next frame.
+
+```no_run
+use remedy_ui::paint::{PaintLimits, set_paint_limits};
+
+// An app drawing only its own lists, with deep glass and wide soft shadows.
+set_paint_limits(PaintLimits::default().backdrop_depth(4).filter_std_dev(128.0));
+```
+
+Some numbers are fixed by the GPU API and are not limits. An effect pass samples at most
+eight earlier passes (`effects::MAX_SAMPLED_PASSES`) and an effect has at most four texture
+parameters (`effects::MAX_TEXTURES`), whatever `Limits::max_textures` says: the effect kernel
+binds every texture a pass reads at once (15 in all), and WebGPU guarantees no more than 16
+sampled textures to one shader stage. A program names at most 255 registers (the
+instruction encoding's 8-bit fields); one past 64 runs on a wider form of the kernel, built
+the first time a program needs it.
