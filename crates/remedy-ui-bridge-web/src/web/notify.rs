@@ -62,6 +62,8 @@ pub(crate) fn show(n: &Notification) -> Result<(), Unsupported> {
     // The same tag replaces an earlier notification instead of stacking another.
     set("tag", JsValue::from_str(&format!("remedy-{}", n.id)));
     set("silent", JsValue::from_bool(n.silent));
+    // Warnings and errors stay until the person dismisses them.
+    set("requireInteraction", JsValue::from_bool(n.urgency != remedy_ui_host::Urgency::Info));
     let shown = Reflect::construct(&class, &js_sys::Array::of2(&JsValue::from_str(&n.title), &opts))
         .map_err(|e| unsupported(format!("{e:?}")))?;
     let id = n.id;
