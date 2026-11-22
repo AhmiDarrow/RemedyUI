@@ -1035,15 +1035,11 @@ impl<A: App, H: PlatformHooks> Runner<A, H> {
         let text = std::mem::take(&mut w.preedit);
         let window = w.window.clone();
         let id = *id;
+        // Clears the Java span only. finishComposition is posted to the UI thread and
+        // must not imeCommit: that notice would arrive after this Commit and double the word.
         self.hooks.end_composition(&window);
-        let mut evs = self.platform_ime();
-        if !text.is_empty()
-            && evs.iter().all(|e| !matches!(e, HostEvent::Ime(_, ImeEvent::Commit(_))))
-        {
-            evs.push(HostEvent::Ime(id, ImeEvent::Commit(text)));
-        }
-        for e in evs {
-            self.deliver(el, e);
+        if !text.is_empty() {
+            self.deliver(el, HostEvent::Ime(id, ImeEvent::Commit(text)));
         }
     }
 

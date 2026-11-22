@@ -154,12 +154,14 @@ final class TextInput extends View {
         }
     }
 
-    /** The app committed the composition itself (a key typed outside the input method). */
+    /** The app committed the composition itself (a key typed outside the input method, or a
+     *  tap on another control). The runner already applied the preedit; only clear the
+     *  underlined span here so end() does not imeCommit the same word again. */
     void finishComposition() {
         if (!active || BaseInputConnection.getComposingSpanStart(editable) < 0) {
             return;
         }
-        commitCompositionIfAny();
+        BaseInputConnection.removeComposingSpans(editable);
         imm.restartInput(this);
     }
 
